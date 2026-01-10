@@ -127,10 +127,28 @@ After each priority block:
 
 ---
 
+## Priority 6: Test File Lint Configuration (COMPLETE)
+
+- [x] **Configure Biome to exempt test files from `noExplicitAny`**
+  - Test files require type coercion for mocking and testing edge cases
+  - Added `overrides` section in `biome.json` for `**/*.test.ts` files
+  - Disabled `noExplicitAny` and `noNonNullAssertion` for test files
+
+- [x] **Improve type safety in test files** (where practical)
+  - Updated `packages/resolver/src/validator.test.ts` to use type constructors
+    - Use `asSpaceId()`, `asCommitSha()`, `asSha256Integrity()`, `asSpaceKey()`
+    - Use `SpaceRefString` type cast instead of `any` where appropriate
+  - Updated `packages/resolver/src/closure.test.ts` helper functions
+    - Refactored `createSampleClosure()` to use proper type constructors
+    - Extracted shared test keys (keyA, keyB, keyC) for consistent usage
+    - Fixed test assertions to use proper keys
+
+---
+
 ## Progress Summary
 
 - **Before:** 62 warnings
-- **After all refactoring:** 0 complexity warnings
+- **After all refactoring:** 0 lint warnings (complexity + type safety)
 
 ### Key Approach
 Created helper functions that extract focused, single-responsibility logic from complex functions. Key patterns used:

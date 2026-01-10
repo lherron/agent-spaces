@@ -10,8 +10,15 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
-import type { SpaceKey, SpaceManifest } from '@agent-spaces/core'
-import { CyclicDependencyError, MissingDependencyError } from '@agent-spaces/core'
+import {
+  CyclicDependencyError,
+  MissingDependencyError,
+  type SpaceKey,
+  type SpaceManifest,
+  asCommitSha,
+  asSpaceId,
+  asSpaceKey,
+} from '@agent-spaces/core'
 import {
   type ClosureResult,
   type ResolvedSpace,
@@ -25,45 +32,58 @@ import * as manifestModule from './manifest.js'
 import * as selectorModule from './selector.js'
 
 describe('closure helper functions', () => {
+  // Shared test keys (consistent across all tests)
+  const idA = asSpaceId('space-a')
+  const commitA = asCommitSha('abc123abc123abc123abc123abc123abc123abc1')
+  const keyA = asSpaceKey(idA, commitA)
+
+  const idB = asSpaceId('space-b')
+  const commitB = asCommitSha('def456def456def456def456def456def456def4')
+  const keyB = asSpaceKey(idB, commitB)
+
+  const idC = asSpaceId('space-c')
+  const commitC = asCommitSha('789abc789abc789abc789abc789abc789abc789a')
+  const keyC = asSpaceKey(idC, commitC)
+
   // Create a sample closure for testing helpers
   const createSampleClosure = (): ClosureResult => {
     const spaceA: ResolvedSpace = {
-      key: 'space-a@abc123' as SpaceKey,
-      id: 'space-a' as any,
-      commit: 'abc123abc123abc123abc123abc123abc123abc1' as any,
+      key: keyA,
+      id: idA,
+      commit: commitA,
       path: 'spaces/space-a',
-      manifest: { schema: 1, id: 'space-a' as any, version: '1.0.0' },
+      manifest: { schema: 1, id: idA, version: '1.0.0' },
       resolvedFrom: {
-        commit: 'abc123abc123abc123abc123abc123abc123abc1' as any,
+        commit: commitA,
         selector: { kind: 'dist-tag', tag: 'stable' },
       },
       deps: [],
     }
 
     const spaceB: ResolvedSpace = {
-      key: 'space-b@def456' as SpaceKey,
-      id: 'space-b' as any,
-      commit: 'def456def456def456def456def456def456def4' as any,
+      key: keyB,
+      id: idB,
+      commit: commitB,
       path: 'spaces/space-b',
-      manifest: { schema: 1, id: 'space-b' as any, version: '1.0.0' },
+      manifest: { schema: 1, id: idB, version: '1.0.0' },
       resolvedFrom: {
-        commit: 'def456def456def456def456def456def456def4' as any,
+        commit: commitB,
         selector: { kind: 'dist-tag', tag: 'stable' },
       },
-      deps: ['space-a@abc123' as SpaceKey],
+      deps: [keyA],
     }
 
     const spaceC: ResolvedSpace = {
-      key: 'space-c@789abc' as SpaceKey,
-      id: 'space-c' as any,
-      commit: '789abc789abc789abc789abc789abc789abc789a' as any,
+      key: keyC,
+      id: idC,
+      commit: commitC,
       path: 'spaces/space-c',
-      manifest: { schema: 1, id: 'space-c' as any, version: '1.0.0' },
+      manifest: { schema: 1, id: idC, version: '1.0.0' },
       resolvedFrom: {
-        commit: '789abc789abc789abc789abc789abc789abc789a' as any,
+        commit: commitC,
         selector: { kind: 'dist-tag', tag: 'stable' },
       },
-      deps: ['space-a@abc123' as SpaceKey, 'space-b@def456' as SpaceKey],
+      deps: [keyA, keyB],
     }
 
     return {
@@ -72,26 +92,22 @@ describe('closure helper functions', () => {
         [spaceB.key, spaceB],
         [spaceC.key, spaceC],
       ]),
-      loadOrder: [
-        'space-a@abc123' as SpaceKey,
-        'space-b@def456' as SpaceKey,
-        'space-c@789abc' as SpaceKey,
-      ],
-      roots: ['space-c@789abc' as SpaceKey],
+      loadOrder: [keyA, keyB, keyC],
+      roots: [keyC],
     }
   }
 
   describe('getSpace', () => {
     it('should return space by key', () => {
       const closure = createSampleClosure()
-      const space = getSpace(closure, 'space-a@abc123' as SpaceKey)
+      const space = getSpace(closure, keyA)
       expect(space).toBeDefined()
       expect(String(space?.id)).toBe('space-a')
     })
 
     it('should return undefined for missing key', () => {
       const closure = createSampleClosure()
-      const space = getSpace(closure, 'nonexistent@000000' as SpaceKey)
+      const space = getSpace(closure, 'nonexistent@0000000' as SpaceKey)
       expect(space).toBeUndefined()
     })
   })
@@ -118,28 +134,28 @@ describe('closure helper functions', () => {
   describe('isRoot', () => {
     it('should return true for root space', () => {
       const closure = createSampleClosure()
-      expect(isRoot(closure, 'space-c@789abc' as SpaceKey)).toBe(true)
+      expect(isRoot(closure, keyC)).toBe(true)
     })
 
     it('should return false for non-root space', () => {
       const closure = createSampleClosure()
-      expect(isRoot(closure, 'space-a@abc123' as SpaceKey)).toBe(false)
-      expect(isRoot(closure, 'space-b@def456' as SpaceKey)).toBe(false)
+      expect(isRoot(closure, keyA)).toBe(false)
+      expect(isRoot(closure, keyB)).toBe(false)
     })
   })
 
   describe('getDependents', () => {
     it('should return spaces that depend on given space', () => {
       const closure = createSampleClosure()
-      const dependents = getDependents(closure, 'space-a@abc123' as SpaceKey)
+      const dependents = getDependents(closure, keyA)
       expect(dependents).toHaveLength(2)
-      expect(dependents).toContain('space-b@def456')
-      expect(dependents).toContain('space-c@789abc')
+      expect(dependents).toContain(keyB)
+      expect(dependents).toContain(keyC)
     })
 
     it('should return empty array for space with no dependents', () => {
       const closure = createSampleClosure()
-      const dependents = getDependents(closure, 'space-c@789abc' as SpaceKey)
+      const dependents = getDependents(closure, keyC)
       expect(dependents).toHaveLength(0)
     })
   })

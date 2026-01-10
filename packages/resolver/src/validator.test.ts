@@ -6,7 +6,17 @@
  */
 
 import { describe, expect, it } from 'bun:test'
-import type { LockFile, ProjectManifest, SpaceKey, SpaceManifest } from '@agent-spaces/core'
+import {
+  type LockFile,
+  type ProjectManifest,
+  type SpaceKey,
+  type SpaceManifest,
+  type SpaceRefString,
+  asCommitSha,
+  asSha256Integrity,
+  asSpaceId,
+  asSpaceKey,
+} from '@agent-spaces/core'
 import {
   validateClosure,
   validateLockFile,
@@ -18,7 +28,7 @@ describe('validateSpaceManifest', () => {
   it('should pass for valid manifest', () => {
     const manifest: SpaceManifest = {
       schema: 1,
-      id: 'my-space' as any,
+      id: asSpaceId('my-space'),
       version: '1.0.0',
     }
     const result = validateSpaceManifest(manifest)
@@ -38,7 +48,7 @@ describe('validateSpaceManifest', () => {
   it('should fail for invalid space ref in deps', () => {
     const manifest: SpaceManifest = {
       schema: 1,
-      id: 'my-space' as any,
+      id: asSpaceId('my-space'),
       deps: {
         spaces: ['invalid-ref' as any],
       },
@@ -55,7 +65,7 @@ describe('validateProjectManifest', () => {
       schema: 1,
       targets: {
         default: {
-          compose: ['space:my-space@stable' as any],
+          compose: ['space:my-space@stable' as SpaceRefString],
         },
       },
     }
@@ -90,19 +100,21 @@ describe('validateProjectManifest', () => {
 
 describe('validateClosure', () => {
   it('should pass for valid closure', () => {
-    const key = 'my-space@abc123' as SpaceKey
+    const commit = asCommitSha('abc123abc123abc123abc123abc123abc123abc1')
+    const id = asSpaceId('my-space')
+    const key = asSpaceKey(id, commit)
     const result = validateClosure({
       spaces: new Map([
         [
           key,
           {
             key,
-            id: 'my-space' as any,
-            commit: 'abc123' as any,
+            id,
+            commit,
             path: 'spaces/my-space',
-            manifest: { schema: 1, id: 'my-space' as any },
+            manifest: { schema: 1, id },
             resolvedFrom: {
-              commit: 'abc123' as any,
+              commit,
               selector: { kind: 'dist-tag', tag: 'stable' },
             },
             deps: [],
@@ -128,7 +140,15 @@ describe('validateClosure', () => {
 
 describe('validateLockFile', () => {
   it('should pass for valid lock file', () => {
-    const key = 'my-space@abc123' as SpaceKey
+    const commit = asCommitSha('abc123abc123abc123abc123abc123abc123abc1')
+    const id = asSpaceId('my-space')
+    const key = asSpaceKey(id, commit)
+    const integrity = asSha256Integrity(
+      'sha256:abc123abc123abc123abc123abc123abc123abc123abc123abc123abc123abc1'
+    )
+    const envHash = asSha256Integrity(
+      'sha256:def456def456def456def456def456def456def456def456def456def456def4'
+    )
     const lock: LockFile = {
       lockfileVersion: 1,
       resolverVersion: 1,
@@ -136,20 +156,20 @@ describe('validateLockFile', () => {
       registry: { type: 'git', url: 'https://example.com/repo' },
       spaces: {
         [key]: {
-          id: 'my-space' as any,
-          commit: 'abc123' as any,
+          id,
+          commit,
           path: 'spaces/my-space',
-          integrity: 'sha256:abc123' as any,
+          integrity,
           plugin: { name: 'my-space' },
           deps: { spaces: [] },
         },
       },
       targets: {
         default: {
-          compose: ['space:my-space@stable' as any],
+          compose: ['space:my-space@stable' as SpaceRefString],
           roots: [key],
           loadOrder: [key],
-          envHash: 'sha256:def456' as any,
+          envHash,
         },
       },
     }
