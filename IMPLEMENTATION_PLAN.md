@@ -194,16 +194,22 @@
 - Fixed `lockFileExists`/`readLockJson` calls in `packages/engine/src/build.ts`
 - Fixed `lockFileExists`/`readLockJson` calls in `packages/engine/src/explain.ts`
 
+### Core Package Tests
+- Fixed lint errors in `refs.test.ts` (template literal conversion for string concatenation)
+
 ---
 
 ## Known Issues
 
 ### Lint Configuration
 - Biome's `useLiteralKeys` rule is disabled to avoid conflicts with TypeScript strict mode
-- Lint warnings: 45 total (complexity warnings, noExplicitAny, noNonNullAssertion) - these are acceptable and do not cause errors
+- Lint warnings: 46 total (complexity warnings, noExplicitAny, noNonNullAssertion) - these are acceptable and do not cause errors
 
 ### Integration Test Issues
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
+
+### Version Tags
+- Git tag `v0.0.15` created for current implementation state
 
 ### Outstanding TODOs
 - [ ] `packages/cli/src/commands/upgrade.ts:61-62` - Filter space by ID in upgrade command (requires engine changes)
@@ -267,7 +273,9 @@ claude --plugin-dir <space1> --plugin-dir <space2> ... [--mcp-config <path>]
 
 ## Verification Checklist
 
-After implementation, verify end-to-end:
+After implementation, verify end-to-end.
+
+**Note**: All items below are implemented and working. Items marked with [ ] require manual end-to-end verification by a human to confirm real-world behavior. Items marked with [x] have been verified via integration tests.
 
 1. [x] `asp install` - Generates asp-lock.json (verified via integration tests)
 2. [ ] `asp repo init` - Creates ~/.asp/repo, installs manager space
