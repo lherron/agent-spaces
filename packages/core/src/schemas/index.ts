@@ -5,10 +5,12 @@
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
 
+import distTagsSchema from './dist-tags.schema.json'
 import lockSchema from './lock.schema.json'
 import spaceSchema from './space.schema.json'
 import targetsSchema from './targets.schema.json'
 
+import type { DistTagsFile } from '../types/dist-tags.js'
 import type { LockFile } from '../types/lock.js'
 import type { SpaceManifest } from '../types/space.js'
 import type { ProjectManifest } from '../types/targets.js'
@@ -28,9 +30,10 @@ const ajv = new Ajv({
 addFormats(ajv)
 
 // Compile validators
+const validateDistTagsSchema = ajv.compile<DistTagsFile>(distTagsSchema)
+const validateLockSchema = ajv.compile<LockFile>(lockSchema)
 const validateSpaceSchema = ajv.compile<SpaceManifest>(spaceSchema)
 const validateTargetsSchema = ajv.compile<ProjectManifest>(targetsSchema)
-const validateLockSchema = ajv.compile<LockFile>(lockSchema)
 
 // ============================================================================
 // Validation result types
@@ -92,8 +95,18 @@ export function validateLockFile(data: unknown): ValidationResult<LockFile> {
   return { valid: false, errors: formatErrors(validateLockSchema.errors) }
 }
 
+/**
+ * Validate a dist-tags file (registry/dist-tags.json parsed to object)
+ */
+export function validateDistTagsFile(data: unknown): ValidationResult<DistTagsFile> {
+  if (validateDistTagsSchema(data)) {
+    return { valid: true, data }
+  }
+  return { valid: false, errors: formatErrors(validateDistTagsSchema.errors) }
+}
+
 // ============================================================================
 // Schema exports for external use
 // ============================================================================
 
-export { lockSchema, spaceSchema, targetsSchema }
+export { distTagsSchema, lockSchema, spaceSchema, targetsSchema }

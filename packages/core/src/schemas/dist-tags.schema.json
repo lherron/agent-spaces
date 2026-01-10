@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-spaces/spec/v2/dist-tags.schema.json",
+  "title": "Agent Spaces v2 - dist-tags.json",
+  "type": "object",
+  "description": "Maps space IDs to dist-tag → version mappings",
+  "additionalProperties": {
+    "type": "object",
+    "description": "Dist-tag → version mapping for a space",
+    "additionalProperties": {
+      "type": "string",
+      "description": "Version string (e.g., 'v1.2.0') corresponding to a git tag",
+      "pattern": "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    }
+  }
+}

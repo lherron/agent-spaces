@@ -60,6 +60,9 @@ export {
   mergeClaudeOptions,
 } from './targets.js'
 
+// Dist-tags types
+export type { DistTagsFile } from './dist-tags.js'
+
 // Lock file types
 export type {
   LockFile,

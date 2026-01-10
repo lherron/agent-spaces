@@ -10,9 +10,11 @@ export * from './types/index.js'
 
 // Schemas
 export {
+  distTagsSchema,
   lockSchema,
   spaceSchema,
   targetsSchema,
+  validateDistTagsFile,
   validateLockFile,
   validateProjectManifest,
   validateSpaceManifest,

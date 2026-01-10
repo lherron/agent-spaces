@@ -396,6 +396,20 @@ Multiple inconsistencies between spec documents were identified and fixed:
 
 ---
 
+## Spec Alignment (v0.0.52)
+
+### dist-tags.schema.json Implementation
+1. **Created formal schema file** - Added `packages/core/src/schemas/dist-tags.schema.json` to validate `registry/dist-tags.json` format
+2. **Added DistTagsFile type** - Created `packages/core/src/types/dist-tags.ts` with the TypeScript interface
+3. **Added validateDistTagsFile function** - Validation function exported from core package for dist-tags.json validation
+4. **Updated resolver package** - Changed to re-export DistTagsFile from core instead of defining its own interface
+5. **Added 8 unit tests** - Comprehensive tests for dist-tags validation in `packages/core/src/schemas/dist-tags.test.ts`
+
+### SCHEMAS.md Updates
+1. **Added Manager Space section (Section 6)** - Documented the built-in `agent-spaces-manager` space with its components and design decisions
+
+---
+
 ## Known Issues
 
 ### Spec Alignment Status
@@ -411,10 +425,10 @@ Multiple inconsistencies between spec documents were identified and fixed:
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.51`
+- Current git tag is `v0.0.52`
 
 ### Test Coverage
-- Total tests: 470 passing (415 package tests + 55 integration tests)
+- Total tests: 478 passing (423 package tests + 55 integration tests)
 - Added tests for critical modules: atomic.ts (26), locks.ts (18), snapshot.ts (18), invoke.ts (21)
 - Added config parser tests: lock-json.ts (39), space-toml.ts (33), targets-toml.ts (30)
 - Fixed proper-lockfile error handling in locks.ts

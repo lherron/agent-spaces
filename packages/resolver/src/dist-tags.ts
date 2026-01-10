@@ -5,18 +5,11 @@
  * that map to specific versions without needing semver resolution.
  */
 
-import type { SpaceId } from '@agent-spaces/core'
+import type { DistTagsFile, SpaceId } from '@agent-spaces/core'
 import { showFileOrNull } from '@agent-spaces/git'
 
-/**
- * Dist-tags file structure.
- * Maps space IDs to channel -> version mappings.
- */
-export interface DistTagsFile {
-  [spaceId: string]: {
-    [channel: string]: string // e.g., "v1.2.3"
-  }
-}
+// Re-export for backwards compatibility
+export type { DistTagsFile } from '@agent-spaces/core'
 
 /**
  * Options for dist-tags operations.
