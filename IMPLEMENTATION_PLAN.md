@@ -18,7 +18,7 @@
 | engine | COMPLETE | resolve, install, build, run, explain orchestration |
 | cli | COMPLETE | All commands implemented: run, install, build, explain, lint, list, doctor, gc, add, remove, upgrade, diff, repo/* |
 | manager-space | COMPLETE | space.toml, 8 commands, 1 skill, 1 agent |
-| integration-tests | COMPLETE | 19 passing tests, 0 skipped |
+| integration-tests | COMPLETE | 27 passing tests, 0 skipped |
 
 ---
 
@@ -184,8 +184,9 @@
 - [x] `tests/build.test.ts` - Test materialization without Claude (5 tests)
 - [x] `tests/run.test.ts` - Test asp run with claude shim (5 tests)
 - [x] `tests/lint.test.ts` - Test warning detection (3 tests)
+- [x] `tests/repo.test.ts` - Test repo commands (8 tests): repo init, repo publish, repo status, and repo tags
 
-**Test Summary**: 19 passing, 0 skipped
+**Test Summary**: 27 passing, 0 skipped
 
 ---
 
@@ -212,6 +213,11 @@
   - DFS postorder traversal ordering
   - Helper functions (getSpace, getSpacesInOrder, isRoot, getDependents)
 
+### CLI Entry Point Fix
+- Fixed `bin/asp.js` entry point to properly export and call the main function
+- The issue was that `import.meta.main` was false when imported from the bin file, so the CLI wasn't actually running
+- Solution: explicitly call `main()` from the bin entry point instead of relying on `import.meta.main`
+
 ---
 
 ## Known Issues
@@ -226,6 +232,7 @@
 
 ### Version Tags
 - Current git tag is `v0.0.22`
+- Project is ready for `v0.0.23`
 
 ### Outstanding TODOs
 - [x] `packages/cli/src/commands/upgrade.ts` - Filter space by ID in upgrade command (implemented via `pinnedSpaces` in resolver and `upgradeSpaceIds` in engine)
