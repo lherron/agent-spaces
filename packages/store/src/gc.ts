@@ -7,12 +7,7 @@ import {
   listCacheEntries,
 } from './cache.js'
 import type { PathResolver } from './paths.js'
-import {
-  type SnapshotOptions,
-  deleteSnapshot,
-  getSnapshotSize,
-  listSnapshots,
-} from './snapshot.js'
+import { type SnapshotOptions, deleteSnapshot, getSnapshotSize, listSnapshots } from './snapshot.js'
 
 /**
  * GC result statistics.
