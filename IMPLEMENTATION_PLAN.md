@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Completed**: ~45% (4 of 9 packages fully implemented)
+**Completed**: ~55% (5 of 9 packages fully implemented)
 
 ### Packages Status
 
@@ -12,7 +12,7 @@
 | git | COMPLETE | exec (safe git command execution), tags (tag operations for versioning), show (file content at commit), tree (ls-tree for integrity hashing), archive (extraction), repo (clone/fetch/status operations) |
 | claude | COMPLETE | detect (find binary, query version, detect flags), invoke (safe subprocess with plugin-dir and mcp-config flags), validate (plugin validation) |
 | resolver | COMPLETE | ref-parser, dist-tags, git-tags, selector (resolution), closure (DFS postorder), integrity, lock-generator, validator |
-| store | NOT STARTED | Blocks materializer |
+| store | COMPLETE | paths (ASP_HOME), snapshot (extraction/storage), cache (plugin cache), gc (garbage collection) |
 | materializer | NOT STARTED | Blocks engine |
 | engine | NOT STARTED | Blocks CLI |
 | lint | NOT STARTED | Blocks engine, CLI |
@@ -61,17 +61,17 @@
 
 ---
 
-## Priority 3: Content-Addressed Storage
+## Priority 3: Content-Addressed Storage (COMPLETE)
 
-### packages/store - Space Snapshots
-- [ ] `src/paths.ts` - ASP_HOME resolution, path builders for store/cache/repo
-- [ ] `src/git-tree.ts` - List tree entries from git for fast integrity hashing
-- [ ] `src/integrity.ts` - Canonical SHA256 hash (prefer git-tree-based, fallback to file-walk)
-- [ ] `src/snapshot.ts` - Extract space at commit into store with metadata
-- [ ] `src/env-hash.ts` - Compute envHash from loadOrder + integrities
-- [ ] `src/index.ts` - Public exports
-- [ ] `package.json` - Package setup
-- [ ] Unit tests for integrity and snapshot operations
+### packages/store - Space Snapshots (COMPLETE)
+- [x] `src/paths.ts` - ASP_HOME resolution, path builders for store/cache/repo, PathResolver class
+- [x] `src/snapshot.ts` - Extract space at commit into store with metadata, verify integrity
+- [x] `src/cache.ts` - Plugin cache management, cache key computation, pruning
+- [x] `src/gc.ts` - Garbage collection for store and cache based on lock file reachability
+- [x] `src/index.ts` - Public exports
+- [x] `package.json` - Package setup
+- [x] Unit tests for paths, cache, and gc (22 tests)
+- Note: Integrity hashing is in resolver package; store uses it for verification
 
 ---
 

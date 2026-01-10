@@ -19,14 +19,14 @@ import {
 describe("parseSpaceRef", () => {
 	it("should parse dist-tag selector", () => {
 		const ref = parseSpaceRef("space:my-space@stable");
-		expect(ref.id).toBe("my-space");
+		expect(String(ref.id)).toBe("my-space");
 		expect(ref.selectorString).toBe("stable");
 		expect(ref.selector.kind).toBe("dist-tag");
 	});
 
 	it("should parse exact semver selector", () => {
 		const ref = parseSpaceRef("space:my-space@1.2.3");
-		expect(ref.id).toBe("my-space");
+		expect(String(ref.id)).toBe("my-space");
 		expect(ref.selectorString).toBe("1.2.3");
 		expect(ref.selector.kind).toBe("semver");
 		if (ref.selector.kind === "semver") {
@@ -36,7 +36,7 @@ describe("parseSpaceRef", () => {
 
 	it("should parse semver range selector", () => {
 		const ref = parseSpaceRef("space:my-space@^1.0.0");
-		expect(ref.id).toBe("my-space");
+		expect(String(ref.id)).toBe("my-space");
 		expect(ref.selectorString).toBe("^1.0.0");
 		expect(ref.selector.kind).toBe("semver");
 		if (ref.selector.kind === "semver") {
@@ -46,10 +46,10 @@ describe("parseSpaceRef", () => {
 
 	it("should parse git-pin selector", () => {
 		const ref = parseSpaceRef("space:my-space@git:abc123def456");
-		expect(ref.id).toBe("my-space");
+		expect(String(ref.id)).toBe("my-space");
 		expect(ref.selector.kind).toBe("git-pin");
 		if (ref.selector.kind === "git-pin") {
-			expect(ref.selector.sha).toBe("abc123def456");
+			expect(String(ref.selector.sha)).toBe("abc123def456");
 		}
 	});
 
@@ -106,7 +106,7 @@ describe("parseSpaceKey", () => {
 	it("should parse key into id and commit", () => {
 		const key = "my-space@abc123def456" as any;
 		const { id, commit } = parseSpaceKey(key);
-		expect(id).toBe("my-space");
+		expect(String(id)).toBe("my-space");
 		expect(commit).toBe("abc123def456");
 	});
 });
@@ -118,7 +118,7 @@ describe("parseAllRefs", () => {
 			"space:b@^1.0.0" as any,
 		]);
 		expect(refs.length).toBe(2);
-		expect(refs[0]?.id).toBe("a");
-		expect(refs[1]?.id).toBe("b");
+		expect(String(refs[0]?.id)).toBe("a");
+		expect(String(refs[1]?.id)).toBe("b");
 	});
 });
