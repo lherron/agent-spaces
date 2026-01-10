@@ -103,7 +103,7 @@ function createProgram(): Command {
 /**
  * Main entry point.
  */
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const program = createProgram()
 
   try {
