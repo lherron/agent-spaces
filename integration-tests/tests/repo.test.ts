@@ -63,11 +63,26 @@ describe('asp repo init', () => {
       .catch(() => false)
     expect(registryExists).toBe(true)
 
-    // Verify dist-tags.json exists and is valid JSON
+    // Verify dist-tags.json exists and includes manager space by default
     const distTagsPath = path.join(repoPath, 'registry', 'dist-tags.json')
     const distTagsContent = await fs.readFile(distTagsPath, 'utf-8')
     const distTags = JSON.parse(distTagsContent)
-    expect(distTags).toEqual({})
+    expect(distTags['agent-spaces-manager']).toBeDefined()
+    expect(distTags['agent-spaces-manager'].stable).toBe('v1.0.0')
+    expect(distTags['agent-spaces-manager'].latest).toBe('v1.0.0')
+
+    // Verify manager space is installed
+    const managerSpaceExists = await fs
+      .access(path.join(repoPath, 'spaces', 'agent-spaces-manager', 'space.toml'))
+      .then(() => true)
+      .catch(() => false)
+    expect(managerSpaceExists).toBe(true)
+
+    // Verify manager space tag was created
+    const { stdout: tags } = await execAsync('git tag -l "space/agent-spaces-manager/v1.0.0"', {
+      cwd: repoPath,
+    })
+    expect(tags.trim()).toBe('space/agent-spaces-manager/v1.0.0')
 
     // Verify README exists
     const readmeExists = await fs
@@ -75,6 +90,27 @@ describe('asp repo init', () => {
       .then(() => true)
       .catch(() => false)
     expect(readmeExists).toBe(true)
+  })
+
+  test('initializes without manager space when --no-manager is passed', async () => {
+    // Run repo init with --no-manager
+    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    await execAsync(`bun ${cliPath} repo init --asp-home "${aspHome}" --no-manager`)
+
+    const repoPath = path.join(aspHome, 'repo')
+
+    // Verify dist-tags.json is empty
+    const distTagsPath = path.join(repoPath, 'registry', 'dist-tags.json')
+    const distTagsContent = await fs.readFile(distTagsPath, 'utf-8')
+    const distTags = JSON.parse(distTagsContent)
+    expect(distTags).toEqual({})
+
+    // Verify manager space is NOT installed
+    const managerSpaceExists = await fs
+      .access(path.join(repoPath, 'spaces', 'agent-spaces-manager'))
+      .then(() => true)
+      .catch(() => false)
+    expect(managerSpaceExists).toBe(false)
   })
 
   test('does not overwrite existing registry', async () => {
