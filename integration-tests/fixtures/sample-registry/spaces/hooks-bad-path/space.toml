@@ -1,0 +1,7 @@
+schema = 1
+id = "hooks-bad-path"
+version = "1.0.0"
+description = "Test space for W203 - hooks with relative paths"
+
+[plugin]
+name = "hooks-bad-path"
