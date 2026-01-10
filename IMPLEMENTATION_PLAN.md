@@ -309,6 +309,12 @@ Fixed `asp upgrade` command to support multiple space IDs per spec:
 - The engine already supported `upgradeSpaceIds: string[]` array, this aligns CLI with engine capability
 - Example usage: `asp upgrade frontend backend` to upgrade only frontend and backend spaces
 
+Updated SPEC.md for `asp build` command to match implementation:
+- **Before**: `asp build <target> [--output <path>]` - showed `--output` as optional
+- **After**: `asp build <target> --output <path>` - `--output` is required as per implementation
+- This aligns with PLAN.md which also shows `--output` as required
+- Requiring `--output` makes sense - materialization needs an explicit destination
+
 ---
 
 ## Known Issues
