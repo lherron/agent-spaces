@@ -12,13 +12,13 @@ import * as fs from 'node:fs/promises'
 import { build, install } from '@agent-spaces/engine'
 
 import {
+  SAMPLE_REGISTRY_DIR,
   cleanupSampleRegistry,
   cleanupTempAspHome,
   cleanupTempProject,
   createTempAspHome,
   createTempProject,
   initSampleRegistry,
-  SAMPLE_REGISTRY_DIR,
 } from './setup.js'
 
 describe('asp lint integration', () => {
@@ -116,7 +116,7 @@ describe('asp lint integration', () => {
     const collisionWarning = result.warnings.find((w) => w.code === 'W201')
     expect(collisionWarning).toBeDefined()
 
-    if (collisionWarning && collisionWarning.details) {
+    if (collisionWarning?.details) {
       const details = collisionWarning.details as { command: string; spaces: string[] }
       expect(details.command).toBe('build')
       expect(details.spaces.length).toBe(2)

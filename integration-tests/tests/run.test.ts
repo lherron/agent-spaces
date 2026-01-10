@@ -14,18 +14,16 @@ import * as path from 'node:path'
 import { install, runWithPrompt } from '@agent-spaces/engine'
 
 import {
+  SAMPLE_REGISTRY_DIR,
   cleanupSampleRegistry,
   cleanupShimOutput,
   cleanupTempAspHome,
   cleanupTempProject,
-  CLAUDE_SHIM_PATH,
   createTempAspHome,
   createTempProject,
   getTestEnv,
   initSampleRegistry,
   readShimOutput,
-  SAMPLE_REGISTRY_DIR,
-  SHIM_OUTPUT_FILE,
 } from './setup.js'
 
 describe('asp run', () => {

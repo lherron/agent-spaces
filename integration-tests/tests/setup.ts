@@ -73,7 +73,7 @@ export async function initSampleRegistry(): Promise<void> {
 
   // For v1.1.0, we need another commit with a version update
   const frontendTomlPath = path.join(registryDir, 'spaces', 'frontend', 'space.toml')
-  const frontendToml = await fs.readFile(frontendTomlPath, 'utf-8')
+  const _frontendToml = await fs.readFile(frontendTomlPath, 'utf-8')
   // Already at 1.1.0, just tag it
   await execAsync('git tag space/frontend/v1.1.0', { cwd: registryDir })
   await execAsync('git tag space/frontend/latest', { cwd: registryDir })
@@ -158,11 +158,11 @@ export async function createTempProject(
     if (target.description) {
       toml += `description = "${target.description}"\n`
     }
-    toml += `compose = [\n`
+    toml += 'compose = [\n'
     for (const ref of target.compose) {
       toml += `  "${ref}",\n`
     }
-    toml += `]\n\n`
+    toml += ']\n\n'
   }
 
   await fs.writeFile(path.join(tmpDir, 'asp-targets.toml'), toml)

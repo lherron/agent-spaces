@@ -14,13 +14,13 @@ import * as path from 'node:path'
 import { build, install } from '@agent-spaces/engine'
 
 import {
+  SAMPLE_REGISTRY_DIR,
   cleanupSampleRegistry,
   cleanupTempAspHome,
   cleanupTempProject,
   createTempAspHome,
   createTempProject,
   initSampleRegistry,
-  SAMPLE_REGISTRY_DIR,
 } from './setup.js'
 
 describe('asp build', () => {

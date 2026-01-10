@@ -8,19 +8,18 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import * as fs from 'node:fs/promises'
-import * as path from 'node:path'
 
 import { install } from '@agent-spaces/engine'
 import { PathResolver } from '@agent-spaces/store'
 
 import {
+  SAMPLE_REGISTRY_DIR,
   cleanupSampleRegistry,
   cleanupTempAspHome,
   cleanupTempProject,
   createTempAspHome,
   createTempProject,
   initSampleRegistry,
-  SAMPLE_REGISTRY_DIR,
 } from './setup.js'
 
 describe('asp install', () => {
