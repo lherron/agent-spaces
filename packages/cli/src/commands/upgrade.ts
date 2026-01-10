@@ -43,6 +43,7 @@ export function registerUpgradeCommand(program: Command): void {
         }
 
         // Run install with update=true to re-resolve selectors
+        // When spaceId is specified, only that space is upgraded (others stay at locked versions)
         const result = await install({
           projectPath,
           aspHome: options.aspHome,
@@ -50,20 +51,17 @@ export function registerUpgradeCommand(program: Command): void {
           targets: options.target ? [options.target] : undefined,
           update: true,
           fetchRegistry: true,
+          upgradeSpaceIds: spaceId ? [spaceId] : undefined,
         })
 
         console.log('')
         console.log(chalk.green('Upgrade complete'))
+        if (spaceId) {
+          console.log(`  Space upgraded: ${spaceId}`)
+        }
         console.log(`  Targets updated: ${result.resolvedTargets.join(', ')}`)
         console.log(`  Snapshots created: ${result.snapshotsCreated}`)
         console.log(`  Lock file: ${result.lockPath}`)
-
-        // TODO: When spaceId is specified, filter to only upgrade that space
-        // This requires changes to the engine's install function
-        if (spaceId) {
-          console.log(chalk.gray('\nNote: Filtering by space ID is not yet implemented.'))
-          console.log(chalk.gray('All spaces matching selectors were upgraded.'))
-        }
       } catch (error) {
         if (error instanceof Error) {
           console.error(chalk.red(`Error: ${error.message}`))

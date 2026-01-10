@@ -19,6 +19,8 @@ import {
   readTargetsToml,
 } from '@agent-spaces/core'
 
+import type { CommitSha, SpaceId } from '@agent-spaces/core'
+
 import {
   type ClosureOptions,
   type ClosureResult,
@@ -42,6 +44,14 @@ export interface ResolveOptions {
   useLock?: boolean | undefined
   /** Registry git repository path (default: from ASP_HOME) */
   registryPath?: string | undefined
+  /**
+   * Pinned spaces to use instead of resolving.
+   * Map from SpaceId to CommitSha. When a space is in this map,
+   * use the pinned commit instead of resolving the selector.
+   * Used for selective upgrades (upgrading specific spaces while
+   * keeping others at their locked versions).
+   */
+  pinnedSpaces?: Map<SpaceId, CommitSha> | undefined
 }
 
 /**
@@ -122,6 +132,7 @@ export async function resolveTarget(
   // Build closure options
   const closureOptions: ClosureOptions = {
     cwd: registryPath,
+    pinnedSpaces: options.pinnedSpaces,
   }
 
   // Compute closure from compose list

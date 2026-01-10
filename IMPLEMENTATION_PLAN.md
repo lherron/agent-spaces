@@ -212,8 +212,10 @@
 - Git tag `v0.0.15` created for current implementation state
 
 ### Outstanding TODOs
-- [ ] `packages/cli/src/commands/upgrade.ts:61-62` - Filter space by ID in upgrade command (requires engine changes)
+- [x] `packages/cli/src/commands/upgrade.ts` - Filter space by ID in upgrade command (implemented via `pinnedSpaces` in resolver and `upgradeSpaceIds` in engine)
 - [x] `packages/core/src/index.test.ts` - Unit tests for core modules (60 tests for refs and errors)
+
+All TODOs complete.
 
 ---
 

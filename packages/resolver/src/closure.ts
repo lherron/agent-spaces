@@ -54,7 +54,16 @@ export interface ClosureResult {
 /**
  * Options for closure computation.
  */
-export interface ClosureOptions extends SelectorResolveOptions, ManifestReadOptions {}
+export interface ClosureOptions extends SelectorResolveOptions, ManifestReadOptions {
+  /**
+   * Pinned spaces to use instead of resolving.
+   * Map from SpaceId to CommitSha. When a space is in this map,
+   * use the pinned commit instead of resolving the selector.
+   * Used for selective upgrades (upgrading specific spaces while
+   * keeping others at their locked versions).
+   */
+  pinnedSpaces?: Map<SpaceId, CommitSha> | undefined
+}
 
 /**
  * Compute the dependency closure for a set of root space refs.
@@ -77,8 +86,20 @@ export async function computeClosure(
   const visitPath: SpaceKey[] = []
 
   async function visit(ref: SpaceRef): Promise<SpaceKey> {
-    // Resolve the ref to a commit
-    const resolved = await resolveSelector(ref.id, ref.selector, options)
+    // Check if this space is pinned (for selective upgrades)
+    const pinnedCommit = options.pinnedSpaces?.get(ref.id)
+
+    // Resolve the ref to a commit (or use pinned commit)
+    let resolved: ResolvedSelector
+    if (pinnedCommit !== undefined) {
+      // Use the pinned commit with a git-pin selector
+      resolved = {
+        commit: pinnedCommit,
+        selector: { kind: 'git-pin', sha: pinnedCommit },
+      }
+    } else {
+      resolved = await resolveSelector(ref.id, ref.selector, options)
+    }
     const key = buildSpaceKey(ref.id, resolved.commit)
 
     // Check visit state

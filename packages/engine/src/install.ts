@@ -11,8 +11,10 @@
 import { join } from 'node:path'
 
 import {
+  type CommitSha,
   LOCK_FILENAME,
   type LockFile,
+  type SpaceId,
   atomicWriteJson,
   createEmptyLockFile,
   withProjectLock,
@@ -50,6 +52,13 @@ export interface InstallOptions extends ResolveOptions {
   targets?: string[] | undefined
   /** Whether to fetch registry updates (default: true) */
   fetchRegistry?: boolean | undefined
+  /**
+   * Space IDs to upgrade (default: all spaces).
+   * When specified with update=true, only these spaces will be re-resolved
+   * to their latest versions matching selectors. All other spaces will
+   * keep their currently locked versions.
+   */
+  upgradeSpaceIds?: string[] | undefined
 }
 
 /**
@@ -149,10 +158,32 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
     throw new Error('No targets found in project manifest')
   }
 
+  // Build pinnedSpaces map for selective upgrades
+  // When upgradeSpaceIds is specified, we only re-resolve those spaces
+  // and keep all others at their currently locked versions
+  let pinnedSpaces: Map<SpaceId, CommitSha> | undefined
+  if (options.update && options.upgradeSpaceIds && options.upgradeSpaceIds.length > 0) {
+    const existingLock = await loadLockFileIfExists(options.projectPath)
+    if (existingLock) {
+      pinnedSpaces = new Map()
+      const upgradeSet = new Set(options.upgradeSpaceIds)
+
+      // For each space in the lock that is NOT being upgraded, pin it
+      for (const [_key, entry] of Object.entries(existingLock.spaces)) {
+        if (!upgradeSet.has(entry.id)) {
+          pinnedSpaces.set(entry.id as SpaceId, entry.commit as CommitSha)
+        }
+      }
+    }
+  }
+
+  // Build resolve options with pinnedSpaces
+  const resolveOptions = { ...options, pinnedSpaces }
+
   // Resolve all targets
   const results: ResolveResult[] = []
   for (const name of targetNames) {
-    const result = await resolveTarget(name, options)
+    const result = await resolveTarget(name, resolveOptions)
     results.push(result)
   }
 
