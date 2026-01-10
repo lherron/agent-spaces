@@ -46,7 +46,38 @@ interface RunOptions {
   interactive?: boolean
   extraArgs?: string[]
   dryRun?: boolean
-  inheritSettings?: boolean
+  inheritAll?: boolean
+  inheritProject?: boolean
+  inheritUser?: boolean
+  inheritLocal?: boolean
+}
+
+/**
+ * Build setting sources value from inherit flags.
+ *
+ * Returns:
+ * - null: inherit all settings (--inherit-all)
+ * - string: specific sources to inherit ('user,project')
+ * - undefined: use default behavior (isolated mode)
+ */
+function buildSettingSources(options: RunOptions): string | null | undefined {
+  // --inherit-all means use all sources (don't pass --setting-sources at all)
+  if (options.inheritAll) {
+    return null
+  }
+
+  const sources: string[] = []
+  if (options.inheritProject) sources.push('project')
+  if (options.inheritUser) sources.push('user')
+  if (options.inheritLocal) sources.push('local')
+
+  // If any inherit flags specified, return the combined string
+  if (sources.length > 0) {
+    return sources.join(',')
+  }
+
+  // Default: isolated mode (undefined means "use default" which is isolated)
+  return undefined
 }
 
 /**
@@ -93,6 +124,7 @@ async function runProjectMode(
   projectPath: string,
   options: RunOptions
 ): Promise<RunResult> {
+  const settingSources = buildSettingSources(options)
   const runOptions = {
     projectPath,
     aspHome: options.aspHome,
@@ -100,7 +132,7 @@ async function runProjectMode(
     printWarnings: options.warnings !== false,
     extraArgs: options.extraArgs,
     dryRun: options.dryRun,
-    isolated: !options.inheritSettings,
+    settingSources,
   }
 
   if (options.dryRun) {
@@ -142,6 +174,7 @@ async function runGlobalMode(
     console.log(chalk.blue(`Running space "${target}" in global mode...`))
   }
 
+  const settingSources = buildSettingSources(options)
   const globalOptions = {
     aspHome: options.aspHome,
     registryPath: options.registry,
@@ -150,7 +183,7 @@ async function runGlobalMode(
     interactive: options.interactive !== false,
     prompt,
     dryRun: options.dryRun,
-    isolated: !options.inheritSettings,
+    settingSources,
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -176,6 +209,7 @@ async function runDevMode(
     console.log(chalk.blue(`Running local space "${target}" in dev mode...`))
   }
 
+  const settingSources = buildSettingSources(options)
   const devOptions = {
     aspHome: options.aspHome,
     registryPath: options.registry,
@@ -184,7 +218,7 @@ async function runDevMode(
     interactive: options.interactive !== false,
     prompt,
     dryRun: options.dryRun,
-    isolated: !options.inheritSettings,
+    settingSources,
   }
 
   const result = await runLocalSpace(targetPath, devOptions)
@@ -221,7 +255,10 @@ export function registerRunCommand(program: Command): void {
     .option('--no-interactive', 'Run non-interactively (requires prompt)')
     .option('--no-warnings', 'Suppress lint warnings')
     .option('--dry-run', 'Print the Claude command without executing')
-    .option('--inherit-settings', 'Inherit user Claude settings (default: isolated mode)')
+    .option('--inherit-all', 'Inherit all Claude settings (user, project, local)')
+    .option('--inherit-project', 'Inherit project-level Claude settings')
+    .option('--inherit-user', 'Inherit user-level Claude settings')
+    .option('--inherit-local', 'Inherit local Claude settings')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
