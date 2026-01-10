@@ -31,7 +31,7 @@ describe('asp lint integration', () => {
   })
 
   afterAll(async () => {
-    await cleanupSampleRegistry()
+    // Note: Don't clean up sample registry - other parallel tests may need it
   })
 
   beforeEach(async () => {

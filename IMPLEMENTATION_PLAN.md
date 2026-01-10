@@ -181,12 +181,14 @@
 - [x] `fixtures/sample-project/` - Mock project with asp-targets.toml
 - [x] `fixtures/claude-shim/` - Test shim for Claude (records argv, validates plugins)
 - [x] `tests/install.test.ts` - Test resolution + lock generation (6 tests)
-- [x] `tests/build.test.ts` - Test materialization without Claude (5 tests)
+- [x] `tests/build.test.ts` - Test materialization without Claude (6 tests)
 - [x] `tests/run.test.ts` - Test asp run with claude shim (5 tests)
 - [x] `tests/lint.test.ts` - Test warning detection (3 tests)
 - [x] `tests/repo.test.ts` - Test repo commands (8 tests): repo init, repo publish, repo status, and repo tags
+- [x] `tests/management.test.ts` - Test add, remove, upgrade commands (8 tests)
+- [x] `tests/utility.test.ts` - Test diff, explain, list, doctor, gc commands (18 tests)
 
-**Test Summary**: 27 passing, 0 skipped
+**Test Summary**: 54 passing integration tests, 0 skipped
 
 ---
 
@@ -224,7 +226,7 @@
 - Current git tag is `v0.0.27`
 
 ### Test Coverage
-- Total tests: 346 passing
+- Total tests: 372 passing (318 package tests + 54 integration tests)
 - Added tests for critical modules: atomic.ts (26), locks.ts (18), snapshot.ts (18), invoke.ts (21)
 - Fixed proper-lockfile error handling in locks.ts
 
@@ -234,7 +236,10 @@
 - [x] Added tests for core/atomic.ts, core/locks.ts, store/snapshot.ts, claude/invoke.ts
 - [x] W301 lock-missing warning implemented
 - [x] Warnings now stored in lock file during resolution (W205)
-- [ ] CLI commands without integration tests: add, remove, upgrade, diff, explain, list, doctor, gc
+- [x] CLI commands integration tests: add, remove, upgrade, diff, explain, list, doctor, gc (26 new tests)
+
+### Known Limitations
+- GC `bytesFreed` metric not implemented (always returns 0) - tracked for future improvement
 
 ---
 
@@ -302,9 +307,13 @@ After implementation, verify end-to-end.
 2. [ ] `asp repo init` - Creates ~/.asp/repo, installs manager space
 3. [ ] Create and publish a space with `asp repo publish`
 4. [ ] Create project with asp-targets.toml
-5. [ ] `asp add/remove` - Modify targets
+5. [x] `asp add/remove` - Modify targets (verified via integration tests in management.test.ts)
 6. [x] `asp run <target>` - Launches Claude with correct plugins (verified via integration tests with claude shim)
 7. [x] `asp build <target> --output ./plugins` - Materializes without Claude (verified via integration tests)
-8. [ ] `asp explain <target>` - Shows load order, pins, warnings
+8. [x] `asp explain <target>` - Shows load order, pins, warnings (verified via integration tests in utility.test.ts)
 9. [x] `asp lint` - Detects collisions and issues (verified via integration tests)
-10. [ ] `asp gc` - Prunes unreferenced cache entries
+10. [x] `asp gc` - Prunes unreferenced cache entries (verified via integration tests in utility.test.ts)
+11. [x] `asp upgrade` - Updates lock file (verified via integration tests in management.test.ts)
+12. [x] `asp diff` - Shows pending lock changes (verified via integration tests in utility.test.ts)
+13. [x] `asp list` - Lists targets (verified via integration tests in utility.test.ts)
+14. [x] `asp doctor` - Health checks (verified via integration tests in utility.test.ts)
