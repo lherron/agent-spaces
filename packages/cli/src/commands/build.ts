@@ -8,9 +8,55 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { build, buildAll } from '@agent-spaces/engine'
+import { type BuildResult, build, buildAll } from '@agent-spaces/engine'
 
-import { findProjectRoot } from '../index.js'
+import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
+
+interface BuildOptions extends CommonOptions {
+  output: string
+  clean: boolean
+  install: boolean
+  lint: boolean
+}
+
+/**
+ * Format single target build result for display.
+ */
+function formatSingleBuildResult(result: BuildResult): void {
+  console.log('')
+  console.log(chalk.green('Build complete'))
+  console.log(`  Plugin directories: ${result.pluginDirs.length}`)
+  for (const dir of result.pluginDirs) {
+    console.log(`    - ${dir}`)
+  }
+  if (result.mcpConfigPath) {
+    console.log(`  MCP config: ${result.mcpConfigPath}`)
+  }
+  formatBuildWarnings(result.warnings)
+}
+
+/**
+ * Format build warnings for display.
+ */
+function formatBuildWarnings(warnings: BuildResult['warnings']): void {
+  if (warnings.length === 0) return
+  console.log('')
+  console.log(chalk.yellow('Warnings:'))
+  for (const warning of warnings) {
+    console.log(`  [${warning.code}] ${warning.message}`)
+  }
+}
+
+/**
+ * Format all targets build results for display.
+ */
+function formatAllBuildResults(results: Map<string, BuildResult>): void {
+  console.log('')
+  console.log(chalk.green('Build complete'))
+  for (const [name, result] of results) {
+    console.log(`  ${name}: ${result.pluginDirs.length} plugins`)
+  }
+}
 
 /**
  * Register the build command.
@@ -27,65 +73,31 @@ export function registerBuildCommand(program: Command): void {
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
-    .action(async (target: string | undefined, options) => {
-      // Find project root
-      const projectPath = options.project ?? (await findProjectRoot())
-      if (!projectPath) {
-        console.error(chalk.red('Error: No asp-targets.toml found in current directory or parents'))
-        console.error(chalk.gray('Run this command from a project directory or use --project'))
-        process.exit(1)
-      }
-
-      const buildOptions = {
-        projectPath,
-        outputDir: options.output,
-        aspHome: options.aspHome,
-        registryPath: options.registry,
-        clean: options.clean !== false,
-        autoInstall: options.install !== false,
-        runLint: options.lint !== false,
-      }
-
+    .action(async (target: string | undefined, options: BuildOptions) => {
       try {
+        const ctx = await getProjectContext(options)
+
+        const buildOptions = {
+          projectPath: ctx.projectPath,
+          outputDir: options.output,
+          aspHome: ctx.aspHome,
+          registryPath: ctx.registryPath,
+          clean: options.clean !== false,
+          autoInstall: options.install !== false,
+          runLint: options.lint !== false,
+        }
+
         if (target) {
-          // Build single target
           console.log(chalk.blue(`Building target "${target}"...`))
           const result = await build(target, buildOptions)
-
-          console.log('')
-          console.log(chalk.green('Build complete'))
-          console.log(`  Plugin directories: ${result.pluginDirs.length}`)
-          for (const dir of result.pluginDirs) {
-            console.log(`    - ${dir}`)
-          }
-          if (result.mcpConfigPath) {
-            console.log(`  MCP config: ${result.mcpConfigPath}`)
-          }
-          if (result.warnings.length > 0) {
-            console.log('')
-            console.log(chalk.yellow('Warnings:'))
-            for (const warning of result.warnings) {
-              console.log(`  [${warning.code}] ${warning.message}`)
-            }
-          }
+          formatSingleBuildResult(result)
         } else {
-          // Build all targets
           console.log(chalk.blue('Building all targets...'))
           const results = await buildAll(buildOptions)
-
-          console.log('')
-          console.log(chalk.green('Build complete'))
-          for (const [name, result] of results) {
-            console.log(`  ${name}: ${result.pluginDirs.length} plugins`)
-          }
+          formatAllBuildResults(results)
         }
       } catch (error) {
-        if (error instanceof Error) {
-          console.error(chalk.red(`Error: ${error.message}`))
-        } else {
-          console.error(chalk.red(`Error: ${String(error)}`))
-        }
-        process.exit(1)
+        handleCliError(error)
       }
     })
 }

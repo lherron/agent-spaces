@@ -10,7 +10,11 @@ import type { Command } from 'commander'
 
 import { install } from '@agent-spaces/engine'
 
-import { findProjectRoot } from '../index.js'
+import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
+
+interface UpgradeOptions extends CommonOptions {
+  target?: string | undefined
+}
 
 /**
  * Register the upgrade command.
@@ -24,16 +28,10 @@ export function registerUpgradeCommand(program: Command): void {
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
-    .action(async (spaceIds: string[], options) => {
-      // Find project root
-      const projectPath = options.project ?? (await findProjectRoot())
-      if (!projectPath) {
-        console.error(chalk.red('Error: No asp-targets.toml found in current directory or parents'))
-        console.error(chalk.gray('Run this command from a project directory or use --project'))
-        process.exit(1)
-      }
-
+    .action(async (spaceIds: string[], options: UpgradeOptions) => {
       try {
+        const ctx = await getProjectContext(options)
+
         console.log(chalk.blue('Upgrading...'))
         if (spaceIds.length > 0) {
           console.log(`  Spaces: ${spaceIds.join(', ')}`)
@@ -42,12 +40,10 @@ export function registerUpgradeCommand(program: Command): void {
           console.log(`  Target: ${options.target}`)
         }
 
-        // Run install with update=true to re-resolve selectors
-        // When spaceIds are specified, only those spaces are upgraded (others stay at locked versions)
         const result = await install({
-          projectPath,
-          aspHome: options.aspHome,
-          registryPath: options.registry,
+          projectPath: ctx.projectPath,
+          aspHome: ctx.aspHome,
+          registryPath: ctx.registryPath,
           targets: options.target ? [options.target] : undefined,
           update: true,
           fetchRegistry: true,
@@ -63,12 +59,7 @@ export function registerUpgradeCommand(program: Command): void {
         console.log(`  Snapshots created: ${result.snapshotsCreated}`)
         console.log(`  Lock file: ${result.lockPath}`)
       } catch (error) {
-        if (error instanceof Error) {
-          console.error(chalk.red(`Error: ${error.message}`))
-        } else {
-          console.error(chalk.red(`Error: ${String(error)}`))
-        }
-        process.exit(1)
+        handleCliError(error)
       }
     })
 }

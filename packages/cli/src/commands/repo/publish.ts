@@ -12,6 +12,70 @@ import { atomicWriteJson } from '@agent-spaces/core'
 import { createAnnotatedTag } from '@agent-spaces/git'
 import { PathResolver, getAspHome } from '@agent-spaces/store'
 
+import { handleCliError } from '../../helpers.js'
+
+interface RepoPublishOptions {
+  tag: string
+  distTag?: string | undefined
+  aspHome?: string | undefined
+}
+
+/**
+ * Validate version tag format.
+ */
+function validateVersionTag(version: string): void {
+  if (!version.match(/^v\d+\.\d+\.\d+(-[\w.]+)?$/)) {
+    throw new Error('Invalid version tag format. Expected: vX.Y.Z or vX.Y.Z-prerelease')
+  }
+}
+
+/**
+ * Ensure registry exists.
+ */
+async function ensureRegistryExists(repoPath: string): Promise<void> {
+  if (!(await Bun.file(`${repoPath}/.git/HEAD`).exists())) {
+    throw new Error('No registry found. Run "asp repo init" first.')
+  }
+}
+
+/**
+ * Ensure space exists in registry.
+ */
+async function ensureSpaceExists(repoPath: string, spaceId: string): Promise<void> {
+  if (!(await Bun.file(`${repoPath}/spaces/${spaceId}/space.toml`).exists())) {
+    throw new Error(`Space "${spaceId}" not found. Expected at: spaces/${spaceId}/space.toml`)
+  }
+}
+
+/**
+ * Update dist-tags.json with new tag.
+ */
+async function updateDistTags(
+  repoPath: string,
+  spaceId: string,
+  distTag: string,
+  version: string
+): Promise<void> {
+  const distTagsPath = `${repoPath}/registry/dist-tags.json`
+  let distTags: Record<string, Record<string, string>> = {}
+
+  try {
+    distTags = JSON.parse(await Bun.file(distTagsPath).text())
+  } catch {
+    // File may not exist
+  }
+
+  if (!distTags[spaceId]) {
+    distTags[spaceId] = {}
+  }
+  distTags[spaceId][distTag] = version
+  await atomicWriteJson(distTagsPath, distTags)
+
+  console.log(chalk.green(`Dist-tag updated: ${spaceId}@${distTag} -> ${version}`))
+  console.log('')
+  console.log(chalk.gray('Remember to commit and push dist-tags.json'))
+}
+
 /**
  * Register the repo publish command.
  */
@@ -23,81 +87,31 @@ export function registerRepoPublishCommand(parent: Command): void {
     .requiredOption('--tag <version>', 'Version tag (e.g., v1.0.0)')
     .option('--dist-tag <name>', 'Also update dist-tag (e.g., stable, latest)')
     .option('--asp-home <path>', 'ASP_HOME override')
-    .action(async (spaceId: string, options) => {
+    .action(async (spaceId: string, options: RepoPublishOptions) => {
       try {
         const aspHome = options.aspHome ?? getAspHome()
         const paths = new PathResolver({ aspHome })
 
-        // Validate version tag format
-        const version = options.tag
-        if (!version.match(/^v\d+\.\d+\.\d+(-[\w.]+)?$/)) {
-          console.error(chalk.red('Error: Invalid version tag format'))
-          console.error(chalk.gray('Expected format: vX.Y.Z or vX.Y.Z-prerelease'))
-          process.exit(1)
-        }
+        validateVersionTag(options.tag)
+        await ensureRegistryExists(paths.repo)
+        await ensureSpaceExists(paths.repo, spaceId)
 
-        // Check if repo exists
-        const repoFile = Bun.file(`${paths.repo}/.git/HEAD`)
-        if (!(await repoFile.exists())) {
-          console.error(chalk.red('No registry found'))
-          console.error(chalk.gray('Run "asp repo init" first'))
-          process.exit(1)
-        }
-
-        // Check if space exists
-        const spaceToml = Bun.file(`${paths.repo}/spaces/${spaceId}/space.toml`)
-        if (!(await spaceToml.exists())) {
-          console.error(chalk.red(`Space "${spaceId}" not found`))
-          console.error(chalk.gray(`Expected at: spaces/${spaceId}/space.toml`))
-          process.exit(1)
-        }
-
-        // Create git tag
-        const tagName = `space/${spaceId}/${version}`
+        const tagName = `space/${spaceId}/${options.tag}`
         console.log(chalk.blue(`Creating tag: ${tagName}`))
-
-        await createAnnotatedTag(tagName, `Release ${spaceId} ${version}`, undefined, {
+        await createAnnotatedTag(tagName, `Release ${spaceId} ${options.tag}`, undefined, {
           cwd: paths.repo,
         })
-
         console.log(chalk.green(`Tag created: ${tagName}`))
 
-        // Update dist-tags if requested
         if (options.distTag) {
-          const distTagsPath = `${paths.repo}/registry/dist-tags.json`
-          let distTags: Record<string, Record<string, string>> = {}
-
-          try {
-            const content = await Bun.file(distTagsPath).text()
-            distTags = JSON.parse(content)
-          } catch {
-            // File may not exist
-          }
-
-          // Update the dist-tag
-          if (!distTags[spaceId]) {
-            distTags[spaceId] = {}
-          }
-          distTags[spaceId][options.distTag] = version
-
-          // Write atomically
-          await atomicWriteJson(distTagsPath, distTags)
-
-          console.log(chalk.green(`Dist-tag updated: ${spaceId}@${options.distTag} -> ${version}`))
-          console.log('')
-          console.log(chalk.gray('Remember to commit and push dist-tags.json'))
+          await updateDistTags(paths.repo, spaceId, options.distTag, options.tag)
         }
 
         console.log('')
         console.log(chalk.gray('To push the tag:'))
         console.log(chalk.gray(`  cd ${paths.repo} && git push origin ${tagName}`))
       } catch (error) {
-        if (error instanceof Error) {
-          console.error(chalk.red(`Error: ${error.message}`))
-        } else {
-          console.error(chalk.red(`Error: ${String(error)}`))
-        }
-        process.exit(1)
+        handleCliError(error)
       }
     })
 }
