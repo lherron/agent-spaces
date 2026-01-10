@@ -7,8 +7,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, rm } from 'node:fs/promises'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import type { LockFile } from '../types/lock.js'
@@ -140,7 +140,7 @@ describe('parseLockJson', () => {
       const result = parseLockJson(json)
 
       expect(result.targets.default.warnings).toHaveLength(1)
-      expect(result.targets.default.warnings![0].code).toBe('W201')
+      expect(result.targets.default.warnings?.[0].code).toBe('W201')
     })
 
     test('uses provided filePath in error messages', () => {
@@ -336,7 +336,7 @@ describe('serializeLockJson', () => {
     // Check for 2-space indentation
     expect(result).toContain('  "lockfileVersion"')
     // Should not have 4-space indentation at top level
-    expect(result.split('\n')[1]).toMatch(/^  "/)
+    expect(result.split('\n')[1]).toMatch(/^ {2}"/)
   })
 
   test('ends with newline', () => {
@@ -348,9 +348,7 @@ describe('serializeLockJson', () => {
 
   test('serializes complex lock file', () => {
     const lock = createLockWithSpace()
-    lock.targets.default.warnings = [
-      { code: 'W201', message: 'Test warning' },
-    ]
+    lock.targets.default.warnings = [{ code: 'W201', message: 'Test warning' }]
     const result = serializeLockJson(lock)
 
     expect(result).toContain('"my-space@abc1234"')

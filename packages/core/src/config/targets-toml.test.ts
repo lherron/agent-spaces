@@ -8,8 +8,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, rm } from 'node:fs/promises'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import type { ProjectManifest } from '../types/targets.js'
@@ -108,7 +108,7 @@ function toToml(manifest: ProjectManifest): string {
     }
   }
 
-  return lines.join('\n') + '\n'
+  return `${lines.join('\n')}\n`
 }
 
 describe('TARGETS_FILENAME constant', () => {

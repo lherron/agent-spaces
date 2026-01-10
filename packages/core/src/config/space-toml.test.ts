@@ -8,8 +8,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, rm } from 'node:fs/promises'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import type { SpaceManifest } from '../types/space.js'
@@ -90,7 +90,7 @@ function toToml(manifest: SpaceManifest): string {
     lines.push(`spaces = [${manifest.deps.spaces.map((s) => `"${s}"`).join(', ')}]`)
   }
 
-  return lines.join('\n') + '\n'
+  return `${lines.join('\n')}\n`
 }
 
 describe('parseSpaceToml', () => {
