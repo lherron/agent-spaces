@@ -179,16 +179,13 @@ describe('asp run', () => {
     expect(shimOutput.pluginDirs.length).toBe(1)
   })
 
-  test.skip('exits with claude exit code', async () => {
-    // TODO: This test requires proper env var propagation to the shim subprocess
-    // The CLAUDE_SHIM_EXIT_CODE env var isn't being inherited properly
-    // Set shim to exit with code 42
-    process.env.CLAUDE_SHIM_EXIT_CODE = '42'
-
+  test('exits with claude exit code', async () => {
+    // Pass CLAUDE_SHIM_EXIT_CODE through env option
     const result = await runWithPrompt('dev', 'test', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
       aspHome,
+      env: { CLAUDE_SHIM_EXIT_CODE: '42' },
     })
 
     expect(result.exitCode).toBe(42)
