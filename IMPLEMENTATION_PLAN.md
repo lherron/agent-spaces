@@ -248,7 +248,25 @@
 
 ---
 
+## Spec Alignment (v0.0.39)
+
+The following fixes were applied to align the SPEC with the implementation and SCHEMAS:
+
+1. **Fixed `[claude]` → `[plugin]` section naming** - Updated SPEC to use `[plugin]` section in space.toml manifests, matching the implementation
+2. **Fixed `version = 1` → `schema = 1`** - Updated SPEC manifests to use `schema = 1` field name for schema versioning
+3. **Fixed lock file structure** - Updated SPEC to show normalized lock file format with separate `spaces` and `targets` objects, matching SCHEMAS
+4. **Fixed dist-tags description** - Updated SPEC to document the committed `registry/dist-tags.json` file approach for channel resolution
+5. **Fixed cache path format** - Updated SPEC from `<envHash>/<spaceId>` to `<pluginCacheKey>/<pluginName>` for plugin cache paths
+6. **Fixed W205 naming** - Updated SPEC from `duplicate-plugin-name` to `plugin-name-collision` warning code
+7. **Added complete CLI commands list** - Added missing commands to SPEC: `build`, `explain`, `add`, `remove`, `upgrade`, `diff`, `gc`
+
+---
+
 ## Known Issues
+
+### Spec Alignment Status
+- All spec files (AGENT-SPACES-V2-SPEC.md, AGENT-SPACES-V2-SCHEMAS.md, IMPLEMENTATION_PLAN.md) are now aligned and consistent
+- Section naming, field names, file formats, and warning codes are synchronized across all documentation
 
 ### Lint Configuration
 - Biome's `useLiteralKeys` rule is disabled to avoid conflicts with TypeScript strict mode
