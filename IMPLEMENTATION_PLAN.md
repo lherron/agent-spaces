@@ -139,9 +139,9 @@
 
 **Priority C - Utility Commands**:
 - [x] `src/commands/diff.ts` - Show pending lock changes without writing
-- [x] `src/commands/lint.ts` - Validate targets/spaces, emit warnings
+- [x] `src/commands/lint.ts` - Validate targets/spaces, emit warnings (includes W301 lock-missing info)
 - [x] `src/commands/list.ts` - List targets, resolved spaces, cached envs
-- [x] `src/commands/doctor.ts` - Check claude, registry, cache permissions
+- [x] `src/commands/doctor.ts` - Check claude, registry, cache permissions, registry remote reachability
 - [x] `src/commands/gc.ts` - Prune store/cache based on reachability
 
 **Priority D - Repo Commands**:

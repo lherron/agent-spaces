@@ -10,6 +10,7 @@ import chalk from 'chalk'
 import type { Command } from 'commander'
 
 import { detectClaude } from '@agent-spaces/claude'
+import { gitExec, listRemotes } from '@agent-spaces/git'
 import { PathResolver, ensureAspHome, getAspHome } from '@agent-spaces/store'
 
 import { findProjectRoot } from '../index.js'
@@ -123,8 +124,10 @@ export function registerDoctorCommand(program: Command): void {
       }
 
       // Check registry
+      let registryExists = false
       try {
         await access(paths.repo, constants.R_OK)
+        registryExists = true
         checks.push({
           name: 'registry',
           status: 'ok',
@@ -137,6 +140,52 @@ export function registerDoctorCommand(program: Command): void {
           message: 'No local registry found',
           detail: `Expected at: ${paths.repo}. Run 'asp repo init' to create one.`,
         })
+      }
+
+      // Check registry remote reachability (if registry exists)
+      if (registryExists) {
+        try {
+          const remotes = await listRemotes({ cwd: paths.repo })
+          const origin = remotes.find((r) => r.name === 'origin')
+
+          if (origin && origin.fetchUrl) {
+            // Try to connect to remote using ls-remote (with timeout)
+            const result = await gitExec(['ls-remote', '--heads', origin.fetchUrl], {
+              cwd: paths.repo,
+              timeout: 10000, // 10 second timeout
+              ignoreExitCode: true,
+            })
+
+            if (result.exitCode === 0) {
+              checks.push({
+                name: 'registry_remote',
+                status: 'ok',
+                message: `Registry remote reachable: ${origin.fetchUrl}`,
+              })
+            } else {
+              checks.push({
+                name: 'registry_remote',
+                status: 'warning',
+                message: `Registry remote unreachable: ${origin.fetchUrl}`,
+                detail: 'Check your network connection or remote URL configuration.',
+              })
+            }
+          } else {
+            checks.push({
+              name: 'registry_remote',
+              status: 'warning',
+              message: 'No remote configured for registry',
+              detail: 'The registry is local-only. Add a remote with git remote add origin <url>.',
+            })
+          }
+        } catch (error) {
+          checks.push({
+            name: 'registry_remote',
+            status: 'warning',
+            message: 'Could not check registry remote',
+            detail: error instanceof Error ? error.message : String(error),
+          })
+        }
       }
 
       // Check project
