@@ -8,7 +8,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { CommitSha, SpaceId, SpaceKey, SpaceManifest } from '@agent-spaces/core'
 import type { ClosureResult, ResolvedSpace } from './closure.js'
-import { generateLockFile, type LockGeneratorOptions, type TargetInput } from './lock-generator.js'
+import { type LockGeneratorOptions, type TargetInput, generateLockFile } from './lock-generator.js'
 
 // Mock resolved spaces for testing
 function createMockSpace(

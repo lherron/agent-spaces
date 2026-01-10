@@ -47,8 +47,12 @@ export {
   run,
   runWithPrompt,
   runInteractive,
+  runGlobalSpace,
+  runLocalSpace,
+  isSpaceReference,
   type RunOptions,
   type RunResult,
+  type GlobalRunOptions,
 } from './run.js'
 
 // Explaining

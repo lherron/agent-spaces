@@ -160,7 +160,8 @@ export async function build(targetName: string, options: BuildOptions): Promise<
   if (lockWasMissing) {
     warnings.unshift({
       code: WARNING_CODES.LOCK_MISSING,
-      message: 'Lock file was missing and has been auto-generated. Run "asp install" to generate it explicitly.',
+      message:
+        'Lock file was missing and has been auto-generated. Run "asp install" to generate it explicitly.',
       severity: 'info',
     })
   }

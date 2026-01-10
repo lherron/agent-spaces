@@ -212,6 +212,22 @@
 
 ---
 
+## Features Added (v0.0.29)
+
+### Global Mode for `asp run`
+- **Syntax**: `asp run space:id@selector`
+- Run spaces directly from the registry without requiring a project
+- Creates an ephemeral target, resolves dependencies, and launches Claude
+- Useful for quickly trying out spaces or running standalone tools
+
+### Dev Mode for `asp run`
+- **Syntax**: `asp run ./path/to/space`
+- Run local space directories directly for development and testing
+- Bypasses registry resolution to use the space from the local filesystem
+- Enables rapid iteration when authoring new spaces
+
+---
+
 ## Known Issues
 
 ### Lint Configuration
@@ -223,7 +239,7 @@
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.28`
+- Current git tag is `v0.0.29`
 
 ### Test Coverage
 - Total tests: 372 passing (318 package tests + 54 integration tests)
@@ -237,9 +253,6 @@
 - [x] W301 lock-missing warning implemented
 - [x] Warnings now stored in lock file during resolution (W205)
 - [x] CLI commands integration tests: add, remove, upgrade, diff, explain, list, doctor, gc (26 new tests)
-
-### Known Limitations
-- GC `bytesFreed` metric not implemented (always returns 0) - tracked for future improvement
 
 ---
 
