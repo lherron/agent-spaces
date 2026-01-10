@@ -224,14 +224,14 @@
 
 ### Lint Configuration
 - Biome's `useLiteralKeys` rule is disabled to avoid conflicts with TypeScript strict mode
-- Lint status: 0 errors, 43 warnings remaining
+- Lint status: 0 errors, 63 warnings remaining
 - Warnings are acceptable complexity warnings and noNonNullAssertion warnings
 
 ### Integration Test Issues
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.23`
+- Current git tag is `v0.0.24`
 
 ### Outstanding TODOs
 - [x] `packages/cli/src/commands/upgrade.ts` - Filter space by ID in upgrade command (implemented via `pinnedSpaces` in resolver and `upgradeSpaceIds` in engine)
