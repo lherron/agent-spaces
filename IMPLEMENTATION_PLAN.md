@@ -410,6 +410,25 @@ Multiple inconsistencies between spec documents were identified and fixed:
 
 ---
 
+## Spec Alignment (v0.0.53)
+
+Multiple spec inconsistencies were identified and fixed to ensure all three spec files are consistent:
+
+### SCHEMAS.md Fixes
+1. **Added complete warning codes list** - Section 5 previously only listed W201, W203, W205. Now includes all 8 warnings: W201-W207 and W301 (info severity)
+2. **Aligned W203 description** - Changed from "script path" to "command path" to match SPEC.md
+
+### SPEC.md Fixes
+1. **Added manager space command list** - Section 10 now includes full command list with descriptions:
+   - `/agent-spaces-manager:help`, `create-space`, `add-skill`, `add-command`, `add-hook`, `bump-version`, `publish`, `update-project-targets`
+2. **Added skills and agents sections** - Documented `space-authoring` skill and `manager` agent
+3. **Documented `--no-manager` flag** - Added to `asp repo init` command documentation
+
+### PLAN.md Fixes
+1. **Documented `--no-manager` flag** - Added to `asp repo init` command with explanation that it skips manager space installation
+
+---
+
 ## Known Issues
 
 ### Spec Alignment Status
@@ -425,7 +444,7 @@ Multiple inconsistencies between spec documents were identified and fixed:
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.52`
+- Current git tag is `v0.0.53`
 
 ### Test Coverage
 - Total tests: 478 passing (423 package tests + 55 integration tests)
