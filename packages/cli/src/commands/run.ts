@@ -9,7 +9,7 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { runInteractive, runWithPrompt } from '@agent-spaces/engine'
+import { type RunResult, runInteractive, runWithPrompt } from '@agent-spaces/engine'
 
 import { findProjectRoot } from '../index.js'
 
@@ -46,7 +46,7 @@ export function registerRunCommand(program: Command): void {
       }
 
       try {
-        let result
+        let result: RunResult
         if (prompt) {
           // Non-interactive with prompt
           console.log(chalk.blue(`Running target "${target}" with prompt...`))
