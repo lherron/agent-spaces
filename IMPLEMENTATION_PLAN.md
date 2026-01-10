@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Completed**: ~75% (7 of 9 packages fully implemented)
+**Completed**: ~85% (8 of 9 packages fully implemented)
 
 ### Packages Status
 
@@ -15,7 +15,7 @@
 | store | COMPLETE | paths (ASP_HOME), snapshot (extraction/storage), cache (plugin cache), gc (garbage collection) |
 | materializer | COMPLETE | plugin-json, link-components, hooks-builder, mcp-composer, materialize orchestration |
 | lint | COMPLETE | W201-W206 rules, reporter, 30 tests |
-| engine | NOT STARTED | Blocks CLI |
+| engine | COMPLETE | resolve, install, build, run, explain orchestration |
 | cli | NOT STARTED | Final integration layer |
 
 ---
@@ -105,17 +105,17 @@
 
 ---
 
-## Priority 6: Orchestration Engine
+## Priority 6: Orchestration Engine (COMPLETE)
 
-### packages/engine - High-Level Orchestration
-- [ ] `src/resolve.ts` - High-level resolution entrypoints
-- [ ] `src/install.ts` - Lock/store orchestration (parse targets, resolve, write lock, populate store)
-- [ ] `src/build.ts` - Materialization orchestration (resolve, materialize to output dir)
-- [ ] `src/run.ts` - Claude launch orchestration (resolve, materialize, invoke claude)
-- [ ] `src/explain.ts` - Debug/explain output (human + JSON modes)
-- [ ] `src/index.ts` - Public exports
-- [ ] `package.json` - Package setup
-- [ ] Integration tests with mocked git/claude
+### packages/engine - High-Level Orchestration (COMPLETE)
+- [x] `src/resolve.ts` - High-level resolution entrypoints (resolveTarget, resolveTargets, loadProjectManifest, loadLockFileIfExists, getRegistryPath, getSpacesInOrder)
+- [x] `src/install.ts` - Lock/store orchestration (install, installNeeded, ensureRegistry, populateStore, writeLockFile)
+- [x] `src/build.ts` - Materialization orchestration (build, buildAll with lint integration)
+- [x] `src/run.ts` - Claude launch orchestration (run, runWithPrompt, runInteractive)
+- [x] `src/explain.ts` - Debug/explain output (explain, formatExplainText, formatExplainJson)
+- [x] `src/index.ts` - Public exports
+- [x] `package.json` - Package setup
+- [ ] Integration tests with mocked git/claude (pending)
 
 ---
 
