@@ -14,7 +14,6 @@ import { PathResolver } from '@agent-spaces/store'
 
 import {
   SAMPLE_REGISTRY_DIR,
-  cleanupSampleRegistry,
   cleanupTempAspHome,
   cleanupTempProject,
   createTempAspHome,

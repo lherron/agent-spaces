@@ -85,9 +85,7 @@ describe('asp diff', () => {
 
     // Original lock should not have backend
     const oldLock = await readLockJson(path.join(projectDir, LOCK_FILENAME))
-    const oldHasBackend = oldLock.targets.dev.loadOrder.some((key) =>
-      key.startsWith('backend@')
-    )
+    const oldHasBackend = oldLock.targets.dev.loadOrder.some((key) => key.startsWith('backend@'))
     expect(oldHasBackend).toBe(false)
   })
 
@@ -141,9 +139,7 @@ describe('asp diff', () => {
 
     // Original lock should have backend
     const oldLock = await readLockJson(path.join(projectDir, LOCK_FILENAME))
-    const oldHasBackend = oldLock.targets.dev.loadOrder.some((key) =>
-      key.startsWith('backend@')
-    )
+    const oldHasBackend = oldLock.targets.dev.loadOrder.some((key) => key.startsWith('backend@'))
     expect(oldHasBackend).toBe(true)
   })
 
@@ -234,10 +230,10 @@ describe('asp explain', () => {
 
     const frontendSpace = result.targets.dev.spaces.find((s) => s.id === 'frontend')
     expect(frontendSpace).toBeDefined()
-    expect(frontendSpace!.pluginName).toBe('frontend')
-    expect(frontendSpace!.commit).toMatch(/^[0-9a-f]{40}$/)
-    expect(frontendSpace!.integrity).toMatch(/^sha256:[0-9a-f]{64}$/)
-    expect(frontendSpace!.inStore).toBe(true)
+    expect(frontendSpace?.pluginName).toBe('frontend')
+    expect(frontendSpace?.commit).toMatch(/^[0-9a-f]{40}$/)
+    expect(frontendSpace?.integrity).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(frontendSpace?.inStore).toBe(true)
   })
 
   test('includes env hash', async () => {
@@ -447,7 +443,7 @@ describe('asp gc', () => {
     const paths = new PathResolver({ aspHome })
 
     // Create an orphan snapshot
-    const orphanIntegrity = 'sha256:' + '0'.repeat(64)
+    const orphanIntegrity = `sha256:${'0'.repeat(64)}`
     const orphanPath = paths.snapshot(orphanIntegrity)
     await fs.mkdir(orphanPath, { recursive: true })
     await fs.writeFile(path.join(orphanPath, 'test.txt'), 'orphan content')
@@ -482,7 +478,7 @@ describe('asp gc', () => {
     const paths = new PathResolver({ aspHome })
 
     // Create an orphan snapshot
-    const orphanIntegrity = 'sha256:' + '1'.repeat(64)
+    const orphanIntegrity = `sha256:${'1'.repeat(64)}`
     const orphanPath = paths.snapshot(orphanIntegrity)
     await fs.mkdir(orphanPath, { recursive: true })
     await fs.writeFile(path.join(orphanPath, 'test.txt'), 'orphan content')
@@ -510,7 +506,7 @@ describe('asp gc', () => {
     const paths = new PathResolver({ aspHome })
 
     // Create an orphan snapshot with known content
-    const orphanIntegrity = 'sha256:' + '2'.repeat(64)
+    const orphanIntegrity = `sha256:${'2'.repeat(64)}`
     const orphanPath = paths.snapshot(orphanIntegrity)
     await fs.mkdir(orphanPath, { recursive: true })
     await fs.writeFile(path.join(orphanPath, 'test.txt'), 'x'.repeat(1000))

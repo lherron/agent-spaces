@@ -15,7 +15,6 @@ import { install, runWithPrompt } from '@agent-spaces/engine'
 
 import {
   SAMPLE_REGISTRY_DIR,
-  cleanupSampleRegistry,
   cleanupShimOutput,
   cleanupTempAspHome,
   cleanupTempProject,

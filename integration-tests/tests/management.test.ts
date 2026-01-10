@@ -190,9 +190,7 @@ describe('asp add', () => {
 
     // Verify only one entry
     const manifest = await readTargetsToml(path.join(projectDir, 'asp-targets.toml'))
-    const backendCount = manifest.targets.dev.compose.filter((r) =>
-      r.includes('backend')
-    ).length
+    const backendCount = manifest.targets.dev.compose.filter((r) => r.includes('backend')).length
     expect(backendCount).toBe(1)
   })
 
@@ -341,7 +339,7 @@ describe('asp upgrade', () => {
     expect(newFrontendEntry).toBeDefined()
 
     // Both should be valid (using stable dist-tag)
-    expect(newFrontendEntry![1].plugin.version).toBeDefined()
+    expect(newFrontendEntry?.[1].plugin.version).toBeDefined()
   })
 
   test('can upgrade specific space by ID', async () => {
@@ -372,15 +370,11 @@ describe('asp upgrade', () => {
     const newLock = await readLockJson(path.join(projectDir, LOCK_FILENAME))
 
     // Backend should remain unchanged (same commit)
-    const oldBackend = Object.entries(oldLock.spaces).find(([key]) =>
-      key.startsWith('backend@')
-    )
-    const newBackend = Object.entries(newLock.spaces).find(([key]) =>
-      key.startsWith('backend@')
-    )
+    const oldBackend = Object.entries(oldLock.spaces).find(([key]) => key.startsWith('backend@'))
+    const newBackend = Object.entries(newLock.spaces).find(([key]) => key.startsWith('backend@'))
 
     expect(oldBackend).toBeDefined()
     expect(newBackend).toBeDefined()
-    expect(oldBackend![1].commit).toBe(newBackend![1].commit)
+    expect(oldBackend?.[1].commit).toBe(newBackend?.[1].commit)
   })
 })

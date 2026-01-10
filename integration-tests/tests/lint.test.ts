@@ -13,7 +13,6 @@ import { build, install } from '@agent-spaces/engine'
 
 import {
   SAMPLE_REGISTRY_DIR,
-  cleanupSampleRegistry,
   cleanupTempAspHome,
   cleanupTempProject,
   createTempAspHome,
