@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-spaces/spec/v2/lock.schema.json",
+  "title": "Agent Spaces v2 - asp-lock.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["lockfileVersion", "resolverVersion", "generatedAt", "registry", "spaces", "targets"],
+  "properties": {
+    "lockfileVersion": { "type": "integer", "const": 1 },
+    "resolverVersion": { "type": "integer", "const": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "type": "string", "const": "git" },
+        "url": { "type": "string" },
+        "defaultBranch": { "type": "string" }
+      }
+    },
+
+    "spaces": {
+      "type": "object",
+      "description": "Content-addressed space entries keyed by spaceKey = '<id>@<commit>'",
+      "additionalProperties": { "$ref": "#/$defs/spaceEntry" }
+    },
+
+    "targets": {
+      "type": "object",
+      "description": "Per-run-target resolution results",
+      "additionalProperties": { "$ref": "#/$defs/targetEntry" }
+    }
+  },
+
+  "$defs": {
+    "sha256Integrity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+
+    "spaceKey": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*@[0-9a-f]{7,64}$"
+    },
+
+    "spaceRef": {
+      "type": "string",
+      "pattern": "^space:[a-z0-9]+(?:-[a-z0-9]+)*@.+$"
+    },
+
+    "spaceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "commit", "path", "integrity", "plugin", "deps"],
+      "properties": {
+        "id": { "type": "string" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" },
+        "path": { "type": "string", "description": "Path in registry repo, e.g. 'spaces/todo-frontend'" },
+
+        "integrity": { "$ref": "#/$defs/sha256Integrity" },
+
+        "plugin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string" },
+            "version": { "type": "string" }
+          }
+        },
+
+        "deps": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["spaces"],
+          "properties": {
+            "spaces": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/spaceKey" },
+              "default": []
+            }
+          }
+        },
+
+        "resolvedFrom": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "selector": { "type": "string" },
+            "tag": { "type": "string" },
+            "semver": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "targetEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compose", "roots", "loadOrder", "envHash"],
+      "properties": {
+        "compose": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/spaceRef" },
+          "minItems": 1
+        },
+
+        "roots": {
+          "type": "array",
+          "description": "Resolved root spaces corresponding to compose entries (one per compose entry)",
+          "items": { "$ref": "#/$defs/spaceKey" },
+          "minItems": 1
+        },
+
+        "loadOrder": {
+          "type": "array",
+          "description": "Deterministic plugin-dir order including transitive deps (deps before dependents)",
+          "items": { "$ref": "#/$defs/spaceKey" },
+          "minItems": 1
+        },
+
+        "envHash": { "$ref": "#/$defs/sha256Integrity" },
+
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/warning" },
+          "default": []
+        }
+      }
+    },
+
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "details": { "type": "object" }
+      }
+    }
+  }
+}

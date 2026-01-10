@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-spaces/spec/v2/targets.schema.json",
+  "title": "Agent Spaces v2 - asp-targets.toml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "targets"],
+  "properties": {
+    "schema": { "type": "integer", "const": 1 },
+
+    "claude": {
+      "type": "object",
+      "description": "Default claude options applied to all targets unless overridden",
+      "additionalProperties": false,
+      "properties": {
+        "model": { "type": "string" },
+        "permission_mode": { "type": "string" },
+        "args": {
+          "type": "array",
+          "description": "Pass-through CLI args to `claude` (stable escape hatch as Claude evolves)",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "targets": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/target" }
+    }
+  },
+
+  "$defs": {
+    "spaceRef": {
+      "type": "string",
+      "pattern": "^space:[a-z0-9]+(?:-[a-z0-9]+)*@.+$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compose"],
+      "properties": {
+        "description": { "type": "string", "maxLength": 300 },
+
+        "compose": {
+          "type": "array",
+          "description": "Ordered list of space refs. Later entries are higher-precedence for collision warnings and load order.",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/spaceRef" }
+        },
+
+        "claude": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "model": { "type": "string" },
+            "permission_mode": { "type": "string" },
+            "args": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+
+        "resolver": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "locked": { "type": "boolean", "default": true },
+            "allow_dirty": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    }
+  }
+}

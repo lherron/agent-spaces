@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-spaces/spec/v2/space.schema.json",
+  "title": "Agent Spaces v2 - space.toml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id"],
+  "properties": {
+    "schema": { "type": "integer", "const": 1 },
+
+    "id": {
+      "type": "string",
+      "description": "Space identifier; also default plugin name unless overridden",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 64
+    },
+
+    "version": {
+      "type": "string",
+      "description": "Semantic version for the Space/plugin; used for semver resolution and plugin.json version when present",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+
+    "description": { "type": "string", "maxLength": 500 },
+
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Claude plugin name override; must be kebab-case, no spaces",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "version": {
+          "type": "string",
+          "description": "Override for plugin.json version; semver recommended",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        },
+        "description": { "type": "string", "maxLength": 500 },
+
+        "author": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "maxLength": 120 },
+            "email": { "type": "string", "format": "email", "maxLength": 254 },
+            "url": { "type": "string", "format": "uri" }
+          }
+        },
+
+        "homepage": { "type": "string", "format": "uri" },
+        "repository": { "type": "string", "format": "uri" },
+        "license": { "type": "string", "maxLength": 100 },
+        "keywords": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 50 },
+          "maxItems": 30
+        }
+      }
+    },
+
+    "deps": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spaces": {
+          "type": "array",
+          "description": "Transitive deps (spaces only). Each entry is a space ref string.",
+          "items": { "$ref": "#/$defs/spaceRef" },
+          "default": []
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "spaceRef": {
+      "type": "string",
+      "description": "space:<id>@<selector>",
+      "pattern": "^space:[a-z0-9]+(?:-[a-z0-9]+)*@.+$"
+    }
+  }
+}
