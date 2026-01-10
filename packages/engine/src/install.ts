@@ -35,6 +35,7 @@ import {
   type ResolveOptions,
   type ResolveResult,
   getRegistryPath,
+  loadLockFileIfExists,
   loadProjectManifest,
   resolveTarget,
 } from './resolve.js'
@@ -182,9 +183,54 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
 
 /**
  * Check if install is needed (lock out of date).
+ *
+ * Compares the project manifest targets with the lock file.
+ * Returns true if:
+ * - Lock file doesn't exist
+ * - Any target in manifest is missing from lock
+ * - Any target's compose array differs
  */
-export async function installNeeded(_options: InstallOptions): Promise<boolean> {
-  // For now, always assume install is needed
-  // TODO: Compare manifest targets with lock file
-  return true
+export async function installNeeded(options: InstallOptions): Promise<boolean> {
+  // Load lock file, if it doesn't exist, install is needed
+  const existingLock = await loadLockFileIfExists(options.projectPath)
+  if (!existingLock) {
+    return true
+  }
+
+  // Load project manifest
+  const manifest = await loadProjectManifest(options.projectPath)
+
+  // Get targets to check (specific targets or all)
+  const targetNames = options.targets ?? Object.keys(manifest.targets)
+
+  for (const name of targetNames) {
+    const target = manifest.targets[name]
+    if (!target) {
+      // Target doesn't exist in manifest (shouldn't happen but be safe)
+      continue
+    }
+
+    const lockTarget = existingLock.targets[name]
+    if (!lockTarget) {
+      // Target not in lock file, install needed
+      return true
+    }
+
+    // Compare compose arrays
+    const manifestCompose = target.compose ?? []
+    const lockCompose = lockTarget.compose ?? []
+
+    if (manifestCompose.length !== lockCompose.length) {
+      return true
+    }
+
+    for (let i = 0; i < manifestCompose.length; i++) {
+      if (manifestCompose[i] !== lockCompose[i]) {
+        return true
+      }
+    }
+  }
+
+  // All targets match, no install needed
+  return false
 }

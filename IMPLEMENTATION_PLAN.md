@@ -18,7 +18,7 @@
 | engine | COMPLETE | resolve, install, build, run, explain orchestration |
 | cli | COMPLETE | All commands implemented: run, install, build, explain, lint, list, doctor, gc, add, remove, upgrade, diff, repo/* |
 | manager-space | COMPLETE | space.toml, 8 commands, 1 skill, 1 agent |
-| integration-tests | COMPLETE | 18 passing tests, 1 skipped |
+| integration-tests | COMPLETE | 19 passing tests, 0 skipped |
 
 ---
 
@@ -179,10 +179,10 @@
 - [x] `fixtures/claude-shim/` - Test shim for Claude (records argv, validates plugins)
 - [x] `tests/install.test.ts` - Test resolution + lock generation (6 tests)
 - [x] `tests/build.test.ts` - Test materialization without Claude (5 tests)
-- [x] `tests/run.test.ts` - Test asp run with claude shim (4 tests + 1 skipped)
+- [x] `tests/run.test.ts` - Test asp run with claude shim (5 tests)
 - [x] `tests/lint.test.ts` - Test warning detection (3 tests)
 
-**Test Summary**: 18 passing, 1 skipped
+**Test Summary**: 19 passing, 0 skipped
 
 ---
 
@@ -203,7 +203,7 @@
 - Lint warnings: 45 total (complexity warnings, noExplicitAny, noNonNullAssertion) - these are acceptable and do not cause errors
 
 ### Integration Test Issues
-- `run.test.ts`: "exits with claude exit code" test is skipped due to env var propagation issue in subprocess (ASP_CLAUDE_PATH not propagating correctly to child process)
+- All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Outstanding TODOs
 - [ ] `packages/cli/src/commands/upgrade.ts:61-62` - Filter space by ID in upgrade command (requires engine changes)
