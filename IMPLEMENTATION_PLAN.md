@@ -239,18 +239,27 @@
 
 ---
 
+## Bug Fixes Applied (v0.0.35-v0.0.37)
+
+- v0.0.35: Applied biome formatting auto-fixes to repo/gc.ts and repo/init.ts
+- v0.0.36: Fixed integrity hash algorithm mismatch between `computeIntegrity` (git blob OIDs) and `verifySnapshot` (was SHA-256 of raw content). Now both use git-style blob OIDs for consistency.
+- v0.0.36: Updated AGENT-SPACES-V2-SCHEMAS.md to document git-tree-based hashing algorithm
+- v0.0.37: Added disambiguation suggestions to W201 command collision warning per spec (e.g., `/space-a:deploy`, `/space-b:deploy`)
+
+---
+
 ## Known Issues
 
 ### Lint Configuration
 - Biome's `useLiteralKeys` rule is disabled to avoid conflicts with TypeScript strict mode
-- Lint status: 0 errors, 69 warnings remaining
+- Lint status: 0 errors, 71 warnings remaining
 - Warnings are acceptable complexity warnings and noNonNullAssertion warnings
 
 ### Integration Test Issues
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.34`
+- Current git tag is `v0.0.37`
 
 ### Test Coverage
 - Total tests: 470 passing (415 package tests + 55 integration tests)
