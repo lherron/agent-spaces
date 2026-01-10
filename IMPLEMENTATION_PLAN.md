@@ -239,7 +239,7 @@
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.32`
+- Current git tag is `v0.0.33`
 
 ### Test Coverage
 - Total tests: 469 passing (415 package tests + 54 integration tests)
@@ -262,7 +262,7 @@ These features are mentioned in specs but not yet implemented:
 **Medium Priority:**
 - [x] `--strict-mcp-config` flag support - Already implemented via `claude.args` passthrough in asp-targets.toml
 - [x] Global lock persistence - Global mode now persists pins to `$ASP_HOME/global-lock.json`
-- [ ] `asp repo gc` command - Repository-level garbage collection (distinct from cache gc)
+- [x] `asp repo gc` command - Repository-level garbage collection (runs git gc, prunes store/cache)
 
 **Low Priority (Marked Optional in Spec):**
 - [ ] `asp ui` command - Optional repo management UI
