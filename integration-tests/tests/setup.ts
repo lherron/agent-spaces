@@ -100,6 +100,19 @@ export async function initSampleRegistry(): Promise<void> {
 
   await execAsync('git tag space/bad-structure/v1.0.0', { cwd: registryDir })
   await execAsync('git tag space/bad-structure/stable', { cwd: registryDir })
+
+  // MCP test spaces
+  await execAsync('git tag space/mcp-server-a/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/mcp-server-a/stable', { cwd: registryDir })
+
+  await execAsync('git tag space/mcp-server-b/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/mcp-server-b/stable', { cwd: registryDir })
+
+  await execAsync('git tag space/mcp-collision-a/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/mcp-collision-a/stable', { cwd: registryDir })
+
+  await execAsync('git tag space/mcp-collision-b/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/mcp-collision-b/stable', { cwd: registryDir })
 }
 
 /**

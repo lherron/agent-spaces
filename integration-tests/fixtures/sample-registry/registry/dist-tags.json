@@ -34,5 +34,21 @@
   "bad-structure": {
     "stable": "v1.0.0",
     "latest": "v1.0.0"
+  },
+  "mcp-server-a": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
+  },
+  "mcp-server-b": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
+  },
+  "mcp-collision-a": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
+  },
+  "mcp-collision-b": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
   }
 }

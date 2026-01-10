@@ -1,0 +1,10 @@
+# MCP Server A space - defines an MCP server for testing
+# WHY: Tests MCP config composition from multiple spaces
+
+schema = 1
+id = "mcp-server-a"
+version = "1.0.0"
+description = "Space with MCP server A"
+
+[plugin]
+name = "mcp-server-a"
