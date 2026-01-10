@@ -96,7 +96,7 @@ describe('asCommitSha', () => {
 
 describe('isSha256Integrity', () => {
   test('accepts valid SHA256 integrity', () => {
-    const validHash = 'sha256:' + 'a'.repeat(64)
+    const validHash = `sha256:${'a'.repeat(64)}`
     expect(isSha256Integrity(validHash)).toBe(true)
   })
 
@@ -104,17 +104,17 @@ describe('isSha256Integrity', () => {
     expect(isSha256Integrity('')).toBe(false)
     expect(isSha256Integrity('sha256:')).toBe(false)
     expect(isSha256Integrity('sha256:abc')).toBe(false) // too short
-    expect(isSha256Integrity('sha512:' + 'a'.repeat(64))).toBe(false) // wrong algo
-    expect(isSha256Integrity('SHA256:' + 'a'.repeat(64))).toBe(false) // uppercase
-    expect(isSha256Integrity('sha256:' + 'g'.repeat(64))).toBe(false) // non-hex
-    expect(isSha256Integrity('sha256:' + 'a'.repeat(63))).toBe(false) // 63 chars
-    expect(isSha256Integrity('sha256:' + 'a'.repeat(65))).toBe(false) // 65 chars
+    expect(isSha256Integrity(`sha512:${'a'.repeat(64)}`)).toBe(false) // wrong algo
+    expect(isSha256Integrity(`SHA256:${'a'.repeat(64)}`)).toBe(false) // uppercase
+    expect(isSha256Integrity(`sha256:${'g'.repeat(64)}`)).toBe(false) // non-hex
+    expect(isSha256Integrity(`sha256:${'a'.repeat(63)}`)).toBe(false) // 63 chars
+    expect(isSha256Integrity(`sha256:${'a'.repeat(65)}`)).toBe(false) // 65 chars
   })
 })
 
 describe('asSha256Integrity', () => {
   test('returns valid integrity', () => {
-    const valid = 'sha256:' + 'a'.repeat(64)
+    const valid = `sha256:${'a'.repeat(64)}`
     expect(asSha256Integrity(valid)).toBe(valid)
   })
 
@@ -127,7 +127,7 @@ describe('isSpaceKey', () => {
   test('accepts valid space keys', () => {
     expect(isSpaceKey('foo@abc1234')).toBe(true)
     expect(isSpaceKey('foo-bar@abc1234def')).toBe(true)
-    expect(isSpaceKey('a@' + 'b'.repeat(64))).toBe(true)
+    expect(isSpaceKey(`a@${'b'.repeat(64)}`)).toBe(true)
   })
 
   test('rejects invalid space keys', () => {
@@ -237,7 +237,7 @@ describe('parseSelector', () => {
   describe('git-pin', () => {
     test('parses git pin', () => {
       expect(parseSelector('git:abc1234')).toEqual({ kind: 'git-pin', sha: 'abc1234' })
-      expect(parseSelector('git:' + 'a'.repeat(40))).toEqual({
+      expect(parseSelector(`git:${'a'.repeat(40)}`)).toEqual({
         kind: 'git-pin',
         sha: 'a'.repeat(40),
       })
