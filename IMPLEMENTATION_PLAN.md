@@ -316,7 +316,7 @@ Updated spec path hierarchies to match implementation simplifications:
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.43`
+- Current git tag is `v0.0.44`
 
 ### Test Coverage
 - Total tests: 470 passing (415 package tests + 55 integration tests)
