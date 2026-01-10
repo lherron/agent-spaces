@@ -232,7 +232,7 @@
 
 ### Lint Configuration
 - Biome's `useLiteralKeys` rule is disabled to avoid conflicts with TypeScript strict mode
-- Lint status: 0 errors, 63 warnings remaining
+- Lint status: 0 errors, 67 warnings remaining
 - Warnings are acceptable complexity warnings and noNonNullAssertion warnings
 
 ### Integration Test Issues
@@ -242,14 +242,16 @@
 - Current git tag is `v0.0.29`
 
 ### Test Coverage
-- Total tests: 372 passing (318 package tests + 54 integration tests)
+- Total tests: 469 passing (415 package tests + 54 integration tests)
 - Added tests for critical modules: atomic.ts (26), locks.ts (18), snapshot.ts (18), invoke.ts (21)
+- Added config parser tests: lock-json.ts (39), space-toml.ts (33), targets-toml.ts (30)
 - Fixed proper-lockfile error handling in locks.ts
 
 ### Outstanding TODOs
 - [x] `packages/cli/src/commands/upgrade.ts` - Filter space by ID in upgrade command (implemented via `pinnedSpaces` in resolver and `upgradeSpaceIds` in engine)
 - [x] `packages/core/src/index.test.ts` - Unit tests for core modules (60 tests for refs and errors)
 - [x] Added tests for core/atomic.ts, core/locks.ts, store/snapshot.ts, claude/invoke.ts
+- [x] Added tests for core config parsers: lock-json.ts, space-toml.ts, targets-toml.ts
 - [x] W301 lock-missing warning implemented
 - [x] Warnings now stored in lock file during resolution (W205)
 - [x] CLI commands integration tests: add, remove, upgrade, diff, explain, list, doctor, gc (26 new tests)
