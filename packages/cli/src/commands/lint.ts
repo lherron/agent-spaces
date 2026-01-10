@@ -56,9 +56,7 @@ export function registerLintCommand(program: Command): void {
           allWarnings.push({
             target: '_project',
             code: WARNING_CODE_LOCK_MISSING,
-            message:
-              `Lock file (${LOCK_FILENAME}) not found. ` +
-              'Run "asp install" to generate it, or "asp run" will generate it automatically.',
+            message: `Lock file (${LOCK_FILENAME}) not found. Run "asp install" to generate it, or "asp run" will generate it automatically.`,
             severity: 'info',
           })
         }

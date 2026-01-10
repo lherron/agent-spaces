@@ -148,7 +148,7 @@ export function registerDoctorCommand(program: Command): void {
           const remotes = await listRemotes({ cwd: paths.repo })
           const origin = remotes.find((r) => r.name === 'origin')
 
-          if (origin && origin.fetchUrl) {
+          if (origin?.fetchUrl) {
             // Try to connect to remote using ls-remote (with timeout)
             const result = await gitExec(['ls-remote', '--heads', origin.fetchUrl], {
               cwd: paths.repo,
