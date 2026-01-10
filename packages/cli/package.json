@@ -1,0 +1,36 @@
+{
+  "name": "@agent-spaces/cli",
+  "version": "0.0.1",
+  "description": "Command line interface for Agent Spaces v2",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "bin": {
+    "asp": "./bin/asp.js"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "dependencies": {
+    "@agent-spaces/core": "workspace:*",
+    "@agent-spaces/git": "workspace:*",
+    "@agent-spaces/claude": "workspace:*",
+    "@agent-spaces/resolver": "workspace:*",
+    "@agent-spaces/store": "workspace:*",
+    "@agent-spaces/materializer": "workspace:*",
+    "@agent-spaces/lint": "workspace:*",
+    "@agent-spaces/engine": "workspace:*",
+    "commander": "^12.1.0",
+    "chalk": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}
