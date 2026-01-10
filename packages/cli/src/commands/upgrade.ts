@@ -19,12 +19,12 @@ export function registerUpgradeCommand(program: Command): void {
   program
     .command('upgrade')
     .description('Update lock file pins to latest versions matching selectors')
-    .argument('[spaceId]', 'Specific space to upgrade (default: all)')
+    .argument('[spaceIds...]', 'Specific spaces to upgrade (default: all)')
     .option('--target <name>', 'Limit to specific target')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
-    .action(async (spaceId: string | undefined, options) => {
+    .action(async (spaceIds: string[], options) => {
       // Find project root
       const projectPath = options.project ?? (await findProjectRoot())
       if (!projectPath) {
@@ -35,15 +35,15 @@ export function registerUpgradeCommand(program: Command): void {
 
       try {
         console.log(chalk.blue('Upgrading...'))
-        if (spaceId) {
-          console.log(`  Space: ${spaceId}`)
+        if (spaceIds.length > 0) {
+          console.log(`  Spaces: ${spaceIds.join(', ')}`)
         }
         if (options.target) {
           console.log(`  Target: ${options.target}`)
         }
 
         // Run install with update=true to re-resolve selectors
-        // When spaceId is specified, only that space is upgraded (others stay at locked versions)
+        // When spaceIds are specified, only those spaces are upgraded (others stay at locked versions)
         const result = await install({
           projectPath,
           aspHome: options.aspHome,
@@ -51,13 +51,13 @@ export function registerUpgradeCommand(program: Command): void {
           targets: options.target ? [options.target] : undefined,
           update: true,
           fetchRegistry: true,
-          upgradeSpaceIds: spaceId ? [spaceId] : undefined,
+          upgradeSpaceIds: spaceIds.length > 0 ? spaceIds : undefined,
         })
 
         console.log('')
         console.log(chalk.green('Upgrade complete'))
-        if (spaceId) {
-          console.log(`  Space upgraded: ${spaceId}`)
+        if (spaceIds.length > 0) {
+          console.log(`  Spaces upgraded: ${spaceIds.join(', ')}`)
         }
         console.log(`  Targets updated: ${result.resolvedTargets.join(', ')}`)
         console.log(`  Snapshots created: ${result.snapshotsCreated}`)
