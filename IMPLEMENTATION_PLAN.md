@@ -327,11 +327,35 @@ Updated SPEC.md for `asp build` command to match implementation:
 
 ---
 
+## Spec Alignment (v0.0.47)
+
+### ASP Home Layout Fix in SPEC.md
+- **Issue**: SPEC.md section 4.1 (ASP Home layout) showed outdated hierarchical path structure (`store/spaces/`, `cache/materialized/`)
+- **Fix**: Updated to match implementation and SCHEMAS.md using flat paths (`store/<hash>/`, `cache/<cacheKey>/`)
+- **Why**: The implementation simplified paths per v0.0.43 changes, but SPEC.md section 4.1 was not fully updated
+- **Before**:
+  ```
+  store/
+    spaces/             # content-addressed space snapshots
+    plugins/            # (future) imported plugin snapshots
+  cache/
+    materialized/       # plugin dirs built from snapshots
+    mcp/                # generated mcp-config files
+  ```
+- **After**:
+  ```
+  store/<hash>/         # content-addressed space snapshots (keyed by integrity hash)
+  cache/<cacheKey>/     # materialized plugin dirs (keyed by plugin cache key)
+  tmp/                  # temporary files during operations
+  ```
+
+---
+
 ## Known Issues
 
 ### Spec Alignment Status
 - All spec files (AGENT-SPACES-V2-SPEC.md, AGENT-SPACES-V2-SCHEMAS.md, IMPLEMENTATION_PLAN.md) are now aligned and consistent
-- Section naming, field names, file formats, and warning codes are synchronized across all documentation
+- Section naming, field names, file formats, path hierarchies, and warning codes are synchronized across all documentation
 
 ### Lint Configuration
 - Biome's `useLiteralKeys` rule is disabled to avoid conflicts with TypeScript strict mode
@@ -342,7 +366,7 @@ Updated SPEC.md for `asp build` command to match implementation:
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.46`
+- Current git tag is `v0.0.47`
 
 ### Test Coverage
 - Total tests: 470 passing (415 package tests + 55 integration tests)
