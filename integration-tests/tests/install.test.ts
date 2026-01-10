@@ -32,8 +32,7 @@ describe('asp install', () => {
   })
 
   afterAll(async () => {
-    // Clean up the sample registry
-    await cleanupSampleRegistry()
+    // Note: Don't clean up sample registry - other parallel tests may need it
   })
 
   beforeEach(async () => {
