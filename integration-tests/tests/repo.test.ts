@@ -208,9 +208,7 @@ version = "1.0.0"
   test('outputs JSON status correctly', async () => {
     const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
 
-    const { stdout } = await execAsync(
-      `bun ${cliPath} repo status --json --asp-home "${aspHome}"`
-    )
+    const { stdout } = await execAsync(`bun ${cliPath} repo status --json --asp-home "${aspHome}"`)
 
     const status = JSON.parse(stdout)
     expect(status.repoPath).toBe(path.join(aspHome, 'repo'))
@@ -225,9 +223,7 @@ version = "1.0.0"
     // Modify a file
     await fs.writeFile(path.join(repoPath, 'new-file.txt'), 'test')
 
-    const { stdout } = await execAsync(
-      `bun ${cliPath} repo status --json --asp-home "${aspHome}"`
-    )
+    const { stdout } = await execAsync(`bun ${cliPath} repo status --json --asp-home "${aspHome}"`)
 
     const status = JSON.parse(stdout)
     expect(status.clean).toBe(false)
