@@ -26,7 +26,161 @@ import {
   runWithPrompt,
 } from '@agent-spaces/engine'
 
+import { handleCliError, logInvocationOutput } from '../helpers.js'
 import { findProjectRoot } from '../index.js'
+
+/**
+ * Run modes for the command.
+ */
+type RunMode = 'project' | 'global' | 'dev' | 'invalid'
+
+/**
+ * CLI options for run command.
+ */
+interface RunOptions {
+  project?: string
+  aspHome?: string
+  registry?: string
+  warnings?: boolean
+  interactive?: boolean
+  extraArgs?: string[]
+}
+
+/**
+ * Check if path is a local space directory.
+ */
+async function isLocalSpacePath(targetPath: string): Promise<boolean> {
+  try {
+    const stats = await stat(targetPath)
+    if (!stats.isDirectory()) return false
+
+    await stat(resolve(targetPath, 'space.toml'))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Detect which run mode to use based on project path and target.
+ */
+async function detectRunMode(projectPath: string | null, target: string): Promise<RunMode> {
+  if (projectPath) {
+    return 'project'
+  }
+
+  if (isSpaceReference(target)) {
+    return 'global'
+  }
+
+  const targetPath = resolve(target)
+  if (await isLocalSpacePath(targetPath)) {
+    return 'dev'
+  }
+
+  return 'invalid'
+}
+
+/**
+ * Run in project mode (target from asp-targets.toml).
+ */
+async function runProjectMode(
+  target: string,
+  prompt: string | undefined,
+  projectPath: string,
+  options: RunOptions
+): Promise<RunResult> {
+  const runOptions = {
+    projectPath,
+    aspHome: options.aspHome,
+    registryPath: options.registry,
+    printWarnings: options.warnings !== false,
+    extraArgs: options.extraArgs,
+  }
+
+  if (prompt) {
+    console.log(chalk.blue(`Running target "${target}" with prompt...`))
+    const result = await runWithPrompt(target, prompt, runOptions)
+    logInvocationOutput(result.invocation)
+    return result
+  }
+
+  if (options.interactive === false) {
+    console.error(chalk.red('Error: --no-interactive requires a prompt'))
+    process.exit(1)
+  }
+
+  console.log(chalk.blue(`Running target "${target}" interactively...`))
+  console.log(chalk.gray('Press Ctrl+C to exit'))
+  console.log('')
+  return runInteractive(target, runOptions)
+}
+
+/**
+ * Run in global mode (space reference from registry).
+ * Note: target is validated as a space reference by isSpaceReference() before this is called.
+ */
+async function runGlobalMode(
+  target: string,
+  prompt: string | undefined,
+  options: RunOptions
+): Promise<RunResult> {
+  console.log(chalk.blue(`Running space "${target}" in global mode...`))
+
+  const globalOptions = {
+    aspHome: options.aspHome,
+    registryPath: options.registry,
+    printWarnings: options.warnings !== false,
+    extraArgs: options.extraArgs,
+    interactive: options.interactive !== false,
+    prompt,
+  }
+
+  // target is validated by isSpaceReference() in detectRunMode before this function is called
+  const result = await runGlobalSpace(target as `space:${string}@${string}`, globalOptions)
+  logInvocationOutput(result.invocation)
+  return result
+}
+
+/**
+ * Run in dev mode (local space directory).
+ */
+async function runDevMode(
+  target: string,
+  prompt: string | undefined,
+  options: RunOptions
+): Promise<RunResult> {
+  const targetPath = resolve(target)
+  console.log(chalk.blue(`Running local space "${target}" in dev mode...`))
+
+  const devOptions = {
+    aspHome: options.aspHome,
+    registryPath: options.registry,
+    printWarnings: options.warnings !== false,
+    extraArgs: options.extraArgs,
+    interactive: options.interactive !== false,
+    prompt,
+  }
+
+  const result = await runLocalSpace(targetPath, devOptions)
+  logInvocationOutput(result.invocation)
+  return result
+}
+
+/**
+ * Show usage help when run mode is invalid.
+ */
+function showInvalidModeHelp(): never {
+  console.error(
+    chalk.red('Error: No asp-targets.toml found and target is not a valid space reference or path')
+  )
+  console.error(chalk.gray(''))
+  console.error(chalk.gray('Usage:'))
+  console.error(chalk.gray('  In a project: asp run <target-name>'))
+  console.error(chalk.gray('  Global mode:  asp run space:my-space@stable'))
+  console.error(chalk.gray('  Dev mode:     asp run ./path/to/space'))
+  process.exit(1)
+}
 
 /**
  * Register the run command.
@@ -43,128 +197,31 @@ export function registerRunCommand(program: Command): void {
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
     .option('--extra-args <args...>', 'Additional Claude CLI arguments')
-    .action(async (target: string, prompt: string | undefined, options) => {
-      // Find project root
+    .action(async (target: string, prompt: string | undefined, options: RunOptions) => {
       const projectPath = options.project ?? (await findProjectRoot())
 
       try {
+        const mode = await detectRunMode(projectPath, target)
         let result: RunResult
 
-        // Determine run mode
-        if (projectPath) {
-          // Project mode: run a target from asp-targets.toml
-          const runOptions = {
-            projectPath,
-            aspHome: options.aspHome,
-            registryPath: options.registry,
-            printWarnings: options.warnings !== false,
-            extraArgs: options.extraArgs,
-          }
-
-          if (prompt) {
-            console.log(chalk.blue(`Running target "${target}" with prompt...`))
-            result = await runWithPrompt(target, prompt, runOptions)
-            if (result.invocation?.stdout) {
-              console.log(result.invocation.stdout)
-            }
-            if (result.invocation?.stderr) {
-              console.error(result.invocation.stderr)
-            }
-          } else if (options.interactive === false) {
-            console.error(chalk.red('Error: --no-interactive requires a prompt'))
-            process.exit(1)
-          } else {
-            console.log(chalk.blue(`Running target "${target}" interactively...`))
-            console.log(chalk.gray('Press Ctrl+C to exit'))
-            console.log('')
-            result = await runInteractive(target, runOptions)
-          }
-        } else if (isSpaceReference(target)) {
-          // Global mode: run a space reference from registry
-          console.log(chalk.blue(`Running space "${target}" in global mode...`))
-
-          const globalOptions = {
-            aspHome: options.aspHome,
-            registryPath: options.registry,
-            printWarnings: options.warnings !== false,
-            extraArgs: options.extraArgs,
-            interactive: options.interactive !== false,
-            prompt,
-          }
-
-          result = await runGlobalSpace(target, globalOptions)
-
-          if (result.invocation?.stdout) {
-            console.log(result.invocation.stdout)
-          }
-          if (result.invocation?.stderr) {
-            console.error(result.invocation.stderr)
-          }
-        } else {
-          // Check if target is a local path to a space directory
-          const targetPath = resolve(target)
-          let isLocalSpace = false
-
-          try {
-            const stats = await stat(targetPath)
-            if (stats.isDirectory()) {
-              // Check if space.toml exists
-              try {
-                await stat(resolve(targetPath, 'space.toml'))
-                isLocalSpace = true
-              } catch {
-                // No space.toml, not a space directory
-              }
-            }
-          } catch {
-            // Path doesn't exist
-          }
-
-          if (isLocalSpace) {
-            // Dev mode: run a local space directory
-            console.log(chalk.blue(`Running local space "${target}" in dev mode...`))
-
-            const devOptions = {
-              aspHome: options.aspHome,
-              registryPath: options.registry,
-              printWarnings: options.warnings !== false,
-              extraArgs: options.extraArgs,
-              interactive: options.interactive !== false,
-              prompt,
-            }
-
-            result = await runLocalSpace(targetPath, devOptions)
-
-            if (result.invocation?.stdout) {
-              console.log(result.invocation.stdout)
-            }
-            if (result.invocation?.stderr) {
-              console.error(result.invocation.stderr)
-            }
-          } else {
-            // Not in a project, not a space ref, not a local path
-            console.error(
-              chalk.red(
-                'Error: No asp-targets.toml found and target is not a valid space reference or path'
-              )
-            )
-            console.error(chalk.gray(''))
-            console.error(chalk.gray('Usage:'))
-            console.error(chalk.gray('  In a project: asp run <target-name>'))
-            console.error(chalk.gray('  Global mode:  asp run space:my-space@stable'))
-            console.error(chalk.gray('  Dev mode:     asp run ./path/to/space'))
-            process.exit(1)
-          }
+        switch (mode) {
+          case 'project':
+            // projectPath is guaranteed non-null when mode is 'project' (checked in detectRunMode)
+            result = await runProjectMode(target, prompt, projectPath as string, options)
+            break
+          case 'global':
+            result = await runGlobalMode(target, prompt, options)
+            break
+          case 'dev':
+            result = await runDevMode(target, prompt, options)
+            break
+          case 'invalid':
+            showInvalidModeHelp()
         }
 
         process.exit(result.exitCode)
       } catch (error) {
-        if (error instanceof Error) {
-          console.error(chalk.red(`Error: ${error.message}`))
-        } else {
-          console.error(chalk.red(`Error: ${String(error)}`))
-        }
-        process.exit(1)
+        handleCliError(error)
       }
     })
 }
