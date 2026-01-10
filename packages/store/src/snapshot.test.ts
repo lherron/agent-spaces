@@ -230,19 +230,22 @@ describe('snapshot storage', () => {
       await mkdir(snapshotPath, { recursive: true })
       await writeFile(join(snapshotPath, 'hello.txt'), 'hello')
 
-      // Read and compute hash manually (simplified version of algorithm)
-      // The actual algorithm is: sha256("v1\0" + for each file sorted: "path\0blob\0sha256(content)\0mode\n")
+      // Read and compute hash manually using git-style blob OIDs
+      // Algorithm: sha256("v1\0" + for each file sorted: "path\0blob\0gitBlobOid\0mode\n")
+      // Git blob OID: SHA-1("blob <size>\0<content>")
       const { createHash } = await import('node:crypto')
       const { stat } = await import('node:fs/promises')
 
       const content = await readFile(join(snapshotPath, 'hello.txt'))
-      const contentHash = createHash('sha256').update(content).digest('hex')
+      // Compute git-style blob OID: SHA-1("blob <size>\0<content>")
+      const blobHeader = `blob ${content.length}\0`
+      const blobOid = createHash('sha1').update(blobHeader).update(content).digest('hex')
       const stats = await stat(join(snapshotPath, 'hello.txt'))
       const mode = stats.mode & 0o111 ? '100755' : '100644'
 
       const finalHash = createHash('sha256')
       finalHash.update('v1\0')
-      finalHash.update(`hello.txt\0blob\0${contentHash}\0${mode}\n`)
+      finalHash.update(`hello.txt\0blob\0${blobOid}\0${mode}\n`)
       const computedIntegrity = asSha256Integrity(`sha256:${finalHash.digest('hex')}`)
 
       // Move snapshot to correct location

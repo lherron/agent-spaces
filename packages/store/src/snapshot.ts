@@ -152,6 +152,11 @@ export async function verifySnapshot(
 /**
  * Compute integrity hash for a snapshot directory.
  * Uses file walk since this is a local filesystem operation.
+ *
+ * IMPORTANT: This must match the algorithm in resolver/integrity.ts which uses
+ * git tree entries. To be compatible, we compute git-style blob OIDs:
+ * - For each file: SHA-1("blob <size>\0<content>") - matches git's blob format
+ * - The overall integrity hash is SHA-256 of the canonical representation
  */
 async function computeSnapshotIntegrity(snapshotPath: string): Promise<Sha256Integrity> {
   const entries = await collectFileEntries(snapshotPath, '')
@@ -167,8 +172,8 @@ async function computeSnapshotIntegrity(snapshotPath: string): Promise<Sha256Int
   hash.update('v1\0')
 
   for (const entry of filtered) {
-    // path\0type\0hash\0mode\n
-    hash.update(`${entry.path}\0${entry.type}\0${entry.contentHash}\0${entry.mode}\n`)
+    // path\0type\0blobOid\0mode\n (blobOid is git-style SHA-1)
+    hash.update(`${entry.path}\0${entry.type}\0${entry.blobOid}\0${entry.mode}\n`)
   }
 
   return asSha256Integrity(`sha256:${hash.digest('hex')}`)
@@ -177,8 +182,18 @@ async function computeSnapshotIntegrity(snapshotPath: string): Promise<Sha256Int
 interface FileEntry {
   path: string
   type: 'blob' | 'tree'
-  contentHash: string
+  /** Git-style blob OID: SHA-1("blob <size>\0<content>") */
+  blobOid: string
   mode: string
+}
+
+/**
+ * Compute git-style blob OID for file content.
+ * Git stores blobs as: SHA-1("blob <size>\0<content>")
+ */
+function computeGitBlobOid(content: Buffer): string {
+  const header = `blob ${content.length}\0`
+  return createHash('sha1').update(header).update(content).digest('hex')
 }
 
 async function collectFileEntries(basePath: string, relativePath: string): Promise<FileEntry[]> {
@@ -197,14 +212,15 @@ async function collectFileEntries(basePath: string, relativePath: string): Promi
     } else if (item.isFile()) {
       const itemFullPath = join(basePath, itemRelPath)
       const content = await readFile(itemFullPath)
-      const contentHash = createHash('sha256').update(content).digest('hex')
+      // Use git-style blob OID to match resolver/integrity.ts
+      const blobOid = computeGitBlobOid(content)
       const stats = await stat(itemFullPath)
       const mode = stats.mode & 0o111 ? '100755' : '100644'
 
       entries.push({
         path: itemRelPath,
         type: 'blob',
-        contentHash,
+        blobOid,
         mode,
       })
     }
