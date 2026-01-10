@@ -101,10 +101,11 @@
 - [x] `src/rules/W204-invalid-hooks-config.ts` - hooks/ exists but hooks.json missing/invalid
 - [x] `src/rules/W205-plugin-name-collision.ts` - Two spaces produce same plugin name
 - [x] `src/rules/W206-non-executable-hook-script.ts` - Hook script not executable
+- [x] `src/rules/W207-invalid-plugin-structure.ts` - Component directories nested inside .claude-plugin/
 - [x] `src/reporter.ts` - Warning output formatter
 - [x] `src/index.ts` - Public exports
 - [x] `package.json` - Package setup
-- [x] Unit tests for each rule (38 tests)
+- [x] Unit tests for each rule (44 tests)
 
 ---
 
@@ -216,7 +217,7 @@
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Latest git tag is `v0.0.20`
+- Latest git tag is `v0.0.21`
 
 ### Outstanding TODOs
 - [x] `packages/cli/src/commands/upgrade.ts` - Filter space by ID in upgrade command (implemented via `pinnedSpaces` in resolver and `upgradeSpaceIds` in engine)

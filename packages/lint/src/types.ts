@@ -64,6 +64,7 @@ export const WARNING_CODES = {
   INVALID_HOOKS_CONFIG: 'W204',
   PLUGIN_NAME_COLLISION: 'W205',
   NON_EXECUTABLE_HOOK_SCRIPT: 'W206',
+  INVALID_PLUGIN_STRUCTURE: 'W207',
 } as const
 
 export type WarningCode = (typeof WARNING_CODES)[keyof typeof WARNING_CODES]

@@ -18,6 +18,7 @@ import { checkHookPaths } from './W203-hook-path-no-plugin-root.js'
 import { checkHooksConfig } from './W204-invalid-hooks-config.js'
 import { checkPluginNameCollisions } from './W205-plugin-name-collision.js'
 import { checkHookScriptsExecutable } from './W206-non-executable-hook-script.js'
+import { checkPluginStructure } from './W207-invalid-plugin-structure.js'
 
 let tempDir: string
 
@@ -515,6 +516,110 @@ describe('W206: checkHookScriptsExecutable', () => {
     }
 
     const warnings = await checkHookScriptsExecutable(context)
+    expect(warnings).toHaveLength(0)
+  })
+})
+
+describe('W207: checkPluginStructure', () => {
+  it('should return no warnings when no .claude-plugin directory', async () => {
+    const plugin = join(tempDir, 'plugin')
+    await mkdir(join(plugin, 'commands'), { recursive: true })
+    await writeFile(join(plugin, 'commands', 'cmd.md'), '# Command')
+
+    const context: LintContext = {
+      spaces: [
+        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
+      ],
+    }
+
+    const warnings = await checkPluginStructure(context)
+    expect(warnings).toHaveLength(0)
+  })
+
+  it('should return no warnings when .claude-plugin has only plugin.json', async () => {
+    const plugin = join(tempDir, 'plugin')
+    await mkdir(join(plugin, '.claude-plugin'), { recursive: true })
+    await mkdir(join(plugin, 'commands'), { recursive: true })
+    await writeFile(
+      join(plugin, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'test-plugin' })
+    )
+    await writeFile(join(plugin, 'commands', 'cmd.md'), '# Command')
+
+    const context: LintContext = {
+      spaces: [
+        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
+      ],
+    }
+
+    const warnings = await checkPluginStructure(context)
+    expect(warnings).toHaveLength(0)
+  })
+
+  it('should warn when commands/ is inside .claude-plugin/', async () => {
+    const plugin = join(tempDir, 'plugin')
+    await mkdir(join(plugin, '.claude-plugin', 'commands'), { recursive: true })
+    await writeFile(join(plugin, '.claude-plugin', 'commands', 'cmd.md'), '# Command')
+
+    const context: LintContext = {
+      spaces: [
+        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
+      ],
+    }
+
+    const warnings = await checkPluginStructure(context)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]?.code).toBe(WARNING_CODES.INVALID_PLUGIN_STRUCTURE)
+    expect(warnings[0]?.message).toContain('commands/')
+    expect(warnings[0]?.message).toContain('plugin root')
+  })
+
+  it('should warn when agents/ is inside .claude-plugin/', async () => {
+    const plugin = join(tempDir, 'plugin')
+    await mkdir(join(plugin, '.claude-plugin', 'agents'), { recursive: true })
+    await writeFile(join(plugin, '.claude-plugin', 'agents', 'agent.md'), '# Agent')
+
+    const context: LintContext = {
+      spaces: [
+        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
+      ],
+    }
+
+    const warnings = await checkPluginStructure(context)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]?.code).toBe(WARNING_CODES.INVALID_PLUGIN_STRUCTURE)
+    expect(warnings[0]?.message).toContain('agents/')
+  })
+
+  it('should detect multiple nested component directories', async () => {
+    const plugin = join(tempDir, 'plugin')
+    await mkdir(join(plugin, '.claude-plugin', 'commands'), { recursive: true })
+    await mkdir(join(plugin, '.claude-plugin', 'skills'), { recursive: true })
+    await mkdir(join(plugin, '.claude-plugin', 'hooks'), { recursive: true })
+
+    const context: LintContext = {
+      spaces: [
+        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
+      ],
+    }
+
+    const warnings = await checkPluginStructure(context)
+    expect(warnings).toHaveLength(3)
+    expect(warnings.every((w) => w.code === WARNING_CODES.INVALID_PLUGIN_STRUCTURE)).toBe(true)
+  })
+
+  it('should not warn about non-component directories in .claude-plugin', async () => {
+    const plugin = join(tempDir, 'plugin')
+    await mkdir(join(plugin, '.claude-plugin', 'other'), { recursive: true })
+    await writeFile(join(plugin, '.claude-plugin', 'other', 'file.txt'), 'content')
+
+    const context: LintContext = {
+      spaces: [
+        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
+      ],
+    }
+
+    const warnings = await checkPluginStructure(context)
     expect(warnings).toHaveLength(0)
   })
 })
