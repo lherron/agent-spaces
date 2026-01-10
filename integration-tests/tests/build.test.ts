@@ -187,4 +187,30 @@ describe('asp build', () => {
     const collisionWarnings = result.warnings.filter((w) => w.code === 'W201')
     expect(collisionWarnings.length).toBe(0)
   })
+
+  test('emits W301 warning when lock file is missing and auto-generated', async () => {
+    // Create project without installing (no lock file)
+    await cleanupTempProject(projectDir)
+    projectDir = await createTempProject({
+      single: {
+        compose: ['space:base@stable'],
+      },
+    })
+
+    // Build with autoInstall=true (default)
+    // This should auto-generate the lock file and emit W301
+    const result = await build('single', {
+      projectPath: projectDir,
+      registryPath: SAMPLE_REGISTRY_DIR,
+      aspHome,
+      outputDir,
+      autoInstall: true,
+    })
+
+    // Should have W301 lock-missing warning
+    const lockMissingWarning = result.warnings.find((w) => w.code === 'W301')
+    expect(lockMissingWarning).toBeDefined()
+    expect(lockMissingWarning?.severity).toBe('info')
+    expect(lockMissingWarning?.message).toContain('auto-generated')
+  })
 })
