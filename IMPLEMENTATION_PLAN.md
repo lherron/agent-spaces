@@ -232,7 +232,7 @@
 
 ### Lint Configuration
 - Biome's `useLiteralKeys` rule is disabled to avoid conflicts with TypeScript strict mode
-- Lint status: 0 errors, 67 warnings remaining
+- Lint status: 0 errors, 69 warnings remaining
 - Warnings are acceptable complexity warnings and noNonNullAssertion warnings
 
 ### Integration Test Issues
@@ -255,6 +255,19 @@
 - [x] W301 lock-missing warning implemented
 - [x] Warnings now stored in lock file during resolution (W205)
 - [x] CLI commands integration tests: add, remove, upgrade, diff, explain, list, doctor, gc (26 new tests)
+
+### Spec Gaps (Optional/Future Features)
+These features are mentioned in specs but not yet implemented:
+
+**Medium Priority:**
+- [ ] `--strict-mcp-config` flag support - Mentioned in spec for Claude invocation
+- [ ] Global lock persistence - Global mode should persist pins to `$ASP_HOME/global-lock.json`
+- [ ] `asp repo gc` command - Repository-level garbage collection (distinct from cache gc)
+
+**Low Priority (Marked Optional in Spec):**
+- [ ] `asp ui` command - Optional repo management UI
+- [ ] `asp space` namespace - Authoring helpers (new/bump/validate), marked as postponable
+- [ ] TypeScript hook compilation - Future feature for TS hook authoring
 
 ---
 
