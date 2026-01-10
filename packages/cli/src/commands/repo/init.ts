@@ -78,7 +78,10 @@ export function registerRepoInitCommand(parent: Command): void {
           }
 
           // Create dist-tags.json
-          await Bun.write(`${paths.repo}/registry/dist-tags.json`, JSON.stringify(distTags, null, 2))
+          await Bun.write(
+            `${paths.repo}/registry/dist-tags.json`,
+            JSON.stringify(distTags, null, 2)
+          )
 
           // Create README
           await Bun.write(
@@ -126,10 +129,10 @@ Run \`asp run space:agent-spaces-manager@stable\` to get started.
           console.log('')
           console.log(chalk.gray('Next steps:'))
           if (installManager) {
+            console.log(chalk.cyan('  Run: asp run space:agent-spaces-manager@stable'))
             console.log(
-              chalk.cyan('  Run: asp run space:agent-spaces-manager@stable')
+              chalk.gray('  The manager space will guide you through creating your first space.')
             )
-            console.log(chalk.gray('  The manager space will guide you through creating your first space.'))
           } else {
             console.log(chalk.gray('  1. Add spaces under spaces/'))
             console.log(chalk.gray('  2. Commit your changes'))

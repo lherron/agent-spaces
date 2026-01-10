@@ -5,9 +5,9 @@
  * unreferenced entries. Complements project-level `asp gc`.
  */
 
+import { rm, stat } from 'node:fs/promises'
 import chalk from 'chalk'
 import type { Command } from 'commander'
-import { rm, stat } from 'node:fs/promises'
 
 import { lockFileExists, readLockJson } from '@agent-spaces/core'
 import { gitExec } from '@agent-spaces/git'
