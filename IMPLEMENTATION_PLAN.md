@@ -351,11 +351,20 @@ Updated SPEC.md for `asp build` command to match implementation:
 
 ---
 
+## Spec Alignment (v0.0.48)
+
+### PLAN.md Lint Rules Fix
+- **Issue**: PLAN.md was missing W202 (agent-command-namespace) and W207 (invalid-plugin-structure) lint rules
+- **Fix**: Added W202 and W207 to both the directory tree listing and Phase 6 lint rules section
+- **Why**: These rules were documented in SPEC.md and implemented in the codebase but missing from PLAN.md
+
+---
+
 ## Known Issues
 
 ### Spec Alignment Status
-- All spec files (AGENT-SPACES-V2-SPEC.md, AGENT-SPACES-V2-SCHEMAS.md, IMPLEMENTATION_PLAN.md) are now aligned and consistent
-- Section naming, field names, file formats, path hierarchies, and warning codes are synchronized across all documentation
+- All spec files (AGENT-SPACES-V2-SPEC.md, AGENT-SPACES-V2-SCHEMAS.md, AGENT-SPACES-V2-PLAN.md, IMPLEMENTATION_PLAN.md) are now aligned and consistent
+- Section naming, field names, file formats, path hierarchies, warning codes, and lint rules are synchronized across all documentation
 
 ### Lint Configuration
 - Biome's `useLiteralKeys` rule is disabled to avoid conflicts with TypeScript strict mode
@@ -366,7 +375,7 @@ Updated SPEC.md for `asp build` command to match implementation:
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.47`
+- Current git tag is `v0.0.48`
 
 ### Test Coverage
 - Total tests: 470 passing (415 package tests + 55 integration tests)
