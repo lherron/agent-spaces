@@ -198,19 +198,25 @@
 ### Core Package Tests
 - Fixed lint errors in `refs.test.ts` (template literal conversion for string concatenation)
 
+### Lint Rule and Type Assertion Fixes
+- Fixed assignment-in-expression in W202 lint rule (using matchAll for safe iteration)
+- Replaced `any` type assertions with proper type conversion functions
+- Updated gc.test.ts to use valid commit SHA format
+
 ---
 
 ## Known Issues
 
 ### Lint Configuration
 - Biome's `useLiteralKeys` rule is disabled to avoid conflicts with TypeScript strict mode
-- Lint warnings: 46 total (complexity warnings, noExplicitAny, noNonNullAssertion) - these are acceptable and do not cause errors
+- Lint status: 0 errors, 43 warnings remaining
+- Warnings are acceptable complexity warnings and noNonNullAssertion warnings
 
 ### Integration Test Issues
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Git tag `v0.0.15` created for current implementation state
+- Latest git tag is `v0.0.20`
 
 ### Outstanding TODOs
 - [x] `packages/cli/src/commands/upgrade.ts` - Filter space by ID in upgrade command (implemented via `pinnedSpaces` in resolver and `upgradeSpaceIds` in engine)
