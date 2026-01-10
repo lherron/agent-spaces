@@ -281,6 +281,16 @@ The following fixes were applied to align the SPEC with the implementation and S
 
 ---
 
+## Spec Alignment (v0.0.42)
+
+Fixed spec inconsistency for `asp add` and `asp remove` command syntax:
+- SPEC document previously showed: `asp add <target> <spaceRef>` (positional args)
+- PLAN document and implementation use: `asp add <spaceRef> --target <name>` (flag-based)
+- Updated SPEC to match PLAN and implementation for consistency
+- Flag-based syntax follows npm/yarn/pnpm precedent and provides better UX
+
+---
+
 ## Known Issues
 
 ### Spec Alignment Status
@@ -296,7 +306,7 @@ The following fixes were applied to align the SPEC with the implementation and S
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.41`
+- Current git tag is `v0.0.42`
 
 ### Test Coverage
 - Total tests: 470 passing (415 package tests + 55 integration tests)
