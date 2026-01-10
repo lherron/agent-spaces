@@ -10,5 +10,29 @@
   "backend": {
     "stable": "v1.0.0",
     "latest": "v1.0.0"
+  },
+  "hooks-bad-path": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
+  },
+  "hooks-invalid": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
+  },
+  "same-plugin-a": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
+  },
+  "same-plugin-b": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
+  },
+  "hooks-non-exec": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
+  },
+  "bad-structure": {
+    "stable": "v1.0.0",
+    "latest": "v1.0.0"
   }
 }

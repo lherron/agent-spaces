@@ -81,6 +81,25 @@ export async function initSampleRegistry(): Promise<void> {
   // Backend space v1.0.0
   await execAsync('git tag space/backend/v1.0.0', { cwd: registryDir })
   await execAsync('git tag space/backend/stable', { cwd: registryDir })
+
+  // Test spaces for lint warnings W203-W207
+  await execAsync('git tag space/hooks-bad-path/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/hooks-bad-path/stable', { cwd: registryDir })
+
+  await execAsync('git tag space/hooks-invalid/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/hooks-invalid/stable', { cwd: registryDir })
+
+  await execAsync('git tag space/same-plugin-a/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/same-plugin-a/stable', { cwd: registryDir })
+
+  await execAsync('git tag space/same-plugin-b/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/same-plugin-b/stable', { cwd: registryDir })
+
+  await execAsync('git tag space/hooks-non-exec/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/hooks-non-exec/stable', { cwd: registryDir })
+
+  await execAsync('git tag space/bad-structure/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/bad-structure/stable', { cwd: registryDir })
 }
 
 /**

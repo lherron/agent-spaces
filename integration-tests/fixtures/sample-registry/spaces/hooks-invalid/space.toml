@@ -1,0 +1,7 @@
+schema = 1
+id = "hooks-invalid"
+version = "1.0.0"
+description = "Test space for W204 - invalid hooks config"
+
+[plugin]
+name = "hooks-invalid"

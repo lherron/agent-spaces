@@ -63,7 +63,7 @@ export async function checkHookScriptsExecutable(context: LintContext): Promise<
 
   for (const space of context.spaces) {
     const config = await readHooksConfig(space.pluginPath)
-    if (config === null) {
+    if (config === null || !config.hooks || !Array.isArray(config.hooks)) {
       continue
     }
 

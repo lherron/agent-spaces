@@ -46,7 +46,7 @@ export async function checkHookPaths(context: LintContext): Promise<LintWarning[
 
   for (const space of context.spaces) {
     const config = await readHooksConfig(space.pluginPath)
-    if (config === null) {
+    if (config === null || !config.hooks || !Array.isArray(config.hooks)) {
       continue
     }
 

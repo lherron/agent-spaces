@@ -1,0 +1,7 @@
+schema = 1
+id = "same-plugin-a"
+version = "1.0.0"
+description = "Test space for W205 - plugin name collision (space A)"
+
+[plugin]
+name = "shared-plugin"

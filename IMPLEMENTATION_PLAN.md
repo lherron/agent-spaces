@@ -1,8 +1,8 @@
 # Implementation Plan: Agent Spaces v2
 
-**Status:** Core implementation complete. All 478 tests passing, 0 lint warnings.
+**Status:** Core implementation complete. All 483 tests passing, 0 lint warnings.
 
-**Latest Tag:** v0.0.57
+**Latest Tag:** v0.0.58
 
 ---
 
@@ -14,6 +14,18 @@ All cognitive complexity warnings eliminated (62 → 0):
 - Refactored all CLI commands, validators, and engine modules
 - Configured Biome test file overrides for `noExplicitAny`
 
+### W203-W207 Lint Warning Tests (v0.0.59)
+Added integration tests for all hook-related lint warnings:
+- W203 `hook-path-no-plugin-root`: Hook path with relative `..` references
+- W204 `invalid-hooks-config`: hooks/ exists but hooks.json missing/invalid
+- W205 `plugin-name-collision`: Two spaces produce same plugin name
+- W206 `non-executable-hook-script`: Hook script not executable
+- W207 `invalid-plugin-structure`: Component dirs inside `.claude-plugin/`
+
+**Bug fixes:**
+- Fixed materializer's `validateHooks` to handle invalid hooks.json gracefully
+- Fixed lint rules W203, W206 to check for valid hooks array before iterating
+
 ---
 
 ## Current Priorities: Integration Test Coverage Gaps
@@ -22,13 +34,7 @@ Based on spec analysis, the following test gaps should be addressed:
 
 ### Priority 1: Critical for MVP
 
-- [ ] **W203-W207 Lint Warning Tests**
-  - W203 `hook-path-no-plugin-root`: Hook path missing `${CLAUDE_PLUGIN_ROOT}`
-  - W204 `invalid-hooks-config`: hooks/ exists but hooks.json missing/invalid
-  - W205 `plugin-name-collision`: Two spaces produce same plugin name
-  - W206 `non-executable-hook-script`: Hook script not executable
-  - W207 `invalid-plugin-structure`: Component dirs inside `.claude-plugin/`
-  - Currently only W201 (command collision) and W202 (agent namespace) are tested
+- [x] **W203-W207 Lint Warning Tests** (COMPLETE)
 
 - [ ] **MCP Config Generation Tests**
   - Test MCP config composition from multiple spaces
@@ -107,8 +113,8 @@ Based on spec analysis, the following test gaps should be addressed:
 | cli | 1 | ✅ |
 | engine | 1 | ✅ |
 | materializer | 19 | ✅ |
-| integration-tests | 55 | ✅ |
-| **Total** | **478** | **✅** |
+| integration-tests | 60 | ✅ |
+| **Total** | **483** | **✅** |
 
 ---
 

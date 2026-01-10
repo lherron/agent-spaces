@@ -104,6 +104,12 @@ export async function validateHooks(dir: string): Promise<HookValidationResult> 
     return result
   }
 
+  // Check that hooks array exists and is valid
+  if (!config.hooks || !Array.isArray(config.hooks)) {
+    result.warnings.push('hooks.json is missing or has invalid hooks array')
+    return result
+  }
+
   // Validate each hook
   for (const hook of config.hooks) {
     const scriptPath = join(hooksDir, hook.script)
@@ -136,7 +142,7 @@ export async function validateHooks(dir: string): Promise<HookValidationResult> 
  */
 export async function ensureHooksExecutable(dir: string): Promise<void> {
   const config = await readHooksConfig(dir)
-  if (config === null) {
+  if (config === null || !config.hooks || !Array.isArray(config.hooks)) {
     return
   }
 
@@ -160,6 +166,10 @@ export async function ensureHooksExecutable(dir: string): Promise<void> {
  */
 export function checkHookPaths(config: HooksConfig): string[] {
   const warnings: string[] = []
+
+  if (!config.hooks || !Array.isArray(config.hooks)) {
+    return warnings
+  }
 
   for (const hook of config.hooks) {
     // This is a simple heuristic - in real usage, we'd check if paths
