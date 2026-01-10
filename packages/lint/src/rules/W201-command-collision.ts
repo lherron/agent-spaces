@@ -11,6 +11,14 @@ import type { LintContext, LintWarning, SpaceLintData } from '../types.js'
 import { WARNING_CODES } from '../types.js'
 
 /**
+ * Get the plugin name for a space (used for namespace recommendation).
+ * Uses plugin.name if defined, otherwise falls back to space ID.
+ */
+function getPluginName(space: SpaceLintData): string {
+  return space.manifest.plugin?.name ?? String(space.manifest.id)
+}
+
+/**
  * Get all command names from a space's commands directory.
  */
 async function getCommandNames(pluginPath: string): Promise<string[]> {
@@ -61,8 +69,9 @@ export async function checkCommandCollisions(context: LintContext): Promise<Lint
   for (const [command, owners] of commandOwners) {
     if (owners.length > 1) {
       const spaceIds = owners.map((s) => String(s.manifest.id)).join(', ')
-      // Provide disambiguation suggestions per spec: /<space-id>:<command>
-      const suggestions = owners.map((s) => `/${s.manifest.id}:${command}`).join(', ')
+      // Provide disambiguation suggestions per spec: /<plugin-name>:<command>
+      // Uses plugin.name if defined, otherwise falls back to space ID
+      const suggestions = owners.map((s) => `/${getPluginName(s)}:${command}`).join(', ')
       warnings.push({
         code: WARNING_CODES.COMMAND_COLLISION,
         message: `Command '${command}' is defined in multiple spaces: ${spaceIds}. Use qualified names: ${suggestions}`,
@@ -70,7 +79,7 @@ export async function checkCommandCollisions(context: LintContext): Promise<Lint
         details: {
           command,
           spaces: owners.map((s) => s.key),
-          suggestions: owners.map((s) => `/${s.manifest.id}:${command}`),
+          suggestions: owners.map((s) => `/${getPluginName(s)}:${command}`),
         },
       })
     }

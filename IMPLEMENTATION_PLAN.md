@@ -317,6 +317,16 @@ Updated SPEC.md for `asp build` command to match implementation:
 
 ---
 
+## Bug Fixes Applied (v0.0.46)
+
+### W201 Plugin Name Consistency
+- **Issue**: W201 (command-collision) used `manifest.id` for disambiguation suggestions, while W202 (agent-command-namespace) correctly used `plugin.name ?? manifest.id`
+- **Fix**: Updated W201 to use `getPluginName()` helper function, consistent with W202
+- **Why**: When a space defines a custom `plugin.name` in its manifest, disambiguation suggestions should use the actual plugin name (e.g., `/my-plugin:command`) rather than the space ID
+- **Impact**: Disambiguation suggestions now correctly use plugin names when defined
+
+---
+
 ## Known Issues
 
 ### Spec Alignment Status
@@ -332,7 +342,7 @@ Updated SPEC.md for `asp build` command to match implementation:
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.45`
+- Current git tag is `v0.0.46`
 
 ### Test Coverage
 - Total tests: 470 passing (415 package tests + 55 integration tests)
