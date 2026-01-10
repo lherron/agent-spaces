@@ -7,6 +7,7 @@
 
 import type { Command } from 'commander'
 
+import { registerRepoGcCommand } from './gc.js'
 import { registerRepoInitCommand } from './init.js'
 import { registerRepoPublishCommand } from './publish.js'
 import { registerRepoStatusCommand } from './status.js'
@@ -22,4 +23,5 @@ export function registerRepoCommands(program: Command): void {
   registerRepoStatusCommand(repo)
   registerRepoPublishCommand(repo)
   registerRepoTagsCommand(repo)
+  registerRepoGcCommand(repo)
 }
