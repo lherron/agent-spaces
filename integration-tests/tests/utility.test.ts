@@ -521,7 +521,8 @@ describe('asp gc', () => {
     // Should report snapshot deleted
     expect(result.snapshotsDeleted).toBe(1)
 
-    // Note: bytesFreed is not currently implemented (always 0)
-    // This is a known limitation tracked for future improvement
+    // bytesFreed should include the size of deleted content
+    // The orphan file is 1000 bytes ('x'.repeat(1000))
+    expect(result.bytesFreed).toBe(1000)
   })
 })
