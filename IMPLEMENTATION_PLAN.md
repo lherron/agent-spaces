@@ -393,7 +393,7 @@ These changes align all three spec files (SPEC.md, SCHEMAS.md, PLAN.md) so they 
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.48`
+- Current git tag is `v0.0.49`
 
 ### Test Coverage
 - Total tests: 470 passing (415 package tests + 55 integration tests)

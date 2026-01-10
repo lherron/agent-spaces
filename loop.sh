@@ -53,9 +53,9 @@ while true; do
     # --model opus: Primary agent uses Opus for complex reasoning (task selection, prioritization)
     #               Can use 'sonnet' in build mode for speed if plan is clear and tasks well-defined
     # --verbose: Detailed execution logging
+    #    --output-format=stream-json \
     cat "$PROMPT_FILE" | claude -p \
         --dangerously-skip-permissions \
-        --output-format=stream-json \
         --model opus \
         --verbose
 
