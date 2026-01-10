@@ -2,7 +2,7 @@
 
 **Status:** Core implementation complete. All 490 tests passing, 0 lint warnings.
 
-**Latest Tag:** v0.0.59
+**Latest Tag:** v0.0.60
 
 ---
 
