@@ -10,9 +10,16 @@ import { join } from 'node:path'
 import { ensureDir } from '@agent-spaces/store'
 
 /**
+ * MCP server type - currently only "stdio" is supported.
+ */
+export type McpServerType = 'stdio'
+
+/**
  * MCP server definition.
  */
 export interface McpServerConfig {
+  /** Server type - "stdio" for command-line MCP servers */
+  type: McpServerType
   /** Command to run the server */
   command: string
   /** Arguments to pass */

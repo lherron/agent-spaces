@@ -12,12 +12,12 @@ describe('composeMcpConfigs', () => {
   it('should compose multiple configs', () => {
     const config1: McpConfig = {
       mcpServers: {
-        server1: { command: 'cmd1' },
+        server1: { type: 'stdio', command: 'cmd1' },
       },
     }
     const config2: McpConfig = {
       mcpServers: {
-        server2: { command: 'cmd2' },
+        server2: { type: 'stdio', command: 'cmd2' },
       },
     }
 
@@ -30,12 +30,12 @@ describe('composeMcpConfigs', () => {
   it('should override earlier configs with later ones', () => {
     const config1: McpConfig = {
       mcpServers: {
-        server1: { command: 'original' },
+        server1: { type: 'stdio', command: 'original' },
       },
     }
     const config2: McpConfig = {
       mcpServers: {
-        server1: { command: 'override' },
+        server1: { type: 'stdio', command: 'override' },
       },
     }
 
@@ -54,11 +54,11 @@ describe('checkMcpCollisions', () => {
     const configs = [
       {
         spaceId: 'space-a',
-        config: { mcpServers: { shared: { command: 'cmd' } } },
+        config: { mcpServers: { shared: { type: 'stdio' as const, command: 'cmd' } } },
       },
       {
         spaceId: 'space-b',
-        config: { mcpServers: { shared: { command: 'cmd2' } } },
+        config: { mcpServers: { shared: { type: 'stdio' as const, command: 'cmd2' } } },
       },
     ]
 
@@ -73,11 +73,11 @@ describe('checkMcpCollisions', () => {
     const configs = [
       {
         spaceId: 'space-a',
-        config: { mcpServers: { server1: { command: 'cmd' } } },
+        config: { mcpServers: { server1: { type: 'stdio' as const, command: 'cmd' } } },
       },
       {
         spaceId: 'space-b',
-        config: { mcpServers: { server2: { command: 'cmd2' } } },
+        config: { mcpServers: { server2: { type: 'stdio' as const, command: 'cmd2' } } },
       },
     ]
 
