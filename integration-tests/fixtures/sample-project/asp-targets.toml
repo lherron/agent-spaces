@@ -1,0 +1,23 @@
+# Sample project targets configuration
+# WHY: This project composes frontend and backend spaces for development
+
+schema = 1
+
+[targets.dev]
+description = "Full-stack development environment"
+compose = [
+  "space:frontend@stable",
+  "space:backend@stable"
+]
+
+[targets.frontend-only]
+description = "Frontend development only"
+compose = [
+  "space:frontend@stable"
+]
+
+[targets.backend-only]
+description = "Backend development only"
+compose = [
+  "space:backend@stable"
+]

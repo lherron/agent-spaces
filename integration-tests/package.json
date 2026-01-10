@@ -1,0 +1,21 @@
+{
+  "name": "@agent-spaces/integration-tests",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "test:real-claude": "RUN_REAL_CLAUDE=1 bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.14",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@agent-spaces/cli": "workspace:*",
+    "@agent-spaces/core": "workspace:*",
+    "@agent-spaces/engine": "workspace:*",
+    "@agent-spaces/resolver": "workspace:*",
+    "@agent-spaces/store": "workspace:*"
+  }
+}
