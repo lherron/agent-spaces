@@ -378,6 +378,24 @@ These changes align all three spec files (SPEC.md, SCHEMAS.md, PLAN.md) so they 
 
 ---
 
+## Spec Alignment (v0.0.51)
+
+Multiple inconsistencies between spec documents were identified and fixed:
+
+### SCHEMAS.md Fixes
+1. **Dist-tag resolution description corrected** - Changed from "resolve git tag `space/<id>/<tag>`" to "look up version from `registry/dist-tags.json`, then resolve git tag". Dist-tags are committed metadata, not git tags.
+2. **Added dist-tags.json schema** - Added formal JSON schema for `registry/dist-tags.json` (Section 1.4) with pattern validation, example, and documentation.
+
+### SPEC.md Fixes
+1. **Command syntax aligned with PLAN** - Updated `asp build` and `asp explain` to support `<target|spaceRef|path>` (not just `<target>`)
+2. **Removed `[prompt]` from asp run** - SPEC had `asp run <target|spaceRef|path> [prompt]` but PLAN doesn't mention prompt argument
+3. **Added `--target` and `--json` flags to asp diff** - Was missing in SPEC, present in PLAN
+4. **W204 description expanded** - Added "or references missing scripts" to match PLAN's more comprehensive description
+5. **W301 severity clarified** - Added "(info severity)" to match PLAN's explicit severity designation
+6. **Cache path formatting fixed** - The `.asp/cache-metadata.json` was incorrectly indented under `skills/`; fixed to be at root level
+
+---
+
 ## Known Issues
 
 ### Spec Alignment Status
@@ -393,7 +411,7 @@ These changes align all three spec files (SPEC.md, SCHEMAS.md, PLAN.md) so they 
 - All integration tests passing. Previously skipped "exits with claude exit code" test is now fixed by adding `env` option to RunOptions to pass env vars to subprocess.
 
 ### Version Tags
-- Current git tag is `v0.0.50`
+- Current git tag is `v0.0.51`
 
 ### Test Coverage
 - Total tests: 470 passing (415 package tests + 55 integration tests)
