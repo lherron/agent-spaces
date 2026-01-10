@@ -2,7 +2,7 @@
 
 ## Current Status
 
-**Completed**: ~35% (3 of 9 packages fully implemented)
+**Completed**: ~45% (4 of 9 packages fully implemented)
 
 ### Packages Status
 
@@ -11,7 +11,7 @@
 | core | COMPLETE | Types, schemas, config parsers, errors, locks, atomic ops |
 | git | COMPLETE | exec (safe git command execution), tags (tag operations for versioning), show (file content at commit), tree (ls-tree for integrity hashing), archive (extraction), repo (clone/fetch/status operations) |
 | claude | COMPLETE | detect (find binary, query version, detect flags), invoke (safe subprocess with plugin-dir and mcp-config flags), validate (plugin validation) |
-| resolver | NOT STARTED | Blocks engine |
+| resolver | COMPLETE | ref-parser, dist-tags, git-tags, selector (resolution), closure (DFS postorder), integrity, lock-generator, validator |
 | store | NOT STARTED | Blocks materializer |
 | materializer | NOT STARTED | Blocks engine |
 | engine | NOT STARTED | Blocks CLI |
@@ -43,19 +43,21 @@
 
 ---
 
-## Priority 2: Resolution Engine
+## Priority 2: Resolution Engine (COMPLETE)
 
-### packages/resolver - Space Resolution
-- [ ] `src/ref-parser.ts` - Parse `space:<id>@<selector>` (types exist in core)
-- [ ] `src/dist-tags.ts` - Read committed `registry/dist-tags.json` for channel resolution
-- [ ] `src/git-tags.ts` - Query git tags for semver resolution (`space/<id>/v*`)
-- [ ] `src/selector.ts` - Resolve dist-tag, semver range, or git pin to commit SHA
-- [ ] `src/closure.ts` - Dependency closure via ordered DFS postorder traversal
-- [ ] `src/lock-generator.ts` - Generate/update `asp-lock.json`
-- [ ] `src/validator.ts` - Cycle detection, missing deps, invalid refs (ERRORS only)
-- [ ] `src/index.ts` - Public exports
-- [ ] `package.json` - Package setup
-- [ ] Unit tests for resolution algorithm
+### packages/resolver - Space Resolution (COMPLETE)
+- [x] `src/ref-parser.ts` - Parse `space:<id>@<selector>` (wraps core functions)
+- [x] `src/dist-tags.ts` - Read committed `registry/dist-tags.json` for channel resolution
+- [x] `src/git-tags.ts` - Query git tags for semver resolution (`space/<id>/v*`)
+- [x] `src/selector.ts` - Resolve dist-tag, semver range, or git pin to commit SHA
+- [x] `src/manifest.ts` - Read space.toml from git at specific commits
+- [x] `src/closure.ts` - Dependency closure via ordered DFS postorder traversal
+- [x] `src/integrity.ts` - Compute content integrity and env hashes
+- [x] `src/lock-generator.ts` - Generate/update `asp-lock.json`
+- [x] `src/validator.ts` - Cycle detection, missing deps, invalid refs (ERRORS only)
+- [x] `src/index.ts` - Public exports
+- [x] `package.json` - Package setup with semver dependency
+- [x] Unit tests for resolution algorithm (31 tests)
 
 ---
 
