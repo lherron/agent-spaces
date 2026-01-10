@@ -20,6 +20,7 @@ import type { Command } from 'commander'
 import {
   type RunResult,
   isSpaceReference,
+  run,
   runGlobalSpace,
   runInteractive,
   runLocalSpace,
@@ -44,6 +45,8 @@ interface RunOptions {
   warnings?: boolean
   interactive?: boolean
   extraArgs?: string[]
+  dryRun?: boolean
+  inheritSettings?: boolean
 }
 
 /**
@@ -96,6 +99,14 @@ async function runProjectMode(
     registryPath: options.registry,
     printWarnings: options.warnings !== false,
     extraArgs: options.extraArgs,
+    dryRun: options.dryRun,
+    isolated: !options.inheritSettings,
+  }
+
+  if (options.dryRun) {
+    console.log(chalk.yellow('Dry run - building and showing command...'))
+    const result = await run(target, { ...runOptions, dryRun: true, prompt })
+    return result
   }
 
   if (prompt) {
@@ -125,7 +136,11 @@ async function runGlobalMode(
   prompt: string | undefined,
   options: RunOptions
 ): Promise<RunResult> {
-  console.log(chalk.blue(`Running space "${target}" in global mode...`))
+  if (options.dryRun) {
+    console.log(chalk.yellow('Dry run - building and showing command...'))
+  } else {
+    console.log(chalk.blue(`Running space "${target}" in global mode...`))
+  }
 
   const globalOptions = {
     aspHome: options.aspHome,
@@ -134,11 +149,15 @@ async function runGlobalMode(
     extraArgs: options.extraArgs,
     interactive: options.interactive !== false,
     prompt,
+    dryRun: options.dryRun,
+    isolated: !options.inheritSettings,
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
   const result = await runGlobalSpace(target as `space:${string}@${string}`, globalOptions)
-  logInvocationOutput(result.invocation)
+  if (!options.dryRun) {
+    logInvocationOutput(result.invocation)
+  }
   return result
 }
 
@@ -151,7 +170,11 @@ async function runDevMode(
   options: RunOptions
 ): Promise<RunResult> {
   const targetPath = resolve(target)
-  console.log(chalk.blue(`Running local space "${target}" in dev mode...`))
+  if (options.dryRun) {
+    console.log(chalk.yellow('Dry run - building and showing command...'))
+  } else {
+    console.log(chalk.blue(`Running local space "${target}" in dev mode...`))
+  }
 
   const devOptions = {
     aspHome: options.aspHome,
@@ -160,10 +183,14 @@ async function runDevMode(
     extraArgs: options.extraArgs,
     interactive: options.interactive !== false,
     prompt,
+    dryRun: options.dryRun,
+    isolated: !options.inheritSettings,
   }
 
   const result = await runLocalSpace(targetPath, devOptions)
-  logInvocationOutput(result.invocation)
+  if (!options.dryRun) {
+    logInvocationOutput(result.invocation)
+  }
   return result
 }
 
@@ -193,6 +220,8 @@ export function registerRunCommand(program: Command): void {
     .argument('[prompt]', 'Optional initial prompt (runs non-interactively)')
     .option('--no-interactive', 'Run non-interactively (requires prompt)')
     .option('--no-warnings', 'Suppress lint warnings')
+    .option('--dry-run', 'Print the Claude command without executing')
+    .option('--inherit-settings', 'Inherit user Claude settings (default: isolated mode)')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
@@ -217,6 +246,13 @@ export function registerRunCommand(program: Command): void {
             break
           case 'invalid':
             showInvalidModeHelp()
+        }
+
+        // In dry-run mode, print the command
+        if (options.dryRun && result.command) {
+          console.log('')
+          console.log(chalk.cyan('Command:'))
+          console.log(result.command)
         }
 
         process.exit(result.exitCode)
