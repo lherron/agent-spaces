@@ -88,3 +88,31 @@ export {
   getTargetNames as getLockTargetNames,
   hasTarget,
 } from './lock.js'
+
+// Harness types (multi-harness support)
+export type {
+  ComposedTargetBundle,
+  ComposeTargetInput,
+  ComposeTargetOptions,
+  ComposeTargetResult,
+  HarnessAdapter,
+  HarnessDetection,
+  HarnessId,
+  HarnessRunOptions,
+  HarnessValidationResult,
+  MaterializeSpaceInput,
+  MaterializeSpaceOptions,
+  MaterializeSpaceResult,
+  ResolvedSpaceArtifact,
+  SpaceClaudeConfig,
+  SpaceHarnessConfig,
+  SpaceHarnessManifestExtension,
+  SpacePiBuildConfig,
+  SpacePiConfig,
+} from './harness.js'
+
+export {
+  DEFAULT_HARNESS,
+  HARNESS_IDS,
+  isHarnessId,
+} from './harness.js'

@@ -65,3 +65,30 @@ export {
   type TargetExplanation,
   type SpaceInfo,
 } from './explain.js'
+
+// Harness (multi-harness support)
+export {
+  HarnessRegistry,
+  harnessRegistry,
+  ClaudeAdapter,
+  claudeAdapter,
+  DEFAULT_HARNESS,
+  HARNESS_IDS,
+  isHarnessId,
+} from './harness/index.js'
+
+export type {
+  ComposedTargetBundle,
+  ComposeTargetInput,
+  ComposeTargetOptions,
+  ComposeTargetResult,
+  HarnessAdapter,
+  HarnessDetection,
+  HarnessId,
+  HarnessRunOptions,
+  HarnessValidationResult,
+  MaterializeSpaceInput,
+  MaterializeSpaceOptions,
+  MaterializeSpaceResult,
+  ResolvedSpaceArtifact,
+} from './harness/index.js'
