@@ -23,11 +23,15 @@ export {
   linkFile,
   linkDirectory,
   linkComponents,
+  linkInstructionsFile,
   isDirectory,
   getAvailableComponents,
   COMPONENT_DIRS,
+  INSTRUCTIONS_FILE_AGNOSTIC,
+  INSTRUCTIONS_FILE_CLAUDE,
   type ComponentDir,
   type LinkOptions,
+  type LinkInstructionsResult,
 } from './link-components.js'
 
 // Hooks validation

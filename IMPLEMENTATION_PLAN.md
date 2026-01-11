@@ -1,6 +1,6 @@
 # Multi-Harness Implementation Plan
 
-> **Status:** Phase 3 Complete
+> **Status:** Phase 4.1 Complete
 > **Spec:** specs/MULTI-HARNESS-SPEC-PROPOSED.md
 > **Current Phase:** 4 - Full Multi-Harness
 
@@ -138,10 +138,12 @@ The implementation follows a 4-phase migration path from the spec:
 
 ## Phase 4: Full Multi-Harness
 
-### 4.1 AGENT.md Support
-- [ ] Support `AGENT.md` as harness-agnostic instructions
-- [ ] Claude materializer renames to `CLAUDE.md` in output
-- [ ] Pi uses directly
+### 4.1 AGENT.md Support ✅
+- [x] Support `AGENT.md` as harness-agnostic instructions
+- [x] Claude materializer renames to `CLAUDE.md` in output
+- [x] Pi uses directly (copies as `AGENT.md`)
+- [x] Added `linkInstructionsFile()` helper in `packages/materializer/src/link-components.ts`
+- [x] Added tests for instructions file handling (9 tests)
 
 ### 4.2 hooks.toml Support
 - [ ] Parse `hooks.toml` as canonical hook declaration
@@ -186,8 +188,14 @@ The implementation follows a 4-phase migration path from the spec:
   - W303: Extension file collision detection during composition
 - Warning code cleanup: Renamed LOCK_MISSING from W301 to W101 to reserve W3xx for harness-specific warnings
 
-**Next:** Phase 4 - Full Multi-Harness
-- AGENT.md support
+**Completed:** Phase 4.1 - AGENT.md Support
+- Added `linkInstructionsFile()` helper function in materializer
+- ClaudeAdapter.materializeSpace() now links AGENT.md → CLAUDE.md (or CLAUDE.md → CLAUDE.md for legacy)
+- PiAdapter.materializeSpace() now links AGENT.md → AGENT.md
+- Backwards compatible: legacy CLAUDE.md still works for Claude-only spaces
+- Added 9 tests for instructions file handling
+
+**Next:** Phase 4.2/4.3
 - hooks.toml parsing
 - permissions.toml support
 
@@ -232,6 +240,7 @@ The implementation follows a 4-phase migration path from the spec:
 - Pi adapter: `packages/engine/src/harness/pi-adapter.ts`
 - Pi errors: `packages/core/src/errors.ts` (PiError, PiNotFoundError, PiBundleError, PiInvocationError)
 - CLI harness command: `packages/cli/src/commands/harnesses.ts`
+- Instructions file linking: `packages/materializer/src/link-components.ts` (linkInstructionsFile)
 
 ---
 
@@ -246,3 +255,4 @@ The implementation follows a 4-phase migration path from the spec:
 - [ ] Pi extension bundling tests
 - [ ] Hook bridge generation tests
 - [ ] Integration test with Pi harness
+- [x] Instructions file linking tests (9 tests in link-components.test.ts)

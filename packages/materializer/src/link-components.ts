@@ -6,9 +6,19 @@
  * duplicating data while providing independent file entries.
  */
 
-import { mkdir, readdir, readlink, stat, symlink } from 'node:fs/promises'
+import { access, mkdir, readdir, readlink, stat, symlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { linkOrCopy } from '@agent-spaces/core'
+
+/**
+ * Harness-agnostic instructions file name.
+ */
+export const INSTRUCTIONS_FILE_AGNOSTIC = 'AGENT.md'
+
+/**
+ * Claude-specific instructions file name.
+ */
+export const INSTRUCTIONS_FILE_CLAUDE = 'CLAUDE.md'
 
 /**
  * Component directories that should be linked from snapshot to plugin.
@@ -124,4 +134,94 @@ export async function getAvailableComponents(snapshotDir: string): Promise<Compo
   }
 
   return available
+}
+
+/**
+ * Check if a file exists.
+ */
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Result of linking instructions file.
+ */
+export interface LinkInstructionsResult {
+  /** Whether an instructions file was linked */
+  linked: boolean
+  /** Source file that was linked (AGENT.md or CLAUDE.md) */
+  sourceFile?: string | undefined
+  /** Destination file name */
+  destFile?: string | undefined
+}
+
+/**
+ * Link instructions file from snapshot to plugin directory.
+ *
+ * Supports the harness-agnostic AGENT.md pattern:
+ * - For Claude: AGENT.md is copied as CLAUDE.md, or CLAUDE.md is kept as-is
+ * - For Pi: AGENT.md is copied as AGENT.md
+ *
+ * Priority for Claude:
+ * 1. If AGENT.md exists, link as CLAUDE.md (new multi-harness pattern)
+ * 2. If CLAUDE.md exists (and no AGENT.md), link as CLAUDE.md (legacy pattern)
+ *
+ * Priority for Pi:
+ * 1. If AGENT.md exists, link as AGENT.md
+ * 2. No fallback to CLAUDE.md (Pi doesn't use Claude-specific files)
+ *
+ * @param snapshotDir - Source snapshot directory
+ * @param pluginDir - Destination plugin directory
+ * @param harness - Target harness: 'claude' or 'pi'
+ * @param options - Link options
+ */
+export async function linkInstructionsFile(
+  snapshotDir: string,
+  pluginDir: string,
+  harness: 'claude' | 'pi',
+  _options: LinkOptions = {}
+): Promise<LinkInstructionsResult> {
+  const agentMdPath = join(snapshotDir, INSTRUCTIONS_FILE_AGNOSTIC)
+  const claudeMdPath = join(snapshotDir, INSTRUCTIONS_FILE_CLAUDE)
+
+  if (harness === 'claude') {
+    // Claude: prefer AGENT.md → CLAUDE.md, fallback to CLAUDE.md → CLAUDE.md
+    if (await fileExists(agentMdPath)) {
+      const destPath = join(pluginDir, INSTRUCTIONS_FILE_CLAUDE)
+      await linkFile(agentMdPath, destPath)
+      return {
+        linked: true,
+        sourceFile: INSTRUCTIONS_FILE_AGNOSTIC,
+        destFile: INSTRUCTIONS_FILE_CLAUDE,
+      }
+    }
+
+    if (await fileExists(claudeMdPath)) {
+      const destPath = join(pluginDir, INSTRUCTIONS_FILE_CLAUDE)
+      await linkFile(claudeMdPath, destPath)
+      return {
+        linked: true,
+        sourceFile: INSTRUCTIONS_FILE_CLAUDE,
+        destFile: INSTRUCTIONS_FILE_CLAUDE,
+      }
+    }
+  } else {
+    // Pi: only use AGENT.md
+    if (await fileExists(agentMdPath)) {
+      const destPath = join(pluginDir, INSTRUCTIONS_FILE_AGNOSTIC)
+      await linkFile(agentMdPath, destPath)
+      return {
+        linked: true,
+        sourceFile: INSTRUCTIONS_FILE_AGNOSTIC,
+        destFile: INSTRUCTIONS_FILE_AGNOSTIC,
+      }
+    }
+  }
+
+  return { linked: false }
 }

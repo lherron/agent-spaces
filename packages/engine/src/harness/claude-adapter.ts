@@ -29,6 +29,7 @@ import {
   composeSettingsFromSpaces,
   ensureHooksExecutable,
   linkComponents,
+  linkInstructionsFile,
   validateHooks,
   writePluginJson,
 } from '@agent-spaces/materializer'
@@ -129,6 +130,12 @@ export class ClaudeAdapter implements HarnessAdapter {
       // Link components from snapshot
       const linked = await linkComponents(input.snapshotPath, cacheDir)
       files.push(...linked)
+
+      // Link instructions file (AGENT.md → CLAUDE.md or CLAUDE.md → CLAUDE.md)
+      const instructionsResult = await linkInstructionsFile(input.snapshotPath, cacheDir, 'claude')
+      if (instructionsResult.linked && instructionsResult.destFile) {
+        files.push(instructionsResult.destFile)
+      }
 
       // Validate and fix hooks
       const hookResult = await validateHooks(cacheDir)

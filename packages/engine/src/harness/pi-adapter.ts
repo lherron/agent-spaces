@@ -28,6 +28,7 @@ import {
   linkOrCopy,
 } from '@agent-spaces/core'
 import { WARNING_CODES } from '@agent-spaces/lint'
+import { linkInstructionsFile } from '@agent-spaces/materializer'
 
 // ============================================================================
 // Pi-specific Errors
@@ -643,6 +644,12 @@ export class PiAdapter implements HarnessAdapter {
         }
       } catch {
         // Scripts directory doesn't exist
+      }
+
+      // Link instructions file (AGENT.md → AGENT.md for Pi)
+      const instructionsResult = await linkInstructionsFile(input.snapshotPath, cacheDir, 'pi')
+      if (instructionsResult.linked && instructionsResult.destFile) {
+        files.push(instructionsResult.destFile)
       }
 
       return {
