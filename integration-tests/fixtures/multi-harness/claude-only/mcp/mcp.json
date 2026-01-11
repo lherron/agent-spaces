@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "claude-test-server": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["test-server.js"],
+      "env": {
+        "TEST_MODE": "claude"
+      }
+    }
+  }
+}

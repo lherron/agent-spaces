@@ -1,0 +1,9 @@
+# Claude-only space - uses commands, MCP, and skills
+# WHY: Tests Claude-specific features without Pi support
+schema = 1
+id = "claude-only"
+version = "1.0.0"
+description = "Claude-specific development space with commands, MCP, and skills"
+
+[plugin]
+name = "claude-only"

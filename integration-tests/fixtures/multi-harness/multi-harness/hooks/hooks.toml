@@ -1,0 +1,18 @@
+# Canonical hook definitions for multi-harness space
+# WHY: Tests hooks.toml parsing and harness-specific translation
+
+[[hook]]
+event = "pre_tool_use"
+script = "hooks/pre-tool-use.sh"
+tools = ["Bash", "Write"]
+blocking = true
+
+[[hook]]
+event = "post_tool_use"
+script = "hooks/post-tool-use.sh"
+blocking = false
+
+[[hook]]
+event = "session_end"
+script = "hooks/cleanup.sh"
+harness = "claude"  # Claude-only hook

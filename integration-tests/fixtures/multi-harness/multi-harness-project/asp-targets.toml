@@ -1,0 +1,18 @@
+# Multi-harness project for smoke testing
+# WHY: Tests full multi-harness composition with different harness configurations
+
+schema = 1
+
+[targets.claude-dev]
+description = "Claude-only development environment"
+compose = ["path:../claude-only"]
+
+[targets.pi-dev]
+description = "Pi-only development environment"
+compose = ["path:../pi-only"]
+harnesses = ["pi"]
+
+[targets.full-stack]
+description = "Full-stack multi-harness environment"
+compose = ["path:../multi-harness"]
+harnesses = ["claude", "pi"]
