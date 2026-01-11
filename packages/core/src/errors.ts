@@ -268,6 +268,52 @@ export class ClaudeInvocationError extends ClaudeError {
 }
 
 // ============================================================================
+// Pi errors
+// ============================================================================
+
+/** Error thrown during Pi CLI operations */
+export class PiError extends AspError {
+  constructor(message: string, code = 'PI_ERROR') {
+    super(message, code)
+    this.name = 'PiError'
+  }
+}
+
+/** Error thrown when Pi binary is not found */
+export class PiNotFoundError extends PiError {
+  constructor(searchedPaths: string[]) {
+    super(`Pi CLI not found. Searched: ${searchedPaths.join(', ')}`, 'PI_NOT_FOUND_ERROR')
+    this.name = 'PiNotFoundError'
+  }
+}
+
+/** Error thrown when Pi extension bundling fails */
+export class PiBundleError extends PiError {
+  readonly extensionPath: string
+  readonly stderr: string
+
+  constructor(extensionPath: string, stderr: string) {
+    super(`Failed to bundle Pi extension "${extensionPath}": ${stderr}`, 'PI_BUNDLE_ERROR')
+    this.name = 'PiBundleError'
+    this.extensionPath = extensionPath
+    this.stderr = stderr
+  }
+}
+
+/** Error thrown when Pi invocation fails */
+export class PiInvocationError extends PiError {
+  readonly exitCode: number
+  readonly stderr: string
+
+  constructor(exitCode: number, stderr: string) {
+    super(`Pi exited with code ${exitCode}: ${stderr}`, 'PI_INVOCATION_ERROR')
+    this.name = 'PiInvocationError'
+    this.exitCode = exitCode
+    this.stderr = stderr
+  }
+}
+
+// ============================================================================
 // Type guards
 // ============================================================================
 
@@ -293,4 +339,8 @@ export function isGitError(error: unknown): error is GitError {
 
 export function isClaudeError(error: unknown): error is ClaudeError {
   return error instanceof ClaudeError
+}
+
+export function isPiError(error: unknown): error is PiError {
+  return error instanceof PiError
 }

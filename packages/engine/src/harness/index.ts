@@ -6,6 +6,19 @@
 
 export { HarnessRegistry, harnessRegistry } from './registry.js'
 export { ClaudeAdapter, claudeAdapter } from './claude-adapter.js'
+export {
+  PiAdapter,
+  piAdapter,
+  detectPi,
+  clearPiCache,
+  findPiBinary,
+  bundleExtension,
+  discoverExtensions,
+  generateHookBridgeCode,
+  type PiInfo,
+  type ExtensionBuildOptions,
+  type HookDefinition,
+} from './pi-adapter.js'
 
 // Re-export types from core
 export type {
@@ -27,8 +40,10 @@ export type {
 export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId } from '@agent-spaces/core'
 
 import { claudeAdapter } from './claude-adapter.js'
+import { piAdapter } from './pi-adapter.js'
 // Initialize the registry with built-in adapters
 import { harnessRegistry } from './registry.js'
 
 // Register built-in adapters
 harnessRegistry.register(claudeAdapter)
+harnessRegistry.register(piAdapter)

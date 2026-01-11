@@ -1,8 +1,8 @@
 # Multi-Harness Implementation Plan
 
-> **Status:** Phase 2 Complete
+> **Status:** Phase 3.1-3.3 Complete
 > **Spec:** specs/MULTI-HARNESS-SPEC-PROPOSED.md
-> **Current Phase:** 3 - Pi Support (Ready to Begin)
+> **Current Phase:** 3.4 - Pi-Specific Lint Rules (Partial)
 
 ## Overview
 
@@ -105,23 +105,32 @@ The implementation follows a 4-phase migration path from the spec:
 
 ## Phase 3: Pi Support
 
-### 3.1 Create PiAdapter
-- [ ] Create `packages/engine/src/harness/pi-adapter.ts`
-- [ ] Implement Pi binary detection
-- [ ] Implement space validation for Pi
+### 3.1 Create PiAdapter ✅
+- [x] Create `packages/engine/src/harness/pi-adapter.ts`
+- [x] Implement Pi binary detection (PI_PATH env, PATH, ~/tools/pi-mono)
+- [x] Implement space validation for Pi
+- [x] Implement `detect()` with version and capability detection
+- [x] Implement `validateSpace()` for Pi compatibility
+- [x] Implement `materializeSpace()` for bundling extensions
+- [x] Implement `composeTarget()` for assembling target bundles
+- [x] Implement `buildRunArgs()` for Pi CLI invocation
+- [x] Implement `getTargetOutputPath()` returning `asp_modules/<target>/pi`
+- [x] Register PiAdapter in harness registry
 
-### 3.2 Pi Extension Bundling
-- [ ] Add Bun build integration for TypeScript extensions
-- [ ] Add `extensions/` directory handling in materializer
-- [ ] Add tool namespacing transform
+### 3.2 Pi Extension Bundling ✅
+- [x] Add Bun build integration for TypeScript extensions (`bundleExtension()`)
+- [x] Add `extensions/` directory handling in materializer
+- [x] Add tool namespacing (spaceId__toolName.js format)
+- [x] Support build options (format, target, external) from manifest
 
-### 3.3 Hook Bridge Generation
-- [ ] Create hook bridge extension generator
-- [ ] Map abstract events to Pi events
-- [ ] Generate `asp-hooks.bridge.js`
+### 3.3 Hook Bridge Generation ✅
+- [x] Create hook bridge extension generator (`generateHookBridgeCode()`)
+- [x] Map abstract events to Pi events (pre_tool_use → tool_call, etc.)
+- [x] Generate `asp-hooks.bridge.js` during composition
+- [x] Shell out to configured scripts with ASP_* environment variables
 
 ### 3.4 Pi-Specific Lint Rules
-- [ ] W301: Hook marked blocking but event cannot block
+- [x] W301: Hook marked blocking but event cannot block (implemented in composeTarget)
 - [ ] W302: Extension registers un-namespaced tool
 - [ ] W303: Tool name collision after namespacing
 
@@ -164,11 +173,23 @@ The implementation follows a 4-phase migration path from the spec:
 - Harness entries generated in lock file during resolution (with harness-specific envHash)
 - Added `computeHarnessEnvHash()` function in resolver/integrity.ts
 
-**Next:** Phase 3 - Pi Support
-- Create PiAdapter implementation
-- Add Pi binary detection
-- Implement extension bundling with Bun
-- Generate hook bridges
+**Completed:** Phase 3.1-3.3 - PiAdapter Core Implementation
+- Created `packages/engine/src/harness/pi-adapter.ts` with full HarnessAdapter implementation
+- Pi binary detection: PI_PATH env → PATH → ~/tools/pi-mono
+- Extension bundling with Bun: bundles .ts/.js to namespaced .js files
+- Hook bridge generation: creates asp-hooks.bridge.js that shells out to scripts
+- Model translation: sonnet → claude-sonnet, opus → claude-opus, etc.
+- Skills directory merging (Agent Skills standard - same as Claude)
+- W301 warning implemented for blocking hooks
+
+**Next:** Phase 3.4 - Pi-Specific Lint Rules
+- W302: Extension registers un-namespaced tool
+- W303: Tool name collision after namespacing
+
+**Then:** Phase 4 - Full Multi-Harness
+- AGENT.md support
+- hooks.toml parsing
+- permissions.toml support
 
 ---
 
@@ -203,6 +224,8 @@ The implementation follows a 4-phase migration path from the spec:
 - Harness adapters: `packages/engine/src/harness/`
 - Harness registry: `packages/engine/src/harness/registry.ts`
 - Claude adapter: `packages/engine/src/harness/claude-adapter.ts`
+- Pi adapter: `packages/engine/src/harness/pi-adapter.ts`
+- Pi errors: `packages/core/src/errors.ts` (PiError, PiNotFoundError, PiBundleError, PiInvocationError)
 - CLI harness command: `packages/cli/src/commands/harnesses.ts`
 
 ---
@@ -214,3 +237,7 @@ The implementation follows a 4-phase migration path from the spec:
 - [ ] HarnessRegistry tests
 - [ ] CLI --harness flag tests
 - [ ] Integration test with Claude harness
+- [ ] PiAdapter unit tests
+- [ ] Pi extension bundling tests
+- [ ] Hook bridge generation tests
+- [ ] Integration test with Pi harness
