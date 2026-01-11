@@ -14,8 +14,8 @@ import { explain } from '@agent-spaces/engine'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 
-/** W301 warning code for missing lock file */
-const WARNING_CODE_LOCK_MISSING = 'W301'
+/** W101 warning code for missing lock file */
+const WARNING_CODE_LOCK_MISSING = 'W101'
 
 /**
  * Lint warning structure.
