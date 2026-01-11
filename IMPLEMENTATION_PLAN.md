@@ -416,9 +416,9 @@ Test each CLI command with `--harness` flag:
 
 ## Test Coverage
 
-- [ ] HarnessAdapter interface tests
-- [ ] ClaudeAdapter unit tests
-- [ ] HarnessRegistry tests
+- [x] HarnessAdapter interface tests (covered in registry tests)
+- [x] ClaudeAdapter unit tests (39 tests in claude-adapter.test.ts)
+- [x] HarnessRegistry tests (18 tests in registry.test.ts)
 - [ ] CLI --harness flag tests
 - [ ] Integration test with Claude harness
 - [ ] PiAdapter unit tests
