@@ -1,8 +1,8 @@
 # Multi-Harness Implementation Plan
 
-> **Status:** Phase 2 Complete (Core Integration)
+> **Status:** Phase 2 Complete
 > **Spec:** specs/MULTI-HARNESS-SPEC-PROPOSED.md
-> **Current Phase:** 2 - Two-Phase Materialization (Core Integration Complete)
+> **Current Phase:** 3 - Pi Support (Ready to Begin)
 
 ## Overview
 
@@ -13,7 +13,7 @@ This plan tracks the implementation of multi-harness support for Agent Spaces v2
 The implementation follows a 4-phase migration path from the spec:
 
 1. **Phase 1: Prepare** - Add HarnessAdapter interface, refactor Claude code, add CLI flags ✅
-2. **Phase 2: Two-Phase Materialization** - Split materializeSpace() and composeTarget(), update output layout
+2. **Phase 2: Two-Phase Materialization** - Split materializeSpace() and composeTarget(), update output layout ✅
 3. **Phase 3: Pi Support** - Add PiAdapter, extension bundling, hook bridge generation
 4. **Phase 4: Full Multi-Harness** - AGENT.md support, hooks.toml, permissions.toml
 
@@ -99,7 +99,7 @@ The implementation follows a 4-phase migration path from the spec:
 - [x] Add `LockHarnessEntry` interface with `envHash` and `warnings` fields
 - [x] Add `harnesses?: Record<string, LockHarnessEntry>` to `LockTargetEntry`
 - [x] Update `lock.schema.json` with `harnessEntry` definition
-- [ ] Generate harness entries during resolution/materialization
+- [x] Generate harness entries during resolution/materialization
 
 ---
 
@@ -154,16 +154,21 @@ The implementation follows a 4-phase migration path from the spec:
 - `asp harnesses` command
 - `--harness` flag on all CLI commands (run, install, build, explain)
 
-**Completed:** Phase 2 - Two-Phase Materialization (Core Integration)
+**Completed:** Phase 2 - Two-Phase Materialization
 - ClaudeAdapter output path now returns harness subdirectory (`asp_modules/<target>/claude`)
 - Harness-aware cache key function added
 - Lock file types and schema updated with harness entries
 - Harness-aware path helpers added to core package
 - Engine files (install.ts, build.ts, run.ts) migrated to use harness adapters
 - `--harness` flag added to install, build, and explain commands
+- Harness entries generated in lock file during resolution (with harness-specific envHash)
+- Added `computeHarnessEnvHash()` function in resolver/integrity.ts
 
-**Remaining Phase 2 Work:**
-- Generate harness entries in lock file during resolution (for harness-specific metadata tracking)
+**Next:** Phase 3 - Pi Support
+- Create PiAdapter implementation
+- Add Pi binary detection
+- Implement extension bundling with Bun
+- Generate hook bridges
 
 ---
 
@@ -181,6 +186,11 @@ The implementation follows a 4-phase migration path from the spec:
 
 5. **ClaudeAdapter Wrapping**: The ClaudeAdapter wraps existing functionality from @agent-spaces/claude and @agent-spaces/materializer rather than duplicating it.
 
+6. **Harness EnvHash Design**: The harness-specific `envHash` in lock files includes the harness ID but NOT the harness version. This is intentional because:
+   - Version changes independently of space content
+   - Actual materialization cache uses `computeHarnessPluginCacheKey()` which includes version
+   - Lock file hash is for "resolved environment identity" not "materialized artifact identity"
+
 ### File Locations
 
 - Harness types: `packages/core/src/types/harness.ts`
@@ -188,6 +198,8 @@ The implementation follows a 4-phase migration path from the spec:
 - Lock schema: `packages/core/src/schemas/lock.schema.json`
 - Harness-aware paths: `packages/core/src/config/asp-modules.ts`
 - Harness-aware cache: `packages/store/src/cache.ts` (computeHarnessPluginCacheKey)
+- Harness env hash: `packages/resolver/src/integrity.ts` (computeHarnessEnvHash)
+- Lock generator: `packages/resolver/src/lock-generator.ts` (buildTargetEntry with harness entries)
 - Harness adapters: `packages/engine/src/harness/`
 - Harness registry: `packages/engine/src/harness/registry.ts`
 - Claude adapter: `packages/engine/src/harness/claude-adapter.ts`

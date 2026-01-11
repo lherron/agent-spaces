@@ -104,6 +104,41 @@ export function computeEnvHash(
 }
 
 /**
+ * Compute a harness-specific environment hash.
+ *
+ * This extends the base envHash with a harness identifier prefix,
+ * allowing different harnesses to have distinct cache keys for the same
+ * resolved environment.
+ *
+ * Formula:
+ * sha256("env-harness-v1\0" + harnessId + "\0" + for each spaceKey in loadOrder:
+ *   spaceKey + "\0" + integrity + "\0" + pluginName + "\n")
+ *
+ * Note: Harness version is intentionally excluded because:
+ * 1. Version changes independently of space content
+ * 2. The actual materialization cache uses computeHarnessPluginCacheKey which includes version
+ * 3. This hash is for "resolved environment identity" not "materialized artifact identity"
+ */
+export function computeHarnessEnvHash(
+  harnessId: string,
+  loadOrder: Array<{
+    spaceKey: string
+    integrity: Sha256Integrity
+    pluginName: string
+  }>
+): Sha256Integrity {
+  const hash = createHash('sha256')
+  hash.update(`env-harness-v1\0${harnessId}\0`)
+
+  for (const entry of loadOrder) {
+    hash.update(`${entry.spaceKey}\0${entry.integrity}\0${entry.pluginName}\n`)
+  }
+
+  const digest = hash.digest('hex')
+  return asSha256Integrity(`sha256:${digest}`)
+}
+
+/**
  * Verify an integrity hash matches the computed value.
  */
 export async function verifyIntegrity(

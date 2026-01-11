@@ -91,6 +91,7 @@ export {
   DEV_INTEGRITY,
   computeIntegrity,
   computeEnvHash,
+  computeHarnessEnvHash,
   verifyIntegrity,
   type IntegrityOptions,
 } from './integrity.js'

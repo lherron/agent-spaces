@@ -7,6 +7,7 @@
 
 import type {
   LockFile,
+  LockHarnessEntry,
   LockPluginInfo,
   LockRegistry,
   LockSpaceEntry,
@@ -19,7 +20,10 @@ import type {
 } from '@agent-spaces/core'
 import { derivePluginIdentity } from '@agent-spaces/core'
 import type { ClosureResult, ResolvedSpace } from './closure.js'
-import { computeEnvHash, computeIntegrity } from './integrity.js'
+import { computeEnvHash, computeHarnessEnvHash, computeIntegrity } from './integrity.js'
+
+/** Default harnesses to generate lock entries for */
+const DEFAULT_HARNESSES = ['claude'] as const
 
 /** Warning code for plugin name collisions */
 const W205_PLUGIN_NAME_COLLISION = 'W205'
@@ -153,13 +157,17 @@ function buildSpaceEntry(space: ResolvedSpace, integrity: Sha256Integrity): Lock
 
 /**
  * Build a LockTargetEntry from a target input.
+ *
+ * Generates per-harness entries for each supported harness (currently just "claude").
+ * Each harness entry contains a harness-specific environment hash that allows
+ * tracking which harness-specific materializations are up to date.
  */
 function buildTargetEntry(
   target: TargetInput,
   allSpaces: Map<SpaceKey, ResolvedSpace>,
   integrities: Map<SpaceKey, Sha256Integrity>
 ): LockTargetEntry {
-  // Build env hash data
+  // Build env hash data (used for both target-level and harness-level hashes)
   const envHashData = target.closure.loadOrder.map((key) => {
     const space = allSpaces.get(key)
     if (!space) throw new Error(`Space not found: ${key}`)
@@ -173,16 +181,28 @@ function buildTargetEntry(
     }
   })
 
+  // Compute target-level environment hash
   const envHash = computeEnvHash(envHashData)
 
   // Compute warnings for this target (W205 plugin name collisions)
   const warnings = computePluginNameCollisions(target.closure.loadOrder, allSpaces)
+
+  // Build harness entries for each supported harness
+  const harnesses: Record<string, LockHarnessEntry> = {}
+  for (const harnessId of DEFAULT_HARNESSES) {
+    const harnessEnvHash = computeHarnessEnvHash(harnessId, envHashData)
+    harnesses[harnessId] = {
+      envHash: harnessEnvHash,
+      // Warnings are not yet populated during resolution - they come from materialization (Phase 3)
+    }
+  }
 
   const targetEntry: LockTargetEntry = {
     compose: target.compose,
     roots: target.closure.roots,
     loadOrder: target.closure.loadOrder,
     envHash,
+    harnesses,
   }
 
   // Only include warnings field if there are warnings
