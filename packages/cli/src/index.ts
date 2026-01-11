@@ -17,9 +17,11 @@ import { registerDiffCommand } from './commands/diff.js'
 import { registerDoctorCommand } from './commands/doctor.js'
 import { registerExplainCommand } from './commands/explain.js'
 import { registerGcCommand } from './commands/gc.js'
+import { registerInitCommand } from './commands/init.js'
 import { registerInstallCommand } from './commands/install.js'
 import { registerLintCommand } from './commands/lint.js'
 import { registerListCommand } from './commands/list.js'
+import { registerPathCommand } from './commands/path.js'
 import { registerRemoveCommand } from './commands/remove.js'
 import { registerRepoCommands } from './commands/repo/index.js'
 import { registerRunCommand } from './commands/run.js'
@@ -84,11 +86,13 @@ function createProgram(): Command {
 
   // Register all commands
   registerRunCommand(program)
+  registerInitCommand(program)
   registerInstallCommand(program)
   registerBuildCommand(program)
   registerExplainCommand(program)
   registerLintCommand(program)
   registerListCommand(program)
+  registerPathCommand(program)
   registerDoctorCommand(program)
   registerGcCommand(program)
   registerAddCommand(program)

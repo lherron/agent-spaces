@@ -1,41 +1,55 @@
 /**
- * Install command - Generate/update lock file and populate store.
- *
- * WHY: This command resolves all targets in the project manifest,
- * creates a lock file for reproducibility, and extracts space
- * snapshots to the content-addressed store.
+ * Install command - Generate/update lock file and materialize to asp_modules.
  */
 
-import chalk from 'chalk'
 import type { Command } from 'commander'
 
+import { getClaudeCommand } from '@agent-spaces/claude'
+import { getEffectiveClaudeOptions, readTargetsToml } from '@agent-spaces/core'
 import { install } from '@agent-spaces/engine'
 
 import { findProjectRoot } from '../index.js'
+import {
+  blank,
+  colors,
+  commandBlock,
+  createSpinner,
+  error,
+  formatDuration,
+  formatPath,
+  header,
+  info,
+  success,
+  symbols,
+} from '../ui.js'
 
-/**
- * Register the install command.
- */
 export function registerInstallCommand(program: Command): void {
   program
     .command('install')
-    .description('Resolve targets and generate/update lock file')
+    .description('Resolve targets and materialize to asp_modules/')
     .option('--targets <names...>', 'Specific targets to install')
     .option('--update', 'Update existing lock (re-resolve selectors)')
     .option('--no-fetch', 'Skip fetching registry updates')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: CLI orchestration with multiple paths
     .action(async (options) => {
+      const startTime = Date.now()
+
       // Find project root
       const projectPath = options.project ?? (await findProjectRoot())
       if (!projectPath) {
-        console.error(chalk.red('Error: No asp-targets.toml found in current directory or parents'))
-        console.error(chalk.gray('Run this command from a project directory or use --project'))
+        blank()
+        error('No asp-targets.toml found')
+        console.log(colors.muted('  Run from a project directory or use --project'))
+        blank()
         process.exit(1)
       }
 
-      console.log(chalk.blue('Installing...'))
+      // Start spinner
+      const spinner = createSpinner('Resolving dependencies...')
+      spinner.start()
 
       try {
         const result = await install({
@@ -47,18 +61,62 @@ export function registerInstallCommand(program: Command): void {
           fetchRegistry: options.fetch !== false,
         })
 
-        // Report results
-        console.log('')
-        console.log(chalk.green('Installation complete'))
-        console.log(`  Targets resolved: ${result.resolvedTargets.join(', ')}`)
-        console.log(`  Snapshots created: ${result.snapshotsCreated}`)
-        console.log(`  Lock file: ${result.lockPath}`)
-      } catch (error) {
-        if (error instanceof Error) {
-          console.error(chalk.red(`Error: ${error.message}`))
-        } else {
-          console.error(chalk.red(`Error: ${String(error)}`))
+        spinner.stop()
+        const duration = Date.now() - startTime
+
+        // Success header
+        blank()
+        success(
+          `Installed ${result.resolvedTargets.length} target${result.resolvedTargets.length !== 1 ? 's' : ''} in ${formatDuration(duration)}`
+        )
+
+        // Lock file info
+        info('lock', formatPath(result.lockPath))
+
+        // Load manifest for claude options
+        const manifestPath = `${projectPath}/asp-targets.toml`
+        const manifest = await readTargetsToml(manifestPath)
+
+        // Each target
+        header('Targets')
+
+        for (const mat of result.materializations) {
+          const claudeOptions = getEffectiveClaudeOptions(manifest, mat.target)
+
+          // Generate command
+          let command: string
+          try {
+            command = await getClaudeCommand({
+              pluginDirs: mat.pluginDirs,
+              mcpConfig: mat.mcpConfigPath,
+              settings: mat.settingsPath,
+              settingSources: '',
+              model: claudeOptions.model,
+              permissionMode: claudeOptions.permission_mode,
+              args: claudeOptions.args,
+            })
+          } catch {
+            // Claude not installed - build a generic command
+            const pluginArgs = mat.pluginDirs.map((d) => `--plugin-dir ${d}`).join(' ')
+            command = `claude ${pluginArgs} --settings ${mat.settingsPath}`
+          }
+
+          // Target display
+          blank()
+          console.log(`  ${symbols.pointer} ${colors.emphasis(mat.target)}`)
+          console.log(
+            `    ${colors.muted(`${mat.pluginDirs.length} plugin${mat.pluginDirs.length !== 1 ? 's' : ''}${mat.mcpConfigPath ? ' · mcp' : ''}`)}`
+          )
+
+          commandBlock('run', command)
         }
+
+        blank()
+      } catch (err) {
+        spinner.stop()
+        blank()
+        error(err instanceof Error ? err.message : String(err))
+        blank()
         process.exit(1)
       }
     })

@@ -63,8 +63,11 @@ export async function initSampleRegistry(): Promise<void> {
   })
 
   // Create tags for spaces
-  // Base space v1.0.0
+  // Base space v1.0.0, v1.0.1, v1.1.0, v2.0.0 (for semver range testing)
   await execAsync('git tag space/base/v1.0.0', { cwd: registryDir })
+  await execAsync('git tag space/base/v1.0.1', { cwd: registryDir })
+  await execAsync('git tag space/base/v1.1.0', { cwd: registryDir })
+  await execAsync('git tag space/base/v2.0.0', { cwd: registryDir })
   await execAsync('git tag space/base/stable', { cwd: registryDir })
 
   // Frontend space v1.0.0 and v1.1.0
@@ -132,8 +135,8 @@ export async function cleanupSampleRegistry(): Promise<void> {
  */
 export async function createTempAspHome(): Promise<string> {
   const tmpDir = await fs.mkdtemp('/tmp/asp-test-')
-  await fs.mkdir(path.join(tmpDir, 'store', 'spaces'), { recursive: true })
-  await fs.mkdir(path.join(tmpDir, 'cache', 'materialized'), { recursive: true })
+  await fs.mkdir(path.join(tmpDir, 'snapshots'), { recursive: true })
+  await fs.mkdir(path.join(tmpDir, 'cache'), { recursive: true })
   return tmpDir
 }
 

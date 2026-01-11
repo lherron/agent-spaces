@@ -1,12 +1,12 @@
 /**
  * Run command - Launch Claude with composed plugin directories.
  *
- * WHY: This is the primary command users interact with. It resolves
- * a target, materializes plugins to a temp directory, and launches
- * Claude with all the plugin directories.
+ * WHY: This is the primary command users interact with. It ensures
+ * the target is installed (materializing to asp_modules/ if needed)
+ * and launches Claude with the plugin directories.
  *
  * Supports three modes:
- * 1. Project mode: Run a target from asp-targets.toml
+ * 1. Project mode: Run a target from asp-targets.toml (uses asp_modules/)
  * 2. Global mode: Run a space reference (space:id@selector) without a project
  * 3. Dev mode: Run a local space directory (./path/to/space)
  */
@@ -17,6 +17,7 @@ import { resolve } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
+import { parseSpaceRef } from '@agent-spaces/core'
 import {
   type RunResult,
   isSpaceReference,
@@ -50,6 +51,7 @@ interface RunOptions {
   inheritProject?: boolean
   inheritUser?: boolean
   inheritLocal?: boolean
+  settings?: string
 }
 
 /**
@@ -133,6 +135,7 @@ async function runProjectMode(
     extraArgs: options.extraArgs,
     dryRun: options.dryRun,
     settingSources,
+    settings: options.settings,
   }
 
   if (options.dryRun) {
@@ -168,6 +171,24 @@ async function runGlobalMode(
   prompt: string | undefined,
   options: RunOptions
 ): Promise<RunResult> {
+  // Check if selector was defaulted to dev and warn the user
+  const spaceRef = parseSpaceRef(target)
+  const aspHome = options.aspHome ?? process.env['ASP_HOME'] ?? `${process.env['HOME']}/.asp`
+  const registryPath = options.registry ?? `${aspHome}/repo`
+  const spacePath = `${registryPath}/spaces/${spaceRef.id}`
+
+  if (spaceRef.defaultedToDev) {
+    console.log(
+      chalk.yellow(
+        `Warning: No selector specified for "${spaceRef.id}", using @dev (working directory)`
+      )
+    )
+    console.log(chalk.gray(`  Path: ${spacePath}`))
+    console.log(chalk.gray(`  For a stable version, use: space:${spaceRef.id}@stable`))
+    console.log(chalk.gray(`  For latest commit, use: space:${spaceRef.id}@HEAD`))
+    console.log('')
+  }
+
   if (options.dryRun) {
     console.log(chalk.yellow('Dry run - building and showing command...'))
   } else {
@@ -184,6 +205,7 @@ async function runGlobalMode(
     prompt,
     dryRun: options.dryRun,
     settingSources,
+    settings: options.settings,
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -219,6 +241,7 @@ async function runDevMode(
     prompt,
     dryRun: options.dryRun,
     settingSources,
+    settings: options.settings,
   }
 
   const result = await runLocalSpace(targetPath, devOptions)
@@ -238,7 +261,11 @@ function showInvalidModeHelp(): never {
   console.error(chalk.gray(''))
   console.error(chalk.gray('Usage:'))
   console.error(chalk.gray('  In a project: asp run <target-name>'))
-  console.error(chalk.gray('  Global mode:  asp run space:my-space@stable'))
+  console.error(
+    chalk.gray('  Global mode:  asp run space:my-space         (uses @dev - working dir)')
+  )
+  console.error(chalk.gray('                asp run space:my-space@HEAD    (uses latest commit)'))
+  console.error(chalk.gray('                asp run space:my-space@stable  (uses dist-tag)'))
   console.error(chalk.gray('  Dev mode:     asp run ./path/to/space'))
   process.exit(1)
 }
@@ -259,6 +286,7 @@ export function registerRunCommand(program: Command): void {
     .option('--inherit-project', 'Inherit project-level Claude settings')
     .option('--inherit-user', 'Inherit user-level Claude settings')
     .option('--inherit-local', 'Inherit local Claude settings')
+    .option('--settings <file-or-json>', 'Path to settings JSON file or JSON string')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
