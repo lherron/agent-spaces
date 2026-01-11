@@ -92,6 +92,32 @@ export {
   type SettingsInput,
 } from './settings-composer.js'
 
+// Permissions TOML parsing (canonical harness-agnostic format)
+export {
+  parsePermissionsToml,
+  readPermissionsToml,
+  permissionsTomlExists,
+  readPermissions,
+  toClaudePermissions,
+  toClaudeSettingsPermissions,
+  toPiPermissions,
+  buildPiToolsList,
+  normalizePaths,
+  normalizeExecToClaudeRules,
+  hasPermissions,
+  explainPermissions,
+  PERMISSIONS_TOML_FILENAME,
+  CLAUDE_ENFORCEMENT,
+  PI_ENFORCEMENT,
+  type CanonicalPermissions,
+  type EnforcementLevel,
+  type AnnotatedPermissionFacet,
+  type ClaudePermissions,
+  type PiPermissions,
+  type ClaudeSettingsPermissions,
+  type ReadPermissionsResult,
+} from './permissions-toml.js'
+
 // Main materialization
 export {
   materializeSpace,

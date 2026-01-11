@@ -1,6 +1,6 @@
 # Multi-Harness Implementation Plan
 
-> **Status:** Phase 4.2 Complete
+> **Status:** Phase 4.3 Complete
 > **Spec:** specs/MULTI-HARNESS-SPEC-PROPOSED.md
 > **Current Phase:** 4 - Full Multi-Harness
 
@@ -161,10 +161,22 @@ The implementation follows a 4-phase migration path from the spec:
 - [x] Updated PiAdapter to use `readHooksWithPrecedence()` for hook bridge generation
 - [x] Added 27 tests for hooks.toml parsing and generation
 
-### 4.3 permissions.toml Support
-- [ ] Parse granular permission definitions
-- [ ] Translate to Claude settings
-- [ ] Translate to Pi settings (best-effort)
+### 4.3 permissions.toml Support ✅
+- [x] Parse granular permission definitions
+- [x] Translate to Claude settings
+- [x] Translate to Pi settings (best-effort)
+- [x] Added `packages/materializer/src/permissions-toml.ts` with:
+  - `CanonicalPermissions` type (harness-agnostic permission format)
+  - `parsePermissionsToml()` - parses permissions.toml content
+  - `readPermissionsToml()` - reads permissions.toml from space directory
+  - `toClaudePermissions()` - translates to Claude format with enforcement levels
+  - `toClaudeSettingsPermissions()` - converts to settings.json permissions format
+  - `toPiPermissions()` - translates to Pi format (mostly lint_only)
+  - `explainPermissions()` - generates human-readable explanation
+- [x] Updated ClaudeAdapter to read permissions.toml and merge with settings during composition
+- [x] Updated PiAdapter to read permissions.toml and generate W304 warnings for lint_only facets
+- [x] Added W304 warning code: PI_PERMISSION_LINT_ONLY
+- [x] Added 51 tests for permissions.toml parsing and translation
 
 ---
 
@@ -216,8 +228,20 @@ The implementation follows a 4-phase migration path from the spec:
 - harness-specific hooks: `harness = "pi"` or `harness = "claude"` field filters hooks
 - Added 27 tests for hooks.toml parsing and generation
 
-**Next:** Phase 4.3
-- permissions.toml support
+**Completed:** Phase 4.3 - permissions.toml Support
+- Created `packages/materializer/src/permissions-toml.ts` for parsing permissions.toml
+- permissions.toml is the harness-agnostic format with sections: [read], [write], [exec], [network], [deny]
+- Enforcement levels classify how each harness handles permissions:
+  - Claude: read/write/exec/deny → enforced; network → lint_only
+  - Pi: exec → best_effort; everything else → lint_only
+- ClaudeAdapter reads permissions.toml from artifacts and merges with settings during composition
+- PiAdapter reads permissions.toml and generates W304 warnings for lint_only facets
+- Added W304 warning code: PI_PERMISSION_LINT_ONLY
+- Added 51 tests for permissions.toml parsing and translation
+
+**Next:** Phase 5 - Multi-Harness Smoke Testing
+- Create test fixtures for multi-harness configurations
+- Manual smoke testing with actual harnesses
 
 ---
 
@@ -359,6 +383,7 @@ Test each CLI command with `--harness` flag:
 - CLI harness command: `packages/cli/src/commands/harnesses.ts`
 - Instructions file linking: `packages/materializer/src/link-components.ts` (linkInstructionsFile)
 - Hooks TOML parsing: `packages/materializer/src/hooks-toml.ts` (parseHooksToml, readHooksWithPrecedence, toClaudeHooksConfig)
+- Permissions TOML parsing: `packages/materializer/src/permissions-toml.ts` (parsePermissionsToml, toClaudePermissions, toPiPermissions)
 
 ---
 
@@ -375,3 +400,4 @@ Test each CLI command with `--harness` flag:
 - [ ] Integration test with Pi harness
 - [x] Instructions file linking tests (9 tests in link-components.test.ts)
 - [x] hooks.toml parsing and generation tests (27 tests in hooks-toml.test.ts)
+- [x] permissions.toml parsing and translation tests (51 tests in permissions-toml.test.ts)

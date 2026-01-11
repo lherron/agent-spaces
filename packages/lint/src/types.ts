@@ -75,6 +75,7 @@ export const WARNING_CODES = {
   PI_HOOK_CANNOT_BLOCK: 'W301',
   PI_UNNAMESPACED_TOOL: 'W302',
   PI_TOOL_COLLISION: 'W303',
+  PI_PERMISSION_LINT_ONLY: 'W304',
 } as const
 
 export type WarningCode = (typeof WARNING_CODES)[keyof typeof WARNING_CODES]

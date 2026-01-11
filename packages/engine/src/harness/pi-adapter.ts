@@ -28,7 +28,15 @@ import {
   linkOrCopy,
 } from '@agent-spaces/core'
 import { WARNING_CODES } from '@agent-spaces/lint'
-import { linkInstructionsFile, readHooksWithPrecedence } from '@agent-spaces/materializer'
+import {
+  PERMISSIONS_TOML_FILENAME,
+  hasPermissions,
+  linkInstructionsFile,
+  permissionsTomlExists,
+  readHooksWithPrecedence,
+  readPermissionsToml,
+  toPiPermissions,
+} from '@agent-spaces/materializer'
 
 // ============================================================================
 // Pi-specific Errors
@@ -533,6 +541,7 @@ export class PiAdapter implements HarnessAdapter {
    *
    * This bundles TypeScript extensions and copies skills/hooks.
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Space materialization handles multiple component types
   async materializeSpace(
     input: MaterializeSpaceInput,
     cacheDir: string,
@@ -652,6 +661,14 @@ export class PiAdapter implements HarnessAdapter {
         files.push(instructionsResult.destFile)
       }
 
+      // Copy permissions.toml if present (for composition to read later)
+      if (await permissionsTomlExists(input.snapshotPath)) {
+        const srcPerms = join(input.snapshotPath, PERMISSIONS_TOML_FILENAME)
+        const destPerms = join(cacheDir, PERMISSIONS_TOML_FILENAME)
+        await linkOrCopy(srcPerms, destPerms)
+        files.push(PERMISSIONS_TOML_FILENAME)
+      }
+
       return {
         artifactPath: cacheDir,
         files,
@@ -672,6 +689,7 @@ export class PiAdapter implements HarnessAdapter {
    * - asp_modules/<target>/pi/skills/
    * - asp_modules/<target>/pi/asp-hooks.bridge.js
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Target composition handles multiple phases
   async composeTarget(
     input: ComposeTargetInput,
     outputDir: string,
@@ -811,6 +829,49 @@ export class PiAdapter implements HarnessAdapter {
       }
     } catch {
       // No skills
+    }
+
+    // Read permissions.toml from each artifact and generate warnings for lint_only facets
+    for (const artifact of input.artifacts) {
+      const permissions = await readPermissionsToml(artifact.artifactPath)
+      if (permissions && hasPermissions(permissions)) {
+        const piPerms = toPiPermissions(permissions)
+
+        // Generate W304 warning for each lint_only permission facet
+        const lintOnlyFacets: string[] = []
+
+        if (piPerms.read?.enforcement === 'lint_only' && piPerms.read.value?.length) {
+          lintOnlyFacets.push('read')
+        }
+        if (piPerms.write?.enforcement === 'lint_only' && piPerms.write.value?.length) {
+          lintOnlyFacets.push('write')
+        }
+        if (piPerms.network?.enforcement === 'lint_only' && piPerms.network.value?.length) {
+          lintOnlyFacets.push('network')
+        }
+        if (piPerms.deny?.read?.enforcement === 'lint_only' && piPerms.deny.read.value?.length) {
+          lintOnlyFacets.push('deny.read')
+        }
+        if (piPerms.deny?.write?.enforcement === 'lint_only' && piPerms.deny.write.value?.length) {
+          lintOnlyFacets.push('deny.write')
+        }
+        if (piPerms.deny?.exec?.enforcement === 'lint_only' && piPerms.deny.exec.value?.length) {
+          lintOnlyFacets.push('deny.exec')
+        }
+        if (
+          piPerms.deny?.network?.enforcement === 'lint_only' &&
+          piPerms.deny.network.value?.length
+        ) {
+          lintOnlyFacets.push('deny.network')
+        }
+
+        if (lintOnlyFacets.length > 0) {
+          warnings.push({
+            code: WARNING_CODES.PI_PERMISSION_LINT_ONLY,
+            message: `Space "${artifact.spaceId}" has permissions.toml with facets that Pi cannot enforce (lint-only): ${lintOnlyFacets.join(', ')}`,
+          })
+        }
+      }
     }
 
     const bundle: ComposedTargetBundle = {

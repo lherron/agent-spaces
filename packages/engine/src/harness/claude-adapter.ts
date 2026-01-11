@@ -22,8 +22,9 @@ import type {
   MaterializeSpaceOptions,
   MaterializeSpaceResult,
 } from '@agent-spaces/core'
-import { copyDir } from '@agent-spaces/core'
+import { copyDir, linkOrCopy } from '@agent-spaces/core'
 import {
+  PERMISSIONS_TOML_FILENAME,
   type SettingsInput,
   composeMcpFromSpaces,
   composeSettingsFromSpaces,
@@ -31,7 +32,11 @@ import {
   hooksTomlExists,
   linkComponents,
   linkInstructionsFile,
+  permissionsTomlExists,
   readHooksToml,
+  readPermissionsToml,
+  toClaudePermissions,
+  toClaudeSettingsPermissions,
   validateHooks,
   writeClaudeHooksJson,
   writePluginJson,
@@ -140,6 +145,14 @@ export class ClaudeAdapter implements HarnessAdapter {
         files.push(instructionsResult.destFile)
       }
 
+      // Copy permissions.toml if present (for composition to read later)
+      if (await permissionsTomlExists(input.snapshotPath)) {
+        const srcPerms = join(input.snapshotPath, PERMISSIONS_TOML_FILENAME)
+        const destPerms = join(cacheDir, PERMISSIONS_TOML_FILENAME)
+        await linkOrCopy(srcPerms, destPerms)
+        files.push(PERMISSIONS_TOML_FILENAME)
+      }
+
       // Generate hooks.json from hooks.toml if present
       // hooks.toml is the canonical harness-agnostic format
       const hooksDir = join(cacheDir, 'hooks')
@@ -180,6 +193,7 @@ export class ClaudeAdapter implements HarnessAdapter {
    * - asp_modules/<target>/mcp.json
    * - asp_modules/<target>/settings.json
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Target composition handles multiple phases
   async composeTarget(
     input: ComposeTargetInput,
     outputDir: string,
@@ -231,17 +245,58 @@ export class ClaudeAdapter implements HarnessAdapter {
       mcpConfigPath = mcpOutputPath
     }
 
-    // Compose settings from all spaces
+    // Compose settings from all spaces (including permissions.toml)
     let settingsPath: string | undefined
     const settingsOutputPath = join(outputDir, 'settings.json')
 
-    // Convert SpaceSettings[] to SettingsInput[]
-    const settingsInputs: SettingsInput[] = input.artifacts
-      .map((artifact, i) => ({
-        spaceId: artifact.spaceId,
-        settings: input.settingsInputs[i] ?? {},
-      }))
-      .filter((s) => s.settings && Object.keys(s.settings).length > 0)
+    // Read permissions.toml from each artifact and merge with space settings
+    const settingsInputs: SettingsInput[] = []
+    for (let i = 0; i < input.artifacts.length; i++) {
+      const artifact = input.artifacts[i]
+      if (!artifact) continue
+
+      // Start with space settings from manifest
+      const spaceSettings = input.settingsInputs[i] ?? {}
+      const mergedSettings = { ...spaceSettings }
+
+      // Read permissions.toml from artifact if it exists
+      const permissions = await readPermissionsToml(artifact.artifactPath)
+
+      if (permissions) {
+        // Translate permissions to Claude format
+        const claudePerms = toClaudePermissions(permissions)
+        const settingsPerms = toClaudeSettingsPermissions(claudePerms)
+
+        // Merge with existing permissions
+        if (settingsPerms.allow?.length || settingsPerms.deny?.length) {
+          if (!mergedSettings.permissions) {
+            mergedSettings.permissions = {}
+          }
+
+          if (settingsPerms.allow?.length) {
+            mergedSettings.permissions.allow = [
+              ...(mergedSettings.permissions.allow ?? []),
+              ...settingsPerms.allow,
+            ]
+          }
+
+          if (settingsPerms.deny?.length) {
+            mergedSettings.permissions.deny = [
+              ...(mergedSettings.permissions.deny ?? []),
+              ...settingsPerms.deny,
+            ]
+          }
+        }
+      }
+
+      // Only include if there are actual settings
+      if (Object.keys(mergedSettings).length > 0) {
+        settingsInputs.push({
+          spaceId: artifact.spaceId,
+          settings: mergedSettings,
+        })
+      }
+    }
 
     if (settingsInputs.length > 0) {
       const { settings: composedSettings } = await composeSettingsFromSpaces(
