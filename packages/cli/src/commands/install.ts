@@ -25,7 +25,6 @@ import {
 
 /**
  * Validate harness option and return the harness ID.
- * In Phase 1, only 'claude' is supported.
  */
 function validateHarness(harness: string | undefined): HarnessId {
   const harnessId = harness ?? 'claude'
@@ -37,16 +36,6 @@ function validateHarness(harness: string | undefined): HarnessId {
     for (const adapter of harnessRegistry.getAll()) {
       console.log(colors.muted(`  - ${adapter.id}`))
     }
-    blank()
-    process.exit(1)
-  }
-
-  // Phase 1: Only claude is supported
-  if (harnessId !== 'claude') {
-    blank()
-    error(`Harness "${harnessId}" is not yet supported`)
-    console.log(colors.muted('Currently only "claude" is available.'))
-    console.log(colors.muted('Run "asp harnesses" to see available harnesses.'))
     blank()
     process.exit(1)
   }

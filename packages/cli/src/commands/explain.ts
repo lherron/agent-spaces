@@ -22,7 +22,6 @@ import { findProjectRoot } from '../index.js'
 
 /**
  * Validate harness option and return the harness ID.
- * In Phase 1, only 'claude' is supported.
  */
 function validateHarness(harness: string | undefined): HarnessId {
   const harnessId = harness ?? 'claude'
@@ -34,14 +33,6 @@ function validateHarness(harness: string | undefined): HarnessId {
     for (const adapter of harnessRegistry.getAll()) {
       console.error(chalk.gray(`  - ${adapter.id}`))
     }
-    process.exit(1)
-  }
-
-  // Phase 1: Only claude is supported
-  if (harnessId !== 'claude') {
-    console.error(chalk.red(`Error: Harness "${harnessId}" is not yet supported`))
-    console.error(chalk.gray('Currently only "claude" is available.'))
-    console.error(chalk.gray('Run "asp harnesses" to see available harnesses.'))
     process.exit(1)
   }
 

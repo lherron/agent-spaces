@@ -5,14 +5,14 @@ schema = 1
 
 [targets.claude-dev]
 description = "Claude-only development environment"
-compose = ["path:../claude-only"]
+compose = ["space:path:../claude-only@dev"]
 
 [targets.pi-dev]
 description = "Pi-only development environment"
-compose = ["path:../pi-only"]
-harnesses = ["pi"]
+compose = ["space:path:../pi-only@dev"]
+# harnesses = ["pi"]  # Phase 3: enable when harnesses support is added
 
 [targets.full-stack]
 description = "Full-stack multi-harness environment"
-compose = ["path:../multi-harness"]
-harnesses = ["claude", "pi"]
+compose = ["space:path:../multi-harness@dev"]
+# harnesses = ["claude", "pi"]  # Phase 3: enable when harnesses support is added
