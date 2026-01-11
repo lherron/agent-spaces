@@ -28,9 +28,12 @@ import {
   composeMcpFromSpaces,
   composeSettingsFromSpaces,
   ensureHooksExecutable,
+  hooksTomlExists,
   linkComponents,
   linkInstructionsFile,
+  readHooksToml,
   validateHooks,
+  writeClaudeHooksJson,
   writePluginJson,
 } from '@agent-spaces/materializer'
 
@@ -135,6 +138,18 @@ export class ClaudeAdapter implements HarnessAdapter {
       const instructionsResult = await linkInstructionsFile(input.snapshotPath, cacheDir, 'claude')
       if (instructionsResult.linked && instructionsResult.destFile) {
         files.push(instructionsResult.destFile)
+      }
+
+      // Generate hooks.json from hooks.toml if present
+      // hooks.toml is the canonical harness-agnostic format
+      const hooksDir = join(cacheDir, 'hooks')
+      if (await hooksTomlExists(hooksDir)) {
+        const hooksToml = await readHooksToml(hooksDir)
+        if (hooksToml && hooksToml.hook.length > 0) {
+          await writeClaudeHooksJson(hooksToml.hook, hooksDir)
+          // Note: hooks.json may already be in files from linkComponents
+          // but writing it again is fine - it will be the generated version
+        }
       }
 
       // Validate and fix hooks

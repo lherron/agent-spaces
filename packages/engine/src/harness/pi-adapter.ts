@@ -28,7 +28,7 @@ import {
   linkOrCopy,
 } from '@agent-spaces/core'
 import { WARNING_CODES } from '@agent-spaces/lint'
-import { linkInstructionsFile } from '@agent-spaces/materializer'
+import { linkInstructionsFile, readHooksWithPrecedence } from '@agent-spaces/materializer'
 
 // ============================================================================
 // Pi-specific Errors
@@ -746,6 +746,7 @@ export class PiAdapter implements HarnessAdapter {
     }
 
     // Merge hooks directories and collect hook definitions
+    // Priority: hooks.toml (canonical harness-agnostic) > hooks.json (legacy)
     const hooksDir = join(outputDir, 'hooks')
     await mkdir(hooksDir, { recursive: true })
     const allHooks: HookDefinition[] = []
@@ -757,24 +758,23 @@ export class PiAdapter implements HarnessAdapter {
         if (stats.isDirectory()) {
           await copyDir(srcHooksDir, hooksDir)
 
-          // Try to load hooks.json
-          const hooksJsonPath = join(srcHooksDir, 'hooks.json')
-          try {
-            const hooksJson = await Bun.file(hooksJsonPath).json()
-            if (Array.isArray(hooksJson.hooks)) {
-              // Adjust script paths to be relative to composed hooks dir
-              for (const hook of hooksJson.hooks) {
-                allHooks.push({
-                  event: hook.matcher || hook.event,
-                  script: join(hooksDir, basename(hook.hooks?.[0]?.command || hook.script || '')),
-                  tools: hook.hooks?.[0]?.tools || hook.tools,
-                  blocking: hook.blocking,
-                  harness: hook.harness,
-                })
-              }
+          // Read hooks with hooks.toml taking precedence over hooks.json
+          const hooksResult = await readHooksWithPrecedence(srcHooksDir)
+          if (hooksResult.hooks.length > 0) {
+            // Adjust script paths to be relative to composed hooks dir
+            for (const hook of hooksResult.hooks) {
+              // Extract script basename - handle both raw scripts and ${CLAUDE_PLUGIN_ROOT} paths
+              const scriptPath = hook.script.replace(/^\$\{CLAUDE_PLUGIN_ROOT\}\//, '')
+              const scriptBasename = basename(scriptPath)
+
+              allHooks.push({
+                event: hook.event,
+                script: join(hooksDir, scriptBasename),
+                tools: hook.tools,
+                blocking: hook.blocking,
+                harness: hook.harness,
+              })
             }
-          } catch {
-            // No hooks.json or invalid format
           }
         }
       } catch {

@@ -34,7 +34,7 @@ export {
   type LinkInstructionsResult,
 } from './link-components.js'
 
-// Hooks validation
+// Hooks validation (legacy hooks.json)
 export {
   readHooksConfig,
   isExecutable,
@@ -46,6 +46,29 @@ export {
   type HooksConfig,
   type HookValidationResult,
 } from './hooks-builder.js'
+
+// Hooks TOML parsing (canonical harness-agnostic format)
+export {
+  parseHooksToml,
+  readHooksToml,
+  hooksTomlExists,
+  filterHooksForHarness,
+  translateToClaudeEvent,
+  translateToPiEvent,
+  toClaudeHooksConfig,
+  generateClaudeHooksJson,
+  writeClaudeHooksJson,
+  readHooksWithPrecedence,
+  HOOKS_TOML_FILENAME,
+  HOOKS_JSON_FILENAME,
+  ABSTRACT_TO_CLAUDE_EVENTS,
+  ABSTRACT_TO_PI_EVENTS,
+  type CanonicalHookDefinition,
+  type HooksTomlConfig,
+  type ClaudeHookDefinition,
+  type ClaudeHooksConfig,
+  type ReadHooksResult,
+} from './hooks-toml.js'
 
 // MCP composition
 export {

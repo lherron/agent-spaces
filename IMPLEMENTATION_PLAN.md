@@ -1,6 +1,6 @@
 # Multi-Harness Implementation Plan
 
-> **Status:** Phase 4.1 Complete
+> **Status:** Phase 4.2 Complete
 > **Spec:** specs/MULTI-HARNESS-SPEC-PROPOSED.md
 > **Current Phase:** 4 - Full Multi-Harness
 
@@ -145,10 +145,21 @@ The implementation follows a 4-phase migration path from the spec:
 - [x] Added `linkInstructionsFile()` helper in `packages/materializer/src/link-components.ts`
 - [x] Added tests for instructions file handling (9 tests)
 
-### 4.2 hooks.toml Support
-- [ ] Parse `hooks.toml` as canonical hook declaration
-- [ ] Generate `hooks/hooks.json` for Claude
-- [ ] Generate hook bridge for Pi
+### 4.2 hooks.toml Support ✅
+- [x] Parse `hooks.toml` as canonical hook declaration
+- [x] Generate `hooks/hooks.json` for Claude
+- [x] Generate hook bridge for Pi
+- [x] Added `packages/materializer/src/hooks-toml.ts` with:
+  - `CanonicalHookDefinition` type (harness-agnostic hook format)
+  - `parseHooksToml()` - parses hooks.toml content
+  - `readHooksToml()` - reads hooks.toml from hooks directory
+  - `readHooksWithPrecedence()` - reads hooks.toml first, falls back to hooks.json
+  - `toClaudeHooksConfig()` - converts canonical hooks to Claude format
+  - `filterHooksForHarness()` - filters hooks for specific harness
+  - `translateToClaudeEvent()` / `translateToPiEvent()` - event name mapping
+- [x] Updated ClaudeAdapter to generate hooks.json from hooks.toml during materialization
+- [x] Updated PiAdapter to use `readHooksWithPrecedence()` for hook bridge generation
+- [x] Added 27 tests for hooks.toml parsing and generation
 
 ### 4.3 permissions.toml Support
 - [ ] Parse granular permission definitions
@@ -195,9 +206,115 @@ The implementation follows a 4-phase migration path from the spec:
 - Backwards compatible: legacy CLAUDE.md still works for Claude-only spaces
 - Added 9 tests for instructions file handling
 
-**Next:** Phase 4.2/4.3
-- hooks.toml parsing
+**Completed:** Phase 4.2 - hooks.toml Support
+- Created `packages/materializer/src/hooks-toml.ts` for parsing canonical hooks format
+- hooks.toml is the harness-agnostic format, translated to harness-specific formats:
+  - Claude: generates `hooks/hooks.json` with Claude event names (PreToolUse, PostToolUse, Stop)
+  - Pi: reads via `readHooksWithPrecedence()` for hook bridge generation
+- `readHooksWithPrecedence()` prefers hooks.toml over hooks.json for backwards compatibility
+- Event mapping: pre_tool_use → PreToolUse (Claude) / tool_call (Pi), etc.
+- harness-specific hooks: `harness = "pi"` or `harness = "claude"` field filters hooks
+- Added 27 tests for hooks.toml parsing and generation
+
+**Next:** Phase 4.3
 - permissions.toml support
+
+---
+
+## Phase 5: Multi-Harness Smoke Testing
+
+Manual smoke testing of multi-harness configurations using actual harnesses in non-interactive mode.
+
+### 5.1 Test Fixtures Setup
+- [ ] Create `integration-tests/fixtures/multi-harness/` directory
+- [ ] Create Claude-only space (`claude-only/`) with commands, MCP, skills
+- [ ] Create Pi-only space (`pi-only/`) with extensions, skills
+- [ ] Create multi-harness space (`multi-harness/`) with AGENT.md, skills, hooks
+- [ ] Create project with `asp-targets.toml` targeting all three spaces
+
+### 5.2 Claude Harness Smoke Tests
+Run each with `--dry-run` first, then with actual `claude` binary using `--print` (non-interactive):
+
+- [ ] Basic Claude run: `asp run claude-target --harness claude --dry-run`
+- [ ] Verify `--plugin-dir` flags point to `asp_modules/<target>/claude/plugins/`
+- [ ] Verify `--mcp-config` points to composed `mcp.json`
+- [ ] Verify `--settings` points to composed `settings.json`
+- [ ] Test with `--inherit-project` / `--inherit-user` flags
+- [ ] Test with explicit `--model` override
+- [ ] Verify AGENT.md → CLAUDE.md renaming in output
+- [ ] Run `asp explain <target> --harness claude` and verify output
+
+Non-interactive execution (requires Claude):
+```bash
+echo "What tools do you have?" | asp run <target> --harness claude --print
+```
+
+### 5.3 Pi Harness Smoke Tests
+Run each with `--dry-run` first, then with actual `pi` binary using non-interactive mode:
+
+- [ ] Basic Pi run: `asp run pi-target --harness pi --dry-run`
+- [ ] Verify `--extension` flags point to bundled `.js` files
+- [ ] Verify extensions are namespaced (`<spaceId>__<name>.js`)
+- [ ] Verify `--skills` points to merged skills directory
+- [ ] Verify hook bridge extension (`asp-hooks.bridge.js`) is generated
+- [ ] Verify model translation (`sonnet` → `claude-sonnet`)
+- [ ] Test with explicit `--model` override
+- [ ] Verify AGENT.md is copied (not renamed) for Pi
+- [ ] Run `asp explain <target> --harness pi` and verify output
+
+Non-interactive execution (requires Pi):
+```bash
+echo "What tools do you have?" | asp run <target> --harness pi --print
+```
+
+### 5.4 Multi-Harness Target Tests
+Project with `harnesses = ["claude", "pi"]` in target config:
+
+- [ ] `asp install` generates both `asp_modules/<target>/claude/` and `asp_modules/<target>/pi/`
+- [ ] `asp build --harness claude` builds only Claude output
+- [ ] `asp build --harness pi` builds only Pi output
+- [ ] `asp build` builds both (if target declares both)
+- [ ] Lock file contains `harnesses` section with per-harness `envHash`
+- [ ] Verify warnings in lock file (e.g., W301 for blocking hooks on Pi)
+
+### 5.5 AGENT.md / CLAUDE.md Handling
+- [ ] Space with only `AGENT.md`: Claude output has `CLAUDE.md`, Pi output has `AGENT.md`
+- [ ] Space with only `CLAUDE.md`: Claude output has `CLAUDE.md`, Pi output is empty (or warns)
+- [ ] Space with both: Claude prefers `CLAUDE.md`, Pi uses `AGENT.md`
+- [ ] Verify `asp explain` shows instructions file handling
+
+### 5.6 Skills Directory Handling
+- [ ] Single space with skills: skills copied to both harness outputs
+- [ ] Multiple spaces with skills: skills merged in load order
+- [ ] Skill collision handling (later space overwrites earlier)
+
+### 5.7 Hooks Handling
+- [ ] Space with `hooks/hooks.json`: Claude uses directly, Pi generates bridge
+- [ ] Verify hook scripts are executable in output
+- [ ] Verify Pi hook bridge has correct event mappings
+- [ ] Verify W301 warning for blocking hooks on Pi
+
+### 5.8 Extension Bundling (Pi)
+- [ ] TypeScript extension bundles to `.js`
+- [ ] Extension with dependencies bundles correctly
+- [ ] `[pi.build]` options respected (format, target, external)
+- [ ] Bundle includes correct namespacing wrapper
+
+### 5.9 Error Cases
+- [ ] `--harness pi` on Claude-only space: clear error message
+- [ ] `--harness claude` on Pi-only space: clear error message
+- [ ] Missing harness binary: helpful error with installation guidance
+- [ ] Extension bundling failure: clear error with path and details
+
+### 5.10 CLI Command Coverage
+Test each CLI command with `--harness` flag:
+
+- [ ] `asp run <target> --harness <id> --dry-run`
+- [ ] `asp install --harness <id>`
+- [ ] `asp build <target> --harness <id>`
+- [ ] `asp explain <target> --harness <id>`
+- [ ] `asp harnesses` (list available harnesses)
+- [ ] `asp harnesses --json` (JSON output)
 
 ---
 
@@ -241,6 +358,7 @@ The implementation follows a 4-phase migration path from the spec:
 - Pi errors: `packages/core/src/errors.ts` (PiError, PiNotFoundError, PiBundleError, PiInvocationError)
 - CLI harness command: `packages/cli/src/commands/harnesses.ts`
 - Instructions file linking: `packages/materializer/src/link-components.ts` (linkInstructionsFile)
+- Hooks TOML parsing: `packages/materializer/src/hooks-toml.ts` (parseHooksToml, readHooksWithPrecedence, toClaudeHooksConfig)
 
 ---
 
@@ -256,3 +374,4 @@ The implementation follows a 4-phase migration path from the spec:
 - [ ] Hook bridge generation tests
 - [ ] Integration test with Pi harness
 - [x] Instructions file linking tests (9 tests in link-components.test.ts)
+- [x] hooks.toml parsing and generation tests (27 tests in hooks-toml.test.ts)
