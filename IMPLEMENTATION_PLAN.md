@@ -1,6 +1,6 @@
 # Implementation Plan: Agent Spaces v2
 
-**Status:** Core implementation complete. All 490 tests passing, 0 lint warnings.
+**Status:** Core implementation complete. All 505 tests passing, 0 lint warnings.
 
 **Latest Tag:** v0.0.60
 
@@ -45,8 +45,9 @@ Based on spec analysis, the following test gaps should be addressed:
     - Mixed spaces with/without MCP configs
   - Note: `--strict-mcp-config` not implemented in spec
 
-- [ ] **Global Mode Tests (`asp run` outside projects)**
-  - Running spaces outside project context
+- [x] **Global Mode Tests (`asp run` outside projects)** (COMPLETE)
+  - Added 15 tests covering `runGlobalSpace` and `runLocalSpace` functions
+  - Tests for running spaces outside project context
   - Global lock file creation (`$ASP_HOME/global-lock.json`)
   - Dev-mode path runs (`asp run ./my-space`)
 
@@ -117,8 +118,8 @@ Based on spec analysis, the following test gaps should be addressed:
 | cli | 1 | ✅ |
 | engine | 1 | ✅ |
 | materializer | 19 | ✅ |
-| integration-tests | 67 | ✅ |
-| **Total** | **490** | **✅** |
+| integration-tests | 82 | ✅ |
+| **Total** | **505** | **✅** |
 
 ---
 

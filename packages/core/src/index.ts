@@ -37,6 +37,21 @@ export {
   TARGETS_FILENAME,
 } from './config/index.js'
 
+// asp_modules directory helpers
+export {
+  ASP_MODULES_DIR,
+  ASP_MODULES_MCP_CONFIG,
+  ASP_MODULES_PLUGINS_DIR,
+  ASP_MODULES_SETTINGS,
+  aspModulesExists,
+  getAspModulesPath,
+  getTargetMcpConfigPath,
+  getTargetOutputPath,
+  getTargetPluginsPath,
+  getTargetSettingsPath,
+  targetOutputExists,
+} from './config/index.js'
+
 // Errors
 export {
   AspError,

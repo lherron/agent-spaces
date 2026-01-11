@@ -38,6 +38,8 @@ export interface ClaudeInvokeOptions {
   permissionMode?: string | undefined
   /** Setting sources to load (--setting-sources flag). Empty string for isolation. */
   settingSources?: string | undefined
+  /** Path to settings JSON file or JSON string (--settings flag) */
+  settings?: string | undefined
   /** Additional arguments to pass through */
   args?: string[] | undefined
   /** Working directory for Claude */
@@ -97,6 +99,11 @@ export function buildClaudeArgs(options: ClaudeInvokeOptions): string[] {
   // Add setting sources for isolation
   if (options.settingSources !== undefined) {
     args.push('--setting-sources', options.settingSources)
+  }
+
+  // Add settings file or JSON
+  if (options.settings) {
+    args.push('--settings', options.settings)
   }
 
   // Add pass-through arguments

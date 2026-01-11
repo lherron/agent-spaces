@@ -18,16 +18,18 @@
     "lint:fix": "biome check --write ."
   },
   "dependencies": {
-    "@agent-spaces/core": "workspace:*",
-    "@agent-spaces/git": "workspace:*",
     "@agent-spaces/claude": "workspace:*",
+    "@agent-spaces/core": "workspace:*",
+    "@agent-spaces/engine": "workspace:*",
+    "@agent-spaces/git": "workspace:*",
+    "@agent-spaces/lint": "workspace:*",
+    "@agent-spaces/materializer": "workspace:*",
     "@agent-spaces/resolver": "workspace:*",
     "@agent-spaces/store": "workspace:*",
-    "@agent-spaces/materializer": "workspace:*",
-    "@agent-spaces/lint": "workspace:*",
-    "@agent-spaces/engine": "workspace:*",
+    "chalk": "^5.3.0",
     "commander": "^12.1.0",
-    "chalk": "^5.3.0"
+    "figures": "^6.1.0",
+    "ora": "^9.0.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

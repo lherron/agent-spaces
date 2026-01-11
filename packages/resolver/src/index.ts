@@ -67,6 +67,7 @@ export {
 export {
   readSpaceManifest,
   readSpaceManifestOrNull,
+  readSpaceManifestFromFilesystem,
   getSpaceDependencies,
   hasDependencies,
   type ManifestReadOptions,
@@ -74,6 +75,7 @@ export {
 
 // Closure computation
 export {
+  DEV_COMMIT_MARKER,
   computeClosure,
   getSpace,
   getSpacesInOrder,
@@ -86,6 +88,7 @@ export {
 
 // Integrity hashing
 export {
+  DEV_INTEGRITY,
   computeIntegrity,
   computeEnvHash,
   verifyIntegrity,

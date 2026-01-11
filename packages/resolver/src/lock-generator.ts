@@ -100,6 +100,12 @@ export interface TargetInput {
  * Build the selector string for resolvedFrom field.
  */
 function buildResolvedFromSelector(resolvedFrom: ResolvedSpace['resolvedFrom']): string {
+  if (resolvedFrom.selector.kind === 'dev') {
+    return 'dev'
+  }
+  if (resolvedFrom.selector.kind === 'head') {
+    return 'HEAD'
+  }
   if (resolvedFrom.selector.kind === 'dist-tag') {
     return resolvedFrom.selector.tag
   }

@@ -40,6 +40,24 @@ export interface SpaceDeps {
   spaces?: SpaceRefString[]
 }
 
+/** Permission settings for Claude */
+export interface SpacePermissions {
+  /** Permission rules to allow tool use */
+  allow?: string[] | undefined
+  /** Permission rules to deny tool use */
+  deny?: string[] | undefined
+}
+
+/** Claude settings that can be defined in a space */
+export interface SpaceSettings {
+  /** Permission rules */
+  permissions?: SpacePermissions | undefined
+  /** Environment variables to set */
+  env?: Record<string, string> | undefined
+  /** Override the default Claude model */
+  model?: string | undefined
+}
+
 /**
  * Space manifest (space.toml)
  *
@@ -59,6 +77,8 @@ export interface SpaceManifest {
   plugin?: SpacePluginConfig
   /** Dependencies */
   deps?: SpaceDeps
+  /** Claude settings to apply when running with this space */
+  settings?: SpaceSettings | undefined
 }
 
 // ============================================================================

@@ -1,8 +1,10 @@
 # Agent Spaces v2
 
+Every agent deserves to have its own private space, isolated from all the chaos that is your twelve .claude/.codex/.gemini directories.  This project aims to solve that dilemma.
+
 Compose reproducible Claude Code environments from reusable capability modules.
 
-Agent Spaces lets you define **Spaces** (versioned bundles of commands, skills, agents, and hooks) and compose them into **Run Targets** for your projects. At runtime, `asp run` materializes spaces into Claude Code plugin directories and launches Claude with everything wired up.
+Agent Spaces lets you define **Spaces** (versioned bundles of commands, skills, agents, and hooks) and compose them into **Run Targets** for your projects. At runtime, `asp run` materializes spaces into Claude Code plugin directories and launches Claude with everything wired up.  It turns off default settings by default (enable with --inherit flags).
 
 ## Quick Install
 

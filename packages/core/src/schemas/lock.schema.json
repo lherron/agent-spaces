@@ -37,12 +37,20 @@
   "$defs": {
     "sha256Integrity": {
       "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
+      "description": "SHA256 integrity hash, or 'sha256:dev' for @dev refs",
+      "pattern": "^sha256:([0-9a-f]{64}|dev)$"
+    },
+
+    "commitRef": {
+      "type": "string",
+      "description": "Git commit SHA (7-64 hex chars) or 'dev' for @dev refs",
+      "pattern": "^([0-9a-f]{7,64}|dev)$"
     },
 
     "spaceKey": {
       "type": "string",
-      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*@[0-9a-f]{7,64}$"
+      "description": "Space key: '<id>@<commit>' or '<id>@dev' for @dev refs",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*@([0-9a-f]{7,64}|dev)$"
     },
 
     "spaceRef": {
@@ -56,7 +64,7 @@
       "required": ["id", "commit", "path", "integrity", "plugin", "deps"],
       "properties": {
         "id": { "type": "string" },
-        "commit": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" },
+        "commit": { "$ref": "#/$defs/commitRef" },
         "path": { "type": "string", "description": "Path in registry repo, e.g. 'spaces/todo-frontend'" },
 
         "integrity": { "$ref": "#/$defs/sha256Integrity" },
@@ -103,22 +111,20 @@
       "properties": {
         "compose": {
           "type": "array",
-          "items": { "$ref": "#/$defs/spaceRef" },
-          "minItems": 1
+          "description": "Space refs including @dev refs (which point to filesystem)",
+          "items": { "$ref": "#/$defs/spaceRef" }
         },
 
         "roots": {
           "type": "array",
           "description": "Resolved root spaces corresponding to compose entries (one per compose entry)",
-          "items": { "$ref": "#/$defs/spaceKey" },
-          "minItems": 1
+          "items": { "$ref": "#/$defs/spaceKey" }
         },
 
         "loadOrder": {
           "type": "array",
           "description": "Deterministic plugin-dir order including transitive deps (deps before dependents)",
-          "items": { "$ref": "#/$defs/spaceKey" },
-          "minItems": 1
+          "items": { "$ref": "#/$defs/spaceKey" }
         },
 
         "envHash": { "$ref": "#/$defs/sha256Integrity" },

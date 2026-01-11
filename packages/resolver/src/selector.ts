@@ -2,12 +2,12 @@
  * Selector resolution - resolve any selector type to a commit SHA.
  *
  * WHY: This is the core resolution logic that turns abstract
- * selectors (dist-tag, semver, git-pin) into concrete commits.
+ * selectors (head, dist-tag, semver, git-pin) into concrete commits.
  */
 
 import type { CommitSha, Selector, SpaceId, SpaceRef } from '@agent-spaces/core'
 import { SelectorResolutionError, asCommitSha } from '@agent-spaces/core'
-import { getTagCommit } from '@agent-spaces/git'
+import { getHead, getTagCommit } from '@agent-spaces/git'
 import { resolveDistTag, versionToGitTag } from './dist-tags.js'
 import { type VersionInfo, resolveExactVersion, resolveSemverRange } from './git-tags.js'
 
@@ -44,6 +44,16 @@ export async function resolveSelector(
   options: SelectorResolveOptions
 ): Promise<ResolvedSelector> {
   switch (selector.kind) {
+    case 'dev':
+      // Dev selector should be handled in closure.ts before reaching here
+      // If we get here, it means the selector was not handled properly
+      throw new SelectorResolutionError(
+        '@dev selector should be handled in closure computation, not direct selector resolution',
+        spaceId,
+        'dev'
+      )
+    case 'head':
+      return resolveHeadSelector(spaceId, options)
     case 'dist-tag':
       return resolveDistTagSelector(spaceId, selector.tag, options)
     case 'semver':
@@ -52,9 +62,9 @@ export async function resolveSelector(
       return resolveGitPinSelector(spaceId, selector.sha, options)
     default:
       throw new SelectorResolutionError(
+        `Unknown selector kind: ${(selector as Selector).kind}`,
         spaceId,
-        'unknown',
-        `Unknown selector kind: ${(selector as Selector).kind}`
+        'unknown'
       )
   }
 }
@@ -67,6 +77,20 @@ export async function resolveSpaceRef(
   options: SelectorResolveOptions
 ): Promise<ResolvedSelector> {
   return resolveSelector(ref.id, ref.selector, options)
+}
+
+/**
+ * Resolve a HEAD selector - uses current repo HEAD.
+ */
+async function resolveHeadSelector(
+  _spaceId: SpaceId,
+  options: SelectorResolveOptions
+): Promise<ResolvedSelector> {
+  const commit = await getHead({ cwd: options.cwd })
+  return {
+    commit: asCommitSha(commit),
+    selector: { kind: 'head' },
+  }
 }
 
 /**
@@ -85,9 +109,9 @@ async function resolveDistTagSelector(
 
   if (version === null) {
     throw new SelectorResolutionError(
+      `Dist-tag '${tagName}' not found for space '${spaceId}'`,
       spaceId,
-      tagName,
-      `Dist-tag '${tagName}' not found for space '${spaceId}'`
+      tagName
     )
   }
 
@@ -98,9 +122,9 @@ async function resolveDistTagSelector(
     commit = await getTagCommit(gitTag, { cwd: options.cwd })
   } catch (_err) {
     throw new SelectorResolutionError(
+      `Git tag '${gitTag}' for dist-tag '${tagName}' not found`,
       spaceId,
-      tagName,
-      `Git tag '${gitTag}' for dist-tag '${tagName}' not found`
+      tagName
     )
   }
 
@@ -133,11 +157,11 @@ async function resolveSemverSelector(
 
   if (versionInfo === null) {
     throw new SelectorResolutionError(
-      spaceId,
-      range,
       exact
         ? `Version '${range}' not found for space '${spaceId}'`
-        : `No version matching '${range}' found for space '${spaceId}'`
+        : `No version matching '${range}' found for space '${spaceId}'`,
+      spaceId,
+      range
     )
   }
 

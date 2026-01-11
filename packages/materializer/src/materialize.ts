@@ -76,8 +76,11 @@ export async function materializeSpace(
   const cacheKey = computePluginCacheKey(input.integrity, pluginName, pluginVersion)
   const pluginPath = options.paths.pluginCache(cacheKey)
 
-  // Check cache
-  if (!options.force && (await cacheExists(cacheKey, { paths: options.paths }))) {
+  // Skip cache for @dev refs (integrity = sha256:dev) since content can change
+  const isDev = input.integrity === 'sha256:dev'
+
+  // Check cache (skip for @dev refs)
+  if (!isDev && !options.force && (await cacheExists(cacheKey, { paths: options.paths }))) {
     return {
       spaceKey: input.spaceKey,
       pluginPath,

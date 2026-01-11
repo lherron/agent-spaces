@@ -54,12 +54,27 @@ export type ValidationResult<T> =
 // Validation functions
 // ============================================================================
 
+/**
+ * Provide a more helpful error message for known validation patterns.
+ */
+function friendlyMessage(err: NonNullable<typeof validateSpaceSchema.errors>[number]): string {
+  const defaultMsg = err.message || 'Unknown error'
+
+  // Space reference pattern errors
+  if (err.keyword === 'pattern' && err.instancePath.includes('/compose/')) {
+    const value = err.data as string
+    return `"${value}" is not a valid space reference. Use format: space:<id>@<selector> (e.g., space:${value}@dev or space:${value}@stable)`
+  }
+
+  return defaultMsg
+}
+
 function formatErrors(errors: typeof validateSpaceSchema.errors): ValidationError[] {
   if (!errors) return []
 
   return errors.map((err) => ({
     path: err.instancePath || '/',
-    message: err.message || 'Unknown error',
+    message: friendlyMessage(err),
     keyword: err.keyword,
     params: err.params as Record<string, unknown>,
   }))

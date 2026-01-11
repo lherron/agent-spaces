@@ -14,10 +14,18 @@ import type {
   SpaceRef,
   SpaceRefString,
 } from '@agent-spaces/core'
-import { CyclicDependencyError, MissingDependencyError } from '@agent-spaces/core'
-import { type ManifestReadOptions, getSpaceDependencies, readSpaceManifest } from './manifest.js'
+import { CyclicDependencyError, MissingDependencyError, asSpaceKey } from '@agent-spaces/core'
+import {
+  type ManifestReadOptions,
+  getSpaceDependencies,
+  readSpaceManifest,
+  readSpaceManifestFromFilesystem,
+} from './manifest.js'
 import { buildSpaceKey, parseSpaceRef } from './ref-parser.js'
 import { type ResolvedSelector, type SelectorResolveOptions, resolveSelector } from './selector.js'
+
+/** Marker commit for @dev refs (not a real git SHA) */
+export const DEV_COMMIT_MARKER = 'dev' as CommitSha
 
 /**
  * A resolved space in the dependency graph.
@@ -86,21 +94,35 @@ export async function computeClosure(
   const visitPath: SpaceKey[] = []
 
   async function visit(ref: SpaceRef): Promise<SpaceKey> {
+    // Handle @dev selector specially - uses filesystem instead of git
+    const isDev = ref.selector.kind === 'dev'
+
     // Check if this space is pinned (for selective upgrades)
     const pinnedCommit = options.pinnedSpaces?.get(ref.id)
 
-    // Resolve the ref to a commit (or use pinned commit)
+    // Resolve the ref to a commit (or use pinned commit, or use dev marker)
     let resolved: ResolvedSelector
-    if (pinnedCommit !== undefined) {
+    let key: SpaceKey
+
+    if (isDev) {
+      // @dev uses a special marker and reads from filesystem
+      resolved = {
+        commit: DEV_COMMIT_MARKER,
+        selector: { kind: 'dev' },
+      }
+      // Build key as "id@dev" instead of "id@<commit-prefix>"
+      key = asSpaceKey(ref.id, DEV_COMMIT_MARKER)
+    } else if (pinnedCommit !== undefined) {
       // Use the pinned commit with a git-pin selector
       resolved = {
         commit: pinnedCommit,
         selector: { kind: 'git-pin', sha: pinnedCommit },
       }
+      key = buildSpaceKey(ref.id, resolved.commit)
     } else {
       resolved = await resolveSelector(ref.id, ref.selector, options)
+      key = buildSpaceKey(ref.id, resolved.commit)
     }
-    const key = buildSpaceKey(ref.id, resolved.commit)
 
     // Check visit state
     const state = visitState.get(key)
@@ -119,8 +141,10 @@ export async function computeClosure(
     visitState.set(key, 'visiting')
     visitPath.push(key)
 
-    // Read the manifest
-    const manifest = await readSpaceManifest(ref.id, resolved.commit, options)
+    // Read the manifest (from filesystem for @dev, from git for others)
+    const manifest = isDev
+      ? await readSpaceManifestFromFilesystem(ref.id, options)
+      : await readSpaceManifest(ref.id, resolved.commit, options)
 
     // Get dependencies
     const depRefs = getSpaceDependencies(manifest)

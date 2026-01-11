@@ -48,7 +48,7 @@ describe('snapshot storage', () => {
       // Create a snapshot directory
       const hash = '1111111111111111111111111111111111111111111111111111111111111111'
       const integrity = asSha256Integrity(`sha256:${hash}`)
-      const snapshotPath = join(tmpDir, 'store', hash)
+      const snapshotPath = join(tmpDir, 'snapshots', hash)
       await mkdir(snapshotPath, { recursive: true })
 
       const exists = await snapshotExists(integrity, { paths, cwd: tmpDir })
@@ -58,8 +58,8 @@ describe('snapshot storage', () => {
     test('returns false when path is a file not a directory', async () => {
       const hash = '2222222222222222222222222222222222222222222222222222222222222222'
       const integrity = asSha256Integrity(`sha256:${hash}`)
-      await mkdir(join(tmpDir, 'store'), { recursive: true })
-      await writeFile(join(tmpDir, 'store', hash), 'not a directory')
+      await mkdir(join(tmpDir, 'snapshots'), { recursive: true })
+      await writeFile(join(tmpDir, 'snapshots', hash), 'not a directory')
 
       const exists = await snapshotExists(integrity, { paths, cwd: tmpDir })
       expect(exists).toBe(false)
@@ -78,7 +78,7 @@ describe('snapshot storage', () => {
     test('returns null when metadata file is missing', async () => {
       const hash = '3333333333333333333333333333333333333333333333333333333333333333'
       const integrity = asSha256Integrity(`sha256:${hash}`)
-      const snapshotPath = join(tmpDir, 'store', hash)
+      const snapshotPath = join(tmpDir, 'snapshots', hash)
       await mkdir(snapshotPath, { recursive: true })
 
       const metadata = await getSnapshotMetadata(integrity, { paths, cwd: tmpDir })
@@ -88,7 +88,7 @@ describe('snapshot storage', () => {
     test('returns metadata when present', async () => {
       const hash = '4444444444444444444444444444444444444444444444444444444444444444'
       const integrity = asSha256Integrity(`sha256:${hash}`)
-      const snapshotPath = join(tmpDir, 'store', hash)
+      const snapshotPath = join(tmpDir, 'snapshots', hash)
       await mkdir(snapshotPath, { recursive: true })
 
       const expectedMetadata: SnapshotMetadata = {
@@ -107,7 +107,7 @@ describe('snapshot storage', () => {
     test('returns null when metadata is invalid JSON', async () => {
       const hash = '5555555555555555555555555555555555555555555555555555555555555555'
       const integrity = asSha256Integrity(`sha256:${hash}`)
-      const snapshotPath = join(tmpDir, 'store', hash)
+      const snapshotPath = join(tmpDir, 'snapshots', hash)
       await mkdir(snapshotPath, { recursive: true })
       await writeFile(join(snapshotPath, '.asp-snapshot.json'), 'invalid json {')
 
@@ -120,7 +120,7 @@ describe('snapshot storage', () => {
     test('deletes existing snapshot', async () => {
       const hash = '6666666666666666666666666666666666666666666666666666666666666666'
       const integrity = asSha256Integrity(`sha256:${hash}`)
-      const snapshotPath = join(tmpDir, 'store', hash)
+      const snapshotPath = join(tmpDir, 'snapshots', hash)
       await mkdir(snapshotPath, { recursive: true })
       await writeFile(join(snapshotPath, 'file.txt'), 'content')
 
@@ -154,8 +154,8 @@ describe('snapshot storage', () => {
     test('lists snapshot hashes', async () => {
       const hash1 = '7777777777777777777777777777777777777777777777777777777777777777'
       const hash2 = '8888888888888888888888888888888888888888888888888888888888888888'
-      await mkdir(join(tmpDir, 'store', hash1), { recursive: true })
-      await mkdir(join(tmpDir, 'store', hash2), { recursive: true })
+      await mkdir(join(tmpDir, 'snapshots', hash1), { recursive: true })
+      await mkdir(join(tmpDir, 'snapshots', hash2), { recursive: true })
 
       const snapshots = await listSnapshots({ paths, cwd: tmpDir })
       expect(snapshots.sort()).toEqual(
@@ -165,9 +165,9 @@ describe('snapshot storage', () => {
 
     test('ignores non-hash directories', async () => {
       const hash = '9999999999999999999999999999999999999999999999999999999999999999'
-      await mkdir(join(tmpDir, 'store', hash), { recursive: true })
-      await mkdir(join(tmpDir, 'store', 'not-a-hash'), { recursive: true })
-      await writeFile(join(tmpDir, 'store', 'file.txt'), 'content')
+      await mkdir(join(tmpDir, 'snapshots', hash), { recursive: true })
+      await mkdir(join(tmpDir, 'snapshots', 'not-a-hash'), { recursive: true })
+      await writeFile(join(tmpDir, 'snapshots', 'file.txt'), 'content')
 
       const snapshots = await listSnapshots({ paths, cwd: tmpDir })
       expect(snapshots).toEqual([asSha256Integrity(`sha256:${hash}`)])
@@ -178,7 +178,7 @@ describe('snapshot storage', () => {
     test('returns size of snapshot contents', async () => {
       const hash = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
       const integrity = asSha256Integrity(`sha256:${hash}`)
-      const snapshotPath = join(tmpDir, 'store', hash)
+      const snapshotPath = join(tmpDir, 'snapshots', hash)
       await mkdir(snapshotPath, { recursive: true })
 
       // Write files with known sizes
@@ -192,7 +192,7 @@ describe('snapshot storage', () => {
     test('includes nested directory sizes', async () => {
       const hash = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
       const integrity = asSha256Integrity(`sha256:${hash}`)
-      const snapshotPath = join(tmpDir, 'store', hash)
+      const snapshotPath = join(tmpDir, 'snapshots', hash)
       await mkdir(join(snapshotPath, 'nested'), { recursive: true })
 
       await writeFile(join(snapshotPath, 'root.txt'), 'root') // 4 bytes
@@ -216,7 +216,7 @@ describe('snapshot storage', () => {
       // Create a snapshot with one integrity but different content
       const hash = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
       const wrongIntegrity = asSha256Integrity(`sha256:${hash}`)
-      const snapshotPath = join(tmpDir, 'store', hash)
+      const snapshotPath = join(tmpDir, 'snapshots', hash)
       await mkdir(snapshotPath, { recursive: true })
       await writeFile(join(snapshotPath, 'file.txt'), 'content that does not match hash')
 
@@ -250,7 +250,7 @@ describe('snapshot storage', () => {
 
       // Move snapshot to correct location
       const finalPath = paths.snapshot(computedIntegrity)
-      await mkdir(join(tmpDir, 'store'), { recursive: true })
+      await mkdir(join(tmpDir, 'snapshots'), { recursive: true })
       const { rename } = await import('node:fs/promises')
       await rename(snapshotPath, finalPath)
 

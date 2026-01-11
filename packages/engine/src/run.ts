@@ -2,25 +2,30 @@
  * Claude launch orchestration (run command).
  *
  * WHY: Orchestrates the full run process:
- * - Resolve target
- * - Materialize to temporary directory
+ * - Ensure target is installed (via asp_modules)
+ * - Read materialized plugins from asp_modules
  * - Launch Claude with plugin directories
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
+  LOCK_FILENAME,
   type LockFile,
   type SpaceKey,
   type SpaceRefString,
   getEffectiveClaudeOptions,
+  getTargetMcpConfigPath,
+  getTargetPluginsPath,
+  getTargetSettingsPath,
   isSpaceRefString,
   lockFileExists,
   parseSpaceRef,
   readLockJson,
   readSpaceToml,
   serializeLockJson,
+  targetOutputExists,
 } from '@agent-spaces/core'
 
 import {
@@ -35,13 +40,19 @@ import {
 
 import { type LintContext, type LintWarning, type SpaceLintData, lint } from '@agent-spaces/lint'
 
-import { composeMcpFromSpaces, materializeSpaces } from '@agent-spaces/materializer'
+import {
+  type SettingsInput,
+  composeMcpFromSpaces,
+  composeSettingsFromSpaces,
+  materializeSpaces,
+} from '@agent-spaces/materializer'
 
 import { computeClosure, generateLockFileForTarget } from '@agent-spaces/resolver'
 
 import { PathResolver, createSnapshot, ensureDir, getAspHome } from '@agent-spaces/store'
 
-import { type BuildResult, build } from './build.js'
+import type { BuildResult } from './build.js'
+import { install } from './install.js'
 import { type ResolveOptions, loadProjectManifest } from './resolve.js'
 
 /**
@@ -56,8 +67,6 @@ export interface RunOptions extends ResolveOptions {
   prompt?: string | undefined
   /** Additional Claude CLI args */
   extraArgs?: string[] | undefined
-  /** Whether to clean up temp dir after run (default: true in non-interactive) */
-  cleanup?: boolean | undefined
   /** Whether to print warnings before running (default: true) */
   printWarnings?: boolean | undefined
   /** Additional environment variables to pass to Claude subprocess */
@@ -66,6 +75,8 @@ export interface RunOptions extends ResolveOptions {
   dryRun?: boolean | undefined
   /** Setting sources for Claude: null = inherit all, undefined = default (isolated), '' = isolated, string = specific sources */
   settingSources?: string | null | undefined
+  /** Path to settings JSON file or JSON string (--settings flag) */
+  settings?: string | undefined
 }
 
 /**
@@ -78,8 +89,6 @@ export interface RunResult {
   invocation?: ClaudeInvocationResult | undefined
   /** Exit code from Claude */
   exitCode: number
-  /** Temporary directory used (if not cleaned up) */
-  tempDir?: string | undefined
   /** Full Claude command (for dry-run mode) */
   command?: string | undefined
 }
@@ -183,12 +192,21 @@ async function cleanupTempDir(tempDir: string): Promise<void> {
 
 /**
  * Print lint warnings to console if requested.
+ * Returns true if there are any errors (severity: 'error').
  */
-function printWarnings(warnings: LintWarning[], shouldPrint: boolean): void {
-  if (!shouldPrint || warnings.length === 0) return
+function printWarnings(warnings: LintWarning[], shouldPrint: boolean): boolean {
+  let hasErrors = false
+  if (!shouldPrint || warnings.length === 0) return hasErrors
+
   for (const warning of warnings) {
-    console.warn(`[${warning.code}] ${warning.message}`)
+    if (warning.severity === 'error') {
+      hasErrors = true
+      console.error(`[${warning.code}] Error: ${warning.message}`)
+    } else {
+      console.warn(`[${warning.code}] ${warning.message}`)
+    }
   }
+  return hasErrors
 }
 
 /**
@@ -227,74 +245,117 @@ async function persistGlobalLock(newLock: LockFile, globalLockPath: string): Pro
 }
 
 /**
+ * Get plugin directories from asp_modules/<target>/plugins/.
+ * Returns directories sorted alphabetically to respect numeric prefixes (e.g., "000-base", "001-frontend").
+ */
+async function getPluginDirsFromAspModules(
+  projectPath: string,
+  targetName: string
+): Promise<string[]> {
+  const pluginsPath = getTargetPluginsPath(projectPath, targetName)
+  const entries = await readdir(pluginsPath, { withFileTypes: true })
+
+  const pluginDirs: string[] = []
+  for (const entry of entries) {
+    if (entry.isDirectory() || entry.isSymbolicLink()) {
+      pluginDirs.push(join(pluginsPath, entry.name))
+    }
+  }
+
+  // Sort alphabetically to respect numeric prefixes that preserve load order
+  return pluginDirs.sort()
+}
+
+/**
  * Run a target with Claude.
  *
  * This:
  * 1. Detects Claude installation
- * 2. Builds (materializes) the target to a temp directory
- * 3. Launches Claude with plugin directories
- * 4. Optionally cleans up temp directory
+ * 2. Ensures target is installed (asp_modules/<target>/ exists)
+ * 3. Reads plugin directories from asp_modules
+ * 4. Launches Claude with plugin directories
  */
 export async function run(targetName: string, options: RunOptions): Promise<RunResult> {
-  const aspHome = options.aspHome ?? getAspHome()
-
   // Detect Claude (throws ClaudeNotFoundError if not installed)
   await detectClaude()
 
-  // Create temp directory for materialization
-  const tempDir = await createTempDir(aspHome)
-  const outputDir = join(tempDir, 'plugins')
-
-  try {
-    // Build (materialize) the target
-    const buildResult = await build(targetName, {
+  // Check if target is installed, if not run install
+  if (!(await targetOutputExists(options.projectPath, targetName))) {
+    await install({
       ...options,
-      outputDir,
-      clean: true,
-      runLint: true,
+      targets: [targetName],
     })
+  }
 
-    // Print warnings if requested
-    printWarnings(buildResult.warnings, options.printWarnings !== false)
+  // Get paths from asp_modules
+  const pluginDirs = await getPluginDirsFromAspModules(options.projectPath, targetName)
+  const mcpConfigPath = getTargetMcpConfigPath(options.projectPath, targetName)
+  const settingsPath = getTargetSettingsPath(options.projectPath, targetName)
 
-    // Load project manifest to get claude options
-    const manifest = await loadProjectManifest(options.projectPath)
-    const claudeOptions = getEffectiveClaudeOptions(manifest, targetName)
-
-    // Resolve setting sources (null = inherit all, undefined = isolated, string = specific)
-    const settingSources = resolveSettingSources(options.settingSources)
-
-    // Build Claude invocation options
-    const invokeOptions: ClaudeInvokeOptions = {
-      pluginDirs: buildResult.pluginDirs,
-      mcpConfig: buildResult.mcpConfigPath,
-      model: claudeOptions.model,
-      permissionMode: claudeOptions.permission_mode,
-      settingSources,
-      cwd: options.cwd ?? options.projectPath,
-      args: [...(claudeOptions.args ?? []), ...(options.extraArgs ?? [])],
-      env: options.env,
+  // Check if MCP config exists and has content
+  let mcpConfig: string | undefined
+  try {
+    const mcpStats = await stat(mcpConfigPath)
+    if (mcpStats.size > 2) {
+      // More than just "{}"
+      mcpConfig = mcpConfigPath
     }
+  } catch {
+    // MCP config doesn't exist, that's fine
+  }
 
-    // Execute Claude
-    const { exitCode, invocation, command } = await executeClaude(invokeOptions, options)
+  // Load lock file to get warnings and metadata
+  const lockPath = join(options.projectPath, LOCK_FILENAME)
+  const lock = await readLockJson(lockPath)
 
-    // Cleanup if requested (default for non-interactive, always for dry-run)
-    const shouldCleanup = options.dryRun || (options.cleanup ?? !options.interactive)
-    if (shouldCleanup) {
-      await cleanupTempDir(tempDir)
-    }
+  // Run lint checks
+  // TODO: Consider caching lint results in asp_modules
+  const warnings: LintWarning[] = []
 
-    return {
-      build: buildResult,
-      invocation,
-      exitCode,
-      tempDir: shouldCleanup ? undefined : tempDir,
-      command,
-    }
-  } catch (error) {
-    await cleanupTempDir(tempDir)
-    throw error
+  // Print warnings if requested, halt on errors
+  const hasErrors = printWarnings(warnings, options.printWarnings !== false)
+  if (hasErrors) {
+    throw new Error('Lint errors found - aborting')
+  }
+
+  // Load project manifest to get claude options
+  const manifest = await loadProjectManifest(options.projectPath)
+  const claudeOptions = getEffectiveClaudeOptions(manifest, targetName)
+
+  // Resolve setting sources (null = inherit all, undefined = isolated, string = specific)
+  const settingSources = resolveSettingSources(options.settingSources)
+
+  // Build Claude invocation options
+  // Use settings from options if provided, otherwise use composed settings from asp_modules
+  const invokeOptions: ClaudeInvokeOptions = {
+    pluginDirs,
+    mcpConfig,
+    model: claudeOptions.model,
+    permissionMode: claudeOptions.permission_mode,
+    settingSources,
+    settings: options.settings ?? settingsPath,
+    cwd: options.cwd ?? options.projectPath,
+    args: [...(claudeOptions.args ?? []), ...(options.extraArgs ?? [])],
+    env: options.env,
+  }
+
+  // Execute Claude
+  const { exitCode, invocation, command } = await executeClaude(invokeOptions, options)
+
+  // Build a BuildResult-compatible object for the return value
+  const buildResult: BuildResult = {
+    pluginDirs,
+    mcpConfigPath: mcpConfig,
+    settingsPath,
+    warnings,
+    lock,
+  }
+
+  return {
+    build: buildResult,
+    invocation,
+    exitCode,
+    command,
   }
 }
 
@@ -356,6 +417,8 @@ export interface GlobalRunOptions {
   dryRun?: boolean | undefined
   /** Setting sources for Claude: null = inherit all, undefined = default (isolated), '' = isolated, string = specific sources */
   settingSources?: string | null | undefined
+  /** Path to settings JSON file or JSON string (--settings flag) */
+  settings?: string | undefined
 }
 
 /**
@@ -363,7 +426,10 @@ export interface GlobalRunOptions {
  *
  * This allows running `asp run space:my-space@stable` without being in a project.
  * The space is resolved from the registry, materialized, and run with Claude.
+ *
+ * For @dev selector, runs directly from the filesystem (working directory).
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Global space run orchestrates multiple steps
 export async function runGlobalSpace(
   spaceRefString: SpaceRefString,
   options: GlobalRunOptions = {}
@@ -375,10 +441,16 @@ export async function runGlobalSpace(
   await detectClaude()
 
   // Parse the space reference
-  const _ref = parseSpaceRef(spaceRefString)
+  const ref = parseSpaceRef(spaceRefString)
 
   // Get registry path
   const registryPath = options.registryPath ?? paths.repo
+
+  // Handle @dev selector - run directly from filesystem
+  if (ref.selector.kind === 'dev') {
+    const spacePath = join(registryPath, 'spaces', ref.id)
+    return runLocalSpace(spacePath, options)
+  }
 
   // Compute closure for this single space (with its dependencies)
   const closure = await computeClosure([spaceRefString], { cwd: registryPath })
@@ -438,6 +510,22 @@ export async function runGlobalSpace(
       mcpConfigPath = mcpOutputPath
     }
 
+    // Compose settings from all spaces in the closure
+    const settingsOutputPath = join(outputDir, 'settings.json')
+    const settingsInputs: SettingsInput[] = []
+    for (const key of closure.loadOrder) {
+      const space = closure.spaces.get(key)
+      if (space?.manifest.settings) {
+        settingsInputs.push({
+          spaceId: space.id as string,
+          settings: space.manifest.settings,
+        })
+      }
+    }
+
+    await composeSettingsFromSpaces(settingsInputs, settingsOutputPath)
+    const settingsPath = settingsOutputPath
+
     // Run lint checks
     let warnings: LintWarning[] = []
     const lintData: SpaceLintData[] = closure.loadOrder.map((key, i) => {
@@ -451,16 +539,21 @@ export async function runGlobalSpace(
     })
     const lintContext: LintContext = { spaces: lintData }
     warnings = await lint(lintContext)
-    printWarnings(warnings, options.printWarnings !== false)
+    const hasGlobalErrors = printWarnings(warnings, options.printWarnings !== false)
+    if (hasGlobalErrors) {
+      throw new Error('Lint errors found - aborting')
+    }
 
     // Resolve setting sources (null = inherit all, undefined = isolated, string = specific)
     const settingSources = resolveSettingSources(options.settingSources)
 
     // Build Claude invocation options
+    // Use settings from options if provided, otherwise use composed settings
     const invokeOptions: ClaudeInvokeOptions = {
       pluginDirs,
       mcpConfig: mcpConfigPath,
       settingSources,
+      settings: options.settings ?? settingsPath,
       cwd: options.cwd ?? process.cwd(),
       args: options.extraArgs,
       env: options.env,
@@ -470,7 +563,7 @@ export async function runGlobalSpace(
     const { exitCode, invocation, command } = await executeClaude(invokeOptions, options)
 
     // Cleanup (always for dry-run)
-    const shouldCleanup = options.dryRun || (options.cleanup ?? !options.interactive)
+    const shouldCleanup = options.dryRun ? false : (options.cleanup ?? !options.interactive)
     if (shouldCleanup) {
       await cleanupTempDir(tempDir)
     }
@@ -479,12 +572,12 @@ export async function runGlobalSpace(
       build: {
         pluginDirs,
         mcpConfigPath,
+        settingsPath,
         warnings,
         lock,
       },
       invocation,
       exitCode,
-      tempDir: shouldCleanup ? undefined : tempDir,
       command,
     }
   } catch (error) {
@@ -549,6 +642,14 @@ export async function runLocalSpace(
       mcpConfigPath = mcpOutputPath
     }
 
+    // Compose settings from the local space
+    const settingsOutputPath = join(outputDir, 'settings.json')
+    const settingsInputs: SettingsInput[] = manifest.settings
+      ? [{ spaceId: manifest.id, settings: manifest.settings }]
+      : []
+    await composeSettingsFromSpaces(settingsInputs, settingsOutputPath)
+    const settingsPath = settingsOutputPath
+
     // Run lint checks
     let warnings: LintWarning[] = []
     const lintData: SpaceLintData[] = [
@@ -560,16 +661,21 @@ export async function runLocalSpace(
     ]
     const lintContext: LintContext = { spaces: lintData }
     warnings = await lint(lintContext)
-    printWarnings(warnings, options.printWarnings !== false)
+    const hasLocalErrors = printWarnings(warnings, options.printWarnings !== false)
+    if (hasLocalErrors) {
+      throw new Error('Lint errors found - aborting')
+    }
 
     // Resolve setting sources (null = inherit all, undefined = isolated, string = specific)
     const settingSources = resolveSettingSources(options.settingSources)
 
     // Build Claude invocation options
+    // Use settings from options if provided, otherwise use composed settings
     const invokeOptions: ClaudeInvokeOptions = {
       pluginDirs,
       mcpConfig: mcpConfigPath,
       settingSources,
+      settings: options.settings ?? settingsPath,
       cwd: options.cwd ?? spacePath,
       args: options.extraArgs,
       env: options.env,
@@ -579,7 +685,7 @@ export async function runLocalSpace(
     const { exitCode, invocation, command } = await executeClaude(invokeOptions, options)
 
     // Cleanup (always for dry-run)
-    const shouldCleanup = options.dryRun || (options.cleanup ?? !options.interactive)
+    const shouldCleanup = options.dryRun ? false : (options.cleanup ?? !options.interactive)
     if (shouldCleanup) {
       await cleanupTempDir(tempDir)
     }
@@ -598,12 +704,12 @@ export async function runLocalSpace(
       build: {
         pluginDirs,
         mcpConfigPath,
+        settingsPath,
         warnings,
         lock: syntheticLock,
       },
       invocation,
       exitCode,
-      tempDir: shouldCleanup ? undefined : tempDir,
       command,
     }
   } catch (error) {

@@ -15,14 +15,20 @@ import {
   LOCK_FILENAME,
   type LockFile,
   type SpaceKey,
+  getLoadOrderEntries,
   lockFileExists,
   readLockJson,
+  readSpaceToml,
 } from '@agent-spaces/core'
 
-import { getLoadOrderEntries } from '@agent-spaces/core'
+import {
+  type SettingsInput,
+  composeMcpFromSpaces,
+  composeSettingsFromSpaces,
+  materializeSpaces,
+} from '@agent-spaces/materializer'
 
-import { composeMcpFromSpaces, materializeSpaces } from '@agent-spaces/materializer'
-
+import { DEV_COMMIT_MARKER, DEV_INTEGRITY } from '@agent-spaces/resolver'
 import { PathResolver, ensureDir, getAspHome } from '@agent-spaces/store'
 
 import {
@@ -34,7 +40,7 @@ import {
 } from '@agent-spaces/lint'
 
 import { install } from './install.js'
-import type { ResolveOptions } from './resolve.js'
+import { type ResolveOptions, getRegistryPath } from './resolve.js'
 
 /**
  * Options for build operation.
@@ -58,6 +64,8 @@ export interface BuildResult {
   pluginDirs: string[]
   /** Path to composed MCP config (if any) */
   mcpConfigPath?: string | undefined
+  /** Path to composed settings.json (if any) */
+  settingsPath?: string | undefined
   /** Lint warnings */
   warnings: LintWarning[]
   /** The lock file used */
@@ -106,20 +114,32 @@ export async function build(targetName: string, options: BuildOptions): Promise<
     throw new Error('No lock file found. Run install first or set autoInstall: true')
   }
 
-  // Get spaces in load order for this target
+  // Get spaces in load order for this target (from lock - now includes @dev refs)
   const entries = getLoadOrderEntries(lock, targetName)
+  const registryPath = getRegistryPath(options)
 
-  // Build materialization inputs
-  const inputs = entries.map((entry) => ({
-    manifest: {
-      schema: 1 as const,
-      id: entry.id,
-      plugin: entry.plugin,
-    },
-    snapshotPath: paths.snapshot(entry.integrity),
-    spaceKey: `${entry.id}@${entry.commit.slice(0, 12)}` as SpaceKey,
-    integrity: entry.integrity,
-  }))
+  // Build materialization inputs from locked spaces
+  // For @dev entries, use filesystem path; for others, use store snapshot
+  const inputs = entries.map((entry) => {
+    const isDev =
+      entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY
+
+    return {
+      manifest: {
+        schema: 1 as const,
+        id: entry.id,
+        plugin: entry.plugin,
+      },
+      // @dev entries: use filesystem path; others: use store snapshot
+      snapshotPath: isDev
+        ? join(registryPath, 'spaces', entry.id)
+        : paths.snapshot(entry.integrity),
+      spaceKey: isDev
+        ? (`${entry.id}@dev` as SpaceKey)
+        : (`${entry.id}@${entry.commit.slice(0, 12)}` as SpaceKey),
+      integrity: entry.integrity,
+    }
+  })
 
   // Materialize all spaces
   const materializeResults = await materializeSpaces(inputs, { paths })
@@ -138,6 +158,29 @@ export async function build(targetName: string, options: BuildOptions): Promise<
   if (Object.keys(mcpResult.config.mcpServers).length > 0) {
     mcpConfigPath = mcpOutputPath
   }
+
+  // Compose settings from all spaces
+  const settingsOutputPath = join(options.outputDir, 'settings.json')
+  const settingsInputs: SettingsInput[] = []
+
+  // Read settings from each snapshot's space.toml
+  for (const input of inputs) {
+    try {
+      const spaceTomlPath = join(input.snapshotPath, 'space.toml')
+      const manifest = await readSpaceToml(spaceTomlPath)
+      if (manifest.settings) {
+        settingsInputs.push({
+          spaceId: input.manifest.id,
+          settings: manifest.settings,
+        })
+      }
+    } catch {
+      // Space.toml may not exist or may not have settings - that's fine
+    }
+  }
+
+  await composeSettingsFromSpaces(settingsInputs, settingsOutputPath)
+  const settingsPath = settingsOutputPath
 
   // Run lint checks
   let warnings: LintWarning[] = []
@@ -169,6 +212,7 @@ export async function build(targetName: string, options: BuildOptions): Promise<
   return {
     pluginDirs,
     mcpConfigPath,
+    settingsPath,
     warnings,
     lock,
   }

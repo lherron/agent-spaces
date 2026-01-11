@@ -93,8 +93,8 @@ export async function createSnapshot(
     return integrity
   }
 
-  // Ensure store directory exists
-  await ensureDir(options.paths.store)
+  // Ensure snapshots directory exists
+  await ensureDir(options.paths.snapshots)
   await ensureDir(options.paths.temp)
 
   // Extract to temp directory first
@@ -241,11 +241,11 @@ export async function deleteSnapshot(
 }
 
 /**
- * List all snapshots in the store.
+ * List all snapshots in the snapshots directory.
  */
 export async function listSnapshots(options: SnapshotOptions): Promise<Sha256Integrity[]> {
   try {
-    const items = await readdir(options.paths.store, { withFileTypes: true })
+    const items = await readdir(options.paths.snapshots, { withFileTypes: true })
     const integrities: Sha256Integrity[] = []
 
     for (const item of items) {

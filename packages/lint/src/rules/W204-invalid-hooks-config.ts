@@ -25,6 +25,14 @@ async function hooksDirectoryExists(pluginPath: string): Promise<boolean> {
 
 /**
  * Check if hooks.json is valid.
+ *
+ * Accepts Claude's native hooks format where `hooks` is an object keyed by event type:
+ * {
+ *   "hooks": {
+ *     "PostToolUse": [...],
+ *     "SessionStart": [...]
+ *   }
+ * }
  */
 async function isHooksConfigValid(pluginPath: string): Promise<{ valid: boolean; error?: string }> {
   const hooksJsonPath = join(pluginPath, 'hooks', 'hooks.json')
@@ -38,16 +46,15 @@ async function isHooksConfigValid(pluginPath: string): Promise<{ valid: boolean;
       return { valid: false, error: 'hooks.json is not an object' }
     }
 
-    if (!Array.isArray(config.hooks)) {
-      return { valid: false, error: "hooks.json missing 'hooks' array" }
+    // hooks must exist and be an object (keyed by event type)
+    if (!config.hooks || typeof config.hooks !== 'object') {
+      return { valid: false, error: "hooks.json missing 'hooks' object" }
     }
 
-    for (const [i, hook] of config.hooks.entries()) {
-      if (!hook.event || typeof hook.event !== 'string') {
-        return { valid: false, error: `hooks[${i}] missing 'event' string` }
-      }
-      if (!hook.script || typeof hook.script !== 'string') {
-        return { valid: false, error: `hooks[${i}] missing 'script' string` }
+    // Each event key should have an array of hook configurations
+    for (const [eventName, eventHooks] of Object.entries(config.hooks)) {
+      if (!Array.isArray(eventHooks)) {
+        return { valid: false, error: `hooks.${eventName} must be an array` }
       }
     }
 
@@ -80,7 +87,7 @@ export async function checkHooksConfig(context: LintContext): Promise<LintWarnin
       warnings.push({
         code: WARNING_CODES.INVALID_HOOKS_CONFIG,
         message: `hooks/ directory exists but hooks.json is invalid: ${result.error}`,
-        severity: 'warning',
+        severity: 'error',
         spaceKey: space.key,
         path: join(space.pluginPath, 'hooks', 'hooks.json'),
         details: {

@@ -22,6 +22,7 @@ export {
   asSpaceKey,
   formatSpaceRef,
   isCommitSha,
+  isDevRef,
   isKnownDistTag,
   isSha256Integrity,
   isSpaceId,
@@ -30,6 +31,7 @@ export {
   parseSelector,
   parseSpaceKey,
   parseSpaceRef,
+  partitionDevRefs,
 } from './refs.js'
 
 // Space manifest types
@@ -39,7 +41,9 @@ export type {
   SpaceAuthor,
   SpaceDeps,
   SpaceManifest,
+  SpacePermissions,
   SpacePluginConfig,
+  SpaceSettings,
 } from './space.js'
 
 export { derivePluginIdentity, resolveSpaceManifest } from './space.js'

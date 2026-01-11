@@ -180,16 +180,32 @@ describe('isSpaceRefString', () => {
     expect(isSpaceRefString('space:my-space@git:abc1234')).toBe(true)
   })
 
+  test('accepts space ref without selector (defaults to HEAD)', () => {
+    expect(isSpaceRefString('space:foo')).toBe(true)
+    expect(isSpaceRefString('space:foo-bar')).toBe(true)
+  })
+
   test('rejects invalid space ref strings', () => {
     expect(isSpaceRefString('')).toBe(false)
     expect(isSpaceRefString('foo@stable')).toBe(false) // missing space: prefix
     expect(isSpaceRefString('space:@stable')).toBe(false) // missing id
-    expect(isSpaceRefString('space:foo')).toBe(false) // missing @selector
     expect(isSpaceRefString('space:Foo@stable')).toBe(false) // uppercase id
   })
 })
 
 describe('parseSelector', () => {
+  describe('dev', () => {
+    test('parses dev selector', () => {
+      expect(parseSelector('dev')).toEqual({ kind: 'dev' })
+    })
+  })
+
+  describe('HEAD', () => {
+    test('parses HEAD selector', () => {
+      expect(parseSelector('HEAD')).toEqual({ kind: 'head' })
+    })
+  })
+
   describe('dist-tags', () => {
     test('parses known dist-tags', () => {
       expect(parseSelector('stable')).toEqual({ kind: 'dist-tag', tag: 'stable' })
@@ -272,10 +288,33 @@ describe('parseSpaceRef', () => {
     expect(result.selector).toEqual({ kind: 'git-pin', sha: 'abc1234' })
   })
 
+  test('parses ref without selector (defaults to dev)', () => {
+    const result = parseSpaceRef('space:foo')
+    expect(result.id).toBe('foo')
+    expect(result.selectorString).toBe('dev')
+    expect(result.selector).toEqual({ kind: 'dev' })
+    expect(result.defaultedToDev).toBe(true)
+  })
+
+  test('parses explicit HEAD selector', () => {
+    const result = parseSpaceRef('space:foo@HEAD')
+    expect(result.id).toBe('foo')
+    expect(result.selectorString).toBe('HEAD')
+    expect(result.selector).toEqual({ kind: 'head' })
+    expect(result.defaultedToDev).toBeUndefined()
+  })
+
+  test('parses explicit dev selector', () => {
+    const result = parseSpaceRef('space:foo@dev')
+    expect(result.id).toBe('foo')
+    expect(result.selectorString).toBe('dev')
+    expect(result.selector).toEqual({ kind: 'dev' })
+    expect(result.defaultedToDev).toBeUndefined()
+  })
+
   test('throws for invalid ref', () => {
     expect(() => parseSpaceRef('invalid')).toThrow(/Invalid space ref/)
     expect(() => parseSpaceRef('foo@stable')).toThrow(/Invalid space ref/)
-    expect(() => parseSpaceRef('space:foo')).toThrow(/Invalid space ref/)
   })
 })
 

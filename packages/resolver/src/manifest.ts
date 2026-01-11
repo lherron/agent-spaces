@@ -1,9 +1,13 @@
 /**
- * Space manifest reading from git.
+ * Space manifest reading from git and filesystem.
  *
  * WHY: Resolution needs to read space.toml from specific commits
- * to resolve transitive dependencies.
+ * to resolve transitive dependencies. For @dev refs, we read from
+ * the working directory instead.
  */
+
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 import type { CommitSha, SpaceId, SpaceManifest, SpaceRefString } from '@agent-spaces/core'
 import { ConfigParseError, validateSpaceManifest as coreValidateManifest } from '@agent-spaces/core'
@@ -82,5 +86,46 @@ export async function readSpaceManifestOrNull(
     return await readSpaceManifest(spaceId, commit, options)
   } catch {
     return null
+  }
+}
+
+/**
+ * Read a space manifest from the filesystem (working directory).
+ * Used for @dev refs that point to uncommitted local changes.
+ */
+export async function readSpaceManifestFromFilesystem(
+  spaceId: SpaceId,
+  options: ManifestReadOptions
+): Promise<SpaceManifest> {
+  const path = join(options.cwd, 'spaces', spaceId, 'space.toml')
+
+  let content: string
+  try {
+    content = await readFile(path, 'utf-8')
+  } catch (err) {
+    throw new ConfigParseError(
+      path,
+      `Space manifest not found at ${path}: ${err instanceof Error ? err.message : String(err)}`
+    )
+  }
+
+  try {
+    const data = TOML.parse(content)
+    const result = coreValidateManifest(data)
+    if (!result.valid) {
+      throw new ConfigParseError(
+        path,
+        `Invalid space manifest: ${result.errors.map((e) => e.message).join(', ')}`
+      )
+    }
+    return result.data
+  } catch (err) {
+    if (err instanceof ConfigParseError) {
+      throw err
+    }
+    throw new ConfigParseError(
+      path,
+      `Failed to parse space manifest: ${err instanceof Error ? err.message : String(err)}`
+    )
   }
 }

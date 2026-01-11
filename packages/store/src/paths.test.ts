@@ -16,6 +16,7 @@ import {
   getPluginCachePath,
   getRepoPath,
   getSnapshotPath,
+  getSnapshotsPath,
   getStorePath,
   getTempPath,
 } from './paths.js'
@@ -61,8 +62,13 @@ describe('path functions', () => {
     expect(getRepoPath()).toBe('/test/asp/repo')
   })
 
-  it('should build store path', () => {
-    expect(getStorePath()).toBe('/test/asp/store')
+  it('should build snapshots path', () => {
+    expect(getSnapshotsPath()).toBe('/test/asp/snapshots')
+  })
+
+  it('should build store path (deprecated)', () => {
+    // Deprecated: getStorePath now returns snapshots path
+    expect(getStorePath()).toBe('/test/asp/snapshots')
   })
 
   it('should build cache path', () => {
@@ -75,7 +81,7 @@ describe('path functions', () => {
 
   it('should build snapshot path', () => {
     const integrity = 'sha256:abc123' as Sha256Integrity
-    expect(getSnapshotPath(integrity)).toBe('/test/asp/store/abc123')
+    expect(getSnapshotPath(integrity)).toBe('/test/asp/snapshots/abc123')
   })
 
   it('should build plugin cache path', () => {
@@ -88,7 +94,8 @@ describe('PathResolver', () => {
     const resolver = new PathResolver({ aspHome: '/custom/home' })
     expect(resolver.aspHome).toBe('/custom/home')
     expect(resolver.repo).toBe('/custom/home/repo')
-    expect(resolver.store).toBe('/custom/home/store')
+    expect(resolver.snapshots).toBe('/custom/home/snapshots')
+    expect(resolver.store).toBe('/custom/home/snapshots') // deprecated alias
     expect(resolver.cache).toBe('/custom/home/cache')
     expect(resolver.temp).toBe('/custom/home/tmp')
   })
@@ -96,7 +103,7 @@ describe('PathResolver', () => {
   it('should build snapshot path', () => {
     const resolver = new PathResolver({ aspHome: '/custom/home' })
     const integrity = 'sha256:def456' as Sha256Integrity
-    expect(resolver.snapshot(integrity)).toBe('/custom/home/store/def456')
+    expect(resolver.snapshot(integrity)).toBe('/custom/home/snapshots/def456')
   })
 
   it('should build plugin cache path', () => {

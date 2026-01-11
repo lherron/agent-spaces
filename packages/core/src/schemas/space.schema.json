@@ -74,6 +74,39 @@
           "default": []
         }
       }
+    },
+
+    "settings": {
+      "type": "object",
+      "description": "Claude settings to apply when running with this space",
+      "additionalProperties": false,
+      "properties": {
+        "permissions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "type": "array",
+              "description": "Permission rules to allow tool use",
+              "items": { "type": "string" }
+            },
+            "deny": {
+              "type": "array",
+              "description": "Permission rules to deny tool use",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables to set",
+          "additionalProperties": { "type": "string" }
+        },
+        "model": {
+          "type": "string",
+          "description": "Override the default Claude model"
+        }
+      }
     }
   },
 

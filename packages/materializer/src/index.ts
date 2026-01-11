@@ -55,6 +55,16 @@ export {
   type McpConfig,
 } from './mcp-composer.js'
 
+// Settings composition
+export {
+  composeSettings,
+  composeSettingsFromSpaces,
+  isEmptySettings,
+  writeSettingsFile,
+  type ComposedSettings,
+  type SettingsInput,
+} from './settings-composer.js'
+
 // Main materialization
 export {
   materializeSpace,

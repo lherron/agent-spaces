@@ -3,8 +3,10 @@
  *
  * WHY: Provides human-readable and machine-readable explanations
  * of resolved targets, including load order, dependencies, and warnings.
+ * Also shows composed content: hooks, MCP servers, settings, and components.
  */
 
+import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
@@ -17,13 +19,52 @@ import {
   asSpaceId,
   lockFileExists,
   readLockJson,
+  readSpaceToml,
 } from '@agent-spaces/core'
 
 import { type LintContext, type LintWarning, type SpaceLintData, lint } from '@agent-spaces/lint'
 
+import {
+  COMPONENT_DIRS,
+  type ComponentDir,
+  type HooksConfig,
+  type McpConfig,
+  type McpServerConfig,
+} from '@agent-spaces/materializer'
+
 import { PathResolver, getAspHome, snapshotExists } from '@agent-spaces/store'
 
 import type { ResolveOptions } from './resolve.js'
+
+/**
+ * Settings defined in a space.
+ */
+export interface SpaceSettingsInfo {
+  /** Permission rules to allow tool use */
+  allow?: string[] | undefined
+  /** Permission rules to deny tool use */
+  deny?: string[] | undefined
+  /** Environment variables */
+  env?: Record<string, string> | undefined
+  /** Model override */
+  model?: string | undefined
+}
+
+/**
+ * Component content found in a space.
+ */
+export interface SpaceComponentInfo {
+  /** Available component directories */
+  components: ComponentDir[]
+  /** Commands (slash commands) found */
+  commands: string[]
+  /** Skills found */
+  skills: string[]
+  /** Agents found */
+  agents: string[]
+  /** Scripts found */
+  scripts: string[]
+}
 
 /**
  * Space information for explanation.
@@ -53,6 +94,41 @@ export interface SpaceInfo {
   }
   /** Whether snapshot exists in store */
   inStore: boolean
+  /** Hooks defined in this space */
+  hooks?: HookInfo[] | undefined
+  /** MCP servers defined in this space */
+  mcpServers?: Record<string, McpServerConfig> | undefined
+  /** Settings defined in this space */
+  settings?: SpaceSettingsInfo | undefined
+  /** Component content */
+  content?: SpaceComponentInfo | undefined
+}
+
+/**
+ * Composed content across all spaces in a target.
+ */
+export interface ComposedContent {
+  /** All hooks from all spaces (in load order) */
+  hooks: Array<{ space: string; hook: HookInfo }>
+  /** Composed MCP servers (later spaces override) */
+  mcpServers: Record<string, { space: string; config: McpServerConfig }>
+  /** Composed settings */
+  settings: {
+    /** All allow rules (concatenated) */
+    allow: Array<{ space: string; rule: string }>
+    /** All deny rules (concatenated) */
+    deny: Array<{ space: string; rule: string }>
+    /** All env vars (later override earlier) */
+    env: Record<string, { space: string; value: string }>
+    /** Model (last one wins) */
+    model?: { space: string; value: string } | undefined
+  }
+  /** All commands across spaces */
+  commands: Array<{ space: string; name: string }>
+  /** All skills across spaces */
+  skills: Array<{ space: string; name: string }>
+  /** All agents across spaces */
+  agents: Array<{ space: string; name: string }>
 }
 
 /**
@@ -71,6 +147,8 @@ export interface TargetExplanation {
   envHash: string
   /** Detailed space info in load order */
   spaces: SpaceInfo[]
+  /** Composed content from all spaces */
+  composed: ComposedContent
   /** Warnings */
   warnings: LintWarning[]
 }
@@ -101,16 +179,180 @@ export interface ExplainOptions extends ResolveOptions {
   runLint?: boolean | undefined
 }
 
+// ============================================================================
+// Content Reading Helpers
+// ============================================================================
+
+/**
+ * Check if a path exists and is a directory.
+ */
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    const stats = await stat(path)
+    return stats.isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Claude Code hooks.json format (event names as keys).
+ */
+interface ClaudeHooksConfig {
+  hooks: Record<string, unknown[]>
+}
+
+/**
+ * Simplified hook info for display.
+ */
+export interface HookInfo {
+  event: string
+  count: number
+}
+
+/**
+ * Read hooks.json from a directory and extract event names.
+ * Handles both old format (array) and Claude Code format (object with event keys).
+ */
+async function readHooksFromDir(dir: string): Promise<HookInfo[] | undefined> {
+  const hooksJsonPath = join(dir, 'hooks', 'hooks.json')
+  try {
+    const content = await readFile(hooksJsonPath, 'utf-8')
+    const config = JSON.parse(content)
+
+    // Check for Claude Code format (hooks is an object with event names as keys)
+    if (config.hooks && typeof config.hooks === 'object' && !Array.isArray(config.hooks)) {
+      const claudeConfig = config as ClaudeHooksConfig
+      return Object.entries(claudeConfig.hooks).map(([event, handlers]) => ({
+        event,
+        count: Array.isArray(handlers) ? handlers.length : 1,
+      }))
+    }
+
+    // Old format (hooks is an array with event/script properties)
+    if (config.hooks && Array.isArray(config.hooks)) {
+      const oldConfig = config as HooksConfig
+      return oldConfig.hooks.map((h) => ({ event: h.event, count: 1 }))
+    }
+
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Read mcp.json from a directory.
+ */
+async function readMcpFromDir(dir: string): Promise<Record<string, McpServerConfig> | undefined> {
+  const mcpJsonPath = join(dir, 'mcp', 'mcp.json')
+  try {
+    const content = await readFile(mcpJsonPath, 'utf-8')
+    const config = JSON.parse(content) as McpConfig
+    return config.mcpServers
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Get available component directories in a snapshot.
+ */
+async function getAvailableComponents(snapshotDir: string): Promise<ComponentDir[]> {
+  const available: ComponentDir[] = []
+  for (const component of COMPONENT_DIRS) {
+    const dir = join(snapshotDir, component)
+    if (await isDirectory(dir)) {
+      available.push(component)
+    }
+  }
+  return available
+}
+
+/**
+ * List files in a component directory (returns basenames without extension).
+ */
+async function listComponentFiles(dir: string, component: string): Promise<string[]> {
+  const componentDir = join(dir, component)
+  try {
+    const entries = await readdir(componentDir, { withFileTypes: true })
+    return entries.filter((e) => e.isFile()).map((e) => e.name.replace(/\.[^.]+$/, '')) // Remove extension
+  } catch {
+    return []
+  }
+}
+
+/**
+ * List skill directories (directories containing SKILL.md).
+ */
+async function listSkills(dir: string): Promise<string[]> {
+  const skillsDir = join(dir, 'skills')
+  try {
+    const entries = await readdir(skillsDir, { withFileTypes: true })
+    const skills: string[] = []
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        // Check if SKILL.md exists in this directory
+        const skillFile = join(skillsDir, entry.name, 'SKILL.md')
+        try {
+          await stat(skillFile)
+          skills.push(entry.name)
+        } catch {
+          // No SKILL.md, skip
+        }
+      }
+    }
+    return skills
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Read settings from space.toml in a directory.
+ */
+async function readSettingsFromDir(dir: string): Promise<SpaceSettingsInfo | undefined> {
+  try {
+    const spaceTomlPath = join(dir, 'space.toml')
+    const manifest = await readSpaceToml(spaceTomlPath)
+    if (!manifest.settings) return undefined
+
+    const result: SpaceSettingsInfo = {}
+    if (manifest.settings.permissions?.allow?.length) {
+      result.allow = manifest.settings.permissions.allow
+    }
+    if (manifest.settings.permissions?.deny?.length) {
+      result.deny = manifest.settings.permissions.deny
+    }
+    if (manifest.settings.env && Object.keys(manifest.settings.env).length > 0) {
+      result.env = manifest.settings.env
+    }
+    if (manifest.settings.model) {
+      result.model = manifest.settings.model
+    }
+    return Object.keys(result).length > 0 ? result : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Build space info from lock entry.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Builds comprehensive space info
 async function buildSpaceInfo(
   key: SpaceKey,
   entry: LockSpaceEntry,
-  options: { paths: PathResolver; cwd: string },
+  options: { paths: PathResolver; cwd: string; registryPath: string },
   checkStore: boolean
 ): Promise<SpaceInfo> {
-  const inStore = checkStore ? await snapshotExists(entry.integrity, options) : true
+  const isDev = entry.commit === 'dev'
+  const inStore = isDev ? false : checkStore ? await snapshotExists(entry.integrity, options) : true
+
+  // For @dev refs, read from registry; otherwise read from store snapshot
+  const contentDir = isDev
+    ? join(options.registryPath, entry.path)
+    : options.paths.snapshot(asSha256Integrity(entry.integrity))
 
   const info: SpaceInfo = {
     key,
@@ -129,7 +371,116 @@ async function buildSpaceInfo(
     info.resolvedFrom = entry.resolvedFrom
   }
 
+  // Read content from directory (store snapshot or registry for @dev)
+  const canReadContent = isDev || inStore
+  if (canReadContent) {
+    const hooks = await readHooksFromDir(contentDir)
+    if (hooks?.length) {
+      info.hooks = hooks
+    }
+
+    const mcpServers = await readMcpFromDir(contentDir)
+    if (mcpServers && Object.keys(mcpServers).length > 0) {
+      info.mcpServers = mcpServers
+    }
+
+    const settings = await readSettingsFromDir(contentDir)
+    if (settings) {
+      info.settings = settings
+    }
+
+    const components = await getAvailableComponents(contentDir)
+    const commands = await listComponentFiles(contentDir, 'commands')
+    const skills = await listSkills(contentDir)
+    const agents = await listComponentFiles(contentDir, 'agents')
+    const scripts = await listComponentFiles(contentDir, 'scripts')
+
+    if (
+      components.length > 0 ||
+      commands.length > 0 ||
+      skills.length > 0 ||
+      agents.length > 0 ||
+      scripts.length > 0
+    ) {
+      info.content = { components, commands, skills, agents, scripts }
+    }
+  }
+
   return info
+}
+
+/**
+ * Compose content from all spaces in load order.
+ */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Composes all content types from spaces
+function composeContent(spaces: SpaceInfo[]): ComposedContent {
+  const composed: ComposedContent = {
+    hooks: [],
+    mcpServers: {},
+    settings: {
+      allow: [],
+      deny: [],
+      env: {},
+    },
+    commands: [],
+    skills: [],
+    agents: [],
+  }
+
+  for (const space of spaces) {
+    const spaceId = space.id
+
+    // Collect hooks
+    if (space.hooks) {
+      for (const hook of space.hooks) {
+        composed.hooks.push({ space: spaceId, hook })
+      }
+    }
+
+    // Collect MCP servers (later override earlier)
+    if (space.mcpServers) {
+      for (const [name, config] of Object.entries(space.mcpServers)) {
+        composed.mcpServers[name] = { space: spaceId, config }
+      }
+    }
+
+    // Collect settings
+    if (space.settings) {
+      if (space.settings.allow) {
+        for (const rule of space.settings.allow) {
+          composed.settings.allow.push({ space: spaceId, rule })
+        }
+      }
+      if (space.settings.deny) {
+        for (const rule of space.settings.deny) {
+          composed.settings.deny.push({ space: spaceId, rule })
+        }
+      }
+      if (space.settings.env) {
+        for (const [key, value] of Object.entries(space.settings.env)) {
+          composed.settings.env[key] = { space: spaceId, value }
+        }
+      }
+      if (space.settings.model) {
+        composed.settings.model = { space: spaceId, value: space.settings.model }
+      }
+    }
+
+    // Collect commands, skills, agents
+    if (space.content) {
+      for (const cmd of space.content.commands) {
+        composed.commands.push({ space: spaceId, name: cmd })
+      }
+      for (const skill of space.content.skills) {
+        composed.skills.push({ space: spaceId, name: skill })
+      }
+      for (const agent of space.content.agents) {
+        composed.agents.push({ space: spaceId, name: agent })
+      }
+    }
+  }
+
+  return composed
 }
 
 /**
@@ -145,7 +496,7 @@ async function explainTarget(
   const paths = new PathResolver({ aspHome })
   const registryPath = options.registryPath ?? paths.repo
   const checkStore = options.checkStore !== false
-  const snapshotOpts = { paths, cwd: registryPath }
+  const buildOpts = { paths, cwd: registryPath, registryPath }
 
   // Build space info for each space in load order
   const spaces: SpaceInfo[] = []
@@ -154,7 +505,7 @@ async function explainTarget(
     if (!entry) {
       throw new Error(`Space not found in lock: ${key}`)
     }
-    const info = await buildSpaceInfo(key, entry, snapshotOpts, checkStore)
+    const info = await buildSpaceInfo(key, entry, buildOpts, checkStore)
     spaces.push(info)
   }
 
@@ -189,6 +540,9 @@ async function explainTarget(
     }
   }
 
+  // Compose content from all spaces
+  const composed = composeContent(spaces)
+
   return {
     name,
     compose: target.compose as string[],
@@ -196,6 +550,7 @@ async function explainTarget(
     loadOrder: target.loadOrder,
     envHash: target.envHash as string,
     spaces,
+    composed,
     warnings,
   }
 }
@@ -248,6 +603,7 @@ export async function explain(options: ExplainOptions): Promise<ExplainResult> {
 /**
  * Format a single space for text output.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Formats all space properties for display
 function formatSpaceText(space: SpaceInfo, lines: string[]): void {
   const version = space.pluginVersion ? `@${space.pluginVersion}` : ''
   const storeStatus = space.inStore ? '' : ' [NOT IN STORE]'
@@ -259,6 +615,120 @@ function formatSpaceText(space: SpaceInfo, lines: string[]): void {
   }
   if (space.deps.length > 0) {
     lines.push(`      Deps: ${space.deps.join(', ')}`)
+  }
+
+  // Show content from this space
+  if (space.content?.components.length) {
+    lines.push(`      Components: ${space.content.components.join(', ')}`)
+  }
+  if (space.hooks?.length) {
+    lines.push(`      Hooks: ${space.hooks.map((h) => h.event).join(', ')}`)
+  }
+  if (space.mcpServers && Object.keys(space.mcpServers).length > 0) {
+    lines.push(`      MCP servers: ${Object.keys(space.mcpServers).join(', ')}`)
+  }
+  if (space.settings) {
+    const parts: string[] = []
+    if (space.settings.allow?.length) parts.push(`allow[${space.settings.allow.length}]`)
+    if (space.settings.deny?.length) parts.push(`deny[${space.settings.deny.length}]`)
+    if (space.settings.env && Object.keys(space.settings.env).length > 0) {
+      parts.push(`env[${Object.keys(space.settings.env).length}]`)
+    }
+    if (space.settings.model) parts.push(`model=${space.settings.model}`)
+    if (parts.length > 0) {
+      lines.push(`      Settings: ${parts.join(', ')}`)
+    }
+  }
+}
+
+/**
+ * Format composed content summary.
+ */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Formats all composed content types
+function formatComposedText(composed: ComposedContent, lines: string[]): void {
+  lines.push('  Composed content:')
+
+  // Commands
+  if (composed.commands.length > 0) {
+    lines.push(`    Commands (${composed.commands.length}):`)
+    for (const cmd of composed.commands) {
+      lines.push(`      /${cmd.name} (from ${cmd.space})`)
+    }
+  }
+
+  // Skills
+  if (composed.skills.length > 0) {
+    lines.push(`    Skills (${composed.skills.length}):`)
+    for (const skill of composed.skills) {
+      lines.push(`      ${skill.name} (from ${skill.space})`)
+    }
+  }
+
+  // Agents
+  if (composed.agents.length > 0) {
+    lines.push(`    Agents (${composed.agents.length}):`)
+    for (const agent of composed.agents) {
+      lines.push(`      ${agent.name} (from ${agent.space})`)
+    }
+  }
+
+  // Hooks
+  if (composed.hooks.length > 0) {
+    lines.push(`    Hooks (${composed.hooks.length}):`)
+    for (const { space, hook } of composed.hooks) {
+      const countInfo = hook.count > 1 ? ` (${hook.count} handlers)` : ''
+      lines.push(`      ${hook.event}${countInfo} (from ${space})`)
+    }
+  }
+
+  // MCP Servers
+  const mcpEntries = Object.entries(composed.mcpServers)
+  if (mcpEntries.length > 0) {
+    lines.push(`    MCP servers (${mcpEntries.length}):`)
+    for (const [name, { space, config }] of mcpEntries) {
+      lines.push(`      ${name}: ${config.command} (from ${space})`)
+    }
+  }
+
+  // Settings
+  const hasSettings =
+    composed.settings.allow.length > 0 ||
+    composed.settings.deny.length > 0 ||
+    Object.keys(composed.settings.env).length > 0 ||
+    composed.settings.model
+
+  if (hasSettings) {
+    lines.push('    Settings:')
+
+    if (composed.settings.allow.length > 0) {
+      lines.push(`      Allow rules (${composed.settings.allow.length}):`)
+      for (const { space, rule } of composed.settings.allow) {
+        lines.push(`        ${rule} (from ${space})`)
+      }
+    }
+
+    if (composed.settings.deny.length > 0) {
+      lines.push(`      Deny rules (${composed.settings.deny.length}):`)
+      for (const { space, rule } of composed.settings.deny) {
+        lines.push(`        ${rule} (from ${space})`)
+      }
+    }
+
+    const envEntries = Object.entries(composed.settings.env)
+    if (envEntries.length > 0) {
+      lines.push(`      Environment (${envEntries.length}):`)
+      for (const [key, { space, value }] of envEntries) {
+        // Truncate long values
+        const displayValue = value.length > 30 ? `${value.slice(0, 30)}...` : value
+        lines.push(`        ${key}=${displayValue} (from ${space})`)
+      }
+    }
+
+    if (composed.settings.model) {
+      lines.push(
+        `      Model: ${composed.settings.model.value} (from ${composed.settings.model.space})`
+      )
+    }
   }
 }
 
@@ -275,6 +745,10 @@ function formatTargetText(name: string, target: TargetExplanation, lines: string
   for (const space of target.spaces) {
     formatSpaceText(space, lines)
   }
+
+  // Show composed content
+  lines.push('')
+  formatComposedText(target.composed, lines)
 
   if (target.warnings.length > 0) {
     lines.push('')

@@ -8,8 +8,11 @@ import type { SpaceKey, SpaceManifest } from '@agent-spaces/core'
 
 /**
  * Warning severity levels.
+ * - error: Halts execution
+ * - warning: Displayed but doesn't halt
+ * - info: Informational only
  */
-export type WarningSeverity = 'warning' | 'info'
+export type WarningSeverity = 'error' | 'warning' | 'info'
 
 /**
  * A lint warning.

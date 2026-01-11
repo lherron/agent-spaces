@@ -6,8 +6,10 @@
  * - Resolve all space references
  * - Write lock file
  * - Populate store with space snapshots
+ * - Materialize plugins to asp_modules directory
  */
 
+import { mkdir, rm, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
@@ -15,12 +17,24 @@ import {
   LOCK_FILENAME,
   type LockFile,
   type SpaceId,
+  type SpaceKey,
   atomicWriteJson,
   createEmptyLockFile,
+  getLoadOrderEntries,
+  getTargetOutputPath,
+  getTargetPluginsPath,
+  readSpaceToml,
   withProjectLock,
 } from '@agent-spaces/core'
 
-import { mergeLockFiles } from '@agent-spaces/resolver'
+import { DEV_COMMIT_MARKER, DEV_INTEGRITY, mergeLockFiles } from '@agent-spaces/resolver'
+
+import {
+  type SettingsInput,
+  composeMcpFromSpaces,
+  composeSettingsFromSpaces,
+  materializeSpaces,
+} from '@agent-spaces/materializer'
 
 import {
   PathResolver,
@@ -62,6 +76,22 @@ export interface InstallOptions extends ResolveOptions {
 }
 
 /**
+ * Result of materializing a single target.
+ */
+export interface TargetMaterializationResult {
+  /** Target name */
+  target: string
+  /** Path to the target's output directory (asp_modules/<target>/) */
+  outputPath: string
+  /** Paths to materialized plugin directories */
+  pluginDirs: string[]
+  /** Path to composed MCP config (if any) */
+  mcpConfigPath?: string | undefined
+  /** Path to composed settings.json (if any) */
+  settingsPath?: string | undefined
+}
+
+/**
  * Result of install operation.
  */
 export interface InstallResult {
@@ -73,6 +103,8 @@ export interface InstallResult {
   resolvedTargets: string[]
   /** Path to written lock file */
   lockPath: string
+  /** Materialization results per target */
+  materializations: TargetMaterializationResult[]
 }
 
 /**
@@ -111,6 +143,11 @@ export async function populateStore(lock: LockFile, options: InstallOptions): Pr
   let created = 0
 
   for (const [_key, entry] of Object.entries(lock.spaces)) {
+    // Skip @dev entries - they use filesystem directly, no snapshot needed
+    if (entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY) {
+      continue
+    }
+
     // Check if snapshot already exists
     if (await snapshotExists(entry.integrity, snapshotOptions)) {
       continue
@@ -135,6 +172,119 @@ export async function writeLockFile(lock: LockFile, projectPath: string): Promis
 }
 
 /**
+ * Materialize a single target to asp_modules directory.
+ */
+export async function materializeTarget(
+  targetName: string,
+  lock: LockFile,
+  options: InstallOptions
+): Promise<TargetMaterializationResult> {
+  const aspHome = options.aspHome ?? getAspHome()
+  const paths = new PathResolver({ aspHome })
+  const registryPath = getRegistryPath(options)
+
+  // Get output paths
+  const outputPath = getTargetOutputPath(options.projectPath, targetName)
+  const pluginsPath = getTargetPluginsPath(options.projectPath, targetName)
+
+  // Clean and create output directory
+  await rm(outputPath, { recursive: true, force: true }).catch(() => {})
+  await mkdir(outputPath, { recursive: true })
+  await mkdir(pluginsPath, { recursive: true })
+
+  // Get spaces in load order for this target (from lock)
+  const entries = getLoadOrderEntries(lock, targetName)
+
+  // Build materialization inputs from locked spaces
+  const inputs = entries.map((entry) => {
+    const isDev =
+      entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY
+
+    return {
+      manifest: {
+        schema: 1 as const,
+        id: entry.id,
+        plugin: entry.plugin,
+      },
+      // @dev entries: use filesystem path; others: use snapshots
+      snapshotPath: isDev
+        ? join(registryPath, 'spaces', entry.id)
+        : paths.snapshot(entry.integrity),
+      spaceKey: isDev
+        ? (`${entry.id}@dev` as SpaceKey)
+        : (`${entry.id}@${entry.commit.slice(0, 12)}` as SpaceKey),
+      integrity: entry.integrity,
+    }
+  })
+
+  // Materialize all spaces (to cache)
+  const materializeResults = await materializeSpaces(inputs, { paths })
+
+  // Get plugin directories (in cache) and create symlinks in asp_modules
+  // Use numeric prefixes to preserve load order (e.g., "000-base", "001-frontend")
+  const pluginDirs: string[] = []
+  for (let i = 0; i < materializeResults.length; i++) {
+    const result = materializeResults[i]
+    if (!result) continue
+
+    const spaceId = result.spaceKey.split('@')[0] ?? result.spaceKey
+    const prefix = String(i).padStart(3, '0')
+    const linkPath = join(pluginsPath, `${prefix}-${spaceId}`)
+
+    // Remove existing link/dir if present
+    await rm(linkPath, { recursive: true, force: true }).catch(() => {})
+
+    // Create symlink to cache
+    await symlink(result.pluginPath, linkPath)
+
+    pluginDirs.push(linkPath)
+  }
+
+  // Compose MCP configuration if any spaces have MCP
+  let mcpConfigPath: string | undefined
+  const mcpOutputPath = join(outputPath, 'mcp.json')
+  const spacesDirs = materializeResults.map((r) => ({
+    spaceId: r.spaceKey.split('@')[0] ?? r.spaceKey,
+    dir: r.pluginPath,
+  }))
+  const mcpResult = await composeMcpFromSpaces(spacesDirs, mcpOutputPath)
+  if (Object.keys(mcpResult.config.mcpServers).length > 0) {
+    mcpConfigPath = mcpOutputPath
+  }
+
+  // Compose settings from all spaces
+  const settingsOutputPath = join(outputPath, 'settings.json')
+  const settingsInputs: SettingsInput[] = []
+
+  // Read settings from each snapshot's space.toml
+  for (const input of inputs) {
+    try {
+      const spaceTomlPath = join(input.snapshotPath, 'space.toml')
+      const manifest = await readSpaceToml(spaceTomlPath)
+      if (manifest.settings) {
+        settingsInputs.push({
+          spaceId: input.manifest.id,
+          settings: manifest.settings,
+        })
+      }
+    } catch {
+      // Space.toml may not exist or may not have settings - that's fine
+    }
+  }
+
+  await composeSettingsFromSpaces(settingsInputs, settingsOutputPath)
+  const settingsPath = settingsOutputPath
+
+  return {
+    target: targetName,
+    outputPath,
+    pluginDirs,
+    mcpConfigPath,
+    settingsPath,
+  }
+}
+
+/**
  * Install targets from project manifest.
  *
  * This:
@@ -143,7 +293,9 @@ export async function writeLockFile(lock: LockFile, projectPath: string): Promis
  * 3. Merges resolution results into a lock file
  * 4. Populates store with space snapshots
  * 5. Writes lock file
+ * 6. Materializes plugins to asp_modules directory
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Install orchestrates multiple steps
 export async function install(options: InstallOptions): Promise<InstallResult> {
   // Ensure registry is available
   const registryPath = await ensureRegistry(options)
@@ -204,11 +356,19 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
     return writeLockFile(mergedLock, options.projectPath)
   })
 
+  // Materialize each target to asp_modules directory
+  const materializations: TargetMaterializationResult[] = []
+  for (const targetName of targetNames) {
+    const matResult = await materializeTarget(targetName, mergedLock, options)
+    materializations.push(matResult)
+  }
+
   return {
     lock: mergedLock,
     snapshotsCreated,
     resolvedTargets: targetNames,
     lockPath,
+    materializations,
   }
 }
 

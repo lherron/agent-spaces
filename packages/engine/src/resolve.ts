@@ -19,7 +19,7 @@ import {
   readTargetsToml,
 } from '@agent-spaces/core'
 
-import type { CommitSha, SpaceId } from '@agent-spaces/core'
+import type { CommitSha, SpaceId, SpaceRefString } from '@agent-spaces/core'
 
 import {
   type ClosureOptions,
@@ -105,7 +105,7 @@ export async function loadLockFileIfExists(projectPath: string): Promise<LockFil
  * This performs the full resolution process:
  * 1. Load project manifest
  * 2. Load lock file if available and useLock is true
- * 3. Resolve all space references to commits
+ * 3. Resolve all space references to commits (including @dev refs)
  * 4. Compute dependency closure
  * 5. Generate lock entries
  */
@@ -129,14 +129,17 @@ export async function resolveTarget(
   // Get registry path
   const registryPath = getRegistryPath(options)
 
+  // All refs are now resolvable (including @dev)
+  const refs = target.compose as SpaceRefString[]
+
   // Build closure options
   const closureOptions: ClosureOptions = {
     cwd: registryPath,
     pinnedSpaces: options.pinnedSpaces,
   }
 
-  // Compute closure from compose list
-  const closure = await computeClosure(target.compose, closureOptions)
+  // Compute closure from all refs (including @dev)
+  const closure = await computeClosure(refs, closureOptions)
 
   // Generate lock file
   const lockOptions: LockGeneratorOptions = {
@@ -147,7 +150,7 @@ export async function resolveTarget(
     },
   }
 
-  const lock = await generateLockFileForTarget(targetName, target.compose, closure, lockOptions)
+  const lock = await generateLockFileForTarget(targetName, refs, closure, lockOptions)
 
   return {
     target,

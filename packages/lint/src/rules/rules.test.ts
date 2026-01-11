@@ -366,7 +366,7 @@ describe('W204: checkHooksConfig', () => {
     expect(warnings[0]?.code).toBe(WARNING_CODES.INVALID_HOOKS_CONFIG)
   })
 
-  it('should warn when hooks.json missing hooks array', async () => {
+  it('should warn when hooks.json missing hooks object', async () => {
     const plugin = join(tempDir, 'plugin')
     await mkdir(join(plugin, 'hooks'), { recursive: true })
     await writeFile(join(plugin, 'hooks', 'hooks.json'), JSON.stringify({}))
@@ -388,7 +388,9 @@ describe('W204: checkHooksConfig', () => {
     await writeFile(
       join(plugin, 'hooks', 'hooks.json'),
       JSON.stringify({
-        hooks: [{ event: 'pre-commit', script: 'hook.sh' }],
+        hooks: {
+          PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo test' }] }],
+        },
       })
     )
 

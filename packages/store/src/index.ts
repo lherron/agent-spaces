@@ -14,7 +14,8 @@ export {
   DEFAULT_ASP_HOME,
   getAspHome,
   getRepoPath,
-  getStorePath,
+  getSnapshotsPath,
+  getStorePath, // deprecated, use getSnapshotsPath
   getCachePath,
   getTempPath,
   getSnapshotPath,

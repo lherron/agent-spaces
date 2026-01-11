@@ -364,12 +364,12 @@ describe('asp doctor', () => {
   test('checks ASP_HOME exists', async () => {
     const paths = new PathResolver({ aspHome })
 
-    // Verify store path exists
-    const storeExists = await fs
-      .access(paths.store)
+    // Verify snapshots path exists
+    const snapshotsExists = await fs
+      .access(paths.snapshots)
       .then(() => true)
       .catch(() => false)
-    expect(storeExists).toBe(true)
+    expect(snapshotsExists).toBe(true)
 
     // Verify cache path exists
     const cacheExists = await fs

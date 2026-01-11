@@ -31,7 +31,7 @@ export function getAspHome(): string {
  * │   ├── .git/
  * │   ├── spaces/        # Space sources
  * │   └── registry/      # Metadata (dist-tags.json)
- * ├── store/             # Content-addressed space snapshots
+ * ├── snapshots/         # Content-addressed space snapshots
  * │   └── <sha256>/      # Keyed by integrity hash
  * │       ├── space.toml
  * │       ├── commands/
@@ -41,6 +41,18 @@ export function getAspHome(): string {
  * │       ├── .claude-plugin/
  * │       └── ...
  * └── tmp/               # Temporary files during operations
+ *
+ * Project-local structure (asp_modules/):
+ *
+ * my-project/
+ * ├── asp-targets.toml   # Project manifest
+ * ├── .asp.lock          # Lock file
+ * └── asp_modules/       # Materialized artifacts
+ *     └── <target>/      # Per-target output
+ *         ├── plugins/   # Materialized plugin directories
+ *         │   └── <space>/
+ *         ├── mcp.json   # Composed MCP config
+ *         └── settings.json
  */
 
 /**
@@ -51,10 +63,17 @@ export function getRepoPath(): string {
 }
 
 /**
- * Get the content-addressed store directory path.
+ * Get the content-addressed snapshots directory path.
+ */
+export function getSnapshotsPath(): string {
+  return join(getAspHome(), 'snapshots')
+}
+
+/**
+ * @deprecated Use getSnapshotsPath instead
  */
 export function getStorePath(): string {
-  return join(getAspHome(), 'store')
+  return getSnapshotsPath()
 }
 
 /**
@@ -72,13 +91,13 @@ export function getTempPath(): string {
 }
 
 /**
- * Get the path for a space snapshot in the store.
+ * Get the path for a space snapshot.
  * Snapshots are keyed by their integrity hash.
  */
 export function getSnapshotPath(integrity: Sha256Integrity): string {
   // Extract just the hash part (without "sha256:" prefix)
   const hash = integrity.replace('sha256:', '')
-  return join(getStorePath(), hash)
+  return join(getSnapshotsPath(), hash)
 }
 
 /**
@@ -138,7 +157,7 @@ export async function ensureDir(path: string): Promise<void> {
 export async function ensureAspHome(): Promise<void> {
   await Promise.all([
     ensureDir(getRepoPath()),
-    ensureDir(getStorePath()),
+    ensureDir(getSnapshotsPath()),
     ensureDir(getCachePath()),
     ensureDir(getTempPath()),
   ])
@@ -166,8 +185,13 @@ export class PathResolver {
     return join(this.aspHome, 'repo')
   }
 
+  get snapshots(): string {
+    return join(this.aspHome, 'snapshots')
+  }
+
+  /** @deprecated Use snapshots instead */
   get store(): string {
-    return join(this.aspHome, 'store')
+    return this.snapshots
   }
 
   get cache(): string {
@@ -184,7 +208,7 @@ export class PathResolver {
 
   snapshot(integrity: Sha256Integrity): string {
     const hash = integrity.replace('sha256:', '')
-    return join(this.store, hash)
+    return join(this.snapshots, hash)
   }
 
   pluginCache(cacheKey: string): string {
@@ -198,7 +222,7 @@ export class PathResolver {
   async ensureAll(): Promise<void> {
     await Promise.all([
       ensureDir(this.repo),
-      ensureDir(this.store),
+      ensureDir(this.snapshots),
       ensureDir(this.cache),
       ensureDir(this.temp),
     ])

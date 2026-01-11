@@ -3,12 +3,18 @@
  *
  * WHY: Integrity hashes verify space snapshots are not corrupted.
  * They use a deterministic algorithm based on git tree contents.
+ * For @dev refs, we use a placeholder since filesystem state is mutable.
  */
 
 import { createHash } from 'node:crypto'
 import type { CommitSha, Sha256Integrity, SpaceId } from '@agent-spaces/core'
 import { asSha256Integrity } from '@agent-spaces/core'
 import { type TreeEntry, filterTreeEntries, listTreeRecursive } from '@agent-spaces/git'
+
+import { DEV_COMMIT_MARKER } from './closure.js'
+
+/** Placeholder integrity for @dev refs (filesystem is mutable, uses special marker) */
+export const DEV_INTEGRITY = 'sha256:dev' as Sha256Integrity
 
 /**
  * Options for integrity hashing.
@@ -34,6 +40,11 @@ export async function computeIntegrity(
   commit: CommitSha,
   options: IntegrityOptions
 ): Promise<Sha256Integrity> {
+  // @dev refs use a placeholder - filesystem is mutable
+  if (commit === DEV_COMMIT_MARKER) {
+    return DEV_INTEGRITY
+  }
+
   const treePath = `spaces/${spaceId}`
   const ref = commit
 
