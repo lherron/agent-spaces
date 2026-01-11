@@ -14,15 +14,16 @@ import { join } from 'node:path'
 
 import {
   type CommitSha,
+  DEFAULT_HARNESS,
+  type HarnessId,
   LOCK_FILENAME,
   type LockFile,
   type SpaceId,
   type SpaceKey,
   atomicWriteJson,
   createEmptyLockFile,
+  getAspModulesPath,
   getLoadOrderEntries,
-  getTargetOutputPath,
-  getTargetPluginsPath,
   readSpaceToml,
   withProjectLock,
 } from '@agent-spaces/core'
@@ -56,10 +57,14 @@ import {
   resolveTarget,
 } from './resolve.js'
 
+import { harnessRegistry } from './harness/index.js'
+
 /**
  * Options for install operation.
  */
 export interface InstallOptions extends ResolveOptions {
+  /** Harness to install for (default: 'claude') */
+  harness?: HarnessId | undefined
   /** Whether to update existing lock (default: false) */
   update?: boolean | undefined
   /** Targets to install (default: all) */
@@ -183,9 +188,15 @@ export async function materializeTarget(
   const paths = new PathResolver({ aspHome })
   const registryPath = getRegistryPath(options)
 
-  // Get output paths
-  const outputPath = getTargetOutputPath(options.projectPath, targetName)
-  const pluginsPath = getTargetPluginsPath(options.projectPath, targetName)
+  // Get harness adapter (default to claude)
+  const harnessId = options.harness ?? DEFAULT_HARNESS
+  const adapter = harnessRegistry.getOrThrow(harnessId)
+
+  // Get output paths using harness adapter
+  // Returns: asp_modules/<target>/claude for ClaudeAdapter
+  const aspModulesDir = getAspModulesPath(options.projectPath)
+  const outputPath = adapter.getTargetOutputPath(aspModulesDir, targetName)
+  const pluginsPath = join(outputPath, 'plugins')
 
   // Clean and create output directory
   await rm(outputPath, { recursive: true, force: true }).catch(() => {})

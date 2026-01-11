@@ -11,21 +11,21 @@ import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
+  DEFAULT_HARNESS,
+  type HarnessId,
   LOCK_FILENAME,
   type LockFile,
   type SpaceKey,
   type SpaceRefString,
+  getAspModulesPath,
   getEffectiveClaudeOptions,
-  getTargetMcpConfigPath,
-  getTargetPluginsPath,
-  getTargetSettingsPath,
+  harnessOutputExists,
   isSpaceRefString,
   lockFileExists,
   parseSpaceRef,
   readLockJson,
   readSpaceToml,
   serializeLockJson,
-  targetOutputExists,
 } from '@agent-spaces/core'
 
 import {
@@ -52,6 +52,7 @@ import { computeClosure, generateLockFileForTarget } from '@agent-spaces/resolve
 import { PathResolver, createSnapshot, ensureDir, getAspHome } from '@agent-spaces/store'
 
 import type { BuildResult } from './build.js'
+import { harnessRegistry } from './harness/index.js'
 import { install } from './install.js'
 import { type ResolveOptions, loadProjectManifest } from './resolve.js'
 
@@ -59,6 +60,8 @@ import { type ResolveOptions, loadProjectManifest } from './resolve.js'
  * Options for run operation.
  */
 export interface RunOptions extends ResolveOptions {
+  /** Harness to run with (default: 'claude') */
+  harness?: HarnessId | undefined
   /** Working directory for Claude (default: projectPath) */
   cwd?: string | undefined
   /** Whether to run interactively (spawn stdio) vs capture output */
@@ -245,14 +248,11 @@ async function persistGlobalLock(newLock: LockFile, globalLockPath: string): Pro
 }
 
 /**
- * Get plugin directories from asp_modules/<target>/plugins/.
+ * Get plugin directories from asp_modules/<target>/<harness>/plugins/.
  * Returns directories sorted alphabetically to respect numeric prefixes (e.g., "000-base", "001-frontend").
  */
-async function getPluginDirsFromAspModules(
-  projectPath: string,
-  targetName: string
-): Promise<string[]> {
-  const pluginsPath = getTargetPluginsPath(projectPath, targetName)
+async function getPluginDirsFromAspModules(harnessOutputPath: string): Promise<string[]> {
+  const pluginsPath = join(harnessOutputPath, 'plugins')
   const entries = await readdir(pluginsPath, { withFileTypes: true })
 
   const pluginDirs: string[] = []
@@ -271,26 +271,35 @@ async function getPluginDirsFromAspModules(
  *
  * This:
  * 1. Detects Claude installation
- * 2. Ensures target is installed (asp_modules/<target>/ exists)
+ * 2. Ensures target is installed (asp_modules/<target>/<harness>/ exists)
  * 3. Reads plugin directories from asp_modules
  * 4. Launches Claude with plugin directories
  */
 export async function run(targetName: string, options: RunOptions): Promise<RunResult> {
-  // Detect Claude (throws ClaudeNotFoundError if not installed)
-  await detectClaude()
+  // Get harness adapter (default to claude)
+  const harnessId = options.harness ?? DEFAULT_HARNESS
+  const adapter = harnessRegistry.getOrThrow(harnessId)
 
-  // Check if target is installed, if not run install
-  if (!(await targetOutputExists(options.projectPath, targetName))) {
+  // Detect harness (throws if not installed)
+  await adapter.detect()
+
+  // Get harness-aware output paths
+  const aspModulesDir = getAspModulesPath(options.projectPath)
+  const harnessOutputPath = adapter.getTargetOutputPath(aspModulesDir, targetName)
+
+  // Check if target is installed for this harness, if not run install
+  if (!(await harnessOutputExists(options.projectPath, targetName, harnessId))) {
     await install({
       ...options,
+      harness: harnessId,
       targets: [targetName],
     })
   }
 
-  // Get paths from asp_modules
-  const pluginDirs = await getPluginDirsFromAspModules(options.projectPath, targetName)
-  const mcpConfigPath = getTargetMcpConfigPath(options.projectPath, targetName)
-  const settingsPath = getTargetSettingsPath(options.projectPath, targetName)
+  // Get paths from asp_modules/<target>/<harness>/
+  const pluginDirs = await getPluginDirsFromAspModules(harnessOutputPath)
+  const mcpConfigPath = join(harnessOutputPath, 'mcp.json')
+  const settingsPath = join(harnessOutputPath, 'settings.json')
 
   // Check if MCP config exists and has content
   let mcpConfig: string | undefined

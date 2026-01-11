@@ -1,8 +1,8 @@
 # Multi-Harness Implementation Plan
 
-> **Status:** Phase 2 In Progress
+> **Status:** Phase 2 Complete (Core Integration)
 > **Spec:** specs/MULTI-HARNESS-SPEC-PROPOSED.md
-> **Current Phase:** 2 - Two-Phase Materialization (Foundation Complete)
+> **Current Phase:** 2 - Two-Phase Materialization (Core Integration Complete)
 
 ## Overview
 
@@ -71,19 +71,19 @@ The implementation follows a 4-phase migration path from the spec:
 - [x] Add `--harness` option to `run` command (default: "claude")
 - [x] Add validation for harness ID (rejects unknown harnesses)
 - [x] Phase 1 behavior: Only "claude" is supported; "pi" returns helpful error message
-- [ ] Add `--harness` option to `install` command (Phase 2)
-- [ ] Add `--harness` option to `build` command (Phase 2)
-- [ ] Add `--harness` option to `explain` command (Phase 2)
+- [x] Add `--harness` option to `install` command (Phase 2)
+- [x] Add `--harness` option to `build` command (Phase 2)
+- [x] Add `--harness` option to `explain` command (Phase 2)
 
 ---
 
 ## Phase 2: Two-Phase Materialization
 
-### 2.1 Split Materialization (Foundation Complete)
+### 2.1 Split Materialization ✅
 - [x] `ClaudeAdapter.materializeSpace()` wraps existing materialization
 - [x] `ClaudeAdapter.composeTarget()` handles target assembly
 - [x] Add `computeHarnessPluginCacheKey()` in `@agent-spaces/store/cache.ts`
-- [ ] Migrate engine (install.ts, build.ts, run.ts) to use harness adapters instead of direct materializer calls
+- [x] Migrate engine (install.ts, build.ts, run.ts) to use harness adapters instead of direct materializer calls
 
 ### 2.2 Update Output Layout ✅
 - [x] `ClaudeAdapter.getTargetOutputPath()` returns `asp_modules/<target>/claude`
@@ -93,7 +93,7 @@ The implementation follows a 4-phase migration path from the spec:
   - `getHarnessMcpConfigPath()`
   - `getHarnessSettingsPath()`
   - `harnessOutputExists()`
-- [ ] Migrate engine to use new harness-aware paths
+- [x] Migrate engine to use new harness-aware paths
 
 ### 2.3 Update Lock File ✅
 - [x] Add `LockHarnessEntry` interface with `envHash` and `warnings` fields
@@ -152,18 +152,18 @@ The implementation follows a 4-phase migration path from the spec:
 - HarnessAdapter interface and types
 - HarnessRegistry with ClaudeAdapter registered
 - `asp harnesses` command
-- `--harness` flag on `run` command (claude-only in Phase 1)
+- `--harness` flag on all CLI commands (run, install, build, explain)
 
-**In Progress:** Phase 2 - Two-Phase Materialization (Foundation Complete)
-- ClaudeAdapter output path now returns harness subdirectory
+**Completed:** Phase 2 - Two-Phase Materialization (Core Integration)
+- ClaudeAdapter output path now returns harness subdirectory (`asp_modules/<target>/claude`)
 - Harness-aware cache key function added
 - Lock file types and schema updated with harness entries
 - Harness-aware path helpers added to core package
+- Engine files (install.ts, build.ts, run.ts) migrated to use harness adapters
+- `--harness` flag added to install, build, and explain commands
 
 **Remaining Phase 2 Work:**
-- Migrate engine files (install.ts, build.ts, run.ts) to use harness adapters
-- Generate harness entries in lock file during resolution
-- Add `--harness` flag to install, build, and explain commands
+- Generate harness entries in lock file during resolution (for harness-specific metadata tracking)
 
 ---
 

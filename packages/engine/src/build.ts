@@ -12,6 +12,8 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
+  DEFAULT_HARNESS,
+  type HarnessId,
   LOCK_FILENAME,
   type LockFile,
   type SpaceKey,
@@ -48,6 +50,8 @@ import { type ResolveOptions, getRegistryPath } from './resolve.js'
 export interface BuildOptions extends ResolveOptions {
   /** Output directory for materialized plugins */
   outputDir: string
+  /** Harness to build for (default: 'claude') */
+  harness?: HarnessId | undefined
   /** Whether to clean output dir first (default: true) */
   clean?: boolean | undefined
   /** Whether to run install if needed (default: true) */
@@ -82,6 +86,7 @@ export interface BuildResult {
  * 4. Composes MCP configuration
  * 5. Runs lint checks
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Build orchestrates multiple steps
 export async function build(targetName: string, options: BuildOptions): Promise<BuildResult> {
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
@@ -96,6 +101,9 @@ export async function build(targetName: string, options: BuildOptions): Promise<
   }
   await ensureDir(options.outputDir)
 
+  // Get harness (default to claude)
+  const harnessId = options.harness ?? DEFAULT_HARNESS
+
   // Ensure we have a lock file
   let lock: LockFile
   let lockWasMissing = false
@@ -107,6 +115,7 @@ export async function build(targetName: string, options: BuildOptions): Promise<
     lockWasMissing = true
     const installResult = await install({
       ...options,
+      harness: harnessId,
       targets: [targetName],
     })
     lock = installResult.lock
