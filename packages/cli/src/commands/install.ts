@@ -6,7 +6,7 @@ import type { Command } from 'commander'
 
 import { getClaudeCommand } from '@agent-spaces/claude'
 import { getEffectiveClaudeOptions, readTargetsToml } from '@agent-spaces/core'
-import { install } from '@agent-spaces/engine'
+import { type HarnessId, harnessRegistry, install, isHarnessId } from '@agent-spaces/engine'
 
 import { findProjectRoot } from '../index.js'
 import {
@@ -23,11 +23,43 @@ import {
   symbols,
 } from '../ui.js'
 
+/**
+ * Validate harness option and return the harness ID.
+ * In Phase 1, only 'claude' is supported.
+ */
+function validateHarness(harness: string | undefined): HarnessId {
+  const harnessId = harness ?? 'claude'
+
+  if (!isHarnessId(harnessId)) {
+    blank()
+    error(`Unknown harness "${harnessId}"`)
+    console.log(colors.muted('Available harnesses:'))
+    for (const adapter of harnessRegistry.getAll()) {
+      console.log(colors.muted(`  - ${adapter.id}`))
+    }
+    blank()
+    process.exit(1)
+  }
+
+  // Phase 1: Only claude is supported
+  if (harnessId !== 'claude') {
+    blank()
+    error(`Harness "${harnessId}" is not yet supported`)
+    console.log(colors.muted('Currently only "claude" is available.'))
+    console.log(colors.muted('Run "asp harnesses" to see available harnesses.'))
+    blank()
+    process.exit(1)
+  }
+
+  return harnessId
+}
+
 export function registerInstallCommand(program: Command): void {
   program
     .command('install')
     .description('Resolve targets and materialize to asp_modules/')
     .option('--targets <names...>', 'Specific targets to install')
+    .option('--harness <id>', 'Coding agent harness to use (default: claude)')
     .option('--update', 'Update existing lock (re-resolve selectors)')
     .option('--no-fetch', 'Skip fetching registry updates')
     .option('--project <path>', 'Project directory (default: auto-detect)')
@@ -35,6 +67,8 @@ export function registerInstallCommand(program: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: CLI orchestration with multiple paths
     .action(async (options) => {
+      // Validate harness option (Phase 1: only claude supported)
+      const _harness = validateHarness(options.harness)
       const startTime = Date.now()
 
       // Find project root

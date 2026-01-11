@@ -8,7 +8,14 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { type BuildResult, build, buildAll } from '@agent-spaces/engine'
+import {
+  type BuildResult,
+  type HarnessId,
+  build,
+  buildAll,
+  harnessRegistry,
+  isHarnessId,
+} from '@agent-spaces/engine'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 
@@ -17,6 +24,35 @@ interface BuildOptions extends CommonOptions {
   clean: boolean
   install: boolean
   lint: boolean
+  harness?: string
+}
+
+/**
+ * Validate harness option and return the harness ID.
+ * In Phase 1, only 'claude' is supported.
+ */
+function validateHarness(harness: string | undefined): HarnessId {
+  const harnessId = harness ?? 'claude'
+
+  if (!isHarnessId(harnessId)) {
+    console.error(chalk.red(`Error: Unknown harness "${harnessId}"`))
+    console.error(chalk.gray(''))
+    console.error(chalk.gray('Available harnesses:'))
+    for (const adapter of harnessRegistry.getAll()) {
+      console.error(chalk.gray(`  - ${adapter.id}`))
+    }
+    process.exit(1)
+  }
+
+  // Phase 1: Only claude is supported
+  if (harnessId !== 'claude') {
+    console.error(chalk.red(`Error: Harness "${harnessId}" is not yet supported`))
+    console.error(chalk.gray('Currently only "claude" is available.'))
+    console.error(chalk.gray('Run "asp harnesses" to see available harnesses.'))
+    process.exit(1)
+  }
+
+  return harnessId
 }
 
 /**
@@ -67,6 +103,7 @@ export function registerBuildCommand(program: Command): void {
     .description('Materialize plugins without launching Claude')
     .argument('[target]', 'Target to build (default: all)')
     .requiredOption('--output <dir>', 'Output directory for materialized plugins')
+    .option('--harness <id>', 'Coding agent harness to use (default: claude)')
     .option('--no-clean', 'Keep existing output directory contents')
     .option('--no-install', 'Do not auto-install if lock missing')
     .option('--no-lint', 'Skip lint checks')
@@ -75,6 +112,8 @@ export function registerBuildCommand(program: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (target: string | undefined, options: BuildOptions) => {
       try {
+        // Validate harness option (Phase 1: only claude supported)
+        const _harness = validateHarness(options.harness)
         const ctx = await getProjectContext(options)
 
         const buildOptions = {
