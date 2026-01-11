@@ -14,8 +14,11 @@ import { type PathResolver, ensureDir } from './paths.js'
 /**
  * Compute a plugin cache key.
  *
- * Formula:
+ * Formula (v1 - legacy, without harness):
  * sha256("materializer-v1\0" + spaceIntegrity + "\0" + pluginName + "\0" + pluginVersion + "\n")
+ *
+ * Note: This function is kept for backward compatibility. New code should use
+ * computeHarnessPluginCacheKey() which includes the harness ID in the cache key.
  */
 export function computePluginCacheKey(
   integrity: Sha256Integrity,
@@ -24,6 +27,29 @@ export function computePluginCacheKey(
 ): string {
   const hash = createHash('sha256')
   hash.update(`materializer-v1\0${integrity}\0${pluginName}\0${pluginVersion}\n`)
+  return hash.digest('hex')
+}
+
+/**
+ * Compute a harness-aware plugin cache key (Phase 2).
+ *
+ * Formula:
+ * sha256("materializer-v2\0" + harnessId + "\0" + harnessVersion + "\0" + spaceIntegrity + "\0" + pluginName + "\0" + pluginVersion + "\n")
+ *
+ * This includes the harness ID and version in the cache key so that the same
+ * space produces different cached artifacts for different harnesses (e.g., Claude vs Pi).
+ */
+export function computeHarnessPluginCacheKey(
+  harnessId: string,
+  harnessVersion: string,
+  integrity: Sha256Integrity,
+  pluginName: string,
+  pluginVersion: string
+): string {
+  const hash = createHash('sha256')
+  hash.update(
+    `materializer-v2\0${harnessId}\0${harnessVersion}\0${integrity}\0${pluginName}\0${pluginVersion}\n`
+  )
   return hash.digest('hex')
 }
 

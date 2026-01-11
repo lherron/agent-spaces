@@ -70,6 +70,7 @@ export type { DistTagsFile } from './dist-tags.js'
 // Lock file types
 export type {
   LockFile,
+  LockHarnessEntry,
   LockPluginInfo,
   LockRegistry,
   LockSpaceDeps,

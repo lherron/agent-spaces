@@ -1,8 +1,8 @@
 # Multi-Harness Implementation Plan
 
-> **Status:** Phase 1 Complete
+> **Status:** Phase 2 In Progress
 > **Spec:** specs/MULTI-HARNESS-SPEC-PROPOSED.md
-> **Current Phase:** 2 - Two-Phase Materialization (Next)
+> **Current Phase:** 2 - Two-Phase Materialization (Foundation Complete)
 
 ## Overview
 
@@ -79,20 +79,27 @@ The implementation follows a 4-phase migration path from the spec:
 
 ## Phase 2: Two-Phase Materialization
 
-### 2.1 Split Materialization
-- [ ] Update `materializeSpace()` to be harness-aware
-- [ ] Create `composeTarget()` for target assembly
-- [ ] Update cache key to include harness ID
+### 2.1 Split Materialization (Foundation Complete)
+- [x] `ClaudeAdapter.materializeSpace()` wraps existing materialization
+- [x] `ClaudeAdapter.composeTarget()` handles target assembly
+- [x] Add `computeHarnessPluginCacheKey()` in `@agent-spaces/store/cache.ts`
+- [ ] Migrate engine (install.ts, build.ts, run.ts) to use harness adapters instead of direct materializer calls
 
-### 2.2 Update Output Layout
-- [ ] Change from `asp_modules/<target>/plugins/` to `asp_modules/<target>/<harness>/`
-- [ ] Update path helpers in core package
-- [ ] Update engine to use new paths
+### 2.2 Update Output Layout ✅
+- [x] `ClaudeAdapter.getTargetOutputPath()` returns `asp_modules/<target>/claude`
+- [x] Add harness-aware path helpers to core package:
+  - `getHarnessOutputPath()`
+  - `getHarnessPluginsPath()`
+  - `getHarnessMcpConfigPath()`
+  - `getHarnessSettingsPath()`
+  - `harnessOutputExists()`
+- [ ] Migrate engine to use new harness-aware paths
 
-### 2.3 Update Lock File
-- [ ] Add `harnesses` field to target entries
-- [ ] Per-harness envHash and warnings
-- [ ] Update lock file schema
+### 2.3 Update Lock File ✅
+- [x] Add `LockHarnessEntry` interface with `envHash` and `warnings` fields
+- [x] Add `harnesses?: Record<string, LockHarnessEntry>` to `LockTargetEntry`
+- [x] Update `lock.schema.json` with `harnessEntry` definition
+- [ ] Generate harness entries during resolution/materialization
 
 ---
 
@@ -147,7 +154,16 @@ The implementation follows a 4-phase migration path from the spec:
 - `asp harnesses` command
 - `--harness` flag on `run` command (claude-only in Phase 1)
 
-**Next:** Phase 2 - Two-Phase Materialization
+**In Progress:** Phase 2 - Two-Phase Materialization (Foundation Complete)
+- ClaudeAdapter output path now returns harness subdirectory
+- Harness-aware cache key function added
+- Lock file types and schema updated with harness entries
+- Harness-aware path helpers added to core package
+
+**Remaining Phase 2 Work:**
+- Migrate engine files (install.ts, build.ts, run.ts) to use harness adapters
+- Generate harness entries in lock file during resolution
+- Add `--harness` flag to install, build, and explain commands
 
 ---
 
@@ -168,6 +184,10 @@ The implementation follows a 4-phase migration path from the spec:
 ### File Locations
 
 - Harness types: `packages/core/src/types/harness.ts`
+- Lock harness types: `packages/core/src/types/lock.ts` (LockHarnessEntry)
+- Lock schema: `packages/core/src/schemas/lock.schema.json`
+- Harness-aware paths: `packages/core/src/config/asp-modules.ts`
+- Harness-aware cache: `packages/store/src/cache.ts` (computeHarnessPluginCacheKey)
 - Harness adapters: `packages/engine/src/harness/`
 - Harness registry: `packages/engine/src/harness/registry.ts`
 - Claude adapter: `packages/engine/src/harness/claude-adapter.ts`

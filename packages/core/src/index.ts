@@ -50,6 +50,12 @@ export {
   getTargetPluginsPath,
   getTargetSettingsPath,
   targetOutputExists,
+  // Phase 2: Harness-aware path helpers
+  getHarnessOutputPath,
+  getHarnessPluginsPath,
+  getHarnessMcpConfigPath,
+  getHarnessSettingsPath,
+  harnessOutputExists,
 } from './config/index.js'
 
 // Errors

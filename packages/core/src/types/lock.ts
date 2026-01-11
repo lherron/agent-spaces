@@ -69,6 +69,14 @@ export interface LockWarning {
   details?: Record<string, unknown>
 }
 
+/** Harness-specific entry in lock file (Phase 2: Two-Phase Materialization) */
+export interface LockHarnessEntry {
+  /** Environment hash for this harness (includes harness ID + version) */
+  envHash: Sha256Integrity
+  /** Harness-specific warnings (e.g., W301: blocking hook not supported) */
+  warnings?: LockWarning[]
+}
+
 /** A resolved target entry in the lock file */
 export interface LockTargetEntry {
   /** Original compose list from manifest */
@@ -81,6 +89,8 @@ export interface LockTargetEntry {
   envHash: Sha256Integrity
   /** Warnings generated during resolution */
   warnings?: LockWarning[]
+  /** Per-harness entries with harness-specific envHash and warnings (Phase 2) */
+  harnesses?: Record<string, LockHarnessEntry>
 }
 
 /**

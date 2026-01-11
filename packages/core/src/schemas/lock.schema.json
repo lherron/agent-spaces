@@ -133,6 +133,26 @@
           "type": "array",
           "items": { "$ref": "#/$defs/warning" },
           "default": []
+        },
+
+        "harnesses": {
+          "type": "object",
+          "description": "Per-harness entries with harness-specific envHash and warnings (Phase 2)",
+          "additionalProperties": { "$ref": "#/$defs/harnessEntry" }
+        }
+      }
+    },
+
+    "harnessEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envHash"],
+      "properties": {
+        "envHash": { "$ref": "#/$defs/sha256Integrity" },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/warning" },
+          "default": []
         }
       }
     },

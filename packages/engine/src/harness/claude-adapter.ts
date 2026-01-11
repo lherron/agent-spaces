@@ -262,14 +262,9 @@ export class ClaudeAdapter implements HarnessAdapter {
    * Get the output directory path for a Claude target bundle.
    *
    * Returns: asp_modules/<targetName>/claude
-   *
-   * Note: In Phase 1, this returns the v2-compatible path without 'claude' subdirectory.
-   * Phase 2 will update to include the harness subdirectory.
    */
   getTargetOutputPath(aspModulesDir: string, targetName: string): string {
-    // Phase 1: Return v2-compatible path (no harness subdirectory)
-    // TODO Phase 2: return join(aspModulesDir, targetName, 'claude')
-    return join(aspModulesDir, targetName)
+    return join(aspModulesDir, targetName, 'claude')
   }
 }
 

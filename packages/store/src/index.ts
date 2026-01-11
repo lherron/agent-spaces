@@ -47,6 +47,7 @@ export {
 // Cache operations
 export {
   computePluginCacheKey,
+  computeHarnessPluginCacheKey,
   cacheExists,
   getCacheMetadata,
   writeCacheMetadata,

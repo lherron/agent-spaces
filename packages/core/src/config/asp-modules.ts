@@ -85,3 +85,79 @@ export async function targetOutputExists(
     return false
   }
 }
+
+// ============================================================================
+// Phase 2: Harness-Aware Path Helpers
+// ============================================================================
+
+/**
+ * Get the path to a harness-specific output directory within a target.
+ *
+ * Returns: asp_modules/<target>/<harness>/
+ *
+ * This is the Phase 2 layout that separates output by harness.
+ */
+export function getHarnessOutputPath(
+  projectPath: string,
+  targetName: string,
+  harnessId: string
+): string {
+  return join(projectPath, ASP_MODULES_DIR, targetName, harnessId)
+}
+
+/**
+ * Get the path to a harness-specific plugins directory.
+ *
+ * Returns: asp_modules/<target>/<harness>/plugins/
+ */
+export function getHarnessPluginsPath(
+  projectPath: string,
+  targetName: string,
+  harnessId: string
+): string {
+  return join(projectPath, ASP_MODULES_DIR, targetName, harnessId, ASP_MODULES_PLUGINS_DIR)
+}
+
+/**
+ * Get the path to a harness-specific MCP config file.
+ *
+ * Returns: asp_modules/<target>/<harness>/mcp.json
+ */
+export function getHarnessMcpConfigPath(
+  projectPath: string,
+  targetName: string,
+  harnessId: string
+): string {
+  return join(projectPath, ASP_MODULES_DIR, targetName, harnessId, ASP_MODULES_MCP_CONFIG)
+}
+
+/**
+ * Get the path to a harness-specific settings file.
+ *
+ * Returns: asp_modules/<target>/<harness>/settings.json
+ */
+export function getHarnessSettingsPath(
+  projectPath: string,
+  targetName: string,
+  harnessId: string
+): string {
+  return join(projectPath, ASP_MODULES_DIR, targetName, harnessId, ASP_MODULES_SETTINGS)
+}
+
+/**
+ * Check if a harness-specific output exists in asp_modules.
+ */
+export async function harnessOutputExists(
+  projectPath: string,
+  targetName: string,
+  harnessId: string
+): Promise<boolean> {
+  const harnessPath = getHarnessOutputPath(projectPath, targetName, harnessId)
+  try {
+    const { stat } = await import('node:fs/promises')
+    const stats = await stat(harnessPath)
+    return stats.isDirectory()
+  } catch {
+    return false
+  }
+}
