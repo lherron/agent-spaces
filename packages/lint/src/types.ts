@@ -61,6 +61,9 @@ export type LintRule = (context: LintContext) => Promise<LintWarning[]> | LintWa
  * Warning codes.
  */
 export const WARNING_CODES = {
+  /** Info: Lock file was missing and had to be auto-generated */
+  LOCK_MISSING: 'W101',
+  /** W2xx: Space/plugin lint rules */
   COMMAND_COLLISION: 'W201',
   AGENT_COMMAND_NAMESPACE: 'W202',
   HOOK_PATH_NO_PLUGIN_ROOT: 'W203',
@@ -68,8 +71,10 @@ export const WARNING_CODES = {
   PLUGIN_NAME_COLLISION: 'W205',
   NON_EXECUTABLE_HOOK_SCRIPT: 'W206',
   INVALID_PLUGIN_STRUCTURE: 'W207',
-  /** Info: Lock file was missing and had to be auto-generated */
-  LOCK_MISSING: 'W301',
+  /** W3xx: Harness-specific warnings (Pi = W301-W310) */
+  PI_HOOK_CANNOT_BLOCK: 'W301',
+  PI_UNNAMESPACED_TOOL: 'W302',
+  PI_TOOL_COLLISION: 'W303',
 } as const
 
 export type WarningCode = (typeof WARNING_CODES)[keyof typeof WARNING_CODES]

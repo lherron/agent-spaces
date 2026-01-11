@@ -27,6 +27,7 @@ import {
   copyDir,
   linkOrCopy,
 } from '@agent-spaces/core'
+import { WARNING_CODES } from '@agent-spaces/lint'
 
 // ============================================================================
 // Pi-specific Errors
@@ -681,6 +682,9 @@ export class PiAdapter implements HarnessAdapter {
     const extensionsDir = join(outputDir, 'extensions')
     await mkdir(extensionsDir, { recursive: true })
 
+    // Track extension files for W303 collision detection
+    const extensionSources = new Map<string, string>() // filename -> spaceId
+
     for (const artifact of input.artifacts) {
       const srcExtDir = join(artifact.artifactPath, 'extensions')
       try {
@@ -691,6 +695,17 @@ export class PiAdapter implements HarnessAdapter {
             // Files are already namespaced: spaceId__name.js
             const srcPath = join(srcExtDir, file)
             const destPath = join(extensionsDir, file)
+
+            // Check for W303: tool collision after namespacing
+            const existingSource = extensionSources.get(file)
+            if (existingSource && existingSource !== artifact.spaceId) {
+              warnings.push({
+                code: WARNING_CODES.PI_TOOL_COLLISION,
+                message: `Extension file collision: "${file}" from "${artifact.spaceId}" overwrites file from "${existingSource}"`,
+              })
+            }
+            extensionSources.set(file, artifact.spaceId)
+
             await linkOrCopy(srcPath, destPath)
           }
         }
@@ -769,11 +784,11 @@ export class PiAdapter implements HarnessAdapter {
       const hookBridgeCode = generateHookBridgeCode(allHooks, spaceIds)
       await writeFile(hookBridgePath, hookBridgeCode)
 
-      // Check for blocking hooks that Pi can't enforce
+      // Check for W301: blocking hooks that Pi can't enforce
       for (const hook of allHooks) {
         if (hook.blocking && !PI_BLOCKING_EVENTS.includes(hook.event)) {
           warnings.push({
-            code: 'W301',
+            code: WARNING_CODES.PI_HOOK_CANNOT_BLOCK,
             message: `Hook '${hook.event}' marked blocking=true but Pi cannot block this event`,
           })
         }

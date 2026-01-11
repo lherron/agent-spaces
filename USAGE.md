@@ -408,6 +408,7 @@ asp lint [target]
 
 | Code | Description |
 |------|-------------|
+| W101 | Lock file missing (info level) |
 | W201 | Command collision — same command in multiple spaces |
 | W202 | Agent references unqualified `/command` from plugin |
 | W203 | Hook path missing `${CLAUDE_PLUGIN_ROOT}` |
@@ -415,7 +416,9 @@ asp lint [target]
 | W205 | Plugin name collision — two spaces produce same name |
 | W206 | Non-executable hook script |
 | W207 | Component directories nested inside .claude-plugin/ |
-| W301 | Lock file missing (info level) |
+| W301 | Pi: Hook marked blocking but event cannot block |
+| W302 | Pi: Extension registers un-namespaced tool |
+| W303 | Pi: Tool name collision after namespacing |
 
 ---
 

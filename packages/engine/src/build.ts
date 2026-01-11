@@ -208,7 +208,7 @@ export async function build(targetName: string, options: BuildOptions): Promise<
     warnings = await lint(lintContext)
   }
 
-  // Add W301 warning if lock file was missing and auto-generated
+  // Add W101 warning if lock file was missing and auto-generated
   if (lockWasMissing) {
     warnings.unshift({
       code: WARNING_CODES.LOCK_MISSING,

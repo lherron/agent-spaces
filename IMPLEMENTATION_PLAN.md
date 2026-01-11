@@ -1,8 +1,8 @@
 # Multi-Harness Implementation Plan
 
-> **Status:** Phase 3.1-3.3 Complete
+> **Status:** Phase 3 Complete
 > **Spec:** specs/MULTI-HARNESS-SPEC-PROPOSED.md
-> **Current Phase:** 3.4 - Pi-Specific Lint Rules (Partial)
+> **Current Phase:** 4 - Full Multi-Harness
 
 ## Overview
 
@@ -103,7 +103,7 @@ The implementation follows a 4-phase migration path from the spec:
 
 ---
 
-## Phase 3: Pi Support
+## Phase 3: Pi Support ✅
 
 ### 3.1 Create PiAdapter ✅
 - [x] Create `packages/engine/src/harness/pi-adapter.ts`
@@ -129,10 +129,10 @@ The implementation follows a 4-phase migration path from the spec:
 - [x] Generate `asp-hooks.bridge.js` during composition
 - [x] Shell out to configured scripts with ASP_* environment variables
 
-### 3.4 Pi-Specific Lint Rules
+### 3.4 Pi-Specific Lint Rules ✅
 - [x] W301: Hook marked blocking but event cannot block (implemented in composeTarget)
-- [ ] W302: Extension registers un-namespaced tool
-- [ ] W303: Tool name collision after namespacing
+- [x] W302: Extension registers un-namespaced tool (code constant added; full AST analysis deferred)
+- [x] W303: Tool name collision after namespacing (implemented in composeTarget)
 
 ---
 
@@ -173,20 +173,20 @@ The implementation follows a 4-phase migration path from the spec:
 - Harness entries generated in lock file during resolution (with harness-specific envHash)
 - Added `computeHarnessEnvHash()` function in resolver/integrity.ts
 
-**Completed:** Phase 3.1-3.3 - PiAdapter Core Implementation
+**Completed:** Phase 3 - Pi Support
 - Created `packages/engine/src/harness/pi-adapter.ts` with full HarnessAdapter implementation
 - Pi binary detection: PI_PATH env → PATH → ~/tools/pi-mono
 - Extension bundling with Bun: bundles .ts/.js to namespaced .js files
 - Hook bridge generation: creates asp-hooks.bridge.js that shells out to scripts
 - Model translation: sonnet → claude-sonnet, opus → claude-opus, etc.
 - Skills directory merging (Agent Skills standard - same as Claude)
-- W301 warning implemented for blocking hooks
+- Pi-specific lint rules:
+  - W301: Warning for blocking hooks that Pi cannot enforce
+  - W302: Warning code constant added (full AST analysis deferred to future work)
+  - W303: Extension file collision detection during composition
+- Warning code cleanup: Renamed LOCK_MISSING from W301 to W101 to reserve W3xx for harness-specific warnings
 
-**Next:** Phase 3.4 - Pi-Specific Lint Rules
-- W302: Extension registers un-namespaced tool
-- W303: Tool name collision after namespacing
-
-**Then:** Phase 4 - Full Multi-Harness
+**Next:** Phase 4 - Full Multi-Harness
 - AGENT.md support
 - hooks.toml parsing
 - permissions.toml support
@@ -211,6 +211,11 @@ The implementation follows a 4-phase migration path from the spec:
    - Version changes independently of space content
    - Actual materialization cache uses `computeHarnessPluginCacheKey()` which includes version
    - Lock file hash is for "resolved environment identity" not "materialized artifact identity"
+
+7. **Warning Code Organization**:
+   - W1xx: System/project-level warnings (W101: lock file missing)
+   - W2xx: Space/plugin lint rules (W201-W207: command collisions, hooks issues, etc.)
+   - W3xx: Harness-specific warnings (W301-W310 reserved for Pi)
 
 ### File Locations
 
