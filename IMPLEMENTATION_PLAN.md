@@ -1,6 +1,6 @@
 # Multi-Harness Implementation Plan
 
-> **Status:** Phase 5.2 Complete
+> **Status:** Phase 5.3 Complete
 > **Spec:** specs/MULTI-HARNESS-SPEC-PROPOSED.md
 > **Current Phase:** 5 - Multi-Harness Smoke Testing
 
@@ -257,7 +257,22 @@ The implementation follows a 4-phase migration path from the spec:
 - Removed Phase 1 restrictions from CLI commands (pi harness now accessible)
 - Verified hooks.toml conversion with smoke test: `pre_tool_use` → `PreToolUse`, scripts prefixed with `${CLAUDE_PLUGIN_ROOT}/`
 
-**Next:** Phase 5.3-5.10 - Additional Smoke Testing
+**Completed:** Phase 5.3 - HarnessRegistry and ClaudeAdapter Unit Tests + PiAdapter Unit Tests
+- Added comprehensive PiAdapter unit tests (62 tests in pi-adapter.test.ts):
+  - Detection with PI_PATH env, version parsing, capability detection
+  - Validation (accepts any space format)
+  - Materialization: TypeScript/JS extension bundling with namespacing, skills/hooks copying, AGENT.md linking, permissions.toml handling
+  - Composition: extension merging, skills merging, hook bridge generation, W301/W303/W304 warnings
+  - buildRunArgs: extension flags, model translation (sonnet→claude-sonnet), skills directory, extra args
+  - getTargetOutputPath: correct path format
+- Added Pi extension bundling tests (9 tests):
+  - bundleExtension() for TypeScript/JavaScript, format options, error handling
+  - discoverExtensions() for .ts/.js files, ignoring package.json/node_modules
+- Added hook bridge generation tests (11 tests):
+  - generateHookBridgeCode() event translation, ASP_* env vars, harness filtering, tool filtering
+- All 749 tests pass (120 in engine package alone)
+
+**Next:** Phase 5.4-5.10 - Additional Smoke Testing
 - Pi harness smoke tests (requires pi binary)
 - Multi-harness target tests
 - Manual testing of remaining scenarios
@@ -421,9 +436,12 @@ Test each CLI command with `--harness` flag:
 - [x] HarnessRegistry tests (18 tests in registry.test.ts)
 - [ ] CLI --harness flag tests
 - [ ] Integration test with Claude harness
-- [ ] PiAdapter unit tests
-- [ ] Pi extension bundling tests
-- [ ] Hook bridge generation tests
+- [x] PiAdapter unit tests (62 tests in pi-adapter.test.ts)
+  - Detection, validation, materialization, composition, buildRunArgs, getTargetOutputPath
+- [x] Pi extension bundling tests (9 tests in pi-adapter.test.ts)
+  - bundleExtension(), discoverExtensions()
+- [x] Hook bridge generation tests (11 tests in pi-adapter.test.ts)
+  - generateHookBridgeCode(), event translation, tool filtering, harness filtering
 - [ ] Integration test with Pi harness
 - [x] Instructions file linking tests (9 tests in link-components.test.ts)
 - [x] hooks.toml parsing and generation tests (27 tests in hooks-toml.test.ts)
