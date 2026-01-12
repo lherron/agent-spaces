@@ -22,13 +22,13 @@
     "lint:fix": "biome check --write ."
   },
   "dependencies": {
-    "@agent-spaces/core": "workspace:*",
-    "@agent-spaces/git": "workspace:*",
-    "@agent-spaces/claude": "workspace:*",
-    "@agent-spaces/resolver": "workspace:*",
-    "@agent-spaces/store": "workspace:*",
-    "@agent-spaces/materializer": "workspace:*",
-    "@agent-spaces/lint": "workspace:*"
+    "@agent-spaces/core": "*",
+    "@agent-spaces/git": "*",
+    "@agent-spaces/claude": "*",
+    "@agent-spaces/resolver": "*",
+    "@agent-spaces/store": "*",
+    "@agent-spaces/materializer": "*",
+    "@agent-spaces/lint": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",

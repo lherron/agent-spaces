@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-spaces/core": "workspace:*"
+    "@agent-spaces/core": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -20,8 +20,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-spaces/core": "workspace:*",
-    "@agent-spaces/git": "workspace:*",
-    "@agent-spaces/resolver": "workspace:*"
+    "@agent-spaces/core": "*",
+    "@agent-spaces/git": "*",
+    "@agent-spaces/resolver": "*"
   }
 }

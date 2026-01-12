@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-spaces/core": "workspace:*",
-    "@agent-spaces/materializer": "workspace:*"
+    "@agent-spaces/core": "*",
+    "@agent-spaces/materializer": "*"
   }
 }
