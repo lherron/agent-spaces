@@ -163,7 +163,7 @@ describe('asp run global mode', () => {
 
       const shimOutput = await readShimOutput()
       expect(shimOutput.pluginDirs.length).toBeGreaterThan(0)
-      expect(shimOutput.args).toContain('--print')
+      expect(shimOutput.args).toContain('-p')
       expect(shimOutput.args).toContain('test global')
     })
 
@@ -255,7 +255,7 @@ describe('asp run global mode', () => {
 
       const shimOutput = await readShimOutput()
       expect(shimOutput.pluginDirs.length).toBe(1)
-      expect(shimOutput.args).toContain('--print')
+      expect(shimOutput.args).toContain('-p')
       expect(shimOutput.args).toContain('test dev')
     })
 

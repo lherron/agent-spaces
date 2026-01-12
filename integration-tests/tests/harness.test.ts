@@ -97,7 +97,7 @@ describe('asp harnesses', () => {
     const output = JSON.parse(stdout)
     const piHarness = output.harnesses.find((h: { id: string }) => h.id === 'pi')
     expect(piHarness).toBeDefined()
-    expect(piHarness.name).toBe('Pi Agent')
+    expect(piHarness.name).toBe('Pi Coding Agent')
   })
 
   test('shows detection status for each harness', async () => {

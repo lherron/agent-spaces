@@ -87,7 +87,7 @@ export function success(text: string): void {
  * Print an error message
  */
 export function error(text: string): void {
-  console.log(`${symbols.error} ${colors.error(text)}`)
+  console.error(`${symbols.error} ${colors.error(text)}`)
 }
 
 /**

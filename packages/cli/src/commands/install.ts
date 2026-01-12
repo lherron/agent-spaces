@@ -111,7 +111,6 @@ export function registerInstallCommand(program: Command): void {
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: CLI orchestration with multiple paths
     .action(async (options) => {
       // Validate harness option (Phase 1: only claude supported)
       const _harness = validateHarness(options.harness)
