@@ -2,18 +2,20 @@
  * JSON Schema validation for Agent Spaces v2 config files
  */
 
+import { createRequire } from 'node:module'
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
-
-import distTagsSchema from './dist-tags.schema.json'
-import lockSchema from './lock.schema.json'
-import spaceSchema from './space.schema.json'
-import targetsSchema from './targets.schema.json'
 
 import type { DistTagsFile } from '../types/dist-tags.js'
 import type { LockFile } from '../types/lock.js'
 import type { SpaceManifest } from '../types/space.js'
 import type { ProjectManifest } from '../types/targets.js'
+
+const require = createRequire(import.meta.url)
+const distTagsSchema = require('./dist-tags.schema.json')
+const lockSchema = require('./lock.schema.json')
+const spaceSchema = require('./space.schema.json')
+const targetsSchema = require('./targets.schema.json')
 
 // ============================================================================
 // Ajv instance setup

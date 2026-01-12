@@ -1,1 +1,1 @@
-export * from './node_modules/@agent-spaces/store/dist/index.js'
+export * from '@agent-spaces/store'
