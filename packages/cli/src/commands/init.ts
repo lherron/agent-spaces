@@ -25,7 +25,7 @@ function generateTargetsToml(targetName: string): string {
 
 [targets.${targetName}]
 description = "Default target"
-compose = []
+compose = ["space:defaults@stable"]
 `
 }
 

@@ -119,8 +119,8 @@ describe('asp run', () => {
 
     const shimOutput = await readShimOutput()
 
-    // Should have --print flag with prompt
-    const pIndex = shimOutput.args.indexOf('--print')
+    // Should have -p flag with prompt
+    const pIndex = shimOutput.args.indexOf('-p')
     expect(pIndex).toBeGreaterThanOrEqual(0)
     expect(shimOutput.args[pIndex + 1]).toBe(prompt)
   })
@@ -234,7 +234,7 @@ describe('asp run', () => {
     })
 
     expect(result.command).toBeDefined()
-    expect(result.command).toContain('--print')
+    expect(result.command).toContain('-p')
     expect(result.command).toContain('Hello, Claude!')
   })
 })

@@ -161,7 +161,12 @@ async function runProjectMode(
     if (!options.printCommand) {
       console.log(chalk.yellow('Dry run - building and showing command...'))
     }
-    const result = await run(target, { ...runOptions, dryRun: true, prompt })
+    const result = await run(target, {
+      ...runOptions,
+      dryRun: true,
+      prompt,
+      interactive: options.interactive,
+    })
     return result
   }
 
