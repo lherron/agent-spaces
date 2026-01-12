@@ -115,6 +115,7 @@ export function registerBuildCommand(program: Command): void {
           clean: options.clean !== false,
           autoInstall: options.install !== false,
           runLint: options.lint !== false,
+          harness: _harness,
         }
 
         if (target) {

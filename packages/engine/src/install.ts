@@ -80,6 +80,12 @@ export interface InstallOptions extends ResolveOptions {
    * keep their currently locked versions.
    */
   upgradeSpaceIds?: string[] | undefined
+  /**
+   * Force refresh from source (default: false).
+   * Clears plugin cache and re-materializes all spaces from source.
+   * Useful when source files have changed and you want to update the cache.
+   */
+  refresh?: boolean | undefined
 }
 
 /**
@@ -236,28 +242,56 @@ export async function materializeTarget(
       ? join(registryPath, 'spaces', entry.id)
       : paths.snapshot(entry.integrity)
 
-    // Check cache (skip for @dev refs since content can change)
-    const isCached = !isDev && (await cacheExists(cacheKey, { paths }))
+    // Read manifest for settings and harness support filtering
+    let manifest: ResolvedSpaceManifest | undefined
+    try {
+      const spaceTomlPath = join(snapshotPath, 'space.toml')
+      const parsed = await readSpaceToml(spaceTomlPath)
+      manifest = {
+        ...parsed,
+        schema: 1,
+        id: entry.id,
+        plugin: {
+          ...parsed.plugin,
+          name: pluginName,
+          version: pluginVersion,
+        },
+      } as ResolvedSpaceManifest
+    } catch {
+      manifest = undefined
+    }
+
+    const supports = manifest?.harness?.supports
+    if (supports && !supports.includes(harnessId)) {
+      // Skip spaces that do not support the selected harness
+      continue
+    }
+
+    // Check cache (skip for @dev refs since content can change, or when refresh requested)
+    const isCached = !isDev && !options.refresh && (await cacheExists(cacheKey, { paths }))
 
     if (!isCached) {
       // Build input for harness adapter
       const input: MaterializeSpaceInput = {
         spaceKey,
-        manifest: {
-          schema: 1,
-          id: entry.id,
-          plugin: {
-            ...entry.plugin,
-            name: pluginName,
-            version: pluginVersion,
-          },
-        } as ResolvedSpaceManifest,
+        manifest:
+          manifest ??
+          ({
+            schema: 1,
+            id: entry.id,
+            plugin: {
+              ...entry.plugin,
+              name: pluginName,
+              version: pluginVersion,
+            },
+          } as ResolvedSpaceManifest),
         snapshotPath,
         integrity: entry.integrity,
       }
 
       // Materialize using harness adapter (handles hooks.toml → hooks.json, etc.)
-      await adapter.materializeSpace(input, cacheDir, { force: true })
+      // In dev mode, use copy instead of hardlinks to protect source files
+      await adapter.materializeSpace(input, cacheDir, { force: true, useHardlinks: !isDev })
 
       // Write cache metadata
       await writeCacheMetadata(
@@ -284,11 +318,9 @@ export async function materializeTarget(
     })
 
     // Read settings from snapshot's space.toml for composition
-    try {
-      const spaceTomlPath = join(snapshotPath, 'space.toml')
-      const manifest = await readSpaceToml(spaceTomlPath)
-      settingsInputs.push(manifest.settings ?? {})
-    } catch {
+    if (manifest?.settings) {
+      settingsInputs.push(manifest.settings)
+    } else {
       settingsInputs.push({})
     }
   }

@@ -2,10 +2,17 @@
  * Install command - Generate/update lock file and materialize to asp_modules.
  */
 
+import { readdir, stat } from 'node:fs/promises'
+import { join } from 'node:path'
+
 import type { Command } from 'commander'
 
 import { getClaudeCommand } from '@agent-spaces/claude'
-import { getEffectiveClaudeOptions, readTargetsToml } from '@agent-spaces/core'
+import {
+  type ComposedTargetBundle,
+  getEffectiveClaudeOptions,
+  readTargetsToml,
+} from '@agent-spaces/core'
 import { type HarnessId, harnessRegistry, install, isHarnessId } from '@agent-spaces/engine'
 
 import { findProjectRoot } from '../index.js'
@@ -43,6 +50,55 @@ function validateHarness(harness: string | undefined): HarnessId {
   return harnessId
 }
 
+function shellQuote(value: string): string {
+  if (/^[a-zA-Z0-9_./-]+$/.test(value)) return value
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+function formatCommand(commandPath: string, args: string[]): string {
+  return [shellQuote(commandPath), ...args.map(shellQuote)].join(' ')
+}
+
+async function buildPiBundle(
+  outputPath: string,
+  targetName: string
+): Promise<ComposedTargetBundle> {
+  const extensionsDir = join(outputPath, 'extensions')
+  const skillsDir = join(outputPath, 'skills')
+  const hookBridgePath = join(outputPath, 'asp-hooks.bridge.js')
+
+  let skillsDirPath: string | undefined
+  try {
+    const entries = await readdir(skillsDir)
+    if (entries.length > 0) {
+      skillsDirPath = skillsDir
+    }
+  } catch {
+    // No skills directory
+  }
+
+  let hookBridge: string | undefined
+  try {
+    const stats = await stat(hookBridgePath)
+    if (stats.isFile()) {
+      hookBridge = hookBridgePath
+    }
+  } catch {
+    // No hook bridge
+  }
+
+  return {
+    harnessId: 'pi',
+    targetName,
+    rootDir: outputPath,
+    pi: {
+      extensionsDir,
+      skillsDir: skillsDirPath,
+      hookBridgePath: hookBridge,
+    },
+  }
+}
+
 export function registerInstallCommand(program: Command): void {
   program
     .command('install')
@@ -50,6 +106,7 @@ export function registerInstallCommand(program: Command): void {
     .option('--targets <names...>', 'Specific targets to install')
     .option('--harness <id>', 'Coding agent harness to use (default: claude)')
     .option('--update', 'Update existing lock (re-resolve selectors)')
+    .option('--refresh', 'Force re-copy from source (clear cache)')
     .option('--no-fetch', 'Skip fetching registry updates')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
@@ -58,6 +115,7 @@ export function registerInstallCommand(program: Command): void {
     .action(async (options) => {
       // Validate harness option (Phase 1: only claude supported)
       const _harness = validateHarness(options.harness)
+      const harnessId = _harness
       const startTime = Date.now()
 
       // Find project root
@@ -81,7 +139,9 @@ export function registerInstallCommand(program: Command): void {
           registryPath: options.registry,
           targets: options.targets,
           update: options.update,
+          refresh: options.refresh,
           fetchRegistry: options.fetch !== false,
+          harness: harnessId,
         })
 
         spinner.stop()
@@ -100,6 +160,15 @@ export function registerInstallCommand(program: Command): void {
         const manifestPath = `${projectPath}/asp-targets.toml`
         const manifest = await readTargetsToml(manifestPath)
 
+        const adapter = harnessRegistry.getOrThrow(harnessId)
+        let harnessPath: string = harnessId
+        try {
+          const detection = await adapter.detect()
+          harnessPath = detection.path ?? harnessId
+        } catch {
+          // Harness may not be installed; fall back to id
+        }
+
         // Each target
         header('Targets')
 
@@ -108,20 +177,29 @@ export function registerInstallCommand(program: Command): void {
 
           // Generate command
           let command: string
-          try {
-            command = await getClaudeCommand({
-              pluginDirs: mat.pluginDirs,
-              mcpConfig: mat.mcpConfigPath,
-              settings: mat.settingsPath,
-              settingSources: '',
-              model: claudeOptions.model,
-              permissionMode: claudeOptions.permission_mode,
-              args: claudeOptions.args,
+          if (harnessId === 'claude') {
+            try {
+              command = await getClaudeCommand({
+                pluginDirs: mat.pluginDirs,
+                mcpConfig: mat.mcpConfigPath,
+                settings: mat.settingsPath,
+                settingSources: '',
+                model: claudeOptions.model,
+                permissionMode: claudeOptions.permission_mode,
+                args: claudeOptions.args,
+              })
+            } catch {
+              // Claude not installed - build a generic command
+              const pluginArgs = mat.pluginDirs.map((d) => `--plugin-dir ${d}`).join(' ')
+              command = `claude ${pluginArgs} --settings ${mat.settingsPath}`
+            }
+          } else {
+            const bundle = await buildPiBundle(mat.outputPath, mat.target)
+            const args = adapter.buildRunArgs(bundle, {
+              projectPath,
+              extraArgs: undefined,
             })
-          } catch {
-            // Claude not installed - build a generic command
-            const pluginArgs = mat.pluginDirs.map((d) => `--plugin-dir ${d}`).join(' ')
-            command = `claude ${pluginArgs} --settings ${mat.settingsPath}`
+            command = formatCommand(harnessPath, args)
           }
 
           // Target display

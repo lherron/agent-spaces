@@ -5,7 +5,7 @@
  * existing functionality from @agent-spaces/claude and @agent-spaces/materializer.
  */
 
-import { mkdir, rm } from 'node:fs/promises'
+import { copyFile, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { buildClaudeArgs, detectClaude } from '@agent-spaces/claude'
 import type {
@@ -123,6 +123,9 @@ export class ClaudeAdapter implements HarnessAdapter {
   ): Promise<MaterializeSpaceResult> {
     const warnings: string[] = []
     const files: string[] = []
+    // Use copy instead of hardlinks when useHardlinks=false (dev mode)
+    // This protects source files from being modified by generated artifacts
+    const linkOptions = { forceCopy: options.useHardlinks === false }
 
     try {
       // Clean any partial previous attempt
@@ -136,11 +139,16 @@ export class ClaudeAdapter implements HarnessAdapter {
       files.push('.claude-plugin/plugin.json')
 
       // Link components from snapshot
-      const linked = await linkComponents(input.snapshotPath, cacheDir)
+      const linked = await linkComponents(input.snapshotPath, cacheDir, linkOptions)
       files.push(...linked)
 
       // Link instructions file (AGENT.md → CLAUDE.md or CLAUDE.md → CLAUDE.md)
-      const instructionsResult = await linkInstructionsFile(input.snapshotPath, cacheDir, 'claude')
+      const instructionsResult = await linkInstructionsFile(
+        input.snapshotPath,
+        cacheDir,
+        'claude',
+        linkOptions
+      )
       if (instructionsResult.linked && instructionsResult.destFile) {
         files.push(instructionsResult.destFile)
       }
@@ -149,7 +157,11 @@ export class ClaudeAdapter implements HarnessAdapter {
       if (await permissionsTomlExists(input.snapshotPath)) {
         const srcPerms = join(input.snapshotPath, PERMISSIONS_TOML_FILENAME)
         const destPerms = join(cacheDir, PERMISSIONS_TOML_FILENAME)
-        await linkOrCopy(srcPerms, destPerms)
+        if (linkOptions.forceCopy) {
+          await copyFile(srcPerms, destPerms)
+        } else {
+          await linkOrCopy(srcPerms, destPerms)
+        }
         files.push(PERMISSIONS_TOML_FILENAME)
       }
 
@@ -246,7 +258,6 @@ export class ClaudeAdapter implements HarnessAdapter {
     }
 
     // Compose settings from all spaces (including permissions.toml)
-    let settingsPath: string | undefined
     const settingsOutputPath = join(outputDir, 'settings.json')
 
     // Read permissions.toml from each artifact and merge with space settings
@@ -298,15 +309,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       }
     }
 
-    if (settingsInputs.length > 0) {
-      const { settings: composedSettings } = await composeSettingsFromSpaces(
-        settingsInputs,
-        settingsOutputPath
-      )
-      if (composedSettings && Object.keys(composedSettings).length > 0) {
-        settingsPath = settingsOutputPath
-      }
-    }
+    await composeSettingsFromSpaces(settingsInputs, settingsOutputPath)
 
     const bundle: ComposedTargetBundle = {
       harnessId: 'claude',
@@ -314,7 +317,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       rootDir: outputDir,
       pluginDirs,
       mcpConfigPath,
-      settingsPath,
+      settingsPath: settingsOutputPath,
     }
 
     return { bundle, warnings }

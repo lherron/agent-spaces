@@ -42,26 +42,35 @@ export interface HooksTomlConfig {
 }
 
 /**
- * Claude hook definition for hooks.json.
+ * Claude hook command configuration.
+ */
+export interface ClaudeHookCommand {
+  /** Hook type (currently only "command") */
+  type: 'command'
+  /** Command path using ${CLAUDE_PLUGIN_ROOT} */
+  command: string
+  /** Optional timeout in seconds */
+  timeout?: number | undefined
+}
+
+/**
+ * Claude hook matcher configuration.
  */
 export interface ClaudeHookDefinition {
-  /** Claude event name (PreToolUse, PostToolUse, Stop, etc.) */
-  matcher: string
+  /** Optional matcher (tool pattern) */
+  matcher?: string | undefined
   /** Array of hook configurations */
-  hooks: Array<{
-    /** Command path using ${CLAUDE_PLUGIN_ROOT} */
-    command: string
-    /** Optional timeout in milliseconds */
-    timeout_ms?: number | undefined
-  }>
+  hooks: ClaudeHookCommand[]
 }
 
 /**
  * Claude hooks.json format.
  */
 export interface ClaudeHooksConfig {
-  /** Array of hook definitions keyed by matcher */
-  hooks: ClaudeHookDefinition[]
+  /** Optional description for plugin hooks */
+  description?: string | undefined
+  /** Hook definitions keyed by Claude event name */
+  hooks: Record<string, ClaudeHookDefinition[]>
 }
 
 // ============================================================================
@@ -92,6 +101,18 @@ export const ABSTRACT_TO_PI_EVENTS: Record<string, string> = {
   post_tool_use: 'tool_result',
   session_start: 'session_start',
   session_end: 'session_end',
+}
+
+const CLAUDE_TOOL_EVENTS = new Set(['PreToolUse', 'PostToolUse'])
+
+function buildClaudeMatcher(tools?: string[] | undefined): string {
+  if (!tools || tools.length === 0) {
+    return '*'
+  }
+  if (tools.includes('*')) {
+    return '*'
+  }
+  return tools.join('|')
 }
 
 // ============================================================================
@@ -214,8 +235,8 @@ export function toClaudeHooksConfig(hooks: CanonicalHookDefinition[]): ClaudeHoo
   // Filter for Claude-applicable hooks
   const claudeHooks = filterHooksForHarness(hooks, 'claude')
 
-  // Group hooks by Claude event
-  const hooksByEvent = new Map<string, CanonicalHookDefinition[]>()
+  // Group hooks by Claude event and matcher
+  const hooksByEvent = new Map<string, Map<string | undefined, CanonicalHookDefinition[]>>()
 
   for (const hook of claudeHooks) {
     const claudeEvent = translateToClaudeEvent(hook.event)
@@ -224,22 +245,34 @@ export function toClaudeHooksConfig(hooks: CanonicalHookDefinition[]): ClaudeHoo
       continue
     }
 
-    const existing = hooksByEvent.get(claudeEvent) ?? []
+    const matcher = CLAUDE_TOOL_EVENTS.has(claudeEvent) ? buildClaudeMatcher(hook.tools) : undefined
+    const eventMap =
+      hooksByEvent.get(claudeEvent) ?? new Map<string | undefined, CanonicalHookDefinition[]>()
+    const existing = eventMap.get(matcher) ?? []
     existing.push(hook)
-    hooksByEvent.set(claudeEvent, existing)
+    eventMap.set(matcher, existing)
+    hooksByEvent.set(claudeEvent, eventMap)
   }
 
   // Convert to Claude hooks.json format
-  const result: ClaudeHooksConfig = { hooks: [] }
+  const result: ClaudeHooksConfig = { hooks: {} }
 
-  for (const [matcher, eventHooks] of hooksByEvent) {
-    result.hooks.push({
-      matcher,
-      hooks: eventHooks.map((h) => ({
-        // Use ${CLAUDE_PLUGIN_ROOT} for portable script paths
-        command: `\${CLAUDE_PLUGIN_ROOT}/${h.script}`,
-      })),
-    })
+  for (const [eventName, matcherHooks] of hooksByEvent) {
+    const eventEntries: ClaudeHookDefinition[] = []
+    for (const [matcher, eventHooks] of matcherHooks) {
+      const entry: ClaudeHookDefinition = {
+        hooks: eventHooks.map((h) => ({
+          type: 'command',
+          // Use ${CLAUDE_PLUGIN_ROOT} for portable script paths
+          command: `\${CLAUDE_PLUGIN_ROOT}/${h.script}`,
+        })),
+      }
+      if (matcher) {
+        entry.matcher = matcher
+      }
+      eventEntries.push(entry)
+    }
+    result.hooks[eventName] = eventEntries
   }
 
   return result

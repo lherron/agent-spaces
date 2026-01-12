@@ -7,10 +7,12 @@
  * - Launch Claude with plugin directories
  */
 
+import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
+  type ComposedTargetBundle,
   DEFAULT_HARNESS,
   type HarnessId,
   LOCK_FILENAME,
@@ -56,6 +58,55 @@ import { harnessRegistry } from './harness/index.js'
 import { install } from './install.js'
 import { type ResolveOptions, loadProjectManifest } from './resolve.js'
 
+function shellQuote(value: string): string {
+  if (/^[a-zA-Z0-9_./-]+$/.test(value)) return value
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+function formatCommand(commandPath: string, args: string[]): string {
+  return [shellQuote(commandPath), ...args.map(shellQuote)].join(' ')
+}
+
+async function buildPiBundle(
+  outputPath: string,
+  targetName: string
+): Promise<ComposedTargetBundle> {
+  const extensionsDir = join(outputPath, 'extensions')
+  const skillsDir = join(outputPath, 'skills')
+  const hookBridgePath = join(outputPath, 'asp-hooks.bridge.js')
+
+  let skillsDirPath: string | undefined
+  try {
+    const entries = await readdir(skillsDir)
+    if (entries.length > 0) {
+      skillsDirPath = skillsDir
+    }
+  } catch {
+    // No skills directory
+  }
+
+  let hookBridge: string | undefined
+  try {
+    const stats = await stat(hookBridgePath)
+    if (stats.isFile()) {
+      hookBridge = hookBridgePath
+    }
+  } catch {
+    // No hook bridge
+  }
+
+  return {
+    harnessId: 'pi',
+    targetName,
+    rootDir: outputPath,
+    pi: {
+      extensionsDir,
+      skillsDir: skillsDirPath,
+      hookBridgePath: hookBridge,
+    },
+  }
+}
+
 /**
  * Options for run operation.
  */
@@ -80,6 +131,10 @@ export interface RunOptions extends ResolveOptions {
   settingSources?: string | null | undefined
   /** Path to settings JSON file or JSON string (--settings flag) */
   settings?: string | undefined
+  /** Force refresh from source (clear cache and re-materialize) */
+  refresh?: boolean | undefined
+  /** YOLO mode - skip all permission prompts (--dangerously-skip-permissions) */
+  yolo?: boolean | undefined
 }
 
 /**
@@ -152,34 +207,86 @@ async function executeClaude(
     dryRun?: boolean | undefined
   }
 ): Promise<ClaudeExecutionResult> {
-  // In dry-run mode, just get the command and return
+  // Always compute the command for display/logging
+  const promptArgs = options.prompt ? ['--print', options.prompt] : []
+  const fullOptions = {
+    ...invokeOptions,
+    args: [...(invokeOptions.args ?? []), ...promptArgs],
+  }
+  const command = await getClaudeCommand(fullOptions)
+
+  // In dry-run mode, just return the command without executing
   if (options.dryRun) {
-    // Include prompt args in the command if present
-    const promptArgs = options.prompt ? ['--print', options.prompt] : []
-    const fullOptions = {
-      ...invokeOptions,
-      args: [...(invokeOptions.args ?? []), ...promptArgs],
-    }
-    const command = await getClaudeCommand(fullOptions)
     return { exitCode: 0, command }
   }
+
+  // Print the command before executing
+  console.log(`\x1b[90m$ ${command}\x1b[0m`)
+  console.log('')
 
   if (options.interactive !== false) {
     // Interactive mode - spawn with inherited stdio
     const spawnOptions: SpawnClaudeOptions = { ...invokeOptions, inheritStdio: true }
     const { proc } = await spawnClaude(spawnOptions)
     const exitCode = await proc.exited
-    return { exitCode }
+    return { exitCode, command }
   }
 
   // Non-interactive mode - capture output
-  const promptArgs = options.prompt ? ['--print', options.prompt] : []
   const invocation = await invokeClaude({
     ...invokeOptions,
     args: [...(invokeOptions.args ?? []), ...promptArgs],
     captureOutput: true,
   })
-  return { exitCode: invocation.exitCode, invocation }
+  return { exitCode: invocation.exitCode, invocation, command }
+}
+
+/**
+ * Execute a generic harness command (non-Claude).
+ */
+async function executeHarnessCommand(
+  commandPath: string,
+  args: string[],
+  options: {
+    interactive?: boolean | undefined
+    cwd?: string | undefined
+    env?: Record<string, string> | undefined
+  }
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const captureOutput = options.interactive === false
+  return new Promise((resolve, reject) => {
+    const child = spawn(commandPath, args, {
+      cwd: options.cwd,
+      env: {
+        ...process.env,
+        ...options.env,
+      },
+      stdio: captureOutput ? 'pipe' : 'inherit',
+    })
+
+    let stdout = ''
+    let stderr = ''
+
+    if (child.stdout) {
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk.toString()
+      })
+    }
+
+    if (child.stderr) {
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk.toString()
+      })
+    }
+
+    child.on('error', (err) => {
+      reject(err)
+    })
+
+    child.on('close', (code) => {
+      resolve({ exitCode: code ?? 1, stdout, stderr })
+    })
+  })
 }
 
 /**
@@ -276,28 +383,111 @@ async function getPluginDirsFromAspModules(harnessOutputPath: string): Promise<s
  * 4. Launches Claude with plugin directories
  */
 export async function run(targetName: string, options: RunOptions): Promise<RunResult> {
+  const debug = process.env['ASP_DEBUG_RUN'] === '1'
+  const debugLog = (...args: unknown[]) => {
+    if (debug) {
+      console.error('[asp run]', ...args)
+    }
+  }
+
   // Get harness adapter (default to claude)
   const harnessId = options.harness ?? DEFAULT_HARNESS
   const adapter = harnessRegistry.getOrThrow(harnessId)
 
   // Detect harness (throws if not installed)
-  await adapter.detect()
+  debugLog('detect harness', harnessId)
+  const detection = await adapter.detect()
+  debugLog('detect ok', detection.available ? (detection.version ?? 'unknown') : 'unavailable')
 
   // Get harness-aware output paths
   const aspModulesDir = getAspModulesPath(options.projectPath)
   const harnessOutputPath = adapter.getTargetOutputPath(aspModulesDir, targetName)
+  debugLog('harness output path', harnessOutputPath)
 
   // Check if target is installed for this harness, if not run install
-  if (!(await harnessOutputExists(options.projectPath, targetName, harnessId))) {
+  // Also run install if refresh is requested
+  const needsInstall =
+    options.refresh || !(await harnessOutputExists(options.projectPath, targetName, harnessId))
+  if (needsInstall) {
+    debugLog('install', options.refresh ? '(refresh)' : '(missing output)')
     await install({
       ...options,
       harness: harnessId,
       targets: [targetName],
     })
+    debugLog('install done')
+  }
+
+  // Load lock file to get warnings and metadata
+  debugLog('read lock')
+  const lockPath = join(options.projectPath, LOCK_FILENAME)
+  const lock = await readLockJson(lockPath)
+  debugLog('lock ok')
+
+  // Run lint checks
+  // TODO: Consider caching lint results in asp_modules
+  const warnings: LintWarning[] = []
+
+  // Print warnings if requested, halt on errors
+  const hasErrors = printWarnings(warnings, options.printWarnings !== false)
+  if (hasErrors) {
+    throw new Error('Lint errors found - aborting')
+  }
+
+  if (harnessId !== 'claude') {
+    debugLog('non-claude harness', harnessId)
+    const bundle = await buildPiBundle(harnessOutputPath, targetName)
+    const args = adapter.buildRunArgs(bundle, {
+      model: undefined,
+      extraArgs: options.extraArgs,
+      projectPath: options.projectPath,
+      prompt: options.prompt,
+      interactive: options.interactive,
+      settingSources: options.settingSources,
+    })
+
+    const commandPath = detection.path ?? harnessId
+    const command = formatCommand(commandPath, args)
+
+    if (options.dryRun) {
+      debugLog('dry run non-claude')
+      return {
+        build: {
+          pluginDirs: [],
+          warnings,
+          lock,
+        },
+        exitCode: 0,
+        command,
+      }
+    }
+
+    // Print the command before executing
+    console.log(`\x1b[90m$ ${command}\x1b[0m`)
+    console.log('')
+
+    const { exitCode } = await executeHarnessCommand(commandPath, args, {
+      interactive: options.interactive,
+      cwd: options.cwd ?? options.projectPath,
+      env: options.env,
+    })
+    debugLog('non-claude exit', exitCode)
+
+    return {
+      build: {
+        pluginDirs: [],
+        warnings,
+        lock,
+      },
+      exitCode,
+      command,
+    }
   }
 
   // Get paths from asp_modules/<target>/<harness>/
+  debugLog('collect plugin dirs')
   const pluginDirs = await getPluginDirsFromAspModules(harnessOutputPath)
+  debugLog('plugin dirs', pluginDirs.length)
   const mcpConfigPath = join(harnessOutputPath, 'mcp.json')
   const settingsPath = join(harnessOutputPath, 'settings.json')
 
@@ -312,30 +502,21 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   } catch {
     // MCP config doesn't exist, that's fine
   }
-
-  // Load lock file to get warnings and metadata
-  const lockPath = join(options.projectPath, LOCK_FILENAME)
-  const lock = await readLockJson(lockPath)
-
-  // Run lint checks
-  // TODO: Consider caching lint results in asp_modules
-  const warnings: LintWarning[] = []
-
-  // Print warnings if requested, halt on errors
-  const hasErrors = printWarnings(warnings, options.printWarnings !== false)
-  if (hasErrors) {
-    throw new Error('Lint errors found - aborting')
-  }
+  debugLog('mcp', mcpConfig ?? 'none')
 
   // Load project manifest to get claude options
+  debugLog('load manifest')
   const manifest = await loadProjectManifest(options.projectPath)
   const claudeOptions = getEffectiveClaudeOptions(manifest, targetName)
+  debugLog('manifest ok')
 
   // Resolve setting sources (null = inherit all, undefined = isolated, string = specific)
   const settingSources = resolveSettingSources(options.settingSources)
+  debugLog('setting sources', settingSources ?? 'inherit-all')
 
   // Build Claude invocation options
   // Use settings from options if provided, otherwise use composed settings from asp_modules
+  const yoloArgs = options.yolo ? ['--dangerously-skip-permissions'] : []
   const invokeOptions: ClaudeInvokeOptions = {
     pluginDirs,
     mcpConfig,
@@ -344,12 +525,19 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     settingSources,
     settings: options.settings ?? settingsPath,
     cwd: options.cwd ?? options.projectPath,
-    args: [...(claudeOptions.args ?? []), ...(options.extraArgs ?? [])],
+    args: [...(claudeOptions.args ?? []), ...yoloArgs, ...(options.extraArgs ?? [])],
     env: options.env,
   }
+  debugLog('run options', {
+    prompt: options.prompt,
+    interactive: options.interactive,
+    dryRun: options.dryRun,
+  })
+  debugLog('invoke claude')
 
   // Execute Claude
   const { exitCode, invocation, command } = await executeClaude(invokeOptions, options)
+  debugLog('invoke done', exitCode)
 
   // Build a BuildResult-compatible object for the return value
   const buildResult: BuildResult = {
@@ -428,6 +616,10 @@ export interface GlobalRunOptions {
   settingSources?: string | null | undefined
   /** Path to settings JSON file or JSON string (--settings flag) */
   settings?: string | undefined
+  /** Force refresh from source (ignored in global/dev mode - always fresh) */
+  refresh?: boolean | undefined
+  /** YOLO mode - skip all permission prompts (--dangerously-skip-permissions) */
+  yolo?: boolean | undefined
 }
 
 /**
@@ -558,13 +750,14 @@ export async function runGlobalSpace(
 
     // Build Claude invocation options
     // Use settings from options if provided, otherwise use composed settings
+    const yoloArgs = options.yolo ? ['--dangerously-skip-permissions'] : []
     const invokeOptions: ClaudeInvokeOptions = {
       pluginDirs,
       mcpConfig: mcpConfigPath,
       settingSources,
       settings: options.settings ?? settingsPath,
       cwd: options.cwd ?? process.cwd(),
-      args: options.extraArgs,
+      args: [...yoloArgs, ...(options.extraArgs ?? [])],
       env: options.env,
     }
 
@@ -680,13 +873,14 @@ export async function runLocalSpace(
 
     // Build Claude invocation options
     // Use settings from options if provided, otherwise use composed settings
+    const yoloArgs = options.yolo ? ['--dangerously-skip-permissions'] : []
     const invokeOptions: ClaudeInvokeOptions = {
       pluginDirs,
       mcpConfig: mcpConfigPath,
       settingSources,
       settings: options.settings ?? settingsPath,
-      cwd: options.cwd ?? spacePath,
-      args: options.extraArgs,
+      cwd: options.cwd ?? process.cwd(),
+      args: [...yoloArgs, ...(options.extraArgs ?? [])],
       env: options.env,
     }
 

@@ -285,8 +285,8 @@ script = "hooks/validate.sh"
       const hooksJsonPath = join(cacheDir, 'hooks', 'hooks.json')
       const hooksJson = await Bun.file(hooksJsonPath).json()
 
-      expect(hooksJson.hooks).toHaveLength(1)
-      expect(hooksJson.hooks[0].matcher).toBe('PreToolUse')
+      expect(hooksJson.hooks.PreToolUse).toHaveLength(1)
+      expect(hooksJson.hooks.PreToolUse[0].matcher).toBe('*')
     })
 
     test('copies permissions.toml when present', async () => {

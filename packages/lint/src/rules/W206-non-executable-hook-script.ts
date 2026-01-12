@@ -5,31 +5,13 @@
  * We warn about scripts that aren't executable so users can fix permissions.
  */
 
-import { constants, access, readFile, stat } from 'node:fs/promises'
+import { constants, access, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { LintContext, LintWarning } from '../types.js'
 import { WARNING_CODES } from '../types.js'
+import { readHooksJson } from './hooks-json.js'
 
-interface HooksConfig {
-  hooks: Array<{
-    event: string
-    script: string
-  }>
-}
-
-/**
- * Read hooks.json from a plugin directory.
- */
-async function readHooksConfig(pluginPath: string): Promise<HooksConfig | null> {
-  const hooksJsonPath = join(pluginPath, 'hooks', 'hooks.json')
-
-  try {
-    const content = await readFile(hooksJsonPath, 'utf-8')
-    return JSON.parse(content) as HooksConfig
-  } catch {
-    return null
-  }
-}
+const CLAUDE_PLUGIN_ROOT = '${CLAUDE_PLUGIN_ROOT}'
 
 /**
  * Check if a file is executable.
@@ -56,19 +38,61 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 /**
+ * Normalize script paths that start with hooks/.
+ */
+function normalizeScriptPath(scriptPath: string): string {
+  return scriptPath.replace(/^hooks\//, '')
+}
+
+/**
+ * Extract a script path from a Claude hook command.
+ */
+function extractScriptPath(command: string): string | null {
+  const marker = `${CLAUDE_PLUGIN_ROOT}/`
+  const index = command.indexOf(marker)
+  if (index === -1) {
+    return null
+  }
+
+  const remainder = command.slice(index + marker.length)
+  const path = remainder.split(/\s+/)[0] ?? ''
+  if (!path) {
+    return null
+  }
+
+  return normalizeScriptPath(path)
+}
+
+/**
  * W206: Detect non-executable hook scripts.
  */
 export async function checkHookScriptsExecutable(context: LintContext): Promise<LintWarning[]> {
   const warnings: LintWarning[] = []
 
   for (const space of context.spaces) {
-    const config = await readHooksConfig(space.pluginPath)
-    if (config === null || !config.hooks || !Array.isArray(config.hooks)) {
+    const parsed = await readHooksJson(space.pluginPath)
+    if (parsed === null) {
       continue
     }
 
-    for (const hook of config.hooks) {
-      const scriptPath = join(space.pluginPath, 'hooks', hook.script)
+    const hooksDir = join(space.pluginPath, 'hooks')
+    const scriptPaths: string[] = []
+
+    for (const hook of parsed.scripts) {
+      if (!hook.script) continue
+      scriptPaths.push(normalizeScriptPath(hook.script))
+    }
+
+    for (const hook of parsed.commands) {
+      if (!hook.command) continue
+      const scriptPath = extractScriptPath(hook.command)
+      if (scriptPath) {
+        scriptPaths.push(scriptPath)
+      }
+    }
+
+    for (const script of scriptPaths) {
+      const scriptPath = join(hooksDir, script)
 
       // Check if script exists
       if (!(await fileExists(scriptPath))) {
@@ -80,13 +104,12 @@ export async function checkHookScriptsExecutable(context: LintContext): Promise<
       if (!(await isExecutable(scriptPath))) {
         warnings.push({
           code: WARNING_CODES.NON_EXECUTABLE_HOOK_SCRIPT,
-          message: `Hook script is not executable: ${hook.script}`,
+          message: `Hook script is not executable: ${script}`,
           severity: 'warning',
           spaceKey: space.key,
           path: scriptPath,
           details: {
-            event: hook.event,
-            script: hook.script,
+            script,
           },
         })
       }

@@ -4,9 +4,10 @@
  * WHY: Hooks allow spaces to execute scripts in response to Claude events.
  * We need to validate hooks.json exists and scripts are executable.
  *
- * Supports two formats:
+ * Supports three formats:
  * 1. Simple format: {hooks: [{event, script}, ...]}
- * 2. Claude's native format: {hooks: [{matcher, hooks: [{command}, ...]}, ...]}
+ * 2. Claude array format: {hooks: [{matcher, hooks: [{command}, ...]}, ...]}
+ * 3. Claude object format: {hooks: {PreToolUse: [{matcher, hooks: [{command}, ...]}], ...}}
  */
 
 import { constants, access, chmod, readFile, stat } from 'node:fs/promises'
@@ -29,15 +30,22 @@ export interface HookDefinition {
  */
 export interface ClaudeNativeHookDefinition {
   /** Event matcher (e.g., 'PreToolUse', 'PostToolUse', 'Stop') */
-  matcher: string
+  matcher?: string | undefined
   /** Array of hook configurations */
   hooks: Array<{
     /** Command path (may use ${CLAUDE_PLUGIN_ROOT}) */
-    command: string
+    command?: string | undefined
     /** Optional timeout in milliseconds */
     timeout_ms?: number | undefined
+    /** Optional timeout in seconds */
+    timeout?: number | undefined
   }>
 }
+
+/**
+ * Claude object format: hooks keyed by event name.
+ */
+export type ClaudeHooksByEvent = Record<string, ClaudeNativeHookDefinition[]>
 
 /**
  * Hooks configuration file structure.
@@ -45,7 +53,7 @@ export interface ClaudeNativeHookDefinition {
  */
 export interface HooksConfig {
   /** Array of hook definitions (simple format) */
-  hooks: HookDefinition[] | ClaudeNativeHookDefinition[]
+  hooks: HookDefinition[] | ClaudeNativeHookDefinition[] | ClaudeHooksByEvent
 }
 
 /**
@@ -83,45 +91,73 @@ export async function readHooksConfig(dir: string): Promise<HooksConfig | null> 
 }
 
 /**
- * Check if hooks config is in Claude's native format.
+ * Check if hooks config is in Claude's native array format.
  */
-function isClaudeNativeFormat(config: HooksConfig): boolean {
-  if (!config.hooks || !Array.isArray(config.hooks) || config.hooks.length === 0) {
+function isClaudeNativeArrayFormat(
+  hooks: HooksConfig['hooks']
+): hooks is ClaudeNativeHookDefinition[] {
+  if (!Array.isArray(hooks) || hooks.length === 0) {
     return false
   }
-  const first = config.hooks[0]
-  // Claude native format has 'matcher' and 'hooks' array
-  return first !== undefined && 'matcher' in first && 'hooks' in first && Array.isArray(first.hooks)
+  const first = hooks[0]
+  return (
+    first !== undefined &&
+    typeof first === 'object' &&
+    first !== null &&
+    'hooks' in first &&
+    Array.isArray((first as ClaudeNativeHookDefinition).hooks)
+  )
 }
 
 /**
  * Normalize hooks to a common format for validation.
  */
 function normalizeHooks(config: HooksConfig): NormalizedHook[] {
-  if (!config.hooks || !Array.isArray(config.hooks)) {
+  if (!config.hooks) {
     return []
   }
 
-  if (isClaudeNativeFormat(config)) {
-    // Claude native format: extract scripts from nested hooks
+  if (Array.isArray(config.hooks)) {
+    if (isClaudeNativeArrayFormat(config.hooks)) {
+      const normalized: NormalizedHook[] = []
+      for (const hook of config.hooks) {
+        for (const cmd of hook.hooks ?? []) {
+          if (cmd.command) {
+            const script = cmd.command
+              .replace(/^\$\{CLAUDE_PLUGIN_ROOT\}\//, '')
+              .replace(/^hooks\//, '')
+            normalized.push({ script })
+          }
+        }
+      }
+      return normalized
+    }
+
+    // Simple format: use script directly
+    return (config.hooks as HookDefinition[]).map((h) => ({ script: h.script }))
+  }
+
+  if (typeof config.hooks === 'object') {
     const normalized: NormalizedHook[] = []
-    for (const hook of config.hooks as ClaudeNativeHookDefinition[]) {
-      for (const cmd of hook.hooks ?? []) {
-        if (cmd.command) {
-          // Extract script path from command
-          // ${CLAUDE_PLUGIN_ROOT}/hooks/script.sh -> hooks/script.sh
-          const script = cmd.command
-            .replace(/^\$\{CLAUDE_PLUGIN_ROOT\}\//, '')
-            .replace(/^hooks\//, '') // Remove hooks/ prefix if present
-          normalized.push({ script })
+    for (const eventHooks of Object.values(config.hooks)) {
+      if (!Array.isArray(eventHooks)) continue
+      for (const hook of eventHooks) {
+        for (const cmd of hook.hooks ?? []) {
+          if (cmd.command) {
+            // Extract script path from command
+            // ${CLAUDE_PLUGIN_ROOT}/hooks/script.sh -> hooks/script.sh
+            const script = cmd.command
+              .replace(/^\$\{CLAUDE_PLUGIN_ROOT\}\//, '')
+              .replace(/^hooks\//, '') // Remove hooks/ prefix if present
+            normalized.push({ script })
+          }
         }
       }
     }
     return normalized
   }
 
-  // Simple format: use script directly
-  return (config.hooks as HookDefinition[]).map((h) => ({ script: h.script }))
+  return []
 }
 
 /**
@@ -174,9 +210,12 @@ export async function validateHooks(dir: string): Promise<HookValidationResult> 
     return result
   }
 
-  // Check that hooks array exists and is valid
-  if (!config.hooks || !Array.isArray(config.hooks)) {
-    result.warnings.push('hooks.json is missing or has invalid hooks array')
+  // Check that hooks content exists and is valid
+  if (
+    !config.hooks ||
+    (!Array.isArray(config.hooks) && (typeof config.hooks !== 'object' || config.hooks === null))
+  ) {
+    result.warnings.push('hooks.json is missing or has invalid hooks content')
     return result
   }
 

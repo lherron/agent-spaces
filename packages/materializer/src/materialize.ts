@@ -17,6 +17,7 @@ import {
   writeCacheMetadata,
 } from '@agent-spaces/store'
 import { ensureHooksExecutable, validateHooks } from './hooks-builder.js'
+import { hooksTomlExists, readHooksToml, writeClaudeHooksJson } from './hooks-toml.js'
 import { linkComponents } from './link-components.js'
 import { composeMcpFromSpaces } from './mcp-composer.js'
 import { writePluginJson } from './plugin-json.js'
@@ -79,8 +80,19 @@ export async function materializeSpace(
   // Skip cache for @dev refs (integrity = sha256:dev) since content can change
   const isDev = input.integrity === 'sha256:dev'
 
+  const ensureClaudeHooksJson = async (dir: string): Promise<void> => {
+    const hooksDir = join(dir, 'hooks')
+    if (await hooksTomlExists(hooksDir)) {
+      const hooksToml = await readHooksToml(hooksDir)
+      if (hooksToml && hooksToml.hook.length > 0) {
+        await writeClaudeHooksJson(hooksToml.hook, hooksDir)
+      }
+    }
+  }
+
   // Check cache (skip for @dev refs)
   if (!isDev && !options.force && (await cacheExists(cacheKey, { paths: options.paths }))) {
+    await ensureClaudeHooksJson(pluginPath)
     return {
       spaceKey: input.spaceKey,
       pluginPath,
@@ -101,6 +113,9 @@ export async function materializeSpace(
 
     // Link components from snapshot
     const _linked = await linkComponents(input.snapshotPath, pluginPath)
+
+    // Generate hooks.json from hooks.toml if present (Claude format)
+    await ensureClaudeHooksJson(pluginPath)
 
     // Validate and fix hooks
     const hookResult = await validateHooks(pluginPath)

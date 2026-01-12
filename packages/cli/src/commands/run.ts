@@ -50,12 +50,15 @@ interface RunOptions {
   interactive?: boolean
   extraArgs?: string[]
   dryRun?: boolean
+  printCommand?: boolean
+  refresh?: boolean
+  yolo?: boolean
   inheritAll?: boolean
   inheritProject?: boolean
   inheritUser?: boolean
   inheritLocal?: boolean
   settings?: string
-  harness?: string
+  harness?: HarnessId
 }
 
 /**
@@ -103,19 +106,28 @@ async function isLocalSpacePath(targetPath: string): Promise<boolean> {
 
 /**
  * Detect which run mode to use based on project path and target.
+ *
+ * Priority:
+ * 1. Space reference (space:id@selector) → global mode
+ * 2. Local path with space.toml → dev mode
+ * 3. Project found → project mode (target is a target name)
+ * 4. Otherwise → invalid
  */
 async function detectRunMode(projectPath: string | null, target: string): Promise<RunMode> {
-  if (projectPath) {
-    return 'project'
-  }
-
+  // Space references always use global mode
   if (isSpaceReference(target)) {
     return 'global'
   }
 
+  // Local paths with space.toml use dev mode
   const targetPath = resolve(target)
   if (await isLocalSpacePath(targetPath)) {
     return 'dev'
+  }
+
+  // If in a project, treat target as a target name
+  if (projectPath) {
+    return 'project'
   }
 
   return 'invalid'
@@ -138,12 +150,17 @@ async function runProjectMode(
     printWarnings: options.warnings !== false,
     extraArgs: options.extraArgs,
     dryRun: options.dryRun,
+    refresh: options.refresh,
+    yolo: options.yolo,
     settingSources,
     settings: options.settings,
+    harness: options.harness,
   }
 
   if (options.dryRun) {
-    console.log(chalk.yellow('Dry run - building and showing command...'))
+    if (!options.printCommand) {
+      console.log(chalk.yellow('Dry run - building and showing command...'))
+    }
     const result = await run(target, { ...runOptions, dryRun: true, prompt })
     return result
   }
@@ -181,7 +198,7 @@ async function runGlobalMode(
   const registryPath = options.registry ?? `${aspHome}/repo`
   const spacePath = `${registryPath}/spaces/${spaceRef.id}`
 
-  if (spaceRef.defaultedToDev) {
+  if (spaceRef.defaultedToDev && !options.printCommand) {
     console.log(
       chalk.yellow(
         `Warning: No selector specified for "${spaceRef.id}", using @dev (working directory)`
@@ -194,7 +211,9 @@ async function runGlobalMode(
   }
 
   if (options.dryRun) {
-    console.log(chalk.yellow('Dry run - building and showing command...'))
+    if (!options.printCommand) {
+      console.log(chalk.yellow('Dry run - building and showing command...'))
+    }
   } else {
     console.log(chalk.blue(`Running space "${target}" in global mode...`))
   }
@@ -208,6 +227,8 @@ async function runGlobalMode(
     interactive: options.interactive !== false,
     prompt,
     dryRun: options.dryRun,
+    refresh: options.refresh,
+    yolo: options.yolo,
     settingSources,
     settings: options.settings,
   }
@@ -230,7 +251,9 @@ async function runDevMode(
 ): Promise<RunResult> {
   const targetPath = resolve(target)
   if (options.dryRun) {
-    console.log(chalk.yellow('Dry run - building and showing command...'))
+    if (!options.printCommand) {
+      console.log(chalk.yellow('Dry run - building and showing command...'))
+    }
   } else {
     console.log(chalk.blue(`Running local space "${target}" in dev mode...`))
   }
@@ -244,6 +267,8 @@ async function runDevMode(
     interactive: options.interactive !== false,
     prompt,
     dryRun: options.dryRun,
+    refresh: options.refresh,
+    yolo: options.yolo,
     settingSources,
     settings: options.settings,
   }
@@ -306,6 +331,9 @@ export function registerRunCommand(program: Command): void {
     .option('--no-interactive', 'Run non-interactively (requires prompt)')
     .option('--no-warnings', 'Suppress lint warnings')
     .option('--dry-run', 'Print the harness command without executing')
+    .option('--print-command', 'Output only the command (for piping/scripting)')
+    .option('--refresh', 'Force re-copy from source and rebuild asp_modules')
+    .option('--yolo', 'Skip all permission prompts (--dangerously-skip-permissions)')
     .option('--inherit-all', 'Inherit all harness settings (user, project, local)')
     .option('--inherit-project', 'Inherit project-level settings')
     .option('--inherit-user', 'Inherit user-level settings')
@@ -318,7 +346,13 @@ export function registerRunCommand(program: Command): void {
     .action(async (target: string, prompt: string | undefined, options: RunOptions) => {
       // Validate harness option (Phase 1: only claude supported)
       const _harness = validateHarness(options.harness)
+      options.harness = _harness
       const projectPath = options.project ?? (await findProjectRoot())
+
+      // --print-command implies dry-run but with silent output
+      if (options.printCommand) {
+        options.dryRun = true
+      }
 
       try {
         const mode = await detectRunMode(projectPath, target)
@@ -339,7 +373,13 @@ export function registerRunCommand(program: Command): void {
             showInvalidModeHelp()
         }
 
-        // In dry-run mode, print the command
+        // --print-command: output only the command (for scripting)
+        if (options.printCommand && result.command) {
+          console.log(result.command)
+          process.exit(0)
+        }
+
+        // In dry-run mode, print the command with formatting
         if (options.dryRun && result.command) {
           console.log('')
           console.log(chalk.cyan('Command:'))

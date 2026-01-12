@@ -298,6 +298,71 @@ describe('W203: checkHookPaths', () => {
     expect(warnings).toHaveLength(0)
   })
 
+  it('should return no warnings for Claude hooks.json using CLAUDE_PLUGIN_ROOT', async () => {
+    const plugin = join(tempDir, 'plugin')
+    await mkdir(join(plugin, 'hooks'), { recursive: true })
+    await writeFile(
+      join(plugin, 'hooks', 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Bash',
+              hooks: [
+                {
+                  type: 'command',
+                  command: '${CLAUDE_PLUGIN_ROOT}/hooks/scripts/validate-bash.sh',
+                },
+              ],
+            },
+          ],
+        },
+      })
+    )
+
+    const context: LintContext = {
+      spaces: [
+        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
+      ],
+    }
+
+    const warnings = await checkHookPaths(context)
+    expect(warnings).toHaveLength(0)
+  })
+
+  it('should warn when Claude hook command is missing CLAUDE_PLUGIN_ROOT', async () => {
+    const plugin = join(tempDir, 'plugin')
+    await mkdir(join(plugin, 'hooks'), { recursive: true })
+    await writeFile(
+      join(plugin, 'hooks', 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Bash',
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'hooks/scripts/validate-bash.sh',
+                },
+              ],
+            },
+          ],
+        },
+      })
+    )
+
+    const context: LintContext = {
+      spaces: [
+        createSpaceLintData('space1@abc123', createManifest({ id: 'space1' as SpaceId }), plugin),
+      ],
+    }
+
+    const warnings = await checkHookPaths(context)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]?.code).toBe(WARNING_CODES.HOOK_PATH_NO_PLUGIN_ROOT)
+  })
+
   it('should warn about relative parent paths', async () => {
     const plugin = join(tempDir, 'plugin')
     await mkdir(join(plugin, 'hooks'), { recursive: true })
@@ -462,11 +527,24 @@ describe('W206: checkHookScriptsExecutable', () => {
     await writeFile(
       join(plugin, 'hooks', 'hooks.json'),
       JSON.stringify({
-        hooks: [{ event: 'pre-commit', script: 'hook.sh' }],
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Bash',
+              hooks: [
+                {
+                  type: 'command',
+                  command: '${CLAUDE_PLUGIN_ROOT}/hooks/scripts/hook.sh',
+                },
+              ],
+            },
+          ],
+        },
       })
     )
-    await writeFile(join(plugin, 'hooks', 'hook.sh'), '#!/bin/bash\necho test')
-    await chmod(join(plugin, 'hooks', 'hook.sh'), 0o755)
+    await mkdir(join(plugin, 'hooks', 'scripts'), { recursive: true })
+    await writeFile(join(plugin, 'hooks', 'scripts', 'hook.sh'), '#!/bin/bash\necho test')
+    await chmod(join(plugin, 'hooks', 'scripts', 'hook.sh'), 0o755)
 
     const context: LintContext = {
       spaces: [
@@ -484,11 +562,24 @@ describe('W206: checkHookScriptsExecutable', () => {
     await writeFile(
       join(plugin, 'hooks', 'hooks.json'),
       JSON.stringify({
-        hooks: [{ event: 'pre-commit', script: 'hook.sh' }],
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Bash',
+              hooks: [
+                {
+                  type: 'command',
+                  command: '${CLAUDE_PLUGIN_ROOT}/hooks/scripts/hook.sh',
+                },
+              ],
+            },
+          ],
+        },
       })
     )
-    await writeFile(join(plugin, 'hooks', 'hook.sh'), '#!/bin/bash\necho test')
-    await chmod(join(plugin, 'hooks', 'hook.sh'), 0o644)
+    await mkdir(join(plugin, 'hooks', 'scripts'), { recursive: true })
+    await writeFile(join(plugin, 'hooks', 'scripts', 'hook.sh'), '#!/bin/bash\necho test')
+    await chmod(join(plugin, 'hooks', 'scripts', 'hook.sh'), 0o644)
 
     const context: LintContext = {
       spaces: [
@@ -507,7 +598,19 @@ describe('W206: checkHookScriptsExecutable', () => {
     await writeFile(
       join(plugin, 'hooks', 'hooks.json'),
       JSON.stringify({
-        hooks: [{ event: 'pre-commit', script: 'nonexistent.sh' }],
+        hooks: {
+          PreToolUse: [
+            {
+              matcher: 'Bash',
+              hooks: [
+                {
+                  type: 'command',
+                  command: '${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nonexistent.sh',
+                },
+              ],
+            },
+          ],
+        },
       })
     )
 

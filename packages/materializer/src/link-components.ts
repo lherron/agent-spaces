@@ -6,7 +6,7 @@
  * duplicating data while providing independent file entries.
  */
 
-import { access, mkdir, readdir, readlink, stat, symlink } from 'node:fs/promises'
+import { access, copyFile, mkdir, readdir, readlink, stat, symlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { linkOrCopy } from '@agent-spaces/core'
 
@@ -38,17 +38,26 @@ export interface LinkOptions {
 /**
  * Link a single file from source to destination.
  * Creates parent directories as needed.
+ *
+ * @param srcPath - Source file path
+ * @param destPath - Destination file path
+ * @param options - Link options (forceCopy to use copy instead of hardlink)
  */
 export async function linkFile(
   srcPath: string,
   destPath: string,
-  _options: LinkOptions = {}
+  options: LinkOptions = {}
 ): Promise<void> {
   // Ensure destination directory exists
   await mkdir(dirname(destPath), { recursive: true })
 
-  // Use linkOrCopy from core for cross-device fallback
-  await linkOrCopy(srcPath, destPath)
+  if (options.forceCopy) {
+    // Use copy to protect source files (dev mode)
+    await copyFile(srcPath, destPath)
+  } else {
+    // Use linkOrCopy from core for cross-device fallback
+    await linkOrCopy(srcPath, destPath)
+  }
 }
 
 /**
@@ -184,7 +193,7 @@ export async function linkInstructionsFile(
   snapshotDir: string,
   pluginDir: string,
   harness: 'claude' | 'pi',
-  _options: LinkOptions = {}
+  options: LinkOptions = {}
 ): Promise<LinkInstructionsResult> {
   const agentMdPath = join(snapshotDir, INSTRUCTIONS_FILE_AGNOSTIC)
   const claudeMdPath = join(snapshotDir, INSTRUCTIONS_FILE_CLAUDE)
@@ -193,7 +202,7 @@ export async function linkInstructionsFile(
     // Claude: prefer AGENT.md → CLAUDE.md, fallback to CLAUDE.md → CLAUDE.md
     if (await fileExists(agentMdPath)) {
       const destPath = join(pluginDir, INSTRUCTIONS_FILE_CLAUDE)
-      await linkFile(agentMdPath, destPath)
+      await linkFile(agentMdPath, destPath, options)
       return {
         linked: true,
         sourceFile: INSTRUCTIONS_FILE_AGNOSTIC,
@@ -203,7 +212,7 @@ export async function linkInstructionsFile(
 
     if (await fileExists(claudeMdPath)) {
       const destPath = join(pluginDir, INSTRUCTIONS_FILE_CLAUDE)
-      await linkFile(claudeMdPath, destPath)
+      await linkFile(claudeMdPath, destPath, options)
       return {
         linked: true,
         sourceFile: INSTRUCTIONS_FILE_CLAUDE,
@@ -214,7 +223,7 @@ export async function linkInstructionsFile(
     // Pi: only use AGENT.md
     if (await fileExists(agentMdPath)) {
       const destPath = join(pluginDir, INSTRUCTIONS_FILE_AGNOSTIC)
-      await linkFile(agentMdPath, destPath)
+      await linkFile(agentMdPath, destPath, options)
       return {
         linked: true,
         sourceFile: INSTRUCTIONS_FILE_AGNOSTIC,

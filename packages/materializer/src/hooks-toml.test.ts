@@ -166,15 +166,18 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks).toHaveLength(2)
-    expect(config.hooks[0]).toEqual({
-      matcher: 'PreToolUse',
-      hooks: [{ command: '${CLAUDE_PLUGIN_ROOT}/hooks/validate.sh' }],
-    })
-    expect(config.hooks[1]).toEqual({
-      matcher: 'PostToolUse',
-      hooks: [{ command: '${CLAUDE_PLUGIN_ROOT}/hooks/log.sh' }],
-    })
+    expect(config.hooks.PreToolUse).toEqual([
+      {
+        matcher: '*',
+        hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/hooks/validate.sh' }],
+      },
+    ])
+    expect(config.hooks.PostToolUse).toEqual([
+      {
+        matcher: '*',
+        hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/hooks/log.sh' }],
+      },
+    ])
   })
 
   it('groups multiple hooks for the same event', () => {
@@ -185,9 +188,20 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks).toHaveLength(1)
-    expect(config.hooks[0]?.matcher).toBe('PreToolUse')
-    expect(config.hooks[0]?.hooks).toHaveLength(2)
+    expect(config.hooks.PreToolUse).toHaveLength(1)
+    expect(config.hooks.PreToolUse?.[0]?.matcher).toBe('*')
+    expect(config.hooks.PreToolUse?.[0]?.hooks).toHaveLength(2)
+  })
+
+  it('uses matcher from tools list when provided', () => {
+    const hooks: CanonicalHookDefinition[] = [
+      { event: 'pre_tool_use', script: 'hooks/first.sh', tools: ['Write', 'Edit'] },
+    ]
+
+    const config = toClaudeHooksConfig(hooks)
+
+    expect(config.hooks.PreToolUse).toHaveLength(1)
+    expect(config.hooks.PreToolUse?.[0]?.matcher).toBe('Write|Edit')
   })
 
   it('filters out Pi-only hooks', () => {
@@ -198,8 +212,8 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks).toHaveLength(1)
-    expect(config.hooks[0]?.matcher).toBe('PreToolUse')
+    expect(config.hooks.PreToolUse).toHaveLength(1)
+    expect(config.hooks.PreToolUse?.[0]?.matcher).toBe('*')
   })
 
   it('skips events that have no Claude mapping', () => {
@@ -210,8 +224,8 @@ describe('toClaudeHooksConfig', () => {
 
     const config = toClaudeHooksConfig(hooks)
 
-    expect(config.hooks).toHaveLength(1)
-    expect(config.hooks[0]?.matcher).toBe('PreToolUse')
+    expect(config.hooks.PreToolUse).toHaveLength(1)
+    expect(config.hooks.PreToolUse?.[0]?.matcher).toBe('*')
   })
 })
 
@@ -224,8 +238,8 @@ describe('generateClaudeHooksJson', () => {
     const json = generateClaudeHooksJson(hooks)
     const parsed = JSON.parse(json)
 
-    expect(parsed.hooks).toHaveLength(1)
-    expect(parsed.hooks[0].matcher).toBe('PreToolUse')
+    expect(parsed.hooks.PreToolUse).toHaveLength(1)
+    expect(parsed.hooks.PreToolUse[0].matcher).toBe('*')
   })
 })
 
@@ -271,8 +285,8 @@ blocking = true
     expect(await file.exists()).toBe(true)
 
     const content = await file.json()
-    expect(content.hooks).toHaveLength(1)
-    expect(content.hooks[0].matcher).toBe('PreToolUse')
+    expect(content.hooks.PreToolUse).toHaveLength(1)
+    expect(content.hooks.PreToolUse[0].matcher).toBe('*')
   })
 })
 

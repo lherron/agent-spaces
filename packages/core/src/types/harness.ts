@@ -80,6 +80,8 @@ export interface MaterializeSpaceInput {
 export interface MaterializeSpaceOptions {
   /** Force regeneration even if cached */
   force?: boolean | undefined
+  /** Use hardlinks instead of copies (default: true). Set to false for dev mode to protect source files. */
+  useHardlinks?: boolean | undefined
 }
 
 /** Result of materializing a single space */

@@ -239,6 +239,16 @@ The implementation follows a 4-phase migration path from the spec:
 - Added W304 warning code: PI_PERMISSION_LINT_ONLY
 - Added 51 tests for permissions.toml parsing and translation
 
+---
+
+## Smoke Test Findings (2026-01-11)
+
+- **CLI ignores `--harness` for run/install/build/explain**: CLI validates the flag but does not pass the selected harness into engine options. Result: `asp run --harness pi --dry-run` and `asp install --harness pi` still materialize under `.../claude` and print Claude commands (see `~/projects/run-asp-smoke`). This blocks Pi harness smoke testing from CLI. Suggested fix: thread `harness` through CLI `run/install/build/explain` options into engine calls, and update install command output generation to use the selected harness adapter. **Update:** fixed on 2026-01-11 (CLI now passes harness; run/install use harness-specific commands).
+
+- **Harness support filtering not enforced**: Spaces with `harness.supports = ["pi"]` still materialize/compose for Claude targets (e.g., `harness-mix` includes `pi-extensions` in Claude output). Expected: filter out unsupported spaces or warn when a target includes spaces unsupported by the selected harness. **Update:** fixed on 2026-01-11 (unsupported spaces are skipped during materialization for the selected harness).
+
+- **Claude run fails when no settings.json is materialized**: Targets without any `settings` in space.toml (e.g., `core-only`, `skills`, `collision`, `harness-mix`) do not produce `asp_modules/<target>/claude/settings.json`, but `asp run` always passes `--settings <path>` to Claude. Result: Claude exits with “Settings file not found”. Expected: either always write an empty settings.json during composition or only pass `--settings` when the file exists. **Update:** fixed on 2026-01-11 (Claude composition always writes settings.json `{}`).
+
 **Completed:** Phase 5.1 - Test Fixtures Setup
 - Created `integration-tests/fixtures/multi-harness/` with:
   - `claude-only/` - Space with commands, MCP, and skills
@@ -383,6 +393,10 @@ Test each CLI command with `--harness` flag:
 - [ ] `asp harnesses --json` (JSON output)
 
 ---
+
+## Smoke Test Issues (Resolved)
+
+- **asp run with prompt hang**: Non-interactive runs could hang because Claude stdout/stderr were not drained while the process was running in the packaged `@agent-spaces/claude` dist. Fixed by draining streams immediately and closing stdin for captureOutput runs. (January 11, 2026)
 
 ## Notes and Learnings
 

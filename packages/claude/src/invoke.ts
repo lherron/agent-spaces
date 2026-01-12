@@ -210,6 +210,19 @@ export async function invokeClaude(
 
     const proc = Bun.spawn(command, spawnOptions)
 
+    // Start draining stdout/stderr immediately to avoid backpressure hangs.
+    const stdoutPromise = options.captureOutput ? new Response(proc.stdout).text() : undefined
+    const stderrPromise = options.captureOutput ? new Response(proc.stderr).text() : undefined
+
+    // Close stdin immediately for non-interactive runs.
+    if (options.captureOutput) {
+      try {
+        proc.stdin?.end()
+      } catch {
+        // Ignore stdin close errors.
+      }
+    }
+
     // Handle timeout if specified
     let timeoutId: ReturnType<typeof setTimeout> | undefined
     if (options.timeout) {
@@ -228,8 +241,8 @@ export async function invokeClaude(
     let stderr = ''
 
     if (options.captureOutput) {
-      stdout = await new Response(proc.stdout).text()
-      stderr = await new Response(proc.stderr).text()
+      stdout = (await stdoutPromise) ?? ''
+      stderr = (await stderrPromise) ?? ''
     }
 
     return {

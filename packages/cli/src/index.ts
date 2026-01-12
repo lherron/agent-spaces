@@ -26,6 +26,7 @@ import { registerPathCommand } from './commands/path.js'
 import { registerRemoveCommand } from './commands/remove.js'
 import { registerRepoCommands } from './commands/repo/index.js'
 import { registerRunCommand } from './commands/run.js'
+import { registerSpacesCommands } from './commands/spaces/index.js'
 import { registerUpgradeCommand } from './commands/upgrade.js'
 
 /**
@@ -102,6 +103,7 @@ function createProgram(): Command {
   registerDiffCommand(program)
   registerHarnessesCommand(program)
   registerRepoCommands(program)
+  registerSpacesCommands(program)
 
   return program
 }

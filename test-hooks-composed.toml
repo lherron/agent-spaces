@@ -1,0 +1,3 @@
+[target.hooks-test]
+description = "Test hooks composition"
+compose = ["space:path:./integration-tests/fixtures/multi-harness/multi-harness@dev"]
