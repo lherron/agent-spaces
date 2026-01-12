@@ -12,7 +12,7 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
-    "@agent-spaces/cli": "*",
+    "@lherron/agent-spaces": "*",
     "@agent-spaces/core": "*",
     "@agent-spaces/engine": "*",
     "@agent-spaces/resolver": "*",

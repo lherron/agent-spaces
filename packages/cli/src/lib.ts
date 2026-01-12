@@ -1,5 +1,5 @@
 /**
- * @agent-spaces/cli - Library exports for Agent Spaces v2 CLI.
+ * @lherron/agent-spaces - Library exports for Agent Spaces v2 CLI.
  *
  * WHY: Separates library exports from CLI execution to allow
  * testing without running the CLI.

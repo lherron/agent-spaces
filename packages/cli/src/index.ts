@@ -1,5 +1,5 @@
 /**
- * @agent-spaces/cli - Command line interface for Agent Spaces v2.
+ * @lherron/agent-spaces - Command line interface for Agent Spaces v2.
  *
  * WHY: Provides a thin argument parsing layer that delegates
  * all core logic to the engine package. This keeps the CLI
