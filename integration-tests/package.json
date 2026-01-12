@@ -12,10 +12,10 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
-    "@agent-spaces/cli": "workspace:*",
-    "@agent-spaces/core": "workspace:*",
-    "@agent-spaces/engine": "workspace:*",
-    "@agent-spaces/resolver": "workspace:*",
-    "@agent-spaces/store": "workspace:*"
+    "@agent-spaces/cli": "*",
+    "@agent-spaces/core": "*",
+    "@agent-spaces/engine": "*",
+    "@agent-spaces/resolver": "*",
+    "@agent-spaces/store": "*"
   }
 }
