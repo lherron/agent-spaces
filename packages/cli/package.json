@@ -1,6 +1,6 @@
 {
   "name": "@lherron/agent-spaces",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Command line interface for Agent Spaces v2",
   "repository": {
     "type": "git",
@@ -19,39 +19,59 @@
       "import": "./dist/index.js"
     },
     "./core": {
-      "types": "./node_modules/@agent-spaces/core/dist/index.d.ts",
-      "import": "./node_modules/@agent-spaces/core/dist/index.js"
+      "types": "./core.d.ts",
+      "import": "./core.js"
     },
     "./resolver": {
-      "types": "./node_modules/@agent-spaces/resolver/dist/index.d.ts",
-      "import": "./node_modules/@agent-spaces/resolver/dist/index.js"
+      "types": "./resolver.d.ts",
+      "import": "./resolver.js"
     },
     "./store": {
-      "types": "./node_modules/@agent-spaces/store/dist/index.d.ts",
-      "import": "./node_modules/@agent-spaces/store/dist/index.js"
+      "types": "./store.d.ts",
+      "import": "./store.js"
     },
     "./materializer": {
-      "types": "./node_modules/@agent-spaces/materializer/dist/index.d.ts",
-      "import": "./node_modules/@agent-spaces/materializer/dist/index.js"
+      "types": "./materializer.d.ts",
+      "import": "./materializer.js"
     },
     "./git": {
-      "types": "./node_modules/@agent-spaces/git/dist/index.d.ts",
-      "import": "./node_modules/@agent-spaces/git/dist/index.js"
+      "types": "./git.d.ts",
+      "import": "./git.js"
     },
     "./engine": {
-      "types": "./node_modules/@agent-spaces/engine/dist/index.d.ts",
-      "import": "./node_modules/@agent-spaces/engine/dist/index.js"
+      "types": "./engine.d.ts",
+      "import": "./engine.js"
     },
     "./claude": {
-      "types": "./node_modules/@agent-spaces/claude/dist/index.d.ts",
-      "import": "./node_modules/@agent-spaces/claude/dist/index.js"
+      "types": "./claude.d.ts",
+      "import": "./claude.js"
     },
     "./lint": {
-      "types": "./node_modules/@agent-spaces/lint/dist/index.d.ts",
-      "import": "./node_modules/@agent-spaces/lint/dist/index.js"
+      "types": "./lint.d.ts",
+      "import": "./lint.js"
     }
   },
-  "files": ["dist", "bin", "node_modules/@agent-spaces"],
+  "files": [
+    "dist",
+    "bin",
+    "node_modules/@agent-spaces",
+    "core.js",
+    "core.d.ts",
+    "resolver.js",
+    "resolver.d.ts",
+    "store.js",
+    "store.d.ts",
+    "materializer.js",
+    "materializer.d.ts",
+    "git.js",
+    "git.d.ts",
+    "engine.js",
+    "engine.d.ts",
+    "claude.js",
+    "claude.d.ts",
+    "lint.js",
+    "lint.d.ts"
+  ],
   "bundledDependencies": [
     "@agent-spaces/claude",
     "@agent-spaces/core",
