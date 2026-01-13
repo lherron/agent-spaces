@@ -6,10 +6,19 @@
  * focused on user interaction while engine handles orchestration.
  */
 
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import chalk from 'chalk'
 import { Command } from 'commander'
 
 import { isAspError } from '@agent-spaces/core'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')) as {
+  version: string
+}
 
 import { registerAddCommand } from './commands/add.js'
 import { registerBuildCommand } from './commands/build.js'
@@ -84,7 +93,7 @@ function createProgram(): Command {
   const program = new Command()
     .name('asp')
     .description('Agent Spaces v2 - Compose Claude Code environments')
-    .version('0.0.1')
+    .version(packageJson.version)
 
   // Register all commands
   registerRunCommand(program)
