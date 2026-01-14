@@ -1089,6 +1089,11 @@ export class PiAdapter implements HarnessAdapter {
       args.push(...options.extraArgs)
     }
 
+    // Add prompt as positional argument (Pi takes prompt after flags)
+    if (options.prompt) {
+      args.push(options.prompt)
+    }
+
     // Note: Pi uses cwd for project path, not a positional argument
 
     return args
