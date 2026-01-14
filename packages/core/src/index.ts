@@ -1,5 +1,5 @@
 /**
- * @agent-spaces/core
+ * spaces-core
  *
  * Core library for Agent Spaces v2
  * Provides types, schemas, config parsing, errors, locks, and atomic writes.

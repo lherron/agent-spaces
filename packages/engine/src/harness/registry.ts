@@ -5,7 +5,7 @@
  * coding agent runtimes (Claude Code, Pi, etc.).
  */
 
-import type { HarnessAdapter, HarnessDetection, HarnessId } from '@agent-spaces/core'
+import type { HarnessAdapter, HarnessDetection, HarnessId } from 'spaces-core'
 
 /**
  * Registry for harness adapters

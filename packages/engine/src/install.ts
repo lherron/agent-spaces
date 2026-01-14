@@ -32,9 +32,9 @@ import {
   getLoadOrderEntries,
   readSpaceToml,
   withProjectLock,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 
-import { DEV_COMMIT_MARKER, DEV_INTEGRITY, mergeLockFiles } from '@agent-spaces/resolver'
+import { DEV_COMMIT_MARKER, DEV_INTEGRITY, mergeLockFiles } from 'spaces-resolver'
 
 import {
   PathResolver,
@@ -46,9 +46,9 @@ import {
   getAspHome,
   snapshotExists,
   writeCacheMetadata,
-} from '@agent-spaces/store'
+} from 'spaces-store'
 
-import { fetch as gitFetch } from '@agent-spaces/git'
+import { fetch as gitFetch } from 'spaces-git'
 
 import {
   type ResolveOptions,

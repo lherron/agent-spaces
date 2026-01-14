@@ -8,7 +8,7 @@
 
 import chalk from 'chalk'
 
-import { PathResolver, getAspHome } from '@agent-spaces/store'
+import { PathResolver, getAspHome } from 'spaces-store'
 
 import { findProjectRoot } from './index.js'
 

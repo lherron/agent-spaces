@@ -7,7 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import type { HarnessAdapter, HarnessDetection, HarnessId } from '@agent-spaces/core'
+import type { HarnessAdapter, HarnessDetection, HarnessId } from 'spaces-core'
 import { HarnessRegistry } from './registry.js'
 
 /**

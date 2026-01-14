@@ -9,10 +9,10 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import type { CommitSha, SpaceId, SpaceManifest, SpaceRefString } from '@agent-spaces/core'
-import { ConfigParseError, validateSpaceManifest as coreValidateManifest } from '@agent-spaces/core'
-import { showFileOrNull } from '@agent-spaces/git'
 import TOML from '@iarna/toml'
+import type { CommitSha, SpaceId, SpaceManifest, SpaceRefString } from 'spaces-core'
+import { ConfigParseError, validateSpaceManifest as coreValidateManifest } from 'spaces-core'
+import { showFileOrNull } from 'spaces-git'
 
 /**
  * Options for manifest reading.

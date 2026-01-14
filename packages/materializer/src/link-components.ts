@@ -8,7 +8,7 @@
 
 import { access, copyFile, mkdir, readdir, readlink, stat, symlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { linkOrCopy } from '@agent-spaces/core'
+import { linkOrCopy } from 'spaces-core'
 
 /**
  * Harness-agnostic instructions file name.

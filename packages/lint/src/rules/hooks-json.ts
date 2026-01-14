@@ -9,7 +9,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { readHooksToml, toClaudeHooksConfig } from '@agent-spaces/materializer'
+import { readHooksToml, toClaudeHooksConfig } from 'spaces-materializer'
 
 export interface HooksJsonScript {
   script: string

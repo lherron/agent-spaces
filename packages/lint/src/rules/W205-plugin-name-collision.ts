@@ -5,7 +5,7 @@
  * load them incorrectly. We warn about this to prevent confusion.
  */
 
-import { derivePluginIdentity } from '@agent-spaces/core'
+import { derivePluginIdentity } from 'spaces-core'
 import type { LintContext, LintWarning, SpaceLintData } from '../types.js'
 import { WARNING_CODES } from '../types.js'
 

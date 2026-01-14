@@ -11,7 +11,7 @@
 
 import { constants, access } from 'node:fs/promises'
 import { join } from 'node:path'
-import { ClaudeNotFoundError } from '@agent-spaces/core'
+import { ClaudeNotFoundError } from 'spaces-core'
 
 /**
  * Information about the detected Claude installation.

@@ -7,8 +7,8 @@
 
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { SpaceSettings } from '@agent-spaces/core'
-import { ensureDir } from '@agent-spaces/store'
+import type { SpaceSettings } from 'spaces-core'
+import { ensureDir } from 'spaces-store'
 
 /**
  * Composed Claude settings structure.

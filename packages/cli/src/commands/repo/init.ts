@@ -11,8 +11,8 @@ import { dirname } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { add, cloneRepo, commit, createTag, initRepo } from '@agent-spaces/git'
-import { PathResolver, ensureAspHome, getAspHome } from '@agent-spaces/store'
+import { add, cloneRepo, commit, createTag, initRepo } from 'spaces-git'
+import { PathResolver, ensureAspHome, getAspHome } from 'spaces-store'
 
 import { handleCliError } from '../../helpers.js'
 import {

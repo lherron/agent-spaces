@@ -35,9 +35,9 @@ export type {
   MaterializeSpaceOptions,
   MaterializeSpaceResult,
   ResolvedSpaceArtifact,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 
-export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId } from '@agent-spaces/core'
+export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId } from 'spaces-core'
 
 import { claudeAdapter } from './claude-adapter.js'
 import { piAdapter } from './pi-adapter.js'

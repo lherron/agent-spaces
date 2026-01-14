@@ -1,1 +1,1 @@
-export * from '@agent-spaces/lint'
+export * from 'spaces-lint'

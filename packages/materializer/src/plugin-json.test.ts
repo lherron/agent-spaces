@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'bun:test'
-import type { SpaceId, SpaceManifest } from '@agent-spaces/core'
+import type { SpaceId, SpaceManifest } from 'spaces-core'
 import { generatePluginJson } from './plugin-json.js'
 
 function createManifest(overrides: Partial<SpaceManifest> = {}): SpaceManifest {

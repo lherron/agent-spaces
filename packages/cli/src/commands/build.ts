@@ -15,7 +15,7 @@ import {
   buildAll,
   harnessRegistry,
   isHarnessId,
-} from '@agent-spaces/engine'
+} from 'spaces-engine'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 

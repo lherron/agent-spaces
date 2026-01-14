@@ -26,8 +26,8 @@ import {
   type MaterializeSpaceResult,
   copyDir,
   linkOrCopy,
-} from '@agent-spaces/core'
-import { WARNING_CODES } from '@agent-spaces/lint'
+} from 'spaces-core'
+import { WARNING_CODES } from 'spaces-lint'
 import {
   PERMISSIONS_TOML_FILENAME,
   hasPermissions,
@@ -36,7 +36,7 @@ import {
   readHooksWithPrecedence,
   readPermissionsToml,
   toPiPermissions,
-} from '@agent-spaces/materializer'
+} from 'spaces-materializer'
 
 // ============================================================================
 // Pi-specific Errors

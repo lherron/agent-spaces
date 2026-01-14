@@ -6,7 +6,7 @@
  * are executed safely without shell interpretation of special characters.
  */
 
-import { GitError } from '@agent-spaces/core'
+import { GitError } from 'spaces-core'
 
 /**
  * Result of a git command execution.

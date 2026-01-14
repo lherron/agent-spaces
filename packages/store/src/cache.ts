@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto'
 import { readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Sha256Integrity, SpaceKey } from '@agent-spaces/core'
+import type { Sha256Integrity, SpaceKey } from 'spaces-core'
 import { type PathResolver, ensureDir } from './paths.js'
 
 /**

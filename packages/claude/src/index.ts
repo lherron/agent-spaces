@@ -1,5 +1,5 @@
 /**
- * @agent-spaces/claude - Claude CLI wrapper
+ * spaces-claude - Claude CLI wrapper
  *
  * This package provides safe, typed interfaces for:
  * - Detecting and validating Claude installations

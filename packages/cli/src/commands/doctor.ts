@@ -8,9 +8,9 @@
 import { constants, access } from 'node:fs/promises'
 import type { Command } from 'commander'
 
-import { detectClaude } from '@agent-spaces/claude'
-import { gitExec, listRemotes } from '@agent-spaces/git'
-import { PathResolver, ensureAspHome, getAspHome } from '@agent-spaces/store'
+import { detectClaude } from 'spaces-claude'
+import { gitExec, listRemotes } from 'spaces-git'
+import { PathResolver, ensureAspHome, getAspHome } from 'spaces-store'
 
 import { formatCheckResults, outputDoctorSummary } from '../helpers.js'
 import { findProjectRoot } from '../index.js'

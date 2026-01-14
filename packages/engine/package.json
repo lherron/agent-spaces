@@ -1,5 +1,5 @@
 {
-  "name": "@agent-spaces/engine",
+  "name": "spaces-engine",
   "version": "0.1.0",
   "private": true,
   "description": "High-level orchestration engine for Agent Spaces v2",
@@ -22,13 +22,13 @@
     "lint:fix": "biome check --write ."
   },
   "dependencies": {
-    "@agent-spaces/core": "*",
-    "@agent-spaces/git": "*",
-    "@agent-spaces/claude": "*",
-    "@agent-spaces/resolver": "*",
-    "@agent-spaces/store": "*",
-    "@agent-spaces/materializer": "*",
-    "@agent-spaces/lint": "*"
+    "spaces-core": "*",
+    "spaces-git": "*",
+    "spaces-claude": "*",
+    "spaces-resolver": "*",
+    "spaces-store": "*",
+    "spaces-materializer": "*",
+    "spaces-lint": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",

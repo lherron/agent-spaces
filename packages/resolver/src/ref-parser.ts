@@ -19,10 +19,10 @@ import {
   formatSpaceRef,
   isSpaceRefString,
   parseSelector,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 
 // Re-export core parsing functions
-export { parseSpaceRef as parseSpaceRefCore } from '@agent-spaces/core'
+export { parseSpaceRef as parseSpaceRefCore } from 'spaces-core'
 export { parseSelector, formatSpaceRef, isSpaceRefString }
 
 // Re-export type constructors

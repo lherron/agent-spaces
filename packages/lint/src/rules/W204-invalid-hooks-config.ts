@@ -10,7 +10,7 @@
 
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { readHooksWithPrecedence } from '@agent-spaces/materializer'
+import { readHooksWithPrecedence } from 'spaces-materializer'
 import type { LintContext, LintWarning } from '../types.js'
 import { WARNING_CODES } from '../types.js'
 

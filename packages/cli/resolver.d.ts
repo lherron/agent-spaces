@@ -1,1 +1,1 @@
-export * from '@agent-spaces/resolver'
+export * from 'spaces-resolver'

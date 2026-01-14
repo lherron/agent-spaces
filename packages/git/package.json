@@ -1,5 +1,5 @@
 {
-  "name": "@agent-spaces/git",
+  "name": "spaces-git",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-spaces/core": "*"
+    "spaces-core": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",

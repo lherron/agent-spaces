@@ -21,17 +21,17 @@ import {
   lockFileExists,
   readLockJson,
   readSpaceToml,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 
 import {
   type SettingsInput,
   composeMcpFromSpaces,
   composeSettingsFromSpaces,
   materializeSpaces,
-} from '@agent-spaces/materializer'
+} from 'spaces-materializer'
 
-import { DEV_COMMIT_MARKER, DEV_INTEGRITY } from '@agent-spaces/resolver'
-import { PathResolver, ensureDir, getAspHome } from '@agent-spaces/store'
+import { DEV_COMMIT_MARKER, DEV_INTEGRITY } from 'spaces-resolver'
+import { PathResolver, ensureDir, getAspHome } from 'spaces-store'
 
 import {
   type LintContext,
@@ -39,7 +39,7 @@ import {
   type SpaceLintData,
   WARNING_CODES,
   lint,
-} from '@agent-spaces/lint'
+} from 'spaces-lint'
 
 import { install } from './install.js'
 import { type ResolveOptions, getRegistryPath } from './resolve.js'

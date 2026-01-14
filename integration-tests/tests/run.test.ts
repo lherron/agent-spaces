@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
-import { install, run, runWithPrompt } from '@agent-spaces/engine'
+import { install, run, runWithPrompt } from 'spaces-engine'
 
 import {
   SAMPLE_REGISTRY_DIR,

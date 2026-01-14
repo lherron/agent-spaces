@@ -1,1 +1,1 @@
-export * from '@agent-spaces/materializer'
+export * from 'spaces-materializer'

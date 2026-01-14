@@ -1,5 +1,5 @@
 {
-  "name": "@agent-spaces/integration-tests",
+  "name": "spaces-integration-tests",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -13,9 +13,9 @@
   },
   "dependencies": {
     "@lherron/agent-spaces": "*",
-    "@agent-spaces/core": "*",
-    "@agent-spaces/engine": "*",
-    "@agent-spaces/resolver": "*",
-    "@agent-spaces/store": "*"
+    "spaces-core": "*",
+    "spaces-engine": "*",
+    "spaces-resolver": "*",
+    "spaces-store": "*"
   }
 }

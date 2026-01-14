@@ -1,5 +1,5 @@
 {
-  "name": "@agent-spaces/lint",
+  "name": "spaces-lint",
   "version": "0.1.0",
   "private": true,
   "description": "Warning detection rules for Agent Spaces v2",
@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-spaces/core": "*",
-    "@agent-spaces/materializer": "*"
+    "spaces-core": "*",
+    "spaces-materializer": "*"
   }
 }

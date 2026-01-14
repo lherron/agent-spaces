@@ -13,8 +13,8 @@ import type {
   SpaceManifest,
   SpaceRef,
   SpaceRefString,
-} from '@agent-spaces/core'
-import { CyclicDependencyError, MissingDependencyError, asSpaceKey } from '@agent-spaces/core'
+} from 'spaces-core'
+import { CyclicDependencyError, MissingDependencyError, asSpaceKey } from 'spaces-core'
 import {
   type ManifestReadOptions,
   getSpaceDependencies,

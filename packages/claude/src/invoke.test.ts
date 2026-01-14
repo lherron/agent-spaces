@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ClaudeInvocationError } from '@agent-spaces/core'
+import { ClaudeInvocationError } from 'spaces-core'
 import { clearClaudeCache } from './detect.js'
 import {
   buildClaudeArgs,

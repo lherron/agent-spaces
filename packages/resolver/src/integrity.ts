@@ -7,9 +7,9 @@
  */
 
 import { createHash } from 'node:crypto'
-import type { CommitSha, Sha256Integrity, SpaceId } from '@agent-spaces/core'
-import { asSha256Integrity } from '@agent-spaces/core'
-import { type TreeEntry, filterTreeEntries, listTreeRecursive } from '@agent-spaces/git'
+import type { CommitSha, Sha256Integrity, SpaceId } from 'spaces-core'
+import { asSha256Integrity } from 'spaces-core'
+import { type TreeEntry, filterTreeEntries, listTreeRecursive } from 'spaces-git'
 
 import { DEV_COMMIT_MARKER } from './closure.js'
 

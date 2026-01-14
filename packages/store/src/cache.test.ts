@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'bun:test'
-import type { Sha256Integrity } from '@agent-spaces/core'
+import type { Sha256Integrity } from 'spaces-core'
 import { computePluginCacheKey } from './cache.js'
 
 describe('computePluginCacheKey', () => {

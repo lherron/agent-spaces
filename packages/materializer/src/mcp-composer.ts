@@ -7,7 +7,7 @@
 
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { ensureDir } from '@agent-spaces/store'
+import { ensureDir } from 'spaces-store'
 
 /**
  * MCP server type - currently only "stdio" is supported.

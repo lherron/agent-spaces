@@ -1,5 +1,5 @@
 {
-  "name": "@agent-spaces/store",
+  "name": "spaces-store",
   "version": "0.1.0",
   "private": true,
   "description": "Content-addressed storage for Agent Spaces v2",
@@ -20,8 +20,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-spaces/core": "*",
-    "@agent-spaces/git": "*",
-    "@agent-spaces/resolver": "*"
+    "spaces-core": "*",
+    "spaces-git": "*",
+    "spaces-resolver": "*"
   }
 }

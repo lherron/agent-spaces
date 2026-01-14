@@ -10,7 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
-import { build, install } from '@agent-spaces/engine'
+import { build, install } from 'spaces-engine'
 
 import {
   SAMPLE_REGISTRY_DIR,

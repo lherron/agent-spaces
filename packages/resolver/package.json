@@ -1,5 +1,5 @@
 {
-  "name": "@agent-spaces/resolver",
+  "name": "spaces-resolver",
   "version": "0.1.0",
   "private": true,
   "description": "Space resolution engine for Agent Spaces v2",
@@ -20,8 +20,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-spaces/core": "*",
-    "@agent-spaces/git": "*",
+    "spaces-core": "*",
+    "spaces-git": "*",
     "@iarna/toml": "^2.2.5",
     "semver": "^7.6.0"
   },

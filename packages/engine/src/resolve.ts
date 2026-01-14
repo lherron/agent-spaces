@@ -17,9 +17,9 @@ import {
   lockFileExists,
   readLockJson,
   readTargetsToml,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 
-import type { CommitSha, SpaceId, SpaceRefString } from '@agent-spaces/core'
+import type { CommitSha, SpaceId, SpaceRefString } from 'spaces-core'
 
 import {
   type ClosureOptions,
@@ -28,9 +28,9 @@ import {
   type ResolvedSpace,
   computeClosure,
   generateLockFileForTarget,
-} from '@agent-spaces/resolver'
+} from 'spaces-resolver'
 
-import { PathResolver, getAspHome } from '@agent-spaces/store'
+import { PathResolver, getAspHome } from 'spaces-store'
 
 /**
  * Options for resolving a target.

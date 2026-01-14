@@ -1,5 +1,5 @@
 /**
- * @agent-spaces/lint - Warning detection for agent spaces.
+ * spaces-lint - Warning detection for agent spaces.
  *
  * WHY: Provides lint rules to detect configuration issues, conflicts, and best practice violations.
  */

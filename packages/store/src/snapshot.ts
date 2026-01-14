@@ -8,10 +8,10 @@
 import { createHash } from 'node:crypto'
 import { readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { CommitSha, Sha256Integrity, SpaceId } from '@agent-spaces/core'
-import { SnapshotError, asSha256Integrity } from '@agent-spaces/core'
-import { extractTree } from '@agent-spaces/git'
-import { computeIntegrity } from '@agent-spaces/resolver'
+import type { CommitSha, Sha256Integrity, SpaceId } from 'spaces-core'
+import { SnapshotError, asSha256Integrity } from 'spaces-core'
+import { extractTree } from 'spaces-git'
+import { computeIntegrity } from 'spaces-resolver'
 import { type PathResolver, ensureDir } from './paths.js'
 
 /**

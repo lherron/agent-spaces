@@ -18,7 +18,7 @@ import {
   asCommitSha,
   asSpaceId,
   asSpaceKey,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 import {
   type ClosureResult,
   type ResolvedSpace,

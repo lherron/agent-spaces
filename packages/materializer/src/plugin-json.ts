@@ -7,8 +7,8 @@
 
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { SpaceManifest } from '@agent-spaces/core'
-import { derivePluginIdentity } from '@agent-spaces/core'
+import type { SpaceManifest } from 'spaces-core'
+import { derivePluginIdentity } from 'spaces-core'
 
 /**
  * Plugin.json structure expected by Claude Code.

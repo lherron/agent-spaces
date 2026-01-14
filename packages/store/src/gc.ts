@@ -1,4 +1,4 @@
-import type { LockFile, Sha256Integrity } from '@agent-spaces/core'
+import type { LockFile, Sha256Integrity } from 'spaces-core'
 import {
   type CacheOptions,
   computePluginCacheKey,

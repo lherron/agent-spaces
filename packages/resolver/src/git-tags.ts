@@ -5,10 +5,10 @@
  * space/<id>/vX.Y.Z. This module queries and matches these tags.
  */
 
-import type { CommitSha, SpaceId } from '@agent-spaces/core'
-import { asCommitSha } from '@agent-spaces/core'
-import { getTagCommit, listTagsWithCommits } from '@agent-spaces/git'
 import * as semver from 'semver'
+import type { CommitSha, SpaceId } from 'spaces-core'
+import { asCommitSha } from 'spaces-core'
+import { getTagCommit, listTagsWithCommits } from 'spaces-git'
 
 /**
  * Version information extracted from a git tag.

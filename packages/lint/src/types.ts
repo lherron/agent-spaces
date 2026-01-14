@@ -4,7 +4,7 @@
  * WHY: Common types used across all lint rules for consistent warning format.
  */
 
-import type { SpaceKey, SpaceManifest } from '@agent-spaces/core'
+import type { SpaceKey, SpaceManifest } from 'spaces-core'
 
 /**
  * Warning severity levels.

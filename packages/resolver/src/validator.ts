@@ -5,8 +5,8 @@
  * This module focuses on errors (not warnings - those are in lint package).
  */
 
-import type { LockFile, ProjectManifest, SpaceKey, SpaceManifest } from '@agent-spaces/core'
-import { isSpaceRefString, parseSpaceRef } from '@agent-spaces/core'
+import type { LockFile, ProjectManifest, SpaceKey, SpaceManifest } from 'spaces-core'
+import { isSpaceRefString, parseSpaceRef } from 'spaces-core'
 import type { ClosureResult } from './closure.js'
 
 /**

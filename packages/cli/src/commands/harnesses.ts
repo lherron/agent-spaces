@@ -10,7 +10,7 @@ import chalk from 'chalk'
 import type { Command } from 'commander'
 import figures from 'figures'
 
-import { type HarnessDetection, harnessRegistry } from '@agent-spaces/engine'
+import { type HarnessDetection, harnessRegistry } from 'spaces-engine'
 
 interface HarnessInfo {
   id: string

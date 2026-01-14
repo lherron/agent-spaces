@@ -16,7 +16,7 @@ import {
   formatExplainText,
   harnessRegistry,
   isHarnessId,
-} from '@agent-spaces/engine'
+} from 'spaces-engine'
 
 import { findProjectRoot } from '../index.js'
 

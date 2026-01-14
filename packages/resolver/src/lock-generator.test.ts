@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from 'bun:test'
-import type { CommitSha, SpaceId, SpaceKey, SpaceManifest } from '@agent-spaces/core'
+import type { CommitSha, SpaceId, SpaceKey, SpaceManifest } from 'spaces-core'
 import type { ClosureResult, ResolvedSpace } from './closure.js'
 import { type LockGeneratorOptions, type TargetInput, generateLockFile } from './lock-generator.js'
 

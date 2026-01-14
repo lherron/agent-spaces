@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { MaterializeSpaceInput, ResolvedSpaceManifest, SpaceKey } from '@agent-spaces/core'
+import type { MaterializeSpaceInput, ResolvedSpaceManifest, SpaceKey } from 'spaces-core'
 import {
   type HookDefinition,
   PiAdapter,

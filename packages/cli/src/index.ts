@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import chalk from 'chalk'
 import { Command } from 'commander'
 
-import { isAspError } from '@agent-spaces/core'
+import { isAspError } from 'spaces-core'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')) as {

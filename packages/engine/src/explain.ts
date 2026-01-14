@@ -20,18 +20,18 @@ import {
   lockFileExists,
   readLockJson,
   readSpaceToml,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 
-import { type LintContext, type LintWarning, type SpaceLintData, lint } from '@agent-spaces/lint'
+import { type LintContext, type LintWarning, type SpaceLintData, lint } from 'spaces-lint'
 
 import {
   COMPONENT_DIRS,
   type ComponentDir,
   type McpConfig,
   type McpServerConfig,
-} from '@agent-spaces/materializer'
+} from 'spaces-materializer'
 
-import { PathResolver, getAspHome, snapshotExists } from '@agent-spaces/store'
+import { PathResolver, getAspHome, snapshotExists } from 'spaces-store'
 
 import type { ResolveOptions } from './resolve.js'
 

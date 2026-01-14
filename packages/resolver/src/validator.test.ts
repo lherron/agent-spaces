@@ -16,7 +16,7 @@ import {
   asSha256Integrity,
   asSpaceId,
   asSpaceKey,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 import {
   validateClosure,
   validateLockFile,

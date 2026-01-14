@@ -10,8 +10,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { clearClaudeCache } from '@agent-spaces/claude'
-import type { MaterializeSpaceInput, ResolvedSpaceManifest, SpaceKey } from '@agent-spaces/core'
+import { clearClaudeCache } from 'spaces-claude'
+import type { MaterializeSpaceInput, ResolvedSpaceManifest, SpaceKey } from 'spaces-core'
 import { ClaudeAdapter } from './claude-adapter.js'
 
 /**

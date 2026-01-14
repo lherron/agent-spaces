@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { Sha256Integrity } from '@agent-spaces/core'
+import type { Sha256Integrity } from 'spaces-core'
 import {
   PathResolver,
   getAspHome,

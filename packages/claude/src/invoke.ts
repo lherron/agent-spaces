@@ -9,7 +9,7 @@
  * Using argv arrays (no shell) prevents command injection vulnerabilities.
  */
 
-import { ClaudeInvocationError } from '@agent-spaces/core'
+import { ClaudeInvocationError } from 'spaces-core'
 import { getClaudePath } from './detect.js'
 
 /**

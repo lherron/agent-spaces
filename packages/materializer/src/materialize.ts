@@ -7,15 +7,15 @@
 
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Sha256Integrity, SpaceKey, SpaceManifest } from '@agent-spaces/core'
-import { MaterializationError } from '@agent-spaces/core'
+import type { Sha256Integrity, SpaceKey, SpaceManifest } from 'spaces-core'
+import { MaterializationError } from 'spaces-core'
 import {
   type CacheMetadata,
   type PathResolver,
   cacheExists,
   computePluginCacheKey,
   writeCacheMetadata,
-} from '@agent-spaces/store'
+} from 'spaces-store'
 import { ensureHooksExecutable, validateHooks } from './hooks-builder.js'
 import { hooksTomlExists, readHooksToml, writeClaudeHooksJson } from './hooks-toml.js'
 import { linkComponents } from './link-components.js'

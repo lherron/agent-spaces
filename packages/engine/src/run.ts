@@ -28,7 +28,7 @@ import {
   readLockJson,
   readSpaceToml,
   serializeLockJson,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 
 import {
   type ClaudeInvocationResult,
@@ -38,20 +38,20 @@ import {
   getClaudeCommand,
   invokeClaude,
   spawnClaude,
-} from '@agent-spaces/claude'
+} from 'spaces-claude'
 
-import { type LintContext, type LintWarning, type SpaceLintData, lint } from '@agent-spaces/lint'
+import { type LintContext, type LintWarning, type SpaceLintData, lint } from 'spaces-lint'
 
 import {
   type SettingsInput,
   composeMcpFromSpaces,
   composeSettingsFromSpaces,
   materializeSpaces,
-} from '@agent-spaces/materializer'
+} from 'spaces-materializer'
 
-import { computeClosure, generateLockFileForTarget } from '@agent-spaces/resolver'
+import { computeClosure, generateLockFileForTarget } from 'spaces-resolver'
 
-import { PathResolver, createSnapshot, ensureDir, getAspHome } from '@agent-spaces/store'
+import { PathResolver, createSnapshot, ensureDir, getAspHome } from 'spaces-store'
 
 import type { BuildResult } from './build.js'
 import { harnessRegistry } from './harness/index.js'

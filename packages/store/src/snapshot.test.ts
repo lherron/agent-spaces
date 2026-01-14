@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asCommitSha, asSha256Integrity, asSpaceId } from '@agent-spaces/core'
+import { asCommitSha, asSha256Integrity, asSpaceId } from 'spaces-core'
 import { PathResolver } from './paths.js'
 import {
   type SnapshotMetadata,

@@ -2,12 +2,12 @@
  * ClaudeAdapter - Harness adapter for Claude Code
  *
  * Implements the HarnessAdapter interface for Claude Code, wrapping
- * existing functionality from @agent-spaces/claude and @agent-spaces/materializer.
+ * existing functionality from spaces-claude and spaces-materializer.
  */
 
 import { copyFile, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { buildClaudeArgs, detectClaude } from '@agent-spaces/claude'
+import { buildClaudeArgs, detectClaude } from 'spaces-claude'
 import type {
   ComposeTargetInput,
   ComposeTargetOptions,
@@ -21,8 +21,8 @@ import type {
   MaterializeSpaceInput,
   MaterializeSpaceOptions,
   MaterializeSpaceResult,
-} from '@agent-spaces/core'
-import { copyDir, linkOrCopy } from '@agent-spaces/core'
+} from 'spaces-core'
+import { copyDir, linkOrCopy } from 'spaces-core'
 import {
   PERMISSIONS_TOML_FILENAME,
   type SettingsInput,
@@ -40,15 +40,15 @@ import {
   validateHooks,
   writeClaudeHooksJson,
   writePluginJson,
-} from '@agent-spaces/materializer'
+} from 'spaces-materializer'
 
 /**
  * ClaudeAdapter implements the HarnessAdapter interface for Claude Code.
  *
  * This adapter wraps existing Claude-specific functionality:
- * - Detection: uses @agent-spaces/claude/detect
- * - Materialization: uses @agent-spaces/materializer
- * - Invocation: uses @agent-spaces/claude/invoke
+ * - Detection: uses spaces-claude/detect
+ * - Materialization: uses spaces-materializer
+ * - Invocation: uses spaces-claude/invoke
  */
 export class ClaudeAdapter implements HarnessAdapter {
   readonly id = 'claude' as const
@@ -114,7 +114,7 @@ export class ClaudeAdapter implements HarnessAdapter {
   /**
    * Materialize a single space into a Claude plugin directory.
    *
-   * This wraps the existing materialization logic from @agent-spaces/materializer.
+   * This wraps the existing materialization logic from spaces-materializer.
    */
   async materializeSpace(
     input: MaterializeSpaceInput,

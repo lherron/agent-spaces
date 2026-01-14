@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'bun:test'
-import type { SpaceId } from '@agent-spaces/core'
+import type { SpaceId } from 'spaces-core'
 import { buildTagPattern, parseVersionTag } from './git-tags.js'
 
 describe('buildTagPattern', () => {

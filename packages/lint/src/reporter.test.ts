@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'bun:test'
-import type { SpaceKey } from '@agent-spaces/core'
+import type { SpaceKey } from 'spaces-core'
 import { formatJson, formatText, formatWarnings, summarize } from './reporter.js'
 import type { LintWarning } from './types.js'
 

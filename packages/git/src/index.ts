@@ -1,5 +1,5 @@
 /**
- * @agent-spaces/git - Git operations wrapper
+ * spaces-git - Git operations wrapper
  *
  * This package provides a safe, typed interface to git operations
  * using direct subprocess execution (no shell interpolation).

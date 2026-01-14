@@ -5,9 +5,9 @@
  * selectors (head, dist-tag, semver, git-pin) into concrete commits.
  */
 
-import type { CommitSha, Selector, SpaceId, SpaceRef } from '@agent-spaces/core'
-import { SelectorResolutionError, asCommitSha } from '@agent-spaces/core'
-import { getHead, getTagCommit } from '@agent-spaces/git'
+import type { CommitSha, Selector, SpaceId, SpaceRef } from 'spaces-core'
+import { SelectorResolutionError, asCommitSha } from 'spaces-core'
+import { getHead, getTagCommit } from 'spaces-git'
 import { resolveDistTag, versionToGitTag } from './dist-tags.js'
 import { type VersionInfo, resolveExactVersion, resolveSemverRange } from './git-tags.js'
 

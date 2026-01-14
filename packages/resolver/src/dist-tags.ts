@@ -5,11 +5,11 @@
  * that map to specific versions without needing semver resolution.
  */
 
-import type { DistTagsFile, SpaceId } from '@agent-spaces/core'
-import { showFileOrNull } from '@agent-spaces/git'
+import type { DistTagsFile, SpaceId } from 'spaces-core'
+import { showFileOrNull } from 'spaces-git'
 
 // Re-export for backwards compatibility
-export type { DistTagsFile } from '@agent-spaces/core'
+export type { DistTagsFile } from 'spaces-core'
 
 /**
  * Options for dist-tags operations.

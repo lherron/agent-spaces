@@ -12,7 +12,7 @@ import {
   type SpaceKey,
   asCommitSha,
   asSpaceId,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 import { computeReachableCacheKeys, computeReachableIntegrities } from './gc.js'
 
 function createMockLock(

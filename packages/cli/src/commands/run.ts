@@ -17,7 +17,7 @@ import { resolve } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { parseSpaceRef } from '@agent-spaces/core'
+import { parseSpaceRef } from 'spaces-core'
 import {
   type HarnessId,
   type RunResult,
@@ -29,7 +29,7 @@ import {
   runInteractive,
   runLocalSpace,
   runWithPrompt,
-} from '@agent-spaces/engine'
+} from 'spaces-engine'
 
 import { handleCliError, logInvocationOutput } from '../helpers.js'
 import { findProjectRoot } from '../index.js'

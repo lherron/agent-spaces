@@ -8,7 +8,7 @@
 import { mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { Sha256Integrity } from '@agent-spaces/core'
+import type { Sha256Integrity } from 'spaces-core'
 
 /**
  * Default ASP_HOME location.

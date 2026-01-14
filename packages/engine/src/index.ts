@@ -1,5 +1,5 @@
 /**
- * @agent-spaces/engine - High-level orchestration for Agent Spaces v2.
+ * spaces-engine - High-level orchestration for Agent Spaces v2.
  *
  * WHY: This package provides high-level entrypoints that coordinate
  * the resolver, store, materializer, claude, and lint packages.

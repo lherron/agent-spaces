@@ -20,7 +20,7 @@ import {
   atomicWriteJson,
   lockFileExists,
   readLockJson,
-} from '@agent-spaces/core'
+} from 'spaces-core'
 
 import {
   type ClosureOptions,
@@ -30,7 +30,7 @@ import {
   computeClosure,
   generateLockFileForTarget,
   mergeLockFiles,
-} from '@agent-spaces/resolver'
+} from 'spaces-resolver'
 
 import {
   PathResolver,
@@ -39,9 +39,9 @@ import {
   ensureAspHome,
   getAspHome,
   snapshotExists,
-} from '@agent-spaces/store'
+} from 'spaces-store'
 
-import { fetch as gitFetch } from '@agent-spaces/git'
+import { fetch as gitFetch } from 'spaces-git'
 import { type TargetMaterializationResult, materializeTarget } from './install.js'
 
 /**

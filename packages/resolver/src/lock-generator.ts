@@ -17,8 +17,8 @@ import type {
   Sha256Integrity,
   SpaceKey,
   SpaceRefString,
-} from '@agent-spaces/core'
-import { derivePluginIdentity } from '@agent-spaces/core'
+} from 'spaces-core'
+import { derivePluginIdentity } from 'spaces-core'
 import type { ClosureResult, ResolvedSpace } from './closure.js'
 import { computeEnvHash, computeHarnessEnvHash, computeIntegrity } from './integrity.js'
 

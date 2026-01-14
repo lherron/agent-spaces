@@ -9,8 +9,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:te
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
-import { LOCK_FILENAME, readLockJson, readTargetsToml } from '@agent-spaces/core'
-import { install } from '@agent-spaces/engine'
+import { LOCK_FILENAME, readLockJson, readTargetsToml } from 'spaces-core'
+import { install } from 'spaces-engine'
 
 import {
   SAMPLE_REGISTRY_DIR,

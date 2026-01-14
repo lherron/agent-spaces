@@ -1,1 +1,1 @@
-export * from '@agent-spaces/engine'
+export * from 'spaces-engine'
