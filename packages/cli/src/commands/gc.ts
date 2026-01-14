@@ -8,8 +8,8 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { readLockJson } from '@agent-spaces/core'
-import { type GCOptions, PathResolver, getAspHome, runGC } from '@agent-spaces/store'
+import { readLockJson } from 'spaces-core'
+import { type GCOptions, PathResolver, getAspHome, runGC } from 'spaces-store'
 
 import { findProjectRoot } from '../index.js'
 

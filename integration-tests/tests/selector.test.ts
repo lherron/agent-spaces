@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { asSpaceId, parseSelector } from '@agent-spaces/core'
+import { asSpaceId, parseSelector } from 'spaces-core'
 import {
   computeClosure,
   getLatestVersion,
@@ -24,7 +24,7 @@ import {
   resolveSelector,
   resolveSemverRange,
   versionExists,
-} from '@agent-spaces/resolver'
+} from 'spaces-resolver'
 
 import { SAMPLE_REGISTRY_DIR, cleanupSampleRegistry, initSampleRegistry } from './setup.js'
 

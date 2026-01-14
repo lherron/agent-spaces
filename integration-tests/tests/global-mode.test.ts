@@ -13,9 +13,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:te
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
-import { readLockJson } from '@agent-spaces/core'
-import { runGlobalSpace, runLocalSpace } from '@agent-spaces/engine'
-import { PathResolver } from '@agent-spaces/store'
+import { readLockJson } from 'spaces-core'
+import { runGlobalSpace, runLocalSpace } from 'spaces-engine'
+import { PathResolver } from 'spaces-store'
 
 import {
   CLAUDE_SHIM_PATH,

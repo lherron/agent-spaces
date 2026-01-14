@@ -8,7 +8,7 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { type LockFile, lockFileExists, readLockJson, readTargetsToml } from '@agent-spaces/core'
+import { type LockFile, lockFileExists, readLockJson, readTargetsToml } from 'spaces-core'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 

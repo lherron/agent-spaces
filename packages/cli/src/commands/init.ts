@@ -8,7 +8,7 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { TARGETS_FILENAME } from '@agent-spaces/core'
+import { TARGETS_FILENAME } from 'spaces-core'
 
 import { handleCliError } from '../helpers.js'
 

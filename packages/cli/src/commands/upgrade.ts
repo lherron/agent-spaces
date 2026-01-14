@@ -8,7 +8,7 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { install } from '@agent-spaces/engine'
+import { install } from 'spaces-engine'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 

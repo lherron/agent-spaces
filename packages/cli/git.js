@@ -1,1 +1,1 @@
-export * from '@agent-spaces/git'
+export * from 'spaces-git'

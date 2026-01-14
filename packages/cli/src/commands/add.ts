@@ -13,8 +13,8 @@ import {
   atomicWrite,
   readTargetsToml,
   serializeTargetsToml,
-} from '@agent-spaces/core'
-import { install } from '@agent-spaces/engine'
+} from 'spaces-core'
+import { install } from 'spaces-engine'
 
 import { findProjectRoot } from '../index.js'
 

@@ -7,13 +7,9 @@ import { join } from 'node:path'
 
 import type { Command } from 'commander'
 
-import { getClaudeCommand } from '@agent-spaces/claude'
-import {
-  type ComposedTargetBundle,
-  getEffectiveClaudeOptions,
-  readTargetsToml,
-} from '@agent-spaces/core'
-import { type HarnessId, harnessRegistry, install, isHarnessId } from '@agent-spaces/engine'
+import { getClaudeCommand } from 'spaces-claude'
+import { type ComposedTargetBundle, getEffectiveClaudeOptions, readTargetsToml } from 'spaces-core'
+import { type HarnessId, harnessRegistry, install, isHarnessId } from 'spaces-engine'
 
 import { findProjectRoot } from '../index.js'
 import {

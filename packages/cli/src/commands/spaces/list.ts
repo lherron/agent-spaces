@@ -9,8 +9,8 @@ import { readdir } from 'node:fs/promises'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { readSpaceToml } from '@agent-spaces/core'
-import { PathResolver, getAspHome } from '@agent-spaces/store'
+import { readSpaceToml } from 'spaces-core'
+import { PathResolver, getAspHome } from 'spaces-store'
 
 import { handleCliError } from '../../helpers.js'
 
