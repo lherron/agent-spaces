@@ -53,6 +53,7 @@ interface RunOptions {
   printCommand?: boolean
   refresh?: boolean
   yolo?: boolean
+  debug?: boolean
   inheritAll?: boolean
   inheritProject?: boolean
   inheritUser?: boolean
@@ -152,6 +153,7 @@ async function runProjectMode(
     dryRun: options.dryRun,
     refresh: options.refresh,
     yolo: options.yolo,
+    debug: options.debug,
     settingSources,
     settings: options.settings,
     harness: options.harness,
@@ -234,6 +236,7 @@ async function runGlobalMode(
     dryRun: options.dryRun,
     refresh: options.refresh,
     yolo: options.yolo,
+    debug: options.debug,
     settingSources,
     settings: options.settings,
   }
@@ -274,6 +277,7 @@ async function runDevMode(
     dryRun: options.dryRun,
     refresh: options.refresh,
     yolo: options.yolo,
+    debug: options.debug,
     settingSources,
     settings: options.settings,
   }
@@ -339,6 +343,7 @@ export function registerRunCommand(program: Command): void {
     .option('--print-command', 'Output only the command (for piping/scripting)')
     .option('--refresh', 'Force re-copy from source and rebuild asp_modules')
     .option('--yolo', 'Skip all permission prompts (--dangerously-skip-permissions)')
+    .option('--debug', 'Enable Claude hook debugging (--debug hooks)')
     .option('--inherit-all', 'Inherit all harness settings (user, project, local)')
     .option('--inherit-project', 'Inherit project-level settings')
     .option('--inherit-user', 'Inherit user-level settings')
