@@ -492,11 +492,20 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     console.log(`\x1b[90m$ ${command}\x1b[0m`)
     console.log('')
 
-    const { exitCode } = await executeHarnessCommand(commandPath, args, {
+    const { exitCode, stdout, stderr } = await executeHarnessCommand(commandPath, args, {
       interactive: options.interactive,
       cwd: options.cwd ?? options.projectPath,
       env: piEnv,
     })
+
+    // Print captured output for non-interactive mode
+    if (stdout) {
+      process.stdout.write(stdout)
+    }
+    if (stderr) {
+      process.stderr.write(stderr)
+    }
+
     debugLog('non-claude exit', exitCode)
 
     return {
