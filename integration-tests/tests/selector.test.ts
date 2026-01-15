@@ -15,16 +15,17 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import { asSpaceId, parseSelector } from 'spaces-core'
 import {
+  asSpaceId,
   computeClosure,
   getLatestVersion,
   listVersionTags,
+  parseSelector,
   resolveExactVersion,
   resolveSelector,
   resolveSemverRange,
   versionExists,
-} from 'spaces-resolver'
+} from 'spaces-config'
 
 import { SAMPLE_REGISTRY_DIR, cleanupSampleRegistry, initSampleRegistry } from './setup.js'
 

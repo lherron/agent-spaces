@@ -1,1 +1,1 @@
-export * from 'spaces-lint'
+export * from 'spaces-config'

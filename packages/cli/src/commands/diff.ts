@@ -8,8 +8,14 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { type LockFile, lockFileExists, readLockJson, readTargetsToml } from 'spaces-core'
-import { type ResolveOptions, resolveTarget } from 'spaces-engine'
+import {
+  type LockFile,
+  type ResolveOptions,
+  lockFileExists,
+  readLockJson,
+  readTargetsToml,
+  resolveTarget,
+} from 'spaces-config'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 

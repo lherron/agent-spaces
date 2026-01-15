@@ -1,0 +1,40 @@
+{
+  "name": "spaces-execution",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run-time volatility: harness execution, sessions, Claude/Pi invocation",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./claude": {
+      "bun": "./src/claude/index.ts",
+      "types": "./dist/claude/index.d.ts",
+      "import": "./dist/claude/index.js"
+    },
+    "./harness": {
+      "bun": "./src/harness/index.ts",
+      "types": "./dist/harness/index.d.ts",
+      "import": "./dist/harness/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.45.7",
+    "spaces-config": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

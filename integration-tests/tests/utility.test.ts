@@ -9,9 +9,15 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:te
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
-import { LOCK_FILENAME, readLockJson, readTargetsToml } from 'spaces-core'
-import { explain, install } from 'spaces-engine'
-import { PathResolver, runGC } from 'spaces-store'
+import {
+  LOCK_FILENAME,
+  PathResolver,
+  explain,
+  readLockJson,
+  readTargetsToml,
+  runGC,
+} from 'spaces-config'
+import { install } from 'spaces-execution'
 
 import {
   SAMPLE_REGISTRY_DIR,
@@ -69,7 +75,7 @@ describe('asp diff', () => {
     await fs.writeFile(path.join(projectDir, 'asp-targets.toml'), toml)
 
     // Resolve fresh (without lock) to get new state
-    const { resolveTarget } = await import('spaces-engine')
+    const { resolveTarget } = await import('spaces-config')
     const freshResult = await resolveTarget('dev', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
@@ -123,7 +129,7 @@ describe('asp diff', () => {
     await fs.writeFile(path.join(projectDir, 'asp-targets.toml'), toml)
 
     // Resolve fresh
-    const { resolveTarget } = await import('spaces-engine')
+    const { resolveTarget } = await import('spaces-config')
     const freshResult = await resolveTarget('dev', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
@@ -151,7 +157,7 @@ describe('asp diff', () => {
     })
 
     // Resolve fresh
-    const { resolveTarget } = await import('spaces-engine')
+    const { resolveTarget } = await import('spaces-config')
     const freshResult = await resolveTarget('dev', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,

@@ -9,8 +9,7 @@ import { join } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { LOCK_FILENAME, lockFileExists } from 'spaces-core'
-import { explain } from 'spaces-engine'
+import { LOCK_FILENAME, explain, lockFileExists } from 'spaces-config'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 

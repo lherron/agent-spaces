@@ -15,7 +15,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
 
-import { harnessRegistry, install } from 'spaces-engine'
+import { harnessRegistry, install } from 'spaces-execution'
 
 import {
   FIXTURES_DIR,

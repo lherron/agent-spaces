@@ -9,9 +9,16 @@ import { rm, stat } from 'node:fs/promises'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { type LockFile, lockFileExists, readLockJson } from 'spaces-core'
-import { gitExec } from 'spaces-git'
-import { type GCOptions, PathResolver, getAspHome, runGC } from 'spaces-store'
+import {
+  type GCOptions,
+  type LockFile,
+  PathResolver,
+  getAspHome,
+  gitExec,
+  lockFileExists,
+  readLockJson,
+  runGC,
+} from 'spaces-config'
 
 import { handleCliError } from '../../helpers.js'
 

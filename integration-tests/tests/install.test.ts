@@ -9,8 +9,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import * as fs from 'node:fs/promises'
 
-import { install } from 'spaces-engine'
-import { PathResolver } from 'spaces-store'
+import { PathResolver } from 'spaces-config'
+import { install } from 'spaces-execution'
 
 import {
   SAMPLE_REGISTRY_DIR,

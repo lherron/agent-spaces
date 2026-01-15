@@ -9,14 +9,8 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import {
-  type HarnessId,
-  explain,
-  formatExplainJson,
-  formatExplainText,
-  harnessRegistry,
-  isHarnessId,
-} from 'spaces-engine'
+import { explain, formatExplainJson, formatExplainText } from 'spaces-config'
+import { type HarnessId, harnessRegistry, isHarnessId } from 'spaces-execution'
 
 import { findProjectRoot } from '../index.js'
 

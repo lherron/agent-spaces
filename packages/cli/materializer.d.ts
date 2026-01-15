@@ -1,1 +1,1 @@
-export * from 'spaces-materializer'
+export * from 'spaces-config'

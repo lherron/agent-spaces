@@ -8,14 +8,8 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import {
-  type BuildResult,
-  type HarnessId,
-  build,
-  buildAll,
-  harnessRegistry,
-  isHarnessId,
-} from 'spaces-engine'
+import { type BuildResult, build, buildAll } from 'spaces-config'
+import { type HarnessId, harnessRegistry, isHarnessId } from 'spaces-execution'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 

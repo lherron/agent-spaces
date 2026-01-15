@@ -8,7 +8,7 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { PathResolver, getAspHome } from 'spaces-store'
+import { PathResolver, getAspHome } from 'spaces-config'
 
 interface PathOptions {
   aspHome?: string | undefined

@@ -1,1 +1,2 @@
-export * from 'spaces-engine'
+export * from 'spaces-config'
+export * from 'spaces-execution'

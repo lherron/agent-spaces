@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
-import { build, install, runWithPrompt } from 'spaces-engine'
+import { build, install, runWithPrompt } from 'spaces-execution'
 
 import {
   SAMPLE_REGISTRY_DIR,

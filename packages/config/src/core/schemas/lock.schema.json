@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-spaces/spec/v2/lock.schema.json",
+  "title": "Agent Spaces v2 - asp-lock.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["lockfileVersion", "resolverVersion", "generatedAt", "registry", "spaces", "targets"],
+  "properties": {
+    "lockfileVersion": { "type": "integer", "const": 1 },
+    "resolverVersion": { "type": "integer", "const": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "type": "string", "const": "git" },
+        "url": { "type": "string" },
+        "defaultBranch": { "type": "string" }
+      }
+    },
+
+    "spaces": {
+      "type": "object",
+      "description": "Content-addressed space entries keyed by spaceKey = '<id>@<commit>'",
+      "additionalProperties": { "$ref": "#/$defs/spaceEntry" }
+    },
+
+    "targets": {
+      "type": "object",
+      "description": "Per-run-target resolution results",
+      "additionalProperties": { "$ref": "#/$defs/targetEntry" }
+    }
+  },
+
+  "$defs": {
+    "sha256Integrity": {
+      "type": "string",
+      "description": "SHA256 integrity hash, or 'sha256:dev' for @dev refs",
+      "pattern": "^sha256:([0-9a-f]{64}|dev)$"
+    },
+
+    "commitRef": {
+      "type": "string",
+      "description": "Git commit SHA (7-64 hex chars) or 'dev' for @dev refs",
+      "pattern": "^([0-9a-f]{7,64}|dev)$"
+    },
+
+    "spaceKey": {
+      "type": "string",
+      "description": "Space key: '<id>@<commit>' or '<id>@dev' for @dev refs",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*@([0-9a-f]{7,64}|dev)$"
+    },
+
+    "spaceRef": {
+      "type": "string",
+      "pattern": "^space:(path:[^@]+|[a-z0-9]+(?:-[a-z0-9]+)*)@.+$"
+    },
+
+    "spaceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "commit", "path", "integrity", "plugin", "deps"],
+      "properties": {
+        "id": { "type": "string" },
+        "commit": { "$ref": "#/$defs/commitRef" },
+        "path": { "type": "string", "description": "Path in registry repo, e.g. 'spaces/todo-frontend'" },
+
+        "integrity": { "$ref": "#/$defs/sha256Integrity" },
+
+        "plugin": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string" },
+            "version": { "type": "string" }
+          }
+        },
+
+        "deps": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["spaces"],
+          "properties": {
+            "spaces": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/spaceKey" },
+              "default": []
+            }
+          }
+        },
+
+        "resolvedFrom": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "selector": { "type": "string" },
+            "tag": { "type": "string" },
+            "semver": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "targetEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compose", "roots", "loadOrder", "envHash"],
+      "properties": {
+        "compose": {
+          "type": "array",
+          "description": "Space refs including @dev refs (which point to filesystem)",
+          "items": { "$ref": "#/$defs/spaceRef" }
+        },
+
+        "roots": {
+          "type": "array",
+          "description": "Resolved root spaces corresponding to compose entries (one per compose entry)",
+          "items": { "$ref": "#/$defs/spaceKey" }
+        },
+
+        "loadOrder": {
+          "type": "array",
+          "description": "Deterministic plugin-dir order including transitive deps (deps before dependents)",
+          "items": { "$ref": "#/$defs/spaceKey" }
+        },
+
+        "envHash": { "$ref": "#/$defs/sha256Integrity" },
+
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/warning" },
+          "default": []
+        },
+
+        "harnesses": {
+          "type": "object",
+          "description": "Per-harness entries with harness-specific envHash and warnings (Phase 2)",
+          "additionalProperties": { "$ref": "#/$defs/harnessEntry" }
+        }
+      }
+    },
+
+    "harnessEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envHash"],
+      "properties": {
+        "envHash": { "$ref": "#/$defs/sha256Integrity" },
+        "warnings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/warning" },
+          "default": []
+        }
+      }
+    },
+
+    "warning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "details": { "type": "object" }
+      }
+    }
+  }
+}

@@ -13,9 +13,7 @@
   },
   "dependencies": {
     "@lherron/agent-spaces": "*",
-    "spaces-core": "*",
-    "spaces-engine": "*",
-    "spaces-resolver": "*",
-    "spaces-store": "*"
+    "spaces-config": "*",
+    "spaces-execution": "*"
   }
 }

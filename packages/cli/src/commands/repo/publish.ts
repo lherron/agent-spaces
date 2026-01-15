@@ -8,9 +8,13 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { atomicWriteJson } from 'spaces-core'
-import { createAnnotatedTag, gitExecLines } from 'spaces-git'
-import { PathResolver, getAspHome } from 'spaces-store'
+import {
+  PathResolver,
+  atomicWriteJson,
+  createAnnotatedTag,
+  getAspHome,
+  gitExecLines,
+} from 'spaces-config'
 
 import { handleCliError } from '../../helpers.js'
 

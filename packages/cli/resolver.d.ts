@@ -1,1 +1,1 @@
-export * from 'spaces-resolver'
+export * from 'spaces-config'

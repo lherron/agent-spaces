@@ -1,0 +1,69 @@
+{
+  "name": "spaces-config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Config-time determinism: resolution, locks, bundles, materialization",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "bun": "./src/core/index.ts",
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js"
+    },
+    "./git": {
+      "bun": "./src/git/index.ts",
+      "types": "./dist/git/index.d.ts",
+      "import": "./dist/git/index.js"
+    },
+    "./resolver": {
+      "bun": "./src/resolver/index.ts",
+      "types": "./dist/resolver/index.d.ts",
+      "import": "./dist/resolver/index.js"
+    },
+    "./store": {
+      "bun": "./src/store/index.ts",
+      "types": "./dist/store/index.d.ts",
+      "import": "./dist/store/index.js"
+    },
+    "./materializer": {
+      "bun": "./src/materializer/index.ts",
+      "types": "./dist/materializer/index.d.ts",
+      "import": "./dist/materializer/index.js"
+    },
+    "./lint": {
+      "bun": "./src/lint/index.ts",
+      "types": "./dist/lint/index.d.ts",
+      "import": "./dist/lint/index.js"
+    },
+    "./schemas/*": {
+      "types": "./src/core/schemas/*",
+      "import": "./src/core/schemas/*"
+    }
+  },
+  "files": ["dist", "src/core/schemas"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "proper-lockfile": "^4.1.2",
+    "semver": "^7.7.2"
+  },
+  "devDependencies": {
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/semver": "^7.7.0",
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

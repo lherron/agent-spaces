@@ -8,8 +8,7 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { listTags } from 'spaces-git'
-import { PathResolver, getAspHome } from 'spaces-store'
+import { PathResolver, getAspHome, listTags } from 'spaces-config'
 
 import { handleCliError } from '../../helpers.js'
 

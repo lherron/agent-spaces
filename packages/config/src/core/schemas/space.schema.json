@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-spaces/spec/v2/space.schema.json",
+  "title": "Agent Spaces v2 - space.toml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id"],
+  "properties": {
+    "schema": { "type": "integer", "const": 1 },
+
+    "id": {
+      "type": "string",
+      "description": "Space identifier; also default plugin name unless overridden",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 64
+    },
+
+    "version": {
+      "type": "string",
+      "description": "Semantic version for the Space/plugin; used for semver resolution and plugin.json version when present",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+
+    "description": { "type": "string", "maxLength": 500 },
+
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Claude plugin name override; must be kebab-case, no spaces",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "version": {
+          "type": "string",
+          "description": "Override for plugin.json version; semver recommended",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        },
+        "description": { "type": "string", "maxLength": 500 },
+
+        "author": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "maxLength": 120 },
+            "email": { "type": "string", "format": "email", "maxLength": 254 },
+            "url": { "type": "string", "format": "uri" }
+          }
+        },
+
+        "homepage": { "type": "string", "format": "uri" },
+        "repository": { "type": "string", "format": "uri" },
+        "license": { "type": "string", "maxLength": 100 },
+        "keywords": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 50 },
+          "maxItems": 30
+        }
+      }
+    },
+
+    "deps": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spaces": {
+          "type": "array",
+          "description": "Transitive deps (spaces only). Each entry is a space ref string.",
+          "items": { "$ref": "#/$defs/spaceRef" },
+          "default": []
+        }
+      }
+    },
+
+    "settings": {
+      "type": "object",
+      "description": "Claude settings to apply when running with this space",
+      "additionalProperties": false,
+      "properties": {
+        "permissions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "type": "array",
+              "description": "Permission rules to allow tool use",
+              "items": { "type": "string" }
+            },
+            "deny": {
+              "type": "array",
+              "description": "Permission rules to deny tool use",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables to set",
+          "additionalProperties": { "type": "string" }
+        },
+        "model": {
+          "type": "string",
+          "description": "Override the default Claude model"
+        }
+      }
+    },
+
+    "harness": {
+      "type": "object",
+      "description": "Multi-harness support configuration",
+      "additionalProperties": false,
+      "properties": {
+        "supports": {
+          "type": "array",
+          "description": "List of harnesses this space supports (claude, pi, pi-sdk)",
+          "items": {
+            "type": "string",
+            "enum": ["claude", "pi", "pi-sdk"]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+
+    "claude": {
+      "type": "object",
+      "description": "Claude-specific configuration",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Claude model override"
+        },
+        "mcp": {
+          "type": "array",
+          "description": "Explicit MCP config paths (otherwise auto-discover mcp/)",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "pi": {
+      "type": "object",
+      "description": "Pi-specific configuration",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Pi model override (e.g., claude-sonnet)"
+        },
+        "extensions": {
+          "type": "array",
+          "description": "Extension files to load",
+          "items": { "type": "string" }
+        },
+        "build": {
+          "type": "object",
+          "description": "Extension build configuration",
+          "additionalProperties": false,
+          "properties": {
+            "bundle": {
+              "type": "boolean",
+              "description": "Bundle extensions to JS (default: true)",
+              "default": true
+            },
+            "format": {
+              "type": "string",
+              "description": "Output format: esm or cjs",
+              "enum": ["esm", "cjs"],
+              "default": "esm"
+            },
+            "target": {
+              "type": "string",
+              "description": "Target runtime: bun or node",
+              "enum": ["bun", "node"],
+              "default": "bun"
+            },
+            "external": {
+              "type": "array",
+              "description": "Dependencies to exclude from bundle",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "spaceRef": {
+      "type": "string",
+      "description": "space:<id>@<selector> or space:path:<path>@<selector>",
+      "pattern": "^space:(path:[^@]+|[a-z0-9]+(?:-[a-z0-9]+)*)@.+$"
+    }
+  }
+}

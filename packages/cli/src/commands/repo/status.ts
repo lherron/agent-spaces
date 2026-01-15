@@ -9,8 +9,7 @@ import { readdir } from 'node:fs/promises'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { getStatus } from 'spaces-git'
-import { PathResolver, getAspHome } from 'spaces-store'
+import { PathResolver, getAspHome, getStatus } from 'spaces-config'
 
 import { handleCliError } from '../../helpers.js'
 

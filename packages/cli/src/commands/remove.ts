@@ -8,8 +8,8 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { atomicWrite, readTargetsToml, serializeTargetsToml } from 'spaces-core'
-import { install } from 'spaces-engine'
+import { atomicWrite, readTargetsToml, serializeTargetsToml } from 'spaces-config'
+import { install } from 'spaces-execution'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 
