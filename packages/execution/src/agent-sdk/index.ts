@@ -3,6 +3,7 @@ export {
   type AgentSessionConfig,
   type AgentSessionState,
 } from './agent-session.js'
+export { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk'
 export {
   HooksBridge,
   processSDKMessage,
