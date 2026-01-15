@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "shared-server": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@example/shared-server-v2"]
-    }
-  }
-}

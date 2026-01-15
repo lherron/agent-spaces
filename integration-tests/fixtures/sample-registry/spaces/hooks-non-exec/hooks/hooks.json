@@ -1,8 +1,0 @@
-{
-  "hooks": [
-    {
-      "event": "SessionStart",
-      "script": "setup.sh"
-    }
-  ]
-}
