@@ -60,6 +60,7 @@ interface RunOptions {
   inheritLocal?: boolean
   settings?: string
   harness?: HarnessId
+  model?: string
 }
 
 /**
@@ -157,6 +158,7 @@ async function runProjectMode(
     settingSources,
     settings: options.settings,
     harness: options.harness,
+    model: options.model,
   }
 
   if (options.dryRun) {
@@ -239,6 +241,7 @@ async function runGlobalMode(
     debug: options.debug,
     settingSources,
     settings: options.settings,
+    model: options.model,
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -280,6 +283,7 @@ async function runDevMode(
     debug: options.debug,
     settingSources,
     settings: options.settings,
+    model: options.model,
   }
 
   const result = await runLocalSpace(targetPath, devOptions)
@@ -337,6 +341,7 @@ export function registerRunCommand(program: Command): void {
     .argument('<target>', 'Target name from asp-targets.toml, space:id@selector, or path')
     .argument('[prompt]', 'Optional initial prompt (runs non-interactively)')
     .option('--harness <id>', 'Coding agent harness to use (default: claude)')
+    .option('--model <model>', 'Model override (passed through to harness)')
     .option('--no-interactive', 'Run non-interactively (requires prompt)')
     .option('--no-warnings', 'Suppress lint warnings')
     .option('--dry-run', 'Print the harness command without executing')
