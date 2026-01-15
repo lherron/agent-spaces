@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "server-beta": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["./server-beta.js"]
+    }
+  }
+}

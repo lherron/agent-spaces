@@ -1,0 +1,10 @@
+# Base space - shared utilities and foundations
+# WHY: Provides common functionality that other spaces depend on
+
+schema = 1
+id = "base"
+version = "1.0.0"
+description = "Base utilities and shared commands"
+
+[plugin]
+name = "base"

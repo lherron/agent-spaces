@@ -1,0 +1,7 @@
+schema = 1
+id = "hooks-non-exec"
+version = "1.0.0"
+description = "Test space for W206 - non-executable hook scripts"
+
+[plugin]
+name = "hooks-non-exec"

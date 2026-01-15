@@ -1,0 +1,7 @@
+schema = 1
+id = "bad-structure"
+version = "1.0.0"
+description = "Test space for W207 - component dirs inside .claude-plugin"
+
+[plugin]
+name = "bad-structure"

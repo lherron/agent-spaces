@@ -1,0 +1,10 @@
+# MCP Collision B space - defines an MCP server that collides with another
+# WHY: Tests MCP server name collision detection
+
+schema = 1
+id = "mcp-collision-b"
+version = "1.0.0"
+description = "Space with colliding MCP server (second)"
+
+[plugin]
+name = "mcp-collision-b"

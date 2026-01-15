@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "server-alpha": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@example/server-alpha"],
+      "env": {
+        "ALPHA_KEY": "test-value"
+      }
+    }
+  }
+}

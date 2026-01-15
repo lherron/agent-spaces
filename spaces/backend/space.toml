@@ -1,0 +1,13 @@
+# Backend space - API/backend development workflows
+# WHY: Provides commands and skills for backend development
+
+schema = 1
+id = "backend"
+version = "1.0.0"
+description = "Backend development workflows"
+
+[plugin]
+name = "backend"
+
+[deps]
+spaces = ["space:base@stable"]
