@@ -487,6 +487,21 @@ export class PiSdkAdapter implements HarnessAdapter {
       // ~/.pi/agent/auth.json doesn't exist - Pi will prompt for auth
     }
 
+    // Generate settings.json to control skill discovery
+    // By default, disable .claude/.codex directories but allow Pi directories
+    // The --inherit-project and --inherit-user flags can enable Pi directories
+    const piSettings = {
+      skills: {
+        enableCodexUser: false,
+        enableClaudeUser: false,
+        enableClaudeProject: false,
+        enablePiUser: options.inheritUser ?? false,
+        enablePiProject: options.inheritProject ?? false,
+      },
+    }
+    const settingsPath = join(outputDir, 'settings.json')
+    await writeFile(settingsPath, JSON.stringify(piSettings, null, 2))
+
     const bundleManifest: PiSdkBundleManifest = {
       schemaVersion: 1,
       harnessId: 'pi-sdk',
@@ -539,9 +554,9 @@ export class PiSdkAdapter implements HarnessAdapter {
       args.push('--prompt', options.prompt)
     }
 
-    if (options.model) {
-      args.push('--model', options.model)
-    }
+    // Default model for pi-sdk harness
+    const model = options.model ?? 'openai-codex:gpt-5.2-codex'
+    args.push('--model', model)
 
     if (options.yolo) {
       args.push('--yolo')

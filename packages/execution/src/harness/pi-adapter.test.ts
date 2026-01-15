@@ -907,7 +907,7 @@ paths = ["/tmp"]
       await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('always adds --no-skills to disable default skill loading', async () => {
+    test('does not add --no-skills (allows Pi default skill loading)', async () => {
       const tmpDir = join(tmpdir(), `pi-args-skills-${Date.now()}`)
       const extensionsDir = join(tmpDir, 'extensions')
       await mkdir(extensionsDir, { recursive: true })
@@ -924,8 +924,8 @@ paths = ["/tmp"]
 
       const args = adapter.buildRunArgs(bundle, {})
 
-      // Should always add --no-skills to prevent loading from .claude, .codex, etc.
-      expect(args).toContain('--no-skills')
+      // Should NOT add --no-skills - allow Pi to load skills normally
+      expect(args).not.toContain('--no-skills')
 
       await rm(tmpDir, { recursive: true, force: true })
     })

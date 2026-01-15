@@ -28,6 +28,7 @@ export {
   checkHooksConfig,
   checkPluginNameCollisions,
   checkHookScriptsExecutable,
+  checkSkillMdFrontmatter,
   allRules,
 } from './rules/index.js'
 

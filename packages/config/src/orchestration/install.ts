@@ -87,6 +87,16 @@ export interface InstallOptions extends ResolveOptions {
    * Useful when source files have changed and you want to update the cache.
    */
   refresh?: boolean | undefined
+  /**
+   * Inherit project-level settings (for Pi: enables .pi/skills in project).
+   * Maps to --inherit-project CLI flag.
+   */
+  inheritProject?: boolean | undefined
+  /**
+   * Inherit user-level settings (for Pi: enables ~/.pi/agent/skills).
+   * Maps to --inherit-user CLI flag.
+   */
+  inheritUser?: boolean | undefined
 }
 
 /**
@@ -350,7 +360,11 @@ export async function materializeTarget(
     settingsInputs,
   }
 
-  const { bundle } = await adapter.composeTarget(composeInput, outputPath, { clean: true })
+  const { bundle } = await adapter.composeTarget(composeInput, outputPath, {
+    clean: true,
+    inheritProject: options.inheritProject,
+    inheritUser: options.inheritUser,
+  })
 
   return {
     target: targetName,

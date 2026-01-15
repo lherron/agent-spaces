@@ -210,6 +210,10 @@ export interface RunOptions extends ResolveOptions {
   debug?: boolean | undefined
   /** Model override (passed through to harness) */
   model?: string | undefined
+  /** Inherit project-level settings (for Pi: enables .pi/skills in project) */
+  inheritProject?: boolean | undefined
+  /** Inherit user-level settings (for Pi: enables ~/.pi/agent/skills) */
+  inheritUser?: boolean | undefined
 }
 
 /**
@@ -750,6 +754,10 @@ export interface GlobalRunOptions {
   debug?: boolean | undefined
   /** Model override (passed through to harness) */
   model?: string | undefined
+  /** Inherit project-level settings (for Pi: enables .pi/skills in project) */
+  inheritProject?: boolean | undefined
+  /** Inherit user-level settings (for Pi: enables ~/.pi/agent/skills) */
+  inheritUser?: boolean | undefined
 }
 
 /**
