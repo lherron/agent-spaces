@@ -1,0 +1,13 @@
+schema = 1
+
+[targets.dev]
+description = "Default target"
+compose = ["space:defaults@stable"]
+
+[targets.ralph-plan]
+description = "Ralph planning loop"
+compose = ["space:ralph-plan-loop@dev", "space:praesidium-defaults@dev"]
+
+[targets.ralph-build]
+description = "Ralph build loop"
+compose = ["space:ralph-build-loop@dev"]
