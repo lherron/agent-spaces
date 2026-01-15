@@ -15,6 +15,7 @@
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
+import type { HarnessId } from '../core/types/harness.js'
 
 // ============================================================================
 // Types
@@ -676,16 +677,17 @@ export function hasPermissions(permissions: CanonicalPermissions | null): boolea
  * Generate a human-readable explanation of permissions for a harness.
  *
  * @param permissions - Canonical permissions
- * @param harnessId - Target harness ('claude' or 'pi')
+ * @param harnessId - Target harness (Claude- or Pi-compatible)
  * @returns Array of explanation strings
  */
 export function explainPermissions(
   permissions: CanonicalPermissions,
-  harnessId: 'claude' | 'pi'
+  harnessId: HarnessId
 ): string[] {
   const lines: string[] = []
+  const normalized = harnessId === 'pi' || harnessId === 'pi-sdk' ? 'pi' : 'claude'
   const translated =
-    harnessId === 'claude' ? toClaudePermissions(permissions) : toPiPermissions(permissions)
+    normalized === 'claude' ? toClaudePermissions(permissions) : toPiPermissions(permissions)
 
   const formatFacet = (
     name: string,
@@ -701,7 +703,7 @@ export function explainPermissions(
     lines.push(`  - ${name}: [${values}${more}] → [${enforcement}]${note}`)
   }
 
-  if (harnessId === 'claude') {
+  if (normalized === 'claude') {
     const claude = translated as ClaudePermissions
     formatFacet('read', claude.read)
     formatFacet('write', claude.write)

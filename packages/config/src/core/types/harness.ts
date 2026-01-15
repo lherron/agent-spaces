@@ -15,10 +15,15 @@ import type { ResolvedSpaceManifest, SpaceSettings } from './space.js'
 // ============================================================================
 
 /** Supported harness identifiers */
-export type HarnessId = 'claude' | 'pi' | 'pi-sdk'
+export type HarnessId = 'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk'
 
 /** All known harness IDs */
-export const HARNESS_IDS: readonly HarnessId[] = ['claude', 'pi', 'pi-sdk'] as const
+export const HARNESS_IDS: readonly HarnessId[] = [
+  'claude',
+  'claude-agent-sdk',
+  'pi',
+  'pi-sdk',
+] as const
 
 /** Type guard for HarnessId */
 export function isHarnessId(value: string): value is HarnessId {

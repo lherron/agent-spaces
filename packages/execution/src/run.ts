@@ -57,6 +57,10 @@ import type { BuildResult } from 'spaces-config'
 import { type ResolveOptions, install as configInstall, loadProjectManifest } from 'spaces-config'
 import { harnessRegistry } from './harness/index.js'
 
+function isClaudeCompatibleHarness(harnessId: HarnessId): boolean {
+  return harnessId === 'claude' || harnessId === 'claude-agent-sdk'
+}
+
 function shellQuote(value: string): string {
   if (/^[a-zA-Z0-9_./-]+$/.test(value)) return value
   return `'${value.replace(/'/g, "'\\''")}'`
@@ -523,7 +527,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     throw new Error('Lint errors found - aborting')
   }
 
-  if (harnessId !== 'claude') {
+  if (!isClaudeCompatibleHarness(harnessId)) {
     debugLog('non-claude harness', harnessId)
     const bundle =
       harnessId === 'pi'
