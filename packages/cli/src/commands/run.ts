@@ -159,6 +159,8 @@ async function runProjectMode(
     settings: options.settings,
     harness: options.harness,
     model: options.model,
+    inheritProject: options.inheritProject,
+    inheritUser: options.inheritUser,
   }
 
   if (options.dryRun) {
@@ -242,6 +244,8 @@ async function runGlobalMode(
     settingSources,
     settings: options.settings,
     model: options.model,
+    inheritProject: options.inheritProject,
+    inheritUser: options.inheritUser,
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -284,6 +288,8 @@ async function runDevMode(
     settingSources,
     settings: options.settings,
     model: options.model,
+    inheritProject: options.inheritProject,
+    inheritUser: options.inheritUser,
   }
 
   const result = await runLocalSpace(targetPath, devOptions)

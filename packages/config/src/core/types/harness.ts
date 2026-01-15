@@ -137,6 +137,10 @@ export interface ComposeTargetInput {
 export interface ComposeTargetOptions {
   /** Clean output directory before composition */
   clean?: boolean | undefined
+  /** Inherit project-level settings (for Pi: enables .pi/skills in project) */
+  inheritProject?: boolean | undefined
+  /** Inherit user-level settings (for Pi: enables ~/.pi/agent/skills) */
+  inheritUser?: boolean | undefined
 }
 
 /** Result of composing a target */

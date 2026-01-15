@@ -973,6 +973,21 @@ export class PiAdapter implements HarnessAdapter {
       // ~/.pi/auth.json doesn't exist - Pi will prompt for auth
     }
 
+    // Generate settings.json to control skill discovery
+    // By default, disable .claude/.codex directories but allow Pi directories
+    // The --inherit-project and --inherit-user flags can enable Pi directories
+    const piSettings = {
+      skills: {
+        enableCodexUser: false,
+        enableClaudeUser: false,
+        enableClaudeProject: false,
+        enablePiUser: options.inheritUser ?? false,
+        enablePiProject: options.inheritProject ?? false,
+      },
+    }
+    const settingsPath = join(outputDir, 'settings.json')
+    await writeFile(settingsPath, JSON.stringify(piSettings, null, 2))
+
     // Read permissions.toml from each artifact and generate warnings for lint_only facets
     for (const artifact of input.artifacts) {
       const permissions = await readPermissionsToml(artifact.artifactPath)
@@ -1065,10 +1080,6 @@ export class PiAdapter implements HarnessAdapter {
     if (!hasExtensions) {
       args.push('--no-extensions')
     }
-
-    // Always disable default skill loading from .claude, .codex, ~/.pi/agent/skills/
-    // This ensures isolation - spaces control their own skill loading
-    args.push('--no-skills')
 
     // Model translation (sonnet -> claude-sonnet, etc.)
     // Default to gpt-5.2-codex with openai-codex provider if no model specified

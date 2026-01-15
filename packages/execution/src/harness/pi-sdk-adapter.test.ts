@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ComposeTargetInput, ResolvedSpaceArtifact } from 'spaces-config'
+import type { ComposeTargetInput, ComposedTargetBundle, ResolvedSpaceArtifact } from 'spaces-config'
 import { PiSdkAdapter } from './pi-sdk-adapter.js'
 
 describe('PiSdkAdapter', () => {
@@ -82,5 +82,65 @@ describe('PiSdkAdapter', () => {
       { spaceId: 'space-a', path: 'context/space-a.md', label: 'space:space-a instructions' },
       { spaceId: 'space-b', path: 'context/space-b.md', label: 'space:space-b instructions' },
     ])
+  })
+
+  describe('buildRunArgs', () => {
+    test('uses default model openai-codex:gpt-5.2-codex when no model specified', async () => {
+      const outputDir = join(tmpDir, 'output')
+      await mkdir(join(outputDir, 'extensions'), { recursive: true })
+      await writeFile(
+        join(outputDir, 'bundle.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          harnessId: 'pi-sdk',
+          targetName: 'test',
+          extensions: [],
+        })
+      )
+
+      const bundle: ComposedTargetBundle = {
+        harnessId: 'pi-sdk',
+        targetName: 'test',
+        rootDir: outputDir,
+        piSdk: {
+          bundleManifestPath: join(outputDir, 'bundle.json'),
+          extensionsDir: join(outputDir, 'extensions'),
+        },
+      }
+
+      const args = adapter.buildRunArgs(bundle, {})
+      expect(args).toContain('--model')
+      const modelIndex = args.indexOf('--model')
+      expect(args[modelIndex + 1]).toBe('openai-codex:gpt-5.2-codex')
+    })
+
+    test('uses custom model when specified', async () => {
+      const outputDir = join(tmpDir, 'output')
+      await mkdir(join(outputDir, 'extensions'), { recursive: true })
+      await writeFile(
+        join(outputDir, 'bundle.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          harnessId: 'pi-sdk',
+          targetName: 'test',
+          extensions: [],
+        })
+      )
+
+      const bundle: ComposedTargetBundle = {
+        harnessId: 'pi-sdk',
+        targetName: 'test',
+        rootDir: outputDir,
+        piSdk: {
+          bundleManifestPath: join(outputDir, 'bundle.json'),
+          extensionsDir: join(outputDir, 'extensions'),
+        },
+      }
+
+      const args = adapter.buildRunArgs(bundle, { model: 'anthropic:claude-3-opus' })
+      expect(args).toContain('--model')
+      const modelIndex = args.indexOf('--model')
+      expect(args[modelIndex + 1]).toBe('anthropic:claude-3-opus')
+    })
   })
 })
