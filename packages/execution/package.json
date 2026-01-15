@@ -12,6 +12,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./agent-sdk": {
+      "bun": "./src/agent-sdk/index.ts",
+      "types": "./dist/agent-sdk/index.d.ts",
+      "import": "./dist/agent-sdk/index.js"
+    },
     "./claude": {
       "bun": "./src/claude/index.ts",
       "types": "./dist/claude/index.d.ts",
@@ -30,6 +35,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.72",
     "@mariozechner/pi-coding-agent": "^0.45.7",
     "spaces-config": "*"
   },

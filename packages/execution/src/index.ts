@@ -30,6 +30,9 @@ import { harnessRegistry } from './harness/index.js'
 // Claude CLI wrapper
 export * from './claude/index.js'
 
+// Claude Agent SDK session helpers
+export * from './agent-sdk/index.js'
+
 // Harness adapters and registry
 export * from './harness/index.js'
 
