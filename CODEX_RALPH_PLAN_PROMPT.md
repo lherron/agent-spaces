@@ -9,3 +9,5 @@ Hey bud, need your help with a planning pass. Please follow these steps carefull
 Important: Plan only. Don't implement anything. Don't assume functionality is missing; confirm with code search first.
 
 Ultimate goal: We want to achieve the project goals defined in specs/*. Consider missing elements and plan accordingly. If an element is missing, search first to confirm it doesn't exist, then if needed author the specification at specs/FILENAME.md. If you create a new element then document the plan to implement it in IMPLEMENTATION_PLAN.md.
+
+Please add one level of sub-tasks so a less capable agent can more easily follow the plan and implement tasks.  Use markdown checkboxes so they can mark tasks completed and not get confused.

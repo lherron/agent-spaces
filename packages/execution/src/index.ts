@@ -12,13 +12,16 @@ import {
   type BuildResult,
   type BuildOptions as ConfigBuildOptions,
   type InstallOptions as ConfigInstallOptions,
+  type MaterializeFromRefsOptions as ConfigMaterializeFromRefsOptions,
   DEFAULT_HARNESS,
   type InstallResult,
   type LockFile,
+  type MaterializeFromRefsResult,
   type TargetMaterializationResult,
   build as configBuild,
   buildAll as configBuildAll,
   install as configInstall,
+  materializeFromRefs as configMaterializeFromRefs,
   materializeTarget as configMaterializeTarget,
 } from 'spaces-config'
 
@@ -77,7 +80,31 @@ export async function materializeTarget(
 }
 
 // Re-export other install-related types
-export type { InstallResult, TargetMaterializationResult, BuildResult } from 'spaces-config'
+export type {
+  InstallResult,
+  TargetMaterializationResult,
+  BuildResult,
+  MaterializeFromRefsResult,
+} from 'spaces-config'
+
+/**
+ * Materialize-from-refs options (with automatic harness adapter resolution)
+ */
+export type MaterializeFromRefsOptions = Omit<ConfigMaterializeFromRefsOptions, 'adapter'>
+
+/**
+ * Materialize spaces from explicit refs without reading asp-targets.toml.
+ *
+ * This wraps the config package's materializeFromRefs function and automatically
+ * provides the harness adapter from the execution package's registry.
+ */
+export async function materializeFromRefs(
+  options: MaterializeFromRefsOptions
+): Promise<MaterializeFromRefsResult> {
+  const harnessId = options.harness ?? DEFAULT_HARNESS
+  const adapter = harnessRegistry.getOrThrow(harnessId)
+  return configMaterializeFromRefs({ ...options, adapter })
+}
 
 /**
  * Build options (with automatic harness adapter resolution)

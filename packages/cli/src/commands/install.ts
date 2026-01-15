@@ -177,7 +177,10 @@ export function registerInstallCommand(program: Command): void {
     .command('install')
     .description('Resolve targets and materialize to asp_modules/')
     .option('--targets <names...>', 'Specific targets to install')
-    .option('--harness <id>', 'Coding agent harness to use (default: claude, e.g., pi, pi-sdk)')
+    .option(
+      '--harness <id>',
+      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, pi, pi-sdk)'
+    )
     .option('--update', 'Update existing lock (re-resolve selectors)')
     .option('--refresh', 'Force re-copy from source (clear cache)')
     .option('--no-fetch', 'Skip fetching registry updates')
@@ -249,7 +252,7 @@ export function registerInstallCommand(program: Command): void {
 
           // Generate command
           let command: string
-          if (harnessId === 'claude') {
+          if (harnessId === 'claude' || harnessId === 'claude-agent-sdk') {
             try {
               command = await getClaudeCommand({
                 pluginDirs: mat.pluginDirs,

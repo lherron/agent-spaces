@@ -10,6 +10,7 @@
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
+import type { HarnessId } from '../core/types/harness.js'
 
 // ============================================================================
 // Types
@@ -203,14 +204,26 @@ export async function hooksTomlExists(hooksDir: string): Promise<boolean> {
  * - Match the specified harness
  *
  * @param hooks - Array of canonical hook definitions
- * @param harnessId - Harness ID to filter for ('claude' or 'pi')
+ * @param harnessId - Harness ID to filter for (Claude- or Pi-compatible)
  * @returns Filtered hooks applicable to the harness
  */
+function normalizeHarnessForHooks(harnessId: HarnessId): 'claude' | 'pi' {
+  return harnessId === 'pi' || harnessId === 'pi-sdk' ? 'pi' : 'claude'
+}
+
+function normalizeHookHarness(harness?: string): string | undefined {
+  if (!harness) return undefined
+  if (harness === 'claude-agent-sdk') return 'claude'
+  if (harness === 'pi-sdk') return 'pi'
+  return harness
+}
+
 export function filterHooksForHarness(
   hooks: CanonicalHookDefinition[],
-  harnessId: 'claude' | 'pi'
+  harnessId: HarnessId
 ): CanonicalHookDefinition[] {
-  return hooks.filter((h) => !h.harness || h.harness === harnessId)
+  const normalized = normalizeHarnessForHooks(harnessId)
+  return hooks.filter((h) => !h.harness || normalizeHookHarness(h.harness) === normalized)
 }
 
 /**

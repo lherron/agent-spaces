@@ -41,7 +41,10 @@ export function registerExplainCommand(program: Command): void {
     .command('explain')
     .description('Print resolved graph, pins, load order, and warnings')
     .argument('[target]', 'Specific target to explain (default: all)')
-    .option('--harness <id>', 'Coding agent harness to use (default: claude, e.g., pi, pi-sdk)')
+    .option(
+      '--harness <id>',
+      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, pi, pi-sdk)'
+    )
     .option('--json', 'Output as JSON')
     .option('--no-store-check', 'Skip checking if snapshots are in store')
     .option('--no-lint', 'Skip lint checks')

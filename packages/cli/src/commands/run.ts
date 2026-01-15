@@ -340,7 +340,10 @@ export function registerRunCommand(program: Command): void {
     .description('Run a coding agent with a target, space reference, or filesystem path')
     .argument('<target>', 'Target name from asp-targets.toml, space:id@selector, or path')
     .argument('[prompt]', 'Optional initial prompt (runs non-interactively)')
-    .option('--harness <id>', 'Coding agent harness to use (default: claude, e.g., pi, pi-sdk)')
+    .option(
+      '--harness <id>',
+      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, pi, pi-sdk)'
+    )
     .option('--model <model>', 'Model override (pi-sdk expects provider:model)')
     .option('--no-interactive', 'Run non-interactively (requires prompt)')
     .option('--no-warnings', 'Suppress lint warnings')

@@ -13,6 +13,7 @@ import { basename, dirname, join, relative, sep } from 'node:path'
 import {
   type CommitSha,
   DEFAULT_HARNESS,
+  type HarnessAdapter,
   type HarnessId,
   type LockFile,
   type SpaceId,
@@ -74,6 +75,8 @@ export interface MaterializeFromRefsOptions {
   pinnedSpaces?: Map<SpaceId, CommitSha>
   /** Harness to materialize for (default: 'claude') */
   harness?: HarnessId
+  /** Harness adapter to use for materialization */
+  adapter?: HarnessAdapter | undefined
   /** Whether to fetch registry updates (default: true) */
   fetchRegistry?: boolean
   /** Force refresh from source (default: false) */
@@ -125,6 +128,12 @@ export async function materializeFromRefs(
     fetchRegistry = true,
     refresh = false,
   } = options
+  const adapter = options.adapter
+  if (!adapter) {
+    throw new Error(
+      `materializeFromRefs requires an adapter. Use the execution package to get a harness adapter for '${harness}'.`
+    )
+  }
 
   const aspHome = options.aspHome ?? getAspHome()
   const projectPath = options.projectPath ?? dirname(lockPath)
@@ -184,6 +193,7 @@ export async function materializeFromRefs(
     registryPath,
     harness,
     refresh,
+    adapter,
   }
   const materialization = await materializeTarget(targetName, mergedLock, matOptions)
 

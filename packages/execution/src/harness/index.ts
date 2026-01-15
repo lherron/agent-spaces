@@ -7,6 +7,10 @@
 export { HarnessRegistry, harnessRegistry } from './registry.js'
 export { ClaudeAdapter, claudeAdapter } from './claude-adapter.js'
 export {
+  ClaudeAgentSdkAdapter,
+  claudeAgentSdkAdapter,
+} from './claude-agent-sdk-adapter.js'
+export {
   PiAdapter,
   piAdapter,
   detectPi,
@@ -42,6 +46,7 @@ export type {
 export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId } from 'spaces-config'
 
 import { claudeAdapter } from './claude-adapter.js'
+import { claudeAgentSdkAdapter } from './claude-agent-sdk-adapter.js'
 import { piAdapter } from './pi-adapter.js'
 import { piSdkAdapter } from './pi-sdk-adapter.js'
 // Initialize the registry with built-in adapters
@@ -49,5 +54,6 @@ import { harnessRegistry } from './registry.js'
 
 // Register built-in adapters
 harnessRegistry.register(claudeAdapter)
+harnessRegistry.register(claudeAgentSdkAdapter)
 harnessRegistry.register(piAdapter)
 harnessRegistry.register(piSdkAdapter)

@@ -9,6 +9,7 @@
 import { access, copyFile, mkdir, readdir, readlink, stat, symlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { linkOrCopy } from '../core/index.js'
+import type { HarnessId } from '../core/types/harness.js'
 
 /**
  * Harness-agnostic instructions file name.
@@ -186,19 +187,20 @@ export interface LinkInstructionsResult {
  *
  * @param snapshotDir - Source snapshot directory
  * @param pluginDir - Destination plugin directory
- * @param harness - Target harness: 'claude' or 'pi'
+ * @param harness - Target harness
  * @param options - Link options
  */
 export async function linkInstructionsFile(
   snapshotDir: string,
   pluginDir: string,
-  harness: 'claude' | 'pi',
+  harness: HarnessId,
   options: LinkOptions = {}
 ): Promise<LinkInstructionsResult> {
   const agentMdPath = join(snapshotDir, INSTRUCTIONS_FILE_AGNOSTIC)
   const claudeMdPath = join(snapshotDir, INSTRUCTIONS_FILE_CLAUDE)
 
-  if (harness === 'claude') {
+  const isClaudeHarness = harness === 'claude' || harness === 'claude-agent-sdk'
+  if (isClaudeHarness) {
     // Claude: prefer AGENT.md → CLAUDE.md, fallback to CLAUDE.md → CLAUDE.md
     if (await fileExists(agentMdPath)) {
       const destPath = join(pluginDir, INSTRUCTIONS_FILE_CLAUDE)

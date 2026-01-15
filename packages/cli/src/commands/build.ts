@@ -88,7 +88,10 @@ export function registerBuildCommand(program: Command): void {
     .description('Materialize plugins without launching Claude')
     .argument('[target]', 'Target to build (default: all)')
     .requiredOption('--output <dir>', 'Output directory for materialized plugins')
-    .option('--harness <id>', 'Coding agent harness to use (default: claude, e.g., pi, pi-sdk)')
+    .option(
+      '--harness <id>',
+      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, pi, pi-sdk)'
+    )
     .option('--no-clean', 'Keep existing output directory contents')
     .option('--no-install', 'Do not auto-install if lock missing')
     .option('--no-lint', 'Skip lint checks')

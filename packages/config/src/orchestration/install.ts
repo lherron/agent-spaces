@@ -121,6 +121,14 @@ export interface InstallResult {
   materializations: TargetMaterializationResult[]
 }
 
+function isHarnessSupported(supports: HarnessId[] | undefined, harnessId: HarnessId): boolean {
+  if (!supports) return true
+  if (supports.includes(harnessId)) return true
+  if (harnessId === 'claude-agent-sdk') return supports.includes('claude')
+  if (harnessId === 'pi-sdk') return supports.includes('pi')
+  return false
+}
+
 /**
  * Ensure registry is available and up to date.
  */
@@ -267,7 +275,7 @@ export async function materializeTarget(
     }
 
     const supports = manifest?.harness?.supports
-    if (supports && !supports.includes(harnessId)) {
+    if (!isHarnessSupported(supports, harnessId)) {
       // Skip spaces that do not support the selected harness
       continue
     }
