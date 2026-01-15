@@ -340,8 +340,8 @@ export function registerRunCommand(program: Command): void {
     .description('Run a coding agent with a target, space reference, or filesystem path')
     .argument('<target>', 'Target name from asp-targets.toml, space:id@selector, or path')
     .argument('[prompt]', 'Optional initial prompt (runs non-interactively)')
-    .option('--harness <id>', 'Coding agent harness to use (default: claude)')
-    .option('--model <model>', 'Model override (passed through to harness)')
+    .option('--harness <id>', 'Coding agent harness to use (default: claude, e.g., pi, pi-sdk)')
+    .option('--model <model>', 'Model override (pi-sdk expects provider:model)')
     .option('--no-interactive', 'Run non-interactively (requires prompt)')
     .option('--no-warnings', 'Suppress lint warnings')
     .option('--dry-run', 'Print the harness command without executing')
@@ -359,7 +359,7 @@ export function registerRunCommand(program: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     .option('--extra-args <args...>', 'Additional harness CLI arguments')
     .action(async (target: string, prompt: string | undefined, options: RunOptions) => {
-      // Validate harness option (Phase 1: only claude supported)
+      // Validate harness option
       const _harness = validateHarness(options.harness)
       options.harness = _harness
       const projectPath = options.project ?? (await findProjectRoot())

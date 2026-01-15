@@ -89,15 +89,18 @@ describe('asp harnesses', () => {
     expect(claudeHarness.detection).toHaveProperty('available')
   })
 
-  test('includes Pi harness in registry', async () => {
+  test('includes Pi harnesses in registry', async () => {
     const { stdout, exitCode } = await runCli(['harnesses', '--json'])
 
     expect(exitCode).toBe(0)
 
     const output = JSON.parse(stdout)
     const piHarness = output.harnesses.find((h: { id: string }) => h.id === 'pi')
+    const piSdkHarness = output.harnesses.find((h: { id: string }) => h.id === 'pi-sdk')
     expect(piHarness).toBeDefined()
     expect(piHarness.name).toBe('Pi Coding Agent')
+    expect(piSdkHarness).toBeDefined()
+    expect(piSdkHarness.name).toBe('Pi SDK')
   })
 
   test('shows detection status for each harness', async () => {
@@ -152,9 +155,22 @@ describe('asp run --harness', () => {
     expect(exitCode).toBe(0)
     expect(stdout).toContain('Dry run')
     expect(stdout).toContain('Command:')
-    // Should have plugin-dir flag pointing to claude subdirectory
     expect(stdout).toContain('--plugin-dir')
     expect(stdout).toContain('claude')
+  })
+
+  test('--dry-run works with --harness pi-sdk', async () => {
+    const testEnv = getTestEnv(aspHome)
+    const { stdout, exitCode } = await runCli(
+      ['run', 'claude-target', '--harness', 'pi-sdk', '--dry-run'],
+      { env: testEnv, cwd: projectDir }
+    )
+
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('Dry run')
+    expect(stdout).toContain('Command:')
+    expect(stdout).toContain('--bundle')
+    expect(stdout).toContain('pi-sdk')
   })
 
   test('--harness defaults to claude', async () => {
@@ -376,6 +392,7 @@ describe('invalid harness handling', () => {
     // Should list all registered harnesses
     expect(stderr).toContain('claude')
     expect(stderr).toContain('pi')
+    expect(stderr).toContain('pi-sdk')
   })
 })
 
@@ -394,10 +411,18 @@ describe('harness registry', () => {
     expect(pi?.name).toBe('Pi Coding Agent')
   })
 
-  test('getAll returns both adapters', () => {
+  test('has pi-sdk adapter registered', () => {
+    expect(harnessRegistry.has('pi-sdk')).toBe(true)
+    const piSdk = harnessRegistry.get('pi-sdk')
+    expect(piSdk).toBeDefined()
+    expect(piSdk?.name).toBe('Pi SDK')
+  })
+
+  test('getAll returns all adapters', () => {
     const adapters = harnessRegistry.getAll()
     const ids = adapters.map((a) => a.id)
     expect(ids).toContain('claude')
     expect(ids).toContain('pi')
+    expect(ids).toContain('pi-sdk')
   })
 })
