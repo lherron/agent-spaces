@@ -116,10 +116,10 @@
       "properties": {
         "supports": {
           "type": "array",
-          "description": "List of harnesses this space supports (claude, pi)",
+          "description": "List of harnesses this space supports (claude, pi, pi-sdk)",
           "items": {
             "type": "string",
-            "enum": ["claude", "pi"]
+            "enum": ["claude", "pi", "pi-sdk"]
           },
           "uniqueItems": true
         }

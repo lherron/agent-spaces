@@ -22,6 +22,7 @@
     "lint:fix": "biome check --write ."
   },
   "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.45.7",
     "spaces-core": "*",
     "spaces-git": "*",
     "spaces-claude": "*",

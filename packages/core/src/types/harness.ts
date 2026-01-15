@@ -15,10 +15,10 @@ import type { ResolvedSpaceManifest, SpaceSettings } from './space.js'
 // ============================================================================
 
 /** Supported harness identifiers */
-export type HarnessId = 'claude' | 'pi'
+export type HarnessId = 'claude' | 'pi' | 'pi-sdk'
 
 /** All known harness IDs */
-export const HARNESS_IDS: readonly HarnessId[] = ['claude', 'pi'] as const
+export const HARNESS_IDS: readonly HarnessId[] = ['claude', 'pi', 'pi-sdk'] as const
 
 /** Type guard for HarnessId */
 export function isHarnessId(value: string): value is HarnessId {
@@ -174,6 +174,20 @@ export interface ComposedTargetBundle {
     /** Path to run manifest */
     runManifestPath?: string | undefined
   }
+
+  // Pi SDK-specific fields (populated by PiSdkAdapter)
+  piSdk?: {
+    /** Path to bundle.json manifest */
+    bundleManifestPath: string
+    /** Directory containing bundled extensions */
+    extensionsDir: string
+    /** Directory containing merged skills */
+    skillsDir?: string | undefined
+    /** Directory containing hook scripts */
+    hooksDir?: string | undefined
+    /** Directory containing context files */
+    contextDir?: string | undefined
+  }
 }
 
 // ============================================================================
@@ -192,8 +206,12 @@ export interface HarnessRunOptions {
   interactive?: boolean | undefined
   /** Project directory */
   projectPath?: string | undefined
+  /** Working directory for harness execution */
+  cwd?: string | undefined
   /** Prompt text for non-interactive mode */
   prompt?: string | undefined
+  /** Disable hook blocking and permissions (YOLO mode) */
+  yolo?: boolean | undefined
 }
 
 // ============================================================================

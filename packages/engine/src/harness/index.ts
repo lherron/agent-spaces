@@ -20,6 +20,8 @@ export {
   type HookDefinition,
 } from './pi-adapter.js'
 
+export { PiSdkAdapter, piSdkAdapter } from './pi-sdk-adapter.js'
+
 // Re-export types from core
 export type {
   ComposedTargetBundle,
@@ -41,9 +43,11 @@ export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId } from 'spaces-core'
 
 import { claudeAdapter } from './claude-adapter.js'
 import { piAdapter } from './pi-adapter.js'
+import { piSdkAdapter } from './pi-sdk-adapter.js'
 // Initialize the registry with built-in adapters
 import { harnessRegistry } from './registry.js'
 
 // Register built-in adapters
 harnessRegistry.register(claudeAdapter)
 harnessRegistry.register(piAdapter)
+harnessRegistry.register(piSdkAdapter)

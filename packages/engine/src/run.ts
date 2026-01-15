@@ -8,7 +8,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
@@ -103,6 +103,74 @@ async function buildPiBundle(
       extensionsDir,
       skillsDir: skillsDirPath,
       hookBridgePath: hookBridge,
+    },
+  }
+}
+
+async function loadPiSdkBundle(
+  outputPath: string,
+  targetName: string
+): Promise<ComposedTargetBundle> {
+  const manifestPath = join(outputPath, 'bundle.json')
+  let manifest: { harnessId?: string; schemaVersion?: number } | undefined
+
+  try {
+    const raw = await readFile(manifestPath, 'utf-8')
+    manifest = JSON.parse(raw) as { harnessId?: string; schemaVersion?: number }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Pi SDK bundle manifest not found: ${manifestPath} (${message})`)
+  }
+
+  if (manifest?.harnessId !== 'pi-sdk') {
+    throw new Error(`Unexpected Pi SDK bundle harness: ${manifest?.harnessId ?? 'unknown'}`)
+  }
+
+  const extensionsDir = join(outputPath, 'extensions')
+  const skillsDir = join(outputPath, 'skills')
+  const hooksDir = join(outputPath, 'hooks')
+  const contextDir = join(outputPath, 'context')
+
+  let skillsDirPath: string | undefined
+  try {
+    const entries = await readdir(skillsDir)
+    if (entries.length > 0) {
+      skillsDirPath = skillsDir
+    }
+  } catch {
+    // No skills directory
+  }
+
+  let hooksDirPath: string | undefined
+  try {
+    const entries = await readdir(hooksDir)
+    if (entries.length > 0) {
+      hooksDirPath = hooksDir
+    }
+  } catch {
+    // No hooks directory
+  }
+
+  let contextDirPath: string | undefined
+  try {
+    const entries = await readdir(contextDir)
+    if (entries.length > 0) {
+      contextDirPath = contextDir
+    }
+  } catch {
+    // No context directory
+  }
+
+  return {
+    harnessId: 'pi-sdk',
+    targetName,
+    rootDir: outputPath,
+    piSdk: {
+      bundleManifestPath: manifestPath,
+      extensionsDir,
+      skillsDir: skillsDirPath,
+      hooksDir: hooksDirPath,
+      contextDir: contextDirPath,
     },
   }
 }
@@ -457,7 +525,15 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
 
   if (harnessId !== 'claude') {
     debugLog('non-claude harness', harnessId)
-    const bundle = await buildPiBundle(harnessOutputPath, targetName)
+    const bundle =
+      harnessId === 'pi'
+        ? await buildPiBundle(harnessOutputPath, targetName)
+        : harnessId === 'pi-sdk'
+          ? await loadPiSdkBundle(harnessOutputPath, targetName)
+          : (() => {
+              throw new Error(`Unsupported harness: ${harnessId}`)
+            })()
+
     const args = adapter.buildRunArgs(bundle, {
       model: options.model,
       extraArgs: options.extraArgs,
@@ -465,6 +541,8 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
       prompt: options.prompt,
       interactive: options.interactive,
       settingSources: options.settingSources,
+      cwd: options.cwd ?? options.projectPath,
+      yolo: options.yolo,
     })
 
     // Build env vars for Pi harness

@@ -61,7 +61,7 @@ export interface SpaceSettings {
 /** Multi-harness support configuration */
 export interface SpaceHarnessConfig {
   /** List of harnesses this space supports */
-  supports?: Array<'claude' | 'pi'> | undefined
+  supports?: Array<'claude' | 'pi' | 'pi-sdk'> | undefined
 }
 
 /** Claude-specific space configuration */
