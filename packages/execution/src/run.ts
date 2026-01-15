@@ -54,7 +54,7 @@ import { computeClosure, generateLockFileForTarget } from 'spaces-config'
 import { PathResolver, createSnapshot, ensureDir, getAspHome } from 'spaces-config'
 
 import type { BuildResult } from 'spaces-config'
-import { type ResolveOptions, install, loadProjectManifest } from 'spaces-config'
+import { type ResolveOptions, install as configInstall, loadProjectManifest } from 'spaces-config'
 import { harnessRegistry } from './harness/index.js'
 
 function shellQuote(value: string): string {
@@ -498,10 +498,11 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     options.refresh || !(await harnessOutputExists(options.projectPath, targetName, harnessId))
   if (needsInstall) {
     debugLog('install', options.refresh ? '(refresh)' : '(missing output)')
-    await install({
+    await configInstall({
       ...options,
       harness: harnessId,
       targets: [targetName],
+      adapter,
     })
     debugLog('install done')
   }
