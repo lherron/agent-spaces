@@ -2,10 +2,12 @@
  * Safe git command execution using argv arrays (no shell interpolation).
  *
  * WHY: Shell interpolation can lead to command injection vulnerabilities.
- * By using argv arrays directly with Bun.spawn, we ensure git commands
+ * By using argv arrays directly with spawn, we ensure git commands
  * are executed safely without shell interpretation of special characters.
  */
 
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { GitError } from '../core/index.js'
 
 /**
@@ -66,11 +68,9 @@ export async function gitExec(
   const spawnOptions: {
     cwd?: string
     env?: Record<string, string | undefined>
-    stdout: 'pipe'
-    stderr: 'pipe'
+    stdio: ['ignore', 'pipe', 'pipe']
   } = {
-    stdout: 'pipe',
-    stderr: 'pipe',
+    stdio: ['ignore', 'pipe', 'pipe'],
   }
 
   if (cwd !== undefined) {
@@ -81,7 +81,16 @@ export async function gitExec(
     spawnOptions.env = { ...process.env, ...env }
   }
 
-  const proc = Bun.spawn(command, spawnOptions)
+  const proc = spawn('git', args, spawnOptions)
+
+  let stdout = ''
+  let stderr = ''
+  proc.stdout?.on('data', (data: Buffer) => {
+    stdout += data.toString()
+  })
+  proc.stderr?.on('data', (data: Buffer) => {
+    stderr += data.toString()
+  })
 
   // Handle timeout
   let timeoutId: ReturnType<typeof setTimeout> | undefined
@@ -94,16 +103,15 @@ export async function gitExec(
 
   try {
     // Wait for process to complete or timeout
-    const exitCode = await Promise.race([proc.exited, timeoutPromise])
+    const exitCode = await Promise.race([
+      once(proc, 'close').then(([code]) => (typeof code === 'number' ? code : -1)),
+      timeoutPromise,
+    ])
 
     // Clear timeout since process completed
     if (timeoutId) {
       clearTimeout(timeoutId)
     }
-
-    // Read stdout and stderr
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
 
     const result: GitExecResult = {
       exitCode,

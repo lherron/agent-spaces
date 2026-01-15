@@ -2,6 +2,7 @@
  * Space manifest (space.toml) parser
  */
 
+import { readFile } from 'node:fs/promises'
 import TOML from '@iarna/toml'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
@@ -45,14 +46,19 @@ export function parseSpaceToml(content: string, filePath?: string): SpaceManifes
  * @returns Validated SpaceManifest
  */
 export async function readSpaceToml(filePath: string): Promise<SpaceManifest> {
-  const file = Bun.file(filePath)
-
-  if (!(await file.exists())) {
-    throw new ConfigParseError('File not found', filePath)
+  try {
+    const content = await readFile(filePath, 'utf8')
+    return parseSpaceToml(content, filePath)
+  } catch (err) {
+    if (err instanceof ConfigParseError || err instanceof ConfigValidationError) {
+      throw err
+    }
+    if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+      throw new ConfigParseError('File not found', filePath)
+    }
+    const message = err instanceof Error ? err.message : String(err)
+    throw new ConfigParseError(`Failed to read file: ${message}`, filePath)
   }
-
-  const content = await file.text()
-  return parseSpaceToml(content, filePath)
 }
 
 /**

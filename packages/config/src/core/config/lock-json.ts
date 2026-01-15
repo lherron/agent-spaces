@@ -2,6 +2,7 @@
  * Lock file (asp-lock.json) parser
  */
 
+import { readFile, stat } from 'node:fs/promises'
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import { validateLockFile } from '../schemas/index.js'
 import type { LockFile } from '../types/lock.js'
@@ -46,14 +47,19 @@ export function parseLockJson(content: string, filePath?: string): LockFile {
  * @returns Validated LockFile
  */
 export async function readLockJson(filePath: string): Promise<LockFile> {
-  const file = Bun.file(filePath)
-
-  if (!(await file.exists())) {
-    throw new ConfigParseError('File not found', filePath)
+  try {
+    const content = await readFile(filePath, 'utf8')
+    return parseLockJson(content, filePath)
+  } catch (err) {
+    if (err instanceof ConfigParseError || err instanceof ConfigValidationError) {
+      throw err
+    }
+    if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+      throw new ConfigParseError('File not found', filePath)
+    }
+    const message = err instanceof Error ? err.message : String(err)
+    throw new ConfigParseError(`Failed to read file: ${message}`, filePath)
   }
-
-  const content = await file.text()
-  return parseLockJson(content, filePath)
 }
 
 /**
@@ -63,8 +69,12 @@ export async function readLockJson(filePath: string): Promise<LockFile> {
  * @returns true if the lock file exists
  */
 export async function lockFileExists(filePath: string): Promise<boolean> {
-  const file = Bun.file(filePath)
-  return file.exists()
+  try {
+    await stat(filePath)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**

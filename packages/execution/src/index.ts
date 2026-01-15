@@ -33,6 +33,25 @@ export * from './claude/index.js'
 // Claude Agent SDK session helpers
 export * from './agent-sdk/index.js'
 
+// Pi SDK session helpers
+export {
+  PiSession,
+  createPermissionHook,
+  loadPiSdkBundle,
+} from './pi-session/index.js'
+export type {
+  LoadPiSdkBundleOptions,
+  PiAgentSessionEvent,
+  PiHookEventBusAdapter,
+  PiSdkBundleHookEntry,
+  PiSdkBundleLoadResult,
+  PiSdkBundleManifest,
+  PiSdkContextFile,
+  PiSessionConfig,
+  PiSessionStartOptions,
+  PiSessionState,
+} from './pi-session/index.js'
+
 // Harness adapters and registry
 export * from './harness/index.js'
 

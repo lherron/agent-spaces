@@ -2,6 +2,7 @@
  * Project manifest (asp-targets.toml) parser
  */
 
+import { readFile } from 'node:fs/promises'
 import TOML from '@iarna/toml'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
@@ -48,14 +49,19 @@ export function parseTargetsToml(content: string, filePath?: string): ProjectMan
  * @returns Validated ProjectManifest
  */
 export async function readTargetsToml(filePath: string): Promise<ProjectManifest> {
-  const file = Bun.file(filePath)
-
-  if (!(await file.exists())) {
-    throw new ConfigParseError('File not found', filePath)
+  try {
+    const content = await readFile(filePath, 'utf8')
+    return parseTargetsToml(content, filePath)
+  } catch (err) {
+    if (err instanceof ConfigParseError || err instanceof ConfigValidationError) {
+      throw err
+    }
+    if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+      throw new ConfigParseError('File not found', filePath)
+    }
+    const message = err instanceof Error ? err.message : String(err)
+    throw new ConfigParseError(`Failed to read file: ${message}`, filePath)
   }
-
-  const content = await file.text()
-  return parseTargetsToml(content, filePath)
 }
 
 /**

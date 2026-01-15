@@ -7,7 +7,7 @@
  * - Pi: generates hook definitions for the hook bridge extension
  */
 
-import { stat } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
 import type { HarnessId } from '../core/types/harness.js'
@@ -165,13 +165,12 @@ export async function readHooksToml(hooksDir: string): Promise<HooksTomlConfig |
   const hooksTomlPath = join(hooksDir, HOOKS_TOML_FILENAME)
 
   try {
-    const file = Bun.file(hooksTomlPath)
-    if (!(await file.exists())) {
+    const content = await readFile(hooksTomlPath, 'utf8')
+    return parseHooksToml(content)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
       return null
     }
-    const content = await file.text()
-    return parseHooksToml(content)
-  } catch {
     return null
   }
 }
@@ -322,7 +321,7 @@ export async function writeClaudeHooksJson(
 ): Promise<void> {
   const content = generateClaudeHooksJson(hooks)
   const hooksJsonPath = join(hooksDir, HOOKS_JSON_FILENAME)
-  await Bun.write(hooksJsonPath, content)
+  await writeFile(hooksJsonPath, content, 'utf8')
 }
 
 // ============================================================================
@@ -365,21 +364,24 @@ export async function readHooksWithPrecedence(hooksDir: string): Promise<ReadHoo
   // Fall back to hooks.json
   const hooksJsonPath = join(hooksDir, HOOKS_JSON_FILENAME)
   try {
-    const file = Bun.file(hooksJsonPath)
-    if (await file.exists()) {
-      const content = await file.json()
+    const content = await readFile(hooksJsonPath, 'utf8')
+    if (content.length > 0) {
+      const parsed = JSON.parse(content) as Record<string, unknown>
+
+      const hooksValue = parsed['hooks']
 
       // Handle legacy hooks.json formats
-      if (Array.isArray(content.hooks)) {
+      if (Array.isArray(hooksValue)) {
         // Simple array format: {hooks: [{event, script}, ...]}
-        const hooks: CanonicalHookDefinition[] = content.hooks.map(
-          (h: Record<string, unknown>) => ({
-            event: String(h['event'] ?? h['matcher'] ?? ''),
-            script: String(h['script'] ?? ''),
-            tools: Array.isArray(h['tools']) ? (h['tools'] as string[]) : undefined,
-            blocking: typeof h['blocking'] === 'boolean' ? h['blocking'] : undefined,
-          })
-        )
+        const hooks: CanonicalHookDefinition[] = hooksValue.map((h) => {
+          const entry = h as Record<string, unknown>
+          return {
+            event: String(entry['event'] ?? entry['matcher'] ?? ''),
+            script: String(entry['script'] ?? ''),
+            tools: Array.isArray(entry['tools']) ? (entry['tools'] as string[]) : undefined,
+            blocking: typeof entry['blocking'] === 'boolean' ? entry['blocking'] : undefined,
+          }
+        })
         return {
           hooks,
           source: 'json',
@@ -388,9 +390,11 @@ export async function readHooksWithPrecedence(hooksDir: string): Promise<ReadHoo
       }
 
       // Claude's native format: {hooks: {PreToolUse: [{matcher, hooks: [{type, command}]}]}}
-      if (content.hooks && typeof content.hooks === 'object' && !Array.isArray(content.hooks)) {
+      if (hooksValue && typeof hooksValue === 'object' && !Array.isArray(hooksValue)) {
         const hooks: CanonicalHookDefinition[] = []
-        for (const [eventName, eventHooks] of Object.entries(content.hooks)) {
+        for (const [eventName, eventHooks] of Object.entries(
+          hooksValue as Record<string, unknown>
+        )) {
           if (Array.isArray(eventHooks)) {
             for (const hookDef of eventHooks as Array<{
               matcher?: string

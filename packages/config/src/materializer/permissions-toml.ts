@@ -12,7 +12,7 @@
  * - lint_only: ASP can only warn; no runtime enforcement
  */
 
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
 import type { HarnessId } from '../core/types/harness.js'
@@ -268,13 +268,12 @@ export async function readPermissionsToml(spaceRoot: string): Promise<CanonicalP
   const permissionsTomlPath = join(spaceRoot, PERMISSIONS_TOML_FILENAME)
 
   try {
-    const file = Bun.file(permissionsTomlPath)
-    if (!(await file.exists())) {
+    const content = await readFile(permissionsTomlPath, 'utf8')
+    return parsePermissionsToml(content)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
       return null
     }
-    const content = await file.text()
-    return parsePermissionsToml(content)
-  } catch {
     return null
   }
 }
