@@ -2,7 +2,7 @@
  * Install command - Generate/update lock file and materialize to asp_modules.
  */
 
-import { readdir, stat } from 'node:fs/promises'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { Command } from 'commander'
@@ -95,12 +95,80 @@ async function buildPiBundle(
   }
 }
 
+async function buildPiSdkBundle(
+  outputPath: string,
+  targetName: string
+): Promise<ComposedTargetBundle> {
+  const manifestPath = join(outputPath, 'bundle.json')
+  let manifest: { harnessId?: string; schemaVersion?: number } | undefined
+
+  try {
+    const raw = await readFile(manifestPath, 'utf-8')
+    manifest = JSON.parse(raw) as { harnessId?: string; schemaVersion?: number }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Pi SDK bundle manifest not found: ${manifestPath} (${message})`)
+  }
+
+  if (manifest?.harnessId !== 'pi-sdk') {
+    throw new Error(`Unexpected Pi SDK bundle harness: ${manifest?.harnessId ?? 'unknown'}`)
+  }
+
+  const extensionsDir = join(outputPath, 'extensions')
+  const skillsDir = join(outputPath, 'skills')
+  const hooksDir = join(outputPath, 'hooks')
+  const contextDir = join(outputPath, 'context')
+
+  let skillsDirPath: string | undefined
+  try {
+    const entries = await readdir(skillsDir)
+    if (entries.length > 0) {
+      skillsDirPath = skillsDir
+    }
+  } catch {
+    // No skills directory
+  }
+
+  let hooksDirPath: string | undefined
+  try {
+    const entries = await readdir(hooksDir)
+    if (entries.length > 0) {
+      hooksDirPath = hooksDir
+    }
+  } catch {
+    // No hooks directory
+  }
+
+  let contextDirPath: string | undefined
+  try {
+    const entries = await readdir(contextDir)
+    if (entries.length > 0) {
+      contextDirPath = contextDir
+    }
+  } catch {
+    // No context directory
+  }
+
+  return {
+    harnessId: 'pi-sdk',
+    targetName,
+    rootDir: outputPath,
+    piSdk: {
+      bundleManifestPath: manifestPath,
+      extensionsDir,
+      skillsDir: skillsDirPath,
+      hooksDir: hooksDirPath,
+      contextDir: contextDirPath,
+    },
+  }
+}
+
 export function registerInstallCommand(program: Command): void {
   program
     .command('install')
     .description('Resolve targets and materialize to asp_modules/')
     .option('--targets <names...>', 'Specific targets to install')
-    .option('--harness <id>', 'Coding agent harness to use (default: claude)')
+    .option('--harness <id>', 'Coding agent harness to use (default: claude, e.g., pi, pi-sdk)')
     .option('--update', 'Update existing lock (re-resolve selectors)')
     .option('--refresh', 'Force re-copy from source (clear cache)')
     .option('--no-fetch', 'Skip fetching registry updates')
@@ -108,7 +176,7 @@ export function registerInstallCommand(program: Command): void {
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (options) => {
-      // Validate harness option (Phase 1: only claude supported)
+      // Validate harness option
       const _harness = validateHarness(options.harness)
       const harnessId = _harness
       const startTime = Date.now()
@@ -189,10 +257,18 @@ export function registerInstallCommand(program: Command): void {
               command = `claude ${pluginArgs} --settings ${mat.settingsPath}`
             }
           } else {
-            const bundle = await buildPiBundle(mat.outputPath, mat.target)
+            const bundle =
+              harnessId === 'pi'
+                ? await buildPiBundle(mat.outputPath, mat.target)
+                : harnessId === 'pi-sdk'
+                  ? await buildPiSdkBundle(mat.outputPath, mat.target)
+                  : (() => {
+                      throw new Error(`Unsupported harness: ${harnessId}`)
+                    })()
             const args = adapter.buildRunArgs(bundle, {
               projectPath,
               extraArgs: undefined,
+              model: claudeOptions.model,
             })
             command = formatCommand(harnessPath, args)
           }

@@ -39,6 +39,16 @@ The manager space guides you through creating your first space.
 
 **Registry** — A git repository containing spaces. Versioning uses git tags (`space/<id>/v1.0.0`) with optional dist-tags (`stable`, `latest`) for channel resolution.
 
+## Harnesses
+
+`asp run` supports multiple harnesses via `--harness`:
+
+- `claude` (default): Claude Code CLI
+- `pi`: Pi Coding Agent CLI
+- `pi-sdk`: Pi SDK runner (Bun) using `@mariozechner/pi-coding-agent`
+
+For `pi-sdk`, pass models as `provider:model` (for example `anthropic:claude-3-5-sonnet-20240620`). Extensions must be dependency-free or depend on packages available to the harness runtime, since dynamic imports happen inside the runner.
+
 ## Project Setup
 
 Create `asp-targets.toml` in your project root:
@@ -101,6 +111,7 @@ asp run ./path/to/my-space
 
 - [Bun](https://bun.sh/) >= 1.0
 - [Claude Code](https://claude.ai/code) CLI installed and accessible
+- Pi SDK (`@mariozechner/pi-coding-agent`) for `--harness pi-sdk` runs
 
 ## License
 

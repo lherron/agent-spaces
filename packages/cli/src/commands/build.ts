@@ -94,7 +94,7 @@ export function registerBuildCommand(program: Command): void {
     .description('Materialize plugins without launching Claude')
     .argument('[target]', 'Target to build (default: all)')
     .requiredOption('--output <dir>', 'Output directory for materialized plugins')
-    .option('--harness <id>', 'Coding agent harness to use (default: claude)')
+    .option('--harness <id>', 'Coding agent harness to use (default: claude, e.g., pi, pi-sdk)')
     .option('--no-clean', 'Keep existing output directory contents')
     .option('--no-install', 'Do not auto-install if lock missing')
     .option('--no-lint', 'Skip lint checks')
@@ -103,7 +103,7 @@ export function registerBuildCommand(program: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (target: string | undefined, options: BuildOptions) => {
       try {
-        // Validate harness option (Phase 1: only claude supported)
+        // Validate harness option
         const _harness = validateHarness(options.harness)
         const ctx = await getProjectContext(options)
 

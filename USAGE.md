@@ -23,6 +23,7 @@ Complete reference for the `asp` command-line tool.
 
 1. **Bun** >= 1.0 — [Install Bun](https://bun.sh/)
 2. **Claude Code** CLI — [Install Claude Code](https://claude.ai/code)
+3. **Pi SDK** (optional) — required for `--harness pi-sdk` runs
 
 Verify your setup:
 
@@ -187,12 +188,14 @@ asp run ./path/to/space
 
 | Option | Description |
 |--------|-------------|
+| `--harness <id>` | Harness to use (claude, pi, pi-sdk) |
+| `--model <model>` | Model override (pi-sdk expects provider:model) |
 | `--no-interactive` | Run non-interactively (requires prompt argument) |
 | `--no-warnings` | Suppress lint warnings |
 | `--project <path>` | Project directory (default: auto-detect) |
 | `--registry <path>` | Registry path override |
 | `--asp-home <path>` | ASP_HOME override |
-| `--extra-args <args...>` | Additional Claude CLI arguments |
+| `--extra-args <args...>` | Additional harness CLI arguments |
 
 **Examples:**
 
@@ -222,6 +225,7 @@ asp install [options]
 | Option | Description |
 |--------|-------------|
 | `--targets <names...>` | Specific targets to install |
+| `--harness <id>` | Harness to use (claude, pi, pi-sdk) |
 | `--update` | Re-resolve selectors (update lock) |
 | `--no-fetch` | Skip fetching registry updates |
 | `--project <path>` | Project directory |
@@ -256,6 +260,7 @@ asp build [target] --output <dir>
 | Option | Description |
 |--------|-------------|
 | `--output <dir>` | Output directory (required) |
+| `--harness <id>` | Harness to use (claude, pi, pi-sdk) |
 | `--no-clean` | Keep existing output directory |
 | `--no-install` | Skip auto-install if lock missing |
 | `--no-lint` | Skip lint checks |
@@ -372,6 +377,7 @@ asp explain [target]
 
 | Option | Description |
 |--------|-------------|
+| `--harness <id>` | Harness to use (claude, pi, pi-sdk) |
 | `--json` | Output as JSON |
 | `--no-store-check` | Skip checking if snapshots are in store |
 | `--no-lint` | Skip lint checks |

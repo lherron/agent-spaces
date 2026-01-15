@@ -199,6 +199,10 @@ Transform snapshots into Claude plugin directories:
 
 **File:** `packages/materializer/src/materialize.ts`
 
+## Harness Adapters
+
+Harness adapters translate materialized spaces into runnable bundles. `claude` uses Claude plugin directories, `pi` uses Pi CLI extensions, and `pi-sdk` writes a `bundle.json` manifest under `asp_modules/<target>/pi-sdk` that the Bun-based SDK runner consumes. The `pi-sdk` runner dynamically imports bundled extensions, so extensions must be dependency-free or depend on packages available in the runner environment.
+
 ## Storage Layout
 
 ```

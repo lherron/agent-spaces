@@ -47,7 +47,7 @@ export function registerExplainCommand(program: Command): void {
     .command('explain')
     .description('Print resolved graph, pins, load order, and warnings')
     .argument('[target]', 'Specific target to explain (default: all)')
-    .option('--harness <id>', 'Coding agent harness to use (default: claude)')
+    .option('--harness <id>', 'Coding agent harness to use (default: claude, e.g., pi, pi-sdk)')
     .option('--json', 'Output as JSON')
     .option('--no-store-check', 'Skip checking if snapshots are in store')
     .option('--no-lint', 'Skip lint checks')
@@ -55,7 +55,7 @@ export function registerExplainCommand(program: Command): void {
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (target: string | undefined, options) => {
-      // Validate harness option (Phase 1: only claude supported)
+      // Validate harness option
       const _harness = validateHarness(options.harness)
       // Find project root
       const projectPath = options.project ?? (await findProjectRoot())
