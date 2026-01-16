@@ -200,6 +200,30 @@ export interface ComposedTargetBundle {
 }
 
 // ============================================================================
+// Control-Plane Context (for multi-agent coordination)
+// ============================================================================
+
+/**
+ * Control-Plane context for multi-agent coordination.
+ *
+ * WHY: Multi-agent runs need coordination through the control-plane.
+ * This context is extracted from environment variables and passed through
+ * to harness adapters for inclusion in run events.
+ */
+export interface CpContext {
+  /** Work item identifier (from CP_WORK_ITEM_ID) */
+  workItemId?: string | undefined
+  /** Run identifier (from CP_RUN_ID) */
+  runId?: string | undefined
+  /** Role name (from CP_ROLE) */
+  role?: string | undefined
+  /** Run kind (from CP_KIND) */
+  kind?: string | undefined
+  /** Distributed trace identifier (from CP_TRACE_ID) */
+  traceId?: string | undefined
+}
+
+// ============================================================================
 // Run Options
 // ============================================================================
 
@@ -221,6 +245,12 @@ export interface HarnessRunOptions {
   prompt?: string | undefined
   /** Disable hook blocking and permissions (YOLO mode) */
   yolo?: boolean | undefined
+  /** Control-Plane context for multi-agent coordination */
+  cpContext?: CpContext | undefined
+  /** Path to artifact directory for run outputs (events, transcripts) */
+  artifactDir?: string | undefined
+  /** Whether to emit JSONL events to the artifact directory */
+  emitEvents?: boolean | undefined
 }
 
 // ============================================================================
