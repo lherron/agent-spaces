@@ -24,6 +24,13 @@
 Completed (2026-01-15)
 - Swapped control-plane deps/imports to `spaces-config`/`spaces-execution` and wired `claude-agent-sdk` for agent-spaces materialization.
 - Added `claude-agent-sdk` harness support (types/schema, adapter, registry, CLI, tests) and execution `materializeFromRefs` wrapper.
-- Fixed control-plane permission hook routing to fall back to the project’s active run when no session_id is available.
+- Fixed control-plane permission hook routing to fall back to the project's active run when no session_id is available.
 - Migrated `@lherron/session-agent-sdk` core session runner + hook bridge into `spaces-execution` and adapted control-plane wrappers to keep Project-specific config in CP.
- - Agent-spaces tests/typecheck/lint/build run clean after pi-session module additions.
+- Agent-spaces tests/typecheck/lint/build run clean after pi-session module additions.
+- Added CP context and JSONL event emission support for multi-agent coordination:
+  - Created `packages/execution/src/events/` module with `cp-context.ts` (CP env var extraction) and `events.ts` (structured JSONL event emitter)
+  - Added `CpContext` type to `spaces-config` harness types with new `HarnessRunOptions` fields: `cpContext`, `artifactDir`, `emitEvents`
+  - Updated `run.ts` to extract CP context from env vars (CP_WORK_ITEM_ID, CP_RUN_ID, CP_ROLE, CP_KIND, CP_TRACE_ID)
+  - Run function now emits `job_started` and `job_completed` JSONL events when `emitEvents` is enabled
+  - CP context is passed through to harness adapters and child process environment
+  - Deterministic artifact directories generated based on CP_RUN_ID when available
