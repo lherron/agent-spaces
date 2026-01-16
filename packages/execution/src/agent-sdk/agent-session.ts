@@ -1,4 +1,14 @@
 import { query } from '@anthropic-ai/claude-agent-sdk'
+import type { PermissionHandler } from '../session/permissions.js'
+import type {
+  ContentBlock,
+  Message,
+  PromptOptions,
+  ToolResult,
+  UnifiedSession,
+  UnifiedSessionEvent,
+  UnifiedSessionState,
+} from '../session/types.js'
 import type { HookEventBusAdapter } from './hooks-bridge.js'
 import { HooksBridge, processSDKMessage } from './hooks-bridge.js'
 import { PromptQueue } from './prompt-queue.js'
@@ -31,7 +41,9 @@ export type AgentSessionState = 'idle' | 'running' | 'stopped' | 'error'
  * - Accepts user prompts via the prompt queue
  * - Streams outputs and hook callbacks back to the host
  */
-export class AgentSession {
+export class AgentSession implements UnifiedSession {
+  readonly kind = 'agent-sdk' as const
+  readonly sessionId: string
   private readonly promptQueue: PromptQueue
   private readonly hooksBridge: HooksBridge
   private outputIterator: AsyncIterator<unknown> | null = null
@@ -42,21 +54,38 @@ export class AgentSession {
   private lastResponse = ''
   private sdkSessionId?: string
   private readonly onSdkSessionId: ((sdkSessionId: string) => void) | undefined
+  private eventCallback?: (event: UnifiedSessionEvent) => void
+  private hasEmittedAgentStart = false
+  private hasEmittedAgentEnd = false
+  private stopReason: string | undefined
+  private turnCounter = 0
+  private currentTurnId: string | undefined
+  private readonly toolUses = new Map<string, { name: string; input: unknown }>()
+  private toolUseCounter = 0
 
   constructor(
     private readonly config: AgentSessionConfig,
-    private readonly hookEventBus: HookEventBusAdapter,
+    private readonly hookEventBus?: HookEventBusAdapter,
     opts?: { onSdkSessionId?: (sdkSessionId: string) => void }
   ) {
     this.promptQueue = new PromptQueue(config.sessionId)
     this.hooksBridge = new HooksBridge(config.ownerId, hookEventBus, config.cwd, config.sessionId)
     this.onSdkSessionId = opts?.onSdkSessionId
+    this.sessionId = config.sessionId ?? config.ownerId
+  }
+
+  onEvent(callback: (event: UnifiedSessionEvent) => void): void {
+    this.eventCallback = callback
+  }
+
+  setPermissionHandler(handler: PermissionHandler): void {
+    this.hooksBridge.setPermissionHandler(handler)
   }
 
   /**
    * Start the SDK session by initializing the query.
    */
-  start(): void {
+  async start(): Promise<void> {
     if (this.state !== 'idle') {
       throw new Error(`Cannot start session in state: ${this.state}`)
     }
@@ -103,29 +132,33 @@ export class AgentSession {
   /**
    * Send a user prompt to the session.
    */
-  sendPrompt(content: string): void {
+  async sendPrompt(content: string, _options?: PromptOptions): Promise<void> {
     if (this.state !== 'running') {
       throw new Error(`Cannot send prompt in state: ${this.state}`)
     }
     this.lastActivityAt = Date.now()
+    this.currentTurnId = `turn-${++this.turnCounter}`
+    this.emitEvent({ type: 'turn_start', turnId: this.currentTurnId })
     this.promptQueue.push(content)
   }
 
   /**
    * Stop the session.
    */
-  stop(reason?: string): void {
+  async stop(reason?: string): Promise<void> {
     if (this.state === 'stopped') return
 
     this.state = 'stopped'
+    this.stopReason = reason
     this.promptQueue.close(reason)
     this.hooksBridge.emitSessionEnd()
+    this.emitAgentEnd(reason)
   }
 
   /**
    * Get the current session state.
    */
-  getState(): AgentSessionState {
+  getState(): UnifiedSessionState {
     return this.state
   }
 
@@ -169,6 +202,7 @@ export class AgentSession {
       console.error(`[agent-sdk] Error in session ${this.config.ownerId}:`, error)
       this.state = 'error'
       this.hooksBridge.emitStop()
+      this.emitAgentEnd('error')
     })
   }
 
@@ -210,6 +244,7 @@ export class AgentSession {
             )
           }
         }
+        this.emitAgentStartIfNeeded()
 
         // Extract assistant response text from SDK messages
         const responseText = this.extractResponseText(value)
@@ -217,6 +252,7 @@ export class AgentSession {
           this.lastResponse = responseText
         }
 
+        this.handleSdkMessage(msg, msgType)
         processSDKMessage(value, this.hooksBridge)
 
         // When we receive a result message, emit Stop to complete the current run
@@ -225,6 +261,7 @@ export class AgentSession {
           this.hooksBridge.emitStop(undefined, this.lastResponse || undefined)
           // Clear lastResponse for next prompt
           this.lastResponse = ''
+          this.emitTurnEndIfNeeded()
         }
       }
     } finally {
@@ -236,7 +273,179 @@ export class AgentSession {
       if (this.lastResponse) {
         this.hooksBridge.emitStop(undefined, this.lastResponse)
       }
+      this.emitAgentEnd(this.stopReason ?? (this.state === 'error' ? 'error' : 'stopped'))
     }
+  }
+
+  private emitEvent(event: UnifiedSessionEvent): void {
+    this.eventCallback?.(event)
+  }
+
+  private emitAgentStartIfNeeded(): void {
+    if (this.hasEmittedAgentStart) return
+    this.hasEmittedAgentStart = true
+    const event: UnifiedSessionEvent = {
+      type: 'agent_start',
+      sessionId: this.sessionId,
+      ...(this.sdkSessionId !== undefined ? { sdkSessionId: this.sdkSessionId } : {}),
+    }
+    this.emitEvent(event)
+  }
+
+  private emitAgentEnd(reason?: string): void {
+    if (this.hasEmittedAgentEnd) return
+    this.hasEmittedAgentEnd = true
+    const event: UnifiedSessionEvent = {
+      type: 'agent_end',
+      sessionId: this.sessionId,
+      ...(this.sdkSessionId !== undefined ? { sdkSessionId: this.sdkSessionId } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+    }
+    this.emitEvent(event)
+  }
+
+  private emitTurnEndIfNeeded(): void {
+    if (!this.currentTurnId) return
+    this.emitEvent({ type: 'turn_end', turnId: this.currentTurnId })
+    this.currentTurnId = undefined
+  }
+
+  private handleSdkMessage(msg: Record<string, unknown>, msgType: string | undefined): void {
+    const message = mapSdkMessage(msgType, msg)
+    if (message) {
+      const messageId = resolveMessageId(msg)
+      const messageEventBase = messageId !== undefined ? { messageId } : {}
+      this.emitEvent({ type: 'message_start', message, ...messageEventBase })
+      if (Array.isArray(message.content)) {
+        this.emitEvent({
+          type: 'message_update',
+          contentBlocks: message.content,
+          ...messageEventBase,
+        })
+      } else if (typeof message.content === 'string') {
+        this.emitEvent({
+          type: 'message_update',
+          textDelta: message.content,
+          ...messageEventBase,
+        })
+      }
+      this.emitEvent({ type: 'message_end', message, ...messageEventBase })
+    }
+
+    const content = getMessageContent(msgType, msg)
+    const sawToolResultBlock = this.handleToolBlocks(content)
+    this.emitUserToolResultIfNeeded(msg, msgType, sawToolResultBlock)
+  }
+
+  private handleToolBlocks(content: unknown): boolean {
+    if (!content) return false
+    const blocks = Array.isArray(content) ? content : [content]
+    let sawToolResultBlock = false
+
+    for (const block of blocks) {
+      if (!block || typeof block !== 'object') continue
+      const blockObj = block as Record<string, unknown>
+      const blockType = typeof blockObj['type'] === 'string' ? blockObj['type'] : undefined
+
+      if (blockType === 'tool_use') {
+        this.processToolUseBlock(blockObj)
+        continue
+      }
+
+      if (blockType === 'tool_result') {
+        sawToolResultBlock = true
+        this.processToolResultBlock(blockObj)
+      }
+    }
+
+    return sawToolResultBlock
+  }
+
+  private processToolUseBlock(blockObj: Record<string, unknown>): void {
+    const toolUseId = resolveToolUseId(blockObj) ?? `sdk-tool-${++this.toolUseCounter}`
+    const toolName =
+      typeof blockObj['name'] === 'string'
+        ? blockObj['name']
+        : typeof blockObj['tool_name'] === 'string'
+          ? blockObj['tool_name']
+          : 'tool'
+    const toolInput =
+      'input' in blockObj
+        ? blockObj['input']
+        : 'tool_input' in blockObj
+          ? blockObj['tool_input']
+          : undefined
+
+    this.toolUses.set(toolUseId, { name: toolName, input: toolInput })
+    this.emitEvent({
+      type: 'tool_execution_start',
+      toolUseId,
+      toolName,
+      input: normalizeToolInput(toolInput),
+    })
+  }
+
+  private processToolResultBlock(blockObj: Record<string, unknown>): void {
+    const toolUseId = resolveToolUseId(blockObj)
+    const resolvedToolUseId = toolUseId ?? `sdk-tool-${++this.toolUseCounter}`
+    const toolMeta = toolUseId ? this.toolUses.get(toolUseId) : undefined
+    const toolName =
+      toolMeta?.name ??
+      (typeof blockObj['tool_name'] === 'string'
+        ? blockObj['tool_name']
+        : typeof blockObj['name'] === 'string'
+          ? blockObj['name']
+          : 'tool')
+    const isError = blockObj['is_error'] === true || blockObj['isError'] === true ? true : undefined
+    const { blocks } = normalizeToolResultBlocks(blockObj['content'])
+    const details: Record<string, unknown> = {}
+    if (blockObj['structuredContent'] !== undefined) {
+      details['structured_content'] = blockObj['structuredContent']
+    } else if (blockObj['structured_content'] !== undefined) {
+      details['structured_content'] = blockObj['structured_content']
+    }
+    const result: ToolResult = {
+      content: blocks,
+      ...(Object.keys(details).length > 0 ? { details } : {}),
+    }
+
+    this.emitEvent({
+      type: 'tool_execution_end',
+      toolUseId: resolvedToolUseId,
+      toolName,
+      result,
+      ...(isError !== undefined ? { isError } : {}),
+    })
+    if (toolUseId) {
+      this.toolUses.delete(toolUseId)
+    }
+  }
+
+  private emitUserToolResultIfNeeded(
+    msg: Record<string, unknown>,
+    msgType: string | undefined,
+    sawToolResultBlock: boolean
+  ): void {
+    if (
+      msgType !== 'user' ||
+      sawToolResultBlock ||
+      typeof msg['parent_tool_use_id'] !== 'string' ||
+      msg['tool_use_result'] === undefined
+    ) {
+      return
+    }
+    const toolUseId = msg['parent_tool_use_id']
+    const toolMeta = this.toolUses.get(toolUseId)
+    const toolName = toolMeta?.name ?? 'tool'
+    const { blocks } = normalizeToolResultBlocks(msg['tool_use_result'])
+    const result: ToolResult = { content: blocks }
+    this.emitEvent({
+      type: 'tool_execution_end',
+      toolUseId,
+      toolName,
+      result,
+    })
+    this.toolUses.delete(toolUseId)
   }
 
   /**
@@ -280,4 +489,218 @@ export class AgentSession {
 
     return undefined
   }
+}
+
+function getMessageContent(msgType: string | undefined, msg: Record<string, unknown>): unknown {
+  if (msgType !== 'assistant' && msgType !== 'user') return undefined
+  const message = msg['message']
+  if (!message || typeof message !== 'object') return undefined
+  return (message as Record<string, unknown>)['content']
+}
+
+function resolveMessageId(msg: Record<string, unknown>): string | undefined {
+  const message = msg['message']
+  if (message && typeof message === 'object') {
+    const id = (message as Record<string, unknown>)['id']
+    if (typeof id === 'string') return id
+  }
+  if (typeof msg['message_id'] === 'string') return msg['message_id']
+  if (typeof msg['messageId'] === 'string') return msg['messageId']
+  return undefined
+}
+
+function mapSdkMessage(msgType: string | undefined, msg: Record<string, unknown>): Message | null {
+  if (msgType !== 'assistant' && msgType !== 'user') return null
+  const message = msg['message']
+  if (!message || typeof message !== 'object') return null
+  const messageObj = message as Record<string, unknown>
+  const content = mapSdkContent(messageObj['content'])
+  if (content === undefined) return null
+
+  const roleRaw = typeof messageObj['role'] === 'string' ? messageObj['role'] : msgType
+  const role = roleRaw === 'toolResult' || roleRaw === 'tool' ? 'toolResult' : roleRaw
+
+  if (role !== 'assistant' && role !== 'user' && role !== 'toolResult') return null
+  return { role, content }
+}
+
+function mapSdkContent(content: unknown): ContentBlock[] | string | undefined {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return undefined
+
+  const blocks: ContentBlock[] = []
+  for (const item of content) {
+    if (!item || typeof item !== 'object') {
+      const text = typeof item === 'string' ? item : String(item)
+      if (text) {
+        blocks.push({ type: 'text', text })
+      }
+      continue
+    }
+
+    const block = item as Record<string, unknown>
+    const type = typeof block['type'] === 'string' ? block['type'] : undefined
+
+    if (type === 'text' && typeof block['text'] === 'string') {
+      blocks.push({ type: 'text', text: block['text'] })
+      continue
+    }
+
+    if (
+      type === 'image' &&
+      typeof block['data'] === 'string' &&
+      typeof block['mimeType'] === 'string'
+    ) {
+      blocks.push({ type: 'image', data: block['data'], mimeType: block['mimeType'] })
+      continue
+    }
+
+    if (type === 'media_ref' && typeof block['url'] === 'string') {
+      const entry: ContentBlock = { type: 'media_ref', url: block['url'] }
+      if (typeof block['mimeType'] === 'string') entry.mimeType = block['mimeType']
+      if (typeof block['filename'] === 'string') entry.filename = block['filename']
+      if (typeof block['alt'] === 'string') entry.alt = block['alt']
+      blocks.push(entry)
+      continue
+    }
+
+    if (type === 'resource_link' && typeof block['uri'] === 'string') {
+      const entry: ContentBlock = { type: 'media_ref', url: block['uri'] }
+      if (typeof block['mimeType'] === 'string') entry.mimeType = block['mimeType']
+      if (typeof block['filename'] === 'string') entry.filename = block['filename']
+      if (typeof block['alt'] === 'string') entry.alt = block['alt']
+      blocks.push(entry)
+      continue
+    }
+
+    if (type === 'tool_use') {
+      const toolUseId = resolveToolUseId(block)
+      const toolName =
+        typeof block['name'] === 'string'
+          ? block['name']
+          : typeof block['tool_name'] === 'string'
+            ? block['tool_name']
+            : undefined
+      if (toolUseId && toolName) {
+        blocks.push({
+          type: 'tool_use',
+          id: toolUseId,
+          name: toolName,
+          input: normalizeToolInput(block['input'] ?? block['tool_input']),
+        })
+      }
+      continue
+    }
+
+    if (type === 'tool_result') {
+      const toolUseId = resolveToolUseId(block)
+      const { text } = normalizeToolResultBlocks(block['content'])
+      if (toolUseId && text) {
+        const entry: ContentBlock = {
+          type: 'tool_result',
+          tool_use_id: toolUseId,
+          content: text,
+        }
+        if (block['is_error'] === true || block['isError'] === true) {
+          entry.is_error = true
+        }
+        blocks.push(entry)
+      }
+    }
+  }
+
+  return blocks.length > 0 ? blocks : undefined
+}
+
+function normalizeToolInput(toolInput: unknown): Record<string, unknown> {
+  if (toolInput && typeof toolInput === 'object' && !Array.isArray(toolInput)) {
+    return toolInput as Record<string, unknown>
+  }
+  if (toolInput === undefined) return {}
+  return { value: toolInput }
+}
+
+function resolveToolUseId(blockObj: Record<string, unknown>): string | undefined {
+  if (typeof blockObj['tool_use_id'] === 'string') return blockObj['tool_use_id']
+  if (typeof blockObj['toolUseId'] === 'string') return blockObj['toolUseId']
+  if (typeof blockObj['id'] === 'string') return blockObj['id']
+  return undefined
+}
+
+function normalizeToolResultBlocks(content: unknown): { blocks: ContentBlock[]; text: string } {
+  const blocks: ContentBlock[] = []
+  const textParts: string[] = []
+  if (content === undefined || content === null) {
+    return { blocks, text: '' }
+  }
+
+  const items = Array.isArray(content) ? content : [content]
+  for (const item of items) {
+    if (!item || typeof item !== 'object') {
+      const text = typeof item === 'string' ? item : String(item)
+      if (text) {
+        blocks.push({ type: 'text', text })
+        textParts.push(text)
+      }
+      continue
+    }
+
+    const block = item as Record<string, unknown>
+    const type = typeof block['type'] === 'string' ? block['type'] : undefined
+
+    if (type === 'text' && typeof block['text'] === 'string') {
+      blocks.push({ type: 'text', text: block['text'] })
+      textParts.push(block['text'])
+      continue
+    }
+
+    if (
+      type === 'image' &&
+      typeof block['data'] === 'string' &&
+      typeof block['mimeType'] === 'string'
+    ) {
+      blocks.push({ type: 'image', data: block['data'], mimeType: block['mimeType'] })
+      continue
+    }
+
+    if (type === 'media_ref' && typeof block['url'] === 'string') {
+      const entry: ContentBlock = { type: 'media_ref', url: block['url'] }
+      if (typeof block['mimeType'] === 'string') entry.mimeType = block['mimeType']
+      if (typeof block['filename'] === 'string') entry.filename = block['filename']
+      if (typeof block['alt'] === 'string') entry.alt = block['alt']
+      blocks.push(entry)
+      continue
+    }
+
+    if (type === 'resource_link' && typeof block['uri'] === 'string') {
+      const entry: ContentBlock = { type: 'media_ref', url: block['uri'] }
+      if (typeof block['mimeType'] === 'string') entry.mimeType = block['mimeType']
+      if (typeof block['filename'] === 'string') entry.filename = block['filename']
+      if (typeof block['alt'] === 'string') entry.alt = block['alt']
+      blocks.push(entry)
+      continue
+    }
+
+    if (type === 'resource' && block['resource'] && typeof block['resource'] === 'object') {
+      const resource = block['resource'] as Record<string, unknown>
+      if (typeof resource['text'] === 'string') {
+        blocks.push({ type: 'text', text: resource['text'] })
+        textParts.push(resource['text'])
+        continue
+      }
+      if (
+        typeof resource['blob'] === 'string' &&
+        typeof block['mimeType'] === 'string' &&
+        block['mimeType'].startsWith('image/')
+      ) {
+        blocks.push({
+          type: 'image',
+          data: resource['blob'],
+          mimeType: block['mimeType'],
+        })
+      }
+    }
+  }
+
+  return { blocks, text: textParts.join('') }
 }

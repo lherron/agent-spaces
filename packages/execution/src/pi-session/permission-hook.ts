@@ -1,9 +1,11 @@
 import type { ExtensionFactory } from '@mariozechner/pi-coding-agent'
+import type { PermissionHandler } from '../session/permissions.js'
 import type { PiHookEventBusAdapter } from './types.js'
 
 export interface PermissionHookOptions {
   ownerId: string
-  hookEventBus: PiHookEventBusAdapter
+  hookEventBus?: PiHookEventBusAdapter
+  permissionHandler?: PermissionHandler
   sessionId?: string
   cwd?: string
 }
@@ -20,12 +22,39 @@ export function createPermissionHook(options: PermissionHookOptions): ExtensionF
         ...(options.sessionId ? { session_id: options.sessionId } : {}),
       }
 
-      if (options.hookEventBus.isToolAutoAllowed(options.ownerId, event.toolName)) {
-        options.hookEventBus.emitHook(options.ownerId, hook)
+      const { hookEventBus, permissionHandler } = options
+
+      if (permissionHandler) {
+        if (permissionHandler.isAutoAllowed(event.toolName)) {
+          hookEventBus?.emitHook(options.ownerId, hook)
+          return
+        }
+
+        hookEventBus?.emitHook(options.ownerId, hook)
+        const decision = await permissionHandler.requestPermission({
+          toolName: event.toolName,
+          toolUseId: event.toolCallId ?? '',
+          input: event.input,
+        })
+
+        if (decision.allowed) {
+          return
+        }
+
+        return {
+          block: true,
+          reason: decision.reason ?? 'Permission denied',
+        }
+      }
+
+      if (!hookEventBus) return
+
+      if (hookEventBus.isToolAutoAllowed(options.ownerId, event.toolName)) {
+        hookEventBus.emitHook(options.ownerId, hook)
         return
       }
 
-      const decision = await options.hookEventBus.requestPermission(options.ownerId, hook)
+      const decision = await hookEventBus.requestPermission(options.ownerId, hook)
 
       if (decision.decision === 'allow') {
         return
