@@ -5,7 +5,6 @@
  * - Ensure target is installed (via asp_modules)
  * - Read materialized plugins from asp_modules
  * - Launch Claude with plugin directories
- * - Extract CP context for multi-agent coordination
  * - Emit structured JSONL events for observability
  */
 
@@ -15,7 +14,6 @@ import { join } from 'node:path'
 
 import {
   type ComposedTargetBundle,
-  type CpContext,
   DEFAULT_HARNESS,
   type HarnessId,
   LOCK_FILENAME,
@@ -33,14 +31,7 @@ import {
   serializeLockJson,
 } from 'spaces-config'
 
-import {
-  type RunEventEmitter,
-  cpContextToEnv,
-  createEventEmitter,
-  extractCpContext,
-  getEventsOutputPath,
-  hasCpContext,
-} from './events/index.js'
+import { type RunEventEmitter, createEventEmitter, getEventsOutputPath } from './events/index.js'
 
 import {
   type ClaudeInvocationResult,
@@ -226,8 +217,6 @@ export interface RunOptions extends ResolveOptions {
   inheritProject?: boolean | undefined
   /** Inherit user-level settings (for Pi: enables ~/.pi/agent/skills) */
   inheritUser?: boolean | undefined
-  /** Control-Plane context (extracted from env vars if not provided) */
-  cpContext?: CpContext | undefined
   /** Path to artifact directory for run outputs (events, transcripts) */
   artifactDir?: string | undefined
   /** Whether to emit JSONL events to the artifact directory */
@@ -248,8 +237,6 @@ export interface RunResult {
   command?: string | undefined
   /** Path to events JSONL file (if emitEvents was true) */
   eventsPath?: string | undefined
-  /** CP context used for this run */
-  cpContext?: CpContext | undefined
 }
 
 /**
@@ -508,23 +495,10 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     }
   }
 
-  // Extract CP context from environment or options
-  const cpContext = options.cpContext ?? extractCpContext()
-  const hasCp = hasCpContext(cpContext)
-  if (hasCp) {
-    debugLog('cp context', cpContext)
-  }
-
   // Determine artifact directory and events path
-  const artifactDir =
-    options.artifactDir ??
-    (hasCp && cpContext.runId
-      ? join(options.projectPath, 'asp_modules', '.runs', cpContext.runId)
-      : undefined)
+  const artifactDir = options.artifactDir
   const eventsPath =
-    options.emitEvents && artifactDir
-      ? getEventsOutputPath(artifactDir, cpContext.runId)
-      : undefined
+    options.emitEvents && artifactDir ? getEventsOutputPath(artifactDir) : undefined
 
   // Create event emitter if configured
   let eventEmitter: RunEventEmitter | undefined
@@ -532,7 +506,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     debugLog('events path', eventsPath)
     eventEmitter = await createEventEmitter({
       outputPath: eventsPath,
-      cpContext,
       heartbeatIntervalMs: 30000, // 30 second heartbeats
     })
   }
@@ -602,15 +575,13 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
       settingSources: options.settingSources,
       cwd: options.cwd ?? options.projectPath,
       yolo: options.yolo,
-      cpContext,
       artifactDir,
       emitEvents: options.emitEvents,
     })
 
-    // Build env vars for Pi harness (include CP context for child processes)
+    // Build env vars for Pi harness.
     const piEnv: Record<string, string> = {
       ...options.env,
-      ...cpContextToEnv(cpContext),
       PI_CODING_AGENT_DIR: harnessOutputPath,
     }
 
@@ -630,7 +601,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         exitCode: 0,
         command,
         eventsPath,
-        cpContext: hasCp ? cpContext : undefined,
       }
     }
 
@@ -678,7 +648,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
       exitCode,
       command,
       eventsPath,
-      cpContext: hasCp ? cpContext : undefined,
     }
   }
 
@@ -730,7 +699,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     args: [...(claudeOptions.args ?? []), ...yoloArgs, ...(options.extraArgs ?? [])],
     env: {
       ...options.env,
-      ...cpContextToEnv(cpContext),
       ASP_PLUGIN_ROOT: harnessOutputPath,
     },
   }
@@ -782,7 +750,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     exitCode,
     command,
     eventsPath,
-    cpContext: hasCp ? cpContext : undefined,
   }
 }
 
@@ -858,8 +825,6 @@ export interface GlobalRunOptions {
   inheritProject?: boolean | undefined
   /** Inherit user-level settings (for Pi: enables ~/.pi/agent/skills) */
   inheritUser?: boolean | undefined
-  /** Control-Plane context (extracted from env vars if not provided) */
-  cpContext?: CpContext | undefined
   /** Path to artifact directory for run outputs (events, transcripts) */
   artifactDir?: string | undefined
   /** Whether to emit JSONL events to the artifact directory */

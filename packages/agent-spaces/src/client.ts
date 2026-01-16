@@ -1,0 +1,820 @@
+import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { basename, isAbsolute, join } from 'node:path'
+
+import {
+  type HarnessId,
+  type LockFile,
+  PathResolver,
+  type SpaceRefString,
+  atomicWriteJson,
+  computeClosure,
+  discoverSkills,
+  ensureDir,
+  generateLockFileForTarget,
+  getRegistryPath,
+  readHooksWithPrecedence,
+  resolveTarget,
+} from 'spaces-config'
+
+import {
+  type PermissionHandler,
+  PiSession,
+  type UnifiedSession,
+  type UnifiedSessionEvent,
+  createSession,
+  loadPiSdkBundle,
+  materializeFromRefs,
+  materializeTarget,
+} from 'spaces-execution'
+
+import type {
+  AgentEvent,
+  AgentSpacesClient,
+  AgentSpacesError,
+  DescribeRequest,
+  DescribeResponse,
+  HarnessCapabilities,
+  ResolveRequest,
+  ResolveResponse,
+  RunResult,
+  RunTurnRequest,
+  RunTurnResponse,
+  SpaceSpec,
+} from './types.js'
+
+const AGENT_SDK_HARNESS = 'agent-sdk'
+const PI_SDK_HARNESS = 'pi-sdk'
+
+const AGENT_SDK_INTERNAL: HarnessId = 'claude-agent-sdk'
+const PI_SDK_INTERNAL: HarnessId = 'pi-sdk'
+
+const AGENT_SDK_MODELS = [
+  'api/opus',
+  'api/haiku',
+  'api/sonnet',
+  'claude/opus',
+  'claude/haiku',
+  'claude/sonnet',
+]
+
+const PI_SDK_MODELS = [
+  'openai-codex/gpt-5.2-codex',
+  'openai-codex/gpt-5.2',
+  'api/gpt-5.2-codex',
+  'api/gpt-5.2',
+]
+
+const DEFAULT_AGENT_SDK_MODEL = 'api/opus'
+const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.2-codex'
+
+const HARNESS_DEFS = new Map<
+  string,
+  { internalId: HarnessId; models: string[]; defaultModel: string }
+>([
+  [
+    AGENT_SDK_HARNESS,
+    {
+      internalId: AGENT_SDK_INTERNAL,
+      models: AGENT_SDK_MODELS,
+      defaultModel: DEFAULT_AGENT_SDK_MODEL,
+    },
+  ],
+  [
+    PI_SDK_HARNESS,
+    {
+      internalId: PI_SDK_INTERNAL,
+      models: PI_SDK_MODELS,
+      defaultModel: DEFAULT_PI_SDK_MODEL,
+    },
+  ],
+])
+
+interface ValidatedSpec {
+  kind: 'spaces' | 'target'
+  spaces?: string[]
+  targetName?: string
+  targetDir?: string
+}
+
+interface SessionRecord {
+  externalSessionId: string
+  harness: string
+  harnessSessionId?: string | undefined
+  model?: string | undefined
+  createdAt: string
+  updatedAt: string
+}
+
+interface MaterializedSpec {
+  targetName: string
+  materialization: {
+    outputPath: string
+    pluginDirs: string[]
+    mcpConfigPath?: string | undefined
+  }
+  skills: string[]
+}
+
+interface ModelInfo {
+  effectiveModel: string
+  provider: string
+  model: string
+}
+
+type EventPayload = Omit<
+  AgentEvent,
+  'ts' | 'seq' | 'externalSessionId' | 'externalRunId' | 'harnessSessionId'
+>
+
+function validateSpec(spec: SpaceSpec): ValidatedSpec {
+  const hasSpaces = 'spaces' in spec
+  const hasTarget = 'target' in spec
+
+  if (hasSpaces === hasTarget) {
+    throw new Error('SpaceSpec must include exactly one of "spaces" or "target"')
+  }
+
+  if (hasTarget) {
+    const target = spec.target
+    if (!target?.targetName) {
+      throw new Error('SpaceSpec target must include targetName')
+    }
+    if (!target?.targetDir) {
+      throw new Error('SpaceSpec target must include targetDir')
+    }
+    if (!isAbsolute(target.targetDir)) {
+      throw new Error('SpaceSpec targetDir must be an absolute path')
+    }
+    return {
+      kind: 'target',
+      targetName: target.targetName,
+      targetDir: target.targetDir,
+    }
+  }
+
+  if (!spec.spaces || spec.spaces.length === 0) {
+    throw new Error('SpaceSpec spaces must include at least one space reference')
+  }
+
+  return {
+    kind: 'spaces',
+    spaces: spec.spaces,
+  }
+}
+
+function computeSpacesTargetName(spaces: string[]): string {
+  const hash = createHash('sha256')
+  hash.update(JSON.stringify(spaces))
+  return `spaces-${hash.digest('hex').slice(0, 12)}`
+}
+
+function sessionRecordPath(aspHome: string, externalSessionId: string): string {
+  const hash = createHash('sha256')
+  hash.update(externalSessionId)
+  return join(aspHome, 'sessions', `${hash.digest('hex')}.json`)
+}
+
+function piSessionPath(aspHome: string, externalSessionId: string): string {
+  const hash = createHash('sha256')
+  hash.update(externalSessionId)
+  return join(aspHome, 'sessions', 'pi', hash.digest('hex'))
+}
+
+async function readSessionRecord(
+  aspHome: string,
+  externalSessionId: string
+): Promise<SessionRecord | null> {
+  const path = sessionRecordPath(aspHome, externalSessionId)
+  if (!existsSync(path)) {
+    return null
+  }
+
+  const raw = await readFile(path, 'utf-8')
+  return JSON.parse(raw) as SessionRecord
+}
+
+async function writeSessionRecord(aspHome: string, record: SessionRecord): Promise<void> {
+  const path = sessionRecordPath(aspHome, record.externalSessionId)
+  await atomicWriteJson(path, record)
+}
+
+function applyEnvOverlay(env: Record<string, string>): () => void {
+  const prior = new Map<string, string | undefined>()
+
+  for (const [key, value] of Object.entries(env)) {
+    prior.set(key, process.env[key])
+    process.env[key] = value
+  }
+
+  return () => {
+    for (const [key, value] of prior.entries()) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
+async function withAspHome<T>(aspHome: string, fn: () => Promise<T>): Promise<T> {
+  const restore = applyEnvOverlay({ ASP_HOME: aspHome })
+  try {
+    return await fn()
+  } finally {
+    restore()
+  }
+}
+
+function resolveHarness(harness: string): {
+  externalId: string
+  internalId: HarnessId
+  models: string[]
+  defaultModel: string
+} {
+  const def = HARNESS_DEFS.get(harness)
+  if (!def) {
+    throw new Error(`Unsupported harness: ${harness}`)
+  }
+  return {
+    externalId: harness,
+    internalId: def.internalId,
+    models: def.models,
+    defaultModel: def.defaultModel,
+  }
+}
+
+function parseModelId(modelId: string): ModelInfo | null {
+  const separatorIndex = modelId.indexOf('/')
+  if (separatorIndex <= 0 || separatorIndex === modelId.length - 1) {
+    return null
+  }
+  const provider = modelId.slice(0, separatorIndex)
+  const model = modelId.slice(separatorIndex + 1)
+  if (!provider || !model) {
+    return null
+  }
+  return { effectiveModel: modelId, provider, model }
+}
+
+function resolveModel(
+  harness: { models: string[]; defaultModel: string },
+  requested: string | undefined
+): { ok: true; info: ModelInfo } | { ok: false; modelId: string } {
+  const modelId = requested ?? harness.defaultModel
+  if (!harness.models.includes(modelId)) {
+    return { ok: false, modelId }
+  }
+  const info = parseModelId(modelId)
+  if (!info) {
+    return { ok: false, modelId }
+  }
+  return { ok: true, info }
+}
+
+async function resolveSpecToLock(
+  spec: ValidatedSpec,
+  aspHome: string
+): Promise<{ targetName: string; lock: LockFile; registryPath: string }> {
+  if (spec.kind === 'target') {
+    const result = await resolveTarget(spec.targetName as string, {
+      projectPath: spec.targetDir as string,
+      aspHome,
+    })
+    const registryPath = getRegistryPath({ projectPath: spec.targetDir as string, aspHome })
+    return { targetName: spec.targetName as string, lock: result.lock, registryPath }
+  }
+
+  const refs = spec.spaces as string[]
+  const targetName = computeSpacesTargetName(refs)
+  const paths = new PathResolver({ aspHome })
+  const closure = await computeClosure(refs as SpaceRefString[], {
+    cwd: paths.repo,
+  })
+  const lock = await generateLockFileForTarget(targetName, refs as SpaceRefString[], closure, {
+    cwd: paths.repo,
+    registry: { type: 'git', url: paths.repo },
+  })
+
+  return { targetName, lock, registryPath: paths.repo }
+}
+
+async function materializeSpec(
+  spec: ValidatedSpec,
+  aspHome: string,
+  harnessId: HarnessId
+): Promise<MaterializedSpec> {
+  if (spec.kind === 'target') {
+    const { targetName, lock, registryPath } = await resolveSpecToLock(spec, aspHome)
+    const materialization = await materializeTarget(targetName, lock, {
+      projectPath: spec.targetDir as string,
+      aspHome,
+      registryPath,
+      harness: harnessId,
+    })
+    const skillMetadata = await discoverSkills(materialization.pluginDirs)
+    return {
+      targetName,
+      materialization: {
+        outputPath: materialization.outputPath,
+        pluginDirs: materialization.pluginDirs,
+        mcpConfigPath: materialization.mcpConfigPath,
+      },
+      skills: skillMetadata.map((skill) => skill.name),
+    }
+  }
+
+  const refs = spec.spaces as string[]
+  const targetName = computeSpacesTargetName(refs)
+  const paths = new PathResolver({ aspHome })
+  const materialized = await materializeFromRefs({
+    targetName,
+    refs: refs as SpaceRefString[],
+    registryPath: paths.repo,
+    aspHome,
+    lockPath: paths.globalLock,
+    harness: harnessId,
+  })
+
+  return {
+    targetName,
+    materialization: {
+      outputPath: materialized.materialization.outputPath,
+      pluginDirs: materialized.materialization.pluginDirs,
+      mcpConfigPath: materialized.materialization.mcpConfigPath,
+    },
+    skills: materialized.skills.map((skill) => skill.name),
+  }
+}
+
+async function collectHooks(pluginDirs: string[]): Promise<string[]> {
+  const hooks: string[] = []
+  for (const dir of pluginDirs) {
+    const hooksDir = join(dir, 'hooks')
+    const result = await readHooksWithPrecedence(hooksDir)
+    for (const hook of result.hooks) {
+      hooks.push(hook.event)
+    }
+  }
+  return hooks
+}
+
+async function collectTools(mcpConfigPath: string | undefined): Promise<string[]> {
+  if (!mcpConfigPath) return []
+  const raw = await readFile(mcpConfigPath, 'utf-8')
+  const parsed = JSON.parse(raw) as { mcpServers?: Record<string, unknown> } | undefined
+  if (!parsed?.mcpServers) return []
+  return Object.keys(parsed.mcpServers)
+}
+
+function toAgentSpacesError(error: unknown, code?: AgentSpacesError['code']): AgentSpacesError {
+  const message = error instanceof Error ? error.message : String(error)
+  const details: Record<string, unknown> = {}
+  if (error instanceof Error && error.stack) {
+    details['stack'] = error.stack
+  }
+  return {
+    message,
+    ...(code ? { code } : {}),
+    ...(Object.keys(details).length > 0 ? { details } : {}),
+  }
+}
+
+function createEventEmitter(
+  onEvent: (event: AgentEvent) => void | Promise<void>,
+  base: {
+    externalSessionId: string
+    externalRunId: string
+  },
+  harnessSessionId?: string
+): {
+  emit: (event: EventPayload) => Promise<void>
+  setHarnessSessionId: (id: string) => void
+  idle: () => Promise<void>
+} {
+  let seq = 0
+  let currentHarnessSessionId = harnessSessionId
+  let lastEmission = Promise.resolve()
+
+  const emit = async (event: EventPayload): Promise<void> => {
+    seq += 1
+    const fullEvent: AgentEvent = {
+      ...(event as AgentEvent),
+      ts: new Date().toISOString(),
+      seq,
+      externalSessionId: base.externalSessionId,
+      externalRunId: base.externalRunId,
+      ...(currentHarnessSessionId ? { harnessSessionId: currentHarnessSessionId } : {}),
+    }
+
+    lastEmission = lastEmission.then(() => Promise.resolve(onEvent(fullEvent)))
+    return lastEmission
+  }
+
+  return {
+    emit,
+    setHarnessSessionId: (id: string) => {
+      currentHarnessSessionId = id
+    },
+    idle: () => lastEmission,
+  }
+}
+
+function mapContentToText(content: unknown): string | undefined {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return undefined
+  const textParts: string[] = []
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue
+    const blockObj = block as { type?: string; text?: string }
+    if (blockObj.type === 'text' && typeof blockObj.text === 'string') {
+      textParts.push(blockObj.text)
+    }
+  }
+  if (textParts.length === 0) return undefined
+  return textParts.join('')
+}
+
+function mapUnifiedEvents(
+  event: UnifiedSessionEvent,
+  emit: (event: EventPayload) => void,
+  setHarnessSessionId: (id: string) => void,
+  state: { assistantBuffer: string; lastAssistantText?: string | undefined },
+  options: { allowSessionIdUpdate: boolean }
+): { turnEnded: boolean } {
+  switch (event.type) {
+    case 'agent_start': {
+      const sessionId =
+        typeof (event as { sdkSessionId?: unknown }).sdkSessionId === 'string'
+          ? (event as { sdkSessionId: string }).sdkSessionId
+          : event.sessionId
+      if (sessionId && options.allowSessionIdUpdate) {
+        setHarnessSessionId(sessionId)
+      }
+      return { turnEnded: false }
+    }
+    case 'message_start':
+      if (event.message.role === 'assistant') {
+        state.assistantBuffer = ''
+      }
+      return { turnEnded: false }
+    case 'message_update': {
+      if (event.textDelta && event.textDelta.length > 0) {
+        state.assistantBuffer += event.textDelta
+        emit({ type: 'message_delta', role: 'assistant', delta: event.textDelta } as EventPayload)
+      } else if (event.contentBlocks) {
+        const text = mapContentToText(event.contentBlocks)
+        if (text) {
+          state.assistantBuffer += text
+          emit({ type: 'message_delta', role: 'assistant', delta: text } as EventPayload)
+        }
+      }
+      return { turnEnded: false }
+    }
+    case 'message_end': {
+      if (event.message?.role !== 'assistant') return { turnEnded: false }
+      const content = mapContentToText(event.message.content)
+      const finalText = content ?? state.assistantBuffer
+      if (finalText) {
+        state.lastAssistantText = finalText
+        emit({ type: 'message', role: 'assistant', content: finalText } as EventPayload)
+      }
+      return { turnEnded: false }
+    }
+    case 'tool_execution_start':
+      emit({
+        type: 'tool_call',
+        toolUseId: event.toolUseId,
+        toolName: event.toolName,
+        input: event.input,
+      } as EventPayload)
+      return { turnEnded: false }
+    case 'tool_execution_end':
+      emit({
+        type: 'tool_result',
+        toolUseId: event.toolUseId,
+        toolName: event.toolName,
+        output: event.result,
+        isError: event.isError === true,
+      } as EventPayload)
+      return { turnEnded: false }
+    case 'turn_end':
+      return { turnEnded: true }
+    case 'agent_end':
+      return { turnEnded: true }
+    default:
+      return { turnEnded: false }
+  }
+}
+
+function buildAutoPermissionHandler(): PermissionHandler {
+  return {
+    isAutoAllowed: () => true,
+    requestPermission: async () => ({ allowed: true }),
+  }
+}
+
+async function runSession(
+  session: UnifiedSession,
+  prompt: string,
+  attachments: string[] | undefined,
+  runId: string
+): Promise<void> {
+  const attachmentRefs = attachments?.map((path) => ({
+    kind: 'file' as const,
+    path,
+    filename: basename(path),
+  }))
+
+  await session.start()
+  await session.sendPrompt(prompt, {
+    ...(attachmentRefs ? { attachments: attachmentRefs } : {}),
+    runId,
+  })
+}
+
+export function createAgentSpacesClient(): AgentSpacesClient {
+  return {
+    async resolve(req: ResolveRequest): Promise<ResolveResponse> {
+      return withAspHome(req.aspHome, async () => {
+        try {
+          const spec = validateSpec(req.spec)
+          await resolveSpecToLock(spec, req.aspHome)
+          return { ok: true }
+        } catch (error) {
+          return {
+            ok: false,
+            error: toAgentSpacesError(error, 'resolve_failed'),
+          }
+        }
+      })
+    },
+
+    async describe(req: DescribeRequest): Promise<DescribeResponse> {
+      return withAspHome(req.aspHome, async () => {
+        const spec = validateSpec(req.spec)
+        const materialized = await materializeSpec(spec, req.aspHome, AGENT_SDK_INTERNAL)
+        const hooks = await collectHooks(materialized.materialization.pluginDirs)
+        const tools = await collectTools(materialized.materialization.mcpConfigPath)
+        return {
+          hooks,
+          skills: materialized.skills,
+          tools,
+        }
+      })
+    },
+
+    async getHarnessCapabilities(): Promise<HarnessCapabilities> {
+      return {
+        harnesses: [
+          { id: AGENT_SDK_HARNESS, models: [...AGENT_SDK_MODELS] },
+          { id: PI_SDK_HARNESS, models: [...PI_SDK_MODELS] },
+        ],
+      }
+    },
+
+    async runTurn(req: RunTurnRequest): Promise<RunTurnResponse> {
+      return withAspHome(req.aspHome, async () => {
+        const eventEmitter = createEventEmitter(
+          req.callbacks.onEvent,
+          { externalSessionId: req.externalSessionId, externalRunId: req.externalRunId },
+          req.harnessSessionId
+        )
+
+        let spec: ValidatedSpec
+        let harnessDef: ReturnType<typeof resolveHarness>
+        let modelResolution: ReturnType<typeof resolveModel>
+        let harnessSessionId = req.harnessSessionId
+
+        try {
+          spec = validateSpec(req.spec)
+          harnessDef = resolveHarness(req.harness)
+          modelResolution = resolveModel(harnessDef, req.model)
+        } catch (error) {
+          const result: RunResult = { success: false, error: toAgentSpacesError(error) }
+          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+          return {
+            harness: req.harness,
+            model: req.model,
+            harnessSessionId,
+            result,
+          }
+        }
+
+        const record = await readSessionRecord(req.aspHome, req.externalSessionId)
+        if (record && record.harness !== harnessDef.externalId) {
+          const error = toAgentSpacesError(
+            new Error(
+              `Harness mismatch for session ${req.externalSessionId}: expected ${record.harness}, got ${harnessDef.externalId}`
+            )
+          )
+          const result: RunResult = { success: false, error }
+          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+          return {
+            harness: req.harness,
+            model: req.model,
+            harnessSessionId: record.harnessSessionId,
+            result,
+          }
+        }
+
+        const isResume =
+          req.harnessSessionId !== undefined || record?.harnessSessionId !== undefined
+        harnessSessionId = req.harnessSessionId ?? record?.harnessSessionId
+
+        if (harnessDef.externalId === PI_SDK_HARNESS && !harnessSessionId) {
+          harnessSessionId = piSessionPath(req.aspHome, req.externalSessionId)
+        }
+
+        if (harnessSessionId) {
+          eventEmitter.setHarnessSessionId(harnessSessionId)
+        }
+
+        if (harnessDef.externalId === PI_SDK_HARNESS && !isResume && harnessSessionId) {
+          await ensureDir(harnessSessionId)
+        }
+
+        await eventEmitter.emit({ type: 'state', state: 'running' } as EventPayload)
+        await eventEmitter.emit({
+          type: 'message',
+          role: 'user',
+          content: req.prompt,
+        } as EventPayload)
+
+        if (!modelResolution.ok) {
+          const error = toAgentSpacesError(
+            new Error(
+              `Model not supported for harness ${harnessDef.externalId}: ${modelResolution.modelId}`
+            ),
+            'model_not_supported'
+          )
+          const result: RunResult = { success: false, error }
+          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+          return {
+            harness: req.harness,
+            model: modelResolution.modelId,
+            harnessSessionId,
+            result,
+          }
+        }
+
+        if (harnessDef.externalId === PI_SDK_HARNESS && isResume && harnessSessionId) {
+          if (!existsSync(harnessSessionId)) {
+            const error = toAgentSpacesError(
+              new Error(`Harness session not found: ${harnessSessionId}`),
+              'harness_session_not_found'
+            )
+            const result: RunResult = { success: false, error }
+            await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+            await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+            return {
+              harness: req.harness,
+              model: modelResolution.info.effectiveModel,
+              harnessSessionId,
+              result,
+            }
+          }
+        }
+
+        const permissionHandler = buildAutoPermissionHandler()
+
+        let session: UnifiedSession | undefined
+        let turnEnded = false
+        let finalOutput: string | undefined
+        const assistantState: { assistantBuffer: string; lastAssistantText?: string | undefined } =
+          {
+            assistantBuffer: '',
+          }
+
+        try {
+          const materialized = await materializeSpec(spec, req.aspHome, harnessDef.internalId)
+
+          const harnessEnv: Record<string, string> = { ...(req.env ?? {}) }
+          if (harnessDef.externalId === PI_SDK_HARNESS) {
+            harnessEnv['PI_CODING_AGENT_DIR'] = materialized.materialization.outputPath
+          }
+
+          const restoreEnv = applyEnvOverlay(harnessEnv)
+          try {
+            if (harnessDef.externalId === AGENT_SDK_HARNESS) {
+              const plugins = materialized.materialization.pluginDirs.map((dir) => ({
+                type: 'local' as const,
+                path: dir,
+              }))
+              session = createSession({
+                kind: 'agent-sdk',
+                sessionId: harnessSessionId ?? req.externalSessionId,
+                cwd: req.cwd,
+                model: modelResolution.info.model as 'haiku' | 'sonnet' | 'opus',
+                plugins,
+                permissionHandler,
+              })
+            } else {
+              const bundle = await loadPiSdkBundle(materialized.materialization.outputPath, {
+                cwd: req.cwd,
+                yolo: true,
+                noExtensions: false,
+                noSkills: false,
+                agentDir: materialized.materialization.outputPath,
+              })
+              const piSession = new PiSession({
+                ownerId: req.externalSessionId,
+                cwd: req.cwd,
+                provider: modelResolution.info.provider,
+                model: modelResolution.info.model,
+                sessionId: req.externalSessionId,
+                extensions: bundle.extensions,
+                skills: bundle.skills,
+                contextFiles: bundle.contextFiles,
+                agentDir: materialized.materialization.outputPath,
+                ...(harnessSessionId ? { sessionPath: harnessSessionId } : {}),
+              })
+              piSession.setPermissionHandler(permissionHandler)
+              session = piSession
+            }
+
+            const turnPromise = new Promise<void>((resolve) => {
+              if (!session) return
+              session.onEvent((event: UnifiedSessionEvent) => {
+                const result = mapUnifiedEvents(
+                  event,
+                  (mapped) => {
+                    void eventEmitter.emit(mapped)
+                  },
+                  (id) => {
+                    harnessSessionId = id
+                    eventEmitter.setHarnessSessionId(id)
+                  },
+                  assistantState,
+                  { allowSessionIdUpdate: harnessDef.externalId !== PI_SDK_HARNESS }
+                )
+
+                if (result.turnEnded && !turnEnded) {
+                  turnEnded = true
+                  void eventEmitter.idle().then(resolve)
+                }
+              })
+            })
+
+            await runSession(session, req.prompt, req.attachments, req.externalRunId)
+            await turnPromise
+            await session.stop('complete')
+            await eventEmitter.idle()
+            finalOutput = assistantState.lastAssistantText
+          } finally {
+            restoreEnv()
+          }
+
+          const result: RunResult = { success: true, ...(finalOutput ? { finalOutput } : {}) }
+          await eventEmitter.emit({ type: 'state', state: 'complete' } as EventPayload)
+          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+
+          const now = new Date().toISOString()
+          const updatedRecord: SessionRecord = {
+            externalSessionId: req.externalSessionId,
+            harness: harnessDef.externalId,
+            harnessSessionId,
+            model: modelResolution.info.effectiveModel,
+            createdAt: record?.createdAt ?? now,
+            updatedAt: now,
+          }
+          await writeSessionRecord(req.aspHome, updatedRecord)
+
+          return {
+            harness: req.harness,
+            model: modelResolution.info.effectiveModel,
+            harnessSessionId,
+            result,
+          }
+        } catch (error) {
+          if (session) {
+            try {
+              await session.stop('error')
+            } catch {
+              // Ignore cleanup failures.
+            }
+          }
+
+          const result: RunResult = {
+            success: false,
+            error: toAgentSpacesError(error, 'resolve_failed'),
+          }
+          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+
+          return {
+            harness: req.harness,
+            model: modelResolution.ok ? modelResolution.info.effectiveModel : req.model,
+            harnessSessionId,
+            result,
+          }
+        }
+      })
+    },
+  }
+}

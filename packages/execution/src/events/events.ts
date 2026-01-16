@@ -14,7 +14,6 @@
 import { type WriteStream, createWriteStream } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { CpContext } from './cp-context.js'
 
 // ============================================================================
 // Event Types
@@ -26,8 +25,6 @@ export interface BaseEvent {
   event: string
   /** ISO 8601 timestamp */
   timestamp: string
-  /** CP context (included when available) */
-  cpContext?: CpContext | undefined
 }
 
 /** Emitted when a job starts */
@@ -129,8 +126,6 @@ export interface EventEmitterOptions {
   outputPath?: string | undefined
   /** Write to stdout instead of file */
   stdout?: boolean | undefined
-  /** CP context to include in all events */
-  cpContext?: CpContext | undefined
   /** Heartbeat interval in milliseconds (0 to disable) */
   heartbeatIntervalMs?: number | undefined
 }
@@ -143,7 +138,6 @@ export interface EventEmitterOptions {
 export class RunEventEmitter {
   private readonly outputPath: string | undefined
   private readonly stdout: boolean
-  private readonly cpContext: CpContext | undefined
   private stream: WriteStream | undefined
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined
   private startTime: number
@@ -153,7 +147,6 @@ export class RunEventEmitter {
   constructor(options: EventEmitterOptions = {}) {
     this.outputPath = options.outputPath
     this.stdout = options.stdout ?? false
-    this.cpContext = options.cpContext
     this.startTime = Date.now()
 
     // Start heartbeat if interval provided
@@ -177,13 +170,12 @@ export class RunEventEmitter {
   /**
    * Emit an event.
    */
-  emit<T extends RunEvent>(event: Omit<T, 'timestamp' | 'cpContext'>): void {
+  emit<T extends RunEvent>(event: Omit<T, 'timestamp'>): void {
     if (this.closed) return
 
     const fullEvent: RunEvent = {
       ...event,
       timestamp: new Date().toISOString(),
-      cpContext: this.cpContext,
     } as RunEvent
 
     // Track message count for heartbeats
@@ -197,7 +189,7 @@ export class RunEventEmitter {
   /**
    * Emit a job_started event.
    */
-  emitJobStarted(data: Omit<JobStartedEvent, 'event' | 'timestamp' | 'cpContext'>): void {
+  emitJobStarted(data: Omit<JobStartedEvent, 'event' | 'timestamp'>): void {
     this.startTime = Date.now()
     this.emit<JobStartedEvent>({ event: 'job_started', ...data })
   }
@@ -205,28 +197,28 @@ export class RunEventEmitter {
   /**
    * Emit a session_started event.
    */
-  emitSessionStarted(data: Omit<SessionStartedEvent, 'event' | 'timestamp' | 'cpContext'>): void {
+  emitSessionStarted(data: Omit<SessionStartedEvent, 'event' | 'timestamp'>): void {
     this.emit<SessionStartedEvent>({ event: 'session_started', ...data })
   }
 
   /**
    * Emit a message event.
    */
-  emitMessage(data: Omit<MessageEvent, 'event' | 'timestamp' | 'cpContext'>): void {
+  emitMessage(data: Omit<MessageEvent, 'event' | 'timestamp'>): void {
     this.emit<MessageEvent>({ event: 'message', ...data })
   }
 
   /**
    * Emit a tool_call event.
    */
-  emitToolCall(data: Omit<ToolCallEvent, 'event' | 'timestamp' | 'cpContext'>): void {
+  emitToolCall(data: Omit<ToolCallEvent, 'event' | 'timestamp'>): void {
     this.emit<ToolCallEvent>({ event: 'tool_call', ...data })
   }
 
   /**
    * Emit a tool_result event.
    */
-  emitToolResult(data: Omit<ToolResultEvent, 'event' | 'timestamp' | 'cpContext'>): void {
+  emitToolResult(data: Omit<ToolResultEvent, 'event' | 'timestamp'>): void {
     this.emit<ToolResultEvent>({ event: 'tool_result', ...data })
   }
 
@@ -245,9 +237,7 @@ export class RunEventEmitter {
   /**
    * Emit a job_completed event and close the emitter.
    */
-  emitJobCompleted(
-    data: Omit<JobCompletedEvent, 'event' | 'timestamp' | 'cpContext' | 'totalDurationMs'>
-  ): void {
+  emitJobCompleted(data: Omit<JobCompletedEvent, 'event' | 'timestamp' | 'totalDurationMs'>): void {
     this.emit<JobCompletedEvent>({
       event: 'job_completed',
       totalDurationMs: Date.now() - this.startTime,

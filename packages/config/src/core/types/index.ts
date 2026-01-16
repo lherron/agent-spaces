@@ -96,7 +96,6 @@ export type {
   ComposeTargetInput,
   ComposeTargetOptions,
   ComposeTargetResult,
-  CpContext,
   HarnessAdapter,
   HarnessDetection,
   HarnessId,

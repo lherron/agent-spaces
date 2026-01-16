@@ -995,32 +995,7 @@ export class PiAdapter implements HarnessAdapter {
         const piPerms = toPiPermissions(permissions)
 
         // Generate W304 warning for each lint_only permission facet
-        const lintOnlyFacets: string[] = []
-
-        if (piPerms.read?.enforcement === 'lint_only' && piPerms.read.value?.length) {
-          lintOnlyFacets.push('read')
-        }
-        if (piPerms.write?.enforcement === 'lint_only' && piPerms.write.value?.length) {
-          lintOnlyFacets.push('write')
-        }
-        if (piPerms.network?.enforcement === 'lint_only' && piPerms.network.value?.length) {
-          lintOnlyFacets.push('network')
-        }
-        if (piPerms.deny?.read?.enforcement === 'lint_only' && piPerms.deny.read.value?.length) {
-          lintOnlyFacets.push('deny.read')
-        }
-        if (piPerms.deny?.write?.enforcement === 'lint_only' && piPerms.deny.write.value?.length) {
-          lintOnlyFacets.push('deny.write')
-        }
-        if (piPerms.deny?.exec?.enforcement === 'lint_only' && piPerms.deny.exec.value?.length) {
-          lintOnlyFacets.push('deny.exec')
-        }
-        if (
-          piPerms.deny?.network?.enforcement === 'lint_only' &&
-          piPerms.deny.network.value?.length
-        ) {
-          lintOnlyFacets.push('deny.network')
-        }
+        const lintOnlyFacets = this.collectLintOnlyFacets(piPerms)
 
         if (lintOnlyFacets.length > 0) {
           warnings.push({
@@ -1043,6 +1018,34 @@ export class PiAdapter implements HarnessAdapter {
     }
 
     return { bundle, warnings }
+  }
+
+  private collectLintOnlyFacets(piPerms: ReturnType<typeof toPiPermissions>): string[] {
+    const lintOnlyFacets: string[] = []
+
+    if (piPerms.read?.enforcement === 'lint_only' && piPerms.read.value?.length) {
+      lintOnlyFacets.push('read')
+    }
+    if (piPerms.write?.enforcement === 'lint_only' && piPerms.write.value?.length) {
+      lintOnlyFacets.push('write')
+    }
+    if (piPerms.network?.enforcement === 'lint_only' && piPerms.network.value?.length) {
+      lintOnlyFacets.push('network')
+    }
+    if (piPerms.deny?.read?.enforcement === 'lint_only' && piPerms.deny.read.value?.length) {
+      lintOnlyFacets.push('deny.read')
+    }
+    if (piPerms.deny?.write?.enforcement === 'lint_only' && piPerms.deny.write.value?.length) {
+      lintOnlyFacets.push('deny.write')
+    }
+    if (piPerms.deny?.exec?.enforcement === 'lint_only' && piPerms.deny.exec.value?.length) {
+      lintOnlyFacets.push('deny.exec')
+    }
+    if (piPerms.deny?.network?.enforcement === 'lint_only' && piPerms.deny.network.value?.length) {
+      lintOnlyFacets.push('deny.network')
+    }
+
+    return lintOnlyFacets
   }
 
   /**
@@ -1080,6 +1083,9 @@ export class PiAdapter implements HarnessAdapter {
     if (!hasExtensions) {
       args.push('--no-extensions')
     }
+
+    // Disable default skill loading from local/user directories.
+    args.push('--no-skills')
 
     // Model translation (sonnet -> claude-sonnet, etc.)
     // Default to gpt-5.2-codex with openai-codex provider if no model specified

@@ -1,19 +1,8 @@
 /**
  * Events module exports
  *
- * This module provides structured run event emission and CP context handling
- * for multi-agent coordination with the control-plane.
+ * This module provides structured run event emission.
  */
-
-// CP Context handling
-export {
-  type CpContext,
-  CP_ENV_VARS,
-  extractCpContext,
-  hasCpContext,
-  cpContextToEnv,
-  mergeCpContextEnv,
-} from './cp-context.js'
 
 // Event types and emitter
 export {
