@@ -22,6 +22,13 @@ export interface PiAgentSessionEvent {
   args?: Record<string, unknown>
   result?: unknown
   isError?: boolean
+  reason?: string
+  turnId?: string
+  toolResults?: unknown[]
+  message?: unknown
+  messageId?: string
+  assistantMessageEvent?: unknown
+  partialResult?: unknown
   [key: string]: unknown
 }
 
@@ -38,6 +45,9 @@ export interface PiSessionConfig {
   agentDir?: string
   globalAgentDir?: string
   additionalExtensionPaths?: string[]
+  extensions?: ExtensionFactory[]
+  skills?: Skill[]
+  contextFiles?: Array<{ path: string; content: string }>
   hookEventBus?: PiHookEventBusAdapter
   onEvent?: (event: PiAgentSessionEvent, runId?: string) => void
 }

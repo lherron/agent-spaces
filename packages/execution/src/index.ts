@@ -33,6 +33,9 @@ export * from './claude/index.js'
 // Events and CP context
 export * from './events/index.js'
 
+// Unified session interface
+export * from './session/index.js'
+
 // Claude Agent SDK session helpers
 export * from './agent-sdk/index.js'
 

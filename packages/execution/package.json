@@ -17,6 +17,11 @@
       "types": "./dist/agent-sdk/index.d.ts",
       "import": "./dist/agent-sdk/index.js"
     },
+    "./session": {
+      "bun": "./src/session/index.ts",
+      "types": "./dist/session/index.d.ts",
+      "import": "./dist/session/index.js"
+    },
     "./pi-session": {
       "bun": "./src/pi-session/index.ts",
       "types": "./dist/pi-session/index.d.ts",

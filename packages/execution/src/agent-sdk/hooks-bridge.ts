@@ -1,3 +1,5 @@
+import type { PermissionHandler } from '../session/permissions.js'
+
 export interface HookPermissionResponse {
   decision: 'allow' | 'deny'
   updatedInput?: unknown
@@ -35,13 +37,18 @@ export class HooksBridge {
   private currentToolUseId = 0
   private readonly toolUses = new Map<string, { name: string; input: unknown }>()
   private readonly emittedToolUseIds = new Set<string>()
+  private permissionHandler: PermissionHandler | undefined
 
   constructor(
     private readonly ownerId: string,
-    private readonly hookEventBus: HookEventBusAdapter,
+    private readonly hookEventBus?: HookEventBusAdapter,
     private readonly cwd?: string,
     private readonly sessionId?: string
   ) {}
+
+  setPermissionHandler(handler: PermissionHandler | undefined): void {
+    this.permissionHandler = handler
+  }
 
   /**
    * Create the canUseTool callback for the SDK.
@@ -59,6 +66,37 @@ export class HooksBridge {
           : undefined
       if (toolUseId) {
         this.registerToolUse(toolUseId, toolName, toolInput)
+      }
+
+      const permissionHandler = this.permissionHandler
+      if (permissionHandler) {
+        if (permissionHandler.isAutoAllowed(toolName)) {
+          this.emitPreToolUse(toolName, toolInput, toolUseId)
+          return { behavior: 'allow', updatedInput: toolInput }
+        }
+
+        this.emitPreToolUse(toolName, toolInput, toolUseId)
+        const response = await permissionHandler.requestPermission({
+          toolName,
+          toolUseId: toolUseId ?? '',
+          input: toolInput,
+        })
+
+        if (response.allowed) {
+          return {
+            behavior: 'allow',
+            updatedInput: (response.modifiedInput as Record<string, unknown>) ?? toolInput,
+          }
+        }
+
+        return {
+          behavior: 'deny',
+          message: response.reason ?? 'Permission denied',
+        }
+      }
+
+      if (!this.hookEventBus) {
+        return { behavior: 'allow', updatedInput: toolInput }
       }
 
       // Check if tool is auto-allowed by policy
@@ -96,6 +134,7 @@ export class HooksBridge {
    * Emit a PreToolUse hook event (for progress tracking).
    */
   emitPreToolUse(toolName: string, toolInput: unknown, toolUseId?: string): void {
+    if (!this.hookEventBus) return
     const hook = this.buildPreToolUseHook(toolName, toolInput, toolUseId)
     const resolvedToolUseId =
       typeof hook['tool_use_id'] === 'string' ? hook['tool_use_id'] : undefined
@@ -116,6 +155,7 @@ export class HooksBridge {
     toolUseId?: string,
     isError?: boolean
   ): void {
+    if (!this.hookEventBus) return
     const hook: Record<string, unknown> = {
       hook_event_name: 'PostToolUse',
       tool_name: toolName,
@@ -133,6 +173,7 @@ export class HooksBridge {
    * Emit a Notification hook event.
    */
   emitNotification(message: string): void {
+    if (!this.hookEventBus) return
     const hook: Record<string, unknown> = {
       hook_event_name: 'Notification',
       message,
@@ -146,6 +187,7 @@ export class HooksBridge {
    * Emit a Stop hook event (run completion).
    */
   emitStop(transcriptPath?: string, lastResponse?: string): void {
+    if (!this.hookEventBus) return
     const hook: Record<string, unknown> = {
       hook_event_name: 'Stop',
       transcript_path: transcriptPath,
@@ -160,6 +202,7 @@ export class HooksBridge {
    * Emit a SessionEnd hook event.
    */
   emitSessionEnd(): void {
+    if (!this.hookEventBus) return
     const hook: Record<string, unknown> = {
       hook_event_name: 'SessionEnd',
       cwd: this.cwd,
