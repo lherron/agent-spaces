@@ -88,6 +88,12 @@ export interface ToolExecutionEndEvent {
   durationMs?: number
 }
 
+/** Event emitted when SDK provides its internal session ID (for resume) */
+export interface SdkSessionIdEvent {
+  type: 'sdk_session_id'
+  sdkSessionId: string
+}
+
 export type UnifiedSessionEvent =
   | AgentStartEvent
   | AgentEndEvent
@@ -99,6 +105,7 @@ export type UnifiedSessionEvent =
   | ToolExecutionStartEvent
   | ToolExecutionUpdateEvent
   | ToolExecutionEndEvent
+  | SdkSessionIdEvent
 
 export type UnifiedSessionState = 'idle' | 'running' | 'streaming' | 'stopped' | 'error'
 

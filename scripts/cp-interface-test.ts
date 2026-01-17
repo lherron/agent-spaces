@@ -303,6 +303,51 @@ async function main(): Promise<void> {
   if (!response.result.success) {
     console.error('runTurn failed:', response.result.error?.message ?? 'Unknown error')
     process.exitCode = 1
+    return
+  }
+
+  // Test resume: make a second call asking the model to repeat the last question
+  if (response.harnessSessionId) {
+    console.log('\n--- Testing resume with harnessSessionId:', response.harnessSessionId, '---\n')
+    const resumeResponse = await client.runTurn({
+      externalSessionId,
+      externalRunId: `${externalRunId}-resume`,
+      aspHome,
+      spec,
+      harness: args.harness,
+      ...(args.model ? { model: args.model } : {}),
+      harnessSessionId: response.harnessSessionId,
+      cwd,
+      ...(Object.keys(args.env).length > 0 ? { env: args.env } : {}),
+      prompt: 'What was the last question I asked you?',
+      callbacks: {
+        onEvent: async (event) => {
+          if (args.verbose) {
+            console.log('resume event:', JSON.stringify(event, null, 2))
+          }
+
+          const hookPayload = extractHookPayload(event)
+          if (hookPayload !== undefined) {
+            console.log('resume hook payload:', JSON.stringify(hookPayload, null, 2))
+          }
+        },
+      },
+    })
+
+    console.log('resume runTurn response:', JSON.stringify(resumeResponse, null, 2))
+    if (resumeResponse.result.finalOutput) {
+      console.log('\nresume runTurn finalOutput (rendered markdown):')
+      console.log(marked.parse(resumeResponse.result.finalOutput))
+    }
+    if (!resumeResponse.result.success) {
+      console.error(
+        'resume runTurn failed:',
+        resumeResponse.result.error?.message ?? 'Unknown error'
+      )
+      process.exitCode = 1
+    }
+  } else {
+    console.log('\nNo harnessSessionId returned, skipping resume test')
   }
 }
 

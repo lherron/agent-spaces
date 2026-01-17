@@ -26,6 +26,8 @@ export interface AgentSessionConfig {
   plugins?: Array<{ type: 'local'; path: string }>
   /** Custom system prompt to override default Claude Code prompt */
   systemPrompt?: string
+  /** SDK session ID to resume (loads conversation history from previous session) */
+  resume?: string
 }
 
 /**
@@ -130,6 +132,7 @@ export class AgentSession implements UnifiedSession {
       ...(this.config.allowedTools ? { allowedTools: this.config.allowedTools } : {}),
       ...(this.config.plugins ? { plugins: this.config.plugins } : {}),
       ...(this.config.systemPrompt ? { systemPrompt: this.config.systemPrompt } : {}),
+      ...(this.config.resume ? { resume: this.config.resume } : {}),
     }
 
     const result = query({
@@ -279,6 +282,8 @@ export class AgentSession implements UnifiedSession {
           if (typeof sessionId === 'string' && this.sdkSessionId !== sessionId) {
             this.sdkSessionId = sessionId
             this.onSdkSessionId?.(sessionId)
+            // Emit dedicated event for SDK session ID (used for resume)
+            this.emitEvent({ type: 'sdk_session_id', sdkSessionId: sessionId })
           }
           const pluginList = Array.isArray(msg['plugins']) ? msg['plugins'] : []
           const pluginNames = pluginList
