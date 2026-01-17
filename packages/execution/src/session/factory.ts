@@ -14,6 +14,8 @@ export interface CreateSessionOptions {
   plugins?: Array<{ type: 'local'; path: string }>
   systemPrompt?: string
   maxTurns?: number
+  /** SDK session ID to resume (loads conversation history) */
+  resume?: string
 
   provider?: string
   providerModel?: string
@@ -39,6 +41,7 @@ export function createSession(options: CreateSessionOptions): UnifiedSession {
         ...(options.plugins !== undefined ? { plugins: options.plugins } : {}),
         ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
         ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
+        ...(options.resume !== undefined ? { resume: options.resume } : {}),
       },
       undefined
     )

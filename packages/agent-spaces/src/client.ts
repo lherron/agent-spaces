@@ -522,12 +522,17 @@ function mapUnifiedEvents(
 ): { turnEnded: boolean } {
   switch (event.type) {
     case 'agent_start': {
-      const sessionId =
-        typeof (event as { sdkSessionId?: unknown }).sdkSessionId === 'string'
-          ? (event as { sdkSessionId: string }).sdkSessionId
-          : event.sessionId
+      const sdkSid = (event as { sdkSessionId?: unknown }).sdkSessionId
+      const sessionId = typeof sdkSid === 'string' ? sdkSid : event.sessionId
       if (sessionId && options.allowSessionIdUpdate) {
         setHarnessSessionId(sessionId)
+      }
+      return { turnEnded: false }
+    }
+    case 'sdk_session_id': {
+      const sdkSid = (event as { sdkSessionId?: string }).sdkSessionId
+      if (sdkSid && options.allowSessionIdUpdate) {
+        setHarnessSessionId(sdkSid)
       }
       return { turnEnded: false }
     }
@@ -828,6 +833,8 @@ export function createAgentSpacesClient(): AgentSpacesClient {
                 model: normalizeAgentSdkModel(modelResolution.info.model),
                 plugins,
                 permissionHandler,
+                // Pass resume to load conversation history from previous session
+                ...(isResume && harnessSessionId ? { resume: harnessSessionId } : {}),
               })
             } else {
               const bundle = await loadPiSdkBundle(materialized.materialization.outputPath, {
