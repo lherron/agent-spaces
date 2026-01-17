@@ -547,18 +547,23 @@ async function explainTarget(
   // Run lint if requested
   let warnings: LintWarning[] = []
   if (options.runLint !== false) {
-    const lintData: SpaceLintData[] = spaces.map((space) => ({
-      key: space.key,
-      manifest: {
-        schema: 1 as const,
-        id: asSpaceId(space.id),
-        plugin: {
-          name: space.pluginName,
-          version: space.pluginVersion,
+    const lintData: SpaceLintData[] = spaces.map((space) => {
+      const isDev = space.commit === 'dev'
+      return {
+        key: space.key,
+        manifest: {
+          schema: 1 as const,
+          id: asSpaceId(space.id),
+          plugin: {
+            name: space.pluginName,
+            version: space.pluginVersion,
+          },
         },
-      },
-      pluginPath: paths.snapshot(asSha256Integrity(space.integrity)),
-    }))
+        pluginPath: isDev
+          ? join(registryPath, space.path)
+          : paths.snapshot(asSha256Integrity(space.integrity)),
+      }
+    })
 
     const lintContext: LintContext = { spaces: lintData }
     warnings = await lint(lintContext)

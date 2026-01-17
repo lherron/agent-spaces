@@ -94,8 +94,10 @@ const MODEL_TRANSLATION: Record<string, string> = {
   sonnet: 'claude-sonnet',
   opus: 'claude-opus',
   haiku: 'claude-haiku',
-  'sonnet-4': 'claude-sonnet-4',
-  'opus-4': 'claude-opus-4',
+  'sonnet-4': 'claude-sonnet-4-5',
+  'sonnet-4-5': 'claude-sonnet-4-5',
+  'opus-4': 'claude-opus-4-5',
+  'opus-4-5': 'claude-opus-4-5',
 }
 
 /**

@@ -907,7 +907,7 @@ schema = 1
 
 # Global Claude options (optional)
 [claude]
-model = "claude-sonnet-4-20250514"
+model = "claude-sonnet-4-5"
 permission_mode = "acceptEdits"
 
 # Define targets
@@ -927,7 +927,7 @@ compose = [
 
 # Override Claude options per target (optional)
 [targets.review.claude]
-model = "claude-sonnet-4-20250514"
+model = "claude-sonnet-4-5"
 \`\`\`
 
 ## Space Reference Formats

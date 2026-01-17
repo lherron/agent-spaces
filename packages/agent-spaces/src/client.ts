@@ -5,15 +5,19 @@ import { basename, isAbsolute, join } from 'node:path'
 
 import {
   type HarnessId,
+  type LintWarning,
   type LockFile,
   PathResolver,
   type SpaceRefString,
+  asSha256Integrity,
+  asSpaceId,
   atomicWriteJson,
   computeClosure,
   discoverSkills,
   ensureDir,
   generateLockFileForTarget,
   getRegistryPath,
+  lintSpaces,
   readHooksWithPrecedence,
   resolveTarget,
 } from 'spaces-config'
@@ -51,12 +55,13 @@ const AGENT_SDK_INTERNAL: HarnessId = 'claude-agent-sdk'
 const PI_SDK_INTERNAL: HarnessId = 'pi-sdk'
 
 const AGENT_SDK_MODELS = [
-  'api/opus',
-  'api/haiku',
-  'api/sonnet',
+  // 'api/opus',
+  // 'api/haiku',
+  // 'api/sonnet',
   'claude/opus',
   'claude/haiku',
   'claude/sonnet',
+  'claude/claude-opus-4-5',
 ]
 
 const PI_SDK_MODELS = [
@@ -66,7 +71,7 @@ const PI_SDK_MODELS = [
   'api/gpt-5.2',
 ]
 
-const DEFAULT_AGENT_SDK_MODEL = 'api/opus'
+const DEFAULT_AGENT_SDK_MODEL = 'claude/sonnet'
 const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.2-codex'
 
 const HARNESS_DEFS = new Map<
@@ -274,40 +279,66 @@ function resolveModel(
   return { ok: true, info }
 }
 
+function normalizeAgentSdkModel(model: string): 'haiku' | 'sonnet' | 'opus' | 'opus-4-5' {
+  switch (model) {
+    case 'haiku':
+    case 'sonnet':
+    case 'opus':
+    case 'opus-4-5':
+      return model
+    case 'claude-opus-4-5':
+      return 'opus-4-5'
+    default:
+      throw new Error(`Unsupported agent-sdk model: ${model}`)
+  }
+}
+
 async function resolveSpecToLock(
   spec: ValidatedSpec,
-  aspHome: string
+  aspHome: string,
+  registryPathOverride?: string | undefined
 ): Promise<{ targetName: string; lock: LockFile; registryPath: string }> {
   if (spec.kind === 'target') {
     const result = await resolveTarget(spec.targetName as string, {
       projectPath: spec.targetDir as string,
       aspHome,
+      ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
     })
-    const registryPath = getRegistryPath({ projectPath: spec.targetDir as string, aspHome })
+    const registryPath = getRegistryPath({
+      projectPath: spec.targetDir as string,
+      aspHome,
+      ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
+    })
     return { targetName: spec.targetName as string, lock: result.lock, registryPath }
   }
 
   const refs = spec.spaces as string[]
   const targetName = computeSpacesTargetName(refs)
   const paths = new PathResolver({ aspHome })
+  const registryPath = registryPathOverride ?? paths.repo
   const closure = await computeClosure(refs as SpaceRefString[], {
-    cwd: paths.repo,
+    cwd: registryPath,
   })
   const lock = await generateLockFileForTarget(targetName, refs as SpaceRefString[], closure, {
-    cwd: paths.repo,
-    registry: { type: 'git', url: paths.repo },
+    cwd: registryPath,
+    registry: { type: 'git', url: registryPath },
   })
 
-  return { targetName, lock, registryPath: paths.repo }
+  return { targetName, lock, registryPath }
 }
 
 async function materializeSpec(
   spec: ValidatedSpec,
   aspHome: string,
-  harnessId: HarnessId
+  harnessId: HarnessId,
+  registryPathOverride?: string | undefined
 ): Promise<MaterializedSpec> {
   if (spec.kind === 'target') {
-    const { targetName, lock, registryPath } = await resolveSpecToLock(spec, aspHome)
+    const { targetName, lock, registryPath } = await resolveSpecToLock(
+      spec,
+      aspHome,
+      registryPathOverride
+    )
     const materialization = await materializeTarget(targetName, lock, {
       projectPath: spec.targetDir as string,
       aspHome,
@@ -329,10 +360,11 @@ async function materializeSpec(
   const refs = spec.spaces as string[]
   const targetName = computeSpacesTargetName(refs)
   const paths = new PathResolver({ aspHome })
+  const registryPath = registryPathOverride ?? paths.repo
   const materialized = await materializeFromRefs({
     targetName,
     refs: refs as SpaceRefString[],
-    registryPath: paths.repo,
+    registryPath,
     aspHome,
     lockPath: paths.globalLock,
     harness: harnessId,
@@ -347,6 +379,49 @@ async function materializeSpec(
     },
     skills: materialized.skills.map((skill) => skill.name),
   }
+}
+
+async function collectLintWarnings(
+  spec: ValidatedSpec,
+  aspHome: string,
+  registryPathOverride?: string | undefined
+): Promise<LintWarning[]> {
+  const { targetName, lock, registryPath } = await resolveSpecToLock(
+    spec,
+    aspHome,
+    registryPathOverride
+  )
+  const target = lock.targets[targetName]
+  if (!target) {
+    throw new Error(`Target not found in lock: ${targetName}`)
+  }
+
+  const paths = new PathResolver({ aspHome })
+  const lintData = target.loadOrder.map((key) => {
+    const entry = lock.spaces[key]
+    if (!entry) {
+      throw new Error(`Space entry not found in lock: ${key}`)
+    }
+    const isDev = entry.commit === 'dev'
+    const pluginPath = isDev
+      ? join(registryPath, entry.path)
+      : paths.snapshot(asSha256Integrity(entry.integrity))
+
+    return {
+      key,
+      manifest: {
+        schema: 1 as const,
+        id: asSpaceId(entry.id),
+        plugin: {
+          name: entry.plugin.name,
+          version: entry.plugin.version,
+        },
+      },
+      pluginPath,
+    }
+  })
+
+  return lintSpaces({ spaces: lintData })
 }
 
 async function collectHooks(pluginDirs: string[]): Promise<string[]> {
@@ -410,6 +485,7 @@ function createEventEmitter(
     }
 
     lastEmission = lastEmission.then(() => Promise.resolve(onEvent(fullEvent)))
+    void lastEmission.catch(() => {})
     return lastEmission
   }
 
@@ -555,14 +631,53 @@ export function createAgentSpacesClient(): AgentSpacesClient {
     async describe(req: DescribeRequest): Promise<DescribeResponse> {
       return withAspHome(req.aspHome, async () => {
         const spec = validateSpec(req.spec)
-        const materialized = await materializeSpec(spec, req.aspHome, AGENT_SDK_INTERNAL)
+        const harnessDef = req.harness
+          ? resolveHarness(req.harness)
+          : resolveHarness(AGENT_SDK_HARNESS)
+        const materialized = await materializeSpec(
+          spec,
+          req.aspHome,
+          harnessDef.internalId,
+          req.registryPath
+        )
         const hooks = await collectHooks(materialized.materialization.pluginDirs)
         const tools = await collectTools(materialized.materialization.mcpConfigPath)
-        return {
+        const lintWarnings =
+          req.runLint === true
+            ? await collectLintWarnings(spec, req.aspHome, req.registryPath)
+            : undefined
+        const response: DescribeResponse = {
           hooks,
           skills: materialized.skills,
           tools,
         }
+
+        if (lintWarnings) {
+          response.lintWarnings = lintWarnings
+        }
+
+        if (harnessDef.externalId === AGENT_SDK_HARNESS) {
+          const modelResolution = resolveModel(harnessDef, req.model)
+          if (!modelResolution.ok) {
+            throw new Error(
+              `Model not supported for harness ${harnessDef.externalId}: ${modelResolution.modelId}`
+            )
+          }
+          const plugins = materialized.materialization.pluginDirs.map((dir) => ({
+            type: 'local' as const,
+            path: dir,
+          }))
+          response.agentSdkSessionParams = [
+            { paramName: 'kind', paramValue: 'agent-sdk' },
+            { paramName: 'sessionId', paramValue: req.sessionId ?? null },
+            { paramName: 'cwd', paramValue: req.cwd ?? null },
+            { paramName: 'model', paramValue: normalizeAgentSdkModel(modelResolution.info.model) },
+            { paramName: 'plugins', paramValue: plugins },
+            { paramName: 'permissionHandler', paramValue: 'auto-allow' },
+          ]
+        }
+
+        return response
       })
     },
 
@@ -710,7 +825,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
                 kind: 'agent-sdk',
                 sessionId: harnessSessionId ?? req.externalSessionId,
                 cwd: req.cwd,
-                model: modelResolution.info.model as 'haiku' | 'sonnet' | 'opus',
+                model: normalizeAgentSdkModel(modelResolution.info.model),
                 plugins,
                 permissionHandler,
               })
@@ -738,7 +853,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
               session = piSession
             }
 
-            const turnPromise = new Promise<void>((resolve) => {
+            const turnPromise = new Promise<void>((resolve, reject) => {
               if (!session) return
               session.onEvent((event: UnifiedSessionEvent) => {
                 const result = mapUnifiedEvents(
@@ -756,7 +871,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
 
                 if (result.turnEnded && !turnEnded) {
                   turnEnded = true
-                  void eventEmitter.idle().then(resolve)
+                  void eventEmitter.idle().then(resolve, reject)
                 }
               })
             })

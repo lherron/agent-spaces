@@ -24,6 +24,8 @@ interface LintWarning {
   code: string
   message: string
   severity: string
+  spaceKey?: string | undefined
+  path?: string | undefined
 }
 
 /**
@@ -39,6 +41,7 @@ async function checkLockFile(projectPath: string): Promise<LintWarning | null> {
       code: WARNING_CODE_LOCK_MISSING,
       message: `Lock file (${LOCK_FILENAME}) not found. Run "asp install" to generate it, or "asp run" will generate it automatically.`,
       severity: 'info',
+      path: lockPath,
     }
   }
   return null
@@ -79,6 +82,8 @@ async function collectExplainWarnings(
         code: warning.code,
         message: warning.message,
         severity: warning.severity ?? 'warning',
+        spaceKey: warning.spaceKey,
+        path: warning.path,
       })
     }
   }
@@ -107,8 +112,12 @@ function outputWarningsText(warnings: LintWarning[]): void {
   for (const warning of warnings) {
     const color = warning.severity === 'info' ? chalk.blue : chalk.yellow
     const target = warning.target === '_project' ? 'project' : warning.target
-    console.log(color(`[${warning.code}] ${target}`))
+    const label = warning.spaceKey ? `${target} (${warning.spaceKey})` : target
+    console.log(color(`[${warning.code}] ${label}`))
     console.log(`  ${warning.message}`)
+    if (warning.path) {
+      console.log(`  ${warning.path}`)
+    }
     console.log('')
   }
 }

@@ -50,6 +50,14 @@ import {
 } from '../store/index.js'
 
 import { fetch as gitFetch } from '../git/index.js'
+import {
+  type LintContext,
+  type LintWarning,
+  type SpaceLintData,
+  WARNING_CODES,
+  formatWarnings,
+  lint as lintSpaces,
+} from '../lint/index.js'
 
 import {
   type ResolveOptions,
@@ -440,6 +448,35 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
 
   // Populate store with snapshots
   const snapshotsCreated = await populateStore(mergedLock, options)
+
+  // Run lint checks (halt on errors)
+  const aspHome = options.aspHome ?? getAspHome()
+  const paths = new PathResolver({ aspHome })
+  const lintData: SpaceLintData[] = Object.entries(mergedLock.spaces).map(([key, entry]) => {
+    const isDev =
+      entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY
+    const pluginPath = isDev
+      ? join(registryPath, 'spaces', entry.id)
+      : paths.snapshot(entry.integrity)
+    return {
+      key: key as SpaceKey,
+      manifest: {
+        schema: 1 as const,
+        id: entry.id,
+        plugin: entry.plugin,
+      },
+      pluginPath,
+    }
+  })
+  const lintContext: LintContext = { spaces: lintData }
+  const lintWarnings: LintWarning[] = await lintSpaces(lintContext)
+  const skillErrors = lintWarnings.filter(
+    (warning) => warning.code === WARNING_CODES.SKILL_MD_MISSING_FRONTMATTER
+  )
+  if (skillErrors.length > 0) {
+    const formatted = formatWarnings(skillErrors)
+    throw new Error(`Skill lint errors found:\n${formatted}`)
+  }
 
   // Write lock file with project lock
   const lockPath = await withProjectLock(options.projectPath, async () => {

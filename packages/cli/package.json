@@ -73,6 +73,7 @@
     "lint.d.ts"
   ],
   "bundledDependencies": [
+    "agent-spaces",
     "spaces-config",
     "spaces-execution"
   ],
@@ -82,9 +83,10 @@
     "test": "bun test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "prepack": "mkdir -p node_modules && for pkg in config execution; do mkdir -p node_modules/spaces-\"$pkg\" && cp -r ../\"$pkg\"/dist node_modules/spaces-\"$pkg\"/ && cp ../\"$pkg\"/package.json node_modules/spaces-\"$pkg\"/; done"
+    "prepack": "mkdir -p node_modules && for pkg in config execution; do mkdir -p node_modules/spaces-\"$pkg\" && cp -r ../\"$pkg\"/dist node_modules/spaces-\"$pkg\"/ && cp ../\"$pkg\"/package.json node_modules/spaces-\"$pkg\"/; done && mkdir -p node_modules/agent-spaces && cp -r ../agent-spaces/dist node_modules/agent-spaces/ && cp ../agent-spaces/package.json node_modules/agent-spaces/"
   },
   "dependencies": {
+    "agent-spaces": "*",
     "spaces-config": "*",
     "spaces-execution": "*",
     "chalk": "^5.3.0",

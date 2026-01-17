@@ -1,3 +1,5 @@
+import type { LintWarning } from 'spaces-config'
+
 export type SpaceSpec = { spaces: string[] } | { target: { targetName: string; targetDir: string } }
 
 export interface SessionCallbacks {
@@ -41,12 +43,20 @@ export interface ResolveResponse {
 export interface DescribeRequest {
   aspHome: string
   spec: SpaceSpec
+  registryPath?: string | undefined
+  harness?: string | undefined
+  model?: string | undefined
+  cwd?: string | undefined
+  sessionId?: string | undefined
+  runLint?: boolean | undefined
 }
 
 export interface DescribeResponse {
   hooks: string[]
   skills: string[]
   tools: string[]
+  agentSdkSessionParams?: Array<{ paramName: string; paramValue: unknown }> | undefined
+  lintWarnings?: LintWarning[] | undefined
 }
 
 export interface HarnessCapabilities {

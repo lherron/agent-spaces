@@ -22,6 +22,7 @@ const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'
 
 import { registerAddCommand } from './commands/add.js'
 import { registerBuildCommand } from './commands/build.js'
+import { registerDescribeCommand } from './commands/describe.js'
 import { registerDiffCommand } from './commands/diff.js'
 import { registerDoctorCommand } from './commands/doctor.js'
 import { registerExplainCommand } from './commands/explain.js'
@@ -100,6 +101,7 @@ function createProgram(): Command {
   registerInitCommand(program)
   registerInstallCommand(program)
   registerBuildCommand(program)
+  registerDescribeCommand(program)
   registerExplainCommand(program)
   registerLintCommand(program)
   registerListCommand(program)

@@ -1,4 +1,4 @@
-import { query } from '@anthropic-ai/claude-agent-sdk'
+import { type Query, query } from '@anthropic-ai/claude-agent-sdk'
 import type { PermissionHandler } from '../session/permissions.js'
 import type {
   ContentBlock,
@@ -47,6 +47,8 @@ export class AgentSession implements UnifiedSession {
   private readonly promptQueue: PromptQueue
   private readonly hooksBridge: HooksBridge
   private outputIterator: AsyncIterator<unknown> | null = null
+  private sdkQuery: Query | null = null
+  private outputListener?: Promise<void>
   private state: AgentSessionState = 'idle'
   private isListening = false
   private lastActivityAt: number = Date.now()
@@ -58,10 +60,14 @@ export class AgentSession implements UnifiedSession {
   private hasEmittedAgentStart = false
   private hasEmittedAgentEnd = false
   private stopReason: string | undefined
+  private stopEmitted = false
   private turnCounter = 0
   private currentTurnId: string | undefined
   private readonly toolUses = new Map<string, { name: string; input: unknown }>()
   private toolUseCounter = 0
+  private stopResolve?: () => void
+  private stopPromise?: Promise<void>
+  private abortController?: AbortController
 
   constructor(
     private readonly config: AgentSessionConfig,
@@ -93,25 +99,32 @@ export class AgentSession implements UnifiedSession {
     this.state = 'running'
     this.lastActivityAt = Date.now()
 
+    // Create stop promise for graceful shutdown
+    this.stopPromise = new Promise<void>((resolve) => {
+      this.stopResolve = resolve
+    })
+
     // Store PID of current process (the SDK runs in-process)
     this.pid = process.pid
 
     // Map short model names to full SDK model names
     const modelMap: Record<string, string> = {
-      haiku: 'claude-haiku',
-      sonnet: 'claude-sonnet',
-      opus: 'claude-opus-4',
+      haiku: 'claude-haiku-3-5',
+      sonnet: 'claude-sonnet-4-5',
+      opus: 'claude-opus-4-5',
       'opus-4-5': 'claude-opus-4-5',
     }
     const sdkModel = modelMap[this.config.model] ?? this.config.model
 
     // Initialize the SDK query with the prompt queue as input
     const permissionMode = 'default' as const
+    this.abortController = new AbortController()
     const options = {
       maxTurns: this.config.maxTurns ?? 100,
       model: sdkModel,
       cwd: this.config.cwd,
       permissionMode,
+      abortController: this.abortController,
       // biome-ignore lint/suspicious/noExplicitAny: SDK type compatibility for canUseTool callback
       canUseTool: this.hooksBridge.createCanUseToolCallback() as any,
       ...(this.config.allowedTools ? { allowedTools: this.config.allowedTools } : {}),
@@ -125,6 +138,7 @@ export class AgentSession implements UnifiedSession {
       options,
     })
 
+    this.sdkQuery = result
     this.outputIterator = result[Symbol.asyncIterator]()
     this.startOutputListener()
   }
@@ -137,6 +151,7 @@ export class AgentSession implements UnifiedSession {
       throw new Error(`Cannot send prompt in state: ${this.state}`)
     }
     this.lastActivityAt = Date.now()
+    this.stopEmitted = false
     this.currentTurnId = `turn-${++this.turnCounter}`
     this.emitEvent({ type: 'turn_start', turnId: this.currentTurnId })
     this.promptQueue.push(content)
@@ -151,6 +166,34 @@ export class AgentSession implements UnifiedSession {
     this.state = 'stopped'
     this.stopReason = reason
     this.promptQueue.close(reason)
+
+    // Signal the listener loop to stop
+    this.stopResolve?.()
+
+    if (this.sdkQuery) {
+      try {
+        await this.sdkQuery.interrupt()
+      } catch (error) {
+        console.error(`[agent-sdk] Failed to interrupt session ${this.config.ownerId}:`, error)
+      }
+    }
+
+    this.abortController?.abort()
+
+    // Terminate the output iterator (fire and forget - awaiting may hang)
+    if (this.outputIterator?.return) {
+      void this.outputIterator.return().catch((error) => {
+        console.error(
+          `[agent-sdk] Failed to close output iterator for session ${this.config.ownerId}:`,
+          error
+        )
+      })
+    }
+
+    if (this.outputListener) {
+      await this.outputListener
+    }
+
     this.hooksBridge.emitSessionEnd()
     this.emitAgentEnd(reason)
   }
@@ -198,11 +241,8 @@ export class AgentSession implements UnifiedSession {
     if (this.isListening) return
     this.isListening = true
 
-    this.listenToOutput().catch((error) => {
+    this.outputListener = this.listenToOutput().catch((error) => {
       console.error(`[agent-sdk] Error in session ${this.config.ownerId}:`, error)
-      this.state = 'error'
-      this.hooksBridge.emitStop()
-      this.emitAgentEnd('error')
     })
   }
 
@@ -212,9 +252,20 @@ export class AgentSession implements UnifiedSession {
   private async listenToOutput(): Promise<void> {
     if (!this.outputIterator) return
 
+    const STOP_SENTINEL = Symbol('stop')
+
     try {
-      while (true) {
-        const { value, done } = await this.outputIterator.next()
+      while (this.state === 'running') {
+        // Race iterator.next() against stop signal
+        const result = await Promise.race([
+          this.outputIterator.next(),
+          this.stopPromise?.then(() => STOP_SENTINEL),
+        ])
+
+        // Check if we received the stop signal
+        if (result === STOP_SENTINEL || this.state !== 'running') break
+
+        const { value, done } = result as IteratorResult<unknown>
         if (done) break
 
         this.lastActivityAt = Date.now()
@@ -258,12 +309,17 @@ export class AgentSession implements UnifiedSession {
         // When we receive a result message, emit Stop to complete the current run
         // The SDK session stays alive for subsequent prompts
         if (msgType === 'result') {
-          this.hooksBridge.emitStop(undefined, this.lastResponse || undefined)
+          this.emitStopIfNeeded(undefined, this.lastResponse || undefined)
           // Clear lastResponse for next prompt
           this.lastResponse = ''
           this.emitTurnEndIfNeeded()
         }
       }
+    } catch (error) {
+      this.state = 'error'
+      this.stopReason = this.stopReason ?? 'error'
+      this.emitStopIfNeeded(undefined, this.lastResponse || undefined)
+      throw error
     } finally {
       this.isListening = false
       if (this.state === 'running') {
@@ -271,7 +327,7 @@ export class AgentSession implements UnifiedSession {
       }
       // Emit final stop if session ends without a result
       if (this.lastResponse) {
-        this.hooksBridge.emitStop(undefined, this.lastResponse)
+        this.emitStopIfNeeded(undefined, this.lastResponse)
       }
       this.emitAgentEnd(this.stopReason ?? (this.state === 'error' ? 'error' : 'stopped'))
     }
@@ -279,6 +335,12 @@ export class AgentSession implements UnifiedSession {
 
   private emitEvent(event: UnifiedSessionEvent): void {
     this.eventCallback?.(event)
+  }
+
+  private emitStopIfNeeded(transcriptPath?: string, lastResponse?: string): void {
+    if (this.stopEmitted) return
+    this.stopEmitted = true
+    this.hooksBridge.emitStop(transcriptPath, lastResponse)
   }
 
   private emitAgentStartIfNeeded(): void {

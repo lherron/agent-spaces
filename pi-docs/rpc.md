@@ -190,7 +190,7 @@ Messages are `AgentMessage` objects (see [Message Types](#message-types)).
 Switch to a specific model.
 
 ```json
-{"type": "set_model", "provider": "anthropic", "modelId": "claude-sonnet-4-20250514"}
+{"type": "set_model", "provider": "anthropic", "modelId": "claude-sonnet-4-5"}
 ```
 
 Response contains the full [Model](#model) object:
@@ -876,7 +876,7 @@ Source files:
 
 ```json
 {
-  "id": "claude-sonnet-4-20250514",
+  "id": "claude-sonnet-4-5",
   "name": "Claude Sonnet 4",
   "api": "anthropic-messages",
   "provider": "anthropic",
@@ -919,7 +919,7 @@ The `content` field can be a string or an array of `TextContent`/`ImageContent` 
   ],
   "api": "anthropic-messages",
   "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
+  "model": "claude-sonnet-4-5",
   "usage": {
     "input": 100,
     "output": 50,

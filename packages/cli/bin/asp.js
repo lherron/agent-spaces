@@ -8,7 +8,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const distPath = fileURLToPath(new URL('../dist/index.js', import.meta.url))
 const srcPath = fileURLToPath(new URL('../src/index.ts', import.meta.url))
-const entryPath = existsSync(distPath) ? distPath : srcPath
+const preferDist = process.env.ASP_USE_DIST === '1'
+const entryPath =
+  !preferDist && existsSync(srcPath) ? srcPath : existsSync(distPath) ? distPath : srcPath
 
 const { main } = await import(pathToFileURL(entryPath).href)
 main().catch((error) => {
