@@ -24,6 +24,7 @@ export {
   isCommitSha,
   isDevRef,
   isKnownDistTag,
+  isProjectSpaceRef,
   isSha256Integrity,
   isSpaceId,
   isSpaceKey,
@@ -32,6 +33,8 @@ export {
   parseSpaceKey,
   parseSpaceRef,
   partitionDevRefs,
+  partitionProjectRefs,
+  PROJECT_COMMIT_MARKER,
 } from './refs.js'
 
 // Space manifest types

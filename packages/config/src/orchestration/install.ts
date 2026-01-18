@@ -35,6 +35,7 @@ import {
   withProjectLock,
 } from '../core/index.js'
 
+import { PROJECT_COMMIT_MARKER } from '../core/index.js'
 import { DEV_COMMIT_MARKER, DEV_INTEGRITY, mergeLockFiles } from '../resolver/index.js'
 
 import {
@@ -188,6 +189,11 @@ export async function populateStore(lock: LockFile, options: InstallOptions): Pr
       continue
     }
 
+    // Skip project spaces - they use project filesystem directly, no snapshot needed
+    if (entry.commit === (PROJECT_COMMIT_MARKER as string) || entry.projectSpace) {
+      continue
+    }
+
     // Check if snapshot already exists
     if (await snapshotExists(entry.integrity, snapshotOptions)) {
       continue
@@ -252,6 +258,7 @@ export async function materializeTarget(
   for (const entry of entries) {
     const isDev =
       entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY
+    const isProjectSpace = entry.commit === (PROJECT_COMMIT_MARKER as string) || entry.projectSpace
 
     // Compute cache key
     const pluginName = entry.plugin?.name ?? entry.id
@@ -264,14 +271,27 @@ export async function materializeTarget(
     const cacheDir = paths.pluginCache(cacheKey)
 
     // Build space key
-    const spaceKey = isDev
-      ? (`${entry.id}@dev` as SpaceKey)
-      : (`${entry.id}@${entry.commit.slice(0, 12)}` as SpaceKey)
+    let spaceKey: SpaceKey
+    if (isProjectSpace) {
+      spaceKey = `${entry.id}@project` as SpaceKey
+    } else if (isDev) {
+      spaceKey = `${entry.id}@dev` as SpaceKey
+    } else {
+      spaceKey = `${entry.id}@${entry.commit.slice(0, 12)}` as SpaceKey
+    }
 
     // Build snapshot path
-    const snapshotPath = isDev
-      ? join(registryPath, 'spaces', entry.id)
-      : paths.snapshot(entry.integrity)
+    // - Project spaces: read from project's spaces/ directory
+    // - @dev spaces: read from registry's spaces/ directory
+    // - Others: read from content-addressed store
+    let snapshotPath: string
+    if (isProjectSpace) {
+      snapshotPath = join(options.projectPath, 'spaces', entry.id)
+    } else if (isDev) {
+      snapshotPath = join(registryPath, 'spaces', entry.id)
+    } else {
+      snapshotPath = paths.snapshot(entry.integrity)
+    }
 
     // Read manifest for settings and harness support filtering
     let manifest: ResolvedSpaceManifest | undefined
@@ -298,8 +318,9 @@ export async function materializeTarget(
       continue
     }
 
-    // Check cache (skip for @dev refs since content can change, or when refresh requested)
-    const isCached = !isDev && !options.refresh && (await cacheExists(cacheKey, { paths }))
+    // Check cache (skip for @dev and project refs since content can change, or when refresh requested)
+    const isCached =
+      !isDev && !isProjectSpace && !options.refresh && (await cacheExists(cacheKey, { paths }))
 
     if (!isCached) {
       // Build input for harness adapter
@@ -321,8 +342,9 @@ export async function materializeTarget(
       }
 
       // Materialize using harness adapter (handles hooks.toml → hooks.json, etc.)
-      // In dev mode, use copy instead of hardlinks to protect source files
-      await adapter.materializeSpace(input, cacheDir, { force: true, useHardlinks: !isDev })
+      // For dev and project spaces, use copy instead of hardlinks to protect source files
+      const useHardlinks = !isDev && !isProjectSpace
+      await adapter.materializeSpace(input, cacheDir, { force: true, useHardlinks })
 
       // Write cache metadata
       await writeCacheMetadata(
@@ -455,9 +477,15 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
   const lintData: SpaceLintData[] = Object.entries(mergedLock.spaces).map(([key, entry]) => {
     const isDev =
       entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY
-    const pluginPath = isDev
-      ? join(registryPath, 'spaces', entry.id)
-      : paths.snapshot(entry.integrity)
+    const isProjectSpace = entry.commit === (PROJECT_COMMIT_MARKER as string) || entry.projectSpace
+    let pluginPath: string
+    if (isProjectSpace) {
+      pluginPath = join(options.projectPath, 'spaces', entry.id)
+    } else if (isDev) {
+      pluginPath = join(registryPath, 'spaces', entry.id)
+    } else {
+      pluginPath = paths.snapshot(entry.integrity)
+    }
     return {
       key: key as SpaceKey,
       manifest: {

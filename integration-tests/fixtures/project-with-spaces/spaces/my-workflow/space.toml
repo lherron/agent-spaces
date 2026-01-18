@@ -1,0 +1,10 @@
+# Project-local space for custom workflow
+# WHY: Demonstrates project-defined spaces feature
+
+schema = 1
+id = "my-workflow"
+version = "0.1.0"
+description = "Custom workflow for this project"
+
+[plugin]
+name = "my-workflow"

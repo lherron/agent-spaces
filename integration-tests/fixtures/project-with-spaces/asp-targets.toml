@@ -1,0 +1,17 @@
+# Project with local spaces
+# WHY: Tests project-defined spaces feature
+
+schema = 1
+
+[targets.dev]
+description = "Development with custom workflow"
+compose = [
+  "space:project:my-workflow",
+  "space:base@stable"
+]
+
+[targets.workflow-only]
+description = "Just the project workflow"
+compose = [
+  "space:project:my-workflow"
+]

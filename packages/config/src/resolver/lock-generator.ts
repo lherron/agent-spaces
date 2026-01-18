@@ -82,6 +82,8 @@ export interface LockGeneratorOptions {
   cwd: string
   /** Registry information */
   registry: LockRegistry
+  /** Project root for project-local spaces */
+  projectRoot?: string | undefined
 }
 
 /**
@@ -142,7 +144,7 @@ function buildSpaceEntry(space: ResolvedSpace, integrity: Sha256Integrity): Lock
     pluginInfo.version = pluginIdentity.version
   }
 
-  return {
+  const entry: LockSpaceEntry = {
     id: space.id,
     commit: space.commit,
     path: space.path,
@@ -153,6 +155,13 @@ function buildSpaceEntry(space: ResolvedSpace, integrity: Sha256Integrity): Lock
     },
     resolvedFrom,
   }
+
+  // Mark project spaces explicitly
+  if (space.projectSpace) {
+    entry.projectSpace = true
+  }
+
+  return entry
 }
 
 /**
@@ -230,7 +239,10 @@ async function collectSpacesAndIntegrities(
     for (const [key, space] of target.closure.spaces) {
       if (!allSpaces.has(key)) {
         allSpaces.set(key, space)
-        const integrity = await computeIntegrity(space.id, space.commit, options)
+        const integrity = await computeIntegrity(space.id, space.commit, {
+          cwd: options.cwd,
+          projectRoot: options.projectRoot,
+        })
         integrities.set(key, integrity)
       }
     }

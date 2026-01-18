@@ -8,6 +8,10 @@
  * - Dist-tag: `stable`, `latest`, `beta`
  * - Semver: `1.2.3`, `^1.2.0`, `~1.2.3`
  * - Direct pin: `git:<sha>`
+ *
+ * Project-local spaces:
+ * - `space:project:<id>` or `space:project:<id>@dev`
+ * - Resolved from <projectRoot>/spaces/<id>/
  */
 
 /** Space identifier (kebab-case, 1-64 chars) */
@@ -48,6 +52,8 @@ export interface SpaceRef {
   defaultedToDev?: boolean | undefined
   /** Path for path-based refs (space:path:<path>@<selector>) */
   path?: string | undefined
+  /** True for project-local spaces (space:project:<id>) */
+  projectSpace?: boolean | undefined
 }
 
 /** Raw space reference string format: `space:<id>@<selector>` */
@@ -59,14 +65,19 @@ export type SpaceRefString = `space:${string}@${string}`
 
 const SPACE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,64}$/
-// Allow sha256:dev for @dev refs (filesystem state, not content-addressed)
-const SHA256_INTEGRITY_PATTERN = /^sha256:([0-9a-f]{64}|dev)$/
-// Allow @dev suffix for @dev refs (filesystem state)
-const SPACE_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*@([0-9a-f]{7,64}|dev)$/
+// Allow sha256:dev for @dev refs, sha256:project for project spaces (filesystem state, not content-addressed)
+const SHA256_INTEGRITY_PATTERN = /^sha256:([0-9a-f]{64}|dev|project)$/
+// Allow @dev and @project suffixes for filesystem-based refs
+const SPACE_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*@([0-9a-f]{7,64}|dev|project)$/
 const SPACE_REF_WITH_SELECTOR_PATTERN = /^spaces?:([a-z0-9]+(?:-[a-z0-9]+)*)@(.+)$/
 const SPACE_REF_NO_SELECTOR_PATTERN = /^spaces?:([a-z0-9]+(?:-[a-z0-9]+)*)$/
 // Path-based refs: space:path:<path>@<selector>
 const SPACE_PATH_REF_PATTERN = /^spaces?:path:([^@]+)@(.+)$/
+// Project-local refs: space:project:<id> or space:project:<id>@<selector>
+const SPACE_PROJECT_REF_PATTERN = /^spaces?:project:([a-z0-9]+(?:-[a-z0-9]+)*)(?:@(.+))?$/
+
+/** Marker commit for project-local spaces */
+export const PROJECT_COMMIT_MARKER = 'project' as CommitSha
 const SEMVER_RANGE_PATTERN = /^[\^~]?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 const SEMVER_EXACT_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 const GIT_PIN_PATTERN = /^git:([0-9a-f]{7,64})$/
@@ -128,7 +139,8 @@ export function isSpaceRefString(value: string): value is SpaceRefString {
   return (
     SPACE_REF_WITH_SELECTOR_PATTERN.test(value) ||
     SPACE_REF_NO_SELECTOR_PATTERN.test(value) ||
-    SPACE_PATH_REF_PATTERN.test(value)
+    SPACE_PATH_REF_PATTERN.test(value) ||
+    SPACE_PROJECT_REF_PATTERN.test(value)
   )
 }
 
@@ -166,7 +178,23 @@ export function parseSelector(selectorString: string): Selector {
 }
 
 export function parseSpaceRef(refString: string): SpaceRef {
-  // Try path-based ref first: space:path:<path>@<selector>
+  // Try project-local ref first: space:project:<id>[@<selector>]
+  const projectMatch = SPACE_PROJECT_REF_PATTERN.exec(refString)
+  if (projectMatch?.[1]) {
+    const id = asSpaceId(projectMatch[1])
+    // Selector is optional for project refs, defaults to dev
+    const selectorString = projectMatch[2] || 'dev'
+    const selector = parseSelector(selectorString)
+    return {
+      id,
+      selectorString,
+      selector,
+      projectSpace: true,
+      defaultedToDev: !projectMatch[2],
+    }
+  }
+
+  // Try path-based ref: space:path:<path>@<selector>
   const pathMatch = SPACE_PATH_REF_PATTERN.exec(refString)
   if (pathMatch?.[1] && pathMatch[2]) {
     const refPath = pathMatch[1]
@@ -210,11 +238,14 @@ export function parseSpaceRef(refString: string): SpaceRef {
   }
 
   throw new Error(
-    `Invalid space ref: "${refString}" (must be space:<id>[@<selector>] or spaces:<id>[@<selector>])`
+    `Invalid space ref: "${refString}" (must be space:<id>[@<selector>], space:project:<id>, or space:path:<path>@<selector>)`
   )
 }
 
 export function formatSpaceRef(ref: SpaceRef): SpaceRefString {
+  if (ref.projectSpace) {
+    return `space:project:${ref.id}@${ref.selectorString}` as SpaceRefString
+  }
   return `space:${ref.id}@${ref.selectorString}` as SpaceRefString
 }
 
@@ -248,4 +279,30 @@ export function partitionDevRefs(refs: string[]): { devRefs: string[]; otherRefs
     }
   }
   return { devRefs, otherRefs }
+}
+
+/**
+ * Check if a space ref string is a project-local space.
+ */
+export function isProjectSpaceRef(refString: string): boolean {
+  return SPACE_PROJECT_REF_PATTERN.test(refString)
+}
+
+/**
+ * Partition space refs into project and non-project refs.
+ */
+export function partitionProjectRefs(refs: string[]): {
+  projectRefs: string[]
+  otherRefs: string[]
+} {
+  const projectRefs: string[] = []
+  const otherRefs: string[] = []
+  for (const ref of refs) {
+    if (isProjectSpaceRef(ref)) {
+      projectRefs.push(ref)
+    } else {
+      otherRefs.push(ref)
+    }
+  }
+  return { projectRefs, otherRefs }
 }

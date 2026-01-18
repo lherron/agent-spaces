@@ -9,6 +9,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   type CommitSha,
+  PROJECT_COMMIT_MARKER,
   type SpaceId,
   type SpaceKey,
   asCommitSha,
@@ -18,6 +19,7 @@ import {
   formatSpaceRef,
   isCommitSha,
   isKnownDistTag,
+  isProjectSpaceRef,
   isSha256Integrity,
   isSpaceId,
   isSpaceKey,
@@ -340,5 +342,87 @@ describe('isKnownDistTag', () => {
     expect(isKnownDistTag('alpha')).toBe(false)
     expect(isKnownDistTag('custom')).toBe(false)
     expect(isKnownDistTag('')).toBe(false)
+  })
+})
+
+describe('PROJECT_COMMIT_MARKER', () => {
+  test('is defined', () => {
+    expect(PROJECT_COMMIT_MARKER).toBe('project')
+  })
+})
+
+describe('isProjectSpaceRef', () => {
+  test('returns true for project space refs', () => {
+    expect(isProjectSpaceRef('space:project:my-workflow')).toBe(true)
+    expect(isProjectSpaceRef('space:project:foo-bar')).toBe(true)
+    expect(isProjectSpaceRef('space:project:a1-b2@dev')).toBe(true)
+  })
+
+  test('returns false for non-project refs', () => {
+    expect(isProjectSpaceRef('space:my-workflow@stable')).toBe(false)
+    expect(isProjectSpaceRef('space:foo@dev')).toBe(false)
+    expect(isProjectSpaceRef('space:path:/some/path@dev')).toBe(false)
+  })
+})
+
+describe('parseSpaceRef (project spaces)', () => {
+  test('parses project space ref without selector', () => {
+    const result = parseSpaceRef('space:project:my-workflow')
+    expect(result.id).toBe('my-workflow')
+    expect(result.selectorString).toBe('dev')
+    expect(result.selector).toEqual({ kind: 'dev' })
+    expect(result.projectSpace).toBe(true)
+    expect(result.defaultedToDev).toBe(true)
+  })
+
+  test('parses project space ref with explicit dev selector', () => {
+    const result = parseSpaceRef('space:project:foo-bar@dev')
+    expect(result.id).toBe('foo-bar')
+    expect(result.selectorString).toBe('dev')
+    expect(result.selector).toEqual({ kind: 'dev' })
+    expect(result.projectSpace).toBe(true)
+    expect(result.defaultedToDev).toBe(false)
+  })
+
+  test('parses project space ref with other selectors (treated as dev)', () => {
+    // While other selectors are parsed, project spaces always read from filesystem
+    const result = parseSpaceRef('space:project:my-space@stable')
+    expect(result.id).toBe('my-space')
+    expect(result.selectorString).toBe('stable')
+    expect(result.selector).toEqual({ kind: 'dist-tag', tag: 'stable' })
+    expect(result.projectSpace).toBe(true)
+  })
+})
+
+describe('formatSpaceRef (project spaces)', () => {
+  test('formats project space ref', () => {
+    const ref = {
+      id: 'my-workflow' as SpaceId,
+      selectorString: 'dev',
+      selector: { kind: 'dev' as const },
+      projectSpace: true,
+    }
+    expect(formatSpaceRef(ref)).toBe('space:project:my-workflow@dev')
+  })
+})
+
+describe('isSpaceRefString (project spaces)', () => {
+  test('accepts project space ref strings', () => {
+    expect(isSpaceRefString('space:project:foo')).toBe(true)
+    expect(isSpaceRefString('space:project:foo-bar')).toBe(true)
+    expect(isSpaceRefString('space:project:my-workflow@dev')).toBe(true)
+  })
+})
+
+describe('isSpaceKey (project marker)', () => {
+  test('accepts space keys with project marker', () => {
+    expect(isSpaceKey('foo@project')).toBe(true)
+    expect(isSpaceKey('my-workflow@project')).toBe(true)
+  })
+})
+
+describe('isSha256Integrity (project marker)', () => {
+  test('accepts sha256:project', () => {
+    expect(isSha256Integrity('sha256:project')).toBe(true)
   })
 })

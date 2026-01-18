@@ -1,0 +1,10 @@
+# Project defaults for agent-spaces
+# WHY: Provides project-specific configuration and commands
+
+schema = 1
+id = "project-defaults"
+version = "0.1.0"
+description = "Default configuration for this project"
+
+[plugin]
+name = "project-defaults"

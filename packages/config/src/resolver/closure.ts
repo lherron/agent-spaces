@@ -14,7 +14,12 @@ import type {
   SpaceRef,
   SpaceRefString,
 } from '../core/index.js'
-import { CyclicDependencyError, MissingDependencyError, asSpaceKey } from '../core/index.js'
+import {
+  CyclicDependencyError,
+  MissingDependencyError,
+  PROJECT_COMMIT_MARKER,
+  asSpaceKey,
+} from '../core/index.js'
 import {
   type ManifestReadOptions,
   getSpaceDependencies,
@@ -37,7 +42,7 @@ export interface ResolvedSpace {
   id: SpaceId
   /** Resolved commit SHA */
   commit: CommitSha
-  /** Path in registry */
+  /** Path in registry (or project for project spaces) */
   path: string
   /** The space manifest */
   manifest: SpaceManifest
@@ -45,6 +50,8 @@ export interface ResolvedSpace {
   resolvedFrom: ResolvedSelector
   /** Direct dependency keys */
   deps: SpaceKey[]
+  /** True if this is a project-local space */
+  projectSpace?: boolean | undefined
 }
 
 /**
@@ -71,6 +78,11 @@ export interface ClosureOptions extends SelectorResolveOptions, ManifestReadOpti
    * keeping others at their locked versions).
    */
   pinnedSpaces?: Map<SpaceId, CommitSha> | undefined
+  /**
+   * Project root directory (contains asp-targets.toml).
+   * Required for resolving project-local spaces (space:project:<id>).
+   */
+  projectRoot?: string | undefined
 }
 
 /**
@@ -96,15 +108,30 @@ export async function computeClosure(
   async function visit(ref: SpaceRef): Promise<SpaceKey> {
     // Handle @dev selector specially - uses filesystem instead of git
     const isDev = ref.selector.kind === 'dev'
+    // Handle project-local spaces (space:project:<id>)
+    const isProjectSpace = ref.projectSpace === true
 
     // Check if this space is pinned (for selective upgrades)
     const pinnedCommit = options.pinnedSpaces?.get(ref.id)
 
-    // Resolve the ref to a commit (or use pinned commit, or use dev marker)
+    // Resolve the ref to a commit (or use pinned commit, or use dev/project marker)
     let resolved: ResolvedSelector
     let key: SpaceKey
 
-    if (isDev) {
+    if (isProjectSpace) {
+      // Project space uses a special marker and reads from project root
+      if (!options.projectRoot) {
+        throw new Error(
+          `Project root is required to resolve project space: space:project:${ref.id}`
+        )
+      }
+      resolved = {
+        commit: PROJECT_COMMIT_MARKER,
+        selector: { kind: 'dev' },
+      }
+      // Build key as "id@project" instead of "id@<commit-prefix>"
+      key = asSpaceKey(ref.id, PROJECT_COMMIT_MARKER)
+    } else if (isDev) {
       // @dev uses a special marker and reads from filesystem
       resolved = {
         commit: DEV_COMMIT_MARKER,
@@ -141,12 +168,23 @@ export async function computeClosure(
     visitState.set(key, 'visiting')
     visitPath.push(key)
 
-    // Read the manifest (from filesystem for @dev, from git for others)
-    // For path refs, use the path directly; for id refs, use the space ID
-    const manifestLocation = ref.path ?? ref.id
-    const manifest = isDev
-      ? await readSpaceManifestFromFilesystem(manifestLocation, options)
-      : await readSpaceManifest(ref.id, resolved.commit, options)
+    // Read the manifest based on space type:
+    // - Project spaces: read from <projectRoot>/spaces/<id>/
+    // - @dev refs: read from registry filesystem (cwd)
+    // - Others: read from git at specific commit
+    let manifest: SpaceManifest
+    if (isProjectSpace) {
+      // Project space: read from project root
+      const projectSpacePath = `${options.projectRoot}/spaces/${ref.id}`
+      manifest = await readSpaceManifestFromFilesystem(projectSpacePath, options)
+    } else if (isDev) {
+      // @dev: read from registry filesystem
+      const manifestLocation = ref.path ?? ref.id
+      manifest = await readSpaceManifestFromFilesystem(manifestLocation, options)
+    } else {
+      // Registry space: read from git
+      manifest = await readSpaceManifest(ref.id, resolved.commit, options)
+    }
 
     // Get dependencies
     const depRefs = getSpaceDependencies(manifest)
@@ -169,7 +207,10 @@ export async function computeClosure(
     }
 
     // All deps visited, now add this space (postorder)
-    // For path refs, use the path from the ref; for id refs, construct from id
+    // Path depends on space type:
+    // - Project spaces: spaces/<id> (relative to project root)
+    // - Path refs: use the path from the ref
+    // - Registry refs: spaces/<id> (relative to registry)
     const spacePath = ref.path ?? `spaces/${ref.id}`
     const resolvedSpace: ResolvedSpace = {
       key,
@@ -179,6 +220,7 @@ export async function computeClosure(
       manifest,
       resolvedFrom: resolved,
       deps: depKeys,
+      projectSpace: isProjectSpace || undefined,
     }
 
     spaces.set(key, resolvedSpace)

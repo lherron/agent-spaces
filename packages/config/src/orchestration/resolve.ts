@@ -136,9 +136,10 @@ export async function resolveTarget(
   const closureOptions: ClosureOptions = {
     cwd: registryPath,
     pinnedSpaces: options.pinnedSpaces,
+    projectRoot: options.projectPath,
   }
 
-  // Compute closure from all refs (including @dev)
+  // Compute closure from all refs (including @dev and project spaces)
   const closure = await computeClosure(refs, closureOptions)
 
   // Generate lock file
@@ -148,6 +149,7 @@ export async function resolveTarget(
       type: 'git',
       url: registryPath,
     },
+    projectRoot: options.projectPath,
   }
 
   const lock = await generateLockFileForTarget(targetName, refs, closure, lockOptions)

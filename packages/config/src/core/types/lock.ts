@@ -45,9 +45,9 @@ export interface ResolvedFrom {
 export interface LockSpaceEntry {
   /** Space identifier */
   id: SpaceId
-  /** Resolved commit SHA */
+  /** Resolved commit SHA (or "project" for project-local spaces) */
   commit: CommitSha
-  /** Path in registry repo (e.g., "spaces/todo-frontend") */
+  /** Path in registry repo (e.g., "spaces/todo-frontend") or project (for project spaces) */
   path: string
   /** Content integrity hash */
   integrity: Sha256Integrity
@@ -57,6 +57,8 @@ export interface LockSpaceEntry {
   deps: LockSpaceDeps
   /** How this version was resolved */
   resolvedFrom?: ResolvedFrom
+  /** True if this is a project-local space (space:project:<id>) */
+  projectSpace?: boolean
 }
 
 /** Warning recorded during resolution */

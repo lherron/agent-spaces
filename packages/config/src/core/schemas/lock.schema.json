@@ -37,25 +37,25 @@
   "$defs": {
     "sha256Integrity": {
       "type": "string",
-      "description": "SHA256 integrity hash, or 'sha256:dev' for @dev refs",
-      "pattern": "^sha256:([0-9a-f]{64}|dev)$"
+      "description": "SHA256 integrity hash, 'sha256:dev' for @dev refs, or 'sha256:project' for project spaces",
+      "pattern": "^sha256:([0-9a-f]{64}|dev|project)$"
     },
 
     "commitRef": {
       "type": "string",
-      "description": "Git commit SHA (7-64 hex chars) or 'dev' for @dev refs",
-      "pattern": "^([0-9a-f]{7,64}|dev)$"
+      "description": "Git commit SHA (7-64 hex chars), 'dev' for @dev refs, or 'project' for project spaces",
+      "pattern": "^([0-9a-f]{7,64}|dev|project)$"
     },
 
     "spaceKey": {
       "type": "string",
-      "description": "Space key: '<id>@<commit>' or '<id>@dev' for @dev refs",
-      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*@([0-9a-f]{7,64}|dev)$"
+      "description": "Space key: '<id>@<commit>', '<id>@dev', or '<id>@project'",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*@([0-9a-f]{7,64}|dev|project)$"
     },
 
     "spaceRef": {
       "type": "string",
-      "pattern": "^space:(path:[^@]+|[a-z0-9]+(?:-[a-z0-9]+)*)@.+$"
+      "pattern": "^space:(project:[a-z0-9]+(?:-[a-z0-9]+)*(?:@.+)?|path:[^@]+@.+|[a-z0-9]+(?:-[a-z0-9]+)*(?:@.+)?)$"
     },
 
     "spaceEntry": {
@@ -100,6 +100,11 @@
             "tag": { "type": "string" },
             "semver": { "type": "string" }
           }
+        },
+
+        "projectSpace": {
+          "type": "boolean",
+          "description": "True if this is a project-local space (space:project:<id>)"
         }
       }
     },
