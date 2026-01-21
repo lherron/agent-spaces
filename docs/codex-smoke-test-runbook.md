@@ -20,7 +20,7 @@ codex app-server --help
 
 **Expected:** Help text for the app-server subcommand. If this fails, Codex may be outdated.
 
-### 3. Verify Codex OAuth login (NOT API key)
+### 3. Verify Codex OAuth login
 
 ```bash
 codex login status
@@ -28,15 +28,12 @@ codex login status
 
 **Expected:** `Logged in using ChatGPT` or similar OAuth status.
 
-**Important:** Do NOT use `OPENAI_API_KEY` environment variable - it interferes with OAuth authentication. If set, unset it:
-```bash
-unset OPENAI_API_KEY
-```
-
 If not logged in, run:
 ```bash
 codex login
 ```
+
+**Important:** Codex uses OAuth authentication stored in `~/.codex/auth.json`. The `OPENAI_API_KEY` environment variable is **not used** for authentication. When using a custom `CODEX_HOME`, the `auth.json` file must be present (the adapter creates a symlink automatically).
 
 ### 4. Verify Control Plane is running
 
@@ -254,10 +251,7 @@ CODEX_HOME=.../asp_modules/codex-test/codex/codex.home codex --model gpt-5.2-cod
 
 ### Test 12: Run Chat Session with Prompt
 
-**Important:** Unset OPENAI_API_KEY before running:
-
 ```bash
-unset OPENAI_API_KEY
 $ASP_CLI run codex-test "What is 2+2? Answer with just the number." --harness codex
 ```
 
@@ -274,7 +268,6 @@ $ASP_CLI run codex-test "What is 2+2? Answer with just the number." --harness co
 ### Test 13: Verify Skills Discovery
 
 ```bash
-unset OPENAI_API_KEY
 $ASP_CLI run codex-test "What skills do you have access to? Just list the skill names." --harness codex
 ```
 
@@ -287,7 +280,6 @@ $ASP_CLI run codex-test "What skills do you have access to? Just list the skill 
 After running Test 12 or 13, resume the session:
 
 ```bash
-unset OPENAI_API_KEY
 CODEX_HOME="$PWD/asp_modules/codex-test/codex/codex.home" codex exec resume --last "What was my previous question?"
 ```
 
@@ -302,8 +294,7 @@ CODEX_HOME="$PWD/asp_modules/codex-test/codex/codex.home" codex exec resume --la
 This script tests the agent-spaces client library with the codex harness:
 
 ```bash
-unset OPENAI_API_KEY
-bun scripts/codex-interface-test.ts --space space:smokey@dev "What skills are available?"
+bun scripts/codex-interface-test.ts --target codex-test --target-dir "$PWD" "What skills are available?"
 ```
 
 **Expected:**
@@ -312,17 +303,16 @@ bun scripts/codex-interface-test.ts --space space:smokey@dev "What skills are av
 - `finalOutput` lists available skills
 - Resume test passes (context maintained)
 
-### Test 16: Run with Target
+### Test 16: Run with Different Prompt
 
 ```bash
-unset OPENAI_API_KEY
 bun scripts/codex-interface-test.ts \
   --target codex-test \
   --target-dir "$PWD" \
   "What is 2+2?"
 ```
 
-**Expected:** Same as Test 15, using the pre-installed codex-test target.
+**Expected:** Same structure as Test 15, with answer "4".
 
 ---
 
@@ -406,13 +396,21 @@ rm -rf asp_modules/codex-test
 
 ### "401 Unauthorized" / "Missing bearer or basic authentication"
 
-**Cause:** `OPENAI_API_KEY` is set and overriding OAuth.
+**Cause:** OAuth credentials (`auth.json`) not found in CODEX_HOME.
 
 **Fix:**
 ```bash
-unset OPENAI_API_KEY
-codex login status  # Verify logged in
+# Verify OAuth login
+codex login status
+
+# If using custom CODEX_HOME, ensure auth.json is symlinked
+ls -la $CODEX_HOME/auth.json
+
+# If missing, create symlink
+ln -sf ~/.codex/auth.json $CODEX_HOME/auth.json
 ```
+
+**Note:** The adapter should create this symlink automatically. If missing, re-run `asp install --targets <target> --harness codex`.
 
 ### "codex: command not found"
 
@@ -484,7 +482,8 @@ ln -sf ~/.codex/auth.json asp_modules/codex-test/codex/codex.home/auth.json
 
 ## Notes
 
-- **OAuth vs API Key:** Codex CLI uses OAuth by default (`codex login`). Do NOT set `OPENAI_API_KEY` as it breaks OAuth.
+- **OAuth Authentication:** Codex CLI uses OAuth by default (`codex login`). Credentials are stored in `~/.codex/auth.json`. The `OPENAI_API_KEY` env var is NOT used for authentication.
+- **Custom CODEX_HOME:** When using a custom CODEX_HOME (as agent-spaces does), the `auth.json` must be present. The adapter automatically symlinks it from `~/.codex/auth.json`.
 - **Experimental Status:** The Codex harness uses the experimental `codex app-server` subcommand. Behavior may change.
 - **CLI Flag Differences:** `codex` and `codex exec` have different flag sets. The adapter handles this automatically.
 - **Model Availability:** Ensure your OpenAI account has access to Codex models (e.g., `gpt-5.2-codex`).

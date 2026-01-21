@@ -73,9 +73,9 @@ function printUsage(): void {
       '  # Verbose output',
       '  bun scripts/codex-interface-test.ts --space space:smokey@dev --verbose',
       '',
-      'Environment:',
-      '  IMPORTANT: Unset OPENAI_API_KEY before running - Codex uses OAuth authentication.',
-      '  Run `codex login status` to verify you are logged in.',
+      'Authentication:',
+      '  Codex uses OAuth. Run `codex login status` to verify you are logged in.',
+      '  OAuth credentials are stored in ~/.codex/auth.json (symlinked to session homes).',
     ].join('\n')
   )
 }
@@ -264,13 +264,7 @@ async function main(): Promise<void> {
     return
   }
 
-  // Check for OPENAI_API_KEY which interferes with Codex OAuth
-  if (process.env['OPENAI_API_KEY']) {
-    console.warn(
-      '\n⚠️  WARNING: OPENAI_API_KEY is set. This may interfere with Codex OAuth authentication.'
-    )
-    console.warn('   Consider running: unset OPENAI_API_KEY\n')
-  }
+  // Note: Codex uses OAuth (auth.json), not OPENAI_API_KEY env var
 
   const spec = buildSpec(args)
 
