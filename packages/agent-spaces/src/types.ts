@@ -84,6 +84,8 @@ export interface BaseEvent {
   externalSessionId: string
   externalRunId: string
   harnessSessionId?: string | undefined
+  /** Raw payload from harness for downstream clients */
+  payload?: unknown
 }
 
 export type AgentEvent =

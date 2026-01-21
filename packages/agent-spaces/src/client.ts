@@ -544,12 +544,22 @@ function mapUnifiedEvents(
     case 'message_update': {
       if (event.textDelta && event.textDelta.length > 0) {
         state.assistantBuffer += event.textDelta
-        emit({ type: 'message_delta', role: 'assistant', delta: event.textDelta } as EventPayload)
+        emit({
+          type: 'message_delta',
+          role: 'assistant',
+          delta: event.textDelta,
+          payload: event.payload,
+        } as EventPayload)
       } else if (event.contentBlocks) {
         const text = mapContentToText(event.contentBlocks)
         if (text) {
           state.assistantBuffer += text
-          emit({ type: 'message_delta', role: 'assistant', delta: text } as EventPayload)
+          emit({
+            type: 'message_delta',
+            role: 'assistant',
+            delta: text,
+            payload: event.payload,
+          } as EventPayload)
         }
       }
       return { turnEnded: false }
@@ -560,7 +570,12 @@ function mapUnifiedEvents(
       const finalText = content ?? state.assistantBuffer
       if (finalText) {
         state.lastAssistantText = finalText
-        emit({ type: 'message', role: 'assistant', content: finalText } as EventPayload)
+        emit({
+          type: 'message',
+          role: 'assistant',
+          content: finalText,
+          payload: event.payload,
+        } as EventPayload)
       }
       return { turnEnded: false }
     }
@@ -570,6 +585,7 @@ function mapUnifiedEvents(
         toolUseId: event.toolUseId,
         toolName: event.toolName,
         input: event.input,
+        payload: event.payload,
       } as EventPayload)
       return { turnEnded: false }
     case 'tool_execution_end':
@@ -579,6 +595,7 @@ function mapUnifiedEvents(
         toolName: event.toolName,
         output: event.result,
         isError: event.isError === true,
+        payload: event.payload,
       } as EventPayload)
       return { turnEnded: false }
     case 'turn_end':

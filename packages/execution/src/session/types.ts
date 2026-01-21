@@ -50,6 +50,8 @@ export interface MessageStartEvent {
   type: 'message_start'
   messageId?: string
   message: Message
+  /** Raw payload from harness for downstream clients */
+  payload?: unknown
 }
 
 export interface MessageUpdateEvent {
@@ -57,12 +59,16 @@ export interface MessageUpdateEvent {
   messageId?: string
   textDelta?: string
   contentBlocks?: ContentBlock[]
+  /** Raw payload from harness for downstream clients */
+  payload?: unknown
 }
 
 export interface MessageEndEvent {
   type: 'message_end'
   messageId?: string
   message?: Message
+  /** Raw payload from harness for downstream clients */
+  payload?: unknown
 }
 
 export interface ToolExecutionStartEvent {
@@ -70,6 +76,8 @@ export interface ToolExecutionStartEvent {
   toolUseId: string
   toolName: string
   input: Record<string, unknown>
+  /** Raw payload from harness for downstream clients */
+  payload?: unknown
 }
 
 export interface ToolExecutionUpdateEvent {
@@ -77,6 +85,8 @@ export interface ToolExecutionUpdateEvent {
   toolUseId: string
   message?: string
   partialOutput?: string
+  /** Raw payload from harness for downstream clients */
+  payload?: unknown
 }
 
 export interface ToolExecutionEndEvent {
@@ -86,6 +96,8 @@ export interface ToolExecutionEndEvent {
   result: ToolResult
   isError?: boolean
   durationMs?: number
+  /** Raw payload from harness for downstream clients */
+  payload?: unknown
 }
 
 /** Event emitted when SDK provides its internal session ID (for resume) */

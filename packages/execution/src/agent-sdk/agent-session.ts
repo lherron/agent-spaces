@@ -382,21 +382,23 @@ export class AgentSession implements UnifiedSession {
     if (message) {
       const messageId = resolveMessageId(msg)
       const messageEventBase = messageId !== undefined ? { messageId } : {}
-      this.emitEvent({ type: 'message_start', message, ...messageEventBase })
+      this.emitEvent({ type: 'message_start', message, ...messageEventBase, payload: msg })
       if (Array.isArray(message.content)) {
         this.emitEvent({
           type: 'message_update',
           contentBlocks: message.content,
           ...messageEventBase,
+          payload: msg,
         })
       } else if (typeof message.content === 'string') {
         this.emitEvent({
           type: 'message_update',
           textDelta: message.content,
           ...messageEventBase,
+          payload: msg,
         })
       }
-      this.emitEvent({ type: 'message_end', message, ...messageEventBase })
+      this.emitEvent({ type: 'message_end', message, ...messageEventBase, payload: msg })
     }
 
     const content = getMessageContent(msgType, msg)
@@ -449,6 +451,7 @@ export class AgentSession implements UnifiedSession {
       toolUseId,
       toolName,
       input: normalizeToolInput(toolInput),
+      payload: blockObj,
     })
   }
 
@@ -482,6 +485,7 @@ export class AgentSession implements UnifiedSession {
       toolName,
       result,
       ...(isError !== undefined ? { isError } : {}),
+      payload: blockObj,
     })
     if (toolUseId) {
       this.toolUses.delete(toolUseId)
@@ -511,6 +515,7 @@ export class AgentSession implements UnifiedSession {
       toolUseId,
       toolName,
       result,
+      payload: msg,
     })
     this.toolUses.delete(toolUseId)
   }
