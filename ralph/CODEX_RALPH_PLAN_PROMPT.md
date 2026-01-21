@@ -1,4 +1,4 @@
-Need your help with a planning task.  Please follow these steps carefully and produce adequate documentation for a less capable model to follow.
+Need your help with a planning task.  Please follow these steps carefully and produce adequate documentation for a less capable model to follow.  Include dependencies on other projects and the tasks they will need to complete.
 
 0a. Study `specs/*` to learn the application specifications.
 0b. Study IMPLEMENTATION_PLAN.md (if present) to understand the plan so far.

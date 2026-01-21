@@ -1,7 +1,7 @@
 {
   "lockfileVersion": 1,
   "resolverVersion": 1,
-  "generatedAt": "2026-01-18T07:37:34.224Z",
+  "generatedAt": "2026-01-21T18:03:59.508Z",
   "registry": {
     "type": "git",
     "url": "/Users/lherron/praesidium/var/spaces-repo/repo"
@@ -41,6 +41,54 @@
         "tag": "space/defaults/v1.0.0",
         "semver": "1.0.0"
       }
+    },
+    "ralph-plan-loop@dev": {
+      "id": "ralph-plan-loop",
+      "commit": "dev",
+      "path": "spaces/ralph-plan-loop",
+      "integrity": "sha256:dev",
+      "plugin": {
+        "name": "ralph-plan-loop",
+        "version": "0.1.0"
+      },
+      "deps": {
+        "spaces": []
+      },
+      "resolvedFrom": {
+        "selector": "dev"
+      }
+    },
+    "praesidium-defaults@dev": {
+      "id": "praesidium-defaults",
+      "commit": "dev",
+      "path": "spaces/praesidium-defaults",
+      "integrity": "sha256:dev",
+      "plugin": {
+        "name": "praesidium-defaults",
+        "version": "0.1.0"
+      },
+      "deps": {
+        "spaces": []
+      },
+      "resolvedFrom": {
+        "selector": "dev"
+      }
+    },
+    "ralph-build-loop@dev": {
+      "id": "ralph-build-loop",
+      "commit": "dev",
+      "path": "spaces/ralph-build-loop",
+      "integrity": "sha256:dev",
+      "plugin": {
+        "name": "ralph-build-loop",
+        "version": "0.1.0"
+      },
+      "deps": {
+        "spaces": []
+      },
+      "resolvedFrom": {
+        "selector": "dev"
+      }
     }
   },
   "targets": {
@@ -61,6 +109,43 @@
       "harnesses": {
         "claude": {
           "envHash": "sha256:f94986e202cca7de7b4317a931d623f6e42c1da40e03feb202a59b600ebff9c5"
+        }
+      }
+    },
+    "ralph-plan": {
+      "compose": [
+        "space:ralph-plan-loop@dev",
+        "space:praesidium-defaults@dev"
+      ],
+      "roots": [
+        "ralph-plan-loop@dev",
+        "praesidium-defaults@dev"
+      ],
+      "loadOrder": [
+        "ralph-plan-loop@dev",
+        "praesidium-defaults@dev"
+      ],
+      "envHash": "sha256:f68716655e9e46693f0b51b59e43ab97f40b73dd60d79eac1b09f1eafea07375",
+      "harnesses": {
+        "claude": {
+          "envHash": "sha256:7f421785625c7ab00093b07e074c5aa38925da5e62637715136d66649c1e27fb"
+        }
+      }
+    },
+    "ralph-build": {
+      "compose": [
+        "space:ralph-build-loop@dev"
+      ],
+      "roots": [
+        "ralph-build-loop@dev"
+      ],
+      "loadOrder": [
+        "ralph-build-loop@dev"
+      ],
+      "envHash": "sha256:c3a78a896069bd1b162ccab4260c37722a3bb0dec0d38528addf53f313cca0e4",
+      "harnesses": {
+        "claude": {
+          "envHash": "sha256:53b1085b243256ec1a8e0a45450b588fbfe1117b3372cfc099d36c07da4cb36c"
         }
       }
     }

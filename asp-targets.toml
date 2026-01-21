@@ -12,6 +12,3 @@ compose = ["space:ralph-plan-loop@dev", "space:praesidium-defaults@dev"]
 description = "Ralph build loop"
 compose = ["space:ralph-build-loop@dev"]
 
-[targets.project-hygiene]
-description = "Project hygiene management"
-compose = ["space:project:project-hygiene-manager", "space:project:project-defaults"]
