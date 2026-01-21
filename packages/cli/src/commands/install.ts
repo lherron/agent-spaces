@@ -10,6 +10,7 @@ import type { Command } from 'commander'
 import {
   type ComposedTargetBundle,
   getEffectiveClaudeOptions,
+  isConfigError,
   readTargetsToml,
 } from 'spaces-config'
 import {
@@ -299,7 +300,12 @@ export function registerInstallCommand(program: Command): void {
       } catch (err) {
         spinner.stop()
         blank()
-        error(err instanceof Error ? err.message : String(err))
+        if (isConfigError(err)) {
+          error(err.message)
+          console.log(colors.muted(`  at ${formatPath(err.source)}`))
+        } else {
+          error(err instanceof Error ? err.message : String(err))
+        }
         blank()
         process.exit(1)
       }

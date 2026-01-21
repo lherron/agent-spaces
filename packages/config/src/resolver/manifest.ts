@@ -36,7 +36,7 @@ export async function readSpaceManifest(
   // showFileOrNull takes (commitish, path, options)
   const content = await showFileOrNull(commit, path, { cwd: options.cwd })
   if (content === null) {
-    throw new ConfigParseError(path, `Space manifest not found at ${commit}:${path}`)
+    throw new ConfigParseError(`Space manifest not found at ${commit}:${path}`, path)
   }
 
   try {
@@ -44,8 +44,8 @@ export async function readSpaceManifest(
     const result = coreValidateManifest(data)
     if (!result.valid) {
       throw new ConfigParseError(
-        path,
-        `Invalid space manifest: ${result.errors.map((e) => e.message).join(', ')}`
+        `Invalid space manifest: ${result.errors.map((e) => e.message).join(', ')}`,
+        path
       )
     }
     return result.data
@@ -54,8 +54,8 @@ export async function readSpaceManifest(
       throw err
     }
     throw new ConfigParseError(
-      path,
-      `Failed to parse space manifest: ${err instanceof Error ? err.message : String(err)}`
+      `Failed to parse space manifest: ${err instanceof Error ? err.message : String(err)}`,
+      path
     )
   }
 }
@@ -111,8 +111,8 @@ export async function readSpaceManifestFromFilesystem(
     content = await readFile(path, 'utf-8')
   } catch (err) {
     throw new ConfigParseError(
-      path,
-      `Space manifest not found at ${path}: ${err instanceof Error ? err.message : String(err)}`
+      `Space manifest not found: ${err instanceof Error ? err.message : String(err)}`,
+      path
     )
   }
 
@@ -121,8 +121,8 @@ export async function readSpaceManifestFromFilesystem(
     const result = coreValidateManifest(data)
     if (!result.valid) {
       throw new ConfigParseError(
-        path,
-        `Invalid space manifest: ${result.errors.map((e) => e.message).join(', ')}`
+        `Invalid space manifest: ${result.errors.map((e) => e.message).join(', ')}`,
+        path
       )
     }
     return result.data
@@ -131,8 +131,8 @@ export async function readSpaceManifestFromFilesystem(
       throw err
     }
     throw new ConfigParseError(
-      path,
-      `Failed to parse space manifest: ${err instanceof Error ? err.message : String(err)}`
+      `Failed to parse space manifest: ${err instanceof Error ? err.message : String(err)}`,
+      path
     )
   }
 }
