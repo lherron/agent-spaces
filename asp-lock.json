@@ -1,7 +1,7 @@
 {
   "lockfileVersion": 1,
   "resolverVersion": 1,
-  "generatedAt": "2026-01-21T18:03:59.508Z",
+  "generatedAt": "2026-01-21T18:23:23.519Z",
   "registry": {
     "type": "git",
     "url": "/Users/lherron/praesidium/var/spaces-repo/repo"
@@ -89,6 +89,22 @@
       "resolvedFrom": {
         "selector": "dev"
       }
+    },
+    "smokey@dev": {
+      "id": "smokey",
+      "commit": "dev",
+      "path": "spaces/smokey",
+      "integrity": "sha256:dev",
+      "plugin": {
+        "name": "smokey",
+        "version": "0.1.0"
+      },
+      "deps": {
+        "spaces": []
+      },
+      "resolvedFrom": {
+        "selector": "dev"
+      }
     }
   },
   "targets": {
@@ -146,6 +162,26 @@
       "harnesses": {
         "claude": {
           "envHash": "sha256:53b1085b243256ec1a8e0a45450b588fbfe1117b3372cfc099d36c07da4cb36c"
+        }
+      }
+    },
+    "smokey": {
+      "compose": [
+        "space:smokey@dev",
+        "space:defaults@stable"
+      ],
+      "roots": [
+        "smokey@dev",
+        "defaults@c6fa9d09fd62"
+      ],
+      "loadOrder": [
+        "smokey@dev",
+        "defaults@c6fa9d09fd62"
+      ],
+      "envHash": "sha256:b3b44ec2b11100bb1c6bba52e01149c1e2d2a03c6c39a4fdd45c2a2ae445543a",
+      "harnesses": {
+        "claude": {
+          "envHash": "sha256:092e785fdabf03d9610d7bfac766f3a6fc0378cbfc5e1eff228e07f4850143d8"
         }
       }
     }

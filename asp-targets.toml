@@ -12,3 +12,6 @@ compose = ["space:ralph-plan-loop@dev", "space:praesidium-defaults@dev"]
 description = "Ralph build loop"
 compose = ["space:ralph-build-loop@dev"]
 
+[targets.smokey]
+description = "Smoke test runner"
+compose = ["space:smokey@dev", "space:defaults@stable"]
