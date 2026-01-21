@@ -1,0 +1,18 @@
+#!/bin/bash
+# Codex CLI shim for integration testing.
+#
+# WHY: The codex harness detection runs `codex --version`. This shim keeps
+# tests hermetic without requiring a real Codex install.
+
+if [ "$1" = "--version" ]; then
+  echo "codex 0.1.0"
+  exit 0
+fi
+
+if [ "$1" = "app-server" ]; then
+  echo "codex app-server shim" >&2
+  exit 0
+fi
+
+echo "codex shim invoked: $*" >&2
+exit 0

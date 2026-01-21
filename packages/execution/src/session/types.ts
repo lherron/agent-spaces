@@ -1,6 +1,6 @@
 import type { PermissionHandler } from './permissions.js'
 
-export type SessionKind = 'agent-sdk' | 'pi'
+export type SessionKind = 'agent-sdk' | 'pi' | 'codex'
 
 export type ContentBlock =
   | { type: 'text'; text: string }
@@ -44,6 +44,8 @@ export interface TurnEndEvent {
     toolUseId: string
     result: ToolResult
   }>
+  /** Raw payload from harness for downstream clients */
+  payload?: unknown
 }
 
 export interface MessageStartEvent {

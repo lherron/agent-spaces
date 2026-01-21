@@ -8,8 +8,14 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { type BuildResult, build, buildAll } from 'spaces-config'
-import { type HarnessId, harnessRegistry, isHarnessId } from 'spaces-execution'
+import {
+  type BuildResult,
+  type HarnessId,
+  build,
+  buildAll,
+  harnessRegistry,
+  isHarnessId,
+} from 'spaces-execution'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 
@@ -90,7 +96,7 @@ export function registerBuildCommand(program: Command): void {
     .requiredOption('--output <dir>', 'Output directory for materialized plugins')
     .option(
       '--harness <id>',
-      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, pi, pi-sdk)'
+      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, codex, pi, pi-sdk)'
     )
     .option('--no-clean', 'Keep existing output directory contents')
     .option('--no-install', 'Do not auto-install if lock missing')

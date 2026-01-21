@@ -9,13 +9,14 @@
 import type { LockWarning } from './lock.js'
 import type { SpaceKey, SpaceRefString } from './refs.js'
 import type { ResolvedSpaceManifest, SpaceSettings } from './space.js'
+import type { CodexOptions } from './targets.js'
 
 // ============================================================================
 // Harness Identification
 // ============================================================================
 
 /** Supported harness identifiers */
-export type HarnessId = 'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk'
+export type HarnessId = 'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk' | 'codex'
 
 /** All known harness IDs */
 export const HARNESS_IDS: readonly HarnessId[] = [
@@ -23,6 +24,7 @@ export const HARNESS_IDS: readonly HarnessId[] = [
   'claude-agent-sdk',
   'pi',
   'pi-sdk',
+  'codex',
 ] as const
 
 /** Type guard for HarnessId */
@@ -131,6 +133,8 @@ export interface ComposeTargetInput {
   artifacts: ResolvedSpaceArtifact[]
   /** Settings inputs from all spaces */
   settingsInputs: SpaceSettings[]
+  /** Effective codex options for this target (if any) */
+  codexOptions?: CodexOptions | undefined
 }
 
 /** Options for target composition */
@@ -197,6 +201,20 @@ export interface ComposedTargetBundle {
     /** Directory containing context files */
     contextDir?: string | undefined
   }
+
+  // Codex-specific fields (populated by CodexAdapter)
+  codex?: {
+    /** Path to the codex.home template */
+    homeTemplatePath: string
+    /** Path to codex.home/config.toml */
+    configPath: string
+    /** Path to codex.home/AGENTS.md */
+    agentsPath: string
+    /** Path to codex.home/skills */
+    skillsDir: string
+    /** Path to codex.home/prompts */
+    promptsDir: string
+  }
 }
 
 // ============================================================================
@@ -207,6 +225,12 @@ export interface ComposedTargetBundle {
 export interface HarnessRunOptions {
   /** Model override */
   model?: string | undefined
+  /** Codex approval policy override */
+  approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
+  /** Codex sandbox mode override */
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
+  /** Codex profile override */
+  profile?: string | undefined
   /** Setting sources to inherit (Claude-specific) */
   settingSources?: string | null | undefined
   /** Additional CLI arguments */
@@ -345,6 +369,18 @@ export interface SpacePiConfig {
   build?: SpacePiBuildConfig | undefined
 }
 
+/** Codex-specific configuration in space.toml */
+export interface SpaceCodexConfig {
+  /** Extra config keypaths merged into generated config.toml */
+  config?: Record<string, unknown> | undefined
+  /** Default model override */
+  model?: string | undefined
+  /** Toggle commands -> prompts mapping */
+  prompts?: { enabled?: boolean | undefined } | undefined
+  /** Toggle skills mapping */
+  skills?: { enabled?: boolean | undefined } | undefined
+}
+
 /** Extended space manifest with harness configuration */
 export interface SpaceHarnessManifestExtension {
   /** Harness support declaration */
@@ -353,4 +389,6 @@ export interface SpaceHarnessManifestExtension {
   claude?: SpaceClaudeConfig | undefined
   /** Pi-specific configuration */
   pi?: SpacePiConfig | undefined
+  /** Codex-specific configuration */
+  codex?: SpaceCodexConfig | undefined
 }

@@ -1,5 +1,7 @@
 import type { ExtensionFactory, Skill } from '@mariozechner/pi-coding-agent'
 import { AgentSession } from '../agent-sdk/agent-session.js'
+import { CodexSession } from '../codex-session/codex-session.js'
+import type { CodexApprovalPolicy, CodexSandboxMode } from '../codex-session/types.js'
 import { PiSession } from '../pi-session/pi-session.js'
 import type { PermissionHandler } from './permissions.js'
 import type { SessionKind, UnifiedSession } from './types.js'
@@ -26,6 +28,15 @@ export interface CreateSessionOptions {
   agentDir?: string
   globalAgentDir?: string
 
+  codexAppServerCommand?: string
+  codexHomeDir?: string
+  codexTemplateDir?: string
+  codexModel?: string
+  codexCwd?: string
+  codexApprovalPolicy?: CodexApprovalPolicy
+  codexSandboxMode?: CodexSandboxMode
+  eventsOutputPath?: string
+
   permissionHandler?: PermissionHandler
 }
 
@@ -45,6 +56,35 @@ export function createSession(options: CreateSessionOptions): UnifiedSession {
       },
       undefined
     )
+    if (options.permissionHandler) {
+      session.setPermissionHandler(options.permissionHandler)
+    }
+    return session
+  }
+
+  if (options.kind === 'codex') {
+    if (!options.codexHomeDir) {
+      throw new Error('codexHomeDir is required for codex sessions')
+    }
+    const session = new CodexSession({
+      ownerId: options.sessionId,
+      cwd: options.codexCwd ?? options.cwd,
+      sessionId: options.sessionId,
+      homeDir: options.codexHomeDir,
+      ...(options.codexAppServerCommand !== undefined
+        ? { appServerCommand: options.codexAppServerCommand }
+        : {}),
+      ...(options.codexTemplateDir !== undefined ? { templateDir: options.codexTemplateDir } : {}),
+      ...(options.codexModel !== undefined ? { model: options.codexModel } : {}),
+      ...(options.codexApprovalPolicy !== undefined
+        ? { approvalPolicy: options.codexApprovalPolicy }
+        : {}),
+      ...(options.codexSandboxMode !== undefined ? { sandboxMode: options.codexSandboxMode } : {}),
+      ...(options.eventsOutputPath !== undefined
+        ? { eventsOutputPath: options.eventsOutputPath }
+        : {}),
+      ...(options.resume !== undefined ? { resumeThreadId: options.resume } : {}),
+    })
     if (options.permissionHandler) {
       session.setPermissionHandler(options.permissionHandler)
     }

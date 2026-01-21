@@ -25,6 +25,9 @@ export const SAMPLE_PROJECT_DIR = path.join(FIXTURES_DIR, 'sample-project')
 /** Path to the claude shim */
 export const CLAUDE_SHIM_PATH = path.join(FIXTURES_DIR, 'claude-shim', 'claude')
 
+/** Path to the codex shim */
+export const CODEX_SHIM_PATH = path.join(FIXTURES_DIR, 'codex-shim', 'codex')
+
 /** Path to the claude shim output file */
 export const SHIM_OUTPUT_FILE = '/tmp/claude-shim-output.json'
 
@@ -222,5 +225,18 @@ export function getTestEnv(aspHome: string): Record<string, string> {
     ASP_CLAUDE_PATH: CLAUDE_SHIM_PATH,
     CLAUDE_SHIM_OUTPUT: SHIM_OUTPUT_FILE,
     CLAUDE_SHIM_VALIDATE_PLUGINS: '1',
+  }
+}
+
+/**
+ * Set environment variables for testing with the codex shim.
+ */
+export function getCodexTestEnv(aspHome: string): Record<string, string> {
+  const shimDir = path.dirname(CODEX_SHIM_PATH)
+  const pathEnv = [shimDir, process.env.PATH ?? ''].filter(Boolean).join(path.delimiter)
+  return {
+    ...process.env,
+    ASP_HOME: aspHome,
+    PATH: pathEnv,
   }
 }

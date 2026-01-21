@@ -15,6 +15,7 @@ describe('agent-spaces client', () => {
     const ids = caps.harnesses.map((h) => h.id)
     expect(ids).toContain('agent-sdk')
     expect(ids).toContain('pi-sdk')
+    expect(ids).toContain('codex')
   })
 
   test('resolve returns resolve_failed for invalid spec', async () => {

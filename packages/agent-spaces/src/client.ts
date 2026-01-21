@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { copyFile, readFile, readdir, stat, symlink } from 'node:fs/promises'
 import { basename, isAbsolute, join } from 'node:path'
 
 import {
@@ -13,6 +13,7 @@ import {
   asSpaceId,
   atomicWriteJson,
   computeClosure,
+  copyDir,
   discoverSkills,
   ensureDir,
   generateLockFileForTarget,
@@ -50,9 +51,11 @@ import type {
 
 const AGENT_SDK_HARNESS = 'agent-sdk'
 const PI_SDK_HARNESS = 'pi-sdk'
+const CODEX_HARNESS = 'codex'
 
 const AGENT_SDK_INTERNAL: HarnessId = 'claude-agent-sdk'
 const PI_SDK_INTERNAL: HarnessId = 'pi-sdk'
+const CODEX_INTERNAL: HarnessId = 'codex'
 
 const AGENT_SDK_MODELS = [
   // 'api/opus',
@@ -71,8 +74,21 @@ const PI_SDK_MODELS = [
   'api/gpt-5.2',
 ]
 
+const CODEX_MODELS = [
+  'gpt-5.2-codex',
+  'gpt-5.1-codex-mini',
+  'gpt-5.1-codex-max',
+  'gpt-5.2',
+  'gpt-5.1',
+  'gpt-5.1-codex',
+  'gpt-5-codex',
+  'gpt-5-codex-mini',
+  'gpt-5',
+]
+
 const DEFAULT_AGENT_SDK_MODEL = 'claude/sonnet'
 const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.2-codex'
+const DEFAULT_CODEX_MODEL = 'gpt-5.2-codex'
 
 const HARNESS_DEFS = new Map<
   string,
@@ -92,6 +108,14 @@ const HARNESS_DEFS = new Map<
       internalId: PI_SDK_INTERNAL,
       models: PI_SDK_MODELS,
       defaultModel: DEFAULT_PI_SDK_MODEL,
+    },
+  ],
+  [
+    CODEX_HARNESS,
+    {
+      internalId: CODEX_INTERNAL,
+      models: CODEX_MODELS,
+      defaultModel: DEFAULT_CODEX_MODEL,
     },
   ],
 ])
@@ -187,6 +211,72 @@ function piSessionPath(aspHome: string, externalSessionId: string): string {
   return join(aspHome, 'sessions', 'pi', hash.digest('hex'))
 }
 
+function codexSessionPath(aspHome: string, externalSessionId: string): string {
+  const hash = createHash('sha256')
+  hash.update(externalSessionId)
+  return join(aspHome, 'sessions', 'codex', hash.digest('hex'), 'home')
+}
+
+async function linkOrCopyEntry(src: string, dest: string): Promise<void> {
+  if (existsSync(dest)) return
+  try {
+    await symlink(src, dest)
+  } catch {
+    const srcStats = await stat(src)
+    if (srcStats.isDirectory()) {
+      await copyDir(src, dest, { useHardlinks: false })
+    } else {
+      await copyFile(src, dest)
+    }
+  }
+}
+
+async function ensureCodexSessionHome(templateDir: string, sessionHome: string): Promise<void> {
+  if (!existsSync(templateDir)) {
+    throw new Error(`Codex template directory not found: ${templateDir}`)
+  }
+
+  await ensureDir(sessionHome)
+
+  const configSrc = join(templateDir, 'config.toml')
+  const configDest = join(sessionHome, 'config.toml')
+  if (!existsSync(configSrc)) {
+    throw new Error(`Codex template missing config.toml: ${configSrc}`)
+  }
+  if (!existsSync(configDest)) {
+    await copyFile(configSrc, configDest)
+  }
+
+  const agentsSrc = join(templateDir, 'AGENTS.md')
+  const agentsDest = join(sessionHome, 'AGENTS.md')
+  if (existsSync(agentsSrc) && !existsSync(agentsDest)) {
+    await linkOrCopyEntry(agentsSrc, agentsDest)
+  }
+
+  const skillsSrc = join(templateDir, 'skills')
+  const skillsDest = join(sessionHome, 'skills')
+  await ensureDir(skillsDest)
+  if (existsSync(skillsSrc)) {
+    const entries = await readdir(skillsSrc, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      await linkOrCopyEntry(join(skillsSrc, entry.name), join(skillsDest, entry.name))
+    }
+  }
+
+  const promptsSrc = join(templateDir, 'prompts')
+  const promptsDest = join(sessionHome, 'prompts')
+  await ensureDir(promptsDest)
+  if (existsSync(promptsSrc)) {
+    const entries = await readdir(promptsSrc, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isFile()) continue
+      if (!entry.name.endsWith('.md')) continue
+      await linkOrCopyEntry(join(promptsSrc, entry.name), join(promptsDest, entry.name))
+    }
+  }
+}
+
 async function readSessionRecord(
   aspHome: string,
   externalSessionId: string
@@ -253,6 +343,9 @@ function resolveHarness(harness: string): {
 
 function parseModelId(modelId: string): ModelInfo | null {
   const separatorIndex = modelId.indexOf('/')
+  if (separatorIndex === -1) {
+    return { effectiveModel: modelId, provider: 'codex', model: modelId }
+  }
   if (separatorIndex <= 0 || separatorIndex === modelId.length - 1) {
     return null
   }
@@ -708,6 +801,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
         harnesses: [
           { id: AGENT_SDK_HARNESS, models: [...AGENT_SDK_MODELS] },
           { id: PI_SDK_HARNESS, models: [...PI_SDK_MODELS] },
+          { id: CODEX_HARNESS, models: [...CODEX_MODELS] },
         ],
       }
     },
@@ -724,6 +818,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
         let harnessDef: ReturnType<typeof resolveHarness>
         let modelResolution: ReturnType<typeof resolveModel>
         let harnessSessionId = req.harnessSessionId
+        let codexSessionHome: string | undefined
 
         try {
           spec = validateSpec(req.spec)
@@ -765,6 +860,10 @@ export function createAgentSpacesClient(): AgentSpacesClient {
 
         if (harnessDef.externalId === PI_SDK_HARNESS && !harnessSessionId) {
           harnessSessionId = piSessionPath(req.aspHome, req.externalSessionId)
+        }
+
+        if (harnessDef.externalId === CODEX_HARNESS) {
+          codexSessionHome = codexSessionPath(req.aspHome, req.externalSessionId)
         }
 
         if (harnessSessionId) {
@@ -832,8 +931,17 @@ export function createAgentSpacesClient(): AgentSpacesClient {
           const materialized = await materializeSpec(spec, req.aspHome, harnessDef.internalId)
 
           const harnessEnv: Record<string, string> = { ...(req.env ?? {}) }
+          let codexTemplateDir: string | undefined
           if (harnessDef.externalId === PI_SDK_HARNESS) {
             harnessEnv['PI_CODING_AGENT_DIR'] = materialized.materialization.outputPath
+          }
+          if (harnessDef.externalId === CODEX_HARNESS) {
+            codexTemplateDir = join(materialized.materialization.outputPath, 'codex.home')
+            const sessionHome =
+              codexSessionHome ?? codexSessionPath(req.aspHome, req.externalSessionId)
+            codexSessionHome = sessionHome
+            await ensureCodexSessionHome(codexTemplateDir, sessionHome)
+            harnessEnv['CODEX_HOME'] = sessionHome
           }
 
           const restoreEnv = applyEnvOverlay(harnessEnv)
@@ -851,6 +959,21 @@ export function createAgentSpacesClient(): AgentSpacesClient {
                 plugins,
                 permissionHandler,
                 // Pass resume to load conversation history from previous session
+                ...(isResume && harnessSessionId ? { resume: harnessSessionId } : {}),
+              })
+            } else if (harnessDef.externalId === CODEX_HARNESS) {
+              if (!codexSessionHome) {
+                throw new Error('Codex session home is missing')
+              }
+              session = createSession({
+                kind: 'codex',
+                sessionId: req.externalSessionId,
+                cwd: req.cwd,
+                codexHomeDir: codexSessionHome,
+                ...(codexTemplateDir ? { codexTemplateDir } : {}),
+                codexModel: modelResolution.info.model,
+                codexCwd: req.cwd,
+                permissionHandler,
                 ...(isResume && harnessSessionId ? { resume: harnessSessionId } : {}),
               })
             } else {

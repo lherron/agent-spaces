@@ -17,6 +17,18 @@ export interface ClaudeOptions {
   args?: string[] | undefined
 }
 
+/** Codex CLI options */
+export interface CodexOptions {
+  /** Model to use */
+  model?: string | undefined
+  /** Approval policy */
+  approval_policy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
+  /** Sandbox mode */
+  sandbox_mode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
+  /** Profile name */
+  profile?: string | undefined
+}
+
 /** Resolver configuration for a target */
 export interface ResolverConfig {
   /** Whether to use locked versions (default: true) */
@@ -33,6 +45,8 @@ export interface TargetDefinition {
   compose: SpaceRefString[]
   /** Target-specific claude options (override defaults) */
   claude?: ClaudeOptions
+  /** Target-specific codex options (override defaults) */
+  codex?: CodexOptions
   /** Resolver configuration */
   resolver?: ResolverConfig
   /** Skip all permission prompts (--dangerously-skip-permissions) */
@@ -49,6 +63,8 @@ export interface ProjectManifest {
   schema: 1
   /** Default claude options for all targets */
   claude?: ClaudeOptions
+  /** Default codex options for all targets */
+  codex?: CodexOptions
   /** Named targets */
   targets: Record<string, TargetDefinition>
 }
@@ -89,6 +105,23 @@ export function mergeClaudeOptions(
   }
 }
 
+/** Merge codex options (target overrides defaults) */
+export function mergeCodexOptions(
+  defaults: CodexOptions | undefined,
+  overrides: CodexOptions | undefined
+): CodexOptions {
+  if (!defaults && !overrides) return {}
+  if (!defaults) return { ...overrides }
+  if (!overrides) return { ...defaults }
+
+  return {
+    model: overrides.model ?? defaults.model,
+    approval_policy: overrides.approval_policy ?? defaults.approval_policy,
+    sandbox_mode: overrides.sandbox_mode ?? defaults.sandbox_mode,
+    profile: overrides.profile ?? defaults.profile,
+  }
+}
+
 /** Get effective claude options for a target */
 export function getEffectiveClaudeOptions(
   manifest: ProjectManifest,
@@ -99,4 +132,16 @@ export function getEffectiveClaudeOptions(
     throw new Error(`Target not found: ${targetName}`)
   }
   return mergeClaudeOptions(manifest.claude, target.claude)
+}
+
+/** Get effective codex options for a target */
+export function getEffectiveCodexOptions(
+  manifest: ProjectManifest,
+  targetName: TargetName
+): CodexOptions {
+  const target = manifest.targets[targetName]
+  if (!target) {
+    throw new Error(`Target not found: ${targetName}`)
+  }
+  return mergeCodexOptions(manifest.codex, target.codex)
 }

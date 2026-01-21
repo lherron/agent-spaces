@@ -116,10 +116,10 @@
       "properties": {
         "supports": {
           "type": "array",
-          "description": "List of harnesses this space supports (claude, claude-agent-sdk, pi, pi-sdk)",
+          "description": "List of harnesses this space supports (claude, claude-agent-sdk, pi, pi-sdk, codex)",
           "items": {
             "type": "string",
-            "enum": ["claude", "claude-agent-sdk", "pi", "pi-sdk"]
+            "enum": ["claude", "claude-agent-sdk", "pi", "pi-sdk", "codex"]
           },
           "uniqueItems": true
         }
@@ -184,6 +184,39 @@
               "description": "Dependencies to exclude from bundle",
               "items": { "type": "string" }
             }
+          }
+        }
+      }
+    },
+
+    "codex": {
+      "type": "object",
+      "description": "Codex-specific configuration",
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "type": "object",
+          "description": "Extra config keypaths merged into generated config.toml",
+          "additionalProperties": true
+        },
+        "model": {
+          "type": "string",
+          "description": "Default model override"
+        },
+        "prompts": {
+          "type": "object",
+          "description": "Toggle commands -> prompts mapping",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "skills": {
+          "type": "object",
+          "description": "Toggle skills mapping",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" }
           }
         }
       }

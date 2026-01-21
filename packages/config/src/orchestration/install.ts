@@ -9,9 +9,11 @@
  * - Materialize plugins to asp_modules directory
  */
 
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
+  type CodexOptions,
   type CommitSha,
   type ComposeTargetInput,
   DEFAULT_HARNESS,
@@ -27,9 +29,11 @@ import {
   type SpaceKey,
   type SpaceRefString,
   type SpaceSettings,
+  TARGETS_FILENAME,
   atomicWriteJson,
   createEmptyLockFile,
   getAspModulesPath,
+  getEffectiveCodexOptions,
   getLoadOrderEntries,
   readSpaceToml,
   withProjectLock,
@@ -381,6 +385,12 @@ export async function materializeTarget(
   // Phase 2: Compose target using harness adapter
   // This handles assembling artifacts into the final target bundle
   const target = lock.targets[targetName]
+  let codexOptions: CodexOptions | undefined
+  const manifestPath = join(options.projectPath, TARGETS_FILENAME)
+  if (existsSync(manifestPath)) {
+    const manifest = await loadProjectManifest(options.projectPath)
+    codexOptions = getEffectiveCodexOptions(manifest, targetName)
+  }
   const composeInput: ComposeTargetInput = {
     targetName,
     compose: (target?.compose ?? []) as SpaceRefString[],
@@ -388,6 +398,7 @@ export async function materializeTarget(
     loadOrder: (target?.loadOrder ?? []) as SpaceKey[],
     artifacts,
     settingsInputs,
+    codexOptions,
   }
 
   const { bundle } = await adapter.composeTarget(composeInput, outputPath, {

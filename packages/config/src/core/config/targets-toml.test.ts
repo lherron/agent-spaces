@@ -169,6 +169,37 @@ compose = ["space:my-space@stable"]
       expect(result.claude?.args).toEqual(['--verbose'])
     })
 
+    test('parses manifest with codex options', () => {
+      const toml = `
+schema = 1
+
+[codex]
+model = "gpt-5.2-codex"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+profile = "default"
+
+[targets.default]
+compose = ["space:my-space@stable"]
+
+[targets.default.codex]
+model = "gpt-5.1-codex-mini"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+profile = "dev"
+`
+      const result = parseTargetsToml(toml)
+
+      expect(result.codex?.model).toBe('gpt-5.2-codex')
+      expect(result.codex?.approval_policy).toBe('on-request')
+      expect(result.codex?.sandbox_mode).toBe('workspace-write')
+      expect(result.codex?.profile).toBe('default')
+      expect(result.targets.default.codex?.model).toBe('gpt-5.1-codex-mini')
+      expect(result.targets.default.codex?.approval_policy).toBe('never')
+      expect(result.targets.default.codex?.sandbox_mode).toBe('danger-full-access')
+      expect(result.targets.default.codex?.profile).toBe('dev')
+    })
+
     test('parses manifest with target-specific claude options', () => {
       const toml = `
 schema = 1

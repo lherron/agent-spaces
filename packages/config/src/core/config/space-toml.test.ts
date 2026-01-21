@@ -152,6 +152,35 @@ spaces = ["space:dep-a@stable", "space:dep-b@^1.0.0"]
       expect(result.deps?.spaces).toContain('space:dep-b@^1.0.0')
     })
 
+    test('parses manifest with codex config', () => {
+      const toml = `
+schema = 1
+id = "my-space"
+
+[harness]
+supports = ["codex"]
+
+[codex]
+model = "gpt-5.2-codex"
+
+[codex.prompts]
+enabled = false
+
+[codex.skills]
+enabled = true
+
+[codex.config]
+"features.web_search_request" = false
+`
+      const result = parseSpaceToml(toml)
+
+      expect(result.harness?.supports).toEqual(['codex'])
+      expect(result.codex?.model).toBe('gpt-5.2-codex')
+      expect(result.codex?.prompts?.enabled).toBe(false)
+      expect(result.codex?.skills?.enabled).toBe(true)
+      expect(result.codex?.config?.['features.web_search_request']).toBe(false)
+    })
+
     test('parses kebab-case id', () => {
       const toml = 'schema = 1\nid = "my-awesome-space"\n'
       const result = parseSpaceToml(toml)

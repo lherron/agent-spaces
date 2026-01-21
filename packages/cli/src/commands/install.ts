@@ -10,6 +10,7 @@ import type { Command } from 'commander'
 import {
   type ComposedTargetBundle,
   getEffectiveClaudeOptions,
+  getEffectiveCodexOptions,
   isConfigError,
   readTargetsToml,
 } from 'spaces-config'
@@ -173,6 +174,58 @@ async function buildPiSdkBundle(
   }
 }
 
+async function loadCodexBundle(
+  outputPath: string,
+  targetName: string
+): Promise<ComposedTargetBundle> {
+  const codexHome = join(outputPath, 'codex.home')
+  const configPath = join(codexHome, 'config.toml')
+  const agentsPath = join(codexHome, 'AGENTS.md')
+  const skillsDir = join(codexHome, 'skills')
+  const promptsDir = join(codexHome, 'prompts')
+  const mcpPath = join(codexHome, 'mcp.json')
+
+  const homeStats = await stat(codexHome)
+  if (!homeStats.isDirectory()) {
+    throw new Error(`Codex home directory not found: ${codexHome}`)
+  }
+
+  const configStats = await stat(configPath)
+  if (!configStats.isFile()) {
+    throw new Error(`Codex config.toml not found: ${configPath}`)
+  }
+
+  const agentsStats = await stat(agentsPath)
+  if (!agentsStats.isFile()) {
+    throw new Error(`Codex AGENTS.md not found: ${agentsPath}`)
+  }
+
+  let mcpConfigPath: string | undefined
+  try {
+    const mcpStats = await stat(mcpPath)
+    if (mcpStats.size > 2) {
+      mcpConfigPath = mcpPath
+    }
+  } catch {
+    // MCP config is optional
+  }
+
+  return {
+    harnessId: 'codex',
+    targetName,
+    rootDir: outputPath,
+    pluginDirs: [codexHome],
+    mcpConfigPath,
+    codex: {
+      homeTemplatePath: codexHome,
+      configPath,
+      agentsPath,
+      skillsDir,
+      promptsDir,
+    },
+  }
+}
+
 export function registerInstallCommand(program: Command): void {
   program
     .command('install')
@@ -180,7 +233,7 @@ export function registerInstallCommand(program: Command): void {
     .option('--targets <names...>', 'Specific targets to install')
     .option(
       '--harness <id>',
-      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, pi, pi-sdk)'
+      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, codex, pi, pi-sdk)'
     )
     .option('--update', 'Update existing lock (re-resolve selectors)')
     .option('--refresh', 'Force re-copy from source (clear cache)')
@@ -250,6 +303,8 @@ export function registerInstallCommand(program: Command): void {
 
         for (const mat of result.materializations) {
           const claudeOptions = getEffectiveClaudeOptions(manifest, mat.target)
+          const codexOptions =
+            harnessId === 'codex' ? getEffectiveCodexOptions(manifest, mat.target) : undefined
 
           // Generate command
           let command: string
@@ -275,13 +330,18 @@ export function registerInstallCommand(program: Command): void {
                 ? await buildPiBundle(mat.outputPath, mat.target)
                 : harnessId === 'pi-sdk'
                   ? await buildPiSdkBundle(mat.outputPath, mat.target)
-                  : (() => {
-                      throw new Error(`Unsupported harness: ${harnessId}`)
-                    })()
+                  : harnessId === 'codex'
+                    ? await loadCodexBundle(mat.outputPath, mat.target)
+                    : (() => {
+                        throw new Error(`Unsupported harness: ${harnessId}`)
+                      })()
             const args = adapter.buildRunArgs(bundle, {
               projectPath,
               extraArgs: undefined,
-              model: claudeOptions.model,
+              model: codexOptions?.model ?? claudeOptions.model,
+              approvalPolicy: codexOptions?.approval_policy,
+              sandboxMode: codexOptions?.sandbox_mode,
+              profile: codexOptions?.profile,
             })
             command = formatCommand(harnessPath, args)
           }

@@ -16,6 +16,7 @@ interface HarnessInfo {
   id: string
   name: string
   detection: HarnessDetection
+  experimental?: boolean
 }
 
 interface HarnessesOutput {
@@ -28,11 +29,17 @@ interface HarnessesOutput {
  */
 function formatHarnessText(harness: HarnessInfo, isDefault: boolean): void {
   const defaultMarker = isDefault ? chalk.cyan(' (default)') : ''
+  const experimentalMarker = harness.experimental ? chalk.yellow(' (experimental)') : ''
   const available = harness.detection.available
 
   if (available) {
-    console.log(`  ${chalk.green(figures.tick)} ${chalk.bold(harness.id)}${defaultMarker}`)
+    console.log(
+      `  ${chalk.green(figures.tick)} ${chalk.bold(harness.id)}${defaultMarker}${experimentalMarker}`
+    )
     console.log(`    Name: ${harness.name}`)
+    if (harness.experimental) {
+      console.log(`    Stability: ${chalk.yellow('Experimental')}`)
+    }
     if (harness.detection.version) {
       console.log(`    Version: ${harness.detection.version}`)
     }
@@ -43,9 +50,14 @@ function formatHarnessText(harness: HarnessInfo, isDefault: boolean): void {
       console.log(`    Capabilities: ${harness.detection.capabilities.join(', ')}`)
     }
   } else {
-    console.log(`  ${chalk.red(figures.cross)} ${chalk.bold(harness.id)}${defaultMarker}`)
+    console.log(
+      `  ${chalk.red(figures.cross)} ${chalk.bold(harness.id)}${defaultMarker}${experimentalMarker}`
+    )
     console.log(`    Name: ${harness.name}`)
     console.log(`    Status: ${chalk.yellow('Not available')}`)
+    if (harness.experimental) {
+      console.log(`    Stability: ${chalk.yellow('Experimental')}`)
+    }
     if (harness.detection.error) {
       console.log(`    Reason: ${chalk.gray(harness.detection.error)}`)
     }
@@ -85,6 +97,7 @@ export function registerHarnessesCommand(program: Command): void {
         // Detect all harnesses
         const detections = await harnessRegistry.detectAvailable()
         const adapters = harnessRegistry.getAll()
+        const experimentalHarnesses = new Set(['codex'])
 
         const harnesses: HarnessInfo[] = adapters.map((adapter) => ({
           id: adapter.id,
@@ -93,6 +106,7 @@ export function registerHarnessesCommand(program: Command): void {
             available: false,
             error: 'Detection not run',
           },
+          experimental: experimentalHarnesses.has(adapter.id),
         }))
 
         const output: HarnessesOutput = {

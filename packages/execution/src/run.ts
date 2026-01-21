@@ -13,21 +13,28 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/
 import { join } from 'node:path'
 
 import {
+  type ComposeTargetInput,
   type ComposedTargetBundle,
   DEFAULT_HARNESS,
+  type HarnessAdapter,
+  type HarnessDetection,
   type HarnessId,
   LOCK_FILENAME,
   type LockFile,
+  type ResolvedSpaceArtifact,
   type SpaceKey,
   type SpaceRefString,
+  type SpaceSettings,
   getAspModulesPath,
   getEffectiveClaudeOptions,
+  getEffectiveCodexOptions,
   harnessOutputExists,
   isSpaceRefString,
   lockFileExists,
   parseSpaceRef,
   readLockJson,
   readSpaceToml,
+  resolveSpaceManifest,
   serializeLockJson,
 } from 'spaces-config'
 
@@ -62,6 +69,14 @@ import { harnessRegistry } from './harness/index.js'
 
 function isClaudeCompatibleHarness(harnessId: HarnessId): boolean {
   return harnessId === 'claude' || harnessId === 'claude-agent-sdk'
+}
+
+function isHarnessSupported(supports: HarnessId[] | undefined, harnessId: HarnessId): boolean {
+  if (!supports) return true
+  if (supports.includes(harnessId)) return true
+  if (harnessId === 'claude-agent-sdk') return supports.includes('claude')
+  if (harnessId === 'pi-sdk') return supports.includes('pi')
+  return false
 }
 
 function shellQuote(value: string): string {
@@ -177,6 +192,58 @@ async function loadPiSdkBundle(
       skillsDir: skillsDirPath,
       hooksDir: hooksDirPath,
       contextDir: contextDirPath,
+    },
+  }
+}
+
+async function loadCodexBundle(
+  outputPath: string,
+  targetName: string
+): Promise<ComposedTargetBundle> {
+  const codexHome = join(outputPath, 'codex.home')
+  const configPath = join(codexHome, 'config.toml')
+  const agentsPath = join(codexHome, 'AGENTS.md')
+  const skillsDir = join(codexHome, 'skills')
+  const promptsDir = join(codexHome, 'prompts')
+  const mcpPath = join(codexHome, 'mcp.json')
+
+  const homeStats = await stat(codexHome)
+  if (!homeStats.isDirectory()) {
+    throw new Error(`Codex home directory not found: ${codexHome}`)
+  }
+
+  const configStats = await stat(configPath)
+  if (!configStats.isFile()) {
+    throw new Error(`Codex config.toml not found: ${configPath}`)
+  }
+
+  const agentsStats = await stat(agentsPath)
+  if (!agentsStats.isFile()) {
+    throw new Error(`Codex AGENTS.md not found: ${agentsPath}`)
+  }
+
+  let mcpConfigPath: string | undefined
+  try {
+    const mcpStats = await stat(mcpPath)
+    if (mcpStats.size > 2) {
+      mcpConfigPath = mcpPath
+    }
+  } catch {
+    // MCP config is optional
+  }
+
+  return {
+    harnessId: 'codex',
+    targetName,
+    rootDir: outputPath,
+    pluginDirs: [codexHome],
+    mcpConfigPath,
+    codex: {
+      homeTemplatePath: codexHome,
+      configPath,
+      agentsPath,
+      skillsDir,
+      promptsDir,
     },
   }
 }
@@ -394,6 +461,103 @@ async function executeHarnessCommand(
   })
 }
 
+async function executeNonClaudeHarness(
+  adapter: HarnessAdapter,
+  detection: HarnessDetection,
+  bundle: ComposedTargetBundle,
+  harnessId: HarnessId,
+  options: {
+    cwd?: string | undefined
+    env?: Record<string, string> | undefined
+    extraArgs?: string[] | undefined
+    model?: string | undefined
+    prompt?: string | undefined
+    interactive?: boolean | undefined
+    yolo?: boolean | undefined
+    artifactDir?: string | undefined
+    emitEvents?: boolean | undefined
+    dryRun?: boolean | undefined
+    projectPath?: string | undefined
+  }
+): Promise<{ exitCode: number; command?: string; eventsPath?: string }> {
+  const artifactDir = options.artifactDir
+  const eventsPath =
+    options.emitEvents && artifactDir ? getEventsOutputPath(artifactDir) : undefined
+
+  let eventEmitter: RunEventEmitter | undefined
+  if (eventsPath) {
+    eventEmitter = await createEventEmitter({
+      outputPath: eventsPath,
+      heartbeatIntervalMs: 30000,
+    })
+  }
+
+  const isCodex = harnessId === 'codex'
+  const args = adapter.buildRunArgs(bundle, {
+    model: options.model,
+    approvalPolicy: isCodex ? (options.yolo ? 'never' : undefined) : undefined,
+    sandboxMode: isCodex ? (options.yolo ? 'danger-full-access' : undefined) : undefined,
+    extraArgs: options.extraArgs,
+    projectPath: options.projectPath,
+    prompt: options.prompt,
+    interactive: options.interactive,
+    cwd: options.cwd,
+    yolo: options.yolo,
+    artifactDir,
+    emitEvents: options.emitEvents,
+  })
+
+  const harnessEnv: Record<string, string> = {
+    ...options.env,
+  }
+  if (harnessId === 'pi' || harnessId === 'pi-sdk') {
+    harnessEnv['PI_CODING_AGENT_DIR'] = bundle.rootDir
+  }
+  if (harnessId === 'codex') {
+    const codexHome = bundle.codex?.homeTemplatePath ?? join(bundle.rootDir, 'codex.home')
+    harnessEnv['CODEX_HOME'] = codexHome
+  }
+
+  const commandPath = detection.path ?? harnessId
+  const command = formatEnvPrefix(harnessEnv) + formatCommand(commandPath, args)
+
+  if (options.dryRun) {
+    if (eventEmitter) await eventEmitter.close()
+    return { exitCode: 0, command, ...(eventsPath ? { eventsPath } : {}) }
+  }
+
+  eventEmitter?.emitJobStarted({
+    harness: harnessId,
+    target: bundle.targetName,
+    pid: process.pid,
+    cwd: options.cwd ?? process.cwd(),
+  })
+
+  console.log(`\x1b[90m$ ${command}\x1b[0m`)
+  console.log('')
+
+  const { exitCode, stdout, stderr } = await executeHarnessCommand(commandPath, args, {
+    interactive: options.interactive,
+    cwd: options.cwd,
+    env: harnessEnv,
+  })
+
+  if (stdout) {
+    process.stdout.write(stdout)
+  }
+  if (stderr) {
+    process.stderr.write(stderr)
+  }
+
+  eventEmitter?.emitJobCompleted({
+    exitCode,
+    outcome: exitCode === 0 ? 'success' : 'failure',
+  })
+  if (eventEmitter) await eventEmitter.close()
+
+  return { exitCode, command, ...(eventsPath ? { eventsPath } : {}) }
+}
+
 /**
  * Cleanup a temporary directory, ignoring errors.
  */
@@ -557,17 +721,40 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
 
   if (!isClaudeCompatibleHarness(harnessId)) {
     debugLog('non-claude harness', harnessId)
+    const codexOptions =
+      harnessId === 'codex'
+        ? getEffectiveCodexOptions(await loadProjectManifest(options.projectPath), targetName)
+        : undefined
     const bundle =
       harnessId === 'pi'
         ? await buildPiBundle(harnessOutputPath, targetName)
         : harnessId === 'pi-sdk'
           ? await loadPiSdkBundle(harnessOutputPath, targetName)
-          : (() => {
-              throw new Error(`Unsupported harness: ${harnessId}`)
-            })()
+          : harnessId === 'codex'
+            ? await loadCodexBundle(harnessOutputPath, targetName)
+            : (() => {
+                throw new Error(`Unsupported harness: ${harnessId}`)
+              })()
+
+    const isCodex = harnessId === 'codex'
+    const codexModel = isCodex ? (options.model ?? codexOptions?.model) : options.model
+    const codexApprovalPolicy = isCodex
+      ? options.yolo
+        ? 'never'
+        : codexOptions?.approval_policy
+      : undefined
+    const codexSandboxMode = isCodex
+      ? options.yolo
+        ? 'danger-full-access'
+        : codexOptions?.sandbox_mode
+      : undefined
+    const codexProfile = isCodex ? codexOptions?.profile : undefined
 
     const args = adapter.buildRunArgs(bundle, {
-      model: options.model,
+      model: codexModel,
+      approvalPolicy: codexApprovalPolicy,
+      sandboxMode: codexSandboxMode,
+      profile: codexProfile,
       extraArgs: options.extraArgs,
       projectPath: options.projectPath,
       prompt: options.prompt,
@@ -579,15 +766,21 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
       emitEvents: options.emitEvents,
     })
 
-    // Build env vars for Pi harness.
-    const piEnv: Record<string, string> = {
+    // Build env vars for harness execution.
+    const harnessEnv: Record<string, string> = {
       ...options.env,
-      PI_CODING_AGENT_DIR: harnessOutputPath,
+    }
+    if (harnessId === 'pi' || harnessId === 'pi-sdk') {
+      harnessEnv['PI_CODING_AGENT_DIR'] = harnessOutputPath
+    }
+    if (harnessId === 'codex') {
+      const codexHome = bundle.codex?.homeTemplatePath ?? join(harnessOutputPath, 'codex.home')
+      harnessEnv['CODEX_HOME'] = codexHome
     }
 
     const commandPath = detection.path ?? harnessId
     // Include env prefix in command for copy-paste compatibility
-    const command = formatEnvPrefix(piEnv) + formatCommand(commandPath, args)
+    const command = formatEnvPrefix(harnessEnv) + formatCommand(commandPath, args)
 
     if (options.dryRun) {
       debugLog('dry run non-claude')
@@ -619,7 +812,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     const { exitCode, stdout, stderr } = await executeHarnessCommand(commandPath, args, {
       interactive: options.interactive,
       cwd: options.cwd ?? options.projectPath,
-      env: piEnv,
+      env: harnessEnv,
     })
 
     // Print captured output for non-interactive mode
@@ -793,6 +986,8 @@ export interface GlobalRunOptions {
   aspHome?: string | undefined
   /** Registry path override */
   registryPath?: string | undefined
+  /** Harness to run with (default: 'claude') */
+  harness?: HarnessId | undefined
   /** Working directory for Claude */
   cwd?: string | undefined
   /** Whether to run interactively (default: true) */
@@ -845,6 +1040,163 @@ export async function runGlobalSpace(
 ): Promise<RunResult> {
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
+  const harnessId = options.harness ?? DEFAULT_HARNESS
+
+  if (!isClaudeCompatibleHarness(harnessId)) {
+    const adapter = harnessRegistry.getOrThrow(harnessId)
+    const detection = await adapter.detect()
+
+    // Parse the space reference
+    const ref = parseSpaceRef(spaceRefString)
+
+    // Get registry path
+    const registryPath = options.registryPath ?? paths.repo
+
+    // Handle @dev selector - run directly from filesystem
+    if (ref.selector.kind === 'dev') {
+      const spacePath = join(registryPath, 'spaces', ref.id)
+      return runLocalSpace(spacePath, options)
+    }
+
+    // Compute closure for this single space (with its dependencies)
+    const closure = await computeClosure([spaceRefString], { cwd: registryPath })
+
+    // Create snapshots for all spaces in the closure
+    for (const spaceKey of closure.loadOrder) {
+      const space = closure.spaces.get(spaceKey)
+      if (!space) continue
+      await createSnapshot(space.id, space.commit, { paths, cwd: registryPath })
+    }
+
+    // Generate a synthetic lock file for materialization
+    const lock = await generateLockFileForTarget('_global', [spaceRefString], closure, {
+      cwd: registryPath,
+      registry: { type: 'git', url: registryPath },
+    })
+
+    // Persist to global lock file (merge with existing if present)
+    await persistGlobalLock(lock, paths.globalLock)
+
+    // Create temp directory for materialization
+    const tempDir = await createTempDir(aspHome)
+    const outputDir = join(tempDir, harnessId)
+    const artifactRoot = join(tempDir, 'artifacts')
+    await ensureDir(outputDir)
+    await ensureDir(artifactRoot)
+
+    try {
+      const artifacts: ResolvedSpaceArtifact[] = []
+      const settingsInputs: SpaceSettings[] = []
+      const loadOrder: SpaceKey[] = []
+      const rootKeys = new Set(closure.roots)
+
+      for (const spaceKey of closure.loadOrder) {
+        const space = closure.spaces.get(spaceKey)
+        if (!space) throw new Error(`Space not found in closure: ${spaceKey}`)
+
+        const supports = space.manifest.harness?.supports
+        if (!isHarnessSupported(supports, harnessId)) {
+          if (rootKeys.has(spaceKey)) {
+            throw new Error(`Space "${space.id}" does not support harness "${harnessId}"`)
+          }
+          continue
+        }
+
+        const lockEntry = lock.spaces[spaceKey]
+        const pluginName =
+          lockEntry?.plugin?.name ?? space.manifest.plugin?.name ?? (space.id as string)
+        const pluginVersion = lockEntry?.plugin?.version ?? space.manifest.plugin?.version
+        const snapshotIntegrity = lockEntry?.integrity ?? `sha256:${'0'.repeat(64)}`
+        const snapshotPath = paths.snapshot(snapshotIntegrity)
+
+        const manifest = {
+          ...space.manifest,
+          schema: 1 as const,
+          id: space.id,
+          plugin: {
+            ...(space.manifest.plugin ?? {}),
+            name: pluginName,
+            ...(pluginVersion ? { version: pluginVersion } : {}),
+          },
+        }
+
+        const artifactPath = join(artifactRoot, spaceKey.replace(/[^a-zA-Z0-9._-]/g, '_'))
+        await adapter.materializeSpace(
+          {
+            manifest,
+            snapshotPath,
+            spaceKey,
+            integrity: snapshotIntegrity as `sha256:${string}`,
+          },
+          artifactPath,
+          { force: true, useHardlinks: true }
+        )
+
+        artifacts.push({
+          spaceKey,
+          spaceId: space.id,
+          artifactPath,
+          pluginName,
+          ...(pluginVersion ? { pluginVersion } : {}),
+        })
+
+        settingsInputs.push(space.manifest.settings ?? {})
+        loadOrder.push(spaceKey)
+      }
+
+      const roots = closure.roots.filter((key) => loadOrder.includes(key))
+      const composeInput: ComposeTargetInput = {
+        targetName: ref.id as string,
+        compose: [spaceRefString],
+        roots,
+        loadOrder,
+        artifacts,
+        settingsInputs,
+      }
+
+      const { bundle } = await adapter.composeTarget(composeInput, outputDir, {
+        clean: true,
+        inheritProject: options.inheritProject,
+        inheritUser: options.inheritUser,
+      })
+
+      const warnings: LintWarning[] = []
+      const result = await executeNonClaudeHarness(adapter, detection, bundle, harnessId, {
+        cwd: options.cwd ?? process.cwd(),
+        projectPath: options.cwd ?? process.cwd(),
+        env: options.env,
+        extraArgs: options.extraArgs,
+        model: options.model,
+        prompt: options.prompt,
+        interactive: options.interactive,
+        yolo: options.yolo,
+        artifactDir: options.artifactDir,
+        emitEvents: options.emitEvents,
+        dryRun: options.dryRun,
+      })
+
+      const shouldCleanup = options.dryRun ? false : (options.cleanup ?? !options.interactive)
+      if (shouldCleanup) {
+        await cleanupTempDir(tempDir)
+      }
+
+      return {
+        build: {
+          pluginDirs: bundle.pluginDirs ?? [],
+          mcpConfigPath: bundle.mcpConfigPath,
+          settingsPath: bundle.settingsPath,
+          warnings,
+          lock,
+        },
+        exitCode: result.exitCode,
+        command: result.command,
+        eventsPath: result.eventsPath,
+      }
+    } catch (error) {
+      await cleanupTempDir(tempDir)
+      throw error
+    }
+  }
 
   // Detect Claude
   await detectClaude()
@@ -1014,6 +1366,114 @@ export async function runLocalSpace(
 ): Promise<RunResult> {
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
+  const harnessId = options.harness ?? DEFAULT_HARNESS
+
+  if (!isClaudeCompatibleHarness(harnessId)) {
+    const adapter = harnessRegistry.getOrThrow(harnessId)
+    const detection = await adapter.detect()
+
+    // Read the space manifest
+    const manifestPath = join(spacePath, 'space.toml')
+    const rawManifest = await readSpaceToml(manifestPath)
+    const manifest = resolveSpaceManifest(rawManifest)
+    const supports = manifest.harness?.supports
+    if (!isHarnessSupported(supports, harnessId)) {
+      throw new Error(`Space "${manifest.id}" does not support harness "${harnessId}"`)
+    }
+
+    // Create temp directory
+    const tempDir = await createTempDir(aspHome)
+    const outputDir = join(tempDir, harnessId)
+    const artifactRoot = join(tempDir, 'artifacts')
+    await ensureDir(outputDir)
+    await ensureDir(artifactRoot)
+
+    try {
+      const spaceKey = `${manifest.id}@local` as SpaceKey
+      const pluginName = manifest.plugin.name
+      const pluginVersion = manifest.plugin.version
+      const artifactPath = join(artifactRoot, spaceKey.replace(/[^a-zA-Z0-9._-]/g, '_'))
+
+      await adapter.materializeSpace(
+        {
+          manifest,
+          snapshotPath: spacePath,
+          spaceKey,
+          integrity: 'sha256:dev' as `sha256:${string}`,
+        },
+        artifactPath,
+        { force: true, useHardlinks: false }
+      )
+
+      const composeInput: ComposeTargetInput = {
+        targetName: manifest.id,
+        compose: [`space:${manifest.id}@dev` as SpaceRefString],
+        roots: [spaceKey],
+        loadOrder: [spaceKey],
+        artifacts: [
+          {
+            spaceKey,
+            spaceId: manifest.id,
+            artifactPath,
+            pluginName,
+            ...(pluginVersion ? { pluginVersion } : {}),
+          },
+        ],
+        settingsInputs: [manifest.settings ?? {}],
+      }
+
+      const { bundle } = await adapter.composeTarget(composeInput, outputDir, {
+        clean: true,
+        inheritProject: options.inheritProject,
+        inheritUser: options.inheritUser,
+      })
+
+      const warnings: LintWarning[] = []
+      const result = await executeNonClaudeHarness(adapter, detection, bundle, harnessId, {
+        cwd: options.cwd ?? spacePath,
+        projectPath: options.cwd ?? spacePath,
+        env: options.env,
+        extraArgs: options.extraArgs,
+        model: options.model,
+        prompt: options.prompt,
+        interactive: options.interactive,
+        yolo: options.yolo,
+        artifactDir: options.artifactDir,
+        emitEvents: options.emitEvents,
+        dryRun: options.dryRun,
+      })
+
+      const shouldCleanup = options.dryRun ? false : (options.cleanup ?? !options.interactive)
+      if (shouldCleanup) {
+        await cleanupTempDir(tempDir)
+      }
+
+      const syntheticLock = {
+        lockfileVersion: 1 as const,
+        resolverVersion: 1 as const,
+        generatedAt: new Date().toISOString(),
+        registry: { type: 'git' as const, url: 'local' },
+        spaces: {},
+        targets: {},
+      }
+
+      return {
+        build: {
+          pluginDirs: bundle.pluginDirs ?? [],
+          mcpConfigPath: bundle.mcpConfigPath,
+          settingsPath: bundle.settingsPath,
+          warnings,
+          lock: syntheticLock,
+        },
+        exitCode: result.exitCode,
+        command: result.command,
+        eventsPath: result.eventsPath,
+      }
+    } catch (error) {
+      await cleanupTempDir(tempDir)
+      throw error
+    }
+  }
 
   // Detect Claude
   await detectClaude()

@@ -243,6 +243,7 @@ async function runGlobalMode(
     debug: options.debug,
     settingSources,
     settings: options.settings,
+    harness: options.harness,
     model: options.model,
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
@@ -287,6 +288,7 @@ async function runDevMode(
     debug: options.debug,
     settingSources,
     settings: options.settings,
+    harness: options.harness,
     model: options.model,
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
@@ -348,7 +350,7 @@ export function registerRunCommand(program: Command): void {
     .argument('[prompt]', 'Optional initial prompt (runs non-interactively)')
     .option(
       '--harness <id>',
-      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, pi, pi-sdk)'
+      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, codex, pi, pi-sdk)'
     )
     .option('--model <model>', 'Model override (pi-sdk expects provider:model)')
     .option('--no-interactive', 'Run non-interactively (requires prompt)')

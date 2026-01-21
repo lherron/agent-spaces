@@ -22,6 +22,23 @@
         }
       }
     },
+    "codex": {
+      "type": "object",
+      "description": "Default codex options applied to all targets unless overridden",
+      "additionalProperties": false,
+      "properties": {
+        "model": { "type": "string" },
+        "approval_policy": {
+          "type": "string",
+          "enum": ["untrusted", "on-failure", "on-request", "never"]
+        },
+        "sandbox_mode": {
+          "type": "string",
+          "enum": ["read-only", "workspace-write", "danger-full-access"]
+        },
+        "profile": { "type": "string" }
+      }
+    },
 
     "targets": {
       "type": "object",
@@ -56,6 +73,22 @@
             "model": { "type": "string" },
             "permission_mode": { "type": "string" },
             "args": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "codex": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "model": { "type": "string" },
+            "approval_policy": {
+              "type": "string",
+              "enum": ["untrusted", "on-failure", "on-request", "never"]
+            },
+            "sandbox_mode": {
+              "type": "string",
+              "enum": ["read-only", "workspace-write", "danger-full-access"]
+            },
+            "profile": { "type": "string" }
           }
         },
 

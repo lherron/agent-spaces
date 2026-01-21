@@ -10,7 +10,7 @@ Manual smoke test for Codex harness integration with agent-spaces, using the rea
 codex --version
 ```
 
-**Expected:** Version string (e.g., `codex 0.1.x`).
+**Expected:** Version string (e.g., `codex 0.1.x`). Minimum supported version: `0.1.0`.
 
 ### 2. Verify app-server subcommand exists
 
@@ -106,7 +106,7 @@ $ASP_CLI install --target codex-test 2>&1
 **Expected:**
 - No errors
 - Output indicates successful materialization
-- Creates `codex.home/` directory in `asp_modules/codex-test/`
+- Creates `codex.home/` directory in `asp_modules/codex-test/codex/`
 
 ---
 
@@ -115,7 +115,7 @@ $ASP_CLI install --target codex-test 2>&1
 ### Test 4: Verify Codex Home Template Structure
 
 ```bash
-ls -la asp_modules/codex-test/codex.home/
+ls -la asp_modules/codex-test/codex/codex.home/
 ```
 
 **Expected structure:**
@@ -135,13 +135,13 @@ codex.home/
 The `smokey` space includes the `smoke-testing` skill. Verify it's copied:
 
 ```bash
-ls -la asp_modules/codex-test/codex.home/skills/
+ls -la asp_modules/codex-test/codex/codex.home/skills/
 ```
 
 **Expected:** Contains `smoke-testing/` directory (from smokey space).
 
 ```bash
-cat asp_modules/codex-test/codex.home/skills/smoke-testing/SKILL.md | head -20
+cat asp_modules/codex-test/codex/codex.home/skills/smoke-testing/SKILL.md | head -20
 ```
 
 **Expected:** Content from the smokey smoke-testing skill.
@@ -153,7 +153,7 @@ cat asp_modules/codex-test/codex.home/skills/smoke-testing/SKILL.md | head -20
 The smoke-testing skill includes playbook files:
 
 ```bash
-ls -la asp_modules/codex-test/codex.home/skills/smoke-testing/playbooks/
+ls -la asp_modules/codex-test/codex/codex.home/skills/smoke-testing/playbooks/
 ```
 
 **Expected:** Playbook files like `quick-sanity.md`, `full-sweep.md`, etc.
@@ -165,7 +165,7 @@ ls -la asp_modules/codex-test/codex.home/skills/smoke-testing/playbooks/
 Check if any commands from the spaces were converted to Codex prompts:
 
 ```bash
-ls -la asp_modules/codex-test/codex.home/prompts/ 2>/dev/null || echo "No prompts directory (expected if no commands in composed spaces)"
+ls -la asp_modules/codex-test/codex/codex.home/prompts/ 2>/dev/null || echo "No prompts directory (expected if no commands in composed spaces)"
 ```
 
 **Expected:** Either prompts directory with `.md` files, or no directory if source spaces don't have commands.
@@ -175,7 +175,7 @@ ls -la asp_modules/codex-test/codex.home/prompts/ 2>/dev/null || echo "No prompt
 ### Test 8: Verify AGENTS.md Generation
 
 ```bash
-cat asp_modules/codex-test/codex.home/AGENTS.md
+cat asp_modules/codex-test/codex/codex.home/AGENTS.md
 ```
 
 **Expected:**
@@ -192,7 +192,7 @@ cat asp_modules/codex-test/codex.home/AGENTS.md
 ### Test 9: Verify config.toml Generation
 
 ```bash
-cat asp_modules/codex-test/codex.home/config.toml
+cat asp_modules/codex-test/codex/codex.home/config.toml
 ```
 
 **Expected:**
@@ -212,10 +212,10 @@ Verify both Claude and Codex outputs are generated for the same target:
 ls -la asp_modules/codex-test/claude/plugins/ 2>/dev/null || echo "No claude output (expected for codex-only target)"
 
 # Codex home structure (new)
-ls -la asp_modules/codex-test/codex.home/
+ls -la asp_modules/codex-test/codex/codex.home/
 ```
 
-**Note:** A codex-harness target should produce `codex.home/` but not `claude/plugins/`.
+**Note:** A codex-harness target should produce `codex/codex.home/` but not `claude/plugins/`.
 
 ---
 
@@ -227,7 +227,7 @@ In a **separate terminal**, start the app-server with the materialized home:
 
 ```bash
 cd ~/praesidium/agent-spaces
-CODEX_HOME="$PWD/asp_modules/codex-test/codex.home" codex app-server
+CODEX_HOME="$PWD/asp_modules/codex-test/codex/codex.home" codex app-server
 ```
 
 **Expected:** Server starts and waits for JSON-RPC input on stdin.
@@ -393,7 +393,7 @@ RUN_ID_2=$(echo "$RESULT2" | jq -r '.runId')
 curl -s "$BASE/admin/runs/$RUN_ID_2/wait?timeoutMs=120000" -H "$TOKEN" | jq '{status, finalOutput}'
 ```
 
-**Expected:** Response references "2+2" or the previous question, proving context was maintained via thread_id.
+**Expected:** Response references "2+2" or the previous question, proving context was maintained via threadId.
 
 ---
 
@@ -460,7 +460,7 @@ cd ~/praesidium/wrkq
 bun run ~/praesidium/agent-spaces/packages/cli/bin/asp.js install --target codex-smokey
 ```
 
-**Expected:** Materializes `asp_modules/codex-smokey/codex.home/` with skills from smokey space.
+**Expected:** Materializes `asp_modules/codex-smokey/codex/codex.home/` with skills from smokey space.
 
 ---
 
@@ -472,14 +472,14 @@ bun run ~/praesidium/agent-spaces/packages/cli/bin/asp.js install --target codex
 | Target creation | `codex-test` target added to asp-targets.toml |
 | Space resolution | Resolves `space:smokey@dev` and `space:defaults@stable` |
 | Materialization | `asp install` completes without errors |
-| Skills | `smoke-testing` skill copied to `codex.home/skills/` |
+| Skills | `smoke-testing` skill copied to `codex/codex.home/skills/` |
 | Playbooks | Skill subdirectories (playbooks/) preserved |
 | AGENTS.md | Instructions merged with space markers |
 | config.toml | Contains safe defaults and project_doc_fallback |
 | App-server | Starts with CODEX_HOME pointing to materialized home |
 | Session creation | New session created via control-plane |
 | Run completion | Run completes with expected output |
-| Thread persistence | `harnessSessionId` populated with thread_id |
+| Thread persistence | `harnessSessionId` populated with threadId |
 | Session resume | Context maintained across runs via thread resume |
 | Event mapping | Codex events mapped to unified types |
 
@@ -572,7 +572,7 @@ curl -v -N "$BASE/admin/sessions/$SESSION_ID/events/stream" \
 
 Verify materialization completed:
 ```bash
-ls -laR asp_modules/codex-test/codex.home/
+ls -laR asp_modules/codex-test/codex/codex.home/
 ```
 
 Check for errors in asp install output:

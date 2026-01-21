@@ -8,7 +8,7 @@ import { createSession } from './factory.js'
 import type { UnifiedSessionEvent } from './types.js'
 
 describe('createSession', () => {
-  test('returns agent-sdk and pi sessions', () => {
+  test('returns agent-sdk, codex, and pi sessions', () => {
     const agentSdk = createSession({
       kind: 'agent-sdk',
       sessionId: 'session-a',
@@ -25,6 +25,15 @@ describe('createSession', () => {
     })
     expect(pi.kind).toBe('pi')
     expect(pi.sessionId).toBe('session-b')
+
+    const codex = createSession({
+      kind: 'codex',
+      sessionId: 'session-c',
+      cwd: '/tmp',
+      codexHomeDir: '/tmp/codex-home',
+    })
+    expect(codex.kind).toBe('codex')
+    expect(codex.sessionId).toBe('session-c')
   })
 })
 

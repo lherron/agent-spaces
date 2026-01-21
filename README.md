@@ -44,6 +44,7 @@ The manager space guides you through creating your first space.
 `asp run` supports multiple harnesses via `--harness`:
 
 - `claude` (default): Claude Code CLI
+- `codex` (experimental): OpenAI Codex CLI (app-server + exec)
 - `pi`: Pi Coding Agent CLI
 - `pi-sdk`: Pi SDK runner (Bun) using `@mariozechner/pi-coding-agent`
 
@@ -111,6 +112,7 @@ asp run ./path/to/my-space
 
 - [Bun](https://bun.sh/) >= 1.0
 - [Claude Code](https://claude.ai/code) CLI installed and accessible
+- [OpenAI Codex](https://developers.openai.com/codex/cli/) CLI for `--harness codex` runs
 - Pi SDK (`@mariozechner/pi-coding-agent`) for `--harness pi-sdk` runs
 
 ## License

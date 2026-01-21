@@ -54,6 +54,7 @@ export { derivePluginIdentity, resolveSpaceManifest } from './space.js'
 // Project targets types
 export type {
   ClaudeOptions,
+  CodexOptions,
   ProjectManifest,
   ResolverConfig,
   TargetDefinition,
@@ -62,9 +63,11 @@ export type {
 
 export {
   getEffectiveClaudeOptions,
+  getEffectiveCodexOptions,
   getTarget,
   getTargetNames as getProjectTargetNames,
   mergeClaudeOptions,
+  mergeCodexOptions,
 } from './targets.js'
 
 // Dist-tags types
@@ -109,6 +112,7 @@ export type {
   MaterializeSpaceResult,
   ResolvedSpaceArtifact,
   SpaceClaudeConfig,
+  SpaceCodexConfig,
   SpaceHarnessConfig,
   SpaceHarnessManifestExtension,
   SpacePiBuildConfig,

@@ -61,7 +61,7 @@ export interface SpaceSettings {
 /** Multi-harness support configuration */
 export interface SpaceHarnessConfig {
   /** List of harnesses this space supports */
-  supports?: Array<'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk'> | undefined
+  supports?: Array<'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk' | 'codex'> | undefined
 }
 
 /** Claude-specific space configuration */
@@ -94,6 +94,18 @@ export interface SpacePiConfig {
   build?: SpacePiBuildConfig | undefined
 }
 
+/** Codex-specific space configuration */
+export interface SpaceCodexConfig {
+  /** Extra config keypaths merged into generated config.toml */
+  config?: Record<string, unknown> | undefined
+  /** Default model override */
+  model?: string | undefined
+  /** Toggle commands -> prompts mapping */
+  prompts?: { enabled?: boolean | undefined } | undefined
+  /** Toggle skills mapping */
+  skills?: { enabled?: boolean | undefined } | undefined
+}
+
 /**
  * Space manifest (space.toml)
  *
@@ -121,6 +133,8 @@ export interface SpaceManifest {
   claude?: SpaceClaudeConfig | undefined
   /** Pi-specific configuration */
   pi?: SpacePiConfig | undefined
+  /** Codex-specific configuration */
+  codex?: SpaceCodexConfig | undefined
 }
 
 // ============================================================================
