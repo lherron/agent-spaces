@@ -253,6 +253,13 @@ async function ensureCodexSessionHome(templateDir: string, sessionHome: string):
     await linkOrCopyEntry(agentsSrc, agentsDest)
   }
 
+  // Symlink auth.json from template (which points to ~/.codex/auth.json) for OAuth
+  const authSrc = join(templateDir, 'auth.json')
+  const authDest = join(sessionHome, 'auth.json')
+  if (existsSync(authSrc) && !existsSync(authDest)) {
+    await linkOrCopyEntry(authSrc, authDest)
+  }
+
   const skillsSrc = join(templateDir, 'skills')
   const skillsDest = join(sessionHome, 'skills')
   await ensureDir(skillsDest)

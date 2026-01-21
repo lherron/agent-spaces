@@ -9,7 +9,18 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { constants, access, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  constants,
+  access,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
 import type {
@@ -502,6 +513,19 @@ export class CodexAdapter implements HarnessAdapter {
     const configToml = TOML.stringify(config as TOML.JsonMap)
     await writeFile(configPath, `${configToml}\n`)
 
+    // Symlink auth.json from user's ~/.codex if it exists so OAuth credentials are available
+    const userCodexHome = join(homedir(), '.codex')
+    const userAuthPath = join(userCodexHome, 'auth.json')
+    const destAuthPath = join(codexHome, 'auth.json')
+    try {
+      await rm(destAuthPath, { force: true })
+      if (existsSync(userAuthPath)) {
+        await symlink(userAuthPath, destAuthPath)
+      }
+    } catch {
+      // Ignore symlink failures (e.g., Windows without privileges)
+    }
+
     const manifestPath = join(codexHome, 'manifest.json')
     await writeJson(manifestPath, {
       schemaVersion: 1,
@@ -543,7 +567,9 @@ export class CodexAdapter implements HarnessAdapter {
 
   buildRunArgs(_bundle: ComposedTargetBundle, options: HarnessRunOptions): string[] {
     const args: string[] = []
-    if (!options.interactive && options.prompt) {
+    const isExecMode = !options.interactive && !!options.prompt
+
+    if (isExecMode && options.prompt) {
       args.push('exec', options.prompt)
     }
 
@@ -551,10 +577,15 @@ export class CodexAdapter implements HarnessAdapter {
       args.push('--model', options.model)
     }
     if (options.approvalPolicy) {
-      args.push('--approval-policy', options.approvalPolicy)
+      // exec mode uses -c config override, interactive mode uses --ask-for-approval
+      if (isExecMode) {
+        args.push('-c', `approval_policy="${options.approvalPolicy}"`)
+      } else {
+        args.push('--ask-for-approval', options.approvalPolicy)
+      }
     }
     if (options.sandboxMode) {
-      args.push('--sandbox-mode', options.sandboxMode)
+      args.push('--sandbox', options.sandboxMode)
     }
     if (options.profile) {
       args.push('--profile', options.profile)

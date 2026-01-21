@@ -15,3 +15,12 @@ compose = ["space:ralph-build-loop@dev"]
 [targets.smokey]
 description = "Smoke test runner"
 compose = ["space:smokey@dev", "space:defaults@stable"]
+
+[targets.codex-test]
+description = "Codex smoke test target"
+compose = ["space:smokey@dev", "space:defaults@stable"]
+
+[targets.codex-test.codex]
+model = "gpt-5.2-codex"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
