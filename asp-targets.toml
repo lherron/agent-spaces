@@ -13,6 +13,7 @@ description = "Ralph build loop"
 compose = ["space:ralph-build-loop@dev"]
 
 [targets.smokey]
+yolo = true
 description = "Smoke test runner"
 compose = ["space:smokey@dev", "space:defaults@stable"]
 
@@ -24,3 +25,15 @@ compose = ["space:smokey@dev", "space:defaults@stable"]
 model = "gpt-5.2-codex"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
+
+[targets.agent-sdk-test]
+description = "Claude Agent SDK smoke test target"
+compose = ["space:smokey@dev", "space:defaults@stable"]
+
+[targets.agent-sdk-test.claude]
+model = "claude-sonnet-4-5"
+permission_mode = "bypassPermissions"
+
+[targets.pi-sdk-test]
+description = "Pi SDK smoke test target"
+compose = ["space:smokey@dev", "space:defaults@stable"]

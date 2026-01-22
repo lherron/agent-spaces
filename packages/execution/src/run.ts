@@ -202,6 +202,11 @@ async function executeHarnessCommand(
       stdio: captureOutput ? 'pipe' : 'inherit',
     })
 
+    // Close stdin immediately for non-interactive runs to signal no more input
+    if (captureOutput && child.stdin) {
+      child.stdin.end()
+    }
+
     let stdout = ''
     let stderr = ''
 
