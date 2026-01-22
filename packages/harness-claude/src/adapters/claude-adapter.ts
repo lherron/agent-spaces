@@ -409,10 +409,7 @@ export class ClaudeAdapter implements HarnessAdapter {
     return { ASP_PLUGIN_ROOT: bundle.rootDir }
   }
 
-  getDefaultRunOptions(
-    manifest: ProjectManifest,
-    targetName: string
-  ): Partial<HarnessRunOptions> {
+  getDefaultRunOptions(manifest: ProjectManifest, targetName: string): Partial<HarnessRunOptions> {
     const claudeOptions = getEffectiveClaudeOptions(manifest, targetName)
     const target = manifest.targets[targetName]
 

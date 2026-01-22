@@ -40,7 +40,7 @@ import {
 
 import { type RunEventEmitter, createEventEmitter, getEventsOutputPath } from 'spaces-runtime'
 
-import { type LintWarning } from 'spaces-config'
+import type { LintWarning } from 'spaces-config'
 
 import { computeClosure, generateLockFileForTarget } from 'spaces-config'
 
@@ -148,17 +148,28 @@ function formatEnvPrefix(env: Record<string, string> | undefined): string {
  * Merge run option defaults with overrides.
  * Undefined values in overrides do not replace defaults.
  */
-function mergeDefined<T extends Record<string, unknown>>(
-  defaults: Partial<T>,
-  overrides: Partial<T>
-): T {
+function mergeDefined<T extends object>(defaults: Partial<T>, overrides: Partial<T>): T {
   const merged = { ...defaults } as T
-  for (const [key, value] of Object.entries(overrides)) {
+  for (const key of Object.keys(overrides) as (keyof T)[]) {
+    const value = overrides[key]
     if (value !== undefined) {
-      merged[key as keyof T] = value as T[keyof T]
+      merged[key] = value as T[keyof T]
     }
   }
   return merged
+}
+
+function resolveInteractive(
+  interactive: boolean | undefined,
+  prompt: string | undefined
+): boolean | undefined {
+  if (interactive !== undefined) {
+    return interactive
+  }
+  if (prompt !== undefined) {
+    return false
+  }
+  return undefined
 }
 
 interface ExecuteHarnessResult {
@@ -417,7 +428,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const cliRunOptions: HarnessRunOptions = {
     model: options.model,
     extraArgs: options.extraArgs,
-    interactive: options.interactive,
+    interactive: resolveInteractive(options.interactive, options.prompt),
     prompt: options.prompt,
     settingSources: options.settingSources,
     permissionMode: options.permissionMode,
@@ -676,7 +687,7 @@ export async function runGlobalSpace(
     const cliRunOptions: HarnessRunOptions = {
       model: options.model,
       extraArgs: options.extraArgs,
-      interactive: options.interactive,
+      interactive: resolveInteractive(options.interactive, options.prompt),
       prompt: options.prompt,
       settingSources: options.settingSources,
       permissionMode: options.permissionMode,
@@ -793,7 +804,7 @@ export async function runLocalSpace(
     const cliRunOptions: HarnessRunOptions = {
       model: options.model,
       extraArgs: options.extraArgs,
-      interactive: options.interactive,
+      interactive: resolveInteractive(options.interactive, options.prompt),
       prompt: options.prompt,
       settingSources: options.settingSources,
       permissionMode: options.permissionMode,

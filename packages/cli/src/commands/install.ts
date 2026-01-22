@@ -5,12 +5,7 @@
 import type { Command } from 'commander'
 
 import { isConfigError, readTargetsToml } from 'spaces-config'
-import {
-  type HarnessId,
-  harnessRegistry,
-  install,
-  isHarnessId,
-} from 'spaces-execution'
+import { type HarnessId, harnessRegistry, install, isHarnessId } from 'spaces-execution'
 
 import { findProjectRoot } from '../index.js'
 import {
