@@ -173,6 +173,20 @@ describe('asp run --harness', () => {
     expect(stdout).toContain('pi-sdk')
   })
 
+  test('--dry-run works with --harness pi', async () => {
+    const testEnv = getTestEnv(aspHome)
+    const { stdout, exitCode } = await runCli(
+      ['run', 'claude-target', '--harness', 'pi', '--dry-run'],
+      { env: testEnv, cwd: projectDir }
+    )
+
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('Dry run')
+    expect(stdout).toContain('Command:')
+    expect(stdout).toContain('PI_CODING_AGENT_DIR=')
+    expect(stdout).toContain('pi')
+  })
+
   test('--harness defaults to claude', async () => {
     const testEnv = getTestEnv(aspHome)
 

@@ -31,21 +31,17 @@ import { harnessRegistry } from './harness/index.js'
 export * from './claude/index.js'
 
 // Events and CP context
-export * from './events/index.js'
+export * from 'spaces-runtime/events'
 
 // Unified session interface
-export * from './session/index.js'
+export * from 'spaces-runtime/session'
 
 // Claude Agent SDK session helpers
 export * from './agent-sdk/index.js'
 
 // Codex app-server session helpers
-export { CodexSession } from './codex-session/index.js'
-export type {
-  CodexApprovalPolicy,
-  CodexSandboxMode,
-  CodexSessionConfig,
-} from './codex-session/index.js'
+export { CodexSession } from 'spaces-harness-codex/codex-session'
+export type { CodexSessionConfig } from 'spaces-harness-codex/codex-session'
 
 // Pi SDK session helpers
 export {

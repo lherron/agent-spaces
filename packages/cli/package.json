@@ -83,7 +83,7 @@
     "test": "bun test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "prepack": "mkdir -p node_modules && for pkg in config execution; do mkdir -p node_modules/spaces-\"$pkg\" && cp -r ../\"$pkg\"/dist node_modules/spaces-\"$pkg\"/ && cp ../\"$pkg\"/package.json node_modules/spaces-\"$pkg\"/; done && mkdir -p node_modules/agent-spaces && cp -r ../agent-spaces/dist node_modules/agent-spaces/ && cp ../agent-spaces/package.json node_modules/agent-spaces/"
+    "prepack": "mkdir -p node_modules && for pkg in config runtime harness-claude harness-pi harness-pi-sdk harness-codex execution; do mkdir -p node_modules/spaces-\"$pkg\" && cp -r ../\"$pkg\"/dist node_modules/spaces-\"$pkg\"/ && cp ../\"$pkg\"/package.json node_modules/spaces-\"$pkg\"/; done && mkdir -p node_modules/agent-spaces && cp -r ../agent-spaces/dist node_modules/agent-spaces/ && cp ../agent-spaces/package.json node_modules/agent-spaces/"
   },
   "dependencies": {
     "agent-spaces": "*",

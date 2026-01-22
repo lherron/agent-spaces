@@ -54,6 +54,7 @@ interface RunOptions {
   refresh?: boolean
   yolo?: boolean
   debug?: boolean
+  permissionMode?: string
   inheritAll?: boolean
   inheritProject?: boolean
   inheritUser?: boolean
@@ -155,6 +156,7 @@ async function runProjectMode(
     refresh: options.refresh,
     yolo: options.yolo,
     debug: options.debug,
+    permissionMode: options.permissionMode,
     settingSources,
     settings: options.settings,
     harness: options.harness,
@@ -241,6 +243,7 @@ async function runGlobalMode(
     refresh: options.refresh,
     yolo: options.yolo,
     debug: options.debug,
+    permissionMode: options.permissionMode,
     settingSources,
     settings: options.settings,
     harness: options.harness,
@@ -286,6 +289,7 @@ async function runDevMode(
     refresh: options.refresh,
     yolo: options.yolo,
     debug: options.debug,
+    permissionMode: options.permissionMode,
     settingSources,
     settings: options.settings,
     harness: options.harness,
@@ -353,6 +357,7 @@ export function registerRunCommand(program: Command): void {
       'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, codex, pi, pi-sdk)'
     )
     .option('--model <model>', 'Model override (pi-sdk expects provider:model)')
+    .option('--permission-mode <mode>', 'Claude permission mode (--permission-mode)')
     .option('--no-interactive', 'Run non-interactively (requires prompt)')
     .option('--no-warnings', 'Suppress lint warnings')
     .option('--dry-run', 'Print the harness command without executing')

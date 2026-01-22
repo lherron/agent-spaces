@@ -1,0 +1,44 @@
+{
+  "name": "spaces-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Harness-agnostic runtime primitives for Agent Spaces",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./events": {
+      "bun": "./src/events/index.ts",
+      "types": "./dist/events/index.d.ts",
+      "import": "./dist/events/index.js"
+    },
+    "./harness": {
+      "bun": "./src/harness/index.ts",
+      "types": "./dist/harness/index.d.ts",
+      "import": "./dist/harness/index.js"
+    },
+    "./session": {
+      "bun": "./src/session/index.ts",
+      "types": "./dist/session/index.d.ts",
+      "import": "./dist/session/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "spaces-config": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}
