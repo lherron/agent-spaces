@@ -57,7 +57,7 @@ import {
 // Constants & Types
 // ============================================================================
 
-const RUNNER_PATH = fileURLToPath(new URL('../pi-sdk/runner.js', import.meta.url))
+const RUNNER_PATH = fileURLToPath(new URL('../pi-sdk/pi-sdk/runner.js', import.meta.url))
 const SDK_ENTRY_CANDIDATES = [
   'packages/coding-agent/dist/index.js',
   'packages/coding-agent/src/index.ts',
