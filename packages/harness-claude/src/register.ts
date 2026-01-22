@@ -1,7 +1,7 @@
 import type { HarnessRegistry, SessionRegistry } from 'spaces-runtime'
-import { AgentSession } from './agent-sdk/agent-session.js'
 import { claudeAdapter } from './adapters/claude-adapter.js'
 import { claudeAgentSdkAdapter } from './adapters/claude-agent-sdk-adapter.js'
+import { AgentSession } from './agent-sdk/agent-session.js'
 
 export function register(reg: { harnesses: HarnessRegistry; sessions: SessionRegistry }): void {
   reg.harnesses.register(claudeAdapter)

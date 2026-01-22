@@ -72,10 +72,7 @@ export class ClaudeAgentSdkAdapter implements HarnessAdapter {
     return claudeAdapter.getRunEnv(bundle, options)
   }
 
-  getDefaultRunOptions(
-    manifest: ProjectManifest,
-    targetName: string
-  ): Partial<HarnessRunOptions> {
+  getDefaultRunOptions(manifest: ProjectManifest, targetName: string): Partial<HarnessRunOptions> {
     return claudeAdapter.getDefaultRunOptions(manifest, targetName)
   }
 }

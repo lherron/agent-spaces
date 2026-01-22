@@ -664,10 +664,7 @@ export class CodexAdapter implements HarnessAdapter {
     return { CODEX_HOME: bundle.codex?.homeTemplatePath ?? bundle.rootDir }
   }
 
-  getDefaultRunOptions(
-    manifest: ProjectManifest,
-    targetName: string
-  ): Partial<HarnessRunOptions> {
+  getDefaultRunOptions(manifest: ProjectManifest, targetName: string): Partial<HarnessRunOptions> {
     const codexOptions = getEffectiveCodexOptions(manifest, targetName)
     const target = manifest.targets[targetName]
 

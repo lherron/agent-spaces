@@ -1,5 +1,5 @@
 import type { CreateSessionOptions } from './options.js'
-import { SessionRegistry } from './registry.js'
+import type { SessionRegistry } from './registry.js'
 import type { UnifiedSession } from './types.js'
 
 let sessionRegistry: SessionRegistry | undefined

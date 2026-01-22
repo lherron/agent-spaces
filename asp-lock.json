@@ -1,19 +1,19 @@
 {
   "lockfileVersion": 1,
   "resolverVersion": 1,
-  "generatedAt": "2026-01-21T21:54:35.736Z",
+  "generatedAt": "2026-01-22T02:00:49.382Z",
   "registry": {
     "type": "git",
     "url": "/Users/lherron/praesidium/var/spaces-repo/repo"
   },
   "spaces": {
-    "smokey@dev": {
-      "id": "smokey",
+    "ralph-build-loop@dev": {
+      "id": "ralph-build-loop",
       "commit": "dev",
-      "path": "spaces/smokey",
+      "path": "spaces/ralph-build-loop",
       "integrity": "sha256:dev",
       "plugin": {
-        "name": "smokey",
+        "name": "ralph-build-loop",
         "version": "0.1.0"
       },
       "deps": {
@@ -22,44 +22,23 @@
       "resolvedFrom": {
         "selector": "dev"
       }
-    },
-    "defaults@c6fa9d09fd62": {
-      "id": "defaults",
-      "commit": "c6fa9d09fd627eccb3132a5d271fed8176c08de5",
-      "path": "spaces/defaults",
-      "integrity": "sha256:5783a9caceed13a49575e4dfd26b570160c0b5d137fb82fb6d067d30a062e293",
-      "plugin": {
-        "name": "defaults",
-        "version": "1.0.0"
-      },
-      "deps": {
-        "spaces": []
-      },
-      "resolvedFrom": {
-        "selector": "stable",
-        "tag": "space/defaults/v1.0.0",
-        "semver": "1.0.0"
-      }
     }
   },
   "targets": {
-    "codex-test": {
+    "ralph-build": {
       "compose": [
-        "space:smokey@dev",
-        "space:defaults@stable"
+        "space:ralph-build-loop@dev"
       ],
       "roots": [
-        "smokey@dev",
-        "defaults@c6fa9d09fd62"
+        "ralph-build-loop@dev"
       ],
       "loadOrder": [
-        "smokey@dev",
-        "defaults@c6fa9d09fd62"
+        "ralph-build-loop@dev"
       ],
-      "envHash": "sha256:b3b44ec2b11100bb1c6bba52e01149c1e2d2a03c6c39a4fdd45c2a2ae445543a",
+      "envHash": "sha256:c3a78a896069bd1b162ccab4260c37722a3bb0dec0d38528addf53f313cca0e4",
       "harnesses": {
         "claude": {
-          "envHash": "sha256:092e785fdabf03d9610d7bfac766f3a6fc0378cbfc5e1eff228e07f4850143d8"
+          "envHash": "sha256:53b1085b243256ec1a8e0a45450b588fbfe1117b3372cfc099d36c07da4cb36c"
         }
       }
     }

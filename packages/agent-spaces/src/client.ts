@@ -199,6 +199,33 @@ function computeSpacesTargetName(spaces: string[]): string {
   return `spaces-${hash.digest('hex').slice(0, 12)}`
 }
 
+async function prepareSessionContext(
+  req: RunTurnRequest,
+  harnessDef: ReturnType<typeof resolveHarness>,
+  record: SessionRecord | null
+): Promise<{
+  harnessSessionId: string | undefined
+  isResume: boolean
+  codexSessionHome: string | undefined
+}> {
+  const isResume = req.harnessSessionId !== undefined || record?.harnessSessionId !== undefined
+  let harnessSessionId = req.harnessSessionId ?? record?.harnessSessionId
+  if (harnessDef.externalId === PI_SDK_HARNESS && !harnessSessionId) {
+    harnessSessionId = piSessionPath(req.aspHome, req.externalSessionId)
+  }
+
+  let codexSessionHome: string | undefined
+  if (harnessDef.externalId === CODEX_HARNESS) {
+    codexSessionHome = codexSessionPath(req.aspHome, req.externalSessionId)
+  }
+
+  if (harnessDef.externalId === PI_SDK_HARNESS && !isResume && harnessSessionId) {
+    await ensureDir(harnessSessionId)
+  }
+
+  return { harnessSessionId, isResume, codexSessionHome }
+}
+
 function sessionRecordPath(aspHome: string, externalSessionId: string): string {
   const hash = createHash('sha256')
   hash.update(externalSessionId)
@@ -861,24 +888,13 @@ export function createAgentSpacesClient(): AgentSpacesClient {
           }
         }
 
-        const isResume =
-          req.harnessSessionId !== undefined || record?.harnessSessionId !== undefined
-        harnessSessionId = req.harnessSessionId ?? record?.harnessSessionId
-
-        if (harnessDef.externalId === PI_SDK_HARNESS && !harnessSessionId) {
-          harnessSessionId = piSessionPath(req.aspHome, req.externalSessionId)
-        }
-
-        if (harnessDef.externalId === CODEX_HARNESS) {
-          codexSessionHome = codexSessionPath(req.aspHome, req.externalSessionId)
-        }
+        const sessionContext = await prepareSessionContext(req, harnessDef, record)
+        const isResume = sessionContext.isResume
+        harnessSessionId = sessionContext.harnessSessionId
+        codexSessionHome = sessionContext.codexSessionHome
 
         if (harnessSessionId) {
           eventEmitter.setHarnessSessionId(harnessSessionId)
-        }
-
-        if (harnessDef.externalId === PI_SDK_HARNESS && !isResume && harnessSessionId) {
-          await ensureDir(harnessSessionId)
         }
 
         await eventEmitter.emit({ type: 'state', state: 'running' } as EventPayload)

@@ -23,9 +23,7 @@ export function register(reg: { harnesses: HarnessRegistry; sessions: SessionReg
       ...(options.codexApprovalPolicy !== undefined
         ? { approvalPolicy: options.codexApprovalPolicy }
         : {}),
-      ...(options.codexSandboxMode !== undefined
-        ? { sandboxMode: options.codexSandboxMode }
-        : {}),
+      ...(options.codexSandboxMode !== undefined ? { sandboxMode: options.codexSandboxMode } : {}),
       ...(options.eventsOutputPath !== undefined
         ? { eventsOutputPath: options.eventsOutputPath }
         : {}),

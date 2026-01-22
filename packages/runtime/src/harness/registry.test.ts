@@ -207,7 +207,11 @@ describe('HarnessRegistry', () => {
         }),
         buildRunArgs: () => [],
         getTargetOutputPath: (dir, target) => `${dir}/${target}/claude`,
-        loadTargetBundle: async () => ({ harnessId: 'claude', targetName: 'test', rootDir: '/test' }),
+        loadTargetBundle: async () => ({
+          harnessId: 'claude',
+          targetName: 'test',
+          rootDir: '/test',
+        }),
         getRunEnv: () => ({}),
         getDefaultRunOptions: (_manifest: ProjectManifest, _targetName: string) => ({}),
       }
@@ -236,7 +240,11 @@ describe('HarnessRegistry', () => {
         }),
         buildRunArgs: () => [],
         getTargetOutputPath: (dir, target) => `${dir}/${target}/claude`,
-        loadTargetBundle: async () => ({ harnessId: 'claude', targetName: 'test', rootDir: '/test' }),
+        loadTargetBundle: async () => ({
+          harnessId: 'claude',
+          targetName: 'test',
+          rootDir: '/test',
+        }),
         getRunEnv: () => ({}),
         getDefaultRunOptions: (_manifest: ProjectManifest, _targetName: string) => ({}),
       }
@@ -268,7 +276,11 @@ describe('HarnessRegistry', () => {
         }),
         buildRunArgs: () => [],
         getTargetOutputPath: (dir, target) => `${dir}/${target}/claude`,
-        loadTargetBundle: async () => ({ harnessId: 'claude', targetName: 'test', rootDir: '/test' }),
+        loadTargetBundle: async () => ({
+          harnessId: 'claude',
+          targetName: 'test',
+          rootDir: '/test',
+        }),
         getRunEnv: () => ({}),
         getDefaultRunOptions: (_manifest: ProjectManifest, _targetName: string) => ({}),
       }
