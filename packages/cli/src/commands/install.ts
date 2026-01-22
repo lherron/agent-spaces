@@ -2,25 +2,10 @@
  * Install command - Generate/update lock file and materialize to asp_modules.
  */
 
-import { readFile, readdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
-
 import type { Command } from 'commander'
 
-import {
-  type ComposedTargetBundle,
-  getEffectiveClaudeOptions,
-  getEffectiveCodexOptions,
-  isConfigError,
-  readTargetsToml,
-} from 'spaces-config'
-import {
-  type HarnessId,
-  getClaudeCommand,
-  harnessRegistry,
-  install,
-  isHarnessId,
-} from 'spaces-execution'
+import { isConfigError, readTargetsToml } from 'spaces-config'
+import { type HarnessId, harnessRegistry, install, isHarnessId } from 'spaces-execution'
 
 import { findProjectRoot } from '../index.js'
 import {
@@ -66,164 +51,10 @@ function formatCommand(commandPath: string, args: string[]): string {
   return [shellQuote(commandPath), ...args.map(shellQuote)].join(' ')
 }
 
-async function buildPiBundle(
-  outputPath: string,
-  targetName: string
-): Promise<ComposedTargetBundle> {
-  const extensionsDir = join(outputPath, 'extensions')
-  const skillsDir = join(outputPath, 'skills')
-  const hookBridgePath = join(outputPath, 'asp-hooks.bridge.js')
-
-  let skillsDirPath: string | undefined
-  try {
-    const entries = await readdir(skillsDir)
-    if (entries.length > 0) {
-      skillsDirPath = skillsDir
-    }
-  } catch {
-    // No skills directory
-  }
-
-  let hookBridge: string | undefined
-  try {
-    const stats = await stat(hookBridgePath)
-    if (stats.isFile()) {
-      hookBridge = hookBridgePath
-    }
-  } catch {
-    // No hook bridge
-  }
-
-  return {
-    harnessId: 'pi',
-    targetName,
-    rootDir: outputPath,
-    pi: {
-      extensionsDir,
-      skillsDir: skillsDirPath,
-      hookBridgePath: hookBridge,
-    },
-  }
-}
-
-async function buildPiSdkBundle(
-  outputPath: string,
-  targetName: string
-): Promise<ComposedTargetBundle> {
-  const manifestPath = join(outputPath, 'bundle.json')
-  let manifest: { harnessId?: string; schemaVersion?: number } | undefined
-
-  try {
-    const raw = await readFile(manifestPath, 'utf-8')
-    manifest = JSON.parse(raw) as { harnessId?: string; schemaVersion?: number }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Pi SDK bundle manifest not found: ${manifestPath} (${message})`)
-  }
-
-  if (manifest?.harnessId !== 'pi-sdk') {
-    throw new Error(`Unexpected Pi SDK bundle harness: ${manifest?.harnessId ?? 'unknown'}`)
-  }
-
-  const extensionsDir = join(outputPath, 'extensions')
-  const skillsDir = join(outputPath, 'skills')
-  const hooksDir = join(outputPath, 'hooks')
-  const contextDir = join(outputPath, 'context')
-
-  let skillsDirPath: string | undefined
-  try {
-    const entries = await readdir(skillsDir)
-    if (entries.length > 0) {
-      skillsDirPath = skillsDir
-    }
-  } catch {
-    // No skills directory
-  }
-
-  let hooksDirPath: string | undefined
-  try {
-    const entries = await readdir(hooksDir)
-    if (entries.length > 0) {
-      hooksDirPath = hooksDir
-    }
-  } catch {
-    // No hooks directory
-  }
-
-  let contextDirPath: string | undefined
-  try {
-    const entries = await readdir(contextDir)
-    if (entries.length > 0) {
-      contextDirPath = contextDir
-    }
-  } catch {
-    // No context directory
-  }
-
-  return {
-    harnessId: 'pi-sdk',
-    targetName,
-    rootDir: outputPath,
-    piSdk: {
-      bundleManifestPath: manifestPath,
-      extensionsDir,
-      skillsDir: skillsDirPath,
-      hooksDir: hooksDirPath,
-      contextDir: contextDirPath,
-    },
-  }
-}
-
-async function loadCodexBundle(
-  outputPath: string,
-  targetName: string
-): Promise<ComposedTargetBundle> {
-  const codexHome = join(outputPath, 'codex.home')
-  const configPath = join(codexHome, 'config.toml')
-  const agentsPath = join(codexHome, 'AGENTS.md')
-  const skillsDir = join(codexHome, 'skills')
-  const promptsDir = join(codexHome, 'prompts')
-  const mcpPath = join(codexHome, 'mcp.json')
-
-  const homeStats = await stat(codexHome)
-  if (!homeStats.isDirectory()) {
-    throw new Error(`Codex home directory not found: ${codexHome}`)
-  }
-
-  const configStats = await stat(configPath)
-  if (!configStats.isFile()) {
-    throw new Error(`Codex config.toml not found: ${configPath}`)
-  }
-
-  const agentsStats = await stat(agentsPath)
-  if (!agentsStats.isFile()) {
-    throw new Error(`Codex AGENTS.md not found: ${agentsPath}`)
-  }
-
-  let mcpConfigPath: string | undefined
-  try {
-    const mcpStats = await stat(mcpPath)
-    if (mcpStats.size > 2) {
-      mcpConfigPath = mcpPath
-    }
-  } catch {
-    // MCP config is optional
-  }
-
-  return {
-    harnessId: 'codex',
-    targetName,
-    rootDir: outputPath,
-    pluginDirs: [codexHome],
-    mcpConfigPath,
-    codex: {
-      homeTemplatePath: codexHome,
-      configPath,
-      agentsPath,
-      skillsDir,
-      promptsDir,
-    },
-  }
+function formatEnvPrefix(env: Record<string, string>): string {
+  const entries = Object.entries(env)
+  if (entries.length === 0) return ''
+  return `${entries.map(([key, value]) => `${key}=${shellQuote(value)}`).join(' ')} `
 }
 
 export function registerInstallCommand(program: Command): void {
@@ -302,49 +133,11 @@ export function registerInstallCommand(program: Command): void {
         header('Targets')
 
         for (const mat of result.materializations) {
-          const claudeOptions = getEffectiveClaudeOptions(manifest, mat.target)
-          const codexOptions =
-            harnessId === 'codex' ? getEffectiveCodexOptions(manifest, mat.target) : undefined
-
-          // Generate command
-          let command: string
-          if (harnessId === 'claude' || harnessId === 'claude-agent-sdk') {
-            try {
-              command = await getClaudeCommand({
-                pluginDirs: mat.pluginDirs,
-                mcpConfig: mat.mcpConfigPath,
-                settings: mat.settingsPath,
-                settingSources: '',
-                model: claudeOptions.model,
-                permissionMode: claudeOptions.permission_mode,
-                args: claudeOptions.args,
-              })
-            } catch {
-              // Claude not installed - build a generic command
-              const pluginArgs = mat.pluginDirs.map((d) => `--plugin-dir ${d}`).join(' ')
-              command = `claude ${pluginArgs} --settings ${mat.settingsPath}`
-            }
-          } else {
-            const bundle =
-              harnessId === 'pi'
-                ? await buildPiBundle(mat.outputPath, mat.target)
-                : harnessId === 'pi-sdk'
-                  ? await buildPiSdkBundle(mat.outputPath, mat.target)
-                  : harnessId === 'codex'
-                    ? await loadCodexBundle(mat.outputPath, mat.target)
-                    : (() => {
-                        throw new Error(`Unsupported harness: ${harnessId}`)
-                      })()
-            const args = adapter.buildRunArgs(bundle, {
-              projectPath,
-              extraArgs: undefined,
-              model: codexOptions?.model ?? claudeOptions.model,
-              approvalPolicy: codexOptions?.approval_policy,
-              sandboxMode: codexOptions?.sandbox_mode,
-              profile: codexOptions?.profile,
-            })
-            command = formatCommand(harnessPath, args)
-          }
+          const bundle = await adapter.loadTargetBundle(mat.outputPath, mat.target)
+          const defaults = adapter.getDefaultRunOptions(manifest, mat.target)
+          const args = adapter.buildRunArgs(bundle, defaults)
+          const envPrefix = formatEnvPrefix(adapter.getRunEnv(bundle, defaults))
+          const command = envPrefix + formatCommand(harnessPath, args)
 
           // Target display
           blank()

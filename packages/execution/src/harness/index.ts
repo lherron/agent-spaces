@@ -4,13 +4,13 @@
  * Provides the harness adapter pattern for multi-harness support.
  */
 
-export { HarnessRegistry, harnessRegistry } from './registry.js'
-export { ClaudeAdapter, claudeAdapter } from './claude-adapter.js'
+export { HarnessRegistry, SessionRegistry } from 'spaces-runtime'
+export { ClaudeAdapter, claudeAdapter } from 'spaces-harness-claude'
 export {
   ClaudeAgentSdkAdapter,
   claudeAgentSdkAdapter,
-} from './claude-agent-sdk-adapter.js'
-export { CodexAdapter, codexAdapter } from './codex-adapter.js'
+} from 'spaces-harness-claude'
+export { CodexAdapter, codexAdapter } from 'spaces-harness-codex'
 export {
   PiAdapter,
   piAdapter,
@@ -23,9 +23,9 @@ export {
   type PiInfo,
   type ExtensionBuildOptions,
   type HookDefinition,
-} from './pi-adapter.js'
+} from 'spaces-harness-pi'
 
-export { PiSdkAdapter, piSdkAdapter } from './pi-sdk-adapter.js'
+export { PiSdkAdapter, piSdkAdapter } from 'spaces-harness-pi-sdk'
 
 // Re-export types from core
 export type {
@@ -46,17 +46,18 @@ export type {
 
 export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId } from 'spaces-config'
 
-import { claudeAdapter } from './claude-adapter.js'
-import { claudeAgentSdkAdapter } from './claude-agent-sdk-adapter.js'
-import { codexAdapter } from './codex-adapter.js'
-import { piAdapter } from './pi-adapter.js'
-import { piSdkAdapter } from './pi-sdk-adapter.js'
-// Initialize the registry with built-in adapters
-import { harnessRegistry } from './registry.js'
+import { register as registerClaude } from 'spaces-harness-claude'
+import { register as registerCodex } from 'spaces-harness-codex'
+import { register as registerPi } from 'spaces-harness-pi'
+import { register as registerPiSdk } from 'spaces-harness-pi-sdk'
+import { HarnessRegistry, SessionRegistry, setSessionRegistry } from 'spaces-runtime'
 
-// Register built-in adapters
-harnessRegistry.register(claudeAdapter)
-harnessRegistry.register(claudeAgentSdkAdapter)
-harnessRegistry.register(codexAdapter)
-harnessRegistry.register(piAdapter)
-harnessRegistry.register(piSdkAdapter)
+export const harnessRegistry = new HarnessRegistry()
+export const sessionRegistry = new SessionRegistry()
+
+setSessionRegistry(sessionRegistry)
+
+registerClaude({ harnesses: harnessRegistry, sessions: sessionRegistry })
+registerPi({ harnesses: harnessRegistry, sessions: sessionRegistry })
+registerPiSdk({ harnesses: harnessRegistry, sessions: sessionRegistry })
+registerCodex({ harnesses: harnessRegistry, sessions: sessionRegistry })

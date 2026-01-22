@@ -122,5 +122,6 @@ export type {
 export {
   DEFAULT_HARNESS,
   HARNESS_IDS,
+  isHarnessSupported,
   isHarnessId,
 } from './harness.js'

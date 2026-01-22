@@ -35,6 +35,7 @@ import {
   getAspModulesPath,
   getEffectiveCodexOptions,
   getLoadOrderEntries,
+  isHarnessSupported,
   readSpaceToml,
   withProjectLock,
 } from '../core/index.js'
@@ -142,14 +143,6 @@ export interface InstallResult {
   lockPath: string
   /** Materialization results per target */
   materializations: TargetMaterializationResult[]
-}
-
-function isHarnessSupported(supports: HarnessId[] | undefined, harnessId: HarnessId): boolean {
-  if (!supports) return true
-  if (supports.includes(harnessId)) return true
-  if (harnessId === 'claude-agent-sdk') return supports.includes('claude')
-  if (harnessId === 'pi-sdk') return supports.includes('pi')
-  return false
 }
 
 /**

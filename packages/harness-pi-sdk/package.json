@@ -1,0 +1,36 @@
+{
+  "name": "spaces-harness-pi-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi SDK harness adapter and session",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./pi-session": {
+      "bun": "./src/pi-session/index.ts",
+      "types": "./dist/pi-session/index.d.ts",
+      "import": "./dist/pi-session/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "^0.45.7",
+    "spaces-config": "*",
+    "spaces-runtime": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

@@ -45,10 +45,12 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.72",
-    "@iarna/toml": "^2.2.5",
-    "@mariozechner/pi-coding-agent": "^0.45.7",
-    "spaces-config": "*"
+    "spaces-config": "*",
+    "spaces-runtime": "*",
+    "spaces-harness-claude": "*",
+    "spaces-harness-pi": "*",
+    "spaces-harness-pi-sdk": "*",
+    "spaces-harness-codex": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -1,0 +1,41 @@
+{
+  "name": "spaces-harness-claude",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude harness adapters and Agent SDK session",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./claude": {
+      "bun": "./src/claude/index.ts",
+      "types": "./dist/claude/index.d.ts",
+      "import": "./dist/claude/index.js"
+    },
+    "./agent-sdk": {
+      "bun": "./src/agent-sdk/index.ts",
+      "types": "./dist/agent-sdk/index.d.ts",
+      "import": "./dist/agent-sdk/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.72",
+    "spaces-config": "*",
+    "spaces-runtime": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

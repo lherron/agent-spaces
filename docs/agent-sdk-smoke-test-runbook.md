@@ -20,15 +20,20 @@ claude --version
 
 **Expected:** Version string (e.g., `claude 1.x.x`). The Agent SDK reuses Claude's plugin directory format.
 
-### 3. Verify Anthropic API Key
+### 3. Verify Claude OAuth Login
 
 ```bash
-echo $ANTHROPIC_API_KEY | head -c 10
+claude auth status
 ```
 
-**Expected:** `sk-ant-api` prefix (first 10 chars shown for verification).
+**Expected:** Shows logged in status (e.g., `Logged in to Claude`).
 
-**Note:** Unlike the CLI which can use OAuth, the Agent SDK requires an API key.
+If not logged in, run:
+```bash
+claude auth login
+```
+
+**Note:** The Agent SDK uses the same OAuth authentication as the Claude CLI. Credentials are stored in `~/.claude/` and shared between both tools.
 
 ### 4. Verify Control Plane is running
 
@@ -84,7 +89,7 @@ harness = "claude-agent-sdk"
 compose = ["space:smokey@dev", "space:defaults@stable"]
 
 [targets.agent-sdk-test.claude]
-model = "claude-sonnet-4-20250514"
+model = "claude-sonnet-4-5"
 permission_mode = "bypassPermissions"
 EOF
 
@@ -207,7 +212,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 const result = await query({
   prompt: "What is 2+2? Answer with just the number.",
   options: {
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-5",
     permissionMode: "bypassPermissions",
   }
 });
@@ -232,7 +237,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 const result = await query({
   prompt: "What skills do you have access to? Just list the skill names.",
   options: {
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-5",
     permissionMode: "bypassPermissions",
     cwd: process.env.PWD,
   }
@@ -258,7 +263,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 const first = await query({
   prompt: "Remember the number 42.",
   options: {
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-5",
     permissionMode: "bypassPermissions",
   }
 });
@@ -270,7 +275,7 @@ console.log("Session ID:", first.sessionId);
 const second = await query({
   prompt: "What number did I ask you to remember?",
   options: {
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-5",
     permissionMode: "bypassPermissions",
     resume: first.sessionId,
   }
@@ -299,7 +304,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 const result = await query({
   prompt: "List the files in the current directory",
   options: {
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-5",
     permissionMode: "bypassPermissions",
     cwd: process.env.PWD,
   },
@@ -393,14 +398,20 @@ rm -f /tmp/agent-sdk-*.ts
 
 ## Troubleshooting
 
-### "ANTHROPIC_API_KEY not set"
+### "Not logged in" / "Authentication required"
 
-**Cause:** The Agent SDK requires an API key (unlike CLI which supports OAuth).
+**Cause:** OAuth credentials not found or expired.
 
 **Fix:**
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-api..."
+# Check login status
+claude auth status
+
+# Login if needed
+claude auth login
 ```
+
+**Note:** The Agent SDK shares OAuth credentials with Claude CLI, stored in `~/.claude/`.
 
 ### "Module not found: @anthropic-ai/claude-agent-sdk"
 
@@ -442,7 +453,7 @@ $ASP_CLI spaces list 2>&1 | grep smokey
 
 ## Notes
 
-- **API Key Required:** Unlike Claude CLI which supports OAuth, the Agent SDK requires `ANTHROPIC_API_KEY`.
+- **OAuth Authentication:** The Agent SDK uses the same OAuth authentication as Claude CLI. Credentials are stored in `~/.claude/` and shared between both tools. Run `claude auth login` to authenticate.
 - **Plugin Format:** The Agent SDK uses the same plugin directory format as Claude CLI, enabling shared materialization logic.
 - **Programmatic Use:** The SDK is designed for programmatic/headless execution, not interactive terminal sessions.
 - **Hooks Bridge:** Agent Spaces provides a hooks bridge to integrate SDK tool events with the unified hooks system.

@@ -1,0 +1,36 @@
+{
+  "name": "spaces-harness-codex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Codex CLI harness adapter and session",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./codex-session": {
+      "bun": "./src/codex-session/index.ts",
+      "types": "./dist/codex-session/index.d.ts",
+      "import": "./dist/codex-session/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "spaces-config": "*",
+    "spaces-runtime": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

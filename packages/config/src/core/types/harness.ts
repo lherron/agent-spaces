@@ -9,7 +9,7 @@
 import type { LockWarning } from './lock.js'
 import type { SpaceKey, SpaceRefString } from './refs.js'
 import type { ResolvedSpaceManifest, SpaceSettings } from './space.js'
-import type { CodexOptions } from './targets.js'
+import type { CodexOptions, ProjectManifest } from './targets.js'
 
 // ============================================================================
 // Harness Identification
@@ -30,6 +30,18 @@ export const HARNESS_IDS: readonly HarnessId[] = [
 /** Type guard for HarnessId */
 export function isHarnessId(value: string): value is HarnessId {
   return HARNESS_IDS.includes(value as HarnessId)
+}
+
+/** Check if a space supports a harness (including alias compatibility) */
+export function isHarnessSupported(
+  supports: HarnessId[] | undefined,
+  harnessId: HarnessId
+): boolean {
+  if (!supports) return true
+  if (supports.includes(harnessId)) return true
+  if (harnessId === 'claude-agent-sdk') return supports.includes('claude')
+  if (harnessId === 'pi-sdk') return supports.includes('pi')
+  return false
 }
 
 /** Default harness when none specified */
@@ -231,6 +243,12 @@ export interface HarnessRunOptions {
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
   /** Codex profile override */
   profile?: string | undefined
+  /** Claude permission mode override */
+  permissionMode?: string | undefined
+  /** Path to settings JSON file or JSON string (--settings flag) */
+  settings?: string | undefined
+  /** Debug mode - enable hook debugging (--debug hooks) */
+  debug?: boolean | undefined
   /** Setting sources to inherit (Claude-specific) */
   settingSources?: string | null | undefined
   /** Additional CLI arguments */
@@ -325,6 +343,30 @@ export interface HarnessAdapter {
    * @param targetName - Target name
    */
   getTargetOutputPath(aspModulesDir: string, targetName: string): string
+
+  /**
+   * Load a composed target bundle from disk.
+   *
+   * @param outputDir - Directory containing the composed bundle
+   * @param targetName - Target name
+   */
+  loadTargetBundle(outputDir: string, targetName: string): Promise<ComposedTargetBundle>
+
+  /**
+   * Build environment variables for running the harness.
+   *
+   * @param bundle - The composed target bundle
+   * @param options - Run options
+   */
+  getRunEnv(bundle: ComposedTargetBundle, options: HarnessRunOptions): Record<string, string>
+
+  /**
+   * Get default run options for a target from the project manifest.
+   *
+   * @param manifest - Project manifest
+   * @param targetName - Target name
+   */
+  getDefaultRunOptions(manifest: ProjectManifest, targetName: string): Partial<HarnessRunOptions>
 }
 
 // ============================================================================
