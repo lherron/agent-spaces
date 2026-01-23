@@ -1,4 +1,4 @@
-# Agent Spaces v2
+# Agent Spaces
 
 Every agent deserves to have its own private space, isolated from all the chaos that is your twelve .claude/.codex/.gemini directories.  This project aims to solve that dilemma.
 
@@ -10,8 +10,8 @@ Agent Spaces lets you define **Spaces** (versioned bundles of commands, skills, 
 
 ```bash
 # Clone and build
-git clone <repo-url> agent-spaces-v2
-cd agent-spaces-v2
+git clone https://github.com/lherron/agent-spaces.git
+cd agent-spaces
 bun install
 bun run build
 

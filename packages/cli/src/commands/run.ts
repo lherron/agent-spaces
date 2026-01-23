@@ -366,7 +366,7 @@ export function registerRunCommand(program: Command): void {
     .option('--no-warnings', 'Suppress lint warnings')
     .option('--dry-run', 'Print the harness command without executing')
     .option('--print-command', 'Output only the command (for piping/scripting)')
-    .option('--refresh', 'Force re-copy from source and rebuild asp_modules')
+    .option('--no-refresh', 'Skip refresh and use cached asp_modules')
     .option('--yolo', 'Skip all permission prompts (--dangerously-skip-permissions)')
     .option('--debug', 'Enable Claude hook debugging (--debug hooks)')
     .option('--inherit-all', 'Inherit all harness settings (user, project, local)')
