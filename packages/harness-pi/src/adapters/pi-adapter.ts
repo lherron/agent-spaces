@@ -20,6 +20,7 @@ import {
   type ComposedTargetBundle,
   type HarnessAdapter,
   type HarnessDetection,
+  type HarnessModelInfo,
   type HarnessRunOptions,
   type HarnessValidationResult,
   type LockWarning,
@@ -620,6 +621,19 @@ export class PiAdapter implements HarnessAdapter {
   readonly id = 'pi' as const
   readonly name = 'Pi Coding Agent'
 
+  readonly models: HarnessModelInfo[] = [
+    {
+      id: 'gpt-5.2-codex',
+      name: 'GPT-5.2 Codex',
+      default: true,
+      description: 'openai-codex provider',
+    },
+    { id: 'gpt-5.2', name: 'GPT-5.2', description: 'openai-codex provider' },
+    { id: 'gpt-5.1', name: 'GPT-5.1', description: 'openai-codex provider' },
+    { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max', description: 'openai-codex provider' },
+    { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini', description: 'openai-codex provider' },
+  ]
+
   /**
    * Detect if Pi is available on the system.
    */
@@ -1102,6 +1116,13 @@ export class PiAdapter implements HarnessAdapter {
     // Add --print for non-interactive mode
     if (options.interactive === false) {
       args.push('--print')
+    }
+
+    // Handle resume option: --resume or -r (Pi opens picker, no session ID arg)
+    if (options.resume) {
+      args.push('--resume')
+      // Pi's --resume flag doesn't take a session ID argument;
+      // it always opens the session picker
     }
 
     // Add extra args

@@ -35,7 +35,9 @@ export {
   serializeSpaceToml,
   serializeTargetsToml,
   TARGETS_FILENAME,
+  validateTarget,
 } from './config/index.js'
+export type { ValidateTargetResult } from './config/index.js'
 
 // asp_modules directory helpers
 export {

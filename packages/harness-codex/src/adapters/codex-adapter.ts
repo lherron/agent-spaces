@@ -30,6 +30,7 @@ import type {
   ComposedTargetBundle,
   HarnessAdapter,
   HarnessDetection,
+  HarnessModelInfo,
   HarnessRunOptions,
   HarnessValidationResult,
   LockWarning,
@@ -222,6 +223,13 @@ function isVersionAtLeast(version: string, minVersion: string): boolean {
 export class CodexAdapter implements HarnessAdapter {
   readonly id = 'codex' as const
   readonly name = 'OpenAI Codex'
+
+  readonly models: HarnessModelInfo[] = [
+    { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', default: true },
+    { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
+    { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini' },
+    { id: 'gpt-5.2', name: 'GPT-5.2' },
+  ]
 
   async detect(): Promise<HarnessDetection> {
     try {
@@ -575,10 +583,20 @@ export class CodexAdapter implements HarnessAdapter {
   buildRunArgs(_bundle: ComposedTargetBundle, options: HarnessRunOptions): string[] {
     const args: string[] = []
     const isExecMode = !options.interactive && !!options.prompt
+    const isResumeMode = !!options.resume
     const approvalPolicy = options.yolo ? 'never' : options.approvalPolicy
     const sandboxMode = options.yolo ? 'danger-full-access' : options.sandboxMode
 
-    if (isExecMode && options.prompt) {
+    // Resume mode: codex resume [--last | session-id]
+    if (isResumeMode) {
+      args.push('resume')
+      if (typeof options.resume === 'string') {
+        // If a specific session ID is provided, use it
+        // Codex resume takes session ID as positional arg or uses --last
+        args.push(options.resume)
+      }
+      // If resume is just `true`, codex resume will open the picker
+    } else if (isExecMode && options.prompt) {
       args.push('exec', options.prompt)
     }
 

@@ -20,6 +20,8 @@ export {
   readTargetsToml,
   serializeTargetsToml,
   TARGETS_FILENAME,
+  validateTarget,
+  type ValidateTargetResult,
 } from './targets-toml.js'
 
 // asp_modules directory helpers

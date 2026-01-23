@@ -13,6 +13,7 @@ import type {
   ComposedTargetBundle,
   HarnessAdapter,
   HarnessDetection,
+  HarnessModelInfo,
   HarnessRunOptions,
   HarnessValidationResult,
   MaterializeSpaceInput,
@@ -25,6 +26,10 @@ import { claudeAdapter } from './claude-adapter.js'
 export class ClaudeAgentSdkAdapter implements HarnessAdapter {
   readonly id = 'claude-agent-sdk' as const
   readonly name = 'Claude Agent SDK'
+
+  get models(): HarnessModelInfo[] {
+    return claudeAdapter.models
+  }
 
   async detect(): Promise<HarnessDetection> {
     return claudeAdapter.detect()

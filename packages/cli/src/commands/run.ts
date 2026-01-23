@@ -62,6 +62,7 @@ interface RunOptions {
   settings?: string
   harness?: HarnessId
   model?: string
+  resume?: string | boolean
 }
 
 /**
@@ -163,6 +164,7 @@ async function runProjectMode(
     model: options.model,
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
+    resume: options.resume,
   }
 
   if (options.dryRun) {
@@ -250,6 +252,7 @@ async function runGlobalMode(
     model: options.model,
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
+    resume: options.resume,
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -295,6 +298,7 @@ async function runDevMode(
     harness: options.harness,
     model: options.model,
     inheritProject: options.inheritProject,
+    resume: options.resume,
     inheritUser: options.inheritUser,
   }
 
@@ -370,6 +374,7 @@ export function registerRunCommand(program: Command): void {
     .option('--inherit-user', 'Inherit user-level settings')
     .option('--inherit-local', 'Inherit local settings')
     .option('--settings <file-or-json>', 'Path to settings JSON file or JSON string')
+    .option('--resume [session-id]', 'Resume a previous session (opens picker if no ID provided)')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')

@@ -66,6 +66,22 @@ export interface HarnessDetection {
 }
 
 // ============================================================================
+// Harness Model Information
+// ============================================================================
+
+/** Information about a model available for a harness */
+export interface HarnessModelInfo {
+  /** Model identifier used with --model flag */
+  id: string
+  /** Human-readable name */
+  name: string
+  /** Whether this is the default model for the harness */
+  default?: boolean | undefined
+  /** Optional description or notes */
+  description?: string | undefined
+}
+
+// ============================================================================
 // Validation Types
 // ============================================================================
 
@@ -267,6 +283,8 @@ export interface HarnessRunOptions {
   artifactDir?: string | undefined
   /** Whether to emit JSONL events to the artifact directory */
   emitEvents?: boolean | undefined
+  /** Resume a previous session (session ID or true for picker) */
+  resume?: string | boolean | undefined
 }
 
 // ============================================================================
@@ -285,6 +303,9 @@ export interface HarnessAdapter {
 
   /** Human-readable name */
   readonly name: string
+
+  /** Available models for this harness */
+  readonly models: HarnessModelInfo[]
 
   /**
    * Detect if the harness binary is available

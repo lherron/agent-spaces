@@ -10,12 +10,13 @@ import chalk from 'chalk'
 import type { Command } from 'commander'
 import figures from 'figures'
 
-import { type HarnessDetection, harnessRegistry } from 'spaces-execution'
+import { type HarnessDetection, type HarnessModelInfo, harnessRegistry } from 'spaces-execution'
 
 interface HarnessInfo {
   id: string
   name: string
   detection: HarnessDetection
+  models: HarnessModelInfo[]
   experimental?: boolean
 }
 
@@ -27,6 +28,17 @@ interface HarnessesOutput {
 /**
  * Format a single harness for text display.
  */
+function formatModels(models: HarnessModelInfo[]): string {
+  if (models.length === 0) return 'none'
+
+  return models
+    .map((m) => {
+      const defaultTag = m.default ? chalk.cyan(' (default)') : ''
+      return `${m.id}${defaultTag}`
+    })
+    .join(', ')
+}
+
 function formatHarnessText(harness: HarnessInfo, isDefault: boolean): void {
   const defaultMarker = isDefault ? chalk.cyan(' (default)') : ''
   const experimentalMarker = harness.experimental ? chalk.yellow(' (experimental)') : ''
@@ -48,6 +60,9 @@ function formatHarnessText(harness: HarnessInfo, isDefault: boolean): void {
     }
     if (harness.detection.capabilities?.length) {
       console.log(`    Capabilities: ${harness.detection.capabilities.join(', ')}`)
+    }
+    if (harness.models.length > 0) {
+      console.log(`    Models: ${formatModels(harness.models)}`)
     }
   } else {
     console.log(
@@ -106,6 +121,7 @@ export function registerHarnessesCommand(program: Command): void {
             available: false,
             error: 'Detection not run',
           },
+          models: adapter.models,
           experimental: experimentalHarnesses.has(adapter.id),
         }))
 

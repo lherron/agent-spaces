@@ -31,6 +31,7 @@ import {
   type ComposedTargetBundle,
   type HarnessAdapter,
   type HarnessDetection,
+  type HarnessModelInfo,
   type HarnessRunOptions,
   type HarnessValidationResult,
   type LockWarning,
@@ -185,6 +186,14 @@ async function resolveHookScriptRelative(script: string, hooksDir: string): Prom
 export class PiSdkAdapter implements HarnessAdapter {
   readonly id = 'pi-sdk' as const
   readonly name = 'Pi SDK'
+
+  readonly models: HarnessModelInfo[] = [
+    { id: 'openai-codex:gpt-5.2-codex', name: 'GPT-5.2 Codex', default: true },
+    { id: 'openai-codex:gpt-5.2', name: 'GPT-5.2' },
+    { id: 'openai-codex:gpt-5.1', name: 'GPT-5.1' },
+    { id: 'openai-codex:gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
+    { id: 'openai-codex:gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini' },
+  ]
 
   async detect(): Promise<HarnessDetection> {
     const sdkRoot = process.env['ASP_PI_SDK_ROOT']
@@ -571,6 +580,13 @@ export class PiSdkAdapter implements HarnessAdapter {
 
     if (options.yolo) {
       args.push('--yolo')
+    }
+
+    // Handle resume option
+    if (options.resume) {
+      args.push('--resume')
+      // Note: pi-sdk runner may not implement resume yet,
+      // but we pass the flag for forward compatibility
     }
 
     const sdkRoot = process.env['ASP_PI_SDK_ROOT']

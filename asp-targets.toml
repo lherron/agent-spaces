@@ -1,8 +1,8 @@
 schema = 1
 
-[targets.dev]
+[targets.clod]
 description = "Default target"
-compose = ["space:project:project-defaults", "space:defaults@stable"]
+compose = ["space:project:project-defaults", "space:defaults@dev", "space:praesidium-defaults@dev"]
 
 [targets.ralph-plan]
 description = "Ralph planning loop"
@@ -23,6 +23,7 @@ compose = ["space:smokey@dev", "space:defaults@stable"]
 
 [targets.codex-test.codex]
 model = "gpt-5.2-codex"
+# harness = "codex"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 
@@ -31,7 +32,7 @@ description = "Claude Agent SDK smoke test target"
 compose = ["space:smokey@dev", "space:defaults@stable"]
 
 [targets.agent-sdk-test.claude]
-model = "claude-sonnet-4-5"
+model = "claude-opus-4-5"
 permission_mode = "bypassPermissions"
 
 [targets.pi-sdk-test]

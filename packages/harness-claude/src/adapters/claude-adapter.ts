@@ -14,6 +14,7 @@ import type {
   ComposedTargetBundle,
   HarnessAdapter,
   HarnessDetection,
+  HarnessModelInfo,
   HarnessRunOptions,
   HarnessValidationResult,
   LockWarning,
@@ -54,6 +55,15 @@ import { buildClaudeArgs, detectClaude } from '../claude/index.js'
 export class ClaudeAdapter implements HarnessAdapter {
   readonly id = 'claude' as const
   readonly name = 'Claude Code'
+
+  readonly models: HarnessModelInfo[] = [
+    { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', default: true },
+    { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
+    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
+    { id: 'opus', name: 'Opus (alias)' },
+    { id: 'sonnet', name: 'Sonnet (alias)' },
+    { id: 'haiku', name: 'Haiku (alias)' },
+  ]
 
   /**
    * Detect if Claude is available on the system.
@@ -342,9 +352,21 @@ export class ClaudeAdapter implements HarnessAdapter {
       }
     }
 
+    // Handle resume option: --resume [session-id] or -r [session-id]
+    const resumeArgs: string[] = []
+    if (options.resume) {
+      if (typeof options.resume === 'string') {
+        resumeArgs.push('--resume', options.resume)
+      } else {
+        // true means open picker
+        resumeArgs.push('--resume')
+      }
+    }
+
     const extraArgs = [
       ...(options.yolo ? ['--dangerously-skip-permissions'] : []),
       ...(options.extraArgs ?? []),
+      ...resumeArgs,
       ...promptArgs,
     ]
 

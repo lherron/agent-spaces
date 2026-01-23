@@ -36,6 +36,7 @@ export type {
   HarnessAdapter,
   HarnessDetection,
   HarnessId,
+  HarnessModelInfo,
   HarnessRunOptions,
   HarnessValidationResult,
   MaterializeSpaceInput,

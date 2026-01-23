@@ -101,6 +101,8 @@ export interface RunOptions extends ResolveOptions {
   artifactDir?: string | undefined
   /** Whether to emit JSONL events to the artifact directory */
   emitEvents?: boolean | undefined
+  /** Resume a previous session (session ID or true for picker) */
+  resume?: string | boolean | undefined
 }
 
 export interface RunInvocationResult {
@@ -444,6 +446,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     cwd: options.cwd,
     artifactDir: options.artifactDir,
     emitEvents: options.emitEvents,
+    resume: options.resume,
   }
   const runOptions = mergeDefined(defaults, cliRunOptions)
 
@@ -555,6 +558,8 @@ export interface GlobalRunOptions {
   artifactDir?: string | undefined
   /** Whether to emit JSONL events to the artifact directory */
   emitEvents?: boolean | undefined
+  /** Resume a previous session (session ID or true for picker) */
+  resume?: string | boolean | undefined
 }
 
 /**
@@ -703,6 +708,7 @@ export async function runGlobalSpace(
       cwd: options.cwd ?? process.cwd(),
       artifactDir: options.artifactDir,
       emitEvents: options.emitEvents,
+      resume: options.resume,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
 
@@ -820,6 +826,7 @@ export async function runLocalSpace(
       cwd: options.cwd ?? spacePath,
       artifactDir: options.artifactDir,
       emitEvents: options.emitEvents,
+      resume: options.resume,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
 
