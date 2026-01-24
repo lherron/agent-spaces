@@ -520,14 +520,17 @@ async function collectLintWarnings(
   )
   const target = lock.targets[targetName]
   if (!target) {
-    throw new Error(`Target not found in lock: ${targetName}`)
+    const available = Object.keys(lock.targets)
+    const availableStr =
+      available.length > 0 ? `Available: ${available.join(', ')}` : 'No targets in lock'
+    throw new Error(`Target "${targetName}" not found in lock file. ${availableStr}`)
   }
 
   const paths = new PathResolver({ aspHome })
   const lintData = target.loadOrder.map((key) => {
     const entry = lock.spaces[key]
     if (!entry) {
-      throw new Error(`Space entry not found in lock: ${key}`)
+      throw new Error(`Space entry "${key}" not found in lock for target "${targetName}"`)
     }
     const isDev = entry.commit === 'dev'
     const pluginPath = isDev
