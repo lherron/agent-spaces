@@ -13,6 +13,7 @@ import {
   type ProjectManifest,
   TARGETS_FILENAME,
   type TargetDefinition,
+  getProjectTargetNames,
   getTarget,
   lockFileExists,
   readLockJson,
@@ -119,7 +120,14 @@ export async function resolveTarget(
   // Get target definition
   const target = getTarget(manifest, targetName)
   if (!target) {
-    throw new Error(`Target not found: ${targetName}`)
+    const availableTargets = getProjectTargetNames(manifest)
+    const availableStr =
+      availableTargets.length > 0
+        ? `Available targets: ${availableTargets.join(', ')}`
+        : 'No targets defined in manifest'
+    throw new Error(
+      `Target "${targetName}" not found in project manifest at ${options.projectPath}. ${availableStr}`
+    )
   }
 
   // Check for existing lock

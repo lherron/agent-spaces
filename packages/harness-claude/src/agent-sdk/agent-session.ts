@@ -402,11 +402,14 @@ export class AgentSession implements UnifiedSession {
     }
 
     const content = getMessageContent(msgType, msg)
-    const sawToolResultBlock = this.handleToolBlocks(content)
+    // Extract parent_tool_use_id from message level (for subagent tool attribution)
+    const parentToolUseId =
+      typeof msg['parent_tool_use_id'] === 'string' ? msg['parent_tool_use_id'] : undefined
+    const sawToolResultBlock = this.handleToolBlocks(content, parentToolUseId)
     this.emitUserToolResultIfNeeded(msg, msgType, sawToolResultBlock)
   }
 
-  private handleToolBlocks(content: unknown): boolean {
+  private handleToolBlocks(content: unknown, parentToolUseId?: string): boolean {
     if (!content) return false
     const blocks = Array.isArray(content) ? content : [content]
     let sawToolResultBlock = false
@@ -417,20 +420,20 @@ export class AgentSession implements UnifiedSession {
       const blockType = typeof blockObj['type'] === 'string' ? blockObj['type'] : undefined
 
       if (blockType === 'tool_use') {
-        this.processToolUseBlock(blockObj)
+        this.processToolUseBlock(blockObj, parentToolUseId)
         continue
       }
 
       if (blockType === 'tool_result') {
         sawToolResultBlock = true
-        this.processToolResultBlock(blockObj)
+        this.processToolResultBlock(blockObj, parentToolUseId)
       }
     }
 
     return sawToolResultBlock
   }
 
-  private processToolUseBlock(blockObj: Record<string, unknown>): void {
+  private processToolUseBlock(blockObj: Record<string, unknown>, parentToolUseId?: string): void {
     const toolUseId = resolveToolUseId(blockObj) ?? `sdk-tool-${++this.toolUseCounter}`
     const toolName =
       typeof blockObj['name'] === 'string'
@@ -452,10 +455,14 @@ export class AgentSession implements UnifiedSession {
       toolName,
       input: normalizeToolInput(toolInput),
       payload: blockObj,
+      ...(parentToolUseId ? { parentToolUseId } : {}),
     })
   }
 
-  private processToolResultBlock(blockObj: Record<string, unknown>): void {
+  private processToolResultBlock(
+    blockObj: Record<string, unknown>,
+    parentToolUseId?: string
+  ): void {
     const toolUseId = resolveToolUseId(blockObj)
     const resolvedToolUseId = toolUseId ?? `sdk-tool-${++this.toolUseCounter}`
     const toolMeta = toolUseId ? this.toolUses.get(toolUseId) : undefined
@@ -486,6 +493,7 @@ export class AgentSession implements UnifiedSession {
       result,
       ...(isError !== undefined ? { isError } : {}),
       payload: blockObj,
+      ...(parentToolUseId ? { parentToolUseId } : {}),
     })
     if (toolUseId) {
       this.toolUses.delete(toolUseId)

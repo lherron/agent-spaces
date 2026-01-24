@@ -161,13 +161,18 @@ export function getTargetNames(lock: LockFile): string[] {
 export function getLoadOrderEntries(lock: LockFile, targetName: string): LockSpaceEntry[] {
   const target = lock.targets[targetName]
   if (!target) {
-    throw new Error(`Target not found in lock: ${targetName}`)
+    const available = getTargetNames(lock)
+    const availableStr =
+      available.length > 0
+        ? `Available targets in lock: ${available.join(', ')}`
+        : 'No targets in lock file'
+    throw new Error(`Target "${targetName}" not found in lock file. ${availableStr}`)
   }
 
   return target.loadOrder.map((key) => {
     const entry = lock.spaces[key]
     if (!entry) {
-      throw new Error(`Space entry not found in lock: ${key}`)
+      throw new Error(`Space entry "${key}" not found in lock file for target "${targetName}"`)
     }
     return entry
   })
