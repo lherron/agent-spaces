@@ -1,3 +1,10 @@
+> **Archived.** This specification predates the session-separation rewrite.
+> Terminology such as `harnessSessionId`, `externalSessionId`, and `runTurn()`
+> has been replaced by `continuation`, `cpSessionId`, `runTurnNonInteractive`,
+> and `buildProcessInvocationSpec`. Session-record persistence within
+> agent-spaces is obsolete — the control plane now owns continuity.
+> See `specs/spec_agent_spaces.md` for the current specification.
+
 ## Spec: Add OpenAI Codex as a harness to agent-spaces (app-server–backed), analogous to `agent-sdk`
 
 ### Context and intent

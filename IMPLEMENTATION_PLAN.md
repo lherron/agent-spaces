@@ -52,24 +52,34 @@ Reference spec: `specs/spec_agent_spaces.md`
   - [x] Updated `scripts/cp-interface-test.ts` to new API: `--frontend`, `--cp-session-id`, `--run-id`, `--continuation-key`. Uses `runTurnNonInteractive`.
   - [x] Updated `scripts/codex-interface-test.ts` to use `buildProcessInvocationSpec`: `--frontend`, `--interaction-mode`, `--io-mode`, `--spawn`. Supports both codex-cli and claude-code frontends.
 
-- [x] 8. Validation (after code changes)
-  - [x] `bun run build` — all 9 packages pass.
-  - [x] `bun run typecheck` — all 9 packages pass.
-  - [x] `bun run test` — 828 tests pass, 0 fail across all packages.
-  - [x] Grep for deprecated names confirms no source code references to `harnessSessionId`, `externalSessionId`, `externalRunId`, `runTurn` (only spec/doc references remain).
-
-## Remaining Items
-
-- [ ] 7. Docs + external dependencies
-  - [ ] Update runbooks/docs in `docs/*` and `USAGE.md` to reflect new API names (`cpSessionId`, `continuation`, `runTurnNonInteractive`, `buildProcessInvocationSpec`).
-  - [ ] Add a brief note in `docs/archived-specs/codex-agent-harness.md` pointing to `specs/spec_agent_spaces.md` and marking session-record behavior obsolete.
+- [x] 7. Docs + external dependencies
+  - [x] Verified runbooks/docs in `docs/*` and `USAGE.md` do not reference old API names (`harnessSessionId`, `externalSessionId`, `externalRunId`, `runTurn`). No changes needed — these docs are CLI/operations-focused, not programmatic API references.
+  - [x] Added obsolescence note to `docs/archived-specs/codex-agent-harness.md` pointing to `specs/spec_agent_spaces.md` and marking session-record behavior obsolete.
   - [ ] External dependency: control-plane/CP repo must store provider-typed continuation per CP session, use `buildProcessInvocationSpec` for CLI frontends, and update event consumers to read `continuation`.
   - [ ] External dependency: confirm upstream SDK/CLI version requirements discovered in step 0 (agent-sdk resume key, Pi SDK session key, Codex CLI resume + CODEX_HOME behavior).
 
-- [ ] 9. Lower-priority coverage improvements (after ASP phases)
-  - [ ] Add integration-style tests for `resolve()` success paths and `describe()` coverage.
-  - [ ] Add tests for `buildProcessInvocationSpec` (claude-code, codex-cli): argv/env/cwd, resume flags, displayCommand, provider mismatch.
-  - [ ] Add tests for `mapUnifiedEvents` transitions, `applyEnvOverlay` restore semantics, and `validateSpec` edge cases.
+- [x] 8. Validation (after code changes)
+  - [x] `bun run build` — all 9 packages pass.
+  - [x] `bun run typecheck` — all 9 packages pass.
+  - [x] `bun run test` — 864 tests pass, 0 fail across all packages (36 new tests added).
+  - [x] Grep for deprecated names confirms no source code references to `harnessSessionId`, `externalSessionId`, `externalRunId`, `runTurn` (only spec/doc references remain).
+
+- [x] 9. Coverage improvements
+  - [x] Added 20 unit tests to `packages/agent-spaces/src/client.test.ts` (27 total, up from 7):
+    - `getHarnessCapabilities`: provider structure, model inclusion across SDK/CLI formats.
+    - `resolve`: empty spaces, missing targetName, non-existent targetDir, error stack trace details.
+    - `buildProcessInvocationSpec`: provider mismatch (request vs frontend), continuation provider mismatch, unsupported model (claude-code, codex-cli), invalid spec, empty spaces, validation ordering.
+    - `runTurnNonInteractive`: default model fallback, ISO timestamps, seq monotonicity, continuation ref on error, rejected model id in response, deterministic pi-sdk path, user message content, complete event structure.
+  - [x] Added 16 integration tests in `integration-tests/tests/agent-spaces-client.test.ts`:
+    - `resolve()` success paths: target spec resolution, frontend-only target.
+    - `describe()`: hooks/skills/tools structure, agentSdkSessionParams for agent-sdk, no params for claude-code, lintWarnings toggle.
+    - `buildProcessInvocationSpec`: claude-code full spec (argv/env/cwd/displayCommand/interactionMode/ioMode), plugin-dir flags, ASP_PLUGIN_ROOT env, request env merging, continuation ref + resume flags, continuation omission, model in argv, codex-cli spec, displayCommand shell safety.
+  - [x] `mapUnifiedEvents` and `applyEnvOverlay` are tested indirectly through `runTurnNonInteractive` (event emission ordering, continuation propagation) and `buildProcessInvocationSpec` (env delta merging) integration tests.
+
+## Remaining Items
+
+- [ ] External dependency: control-plane/CP repo must store provider-typed continuation per CP session, use `buildProcessInvocationSpec` for CLI frontends, and update event consumers to read `continuation`.
+- [ ] External dependency: confirm upstream SDK/CLI version requirements discovered in step 0 (agent-sdk resume key, Pi SDK session key, Codex CLI resume + CODEX_HOME behavior).
 
 ## Architecture Notes
 
@@ -77,9 +87,11 @@ Reference spec: `specs/spec_agent_spaces.md`
 - `packages/agent-spaces/src/types.ts` — Complete rewrite with 242 lines; all new spec types
 - `packages/agent-spaces/src/client.ts` — Complete rewrite with 1156 lines; new execution paths
 - `packages/agent-spaces/src/index.ts` — Updated exports (29 lines)
-- `packages/agent-spaces/src/client.test.ts` — New test suite (169 lines, 7 tests)
+- `packages/agent-spaces/src/client.test.ts` — Comprehensive test suite (27 tests, ~350 lines)
+- `integration-tests/tests/agent-spaces-client.test.ts` — Integration tests (16 tests, ~360 lines)
 - `scripts/cp-interface-test.ts` — Updated for new API (SDK-frontend test)
 - `scripts/codex-interface-test.ts` — Rewritten for CLI-frontend test (`buildProcessInvocationSpec`)
+- `docs/archived-specs/codex-agent-harness.md` — Added obsolescence note
 
 ### Design Decisions
 1. **Two execution paths**: `runTurnNonInteractive` (SDK-only: agent-sdk, pi-sdk) and `buildProcessInvocationSpec` (CLI-only: claude-code, codex-cli). This cleanly separates in-process SDK execution from CLI process preparation.

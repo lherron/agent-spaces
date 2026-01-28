@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@lherron/agent-spaces": "*",
+    "agent-spaces": "*",
     "spaces-config": "*",
     "spaces-execution": "*"
   }
