@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,12 +9,21 @@ import { createAgentSpacesClient } from './index.js'
 const client = createAgentSpacesClient()
 
 describe('agent-spaces client', () => {
-  test('getHarnessCapabilities returns expected harnesses', async () => {
+  test('getHarnessCapabilities returns provider-typed harnesses', async () => {
     const caps = await client.getHarnessCapabilities()
-    const ids = caps.harnesses.map((h) => h.id)
-    expect(ids).toContain('agent-sdk')
-    expect(ids).toContain('pi-sdk')
-    expect(ids).toContain('codex')
+    expect(caps.harnesses.length).toBe(2)
+
+    const anthropic = caps.harnesses.find((h) => h.provider === 'anthropic')
+    expect(anthropic).toBeDefined()
+    expect(anthropic?.frontends).toContain('agent-sdk')
+    expect(anthropic?.frontends).toContain('claude-code')
+    expect(anthropic?.models.length).toBeGreaterThan(0)
+
+    const openai = caps.harnesses.find((h) => h.provider === 'openai')
+    expect(openai).toBeDefined()
+    expect(openai?.frontends).toContain('pi-sdk')
+    expect(openai?.frontends).toContain('codex-cli')
+    expect(openai?.models.length).toBeGreaterThan(0)
   })
 
   test('resolve returns resolve_failed for invalid spec', async () => {
@@ -28,15 +36,15 @@ describe('agent-spaces client', () => {
     expect(result.error?.code).toBe('resolve_failed')
   })
 
-  test('runTurn returns model_not_supported and emits ordered events', async () => {
+  test('runTurnNonInteractive returns model_not_supported and emits ordered events', async () => {
     const events: Array<{ type: string; seq: number }> = []
 
-    const response = await client.runTurn({
-      externalSessionId: 'session-test',
-      externalRunId: 'run-test',
+    const response = await client.runTurnNonInteractive({
+      cpSessionId: 'session-test',
+      runId: 'run-test',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
-      harness: 'agent-sdk',
+      frontend: 'agent-sdk',
       model: 'api/not-a-model',
       cwd: '/tmp',
       prompt: 'Hello',
@@ -49,73 +57,112 @@ describe('agent-spaces client', () => {
 
     expect(response.result.success).toBe(false)
     expect(response.result.error?.code).toBe('model_not_supported')
+    expect(response.provider).toBe('anthropic')
+    expect(response.frontend).toBe('agent-sdk')
     expect(events.map((e) => e.type)).toEqual(['state', 'message', 'state', 'complete'])
     expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4])
   })
 
-  test('runTurn resumes using session record for pi harness', async () => {
-    const aspHome = join(tmpdir(), `asp-resume-${Date.now()}`)
-    const externalSessionId = 'session-resume'
-    const harnessSessionId = join(aspHome, 'sessions', 'pi', 'missing-resume')
+  test('runTurnNonInteractive emits events with cpSessionId and runId', async () => {
+    const events: Array<{ cpSessionId: string; runId: string }> = []
 
-    await mkdir(join(aspHome, 'sessions'), { recursive: true })
-
-    const hash = createHash('sha256')
-    hash.update(externalSessionId)
-    const recordPath = join(aspHome, 'sessions', `${hash.digest('hex')}.json`)
-    const now = new Date().toISOString()
-    const record = {
-      externalSessionId,
-      harness: 'pi-sdk',
-      harnessSessionId,
-      model: 'openai-codex/gpt-5.2-codex',
-      createdAt: now,
-      updatedAt: now,
-    }
-    await writeFile(recordPath, JSON.stringify(record, null, 2), 'utf-8')
-
-    const events: Array<{ type: string; harnessSessionId?: string }> = []
-
-    const response = await client.runTurn({
-      externalSessionId,
-      externalRunId: 'run-resume',
-      aspHome,
+    await client.runTurnNonInteractive({
+      cpSessionId: 'cp-session-123',
+      runId: 'run-456',
+      aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
-      harness: 'pi-sdk',
-      model: 'openai-codex/gpt-5.2-codex',
+      frontend: 'agent-sdk',
+      model: 'api/not-a-model',
       cwd: '/tmp',
       prompt: 'Hello',
       callbacks: {
         onEvent: (event) => {
-          events.push({ type: event.type, harnessSessionId: event.harnessSessionId })
+          events.push({ cpSessionId: event.cpSessionId, runId: event.runId })
         },
       },
     })
 
-    expect(response.result.success).toBe(false)
-    expect(response.result.error?.code).toBe('harness_session_not_found')
-    expect(events.map((event) => event.type)).toEqual(['state', 'message', 'state', 'complete'])
-    expect(events[0]?.harnessSessionId).toBe(harnessSessionId)
+    expect(events.length).toBeGreaterThan(0)
+    for (const event of events) {
+      expect(event.cpSessionId).toBe('cp-session-123')
+      expect(event.runId).toBe('run-456')
+    }
   })
 
-  test('runTurn returns harness_session_not_found for missing pi session', async () => {
+  test('runTurnNonInteractive returns continuation_not_found for missing pi session', async () => {
     const missingSessionPath = join(tmpdir(), `asp-missing-${Date.now()}`)
     await rm(missingSessionPath, { recursive: true, force: true })
 
-    const response = await client.runTurn({
-      externalSessionId: 'session-missing',
-      externalRunId: 'run-missing',
+    const response = await client.runTurnNonInteractive({
+      cpSessionId: 'session-missing',
+      runId: 'run-missing',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
-      harness: 'pi-sdk',
+      frontend: 'pi-sdk',
       model: 'openai-codex/gpt-5.2-codex',
-      harnessSessionId: missingSessionPath,
+      continuation: { provider: 'openai', key: missingSessionPath },
       cwd: '/tmp',
       prompt: 'Hello',
       callbacks: { onEvent: () => {} },
     })
 
     expect(response.result.success).toBe(false)
-    expect(response.result.error?.code).toBe('harness_session_not_found')
+    expect(response.result.error?.code).toBe('continuation_not_found')
+    expect(response.provider).toBe('openai')
+    expect(response.frontend).toBe('pi-sdk')
+  })
+
+  test('runTurnNonInteractive returns provider_mismatch for wrong continuation provider', async () => {
+    const events: Array<{ type: string }> = []
+
+    const response = await client.runTurnNonInteractive({
+      cpSessionId: 'session-mismatch',
+      runId: 'run-mismatch',
+      aspHome: '/tmp/asp-test',
+      spec: { spaces: ['space:base@dev'] },
+      frontend: 'agent-sdk',
+      // Agent-sdk is anthropic, but continuation says openai
+      continuation: { provider: 'openai', key: 'some-key' },
+      cwd: '/tmp',
+      prompt: 'Hello',
+      callbacks: {
+        onEvent: (event) => {
+          events.push({ type: event.type })
+        },
+      },
+    })
+
+    expect(response.result.success).toBe(false)
+    // Provider mismatch is caught during validation and emits error events
+    expect(events.map((e) => e.type)).toEqual(['state', 'complete'])
+  })
+
+  test('runTurnNonInteractive sets pi-sdk continuation on first run', async () => {
+    const events: Array<{ type: string; continuation?: unknown }> = []
+
+    // This will fail during materialization since we don't have a real registry,
+    // but we can verify the continuation was set on events before the failure
+    await client.runTurnNonInteractive({
+      cpSessionId: 'session-pi-first',
+      runId: 'run-pi-first',
+      aspHome: '/tmp/asp-test',
+      spec: { spaces: ['space:base@dev'] },
+      frontend: 'pi-sdk',
+      model: 'openai-codex/gpt-5.2-codex',
+      cwd: '/tmp',
+      prompt: 'Hello',
+      callbacks: {
+        onEvent: (event) => {
+          events.push({ type: event.type, continuation: event.continuation })
+        },
+      },
+    })
+
+    // The 'running' event should have a continuation set (pi session path)
+    const runningEvent = events.find((e) => e.type === 'state')
+    expect(runningEvent?.continuation).toBeDefined()
+    const cont = runningEvent?.continuation as { provider: string; key: string }
+    expect(cont.provider).toBe('openai')
+    expect(cont.key).toContain('sessions/pi/')
   })
 })
