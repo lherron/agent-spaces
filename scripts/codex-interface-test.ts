@@ -2,21 +2,24 @@
 /**
  * Codex Interface Test
  *
- * Tests the agent-spaces client library with the codex harness.
- * Similar to cp-interface-test.ts but defaults to codex harness.
+ * Tests the agent-spaces client library with the codex-cli frontend.
+ * Codex is a CLI-only frontend, so this uses buildProcessInvocationSpec
+ * to produce a ProcessInvocationSpec and optionally spawns the process.
  *
  * Usage:
- *   bun scripts/codex-interface-test.ts --space space:smokey@dev "What skills are available?"
- *   bun scripts/codex-interface-test.ts --target codex-test --target-dir /path "What is 2+2?"
+ *   bun scripts/codex-interface-test.ts --space space:smokey@dev
+ *   bun scripts/codex-interface-test.ts --target codex-test --target-dir /path
+ *   bun scripts/codex-interface-test.ts --space space:smokey@dev --spawn "What is 2+2?"
  */
 import { mkdir } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 
-import { marked } from 'marked'
-import TerminalRenderer from 'marked-terminal'
-
 import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.ts'
-import type { AgentEvent, SpaceSpec } from '../packages/agent-spaces/src/types.ts'
+import type {
+  HarnessContinuationRef,
+  HarnessFrontend,
+  SpaceSpec,
+} from '../packages/agent-spaces/src/types.ts'
 
 interface ParsedArgs {
   spaces: string[]
@@ -24,26 +27,27 @@ interface ParsedArgs {
   targetDir?: string | undefined
   aspHome?: string | undefined
   cwd?: string | undefined
-  harness: string
+  frontend: 'claude-code' | 'codex-cli'
   model?: string | undefined
-  harnessSessionId?: string | undefined
-  externalSessionId?: string | undefined
-  externalRunId?: string | undefined
+  continuationKey?: string | undefined
+  cpSessionId?: string | undefined
+  interactionMode: 'interactive' | 'headless'
+  ioMode: 'pty' | 'pipes' | 'inherit'
   env: Record<string, string>
   verbose: boolean
   help: boolean
+  spawn: boolean
   prompt?: string | undefined
-  skipResume: boolean
 }
 
 function printUsage(): void {
   console.log(
     [
-      'Codex Interface Test - Test agent-spaces client with codex harness',
+      'Codex Interface Test - Test agent-spaces buildProcessInvocationSpec with CLI frontends',
       '',
       'Usage:',
-      '  bun scripts/codex-interface-test.ts --space <space-ref> [options] [prompt]',
-      '  bun scripts/codex-interface-test.ts --target <target-name> --target-dir <abs-path> [options] [prompt]',
+      '  bun scripts/codex-interface-test.ts --space <space-ref> [options]',
+      '  bun scripts/codex-interface-test.ts --target <target-name> --target-dir <abs-path> [options]',
       '',
       'Options:',
       '  --space <ref>               Space reference (e.g., space:smokey@dev)',
@@ -52,30 +56,30 @@ function printUsage(): void {
       '  --target-dir <path>         Target directory (required with --target)',
       '  --asp-home <path>           ASP_HOME for materialization (default: $ASP_HOME or /tmp/asp-codex-test)',
       '  --cwd <path>                Working directory for the run (default: targetDir or cwd)',
-      '  --harness <id>              Harness id (default: codex)',
-      '  --model <id>                Model id (default: gpt-5.2-codex)',
-      '  --harness-session-id <id>   Resume existing harness session (optional)',
-      '  --external-session-id <id>  External session id (optional)',
-      '  --external-run-id <id>      External run id (optional)',
+      '  --frontend <id>             Frontend id: codex-cli or claude-code (default: codex-cli)',
+      '  --model <id>                Model id (default: gpt-5.2-codex for codex-cli)',
+      '  --continuation-key <key>    Resume with continuation key (optional)',
+      '  --cp-session-id <id>        CP session id (optional)',
+      '  --interaction-mode <mode>   interactive or headless (default: headless)',
+      '  --io-mode <mode>            pty, pipes, or inherit (default: pipes)',
       '  --env KEY=VALUE             Environment variable (repeatable)',
-      '  --skip-resume               Skip the automatic resume test',
-      '  --verbose                   Log full event payloads',
+      '  --spawn                     Actually spawn the process (default: just display spec)',
+      '  --verbose                   Log full payloads',
       '  --help                      Show this message',
-      '  [prompt]                    Optional prompt as the last argument',
+      '  [prompt]                    Optional prompt as the last positional argument',
       '',
       'Examples:',
-      '  # Test with a space reference',
-      '  bun scripts/codex-interface-test.ts --space space:smokey@dev "What skills are available?"',
+      '  # Build invocation spec (display only)',
+      '  bun scripts/codex-interface-test.ts --space space:smokey@dev',
       '',
-      '  # Test with an installed target',
-      '  bun scripts/codex-interface-test.ts --target codex-test --target-dir $PWD "What is 2+2?"',
+      '  # Build and spawn the process',
+      '  bun scripts/codex-interface-test.ts --space space:smokey@dev --spawn "What is 2+2?"',
       '',
-      '  # Verbose output',
-      '  bun scripts/codex-interface-test.ts --space space:smokey@dev --verbose',
+      '  # Use claude-code frontend',
+      '  bun scripts/codex-interface-test.ts --space space:base@dev --frontend claude-code',
       '',
       'Authentication:',
       '  Codex uses OAuth. Run `codex login status` to verify you are logged in.',
-      '  OAuth credentials are stored in ~/.codex/auth.json (symlinked to session homes).',
     ].join('\n')
   )
 }
@@ -83,11 +87,13 @@ function printUsage(): void {
 function parseArgs(argv: string[]): ParsedArgs {
   const args: ParsedArgs = {
     spaces: [],
-    harness: 'codex',
+    frontend: 'codex-cli',
+    interactionMode: 'headless',
+    ioMode: 'pipes',
     env: {},
     verbose: false,
     help: false,
-    skipResume: false,
+    spawn: false,
   }
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -137,9 +143,9 @@ function parseArgs(argv: string[]): ParsedArgs {
         if (!args.cwd) throw new Error('Missing value for --cwd')
         i += 1
         break
-      case '--harness':
-        args.harness = argv[i + 1] ?? ''
-        if (!args.harness) throw new Error('Missing value for --harness')
+      case '--frontend':
+        args.frontend = (argv[i + 1] ?? '') as 'claude-code' | 'codex-cli'
+        if (!args.frontend) throw new Error('Missing value for --frontend')
         i += 1
         break
       case '--model':
@@ -147,19 +153,24 @@ function parseArgs(argv: string[]): ParsedArgs {
         if (!args.model) throw new Error('Missing value for --model')
         i += 1
         break
-      case '--harness-session-id':
-        args.harnessSessionId = argv[i + 1]
-        if (!args.harnessSessionId) throw new Error('Missing value for --harness-session-id')
+      case '--continuation-key':
+        args.continuationKey = argv[i + 1]
+        if (!args.continuationKey) throw new Error('Missing value for --continuation-key')
         i += 1
         break
-      case '--external-session-id':
-        args.externalSessionId = argv[i + 1]
-        if (!args.externalSessionId) throw new Error('Missing value for --external-session-id')
+      case '--cp-session-id':
+        args.cpSessionId = argv[i + 1]
+        if (!args.cpSessionId) throw new Error('Missing value for --cp-session-id')
         i += 1
         break
-      case '--external-run-id':
-        args.externalRunId = argv[i + 1]
-        if (!args.externalRunId) throw new Error('Missing value for --external-run-id')
+      case '--interaction-mode':
+        args.interactionMode = (argv[i + 1] ?? '') as 'interactive' | 'headless'
+        if (!args.interactionMode) throw new Error('Missing value for --interaction-mode')
+        i += 1
+        break
+      case '--io-mode':
+        args.ioMode = (argv[i + 1] ?? '') as 'pty' | 'pipes' | 'inherit'
+        if (!args.ioMode) throw new Error('Missing value for --io-mode')
         i += 1
         break
       case '--env': {
@@ -173,8 +184,8 @@ function parseArgs(argv: string[]): ParsedArgs {
         i += 1
         break
       }
-      case '--skip-resume':
-        args.skipResume = true
+      case '--spawn':
+        args.spawn = true
         break
       case '--verbose':
         args.verbose = true
@@ -234,39 +245,27 @@ function buildSpec(args: ParsedArgs): SpaceSpec {
   return { target: { targetName: args.targetName, targetDir: resolvedDir } }
 }
 
-function formatEvent(event: AgentEvent): string {
-  switch (event.type) {
-    case 'message':
-      return `[message] ${typeof event.content === 'string' ? event.content.slice(0, 100) : '(object)'}`
-    case 'tool_call':
-      return `[tool_call] ${event.toolName} (${event.toolUseId})`
-    case 'tool_result':
-      return `[tool_result] ${event.toolName} ${event.isError ? 'ERROR' : 'OK'}`
-    case 'log':
-      return `[log] ${event.message}`
-    case 'error':
-      return `[error] ${event.message}`
-    case 'status':
-      return `[status] ${event.status}`
-    default:
-      return `[${event.type}]`
+/** Derive the provider domain from the CLI frontend. */
+function frontendProvider(frontend: HarnessFrontend): 'anthropic' | 'openai' {
+  switch (frontend) {
+    case 'agent-sdk':
+    case 'claude-code':
+      return 'anthropic'
+    case 'pi-sdk':
+    case 'codex-cli':
+      return 'openai'
   }
 }
 
 async function main(): Promise<void> {
-  marked.setOptions({
-    renderer: new TerminalRenderer(),
-  })
-
   const args = parseArgs(process.argv.slice(2))
   if (args.help) {
     printUsage()
     return
   }
 
-  // Note: Codex uses OAuth (auth.json), not OPENAI_API_KEY env var
-
   const spec = buildSpec(args)
+  const provider = frontendProvider(args.frontend)
 
   const aspHome = args.aspHome ?? process.env['ASP_HOME'] ?? '/tmp/asp-codex-test'
   await mkdir(aspHome, { recursive: true })
@@ -274,13 +273,18 @@ async function main(): Promise<void> {
   const cwd =
     args.cwd ?? (spec && 'target' in spec ? spec.target.targetDir : undefined) ?? process.cwd()
 
-  const externalSessionId = args.externalSessionId ?? `codex-session-${Date.now()}`
-  const externalRunId = args.externalRunId ?? `codex-run-${Date.now()}`
+  const cpSessionId = args.cpSessionId ?? `codex-session-${Date.now()}`
+
+  // Build continuation ref from key if provided
+  const continuation: HarnessContinuationRef | undefined = args.continuationKey
+    ? { provider, key: args.continuationKey }
+    : undefined
 
   const client = createAgentSpacesClient()
 
-  console.log('=== Codex Interface Test ===')
-  console.log(`harness: ${args.harness}`)
+  console.log('=== Codex Interface Test (CLI Frontend) ===')
+  console.log(`frontend: ${args.frontend}`)
+  console.log(`provider: ${provider}`)
   console.log(`aspHome: ${aspHome}`)
   console.log(`cwd: ${cwd}`)
   console.log('')
@@ -290,115 +294,85 @@ async function main(): Promise<void> {
   const describeResult = await client.describe({
     aspHome,
     spec,
-    harness: args.harness,
+    frontend: args.frontend,
     ...(args.model ? { model: args.model } : {}),
     cwd,
-    sessionId: args.harnessSessionId ?? externalSessionId,
+    cpSessionId,
   })
   console.log('skills:', describeResult.skills)
   console.log('tools:', describeResult.tools?.length ?? 0, 'tools')
   console.log('hooks:', describeResult.hooks)
   console.log('')
 
-  // Run turn phase
-  console.log('--- runTurn() ---')
-  const prompt = args.prompt ?? 'What skills are available? List them briefly.'
-  console.log(`prompt: "${prompt}"`)
-  console.log('')
-
-  let eventCount = 0
-  const response = await client.runTurn({
-    externalSessionId,
-    externalRunId,
+  // Build invocation spec
+  console.log('--- buildProcessInvocationSpec() ---')
+  const invocationResult = await client.buildProcessInvocationSpec({
+    cpSessionId,
     aspHome,
     spec,
-    harness: args.harness,
+    provider,
+    frontend: args.frontend,
     ...(args.model ? { model: args.model } : {}),
-    ...(args.harnessSessionId ? { harnessSessionId: args.harnessSessionId } : {}),
+    interactionMode: args.interactionMode,
+    ioMode: args.ioMode,
+    ...(continuation ? { continuation } : {}),
     cwd,
     ...(Object.keys(args.env).length > 0 ? { env: args.env } : {}),
-    prompt,
-    callbacks: {
-      onEvent: async (event) => {
-        eventCount++
-        if (args.verbose) {
-          console.log('event:', JSON.stringify(event, null, 2))
-        } else {
-          console.log(formatEvent(event))
-        }
-      },
-    },
   })
 
+  const invocationSpec = invocationResult.spec
+  console.log('provider:', invocationSpec.provider)
+  console.log('frontend:', invocationSpec.frontend)
+  console.log('interactionMode:', invocationSpec.interactionMode)
+  console.log('ioMode:', invocationSpec.ioMode)
+  console.log('cwd:', invocationSpec.cwd)
+  console.log('argv:', invocationSpec.argv)
+  if (invocationSpec.displayCommand) {
+    console.log('displayCommand:', invocationSpec.displayCommand)
+  }
+  if (invocationSpec.continuation) {
+    console.log('continuation:', JSON.stringify(invocationSpec.continuation))
+  }
+  if (invocationResult.warnings && invocationResult.warnings.length > 0) {
+    console.log('warnings:', invocationResult.warnings)
+  }
+  if (args.verbose) {
+    console.log('\nFull env:', JSON.stringify(invocationSpec.env, null, 2))
+  } else {
+    const envKeys = Object.keys(invocationSpec.env)
+    console.log(`env: ${envKeys.length} keys [${envKeys.join(', ')}]`)
+  }
   console.log('')
-  console.log(`events received: ${eventCount}`)
-  console.log(`harnessSessionId: ${response.harnessSessionId ?? '(none)'}`)
-  console.log(`success: ${response.result.success}`)
 
-  if (response.result.finalOutput) {
-    console.log('\n--- finalOutput (rendered) ---')
-    console.log(marked.parse(response.result.finalOutput))
-  }
-
-  if (!response.result.success) {
-    console.error('\nrunTurn FAILED:', response.result.error?.message ?? 'Unknown error')
-    process.exitCode = 1
-    return
-  }
-
-  // Resume test (automatic unless --skip-resume)
-  if (response.harnessSessionId && !args.skipResume) {
-    console.log('\n--- Resume Test ---')
-    console.log(`resuming with harnessSessionId: ${response.harnessSessionId}`)
-    console.log('')
-
-    let resumeEventCount = 0
-    const resumeResponse = await client.runTurn({
-      externalSessionId,
-      externalRunId: `${externalRunId}-resume`,
-      aspHome,
-      spec,
-      harness: args.harness,
-      ...(args.model ? { model: args.model } : {}),
-      harnessSessionId: response.harnessSessionId,
-      cwd,
-      ...(Object.keys(args.env).length > 0 ? { env: args.env } : {}),
-      prompt: 'What was the last question I asked you? Answer briefly.',
-      callbacks: {
-        onEvent: async (event) => {
-          resumeEventCount++
-          if (args.verbose) {
-            console.log('resume event:', JSON.stringify(event, null, 2))
-          } else {
-            console.log(formatEvent(event))
-          }
-        },
-      },
-    })
-
-    console.log('')
-    console.log(`resume events received: ${resumeEventCount}`)
-    console.log(`resume success: ${resumeResponse.result.success}`)
-
-    if (resumeResponse.result.finalOutput) {
-      console.log('\n--- resume finalOutput (rendered) ---')
-      console.log(marked.parse(resumeResponse.result.finalOutput))
-    }
-
-    if (!resumeResponse.result.success) {
-      console.error(
-        '\nResume test FAILED:',
-        resumeResponse.result.error?.message ?? 'Unknown error'
-      )
+  // Optionally spawn the process
+  if (args.spawn) {
+    console.log('--- Spawning process ---')
+    const [command, ...spawnArgs] = invocationSpec.argv
+    if (!command) {
+      console.error('No command in argv')
       process.exitCode = 1
       return
     }
 
-    console.log('\n✅ Resume test PASSED - context was maintained')
-  } else if (!response.harnessSessionId) {
-    console.log('\n⚠️  No harnessSessionId returned, skipping resume test')
+    // If a prompt was provided, pass it via stdin for headless mode
+    const proc = Bun.spawn([command, ...spawnArgs], {
+      cwd: invocationSpec.cwd,
+      env: { ...process.env, ...invocationSpec.env },
+      stdout: 'inherit',
+      stderr: 'inherit',
+      stdin: args.prompt ? new Response(args.prompt).body : 'inherit',
+    })
+
+    const exitCode = await proc.exited
+    console.log(`\nProcess exited with code: ${exitCode}`)
+    if (exitCode !== 0) {
+      process.exitCode = 1
+    }
   } else {
-    console.log('\n⏭️  Resume test skipped (--skip-resume)')
+    console.log('Spec built successfully. Use --spawn to actually run the process.')
+    if (invocationSpec.displayCommand) {
+      console.log(`\nTo run manually:\n  ${invocationSpec.displayCommand}`)
+    }
   }
 
   console.log('\n=== Test Complete ===')

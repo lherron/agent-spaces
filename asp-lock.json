@@ -1,52 +1,19 @@
 {
   "lockfileVersion": 1,
   "resolverVersion": 1,
-  "generatedAt": "2026-01-28T21:19:52.834Z",
+  "generatedAt": "2026-01-28T23:01:21.808Z",
   "registry": {
     "type": "git",
     "url": "/Users/lherron/praesidium/var/spaces-repo/repo"
   },
   "spaces": {
-    "project-defaults@project": {
-      "id": "project-defaults",
-      "commit": "project",
-      "path": "spaces/project-defaults",
-      "integrity": "sha256:12529d56fe63ea0e301d35a3cf22a592c2e31978a1d0fe60fdc2e7d33a758fa6",
-      "plugin": {
-        "name": "project-defaults",
-        "version": "0.1.0"
-      },
-      "deps": {
-        "spaces": []
-      },
-      "resolvedFrom": {
-        "selector": "dev"
-      },
-      "projectSpace": true
-    },
-    "defaults@dev": {
-      "id": "defaults",
+    "ralph-build-loop@dev": {
+      "id": "ralph-build-loop",
       "commit": "dev",
-      "path": "spaces/defaults",
+      "path": "spaces/ralph-build-loop",
       "integrity": "sha256:dev",
       "plugin": {
-        "name": "defaults",
-        "version": "1.0.0"
-      },
-      "deps": {
-        "spaces": []
-      },
-      "resolvedFrom": {
-        "selector": "dev"
-      }
-    },
-    "praesidium-defaults@dev": {
-      "id": "praesidium-defaults",
-      "commit": "dev",
-      "path": "spaces/praesidium-defaults",
-      "integrity": "sha256:dev",
-      "plugin": {
-        "name": "praesidium-defaults",
+        "name": "ralph-build-loop",
         "version": "0.1.0"
       },
       "deps": {
@@ -58,26 +25,20 @@
     }
   },
   "targets": {
-    "clod": {
+    "ralph-build": {
       "compose": [
-        "space:project:project-defaults",
-        "space:defaults@dev",
-        "space:praesidium-defaults@dev"
+        "space:ralph-build-loop@dev"
       ],
       "roots": [
-        "project-defaults@project",
-        "defaults@dev",
-        "praesidium-defaults@dev"
+        "ralph-build-loop@dev"
       ],
       "loadOrder": [
-        "project-defaults@project",
-        "defaults@dev",
-        "praesidium-defaults@dev"
+        "ralph-build-loop@dev"
       ],
-      "envHash": "sha256:5d49584ed8f02f7be665ab99d4f1c1466665dd43baafc8869067451f6197702c",
+      "envHash": "sha256:c3a78a896069bd1b162ccab4260c37722a3bb0dec0d38528addf53f313cca0e4",
       "harnesses": {
         "claude": {
-          "envHash": "sha256:3899042ee68b598c308614987e99be0d73c7521600fa1c0ebd984d8ebcdc91df"
+          "envHash": "sha256:53b1085b243256ec1a8e0a45450b588fbfe1117b3372cfc099d36c07da4cb36c"
         }
       }
     }

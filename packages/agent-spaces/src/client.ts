@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { copyFile, readFile, readdir, stat, symlink } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { basename, isAbsolute, join } from 'node:path'
 
 import {
@@ -11,9 +11,7 @@ import {
   type SpaceRefString,
   asSha256Integrity,
   asSpaceId,
-  atomicWriteJson,
   computeClosure,
-  copyDir,
   discoverSkills,
   ensureDir,
   generateLockFileForTarget,
@@ -29,6 +27,7 @@ import {
   type UnifiedSession,
   type UnifiedSessionEvent,
   createSession,
+  harnessRegistry,
   loadPiSdkBundle,
   materializeFromRefs,
   materializeTarget,
@@ -38,34 +37,38 @@ import type {
   AgentEvent,
   AgentSpacesClient,
   AgentSpacesError,
+  BuildProcessInvocationSpecRequest,
+  BuildProcessInvocationSpecResponse,
   DescribeRequest,
   DescribeResponse,
   HarnessCapabilities,
+  HarnessContinuationRef,
+  HarnessFrontend,
+  ProcessInvocationSpec,
+  ProviderDomain,
   ResolveRequest,
   ResolveResponse,
   RunResult,
-  RunTurnRequest,
-  RunTurnResponse,
+  RunTurnNonInteractiveRequest,
+  RunTurnNonInteractiveResponse,
   SpaceSpec,
 } from './types.js'
 
-const AGENT_SDK_HARNESS = 'agent-sdk'
-const PI_SDK_HARNESS = 'pi-sdk'
-const CODEX_HARNESS = 'codex'
+// ---------------------------------------------------------------------------
+// Frontend definitions (provider-typed harness registry, spec §5.1)
+// ---------------------------------------------------------------------------
+
+const AGENT_SDK_FRONTEND: HarnessFrontend = 'agent-sdk'
+const PI_SDK_FRONTEND: HarnessFrontend = 'pi-sdk'
+const CLAUDE_CODE_FRONTEND: HarnessFrontend = 'claude-code'
+const CODEX_CLI_FRONTEND: HarnessFrontend = 'codex-cli'
 
 const AGENT_SDK_INTERNAL: HarnessId = 'claude-agent-sdk'
 const PI_SDK_INTERNAL: HarnessId = 'pi-sdk'
-const CODEX_INTERNAL: HarnessId = 'codex'
+const CLAUDE_CODE_INTERNAL: HarnessId = 'claude'
+const CODEX_CLI_INTERNAL: HarnessId = 'codex'
 
-const AGENT_SDK_MODELS = [
-  // 'api/opus',
-  // 'api/haiku',
-  // 'api/sonnet',
-  'claude/opus',
-  'claude/haiku',
-  'claude/sonnet',
-  'claude/claude-opus-4-5',
-]
+const AGENT_SDK_MODELS = ['claude/opus', 'claude/haiku', 'claude/sonnet', 'claude/claude-opus-4-5']
 
 const PI_SDK_MODELS = [
   'openai-codex/gpt-5.2-codex',
@@ -74,7 +77,16 @@ const PI_SDK_MODELS = [
   'api/gpt-5.2',
 ]
 
-const CODEX_MODELS = [
+const CLAUDE_CODE_MODELS = [
+  'claude-opus-4-5',
+  'claude-sonnet-4-5',
+  'claude-haiku-4-5',
+  'opus',
+  'sonnet',
+  'haiku',
+]
+
+const CODEX_CLI_MODELS = [
   'gpt-5.2-codex',
   'gpt-5.1-codex-mini',
   'gpt-5.1-codex-max',
@@ -88,52 +100,64 @@ const CODEX_MODELS = [
 
 const DEFAULT_AGENT_SDK_MODEL = 'claude/sonnet'
 const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.2-codex'
-const DEFAULT_CODEX_MODEL = 'gpt-5.2-codex'
+const DEFAULT_CLAUDE_CODE_MODEL = 'claude-opus-4-5'
+const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.2-codex'
 
-const HARNESS_DEFS = new Map<
-  string,
-  { internalId: HarnessId; models: string[]; defaultModel: string }
->([
+interface FrontendDef {
+  provider: ProviderDomain
+  internalId: HarnessId
+  models: string[]
+  defaultModel: string
+}
+
+const FRONTEND_DEFS = new Map<HarnessFrontend, FrontendDef>([
   [
-    AGENT_SDK_HARNESS,
+    AGENT_SDK_FRONTEND,
     {
+      provider: 'anthropic',
       internalId: AGENT_SDK_INTERNAL,
       models: AGENT_SDK_MODELS,
       defaultModel: DEFAULT_AGENT_SDK_MODEL,
     },
   ],
   [
-    PI_SDK_HARNESS,
+    PI_SDK_FRONTEND,
     {
+      provider: 'openai',
       internalId: PI_SDK_INTERNAL,
       models: PI_SDK_MODELS,
       defaultModel: DEFAULT_PI_SDK_MODEL,
     },
   ],
   [
-    CODEX_HARNESS,
+    CLAUDE_CODE_FRONTEND,
     {
-      internalId: CODEX_INTERNAL,
-      models: CODEX_MODELS,
-      defaultModel: DEFAULT_CODEX_MODEL,
+      provider: 'anthropic',
+      internalId: CLAUDE_CODE_INTERNAL,
+      models: CLAUDE_CODE_MODELS,
+      defaultModel: DEFAULT_CLAUDE_CODE_MODEL,
+    },
+  ],
+  [
+    CODEX_CLI_FRONTEND,
+    {
+      provider: 'openai',
+      internalId: CODEX_CLI_INTERNAL,
+      models: CODEX_CLI_MODELS,
+      defaultModel: DEFAULT_CODEX_CLI_MODEL,
     },
   ],
 ])
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
 
 interface ValidatedSpec {
   kind: 'spaces' | 'target'
   spaces?: string[]
   targetName?: string
   targetDir?: string
-}
-
-interface SessionRecord {
-  externalSessionId: string
-  harness: string
-  harnessSessionId?: string | undefined
-  model?: string | undefined
-  createdAt: string
-  updatedAt: string
 }
 
 interface MaterializedSpec {
@@ -152,10 +176,11 @@ interface ModelInfo {
   model: string
 }
 
-type EventPayload = Omit<
-  AgentEvent,
-  'ts' | 'seq' | 'externalSessionId' | 'externalRunId' | 'harnessSessionId'
->
+type EventPayload = Omit<AgentEvent, 'ts' | 'seq' | 'cpSessionId' | 'runId' | 'continuation'>
+
+// ---------------------------------------------------------------------------
+// Helpers: spec validation
+// ---------------------------------------------------------------------------
 
 function validateSpec(spec: SpaceSpec): ValidatedSpec {
   const hasSpaces = 'spaces' in spec
@@ -199,179 +224,26 @@ function computeSpacesTargetName(spaces: string[]): string {
   return `spaces-${hash.digest('hex').slice(0, 12)}`
 }
 
-async function prepareSessionContext(
-  req: RunTurnRequest,
-  harnessDef: ReturnType<typeof resolveHarness>,
-  record: SessionRecord | null
-): Promise<{
-  harnessSessionId: string | undefined
-  isResume: boolean
-  codexSessionHome: string | undefined
-}> {
-  const isResume = req.harnessSessionId !== undefined || record?.harnessSessionId !== undefined
-  let harnessSessionId = req.harnessSessionId ?? record?.harnessSessionId
-  if (harnessDef.externalId === PI_SDK_HARNESS && !harnessSessionId) {
-    harnessSessionId = piSessionPath(req.aspHome, req.externalSessionId)
-  }
+// ---------------------------------------------------------------------------
+// Helpers: frontend resolution + model validation
+// ---------------------------------------------------------------------------
 
-  let codexSessionHome: string | undefined
-  if (harnessDef.externalId === CODEX_HARNESS) {
-    codexSessionHome = codexSessionPath(req.aspHome, req.externalSessionId)
-  }
-
-  if (harnessDef.externalId === PI_SDK_HARNESS && !isResume && harnessSessionId) {
-    await ensureDir(harnessSessionId)
-  }
-
-  return { harnessSessionId, isResume, codexSessionHome }
-}
-
-function sessionRecordPath(aspHome: string, externalSessionId: string): string {
-  const hash = createHash('sha256')
-  hash.update(externalSessionId)
-  return join(aspHome, 'sessions', `${hash.digest('hex')}.json`)
-}
-
-function piSessionPath(aspHome: string, externalSessionId: string): string {
-  const hash = createHash('sha256')
-  hash.update(externalSessionId)
-  return join(aspHome, 'sessions', 'pi', hash.digest('hex'))
-}
-
-function codexSessionPath(aspHome: string, externalSessionId: string): string {
-  const hash = createHash('sha256')
-  hash.update(externalSessionId)
-  return join(aspHome, 'sessions', 'codex', hash.digest('hex'), 'home')
-}
-
-async function linkOrCopyEntry(src: string, dest: string): Promise<void> {
-  if (existsSync(dest)) return
-  try {
-    await symlink(src, dest)
-  } catch {
-    const srcStats = await stat(src)
-    if (srcStats.isDirectory()) {
-      await copyDir(src, dest, { useHardlinks: false })
-    } else {
-      await copyFile(src, dest)
-    }
-  }
-}
-
-async function ensureCodexSessionHome(templateDir: string, sessionHome: string): Promise<void> {
-  if (!existsSync(templateDir)) {
-    throw new Error(`Codex template directory not found: ${templateDir}`)
-  }
-
-  await ensureDir(sessionHome)
-
-  const configSrc = join(templateDir, 'config.toml')
-  const configDest = join(sessionHome, 'config.toml')
-  if (!existsSync(configSrc)) {
-    throw new Error(`Codex template missing config.toml: ${configSrc}`)
-  }
-  if (!existsSync(configDest)) {
-    await copyFile(configSrc, configDest)
-  }
-
-  const agentsSrc = join(templateDir, 'AGENTS.md')
-  const agentsDest = join(sessionHome, 'AGENTS.md')
-  if (existsSync(agentsSrc) && !existsSync(agentsDest)) {
-    await linkOrCopyEntry(agentsSrc, agentsDest)
-  }
-
-  // Symlink auth.json from template (which points to ~/.codex/auth.json) for OAuth
-  const authSrc = join(templateDir, 'auth.json')
-  const authDest = join(sessionHome, 'auth.json')
-  if (existsSync(authSrc) && !existsSync(authDest)) {
-    await linkOrCopyEntry(authSrc, authDest)
-  }
-
-  const skillsSrc = join(templateDir, 'skills')
-  const skillsDest = join(sessionHome, 'skills')
-  await ensureDir(skillsDest)
-  if (existsSync(skillsSrc)) {
-    const entries = await readdir(skillsSrc, { withFileTypes: true })
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      await linkOrCopyEntry(join(skillsSrc, entry.name), join(skillsDest, entry.name))
-    }
-  }
-
-  const promptsSrc = join(templateDir, 'prompts')
-  const promptsDest = join(sessionHome, 'prompts')
-  await ensureDir(promptsDest)
-  if (existsSync(promptsSrc)) {
-    const entries = await readdir(promptsSrc, { withFileTypes: true })
-    for (const entry of entries) {
-      if (!entry.isFile()) continue
-      if (!entry.name.endsWith('.md')) continue
-      await linkOrCopyEntry(join(promptsSrc, entry.name), join(promptsDest, entry.name))
-    }
-  }
-}
-
-async function readSessionRecord(
-  aspHome: string,
-  externalSessionId: string
-): Promise<SessionRecord | null> {
-  const path = sessionRecordPath(aspHome, externalSessionId)
-  if (!existsSync(path)) {
-    return null
-  }
-
-  const raw = await readFile(path, 'utf-8')
-  return JSON.parse(raw) as SessionRecord
-}
-
-async function writeSessionRecord(aspHome: string, record: SessionRecord): Promise<void> {
-  const path = sessionRecordPath(aspHome, record.externalSessionId)
-  await atomicWriteJson(path, record)
-}
-
-function applyEnvOverlay(env: Record<string, string>): () => void {
-  const prior = new Map<string, string | undefined>()
-
-  for (const [key, value] of Object.entries(env)) {
-    prior.set(key, process.env[key])
-    process.env[key] = value
-  }
-
-  return () => {
-    for (const [key, value] of prior.entries()) {
-      if (value === undefined) {
-        delete process.env[key]
-      } else {
-        process.env[key] = value
-      }
-    }
-  }
-}
-
-async function withAspHome<T>(aspHome: string, fn: () => Promise<T>): Promise<T> {
-  const restore = applyEnvOverlay({ ASP_HOME: aspHome })
-  try {
-    return await fn()
-  } finally {
-    restore()
-  }
-}
-
-function resolveHarness(harness: string): {
-  externalId: string
-  internalId: HarnessId
-  models: string[]
-  defaultModel: string
-} {
-  const def = HARNESS_DEFS.get(harness)
+function resolveFrontend(frontend: HarnessFrontend): FrontendDef & { frontend: HarnessFrontend } {
+  const def = FRONTEND_DEFS.get(frontend)
   if (!def) {
-    throw new Error(`Unsupported harness: ${harness}`)
+    throw new Error(`Unsupported frontend: ${frontend}`)
   }
-  return {
-    externalId: harness,
-    internalId: def.internalId,
-    models: def.models,
-    defaultModel: def.defaultModel,
+  return { ...def, frontend }
+}
+
+function validateProviderMatch(
+  frontendDef: FrontendDef & { frontend: HarnessFrontend },
+  continuation: HarnessContinuationRef | undefined
+): void {
+  if (continuation && continuation.provider !== frontendDef.provider) {
+    throw new Error(
+      `Provider mismatch: frontend "${frontendDef.frontend}" is provider "${frontendDef.provider}" but continuation is provider "${continuation.provider}"`
+    )
   }
 }
 
@@ -392,11 +264,11 @@ function parseModelId(modelId: string): ModelInfo | null {
 }
 
 function resolveModel(
-  harness: { models: string[]; defaultModel: string },
+  frontendDef: { models: string[]; defaultModel: string },
   requested: string | undefined
 ): { ok: true; info: ModelInfo } | { ok: false; modelId: string } {
-  const modelId = requested ?? harness.defaultModel
-  if (!harness.models.includes(modelId)) {
+  const modelId = requested ?? frontendDef.defaultModel
+  if (!frontendDef.models.includes(modelId)) {
     return { ok: false, modelId }
   }
   const info = parseModelId(modelId)
@@ -419,6 +291,20 @@ function normalizeAgentSdkModel(model: string): 'haiku' | 'sonnet' | 'opus' | 'o
       throw new Error(`Unsupported agent-sdk model: ${model}`)
   }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers: pi session path (deterministic, stateless)
+// ---------------------------------------------------------------------------
+
+function piSessionPath(aspHome: string, cpSessionId: string): string {
+  const hash = createHash('sha256')
+  hash.update(cpSessionId)
+  return join(aspHome, 'sessions', 'pi', hash.digest('hex'))
+}
+
+// ---------------------------------------------------------------------------
+// Helpers: spec resolution + materialization
+// ---------------------------------------------------------------------------
 
 async function resolveSpecToLock(
   spec: ValidatedSpec,
@@ -508,6 +394,10 @@ async function materializeSpec(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Helpers: lint, hooks, tools
+// ---------------------------------------------------------------------------
+
 async function collectLintWarnings(
   spec: ValidatedSpec,
   aspHome: string,
@@ -574,6 +464,10 @@ async function collectTools(mcpConfigPath: string | undefined): Promise<string[]
   return Object.keys(parsed.mcpServers)
 }
 
+// ---------------------------------------------------------------------------
+// Helpers: error conversion
+// ---------------------------------------------------------------------------
+
 function toAgentSpacesError(error: unknown, code?: AgentSpacesError['code']): AgentSpacesError {
   const message = error instanceof Error ? error.message : String(error)
   const details: Record<string, unknown> = {}
@@ -587,20 +481,57 @@ function toAgentSpacesError(error: unknown, code?: AgentSpacesError['code']): Ag
   }
 }
 
+// ---------------------------------------------------------------------------
+// Helpers: environment overlay
+// ---------------------------------------------------------------------------
+
+function applyEnvOverlay(env: Record<string, string>): () => void {
+  const prior = new Map<string, string | undefined>()
+
+  for (const [key, value] of Object.entries(env)) {
+    prior.set(key, process.env[key])
+    process.env[key] = value
+  }
+
+  return () => {
+    for (const [key, value] of prior.entries()) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+  }
+}
+
+async function withAspHome<T>(aspHome: string, fn: () => Promise<T>): Promise<T> {
+  const restore = applyEnvOverlay({ ASP_HOME: aspHome })
+  try {
+    return await fn()
+  } finally {
+    restore()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers: event emitter (updated for cpSessionId / runId / continuation)
+// ---------------------------------------------------------------------------
+
 function createEventEmitter(
   onEvent: (event: AgentEvent) => void | Promise<void>,
   base: {
-    externalSessionId: string
-    externalRunId: string
+    cpSessionId: string
+    runId: string
   },
-  harnessSessionId?: string
+  continuation?: HarnessContinuationRef
 ): {
   emit: (event: EventPayload) => Promise<void>
-  setHarnessSessionId: (id: string) => void
+  setContinuation: (ref: HarnessContinuationRef) => void
+  getContinuation: () => HarnessContinuationRef | undefined
   idle: () => Promise<void>
 } {
   let seq = 0
-  let currentHarnessSessionId = harnessSessionId
+  let currentContinuation = continuation
   let lastEmission = Promise.resolve()
 
   const emit = async (event: EventPayload): Promise<void> => {
@@ -609,9 +540,9 @@ function createEventEmitter(
       ...(event as AgentEvent),
       ts: new Date().toISOString(),
       seq,
-      externalSessionId: base.externalSessionId,
-      externalRunId: base.externalRunId,
-      ...(currentHarnessSessionId ? { harnessSessionId: currentHarnessSessionId } : {}),
+      cpSessionId: base.cpSessionId,
+      runId: base.runId,
+      ...(currentContinuation ? { continuation: currentContinuation } : {}),
     }
 
     lastEmission = lastEmission.then(() => Promise.resolve(onEvent(fullEvent)))
@@ -621,12 +552,17 @@ function createEventEmitter(
 
   return {
     emit,
-    setHarnessSessionId: (id: string) => {
-      currentHarnessSessionId = id
+    setContinuation: (ref: HarnessContinuationRef) => {
+      currentContinuation = ref
     },
+    getContinuation: () => currentContinuation,
     idle: () => lastEmission,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers: unified event mapping
+// ---------------------------------------------------------------------------
 
 function mapContentToText(content: unknown): string | undefined {
   if (typeof content === 'string') return content
@@ -646,7 +582,7 @@ function mapContentToText(content: unknown): string | undefined {
 function mapUnifiedEvents(
   event: UnifiedSessionEvent,
   emit: (event: EventPayload) => void,
-  setHarnessSessionId: (id: string) => void,
+  onContinuationKeyObserved: (key: string) => void,
   state: { assistantBuffer: string; lastAssistantText?: string | undefined },
   options: { allowSessionIdUpdate: boolean }
 ): { turnEnded: boolean } {
@@ -655,14 +591,14 @@ function mapUnifiedEvents(
       const sdkSid = (event as { sdkSessionId?: unknown }).sdkSessionId
       const sessionId = typeof sdkSid === 'string' ? sdkSid : event.sessionId
       if (sessionId && options.allowSessionIdUpdate) {
-        setHarnessSessionId(sessionId)
+        onContinuationKeyObserved(sessionId)
       }
       return { turnEnded: false }
     }
     case 'sdk_session_id': {
       const sdkSid = (event as { sdkSessionId?: string }).sdkSessionId
       if (sdkSid && options.allowSessionIdUpdate) {
-        setHarnessSessionId(sdkSid)
+        onContinuationKeyObserved(sdkSid)
       }
       return { turnEnded: false }
     }
@@ -765,6 +701,31 @@ async function runSession(
   })
 }
 
+// ---------------------------------------------------------------------------
+// Helpers: shell quoting (for displayCommand in buildProcessInvocationSpec)
+// ---------------------------------------------------------------------------
+
+function shellQuote(value: string): string {
+  if (/^[a-zA-Z0-9_./-]+$/.test(value)) return value
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+function formatDisplayCommand(
+  commandPath: string,
+  args: string[],
+  env: Record<string, string>
+): string {
+  const envPrefix = Object.entries(env)
+    .map(([key, value]) => `${key}=${shellQuote(value)}`)
+    .join(' ')
+  const command = [shellQuote(commandPath), ...args.map(shellQuote)].join(' ')
+  return envPrefix ? `${envPrefix} ${command}` : command
+}
+
+// ---------------------------------------------------------------------------
+// Client implementation
+// ---------------------------------------------------------------------------
+
 export function createAgentSpacesClient(): AgentSpacesClient {
   return {
     async resolve(req: ResolveRequest): Promise<ResolveResponse> {
@@ -785,13 +746,13 @@ export function createAgentSpacesClient(): AgentSpacesClient {
     async describe(req: DescribeRequest): Promise<DescribeResponse> {
       return withAspHome(req.aspHome, async () => {
         const spec = validateSpec(req.spec)
-        const harnessDef = req.harness
-          ? resolveHarness(req.harness)
-          : resolveHarness(AGENT_SDK_HARNESS)
+        const frontendDef = req.frontend
+          ? resolveFrontend(req.frontend)
+          : resolveFrontend(AGENT_SDK_FRONTEND)
         const materialized = await materializeSpec(
           spec,
           req.aspHome,
-          harnessDef.internalId,
+          frontendDef.internalId,
           req.registryPath
         )
         const hooks = await collectHooks(materialized.materialization.pluginDirs)
@@ -810,11 +771,11 @@ export function createAgentSpacesClient(): AgentSpacesClient {
           response.lintWarnings = lintWarnings
         }
 
-        if (harnessDef.externalId === AGENT_SDK_HARNESS) {
-          const modelResolution = resolveModel(harnessDef, req.model)
+        if (frontendDef.frontend === AGENT_SDK_FRONTEND) {
+          const modelResolution = resolveModel(frontendDef, req.model)
           if (!modelResolution.ok) {
             throw new Error(
-              `Model not supported for harness ${harnessDef.externalId}: ${modelResolution.modelId}`
+              `Model not supported for frontend ${frontendDef.frontend}: ${modelResolution.modelId}`
             )
           }
           const plugins = materialized.materialization.pluginDirs.map((dir) => ({
@@ -823,7 +784,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
           }))
           response.agentSdkSessionParams = [
             { paramName: 'kind', paramValue: 'agent-sdk' },
-            { paramName: 'sessionId', paramValue: req.sessionId ?? null },
+            { paramName: 'sessionId', paramValue: req.cpSessionId ?? null },
             { paramName: 'cwd', paramValue: req.cwd ?? null },
             { paramName: 'model', paramValue: normalizeAgentSdkModel(modelResolution.info.model) },
             { paramName: 'plugins', paramValue: plugins },
@@ -838,68 +799,160 @@ export function createAgentSpacesClient(): AgentSpacesClient {
     async getHarnessCapabilities(): Promise<HarnessCapabilities> {
       return {
         harnesses: [
-          { id: AGENT_SDK_HARNESS, models: [...AGENT_SDK_MODELS] },
-          { id: PI_SDK_HARNESS, models: [...PI_SDK_MODELS] },
-          { id: CODEX_HARNESS, models: [...CODEX_MODELS] },
+          {
+            id: 'anthropic',
+            provider: 'anthropic',
+            frontends: [AGENT_SDK_FRONTEND, CLAUDE_CODE_FRONTEND],
+            models: [...AGENT_SDK_MODELS, ...CLAUDE_CODE_MODELS],
+          },
+          {
+            id: 'openai',
+            provider: 'openai',
+            frontends: [PI_SDK_FRONTEND, CODEX_CLI_FRONTEND],
+            models: [...PI_SDK_MODELS, ...CODEX_CLI_MODELS],
+          },
         ],
       }
     },
 
-    async runTurn(req: RunTurnRequest): Promise<RunTurnResponse> {
+    async buildProcessInvocationSpec(
+      req: BuildProcessInvocationSpecRequest
+    ): Promise<BuildProcessInvocationSpecResponse> {
       return withAspHome(req.aspHome, async () => {
+        const warnings: string[] = []
+        const spec = validateSpec(req.spec)
+        const frontendDef = resolveFrontend(req.frontend)
+
+        // Validate provider matches frontend
+        if (req.provider !== frontendDef.provider) {
+          throw new Error(
+            `Provider mismatch: frontend "${req.frontend}" requires provider "${frontendDef.provider}" but got "${req.provider}"`
+          )
+        }
+
+        // Validate provider match with continuation if provided
+        validateProviderMatch(frontendDef, req.continuation)
+
+        // Validate model
+        const modelResolution = resolveModel(frontendDef, req.model)
+        if (!modelResolution.ok) {
+          throw new Error(
+            `Model not supported for frontend ${req.frontend}: ${modelResolution.modelId}`
+          )
+        }
+
+        // Materialize the spec
+        const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId)
+
+        // Get adapter from registry and detect binary
+        const adapter = harnessRegistry.getOrThrow(frontendDef.internalId)
+        const detection = await adapter.detect()
+        if (!detection.available) {
+          throw new Error(
+            `Harness "${frontendDef.internalId}" is not available: ${detection.error ?? 'not found'}`
+          )
+        }
+
+        // Load the composed target bundle
+        const bundle = await adapter.loadTargetBundle(
+          materialized.materialization.outputPath,
+          materialized.targetName
+        )
+
+        // Build run options for the adapter
+        const isResume = !!req.continuation?.key
+        const runOptions = {
+          interactive: req.interactionMode === 'interactive',
+          model: modelResolution.info.model,
+          projectPath: req.cwd,
+          cwd: req.cwd,
+          ...(isResume && req.continuation?.key ? { resume: req.continuation.key } : {}),
+        }
+
+        // Build argv and env using the adapter
+        const args = adapter.buildRunArgs(bundle, runOptions)
+        const adapterEnv = adapter.getRunEnv(bundle, runOptions)
+        const commandPath = detection.path ?? frontendDef.internalId
+        const argv = [commandPath, ...args]
+
+        // Merge env: adapter env + request env delta
+        const env: Record<string, string> = {
+          ...adapterEnv,
+          ...(req.env ?? {}),
+          ASP_HOME: req.aspHome,
+        }
+
+        // Build display command
+        const displayCommand = formatDisplayCommand(commandPath, args, adapterEnv)
+
+        // Build continuation ref
+        const continuation: HarnessContinuationRef | undefined = req.continuation
+          ? { provider: frontendDef.provider, key: req.continuation.key }
+          : undefined
+
+        const invocationSpec: ProcessInvocationSpec = {
+          provider: frontendDef.provider,
+          frontend: req.frontend,
+          argv,
+          cwd: req.cwd,
+          env,
+          interactionMode: req.interactionMode,
+          ioMode: req.ioMode,
+          ...(continuation ? { continuation } : {}),
+          displayCommand,
+        }
+
+        return { spec: invocationSpec, ...(warnings.length > 0 ? { warnings } : {}) }
+      })
+    },
+
+    async runTurnNonInteractive(
+      req: RunTurnNonInteractiveRequest
+    ): Promise<RunTurnNonInteractiveResponse> {
+      return withAspHome(req.aspHome, async () => {
+        const frontendDef = resolveFrontend(req.frontend)
         const eventEmitter = createEventEmitter(
           req.callbacks.onEvent,
-          { externalSessionId: req.externalSessionId, externalRunId: req.externalRunId },
-          req.harnessSessionId
+          { cpSessionId: req.cpSessionId, runId: req.runId },
+          req.continuation
         )
 
         let spec: ValidatedSpec
-        let harnessDef: ReturnType<typeof resolveHarness>
         let modelResolution: ReturnType<typeof resolveModel>
-        let harnessSessionId = req.harnessSessionId
-        let codexSessionHome: string | undefined
+        let continuationKey = req.continuation?.key
 
         try {
           spec = validateSpec(req.spec)
-          harnessDef = resolveHarness(req.harness)
-          modelResolution = resolveModel(harnessDef, req.model)
+
+          // Validate provider match with continuation
+          validateProviderMatch(frontendDef, req.continuation)
+
+          modelResolution = resolveModel(frontendDef, req.model)
         } catch (error) {
           const result: RunResult = { success: false, error: toAgentSpacesError(error) }
           await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
           await eventEmitter.emit({ type: 'complete', result } as EventPayload)
           return {
-            harness: req.harness,
+            provider: frontendDef.provider,
+            frontend: req.frontend,
             model: req.model,
-            harnessSessionId,
             result,
           }
         }
 
-        const record = await readSessionRecord(req.aspHome, req.externalSessionId)
-        if (record && record.harness !== harnessDef.externalId) {
-          const error = toAgentSpacesError(
-            new Error(
-              `Harness mismatch for session ${req.externalSessionId}: expected ${record.harness}, got ${harnessDef.externalId}`
-            )
-          )
-          const result: RunResult = { success: false, error }
-          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-          return {
-            harness: req.harness,
-            model: req.model,
-            harnessSessionId: record.harnessSessionId,
-            result,
-          }
+        // Determine session/continuation context (no session record persistence)
+        const isResume = continuationKey !== undefined
+        if (frontendDef.frontend === PI_SDK_FRONTEND && !continuationKey) {
+          // For pi-sdk first run, create deterministic session path as continuation key
+          continuationKey = piSessionPath(req.aspHome, req.cpSessionId)
         }
 
-        const sessionContext = await prepareSessionContext(req, harnessDef, record)
-        const isResume = sessionContext.isResume
-        harnessSessionId = sessionContext.harnessSessionId
-        codexSessionHome = sessionContext.codexSessionHome
-
-        if (harnessSessionId) {
-          eventEmitter.setHarnessSessionId(harnessSessionId)
+        // Update continuation on emitter
+        if (continuationKey) {
+          eventEmitter.setContinuation({
+            provider: frontendDef.provider,
+            key: continuationKey,
+          })
         }
 
         await eventEmitter.emit({ type: 'state', state: 'running' } as EventPayload)
@@ -912,7 +965,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
         if (!modelResolution.ok) {
           const error = toAgentSpacesError(
             new Error(
-              `Model not supported for harness ${harnessDef.externalId}: ${modelResolution.modelId}`
+              `Model not supported for frontend ${frontendDef.frontend}: ${modelResolution.modelId}`
             ),
             'model_not_supported'
           )
@@ -920,29 +973,36 @@ export function createAgentSpacesClient(): AgentSpacesClient {
           await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
           await eventEmitter.emit({ type: 'complete', result } as EventPayload)
           return {
-            harness: req.harness,
+            provider: frontendDef.provider,
+            frontend: req.frontend,
             model: modelResolution.modelId,
-            harnessSessionId,
             result,
           }
         }
 
-        if (harnessDef.externalId === PI_SDK_HARNESS && isResume && harnessSessionId) {
-          if (!existsSync(harnessSessionId)) {
+        // For pi-sdk resume: validate session path exists
+        if (frontendDef.frontend === PI_SDK_FRONTEND && isResume && continuationKey) {
+          if (!existsSync(continuationKey)) {
             const error = toAgentSpacesError(
-              new Error(`Harness session not found: ${harnessSessionId}`),
-              'harness_session_not_found'
+              new Error(`Continuation not found: ${continuationKey}`),
+              'continuation_not_found'
             )
             const result: RunResult = { success: false, error }
             await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
             await eventEmitter.emit({ type: 'complete', result } as EventPayload)
             return {
-              harness: req.harness,
+              continuation: { provider: frontendDef.provider, key: continuationKey },
+              provider: frontendDef.provider,
+              frontend: req.frontend,
               model: modelResolution.info.effectiveModel,
-              harnessSessionId,
               result,
             }
           }
+        }
+
+        // For pi-sdk first run: ensure session directory exists
+        if (frontendDef.frontend === PI_SDK_FRONTEND && !isResume && continuationKey) {
+          await ensureDir(continuationKey)
         }
 
         const permissionHandler = buildAutoPermissionHandler()
@@ -956,55 +1016,31 @@ export function createAgentSpacesClient(): AgentSpacesClient {
           }
 
         try {
-          const materialized = await materializeSpec(spec, req.aspHome, harnessDef.internalId)
+          const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId)
 
           const harnessEnv: Record<string, string> = { ...(req.env ?? {}) }
-          let codexTemplateDir: string | undefined
-          if (harnessDef.externalId === PI_SDK_HARNESS) {
+          if (frontendDef.frontend === PI_SDK_FRONTEND) {
             harnessEnv['PI_CODING_AGENT_DIR'] = materialized.materialization.outputPath
-          }
-          if (harnessDef.externalId === CODEX_HARNESS) {
-            codexTemplateDir = join(materialized.materialization.outputPath, 'codex.home')
-            const sessionHome =
-              codexSessionHome ?? codexSessionPath(req.aspHome, req.externalSessionId)
-            codexSessionHome = sessionHome
-            await ensureCodexSessionHome(codexTemplateDir, sessionHome)
-            harnessEnv['CODEX_HOME'] = sessionHome
           }
 
           const restoreEnv = applyEnvOverlay(harnessEnv)
           try {
-            if (harnessDef.externalId === AGENT_SDK_HARNESS) {
+            if (frontendDef.frontend === AGENT_SDK_FRONTEND) {
               const plugins = materialized.materialization.pluginDirs.map((dir) => ({
                 type: 'local' as const,
                 path: dir,
               }))
               session = createSession({
                 kind: 'agent-sdk',
-                sessionId: harnessSessionId ?? req.externalSessionId,
+                sessionId: continuationKey ?? req.cpSessionId,
                 cwd: req.cwd,
                 model: normalizeAgentSdkModel(modelResolution.info.model),
                 plugins,
                 permissionHandler,
-                // Pass resume to load conversation history from previous session
-                ...(isResume && harnessSessionId ? { resume: harnessSessionId } : {}),
-              })
-            } else if (harnessDef.externalId === CODEX_HARNESS) {
-              if (!codexSessionHome) {
-                throw new Error('Codex session home is missing')
-              }
-              session = createSession({
-                kind: 'codex',
-                sessionId: req.externalSessionId,
-                cwd: req.cwd,
-                codexHomeDir: codexSessionHome,
-                ...(codexTemplateDir ? { codexTemplateDir } : {}),
-                codexModel: modelResolution.info.model,
-                codexCwd: req.cwd,
-                permissionHandler,
-                ...(isResume && harnessSessionId ? { resume: harnessSessionId } : {}),
+                ...(isResume && continuationKey ? { resume: continuationKey } : {}),
               })
             } else {
+              // pi-sdk
               const bundle = await loadPiSdkBundle(materialized.materialization.outputPath, {
                 cwd: req.cwd,
                 yolo: true,
@@ -1013,16 +1049,16 @@ export function createAgentSpacesClient(): AgentSpacesClient {
                 agentDir: materialized.materialization.outputPath,
               })
               const piSession = new PiSession({
-                ownerId: req.externalSessionId,
+                ownerId: req.cpSessionId,
                 cwd: req.cwd,
                 provider: modelResolution.info.provider,
                 model: modelResolution.info.model,
-                sessionId: req.externalSessionId,
+                sessionId: req.cpSessionId,
                 extensions: bundle.extensions,
                 skills: bundle.skills,
                 contextFiles: bundle.contextFiles,
                 agentDir: materialized.materialization.outputPath,
-                ...(harnessSessionId ? { sessionPath: harnessSessionId } : {}),
+                ...(continuationKey ? { sessionPath: continuationKey } : {}),
               })
               piSession.setPermissionHandler(permissionHandler)
               session = piSession
@@ -1036,12 +1072,16 @@ export function createAgentSpacesClient(): AgentSpacesClient {
                   (mapped) => {
                     void eventEmitter.emit(mapped)
                   },
-                  (id) => {
-                    harnessSessionId = id
-                    eventEmitter.setHarnessSessionId(id)
+                  (key) => {
+                    // Continuation key observed from SDK events
+                    continuationKey = key
+                    eventEmitter.setContinuation({
+                      provider: frontendDef.provider,
+                      key,
+                    })
                   },
                   assistantState,
-                  { allowSessionIdUpdate: harnessDef.externalId !== PI_SDK_HARNESS }
+                  { allowSessionIdUpdate: frontendDef.frontend !== PI_SDK_FRONTEND }
                 )
 
                 if (result.turnEnded && !turnEnded) {
@@ -1051,7 +1091,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
               })
             })
 
-            await runSession(session, req.prompt, req.attachments, req.externalRunId)
+            await runSession(session, req.prompt, req.attachments, req.runId)
             await turnPromise
             await session.stop('complete')
             await eventEmitter.idle()
@@ -1064,21 +1104,16 @@ export function createAgentSpacesClient(): AgentSpacesClient {
           await eventEmitter.emit({ type: 'state', state: 'complete' } as EventPayload)
           await eventEmitter.emit({ type: 'complete', result } as EventPayload)
 
-          const now = new Date().toISOString()
-          const updatedRecord: SessionRecord = {
-            externalSessionId: req.externalSessionId,
-            harness: harnessDef.externalId,
-            harnessSessionId,
-            model: modelResolution.info.effectiveModel,
-            createdAt: record?.createdAt ?? now,
-            updatedAt: now,
-          }
-          await writeSessionRecord(req.aspHome, updatedRecord)
+          // Build final continuation ref
+          const finalContinuation: HarnessContinuationRef | undefined = continuationKey
+            ? { provider: frontendDef.provider, key: continuationKey }
+            : undefined
 
           return {
-            harness: req.harness,
+            ...(finalContinuation ? { continuation: finalContinuation } : {}),
+            provider: frontendDef.provider,
+            frontend: req.frontend,
             model: modelResolution.info.effectiveModel,
-            harnessSessionId,
             result,
           }
         } catch (error) {
@@ -1097,10 +1132,15 @@ export function createAgentSpacesClient(): AgentSpacesClient {
           await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
           await eventEmitter.emit({ type: 'complete', result } as EventPayload)
 
+          const finalContinuation: HarnessContinuationRef | undefined = continuationKey
+            ? { provider: frontendDef.provider, key: continuationKey }
+            : undefined
+
           return {
-            harness: req.harness,
+            ...(finalContinuation ? { continuation: finalContinuation } : {}),
+            provider: frontendDef.provider,
+            frontend: req.frontend,
             model: modelResolution.ok ? modelResolution.info.effectiveModel : req.model,
-            harnessSessionId,
             result,
           }
         }

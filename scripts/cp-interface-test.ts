@@ -6,7 +6,12 @@ import { marked } from 'marked'
 import TerminalRenderer from 'marked-terminal'
 
 import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.ts'
-import type { AgentEvent, SpaceSpec } from '../packages/agent-spaces/src/types.ts'
+import type {
+  AgentEvent,
+  HarnessContinuationRef,
+  HarnessFrontend,
+  SpaceSpec,
+} from '../packages/agent-spaces/src/types.ts'
 
 interface ParsedArgs {
   spaces: string[]
@@ -14,11 +19,11 @@ interface ParsedArgs {
   targetDir?: string | undefined
   aspHome?: string | undefined
   cwd?: string | undefined
-  harness: string
+  frontend: HarnessFrontend
   model?: string | undefined
-  harnessSessionId?: string | undefined
-  externalSessionId?: string | undefined
-  externalRunId?: string | undefined
+  continuationKey?: string | undefined
+  cpSessionId?: string | undefined
+  runId?: string | undefined
   env: Record<string, string>
   verbose: boolean
   help: boolean
@@ -35,11 +40,11 @@ function printUsage(): void {
       'Options:',
       '  --asp-home <path>           ASP_HOME for materialization (default: $ASP_HOME or /tmp/asp-test)',
       '  --cwd <path>                Working directory for the run (default: targetDir or cwd)',
-      '  --harness <id>              Harness id (default: agent-sdk)',
+      '  --frontend <id>             Frontend id (default: agent-sdk)',
       '  --model <id>                Model id (optional)',
-      '  --harness-session-id <id>   Resume existing harness session (optional)',
-      '  --external-session-id <id>  External session id (optional)',
-      '  --external-run-id <id>      External run id (optional)',
+      '  --continuation-key <key>    Resume with continuation key (optional)',
+      '  --cp-session-id <id>        CP session id (optional)',
+      '  --run-id <id>               Run id (optional)',
       '  --env KEY=VALUE             Environment variable (repeatable)',
       '  --verbose                   Log full event payloads',
       '  --help                      Show this message',
@@ -55,7 +60,7 @@ function printUsage(): void {
 function parseArgs(argv: string[]): ParsedArgs {
   const args: ParsedArgs = {
     spaces: [],
-    harness: 'agent-sdk',
+    frontend: 'agent-sdk',
     env: {},
     verbose: false,
     help: false,
@@ -108,9 +113,9 @@ function parseArgs(argv: string[]): ParsedArgs {
         if (!args.cwd) throw new Error('Missing value for --cwd')
         i += 1
         break
-      case '--harness':
-        args.harness = argv[i + 1] ?? ''
-        if (!args.harness) throw new Error('Missing value for --harness')
+      case '--frontend':
+        args.frontend = (argv[i + 1] ?? '') as HarnessFrontend
+        if (!args.frontend) throw new Error('Missing value for --frontend')
         i += 1
         break
       case '--model':
@@ -118,19 +123,19 @@ function parseArgs(argv: string[]): ParsedArgs {
         if (!args.model) throw new Error('Missing value for --model')
         i += 1
         break
-      case '--harness-session-id':
-        args.harnessSessionId = argv[i + 1]
-        if (!args.harnessSessionId) throw new Error('Missing value for --harness-session-id')
+      case '--continuation-key':
+        args.continuationKey = argv[i + 1]
+        if (!args.continuationKey) throw new Error('Missing value for --continuation-key')
         i += 1
         break
-      case '--external-session-id':
-        args.externalSessionId = argv[i + 1]
-        if (!args.externalSessionId) throw new Error('Missing value for --external-session-id')
+      case '--cp-session-id':
+        args.cpSessionId = argv[i + 1]
+        if (!args.cpSessionId) throw new Error('Missing value for --cp-session-id')
         i += 1
         break
-      case '--external-run-id':
-        args.externalRunId = argv[i + 1]
-        if (!args.externalRunId) throw new Error('Missing value for --external-run-id')
+      case '--run-id':
+        args.runId = argv[i + 1]
+        if (!args.runId) throw new Error('Missing value for --run-id')
         i += 1
         break
       case '--env': {
@@ -229,6 +234,18 @@ function extractHookPayload(event: AgentEvent): unknown | undefined {
   return undefined
 }
 
+/** Derive the provider domain from the frontend for building continuation refs. */
+function frontendProvider(frontend: HarnessFrontend): 'anthropic' | 'openai' {
+  switch (frontend) {
+    case 'agent-sdk':
+    case 'claude-code':
+      return 'anthropic'
+    case 'pi-sdk':
+    case 'codex-cli':
+      return 'openai'
+  }
+}
+
 async function main(): Promise<void> {
   marked.setOptions({
     renderer: new TerminalRenderer(),
@@ -247,18 +264,23 @@ async function main(): Promise<void> {
   const cwd =
     args.cwd ?? (spec && 'target' in spec ? spec.target.targetDir : undefined) ?? process.cwd()
 
-  const externalSessionId = args.externalSessionId ?? `cp-session-${Date.now()}`
-  const externalRunId = args.externalRunId ?? `cp-run-${Date.now()}`
+  const cpSessionId = args.cpSessionId ?? `cp-session-${Date.now()}`
+  const runId = args.runId ?? `cp-run-${Date.now()}`
+
+  // Build continuation ref from key if provided
+  const continuation: HarnessContinuationRef | undefined = args.continuationKey
+    ? { provider: frontendProvider(args.frontend), key: args.continuationKey }
+    : undefined
 
   const client = createAgentSpacesClient()
 
   const describeResult = await client.describe({
     aspHome,
     spec,
-    harness: args.harness,
+    frontend: args.frontend,
     ...(args.model ? { model: args.model } : {}),
     cwd,
-    sessionId: args.harnessSessionId ?? externalSessionId,
+    cpSessionId,
   })
   console.log('describe.hooks:', describeResult.hooks)
   console.log('describe.skills:', describeResult.skills)
@@ -268,16 +290,16 @@ async function main(): Promise<void> {
     console.dir(describeResult.agentSdkSessionParams, { depth: null })
   }
 
-  console.log('starting runTurn...')
+  console.log('starting runTurnNonInteractive...')
   const prompt = args.prompt ?? 'What skills are available?'
-  const response = await client.runTurn({
-    externalSessionId,
-    externalRunId,
+  const response = await client.runTurnNonInteractive({
+    cpSessionId,
+    runId,
     aspHome,
     spec,
-    harness: args.harness,
+    frontend: args.frontend as 'agent-sdk' | 'pi-sdk',
     ...(args.model ? { model: args.model } : {}),
-    ...(args.harnessSessionId ? { harnessSessionId: args.harnessSessionId } : {}),
+    ...(continuation ? { continuation } : {}),
     cwd,
     ...(Object.keys(args.env).length > 0 ? { env: args.env } : {}),
     prompt,
@@ -295,28 +317,31 @@ async function main(): Promise<void> {
     },
   })
 
-  console.log('runTurn response:', JSON.stringify(response, null, 2))
+  console.log('runTurnNonInteractive response:', JSON.stringify(response, null, 2))
   if (response.result.finalOutput) {
-    console.log('\nrunTurn finalOutput (rendered markdown):')
+    console.log('\nrunTurnNonInteractive finalOutput (rendered markdown):')
     console.log(marked.parse(response.result.finalOutput))
   }
   if (!response.result.success) {
-    console.error('runTurn failed:', response.result.error?.message ?? 'Unknown error')
+    console.error(
+      'runTurnNonInteractive failed:',
+      response.result.error?.message ?? 'Unknown error'
+    )
     process.exitCode = 1
     return
   }
 
   // Test resume: make a second call asking the model to repeat the last question
-  if (response.harnessSessionId) {
-    console.log('\n--- Testing resume with harnessSessionId:', response.harnessSessionId, '---\n')
-    const resumeResponse = await client.runTurn({
-      externalSessionId,
-      externalRunId: `${externalRunId}-resume`,
+  if (response.continuation?.key) {
+    console.log('\n--- Testing resume with continuation key:', response.continuation.key, '---\n')
+    const resumeResponse = await client.runTurnNonInteractive({
+      cpSessionId,
+      runId: `${runId}-resume`,
       aspHome,
       spec,
-      harness: args.harness,
+      frontend: args.frontend as 'agent-sdk' | 'pi-sdk',
       ...(args.model ? { model: args.model } : {}),
-      harnessSessionId: response.harnessSessionId,
+      continuation: response.continuation,
       cwd,
       ...(Object.keys(args.env).length > 0 ? { env: args.env } : {}),
       prompt: 'What was the last question I asked you?',
@@ -334,20 +359,20 @@ async function main(): Promise<void> {
       },
     })
 
-    console.log('resume runTurn response:', JSON.stringify(resumeResponse, null, 2))
+    console.log('resume runTurnNonInteractive response:', JSON.stringify(resumeResponse, null, 2))
     if (resumeResponse.result.finalOutput) {
-      console.log('\nresume runTurn finalOutput (rendered markdown):')
+      console.log('\nresume runTurnNonInteractive finalOutput (rendered markdown):')
       console.log(marked.parse(resumeResponse.result.finalOutput))
     }
     if (!resumeResponse.result.success) {
       console.error(
-        'resume runTurn failed:',
+        'resume runTurnNonInteractive failed:',
         resumeResponse.result.error?.message ?? 'Unknown error'
       )
       process.exitCode = 1
     }
   } else {
-    console.log('\nNo harnessSessionId returned, skipping resume test')
+    console.log('\nNo continuation key returned, skipping resume test')
   }
 }
 
