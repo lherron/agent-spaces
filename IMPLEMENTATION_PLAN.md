@@ -6,12 +6,15 @@ Reference spec: `specs/spec_agent_spaces.md`
 
 All internal implementation items (phases ASP-1 through ASP-4) are **complete**. The agent-spaces public API has been fully rewritten for provider-typed continuity and CP-orchestrated interactive processes.
 
-**Validation (verified 2026-01-28):**
+**Tagged: `v0.3.3`** — spec-complete, all checks green.
+
+**Validation (re-verified 2026-01-28):**
 - `bun run build` — all 9 packages pass
 - `bun run typecheck` — all 9 packages pass
 - `bun run test` — 864 tests pass, 0 fail across all packages
 - `bun run lint` — 232 files checked, no issues
 - No source code references to deprecated names (`harnessSessionId`, `externalSessionId`, `externalRunId`, `runTurn`)
+- **Spec-to-implementation comparison: zero discrepancies** — all types, API methods, fields, event structures, and behavioral contracts in `specs/spec_agent_spaces.md` are fully reflected in the implementation
 
 **Test coverage:**
 - 27 unit tests in `packages/agent-spaces/src/client.test.ts`
