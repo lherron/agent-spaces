@@ -92,13 +92,20 @@ export type AgentEvent =
   | (BaseEvent & { type: 'state'; state: SessionState })
   | (BaseEvent & { type: 'message'; role: 'user' | 'assistant'; content: string })
   | (BaseEvent & { type: 'message_delta'; role: 'assistant'; delta: string })
-  | (BaseEvent & { type: 'tool_call'; toolUseId: string; toolName: string; input: unknown })
+  | (BaseEvent & {
+      type: 'tool_call'
+      toolUseId: string
+      toolName: string
+      input: unknown
+      parentToolUseId?: string
+    })
   | (BaseEvent & {
       type: 'tool_result'
       toolUseId: string
       toolName: string
       output: unknown
       isError: boolean
+      parentToolUseId?: string
     })
   | (BaseEvent & {
       type: 'log'

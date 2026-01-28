@@ -716,6 +716,7 @@ function mapUnifiedEvents(
         toolName: event.toolName,
         input: event.input,
         payload: event.payload,
+        ...(event.parentToolUseId ? { parentToolUseId: event.parentToolUseId } : {}),
       } as EventPayload)
       return { turnEnded: false }
     case 'tool_execution_end':
@@ -726,6 +727,7 @@ function mapUnifiedEvents(
         output: event.result,
         isError: event.isError === true,
         payload: event.payload,
+        ...(event.parentToolUseId ? { parentToolUseId: event.parentToolUseId } : {}),
       } as EventPayload)
       return { turnEnded: false }
     case 'turn_end':

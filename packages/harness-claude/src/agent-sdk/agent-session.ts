@@ -70,6 +70,12 @@ export class AgentSession implements UnifiedSession {
   private stopResolve?: () => void
   private stopPromise?: Promise<void>
   private abortController?: AbortController
+  /**
+   * Tracks the current subagent context (parent Task tool use ID).
+   * Set when we receive a user message with parent_tool_use_id,
+   * cleared when the corresponding Task tool result is received.
+   */
+  private currentSubagentContext: string | undefined
 
   constructor(
     private readonly config: AgentSessionConfig,
@@ -401,10 +407,57 @@ export class AgentSession implements UnifiedSession {
       this.emitEvent({ type: 'message_end', message, ...messageEventBase, payload: msg })
     }
 
-    const content = getMessageContent(msgType, msg)
-    // Extract parent_tool_use_id from message level (for subagent tool attribution)
-    const parentToolUseId =
+    // Track subagent context from user messages with parent_tool_use_id
+    // This indicates we're inside a Task tool's subagent execution
+    const messageParentToolUseId =
       typeof msg['parent_tool_use_id'] === 'string' ? msg['parent_tool_use_id'] : undefined
+
+    if (msgType === 'user' && messageParentToolUseId) {
+      // Entering subagent context
+      this.currentSubagentContext = messageParentToolUseId
+    }
+
+    // For tool_use type messages (standalone tool calls), use current subagent context
+    // These come from the subagent's assistant response
+    if (msgType === 'tool_use') {
+      const toolUseId = resolveToolUseId(msg) ?? `sdk-tool-${++this.toolUseCounter}`
+      const toolName =
+        typeof msg['name'] === 'string'
+          ? msg['name']
+          : typeof msg['tool_name'] === 'string'
+            ? msg['tool_name']
+            : 'tool'
+      const toolInput =
+        'input' in msg ? msg['input'] : 'tool_input' in msg ? msg['tool_input'] : undefined
+
+      this.toolUses.set(toolUseId, { name: toolName, input: toolInput })
+      this.emitEvent({
+        type: 'tool_execution_start',
+        toolUseId,
+        toolName,
+        input: normalizeToolInput(toolInput),
+        payload: msg,
+        ...(this.currentSubagentContext ? { parentToolUseId: this.currentSubagentContext } : {}),
+      })
+      return
+    }
+
+    // For tool_result type messages, use and potentially clear subagent context
+    if (msgType === 'tool_result') {
+      const resultToolUseId = resolveToolUseId(msg)
+      const contextToUse = this.currentSubagentContext
+      // If this result is for the Task tool itself, clear the subagent context
+      if (resultToolUseId && resultToolUseId === this.currentSubagentContext) {
+        this.currentSubagentContext = undefined
+      }
+      this.processToolResultBlock(msg, contextToUse)
+      return
+    }
+
+    const content = getMessageContent(msgType, msg)
+    // Use either the message-level parent_tool_use_id or the current subagent context
+    const parentToolUseId = messageParentToolUseId ?? this.currentSubagentContext
+
     const sawToolResultBlock = this.handleToolBlocks(content, parentToolUseId)
     this.emitUserToolResultIfNeeded(msg, msgType, sawToolResultBlock)
   }

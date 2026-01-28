@@ -78,6 +78,8 @@ export interface ToolExecutionStartEvent {
   toolUseId: string
   toolName: string
   input: Record<string, unknown>
+  /** ID of the parent Task tool if this is from a subagent */
+  parentToolUseId?: string
   /** Raw payload from harness for downstream clients */
   payload?: unknown
 }
@@ -98,6 +100,8 @@ export interface ToolExecutionEndEvent {
   result: ToolResult
   isError?: boolean
   durationMs?: number
+  /** ID of the parent Task tool if this is from a subagent */
+  parentToolUseId?: string
   /** Raw payload from harness for downstream clients */
   payload?: unknown
 }
