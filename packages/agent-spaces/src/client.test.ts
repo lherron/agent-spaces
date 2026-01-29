@@ -207,6 +207,60 @@ describe('buildProcessInvocationSpec', () => {
     ).rejects.toThrow(/at least one space reference/)
   })
 
+  test('provider mismatch error carries provider_mismatch code', async () => {
+    try {
+      await client.buildProcessInvocationSpec({
+        cpSessionId: 'test-session',
+        aspHome: '/tmp/asp-test',
+        spec: { spaces: ['space:base@dev'] },
+        provider: 'openai',
+        frontend: 'claude-code',
+        interactionMode: 'interactive',
+        ioMode: 'pty',
+        cwd: '/tmp',
+      })
+      throw new Error('Should have thrown')
+    } catch (e) {
+      expect(e).toBeInstanceOf(Error)
+      expect((e as { code?: string }).code).toBe('provider_mismatch')
+    }
+  })
+
+  test('continuation provider mismatch error carries provider_mismatch code', async () => {
+    try {
+      await client.buildProcessInvocationSpec({
+        cpSessionId: 'test-session',
+        aspHome: '/tmp/asp-test',
+        spec: { spaces: ['space:base@dev'] },
+        provider: 'openai',
+        frontend: 'codex-cli',
+        interactionMode: 'headless',
+        ioMode: 'pipes',
+        continuation: { provider: 'anthropic', key: 'some-key' },
+        cwd: '/tmp',
+      })
+      throw new Error('Should have thrown')
+    } catch (e) {
+      expect(e).toBeInstanceOf(Error)
+      expect((e as { code?: string }).code).toBe('provider_mismatch')
+    }
+  })
+
+  test('throws on relative cwd path', async () => {
+    await expect(
+      client.buildProcessInvocationSpec({
+        cpSessionId: 'test-session',
+        aspHome: '/tmp/asp-test',
+        spec: { spaces: ['space:base@dev'] },
+        provider: 'anthropic',
+        frontend: 'claude-code',
+        interactionMode: 'interactive',
+        ioMode: 'pty',
+        cwd: 'relative/path',
+      })
+    ).rejects.toThrow(/absolute path/)
+  })
+
   test('validates provider before continuation', async () => {
     // Even with a valid continuation, provider mismatch on the request itself is caught first
     await expect(
@@ -328,6 +382,7 @@ describe('runTurnNonInteractive', () => {
 
     expect(response.result.success).toBe(false)
     expect(response.result.error?.message).toContain('Provider mismatch')
+    expect(response.result.error?.code).toBe('provider_mismatch')
     // Provider mismatch is caught during validation and emits error events
     expect(events.map((e) => e.type)).toEqual(['state', 'complete'])
   })
@@ -523,6 +578,22 @@ describe('runTurnNonInteractive', () => {
     if (messageEvent && 'content' in messageEvent) {
       expect(messageEvent.content).toBe('This is my specific test prompt')
     }
+  })
+
+  test('returns error for relative cwd path', async () => {
+    const response = await client.runTurnNonInteractive({
+      cpSessionId: 'session-rel-cwd',
+      runId: 'run-rel-cwd',
+      aspHome: '/tmp/asp-test',
+      spec: { spaces: ['space:base@dev'] },
+      frontend: 'agent-sdk',
+      cwd: 'relative/path',
+      prompt: 'Hello',
+      callbacks: { onEvent: () => {} },
+    })
+
+    expect(response.result.success).toBe(false)
+    expect(response.result.error?.message).toContain('absolute path')
   })
 
   test('complete event contains RunResult', async () => {

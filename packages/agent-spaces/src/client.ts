@@ -150,6 +150,18 @@ const FRONTEND_DEFS = new Map<HarnessFrontend, FrontendDef>([
 ])
 
 // ---------------------------------------------------------------------------
+// Coded errors (carry structured error codes for spec compliance)
+// ---------------------------------------------------------------------------
+
+class CodedError extends Error {
+  readonly code: NonNullable<AgentSpacesError['code']>
+  constructor(message: string, code: NonNullable<AgentSpacesError['code']>) {
+    super(message)
+    this.code = code
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
 
@@ -231,7 +243,7 @@ function computeSpacesTargetName(spaces: string[]): string {
 function resolveFrontend(frontend: HarnessFrontend): FrontendDef & { frontend: HarnessFrontend } {
   const def = FRONTEND_DEFS.get(frontend)
   if (!def) {
-    throw new Error(`Unsupported frontend: ${frontend}`)
+    throw new CodedError(`Unsupported frontend: ${frontend}`, 'unsupported_frontend')
   }
   return { ...def, frontend }
 }
@@ -241,8 +253,9 @@ function validateProviderMatch(
   continuation: HarnessContinuationRef | undefined
 ): void {
   if (continuation && continuation.provider !== frontendDef.provider) {
-    throw new Error(
-      `Provider mismatch: frontend "${frontendDef.frontend}" is provider "${frontendDef.provider}" but continuation is provider "${continuation.provider}"`
+    throw new CodedError(
+      `Provider mismatch: frontend "${frontendDef.frontend}" is provider "${frontendDef.provider}" but continuation is provider "${continuation.provider}"`,
+      'provider_mismatch'
     )
   }
 }
@@ -470,13 +483,14 @@ async function collectTools(mcpConfigPath: string | undefined): Promise<string[]
 
 function toAgentSpacesError(error: unknown, code?: AgentSpacesError['code']): AgentSpacesError {
   const message = error instanceof Error ? error.message : String(error)
+  const errorCode = code ?? (error instanceof CodedError ? error.code : undefined)
   const details: Record<string, unknown> = {}
   if (error instanceof Error && error.stack) {
     details['stack'] = error.stack
   }
   return {
     message,
-    ...(code ? { code } : {}),
+    ...(errorCode ? { code: errorCode } : {}),
     ...(Object.keys(details).length > 0 ? { details } : {}),
   }
 }
@@ -821,12 +835,19 @@ export function createAgentSpacesClient(): AgentSpacesClient {
       return withAspHome(req.aspHome, async () => {
         const warnings: string[] = []
         const spec = validateSpec(req.spec)
+
+        // Validate cwd is absolute (spec §6.3)
+        if (!isAbsolute(req.cwd)) {
+          throw new Error('cwd must be an absolute path')
+        }
+
         const frontendDef = resolveFrontend(req.frontend)
 
         // Validate provider matches frontend
         if (req.provider !== frontendDef.provider) {
-          throw new Error(
-            `Provider mismatch: frontend "${req.frontend}" requires provider "${frontendDef.provider}" but got "${req.provider}"`
+          throw new CodedError(
+            `Provider mismatch: frontend "${req.frontend}" requires provider "${frontendDef.provider}" but got "${req.provider}"`,
+            'provider_mismatch'
           )
         }
 
@@ -923,6 +944,11 @@ export function createAgentSpacesClient(): AgentSpacesClient {
 
         try {
           spec = validateSpec(req.spec)
+
+          // Validate cwd is absolute (spec §6.3)
+          if (!isAbsolute(req.cwd)) {
+            throw new Error('cwd must be an absolute path')
+          }
 
           // Validate provider match with continuation
           validateProviderMatch(frontendDef, req.continuation)

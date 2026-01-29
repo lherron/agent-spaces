@@ -326,26 +326,30 @@ bun /tmp/agent-sdk-hooks-test.ts
 
 ## Part 5: Agent Session Tests
 
-### Test 14: Test AgentSession Interface
+### Test 14: Test Agent-Spaces Client Interface
 
 ```bash
-# If the agent-spaces execution package exposes AgentSession for SDK:
+# Test the agent-spaces public client API (runTurnNonInteractive):
 bun -e "
-import { createAgentSession } from '@agent-spaces/execution';
+import { createAgentSpacesClient } from 'agent-spaces';
 
-const session = await createAgentSession({
-  harness: 'claude-agent-sdk',
-  target: 'agent-sdk-test',
-  targetDir: process.cwd(),
+const client = createAgentSpacesClient();
+const response = await client.runTurnNonInteractive({
+  cpSessionId: 'smoke-test-session',
+  runId: 'smoke-test-run',
+  aspHome: process.env.ASP_HOME ?? '/tmp/asp-test',
+  spec: { target: { targetName: 'agent-sdk-test', targetDir: process.cwd() } },
+  frontend: 'agent-sdk',
+  cwd: process.cwd(),
+  prompt: 'What is 2+2?',
+  callbacks: { onEvent: (e) => console.log(e.type, e.seq) },
 });
-
-const result = await session.runTurn('What is 2+2?');
-console.log('Result:', result);
-await session.close();
+console.log('Result:', response.result);
+console.log('Continuation:', response.continuation);
 "
 ```
 
-**Expected:** AgentSession wraps SDK calls and returns result.
+**Expected:** `runTurnNonInteractive` executes an SDK turn and returns a `RunTurnNonInteractiveResponse` with `result` and optional `continuation`.
 
 ---
 

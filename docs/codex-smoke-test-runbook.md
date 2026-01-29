@@ -299,7 +299,7 @@ bun scripts/codex-interface-test.ts --target codex-test --target-dir "$PWD" "Wha
 
 **Expected:**
 - `describe.skills` includes `smoke-testing`
-- `runTurn` completes successfully
+- `runTurnNonInteractive` completes successfully
 - `finalOutput` lists available skills
 - Resume test passes (context maintained)
 
