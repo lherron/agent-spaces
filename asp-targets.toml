@@ -32,7 +32,7 @@ description = "Claude Agent SDK smoke test target"
 compose = ["space:smokey@dev", "space:defaults@stable"]
 
 [targets.agent-sdk-test.claude]
-model = "claude-opus-4-5"
+model = "claude-opus-4-6"
 permission_mode = "bypassPermissions"
 
 [targets.pi-sdk-test]

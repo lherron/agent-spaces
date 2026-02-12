@@ -7,6 +7,7 @@
  * - CLI argument building for interactive/non-interactive runs
  */
 
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import {
@@ -220,6 +221,50 @@ function isVersionAtLeast(version: string, minVersion: string): boolean {
   return true
 }
 
+interface BunSpawnOptions {
+  stdout: 'pipe' | 'inherit' | 'ignore'
+  stderr: 'pipe' | 'inherit' | 'ignore'
+}
+
+interface BunProcess {
+  exited: Promise<number>
+  stdout: ReadableStream
+  stderr: ReadableStream
+}
+
+async function runCommand(args: string[]): Promise<{
+  exitCode: number
+  stdout: string
+  stderr: string
+}> {
+  const bun = (
+    globalThis as { Bun?: { spawn: (args: string[], opts: BunSpawnOptions) => BunProcess } }
+  ).Bun
+  if (bun) {
+    const proc = bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' })
+    const exitCode = await proc.exited
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+    return { exitCode, stdout, stderr }
+  }
+
+  return await new Promise((resolve, reject) => {
+    const proc = spawn(args[0] ?? '', args.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    proc.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString()
+    })
+    proc.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+    proc.on('error', reject)
+    proc.on('close', (code) => {
+      resolve({ exitCode: code ?? 0, stdout, stderr })
+    })
+  })
+}
+
 export class CodexAdapter implements HarnessAdapter {
   readonly id = 'codex' as const
   readonly name = 'OpenAI Codex'
@@ -233,31 +278,26 @@ export class CodexAdapter implements HarnessAdapter {
 
   async detect(): Promise<HarnessDetection> {
     try {
-      const versionProc = Bun.spawn(['codex', '--version'], { stdout: 'pipe', stderr: 'pipe' })
-      const versionExit = await versionProc.exited
-      const versionStdout = await new Response(versionProc.stdout).text()
-      const versionStderr = await new Response(versionProc.stderr).text()
+      const versionResult = await runCommand(['codex', '--version'])
 
-      if (versionExit !== 0) {
-        throw new Error(versionStderr.trim() || versionStdout.trim() || 'codex --version failed')
+      if (versionResult.exitCode !== 0) {
+        throw new Error(
+          versionResult.stderr.trim() || versionResult.stdout.trim() || 'codex --version failed'
+        )
       }
 
-      const versionOutput = versionStdout.trim() || versionStderr.trim()
+      const versionOutput = versionResult.stdout.trim() || versionResult.stderr.trim()
       const match = versionOutput.match(/(\d+\.\d+\.\d+)/)
       const version = match?.[1] ?? (versionOutput || 'unknown')
       if (match && !isVersionAtLeast(version, MIN_CODEX_VERSION)) {
         throw new Error(`codex ${version} is below minimum ${MIN_CODEX_VERSION}`)
       }
 
-      const helpProc = Bun.spawn(['codex', 'app-server', '--help'], {
-        stdout: 'pipe',
-        stderr: 'pipe',
-      })
-      const helpExit = await helpProc.exited
-      const helpStdout = await new Response(helpProc.stdout).text()
-      const helpStderr = await new Response(helpProc.stderr).text()
-      if (helpExit !== 0) {
-        throw new Error(helpStderr.trim() || helpStdout.trim() || 'codex app-server --help failed')
+      const helpResult = await runCommand(['codex', 'app-server', '--help'])
+      if (helpResult.exitCode !== 0) {
+        throw new Error(
+          helpResult.stderr.trim() || helpResult.stdout.trim() || 'codex app-server --help failed'
+        )
       }
 
       return {

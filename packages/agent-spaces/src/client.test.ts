@@ -38,7 +38,7 @@ describe('getHarnessCapabilities', () => {
     const anthropic = caps.harnesses.find((h) => h.provider === 'anthropic')
     // Should include agent-sdk models (provider/model format) and claude-code models (bare names)
     expect(anthropic?.models).toContain('claude/sonnet')
-    expect(anthropic?.models).toContain('claude-opus-4-5')
+    expect(anthropic?.models).toContain('claude-opus-4-6')
 
     const openai = caps.harnesses.find((h) => h.provider === 'openai')
     // Should include pi-sdk models (provider/model format) and codex-cli models (bare names)

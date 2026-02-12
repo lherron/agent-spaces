@@ -286,7 +286,7 @@ const authStorage = discoverAuthStorage();
 const modelRegistry = discoverModels(authStorage);
 
 // Find specific built-in model (doesn't check if API key exists)
-const opus = getModel("anthropic", "claude-opus-4-5");
+const opus = getModel("anthropic", "claude-opus-4-6");
 if (!opus) throw new Error("Model not found");
 
 // Find any model by provider/id, including custom models from models.json
@@ -749,7 +749,7 @@ const modelRegistry = discoverModels(authStorage);   // + ~/.pi/agent/models.jso
 const allModels = modelRegistry.getAll();            // All models (built-in + custom)
 const available = await modelRegistry.getAvailable(); // Only models with API keys
 const model = modelRegistry.find("provider", "id");   // Find specific model
-const builtIn = getModel("anthropic", "claude-opus-4-5"); // Built-in only
+const builtIn = getModel("anthropic", "claude-opus-4-6"); // Built-in only
 
 // Skills
 const { skills, warnings } = discoverSkills(cwd, agentDir, skillsSettings);
@@ -848,7 +848,7 @@ const statusTool: ToolDefinition = {
   }),
 };
 
-const model = getModel("anthropic", "claude-opus-4-5");
+const model = getModel("anthropic", "claude-opus-4-6");
 if (!model) throw new Error("Model not found");
 
 // In-memory settings with overrides

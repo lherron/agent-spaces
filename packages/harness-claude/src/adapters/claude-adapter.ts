@@ -57,7 +57,7 @@ export class ClaudeAdapter implements HarnessAdapter {
   readonly name = 'Claude Code'
 
   readonly models: HarnessModelInfo[] = [
-    { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', default: true },
+    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', default: true },
     { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
     { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
     { id: 'opus', name: 'Opus (alias)' },

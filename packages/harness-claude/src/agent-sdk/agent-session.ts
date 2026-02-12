@@ -19,7 +19,7 @@ import { PromptQueue } from './prompt-queue.js'
 export interface AgentSessionConfig {
   ownerId: string
   cwd: string
-  model: 'haiku' | 'sonnet' | 'opus' | 'opus-4-5'
+  model: 'haiku' | 'sonnet' | 'opus' | 'opus-4-6'
   allowedTools?: string[]
   maxTurns?: number
   sessionId?: string
@@ -119,8 +119,8 @@ export class AgentSession implements UnifiedSession {
     const modelMap: Record<string, string> = {
       haiku: 'claude-haiku-3-5',
       sonnet: 'claude-sonnet-4-5',
-      opus: 'claude-opus-4-5',
-      'opus-4-5': 'claude-opus-4-5',
+      opus: 'claude-opus-4-6',
+      'opus-4-6': 'claude-opus-4-6',
     }
     const sdkModel = modelMap[this.config.model] ?? this.config.model
 
