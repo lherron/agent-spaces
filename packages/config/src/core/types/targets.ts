@@ -41,6 +41,8 @@ export interface ResolverConfig {
 export interface TargetDefinition {
   /** Human-readable description */
   description?: string
+  /** Initial prompt sent when running this target unless overridden by CLI prompt */
+  priming_prompt?: string
   /** Ordered list of space refs to compose */
   compose: SpaceRefString[]
   /** Target-specific claude options (override defaults) */

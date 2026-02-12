@@ -275,7 +275,7 @@ export interface HarnessRunOptions {
   projectPath?: string | undefined
   /** Working directory for harness execution */
   cwd?: string | undefined
-  /** Prompt text for non-interactive mode */
+  /** Initial prompt text for the harness session */
   prompt?: string | undefined
   /** Disable hook blocking and permissions (YOLO mode) */
   yolo?: boolean | undefined

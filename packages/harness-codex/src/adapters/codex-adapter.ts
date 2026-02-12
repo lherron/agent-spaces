@@ -622,7 +622,7 @@ export class CodexAdapter implements HarnessAdapter {
 
   buildRunArgs(_bundle: ComposedTargetBundle, options: HarnessRunOptions): string[] {
     const args: string[] = []
-    const isExecMode = !options.interactive && !!options.prompt
+    const isExecMode = options.interactive === false
     const isResumeMode = !!options.resume
     const approvalPolicy = options.yolo ? 'never' : options.approvalPolicy
     const sandboxMode = options.yolo ? 'danger-full-access' : options.sandboxMode
@@ -636,8 +636,13 @@ export class CodexAdapter implements HarnessAdapter {
         args.push(options.resume)
       }
       // If resume is just `true`, codex resume will open the picker
-    } else if (isExecMode && options.prompt) {
-      args.push('exec', options.prompt)
+    } else if (isExecMode) {
+      args.push('exec')
+      if (options.prompt) {
+        args.push(options.prompt)
+      }
+    } else if (options.prompt) {
+      args.push(options.prompt)
     }
 
     if (options.model) {
@@ -731,6 +736,7 @@ export class CodexAdapter implements HarnessAdapter {
       approvalPolicy: codexOptions.approval_policy,
       sandboxMode: codexOptions.sandbox_mode,
       profile: codexOptions.profile,
+      prompt: target?.priming_prompt,
     }
 
     if (target?.yolo) {

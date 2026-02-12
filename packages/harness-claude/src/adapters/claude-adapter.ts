@@ -345,9 +345,10 @@ export class ClaudeAdapter implements HarnessAdapter {
           : options.settingSources
 
     const promptArgs: string[] = []
-    if (options.interactive === false) {
-      promptArgs.push('-p')
-      if (options.prompt) {
+    if (options.prompt) {
+      if (options.interactive === false) {
+        promptArgs.push('-p', options.prompt)
+      } else {
         promptArgs.push(options.prompt)
       }
     }
@@ -439,6 +440,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       model: claudeOptions.model,
       permissionMode: claudeOptions.permission_mode,
       extraArgs: claudeOptions.args,
+      prompt: target?.priming_prompt,
       yolo: target?.yolo ?? false,
     }
   }

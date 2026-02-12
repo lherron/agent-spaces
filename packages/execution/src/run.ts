@@ -69,7 +69,7 @@ export interface RunOptions extends ResolveOptions {
   cwd?: string | undefined
   /** Whether to run interactively (spawn stdio) vs capture output */
   interactive?: boolean | undefined
-  /** Prompt to send (non-interactive mode) */
+  /** Initial prompt to send to the harness */
   prompt?: string | undefined
   /** Additional harness CLI args */
   extraArgs?: string[] | undefined
@@ -161,15 +161,19 @@ function mergeDefined<T extends object>(defaults: Partial<T>, overrides: Partial
   return merged
 }
 
-function resolveInteractive(
-  interactive: boolean | undefined,
-  prompt: string | undefined
-): boolean | undefined {
+function combinePrompts(
+  primingPrompt: string | undefined,
+  userPrompt: string | undefined
+): string | undefined {
+  if (primingPrompt !== undefined && userPrompt !== undefined) {
+    return `${primingPrompt}\n\n${userPrompt}`
+  }
+  return primingPrompt ?? userPrompt
+}
+
+function resolveInteractive(interactive: boolean | undefined): boolean | undefined {
   if (interactive !== undefined) {
     return interactive
-  }
-  if (prompt !== undefined) {
-    return false
   }
   return undefined
 }
@@ -432,11 +436,13 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   debugLog('manifest ok')
 
   const defaults = adapter.getDefaultRunOptions(manifest, targetName)
+  const primingPrompt = manifest.targets[targetName]?.priming_prompt
+  const effectivePrompt = combinePrompts(defaults.prompt ?? primingPrompt, options.prompt)
   const cliRunOptions: HarnessRunOptions = {
     model: options.model,
     extraArgs: options.extraArgs,
-    interactive: resolveInteractive(options.interactive, options.prompt),
-    prompt: options.prompt,
+    interactive: resolveInteractive(options.interactive),
+    prompt: effectivePrompt,
     settingSources: options.settingSources,
     permissionMode: options.permissionMode,
     settings: options.settings,
@@ -449,6 +455,12 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     resume: options.resume,
   }
   const runOptions = mergeDefined(defaults, cliRunOptions)
+
+  if (runOptions.interactive === false && runOptions.prompt === undefined) {
+    throw new Error(
+      'Non-interactive mode requires a prompt (provide [prompt] or configure targets.<name>.priming_prompt)'
+    )
+  }
 
   debugLog('run options', {
     prompt: options.prompt,
@@ -524,7 +536,7 @@ export interface GlobalRunOptions {
   cwd?: string | undefined
   /** Whether to run interactively (default: true) */
   interactive?: boolean | undefined
-  /** Prompt for non-interactive mode */
+  /** Initial prompt to send to the harness */
   prompt?: string | undefined
   /** Additional harness CLI args */
   extraArgs?: string[] | undefined
@@ -697,7 +709,7 @@ export async function runGlobalSpace(
     const cliRunOptions: HarnessRunOptions = {
       model: options.model,
       extraArgs: options.extraArgs,
-      interactive: resolveInteractive(options.interactive, options.prompt),
+      interactive: resolveInteractive(options.interactive),
       prompt: options.prompt,
       settingSources: options.settingSources,
       permissionMode: options.permissionMode,
@@ -711,6 +723,10 @@ export async function runGlobalSpace(
       resume: options.resume,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
+
+    if (runOptions.interactive === false && runOptions.prompt === undefined) {
+      throw new Error('Non-interactive mode requires a prompt')
+    }
 
     const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
       env: options.env,
@@ -815,7 +831,7 @@ export async function runLocalSpace(
     const cliRunOptions: HarnessRunOptions = {
       model: options.model,
       extraArgs: options.extraArgs,
-      interactive: resolveInteractive(options.interactive, options.prompt),
+      interactive: resolveInteractive(options.interactive),
       prompt: options.prompt,
       settingSources: options.settingSources,
       permissionMode: options.permissionMode,
@@ -829,6 +845,10 @@ export async function runLocalSpace(
       resume: options.resume,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
+
+    if (runOptions.interactive === false && runOptions.prompt === undefined) {
+      throw new Error('Non-interactive mode requires a prompt')
+    }
 
     const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
       env: options.env,

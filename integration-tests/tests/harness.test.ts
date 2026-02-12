@@ -129,6 +129,7 @@ describe('asp run --harness', () => {
     projectDir = await createTempProject({
       'claude-target': {
         description: 'Claude-only target',
+        priming_prompt: 'Register with agentchat and send READY',
         compose: [`space:path:${MULTI_HARNESS_DIR}/claude-only@dev`],
       },
     })
@@ -157,6 +158,52 @@ describe('asp run --harness', () => {
     expect(stdout).toContain('Command:')
     expect(stdout).toContain('--plugin-dir')
     expect(stdout).toContain('claude')
+  })
+
+  test('--dry-run with prompt stays interactive by default for claude', async () => {
+    const testEnv = getTestEnv(aspHome)
+    const { stdout, exitCode } = await runCli(
+      ['run', 'claude-target', 'investigate', '--harness', 'claude', '--dry-run'],
+      { env: testEnv, cwd: projectDir }
+    )
+
+    expect(exitCode).toBe(0)
+    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    expect(command).toContain('investigate')
+    expect(command).not.toContain(' -p ')
+  })
+
+  test('--no-interactive forces print mode for claude', async () => {
+    const testEnv = getTestEnv(aspHome)
+    const { stdout, exitCode } = await runCli(
+      [
+        'run',
+        'claude-target',
+        'investigate',
+        '--harness',
+        'claude',
+        '--dry-run',
+        '--no-interactive',
+      ],
+      { env: testEnv, cwd: projectDir }
+    )
+
+    expect(exitCode).toBe(0)
+    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    expect(command).toContain(' -p ')
+    expect(command).toContain('investigate')
+  })
+
+  test('concatenates priming_prompt and user prompt for claude', async () => {
+    const testEnv = getTestEnv(aspHome)
+    const { stdout, exitCode } = await runCli(
+      ['run', 'claude-target', 'plan-next-steps', '--harness', 'claude', '--dry-run'],
+      { env: testEnv, cwd: projectDir }
+    )
+
+    expect(exitCode).toBe(0)
+    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    expect(command).toContain('Register with agentchat and send READY\n\nplan-next-steps')
   })
 
   test('--dry-run works with --harness pi-sdk', async () => {

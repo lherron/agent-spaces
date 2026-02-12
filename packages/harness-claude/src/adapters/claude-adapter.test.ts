@@ -10,7 +10,12 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { MaterializeSpaceInput, ResolvedSpaceManifest, SpaceKey } from 'spaces-config'
+import type {
+  MaterializeSpaceInput,
+  ProjectManifest,
+  ResolvedSpaceManifest,
+  SpaceKey,
+} from 'spaces-config'
 import { clearClaudeCache } from '../claude/index.js'
 import { ClaudeAdapter } from './claude-adapter.js'
 
@@ -653,6 +658,58 @@ paths = ["/var/log"]
 
       expect(args).toContain('--setting-sources')
       expect(args).toContain('project,user')
+    })
+
+    test('passes prompt as positional argument in interactive mode', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'test',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      const args = adapter.buildRunArgs(bundle, {
+        interactive: true,
+        prompt: 'Start by checking failing tests',
+      })
+
+      expect(args).toContain('Start by checking failing tests')
+      expect(args).not.toContain('-p')
+    })
+
+    test('uses -p in non-interactive mode', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'test',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      const args = adapter.buildRunArgs(bundle, {
+        interactive: false,
+        prompt: 'Summarize repository health',
+      })
+
+      const pIndex = args.indexOf('-p')
+      expect(pIndex).toBeGreaterThanOrEqual(0)
+      expect(args[pIndex + 1]).toBe('Summarize repository health')
+    })
+  })
+
+  describe('getDefaultRunOptions', () => {
+    test('includes priming_prompt as default prompt', () => {
+      const manifest: ProjectManifest = {
+        schema: 1,
+        targets: {
+          claude: {
+            compose: ['space:claude-space@stable'],
+            priming_prompt: 'Register and send READY',
+          },
+        },
+      }
+
+      const defaults = adapter.getDefaultRunOptions(manifest, 'claude')
+      expect(defaults.prompt).toBe('Register and send READY')
     })
   })
 

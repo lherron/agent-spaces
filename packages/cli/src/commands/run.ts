@@ -26,9 +26,7 @@ import {
   isSpaceReference,
   run,
   runGlobalSpace,
-  runInteractive,
   runLocalSpace,
-  runWithPrompt,
 } from 'spaces-execution'
 
 import { handleCliError, logInvocationOutput } from '../helpers.js'
@@ -180,22 +178,22 @@ async function runProjectMode(
     return result
   }
 
-  if (prompt) {
-    console.log(chalk.blue(`Running target "${target}" with prompt...`))
-    const result = await runWithPrompt(target, prompt, runOptions)
-    logInvocationOutput(result.invocation)
-    return result
+  const interactive = options.interactive !== false
+  if (interactive) {
+    console.log(chalk.blue(`Running target "${target}" interactively...`))
+    console.log(chalk.gray('Press Ctrl+C to exit'))
+  } else {
+    console.log(chalk.blue(`Running target "${target}" non-interactively...`))
   }
-
-  if (options.interactive === false) {
-    console.error(chalk.red('Error: --no-interactive requires a prompt'))
-    process.exit(1)
-  }
-
-  console.log(chalk.blue(`Running target "${target}" interactively...`))
-  console.log(chalk.gray('Press Ctrl+C to exit'))
   console.log('')
-  return runInteractive(target, runOptions)
+
+  const result = await run(target, {
+    ...runOptions,
+    prompt,
+    interactive,
+  })
+  logInvocationOutput(result.invocation)
+  return result
 }
 
 /**
@@ -355,14 +353,14 @@ export function registerRunCommand(program: Command): void {
     .command('run')
     .description('Run a coding agent with a target, space reference, or filesystem path')
     .argument('<target>', 'Target name from asp-targets.toml, space:id@selector, or path')
-    .argument('[prompt]', 'Optional initial prompt (runs non-interactively)')
+    .argument('[prompt]', 'Optional initial prompt')
     .option(
       '--harness <id>',
       'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, codex, pi, pi-sdk)'
     )
     .option('--model <model>', 'Model override (pi-sdk expects provider:model)')
     .option('--permission-mode <mode>', 'Claude permission mode (--permission-mode)')
-    .option('--no-interactive', 'Run non-interactively (requires prompt)')
+    .option('--no-interactive', 'Run non-interactively')
     .option('--no-warnings', 'Suppress lint warnings')
     .option('--dry-run', 'Print the harness command without executing')
     .option('--print-command', 'Output only the command (for piping/scripting)')
