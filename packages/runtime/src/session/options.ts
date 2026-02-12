@@ -9,7 +9,7 @@ export interface CreateSessionOptions {
   sessionId: string
   cwd: string
 
-  model?: 'haiku' | 'sonnet' | 'opus' | 'opus-4-5'
+  model?: 'haiku' | 'sonnet' | 'opus' | 'opus-4-6'
   allowedTools?: string[]
   plugins?: Array<{ type: 'local'; path: string }>
   systemPrompt?: string
