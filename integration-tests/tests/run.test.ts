@@ -225,11 +225,74 @@ describe('asp run', () => {
   })
 
   test('dry-run includes prompt in command', async () => {
+    const prompt = 'Hello, Claude!'
+
+    await run('dev', {
+      projectPath: projectDir,
+      registryPath: SAMPLE_REGISTRY_DIR,
+      aspHome,
+      prompt,
+    })
+
+    const shimOutput = await readShimOutput()
+    expect(shimOutput.args).not.toContain('-p')
+    expect(shimOutput.args).toContain(prompt)
+  })
+
+  test('non-interactive mode uses print prompt mode', async () => {
+    const prompt = 'Hello, Claude!'
+
+    await run('dev', {
+      projectPath: projectDir,
+      registryPath: SAMPLE_REGISTRY_DIR,
+      aspHome,
+      interactive: false,
+      prompt,
+    })
+
+    const shimOutput = await readShimOutput()
+    const pIndex = shimOutput.args.indexOf('-p')
+    expect(pIndex).toBeGreaterThanOrEqual(0)
+    expect(shimOutput.args[pIndex + 1]).toBe(prompt)
+  })
+
+  test('concatenates priming_prompt and user prompt with blank line', async () => {
+    await cleanupTempProject(projectDir)
+    projectDir = await createTempProject({
+      dev: {
+        description: 'Development environment',
+        priming_prompt: 'Register with agentchat and send READY',
+        compose: ['space:frontend@stable', 'space:backend@stable'],
+      },
+    })
+
+    await install({
+      projectPath: projectDir,
+      registryPath: SAMPLE_REGISTRY_DIR,
+      aspHome,
+    })
+
     const result = await run('dev', {
       projectPath: projectDir,
       registryPath: SAMPLE_REGISTRY_DIR,
       aspHome,
       dryRun: true,
+      prompt: 'Investigate failing tests',
+    })
+
+    expect(result.command).toBeDefined()
+    expect(result.command).toContain(
+      'Register with agentchat and send READY\n\nInvestigate failing tests'
+    )
+  })
+
+  test('dry-run includes prompt in command when non-interactive', async () => {
+    const result = await run('dev', {
+      projectPath: projectDir,
+      registryPath: SAMPLE_REGISTRY_DIR,
+      aspHome,
+      dryRun: true,
+      interactive: false,
       prompt: 'Hello, Claude!',
     })
 

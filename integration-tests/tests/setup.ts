@@ -183,6 +183,7 @@ export async function createTempProject(
     string,
     {
       description?: string | undefined
+      priming_prompt?: string | undefined
       compose: string[]
     }
   >
@@ -195,6 +196,9 @@ export async function createTempProject(
     toml += `[targets.${name}]\n`
     if (target.description) {
       toml += `description = "${target.description}"\n`
+    }
+    if (target.priming_prompt) {
+      toml += `priming_prompt = "${target.priming_prompt}"\n`
     }
     toml += 'compose = [\n'
     for (const ref of target.compose) {

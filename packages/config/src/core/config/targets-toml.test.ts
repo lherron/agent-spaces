@@ -44,6 +44,7 @@ function createFullManifest(): ProjectManifest {
     targets: {
       default: {
         description: 'Default development target',
+        priming_prompt: 'Initialize tools and announce ready status.',
         compose: ['space:core@stable', 'space:frontend@^1.0.0'],
         claude: {
           model: 'claude-3-sonnet',
@@ -82,6 +83,7 @@ function toToml(manifest: ProjectManifest): string {
     lines.push('')
     lines.push(`[targets.${name}]`)
     if (target.description) lines.push(`description = "${target.description}"`)
+    if (target.priming_prompt) lines.push(`priming_prompt = "${target.priming_prompt}"`)
     lines.push(`compose = [${target.compose.map((c) => `"${c}"`).join(', ')}]`)
 
     if (target.claude) {
@@ -243,6 +245,19 @@ compose = ["space:my-space@stable"]
       const result = parseTargetsToml(toml)
 
       expect(result.targets.default.description).toBe('My development target')
+    })
+
+    test('parses manifest with priming_prompt', () => {
+      const toml = `
+schema = 1
+
+[targets.default]
+priming_prompt = "Register with agentchat and send READY"
+compose = ["space:my-space@stable"]
+`
+      const result = parseTargetsToml(toml)
+
+      expect(result.targets.default.priming_prompt).toBe('Register with agentchat and send READY')
     })
 
     test('parses manifest with multiple compose entries', () => {
@@ -514,5 +529,6 @@ describe('serializeTargetsToml', () => {
     expect(parsed.claude?.model).toBe(original.claude?.model)
     expect(parsed.targets.default.compose).toEqual(original.targets.default.compose)
     expect(parsed.targets.default.resolver?.locked).toBe(original.targets.default.resolver?.locked)
+    expect(parsed.targets.default.priming_prompt).toBe(original.targets.default.priming_prompt)
   })
 })

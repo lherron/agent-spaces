@@ -58,6 +58,7 @@
       "required": ["compose"],
       "properties": {
         "description": { "type": "string", "maxLength": 300 },
+        "priming_prompt": { "type": "string" },
 
         "compose": {
           "type": "array",

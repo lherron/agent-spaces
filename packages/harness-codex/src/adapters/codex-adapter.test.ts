@@ -10,7 +10,12 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
-import type { MaterializeSpaceInput, ResolvedSpaceManifest, SpaceKey } from 'spaces-config'
+import type {
+  MaterializeSpaceInput,
+  ProjectManifest,
+  ResolvedSpaceManifest,
+  SpaceKey,
+} from 'spaces-config'
 import { CodexAdapter } from './codex-adapter.js'
 
 function createTestManifest(overrides: Partial<ResolvedSpaceManifest> = {}): ResolvedSpaceManifest {
@@ -242,6 +247,52 @@ describe('CodexAdapter', () => {
       const mcpServers = parsed['mcp_servers'] as Record<string, Record<string, unknown>>
       expect(mcpServers['serverA']?.['command']).toBe('override')
       expect(mcpServers['serverB']?.['command']).toBe('cmd-b')
+    })
+  })
+
+  describe('buildRunArgs', () => {
+    const bundle = {
+      harnessId: 'codex' as const,
+      targetName: 'test-target',
+      rootDir: '/tmp/output',
+      pluginDirs: ['/tmp/output/codex.home'],
+    }
+
+    test('passes prompt as positional arg in interactive mode', () => {
+      const args = adapter.buildRunArgs(bundle, {
+        interactive: true,
+        prompt: 'Start by checking failing tests',
+      })
+
+      expect(args).toContain('Start by checking failing tests')
+      expect(args).not.toContain('exec')
+    })
+
+    test('uses exec mode in non-interactive runs', () => {
+      const args = adapter.buildRunArgs(bundle, {
+        interactive: false,
+        prompt: 'Summarize repository health',
+      })
+
+      expect(args[0]).toBe('exec')
+      expect(args).toContain('Summarize repository health')
+    })
+  })
+
+  describe('getDefaultRunOptions', () => {
+    test('includes priming_prompt as default prompt', () => {
+      const manifest: ProjectManifest = {
+        schema: 1,
+        targets: {
+          codex: {
+            compose: ['space:codex-space@stable'],
+            priming_prompt: 'Register and send READY',
+          },
+        },
+      }
+
+      const defaults = adapter.getDefaultRunOptions(manifest, 'codex')
+      expect(defaults.prompt).toBe('Register and send READY')
     })
   })
 })

@@ -126,6 +126,7 @@ describe('asp codex harness', () => {
     aspHome = await createTempAspHome()
     projectDir = await createTempProject({
       'codex-target': {
+        priming_prompt: 'Register with agentchat and send READY',
         compose: ['space:project:codex-space'],
       },
     })
@@ -189,6 +190,44 @@ describe('asp codex harness', () => {
     expect(stdout).toContain('CODEX_HOME=')
     expect(stdout).toContain('codex')
     expect(stdout).toContain('--model gpt-5.2-codex')
+  })
+
+  test('run --harness codex with prompt stays interactive by default', async () => {
+    const testEnv = getCodexTestEnv(aspHome)
+    const { stdout, exitCode } = await runCli(
+      ['run', 'codex-target', 'investigate', '--harness', 'codex', '--dry-run'],
+      { env: testEnv, cwd: projectDir }
+    )
+
+    expect(exitCode).toBe(0)
+    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    expect(command).toContain('investigate')
+    expect(command).not.toContain(' exec ')
+  })
+
+  test('run --harness codex --no-interactive forces exec mode', async () => {
+    const testEnv = getCodexTestEnv(aspHome)
+    const { stdout, exitCode } = await runCli(
+      ['run', 'codex-target', 'investigate', '--harness', 'codex', '--dry-run', '--no-interactive'],
+      { env: testEnv, cwd: projectDir }
+    )
+
+    expect(exitCode).toBe(0)
+    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    expect(command).toContain(' exec ')
+    expect(command).toContain('investigate')
+  })
+
+  test('run --harness codex concatenates priming_prompt and user prompt', async () => {
+    const testEnv = getCodexTestEnv(aspHome)
+    const { stdout, exitCode } = await runCli(
+      ['run', 'codex-target', 'plan-next-steps', '--harness', 'codex', '--dry-run'],
+      { env: testEnv, cwd: projectDir }
+    )
+
+    expect(exitCode).toBe(0)
+    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    expect(command).toContain('Register with agentchat and send READY\n\nplan-next-steps')
   })
 
   test('run local space --harness codex --dry-run includes CODEX_HOME', async () => {
