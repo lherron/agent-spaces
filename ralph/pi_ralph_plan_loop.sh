@@ -14,8 +14,8 @@ echo "Branch: $BRANCH"
 
 while true; do
     [ $MAX -gt 0 ] && [ $ITER -ge $MAX ] && { echo "Done: $MAX iterations"; break; }
-    echo $(asp run ralph-plan --harness pi --yolo --print-command --no-interactive --model gpt-5.2)
-    eval "$(asp run ralph-plan --harness pi --yolo --print-command --model gpt-5.2) \"Hey bud, help me out.  Execute the instructions in ralph/CODEX_RALPH_PLAN_PROMPT.md\""
+    echo $(asp run ralph-plan --harness pi --yolo --print-command --no-interactive --model gpt-5.3)
+    eval "$(asp run ralph-plan --harness pi --yolo --print-command --model gpt-5.3) \"Hey bud, help me out.  Execute the instructions in ralph/CODEX_RALPH_PLAN_PROMPT.md\""
     git push origin "$BRANCH" 2>/dev/null || git push -u origin "$BRANCH"
     ITER=$((ITER + 1))
     echo -e "\n══════ PLAN ITERATION $ITER ══════\n"

@@ -22,7 +22,7 @@ description = "Codex smoke test target"
 compose = ["space:smokey@dev", "space:defaults@stable"]
 
 [targets.codex-test.codex]
-model = "gpt-5.2-codex"
+model = "gpt-5.3-codex"
 # harness = "codex"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"

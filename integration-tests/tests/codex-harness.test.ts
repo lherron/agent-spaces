@@ -182,14 +182,14 @@ describe('asp codex harness', () => {
   test('run --harness codex --dry-run includes CODEX_HOME', async () => {
     const testEnv = getCodexTestEnv(aspHome)
     const { stdout, exitCode } = await runCli(
-      ['run', 'codex-target', '--harness', 'codex', '--dry-run', '--model', 'gpt-5.2-codex'],
+      ['run', 'codex-target', '--harness', 'codex', '--dry-run', '--model', 'gpt-5.3-codex'],
       { env: testEnv, cwd: projectDir }
     )
 
     expect(exitCode).toBe(0)
     expect(stdout).toContain('CODEX_HOME=')
     expect(stdout).toContain('codex')
-    expect(stdout).toContain('--model gpt-5.2-codex')
+    expect(stdout).toContain('--model gpt-5.3-codex')
   })
 
   test('run --harness codex with prompt stays interactive by default', async () => {

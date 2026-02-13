@@ -176,7 +176,7 @@ compose = ["space:my-space@stable"]
 schema = 1
 
 [codex]
-model = "gpt-5.2-codex"
+model = "gpt-5.3-codex"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 profile = "default"
@@ -192,7 +192,7 @@ profile = "dev"
 `
       const result = parseTargetsToml(toml)
 
-      expect(result.codex?.model).toBe('gpt-5.2-codex')
+      expect(result.codex?.model).toBe('gpt-5.3-codex')
       expect(result.codex?.approval_policy).toBe('on-request')
       expect(result.codex?.sandbox_mode).toBe('workspace-write')
       expect(result.codex?.profile).toBe('default')

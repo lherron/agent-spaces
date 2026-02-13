@@ -90,7 +90,7 @@ description = "Codex smoke test target"
 compose = ["space:smokey@dev", "space:defaults@stable"]
 
 [targets.codex-test.codex]
-model = "gpt-5.2-codex"
+model = "gpt-5.3-codex"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 EOF
@@ -213,7 +213,7 @@ cat asp_modules/codex-test/codex/codex.home/config.toml
 - `sandbox_mode = "workspace-write"`
 - `approval_policy = "on-request"`
 - `project_doc_fallback_filenames = ["AGENTS.md", "AGENT.md"]`
-- `model = "gpt-5.2-codex"`
+- `model = "gpt-5.3-codex"`
 - MCP server definitions if the spaces include MCP configurations
 
 ---
@@ -240,7 +240,7 @@ $ASP_CLI run codex-test --harness codex --dry-run
 
 **Expected command format:**
 ```
-CODEX_HOME=.../asp_modules/codex-test/codex/codex.home codex --model gpt-5.2-codex --ask-for-approval on-request --sandbox workspace-write
+CODEX_HOME=.../asp_modules/codex-test/codex/codex.home codex --model gpt-5.3-codex --ask-for-approval on-request --sandbox workspace-write
 ```
 
 **Important flags:**
@@ -257,7 +257,7 @@ $ASP_CLI run codex-test "What is 2+2? Answer with just the number." --harness co
 
 **Expected:**
 - Codex starts with CODEX_HOME set to materialized home
-- Shows model: gpt-5.2-codex
+- Shows model: gpt-5.3-codex
 - Returns answer: `4`
 - Shows token usage
 
@@ -448,7 +448,7 @@ harness = "codex"  # Remove this line
 compose = ["space:smokey@dev"]
 
 [targets.codex-test.codex]
-model = "gpt-5.2-codex"
+model = "gpt-5.3-codex"
 ```
 
 ### "Space not found: smokey@dev"
@@ -486,5 +486,5 @@ ln -sf ~/.codex/auth.json asp_modules/codex-test/codex/codex.home/auth.json
 - **Custom CODEX_HOME:** When using a custom CODEX_HOME (as agent-spaces does), the `auth.json` must be present. The adapter automatically symlinks it from `~/.codex/auth.json`.
 - **Experimental Status:** The Codex harness uses the experimental `codex app-server` subcommand. Behavior may change.
 - **CLI Flag Differences:** `codex` and `codex exec` have different flag sets. The adapter handles this automatically.
-- **Model Availability:** Ensure your OpenAI account has access to Codex models (e.g., `gpt-5.2-codex`).
+- **Model Availability:** Ensure your OpenAI account has access to Codex models (e.g., `gpt-5.3-codex`).
 - **Real Spaces:** This runbook uses `space:smokey@dev` which provides the smoke-testing skill with playbooks.

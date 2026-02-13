@@ -42,8 +42,8 @@ describe('getHarnessCapabilities', () => {
 
     const openai = caps.harnesses.find((h) => h.provider === 'openai')
     // Should include pi-sdk models (provider/model format) and codex-cli models (bare names)
-    expect(openai?.models).toContain('openai-codex/gpt-5.2-codex')
-    expect(openai?.models).toContain('gpt-5.2-codex')
+    expect(openai?.models).toContain('openai-codex/gpt-5.3-codex')
+    expect(openai?.models).toContain('gpt-5.3-codex')
   })
 })
 
@@ -347,7 +347,7 @@ describe('runTurnNonInteractive', () => {
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
       frontend: 'pi-sdk',
-      model: 'openai-codex/gpt-5.2-codex',
+      model: 'openai-codex/gpt-5.3-codex',
       continuation: { provider: 'openai', key: missingSessionPath },
       cwd: '/tmp',
       prompt: 'Hello',
@@ -398,7 +398,7 @@ describe('runTurnNonInteractive', () => {
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
       frontend: 'pi-sdk',
-      model: 'openai-codex/gpt-5.2-codex',
+      model: 'openai-codex/gpt-5.3-codex',
       cwd: '/tmp',
       prompt: 'Hello',
       callbacks: {
@@ -497,7 +497,7 @@ describe('runTurnNonInteractive', () => {
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
       frontend: 'pi-sdk',
-      model: 'openai-codex/gpt-5.2-codex',
+      model: 'openai-codex/gpt-5.3-codex',
       continuation: { provider: 'openai', key: missingPath },
       cwd: '/tmp',
       prompt: 'Hello',
@@ -540,7 +540,7 @@ describe('runTurnNonInteractive', () => {
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
         frontend: 'pi-sdk',
-        model: 'openai-codex/gpt-5.2-codex',
+        model: 'openai-codex/gpt-5.3-codex',
         cwd: '/tmp',
         prompt: 'Hello',
         callbacks: {
