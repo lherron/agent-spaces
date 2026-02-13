@@ -188,7 +188,9 @@ export class PiSdkAdapter implements HarnessAdapter {
   readonly name = 'Pi SDK'
 
   readonly models: HarnessModelInfo[] = [
-    { id: 'openai-codex:gpt-5.2-codex', name: 'GPT-5.2 Codex', default: true },
+    { id: 'openai-codex:gpt-5.3-codex', name: 'GPT-5.3 Codex', default: true },
+    { id: 'openai-codex:gpt-5.3', name: 'GPT-5.3' },
+    { id: 'openai-codex:gpt-5.2-codex', name: 'GPT-5.2 Codex' },
     { id: 'openai-codex:gpt-5.2', name: 'GPT-5.2' },
     { id: 'openai-codex:gpt-5.1', name: 'GPT-5.1' },
     { id: 'openai-codex:gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
@@ -575,7 +577,7 @@ export class PiSdkAdapter implements HarnessAdapter {
     }
 
     // Default model for pi-sdk harness
-    const model = options.model ?? 'openai-codex:gpt-5.2-codex'
+    const model = options.model ?? 'openai-codex:gpt-5.3-codex'
     args.push('--model', model)
 
     if (options.yolo) {

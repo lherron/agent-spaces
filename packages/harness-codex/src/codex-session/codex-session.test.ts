@@ -74,7 +74,7 @@ rl.on('line', (line) => {
       id: msg.id,
       result: {
         thread: thread(),
-        model: 'gpt-5.2-codex',
+        model: 'gpt-5.3-codex',
         modelProvider: 'openai',
         cwd: process.cwd(),
         approvalPolicy: 'on-request',
@@ -90,7 +90,7 @@ rl.on('line', (line) => {
       id: msg.id,
       result: {
         thread: thread(),
-        model: 'gpt-5.2-codex',
+        model: 'gpt-5.3-codex',
         modelProvider: 'openai',
         cwd: process.cwd(),
         approvalPolicy: 'on-request',
@@ -229,7 +229,7 @@ rl.on('line', (line) => {
       id: msg.id,
       result: {
         thread: thread(),
-        model: 'gpt-5.2-codex',
+        model: 'gpt-5.3-codex',
         modelProvider: 'openai',
         cwd: process.cwd(),
         approvalPolicy: 'on-request',
@@ -280,7 +280,7 @@ describe('CodexSession', () => {
       sessionId: 'session-test',
       homeDir: codexHome,
       appServerCommand: shimPath,
-      model: 'gpt-5.2-codex',
+      model: 'gpt-5.3-codex',
       approvalPolicy: 'on-request',
     })
 
@@ -340,7 +340,7 @@ describe('CodexSession', () => {
       sessionId: 'session-error',
       homeDir: codexHome,
       appServerCommand: shimPath,
-      model: 'gpt-5.2-codex',
+      model: 'gpt-5.3-codex',
       approvalPolicy: 'on-request',
     })
 

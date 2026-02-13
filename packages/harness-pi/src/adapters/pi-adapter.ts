@@ -623,11 +623,13 @@ export class PiAdapter implements HarnessAdapter {
 
   readonly models: HarnessModelInfo[] = [
     {
-      id: 'gpt-5.2-codex',
-      name: 'GPT-5.2 Codex',
+      id: 'gpt-5.3-codex',
+      name: 'GPT-5.3 Codex',
       default: true,
       description: 'openai-codex provider',
     },
+    { id: 'gpt-5.3', name: 'GPT-5.3', description: 'openai-codex provider' },
+    { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', description: 'openai-codex provider' },
     { id: 'gpt-5.2', name: 'GPT-5.2', description: 'openai-codex provider' },
     { id: 'gpt-5.1', name: 'GPT-5.1', description: 'openai-codex provider' },
     { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max', description: 'openai-codex provider' },
@@ -1105,8 +1107,8 @@ export class PiAdapter implements HarnessAdapter {
     args.push('--no-skills')
 
     // Model translation (sonnet -> claude-sonnet, etc.)
-    // Default to gpt-5.2-codex with openai-codex provider if no model specified
-    const model = options.model || 'gpt-5.2-codex'
+    // Default to gpt-5.3-codex with openai-codex provider if no model specified
+    const model = options.model || 'gpt-5.3-codex'
     const translatedModel = MODEL_TRANSLATION[model] || model
     args.push('--model', translatedModel)
 

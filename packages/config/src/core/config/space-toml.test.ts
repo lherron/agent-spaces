@@ -161,7 +161,7 @@ id = "my-space"
 supports = ["codex"]
 
 [codex]
-model = "gpt-5.2-codex"
+model = "gpt-5.3-codex"
 
 [codex.prompts]
 enabled = false
@@ -175,7 +175,7 @@ enabled = true
       const result = parseSpaceToml(toml)
 
       expect(result.harness?.supports).toEqual(['codex'])
-      expect(result.codex?.model).toBe('gpt-5.2-codex')
+      expect(result.codex?.model).toBe('gpt-5.3-codex')
       expect(result.codex?.prompts?.enabled).toBe(false)
       expect(result.codex?.skills?.enabled).toBe(true)
       expect(result.codex?.config?.['features.web_search_request']).toBe(false)

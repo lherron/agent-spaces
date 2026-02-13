@@ -213,7 +213,7 @@ describe('CodexAdapter', () => {
         ],
         settingsInputs: [],
         codexOptions: {
-          model: 'gpt-5.2-codex',
+          model: 'gpt-5.3-codex',
           approval_policy: 'on-request',
           sandbox_mode: 'danger-full-access',
           profile: 'default',
@@ -241,7 +241,7 @@ describe('CodexAdapter', () => {
       const parsed = TOML.parse(configRaw) as Record<string, unknown>
       expect(parsed['approval_policy']).toBe('on-request')
       expect(parsed['sandbox_mode']).toBe('danger-full-access')
-      expect(parsed['model']).toBe('gpt-5.2-codex')
+      expect(parsed['model']).toBe('gpt-5.3-codex')
       expect(parsed['profile']).toBe('default')
 
       const mcpServers = parsed['mcp_servers'] as Record<string, Record<string, unknown>>

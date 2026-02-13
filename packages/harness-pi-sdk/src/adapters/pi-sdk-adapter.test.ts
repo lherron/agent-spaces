@@ -85,7 +85,7 @@ describe('PiSdkAdapter', () => {
   })
 
   describe('buildRunArgs', () => {
-    test('uses default model openai-codex:gpt-5.2-codex when no model specified', async () => {
+    test('uses default model openai-codex:gpt-5.3-codex when no model specified', async () => {
       const outputDir = join(tmpDir, 'output')
       await mkdir(join(outputDir, 'extensions'), { recursive: true })
       await writeFile(
@@ -111,7 +111,7 @@ describe('PiSdkAdapter', () => {
       const args = adapter.buildRunArgs(bundle, {})
       expect(args).toContain('--model')
       const modelIndex = args.indexOf('--model')
-      expect(args[modelIndex + 1]).toBe('openai-codex:gpt-5.2-codex')
+      expect(args[modelIndex + 1]).toBe('openai-codex:gpt-5.3-codex')
     })
 
     test('uses custom model when specified', async () => {

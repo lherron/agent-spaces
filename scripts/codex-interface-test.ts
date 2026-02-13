@@ -57,7 +57,7 @@ function printUsage(): void {
       '  --asp-home <path>           ASP_HOME for materialization (default: $ASP_HOME or /tmp/asp-codex-test)',
       '  --cwd <path>                Working directory for the run (default: targetDir or cwd)',
       '  --frontend <id>             Frontend id: codex-cli or claude-code (default: codex-cli)',
-      '  --model <id>                Model id (default: gpt-5.2-codex for codex-cli)',
+      '  --model <id>                Model id (default: gpt-5.3-codex for codex-cli)',
       '  --continuation-key <key>    Resume with continuation key (optional)',
       '  --cp-session-id <id>        CP session id (optional)',
       '  --interaction-mode <mode>   interactive or headless (default: headless)',

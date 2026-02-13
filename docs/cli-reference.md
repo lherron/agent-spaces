@@ -5,7 +5,7 @@
 - JSON streaming: `codex exec --json "..."` outputs JSON Lines events to stdout.
 - Structured output: `codex exec --output-schema ./schema.json -o ./output.json "..."`.
 - Final message is written to stdout; streaming activity goes to stderr.
-- Model override: `codex exec -m gpt-5.2-codex -c model_reasoning_effort=xhigh "..."`.
+- Model override: `codex exec -m gpt-5.3-codex -c model_reasoning_effort=xhigh "..."`.
 - Resume session: `codex resume` (picker) or `codex resume --last` (most recent).
 
 ## Claude Code
