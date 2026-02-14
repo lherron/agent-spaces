@@ -379,7 +379,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       permissionMode: options.permissionMode,
       settingSources,
       debug: options.debug,
-      model: options.model,
+      model: options.model ?? 'opus',
       args: extraArgs,
     })
   }

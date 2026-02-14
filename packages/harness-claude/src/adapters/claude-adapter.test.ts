@@ -618,6 +618,20 @@ paths = ["/var/log"]
       expect(args).toContain('/path/to/settings.json')
     })
 
+    test('defaults to opus model when no model specified', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'test',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      const args = adapter.buildRunArgs(bundle, {})
+
+      expect(args).toContain('--model')
+      expect(args).toContain('opus')
+    })
+
     test('builds args with model override', () => {
       const bundle = {
         harnessId: 'claude' as const,
@@ -626,10 +640,10 @@ paths = ["/var/log"]
         pluginDirs: [],
       }
 
-      const args = adapter.buildRunArgs(bundle, { model: 'opus' })
+      const args = adapter.buildRunArgs(bundle, { model: 'sonnet' })
 
       expect(args).toContain('--model')
-      expect(args).toContain('opus')
+      expect(args).toContain('sonnet')
     })
 
     test('includes extra args', () => {
