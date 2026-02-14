@@ -145,6 +145,11 @@ export interface UnifiedSession {
   readonly kind: SessionKind
   start(): Promise<void>
   stop(reason?: string): Promise<void>
+  /**
+   * Interrupt the currently active turn without shutting down the full session.
+   * Implementations may omit this when unsupported.
+   */
+  interrupt?(reason?: string): Promise<void>
   isHealthy(): boolean
   getState(): UnifiedSessionState
   sendPrompt(text: string, options?: PromptOptions): Promise<void>

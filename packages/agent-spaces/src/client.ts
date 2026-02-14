@@ -44,11 +44,15 @@ import type {
   HarnessCapabilities,
   HarnessContinuationRef,
   HarnessFrontend,
+  InterruptInFlightTurnRequest,
   ProcessInvocationSpec,
   ProviderDomain,
+  QueueInFlightInputRequest,
+  QueueInFlightInputResponse,
   ResolveRequest,
   ResolveResponse,
   RunResult,
+  RunTurnInFlightRequest,
   RunTurnNonInteractiveRequest,
   RunTurnNonInteractiveResponse,
   SpaceSpec,
@@ -195,6 +199,30 @@ interface ModelInfo {
 }
 
 type EventPayload = Omit<AgentEvent, 'ts' | 'seq' | 'cpSessionId' | 'runId' | 'continuation'>
+type EventEmitter = ReturnType<typeof createEventEmitter>
+
+interface InFlightRunContext {
+  cpSessionId: string
+  runId: string
+  provider: ProviderDomain
+  frontend: 'agent-sdk' | 'pi-sdk'
+  model?: string | undefined
+  session: UnifiedSession
+  eventEmitter: EventEmitter
+  assistantState: { assistantBuffer: string; lastAssistantText?: string | undefined }
+  allowSessionIdUpdate: boolean
+  continuationKey?: string | undefined
+  outstandingTurns: number
+  started: Promise<void>
+  completion:
+    | {
+        done: false
+        resolve: (value: RunTurnNonInteractiveResponse) => void
+        reject: (error: unknown) => void
+      }
+    | { done: true }
+  sendChain: Promise<void>
+}
 
 // ---------------------------------------------------------------------------
 // Helpers: spec validation
@@ -747,6 +775,87 @@ function formatDisplayCommand(
 // ---------------------------------------------------------------------------
 
 export function createAgentSpacesClient(): AgentSpacesClient {
+  const inFlightRuns = new Map<string, InFlightRunContext>()
+
+  const buildInFlightResponse = (
+    context: InFlightRunContext,
+    result: RunResult
+  ): RunTurnNonInteractiveResponse => {
+    const continuation: HarnessContinuationRef | undefined = context.continuationKey
+      ? { provider: context.provider, key: context.continuationKey }
+      : undefined
+
+    return {
+      ...(continuation ? { continuation } : {}),
+      provider: context.provider,
+      frontend: context.frontend,
+      model: context.model,
+      result,
+    }
+  }
+
+  const completeInFlightSuccess = async (
+    context: InFlightRunContext
+  ): Promise<RunTurnNonInteractiveResponse> => {
+    const finalOutput = context.assistantState.lastAssistantText
+    const result: RunResult = { success: true, ...(finalOutput ? { finalOutput } : {}) }
+    await context.eventEmitter.emit({ type: 'state', state: 'complete' } as EventPayload)
+    await context.eventEmitter.emit({ type: 'complete', result } as EventPayload)
+    return buildInFlightResponse(context, result)
+  }
+
+  const completeInFlightFailure = async (
+    context: InFlightRunContext,
+    error: unknown,
+    code?: AgentSpacesError['code']
+  ): Promise<RunTurnNonInteractiveResponse> => {
+    const result: RunResult = {
+      success: false,
+      error: toAgentSpacesError(error, code),
+    }
+    await context.eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+    await context.eventEmitter.emit({ type: 'complete', result } as EventPayload)
+    return buildInFlightResponse(context, result)
+  }
+
+  const resolveInFlight = (
+    context: InFlightRunContext,
+    response: RunTurnNonInteractiveResponse
+  ): void => {
+    if (context.completion.done) return
+    context.completion.resolve(response)
+    context.completion = { done: true }
+  }
+
+  const rejectInFlight = (context: InFlightRunContext, error: unknown): void => {
+    if (context.completion.done) return
+    context.completion.reject(error)
+    context.completion = { done: true }
+  }
+
+  const enqueueInFlightPrompt = (
+    context: InFlightRunContext,
+    prompt: string,
+    attachments: string[] | undefined
+  ): Promise<void> => {
+    context.outstandingTurns += 1
+    const attachmentRefs = attachments?.map((path) => ({
+      kind: 'file' as const,
+      path,
+      filename: basename(path),
+    }))
+
+    context.sendChain = context.sendChain.then(async () => {
+      await context.started
+      await context.session.sendPrompt(prompt, {
+        ...(attachmentRefs ? { attachments: attachmentRefs } : {}),
+        runId: context.runId,
+      })
+    })
+
+    return context.sendChain
+  }
+
   return {
     async resolve(req: ResolveRequest): Promise<ResolveResponse> {
       return withAspHome(req.aspHome, async () => {
@@ -931,6 +1040,291 @@ export function createAgentSpacesClient(): AgentSpacesClient {
 
         return { spec: invocationSpec, ...(warnings.length > 0 ? { warnings } : {}) }
       })
+    },
+
+    async runTurnInFlight(req: RunTurnInFlightRequest): Promise<RunTurnNonInteractiveResponse> {
+      return withAspHome(req.aspHome, async () => {
+        const frontendDef = resolveFrontend(req.frontend)
+        const eventEmitter = createEventEmitter(
+          req.callbacks.onEvent,
+          { cpSessionId: req.cpSessionId, runId: req.runId },
+          req.continuation
+        )
+
+        if (frontendDef.frontend !== AGENT_SDK_FRONTEND) {
+          const result: RunResult = {
+            success: false,
+            error: toAgentSpacesError(
+              new CodedError(
+                `In-flight input is only supported for frontend "${AGENT_SDK_FRONTEND}"`,
+                'unsupported_frontend'
+              )
+            ),
+          }
+          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+          return {
+            provider: frontendDef.provider,
+            frontend: req.frontend,
+            model: req.model,
+            result,
+          }
+        }
+
+        if (inFlightRuns.has(req.cpSessionId)) {
+          const result: RunResult = {
+            success: false,
+            error: toAgentSpacesError(
+              new Error(`In-flight run already active for cpSessionId ${req.cpSessionId}`)
+            ),
+          }
+          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+          return {
+            provider: frontendDef.provider,
+            frontend: req.frontend,
+            model: req.model,
+            result,
+          }
+        }
+
+        let spec: ValidatedSpec
+        let modelResolution: ReturnType<typeof resolveModel>
+        const continuationKey = req.continuation?.key
+
+        try {
+          spec = validateSpec(req.spec)
+          if (!isAbsolute(req.cwd)) {
+            throw new Error('cwd must be an absolute path')
+          }
+          validateProviderMatch(frontendDef, req.continuation)
+          modelResolution = resolveModel(frontendDef, req.model)
+        } catch (error) {
+          const result: RunResult = { success: false, error: toAgentSpacesError(error) }
+          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+          return {
+            provider: frontendDef.provider,
+            frontend: req.frontend,
+            model: req.model,
+            result,
+          }
+        }
+
+        if (continuationKey) {
+          eventEmitter.setContinuation({
+            provider: frontendDef.provider,
+            key: continuationKey,
+          })
+        }
+
+        await eventEmitter.emit({ type: 'state', state: 'running' } as EventPayload)
+        await eventEmitter.emit({
+          type: 'message',
+          role: 'user',
+          content: req.prompt,
+        } as EventPayload)
+
+        if (!modelResolution.ok) {
+          const error = toAgentSpacesError(
+            new Error(
+              `Model not supported for frontend ${frontendDef.frontend}: ${modelResolution.modelId}`
+            ),
+            'model_not_supported'
+          )
+          const result: RunResult = { success: false, error }
+          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+          return {
+            provider: frontendDef.provider,
+            frontend: req.frontend,
+            model: modelResolution.modelId,
+            result,
+          }
+        }
+
+        const permissionHandler = buildAutoPermissionHandler()
+        let session: UnifiedSession | undefined
+        let context: InFlightRunContext | undefined
+
+        try {
+          const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId)
+          const restoreEnv = applyEnvOverlay({ ...(req.env ?? {}) })
+
+          try {
+            const plugins = materialized.materialization.pluginDirs.map((dir) => ({
+              type: 'local' as const,
+              path: dir,
+            }))
+
+            session = createSession({
+              kind: 'agent-sdk',
+              sessionId: continuationKey ?? req.cpSessionId,
+              cwd: req.cwd,
+              model: normalizeAgentSdkModel(modelResolution.info.model),
+              plugins,
+              permissionHandler,
+              ...(continuationKey ? { resume: continuationKey } : {}),
+            })
+
+            const completionPromise = new Promise<RunTurnNonInteractiveResponse>(
+              (resolve, reject) => {
+                const started = session!.start()
+                const assistantState: {
+                  assistantBuffer: string
+                  lastAssistantText?: string | undefined
+                } = { assistantBuffer: '' }
+
+                context = {
+                  cpSessionId: req.cpSessionId,
+                  runId: req.runId,
+                  provider: frontendDef.provider,
+                  frontend: req.frontend,
+                  model: modelResolution.info.effectiveModel,
+                  session: session!,
+                  eventEmitter,
+                  assistantState,
+                  allowSessionIdUpdate: true,
+                  continuationKey,
+                  outstandingTurns: 0,
+                  started,
+                  completion: { done: false, resolve, reject },
+                  sendChain: Promise.resolve(),
+                }
+
+                inFlightRuns.set(req.cpSessionId, context)
+
+                session!.onEvent((event: UnifiedSessionEvent) => {
+                  if (!context || context.completion.done) return
+
+                  const mapped = mapUnifiedEvents(
+                    event,
+                    (mappedEvent) => {
+                      void context?.eventEmitter.emit(mappedEvent)
+                    },
+                    (key) => {
+                      if (!context) return
+                      context.continuationKey = key
+                      context.eventEmitter.setContinuation({
+                        provider: frontendDef.provider,
+                        key,
+                      })
+                    },
+                    context.assistantState,
+                    { allowSessionIdUpdate: context.allowSessionIdUpdate }
+                  )
+
+                  if (!mapped.turnEnded) return
+
+                  context.outstandingTurns = Math.max(0, context.outstandingTurns - 1)
+                  if (context.outstandingTurns !== 0) return
+
+                  void completeInFlightSuccess(context)
+                    .then((response) => resolveInFlight(context!, response))
+                    .catch((error) => rejectInFlight(context!, error))
+                })
+
+                void started.catch((error) => {
+                  if (!context || context.completion.done) return
+                  const activeContext = context
+                  void completeInFlightFailure(activeContext, error, 'resolve_failed')
+                    .then((response) => resolveInFlight(activeContext, response))
+                    .catch((failureError) => rejectInFlight(activeContext, failureError))
+                })
+
+                void enqueueInFlightPrompt(context, req.prompt, req.attachments).catch((error) => {
+                  if (!context || context.completion.done) return
+                  const activeContext = context
+                  activeContext.outstandingTurns = Math.max(0, activeContext.outstandingTurns - 1)
+                  void completeInFlightFailure(activeContext, error, 'resolve_failed')
+                    .then((response) => resolveInFlight(activeContext, response))
+                    .catch((failureError) => rejectInFlight(activeContext, failureError))
+                })
+              }
+            )
+
+            return await completionPromise
+          } finally {
+            inFlightRuns.delete(req.cpSessionId)
+            if (session) {
+              try {
+                await session.stop('complete')
+              } catch {
+                // Ignore cleanup failures.
+              }
+            }
+            restoreEnv()
+            await eventEmitter.idle()
+          }
+        } catch (error) {
+          if (context && !context.completion.done) {
+            const response = await completeInFlightFailure(context, error, 'resolve_failed')
+            resolveInFlight(context, response)
+            return response
+          }
+
+          const result: RunResult = {
+            success: false,
+            error: toAgentSpacesError(error, 'resolve_failed'),
+          }
+          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+          return {
+            provider: frontendDef.provider,
+            frontend: req.frontend,
+            model: modelResolution.ok ? modelResolution.info.effectiveModel : req.model,
+            result,
+          }
+        }
+      })
+    },
+
+    async queueInFlightInput(req: QueueInFlightInputRequest): Promise<QueueInFlightInputResponse> {
+      const context = inFlightRuns.get(req.cpSessionId)
+      if (!context) {
+        throw new Error(`No active in-flight run for cpSessionId ${req.cpSessionId}`)
+      }
+      if (context.runId !== req.runId) {
+        throw new Error(
+          `Active in-flight run mismatch for cpSessionId ${req.cpSessionId}: expected ${context.runId}, got ${req.runId}`
+        )
+      }
+      if (context.completion.done) {
+        throw new Error(`In-flight run ${req.runId} is already completed`)
+      }
+
+      await context.eventEmitter.emit({
+        type: 'message',
+        role: 'user',
+        content: req.prompt,
+      } as EventPayload)
+
+      await enqueueInFlightPrompt(context, req.prompt, req.attachments)
+      return { accepted: true, pendingTurns: context.outstandingTurns }
+    },
+
+    async interruptInFlightTurn(req: InterruptInFlightTurnRequest): Promise<void> {
+      const context = inFlightRuns.get(req.cpSessionId)
+      if (!context) {
+        throw new Error(`No active in-flight run for cpSessionId ${req.cpSessionId}`)
+      }
+      if (req.runId && context.runId !== req.runId) {
+        throw new Error(
+          `Active in-flight run mismatch for cpSessionId ${req.cpSessionId}: expected ${context.runId}, got ${req.runId}`
+        )
+      }
+      if (context.completion.done) {
+        return
+      }
+
+      const interruptable = context.session as { interrupt?: (reason?: string) => Promise<void> }
+      if (typeof interruptable.interrupt === 'function') {
+        await interruptable.interrupt(req.reason)
+        return
+      }
+
+      // Fallback: hard-stop when an interrupt primitive is unavailable.
+      await context.session.stop(req.reason ?? 'interrupt')
     },
 
     async runTurnNonInteractive(

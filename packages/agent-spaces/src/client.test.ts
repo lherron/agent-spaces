@@ -619,3 +619,53 @@ describe('runTurnNonInteractive', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// runTurnInFlight + in-flight controls
+// ---------------------------------------------------------------------------
+
+describe('runTurnInFlight', () => {
+  test('returns unsupported_frontend for non-agent-sdk frontends', async () => {
+    const events: Array<{ type: string }> = []
+
+    const response = await client.runTurnInFlight({
+      cpSessionId: 'inflight-unsupported',
+      runId: 'run-inflight-unsupported',
+      aspHome: '/tmp/asp-test',
+      spec: { spaces: ['space:base@dev'] },
+      frontend: 'pi-sdk',
+      model: 'openai-codex/gpt-5.3-codex',
+      cwd: '/tmp',
+      prompt: 'Hello',
+      callbacks: {
+        onEvent: (event) => {
+          events.push({ type: event.type })
+        },
+      },
+    })
+
+    expect(response.result.success).toBe(false)
+    expect(response.result.error?.code).toBe('unsupported_frontend')
+    expect(events.map((e) => e.type)).toEqual(['state', 'complete'])
+  })
+})
+
+describe('in-flight control methods', () => {
+  test('queueInFlightInput throws when no active run exists', async () => {
+    await expect(
+      client.queueInFlightInput({
+        cpSessionId: 'missing-session',
+        runId: 'missing-run',
+        prompt: 'hello',
+      })
+    ).rejects.toThrow(/No active in-flight run/)
+  })
+
+  test('interruptInFlightTurn throws when no active run exists', async () => {
+    await expect(
+      client.interruptInFlightTurn({
+        cpSessionId: 'missing-session',
+      })
+    ).rejects.toThrow(/No active in-flight run/)
+  })
+})

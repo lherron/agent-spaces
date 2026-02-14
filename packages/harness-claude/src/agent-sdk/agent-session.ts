@@ -64,7 +64,7 @@ export class AgentSession implements UnifiedSession {
   private stopReason: string | undefined
   private stopEmitted = false
   private turnCounter = 0
-  private currentTurnId: string | undefined
+  private pendingTurnIds: string[] = []
   private readonly toolUses = new Map<string, { name: string; input: unknown }>()
   private toolUseCounter = 0
   private stopResolve?: () => void
@@ -161,9 +161,29 @@ export class AgentSession implements UnifiedSession {
     }
     this.lastActivityAt = Date.now()
     this.stopEmitted = false
-    this.currentTurnId = `turn-${++this.turnCounter}`
-    this.emitEvent({ type: 'turn_start', turnId: this.currentTurnId })
+    const turnId = `turn-${++this.turnCounter}`
+    this.pendingTurnIds.push(turnId)
+    this.emitEvent({ type: 'turn_start', turnId })
     this.promptQueue.push(content)
+  }
+
+  /**
+   * Interrupt the currently active turn while keeping the session alive.
+   */
+  async interrupt(_reason?: string): Promise<void> {
+    if (this.state !== 'running') return
+    this.lastActivityAt = Date.now()
+
+    if (!this.sdkQuery) return
+    try {
+      await this.sdkQuery.interrupt()
+    } catch (error) {
+      console.error(
+        `[agent-sdk] Failed to interrupt turn for session ${this.config.ownerId}:`,
+        error
+      )
+      throw error
+    }
   }
 
   /**
@@ -378,9 +398,9 @@ export class AgentSession implements UnifiedSession {
   }
 
   private emitTurnEndIfNeeded(): void {
-    if (!this.currentTurnId) return
-    this.emitEvent({ type: 'turn_end', turnId: this.currentTurnId })
-    this.currentTurnId = undefined
+    const turnId = this.pendingTurnIds.shift()
+    if (!turnId) return
+    this.emitEvent({ type: 'turn_end', turnId })
   }
 
   private handleSdkMessage(msg: Record<string, unknown>, msgType: string | undefined): void {

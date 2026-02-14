@@ -87,6 +87,31 @@ export interface RunTurnNonInteractiveResponse {
   result: RunResult
 }
 
+/**
+ * In-flight turn execution request.
+ * Uses the same payload shape as non-interactive turns, but allows additional
+ * user messages to be queued/interrupts to be applied while the run is active.
+ */
+export interface RunTurnInFlightRequest extends RunTurnNonInteractiveRequest {}
+
+export interface QueueInFlightInputRequest {
+  cpSessionId: string
+  runId: string
+  prompt: string
+  attachments?: string[] | undefined
+}
+
+export interface QueueInFlightInputResponse {
+  accepted: boolean
+  pendingTurns: number
+}
+
+export interface InterruptInFlightTurnRequest {
+  cpSessionId: string
+  runId?: string | undefined
+  reason?: string | undefined
+}
+
 // ---------------------------------------------------------------------------
 // Request/Response: CLI invocation preparation (spec §3.3)
 // ---------------------------------------------------------------------------
@@ -230,6 +255,9 @@ export type AgentEvent =
 
 export interface AgentSpacesClient {
   runTurnNonInteractive(req: RunTurnNonInteractiveRequest): Promise<RunTurnNonInteractiveResponse>
+  runTurnInFlight(req: RunTurnInFlightRequest): Promise<RunTurnNonInteractiveResponse>
+  queueInFlightInput(req: QueueInFlightInputRequest): Promise<QueueInFlightInputResponse>
+  interruptInFlightTurn(req: InterruptInFlightTurnRequest): Promise<void>
   buildProcessInvocationSpec(
     req: BuildProcessInvocationSpecRequest
   ): Promise<BuildProcessInvocationSpecResponse>
