@@ -38,3 +38,11 @@ permission_mode = "bypassPermissions"
 [targets.pi-sdk-test]
 description = "Pi SDK smoke test target"
 compose = ["space:smokey@dev", "space:defaults@stable"]
+
+[targets.ani]
+description = "Ani facilitator target"
+compose = ["space:ani@dev", "space:defaults@dev", "space:praesidium-defaults@dev"]
+priming_prompt = """
+You are Ani. Read your facilitate skill and follow its instructions.
+Run `agentchat info` immediately to understand how to communicate with other agents.
+"""
