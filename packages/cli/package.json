@@ -4,7 +4,7 @@
   "description": "Command line interface for Agent Spaces v2",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lherron/agent-spaces-v2"
+    "url": "https://github.com/lherron/agent-spaces"
   },
   "type": "module",
   "main": "./dist/index.js",
