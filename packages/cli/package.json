@@ -1,6 +1,6 @@
 {
   "name": "@lherron/agent-spaces",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Command line interface for Agent Spaces v2",
   "repository": {
     "type": "git",
@@ -49,12 +49,17 @@
     "./lint": {
       "types": "./lint.d.ts",
       "import": "./lint.js"
+    },
+    "./runtime": {
+      "types": "./runtime.d.ts",
+      "import": "./runtime.js"
     }
   },
   "files": [
     "dist",
     "bin",
     "node_modules/spaces-*",
+    "node_modules/agent-spaces",
     "core.js",
     "core.d.ts",
     "resolver.js",
@@ -70,7 +75,9 @@
     "claude.js",
     "claude.d.ts",
     "lint.js",
-    "lint.d.ts"
+    "lint.d.ts",
+    "runtime.js",
+    "runtime.d.ts"
   ],
   "bundledDependencies": [
     "agent-spaces",

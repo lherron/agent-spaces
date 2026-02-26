@@ -251,8 +251,12 @@ export interface ComposedTargetBundle {
 
 /** Options for building run arguments */
 export interface HarnessRunOptions {
+  /** ASP_HOME location for harnesses that need persistent runtime state */
+  aspHome?: string | undefined
   /** Model override */
   model?: string | undefined
+  /** Codex runtime home directory (CODEX_HOME) override */
+  codexHomeDir?: string | undefined
   /** Codex approval policy override */
   approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
   /** Codex sandbox mode override */
