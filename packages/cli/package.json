@@ -1,6 +1,6 @@
 {
   "name": "@lherron/agent-spaces",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Command line interface for Agent Spaces v2",
   "repository": {
     "type": "git",
@@ -79,10 +79,25 @@
     "runtime.js",
     "runtime.d.ts"
   ],
+  "bundleDependencies": [
+    "agent-spaces",
+    "spaces-config",
+    "spaces-execution",
+    "spaces-runtime",
+    "spaces-harness-claude",
+    "spaces-harness-codex",
+    "spaces-harness-pi",
+    "spaces-harness-pi-sdk"
+  ],
   "bundledDependencies": [
     "agent-spaces",
     "spaces-config",
-    "spaces-execution"
+    "spaces-execution",
+    "spaces-runtime",
+    "spaces-harness-claude",
+    "spaces-harness-codex",
+    "spaces-harness-pi",
+    "spaces-harness-pi-sdk"
   ],
   "scripts": {
     "build": "tsc",
@@ -96,6 +111,11 @@
     "agent-spaces": "*",
     "spaces-config": "*",
     "spaces-execution": "*",
+    "spaces-runtime": "*",
+    "spaces-harness-claude": "*",
+    "spaces-harness-codex": "*",
+    "spaces-harness-pi": "*",
+    "spaces-harness-pi-sdk": "*",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
     "figures": "^6.1.0",
