@@ -189,6 +189,8 @@ describe('asp codex harness', () => {
     expect(exitCode).toBe(0)
     expect(stdout).toContain('CODEX_HOME=')
     expect(stdout).toContain('codex')
+    expect(stdout).toContain('codex.runtime')
+    expect(stdout).not.toContain('codex.home')
     expect(stdout).toContain('--model gpt-5.3-codex')
   })
 
@@ -241,6 +243,8 @@ describe('asp codex harness', () => {
     expect(exitCode).toBe(0)
     expect(stdout).toContain('CODEX_HOME=')
     expect(stdout).toContain('codex')
+    expect(stdout).toContain(`${aspHome}/codex-homes/`)
+    expect(stdout).not.toContain('/tmp/run-')
   })
 
   test('build --harness codex completes', async () => {

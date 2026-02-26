@@ -725,8 +725,8 @@ export class CodexAdapter implements HarnessAdapter {
     }
   }
 
-  getRunEnv(bundle: ComposedTargetBundle, _options: HarnessRunOptions): Record<string, string> {
-    return { CODEX_HOME: bundle.codex?.homeTemplatePath ?? bundle.rootDir }
+  getRunEnv(bundle: ComposedTargetBundle, options: HarnessRunOptions): Record<string, string> {
+    return { CODEX_HOME: options.codexHomeDir ?? bundle.codex?.homeTemplatePath ?? bundle.rootDir }
   }
 
   getDefaultRunOptions(manifest: ProjectManifest, targetName: string): Partial<HarnessRunOptions> {

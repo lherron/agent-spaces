@@ -9,8 +9,19 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readlink,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
+import { join, relative, resolve } from 'node:path'
 
 import {
   type ComposeTargetInput,
@@ -44,7 +55,7 @@ import type { LintWarning } from 'spaces-config'
 
 import { computeClosure, generateLockFileForTarget } from 'spaces-config'
 
-import { PathResolver, createSnapshot, ensureDir, getAspHome } from 'spaces-config'
+import { PathResolver, copyDir, createSnapshot, ensureDir, getAspHome } from 'spaces-config'
 
 import type { BuildResult } from 'spaces-config'
 import { type ResolveOptions, install as configInstall, loadProjectManifest } from 'spaces-config'
@@ -185,6 +196,118 @@ interface ExecuteHarnessResult {
   eventsPath?: string | undefined
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isWithinPath(path: string, parent: string): boolean {
+  const rel = relative(resolve(parent), resolve(path))
+  return rel !== '' && !rel.startsWith('..') && !rel.startsWith('/')
+}
+
+function computeCodexRuntimeKey(targetName: string, cwd: string): string {
+  return createHash('sha256')
+    .update(`codex-runtime-v1\0${targetName}\0${resolve(cwd)}`)
+    .digest('hex')
+    .slice(0, 24)
+}
+
+function resolveCodexRuntimeHomePath(
+  bundle: ComposedTargetBundle,
+  runOptions: HarnessRunOptions
+): string {
+  if (runOptions.projectPath) {
+    const aspModulesDir = getAspModulesPath(runOptions.projectPath)
+    if (isWithinPath(bundle.rootDir, aspModulesDir)) {
+      return join(bundle.rootDir, 'codex.runtime')
+    }
+  }
+
+  const aspHome = runOptions.aspHome ?? getAspHome()
+  const cwd = runOptions.cwd ?? runOptions.projectPath ?? process.cwd()
+  const key = computeCodexRuntimeKey(bundle.targetName, cwd)
+  return join(aspHome, 'codex-homes', key, 'home')
+}
+
+async function syncManagedFile(
+  templateHome: string,
+  runtimeHome: string,
+  relativePath: string
+): Promise<void> {
+  const srcPath = join(templateHome, relativePath)
+  const destPath = join(runtimeHome, relativePath)
+
+  if (!(await pathExists(srcPath))) {
+    await rm(destPath, { recursive: true, force: true })
+    return
+  }
+
+  const srcStat = await lstat(srcPath)
+  await rm(destPath, { recursive: true, force: true })
+
+  if (srcStat.isSymbolicLink()) {
+    const target = await readlink(srcPath)
+    await symlink(target, destPath)
+    return
+  }
+
+  await copyFile(srcPath, destPath)
+}
+
+async function syncManagedDir(
+  templateHome: string,
+  runtimeHome: string,
+  relativePath: string
+): Promise<void> {
+  const srcPath = join(templateHome, relativePath)
+  const destPath = join(runtimeHome, relativePath)
+
+  if (!(await pathExists(srcPath))) {
+    await rm(destPath, { recursive: true, force: true })
+    return
+  }
+
+  await rm(destPath, { recursive: true, force: true })
+  await copyDir(srcPath, destPath, { useHardlinks: false })
+}
+
+async function prepareCodexRuntimeHome(
+  bundle: ComposedTargetBundle,
+  runOptions: HarnessRunOptions
+): Promise<string> {
+  const templateHome = bundle.codex?.homeTemplatePath ?? join(bundle.rootDir, 'codex.home')
+  const runtimeHome = resolveCodexRuntimeHomePath(bundle, runOptions)
+  await mkdir(runtimeHome, { recursive: true })
+
+  await syncManagedFile(templateHome, runtimeHome, 'AGENTS.md')
+  await syncManagedFile(templateHome, runtimeHome, 'config.toml')
+  await syncManagedFile(templateHome, runtimeHome, 'mcp.json')
+  await syncManagedFile(templateHome, runtimeHome, 'manifest.json')
+  await syncManagedFile(templateHome, runtimeHome, 'auth.json')
+  await syncManagedDir(templateHome, runtimeHome, 'skills')
+  await syncManagedDir(templateHome, runtimeHome, 'prompts')
+
+  return runtimeHome
+}
+
+async function prepareRunOptions(
+  adapter: HarnessAdapter,
+  bundle: ComposedTargetBundle,
+  runOptions: HarnessRunOptions
+): Promise<HarnessRunOptions> {
+  if (adapter.id !== 'codex') {
+    return runOptions
+  }
+
+  const codexHomeDir = await prepareCodexRuntimeHome(bundle, runOptions)
+  return { ...runOptions, codexHomeDir }
+}
+
 /**
  * Execute a generic harness command (non-Claude).
  */
@@ -260,10 +383,11 @@ async function executeHarnessRun(
     })
   }
 
-  const args = adapter.buildRunArgs(bundle, runOptions)
+  const preparedRunOptions = await prepareRunOptions(adapter, bundle, runOptions)
+  const args = adapter.buildRunArgs(bundle, preparedRunOptions)
   const harnessEnv: Record<string, string> = {
     ...(options.env ?? {}),
-    ...adapter.getRunEnv(bundle, runOptions),
+    ...adapter.getRunEnv(bundle, preparedRunOptions),
   }
 
   const commandPath = detection.path ?? adapter.id
@@ -278,15 +402,15 @@ async function executeHarnessRun(
     harness: adapter.id,
     target: bundle.targetName,
     pid: process.pid,
-    cwd: runOptions.cwd ?? runOptions.projectPath,
+    cwd: preparedRunOptions.cwd ?? preparedRunOptions.projectPath,
   })
 
   console.log(`\x1b[90m$ ${command}\x1b[0m`)
   console.log('')
 
   const { exitCode, stdout, stderr } = await executeHarnessCommand(commandPath, args, {
-    interactive: runOptions.interactive,
-    cwd: runOptions.cwd ?? runOptions.projectPath,
+    interactive: preparedRunOptions.interactive,
+    cwd: preparedRunOptions.cwd ?? preparedRunOptions.projectPath,
     env: harnessEnv,
   })
 
@@ -307,7 +431,7 @@ async function executeHarnessRun(
     exitCode,
     command,
     invocation:
-      runOptions.interactive === false
+      preparedRunOptions.interactive === false
         ? {
             exitCode,
             stdout,
@@ -439,6 +563,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const primingPrompt = manifest.targets[targetName]?.priming_prompt
   const effectivePrompt = combinePrompts(defaults.prompt ?? primingPrompt, options.prompt)
   const cliRunOptions: HarnessRunOptions = {
+    aspHome: options.aspHome,
     model: options.model,
     extraArgs: options.extraArgs,
     interactive: resolveInteractive(options.interactive),
@@ -707,6 +832,7 @@ export async function runGlobalSpace(
     })
 
     const cliRunOptions: HarnessRunOptions = {
+      aspHome,
       model: options.model,
       extraArgs: options.extraArgs,
       interactive: resolveInteractive(options.interactive),
@@ -829,6 +955,7 @@ export async function runLocalSpace(
     })
 
     const cliRunOptions: HarnessRunOptions = {
+      aspHome,
       model: options.model,
       extraArgs: options.extraArgs,
       interactive: resolveInteractive(options.interactive),

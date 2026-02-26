@@ -295,4 +295,27 @@ describe('CodexAdapter', () => {
       expect(defaults.prompt).toBe('Register and send READY')
     })
   })
+
+  describe('getRunEnv', () => {
+    test('uses provided codexHomeDir when set', () => {
+      const env = adapter.getRunEnv(
+        {
+          harnessId: 'codex',
+          targetName: 'test-target',
+          rootDir: '/tmp/output',
+          pluginDirs: ['/tmp/output/codex.home'],
+          codex: {
+            homeTemplatePath: '/tmp/output/codex.home',
+            configPath: '/tmp/output/codex.home/config.toml',
+            agentsPath: '/tmp/output/codex.home/AGENTS.md',
+            skillsDir: '/tmp/output/codex.home/skills',
+            promptsDir: '/tmp/output/codex.home/prompts',
+          },
+        },
+        { codexHomeDir: '/tmp/output/codex.runtime' }
+      )
+
+      expect(env['CODEX_HOME']).toBe('/tmp/output/codex.runtime')
+    })
+  })
 })
