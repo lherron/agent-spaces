@@ -68,6 +68,7 @@ export {
   getTargetNames as getProjectTargetNames,
   mergeClaudeOptions,
   mergeCodexOptions,
+  mergeManifests,
 } from './targets.js'
 
 // Dist-tags types

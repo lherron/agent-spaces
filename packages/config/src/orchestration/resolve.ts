@@ -8,6 +8,7 @@
 import * as path from 'node:path'
 
 import {
+  ConfigParseError,
   LOCK_FILENAME,
   type LockFile,
   type ProjectManifest,
@@ -16,6 +17,7 @@ import {
   getProjectTargetNames,
   getTarget,
   lockFileExists,
+  mergeManifests,
   readLockJson,
   readTargetsToml,
 } from '../core/index.js'
@@ -82,11 +84,32 @@ export function getRegistryPath(options: ResolveOptions): string {
 }
 
 /**
+ * Load default manifest from $ASP_HOME/default-targets.toml.
+ *
+ * Returns null if the file does not exist (no error).
+ */
+export async function loadDefaultManifest(): Promise<ProjectManifest | null> {
+  const aspHome = getAspHome()
+  const defaultPath = path.join(aspHome, 'default-targets.toml')
+  try {
+    return await readTargetsToml(defaultPath)
+  } catch (err) {
+    if (err instanceof ConfigParseError && err.message.includes('File not found')) {
+      return null
+    }
+    throw err
+  }
+}
+
+/**
  * Load project manifest from a directory.
+ * Merges with $ASP_HOME/default-targets.toml if it exists.
  */
 export async function loadProjectManifest(projectPath: string): Promise<ProjectManifest> {
   const targetsPath = path.join(projectPath, TARGETS_FILENAME)
-  return readTargetsToml(targetsPath)
+  const projectManifest = await readTargetsToml(targetsPath)
+  const defaults = await loadDefaultManifest()
+  return mergeManifests(defaults, projectManifest)
 }
 
 /**

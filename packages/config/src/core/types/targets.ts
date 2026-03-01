@@ -139,6 +139,34 @@ export function getEffectiveClaudeOptions(
   return mergeClaudeOptions(manifest.claude, target.claude)
 }
 
+/**
+ * Merge two project manifests (defaults under project).
+ *
+ * - Targets: spread defaults.targets under project.targets (project wins entirely per target name)
+ * - Top-level claude/codex: field-level merge via mergeClaudeOptions/mergeCodexOptions
+ * - If defaults is null/undefined, returns project as-is
+ */
+export function mergeManifests(
+  defaults: ProjectManifest | null | undefined,
+  project: ProjectManifest
+): ProjectManifest {
+  if (defaults == null) return project
+
+  const result: ProjectManifest = {
+    schema: 1,
+    targets: { ...defaults.targets, ...project.targets },
+  }
+
+  if (defaults.claude || project.claude) {
+    result.claude = mergeClaudeOptions(defaults.claude, project.claude)
+  }
+  if (defaults.codex || project.codex) {
+    result.codex = mergeCodexOptions(defaults.codex, project.codex)
+  }
+
+  return result
+}
+
 /** Get effective codex options for a target */
 export function getEffectiveCodexOptions(
   manifest: ProjectManifest,
