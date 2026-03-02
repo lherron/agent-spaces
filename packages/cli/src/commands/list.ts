@@ -8,7 +8,7 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { type LockFile, lockFileExists, readLockJson, readTargetsToml } from 'spaces-config'
+import { type LockFile, loadLockFileIfExists, loadProjectManifest } from 'spaces-config'
 
 import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
 
@@ -36,7 +36,7 @@ interface ListOutput {
  */
 function buildTargetInfo(
   name: string,
-  manifest: Awaited<ReturnType<typeof readTargetsToml>>,
+  manifest: Awaited<ReturnType<typeof loadProjectManifest>>,
   lock: LockFile | undefined
 ): TargetInfo {
   const target = manifest.targets[name]
@@ -97,15 +97,15 @@ export function registerListCommand(program: Command): void {
     .action(async (options: CommonOptions) => {
       try {
         const ctx = await getProjectContext(options)
-        const manifest = await readTargetsToml(`${ctx.projectPath}/asp-targets.toml`)
+        const manifest = await loadProjectManifest(ctx.projectPath)
         const targetNames = Object.keys(manifest.targets)
 
-        const hasLock = await lockFileExists(ctx.projectPath)
-        const lock = hasLock ? await readLockJson(ctx.projectPath) : undefined
+        const lock = await loadLockFileIfExists(ctx.projectPath)
+        const hasLock = lock !== null
 
         const output: ListOutput = {
           projectPath: ctx.projectPath,
-          targets: targetNames.map((name) => buildTargetInfo(name, manifest, lock)),
+          targets: targetNames.map((name) => buildTargetInfo(name, manifest, lock ?? undefined)),
           hasLock,
           lockGenerated: lock?.generatedAt,
           aspHome: ctx.aspHome,
