@@ -97,7 +97,7 @@ export function registerListCommand(program: Command): void {
     .action(async (options: CommonOptions) => {
       try {
         const ctx = await getProjectContext(options)
-        const manifest = await loadProjectManifest(ctx.projectPath)
+        const manifest = await loadProjectManifest(ctx.projectPath, ctx.aspHome)
         const targetNames = Object.keys(manifest.targets)
 
         const lock = await loadLockFileIfExists(ctx.projectPath)

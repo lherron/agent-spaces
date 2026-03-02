@@ -556,7 +556,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const bundle = await adapter.loadTargetBundle(harnessOutputPath, targetName)
 
   debugLog('load manifest')
-  const manifest = await loadProjectManifest(options.projectPath)
+  const manifest = await loadProjectManifest(options.projectPath, options.aspHome)
   debugLog('manifest ok')
 
   const defaults = adapter.getDefaultRunOptions(manifest, targetName)

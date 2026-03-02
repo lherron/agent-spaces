@@ -381,7 +381,7 @@ export async function materializeTarget(
   let codexOptions: CodexOptions | undefined
   const manifestPath = join(options.projectPath, TARGETS_FILENAME)
   if (existsSync(manifestPath)) {
-    const manifest = await loadProjectManifest(options.projectPath)
+    const manifest = await loadProjectManifest(options.projectPath, options.aspHome)
     codexOptions = getEffectiveCodexOptions(manifest, targetName)
   }
   const composeInput: ComposeTargetInput = {
@@ -425,7 +425,7 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
   const registryPath = await ensureRegistry(options)
 
   // Load project manifest
-  const manifest = await loadProjectManifest(options.projectPath)
+  const manifest = await loadProjectManifest(options.projectPath, options.aspHome)
 
   // Determine which targets to resolve
   const targetNames = options.targets ?? Object.keys(manifest.targets)
@@ -562,7 +562,7 @@ export async function installNeeded(options: InstallOptions): Promise<boolean> {
   }
 
   // Load project manifest
-  const manifest = await loadProjectManifest(options.projectPath)
+  const manifest = await loadProjectManifest(options.projectPath, options.aspHome)
 
   // Get targets to check (specific targets or all)
   const targetNames = options.targets ?? Object.keys(manifest.targets)
