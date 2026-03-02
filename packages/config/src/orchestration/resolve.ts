@@ -107,7 +107,19 @@ export async function loadDefaultManifest(): Promise<ProjectManifest | null> {
  */
 export async function loadProjectManifest(projectPath: string): Promise<ProjectManifest> {
   const targetsPath = path.join(projectPath, TARGETS_FILENAME)
-  const projectManifest = await readTargetsToml(targetsPath)
+  let projectManifest: ProjectManifest
+  try {
+    projectManifest = await readTargetsToml(targetsPath)
+  } catch (err) {
+    if (err instanceof ConfigParseError && err.message.includes('File not found')) {
+      const defaults = await loadDefaultManifest()
+      if (defaults) {
+        return defaults
+      }
+      throw err
+    }
+    throw err
+  }
   const defaults = await loadDefaultManifest()
   return mergeManifests(defaults, projectManifest)
 }
