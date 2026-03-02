@@ -206,4 +206,44 @@ compose = ["space:dev@latest"]
     expect(result.targets.dev).toBeDefined()
     expect(result.targets.dev.compose).toEqual(['space:dev@latest'])
   })
+
+  test('uses explicit aspHome argument over process env for defaults merge', async () => {
+    const envAspHome = join(
+      tmpdir(),
+      `asp-env-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    )
+    const explicitAspHome = join(
+      tmpdir(),
+      `asp-explicit-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    )
+    await mkdir(envAspHome, { recursive: true })
+    await mkdir(explicitAspHome, { recursive: true })
+
+    try {
+      await writeFile(
+        join(envAspHome, 'default-targets.toml'),
+        'schema = 1\n\n[targets.from_env]\ncompose = ["space:env@stable"]\n',
+        'utf8'
+      )
+      await writeFile(
+        join(explicitAspHome, 'default-targets.toml'),
+        'schema = 1\n\n[targets.from_explicit]\ncompose = ["space:explicit@stable"]\n',
+        'utf8'
+      )
+      await writeFile(
+        join(testProjectDir, 'asp-targets.toml'),
+        'schema = 1\n\n[targets.dev]\ncompose = ["space:dev@stable"]\n',
+        'utf8'
+      )
+
+      process.env['ASP_HOME'] = envAspHome
+      const result = await loadProjectManifest(testProjectDir, explicitAspHome)
+
+      expect(result.targets.from_explicit).toBeDefined()
+      expect(result.targets.from_env).toBeUndefined()
+    } finally {
+      await rm(envAspHome, { recursive: true, force: true })
+      await rm(explicitAspHome, { recursive: true, force: true })
+    }
+  })
 })

@@ -88,9 +88,11 @@ export function getRegistryPath(options: ResolveOptions): string {
  *
  * Returns null if the file does not exist (no error).
  */
-export async function loadDefaultManifest(): Promise<ProjectManifest | null> {
-  const aspHome = getAspHome()
-  const defaultPath = path.join(aspHome, 'default-targets.toml')
+export async function loadDefaultManifest(
+  aspHome?: string | undefined
+): Promise<ProjectManifest | null> {
+  const home = aspHome ?? getAspHome()
+  const defaultPath = path.join(home, 'default-targets.toml')
   try {
     return await readTargetsToml(defaultPath)
   } catch (err) {
@@ -105,14 +107,17 @@ export async function loadDefaultManifest(): Promise<ProjectManifest | null> {
  * Load project manifest from a directory.
  * Merges with $ASP_HOME/default-targets.toml if it exists.
  */
-export async function loadProjectManifest(projectPath: string): Promise<ProjectManifest> {
+export async function loadProjectManifest(
+  projectPath: string,
+  aspHome?: string | undefined
+): Promise<ProjectManifest> {
   const targetsPath = path.join(projectPath, TARGETS_FILENAME)
   let projectManifest: ProjectManifest
   try {
     projectManifest = await readTargetsToml(targetsPath)
   } catch (err) {
     if (err instanceof ConfigParseError && err.message.includes('File not found')) {
-      const defaults = await loadDefaultManifest()
+      const defaults = await loadDefaultManifest(aspHome)
       if (defaults) {
         return defaults
       }
@@ -120,7 +125,7 @@ export async function loadProjectManifest(projectPath: string): Promise<ProjectM
     }
     throw err
   }
-  const defaults = await loadDefaultManifest()
+  const defaults = await loadDefaultManifest(aspHome)
   return mergeManifests(defaults, projectManifest)
 }
 
@@ -150,7 +155,7 @@ export async function resolveTarget(
   options: ResolveOptions
 ): Promise<ResolveResult> {
   // Load project manifest
-  const manifest = await loadProjectManifest(options.projectPath)
+  const manifest = await loadProjectManifest(options.projectPath, options.aspHome)
 
   // Get target definition
   const target = getTarget(manifest, targetName)

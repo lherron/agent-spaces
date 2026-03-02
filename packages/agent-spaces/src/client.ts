@@ -1169,7 +1169,11 @@ export function createAgentSpacesClient(): AgentSpacesClient {
 
             const completionPromise = new Promise<RunTurnNonInteractiveResponse>(
               (resolve, reject) => {
-                const started = session!.start()
+                const activeSession = session
+                if (!activeSession) {
+                  throw new Error('Session creation failed unexpectedly')
+                }
+                const started = activeSession.start()
                 const assistantState: {
                   assistantBuffer: string
                   lastAssistantText?: string | undefined
@@ -1181,7 +1185,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
                   provider: frontendDef.provider,
                   frontend: req.frontend,
                   model: modelResolution.info.effectiveModel,
-                  session: session!,
+                  session: activeSession,
                   eventEmitter,
                   assistantState,
                   allowSessionIdUpdate: true,
@@ -1194,7 +1198,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
 
                 inFlightRuns.set(req.cpSessionId, context)
 
-                session!.onEvent((event: UnifiedSessionEvent) => {
+                activeSession.onEvent((event: UnifiedSessionEvent) => {
                   if (!context || context.completion.done) return
 
                   const mapped = mapUnifiedEvents(
@@ -1219,9 +1223,10 @@ export function createAgentSpacesClient(): AgentSpacesClient {
                   context.outstandingTurns = Math.max(0, context.outstandingTurns - 1)
                   if (context.outstandingTurns !== 0) return
 
-                  void completeInFlightSuccess(context)
-                    .then((response) => resolveInFlight(context!, response))
-                    .catch((error) => rejectInFlight(context!, error))
+                  const activeContext = context
+                  void completeInFlightSuccess(activeContext)
+                    .then((response) => resolveInFlight(activeContext, response))
+                    .catch((error) => rejectInFlight(activeContext, error))
                 })
 
                 void started.catch((error) => {
