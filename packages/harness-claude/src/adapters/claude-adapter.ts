@@ -428,8 +428,12 @@ export class ClaudeAdapter implements HarnessAdapter {
     }
   }
 
-  getRunEnv(bundle: ComposedTargetBundle, _options: HarnessRunOptions): Record<string, string> {
-    return { ASP_PLUGIN_ROOT: bundle.rootDir }
+  getRunEnv(bundle: ComposedTargetBundle, options: HarnessRunOptions): Record<string, string> {
+    const env: Record<string, string> = { ASP_PLUGIN_ROOT: bundle.rootDir }
+    if (options.prompt) {
+      env['ASP_PRIMING_PROMPT'] = options.prompt
+    }
+    return env
   }
 
   getDefaultRunOptions(manifest: ProjectManifest, targetName: string): Partial<HarnessRunOptions> {

@@ -46,6 +46,7 @@ harness = "claude"
       event: 'pre_tool_use',
       script: 'hooks/pre-tool-use.sh',
       tools: ['Bash', 'Write'],
+      matcher: undefined,
       blocking: true,
       harness: undefined,
     })
@@ -54,6 +55,7 @@ harness = "claude"
       event: 'post_tool_use',
       script: 'hooks/post-tool-use.sh',
       tools: undefined,
+      matcher: undefined,
       blocking: false,
       harness: undefined,
     })
@@ -62,6 +64,7 @@ harness = "claude"
       event: 'session_end',
       script: 'hooks/cleanup.sh',
       tools: undefined,
+      matcher: undefined,
       blocking: undefined,
       harness: 'claude',
     })
@@ -81,6 +84,28 @@ script = "validate.sh"
       event: 'pre_tool_use',
       script: 'validate.sh',
       tools: undefined,
+      matcher: undefined,
+      blocking: undefined,
+      harness: undefined,
+    })
+  })
+
+  it('parses hooks.toml with matcher field', () => {
+    const content = `
+[[hook]]
+event = "session_start"
+script = "hooks/inject-priming.sh"
+matcher = "compact"
+`
+
+    const result = parseHooksToml(content)
+
+    expect(result.hook).toHaveLength(1)
+    expect(result.hook[0]).toEqual({
+      event: 'session_start',
+      script: 'hooks/inject-priming.sh',
+      tools: undefined,
+      matcher: 'compact',
       blocking: undefined,
       harness: undefined,
     })
@@ -236,13 +261,51 @@ describe('toClaudeHooksConfig', () => {
   it('skips events that have no Claude mapping', () => {
     const hooks: CanonicalHookDefinition[] = [
       { event: 'pre_tool_use', script: 'mapped.sh' },
-      { event: 'session_start', script: 'unmapped.sh' }, // Claude doesn't have session_start
+      { event: 'totally_unknown', script: 'unmapped.sh' },
     ]
 
     const config = toClaudeHooksConfig(hooks)
 
     expect(config.hooks.PreToolUse).toHaveLength(1)
     expect(config.hooks.PreToolUse?.[0]?.matcher).toBe('*')
+    expect(Object.keys(config.hooks)).toHaveLength(1)
+  })
+
+  it('uses matcher for non-tool events like session_start', () => {
+    const hooks: CanonicalHookDefinition[] = [
+      { event: 'session_start', script: 'hooks/inject-priming.sh', matcher: 'compact' },
+    ]
+
+    const config = toClaudeHooksConfig(hooks)
+
+    expect(config.hooks.SessionStart).toHaveLength(1)
+    expect(config.hooks.SessionStart?.[0]?.matcher).toBe('compact')
+    expect(config.hooks.SessionStart?.[0]?.hooks).toEqual([
+      { type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/hooks/inject-priming.sh' },
+    ])
+  })
+
+  it('groups non-tool hooks by matcher', () => {
+    const hooks: CanonicalHookDefinition[] = [
+      { event: 'session_start', script: 'hooks/on-compact.sh', matcher: 'compact' },
+      { event: 'session_start', script: 'hooks/on-startup.sh', matcher: 'startup' },
+    ]
+
+    const config = toClaudeHooksConfig(hooks)
+
+    expect(config.hooks.SessionStart).toHaveLength(2)
+    const matchers = config.hooks.SessionStart?.map((h) => h.matcher)
+    expect(matchers).toContain('compact')
+    expect(matchers).toContain('startup')
+  })
+
+  it('omits matcher for non-tool events when not specified', () => {
+    const hooks: CanonicalHookDefinition[] = [{ event: 'session_start', script: 'hooks/always.sh' }]
+
+    const config = toClaudeHooksConfig(hooks)
+
+    expect(config.hooks.SessionStart).toHaveLength(1)
+    expect(config.hooks.SessionStart?.[0]?.matcher).toBeUndefined()
   })
 })
 

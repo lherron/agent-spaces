@@ -131,6 +131,7 @@ export class AgentSession implements UnifiedSession {
       maxTurns: this.config.maxTurns ?? 100,
       model: sdkModel,
       cwd: this.config.cwd,
+      env: { ...process.env, SHELL: '/bin/bash' },
       permissionMode,
       abortController: this.abortController,
       // biome-ignore lint/suspicious/noExplicitAny: SDK type compatibility for canUseTool callback

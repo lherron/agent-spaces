@@ -248,6 +248,31 @@ describe('CodexAdapter', () => {
       expect(mcpServers['serverA']?.['command']).toBe('override')
       expect(mcpServers['serverB']?.['command']).toBe('cmd-b')
     })
+
+    test('pins the default codex model when the target does not specify one', async () => {
+      const input = {
+        targetName: 'test-target',
+        compose: [],
+        roots: [],
+        loadOrder: [],
+        artifacts: [
+          {
+            spaceKey: 'space1@abc' as SpaceKey,
+            spaceId: 'space1',
+            artifactPath: artifact1Dir,
+            pluginName: 'space1',
+            pluginVersion: '1.0.0',
+          },
+        ],
+        settingsInputs: [],
+      }
+
+      await adapter.composeTarget(input, outputDir, { clean: true })
+
+      const configRaw = await readFile(join(outputDir, 'codex.home', 'config.toml'), 'utf-8')
+      const parsed = TOML.parse(configRaw) as Record<string, unknown>
+      expect(parsed['model']).toBe('gpt-5.4')
+    })
   })
 
   describe('buildRunArgs', () => {
