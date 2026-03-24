@@ -710,6 +710,47 @@ paths = ["/var/log"]
     })
   })
 
+  describe('getRunEnv', () => {
+    test('includes ASP_PLUGIN_ROOT', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'test',
+        rootDir: '/test/output',
+        pluginDirs: [],
+      }
+
+      const env = adapter.getRunEnv(bundle, {})
+
+      expect(env['ASP_PLUGIN_ROOT']).toBe('/test/output')
+    })
+
+    test('includes ASP_PRIMING_PROMPT when prompt is set', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'test',
+        rootDir: '/test/output',
+        pluginDirs: [],
+      }
+
+      const env = adapter.getRunEnv(bundle, { prompt: 'You are Ani. Read your facilitate skill.' })
+
+      expect(env['ASP_PRIMING_PROMPT']).toBe('You are Ani. Read your facilitate skill.')
+    })
+
+    test('omits ASP_PRIMING_PROMPT when no prompt', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'test',
+        rootDir: '/test/output',
+        pluginDirs: [],
+      }
+
+      const env = adapter.getRunEnv(bundle, {})
+
+      expect(env['ASP_PRIMING_PROMPT']).toBeUndefined()
+    })
+  })
+
   describe('getDefaultRunOptions', () => {
     test('includes priming_prompt as default prompt', () => {
       const manifest: ProjectManifest = {

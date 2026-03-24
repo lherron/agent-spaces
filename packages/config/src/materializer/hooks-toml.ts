@@ -28,6 +28,8 @@ export interface CanonicalHookDefinition {
   script: string
   /** Optional: filter to specific tools (e.g., ["Bash", "Write"]) */
   tools?: string[] | undefined
+  /** Optional: matcher for non-tool events (e.g., "compact" for session_start, "auto" for pre_compact) */
+  matcher?: string | undefined
   /** Optional: whether hook should attempt to block (semantics vary by harness) */
   blocking?: boolean | undefined
   /** Optional: harness-specific hook (only runs on specified harness) */
@@ -148,6 +150,7 @@ export function parseHooksToml(content: string): HooksTomlConfig {
         event: String(hook['event'] ?? ''),
         script: String(hook['script'] ?? ''),
         tools: Array.isArray(hook['tools']) ? (hook['tools'] as string[]) : undefined,
+        matcher: typeof hook['matcher'] === 'string' ? hook['matcher'] : undefined,
         blocking: typeof hook['blocking'] === 'boolean' ? hook['blocking'] : undefined,
         harness: typeof hook['harness'] === 'string' ? hook['harness'] : undefined,
       }
@@ -265,7 +268,9 @@ export function toClaudeHooksConfig(hooks: CanonicalHookDefinition[]): ClaudeHoo
       continue
     }
 
-    const matcher = CLAUDE_TOOL_EVENTS.has(claudeEvent) ? buildClaudeMatcher(hook.tools) : undefined
+    const matcher = CLAUDE_TOOL_EVENTS.has(claudeEvent)
+      ? buildClaudeMatcher(hook.tools)
+      : (hook.matcher ?? undefined)
     const eventMap =
       hooksByEvent.get(claudeEvent) ?? new Map<string | undefined, CanonicalHookDefinition[]>()
     const existing = eventMap.get(matcher) ?? []

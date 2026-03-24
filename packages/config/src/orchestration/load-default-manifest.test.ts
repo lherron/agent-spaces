@@ -246,4 +246,48 @@ compose = ["space:dev@latest"]
       await rm(explicitAspHome, { recursive: true, force: true })
     }
   })
+
+  // T-00810: RED test — asp-targets.toml optional when default-targets.toml exists
+  // Currently loadProjectManifest() calls readTargetsToml() which throws
+  // ConfigParseError("File not found") when asp-targets.toml is absent.
+  // The fix should make loadProjectManifest() fall back to defaults-only manifest.
+  test('T-00810: no asp-targets.toml + default-targets.toml exists → returns defaults manifest', async () => {
+    // Write default-targets.toml in ASP_HOME
+    const defaultTargets = `
+schema = 1
+
+[claude]
+model = "claude-3-opus"
+permission_mode = "auto"
+
+[targets.shared]
+description = "Shared defaults target"
+compose = ["space:defaults@stable"]
+`
+    await writeFile(join(testAspHome, 'default-targets.toml'), defaultTargets, 'utf8')
+
+    // NO asp-targets.toml in testProjectDir — this is the key condition
+
+    // Should NOT throw — should return the defaults manifest
+    const result = await loadProjectManifest(testProjectDir)
+
+    // The returned manifest should contain the default targets
+    expect(result).toBeDefined()
+    expect(result.schema).toBe(1)
+    expect(result.targets.shared).toBeDefined()
+    expect(result.targets.shared.compose).toEqual(['space:defaults@stable'])
+    expect(result.targets.shared.description).toBe('Shared defaults target')
+
+    // Claude options from defaults should be present
+    expect(result.claude?.model).toBe('claude-3-opus')
+    expect(result.claude?.permission_mode).toBe('auto')
+  })
+
+  // T-00810: Edge case — neither file exists → should still throw
+  test('T-00810: no asp-targets.toml + no default-targets.toml → throws ConfigParseError', async () => {
+    // Neither asp-targets.toml in project nor default-targets.toml in ASP_HOME
+    const { ConfigParseError } = await import('../core/index.js')
+
+    expect(loadProjectManifest(testProjectDir)).rejects.toThrow(ConfigParseError)
+  })
 })

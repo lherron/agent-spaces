@@ -1,0 +1,12 @@
+{
+  "ownerId": "2d53caed-2338-4bf0-9bd3-3a3ad4311119",
+  "pid": 42696,
+  "startedAt": "2026-03-02T15:24:49.181Z",
+  "hostname": "max3",
+  "argv": [
+    "/Users/lherron/.bun/bin/bun",
+    "/Users/lherron/praesidium/animata/packages/animata-cli/dist/index.js",
+    "runtime",
+    "--agentchat"
+  ]
+}

@@ -1,0 +1,7 @@
+# agentchat configuration
+channel = "main"
+transport = "tmux"
+online_ttl = "2m"
+guard_prefix = "# "
+enter_policy = "dm-only"
+max_inject_chars = 1200

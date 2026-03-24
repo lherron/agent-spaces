@@ -51,6 +51,7 @@ import {
 const INSTRUCTIONS_FILES = ['AGENTS.md', 'AGENT.md'] as const
 const DEFAULT_SANDBOX_MODE = 'workspace-write'
 const DEFAULT_APPROVAL_POLICY = 'on-request'
+const DEFAULT_CODEX_MODEL = 'gpt-5.4'
 const MIN_CODEX_VERSION = '0.1.0'
 const CODEX_HOME_DIRNAME = 'codex.home'
 const CODEX_CONFIG_FILE = 'config.toml'
@@ -155,6 +156,7 @@ function buildCodexConfig(
   overrides: Array<Record<string, unknown>>
 ): Record<string, unknown> {
   const base: Record<string, unknown> = {
+    model: DEFAULT_CODEX_MODEL,
     sandbox_mode: DEFAULT_SANDBOX_MODE,
     approval_policy: DEFAULT_APPROVAL_POLICY,
     project_doc_fallback_filenames: ['AGENTS.md', 'AGENT.md'],

@@ -15,6 +15,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readFile,
   readlink,
   rm,
   stat,
@@ -234,6 +235,21 @@ function resolveCodexRuntimeHomePath(
   return join(aspHome, 'codex-homes', key, 'home')
 }
 
+function formatTomlProjectKey(projectPath: string): string {
+  return `[projects.${JSON.stringify(projectPath)}]`
+}
+
+export function ensureCodexProjectTrust(configToml: string, projectPath: string): string {
+  const normalizedProjectPath = resolve(projectPath)
+  const projectKey = formatTomlProjectKey(normalizedProjectPath)
+  if (configToml.includes(projectKey)) {
+    return configToml
+  }
+
+  const suffix = configToml.endsWith('\n') ? '' : '\n'
+  return `${configToml}${suffix}\n${projectKey}\ntrust_level = "trusted"\n`
+}
+
 async function syncManagedFile(
   templateHome: string,
   runtimeHome: string,
@@ -292,6 +308,16 @@ async function prepareCodexRuntimeHome(
   await syncManagedDir(templateHome, runtimeHome, 'skills')
   await syncManagedDir(templateHome, runtimeHome, 'prompts')
 
+  const configPath = join(runtimeHome, 'config.toml')
+  const projectPath = runOptions.cwd ?? runOptions.projectPath
+  if (projectPath && (await pathExists(configPath))) {
+    const configToml = await readFile(configPath, 'utf-8')
+    const trustedConfig = ensureCodexProjectTrust(configToml, projectPath)
+    if (trustedConfig !== configToml) {
+      await writeFile(configPath, trustedConfig)
+    }
+  }
+
   return runtimeHome
 }
 
@@ -326,6 +352,7 @@ async function executeHarnessCommand(
       cwd: options.cwd,
       env: {
         ...process.env,
+        SHELL: '/bin/bash',
         ...options.env,
       },
       stdio: captureOutput ? 'pipe' : 'inherit',
