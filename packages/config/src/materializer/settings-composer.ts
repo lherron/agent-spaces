@@ -26,6 +26,13 @@ export interface ComposedSettings {
   env?: Record<string, string> | undefined
   /** Model override */
   model?: string | undefined
+  /** Status line configuration */
+  statusLine?:
+    | {
+        type: 'command'
+        command: string
+      }
+    | undefined
 }
 
 /**
@@ -98,8 +105,9 @@ export function isEmptySettings(settings: ComposedSettings): boolean {
   const hasPermissions = settings.permissions?.allow?.length || settings.permissions?.deny?.length
   const hasEnv = settings.env && Object.keys(settings.env).length > 0
   const hasModel = !!settings.model
+  const hasStatusLine = !!settings.statusLine
 
-  return !hasPermissions && !hasEnv && !hasModel
+  return !hasPermissions && !hasEnv && !hasModel && !hasStatusLine
 }
 
 /**

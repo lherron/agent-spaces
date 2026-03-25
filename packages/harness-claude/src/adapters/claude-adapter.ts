@@ -5,8 +5,9 @@
  * existing functionality from spaces-claude and spaces-materializer.
  */
 
-import { copyFile, mkdir, readdir, rm, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { chmod, copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type {
   ComposeTargetInput,
   ComposeTargetOptions,
@@ -43,6 +44,12 @@ import {
   writePluginJson,
 } from 'spaces-config'
 import { buildClaudeArgs, detectClaude } from '../claude/index.js'
+
+/** Path to the bundled statusline script asset */
+const STATUSLINE_ASSET_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../assets/statusline.sh'
+)
 
 /**
  * ClaudeAdapter implements the HarnessAdapter interface for Claude Code.
@@ -319,7 +326,27 @@ export class ClaudeAdapter implements HarnessAdapter {
       }
     }
 
-    await composeSettingsFromSpaces(settingsInputs, settingsOutputPath)
+    const { settings: composedSettings } = await composeSettingsFromSpaces(
+      settingsInputs,
+      settingsOutputPath
+    )
+
+    // Install statusline script and add to settings
+    const statuslineDestPath = join(outputDir, 'statusline.sh')
+    try {
+      const statuslineSrc = await readFile(STATUSLINE_ASSET_PATH)
+      await writeFile(statuslineDestPath, statuslineSrc)
+      await chmod(statuslineDestPath, 0o755)
+
+      // Patch settings.json with statusLine configuration
+      composedSettings.statusLine = {
+        type: 'command',
+        command: `bash ${statuslineDestPath}`,
+      }
+      await writeFile(settingsOutputPath, JSON.stringify(composedSettings, null, 2))
+    } catch {
+      // Statusline is best-effort - don't fail composition if asset is missing
+    }
 
     const bundle: ComposedTargetBundle = {
       harnessId: 'claude',
