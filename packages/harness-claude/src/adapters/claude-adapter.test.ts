@@ -527,6 +527,40 @@ allow = ["/tmp"]
       expect(result.bundle.settingsPath).toBeDefined()
     })
 
+    test('installs statusline script and adds to settings', async () => {
+      const input = {
+        targetName: 'test-target',
+        compose: ['space1' as any],
+        roots: ['space1@abc' as SpaceKey],
+        loadOrder: ['space1@abc' as SpaceKey],
+        artifacts: [
+          {
+            spaceKey: 'space1@abc' as SpaceKey,
+            spaceId: 'space1',
+            artifactPath: artifact1Dir,
+            pluginName: 'plugin1',
+          },
+        ],
+        settingsInputs: [],
+      }
+
+      const result = await adapter.composeTarget(input, outputDir, {})
+
+      // Statusline script should exist in output directory
+      const statuslinePath = join(outputDir, 'statusline.sh')
+      const statuslineExists = await Bun.file(statuslinePath).exists()
+      expect(statuslineExists).toBe(true)
+
+      // Settings should include statusLine configuration
+      if (result.bundle.settingsPath) {
+        const settings = await Bun.file(result.bundle.settingsPath).json()
+        expect(settings.statusLine).toBeDefined()
+        expect(settings.statusLine.type).toBe('command')
+        expect(settings.statusLine.command).toContain('statusline.sh')
+        expect(settings.statusLine.command).toContain(outputDir)
+      }
+    })
+
     test('merges permissions.toml into settings', async () => {
       // Add permissions.toml to artifact1 with correct format
       // Note: permissions.toml uses paths=[] for read/write, not allow=[]
