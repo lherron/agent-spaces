@@ -64,10 +64,12 @@ export class ClaudeAdapter implements HarnessAdapter {
   readonly name = 'Claude Code'
 
   readonly models: HarnessModelInfo[] = [
-    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', default: true },
+    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6 (200K)', default: true },
+    { id: 'claude-opus-4-6[1m]', name: 'Claude Opus 4.6 (1M context)' },
     { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
     { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
-    { id: 'opus', name: 'Opus (alias)' },
+    { id: 'opus', name: 'Opus (alias, 200K)' },
+    { id: 'opus[1m]', name: 'Opus (alias, 1M context)' },
     { id: 'sonnet', name: 'Sonnet (alias)' },
     { id: 'haiku', name: 'Haiku (alias)' },
   ]
@@ -406,7 +408,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       permissionMode: options.permissionMode,
       settingSources,
       debug: options.debug,
-      model: options.model ?? 'opus',
+      model: options.model ?? 'opus[1m]',
       args: extraArgs,
     })
   }
