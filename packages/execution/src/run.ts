@@ -12,17 +12,19 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   copyFile,
+  cp,
   lstat,
   mkdir,
   mkdtemp,
   readFile,
   readlink,
+  rename,
   rm,
   stat,
   symlink,
   writeFile,
 } from 'node:fs/promises'
-import { join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 
 import {
   type ComposeTargetInput,
@@ -218,6 +220,52 @@ function computeCodexRuntimeKey(targetName: string, cwd: string): string {
     .slice(0, 24)
 }
 
+interface CodexRuntimeMetadata {
+  schemaVersion: 1
+  harnessId: 'codex'
+  mode: 'project' | 'ad-hoc'
+  targetName: string
+  projectPath?: string | undefined
+  cwd?: string | undefined
+}
+
+function sanitizeCodexRuntimeSegment(value: string): string {
+  const sanitized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-_.]+|[-_.]+$/g, '')
+  return sanitized || 'default'
+}
+
+export function getProjectCodexRuntimeHomePath(
+  aspHome: string,
+  projectPath: string,
+  targetName: string
+): string {
+  const projectSlug = sanitizeCodexRuntimeSegment(basename(resolve(projectPath)))
+  const targetSlug = sanitizeCodexRuntimeSegment(targetName)
+  return join(aspHome, 'codex-homes', `${projectSlug}_${targetSlug}`)
+}
+
+function getLegacyProjectCodexRuntimeHomePath(projectPath: string, targetName: string): string {
+  const aspModulesDir = getAspModulesPath(projectPath)
+  return join(aspModulesDir, targetName, 'codex', 'codex.runtime')
+}
+
+const CODEX_RUNTIME_METADATA_FILE = '.asp-runtime.json'
+
+async function writeCodexRuntimeMetadata(
+  runtimeHome: string,
+  metadata: CodexRuntimeMetadata
+): Promise<void> {
+  await writeFile(
+    join(runtimeHome, CODEX_RUNTIME_METADATA_FILE),
+    `${JSON.stringify(metadata, null, 2)}\n`
+  )
+}
+
 function resolveCodexRuntimeHomePath(
   bundle: ComposedTargetBundle,
   runOptions: HarnessRunOptions
@@ -225,7 +273,8 @@ function resolveCodexRuntimeHomePath(
   if (runOptions.projectPath) {
     const aspModulesDir = getAspModulesPath(runOptions.projectPath)
     if (isWithinPath(bundle.rootDir, aspModulesDir)) {
-      return join(bundle.rootDir, 'codex.runtime')
+      const aspHome = runOptions.aspHome ?? getAspHome()
+      return getProjectCodexRuntimeHomePath(aspHome, runOptions.projectPath, bundle.targetName)
     }
   }
 
@@ -248,6 +297,37 @@ export function ensureCodexProjectTrust(configToml: string, projectPath: string)
 
   const suffix = configToml.endsWith('\n') ? '' : '\n'
   return `${configToml}${suffix}\n${projectKey}\ntrust_level = "trusted"\n`
+}
+
+export async function migrateLegacyProjectCodexRuntimeHome(
+  aspHome: string,
+  projectPath: string,
+  targetName: string
+): Promise<string> {
+  const runtimeHome = getProjectCodexRuntimeHomePath(aspHome, projectPath, targetName)
+  const legacyRuntimeHome = getLegacyProjectCodexRuntimeHomePath(projectPath, targetName)
+
+  if (runtimeHome === legacyRuntimeHome) {
+    return runtimeHome
+  }
+
+  const runtimeExists = await pathExists(runtimeHome)
+  const legacyExists = await pathExists(legacyRuntimeHome)
+  if (runtimeExists || !legacyExists) {
+    return runtimeHome
+  }
+
+  await mkdir(dirname(runtimeHome), { recursive: true })
+  try {
+    await rm(runtimeHome, { recursive: true, force: true })
+    await rename(legacyRuntimeHome, runtimeHome)
+  } catch {
+    await rm(runtimeHome, { recursive: true, force: true })
+    await cp(legacyRuntimeHome, runtimeHome, { recursive: true, force: true })
+    await rm(legacyRuntimeHome, { recursive: true, force: true })
+  }
+
+  return runtimeHome
 }
 
 async function syncManagedFile(
@@ -292,7 +372,7 @@ async function syncManagedDir(
   await copyDir(srcPath, destPath, { useHardlinks: false })
 }
 
-async function prepareCodexRuntimeHome(
+export async function prepareCodexRuntimeHome(
   bundle: ComposedTargetBundle,
   runOptions: HarnessRunOptions
 ): Promise<string> {
@@ -317,6 +397,23 @@ async function prepareCodexRuntimeHome(
       await writeFile(configPath, trustedConfig)
     }
   }
+
+  const metadata: CodexRuntimeMetadata = projectPath
+    ? {
+        schemaVersion: 1,
+        harnessId: 'codex',
+        mode: 'project',
+        targetName: bundle.targetName,
+        projectPath: resolve(projectPath),
+      }
+    : {
+        schemaVersion: 1,
+        harnessId: 'codex',
+        mode: 'ad-hoc',
+        targetName: bundle.targetName,
+        cwd: resolve(runOptions.cwd ?? process.cwd()),
+      }
+  await writeCodexRuntimeMetadata(runtimeHome, metadata)
 
   return runtimeHome
 }
@@ -555,6 +652,11 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const aspModulesDir = getAspModulesPath(options.projectPath)
   const harnessOutputPath = adapter.getTargetOutputPath(aspModulesDir, targetName)
   debugLog('harness output path', harnessOutputPath)
+
+  if (adapter.id === 'codex') {
+    const aspHome = options.aspHome ?? getAspHome()
+    await migrateLegacyProjectCodexRuntimeHome(aspHome, options.projectPath, targetName)
+  }
 
   const needsInstall =
     options.refresh || !(await harnessOutputExists(options.projectPath, targetName, harnessId))
