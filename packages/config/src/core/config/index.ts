@@ -24,6 +24,9 @@ export {
   type ValidateTargetResult,
 } from './targets-toml.js'
 
+// Agent runtime profile parser
+export { parseAgentProfile } from './agent-profile-toml.js'
+
 // asp_modules directory helpers
 export {
   ASP_MODULES_DIR,

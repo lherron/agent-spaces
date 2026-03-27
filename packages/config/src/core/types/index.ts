@@ -76,6 +76,16 @@ export {
 // Dist-tags types
 export type { DistTagsFile } from './dist-tags.js'
 
+// Agent runtime profile types
+export type {
+  AgentProfileInstructions,
+  AgentProfileSpaces,
+  AgentProfileTarget,
+  AgentRuntimeProfile,
+  HarnessSettings,
+  RunMode,
+} from './agent-profile.js'
+
 // Lock file types
 export type {
   LockFile,

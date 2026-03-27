@@ -25,6 +25,7 @@ export type { ValidationError, ValidationResult } from './schemas/index.js'
 export {
   LOCK_FILENAME,
   lockFileExists,
+  parseAgentProfile,
   parseLockJson,
   parseSpaceToml,
   parseTargetsToml,
