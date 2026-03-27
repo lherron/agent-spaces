@@ -21,6 +21,8 @@ import {
   resolveTarget,
 } from 'spaces-config'
 
+import { type RuntimePlacement, resolvePlacement } from 'spaces-config'
+
 import {
   type PermissionHandler,
   PiSession,
@@ -32,6 +34,8 @@ import {
   materializeFromRefs,
   materializeTarget,
 } from 'spaces-execution'
+
+import { buildCorrelationEnvVars } from './placement-api.js'
 
 import type {
   AgentEvent,
@@ -198,11 +202,14 @@ interface ModelInfo {
   model: string
 }
 
-type EventPayload = Omit<AgentEvent, 'ts' | 'seq' | 'cpSessionId' | 'runId' | 'continuation'>
+type EventPayload = Omit<
+  AgentEvent,
+  'ts' | 'seq' | 'hostSessionId' | 'cpSessionId' | 'runId' | 'continuation'
+>
 type EventEmitter = ReturnType<typeof createEventEmitter>
 
 interface InFlightRunContext {
-  cpSessionId: string
+  hostSessionId: string
   runId: string
   provider: ProviderDomain
   frontend: 'agent-sdk' | 'pi-sdk'
@@ -343,10 +350,21 @@ function normalizeAgentSdkModel(model: string): 'haiku' | 'sonnet' | 'opus' | 'o
 // Helpers: pi session path (deterministic, stateless)
 // ---------------------------------------------------------------------------
 
-function piSessionPath(aspHome: string, cpSessionId: string): string {
+function piSessionPath(aspHome: string, hostSessionId: string): string {
   const hash = createHash('sha256')
-  hash.update(cpSessionId)
+  hash.update(hostSessionId)
   return join(aspHome, 'sessions', 'pi', hash.digest('hex'))
+}
+
+function resolveHostSessionId(
+  input: { hostSessionId?: string | undefined; cpSessionId?: string | undefined },
+  required = true
+): string | undefined {
+  const hostSessionId = input.hostSessionId ?? input.cpSessionId
+  if (!hostSessionId && required) {
+    throw new Error('hostSessionId is required')
+  }
+  return hostSessionId
 }
 
 // ---------------------------------------------------------------------------
@@ -562,13 +580,13 @@ async function withAspHome<T>(aspHome: string, fn: () => Promise<T>): Promise<T>
 }
 
 // ---------------------------------------------------------------------------
-// Helpers: event emitter (updated for cpSessionId / runId / continuation)
+// Helpers: event emitter (updated for hostSessionId / runId / continuation)
 // ---------------------------------------------------------------------------
 
 function createEventEmitter(
   onEvent: (event: AgentEvent) => void | Promise<void>,
   base: {
-    cpSessionId: string
+    hostSessionId: string
     runId: string
   },
   continuation?: HarnessContinuationRef
@@ -588,7 +606,7 @@ function createEventEmitter(
       ...(event as AgentEvent),
       ts: new Date().toISOString(),
       seq,
-      cpSessionId: base.cpSessionId,
+      hostSessionId: base.hostSessionId,
       runId: base.runId,
       ...(currentContinuation ? { continuation: currentContinuation } : {}),
     }
@@ -774,7 +792,14 @@ function formatDisplayCommand(
 // Client implementation
 // ---------------------------------------------------------------------------
 
-export function createAgentSpacesClient(): AgentSpacesClient {
+export interface AgentSpacesClientOptions {
+  aspHome?: string | undefined
+  registryPath?: string | undefined
+}
+
+export function createAgentSpacesClient(options?: AgentSpacesClientOptions): AgentSpacesClient {
+  const clientAspHome = options?.aspHome
+  const _clientRegistryPath = options?.registryPath
   const inFlightRuns = new Map<string, InFlightRunContext>()
 
   const buildInFlightResponse = (
@@ -913,7 +938,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
           }))
           response.agentSdkSessionParams = [
             { paramName: 'kind', paramValue: 'agent-sdk' },
-            { paramName: 'sessionId', paramValue: req.cpSessionId ?? null },
+            { paramName: 'sessionId', paramValue: resolveHostSessionId(req, false) ?? null },
             { paramName: 'cwd', paramValue: req.cwd ?? null },
             { paramName: 'model', paramValue: normalizeAgentSdkModel(modelResolution.info.model) },
             { paramName: 'plugins', paramValue: plugins },
@@ -947,6 +972,11 @@ export function createAgentSpacesClient(): AgentSpacesClient {
     async buildProcessInvocationSpec(
       req: BuildProcessInvocationSpecRequest
     ): Promise<BuildProcessInvocationSpecResponse> {
+      // Placement-based path (v2)
+      if (req.placement) {
+        return buildPlacementInvocationSpec(req, clientAspHome)
+      }
+
       return withAspHome(req.aspHome, async () => {
         const warnings: string[] = []
         const spec = validateSpec(req.spec)
@@ -1045,9 +1075,10 @@ export function createAgentSpacesClient(): AgentSpacesClient {
     async runTurnInFlight(req: RunTurnInFlightRequest): Promise<RunTurnNonInteractiveResponse> {
       return withAspHome(req.aspHome, async () => {
         const frontendDef = resolveFrontend(req.frontend)
+        const hostSessionId = resolveHostSessionId(req)
         const eventEmitter = createEventEmitter(
           req.callbacks.onEvent,
-          { cpSessionId: req.cpSessionId, runId: req.runId },
+          { hostSessionId: hostSessionId as string, runId: req.runId },
           req.continuation
         )
 
@@ -1071,11 +1102,11 @@ export function createAgentSpacesClient(): AgentSpacesClient {
           }
         }
 
-        if (inFlightRuns.has(req.cpSessionId)) {
+        if (inFlightRuns.has(hostSessionId as string)) {
           const result: RunResult = {
             success: false,
             error: toAgentSpacesError(
-              new Error(`In-flight run already active for cpSessionId ${req.cpSessionId}`)
+              new Error(`In-flight run already active for hostSessionId ${hostSessionId as string}`)
             ),
           }
           await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
@@ -1159,7 +1190,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
 
             session = createSession({
               kind: 'agent-sdk',
-              sessionId: continuationKey ?? req.cpSessionId,
+              sessionId: continuationKey ?? (hostSessionId as string),
               cwd: req.cwd,
               model: normalizeAgentSdkModel(modelResolution.info.model),
               plugins,
@@ -1180,7 +1211,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
                 } = { assistantBuffer: '' }
 
                 context = {
-                  cpSessionId: req.cpSessionId,
+                  hostSessionId: hostSessionId as string,
                   runId: req.runId,
                   provider: frontendDef.provider,
                   frontend: req.frontend,
@@ -1196,7 +1227,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
                   sendChain: Promise.resolve(),
                 }
 
-                inFlightRuns.set(req.cpSessionId, context)
+                inFlightRuns.set(hostSessionId as string, context)
 
                 activeSession.onEvent((event: UnifiedSessionEvent) => {
                   if (!context || context.completion.done) return
@@ -1250,7 +1281,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
 
             return await completionPromise
           } finally {
-            inFlightRuns.delete(req.cpSessionId)
+            inFlightRuns.delete(hostSessionId as string)
             if (session) {
               try {
                 await session.stop('complete')
@@ -1285,13 +1316,14 @@ export function createAgentSpacesClient(): AgentSpacesClient {
     },
 
     async queueInFlightInput(req: QueueInFlightInputRequest): Promise<QueueInFlightInputResponse> {
-      const context = inFlightRuns.get(req.cpSessionId)
+      const hostSessionId = resolveHostSessionId(req)
+      const context = inFlightRuns.get(hostSessionId as string)
       if (!context) {
-        throw new Error(`No active in-flight run for cpSessionId ${req.cpSessionId}`)
+        throw new Error(`No active in-flight run for hostSessionId ${hostSessionId as string}`)
       }
       if (context.runId !== req.runId) {
         throw new Error(
-          `Active in-flight run mismatch for cpSessionId ${req.cpSessionId}: expected ${context.runId}, got ${req.runId}`
+          `Active in-flight run mismatch for hostSessionId ${hostSessionId as string}: expected ${context.runId}, got ${req.runId}`
         )
       }
       if (context.completion.done) {
@@ -1309,13 +1341,14 @@ export function createAgentSpacesClient(): AgentSpacesClient {
     },
 
     async interruptInFlightTurn(req: InterruptInFlightTurnRequest): Promise<void> {
-      const context = inFlightRuns.get(req.cpSessionId)
+      const hostSessionId = resolveHostSessionId(req)
+      const context = inFlightRuns.get(hostSessionId as string)
       if (!context) {
-        throw new Error(`No active in-flight run for cpSessionId ${req.cpSessionId}`)
+        throw new Error(`No active in-flight run for hostSessionId ${hostSessionId as string}`)
       }
       if (req.runId && context.runId !== req.runId) {
         throw new Error(
-          `Active in-flight run mismatch for cpSessionId ${req.cpSessionId}: expected ${context.runId}, got ${req.runId}`
+          `Active in-flight run mismatch for hostSessionId ${hostSessionId as string}: expected ${context.runId}, got ${req.runId}`
         )
       }
       if (context.completion.done) {
@@ -1337,9 +1370,10 @@ export function createAgentSpacesClient(): AgentSpacesClient {
     ): Promise<RunTurnNonInteractiveResponse> {
       return withAspHome(req.aspHome, async () => {
         const frontendDef = resolveFrontend(req.frontend)
+        const hostSessionId = resolveHostSessionId(req)
         const eventEmitter = createEventEmitter(
           req.callbacks.onEvent,
-          { cpSessionId: req.cpSessionId, runId: req.runId },
+          { hostSessionId: hostSessionId as string, runId: req.runId },
           req.continuation
         )
 
@@ -1375,7 +1409,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
         const isResume = continuationKey !== undefined
         if (frontendDef.frontend === PI_SDK_FRONTEND && !continuationKey) {
           // For pi-sdk first run, create deterministic session path as continuation key
-          continuationKey = piSessionPath(req.aspHome, req.cpSessionId)
+          continuationKey = piSessionPath(req.aspHome, hostSessionId as string)
         }
 
         // Update continuation on emitter
@@ -1463,7 +1497,7 @@ export function createAgentSpacesClient(): AgentSpacesClient {
               }))
               session = createSession({
                 kind: 'agent-sdk',
-                sessionId: continuationKey ?? req.cpSessionId,
+                sessionId: continuationKey ?? (hostSessionId as string),
                 cwd: req.cwd,
                 model: normalizeAgentSdkModel(modelResolution.info.model),
                 plugins,
@@ -1480,11 +1514,11 @@ export function createAgentSpacesClient(): AgentSpacesClient {
                 agentDir: materialized.materialization.outputPath,
               })
               const piSession = new PiSession({
-                ownerId: req.cpSessionId,
+                ownerId: hostSessionId as string,
                 cwd: req.cwd,
                 provider: modelResolution.info.provider,
                 model: modelResolution.info.model,
-                sessionId: req.cpSessionId,
+                sessionId: hostSessionId as string,
                 extensions: bundle.extensions,
                 skills: bundle.skills,
                 contextFiles: bundle.contextFiles,
@@ -1577,5 +1611,71 @@ export function createAgentSpacesClient(): AgentSpacesClient {
         }
       })
     },
+  }
+}
+
+/**
+ * Handle placement-based buildProcessInvocationSpec request.
+ */
+async function buildPlacementInvocationSpec(
+  req: BuildProcessInvocationSpecRequest,
+  defaultAspHome?: string
+): Promise<BuildProcessInvocationSpecResponse> {
+  const placement = req.placement as RuntimePlacement
+  const warnings: string[] = []
+
+  const frontendDef = resolveFrontend(req.frontend)
+
+  // Validate provider matches frontend
+  if (req.provider !== frontendDef.provider) {
+    throw new CodedError(
+      `Provider mismatch: frontend "${req.frontend}" requires provider "${frontendDef.provider}" but got "${req.provider}"`,
+      'provider_mismatch'
+    )
+  }
+
+  // Validate provider match with continuation if provided
+  validateProviderMatch(frontendDef, req.continuation)
+
+  // Resolve placement to get audit metadata
+  const resolvedBundle = await resolvePlacement(placement)
+
+  // Resolve effective cwd from placement
+  const cwd = resolvedBundle.cwd
+
+  // Build correlation env vars
+  const correlationEnv = buildCorrelationEnvVars(placement)
+
+  // Merge env: correlation + request env delta + ASP_HOME
+  const env: Record<string, string> = {
+    ...correlationEnv,
+    ...(req.env ?? {}),
+  }
+
+  const aspHome = req.aspHome ?? defaultAspHome
+  if (aspHome) {
+    env['ASP_HOME'] = aspHome
+  }
+
+  // Build continuation ref
+  const continuation: HarnessContinuationRef | undefined = req.continuation
+    ? { provider: frontendDef.provider, key: req.continuation.key }
+    : undefined
+
+  const invocationSpec: ProcessInvocationSpec = {
+    provider: frontendDef.provider,
+    frontend: req.frontend,
+    argv: [req.frontend],
+    cwd,
+    env,
+    interactionMode: req.interactionMode,
+    ioMode: req.ioMode,
+    ...(continuation ? { continuation } : {}),
+  }
+
+  return {
+    spec: invocationSpec,
+    resolvedBundle,
+    ...(warnings.length > 0 ? { warnings } : {}),
   }
 }

@@ -1,4 +1,12 @@
-import type { LintWarning } from 'spaces-config'
+import type {
+  HostCorrelation as HostCorrelationType,
+  LintWarning,
+  ResolvedRuntimeBundle,
+  RuntimePlacement,
+} from 'spaces-config'
+
+/** Re-export HostCorrelation from config for placement consumers */
+export type HostCorrelation = HostCorrelationType
 
 // ---------------------------------------------------------------------------
 // Core types (spec §3.1)
@@ -65,7 +73,9 @@ export type SessionState = 'running' | 'complete' | 'error'
 // ---------------------------------------------------------------------------
 
 export interface RunTurnNonInteractiveRequest {
-  cpSessionId: string
+  hostSessionId?: string | undefined
+  /** @deprecated Use hostSessionId instead */
+  cpSessionId?: string | undefined
   runId: string
   aspHome: string
   spec: SpaceSpec
@@ -77,6 +87,8 @@ export interface RunTurnNonInteractiveRequest {
   prompt: string
   attachments?: string[] | undefined
   callbacks: SessionCallbacks
+  /** Placement-based request (v2) — when set, legacy session/spec/aspHome/cwd are ignored */
+  placement?: RuntimePlacement | undefined
 }
 
 export interface RunTurnNonInteractiveResponse {
@@ -85,6 +97,7 @@ export interface RunTurnNonInteractiveResponse {
   frontend: 'agent-sdk' | 'pi-sdk'
   model?: string | undefined
   result: RunResult
+  resolvedBundle?: ResolvedRuntimeBundle | undefined
 }
 
 /**
@@ -95,7 +108,9 @@ export interface RunTurnNonInteractiveResponse {
 export interface RunTurnInFlightRequest extends RunTurnNonInteractiveRequest {}
 
 export interface QueueInFlightInputRequest {
-  cpSessionId: string
+  hostSessionId?: string | undefined
+  /** @deprecated Use hostSessionId instead */
+  cpSessionId?: string | undefined
   runId: string
   prompt: string
   attachments?: string[] | undefined
@@ -107,7 +122,9 @@ export interface QueueInFlightInputResponse {
 }
 
 export interface InterruptInFlightTurnRequest {
-  cpSessionId: string
+  hostSessionId?: string | undefined
+  /** @deprecated Use hostSessionId instead */
+  cpSessionId?: string | undefined
   runId?: string | undefined
   reason?: string | undefined
 }
@@ -117,7 +134,9 @@ export interface InterruptInFlightTurnRequest {
 // ---------------------------------------------------------------------------
 
 export interface BuildProcessInvocationSpecRequest {
-  cpSessionId: string
+  hostSessionId?: string | undefined
+  /** @deprecated Use hostSessionId instead */
+  cpSessionId?: string | undefined
   aspHome: string
   spec: SpaceSpec
   provider: ProviderDomain
@@ -129,10 +148,13 @@ export interface BuildProcessInvocationSpecRequest {
   cwd: string
   env?: Record<string, string> | undefined
   artifactDir?: string | undefined
+  /** Placement-based request (v2) — when set, legacy session/spec/aspHome/cwd are ignored */
+  placement?: RuntimePlacement | undefined
 }
 
 export interface BuildProcessInvocationSpecResponse {
   spec: ProcessInvocationSpec
+  resolvedBundle?: ResolvedRuntimeBundle | undefined
   warnings?: string[] | undefined
 }
 
@@ -157,6 +179,8 @@ export interface DescribeRequest {
   frontend?: HarnessFrontend | undefined
   model?: string | undefined
   cwd?: string | undefined
+  hostSessionId?: string | undefined
+  /** @deprecated Use hostSessionId instead */
   cpSessionId?: string | undefined
   runLint?: boolean | undefined
 }
@@ -215,7 +239,9 @@ export interface AgentSpacesError {
 export interface BaseEvent {
   ts: string
   seq: number
-  cpSessionId: string
+  hostSessionId: string
+  /** @deprecated Use hostSessionId instead */
+  cpSessionId?: string | undefined
   runId: string
   continuation?: HarnessContinuationRef | undefined
   /** Raw payload from harness for downstream clients */

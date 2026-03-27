@@ -116,7 +116,7 @@ describe('buildProcessInvocationSpec', () => {
     // claude-code requires provider 'anthropic', but we pass 'openai'
     await expect(
       client.buildProcessInvocationSpec({
-        cpSessionId: 'test-session',
+        hostSessionId: 'test-session',
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
         provider: 'openai',
@@ -132,7 +132,7 @@ describe('buildProcessInvocationSpec', () => {
     // codex-cli is openai, but continuation says anthropic
     await expect(
       client.buildProcessInvocationSpec({
-        cpSessionId: 'test-session',
+        hostSessionId: 'test-session',
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
         provider: 'openai',
@@ -148,7 +148,7 @@ describe('buildProcessInvocationSpec', () => {
   test('throws on unsupported model for claude-code', async () => {
     await expect(
       client.buildProcessInvocationSpec({
-        cpSessionId: 'test-session',
+        hostSessionId: 'test-session',
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
         provider: 'anthropic',
@@ -164,7 +164,7 @@ describe('buildProcessInvocationSpec', () => {
   test('throws on unsupported model for codex-cli', async () => {
     await expect(
       client.buildProcessInvocationSpec({
-        cpSessionId: 'test-session',
+        hostSessionId: 'test-session',
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
         provider: 'openai',
@@ -180,7 +180,7 @@ describe('buildProcessInvocationSpec', () => {
   test('throws on invalid spec with relative targetDir', async () => {
     await expect(
       client.buildProcessInvocationSpec({
-        cpSessionId: 'test-session',
+        hostSessionId: 'test-session',
         aspHome: '/tmp/asp-test',
         spec: { target: { targetName: 'test', targetDir: 'relative/path' } },
         provider: 'anthropic',
@@ -195,7 +195,7 @@ describe('buildProcessInvocationSpec', () => {
   test('throws on empty spaces array', async () => {
     await expect(
       client.buildProcessInvocationSpec({
-        cpSessionId: 'test-session',
+        hostSessionId: 'test-session',
         aspHome: '/tmp/asp-test',
         spec: { spaces: [] },
         provider: 'anthropic',
@@ -210,7 +210,7 @@ describe('buildProcessInvocationSpec', () => {
   test('provider mismatch error carries provider_mismatch code', async () => {
     try {
       await client.buildProcessInvocationSpec({
-        cpSessionId: 'test-session',
+        hostSessionId: 'test-session',
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
         provider: 'openai',
@@ -229,7 +229,7 @@ describe('buildProcessInvocationSpec', () => {
   test('continuation provider mismatch error carries provider_mismatch code', async () => {
     try {
       await client.buildProcessInvocationSpec({
-        cpSessionId: 'test-session',
+        hostSessionId: 'test-session',
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
         provider: 'openai',
@@ -249,7 +249,7 @@ describe('buildProcessInvocationSpec', () => {
   test('throws on relative cwd path', async () => {
     await expect(
       client.buildProcessInvocationSpec({
-        cpSessionId: 'test-session',
+        hostSessionId: 'test-session',
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
         provider: 'anthropic',
@@ -265,7 +265,7 @@ describe('buildProcessInvocationSpec', () => {
     // Even with a valid continuation, provider mismatch on the request itself is caught first
     await expect(
       client.buildProcessInvocationSpec({
-        cpSessionId: 'test-session',
+        hostSessionId: 'test-session',
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
         provider: 'openai',
@@ -288,7 +288,7 @@ describe('runTurnNonInteractive', () => {
     const events: Array<{ type: string; seq: number }> = []
 
     const response = await client.runTurnNonInteractive({
-      cpSessionId: 'session-test',
+      hostSessionId: 'session-test',
       runId: 'run-test',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -311,11 +311,11 @@ describe('runTurnNonInteractive', () => {
     expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4])
   })
 
-  test('emits events with cpSessionId and runId', async () => {
-    const events: Array<{ cpSessionId: string; runId: string }> = []
+  test('emits events with hostSessionId and runId', async () => {
+    const events: Array<{ hostSessionId: string; runId: string }> = []
 
     await client.runTurnNonInteractive({
-      cpSessionId: 'cp-session-123',
+      hostSessionId: 'cp-session-123',
       runId: 'run-456',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -325,14 +325,14 @@ describe('runTurnNonInteractive', () => {
       prompt: 'Hello',
       callbacks: {
         onEvent: (event) => {
-          events.push({ cpSessionId: event.cpSessionId, runId: event.runId })
+          events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
         },
       },
     })
 
     expect(events.length).toBeGreaterThan(0)
     for (const event of events) {
-      expect(event.cpSessionId).toBe('cp-session-123')
+      expect(event.hostSessionId).toBe('cp-session-123')
       expect(event.runId).toBe('run-456')
     }
   })
@@ -342,7 +342,7 @@ describe('runTurnNonInteractive', () => {
     await rm(missingSessionPath, { recursive: true, force: true })
 
     const response = await client.runTurnNonInteractive({
-      cpSessionId: 'session-missing',
+      hostSessionId: 'session-missing',
       runId: 'run-missing',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -364,7 +364,7 @@ describe('runTurnNonInteractive', () => {
     const events: Array<{ type: string }> = []
 
     const response = await client.runTurnNonInteractive({
-      cpSessionId: 'session-mismatch',
+      hostSessionId: 'session-mismatch',
       runId: 'run-mismatch',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -393,7 +393,7 @@ describe('runTurnNonInteractive', () => {
     // This will fail during materialization since we don't have a real registry,
     // but we can verify the continuation was set on events before the failure
     await client.runTurnNonInteractive({
-      cpSessionId: 'session-pi-first',
+      hostSessionId: 'session-pi-first',
       runId: 'run-pi-first',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -420,7 +420,7 @@ describe('runTurnNonInteractive', () => {
     const events: AgentEvent[] = []
 
     const response = await client.runTurnNonInteractive({
-      cpSessionId: 'session-default-model',
+      hostSessionId: 'session-default-model',
       runId: 'run-default-model',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -444,7 +444,7 @@ describe('runTurnNonInteractive', () => {
     const events: AgentEvent[] = []
 
     await client.runTurnNonInteractive({
-      cpSessionId: 'session-ts',
+      hostSessionId: 'session-ts',
       runId: 'run-ts',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -469,7 +469,7 @@ describe('runTurnNonInteractive', () => {
     const seqs: number[] = []
 
     await client.runTurnNonInteractive({
-      cpSessionId: 'session-seq',
+      hostSessionId: 'session-seq',
       runId: 'run-seq',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -492,7 +492,7 @@ describe('runTurnNonInteractive', () => {
     await rm(missingPath, { recursive: true, force: true })
 
     const response = await client.runTurnNonInteractive({
-      cpSessionId: 'session-cont-ref',
+      hostSessionId: 'session-cont-ref',
       runId: 'run-cont-ref',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -512,7 +512,7 @@ describe('runTurnNonInteractive', () => {
 
   test('model_not_supported response includes the rejected model id', async () => {
     const response = await client.runTurnNonInteractive({
-      cpSessionId: 'session-bad-model',
+      hostSessionId: 'session-bad-model',
       runId: 'run-bad-model',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -528,14 +528,14 @@ describe('runTurnNonInteractive', () => {
     expect(response.model).toBe('claude/nonexistent-variant')
   })
 
-  test('pi-sdk first run generates deterministic continuation path from cpSessionId', async () => {
+  test('pi-sdk first run generates deterministic continuation path from hostSessionId', async () => {
     const events1: Array<{ continuation?: unknown }> = []
     const events2: Array<{ continuation?: unknown }> = []
 
-    // Run twice with the same cpSessionId
+    // Run twice with the same hostSessionId
     for (const events of [events1, events2]) {
       await client.runTurnNonInteractive({
-        cpSessionId: 'deterministic-session',
+        hostSessionId: 'deterministic-session',
         runId: `run-${events === events1 ? '1' : '2'}`,
         aspHome: '/tmp/asp-test',
         spec: { spaces: ['space:base@dev'] },
@@ -549,7 +549,7 @@ describe('runTurnNonInteractive', () => {
       })
     }
 
-    // Same cpSessionId should produce the same continuation key
+    // Same hostSessionId should produce the same continuation key
     const cont1 = events1[0]?.continuation as { key: string } | undefined
     const cont2 = events2[0]?.continuation as { key: string } | undefined
     expect(cont1?.key).toBeDefined()
@@ -560,7 +560,7 @@ describe('runTurnNonInteractive', () => {
     const events: AgentEvent[] = []
 
     await client.runTurnNonInteractive({
-      cpSessionId: 'session-prompt',
+      hostSessionId: 'session-prompt',
       runId: 'run-prompt',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -582,7 +582,7 @@ describe('runTurnNonInteractive', () => {
 
   test('returns error for relative cwd path', async () => {
     const response = await client.runTurnNonInteractive({
-      cpSessionId: 'session-rel-cwd',
+      hostSessionId: 'session-rel-cwd',
       runId: 'run-rel-cwd',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -600,7 +600,7 @@ describe('runTurnNonInteractive', () => {
     const events: AgentEvent[] = []
 
     await client.runTurnNonInteractive({
-      cpSessionId: 'session-complete',
+      hostSessionId: 'session-complete',
       runId: 'run-complete',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -629,7 +629,7 @@ describe('runTurnInFlight', () => {
     const events: Array<{ type: string }> = []
 
     const response = await client.runTurnInFlight({
-      cpSessionId: 'inflight-unsupported',
+      hostSessionId: 'inflight-unsupported',
       runId: 'run-inflight-unsupported',
       aspHome: '/tmp/asp-test',
       spec: { spaces: ['space:base@dev'] },
@@ -654,7 +654,7 @@ describe('in-flight control methods', () => {
   test('queueInFlightInput throws when no active run exists', async () => {
     await expect(
       client.queueInFlightInput({
-        cpSessionId: 'missing-session',
+        hostSessionId: 'missing-session',
         runId: 'missing-run',
         prompt: 'hello',
       })
@@ -664,7 +664,7 @@ describe('in-flight control methods', () => {
   test('interruptInFlightTurn throws when no active run exists', async () => {
     await expect(
       client.interruptInFlightTurn({
-        cpSessionId: 'missing-session',
+        hostSessionId: 'missing-session',
       })
     ).rejects.toThrow(/No active in-flight run/)
   })

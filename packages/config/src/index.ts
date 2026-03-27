@@ -82,6 +82,15 @@ export {
   // Manifest
   readSpaceManifest,
   readSpaceManifestOrNull,
+  // Placement resolver
+  resolvePlacement,
+  // Instruction and space layering
+  resolveInstructionLayer,
+  resolveSpaceComposition,
+  // Root-relative refs
+  resolveRootRelativeRef,
+  // Agent root validation
+  validateAgentRoot,
 } from './resolver/index.js'
 
 // Store - content-addressed storage

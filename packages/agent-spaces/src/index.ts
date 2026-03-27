@@ -11,6 +11,7 @@ export type {
   HarnessContinuationKey,
   HarnessContinuationRef,
   HarnessFrontend,
+  HostCorrelation,
   InteractionMode,
   InterruptInFlightTurnRequest,
   IoMode,
@@ -28,5 +29,19 @@ export type {
   SessionState,
   SpaceSpec,
 } from './types.js'
+
+export type {
+  AgentSpacesClientOptions,
+  PlacementBuildInvocationRequest,
+  PlacementBuildInvocationResponse,
+  PlacementRunTurnRequest,
+  PlacementRunTurnResponse,
+} from './placement-api.js'
+
+export {
+  buildCorrelationEnvVars,
+  getProviderForFrontend,
+  validateProviderMatch,
+} from './placement-api.js'
 
 export { createAgentSpacesClient } from './client.js'
