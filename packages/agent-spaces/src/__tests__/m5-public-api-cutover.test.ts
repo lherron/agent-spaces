@@ -518,13 +518,12 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
 })
 
 // ===================================================================
-// T-00876: registryRefs filter in runPlacementTurnNonInteractive
-// Defect: runPlacementTurnNonInteractive passed all space refs (including
-// space:agent: and space:project:) to materializeFromRefs, causing failures
-// for local refs. Must match the same filter as buildPlacementInvocationSpec.
+// T-00876: unified placement materialization
+// Both placement functions use placementToSpec + materializeSpec
+// instead of manual registryRefs filtering.
 // ===================================================================
-describe('registryRefs filter consistency (T-00876)', () => {
-  test('both placement functions filter space:agent: and space:project: refs', () => {
+describe('unified placement materialization (T-00876)', () => {
+  test('both placement functions use placementToSpec + materializeSpec pipeline', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
     const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
@@ -536,16 +535,16 @@ describe('registryRefs filter consistency (T-00876)', () => {
     expect(buildFn).toBeDefined()
     expect(runFn).toBeDefined()
 
-    // Both must filter out space:agent: refs
-    expect(buildFn).toMatch(/!ref\.startsWith\(['"]space:agent:/)
-    expect(runFn).toMatch(/!ref\.startsWith\(['"]space:agent:/)
+    // Both must use placementToSpec for conversion
+    expect(buildFn).toMatch(/placementToSpec\(/)
+    expect(runFn).toMatch(/placementToSpec\(/)
 
-    // Both must filter out space:project: refs
-    expect(buildFn).toMatch(/!ref\.startsWith\(['"]space:project:/)
-    expect(runFn).toMatch(/!ref\.startsWith\(['"]space:project:/)
+    // Both must use materializeSpec for unified materialization
+    expect(buildFn).toMatch(/materializeSpec\(/)
+    expect(runFn).toMatch(/materializeSpec\(/)
 
-    // Both must use registryRefs (not spaceRefs) for materializeFromRefs
-    expect(buildFn).toMatch(/refs:\s*registryRefs/)
-    expect(runFn).toMatch(/refs:\s*registryRefs/)
+    // Neither should have manual registryRefs filtering (replaced by unified path)
+    expect(buildFn).not.toMatch(/registryRefs/)
+    expect(runFn).not.toMatch(/registryRefs/)
   })
 })

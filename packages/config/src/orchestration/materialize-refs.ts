@@ -11,11 +11,13 @@ import { mkdir, readdir } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
 
 import {
+  AGENT_COMMIT_MARKER,
   type CommitSha,
   DEFAULT_HARNESS,
   type HarnessAdapter,
   type HarnessId,
   type LockFile,
+  PROJECT_COMMIT_MARKER,
   type SpaceId,
   type SpaceRefString,
   atomicWriteJson,
@@ -83,6 +85,10 @@ export interface MaterializeFromRefsOptions {
   refresh?: boolean
   /** Project path for asp_modules output (default: dirname of lockPath) */
   projectPath?: string
+  /** Agent root directory for resolving space:agent:<id> refs */
+  agentRoot?: string
+  /** Project root directory for resolving space:project:<id> refs */
+  projectRoot?: string
 }
 
 /**
@@ -158,6 +164,8 @@ export async function materializeFromRefs(
   const closureOptions: ClosureOptions = {
     cwd: registryPath,
     pinnedSpaces: effectivePinnedSpaces,
+    ...(options.agentRoot ? { agentRoot: options.agentRoot } : {}),
+    ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
   }
   const closure = await computeClosure(refs, closureOptions)
 
@@ -168,6 +176,8 @@ export async function materializeFromRefs(
       type: 'git',
       url: registryPath,
     },
+    ...(options.agentRoot ? { agentRoot: options.agentRoot } : {}),
+    ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
   }
   const newLock = await generateLockFileForTarget(targetName, refs, closure, lockOptions)
 
@@ -194,6 +204,7 @@ export async function materializeFromRefs(
     harness,
     refresh,
     adapter,
+    ...(options.agentRoot ? { agentPath: options.agentRoot } : {}),
   }
   const materialization = await materializeTarget(targetName, mergedLock, matOptions)
 
@@ -263,8 +274,13 @@ async function populateSnapshots(
   let created = 0
 
   for (const entry of Object.values(lock.spaces)) {
-    // Skip @dev entries - they use filesystem directly
-    if (entry.commit === DEV_COMMIT_MARKER || entry.integrity === DEV_INTEGRITY) {
+    // Skip @dev, agent-local, and project-local entries - they use filesystem directly
+    if (
+      entry.commit === DEV_COMMIT_MARKER ||
+      entry.commit === (AGENT_COMMIT_MARKER as string) ||
+      entry.commit === (PROJECT_COMMIT_MARKER as string) ||
+      entry.integrity === DEV_INTEGRITY
+    ) {
       continue
     }
 

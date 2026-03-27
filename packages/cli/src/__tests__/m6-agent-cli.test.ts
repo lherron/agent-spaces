@@ -17,6 +17,8 @@
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { cp, lstat, mkdir, mkdtemp, readlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // Resolve fixture roots directly — CLI tests can't use workspace package subpath imports
@@ -799,10 +801,10 @@ describe('gpt-5.4 model support (T-00878)', () => {
 })
 
 // ===================================================================
-// T-00879: pi-sdk placement path does not use loadPiSdkBundle
+// T-00879: pi-sdk placement path uses unified materialization
 // ===================================================================
 describe('pi-sdk placement path (T-00879)', () => {
-  test('runPlacementTurnNonInteractive does not call loadPiSdkBundle', () => {
+  test('runPlacementTurnNonInteractive uses unified materializeSpec pipeline', () => {
     const source = readFileSync(
       join(import.meta.dirname, '..', '..', '..', 'agent-spaces', 'src', 'client.ts'),
       'utf8'
@@ -810,7 +812,73 @@ describe('pi-sdk placement path (T-00879)', () => {
     // Extract the runPlacementTurnNonInteractive function body
     const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
     expect(runFn).toBeDefined()
-    // Must NOT call loadPiSdkBundle — placement path constructs session directly
-    expect(runFn).not.toMatch(/loadPiSdkBundle/)
+    // Must use placementToSpec + materializeSpec (unified pipeline)
+    expect(runFn).toMatch(/placementToSpec\(/)
+    expect(runFn).toMatch(/materializeSpec\(/)
+    // Pi-sdk should load bundle from materialized output (composeTarget produces bundle.json)
+    expect(runFn).toMatch(/loadPiSdkBundle\(materialized/)
+  })
+})
+
+// ===================================================================
+// T-00882: codex-cli placement auth propagation
+// Defect: placement path skipped composeTarget(), so CODEX_HOME lacked auth.json.
+// ===================================================================
+describe('codex-cli placement auth propagation (T-00882)', () => {
+  test('dry-run links ~/.codex/auth.json into CODEX_HOME', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'asp-codex-auth-'))
+    const agentRoot = join(tempDir, 'agent-root')
+    const fakeHome = join(tempDir, 'home')
+    const fakeAuthPath = join(fakeHome, '.codex', 'auth.json')
+    const codexShimDir = join(
+      import.meta.dirname,
+      '..',
+      '..',
+      '..',
+      'integration-tests',
+      'fixtures',
+      'codex-shim'
+    )
+
+    await cp(resolveAgentRoot(), agentRoot, { recursive: true })
+    await mkdir(join(fakeHome, '.codex'), { recursive: true })
+    await writeFile(fakeAuthPath, '{"access_token":"test-token"}\n')
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Reply with exactly: CODEX_PASS',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'codex-cli',
+        '--interaction',
+        'headless',
+        '--io',
+        'pipes',
+        '--dry-run',
+        '--json',
+      ],
+      {
+        expectError: true,
+        env: {
+          HOME: fakeHome,
+          PATH: `${codexShimDir}:${process.env.PATH ?? ''}`,
+          ASP_HOME: join(tempDir, 'asp-home'),
+        },
+      }
+    )
+
+    expect(result.exitCode).toBe(0)
+    const parsed = JSON.parse(result.stdout)
+    const codexHome = parsed.spec.env.CODEX_HOME
+    expect(typeof codexHome).toBe('string')
+
+    const linkedAuthPath = join(codexHome, 'auth.json')
+    const stats = await lstat(linkedAuthPath)
+    expect(stats.isSymbolicLink()).toBe(true)
+    expect(await readlink(linkedAuthPath)).toBe(fakeAuthPath)
   })
 })

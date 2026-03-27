@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
+import { readFile, symlink } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { basename, isAbsolute, join } from 'node:path'
 
 import {
-  type ComposedTargetBundle,
   type HarnessId,
   type LintWarning,
   type LockFile,
@@ -282,6 +282,81 @@ function computeSpacesTargetName(spaces: string[]): string {
   return `spaces-${hash.digest('hex').slice(0, 12)}`
 }
 
+/**
+ * Convert a RuntimePlacement into a ValidatedSpec for the unified materialization pipeline.
+ * Also returns agentRoot/projectRoot for closure resolution of local spaces.
+ */
+function placementToSpec(placement: RuntimePlacement): {
+  spec: ValidatedSpec
+  agentRoot?: string | undefined
+  projectRoot?: string | undefined
+} {
+  const { bundle } = placement
+  const agentRoot = placement.agentRoot
+  const projectRoot = placement.projectRoot
+
+  switch (bundle.kind) {
+    case 'project-target':
+      return {
+        spec: {
+          kind: 'target',
+          targetName: bundle.target,
+          targetDir: bundle.projectRoot,
+        },
+        agentRoot,
+        projectRoot,
+      }
+
+    case 'agent-target': {
+      // Load target compose list from agent-profile.toml
+      const profilePath = join(agentRoot, 'agent-profile.toml')
+      let compose: string[] = []
+      if (existsSync(profilePath)) {
+        const { parse } = require('@iarna/toml') as {
+          parse: (s: string) => Record<string, unknown>
+        }
+        const content = readFileSync(profilePath, 'utf8')
+        const parsed = parse(content) as Record<string, unknown>
+        const targets = parsed['targets'] as Record<string, Record<string, unknown>> | undefined
+        const target = targets?.[bundle.target]
+        if (!target) {
+          throw new Error(`Agent target "${bundle.target}" not found in agent-profile.toml`)
+        }
+        compose = (target['compose'] as string[] | undefined) ?? []
+      }
+      return { spec: { kind: 'spaces', spaces: compose }, agentRoot, projectRoot }
+    }
+
+    case 'compose':
+      return {
+        spec: { kind: 'spaces', spaces: bundle.compose as string[] },
+        agentRoot,
+        projectRoot,
+      }
+
+    case 'agent-default': {
+      // Load profile spaces.base
+      const profilePath = join(agentRoot, 'agent-profile.toml')
+      let spaces: string[] = []
+      if (existsSync(profilePath)) {
+        const { parse } = require('@iarna/toml') as {
+          parse: (s: string) => Record<string, unknown>
+        }
+        const content = readFileSync(profilePath, 'utf8')
+        const parsed = parse(content) as Record<string, unknown>
+        const spacesConfig = parsed['spaces'] as Record<string, unknown> | undefined
+        if (spacesConfig) {
+          const base = spacesConfig['base']
+          if (Array.isArray(base)) {
+            spaces = base as string[]
+          }
+        }
+      }
+      return { spec: { kind: 'spaces', spaces }, agentRoot, projectRoot }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers: frontend resolution + model validation
 // ---------------------------------------------------------------------------
@@ -414,8 +489,13 @@ async function materializeSpec(
   spec: ValidatedSpec,
   aspHome: string,
   harnessId: HarnessId,
-  registryPathOverride?: string | undefined
+  options?: {
+    registryPathOverride?: string | undefined
+    agentRoot?: string | undefined
+    projectRoot?: string | undefined
+  }
 ): Promise<MaterializedSpec> {
+  const registryPathOverride = options?.registryPathOverride
   if (spec.kind === 'target') {
     const { targetName, lock, registryPath } = await resolveSpecToLock(
       spec,
@@ -441,6 +521,29 @@ async function materializeSpec(
   }
 
   const refs = spec.spaces as string[]
+  if (refs.length === 0) {
+    // No spaces — create minimal empty materialization
+    const targetName = 'placement-empty'
+    const paths = new PathResolver({ aspHome })
+    const materialized = await materializeFromRefs({
+      targetName,
+      refs: [],
+      registryPath: registryPathOverride ?? paths.repo,
+      aspHome,
+      lockPath: paths.globalLock,
+      harness: harnessId,
+    })
+    return {
+      targetName,
+      materialization: {
+        outputPath: materialized.materialization.outputPath,
+        pluginDirs: materialized.materialization.pluginDirs,
+        mcpConfigPath: materialized.materialization.mcpConfigPath,
+      },
+      skills: materialized.skills.map((skill) => skill.name),
+    }
+  }
+
   const targetName = computeSpacesTargetName(refs)
   const paths = new PathResolver({ aspHome })
   const registryPath = registryPathOverride ?? paths.repo
@@ -451,6 +554,8 @@ async function materializeSpec(
     aspHome,
     lockPath: paths.globalLock,
     harness: harnessId,
+    ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
+    ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
   })
 
   return {
@@ -908,12 +1013,9 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
         const frontendDef = req.frontend
           ? resolveFrontend(req.frontend)
           : resolveFrontend(AGENT_SDK_FRONTEND)
-        const materialized = await materializeSpec(
-          spec,
-          req.aspHome,
-          frontendDef.internalId,
-          req.registryPath
-        )
+        const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId, {
+          registryPathOverride: req.registryPath,
+        })
         const hooks = await collectHooks(materialized.materialization.pluginDirs)
         const tools = await collectTools(materialized.materialization.mcpConfigPath)
         const lintWarnings =
@@ -1672,36 +1774,16 @@ async function buildPlacementInvocationSpec(
     )
   }
 
-  // Materialize spaces from resolved bundle refs.
-  // Only registry spaces (not space:agent: or space:project:) can go through
-  // materializeFromRefs — local spaces are resolved at runtime by the spawned process.
-  const spaceRefs = resolvedBundle.spaces.map((s) => s.ref)
-  const registryRefs = spaceRefs.filter(
-    (ref) => !ref.startsWith('space:agent:') && !ref.startsWith('space:project:')
+  // Unified materialization: convert placement to ValidatedSpec, then use materializeSpec
+  const { spec, agentRoot, projectRoot } = placementToSpec(placement)
+  const materialized = await materializeSpec(spec, aspHome, frontendDef.internalId, {
+    agentRoot,
+    projectRoot,
+  })
+  const bundle = await adapter.loadTargetBundle(
+    materialized.materialization.outputPath,
+    materialized.targetName
   )
-
-  let bundle: ComposedTargetBundle
-  if (registryRefs.length > 0) {
-    const paths = new PathResolver({ aspHome })
-    const targetName = computeSpacesTargetName(registryRefs)
-    const result = await materializeFromRefs({
-      targetName,
-      refs: registryRefs as SpaceRefString[],
-      registryPath: paths.repo,
-      aspHome,
-      lockPath: paths.globalLock,
-      harness: frontendDef.internalId,
-    })
-    bundle = await adapter.loadTargetBundle(result.materialization.outputPath, targetName)
-  } else {
-    // No registry spaces — construct a minimal bundle for arg building.
-    // Local agent/project spaces will be resolved at runtime by the spawned CLI.
-    bundle = {
-      harnessId: frontendDef.internalId,
-      targetName: `placement-${resolvedBundle.bundleIdentity}`,
-      rootDir: cwd,
-    }
-  }
 
   // Build run options for the adapter
   const isResume = !!req.continuation?.key
@@ -1717,6 +1799,20 @@ async function buildPlacementInvocationSpec(
   // Build argv and env using the adapter
   const args = adapter.buildRunArgs(bundle, runOptions)
   const adapterEnv = adapter.getRunEnv(bundle, runOptions)
+  if (frontendDef.frontend === CODEX_CLI_FRONTEND) {
+    const codexHome = adapterEnv['CODEX_HOME']
+    if (codexHome) {
+      const userAuthPath = join(homedir(), '.codex', 'auth.json')
+      const destAuthPath = join(codexHome, 'auth.json')
+      try {
+        if (!existsSync(destAuthPath) && existsSync(userAuthPath)) {
+          await symlink(userAuthPath, destAuthPath)
+        }
+      } catch {
+        // Ignore symlink failures to match codex adapter composition behavior.
+      }
+    }
+  }
   const commandPath = detection.path ?? frontendDef.internalId
   const argv = [commandPath, ...args]
 
@@ -1848,33 +1944,23 @@ async function runPlacementTurnNonInteractive(
     const restoreEnv = applyEnvOverlay(harnessEnv)
 
     try {
-      // Materialize registry spaces only — local agent/project spaces are
-      // already resolved in the placement and don't need materialization.
-      let pluginDirs: string[] = []
-      const spaceRefs = resolvedBundle.spaces.map((s) => s.ref)
-      const registryRefs = spaceRefs.filter(
-        (ref) => !ref.startsWith('space:agent:') && !ref.startsWith('space:project:')
-      )
-      if (registryRefs.length > 0) {
-        const paths = new PathResolver({ aspHome })
-        const targetName = computeSpacesTargetName(registryRefs)
-        const materialized = await materializeFromRefs({
-          targetName,
-          refs: registryRefs as SpaceRefString[],
-          registryPath: paths.repo,
-          aspHome,
-          lockPath: paths.globalLock,
-          harness: frontendDef.internalId,
-        })
-        pluginDirs = materialized.materialization.pluginDirs
+      // Unified materialization: convert placement to ValidatedSpec
+      const {
+        spec,
+        agentRoot: placementAgentRoot,
+        projectRoot: placementProjectRoot,
+      } = placementToSpec(placement)
+      const materialized = await materializeSpec(spec, aspHome, frontendDef.internalId, {
+        agentRoot: placementAgentRoot,
+        projectRoot: placementProjectRoot,
+      })
 
-        if (frontendDef.frontend === PI_SDK_FRONTEND) {
-          harnessEnv['PI_CODING_AGENT_DIR'] = materialized.materialization.outputPath
-        }
+      if (frontendDef.frontend === PI_SDK_FRONTEND) {
+        harnessEnv['PI_CODING_AGENT_DIR'] = materialized.materialization.outputPath
       }
 
       if (frontendDef.frontend === AGENT_SDK_FRONTEND) {
-        const plugins = pluginDirs.map((dir) => ({
+        const plugins = (materialized.materialization.pluginDirs ?? []).map((dir) => ({
           type: 'local' as const,
           path: dir,
         }))
@@ -1888,8 +1974,7 @@ async function runPlacementTurnNonInteractive(
           ...(continuationKey ? { resume: continuationKey } : {}),
         })
       } else {
-        // pi-sdk — placement path: no pre-composed bundle.json exists,
-        // so construct session with empty extensions/skills/contextFiles.
+        // pi-sdk — load bundle from materialized output
         const isResume = continuationKey !== undefined
         if (!isResume && !continuationKey && aspHome) {
           continuationKey = piSessionPath(aspHome, hostSessionId as string)
@@ -1900,16 +1985,23 @@ async function runPlacementTurnNonInteractive(
           })
         }
 
+        const piBundle = await loadPiSdkBundle(materialized.materialization.outputPath, {
+          cwd,
+          yolo: true,
+          noExtensions: false,
+          noSkills: false,
+          agentDir: materialized.materialization.outputPath,
+        })
         const piSession = new PiSession({
           ownerId: hostSessionId as string,
           cwd,
           provider: modelResolution.info.provider,
           model: modelResolution.info.model,
           sessionId: hostSessionId as string,
-          extensions: [],
-          skills: [],
-          contextFiles: [],
-          agentDir: cwd,
+          extensions: piBundle.extensions,
+          skills: piBundle.skills,
+          contextFiles: piBundle.contextFiles,
+          agentDir: materialized.materialization.outputPath,
           ...(continuationKey ? { sessionPath: continuationKey } : {}),
         })
         piSession.setPermissionHandler(permissionHandler)
