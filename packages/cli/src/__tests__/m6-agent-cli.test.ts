@@ -503,6 +503,141 @@ describe('hostSessionId regression (T-00872)', () => {
 })
 
 // ===================================================================
+// T-00892: CLI auto-populates correlation from positional ScopeRef
+//
+// Defect: buildPlacement() only creates placement.correlation when
+// --host-session-id or --lane-ref is provided. The positional scopeRef
+// is always available but not used as a baseline. Default lane is 'main'.
+// Result: dry-run invocations omit AGENT_SCOPE_REF and AGENT_LANE_REF
+// unless optional flags are passed.
+//
+// PASS CONDITIONS:
+// 1. Dry-run without --host-session-id / --lane-ref still emits
+//    AGENT_SCOPE_REF (from positional scopeRef) and AGENT_LANE_REF ('main').
+// 2. --lane-ref overrides the default lane.
+// 3. --host-session-id is propagated into AGENT_HOST_SESSION_ID.
+// ===================================================================
+describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
+  test('baseline dry-run auto-populates AGENT_SCOPE_REF and AGENT_LANE_REF', () => {
+    // RED: Currently buildPlacement skips correlation entirely when
+    // --host-session-id and --lane-ref are both absent (lines 284-291).
+    // scopeRef "agent:alice" is parsed but not used for correlation baseline.
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    expect(result.exitCode).toBe(0)
+    const parsed = JSON.parse(result.stdout)
+    // AGENT_SCOPE_REF should be the positional scopeRef
+    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice')
+    // AGENT_LANE_REF should default to 'main'
+    expect(parsed.spec.env.AGENT_LANE_REF).toBe('main')
+  })
+
+  test('--lane-ref overrides default lane', () => {
+    // RED: Currently --lane-ref alone triggers correlation, but this test
+    // verifies the override path works correctly with the new baseline.
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--lane-ref',
+        'deploy',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    expect(result.exitCode).toBe(0)
+    const parsed = JSON.parse(result.stdout)
+    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice')
+    expect(parsed.spec.env.AGENT_LANE_REF).toBe('deploy')
+  })
+
+  test('--host-session-id sets AGENT_HOST_SESSION_ID alongside scope/lane', () => {
+    // GREEN: --host-session-id triggers correlation in current code, so
+    // scope/lane already get set. This is the backward compat baseline.
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--host-session-id',
+        'hs-corr-test',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    expect(result.exitCode).toBe(0)
+    const parsed = JSON.parse(result.stdout)
+    expect(parsed.spec.env.AGENT_HOST_SESSION_ID).toBe('hs-corr-test')
+    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice')
+    expect(parsed.spec.env.AGENT_LANE_REF).toBe('main')
+  })
+
+  test('compound ScopeRef propagates full ref', () => {
+    // RED: Same defect — no correlation without explicit flags.
+    const agentRoot = resolveAgentRoot()
+    const projectRoot = resolveProjectRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice:project:demo',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--project-root',
+        projectRoot,
+        '--frontend',
+        'claude-code',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    expect(result.exitCode).toBe(0)
+    const parsed = JSON.parse(result.stdout)
+    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo')
+    expect(parsed.spec.env.AGENT_LANE_REF).toBe('main')
+  })
+})
+
+// ===================================================================
 // T-00874: Full CLI argv from buildPlacementInvocationSpec
 // Defect: buildPlacementInvocationSpec produced stub argv: [frontend].
 // Now uses harness adapter for full binary path, model, args, env.
