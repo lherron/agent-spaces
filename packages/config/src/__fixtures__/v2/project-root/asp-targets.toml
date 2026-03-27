@@ -4,7 +4,7 @@ schema = 1
 model = "claude-sonnet-4-5"
 
 [codex]
-model = "gpt-5.3-codex"
+model = "gpt-5.4"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 profile = "workspace"

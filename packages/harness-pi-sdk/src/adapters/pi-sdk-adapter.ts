@@ -58,7 +58,7 @@ import {
 // Constants & Types
 // ============================================================================
 
-const DEFAULT_PI_SDK_MODEL = 'openai-codex:gpt-5.4'
+const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.4'
 
 const RUNNER_PATH = fileURLToPath(new URL('../pi-sdk/pi-sdk/runner.js', import.meta.url))
 const SDK_ENTRY_CANDIDATES = [
@@ -191,13 +191,13 @@ export class PiSdkAdapter implements HarnessAdapter {
 
   readonly models: HarnessModelInfo[] = [
     { id: DEFAULT_PI_SDK_MODEL, name: 'GPT-5.4', default: true },
-    { id: 'openai-codex:gpt-5.3-codex', name: 'GPT-5.3 Codex' },
-    { id: 'openai-codex:gpt-5.3', name: 'GPT-5.3' },
-    { id: 'openai-codex:gpt-5.2-codex', name: 'GPT-5.2 Codex' },
-    { id: 'openai-codex:gpt-5.2', name: 'GPT-5.2' },
-    { id: 'openai-codex:gpt-5.1', name: 'GPT-5.1' },
-    { id: 'openai-codex:gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
-    { id: 'openai-codex:gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini' },
+    { id: 'openai-codex/gpt-5.3-codex', name: 'GPT-5.3 Codex' },
+    { id: 'openai-codex/gpt-5.3', name: 'GPT-5.3' },
+    { id: 'openai-codex/gpt-5.2-codex', name: 'GPT-5.2 Codex' },
+    { id: 'openai-codex/gpt-5.2', name: 'GPT-5.2' },
+    { id: 'openai-codex/gpt-5.1', name: 'GPT-5.1' },
+    { id: 'openai-codex/gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
+    { id: 'openai-codex/gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini' },
   ]
 
   async detect(): Promise<HarnessDetection> {
