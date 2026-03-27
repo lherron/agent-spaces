@@ -130,13 +130,7 @@ export function getEffectiveClaudeOptions(
   targetName: TargetName
 ): ClaudeOptions {
   const target = manifest.targets[targetName]
-  if (!target) {
-    const available = getTargetNames(manifest)
-    const availableStr =
-      available.length > 0 ? `Available: ${available.join(', ')}` : 'No targets defined'
-    throw new Error(`Target "${targetName}" not found in manifest. ${availableStr}`)
-  }
-  return mergeClaudeOptions(manifest.claude, target.claude)
+  return mergeClaudeOptions(manifest.claude, target?.claude)
 }
 
 /**
@@ -173,11 +167,5 @@ export function getEffectiveCodexOptions(
   targetName: TargetName
 ): CodexOptions {
   const target = manifest.targets[targetName]
-  if (!target) {
-    const available = getTargetNames(manifest)
-    const availableStr =
-      available.length > 0 ? `Available: ${available.join(', ')}` : 'No targets defined'
-    throw new Error(`Target "${targetName}" not found in manifest. ${availableStr}`)
-  }
-  return mergeCodexOptions(manifest.codex, target.codex)
+  return mergeCodexOptions(manifest.codex, target?.codex)
 }
