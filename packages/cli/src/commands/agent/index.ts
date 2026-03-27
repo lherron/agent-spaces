@@ -195,10 +195,7 @@ async function handleExecute(
       ioMode: (options.io ?? 'pipes') as 'pty' | 'pipes' | 'inherit',
       continuation,
       env: envVars,
-      cpSessionId: '',
-      aspHome: '',
-      spec: { spaces: [] },
-      cwd: '',
+      hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
     } as Parameters<typeof client.buildProcessInvocationSpec>[0])
 
     if (options.dryRun || options.printCommand) {
@@ -252,11 +249,8 @@ async function handleExecute(
           else if (event.type === 'message_delta') process.stdout.write(event.delta)
         },
       },
-      cpSessionId: '',
+      hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
       runId: options.runId ?? '',
-      aspHome: '',
-      spec: { spaces: [] },
-      cwd: '',
     } as Parameters<typeof client.runTurnNonInteractive>[0])
     if (!response.result.success) process.exit(1)
   }
