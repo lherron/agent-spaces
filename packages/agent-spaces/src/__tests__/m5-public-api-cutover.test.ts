@@ -516,3 +516,36 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
     expect(source).toMatch(/runPlacementTurnNonInteractive/)
   })
 })
+
+// ===================================================================
+// T-00876: registryRefs filter in runPlacementTurnNonInteractive
+// Defect: runPlacementTurnNonInteractive passed all space refs (including
+// space:agent: and space:project:) to materializeFromRefs, causing failures
+// for local refs. Must match the same filter as buildPlacementInvocationSpec.
+// ===================================================================
+describe('registryRefs filter consistency (T-00876)', () => {
+  test('both placement functions filter space:agent: and space:project: refs', () => {
+    const { readFileSync } = require('node:fs')
+    const { join } = require('node:path')
+    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+
+    // Extract the two placement functions
+    const buildFn = source.match(/async function buildPlacementInvocationSpec[\s\S]*?^}/m)?.[0]
+    const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
+
+    expect(buildFn).toBeDefined()
+    expect(runFn).toBeDefined()
+
+    // Both must filter out space:agent: refs
+    expect(buildFn).toMatch(/!ref\.startsWith\(['"]space:agent:/)
+    expect(runFn).toMatch(/!ref\.startsWith\(['"]space:agent:/)
+
+    // Both must filter out space:project: refs
+    expect(buildFn).toMatch(/!ref\.startsWith\(['"]space:project:/)
+    expect(runFn).toMatch(/!ref\.startsWith\(['"]space:project:/)
+
+    // Both must use registryRefs (not spaceRefs) for materializeFromRefs
+    expect(buildFn).toMatch(/refs:\s*registryRefs/)
+    expect(runFn).toMatch(/refs:\s*registryRefs/)
+  })
+})
