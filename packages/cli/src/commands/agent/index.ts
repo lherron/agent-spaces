@@ -281,14 +281,11 @@ function buildPlacement(
   const scaffoldPackets = options.scaffoldFile
     ? JSON.parse(readFileSync(options.scaffoldFile, 'utf8'))
     : undefined
-  const correlation =
-    options.hostSessionId || options.laneRef
-      ? {
-          hostSessionId: options.hostSessionId,
-          runId: options.runId,
-          sessionRef: { scopeRef, laneRef: options.laneRef ?? 'main' },
-        }
-      : undefined
+  const correlation = {
+    hostSessionId: options.hostSessionId,
+    runId: options.runId,
+    sessionRef: { scopeRef, laneRef: options.laneRef ?? 'main' },
+  }
   return {
     agentRoot: options.agentRoot as string,
     projectRoot: options.projectRoot,
