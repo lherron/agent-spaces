@@ -495,3 +495,167 @@ describe('hostSessionId regression (T-00872)', () => {
     expect(cpSessionIdLines).toEqual([])
   })
 })
+
+// ===================================================================
+// T-00874: Full CLI argv from buildPlacementInvocationSpec
+// Defect: buildPlacementInvocationSpec produced stub argv: [frontend].
+// Now uses harness adapter for full binary path, model, args, env.
+// ===================================================================
+describe('placement invocation produces full argv (T-00874)', () => {
+  test('claude-code argv contains real binary path and --model flag', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--host-session-id',
+        'argv-test-1',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    const parsed = JSON.parse(result.stdout)
+    // argv must have more than just [frontend] — should have real binary + flags
+    expect(parsed.spec.argv.length).toBeGreaterThan(1)
+    // argv[0] should be a real binary path, not just "claude-code"
+    expect(parsed.spec.argv[0]).not.toBe('claude-code')
+    // Must include --model flag
+    expect(parsed.spec.argv).toContain('--model')
+  })
+
+  test('codex-cli argv contains exec subcommand and --model flag', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'codex-cli',
+        '--host-session-id',
+        'argv-test-2',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    const parsed = JSON.parse(result.stdout)
+    expect(parsed.spec.argv.length).toBeGreaterThan(1)
+    expect(parsed.spec.argv).toContain('exec')
+    expect(parsed.spec.argv).toContain('--model')
+  })
+
+  test('displayCommand is present and non-empty', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    const parsed = JSON.parse(result.stdout)
+    expect(parsed.spec.displayCommand).toBeDefined()
+    expect(typeof parsed.spec.displayCommand).toBe('string')
+    expect(parsed.spec.displayCommand.length).toBeGreaterThan(0)
+  })
+
+  test('ASP_HOME is in env', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    const parsed = JSON.parse(result.stdout)
+    expect(parsed.spec.env.ASP_HOME).toBeDefined()
+    expect(typeof parsed.spec.env.ASP_HOME).toBe('string')
+  })
+
+  test('adapter env vars present (ASP_PLUGIN_ROOT for claude-code)', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    const parsed = JSON.parse(result.stdout)
+    // claude-code adapter sets ASP_PLUGIN_ROOT
+    expect(parsed.spec.env.ASP_PLUGIN_ROOT).toBeDefined()
+  })
+
+  test('unsupported model throws via placement path', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--model',
+        'not-a-real-model',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    // Should fail with model not supported error
+    expect(result.exitCode).not.toBe(0)
+    const output = result.stdout + result.stderr
+    expect(output).toMatch(/[Mm]odel not supported/)
+  })
+})
