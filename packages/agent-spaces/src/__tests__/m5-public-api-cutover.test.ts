@@ -548,3 +548,118 @@ describe('unified placement materialization (T-00876)', () => {
     expect(runFn).not.toMatch(/registryRefs/)
   })
 })
+
+// ===================================================================
+// T-00891: placement.correlation replaces top-level hostSessionId/runId
+//
+// Defect: runPlacementTurnNonInteractive reads req.hostSessionId via
+// resolveHostSessionId(req) and req.runId directly, ignoring
+// placement.correlation. Callers providing only placement.correlation
+// get "hostSessionId is required".
+//
+// PASS CONDITIONS:
+// 1. Providing correlation inside placement (no top-level hostSessionId/runId)
+//    must propagate hostSessionId and runId to emitted events.
+// 2. Top-level hostSessionId/runId must still work (backward compat).
+// ===================================================================
+describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
+  test('placement.correlation.hostSessionId is used when top-level hostSessionId absent', async () => {
+    // RED: Currently throws "hostSessionId is required" because
+    // resolveHostSessionId(req) only reads req.hostSessionId / req.cpSessionId
+    const { createAgentSpacesClient } = await import('../index.js')
+    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-t891' })
+    const events: Array<{ hostSessionId: string; runId: string }> = []
+
+    // Call with correlation nested in placement, NO top-level hostSessionId/runId
+    await client.runTurnNonInteractive({
+      placement: {
+        agentRoot: '/tmp/asp-test-t891/agent-root',
+        runMode: 'query',
+        bundle: { kind: 'agent-default' },
+        correlation: {
+          hostSessionId: 'hs-from-correlation',
+          runId: 'run-from-correlation',
+        },
+      },
+      frontend: 'agent-sdk',
+      model: 'api/not-a-model',
+      prompt: 'Hello',
+      callbacks: {
+        onEvent: (event) => {
+          events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
+        },
+      },
+    } as any)
+
+    expect(events.length).toBeGreaterThan(0)
+    for (const event of events) {
+      expect(event.hostSessionId).toBe('hs-from-correlation')
+      expect(event.runId).toBe('run-from-correlation')
+    }
+  })
+
+  test('placement.correlation.runId is used when top-level runId absent', async () => {
+    // RED: Currently passes undefined runId to createEventEmitter because
+    // req.runId is not set and placement.correlation.runId is ignored
+    const { createAgentSpacesClient } = await import('../index.js')
+    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-t891b' })
+    const events: Array<{ runId: string }> = []
+
+    await client.runTurnNonInteractive({
+      placement: {
+        agentRoot: '/tmp/asp-test-t891b/agent-root',
+        runMode: 'query',
+        bundle: { kind: 'agent-default' },
+        correlation: {
+          hostSessionId: 'hs-t891b',
+          runId: 'run-only-in-correlation',
+        },
+      },
+      frontend: 'agent-sdk',
+      model: 'api/not-a-model',
+      prompt: 'Hello',
+      hostSessionId: 'hs-t891b', // provide hostSessionId at top-level to isolate the runId defect
+      callbacks: {
+        onEvent: (event) => {
+          events.push({ runId: event.runId })
+        },
+      },
+    } as any)
+
+    expect(events.length).toBeGreaterThan(0)
+    for (const event of events) {
+      expect(event.runId).toBe('run-only-in-correlation')
+    }
+  })
+
+  test('top-level hostSessionId/runId still works (backward compat)', async () => {
+    // GREEN: This should already pass — existing behavior
+    const { createAgentSpacesClient } = await import('../index.js')
+    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-t891c' })
+    const events: Array<{ hostSessionId: string; runId: string }> = []
+
+    await client.runTurnNonInteractive({
+      placement: {
+        agentRoot: '/tmp/asp-test-t891c/agent-root',
+        runMode: 'query',
+        bundle: { kind: 'agent-default' },
+      },
+      frontend: 'agent-sdk',
+      model: 'api/not-a-model',
+      prompt: 'Hello',
+      runId: 'run-top-level',
+      hostSessionId: 'hs-top-level',
+      callbacks: {
+        onEvent: (event) => {
+          events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
+        },
+      },
+    } as any)
+
+    expect(events.length).toBeGreaterThan(0)
+    for (const event of events) {
+      expect(event.hostSessionId).toBe('hs-top-level')
+      expect(event.runId).toBe('run-top-level')
+    }
+  })
+})
