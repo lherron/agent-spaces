@@ -437,14 +437,26 @@ function piSessionPath(aspHome: string, hostSessionId: string): string {
 }
 
 function resolveHostSessionId(
-  input: { hostSessionId?: string | undefined; cpSessionId?: string | undefined },
+  input: {
+    hostSessionId?: string | undefined
+    cpSessionId?: string | undefined
+    placement?: RuntimePlacement | undefined
+  },
   required = true
 ): string | undefined {
-  const hostSessionId = input.hostSessionId ?? input.cpSessionId
+  const hostSessionId =
+    input.hostSessionId ?? input.cpSessionId ?? input.placement?.correlation?.hostSessionId
   if (!hostSessionId && required) {
     throw new Error('hostSessionId is required')
   }
   return hostSessionId
+}
+
+function resolveRunId(input: {
+  runId?: string | undefined
+  placement?: RuntimePlacement | undefined
+}): string | undefined {
+  return input.runId ?? input.placement?.correlation?.runId
 }
 
 // ---------------------------------------------------------------------------
@@ -1865,9 +1877,10 @@ async function runPlacementTurnNonInteractive(
   const placement = req.placement as RuntimePlacement
   const frontendDef = resolveFrontend(req.frontend)
   const hostSessionId = resolveHostSessionId(req)
+  const runId = resolveRunId(req)
   const eventEmitter = createEventEmitter(
     req.callbacks.onEvent,
-    { hostSessionId: hostSessionId as string, runId: req.runId },
+    { hostSessionId: hostSessionId as string, runId: runId as string },
     req.continuation
   )
 
@@ -2034,7 +2047,7 @@ async function runPlacementTurnNonInteractive(
         })
       })
 
-      await runSession(session, req.prompt, req.attachments, req.runId)
+      await runSession(session, req.prompt, req.attachments, runId as string)
       await turnPromise
       await session.stop('complete')
       await eventEmitter.idle()
