@@ -15,6 +15,7 @@ import type {
   SpaceRefString,
 } from '../core/index.js'
 import {
+  AGENT_COMMIT_MARKER,
   CyclicDependencyError,
   MissingDependencyError,
   PROJECT_COMMIT_MARKER,
@@ -52,6 +53,8 @@ export interface ResolvedSpace {
   deps: SpaceKey[]
   /** True if this is a project-local space */
   projectSpace?: boolean | undefined
+  /** True if this is an agent-local space */
+  agentSpace?: boolean | undefined
 }
 
 /**
@@ -83,6 +86,11 @@ export interface ClosureOptions extends SelectorResolveOptions, ManifestReadOpti
    * Required for resolving project-local spaces (space:project:<id>).
    */
   projectRoot?: string | undefined
+  /**
+   * Agent root directory (contains agent-profile.toml, spaces/).
+   * Required for resolving agent-local spaces (space:agent:<id>).
+   */
+  agentRoot?: string | undefined
 }
 
 /**
@@ -105,20 +113,67 @@ export async function computeClosure(
   // DFS stack for cycle path reporting
   const visitPath: SpaceKey[] = []
 
-  async function visit(ref: SpaceRef): Promise<SpaceKey> {
+  async function visit(
+    ref: SpaceRef,
+    parentSpaceType?: 'agent' | 'project' | 'registry'
+  ): Promise<SpaceKey> {
     // Handle @dev selector specially - uses filesystem instead of git
     const isDev = ref.selector.kind === 'dev'
     // Handle project-local spaces (space:project:<id>)
     const isProjectSpace = ref.projectSpace === true
+    // Handle agent-local spaces (space:agent:<id>)
+    const isAgentSpace = ref.agentSpace === true
+
+    // Determine this space's type for dependency edge enforcement
+    const thisSpaceType: 'agent' | 'project' | 'registry' = isAgentSpace
+      ? 'agent'
+      : isProjectSpace
+        ? 'project'
+        : 'registry'
+
+    // Enforce dependency edge rules (AGENT_SPACES_PLAN.md section 7)
+    if (parentSpaceType !== undefined) {
+      const edge = `${parentSpaceType} -> ${thisSpaceType}`
+      if (parentSpaceType === 'registry' && thisSpaceType === 'agent') {
+        throw new Error(
+          `Disallowed dependency edge: ${edge}. Registry spaces cannot depend on agent-local spaces.`
+        )
+      }
+      if (parentSpaceType === 'registry' && thisSpaceType === 'project') {
+        throw new Error(
+          `Disallowed dependency edge: ${edge}. Registry spaces cannot depend on project-local spaces.`
+        )
+      }
+      if (parentSpaceType === 'agent' && thisSpaceType === 'project') {
+        throw new Error(
+          `Disallowed dependency edge: ${edge}. Agent-local spaces cannot depend on project-local spaces.`
+        )
+      }
+      if (parentSpaceType === 'project' && thisSpaceType === 'agent') {
+        throw new Error(
+          `Disallowed dependency edge: ${edge}. Project-local spaces cannot depend on agent-local spaces.`
+        )
+      }
+    }
 
     // Check if this space is pinned (for selective upgrades)
     const pinnedCommit = options.pinnedSpaces?.get(ref.id)
 
-    // Resolve the ref to a commit (or use pinned commit, or use dev/project marker)
+    // Resolve the ref to a commit (or use pinned commit, or use dev/project/agent marker)
     let resolved: ResolvedSelector
     let key: SpaceKey
 
-    if (isProjectSpace) {
+    if (isAgentSpace) {
+      // Agent space uses a special marker and reads from agent root
+      if (!options.agentRoot) {
+        throw new Error(`Agent root is required to resolve agent space: space:agent:${ref.id}`)
+      }
+      resolved = {
+        commit: AGENT_COMMIT_MARKER,
+        selector: { kind: 'dev' },
+      }
+      key = asSpaceKey(ref.id, AGENT_COMMIT_MARKER)
+    } else if (isProjectSpace) {
       // Project space uses a special marker and reads from project root
       if (!options.projectRoot) {
         throw new Error(
@@ -169,11 +224,16 @@ export async function computeClosure(
     visitPath.push(key)
 
     // Read the manifest based on space type:
+    // - Agent spaces: read from <agentRoot>/spaces/<id>/
     // - Project spaces: read from <projectRoot>/spaces/<id>/
     // - @dev refs: read from registry filesystem (cwd)
     // - Others: read from git at specific commit
     let manifest: SpaceManifest
-    if (isProjectSpace) {
+    if (isAgentSpace) {
+      // Agent space: read from agent root
+      const agentSpacePath = `${options.agentRoot}/spaces/${ref.id}`
+      manifest = await readSpaceManifestFromFilesystem(agentSpacePath, options)
+    } else if (isProjectSpace) {
       // Project space: read from project root
       const projectSpacePath = `${options.projectRoot}/spaces/${ref.id}`
       manifest = await readSpaceManifestFromFilesystem(projectSpacePath, options)
@@ -194,10 +254,14 @@ export async function computeClosure(
     for (const depRefString of depRefs) {
       try {
         const depRef = parseSpaceRef(depRefString)
-        const depKey = await visit(depRef)
+        const depKey = await visit(depRef, thisSpaceType)
         depKeys.push(depKey)
       } catch (err) {
         if (err instanceof CyclicDependencyError) {
+          throw err
+        }
+        // Rethrow dependency edge violations directly
+        if (err instanceof Error && err.message.startsWith('Disallowed dependency edge')) {
           throw err
         }
         // Wrap resolution errors as missing dependency
@@ -221,6 +285,7 @@ export async function computeClosure(
       resolvedFrom: resolved,
       deps: depKeys,
       projectSpace: isProjectSpace || undefined,
+      agentSpace: isAgentSpace || undefined,
     }
 
     spaces.set(key, resolvedSpace)

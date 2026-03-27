@@ -90,6 +90,7 @@ export {
 export {
   DEV_INTEGRITY,
   computeIntegrity,
+  computeFilesystemIntegrity,
   computeEnvHash,
   computeHarnessEnvHash,
   verifyIntegrity,

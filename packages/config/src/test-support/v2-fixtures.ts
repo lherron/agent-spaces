@@ -16,6 +16,7 @@ export interface TempFixtureRoots {
   cleanup: () => void
 }
 
+const LOCAL_SPACE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const FIXTURES_ROOT = fileURLToPath(new URL('../__fixtures__/v2', import.meta.url))
 const AGENT_ROOT = join(FIXTURES_ROOT, 'agent-root')
 const PROJECT_ROOT = join(FIXTURES_ROOT, 'project-root')
@@ -34,6 +35,12 @@ export function resolveAgentRoot(): string {
 
 export function resolveProjectRoot(): string {
   return PROJECT_ROOT
+}
+
+function assertValidLocalSpaceId(spaceId: string): void {
+  if (!LOCAL_SPACE_ID_PATTERN.test(spaceId)) {
+    throw new Error(`Invalid local space ID: "${spaceId}"`)
+  }
 }
 
 export function assertPathContained(root: string, candidate: string): string {
@@ -57,6 +64,7 @@ export function resolveLocalSpacePath(
   spaceId: string,
   options: { agentRoot?: string | undefined; projectRoot?: string | undefined } = {}
 ): string {
+  assertValidLocalSpaceId(spaceId)
   const root =
     scope === 'agent'
       ? (options.agentRoot ?? resolveAgentRoot())

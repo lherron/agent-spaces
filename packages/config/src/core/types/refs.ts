@@ -54,6 +54,8 @@ export interface SpaceRef {
   path?: string | undefined
   /** True for project-local spaces (space:project:<id>) */
   projectSpace?: boolean | undefined
+  /** True for agent-local spaces (space:agent:<id>) */
+  agentSpace?: boolean | undefined
 }
 
 /** Raw space reference string format: `space:<id>@<selector>` */
@@ -65,19 +67,23 @@ export type SpaceRefString = `space:${string}@${string}`
 
 const SPACE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,64}$/
-// Allow sha256:dev for @dev refs, sha256:project for project spaces (filesystem state, not content-addressed)
-const SHA256_INTEGRITY_PATTERN = /^sha256:([0-9a-f]{64}|dev|project)$/
-// Allow @dev and @project suffixes for filesystem-based refs
-const SPACE_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*@([0-9a-f]{7,64}|dev|project)$/
+// Allow sha256:dev for @dev refs, sha256:project for project spaces, sha256:agent for agent spaces
+const SHA256_INTEGRITY_PATTERN = /^sha256:([0-9a-f]{64}|dev|project|agent)$/
+// Allow @dev, @project, and @agent suffixes for filesystem-based refs
+const SPACE_KEY_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*@([0-9a-f]{7,64}|dev|project|agent)$/
 const SPACE_REF_WITH_SELECTOR_PATTERN = /^spaces?:([a-z0-9]+(?:-[a-z0-9]+)*)@(.+)$/
 const SPACE_REF_NO_SELECTOR_PATTERN = /^spaces?:([a-z0-9]+(?:-[a-z0-9]+)*)$/
 // Path-based refs: space:path:<path>@<selector>
 const SPACE_PATH_REF_PATTERN = /^spaces?:path:([^@]+)@(.+)$/
 // Project-local refs: space:project:<id> or space:project:<id>@<selector>
 const SPACE_PROJECT_REF_PATTERN = /^spaces?:project:([a-z0-9]+(?:-[a-z0-9]+)*)(?:@(.+))?$/
+// Agent-local refs: space:agent:<id> or space:agent:<id>@<selector>
+const SPACE_AGENT_REF_PATTERN = /^spaces?:agent:([a-z0-9]+(?:-[a-z0-9]+)*)(?:@(.+))?$/
 
 /** Marker commit for project-local spaces */
 export const PROJECT_COMMIT_MARKER = 'project' as CommitSha
+/** Marker commit for agent-local spaces */
+export const AGENT_COMMIT_MARKER = 'agent' as CommitSha
 const SEMVER_RANGE_PATTERN = /^[\^~]?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 const SEMVER_EXACT_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
 const GIT_PIN_PATTERN = /^git:([0-9a-f]{7,64})$/
@@ -140,7 +146,8 @@ export function isSpaceRefString(value: string): value is SpaceRefString {
     SPACE_REF_WITH_SELECTOR_PATTERN.test(value) ||
     SPACE_REF_NO_SELECTOR_PATTERN.test(value) ||
     SPACE_PATH_REF_PATTERN.test(value) ||
-    SPACE_PROJECT_REF_PATTERN.test(value)
+    SPACE_PROJECT_REF_PATTERN.test(value) ||
+    SPACE_AGENT_REF_PATTERN.test(value)
   )
 }
 
@@ -178,7 +185,22 @@ export function parseSelector(selectorString: string): Selector {
 }
 
 export function parseSpaceRef(refString: string): SpaceRef {
-  // Try project-local ref first: space:project:<id>[@<selector>]
+  // Try agent-local ref first: space:agent:<id>[@<selector>]
+  const agentMatch = SPACE_AGENT_REF_PATTERN.exec(refString)
+  if (agentMatch?.[1]) {
+    const id = asSpaceId(agentMatch[1])
+    const selectorString = agentMatch[2] || 'dev'
+    const selector = parseSelector(selectorString)
+    return {
+      id,
+      selectorString,
+      selector,
+      agentSpace: true,
+      defaultedToDev: !agentMatch[2],
+    }
+  }
+
+  // Try project-local ref: space:project:<id>[@<selector>]
   const projectMatch = SPACE_PROJECT_REF_PATTERN.exec(refString)
   if (projectMatch?.[1]) {
     const id = asSpaceId(projectMatch[1])
@@ -238,11 +260,14 @@ export function parseSpaceRef(refString: string): SpaceRef {
   }
 
   throw new Error(
-    `Invalid space ref: "${refString}" (must be space:<id>[@<selector>], space:project:<id>, or space:path:<path>@<selector>)`
+    `Invalid space ref: "${refString}" (must be space:<id>[@<selector>], space:agent:<id>, space:project:<id>, or space:path:<path>@<selector>)`
   )
 }
 
 export function formatSpaceRef(ref: SpaceRef): SpaceRefString {
+  if (ref.agentSpace) {
+    return `space:agent:${ref.id}@${ref.selectorString}` as SpaceRefString
+  }
   if (ref.projectSpace) {
     return `space:project:${ref.id}@${ref.selectorString}` as SpaceRefString
   }
@@ -286,6 +311,13 @@ export function partitionDevRefs(refs: string[]): { devRefs: string[]; otherRefs
  */
 export function isProjectSpaceRef(refString: string): boolean {
   return SPACE_PROJECT_REF_PATTERN.test(refString)
+}
+
+/**
+ * Check if a space ref string is an agent-local space.
+ */
+export function isAgentSpaceRef(refString: string): boolean {
+  return SPACE_AGENT_REF_PATTERN.test(refString)
 }
 
 /**

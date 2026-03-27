@@ -40,7 +40,7 @@ import {
   withProjectLock,
 } from '../core/index.js'
 
-import { PROJECT_COMMIT_MARKER } from '../core/index.js'
+import { AGENT_COMMIT_MARKER, PROJECT_COMMIT_MARKER } from '../core/index.js'
 import { DEV_COMMIT_MARKER, DEV_INTEGRITY, mergeLockFiles } from '../resolver/index.js'
 
 import {
@@ -191,6 +191,11 @@ export async function populateStore(lock: LockFile, options: InstallOptions): Pr
       continue
     }
 
+    // Skip agent spaces - they use agent filesystem directly, no snapshot needed
+    if (entry.commit === (AGENT_COMMIT_MARKER as string) || entry.agentSpace) {
+      continue
+    }
+
     // Check if snapshot already exists
     if (await snapshotExists(entry.integrity, snapshotOptions)) {
       continue
@@ -256,6 +261,7 @@ export async function materializeTarget(
     const isDev =
       entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY
     const isProjectSpace = entry.commit === (PROJECT_COMMIT_MARKER as string) || entry.projectSpace
+    const isAgentSpace = entry.commit === (AGENT_COMMIT_MARKER as string) || entry.agentSpace
 
     // Compute cache key
     const pluginName = entry.plugin?.name ?? entry.id
@@ -269,7 +275,9 @@ export async function materializeTarget(
 
     // Build space key
     let spaceKey: SpaceKey
-    if (isProjectSpace) {
+    if (isAgentSpace) {
+      spaceKey = `${entry.id}@agent` as SpaceKey
+    } else if (isProjectSpace) {
       spaceKey = `${entry.id}@project` as SpaceKey
     } else if (isDev) {
       spaceKey = `${entry.id}@dev` as SpaceKey
@@ -278,11 +286,14 @@ export async function materializeTarget(
     }
 
     // Build snapshot path
+    // - Agent spaces: read from agent's spaces/ directory
     // - Project spaces: read from project's spaces/ directory
     // - @dev spaces: read from registry's spaces/ directory
     // - Others: read from content-addressed store
     let snapshotPath: string
-    if (isProjectSpace) {
+    if (isAgentSpace && options.agentPath) {
+      snapshotPath = join(options.agentPath, 'spaces', entry.id)
+    } else if (isProjectSpace) {
       snapshotPath = join(options.projectPath, 'spaces', entry.id)
     } else if (isDev) {
       snapshotPath = join(registryPath, 'spaces', entry.id)
@@ -315,9 +326,13 @@ export async function materializeTarget(
       continue
     }
 
-    // Check cache (skip for @dev and project refs since content can change, or when refresh requested)
+    // Check cache (skip for @dev, project, and agent refs since content can change, or when refresh requested)
     const isCached =
-      !isDev && !isProjectSpace && !options.refresh && (await cacheExists(cacheKey, { paths }))
+      !isDev &&
+      !isProjectSpace &&
+      !isAgentSpace &&
+      !options.refresh &&
+      (await cacheExists(cacheKey, { paths }))
 
     if (!isCached) {
       // Build input for harness adapter
@@ -339,8 +354,8 @@ export async function materializeTarget(
       }
 
       // Materialize using harness adapter (handles hooks.toml → hooks.json, etc.)
-      // For dev and project spaces, use copy instead of hardlinks to protect source files
-      const useHardlinks = !isDev && !isProjectSpace
+      // For dev, project, and agent spaces, use copy instead of hardlinks to protect source files
+      const useHardlinks = !isDev && !isProjectSpace && !isAgentSpace
       await adapter.materializeSpace(input, cacheDir, { force: true, useHardlinks })
 
       // Write cache metadata
@@ -482,8 +497,11 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
     const isDev =
       entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY
     const isProjectSpace = entry.commit === (PROJECT_COMMIT_MARKER as string) || entry.projectSpace
+    const isAgentSpace = entry.commit === (AGENT_COMMIT_MARKER as string) || entry.agentSpace
     let pluginPath: string
-    if (isProjectSpace) {
+    if (isAgentSpace && options.agentPath) {
+      pluginPath = join(options.agentPath, 'spaces', entry.id)
+    } else if (isProjectSpace) {
       pluginPath = join(options.projectPath, 'spaces', entry.id)
     } else if (isDev) {
       pluginPath = join(registryPath, 'spaces', entry.id)

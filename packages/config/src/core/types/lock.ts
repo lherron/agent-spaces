@@ -59,6 +59,8 @@ export interface LockSpaceEntry {
   resolvedFrom?: ResolvedFrom
   /** True if this is a project-local space (space:project:<id>) */
   projectSpace?: boolean
+  /** True if this is an agent-local space (space:agent:<id>) */
+  agentSpace?: boolean
 }
 
 /** Warning recorded during resolution */

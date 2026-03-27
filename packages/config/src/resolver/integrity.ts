@@ -12,7 +12,7 @@ import type { Dirent } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CommitSha, Sha256Integrity, SpaceId } from '../core/index.js'
-import { PROJECT_COMMIT_MARKER, asSha256Integrity } from '../core/index.js'
+import { AGENT_COMMIT_MARKER, PROJECT_COMMIT_MARKER, asSha256Integrity } from '../core/index.js'
 import { type TreeEntry, filterTreeEntries, listTreeRecursive } from '../git/index.js'
 
 import { DEV_COMMIT_MARKER } from './closure.js'
@@ -28,6 +28,8 @@ export interface IntegrityOptions {
   cwd: string
   /** Project root for project-local spaces */
   projectRoot?: string | undefined
+  /** Agent root for agent-local spaces */
+  agentRoot?: string | undefined
 }
 
 /**
@@ -49,6 +51,15 @@ export async function computeIntegrity(
   // @dev refs use a placeholder - filesystem is mutable
   if (commit === DEV_COMMIT_MARKER) {
     return DEV_INTEGRITY
+  }
+
+  // Agent spaces compute integrity from filesystem
+  if (commit === AGENT_COMMIT_MARKER) {
+    if (!options.agentRoot) {
+      throw new Error(`Agent root is required to compute integrity for agent space: ${spaceId}`)
+    }
+    const spacePath = join(options.agentRoot, 'spaces', spaceId)
+    return computeFilesystemIntegrity(spacePath)
   }
 
   // Project spaces compute integrity from filesystem
