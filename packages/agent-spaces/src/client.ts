@@ -1845,15 +1845,19 @@ async function runPlacementTurnNonInteractive(
     const restoreEnv = applyEnvOverlay(harnessEnv)
 
     try {
-      // Materialize spaces from resolved bundle refs
+      // Materialize registry spaces only — local agent/project spaces are
+      // already resolved in the placement and don't need materialization.
       let pluginDirs: string[] = []
       const spaceRefs = resolvedBundle.spaces.map((s) => s.ref)
-      if (spaceRefs.length > 0) {
+      const registryRefs = spaceRefs.filter(
+        (ref) => !ref.startsWith('space:agent:') && !ref.startsWith('space:project:')
+      )
+      if (registryRefs.length > 0) {
         const paths = new PathResolver({ aspHome })
-        const targetName = computeSpacesTargetName(spaceRefs)
+        const targetName = computeSpacesTargetName(registryRefs)
         const materialized = await materializeFromRefs({
           targetName,
-          refs: spaceRefs as SpaceRefString[],
+          refs: registryRefs as SpaceRefString[],
           registryPath: paths.repo,
           aspHome,
           lockPath: paths.globalLock,
