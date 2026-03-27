@@ -27,15 +27,15 @@ import { type RuntimePlacement, resolvePlacement } from 'spaces-config'
 
 import {
   type PermissionHandler,
-  PiSession,
   type UnifiedSession,
   type UnifiedSessionEvent,
   createSession,
   harnessRegistry,
-  loadPiSdkBundle,
   materializeFromRefs,
   materializeTarget,
 } from 'spaces-execution'
+
+import { PiSession, loadPiSdkBundle } from 'spaces-harness-pi-sdk/pi-session'
 
 import { buildCorrelationEnvVars } from './placement-api.js'
 

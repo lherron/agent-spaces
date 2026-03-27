@@ -25,7 +25,7 @@ export {
   type HookDefinition,
 } from 'spaces-harness-pi'
 
-export { PiSdkAdapter, piSdkAdapter } from 'spaces-harness-pi-sdk'
+export { PiSdkAdapter, piSdkAdapter } from 'spaces-harness-pi-sdk/adapter'
 
 // Re-export types from core
 export type {
@@ -50,7 +50,7 @@ export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId } from 'spaces-config'
 import { register as registerClaude } from 'spaces-harness-claude'
 import { register as registerCodex } from 'spaces-harness-codex'
 import { register as registerPi } from 'spaces-harness-pi'
-import { register as registerPiSdk } from 'spaces-harness-pi-sdk'
+import { piSdkAdapter } from 'spaces-harness-pi-sdk/adapter'
 import { HarnessRegistry, SessionRegistry, setSessionRegistry } from 'spaces-runtime'
 
 export const harnessRegistry = new HarnessRegistry()
@@ -60,5 +60,11 @@ setSessionRegistry(sessionRegistry)
 
 registerClaude({ harnesses: harnessRegistry, sessions: sessionRegistry })
 registerPi({ harnesses: harnessRegistry, sessions: sessionRegistry })
-registerPiSdk({ harnesses: harnessRegistry, sessions: sessionRegistry })
+
+// Register pi-sdk adapter eagerly (lightweight, no barrel deps).
+// Session factory is NOT registered here — PiSession is always constructed
+// directly by consumers via spaces-harness-pi-sdk/pi-session, avoiding
+// the @mariozechner/pi-coding-agent barrel import at CLI startup.
+harnessRegistry.register(piSdkAdapter)
+
 registerCodex({ harnesses: harnessRegistry, sessions: sessionRegistry })

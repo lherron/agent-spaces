@@ -43,12 +43,9 @@ export * from './agent-sdk/index.js'
 export { CodexSession } from 'spaces-harness-codex/codex-session'
 export type { CodexSessionConfig } from 'spaces-harness-codex/codex-session'
 
-// Pi SDK session helpers
-export {
-  PiSession,
-  createPermissionHook,
-  loadPiSdkBundle,
-} from './pi-session/index.js'
+// Pi SDK session types only — runtime exports (PiSession, loadPiSdkBundle,
+// createPermissionHook) must be imported directly from
+// 'spaces-harness-pi-sdk/pi-session' to avoid barrel import at startup.
 export type {
   LoadPiSdkBundleOptions,
   PiAgentSessionEvent,
