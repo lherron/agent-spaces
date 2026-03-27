@@ -16,6 +16,7 @@
 
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 // Resolve fixture roots directly — CLI tests can't use workspace package subpath imports
@@ -420,5 +421,77 @@ describe('bundle selection flags (T-00868)', () => {
     const output = result.stdout + result.stderr
     // Should work without any bundle selector (defaults to agent-default)
     expect(output).toMatch(/dry.?run|invocation|agent-default|resolve/i)
+  })
+})
+
+// ===================================================================
+// T-00872: hostSessionId defect regression
+// Defect: CLI layer passed cpSessionId: '' and legacy shim fields
+// (aspHome, spec, cwd) instead of hostSessionId to both
+// buildProcessInvocationSpec and runTurnNonInteractive.
+// ===================================================================
+describe('hostSessionId regression (T-00872)', () => {
+  test('--host-session-id propagates as AGENT_HOST_SESSION_ID in env', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--host-session-id',
+        'regression-hsid-42',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    // Parse the JSON output — must contain the correct env var
+    const parsed = JSON.parse(result.stdout)
+    expect(parsed.spec.env.AGENT_HOST_SESSION_ID).toBe('regression-hsid-42')
+  })
+
+  test('no AGENT_HOST_SESSION_ID when --host-session-id omitted (no correlation)', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    const parsed = JSON.parse(result.stdout)
+    // Without --host-session-id, no correlation block is built, so no env var
+    expect(parsed.spec.env.AGENT_HOST_SESSION_ID).toBeUndefined()
+  })
+
+  test('source code has no cpSessionId in agent command handler', () => {
+    // Static regression: ensure the defect pattern never returns.
+    // The agent command handler must use hostSessionId, not cpSessionId.
+    const source = readFileSync(
+      join(import.meta.dirname, '..', 'commands', 'agent', 'index.ts'),
+      'utf8'
+    )
+    const lines = source.split('\n')
+    const cpSessionIdLines = lines.filter(
+      (line) => line.includes('cpSessionId') && !line.trimStart().startsWith('//')
+    )
+    expect(cpSessionIdLines).toEqual([])
   })
 })
