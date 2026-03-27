@@ -6,7 +6,7 @@ description = "Project-local Codex CLI fixture"
 supports = ["codex"]
 
 [codex]
-model = "gpt-5.3-codex"
+model = "gpt-5.4"
 
 [codex.prompts]
 enabled = true

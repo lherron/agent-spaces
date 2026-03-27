@@ -85,7 +85,7 @@ describe('PiSdkAdapter', () => {
   })
 
   describe('buildRunArgs', () => {
-    test('uses default model openai-codex:gpt-5.4 when no model specified', async () => {
+    test('uses default model openai-codex/gpt-5.4 when no model specified', async () => {
       const outputDir = join(tmpDir, 'output')
       await mkdir(join(outputDir, 'extensions'), { recursive: true })
       await writeFile(
@@ -111,7 +111,7 @@ describe('PiSdkAdapter', () => {
       const args = adapter.buildRunArgs(bundle, {})
       expect(args).toContain('--model')
       const modelIndex = args.indexOf('--model')
-      expect(args[modelIndex + 1]).toBe('openai-codex:gpt-5.4')
+      expect(args[modelIndex + 1]).toBe('openai-codex/gpt-5.4')
     })
 
     test('uses custom model when specified', async () => {
@@ -141,6 +141,25 @@ describe('PiSdkAdapter', () => {
       expect(args).toContain('--model')
       const modelIndex = args.indexOf('--model')
       expect(args[modelIndex + 1]).toBe('anthropic:claude-3-opus')
+    })
+  })
+
+  // T-00881: model IDs must use slash separator, not colon
+  describe('model format regression (T-00881)', () => {
+    test('all model IDs use slash separator (openai-codex/...)', () => {
+      // Every openai-codex model ID must use slash, not colon
+      for (const model of adapter.models) {
+        if (model.id.startsWith('openai-codex')) {
+          expect(model.id).toMatch(/^openai-codex\//)
+          expect(model.id).not.toMatch(/^openai-codex:/)
+        }
+      }
+    })
+
+    test('DEFAULT_PI_SDK_MODEL uses slash separator', () => {
+      const defaultModel = adapter.models.find((m) => m.default)
+      expect(defaultModel).toBeDefined()
+      expect(defaultModel!.id).toMatch(/^openai-codex\//)
     })
   })
 })
