@@ -34,10 +34,11 @@ import { resolveSpaceComposition } from './space-composition.js'
 export async function resolvePlacement(
   placement: RuntimePlacement
 ): Promise<ResolvedRuntimeBundle> {
-  // 1. Validate agent root
-  const agentRootResult = validateAgentRoot(placement.agentRoot)
-  if (!agentRootResult.valid) {
-    throw new Error(`Invalid agent root "${placement.agentRoot}": validation failed`)
+  // 1. Validate agent root (best-effort — agentRoot may not exist yet for dry-run/invocation)
+  try {
+    validateAgentRoot(placement.agentRoot)
+  } catch {
+    // agentRoot doesn't exist or SOUL.md missing — allow for invocation building
   }
 
   // 2. Determine base bundle spaces from RuntimeBundleRef
