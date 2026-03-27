@@ -51,7 +51,7 @@ import {
 const INSTRUCTIONS_FILES = ['AGENTS.md', 'AGENT.md'] as const
 const DEFAULT_SANDBOX_MODE = 'workspace-write'
 const DEFAULT_APPROVAL_POLICY = 'on-request'
-const DEFAULT_CODEX_MODEL = 'gpt-5.4'
+const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.4'
 const MIN_CODEX_VERSION = '0.1.0'
 const CODEX_HOME_DIRNAME = 'codex.home'
 const CODEX_CONFIG_FILE = 'config.toml'
@@ -156,7 +156,7 @@ function buildCodexConfig(
   overrides: Array<Record<string, unknown>>
 ): Record<string, unknown> {
   const base: Record<string, unknown> = {
-    model: DEFAULT_CODEX_MODEL,
+    model: DEFAULT_CODEX_CLI_MODEL,
     sandbox_mode: DEFAULT_SANDBOX_MODE,
     approval_policy: DEFAULT_APPROVAL_POLICY,
     project_doc_fallback_filenames: ['AGENTS.md', 'AGENT.md'],
@@ -272,7 +272,8 @@ export class CodexAdapter implements HarnessAdapter {
   readonly name = 'OpenAI Codex'
 
   readonly models: HarnessModelInfo[] = [
-    { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', default: true },
+    { id: DEFAULT_CODEX_CLI_MODEL, name: 'GPT-5.4', default: true },
+    { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex' },
     { id: 'gpt-5.3', name: 'GPT-5.3' },
     { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex' },
     { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
