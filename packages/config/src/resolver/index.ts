@@ -116,3 +116,33 @@ export {
   type ValidationError,
   type ValidationResult,
 } from './validator.js'
+
+// Root-relative refs
+export {
+  isRootRef,
+  parseRootRef,
+  resolveRootRelativeRef,
+  resolveContainedPath,
+  type RootRefScheme,
+  type ParsedRootRef,
+  type RootRefResolveOptions,
+} from './root-relative-refs.js'
+
+// Instruction layering
+export {
+  resolveInstructionLayer,
+  type RunMode,
+  type ResolvedInstructionSlot,
+  type ScaffoldPacket,
+  type InstructionLayerInput,
+} from './instruction-layer.js'
+
+// Space composition
+export {
+  resolveSpaceComposition,
+  type ComposedSpaceEntry,
+  type SpaceCompositionInput,
+} from './space-composition.js'
+
+// Agent root reserved files
+export { validateAgentRoot, type ValidatedAgentRoot } from './agent-root.js'
