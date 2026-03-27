@@ -12,6 +12,16 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./adapter": {
+      "bun": "./src/adapters/pi-sdk-adapter.ts",
+      "types": "./dist/adapters/pi-sdk-adapter.d.ts",
+      "import": "./dist/adapters/pi-sdk-adapter.js"
+    },
+    "./register": {
+      "bun": "./src/register.ts",
+      "types": "./dist/register.d.ts",
+      "import": "./dist/register.js"
+    },
     "./pi-session": {
       "bun": "./src/pi-session/index.ts",
       "types": "./dist/pi-session/index.d.ts",
