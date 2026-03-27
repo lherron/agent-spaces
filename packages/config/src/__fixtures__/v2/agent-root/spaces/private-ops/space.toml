@@ -1,0 +1,9 @@
+schema = 1
+id = "private-ops"
+description = "Agent-local Claude Code fixture"
+
+[harness]
+supports = ["claude"]
+
+[claude]
+model = "claude-opus-4-6"

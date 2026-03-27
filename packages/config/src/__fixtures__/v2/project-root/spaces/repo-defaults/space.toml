@@ -1,0 +1,9 @@
+schema = 1
+id = "repo-defaults"
+description = "Project-local Pi SDK fixture"
+
+[harness]
+supports = ["pi-sdk"]
+
+[pi]
+model = "openai-codex/gpt-5.3-codex"

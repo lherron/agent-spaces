@@ -1,0 +1,31 @@
+schema = 1
+
+[claude]
+model = "claude-sonnet-4-5"
+
+[codex]
+model = "gpt-5.3-codex"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+profile = "workspace"
+
+[targets.default]
+description = "Default project-local fixture target"
+compose = ["space:project:repo-defaults", "space:project:task-scaffolds"]
+
+[targets.claude-review]
+description = "Anthropic review bundle"
+compose = ["space:project:repo-defaults"]
+
+[targets.claude-review.claude]
+model = "claude-opus-4-6"
+
+[targets.codex-fast]
+description = "OpenAI fast bundle"
+compose = ["space:project:task-scaffolds"]
+
+[targets.codex-fast.codex]
+model = "gpt-5.1-codex-mini"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+profile = "fast"

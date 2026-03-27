@@ -6,6 +6,12 @@ Compose reproducible Claude Code environments from reusable capability modules.
 
 Agent Spaces lets you define **Spaces** (versioned bundles of commands, skills, agents, and hooks) and compose them into **Run Targets** for your projects. At runtime, `asp run` materializes spaces into Claude Code plugin directories and launches Claude with everything wired up.  It turns off default settings by default (enable with --inherit flags).
 
+## V2 Direction
+
+The repository is moving toward a breaking v2 runtime model that separates agent-local state from project-local state. The new contract introduces an explicit `agentRoot` for reserved runtime files such as `SOUL.md`, optional `HEARTBEAT.md`, `agent-profile.toml`, and agent-local `spaces/<id>/`, while `projectRoot` continues to own `asp-targets.toml` and project-local `spaces/<id>/`.
+
+Current target-based flows still work during the transition, but new fixtures, tests, and upcoming APIs are being shaped around explicit agent/project roots, reserved files, and frontend-aware runtime placement.
+
 ## Quick Install
 
 ```bash
