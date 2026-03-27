@@ -86,6 +86,19 @@ export type {
   RunMode,
 } from './agent-profile.js'
 
+// Placement types
+export type {
+  HostCorrelation,
+  ResolvedInstruction,
+  ResolvedRuntimeBundle,
+  ResolvedSpace,
+  RunScaffoldPacket,
+  RuntimeBundleRef,
+  RuntimePlacement,
+} from './placement.js'
+
+export { createRuntimePlacement, isValidBundleRefKind, isValidRunMode } from './placement.js'
+
 // Lock file types
 export type {
   LockFile,
