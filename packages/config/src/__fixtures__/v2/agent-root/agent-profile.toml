@@ -1,0 +1,21 @@
+schemaVersion = 1
+
+[instructions]
+additionalBase = ["agent-root:///SOUL.md"]
+
+[spaces]
+base = ["space:agent:private-ops"]
+
+[spaces.byMode.heartbeat]
+base = ["space:agent:task-worker"]
+
+[targets.review]
+compose = ["space:agent:private-ops", "space:project:repo-defaults"]
+
+[targets.delivery]
+compose = ["space:agent:task-worker", "space:project:task-scaffolds"]
+
+[harnessDefaults]
+model = "claude/sonnet"
+sandboxMode = "workspace-write"
+approvalPolicy = "on-request"

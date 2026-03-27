@@ -1,0 +1,15 @@
+schema = 1
+id = "task-scaffolds"
+description = "Project-local Codex CLI fixture"
+
+[harness]
+supports = ["codex"]
+
+[codex]
+model = "gpt-5.3-codex"
+
+[codex.prompts]
+enabled = true
+
+[codex.skills]
+enabled = true

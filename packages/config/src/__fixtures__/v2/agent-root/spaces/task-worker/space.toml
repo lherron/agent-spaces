@@ -1,0 +1,9 @@
+schema = 1
+id = "task-worker"
+description = "Agent-local Agent SDK fixture"
+
+[harness]
+supports = ["claude-agent-sdk"]
+
+[claude]
+model = "claude/sonnet"
