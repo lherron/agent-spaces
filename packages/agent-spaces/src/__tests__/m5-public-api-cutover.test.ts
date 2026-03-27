@@ -17,6 +17,9 @@
  */
 
 import { describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 // ===================================================================
 // T-00860: Placement-based request/response types
@@ -660,6 +663,170 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
     for (const event of events) {
       expect(event.hostSessionId).toBe('hs-top-level')
       expect(event.runId).toBe('run-top-level')
+    }
+  })
+})
+
+// ===================================================================
+// T-00890: Audit bundle must include byMode space overlays
+//
+// Defect: placementToSpec() (client.ts:337-356) only reads spaces.base
+// for agent-default bundles — ignores spaces.byMode[runMode] overlays
+// from agent-profile.toml. resolvePlacement (via resolveSpaceComposition)
+// includes them, causing resolvedBundle.spaces to diverge from what's
+// actually materialized.
+//
+// PASS CONDITIONS:
+// 1. buildProcessInvocationSpec with runMode 'heartbeat' and an
+//    agent-profile with spaces.byMode.heartbeat includes the byMode
+//    space in resolvedBundle.spaces.
+// 2. Same profile with runMode 'query' does NOT include heartbeat overlay.
+// ===================================================================
+describe('audit bundle includes byMode space overlays (T-00890)', () => {
+  test('placementToSpec reads spaces.byMode[runMode] overlays (static)', () => {
+    // RED: placementToSpec (client.ts) only reads spaces.base for agent-default
+    // bundles. It ignores spaces.byMode[runMode] overlays from agent-profile.toml.
+    // The fix must make placementToSpec aware of runMode so it can include byMode
+    // space overlays in the materialized spec.
+    //
+    // This is a static code analysis test — we verify that placementToSpec
+    // references byMode. Currently it does NOT, so this will FAIL.
+    const { readFileSync } = require('node:fs')
+    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+
+    // Extract the placementToSpec function body
+    // Extract the placementToSpec function: from its declaration to the next
+    // top-level function (avoids false match on the return type's closing brace)
+    const fnStart = source.indexOf('function placementToSpec')
+    expect(fnStart).toBeGreaterThan(-1)
+    const nextFn = source.indexOf('\nfunction ', fnStart + 1)
+    const fn = source.slice(fnStart, nextFn > -1 ? nextFn : undefined)
+    expect(fn).toBeDefined()
+
+    // The function must read spaces.byMode to include mode-specific overlays.
+    // Currently it only reads spaces.base (spacesConfig['base']).
+    expect(fn).toMatch(/byMode/)
+  })
+
+  test('placementToSpec agent-default case references byMode (static)', () => {
+    // RED: The agent-default case in placementToSpec only reads spacesConfig['base'].
+    // After the fix, it must also read spacesConfig.byMode[runMode] overlays.
+    // We verify this by checking that the source between 'agent-default' and
+    // the next return statement references 'byMode'.
+    const { readFileSync } = require('node:fs')
+    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+
+    // Find the agent-default case in placementToSpec
+    const fnStart = source.indexOf('function placementToSpec')
+    expect(fnStart).toBeGreaterThan(-1)
+    const agentDefaultStart = source.indexOf("case 'agent-default'", fnStart)
+    expect(agentDefaultStart).toBeGreaterThan(-1)
+    // Look at the ~40 lines after "case 'agent-default'"
+    const snippet = source.slice(agentDefaultStart, agentDefaultStart + 800)
+    expect(snippet).toMatch(/byMode/)
+  })
+
+  test('heartbeat byMode spaces are materialized (integration)', async () => {
+    // RED: Even though resolvedBundle.spaces includes heartbeat-monitor
+    // (from resolvePlacement -> resolveSpaceComposition), the materialized
+    // spec from placementToSpec only has base spaces. We verify that
+    // the materialized output includes the byMode overlay space by
+    // checking that the pluginDirs reference the heartbeat-monitor space.
+    const tempDir = mkdtempSync(join(tmpdir(), 'bymode-overlay-'))
+    const agentRoot = join(tempDir, 'agent-root')
+    mkdirSync(agentRoot, { recursive: true })
+    writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
+    writeFileSync(
+      join(agentRoot, 'agent-profile.toml'),
+      `[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
+    )
+    // Create spaces with manifests
+    for (const id of ['base-space', 'heartbeat-monitor']) {
+      mkdirSync(join(agentRoot, 'spaces', id, 'claude', 'plugins'), { recursive: true })
+      writeFileSync(
+        join(agentRoot, 'spaces', id, 'space.toml'),
+        `schema = 1\nid = "${id}"\ndescription = "${id} fixture"\n\n[harness]\nsupports = ["claude"]\n\n[claude]\nmodel = "claude-opus-4-6"\n`
+      )
+    }
+
+    try {
+      const { createAgentSpacesClient } = await import('../index.js')
+      const client = createAgentSpacesClient({ aspHome: join(tempDir, 'asp-home') })
+
+      const response = await client.buildProcessInvocationSpec({
+        placement: {
+          agentRoot,
+          runMode: 'heartbeat',
+          bundle: { kind: 'agent-default' },
+        },
+        provider: 'anthropic',
+        frontend: 'claude-code',
+        interactionMode: 'headless',
+        ioMode: 'pipes',
+      } as any)
+
+      // The materialized pluginDirs should include heartbeat-monitor space.
+      // Currently it won't because placementToSpec omits byMode spaces.
+      const allEnvVals = Object.values(response.spec.env ?? {}).join('\n')
+
+      // resolvedBundle.spaces says heartbeat-monitor is included
+      const auditRefs = response.resolvedBundle!.spaces.map((s: any) => s.ref)
+      const auditHasHeartbeat = auditRefs.some((r: string) => r.includes('heartbeat-monitor'))
+      expect(auditHasHeartbeat).toBe(true)
+
+      // The materialized target hash must reflect both base-space AND
+      // heartbeat-monitor. Compute the expected hash from both refs.
+      const { createHash } = require('node:crypto')
+      const expectedHash = createHash('sha256')
+        .update(JSON.stringify(['space:agent:base-space', 'space:agent:heartbeat-monitor']))
+        .digest('hex')
+        .slice(0, 12)
+      expect(allEnvVals).toMatch(new RegExp(`spaces-${expectedHash}`))
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('query mode does NOT include heartbeat overlay (sanity)', async () => {
+    // GREEN: query mode should only have base-space.
+    const tempDir = mkdtempSync(join(tmpdir(), 'bymode-overlay-'))
+    const agentRoot = join(tempDir, 'agent-root')
+    mkdirSync(agentRoot, { recursive: true })
+    writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
+    writeFileSync(
+      join(agentRoot, 'agent-profile.toml'),
+      `[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
+    )
+    for (const id of ['base-space', 'heartbeat-monitor']) {
+      mkdirSync(join(agentRoot, 'spaces', id, 'claude', 'plugins'), { recursive: true })
+      writeFileSync(
+        join(agentRoot, 'spaces', id, 'space.toml'),
+        `schema = 1\nid = "${id}"\ndescription = "${id} fixture"\n\n[harness]\nsupports = ["claude"]\n\n[claude]\nmodel = "claude-opus-4-6"\n`
+      )
+    }
+
+    try {
+      const { createAgentSpacesClient } = await import('../index.js')
+      const client = createAgentSpacesClient({ aspHome: join(tempDir, 'asp-home') })
+
+      const response = await client.buildProcessInvocationSpec({
+        placement: {
+          agentRoot,
+          runMode: 'query',
+          bundle: { kind: 'agent-default' },
+        },
+        provider: 'anthropic',
+        frontend: 'claude-code',
+        interactionMode: 'headless',
+        ioMode: 'pipes',
+      } as any)
+
+      expect(response.resolvedBundle).toBeDefined()
+      const spaceRefs = response.resolvedBundle!.spaces.map((s: any) => s.ref)
+      const hasHeartbeat = spaceRefs.some((r: string) => r.includes('heartbeat-monitor'))
+      expect(hasHeartbeat).toBe(false)
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
     }
   })
 })

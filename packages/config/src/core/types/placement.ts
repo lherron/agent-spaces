@@ -40,6 +40,8 @@ export interface RuntimePlacement {
   bundle: RuntimeBundleRef
   scaffoldPackets?: RunScaffoldPacket[] | undefined
   correlation?: HostCorrelation | undefined
+  /** When true, skip strict validation (e.g. missing SOUL.md) for invocation building */
+  dryRun?: boolean | undefined
 }
 
 // ============================================================================
