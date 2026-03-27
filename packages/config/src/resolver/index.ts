@@ -146,3 +146,6 @@ export {
 
 // Agent root reserved files
 export { validateAgentRoot, type ValidatedAgentRoot } from './agent-root.js'
+
+// Placement resolver
+export { resolvePlacement } from './placement-resolver.js'
