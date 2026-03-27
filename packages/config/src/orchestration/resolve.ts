@@ -47,6 +47,8 @@ export interface ResolveOptions {
   useLock?: boolean | undefined
   /** Registry git repository path (default: from ASP_HOME) */
   registryPath?: string | undefined
+  /** Agent root directory for agent-local spaces */
+  agentPath?: string | undefined
   /**
    * Pinned spaces to use instead of resolving.
    * Map from SpaceId to CommitSha. When a space is in this map,
@@ -185,6 +187,7 @@ export async function resolveTarget(
     cwd: registryPath,
     pinnedSpaces: options.pinnedSpaces,
     projectRoot: options.projectPath,
+    agentRoot: options.agentPath,
   }
 
   // Compute closure from all refs (including @dev and project spaces)
@@ -198,6 +201,7 @@ export async function resolveTarget(
       url: registryPath,
     },
     projectRoot: options.projectPath,
+    agentRoot: options.agentPath,
   }
 
   const lock = await generateLockFileForTarget(targetName, refs, closure, lockOptions)

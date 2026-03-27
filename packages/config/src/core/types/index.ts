@@ -24,6 +24,7 @@ export {
   isCommitSha,
   isDevRef,
   isKnownDistTag,
+  isAgentSpaceRef,
   isProjectSpaceRef,
   isSha256Integrity,
   isSpaceId,
@@ -34,6 +35,7 @@ export {
   parseSpaceRef,
   partitionDevRefs,
   partitionProjectRefs,
+  AGENT_COMMIT_MARKER,
   PROJECT_COMMIT_MARKER,
 } from './refs.js'
 

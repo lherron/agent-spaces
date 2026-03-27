@@ -84,6 +84,8 @@ export interface LockGeneratorOptions {
   registry: LockRegistry
   /** Project root for project-local spaces */
   projectRoot?: string | undefined
+  /** Agent root for agent-local spaces */
+  agentRoot?: string | undefined
 }
 
 /**
@@ -159,6 +161,11 @@ function buildSpaceEntry(space: ResolvedSpace, integrity: Sha256Integrity): Lock
   // Mark project spaces explicitly
   if (space.projectSpace) {
     entry.projectSpace = true
+  }
+
+  // Mark agent spaces explicitly
+  if (space.agentSpace) {
+    entry.agentSpace = true
   }
 
   return entry
@@ -242,6 +249,7 @@ async function collectSpacesAndIntegrities(
         const integrity = await computeIntegrity(space.id, space.commit, {
           cwd: options.cwd,
           projectRoot: options.projectRoot,
+          agentRoot: options.agentRoot,
         })
         integrities.set(key, integrity)
       }
