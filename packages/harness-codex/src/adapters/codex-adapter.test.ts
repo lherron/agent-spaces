@@ -302,6 +302,10 @@ describe('CodexAdapter', () => {
       expect(args[0]).toBe('exec')
       expect(args).toContain('Summarize repository health')
     })
+
+    test('marks gpt-5.4 as the default supported model', () => {
+      expect(adapter.models[0]).toEqual({ id: 'gpt-5.4', name: 'GPT-5.4', default: true })
+    })
   })
 
   describe('getDefaultRunOptions', () => {

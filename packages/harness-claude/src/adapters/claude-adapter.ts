@@ -50,6 +50,7 @@ const STATUSLINE_ASSET_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   '../../assets/statusline.sh'
 )
+const DEFAULT_CLAUDE_CODE_MODEL = 'claude-opus-4-6'
 
 /**
  * ClaudeAdapter implements the HarnessAdapter interface for Claude Code.
@@ -64,7 +65,7 @@ export class ClaudeAdapter implements HarnessAdapter {
   readonly name = 'Claude Code'
 
   readonly models: HarnessModelInfo[] = [
-    { id: 'claude-opus-4-6', name: 'Claude Opus 4.6 (200K)', default: true },
+    { id: DEFAULT_CLAUDE_CODE_MODEL, name: 'Claude Opus 4.6 (200K)', default: true },
     { id: 'claude-opus-4-6[1m]', name: 'Claude Opus 4.6 (1M context)' },
     { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
     { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
@@ -408,7 +409,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       permissionMode: options.permissionMode,
       settingSources,
       debug: options.debug,
-      model: options.model ?? 'opus[1m]',
+      model: options.model ?? DEFAULT_CLAUDE_CODE_MODEL,
       args: extraArgs,
     })
   }

@@ -739,3 +739,78 @@ describe('prompt in argv (T-00875)', () => {
     expect(parsed.spec.argv).not.toContain('-p')
   })
 })
+
+// ===================================================================
+// T-00878: gpt-5.4 model support
+// ===================================================================
+describe('gpt-5.4 model support (T-00878)', () => {
+  test('codex-cli accepts gpt-5.4 model', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'codex-cli',
+        '--model',
+        'gpt-5.4',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    // Should succeed (exit 0) — gpt-5.4 is a valid model
+    expect(result.exitCode).toBe(0)
+    const parsed = JSON.parse(result.stdout)
+    expect(parsed.spec.argv).toContain('--model')
+  })
+
+  test('codex-cli default model is gpt-5.4 in dry-run', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Hello',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'codex-cli',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    const parsed = JSON.parse(result.stdout)
+    const modelIdx = parsed.spec.argv.indexOf('--model')
+    expect(modelIdx).toBeGreaterThan(-1)
+    // Default should be gpt-5.4
+    expect(parsed.spec.argv[modelIdx + 1]).toBe('gpt-5.4')
+  })
+})
+
+// ===================================================================
+// T-00879: pi-sdk placement path does not use loadPiSdkBundle
+// ===================================================================
+describe('pi-sdk placement path (T-00879)', () => {
+  test('runPlacementTurnNonInteractive does not call loadPiSdkBundle', () => {
+    const source = readFileSync(
+      join(import.meta.dirname, '..', '..', '..', 'agent-spaces', 'src', 'client.ts'),
+      'utf8'
+    )
+    // Extract the runPlacementTurnNonInteractive function body
+    const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
+    expect(runFn).toBeDefined()
+    // Must NOT call loadPiSdkBundle — placement path constructs session directly
+    expect(runFn).not.toMatch(/loadPiSdkBundle/)
+  })
+})

@@ -81,10 +81,12 @@ const CODEX_CLI_INTERNAL: HarnessId = 'codex'
 const AGENT_SDK_MODELS = ['claude/opus', 'claude/haiku', 'claude/sonnet', 'claude/claude-opus-4-6']
 
 const PI_SDK_MODELS = [
+  'openai-codex/gpt-5.4',
   'openai-codex/gpt-5.3-codex',
   'openai-codex/gpt-5.3',
   'openai-codex/gpt-5.2-codex',
   'openai-codex/gpt-5.2',
+  'api/gpt-5.4',
   'api/gpt-5.3-codex',
   'api/gpt-5.3',
   'api/gpt-5.2-codex',
@@ -101,6 +103,7 @@ const CLAUDE_CODE_MODELS = [
 ]
 
 const CODEX_CLI_MODELS = [
+  'gpt-5.4',
   'gpt-5.3-codex',
   'gpt-5.3',
   'gpt-5.2-codex',
@@ -115,9 +118,9 @@ const CODEX_CLI_MODELS = [
 ]
 
 const DEFAULT_AGENT_SDK_MODEL = 'claude/sonnet'
-const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.3-codex'
+const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.4'
 const DEFAULT_CLAUDE_CODE_MODEL = 'claude-opus-4-6'
-const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.3-codex'
+const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.4'
 
 interface FrontendDef {
   provider: ProviderDomain
@@ -1885,7 +1888,8 @@ async function runPlacementTurnNonInteractive(
           ...(continuationKey ? { resume: continuationKey } : {}),
         })
       } else {
-        // pi-sdk
+        // pi-sdk — placement path: no pre-composed bundle.json exists,
+        // so construct session with empty extensions/skills/contextFiles.
         const isResume = continuationKey !== undefined
         if (!isResume && !continuationKey && aspHome) {
           continuationKey = piSessionPath(aspHome, hostSessionId as string)
@@ -1896,22 +1900,15 @@ async function runPlacementTurnNonInteractive(
           })
         }
 
-        const piBundle = await loadPiSdkBundle(cwd, {
-          cwd,
-          yolo: true,
-          noExtensions: false,
-          noSkills: false,
-          agentDir: cwd,
-        })
         const piSession = new PiSession({
           ownerId: hostSessionId as string,
           cwd,
           provider: modelResolution.info.provider,
           model: modelResolution.info.model,
           sessionId: hostSessionId as string,
-          extensions: piBundle.extensions,
-          skills: piBundle.skills,
-          contextFiles: piBundle.contextFiles,
+          extensions: [],
+          skills: [],
+          contextFiles: [],
           agentDir: cwd,
           ...(continuationKey ? { sessionPath: continuationKey } : {}),
         })
