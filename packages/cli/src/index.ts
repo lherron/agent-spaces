@@ -21,6 +21,7 @@ const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'
 }
 
 import { registerAddCommand } from './commands/add.js'
+import { registerAgentCommands } from './commands/agent/index.js'
 import { registerBuildCommand } from './commands/build.js'
 import { registerDescribeCommand } from './commands/describe.js'
 import { registerDiffCommand } from './commands/diff.js'
@@ -95,6 +96,7 @@ function createProgram(): Command {
     .name('asp')
     .description('Agent Spaces v2 - Compose Claude Code environments')
     .version(packageJson.version)
+    .enablePositionalOptions()
 
   // Register all commands
   registerRunCommand(program)
@@ -115,6 +117,7 @@ function createProgram(): Command {
   registerHarnessesCommand(program)
   registerRepoCommands(program)
   registerSpacesCommands(program)
+  registerAgentCommands(program)
 
   return program
 }
