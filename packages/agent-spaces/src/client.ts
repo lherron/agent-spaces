@@ -1368,6 +1368,11 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
     async runTurnNonInteractive(
       req: RunTurnNonInteractiveRequest
     ): Promise<RunTurnNonInteractiveResponse> {
+      // Placement-based path (v2)
+      if (req.placement) {
+        return runPlacementTurnNonInteractive(req, clientAspHome)
+      }
+
       return withAspHome(req.aspHome, async () => {
         const frontendDef = resolveFrontend(req.frontend)
         const hostSessionId = resolveHostSessionId(req)
@@ -1677,5 +1682,248 @@ async function buildPlacementInvocationSpec(
     spec: invocationSpec,
     resolvedBundle,
     ...(warnings.length > 0 ? { warnings } : {}),
+  }
+}
+
+/**
+ * Handle placement-based runTurnNonInteractive request.
+ * Resolves placement, materializes spaces, creates an SDK session, and runs the turn.
+ */
+async function runPlacementTurnNonInteractive(
+  req: RunTurnNonInteractiveRequest,
+  defaultAspHome?: string
+): Promise<RunTurnNonInteractiveResponse> {
+  const placement = req.placement as RuntimePlacement
+  const frontendDef = resolveFrontend(req.frontend)
+  const hostSessionId = resolveHostSessionId(req)
+  const eventEmitter = createEventEmitter(
+    req.callbacks.onEvent,
+    { hostSessionId: hostSessionId as string, runId: req.runId },
+    req.continuation
+  )
+
+  let modelResolution: ReturnType<typeof resolveModel>
+  let continuationKey = req.continuation?.key
+
+  try {
+    validateProviderMatch(frontendDef, req.continuation)
+    modelResolution = resolveModel(frontendDef, req.model)
+  } catch (error) {
+    const result: RunResult = { success: false, error: toAgentSpacesError(error) }
+    await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+    await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+    return {
+      provider: frontendDef.provider,
+      frontend: req.frontend,
+      model: req.model,
+      result,
+    }
+  }
+
+  if (continuationKey) {
+    eventEmitter.setContinuation({
+      provider: frontendDef.provider,
+      key: continuationKey,
+    })
+  }
+
+  await eventEmitter.emit({ type: 'state', state: 'running' } as EventPayload)
+  await eventEmitter.emit({
+    type: 'message',
+    role: 'user',
+    content: req.prompt,
+  } as EventPayload)
+
+  if (!modelResolution.ok) {
+    const error = toAgentSpacesError(
+      new Error(
+        `Model not supported for frontend ${frontendDef.frontend}: ${modelResolution.modelId}`
+      ),
+      'model_not_supported'
+    )
+    const result: RunResult = { success: false, error }
+    await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+    await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+    return {
+      provider: frontendDef.provider,
+      frontend: req.frontend,
+      model: modelResolution.modelId,
+      result,
+    }
+  }
+
+  const permissionHandler = buildAutoPermissionHandler()
+  let session: UnifiedSession | undefined
+  let turnEnded = false
+  let finalOutput: string | undefined
+  const assistantState: { assistantBuffer: string; lastAssistantText?: string | undefined } = {
+    assistantBuffer: '',
+  }
+
+  try {
+    // Resolve placement to get audit metadata and effective cwd
+    const resolvedBundle = await resolvePlacement(placement)
+    const cwd = resolvedBundle.cwd
+
+    // Build correlation env vars and apply env overlay
+    const correlationEnv = buildCorrelationEnvVars(placement)
+    const harnessEnv: Record<string, string> = { ...correlationEnv, ...(req.env ?? {}) }
+
+    const aspHome = req.aspHome ?? defaultAspHome
+    if (aspHome) {
+      harnessEnv['ASP_HOME'] = aspHome
+    }
+
+    const restoreEnv = applyEnvOverlay(harnessEnv)
+
+    try {
+      // Materialize spaces from resolved bundle refs
+      let pluginDirs: string[] = []
+      const spaceRefs = resolvedBundle.spaces.map((s) => s.ref)
+      if (spaceRefs.length > 0 && aspHome) {
+        const paths = new PathResolver({ aspHome })
+        const targetName = computeSpacesTargetName(spaceRefs)
+        const materialized = await materializeFromRefs({
+          targetName,
+          refs: spaceRefs as SpaceRefString[],
+          registryPath: paths.repo,
+          aspHome,
+          lockPath: paths.globalLock,
+          harness: frontendDef.internalId,
+        })
+        pluginDirs = materialized.materialization.pluginDirs
+
+        if (frontendDef.frontend === PI_SDK_FRONTEND) {
+          harnessEnv['PI_CODING_AGENT_DIR'] = materialized.materialization.outputPath
+        }
+      }
+
+      if (frontendDef.frontend === AGENT_SDK_FRONTEND) {
+        const plugins = pluginDirs.map((dir) => ({
+          type: 'local' as const,
+          path: dir,
+        }))
+        session = createSession({
+          kind: 'agent-sdk',
+          sessionId: continuationKey ?? (hostSessionId as string),
+          cwd,
+          model: normalizeAgentSdkModel(modelResolution.info.model),
+          plugins,
+          permissionHandler,
+          ...(continuationKey ? { resume: continuationKey } : {}),
+        })
+      } else {
+        // pi-sdk
+        const isResume = continuationKey !== undefined
+        if (!isResume && !continuationKey && aspHome) {
+          continuationKey = piSessionPath(aspHome, hostSessionId as string)
+          await ensureDir(continuationKey)
+          eventEmitter.setContinuation({
+            provider: frontendDef.provider,
+            key: continuationKey,
+          })
+        }
+
+        const piBundle = await loadPiSdkBundle(cwd, {
+          cwd,
+          yolo: true,
+          noExtensions: false,
+          noSkills: false,
+          agentDir: cwd,
+        })
+        const piSession = new PiSession({
+          ownerId: hostSessionId as string,
+          cwd,
+          provider: modelResolution.info.provider,
+          model: modelResolution.info.model,
+          sessionId: hostSessionId as string,
+          extensions: piBundle.extensions,
+          skills: piBundle.skills,
+          contextFiles: piBundle.contextFiles,
+          agentDir: cwd,
+          ...(continuationKey ? { sessionPath: continuationKey } : {}),
+        })
+        piSession.setPermissionHandler(permissionHandler)
+        session = piSession
+      }
+
+      const turnPromise = new Promise<void>((resolve, reject) => {
+        if (!session) return
+        session.onEvent((event: UnifiedSessionEvent) => {
+          const result = mapUnifiedEvents(
+            event,
+            (mapped) => {
+              void eventEmitter.emit(mapped)
+            },
+            (key) => {
+              continuationKey = key
+              eventEmitter.setContinuation({
+                provider: frontendDef.provider,
+                key,
+              })
+            },
+            assistantState,
+            { allowSessionIdUpdate: frontendDef.frontend !== PI_SDK_FRONTEND }
+          )
+
+          if (result.turnEnded && !turnEnded) {
+            turnEnded = true
+            void eventEmitter.idle().then(resolve, reject)
+          }
+        })
+      })
+
+      await runSession(session, req.prompt, req.attachments, req.runId)
+      await turnPromise
+      await session.stop('complete')
+      await eventEmitter.idle()
+      finalOutput = assistantState.lastAssistantText
+    } finally {
+      restoreEnv()
+    }
+
+    const result: RunResult = { success: true, ...(finalOutput ? { finalOutput } : {}) }
+    await eventEmitter.emit({ type: 'state', state: 'complete' } as EventPayload)
+    await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+
+    const finalContinuation: HarnessContinuationRef | undefined = continuationKey
+      ? { provider: frontendDef.provider, key: continuationKey }
+      : undefined
+
+    return {
+      ...(finalContinuation ? { continuation: finalContinuation } : {}),
+      provider: frontendDef.provider,
+      frontend: req.frontend,
+      model: modelResolution.info.effectiveModel,
+      result,
+      resolvedBundle,
+    }
+  } catch (error) {
+    if (session) {
+      try {
+        await session.stop('error')
+      } catch {
+        // Ignore cleanup failures.
+      }
+    }
+
+    const result: RunResult = {
+      success: false,
+      error: toAgentSpacesError(error, 'resolve_failed'),
+    }
+    await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+    await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+
+    const finalContinuation: HarnessContinuationRef | undefined = continuationKey
+      ? { provider: frontendDef.provider, key: continuationKey }
+      : undefined
+
+    return {
+      ...(finalContinuation ? { continuation: finalContinuation } : {}),
+      provider: frontendDef.provider,
+      frontend: req.frontend,
+      model: modelResolution.ok ? modelResolution.info.effectiveModel : req.model,
+      result,
+    }
   }
 }

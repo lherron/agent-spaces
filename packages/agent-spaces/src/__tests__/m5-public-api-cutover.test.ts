@@ -405,3 +405,114 @@ describe('correlation env vars (T-00864)', () => {
     expect(response.spec.env.AGENT_LANE_REF).toBe('lane:deploy')
   })
 })
+
+// ===================================================================
+// T-00873: placement-based runTurnNonInteractive
+// Defect: runTurnNonInteractive had no placement-aware dispatch, unlike
+// buildProcessInvocationSpec which already had one. SDK frontends using
+// placement were falling through to the legacy path and failing.
+// ===================================================================
+describe('placement-based runTurnNonInteractive (T-00873)', () => {
+  test('placement dispatch returns model_not_supported with structured events', async () => {
+    const { createAgentSpacesClient } = await import('../index.js')
+    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+    const events: Array<{ type: string; seq: number }> = []
+
+    const response = await client.runTurnNonInteractive({
+      placement: {
+        agentRoot: '/tmp/asp-test-m5/agent-root',
+        runMode: 'query',
+        bundle: { kind: 'agent-default' },
+      },
+      frontend: 'agent-sdk',
+      model: 'api/not-a-model',
+      prompt: 'Hello placement',
+      runId: 'run-placement-1',
+      hostSessionId: 'hs-placement-1',
+      callbacks: {
+        onEvent: (event) => {
+          events.push({ type: event.type, seq: event.seq })
+        },
+      },
+    } as any)
+
+    expect(response.result.success).toBe(false)
+    expect(response.result.error?.code).toBe('model_not_supported')
+    expect(response.provider).toBe('anthropic')
+    expect(response.frontend).toBe('agent-sdk')
+    // Should emit state→message→state(error)→complete, same as legacy path
+    expect(events.map((e) => e.type)).toEqual(['state', 'message', 'state', 'complete'])
+    expect(events.map((e) => e.seq)).toEqual([1, 2, 3, 4])
+  })
+
+  test('placement dispatch emits hostSessionId and runId on events', async () => {
+    const { createAgentSpacesClient } = await import('../index.js')
+    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+    const events: Array<{ hostSessionId: string; runId: string }> = []
+
+    await client.runTurnNonInteractive({
+      placement: {
+        agentRoot: '/tmp/asp-test-m5/agent-root',
+        runMode: 'query',
+        bundle: { kind: 'agent-default' },
+      },
+      frontend: 'agent-sdk',
+      model: 'api/not-a-model',
+      prompt: 'Hello',
+      runId: 'run-hsid-test',
+      hostSessionId: 'hs-placement-hsid',
+      callbacks: {
+        onEvent: (event) => {
+          events.push({ hostSessionId: event.hostSessionId, runId: event.runId })
+        },
+      },
+    } as any)
+
+    expect(events.length).toBeGreaterThan(0)
+    for (const event of events) {
+      expect(event.hostSessionId).toBe('hs-placement-hsid')
+      expect(event.runId).toBe('run-hsid-test')
+    }
+  })
+
+  test('placement dispatch catches provider mismatch', async () => {
+    const { createAgentSpacesClient } = await import('../index.js')
+    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+    const events: Array<{ type: string }> = []
+
+    const response = await client.runTurnNonInteractive({
+      placement: {
+        agentRoot: '/tmp/asp-test-m5/agent-root',
+        runMode: 'query',
+        bundle: { kind: 'agent-default' },
+      },
+      frontend: 'agent-sdk',
+      // agent-sdk is anthropic, but continuation says openai
+      continuation: { provider: 'openai', key: 'some-key' },
+      prompt: 'Hello',
+      runId: 'run-mismatch',
+      hostSessionId: 'hs-mismatch',
+      callbacks: {
+        onEvent: (event) => {
+          events.push({ type: event.type })
+        },
+      },
+    } as any)
+
+    expect(response.result.success).toBe(false)
+    expect(response.result.error?.message).toContain('Provider mismatch')
+    expect(response.result.error?.code).toBe('provider_mismatch')
+    expect(events.map((e) => e.type)).toEqual(['state', 'complete'])
+  })
+
+  test('source code has req.placement dispatch in runTurnNonInteractive', () => {
+    // Static regression: ensure the placement dispatch is present
+    const { readFileSync } = require('node:fs')
+    const { join } = require('node:path')
+    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+    // Must have the placement check inside runTurnNonInteractive
+    expect(source).toMatch(/runTurnNonInteractive[\s\S]*?if\s*\(req\.placement\)/)
+    // Must have the placement handler function
+    expect(source).toMatch(/runPlacementTurnNonInteractive/)
+  })
+})
