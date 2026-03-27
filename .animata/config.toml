@@ -21,7 +21,6 @@ launcher = "asp"
 runtime_agent_id = "center-worker"
 runtime_agent_target = "codex"
 runtime_agent_harness = "codex"
-runtime_agent_model = "gpt-5.3-codex"
 
 # Agents we manage in this workbench
 [[agents]]
