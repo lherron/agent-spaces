@@ -449,10 +449,10 @@ async function main(): Promise<void> {
   const sdk = await loadSdkModule(args.sdkRoot)
 
   const {
+    AuthStorage,
+    ModelRegistry,
     createAgentSession,
-    discoverAuthStorage,
-    discoverModels,
-    discoverSkills,
+    loadSkills,
     InteractiveMode,
     runPrintMode,
   } = sdk
@@ -511,21 +511,11 @@ async function main(): Promise<void> {
 
   let skills: unknown[] = []
   if (!args.noSkills && manifest.skillsDir) {
-    const { skills: discovered, warnings } = discoverSkills(args.cwd, undefined, {
-      enabled: true,
-      enableCodexUser: false,
-      enableClaudeUser: false,
-      enableClaudeProject: false,
-      enablePiUser: false,
-      enablePiProject: false,
-      enableSkillCommands: true,
-      customDirectories: [resolve(bundleRoot, manifest.skillsDir)],
-      ignoredSkills: [],
-      includeSkills: [],
+    const { skills: discovered } = loadSkills({
+      cwd: args.cwd,
+      skillPaths: [resolve(bundleRoot, manifest.skillsDir)],
+      includeDefaults: false,
     })
-    for (const warning of warnings ?? []) {
-      console.warn(warning)
-    }
     skills = discovered
   }
 
@@ -550,8 +540,8 @@ async function main(): Promise<void> {
       throw new Error('Model must be specified as provider:model')
     }
 
-    const authStorage = discoverAuthStorage()
-    const modelRegistry = discoverModels(authStorage)
+    const authStorage = AuthStorage.create()
+    const modelRegistry = new ModelRegistry(authStorage)
     const model = modelRegistry.find(provider, modelId)
 
     if (!model) {
