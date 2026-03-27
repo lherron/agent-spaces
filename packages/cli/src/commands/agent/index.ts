@@ -22,6 +22,34 @@ type RunMode = (typeof VALID_MODES)[number]
 const SDK_FRONTENDS = new Set(['agent-sdk', 'pi-sdk'])
 const CLI_FRONTENDS = new Set(['claude-code', 'codex-cli'])
 
+interface AgentCommandOptions {
+  agentRoot?: string
+  frontend?: string
+  mode?: string
+  projectRoot?: string
+  cwd?: string
+  hostSessionId?: string
+  runId?: string
+  laneRef?: string
+  scaffoldFile?: string
+  model?: string
+  prompt?: string
+  promptFile?: string
+  attachment?: string[]
+  continueProvider?: string
+  continueKey?: string
+  interaction?: string
+  io?: string
+  env?: string[]
+  dryRun?: boolean
+  printCommand?: boolean
+  json?: boolean
+  bundle?: string
+  agentTarget?: string
+  projectTarget?: string
+  compose?: string[]
+}
+
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value]
 }
@@ -63,7 +91,7 @@ export function registerAgentCommands(program: Command): void {
         first: string,
         second: string | undefined,
         third: string | undefined,
-        options: any
+        options: AgentCommandOptions
       ) => {
         if (first === 'resolve') {
           // asp agent resolve <scope-ref> [options]
@@ -76,7 +104,10 @@ export function registerAgentCommands(program: Command): void {
     )
 }
 
-async function handleResolve(scopeRef: string | undefined, options: any): Promise<void> {
+async function handleResolve(
+  scopeRef: string | undefined,
+  options: AgentCommandOptions
+): Promise<void> {
   if (!scopeRef) throw new Error('ScopeRef is required: asp agent resolve <scope-ref>')
   if (!options.agentRoot) throw new Error('--agent-root is required')
   if (!options.mode) throw new Error('--mode is required')
@@ -115,7 +146,7 @@ async function handleExecute(
   scopeRef: string,
   mode: string | undefined,
   positionalPrompt: string | undefined,
-  options: any
+  options: AgentCommandOptions
 ): Promise<void> {
   if (!options.agentRoot) throw new Error('--agent-root is required')
   if (!options.frontend) throw new Error('--frontend is required')
@@ -168,7 +199,7 @@ async function handleExecute(
       aspHome: '',
       spec: { spaces: [] },
       cwd: '',
-    } as any)
+    } as Parameters<typeof client.buildProcessInvocationSpec>[0])
 
     if (options.dryRun || options.printCommand) {
       if (options.json) {
@@ -226,12 +257,15 @@ async function handleExecute(
       aspHome: '',
       spec: { spaces: [] },
       cwd: '',
-    } as any)
+    } as Parameters<typeof client.runTurnNonInteractive>[0])
     if (!response.result.success) process.exit(1)
   }
 }
 
-function resolvePrompt(positional: string | undefined, options: any): string | undefined {
+function resolvePrompt(
+  positional: string | undefined,
+  options: AgentCommandOptions
+): string | undefined {
   const sources = [positional, options.prompt, options.promptFile ? 'file' : undefined].filter(
     Boolean
   )
@@ -243,7 +277,11 @@ function resolvePrompt(positional: string | undefined, options: any): string | u
   return undefined
 }
 
-function buildPlacement(scopeRef: string, runMode: string, options: any): RuntimePlacement {
+function buildPlacement(
+  scopeRef: string,
+  runMode: string,
+  options: AgentCommandOptions
+): RuntimePlacement {
   const bundle = buildBundleRef(options)
   const scaffoldPackets = options.scaffoldFile
     ? JSON.parse(readFileSync(options.scaffoldFile, 'utf8'))
@@ -257,10 +295,10 @@ function buildPlacement(scopeRef: string, runMode: string, options: any): Runtim
         }
       : undefined
   return {
-    agentRoot: options.agentRoot,
+    agentRoot: options.agentRoot as string,
     projectRoot: options.projectRoot,
     cwd: options.cwd,
-    runMode: runMode as any,
+    runMode: runMode as RuntimePlacement['runMode'],
     bundle,
     scaffoldPackets,
     correlation,
