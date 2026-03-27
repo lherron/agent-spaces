@@ -659,3 +659,83 @@ describe('placement invocation produces full argv (T-00874)', () => {
     expect(output).toMatch(/[Mm]odel not supported/)
   })
 })
+
+// ===================================================================
+// T-00875: Prompt passed through to CLI argv
+// Defect: prompt was not included in spawned CLI argv.
+// Fix plumbs prompt through adapter.buildRunArgs() runOptions.
+// ===================================================================
+describe('prompt in argv (T-00875)', () => {
+  test('claude-code argv contains -p flag with prompt text', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Reply with exactly: CLIPASS',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    const parsed = JSON.parse(result.stdout)
+    // Must include -p flag followed by the prompt text
+    const pIdx = parsed.spec.argv.indexOf('-p')
+    expect(pIdx).toBeGreaterThan(-1)
+    expect(parsed.spec.argv[pIdx + 1]).toBe('Reply with exactly: CLIPASS')
+  })
+
+  test('codex-cli argv contains prompt text', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'query',
+        'Reply with exactly: CLIPASS',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'codex-cli',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    const parsed = JSON.parse(result.stdout)
+    // Codex puts the prompt as a positional arg
+    expect(parsed.spec.argv).toContain('Reply with exactly: CLIPASS')
+  })
+
+  test('no prompt in argv when prompt not provided (heartbeat)', () => {
+    const agentRoot = resolveAgentRoot()
+
+    const result = runAsp(
+      [
+        'agent',
+        'agent:alice',
+        'heartbeat',
+        '--agent-root',
+        agentRoot,
+        '--frontend',
+        'claude-code',
+        '--dry-run',
+        '--json',
+      ],
+      { expectError: true }
+    )
+
+    const parsed = JSON.parse(result.stdout)
+    // heartbeat has no prompt — argv should NOT contain -p
+    expect(parsed.spec.argv).not.toContain('-p')
+  })
+})

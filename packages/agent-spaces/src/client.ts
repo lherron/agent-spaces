@@ -1707,6 +1707,7 @@ async function buildPlacementInvocationSpec(
     model: modelResolution.info.model,
     projectPath: cwd,
     cwd,
+    ...(req.prompt ? { prompt: req.prompt } : {}),
     ...(isResume && req.continuation?.key ? { resume: req.continuation.key } : {}),
   }
 
