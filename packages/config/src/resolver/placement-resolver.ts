@@ -34,11 +34,14 @@ import { resolveSpaceComposition } from './space-composition.js'
 export async function resolvePlacement(
   placement: RuntimePlacement
 ): Promise<ResolvedRuntimeBundle> {
-  // 1. Validate agent root (best-effort — agentRoot may not exist yet for dry-run/invocation)
+  // 1. Validate agent root (SOUL.md required for actual execution)
   try {
     validateAgentRoot(placement.agentRoot)
-  } catch {
-    // agentRoot doesn't exist or SOUL.md missing — allow for invocation building
+  } catch (err) {
+    if (!placement.dryRun) {
+      throw err
+    }
+    // dry-run: agentRoot doesn't exist or SOUL.md missing — allow for invocation building
   }
 
   // 2. Determine base bundle spaces from RuntimeBundleRef
@@ -51,12 +54,21 @@ export async function resolvePlacement(
     ref: p.ref,
   }))
 
-  const instructions = await resolveInstructionLayer({
-    agentRoot: placement.agentRoot,
-    projectRoot: placement.projectRoot,
-    runMode: placement.runMode,
-    scaffoldPackets,
-  })
+  let instructions: Awaited<ReturnType<typeof resolveInstructionLayer>>
+  try {
+    instructions = await resolveInstructionLayer({
+      agentRoot: placement.agentRoot,
+      projectRoot: placement.projectRoot,
+      runMode: placement.runMode,
+      scaffoldPackets,
+    })
+  } catch (err) {
+    if (!placement.dryRun) {
+      throw err
+    }
+    // dry-run: instruction layer may fail if SOUL.md missing — return empty
+    instructions = []
+  }
 
   // 4. Compute space composition
   const composedSpaces = await resolveSpaceComposition({

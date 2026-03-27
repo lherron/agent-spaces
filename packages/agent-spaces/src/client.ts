@@ -335,7 +335,7 @@ function placementToSpec(placement: RuntimePlacement): {
       }
 
     case 'agent-default': {
-      // Load profile spaces.base
+      // Load profile spaces.base + spaces.byMode[runMode] overlays
       const profilePath = join(agentRoot, 'agent-profile.toml')
       let spaces: string[] = []
       if (existsSync(profilePath)) {
@@ -349,6 +349,21 @@ function placementToSpec(placement: RuntimePlacement): {
           const base = spacesConfig['base']
           if (Array.isArray(base)) {
             spaces = base as string[]
+          }
+          // Merge byMode[runMode] overlays
+          const byMode = spacesConfig['byMode'] as
+            | Record<string, Record<string, unknown>>
+            | undefined
+          const modeConfig = byMode?.[placement.runMode]
+          if (modeConfig) {
+            const modeBase = modeConfig['base']
+            if (Array.isArray(modeBase)) {
+              for (const ref of modeBase) {
+                if (!spaces.includes(ref as string)) {
+                  spaces.push(ref as string)
+                }
+              }
+            }
           }
         }
       }
@@ -1769,8 +1784,8 @@ async function buildPlacementInvocationSpec(
     throw new Error(`Model not supported for frontend ${req.frontend}: ${modelResolution.modelId}`)
   }
 
-  // Resolve placement to get audit metadata
-  const resolvedBundle = await resolvePlacement(placement)
+  // Resolve placement to get audit metadata (invocation building is lenient)
+  const resolvedBundle = await resolvePlacement({ ...placement, dryRun: true })
 
   // Resolve effective cwd from placement
   const cwd = resolvedBundle.cwd

@@ -15,7 +15,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { rmSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { createTempFixtureRoots } from '../test-support/v2-fixtures.js'
 
@@ -515,5 +518,95 @@ describe('projectRoot never implies project target (T-00859)', () => {
     // No project spaces unless the profile base explicitly includes them
     // (fixture profile base is ["space:agent:private-ops"], no project spaces)
     expect(projectSpaceRefs.length).toBe(0)
+  })
+})
+
+// ===================================================================
+// T-00889: resolvePlacement must enforce SOUL.md contract
+//
+// Defect: placement-resolver.ts:38-42 silently catches validateAgentRoot()
+// failures. instruction-layer.ts:58 conditionally omits the soul slot
+// when SOUL.md is absent. Result: a placement with no SOUL.md succeeds
+// with instructions:[] instead of failing.
+//
+// PASS CONDITIONS:
+// 1. resolvePlacement throws when SOUL.md is missing (non-dry-run).
+// 2. resolvePlacement succeeds in dry-run mode when SOUL.md is missing.
+// 3. resolveInstructionLayer either includes soul slot or throws when
+//    SOUL.md is missing.
+// ===================================================================
+describe('SOUL.md enforcement (T-00889)', () => {
+  let noSoulDir: string
+
+  beforeEach(() => {
+    // Create a minimal agent root WITHOUT SOUL.md
+    noSoulDir = mkdtempSync(join(tmpdir(), 'no-soul-'))
+    const agentRoot = join(noSoulDir, 'agent-root')
+    mkdirSync(agentRoot, { recursive: true })
+    // Write an agent-profile.toml so it's a valid-looking agent root aside from SOUL.md
+    writeFileSync(join(agentRoot, 'agent-profile.toml'), '[spaces]\nbase = []\n')
+  })
+
+  afterEach(() => {
+    rmSync(noSoulDir, { recursive: true, force: true })
+  })
+
+  test('resolvePlacement throws when SOUL.md is missing (non-dry-run)', async () => {
+    // RED: Currently passes silently because placement-resolver.ts catches
+    // the validateAgentRoot() error and instruction-layer.ts skips the
+    // soul slot when SOUL.md doesn't exist.
+    const { resolvePlacement } = await import('../resolver/placement-resolver.js')
+    const agentRoot = join(noSoulDir, 'agent-root')
+
+    await expect(
+      resolvePlacement({
+        agentRoot,
+        runMode: 'query',
+        bundle: { kind: 'agent-default' },
+      })
+    ).rejects.toThrow(/SOUL\.md/i)
+  })
+
+  test('resolvePlacement succeeds in dry-run when SOUL.md is missing', async () => {
+    // GREEN (once dryRun plumbing exists): dry-run should tolerate missing SOUL.md.
+    // RED initially because the dryRun option doesn't exist yet on RuntimePlacement.
+    const { resolvePlacement } = await import('../resolver/placement-resolver.js')
+    const agentRoot = join(noSoulDir, 'agent-root')
+
+    // Pass dryRun on the placement — this field doesn't exist yet, so
+    // the fix will need to add it to RuntimePlacement and honor it.
+    const result = await resolvePlacement({
+      agentRoot,
+      runMode: 'query',
+      bundle: { kind: 'agent-default' },
+      dryRun: true,
+    } as any)
+
+    expect(result).toBeDefined()
+    expect(result.instructions).toBeInstanceOf(Array)
+    // In dry-run, soul slot is absent but that's OK
+  })
+
+  test('resolveInstructionLayer returns soul slot or throws when SOUL.md missing', async () => {
+    // RED: Currently resolveInstructionLayer returns [] silently when
+    // SOUL.md is absent (instruction-layer.ts line 58 skips it).
+    // After fix, it should either include a soul slot or throw.
+    const { resolveInstructionLayer } = await import('../resolver/instruction-layer.js')
+    const agentRoot = join(noSoulDir, 'agent-root')
+
+    // SOUL.md is missing — the function must either throw or include a soul slot.
+    // It must NOT silently return instructions without one.
+    let threw = false
+    let hasSoul = false
+    try {
+      const slots = await resolveInstructionLayer({
+        agentRoot,
+        runMode: 'query',
+      })
+      hasSoul = slots.some((s: any) => s.slot === 'soul')
+    } catch {
+      threw = true
+    }
+    expect(threw || hasSoul).toBe(true)
   })
 })

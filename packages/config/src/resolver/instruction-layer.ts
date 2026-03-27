@@ -53,15 +53,16 @@ export async function resolveInstructionLayer(
   const slots: ResolvedInstructionSlot[] = []
   const profile = loadAgentProfile(input.agentRoot)
 
-  // 1. Implicit SOUL.md (always required — validated elsewhere)
+  // 1. Implicit SOUL.md (always required)
   const soulPath = join(input.agentRoot, 'SOUL.md')
-  if (existsSync(soulPath)) {
-    slots.push({
-      slot: 'soul',
-      content: readFileSync(soulPath, 'utf8'),
-      ref: 'agent-root:///SOUL.md',
-    })
+  if (!existsSync(soulPath)) {
+    throw new Error(`SOUL.md is required in agent root: ${input.agentRoot}`)
   }
+  slots.push({
+    slot: 'soul',
+    content: readFileSync(soulPath, 'utf8'),
+    ref: 'agent-root:///SOUL.md',
+  })
 
   // 2. agent-profile.toml -> instructions.additionalBase
   const instructions = profile?.['instructions'] as Record<string, unknown> | undefined
