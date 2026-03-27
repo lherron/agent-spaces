@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { basename, isAbsolute, join } from 'node:path'
 
 import {
+  type ComposedTargetBundle,
   type HarnessId,
   type LintWarning,
   type LockFile,
@@ -15,6 +16,7 @@ import {
   discoverSkills,
   ensureDir,
   generateLockFileForTarget,
+  getAspHome,
   getRegistryPath,
   lintSpaces,
   readHooksWithPrecedence,
@@ -1621,6 +1623,8 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
 
 /**
  * Handle placement-based buildProcessInvocationSpec request.
+ * Resolves placement, materializes spaces, and builds full CLI invocation
+ * through the harness adapter (matching the legacy path).
  */
 async function buildPlacementInvocationSpec(
   req: BuildProcessInvocationSpecRequest,
@@ -1642,25 +1646,89 @@ async function buildPlacementInvocationSpec(
   // Validate provider match with continuation if provided
   validateProviderMatch(frontendDef, req.continuation)
 
+  // Validate model
+  const modelResolution = resolveModel(frontendDef, req.model)
+  if (!modelResolution.ok) {
+    throw new Error(`Model not supported for frontend ${req.frontend}: ${modelResolution.modelId}`)
+  }
+
   // Resolve placement to get audit metadata
   const resolvedBundle = await resolvePlacement(placement)
 
   // Resolve effective cwd from placement
   const cwd = resolvedBundle.cwd
 
+  const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
+
+  // Get adapter from registry and detect binary
+  const adapter = harnessRegistry.getOrThrow(frontendDef.internalId)
+  const detection = await adapter.detect()
+  if (!detection.available) {
+    throw new Error(
+      `Harness "${frontendDef.internalId}" is not available: ${detection.error ?? 'not found'}`
+    )
+  }
+
+  // Materialize spaces from resolved bundle refs.
+  // Only registry spaces (not space:agent: or space:project:) can go through
+  // materializeFromRefs — local spaces are resolved at runtime by the spawned process.
+  const spaceRefs = resolvedBundle.spaces.map((s) => s.ref)
+  const registryRefs = spaceRefs.filter(
+    (ref) => !ref.startsWith('space:agent:') && !ref.startsWith('space:project:')
+  )
+
+  let bundle: ComposedTargetBundle
+  if (registryRefs.length > 0) {
+    const paths = new PathResolver({ aspHome })
+    const targetName = computeSpacesTargetName(registryRefs)
+    const result = await materializeFromRefs({
+      targetName,
+      refs: registryRefs as SpaceRefString[],
+      registryPath: paths.repo,
+      aspHome,
+      lockPath: paths.globalLock,
+      harness: frontendDef.internalId,
+    })
+    bundle = await adapter.loadTargetBundle(result.materialization.outputPath, targetName)
+  } else {
+    // No registry spaces — construct a minimal bundle for arg building.
+    // Local agent/project spaces will be resolved at runtime by the spawned CLI.
+    bundle = {
+      harnessId: frontendDef.internalId,
+      targetName: `placement-${resolvedBundle.bundleIdentity}`,
+      rootDir: cwd,
+    }
+  }
+
+  // Build run options for the adapter
+  const isResume = !!req.continuation?.key
+  const runOptions = {
+    interactive: req.interactionMode === 'interactive',
+    model: modelResolution.info.model,
+    projectPath: cwd,
+    cwd,
+    ...(isResume && req.continuation?.key ? { resume: req.continuation.key } : {}),
+  }
+
+  // Build argv and env using the adapter
+  const args = adapter.buildRunArgs(bundle, runOptions)
+  const adapterEnv = adapter.getRunEnv(bundle, runOptions)
+  const commandPath = detection.path ?? frontendDef.internalId
+  const argv = [commandPath, ...args]
+
   // Build correlation env vars
   const correlationEnv = buildCorrelationEnvVars(placement)
 
-  // Merge env: correlation + request env delta + ASP_HOME
+  // Merge env: adapter env + correlation + request env delta + ASP_HOME
   const env: Record<string, string> = {
+    ...adapterEnv,
     ...correlationEnv,
     ...(req.env ?? {}),
+    ASP_HOME: aspHome,
   }
 
-  const aspHome = req.aspHome ?? defaultAspHome
-  if (aspHome) {
-    env['ASP_HOME'] = aspHome
-  }
+  // Build display command
+  const displayCommand = formatDisplayCommand(commandPath, args, adapterEnv)
 
   // Build continuation ref
   const continuation: HarnessContinuationRef | undefined = req.continuation
@@ -1670,12 +1738,13 @@ async function buildPlacementInvocationSpec(
   const invocationSpec: ProcessInvocationSpec = {
     provider: frontendDef.provider,
     frontend: req.frontend,
-    argv: [req.frontend],
+    argv,
     cwd,
     env,
     interactionMode: req.interactionMode,
     ioMode: req.ioMode,
     ...(continuation ? { continuation } : {}),
+    displayCommand,
   }
 
   return {
@@ -1769,10 +1838,8 @@ async function runPlacementTurnNonInteractive(
     const correlationEnv = buildCorrelationEnvVars(placement)
     const harnessEnv: Record<string, string> = { ...correlationEnv, ...(req.env ?? {}) }
 
-    const aspHome = req.aspHome ?? defaultAspHome
-    if (aspHome) {
-      harnessEnv['ASP_HOME'] = aspHome
-    }
+    const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
+    harnessEnv['ASP_HOME'] = aspHome
 
     const restoreEnv = applyEnvOverlay(harnessEnv)
 
@@ -1780,7 +1847,7 @@ async function runPlacementTurnNonInteractive(
       // Materialize spaces from resolved bundle refs
       let pluginDirs: string[] = []
       const spaceRefs = resolvedBundle.spaces.map((s) => s.ref)
-      if (spaceRefs.length > 0 && aspHome) {
+      if (spaceRefs.length > 0) {
         const paths = new PathResolver({ aspHome })
         const targetName = computeSpacesTargetName(spaceRefs)
         const materialized = await materializeFromRefs({
