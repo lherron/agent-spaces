@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { discoverSkills } from '@mariozechner/pi-coding-agent'
+import { loadSkills } from '@mariozechner/pi-coding-agent'
 import type { ExtensionFactory, Skill } from '@mariozechner/pi-coding-agent'
 
 interface PiSdkBundleExtensionEntry {
@@ -345,21 +345,12 @@ export async function loadPiSdkBundle(
 
   let skills: Skill[] = []
   if (!noSkills && manifest.skillsDir) {
-    const { skills: discovered, warnings } = discoverSkills(options.cwd, options.agentDir, {
-      enabled: true,
-      enableCodexUser: false,
-      enableClaudeUser: false,
-      enableClaudeProject: false,
-      enablePiUser: false,
-      enablePiProject: false,
-      enableSkillCommands: true,
-      customDirectories: [resolve(bundleRoot, manifest.skillsDir)],
-      ignoredSkills: [],
-      includeSkills: [],
+    const { skills: discovered } = loadSkills({
+      cwd: options.cwd,
+      ...(options.agentDir ? { agentDir: options.agentDir } : {}),
+      skillPaths: [resolve(bundleRoot, manifest.skillsDir)],
+      includeDefaults: false,
     })
-    for (const warning of warnings ?? []) {
-      console.warn(warning)
-    }
     skills = discovered
   }
 

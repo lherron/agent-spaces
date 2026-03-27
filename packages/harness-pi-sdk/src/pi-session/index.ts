@@ -3,14 +3,13 @@ export { createPermissionHook } from './permission-hook.js'
 export { loadPiSdkBundle } from './bundle.js'
 export {
   AuthStorage,
-  buildSystemPrompt,
+  ModelRegistry,
   createCodingTools,
   createEventBus,
-  discoverContextFiles,
-  discoverExtensions,
-  discoverModels,
-  discoverSkills,
-  loadSettings,
+  createExtensionRuntime,
+  discoverAndLoadExtensions,
+  loadSkills,
+  SettingsManager,
 } from '@mariozechner/pi-coding-agent'
 export type {
   HookPermissionResponse,

@@ -3,9 +3,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
   AuthStorage,
+  ModelRegistry,
   SessionManager,
   createAgentSession,
-  discoverModels,
 } from '@mariozechner/pi-coding-agent'
 import type { AgentSession } from '@mariozechner/pi-coding-agent'
 import type {
@@ -18,7 +18,6 @@ import type {
   UnifiedSessionEvent,
   UnifiedSessionState,
 } from 'spaces-runtime'
-import { createPermissionHook } from './permission-hook.js'
 import type {
   PiAgentSessionEvent,
   PiSessionConfig,
@@ -84,8 +83,9 @@ export class PiSession implements UnifiedSession {
         process.env['PI_CODING_AGENT_DIR'] ??
         join(homedir(), '.pi', 'agent')
 
-      const authStorage = new AuthStorage(resolveAuthStoragePath(globalAgentDir))
-      const modelRegistry = discoverModels(authStorage, globalAgentDir)
+      const authStorage = AuthStorage.create(resolveAuthStoragePath(globalAgentDir))
+      const modelsJsonPath = join(globalAgentDir, 'models.json')
+      const modelRegistry = new ModelRegistry(authStorage, modelsJsonPath)
 
       let model = undefined
       if (this.config.model && this.config.provider) {
@@ -105,45 +105,19 @@ export class PiSession implements UnifiedSession {
             ? SessionManager.create(this.config.sessionPath)
             : SessionManager.create(this.config.cwd)
 
-      const extensionOverrides = options.extensions ?? this.config.extensions ?? []
-      const permissionHook = this.permissionHandler
-        ? createPermissionHook({
-            ownerId: this.config.ownerId,
-            ...(this.config.hookEventBus ? { hookEventBus: this.config.hookEventBus } : {}),
-            permissionHandler: this.permissionHandler,
-            sessionId: this.sessionId,
-            cwd: this.config.cwd,
-          })
-        : undefined
-      const extensions = permissionHook
-        ? [permissionHook, ...extensionOverrides]
-        : extensionOverrides
-      const skills = options.skills ?? this.config.skills ?? []
-      const contextFiles = options.contextFiles ?? this.config.contextFiles ?? []
-
-      const appendPrompt = this.config.systemPrompt
-
-      const sessionOptions = {
+      const sessionOptions: NonNullable<Parameters<typeof createAgentSession>[0]> = {
         cwd: this.config.cwd,
         thinkingLevel: this.mapThinkingLevel(this.config.thinkingLevel),
         authStorage,
         modelRegistry,
-        additionalExtensionPaths: [...(this.config.additionalExtensionPaths ?? [])],
-        skills,
-        extensions,
-        contextFiles,
         sessionManager,
-      } as NonNullable<Parameters<typeof createAgentSession>[0]>
+      }
 
       if (agentDir) {
         sessionOptions.agentDir = agentDir
       }
       if (model) {
         sessionOptions.model = model
-      }
-      if (appendPrompt) {
-        sessionOptions.systemPrompt = (defaultPrompt: string) =>
-          `${defaultPrompt}\n\n${appendPrompt}`
       }
 
       const { session } = await createAgentSession(sessionOptions)
