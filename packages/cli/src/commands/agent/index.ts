@@ -195,6 +195,7 @@ async function handleExecute(
       ioMode: (options.io ?? 'pipes') as 'pty' | 'pipes' | 'inherit',
       continuation,
       env: envVars,
+      prompt,
       hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
     } as Parameters<typeof client.buildProcessInvocationSpec>[0])
 

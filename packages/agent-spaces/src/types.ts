@@ -148,6 +148,8 @@ export interface BuildProcessInvocationSpecRequest {
   cwd: string
   env?: Record<string, string> | undefined
   artifactDir?: string | undefined
+  /** Prompt text to include in the invocation argv */
+  prompt?: string | undefined
   /** Placement-based request (v2) — when set, legacy session/spec/aspHome/cwd are ignored */
   placement?: RuntimePlacement | undefined
 }
