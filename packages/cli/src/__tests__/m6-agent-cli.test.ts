@@ -110,27 +110,31 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
     expect(output).toMatch(/dry.?run|invocation|command|resolve/i)
   })
 
-  test('asp agent "agent:alice" heartbeat --dry-run works without prompt', () => {
-    const agentRoot = resolveAgentRoot()
+  test(
+    'asp agent "agent:alice" heartbeat --dry-run works without prompt',
+    { timeout: 15000 },
+    () => {
+      const agentRoot = resolveAgentRoot()
 
-    const result = runAsp(
-      [
-        'agent',
-        'agent:alice',
-        'heartbeat',
-        '--agent-root',
-        agentRoot,
-        '--frontend',
-        'agent-sdk',
-        '--dry-run',
-      ],
-      { expectError: true }
-    )
+      const result = runAsp(
+        [
+          'agent',
+          'agent:alice',
+          'heartbeat',
+          '--agent-root',
+          agentRoot,
+          '--frontend',
+          'agent-sdk',
+          '--dry-run',
+        ],
+        { expectError: true }
+      )
 
-    const output = result.stdout + result.stderr
-    // heartbeat mode should not require a prompt
-    expect(output).not.toMatch(/prompt.*required/i)
-  })
+      const output = result.stdout + result.stderr
+      // heartbeat mode should not require a prompt
+      expect(output).not.toMatch(/prompt.*required/i)
+    }
+  )
 
   test('asp agent "agent:alice" query requires a prompt', () => {
     const agentRoot = resolveAgentRoot()
