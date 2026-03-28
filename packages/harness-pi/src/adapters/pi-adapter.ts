@@ -27,6 +27,7 @@ import {
   type MaterializeSpaceInput,
   type MaterializeSpaceOptions,
   type MaterializeSpaceResult,
+  PI_MODEL_TRANSLATION,
   type ProjectManifest,
   copyDir,
   linkOrCopy,
@@ -89,19 +90,6 @@ const COMMON_PI_PATHS = [
  * Component directories Pi handles from spaces.
  */
 const _PI_COMPONENT_DIRS = ['extensions', 'skills', 'hooks', 'scripts', 'shared'] as const
-
-/**
- * Model name translation from Claude-style to Pi-style.
- */
-const MODEL_TRANSLATION: Record<string, string> = {
-  sonnet: 'claude-sonnet',
-  opus: 'claude-opus',
-  haiku: 'claude-haiku',
-  'sonnet-4': 'claude-sonnet-4-5',
-  'sonnet-4-5': 'claude-sonnet-4-5',
-  'opus-4': 'claude-opus-4-6',
-  'opus-4-6': 'claude-opus-4-6',
-}
 
 /**
  * Events that Pi can support blocking on (none currently - best-effort only).
@@ -1110,7 +1098,7 @@ export class PiAdapter implements HarnessAdapter {
     // Model translation (sonnet -> claude-sonnet, etc.)
     // Default to gpt-5.4 with openai-codex provider if no model specified
     const model = options.model || DEFAULT_PI_MODEL
-    const translatedModel = MODEL_TRANSLATION[model] || model
+    const translatedModel = PI_MODEL_TRANSLATION[model] || model
     args.push('--model', translatedModel)
 
     // Default provider for Pi

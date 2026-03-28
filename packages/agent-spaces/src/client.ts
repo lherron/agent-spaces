@@ -5,6 +5,10 @@ import { homedir } from 'node:os'
 import { basename, isAbsolute, join } from 'node:path'
 
 import {
+  AGENT_SDK_MODELS,
+  CLAUDE_CODE_MODELS,
+  DEFAULT_AGENT_SDK_MODEL,
+  DEFAULT_CLAUDE_CODE_MODEL,
   type HarnessId,
   type LintWarning,
   type LockFile,
@@ -19,6 +23,7 @@ import {
   getAspHome,
   getRegistryPath,
   lintSpaces,
+  normalizeAgentSdkModel,
   readHooksWithPrecedence,
   resolveTarget,
 } from 'spaces-config'
@@ -78,8 +83,6 @@ const PI_SDK_INTERNAL: HarnessId = 'pi-sdk'
 const CLAUDE_CODE_INTERNAL: HarnessId = 'claude'
 const CODEX_CLI_INTERNAL: HarnessId = 'codex'
 
-const AGENT_SDK_MODELS = ['claude/opus', 'claude/haiku', 'claude/sonnet', 'claude/claude-opus-4-6']
-
 const PI_SDK_MODELS = [
   'openai-codex/gpt-5.4',
   'openai-codex/gpt-5.3-codex',
@@ -91,15 +94,6 @@ const PI_SDK_MODELS = [
   'api/gpt-5.3',
   'api/gpt-5.2-codex',
   'api/gpt-5.2',
-]
-
-const CLAUDE_CODE_MODELS = [
-  'claude-opus-4-6',
-  'claude-sonnet-4-5',
-  'claude-haiku-4-5',
-  'opus',
-  'sonnet',
-  'haiku',
 ]
 
 const CODEX_CLI_MODELS = [
@@ -117,9 +111,7 @@ const CODEX_CLI_MODELS = [
   'gpt-5',
 ]
 
-const DEFAULT_AGENT_SDK_MODEL = 'claude/sonnet'
 const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.4'
-const DEFAULT_CLAUDE_CODE_MODEL = 'claude-opus-4-6'
 const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.4'
 
 interface FrontendDef {
@@ -425,20 +417,6 @@ function resolveModel(
     return { ok: false, modelId }
   }
   return { ok: true, info }
-}
-
-function normalizeAgentSdkModel(model: string): 'haiku' | 'sonnet' | 'opus' | 'opus-4-6' {
-  switch (model) {
-    case 'haiku':
-    case 'sonnet':
-    case 'opus':
-    case 'opus-4-6':
-      return model
-    case 'claude-opus-4-6':
-      return 'opus-4-6'
-    default:
-      throw new Error(`Unsupported agent-sdk model: ${model}`)
-  }
 }
 
 // ---------------------------------------------------------------------------
