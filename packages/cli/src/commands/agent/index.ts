@@ -10,7 +10,13 @@
 
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { validateScopeRef } from 'agent-scope'
+import {
+  formatScopeRef,
+  parseScopeHandle,
+  parseSessionHandle,
+  validateScopeHandle,
+  validateScopeRef,
+} from 'agent-scope'
 import { type AgentEvent, createAgentSpacesClient } from 'agent-spaces'
 import type { Command } from 'commander'
 import { type RuntimePlacement, resolvePlacement } from 'spaces-config'
@@ -58,7 +64,7 @@ export function registerAgentCommands(program: Command): void {
   program
     .command('agent')
     .description('Placement-driven agent execution')
-    .argument('<first>', 'ScopeRef or "resolve"')
+    .argument('<first>', 'ScopeRef, ScopeHandle, or "resolve"')
     .argument('[second]', 'Mode (query/heartbeat/task/maintenance) or ScopeRef for resolve')
     .argument('[third]', 'Prompt text')
     .option('--agent-root <path>', 'Absolute path to agent root')
@@ -104,6 +110,27 @@ export function registerAgentCommands(program: Command): void {
     )
 }
 
+function resolveInput(input: string, flagLaneRef?: string): { scopeRef: string; laneId: string } {
+  if (input.includes('~')) {
+    const session = parseSessionHandle(input)
+    const laneId = session.laneRef === 'main' ? 'main' : session.laneRef.slice(5)
+    return { scopeRef: session.scopeRef, laneId }
+  }
+
+  const handleResult = validateScopeHandle(input)
+  if (handleResult.ok) {
+    const parsed = parseScopeHandle(input)
+    return { scopeRef: formatScopeRef(parsed), laneId: flagLaneRef ?? 'main' }
+  }
+
+  const refResult = validateScopeRef(input)
+  if (refResult.ok) {
+    return { scopeRef: input, laneId: flagLaneRef ?? 'main' }
+  }
+
+  throw new Error(`Invalid scope input "${input}": not a valid ScopeHandle or ScopeRef`)
+}
+
 async function handleResolve(
   scopeRef: string | undefined,
   options: AgentCommandOptions
@@ -112,10 +139,9 @@ async function handleResolve(
   if (!options.agentRoot) throw new Error('--agent-root is required')
   if (!options.mode) throw new Error('--mode is required')
 
-  const validation = validateScopeRef(scopeRef)
-  if (!validation.ok) throw new Error(`Invalid ScopeRef "${scopeRef}": ${validation.error}`)
-
-  const placement = buildPlacement(scopeRef, options.mode, options)
+  const { scopeRef: canonicalRef, laneId } = resolveInput(scopeRef, options.laneRef)
+  const typedLaneRef = laneId === 'main' ? 'main' : `lane:${laneId}`
+  const placement = buildPlacement(canonicalRef, options.mode, options, typedLaneRef)
   const resolved = await resolvePlacement(placement)
 
   if (options.json) {
@@ -152,8 +178,7 @@ async function handleExecute(
   if (!options.frontend) throw new Error('--frontend is required')
   if (!mode) throw new Error('Mode is required: query, heartbeat, task, maintenance')
 
-  const validation = validateScopeRef(scopeRef)
-  if (!validation.ok) throw new Error(`Invalid ScopeRef "${scopeRef}": ${validation.error}`)
+  const { scopeRef: canonicalRef, laneId } = resolveInput(scopeRef, options.laneRef)
 
   if (!VALID_MODES.includes(mode as RunMode)) {
     throw new Error(`Invalid mode "${mode}". Must be one of: ${VALID_MODES.join(', ')}`)
@@ -176,7 +201,7 @@ async function handleExecute(
     )
   }
 
-  const placement = buildPlacement(scopeRef, runMode, options)
+  const placement = buildPlacement(canonicalRef, runMode, options, laneId)
   const continuation =
     options.continueProvider && options.continueKey
       ? { provider: options.continueProvider as 'anthropic' | 'openai', key: options.continueKey }
@@ -275,7 +300,8 @@ function resolvePrompt(
 function buildPlacement(
   scopeRef: string,
   runMode: string,
-  options: AgentCommandOptions
+  options: AgentCommandOptions,
+  laneRef: string
 ): RuntimePlacement {
   const bundle = buildBundleRef(options)
   const scaffoldPackets = options.scaffoldFile
@@ -284,7 +310,7 @@ function buildPlacement(
   const correlation = {
     hostSessionId: options.hostSessionId,
     runId: options.runId,
-    sessionRef: { scopeRef, laneRef: options.laneRef ?? 'main' },
+    sessionRef: { scopeRef, laneRef },
   }
   return {
     agentRoot: options.agentRoot as string,
