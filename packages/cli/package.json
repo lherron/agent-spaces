@@ -60,6 +60,7 @@
     "bin",
     "node_modules/spaces-*",
     "node_modules/agent-spaces",
+    "node_modules/agent-scope",
     "core.js",
     "core.d.ts",
     "resolver.js",
@@ -80,6 +81,7 @@
     "runtime.d.ts"
   ],
   "bundleDependencies": [
+    "agent-scope",
     "agent-spaces",
     "spaces-config",
     "spaces-execution",
@@ -90,6 +92,7 @@
     "spaces-harness-pi-sdk"
   ],
   "bundledDependencies": [
+    "agent-scope",
     "agent-spaces",
     "spaces-config",
     "spaces-execution",
@@ -105,7 +108,7 @@
     "test": "bun test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "prepack": "mkdir -p node_modules && for pkg in config runtime harness-claude harness-pi harness-pi-sdk harness-codex execution; do mkdir -p node_modules/spaces-\"$pkg\" && cp -r ../\"$pkg\"/dist node_modules/spaces-\"$pkg\"/ && cp ../\"$pkg\"/package.json node_modules/spaces-\"$pkg\"/; done && mkdir -p node_modules/agent-spaces && cp -r ../agent-spaces/dist node_modules/agent-spaces/ && cp ../agent-spaces/package.json node_modules/agent-spaces/"
+    "prepack": "mkdir -p node_modules && for pkg in config runtime harness-claude harness-pi harness-pi-sdk harness-codex execution; do mkdir -p node_modules/spaces-\"$pkg\" && cp -r ../\"$pkg\"/dist node_modules/spaces-\"$pkg\"/ && cp ../\"$pkg\"/package.json node_modules/spaces-\"$pkg\"/; done && mkdir -p node_modules/agent-spaces && cp -r ../agent-spaces/dist node_modules/agent-spaces/ && cp ../agent-spaces/package.json node_modules/agent-spaces/ && mkdir -p node_modules/agent-scope && cp -r ../agent-scope/dist node_modules/agent-scope/ && cp ../agent-scope/package.json node_modules/agent-scope/"
   },
   "dependencies": {
     "agent-scope": "*",
