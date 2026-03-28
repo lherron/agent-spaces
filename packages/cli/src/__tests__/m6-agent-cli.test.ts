@@ -189,10 +189,9 @@ describe('asp agent resolve (T-00866)', () => {
   test('asp agent resolve shows resolved bundle', () => {
     const agentRoot = resolveAgentRoot()
 
-    const result = runAsp(
-      ['agent', 'resolve', 'agent:alice', '--agent-root', agentRoot, '--mode', 'query'],
-      { expectError: true }
-    )
+    const result = runAsp(['agent', 'agent:alice', 'resolve', '--agent-root', agentRoot], {
+      expectError: true,
+    })
 
     const output = result.stdout + result.stderr
     // Should print resolution output, not execute
@@ -203,7 +202,7 @@ describe('asp agent resolve (T-00866)', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
-      ['agent', 'resolve', 'agent:alice', '--agent-root', agentRoot, '--mode', 'query', '--json'],
+      ['agent', 'agent:alice', 'resolve', '--agent-root', agentRoot, '--json'],
       { expectError: true }
     )
 
@@ -219,14 +218,12 @@ describe('asp agent resolve (T-00866)', () => {
     const result = runAsp(
       [
         'agent',
-        'resolve',
         'agent:alice:project:demo',
+        'resolve',
         '--agent-root',
         agentRoot,
         '--project-root',
         projectRoot,
-        '--mode',
-        'task',
       ],
       { expectError: true }
     )
