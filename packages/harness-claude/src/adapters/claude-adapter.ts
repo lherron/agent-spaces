@@ -24,7 +24,19 @@ import type {
   MaterializeSpaceResult,
   ProjectManifest,
 } from 'spaces-config'
-import { copyDir, getEffectiveClaudeOptions, linkOrCopy } from 'spaces-config'
+import {
+  ALIAS_HAIKU,
+  ALIAS_OPUS,
+  ALIAS_SONNET,
+  CLAUDE_HAIKU_4_5,
+  CLAUDE_OPUS_4_6,
+  CLAUDE_OPUS_4_6_1M,
+  CLAUDE_SONNET_4_5,
+  DEFAULT_CLAUDE_CODE_MODEL,
+  copyDir,
+  getEffectiveClaudeOptions,
+  linkOrCopy,
+} from 'spaces-config'
 import {
   PERMISSIONS_TOML_FILENAME,
   type SettingsInput,
@@ -50,8 +62,6 @@ const STATUSLINE_ASSET_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   '../../assets/statusline.sh'
 )
-const DEFAULT_CLAUDE_CODE_MODEL = 'claude-opus-4-6'
-
 /**
  * ClaudeAdapter implements the HarnessAdapter interface for Claude Code.
  *
@@ -65,14 +75,14 @@ export class ClaudeAdapter implements HarnessAdapter {
   readonly name = 'Claude Code'
 
   readonly models: HarnessModelInfo[] = [
-    { id: DEFAULT_CLAUDE_CODE_MODEL, name: 'Claude Opus 4.6 (200K)', default: true },
-    { id: 'claude-opus-4-6[1m]', name: 'Claude Opus 4.6 (1M context)' },
-    { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
-    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
-    { id: 'opus', name: 'Opus (alias, 200K)' },
-    { id: 'opus[1m]', name: 'Opus (alias, 1M context)' },
-    { id: 'sonnet', name: 'Sonnet (alias)' },
-    { id: 'haiku', name: 'Haiku (alias)' },
+    { id: CLAUDE_OPUS_4_6, name: 'Claude Opus 4.6 (200K)' },
+    { id: CLAUDE_OPUS_4_6_1M, name: 'Claude Opus 4.6 (1M context)' },
+    { id: CLAUDE_SONNET_4_5, name: 'Claude Sonnet 4.5' },
+    { id: CLAUDE_HAIKU_4_5, name: 'Claude Haiku 4.5' },
+    { id: ALIAS_OPUS, name: 'Opus (alias, 200K)' },
+    { id: DEFAULT_CLAUDE_CODE_MODEL, name: 'Opus (alias, 1M context)', default: true },
+    { id: ALIAS_SONNET, name: 'Sonnet (alias)' },
+    { id: ALIAS_HAIKU, name: 'Haiku (alias)' },
   ]
 
   /**
