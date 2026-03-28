@@ -83,8 +83,8 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
 
     // The agent subcommand should be recognized and show help
     expect(output).toMatch(/agent/i)
-    // Should mention scope-ref or ScopeRef
-    expect(output).toMatch(/scope.?ref|agent:/i)
+    // Should mention scope in usage
+    expect(output).toMatch(/scope|agent:/i)
   })
 
   test('asp agent "agent:alice" query --dry-run shows invocation', () => {

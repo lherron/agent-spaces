@@ -652,7 +652,7 @@ paths = ["/var/log"]
       expect(args).toContain('/path/to/settings.json')
     })
 
-    test('defaults to claude-opus-4-6 when no model specified', () => {
+    test('defaults to opus[1m] when no model specified', () => {
       const bundle = {
         harnessId: 'claude' as const,
         targetName: 'test',
@@ -663,7 +663,7 @@ paths = ["/var/log"]
       const args = adapter.buildRunArgs(bundle, {})
 
       expect(args).toContain('--model')
-      expect(args).toContain('claude-opus-4-6')
+      expect(args).toContain('opus[1m]')
     })
 
     test('builds args with model override', () => {

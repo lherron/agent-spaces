@@ -1,4 +1,5 @@
 import { type Query, query } from '@anthropic-ai/claude-agent-sdk'
+import { AGENT_SDK_MODEL_MAP } from 'spaces-config'
 import type {
   ContentBlock,
   Message,
@@ -116,13 +117,7 @@ export class AgentSession implements UnifiedSession {
     this.pid = process.pid
 
     // Map short model names to full SDK model names
-    const modelMap: Record<string, string> = {
-      haiku: 'claude-haiku-3-5',
-      sonnet: 'claude-sonnet-4-5',
-      opus: 'claude-opus-4-6',
-      'opus-4-6': 'claude-opus-4-6',
-    }
-    const sdkModel = modelMap[this.config.model] ?? this.config.model
+    const sdkModel = AGENT_SDK_MODEL_MAP[this.config.model] ?? this.config.model
 
     // Initialize the SDK query with the prompt queue as input
     const permissionMode = 'default' as const

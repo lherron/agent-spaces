@@ -108,6 +108,9 @@ export {
 } from './locks.js'
 export type { LockHandle, LockOptions, ReleaseFn } from './locks.js'
 
+// Model constants
+export * from './models.js'
+
 // Atomic file operations
 export {
   atomicDir,
