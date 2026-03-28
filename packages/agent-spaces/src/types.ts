@@ -150,6 +150,8 @@ export interface BuildProcessInvocationSpecRequest {
   artifactDir?: string | undefined
   /** Prompt text to include in the invocation argv */
   prompt?: string | undefined
+  /** YOLO mode - skip all permission prompts (--dangerously-skip-permissions) */
+  yolo?: boolean | undefined
   /** Placement-based request (v2) — when set, legacy session/spec/aspHome/cwd are ignored */
   placement?: RuntimePlacement | undefined
 }

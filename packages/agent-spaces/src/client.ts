@@ -1144,6 +1144,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           model: modelResolution.info.model,
           projectPath: req.cwd,
           cwd: req.cwd,
+          yolo: req.yolo,
           ...(isResume && req.continuation?.key ? { resume: req.continuation.key } : {}),
         }
 
@@ -1817,6 +1818,7 @@ async function buildPlacementInvocationSpec(
     model: modelResolution.info.model,
     projectPath: cwd,
     cwd,
+    yolo: req.yolo,
     ...(req.prompt ? { prompt: req.prompt } : {}),
     ...(isResume && req.continuation?.key ? { resume: req.continuation.key } : {}),
   }

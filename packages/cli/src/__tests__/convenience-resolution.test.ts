@@ -12,7 +12,7 @@
  * 4. --project-root flag overrides ASP_PROJECTS_ROOT
  * 5. Bare scope (no projectId) leaves projectRoot undefined
  * 6. No ASP_AGENTS_ROOT and no --agent-root → clear error mentioning config.toml
- * 7. --frontend defaults to claude-code when not specified
+ * 7. --harness defaults to claude-code when not specified
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -242,7 +242,7 @@ describe('missing agents root error (T-00899)', () => {
 // T-00899: Default frontend
 // ===================================================================
 describe('default frontend (T-00899)', () => {
-  test('--frontend defaults to claude-code when not specified', async () => {
+  test('--harness defaults to claude-code when not specified', async () => {
     const { agentsRoot, aspHome, cleanup } = await setupConvenienceDirs()
     try {
       const result = runAsp(['agent', 'alice', 'query', 'hello', '--dry-run', '--json'], {
