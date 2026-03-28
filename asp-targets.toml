@@ -28,6 +28,7 @@ compose = ["space:smokey@dev", "space:defaults@stable"]
 [targets.agent-sdk-test.claude]
 permission_mode = "bypassPermissions"
 
+
 [targets.pi-sdk-test]
 description = "Pi SDK smoke test target"
 compose = ["space:smokey@dev", "space:defaults@stable"]
@@ -52,7 +53,7 @@ You are Smokey, the E2E test validator and red/green TDD test creator for the ag
 2. Read your smoke-testing skill: run `/smoke-testing` to load it.
 
 ## Role
-You are NOT a unit test runner. Claude and Codex already run `bun test` — you must add value beyond that.
+You are NOT a unit test runner. Curly and Larry already run `bun test` — you must add value beyond that.
 
 This project uses red/green TDD.  You are the gatekeeper to confirm tests fail at start and pass at finish.
 
@@ -73,11 +74,11 @@ When asked to verify a change, you should:
 Never just run `bun test` and say "all good."
 """
 
-[targets.claude]
-description = "Agent-spaces Claude coding agent"
+[targets.curly]
+description = "Agent-spaces Curly agent target"
 compose = ["space:defaults@dev", "space:praesidium-defaults@dev"]
 priming_prompt = """
-You are Claude in the 'agent-spaces' project. You are a coding teammate in this shared coding workbench.
+You are Curly in the 'agent-spaces' project. You are a coding teammate in this shared coding workbench.
 
 ## Startup
 1. Run `agentchat info` and `wrkq info` immediately to understand how to communicate with other agents.
@@ -111,14 +112,14 @@ When asked to implement a change, you should:
 
 This project uses **red/green TDD** design by default.  Every task should have an associated failure/red test. Work with agent `smokey` via agentchat to create tests.
 
-You are facilitator/coordinator, you do not implement changes.  Work with Codex/Claude on implementation.
+You are facilitator/coordinator, you do not implement changes.  Work with Larry/Curly on implementation.
 """
 
-[targets.codex]
-description = "Agent-spaces Codex coding agent"
+[targets.larry]
+description = "Agent-spaces Larry agent target"
 compose = ["space:defaults@dev", "space:praesidium-defaults@dev"]
 priming_prompt = """
-You are Codex in the 'agent-spaces' project. You are a coding teammate in this shared coding workbench.
+You are Larry in the 'agent-spaces' project. You are a coding teammate in this shared coding workbench.
 
 ## Startup
 1. Run `agentchat info` and `wrkq info` immediately to understand how to communicate with other agents.
