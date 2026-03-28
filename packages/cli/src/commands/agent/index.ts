@@ -30,12 +30,33 @@ import { buildBundleRef, parseEnvFlags } from './shared.js'
 const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance', 'resolve'] as const
 type RunMode = (typeof VALID_MODES)[number]
 
-const SDK_FRONTENDS = new Set(['agent-sdk', 'pi-sdk'])
-const CLI_FRONTENDS = new Set(['claude-code', 'codex-cli'])
+const _SDK_FRONTENDS = new Set(['agent-sdk', 'pi-sdk', 'claude-agent-sdk'])
+const CLI_FRONTENDS = new Set(['claude-code', 'codex-cli', 'claude', 'codex'])
+
+/** Map display names and aliases to internal HarnessId values */
+function normalizeHarness(input: string): { frontend: string; provider: 'anthropic' | 'openai' } {
+  switch (input) {
+    case 'claude-code':
+    case 'claude':
+      return { frontend: 'claude-code', provider: 'anthropic' }
+    case 'codex-cli':
+    case 'codex':
+      return { frontend: 'codex-cli', provider: 'openai' }
+    case 'agent-sdk':
+    case 'claude-agent-sdk':
+      return { frontend: 'agent-sdk', provider: 'anthropic' }
+    case 'pi-sdk':
+      return { frontend: 'pi-sdk', provider: 'anthropic' }
+    default:
+      throw new Error(
+        `Invalid harness "${input}". Must be one of: claude-code, claude, codex-cli, codex, agent-sdk, claude-agent-sdk, pi-sdk`
+      )
+  }
+}
 
 interface AgentCommandOptions {
   agentRoot?: string
-  frontend?: string
+  harness?: string
   projectRoot?: string
   cwd?: string
   hostSessionId?: string
@@ -53,6 +74,7 @@ interface AgentCommandOptions {
   env?: string[]
   dryRun?: boolean
   printCommand?: boolean
+  yolo?: boolean
   json?: boolean
   bundle?: string
   agentTarget?: string
@@ -72,7 +94,7 @@ export function registerAgentCommands(program: Command): void {
     .argument('<mode>', 'Mode: query, heartbeat, task, maintenance, resolve')
     .argument('[prompt]', 'Prompt text')
     .option('--agent-root <path>', 'Absolute path to agent root')
-    .option('--frontend <frontend>', 'Frontend: agent-sdk, pi-sdk, claude-code, codex-cli')
+    .option('--harness <harness>', 'Harness: claude-code, codex-cli, agent-sdk, pi-sdk (also accepts: claude, codex, claude-agent-sdk)')
     .option('--project-root <path>', 'Absolute path to project root')
     .option('--cwd <path>', 'Override working directory')
     .option('--host-session-id <id>', 'Host session ID for correlation')
@@ -89,6 +111,7 @@ export function registerAgentCommands(program: Command): void {
     .option('--io <mode>', 'I/O mode: pty, pipes, inherit')
     .option('--env <KEY=VALUE>', 'Environment variable (repeatable)', collect, [])
     .option('--dry-run', 'Print invocation without spawning')
+    .option('--yolo', 'Skip all permission prompts (--dangerously-skip-permissions)')
     .option('--print-command', 'Print the command that would be run')
     .option('--json', 'Output as JSON')
     .option('--bundle <kind>', 'Bundle kind: agent-default')
@@ -120,8 +143,8 @@ export function registerAgentCommands(program: Command): void {
           }
         }
 
-        if (!options.frontend) {
-          options.frontend = 'claude-code'
+        if (!options.harness) {
+          options.harness = 'claude-code'
         }
 
         if (mode === 'resolve') {
@@ -201,7 +224,7 @@ async function handleExecute(
       '--agent-root is required (or set ASP_AGENTS_ROOT env var / agents-root in $ASP_HOME/config.toml)'
     )
   }
-  if (!options.frontend) throw new Error('--frontend is required')
+  if (!options.harness) throw new Error('--harness is required')
 
   const { scopeRef: canonicalRef, laneId } = resolveInput(scopeRef, options.laneRef)
 
@@ -209,13 +232,7 @@ async function handleExecute(
     throw new Error(`Invalid mode "${mode}". Must be one of: ${VALID_MODES.join(', ')}`)
   }
   const runMode = mode as RunMode
-  const frontend: string = options.frontend
-
-  if (!SDK_FRONTENDS.has(frontend) && !CLI_FRONTENDS.has(frontend)) {
-    throw new Error(
-      `Invalid frontend "${frontend}". Must be one of: agent-sdk, pi-sdk, claude-code, codex-cli`
-    )
-  }
+  const { frontend, provider } = normalizeHarness(options.harness)
 
   // Resolve prompt
   const prompt = resolvePrompt(positionalPrompt, options)
@@ -233,19 +250,19 @@ async function handleExecute(
       : undefined
   const envVars = parseEnvFlags(options.env)
 
-  if (CLI_FRONTENDS.has(frontend)) {
+  if (frontend === 'claude-code' || frontend === 'codex-cli') {
     const client = createAgentSpacesClient()
-    const provider = frontend === 'claude-code' ? 'anthropic' : 'openai'
     const response = await client.buildProcessInvocationSpec({
       placement,
-      provider: provider as 'anthropic' | 'openai',
-      frontend: frontend as 'claude-code' | 'codex-cli',
+      provider,
+      frontend,
       model: options.model,
       interactionMode: (options.interaction ?? 'headless') as 'interactive' | 'headless',
       ioMode: (options.io ?? 'pipes') as 'pty' | 'pipes' | 'inherit',
       continuation,
       env: envVars,
       prompt,
+      yolo: options.yolo,
       hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
     } as Parameters<typeof client.buildProcessInvocationSpec>[0])
 
