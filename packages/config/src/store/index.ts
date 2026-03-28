@@ -30,6 +30,7 @@ export {
   PathResolver,
   type PathOptions,
 } from './paths.js'
+export { getAgentsRoot, getProjectsRoot } from './asp-config.js'
 
 // Snapshot operations
 export {
