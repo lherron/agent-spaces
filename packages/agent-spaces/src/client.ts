@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, symlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join } from 'node:path'
@@ -1785,6 +1785,26 @@ async function buildPlacementInvocationSpec(
     agentRoot,
     projectRoot,
   })
+  // Materialize SOUL.md (and HEARTBEAT.md for heartbeat mode) into a base plugin directory
+  // so the agent's identity instructions are included in the harness invocation.
+  if (placement.agentRoot) {
+    const soulPath = join(placement.agentRoot, 'SOUL.md')
+    if (existsSync(soulPath)) {
+      const pluginsDir = join(materialized.materialization.outputPath, 'plugins')
+      const soulPluginDir = join(pluginsDir, '000-soul')
+      mkdirSync(soulPluginDir, { recursive: true })
+
+      let content = readFileSync(soulPath, 'utf8')
+      if (placement.runMode === 'heartbeat') {
+        const heartbeatPath = join(placement.agentRoot, 'HEARTBEAT.md')
+        if (existsSync(heartbeatPath)) {
+          content += `\n\n---\n\n${readFileSync(heartbeatPath, 'utf8')}`
+        }
+      }
+      writeFileSync(join(soulPluginDir, 'CLAUDE.md'), content, 'utf8')
+    }
+  }
+
   const bundle = await adapter.loadTargetBundle(
     materialized.materialization.outputPath,
     materialized.targetName
