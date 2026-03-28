@@ -64,9 +64,9 @@ export function registerAgentCommands(program: Command): void {
   program
     .command('agent')
     .description('Placement-driven agent execution')
-    .argument('<first>', 'ScopeRef, ScopeHandle, or "resolve"')
-    .argument('[second]', 'Mode (query/heartbeat/task/maintenance) or ScopeRef for resolve')
-    .argument('[third]', 'Prompt text')
+    .argument('<scope|resolve>', 'Scope (alice@demo:t1) or "resolve"')
+    .argument('[mode|scope]', 'Mode (query/heartbeat/task/maintenance) or scope for resolve')
+    .argument('[prompt]', 'Prompt text')
     .option('--agent-root <path>', 'Absolute path to agent root')
     .option('--frontend <frontend>', 'Frontend: agent-sdk, pi-sdk, claude-code, codex-cli')
     .option('--mode <mode>', 'Run mode (for resolve)')

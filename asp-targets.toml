@@ -17,7 +17,6 @@ description = "Codex smoke test target"
 compose = ["space:smokey@dev", "space:defaults@stable"]
 
 [targets.codex-test.codex]
-model = "gpt-5.3-codex"
 # harness = "codex"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
@@ -27,7 +26,6 @@ description = "Claude Agent SDK smoke test target"
 compose = ["space:smokey@dev", "space:defaults@stable"]
 
 [targets.agent-sdk-test.claude]
-model = "claude-opus-4-6"
 permission_mode = "bypassPermissions"
 
 [targets.pi-sdk-test]
