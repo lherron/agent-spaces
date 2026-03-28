@@ -30,9 +30,6 @@ import { buildBundleRef, parseEnvFlags } from './shared.js'
 const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance', 'resolve'] as const
 type RunMode = (typeof VALID_MODES)[number]
 
-const _SDK_FRONTENDS = new Set(['agent-sdk', 'pi-sdk', 'claude-agent-sdk'])
-const CLI_FRONTENDS = new Set(['claude-code', 'codex-cli', 'claude', 'codex'])
-
 /** Map display names and aliases to internal HarnessId values */
 function normalizeHarness(input: string): { frontend: string; provider: 'anthropic' | 'openai' } {
   switch (input) {
@@ -94,7 +91,10 @@ export function registerAgentCommands(program: Command): void {
     .argument('<mode>', 'Mode: query, heartbeat, task, maintenance, resolve')
     .argument('[prompt]', 'Prompt text')
     .option('--agent-root <path>', 'Absolute path to agent root')
-    .option('--harness <harness>', 'Harness: claude-code, codex-cli, agent-sdk, pi-sdk (also accepts: claude, codex, claude-agent-sdk)')
+    .option(
+      '--harness <harness>',
+      'Harness: claude-code, codex-cli, agent-sdk, pi-sdk (also accepts: claude, codex, claude-agent-sdk)'
+    )
     .option('--project-root <path>', 'Absolute path to project root')
     .option('--cwd <path>', 'Override working directory')
     .option('--host-session-id <id>', 'Host session ID for correlation')
