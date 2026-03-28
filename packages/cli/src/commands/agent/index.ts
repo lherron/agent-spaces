@@ -273,10 +273,16 @@ async function handleExecute(
 
     const [command, ...args] = response.spec.argv
     if (!command) throw new Error('Empty argv')
+    const stdinMode =
+      response.spec.ioMode === 'pty'
+        ? 'inherit'
+        : response.spec.interactionMode === 'headless'
+          ? 'ignore'
+          : 'pipe'
     const child = spawn(command, args, {
       cwd: response.spec.cwd,
       env: { ...process.env, ...response.spec.env },
-      stdio: response.spec.ioMode === 'pty' ? 'inherit' : 'pipe',
+      stdio: [stdinMode, response.spec.ioMode === 'pty' ? 'inherit' : 'pipe', 'pipe'],
     })
     if (child.stdout) child.stdout.pipe(process.stdout)
     if (child.stderr) child.stderr.pipe(process.stderr)
