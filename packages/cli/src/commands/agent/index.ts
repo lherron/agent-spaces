@@ -8,16 +8,23 @@
 
 import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   formatScopeRef,
   parseScopeHandle,
+  parseScopeRef,
   parseSessionHandle,
   validateScopeHandle,
   validateScopeRef,
 } from 'agent-scope'
 import { type AgentEvent, createAgentSpacesClient } from 'agent-spaces'
 import type { Command } from 'commander'
-import { type RuntimePlacement, resolvePlacement } from 'spaces-config'
+import {
+  type RuntimePlacement,
+  getAgentsRoot,
+  getProjectsRoot,
+  resolvePlacement,
+} from 'spaces-config'
 import { buildBundleRef, parseEnvFlags } from './shared.js'
 
 const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance', 'resolve'] as const
@@ -95,10 +102,32 @@ export function registerAgentCommands(program: Command): void {
         prompt: string | undefined,
         options: AgentCommandOptions
       ) => {
+        const { scopeRef: canonicalRef, laneId } = resolveInput(scope, options.laneRef)
+        const parsed = parseScopeRef(canonicalRef)
+        options.laneRef = laneId
+
+        if (!options.agentRoot) {
+          const agentsRoot = getAgentsRoot()
+          if (agentsRoot) {
+            options.agentRoot = join(agentsRoot, parsed.agentId)
+          }
+        }
+
+        if (!options.projectRoot && parsed.projectId) {
+          const projectsRoot = getProjectsRoot()
+          if (projectsRoot) {
+            options.projectRoot = join(projectsRoot, parsed.projectId)
+          }
+        }
+
+        if (!options.frontend) {
+          options.frontend = 'claude-code'
+        }
+
         if (mode === 'resolve') {
-          await handleResolve(scope, options)
+          await handleResolve(canonicalRef, options)
         } else {
-          await handleExecute(scope, mode, prompt, options)
+          await handleExecute(canonicalRef, mode, prompt, options)
         }
       }
     )
@@ -126,7 +155,11 @@ function resolveInput(input: string, flagLaneRef?: string): { scopeRef: string; 
 }
 
 async function handleResolve(scopeRef: string, options: AgentCommandOptions): Promise<void> {
-  if (!options.agentRoot) throw new Error('--agent-root is required')
+  if (!options.agentRoot) {
+    throw new Error(
+      '--agent-root is required (or set ASP_AGENTS_ROOT env var / agents-root in $ASP_HOME/config.toml)'
+    )
+  }
 
   const { scopeRef: canonicalRef, laneId } = resolveInput(scopeRef, options.laneRef)
   const typedLaneRef = laneId === 'main' ? 'main' : `lane:${laneId}`
@@ -163,7 +196,11 @@ async function handleExecute(
   positionalPrompt: string | undefined,
   options: AgentCommandOptions
 ): Promise<void> {
-  if (!options.agentRoot) throw new Error('--agent-root is required')
+  if (!options.agentRoot) {
+    throw new Error(
+      '--agent-root is required (or set ASP_AGENTS_ROOT env var / agents-root in $ASP_HOME/config.toml)'
+    )
+  }
   if (!options.frontend) throw new Error('--frontend is required')
 
   const { scopeRef: canonicalRef, laneId } = resolveInput(scopeRef, options.laneRef)
