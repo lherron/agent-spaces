@@ -1,11 +1,9 @@
 /**
  * asp agent - placement-driven agent execution commands.
  *
- * Handles two patterns:
- * - asp agent resolve <scope-ref> [options]   → resolve without executing
- * - asp agent <scope-ref> <mode> [prompt] [options] → execute agent
+ * Usage: asp agent <scope> <mode> [prompt] [options]
  *
- * Dispatches based on whether the first positional is "resolve".
+ * Modes: query, heartbeat, task, maintenance, resolve
  */
 
 import { spawn } from 'node:child_process'
@@ -22,7 +20,7 @@ import type { Command } from 'commander'
 import { type RuntimePlacement, resolvePlacement } from 'spaces-config'
 import { buildBundleRef, parseEnvFlags } from './shared.js'
 
-const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance'] as const
+const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance', 'resolve'] as const
 type RunMode = (typeof VALID_MODES)[number]
 
 const SDK_FRONTENDS = new Set(['agent-sdk', 'pi-sdk'])
@@ -31,7 +29,6 @@ const CLI_FRONTENDS = new Set(['claude-code', 'codex-cli'])
 interface AgentCommandOptions {
   agentRoot?: string
   frontend?: string
-  mode?: string
   projectRoot?: string
   cwd?: string
   hostSessionId?: string
@@ -64,12 +61,11 @@ export function registerAgentCommands(program: Command): void {
   program
     .command('agent')
     .description('Placement-driven agent execution')
-    .argument('<scope|resolve>', 'Scope (alice@demo:t1) or "resolve"')
-    .argument('[mode|scope]', 'Mode (query/heartbeat/task/maintenance) or scope for resolve')
+    .argument('<scope>', 'Scope (alice@demo:t1 or agent:alice:project:demo)')
+    .argument('<mode>', 'Mode: query, heartbeat, task, maintenance, resolve')
     .argument('[prompt]', 'Prompt text')
     .option('--agent-root <path>', 'Absolute path to agent root')
     .option('--frontend <frontend>', 'Frontend: agent-sdk, pi-sdk, claude-code, codex-cli')
-    .option('--mode <mode>', 'Run mode (for resolve)')
     .option('--project-root <path>', 'Absolute path to project root')
     .option('--cwd <path>', 'Override working directory')
     .option('--host-session-id <id>', 'Host session ID for correlation')
@@ -94,17 +90,15 @@ export function registerAgentCommands(program: Command): void {
     .option('--compose <ref>', 'Space ref for composition (repeatable)', collect, [])
     .action(
       async (
-        first: string,
-        second: string | undefined,
-        third: string | undefined,
+        scope: string,
+        mode: string,
+        prompt: string | undefined,
         options: AgentCommandOptions
       ) => {
-        if (first === 'resolve') {
-          // asp agent resolve <scope-ref> [options]
-          await handleResolve(second, options)
+        if (mode === 'resolve') {
+          await handleResolve(scope, options)
         } else {
-          // asp agent <scope-ref> <mode> [prompt] [options]
-          await handleExecute(first, second, third, options)
+          await handleExecute(scope, mode, prompt, options)
         }
       }
     )
@@ -131,17 +125,12 @@ function resolveInput(input: string, flagLaneRef?: string): { scopeRef: string; 
   throw new Error(`Invalid scope input "${input}": not a valid ScopeHandle or ScopeRef`)
 }
 
-async function handleResolve(
-  scopeRef: string | undefined,
-  options: AgentCommandOptions
-): Promise<void> {
-  if (!scopeRef) throw new Error('ScopeRef is required: asp agent resolve <scope-ref>')
+async function handleResolve(scopeRef: string, options: AgentCommandOptions): Promise<void> {
   if (!options.agentRoot) throw new Error('--agent-root is required')
-  if (!options.mode) throw new Error('--mode is required')
 
   const { scopeRef: canonicalRef, laneId } = resolveInput(scopeRef, options.laneRef)
   const typedLaneRef = laneId === 'main' ? 'main' : `lane:${laneId}`
-  const placement = buildPlacement(canonicalRef, options.mode, options, typedLaneRef)
+  const placement = buildPlacement(canonicalRef, 'resolve', options, typedLaneRef)
   const resolved = await resolvePlacement(placement)
 
   if (options.json) {
@@ -170,13 +159,12 @@ async function handleResolve(
 
 async function handleExecute(
   scopeRef: string,
-  mode: string | undefined,
+  mode: string,
   positionalPrompt: string | undefined,
   options: AgentCommandOptions
 ): Promise<void> {
   if (!options.agentRoot) throw new Error('--agent-root is required')
   if (!options.frontend) throw new Error('--frontend is required')
-  if (!mode) throw new Error('Mode is required: query, heartbeat, task, maintenance')
 
   const { scopeRef: canonicalRef, laneId } = resolveInput(scopeRef, options.laneRef)
 

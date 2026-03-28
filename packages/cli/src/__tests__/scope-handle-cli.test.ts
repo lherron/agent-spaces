@@ -77,14 +77,12 @@ describe('ScopeHandle in asp agent resolve (T-00894)', () => {
     const shorthand = runAsp(
       [
         'agent',
-        'resolve',
         'alice@demo',
+        'resolve',
         '--agent-root',
         agentRoot,
         '--project-root',
         projectRoot,
-        '--mode',
-        'query',
         '--json',
       ],
       { expectError: true }
@@ -94,14 +92,12 @@ describe('ScopeHandle in asp agent resolve (T-00894)', () => {
     const canonical = runAsp(
       [
         'agent',
-        'resolve',
         'agent:alice:project:demo',
+        'resolve',
         '--agent-root',
         agentRoot,
         '--project-root',
         projectRoot,
-        '--mode',
-        'query',
         '--json',
       ],
       { expectError: true }
@@ -129,14 +125,12 @@ describe('ScopeHandle in asp agent resolve (T-00894)', () => {
     const result = runAsp(
       [
         'agent',
-        'resolve',
         'alice@demo:t1/reviewer',
+        'resolve',
         '--agent-root',
         agentRoot,
         '--project-root',
         projectRoot,
-        '--mode',
-        'query',
         '--json',
       ],
       { expectError: true }
@@ -218,14 +212,12 @@ describe('SessionHandle ~lane in CLI (T-00894)', () => {
     const result = runAsp(
       [
         'agent',
-        'resolve',
         'alice@demo~repair',
+        'resolve',
         '--agent-root',
         agentRoot,
         '--project-root',
         projectRoot,
-        '--mode',
-        'query',
         '--json',
       ],
       { expectError: true }
@@ -244,14 +236,12 @@ describe('SessionHandle ~lane in CLI (T-00894)', () => {
     const result = runAsp(
       [
         'agent',
-        'resolve',
         'alice@demo~main',
+        'resolve',
         '--agent-root',
         agentRoot,
         '--project-root',
         projectRoot,
-        '--mode',
-        'query',
         '--json',
       ],
       { expectError: true }
@@ -323,7 +313,7 @@ describe('backward compat: canonical ScopeRef still works (T-00894)', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
-      ['agent', 'resolve', 'agent:alice', '--agent-root', agentRoot, '--mode', 'query', '--json'],
+      ['agent', 'agent:alice', 'resolve', '--agent-root', agentRoot, '--json'],
       { expectError: true }
     )
 
@@ -367,10 +357,9 @@ describe('invalid ScopeHandle errors (T-00894)', () => {
   test('@demo produces clear error', () => {
     const agentRoot = resolveAgentRoot()
 
-    const result = runAsp(
-      ['agent', 'resolve', '@demo', '--agent-root', agentRoot, '--mode', 'query'],
-      { expectError: true }
-    )
+    const result = runAsp(['agent', '@demo', 'resolve', '--agent-root', agentRoot], {
+      expectError: true,
+    })
 
     expect(result.exitCode).not.toBe(0)
     const output = result.stdout + result.stderr
@@ -381,7 +370,7 @@ describe('invalid ScopeHandle errors (T-00894)', () => {
     const agentRoot = resolveAgentRoot()
 
     // Pass -- to prevent "" being swallowed by commander
-    const result = runAsp(['agent', 'resolve', '', '--agent-root', agentRoot, '--mode', 'query'], {
+    const result = runAsp(['agent', '', 'resolve', '--agent-root', agentRoot], {
       expectError: true,
     })
 
@@ -391,10 +380,9 @@ describe('invalid ScopeHandle errors (T-00894)', () => {
   test('alice@ (trailing @) produces clear error', () => {
     const agentRoot = resolveAgentRoot()
 
-    const result = runAsp(
-      ['agent', 'resolve', 'alice@', '--agent-root', agentRoot, '--mode', 'query'],
-      { expectError: true }
-    )
+    const result = runAsp(['agent', 'alice@', 'resolve', '--agent-root', agentRoot], {
+      expectError: true,
+    })
 
     expect(result.exitCode).not.toBe(0)
     const output = result.stdout + result.stderr
