@@ -3,6 +3,8 @@ export type {
   UnifiedSession,
   UnifiedSessionState,
   SessionKind,
+  SessionCapabilities,
+  SessionMetadataSnapshot,
   ContentBlock,
   Message,
   ToolResult,

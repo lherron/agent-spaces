@@ -5,6 +5,7 @@ import type {
   Message,
   PermissionHandler,
   PromptOptions,
+  SessionMetadataSnapshot,
   ToolResult,
   UnifiedSession,
   UnifiedSessionEvent,
@@ -257,6 +258,26 @@ export class AgentSession implements UnifiedSession {
    */
   isHealthy(): boolean {
     return this.state === 'running'
+  }
+
+  getMetadata(): SessionMetadataSnapshot {
+    return {
+      sessionId: this.sessionId,
+      kind: this.kind,
+      state: this.getState(),
+      lastActivityAt: this.lastActivityAt,
+      ...(this.sdkSessionId !== undefined ? { nativeIdentity: this.sdkSessionId } : {}),
+      ...(this.config.continuationKey !== undefined
+        ? { continuationKey: this.config.continuationKey }
+        : {}),
+      capabilities: {
+        supportsInterrupt: true,
+        supportsInFlightInput: false,
+        supportsNativeResume: true,
+        supportsAttach: false,
+      },
+      ...(this.pid !== undefined ? { pid: this.pid } : {}),
+    }
   }
 
   /**

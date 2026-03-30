@@ -7,6 +7,7 @@ import type {
   PermissionHandler,
   PermissionRequest,
   PromptOptions,
+  SessionMetadataSnapshot,
   ToolResult,
   UnifiedSession,
   UnifiedSessionEvent,
@@ -322,6 +323,23 @@ export class CodexSession implements UnifiedSession {
 
   getState(): UnifiedSessionState {
     return this.state
+  }
+
+  getMetadata(): SessionMetadataSnapshot {
+    return {
+      sessionId: this.sessionId,
+      kind: this.kind,
+      state: this.getState(),
+      lastActivityAt: this.lastActivityAt,
+      ...(this.threadId !== undefined ? { nativeIdentity: this.threadId } : {}),
+      ...(this.threadId !== undefined ? { continuationKey: this.threadId } : {}),
+      capabilities: {
+        supportsInterrupt: false,
+        supportsInFlightInput: false,
+        supportsNativeResume: true,
+        supportsAttach: false,
+      },
+    }
   }
 
   private emitEvent(event: UnifiedSessionEvent): void {
