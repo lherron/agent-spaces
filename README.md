@@ -6,6 +6,8 @@ Compose reproducible Claude Code environments from reusable capability modules.
 
 Agent Spaces lets you define **Spaces** (versioned bundles of commands, skills, agents, and hooks) and compose them into **Run Targets** for your projects. At runtime, `asp run` materializes spaces into Claude Code plugin directories and launches Claude with everything wired up.  It turns off default settings by default (enable with --inherit flags).
 
+The repo is currently split into a config-time layer (`spaces-config`), a harness-agnostic runtime layer (`spaces-runtime`), a run-time execution/orchestration layer (`spaces-execution`), harness-specific adapters, the public `agent-spaces` client API, and the standalone `agent-scope` package for semantic scope/session addressing.
+
 ## V2 Direction
 
 The repository is moving toward a breaking v2 runtime model that separates agent-local state from project-local state. The new contract introduces an explicit `agentRoot` for reserved runtime files such as `SOUL.md`, optional `HEARTBEAT.md`, `agent-profile.toml`, and agent-local `spaces/<id>/`, while `projectRoot` continues to own `asp-targets.toml` and project-local `spaces/<id>/`.
@@ -93,7 +95,7 @@ asp run default # Launch Claude with composed spaces
 | `asp repo init` | Initialize registry |
 | `asp repo publish` | Create version tags |
 
-See [USAGE.md](./USAGE.md) for complete command reference and examples.
+See [docs/cli-reference.md](./docs/cli-reference.md) for the current CLI surface.
 
 ## Run Modes
 
@@ -110,9 +112,33 @@ asp run ./path/to/my-space
 
 ## Documentation
 
-- [USAGE.md](./USAGE.md) — Detailed usage guide and command reference
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — Package boundaries, runtime contracts, and current seams
+- [docs/cli-reference.md](./docs/cli-reference.md) — `asp` command reference
 - [specs/AGENT-SPACES-V2-SPEC.md](./specs/AGENT-SPACES-V2-SPEC.md) — Design specification
 - [specs/AGENT-SPACES-V2-SCHEMAS.md](./specs/AGENT-SPACES-V2-SCHEMAS.md) — File format schemas
+
+## Package Layout
+
+```text
+packages/
+├── agent-scope/      # Canonical ScopeRef/ScopeHandle/SessionRef/SessionHandle helpers
+├── config/           # spaces-config: config-time determinism, resolution, locks, materialization
+├── runtime/          # spaces-runtime: harness-agnostic session + harness registry contracts
+├── execution/        # spaces-execution: run-time orchestration and harness dispatch
+├── harness-claude/   # Claude CLI + Agent SDK adapters
+├── harness-codex/    # Codex CLI/app-server adapter
+├── harness-pi/       # Pi CLI adapter
+├── harness-pi-sdk/   # Pi SDK adapter and session runtime
+├── agent-spaces/     # Public host-facing API and event translation layer
+└── cli/              # `asp` command line interface
+```
+
+`agent-scope` owns the canonical identity vocabulary:
+
+- `ScopeRef`: canonical address such as `agent:alice:project:demo:task:T-1:role:reviewer`
+- `ScopeHandle`: shorthand such as `alice@demo:T-1/reviewer`
+- `SessionRef`: `{ scopeRef, laneRef }`
+- `SessionHandle`: shorthand such as `alice@demo:T-1/reviewer~planning`
 
 ## Requirements
 
