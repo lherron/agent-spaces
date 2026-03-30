@@ -52,8 +52,6 @@ import {
   serializeLockJson,
 } from 'spaces-config'
 
-import { type RunEventEmitter, createEventEmitter, getEventsOutputPath } from 'spaces-runtime'
-
 import type { LintWarning } from 'spaces-config'
 
 import { computeClosure, generateLockFileForTarget } from 'spaces-config'
@@ -113,8 +111,6 @@ export interface RunOptions extends ResolveOptions {
   inheritUser?: boolean | undefined
   /** Path to artifact directory for run outputs (events, transcripts) */
   artifactDir?: string | undefined
-  /** Whether to emit JSONL events to the artifact directory */
-  emitEvents?: boolean | undefined
   /** Resume a previous session (session ID or true for picker) */
   resume?: string | boolean | undefined
 }
@@ -137,8 +133,6 @@ export interface RunResult {
   exitCode: number
   /** Full harness command (for dry-run mode) */
   command?: string | undefined
-  /** Path to events JSONL file (if emitEvents was true) */
-  eventsPath?: string | undefined
 }
 
 /**
@@ -196,7 +190,6 @@ interface ExecuteHarnessResult {
   exitCode: number
   invocation?: RunInvocationResult | undefined
   command: string
-  eventsPath?: string | undefined
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -495,18 +488,6 @@ async function executeHarnessRun(
     dryRun?: boolean | undefined
   }
 ): Promise<ExecuteHarnessResult> {
-  const artifactDir = runOptions.artifactDir
-  const eventsPath =
-    runOptions.emitEvents && artifactDir ? getEventsOutputPath(artifactDir) : undefined
-
-  let eventEmitter: RunEventEmitter | undefined
-  if (eventsPath) {
-    eventEmitter = await createEventEmitter({
-      outputPath: eventsPath,
-      heartbeatIntervalMs: 30000,
-    })
-  }
-
   const preparedRunOptions = await prepareRunOptions(adapter, bundle, runOptions)
   const args = adapter.buildRunArgs(bundle, preparedRunOptions)
   const harnessEnv: Record<string, string> = {
@@ -518,16 +499,8 @@ async function executeHarnessRun(
   const command = formatEnvPrefix(harnessEnv) + formatCommand(commandPath, args)
 
   if (options.dryRun) {
-    if (eventEmitter) await eventEmitter.close()
-    return { exitCode: 0, command, ...(eventsPath ? { eventsPath } : {}) }
+    return { exitCode: 0, command }
   }
-
-  eventEmitter?.emitJobStarted({
-    harness: adapter.id,
-    target: bundle.targetName,
-    pid: process.pid,
-    cwd: preparedRunOptions.cwd ?? preparedRunOptions.projectPath,
-  })
 
   console.log(`\x1b[90m$ ${command}\x1b[0m`)
   console.log('')
@@ -545,12 +518,6 @@ async function executeHarnessRun(
     process.stderr.write(stderr)
   }
 
-  eventEmitter?.emitJobCompleted({
-    exitCode,
-    outcome: exitCode === 0 ? 'success' : 'failure',
-  })
-  if (eventEmitter) await eventEmitter.close()
-
   return {
     exitCode,
     command,
@@ -562,7 +529,6 @@ async function executeHarnessRun(
             stderr,
           }
         : undefined,
-    ...(eventsPath ? { eventsPath } : {}),
   }
 }
 
@@ -705,7 +671,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     projectPath: options.projectPath,
     cwd: options.cwd,
     artifactDir: options.artifactDir,
-    emitEvents: options.emitEvents,
     resume: options.resume,
   }
   const runOptions = mergeDefined(defaults, cliRunOptions)
@@ -740,7 +705,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     invocation: execution.invocation,
     exitCode: execution.exitCode,
     command: execution.command,
-    eventsPath: execution.eventsPath,
   }
 }
 
@@ -822,8 +786,6 @@ export interface GlobalRunOptions {
   inheritUser?: boolean | undefined
   /** Path to artifact directory for run outputs (events, transcripts) */
   artifactDir?: string | undefined
-  /** Whether to emit JSONL events to the artifact directory */
-  emitEvents?: boolean | undefined
   /** Resume a previous session (session ID or true for picker) */
   resume?: string | boolean | undefined
 }
@@ -974,7 +936,6 @@ export async function runGlobalSpace(
       projectPath: options.cwd ?? process.cwd(),
       cwd: options.cwd ?? process.cwd(),
       artifactDir: options.artifactDir,
-      emitEvents: options.emitEvents,
       resume: options.resume,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
@@ -1004,7 +965,6 @@ export async function runGlobalSpace(
       invocation: execution.invocation,
       exitCode: execution.exitCode,
       command: execution.command,
-      eventsPath: execution.eventsPath,
     }
   } catch (error) {
     await cleanupTempDir(tempDir)
@@ -1097,7 +1057,6 @@ export async function runLocalSpace(
       projectPath: options.cwd ?? spacePath,
       cwd: options.cwd ?? spacePath,
       artifactDir: options.artifactDir,
-      emitEvents: options.emitEvents,
       resume: options.resume,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
@@ -1136,7 +1095,6 @@ export async function runLocalSpace(
       invocation: execution.invocation,
       exitCode: execution.exitCode,
       command: execution.command,
-      eventsPath: execution.eventsPath,
     }
   } catch (error) {
     await cleanupTempDir(tempDir)

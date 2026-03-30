@@ -12,11 +12,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./events": {
-      "bun": "./src/events/index.ts",
-      "types": "./dist/events/index.d.ts",
-      "import": "./dist/events/index.js"
-    },
     "./harness": {
       "bun": "./src/harness/index.ts",
       "types": "./dist/harness/index.d.ts",
