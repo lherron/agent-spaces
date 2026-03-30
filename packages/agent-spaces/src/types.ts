@@ -252,6 +252,14 @@ export interface BaseEvent {
   payload?: unknown
 }
 
+/**
+ * Public API event type for agent-spaces consumers.
+ *
+ * This is an adapter/translation from `UnifiedSessionEvent` (the canonical
+ * session-layer event model in `spaces-runtime/session`), NOT a competing
+ * event model. AgentEvent exists to provide a stable, coarser-grained
+ * contract for CP and other host-level consumers.
+ */
 export type AgentEvent =
   | (BaseEvent & { type: 'state'; state: SessionState })
   | (BaseEvent & { type: 'message'; role: 'user' | 'assistant'; content: string })
