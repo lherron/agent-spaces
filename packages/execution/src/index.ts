@@ -30,17 +30,13 @@ import { harnessRegistry } from './harness/index.js'
 // Claude CLI wrapper
 export * from './claude/index.js'
 
-// Events and CP context
-export * from 'spaces-runtime/events'
-
 // Unified session interface
 export * from 'spaces-runtime/session'
 
 // Claude Agent SDK session helpers
 export * from './agent-sdk/index.js'
 
-// Codex app-server session helpers
-export { CodexSession } from 'spaces-harness-codex/codex-session'
+// Codex app-server session helpers (CodexSession removed — import directly from spaces-harness-codex/codex-session)
 export type { CodexSessionConfig } from 'spaces-harness-codex/codex-session'
 
 // Pi SDK session types only — runtime exports (PiSession, loadPiSdkBundle,

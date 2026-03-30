@@ -48,7 +48,7 @@ export type {
 export { DEFAULT_HARNESS, HARNESS_IDS, isHarnessId } from 'spaces-config'
 
 import { register as registerClaude } from 'spaces-harness-claude'
-import { register as registerCodex } from 'spaces-harness-codex'
+import { codexAdapter } from 'spaces-harness-codex'
 import { register as registerPi } from 'spaces-harness-pi'
 import { piSdkAdapter } from 'spaces-harness-pi-sdk/adapter'
 import { HarnessRegistry, SessionRegistry, setSessionRegistry } from 'spaces-runtime'
@@ -67,4 +67,6 @@ registerPi({ harnesses: harnessRegistry, sessions: sessionRegistry })
 // the @mariozechner/pi-coding-agent barrel import at CLI startup.
 harnessRegistry.register(piSdkAdapter)
 
-registerCodex({ harnesses: harnessRegistry, sessions: sessionRegistry })
+// Codex harness adapter registered eagerly (session factory removed — CodexSession
+// is constructed directly by consumers via spaces-harness-codex/codex-session).
+harnessRegistry.register(codexAdapter)
