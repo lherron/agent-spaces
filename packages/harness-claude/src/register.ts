@@ -18,7 +18,9 @@ export function register(reg: { harnesses: HarnessRegistry; sessions: SessionReg
         ...(options.plugins !== undefined ? { plugins: options.plugins } : {}),
         ...(options.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
         ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
-        ...(options.resume !== undefined ? { resume: options.resume } : {}),
+        ...(options.continuationKey !== undefined
+          ? { continuationKey: options.continuationKey }
+          : {}),
       },
       undefined
     )

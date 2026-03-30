@@ -247,7 +247,11 @@ export class CodexSession implements UnifiedSession {
         throw new Error('Codex thread id missing after start')
       }
 
-      this.emitEvent({ type: 'agent_start', sessionId: this.threadId })
+      this.emitEvent({
+        type: 'agent_start',
+        sessionId: this.sessionId,
+        sdkSessionId: this.threadId,
+      })
       this.state = 'running'
     } catch (error) {
       this.state = 'error'

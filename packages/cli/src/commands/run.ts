@@ -162,7 +162,7 @@ async function runProjectMode(
     model: options.model,
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
-    resume: options.resume,
+    continuationKey: options.resume,
   }
 
   if (options.dryRun) {
@@ -250,7 +250,7 @@ async function runGlobalMode(
     model: options.model,
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
-    resume: options.resume,
+    continuationKey: options.resume,
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -296,7 +296,7 @@ async function runDevMode(
     harness: options.harness,
     model: options.model,
     inheritProject: options.inheritProject,
-    resume: options.resume,
+    continuationKey: options.resume,
     inheritUser: options.inheritUser,
   }
 

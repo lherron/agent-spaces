@@ -1109,8 +1109,8 @@ export class PiAdapter implements HarnessAdapter {
       args.push('--print')
     }
 
-    // Handle resume option: --resume or -r (Pi opens picker, no session ID arg)
-    if (options.resume) {
+    // Handle continuation key: --resume or -r (Pi opens picker, no session ID arg)
+    if (options.continuationKey) {
       args.push('--resume')
       // Pi's --resume flag doesn't take a session ID argument;
       // it always opens the session picker

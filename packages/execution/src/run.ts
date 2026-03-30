@@ -111,8 +111,8 @@ export interface RunOptions extends ResolveOptions {
   inheritUser?: boolean | undefined
   /** Path to artifact directory for run outputs (events, transcripts) */
   artifactDir?: string | undefined
-  /** Resume a previous session (session ID or true for picker) */
-  resume?: string | boolean | undefined
+  /** Continuation key for resuming a previous session (session ID or true for picker) */
+  continuationKey?: string | boolean | undefined
 }
 
 export interface RunInvocationResult {
@@ -671,7 +671,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     projectPath: options.projectPath,
     cwd: options.cwd,
     artifactDir: options.artifactDir,
-    resume: options.resume,
+    continuationKey: options.continuationKey,
   }
   const runOptions = mergeDefined(defaults, cliRunOptions)
 
@@ -786,8 +786,8 @@ export interface GlobalRunOptions {
   inheritUser?: boolean | undefined
   /** Path to artifact directory for run outputs (events, transcripts) */
   artifactDir?: string | undefined
-  /** Resume a previous session (session ID or true for picker) */
-  resume?: string | boolean | undefined
+  /** Continuation key for resuming a previous session (session ID or true for picker) */
+  continuationKey?: string | boolean | undefined
 }
 
 /**
@@ -936,7 +936,7 @@ export async function runGlobalSpace(
       projectPath: options.cwd ?? process.cwd(),
       cwd: options.cwd ?? process.cwd(),
       artifactDir: options.artifactDir,
-      resume: options.resume,
+      continuationKey: options.continuationKey,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
 
@@ -1057,7 +1057,7 @@ export async function runLocalSpace(
       projectPath: options.cwd ?? spacePath,
       cwd: options.cwd ?? spacePath,
       artifactDir: options.artifactDir,
-      resume: options.resume,
+      continuationKey: options.continuationKey,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
 
