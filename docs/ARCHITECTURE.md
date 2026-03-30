@@ -1,347 +1,274 @@
 # Architecture
 
-Agent Spaces v2 is a plugin composition system for Claude Code. It resolves versioned "spaces" from a git registry, snapshots them to a content-addressed store, and materializes them into plugin directories.
+Agent Spaces is currently split into a deterministic config/materialization layer, a harness-agnostic runtime layer, a run-time execution layer, harness-specific adapters, and a public host-facing API. This document describes the current post-cleanup, pre-HRC architecture only.
+
+HRC is not documented here as implemented behavior.
 
 ## System Overview
 
-```
-┌─────────────────┐     ┌──────────────┐     ┌─────────────────┐     ┌──────────────┐
-│ asp-targets.toml│ ──▶ │   Resolver   │ ──▶ │  asp-lock.json  │ ──▶ │    Store     │
-│ (project wants) │     │ (git + tags) │     │ (pinned commits)│     │ (snapshots)  │
-└─────────────────┘     └──────────────┘     └─────────────────┘     └──────────────┘
-                                                                            │
-                                                                            ▼
-                        ┌──────────────┐     ┌─────────────────┐     ┌──────────────┐
-                        │    Claude    │ ◀── │  Materialized   │ ◀── │ Materializer │
-                        │   (invoke)   │     │   Plugins       │     │ (link+json)  │
-                        └──────────────┘     └─────────────────┘     └──────────────┘
+```text
+asp-targets.toml / agent-profile.toml / local spaces
+        |
+        v
+  spaces-config
+  - parse manifests
+  - resolve refs and closures
+  - compute lock + integrity
+  - materialize per-space artifacts / target bundles
+        |
+        v
+  spaces-runtime
+  - harness registry contracts
+  - UnifiedSession / UnifiedSessionEvent
+        |
+        v
+  spaces-execution
+  - run-time orchestration
+  - harness adapter dispatch
+  - run/build/install wrappers
+        |
+        v
+  spaces-harness-*
+  - Claude / Codex / Pi / Pi SDK specifics
+        |
+        v
+  agent-spaces + asp CLI
+  - host-facing request/response API
+  - placement-driven execution
+  - AgentEvent translation
 ```
 
-## Package Structure
+## Package Boundaries
 
-```
+```text
 packages/
-├── core/         # Types, schemas, config parsing, errors, locks, atomic writes
-├── git/          # Git operations (tags, archive, show, exec)
-├── claude/       # Claude CLI detection, validation, invocation
-├── resolver/     # Resolution engine: refs → commits → closures → locks
-├── store/        # Content-addressed snapshot storage, cache management
-├── materializer/ # Plugin directory generation (plugin.json, links, hooks)
-├── lint/         # Linting rules for spaces and configurations
-├── engine/       # Orchestration: install, build, run, explain
-└── cli/          # Command-line interface (asp command)
+├── agent-scope/      # Canonical semantic addressing: scope/session refs and handles
+├── config/           # spaces-config
+├── runtime/          # spaces-runtime
+├── execution/        # spaces-execution
+├── harness-claude/   # Claude CLI + Agent SDK harness
+├── harness-codex/    # Codex CLI/app-server harness
+├── harness-pi/       # Pi CLI harness
+├── harness-pi-sdk/   # Pi SDK harness
+├── agent-spaces/     # Public host-facing API + event translation
+└── cli/              # asp command line interface
 ```
 
-### Dependency Graph
+Important correction: `git`, `resolver`, `store`, `materializer`, `lint`, and `core` are not standalone workspace packages anymore. They are sub-exports inside `spaces-config`.
 
-```
-cli ──▶ engine ──▶ resolver ──▶ git ──▶ core
-                 └──▶ store ──────────▶ core
-                 └──▶ materializer ──▶ store ──▶ core
-                 └──▶ claude ─────────────────▶ core
-                 └──▶ lint ───────────────────▶ core
-```
+### Dependency Shape
 
-## Key Abstractions
-
-### Space Reference (`SpaceRefString`)
-
-Format: `space:<id>@<selector>`
-
-```typescript
-// packages/core/src/types/refs.ts
-type SpaceRefString = `space:${string}@${string}`
-
-type Selector =
-  | { kind: 'dist-tag'; tag: DistTagName }  // stable, latest, beta
-  | { kind: 'semver'; range: string }       // ^1.0.0, ~1.2.3, 1.2.3
-  | { kind: 'git-pin'; sha: CommitSha }     // git:abc1234
-```
-
-### Space Key (`SpaceKey`)
-
-Uniquely identifies a resolved space version: `<id>@<commit>`
-
-```typescript
-type SpaceKey = `${string}@${string}`  // e.g., "my-space@abc1234def"
+```text
+agent-scope
+    |
+    v
+spaces-config
+    |
+    v
+spaces-runtime
+    |
+    v
+spaces-execution
+    |
+    +--> spaces-harness-claude
+    +--> spaces-harness-codex
+    +--> spaces-harness-pi
+    +--> spaces-harness-pi-sdk
+    |
+    v
+agent-spaces
+    |
+    v
+cli
 ```
 
-### Space Manifest (`space.toml`)
+More precisely:
 
-Defines a space in the registry:
+- `spaces-config` owns config-time determinism: parsing, schemas, refs, closure resolution, locks, store paths, and artifact materialization.
+- `spaces-runtime` owns harness-agnostic runtime primitives: harness registration plus the `UnifiedSession` / `UnifiedSessionEvent` contract.
+- `spaces-execution` owns volatile run-time orchestration: install/build/run wrappers, harness lookup, and session launch plumbing.
+- `spaces-harness-*` packages own provider/frontend-specific behavior.
+- `agent-spaces` owns the public host-facing API, placement entrypoints, and the translation from runtime session events to stable host events.
+- `agent-scope` is intentionally standalone because scope/session identity is used as a semantic seam, not just as a CLI convenience.
 
-```toml
-schema = 1
-id = "my-space"
-version = "1.0.0"
-description = "A space for doing things"
+## Identity Seams
 
-[plugin]
-name = "my-plugin"   # Optional override
+`agent-scope` defines the canonical addressing vocabulary.
 
-[deps]
-spaces = ["space:base@stable"]
-```
+### `ScopeRef`
 
-### Project Manifest (`asp-targets.toml`)
+Canonical address string. Examples:
 
-Defines what spaces a project uses:
+- `agent:alice`
+- `agent:alice:project:demo`
+- `agent:alice:project:demo:task:T-1`
+- `agent:alice:project:demo:task:T-1:role:reviewer`
 
-```toml
-[registry]
-url = "https://github.com/org/spaces-registry"
+This is the durable form used when the system needs an unambiguous identity.
 
-[targets.default]
-compose = ["space:frontend@stable", "space:backend@^1.0.0"]
+### `ScopeHandle`
 
-[targets.dev]
-compose = ["space:frontend@latest", "space:backend@latest"]
-```
+Human-friendly shorthand for the same scope:
 
-### Lock File (`asp-lock.json`)
+- `alice`
+- `alice@demo`
+- `alice@demo:T-1`
+- `alice@demo:T-1/reviewer`
 
-Pins all space versions to exact commits with integrity hashes:
+`ScopeHandle` is a UI/CLI shorthand. `ScopeRef` is canonical.
 
-```typescript
-// packages/core/src/types/lock.ts
-interface LockFile {
-  lockfileVersion: 1
-  resolverVersion: 1
-  generatedAt: string
-  registry: LockRegistry
-  spaces: Record<SpaceKey, LockSpaceEntry>
-  targets: Record<string, LockTargetEntry>
-}
+### `SessionRef`
 
-interface LockSpaceEntry {
-  id: SpaceId
-  commit: CommitSha
-  path: string                    // "spaces/my-space"
-  integrity: Sha256Integrity      // "sha256:..."
-  plugin: LockPluginInfo
-  deps: LockSpaceDeps
+Structured session identity:
+
+```ts
+type SessionRef = {
+  scopeRef: string
+  laneRef: 'main' | `lane:${string}`
 }
 ```
 
-## Resolution Pipeline
+`SessionRef` combines a canonical scope with a lane. If no lane is provided, normalization defaults to `main`.
 
-### 1. Parse References
+### `SessionHandle`
 
-```
-space:todo@stable
-       │     │
-       ▼     ▼
-   SpaceId  Selector
-```
+Human shorthand for `SessionRef`:
 
-**File:** `packages/resolver/src/ref-parser.ts`
+- `alice@demo:T-1/reviewer`
+- `alice@demo:T-1/reviewer~planning`
 
-### 2. Resolve Selector → Commit
+`~main` is elided, so the first example is still a full session handle.
 
-```
-stable    ──▶ dist-tags.json lookup ──▶ v1.2.3 ──▶ todo/v1.2.3 (tag) ──▶ abc1234
-^1.0.0    ──▶ list tags matching ──────────────▶ pick highest ──────▶ abc1234
-git:abc   ──▶ direct ───────────────────────────────────────────────▶ abc1234
-```
+## Config-Time Determinism
 
-**Files:**
-- `packages/resolver/src/selector.ts` - Selector resolution
-- `packages/resolver/src/dist-tags.ts` - Dist-tag handling
-- `packages/resolver/src/git-tags.ts` - Git tag operations
+`spaces-config` is the source of truth for the deterministic part of the system.
 
-### 3. Compute Closure
+It owns:
 
-Recursively resolve all dependencies in topological order:
+- manifest parsing for `space.toml`, `asp-targets.toml`, and agent profile/config files
+- ref parsing such as `space:<id>@<selector>`
+- selector resolution against git tags and dist-tags
+- dependency closure and load order
+- integrity hashes and lock file generation
+- snapshot/store management
+- per-space artifact materialization and target bundle assembly
 
-```
-todo@abc1234
-├── base@def5678
-└── utils@789abc
-    └── base@def5678  (deduped)
+Representative sub-exports:
 
-Load order: [base@def5678, utils@789abc, todo@abc1234]
-```
+- `spaces-config/core`
+- `spaces-config/git`
+- `spaces-config/resolver`
+- `spaces-config/store`
+- `spaces-config/materializer`
+- `spaces-config/lint`
 
-**File:** `packages/resolver/src/closure.ts`
+## Runtime and Execution
 
-### 4. Generate Lock File
+### `UnifiedSession` and `UnifiedSessionEvent`
 
-Combine all resolutions into a single lock with integrity hashes.
+`spaces-runtime/session` defines the harness-agnostic runtime contract used by harness implementations.
 
-**File:** `packages/resolver/src/lock-generator.ts`
+`UnifiedSessionEvent` is the granular event stream. It includes events such as:
 
-### 5. Snapshot to Store
+- `agent_start`
+- `agent_end`
+- `turn_start`
+- `turn_end`
+- `message_start`
+- `message_update`
+- `message_end`
+- `tool_execution_start`
+- `tool_execution_update`
+- `tool_execution_end`
+- `sdk_session_id`
 
-Extract space directories from git into content-addressed storage:
+This is the canonical run-time event model.
 
-```
-~/.asp-v2/store/snapshots/sha256/<integrity>/
-├── commands/
-├── skills/
-├── hooks/
-├── agents/
-└── space.toml
-```
+### `AgentEvent`
 
-**File:** `packages/store/src/snapshot.ts`
+`agent-spaces` exposes `AgentEvent` as the public host-facing event API. It is intentionally coarser than `UnifiedSessionEvent`.
 
-### 6. Materialize Plugins
+Examples:
 
-Transform snapshots into Claude plugin directories:
+- `state`
+- `message`
+- `message_delta`
+- `tool_call`
+- `tool_result`
+- `log`
+- `complete`
 
-```
-~/.asp-v2/cache/plugins/<cache-key>/
-├── plugin.json         # Generated from space.toml
-├── commands/           # Symlinked from snapshot
-├── skills/             # Symlinked from snapshot
-└── hooks/              # Copied + made executable
-```
+`packages/agent-spaces/src/session-events.ts` translates the granular runtime stream into this public contract. `AgentEvent` is not a competing replay model and should not be described as one.
 
-**File:** `packages/materializer/src/materialize.ts`
+### JSONL Artifacts Are Telemetry
+
+Some harness paths can emit JSONL artifacts to an artifact directory for observability/debugging. That output is optional telemetry.
+
+It is not the main event contract, not a stable replay API, and not a substitute for `UnifiedSessionEvent` or `AgentEvent`.
+
+## Continuation Contract
+
+The current continuation term is `continuationKey`.
+
+Relevant types:
+
+- `HarnessContinuationKey`
+- `HarnessContinuationRef`
+- `SessionMetadataSnapshot.continuationKey`
+
+Important distinctions:
+
+- Public/runtime docs should say `continuationKey`, not `resume`.
+- Some user-facing CLI flags still use `--resume` because they are harness UX flags.
+- Codex maps `continuationKey` into `resumeThreadId` in the Codex session layer.
+- Claude adapters may still pass resume-specific provider flags internally, but the cross-package contract is `continuationKey`.
+
+## Correlation and Compatibility Surfaces
+
+The canonical host correlation field is `hostSessionId`.
+
+- `cpSessionId` remains deprecated compatibility input only.
+- New public docs should not present `cpSessionId` as the primary field.
+
+Cleanup already reflected in the current public seam:
+
+- `hostSessionId` is canonical in `BaseEvent` and request types.
+- `RunEventEmitter` and `RunEvent` have been removed from the public surface.
+- dead session/harness barrel exports were removed from the public API path.
+
+## Resolution and Materialization Flow
+
+High-level flow:
+
+1. Parse project/agent manifests and space refs.
+2. Resolve selectors to exact commits.
+3. Compute dependency closure and load order.
+4. Generate/update `asp-lock.json`.
+5. Snapshot resolved space content into the content-addressed store.
+6. Materialize harness-specific space artifacts.
+7. Compose target bundles under `asp_modules/`.
+8. Hand the bundle to the selected execution/harness layer.
+
+The deterministic parts of steps 1-7 live in `spaces-config`. Step 8 and session lifecycle handling live in `spaces-execution` and the harness packages.
 
 ## Harness Adapters
 
-Harness adapters translate materialized spaces into runnable bundles. `claude` uses Claude plugin directories, `pi` uses Pi CLI extensions, and `pi-sdk` writes a `bundle.json` manifest under `asp_modules/<target>/pi-sdk` that the Bun-based SDK runner consumes. The `pi-sdk` runner dynamically imports bundled extensions, so extensions must be dependency-free or depend on packages available in the runner environment.
+Current harness packages:
 
-## Storage Layout
+- `spaces-harness-claude`
+- `spaces-harness-codex`
+- `spaces-harness-pi`
+- `spaces-harness-pi-sdk`
 
-```
-~/.asp-v2/
-├── store/
-│   └── snapshots/
-│       └── sha256/
-│           └── <integrity>/     # Content-addressed space content
-├── cache/
-│   └── plugins/
-│       └── <cache-key>/         # Materialized plugins
-└── registry/                    # Cloned registry repo (if local)
-```
+These packages translate the shared runtime/execution contracts into provider-specific invocation and session behavior. They are intentionally downstream of `spaces-runtime` and `spaces-execution`, not peers of `spaces-config`.
 
-### Path Resolution
+## CLI Surface
 
-```typescript
-// packages/store/src/paths.ts
-class PathResolver {
-  snapshot(integrity: Sha256Integrity): string
-  pluginCache(cacheKey: string): string
-}
-```
+`packages/cli` is the top-level distribution package and exposes:
 
-## CLI Commands
+- classic target-oriented commands such as `run`, `install`, `build`, `describe`, `explain`, `lint`, `list`, and `doctor`
+- registry commands under `asp repo`
+- space authoring commands under `asp spaces`
+- placement-driven execution through `asp agent`
 
-| Command | Description |
-|---------|-------------|
-| `asp run [target]` | Install, build, and run Claude with target |
-| `asp install` | Resolve and populate store |
-| `asp build` | Materialize plugins from lock |
-| `asp explain [target]` | Show resolution details |
-| `asp lint` | Validate spaces and configs |
-| `asp list` | List spaces in lock |
-| `asp doctor` | Check environment health |
-| `asp gc` | Garbage collect unused cache |
-| `asp add <ref>` | Add space to target |
-| `asp remove <id>` | Remove space from target |
-| `asp upgrade [ids...]` | Upgrade spaces to latest |
-| `asp diff` | Show changes since last install |
-| `asp repo tags` | List published versions |
-| `asp repo publish` | Publish space version |
-| `asp repo status` | Show registry status |
-
-**Entry point:** `packages/cli/src/index.ts`
-
-## Engine Orchestration
-
-The engine package coordinates the full workflow:
-
-```typescript
-// packages/engine/src/index.ts
-
-// Resolution
-resolveTarget(name, options): ResolveResult
-resolveTargets(names, options): ResolveResult[]
-
-// Installation
-install(options): InstallResult         // resolve + store + lock
-installNeeded(options): boolean         // check if outdated
-
-// Building
-build(options): BuildResult             // materialize from lock
-buildAll(options): BuildResult[]
-
-// Running
-run(options): RunResult                 // build + invoke claude
-runInteractive(options): RunResult
-runWithPrompt(prompt, options): RunResult
-```
-
-## Integrity Model
-
-### Content Integrity
-
-Each space snapshot has a SHA256 hash computed over its directory tree:
-
-```typescript
-// packages/resolver/src/integrity.ts
-computeIntegrity(spaceId, commit, options): Sha256Integrity
-verifyIntegrity(snapshotPath, expected): boolean
-```
-
-### Environment Hash
-
-Each target has an `envHash` computed over its load order and all space integrities:
-
-```typescript
-computeEnvHash(loadOrder, spaceIntegrities): Sha256Integrity
-```
-
-### Cache Key
-
-Materialized plugins use a cache key to avoid re-materialization:
-
-```typescript
-// packages/store/src/cache.ts
-computePluginCacheKey(integrity, pluginName, version): string
-// Formula: sha256("materializer-v1\0" + integrity + "\0" + name + "\0" + version)
-```
-
-## Error Handling
-
-All errors extend `AspError` with structured context:
-
-```typescript
-// packages/core/src/errors.ts
-class AspError extends Error {
-  code: string
-  cause?: Error
-}
-
-// Specific error types:
-ConfigParseError      // TOML/JSON parsing failed
-ConfigValidationError // Schema validation failed
-ResolutionError       // Selector couldn't resolve
-MaterializationError  // Plugin generation failed
-GitError              // Git operation failed
-```
-
-## Linting Rules
-
-| Code | Rule |
-|------|------|
-| W201 | Command collision |
-| W202 | Agent command namespace conflicts |
-| W203 | Hook path without plugin root |
-| W204 | Invalid hooks configuration |
-| W205 | Plugin name collision |
-| W206 | Non-executable hook script |
-| W207 | Invalid plugin structure |
-
-**File:** `packages/lint/src/rules/`
-
-## JSON Schemas
-
-Validation schemas in `packages/core/src/schemas/`:
-
-- `space.schema.json` - Space manifest
-- `targets.schema.json` - Project manifest
-- `lock.schema.json` - Lock file
-- `dist-tags.schema.json` - Dist-tags file
+See `docs/cli-reference.md` for the current command surface.
