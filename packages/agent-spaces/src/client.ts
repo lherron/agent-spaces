@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { readFile, symlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
 import {
   AGENT_SDK_MODELS,
@@ -44,7 +44,25 @@ import { PiSession, loadPiSdkBundle } from 'spaces-harness-pi-sdk/pi-session'
 import { buildCorrelationEnvVars } from './placement-api.js'
 
 import {
-  type EventEmitter,
+  type InFlightRunContext,
+  completeInFlightFailure,
+  completeInFlightSuccess,
+  createInFlightRunMap,
+  enqueueInFlightPrompt,
+  rejectInFlight,
+  resolveInFlight,
+} from './run-tracker.js'
+
+import {
+  applyEnvOverlay,
+  materializeSoulMd,
+  piSessionPath,
+  resolveHostSessionId,
+  resolveRunId,
+  withAspHome,
+} from './runtime-env.js'
+
+import {
   type EventPayload,
   buildAutoPermissionHandler,
   createEventEmitter,
@@ -204,29 +222,6 @@ interface ModelInfo {
   effectiveModel: string
   provider: string
   model: string
-}
-
-interface InFlightRunContext {
-  hostSessionId: string
-  runId: string
-  provider: ProviderDomain
-  frontend: 'agent-sdk' | 'pi-sdk'
-  model?: string | undefined
-  session: UnifiedSession
-  eventEmitter: EventEmitter
-  assistantState: { assistantBuffer: string; lastAssistantText?: string | undefined }
-  allowSessionIdUpdate: boolean
-  continuationKey?: string | undefined
-  outstandingTurns: number
-  started: Promise<void>
-  completion:
-    | {
-        done: false
-        resolve: (value: RunTurnNonInteractiveResponse) => void
-        reject: (error: unknown) => void
-      }
-    | { done: true }
-  sendChain: Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -418,39 +413,6 @@ function resolveModel(
     return { ok: false, modelId }
   }
   return { ok: true, info }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: pi session path (deterministic, stateless)
-// ---------------------------------------------------------------------------
-
-function piSessionPath(aspHome: string, hostSessionId: string): string {
-  const hash = createHash('sha256')
-  hash.update(hostSessionId)
-  return join(aspHome, 'sessions', 'pi', hash.digest('hex'))
-}
-
-function resolveHostSessionId(
-  input: {
-    hostSessionId?: string | undefined
-    cpSessionId?: string | undefined
-    placement?: RuntimePlacement | undefined
-  },
-  required = true
-): string | undefined {
-  const hostSessionId =
-    input.hostSessionId ?? input.cpSessionId ?? input.placement?.correlation?.hostSessionId
-  if (!hostSessionId && required) {
-    throw new Error('hostSessionId is required')
-  }
-  return hostSessionId
-}
-
-function resolveRunId(input: {
-  runId?: string | undefined
-  placement?: RuntimePlacement | undefined
-}): string | undefined {
-  return input.runId ?? input.placement?.correlation?.runId
 }
 
 // ---------------------------------------------------------------------------
@@ -664,38 +626,6 @@ function toAgentSpacesError(error: unknown, code?: AgentSpacesError['code']): Ag
 }
 
 // ---------------------------------------------------------------------------
-// Helpers: environment overlay
-// ---------------------------------------------------------------------------
-
-function applyEnvOverlay(env: Record<string, string>): () => void {
-  const prior = new Map<string, string | undefined>()
-
-  for (const [key, value] of Object.entries(env)) {
-    prior.set(key, process.env[key])
-    process.env[key] = value
-  }
-
-  return () => {
-    for (const [key, value] of prior.entries()) {
-      if (value === undefined) {
-        delete process.env[key]
-      } else {
-        process.env[key] = value
-      }
-    }
-  }
-}
-
-async function withAspHome<T>(aspHome: string, fn: () => Promise<T>): Promise<T> {
-  const restore = applyEnvOverlay({ ASP_HOME: aspHome })
-  try {
-    return await fn()
-  } finally {
-    restore()
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Helpers: shell quoting (for displayCommand in buildProcessInvocationSpec)
 // ---------------------------------------------------------------------------
 
@@ -728,86 +658,7 @@ export interface AgentSpacesClientOptions {
 export function createAgentSpacesClient(options?: AgentSpacesClientOptions): AgentSpacesClient {
   const clientAspHome = options?.aspHome
   const _clientRegistryPath = options?.registryPath
-  const inFlightRuns = new Map<string, InFlightRunContext>()
-
-  const buildInFlightResponse = (
-    context: InFlightRunContext,
-    result: RunResult
-  ): RunTurnNonInteractiveResponse => {
-    const continuation: HarnessContinuationRef | undefined = context.continuationKey
-      ? { provider: context.provider, key: context.continuationKey }
-      : undefined
-
-    return {
-      ...(continuation ? { continuation } : {}),
-      provider: context.provider,
-      frontend: context.frontend,
-      model: context.model,
-      result,
-    }
-  }
-
-  const completeInFlightSuccess = async (
-    context: InFlightRunContext
-  ): Promise<RunTurnNonInteractiveResponse> => {
-    const finalOutput = context.assistantState.lastAssistantText
-    const result: RunResult = { success: true, ...(finalOutput ? { finalOutput } : {}) }
-    await context.eventEmitter.emit({ type: 'state', state: 'complete' } as EventPayload)
-    await context.eventEmitter.emit({ type: 'complete', result } as EventPayload)
-    return buildInFlightResponse(context, result)
-  }
-
-  const completeInFlightFailure = async (
-    context: InFlightRunContext,
-    error: unknown,
-    code?: AgentSpacesError['code']
-  ): Promise<RunTurnNonInteractiveResponse> => {
-    const result: RunResult = {
-      success: false,
-      error: toAgentSpacesError(error, code),
-    }
-    await context.eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-    await context.eventEmitter.emit({ type: 'complete', result } as EventPayload)
-    return buildInFlightResponse(context, result)
-  }
-
-  const resolveInFlight = (
-    context: InFlightRunContext,
-    response: RunTurnNonInteractiveResponse
-  ): void => {
-    if (context.completion.done) return
-    context.completion.resolve(response)
-    context.completion = { done: true }
-  }
-
-  const rejectInFlight = (context: InFlightRunContext, error: unknown): void => {
-    if (context.completion.done) return
-    context.completion.reject(error)
-    context.completion = { done: true }
-  }
-
-  const enqueueInFlightPrompt = (
-    context: InFlightRunContext,
-    prompt: string,
-    attachments: string[] | undefined
-  ): Promise<void> => {
-    context.outstandingTurns += 1
-    const attachmentRefs = attachments?.map((path) => ({
-      kind: 'file' as const,
-      path,
-      filename: basename(path),
-    }))
-
-    context.sendChain = context.sendChain.then(async () => {
-      await context.started
-      await context.session.sendPrompt(prompt, {
-        ...(attachmentRefs ? { attachments: attachmentRefs } : {}),
-        runId: context.runId,
-      })
-    })
-
-    return context.sendChain
-  }
+  const inFlightRuns = createInFlightRunMap()
 
   return {
     async resolve(req: ResolveRequest): Promise<ResolveResponse> {
@@ -1599,25 +1450,7 @@ async function buildPlacementInvocationSpec(
     agentRoot,
     projectRoot,
   })
-  // Materialize SOUL.md (and HEARTBEAT.md for heartbeat mode) into a base plugin directory
-  // so the agent's identity instructions are included in the harness invocation.
-  if (placement.agentRoot) {
-    const soulPath = join(placement.agentRoot, 'SOUL.md')
-    if (existsSync(soulPath)) {
-      const pluginsDir = join(materialized.materialization.outputPath, 'plugins')
-      const soulPluginDir = join(pluginsDir, '000-soul')
-      mkdirSync(soulPluginDir, { recursive: true })
-
-      let content = readFileSync(soulPath, 'utf8')
-      if (placement.runMode === 'heartbeat') {
-        const heartbeatPath = join(placement.agentRoot, 'HEARTBEAT.md')
-        if (existsSync(heartbeatPath)) {
-          content += `\n\n---\n\n${readFileSync(heartbeatPath, 'utf8')}`
-        }
-      }
-      writeFileSync(join(soulPluginDir, 'CLAUDE.md'), content, 'utf8')
-    }
-  }
+  materializeSoulMd(materialized.materialization.outputPath, placement)
 
   const bundle = await adapter.loadTargetBundle(
     materialized.materialization.outputPath,
