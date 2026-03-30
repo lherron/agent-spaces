@@ -1,4 +1,15 @@
-export type * from './types.js'
+export type {
+  UnifiedSessionEvent,
+  UnifiedSession,
+  UnifiedSessionState,
+  SessionKind,
+  ContentBlock,
+  Message,
+  ToolResult,
+  AttachmentRef,
+  PromptOptions,
+  SdkSessionIdEvent,
+} from './types.js'
 export type { PermissionHandler, PermissionRequest, PermissionResult } from './permissions.js'
 export type { CreateSessionOptions, CodexApprovalPolicy, CodexSandboxMode } from './options.js'
 export { createSession, setSessionRegistry } from './factory.js'

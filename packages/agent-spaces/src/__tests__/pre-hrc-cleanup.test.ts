@@ -194,6 +194,9 @@ describe('[T-00935] dead session and harness paths removed', () => {
     const content = require('node:fs').readFileSync(barrelPath, 'utf8')
 
     // These dead types should NOT appear in the barrel after cleanup:
+    // Individual event member interfaces are internal to the UnifiedSessionEvent
+    // union — they should NOT be top-level barrel exports. Supporting types like
+    // AttachmentRef and PromptOptions ARE public (T-00937).
     const deadTypes = [
       'AgentStartEvent',
       'AgentEndEvent',
@@ -205,8 +208,6 @@ describe('[T-00935] dead session and harness paths removed', () => {
       'ToolExecutionStartEvent',
       'ToolExecutionUpdateEvent',
       'ToolExecutionEndEvent',
-      'AttachmentRef',
-      'PromptOptions',
     ]
 
     for (const typeName of deadTypes) {
