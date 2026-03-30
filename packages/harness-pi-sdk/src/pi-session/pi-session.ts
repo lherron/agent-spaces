@@ -13,6 +13,7 @@ import type {
   Message,
   PermissionHandler,
   PromptOptions,
+  SessionMetadataSnapshot,
   ToolResult,
   UnifiedSession,
   UnifiedSessionEvent,
@@ -189,6 +190,21 @@ export class PiSession implements UnifiedSession {
 
   getState(): UnifiedSessionState {
     return this.state
+  }
+
+  getMetadata(): SessionMetadataSnapshot {
+    return {
+      sessionId: this.sessionId,
+      kind: this.kind,
+      state: this.getState(),
+      lastActivityAt: this.lastActivityAt,
+      capabilities: {
+        supportsInterrupt: false,
+        supportsInFlightInput: false,
+        supportsNativeResume: false,
+        supportsAttach: false,
+      },
+    }
   }
 
   private mapThinkingLevel(

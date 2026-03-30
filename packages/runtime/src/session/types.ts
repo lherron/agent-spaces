@@ -140,6 +140,24 @@ export interface PromptOptions {
   metadata?: Record<string, unknown>
 }
 
+export interface SessionCapabilities {
+  supportsInterrupt: boolean
+  supportsInFlightInput: boolean
+  supportsNativeResume: boolean
+  supportsAttach: boolean
+}
+
+export interface SessionMetadataSnapshot {
+  sessionId: string
+  kind: SessionKind
+  state: UnifiedSessionState
+  lastActivityAt: number
+  nativeIdentity?: string
+  continuationKey?: string
+  capabilities: SessionCapabilities
+  pid?: number
+}
+
 export interface UnifiedSession {
   readonly sessionId: string
   readonly kind: SessionKind
@@ -152,6 +170,7 @@ export interface UnifiedSession {
   interrupt?(reason?: string): Promise<void>
   isHealthy(): boolean
   getState(): UnifiedSessionState
+  getMetadata(): SessionMetadataSnapshot
   sendPrompt(text: string, options?: PromptOptions): Promise<void>
   onEvent(callback: (event: UnifiedSessionEvent) => void): void
   setPermissionHandler(handler: PermissionHandler): void
