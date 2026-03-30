@@ -287,8 +287,8 @@ export interface HarnessRunOptions {
   artifactDir?: string | undefined
   /** Whether to emit JSONL events to the artifact directory */
   emitEvents?: boolean | undefined
-  /** Resume a previous session (session ID or true for picker) */
-  resume?: string | boolean | undefined
+  /** Continuation key for resuming a previous session (session ID or true for picker) */
+  continuationKey?: string | boolean | undefined
 }
 
 // ============================================================================

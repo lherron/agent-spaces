@@ -14,8 +14,8 @@ export interface CreateSessionOptions {
   plugins?: Array<{ type: 'local'; path: string }>
   systemPrompt?: string
   maxTurns?: number
-  /** SDK session ID to resume (loads conversation history) */
-  resume?: string
+  /** Provider-native continuation key (loads conversation history) */
+  continuationKey?: string
 
   provider?: string
   providerModel?: string

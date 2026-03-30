@@ -393,11 +393,11 @@ export class ClaudeAdapter implements HarnessAdapter {
       }
     }
 
-    // Handle resume option: --resume [session-id] or -r [session-id]
+    // Handle continuation key: --resume [session-id] or -r [session-id]
     const resumeArgs: string[] = []
-    if (options.resume) {
-      if (typeof options.resume === 'string') {
-        resumeArgs.push('--resume', options.resume)
+    if (options.continuationKey) {
+      if (typeof options.continuationKey === 'string') {
+        resumeArgs.push('--resume', options.continuationKey)
       } else {
         // true means open picker
         resumeArgs.push('--resume')

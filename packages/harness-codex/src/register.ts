@@ -27,7 +27,7 @@ export function register(reg: { harnesses: HarnessRegistry; sessions: SessionReg
       ...(options.eventsOutputPath !== undefined
         ? { eventsOutputPath: options.eventsOutputPath }
         : {}),
-      ...(options.resume !== undefined ? { resumeThreadId: options.resume } : {}),
+      ...(options.continuationKey !== undefined ? { resumeThreadId: options.continuationKey } : {}),
     })
 
     if (options.permissionHandler) {

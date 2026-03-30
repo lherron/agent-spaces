@@ -587,8 +587,8 @@ export class PiSdkAdapter implements HarnessAdapter {
       args.push('--yolo')
     }
 
-    // Handle resume option
-    if (options.resume) {
+    // Handle continuation key
+    if (options.continuationKey) {
       args.push('--resume')
       // Note: pi-sdk runner may not implement resume yet,
       // but we pass the flag for forward compatibility

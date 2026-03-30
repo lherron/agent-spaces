@@ -958,7 +958,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           projectPath: req.cwd,
           cwd: req.cwd,
           yolo: req.yolo,
-          ...(isResume && req.continuation?.key ? { resume: req.continuation.key } : {}),
+          ...(isResume && req.continuation?.key ? { continuationKey: req.continuation.key } : {}),
         }
 
         // Build argv and env using the adapter
@@ -1121,7 +1121,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
               model: normalizeAgentSdkModel(modelResolution.info.model),
               plugins,
               permissionHandler,
-              ...(continuationKey ? { resume: continuationKey } : {}),
+              ...(continuationKey ? { continuationKey } : {}),
             })
 
             const completionPromise = new Promise<RunTurnNonInteractiveResponse>(
@@ -1433,7 +1433,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
                 model: normalizeAgentSdkModel(modelResolution.info.model),
                 plugins,
                 permissionHandler,
-                ...(isResume && continuationKey ? { resume: continuationKey } : {}),
+                ...(isResume && continuationKey ? { continuationKey } : {}),
               })
             } else {
               // pi-sdk
@@ -1633,7 +1633,7 @@ async function buildPlacementInvocationSpec(
     cwd,
     yolo: req.yolo,
     ...(req.prompt ? { prompt: req.prompt } : {}),
-    ...(isResume && req.continuation?.key ? { resume: req.continuation.key } : {}),
+    ...(isResume && req.continuation?.key ? { continuationKey: req.continuation.key } : {}),
   }
 
   // Build argv and env using the adapter
@@ -1812,7 +1812,7 @@ async function runPlacementTurnNonInteractive(
           model: normalizeAgentSdkModel(modelResolution.info.model),
           plugins,
           permissionHandler,
-          ...(continuationKey ? { resume: continuationKey } : {}),
+          ...(continuationKey ? { continuationKey } : {}),
         })
       } else {
         // pi-sdk — load bundle from materialized output

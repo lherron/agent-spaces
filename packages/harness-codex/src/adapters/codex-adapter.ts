@@ -628,19 +628,19 @@ export class CodexAdapter implements HarnessAdapter {
   buildRunArgs(_bundle: ComposedTargetBundle, options: HarnessRunOptions): string[] {
     const args: string[] = []
     const isExecMode = options.interactive === false
-    const isResumeMode = !!options.resume
+    const isResumeMode = !!options.continuationKey
     const approvalPolicy = options.yolo ? 'never' : options.approvalPolicy
     const sandboxMode = options.yolo ? 'danger-full-access' : options.sandboxMode
 
     // Resume mode: codex resume [--last | session-id]
     if (isResumeMode) {
       args.push('resume')
-      if (typeof options.resume === 'string') {
+      if (typeof options.continuationKey === 'string') {
         // If a specific session ID is provided, use it
         // Codex resume takes session ID as positional arg or uses --last
-        args.push(options.resume)
+        args.push(options.continuationKey)
       }
-      // If resume is just `true`, codex resume will open the picker
+      // If continuationKey is just `true`, codex resume will open the picker
     } else if (isExecMode) {
       args.push('exec')
       if (options.prompt) {
