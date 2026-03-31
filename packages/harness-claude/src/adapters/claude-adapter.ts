@@ -406,6 +406,7 @@ export class ClaudeAdapter implements HarnessAdapter {
 
     const extraArgs = [
       ...(options.yolo ? ['--dangerously-skip-permissions'] : []),
+      ...(options.remoteControl ? ['--remote-control'] : []),
       ...(options.extraArgs ?? []),
       ...resumeArgs,
       ...promptArgs,
