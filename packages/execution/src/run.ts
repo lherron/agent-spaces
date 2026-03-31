@@ -113,6 +113,8 @@ export interface RunOptions extends ResolveOptions {
   artifactDir?: string | undefined
   /** Continuation key for resuming a previous session (session ID or true for picker) */
   continuationKey?: string | boolean | undefined
+  /** Enable remote control via TCP (--remote-control) */
+  remoteControl?: boolean | undefined
 }
 
 export interface RunInvocationResult {
@@ -672,6 +674,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     cwd: options.cwd,
     artifactDir: options.artifactDir,
     continuationKey: options.continuationKey,
+    remoteControl: options.remoteControl,
   }
   const runOptions = mergeDefined(defaults, cliRunOptions)
 
@@ -788,6 +791,8 @@ export interface GlobalRunOptions {
   artifactDir?: string | undefined
   /** Continuation key for resuming a previous session (session ID or true for picker) */
   continuationKey?: string | boolean | undefined
+  /** Enable remote control via TCP (--remote-control) */
+  remoteControl?: boolean | undefined
 }
 
 /**
@@ -937,6 +942,7 @@ export async function runGlobalSpace(
       cwd: options.cwd ?? process.cwd(),
       artifactDir: options.artifactDir,
       continuationKey: options.continuationKey,
+      remoteControl: options.remoteControl,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
 
@@ -1058,6 +1064,7 @@ export async function runLocalSpace(
       cwd: options.cwd ?? spacePath,
       artifactDir: options.artifactDir,
       continuationKey: options.continuationKey,
+      remoteControl: options.remoteControl,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
 

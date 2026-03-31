@@ -289,6 +289,8 @@ export interface HarnessRunOptions {
   emitEvents?: boolean | undefined
   /** Continuation key for resuming a previous session (session ID or true for picker) */
   continuationKey?: string | boolean | undefined
+  /** Enable remote control via TCP (--remote-control) */
+  remoteControl?: boolean | undefined
 }
 
 // ============================================================================

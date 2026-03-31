@@ -61,6 +61,7 @@ interface RunOptions {
   harness?: HarnessId
   model?: string
   resume?: string | boolean
+  remoteControl?: boolean
 }
 
 /**
@@ -163,6 +164,7 @@ async function runProjectMode(
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
     continuationKey: options.resume,
+    remoteControl: options.remoteControl,
   }
 
   if (options.dryRun) {
@@ -251,6 +253,7 @@ async function runGlobalMode(
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
     continuationKey: options.resume,
+    remoteControl: options.remoteControl,
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -298,6 +301,7 @@ async function runDevMode(
     inheritProject: options.inheritProject,
     continuationKey: options.resume,
     inheritUser: options.inheritUser,
+    remoteControl: options.remoteControl,
   }
 
   const result = await runLocalSpace(targetPath, devOptions)
@@ -373,6 +377,7 @@ export function registerRunCommand(program: Command): void {
     .option('--inherit-local', 'Inherit local settings')
     .option('--settings <file-or-json>', 'Path to settings JSON file or JSON string')
     .option('--resume [session-id]', 'Resume a previous session (opens picker if no ID provided)')
+    .option('--remote-control', 'Enable remote control via TCP (Claude --remote-control)')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
