@@ -33,7 +33,17 @@ async function main(): Promise<void> {
   }
 
   const artifact = await readLaunchArtifact(launchFile)
-  const { launchId, callbackSocketPath, spoolDir, argv, env, cwd } = artifact
+  const {
+    launchId,
+    callbackSocketPath,
+    hostSessionId,
+    generation,
+    runtimeId,
+    spoolDir,
+    argv,
+    env,
+    cwd,
+  } = artifact
 
   const command = argv[0]
   if (!command) {
@@ -45,14 +55,25 @@ async function main(): Promise<void> {
   await callbackOrSpool(
     callbackSocketPath,
     `/v1/internal/launches/${launchId}/wrapper-started`,
-    { launchId, pid: process.pid },
+    { launchId, hostSessionId, wrapperPid: process.pid },
     spoolDir,
     launchId
   )
 
   // Spawn child
   const child: ChildProcess = spawn(command, argv.slice(1), {
-    env: { ...process.env, ...env },
+    env: {
+      ...process.env,
+      ...env,
+      HRC_LAUNCH_FILE: launchFile,
+      HRC_CALLBACK_SOCKET: callbackSocketPath,
+      HRC_CALLBACK_SOCK: callbackSocketPath,
+      HRC_SPOOL_DIR: spoolDir,
+      HRC_LAUNCH_ID: launchId,
+      HRC_HOST_SESSION_ID: hostSessionId,
+      HRC_GENERATION: String(generation),
+      ...(runtimeId ? { HRC_RUNTIME_ID: runtimeId } : {}),
+    },
     cwd,
     stdio: 'inherit',
   })
@@ -61,7 +82,7 @@ async function main(): Promise<void> {
   await callbackOrSpool(
     callbackSocketPath,
     `/v1/internal/launches/${launchId}/child-started`,
-    { launchId, childPid: child.pid },
+    { launchId, hostSessionId, childPid: child.pid },
     spoolDir,
     launchId
   )
@@ -71,6 +92,7 @@ async function main(): Promise<void> {
     child.on('exit', (code: number | null, signal: string | null) => {
       const payload = {
         launchId,
+        hostSessionId,
         exitCode: code ?? undefined,
         signal: signal ?? undefined,
       }
