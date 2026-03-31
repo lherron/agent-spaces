@@ -28,6 +28,7 @@
       "additionalProperties": false,
       "properties": {
         "model": { "type": "string" },
+        "model_reasoning_effort": { "type": "string" },
         "approval_policy": {
           "type": "string",
           "enum": ["untrusted", "on-failure", "on-request", "never"]
@@ -81,6 +82,7 @@
           "additionalProperties": false,
           "properties": {
             "model": { "type": "string" },
+            "model_reasoning_effort": { "type": "string" },
             "approval_policy": {
               "type": "string",
               "enum": ["untrusted", "on-failure", "on-request", "never"]

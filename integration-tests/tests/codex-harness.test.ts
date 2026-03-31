@@ -195,6 +195,26 @@ describe('asp codex harness', () => {
     expect(stdout).toContain('--model gpt-5.3-codex')
   })
 
+  test('run --harness codex --dry-run emits model reasoning effort override', async () => {
+    const testEnv = getCodexTestEnv(aspHome)
+    const { stdout, exitCode } = await runCli(
+      [
+        'run',
+        'codex-target',
+        '--harness',
+        'codex',
+        '--dry-run',
+        '--model-reasoning-effort',
+        'high',
+      ],
+      { env: testEnv, cwd: projectDir }
+    )
+
+    expect(exitCode).toBe(0)
+    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    expect(command).toMatch(/-c ['"]model_reasoning_effort="high"['"]/)
+  })
+
   test('run --harness codex with prompt stays interactive by default', async () => {
     const testEnv = getCodexTestEnv(aspHome)
     const { stdout, exitCode } = await runCli(

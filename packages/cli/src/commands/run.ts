@@ -53,6 +53,7 @@ interface RunOptions {
   yolo?: boolean
   debug?: boolean
   permissionMode?: string
+  modelReasoningEffort?: string
   inheritAll?: boolean
   inheritProject?: boolean
   inheritUser?: boolean
@@ -161,6 +162,7 @@ async function runProjectMode(
     settings: options.settings,
     harness: options.harness,
     model: options.model,
+    modelReasoningEffort: options.modelReasoningEffort,
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
     continuationKey: options.resume,
@@ -250,6 +252,7 @@ async function runGlobalMode(
     settings: options.settings,
     harness: options.harness,
     model: options.model,
+    modelReasoningEffort: options.modelReasoningEffort,
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
     continuationKey: options.resume,
@@ -298,6 +301,7 @@ async function runDevMode(
     settings: options.settings,
     harness: options.harness,
     model: options.model,
+    modelReasoningEffort: options.modelReasoningEffort,
     inheritProject: options.inheritProject,
     continuationKey: options.resume,
     inheritUser: options.inheritUser,
@@ -363,6 +367,7 @@ export function registerRunCommand(program: Command): void {
       'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, codex, pi, pi-sdk)'
     )
     .option('--model <model>', 'Model override (pi-sdk expects provider:model)')
+    .option('--model-reasoning-effort <effort>', 'Codex model reasoning effort override')
     .option('--permission-mode <mode>', 'Claude permission mode (--permission-mode)')
     .option('--no-interactive', 'Run non-interactively')
     .option('--no-warnings', 'Suppress lint warnings')
