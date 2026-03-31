@@ -105,6 +105,8 @@ export interface RunOptions extends ResolveOptions {
   debug?: boolean | undefined
   /** Model override (passed through to harness) */
   model?: string | undefined
+  /** Codex model reasoning effort override */
+  modelReasoningEffort?: string | undefined
   /** Inherit project-level settings (for Pi: enables .pi/skills in project) */
   inheritProject?: boolean | undefined
   /** Inherit user-level settings (for Pi: enables ~/.pi/agent/skills) */
@@ -662,6 +664,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const cliRunOptions: HarnessRunOptions = {
     aspHome: options.aspHome,
     model: options.model,
+    modelReasoningEffort: options.modelReasoningEffort,
     extraArgs: options.extraArgs,
     interactive: resolveInteractive(options.interactive),
     prompt: effectivePrompt,
@@ -783,6 +786,8 @@ export interface GlobalRunOptions {
   debug?: boolean | undefined
   /** Model override (passed through to harness) */
   model?: string | undefined
+  /** Codex model reasoning effort override */
+  modelReasoningEffort?: string | undefined
   /** Inherit project-level settings (for Pi: enables .pi/skills in project) */
   inheritProject?: boolean | undefined
   /** Inherit user-level settings (for Pi: enables ~/.pi/agent/skills) */
@@ -930,6 +935,7 @@ export async function runGlobalSpace(
     const cliRunOptions: HarnessRunOptions = {
       aspHome,
       model: options.model,
+      modelReasoningEffort: options.modelReasoningEffort,
       extraArgs: options.extraArgs,
       interactive: resolveInteractive(options.interactive),
       prompt: options.prompt,
@@ -1052,6 +1058,7 @@ export async function runLocalSpace(
     const cliRunOptions: HarnessRunOptions = {
       aspHome,
       model: options.model,
+      modelReasoningEffort: options.modelReasoningEffort,
       extraArgs: options.extraArgs,
       interactive: resolveInteractive(options.interactive),
       prompt: options.prompt,

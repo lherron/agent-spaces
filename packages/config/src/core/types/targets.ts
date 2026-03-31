@@ -21,6 +21,8 @@ export interface ClaudeOptions {
 export interface CodexOptions {
   /** Model to use */
   model?: string | undefined
+  /** Model reasoning effort override */
+  model_reasoning_effort?: string | undefined
   /** Approval policy */
   approval_policy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
   /** Sandbox mode */
@@ -118,6 +120,7 @@ export function mergeCodexOptions(
 
   return {
     model: overrides.model ?? defaults.model,
+    model_reasoning_effort: overrides.model_reasoning_effort ?? defaults.model_reasoning_effort,
     approval_policy: overrides.approval_policy ?? defaults.approval_policy,
     sandbox_mode: overrides.sandbox_mode ?? defaults.sandbox_mode,
     profile: overrides.profile ?? defaults.profile,

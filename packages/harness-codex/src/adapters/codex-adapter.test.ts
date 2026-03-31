@@ -171,7 +171,10 @@ describe('CodexAdapter', () => {
       await writeFile(join(artifact2Dir, 'instructions.md'), 'instructions two')
       await writeFile(
         join(artifact2Dir, 'codex.config.json'),
-        JSON.stringify({ approval_policy: 'never' })
+        JSON.stringify({
+          approval_policy: 'never',
+          model_reasoning_effort: 'low',
+        })
       )
       await mkdir(join(artifact2Dir, 'mcp'), { recursive: true })
       await writeFile(
@@ -214,6 +217,7 @@ describe('CodexAdapter', () => {
         settingsInputs: [],
         codexOptions: {
           model: 'gpt-5.3-codex',
+          model_reasoning_effort: 'medium',
           approval_policy: 'on-request',
           sandbox_mode: 'danger-full-access',
           profile: 'default',
@@ -242,6 +246,7 @@ describe('CodexAdapter', () => {
       expect(parsed['approval_policy']).toBe('on-request')
       expect(parsed['sandbox_mode']).toBe('danger-full-access')
       expect(parsed['model']).toBe('gpt-5.3-codex')
+      expect(parsed['model_reasoning_effort']).toBe('medium')
       expect(parsed['profile']).toBe('default')
 
       const mcpServers = parsed['mcp_servers'] as Record<string, Record<string, unknown>>
@@ -303,6 +308,16 @@ describe('CodexAdapter', () => {
       expect(args).toContain('Summarize repository health')
     })
 
+    test('emits model reasoning effort as a config override', () => {
+      const args = adapter.buildRunArgs(bundle, {
+        interactive: false,
+        modelReasoningEffort: 'high',
+      })
+
+      expect(args).toContain('-c')
+      expect(args).toContain('model_reasoning_effort="high"')
+    })
+
     test('marks gpt-5.4 as the default supported model', () => {
       expect(adapter.models[0]).toEqual({ id: 'gpt-5.4', name: 'GPT-5.4', default: true })
     })
@@ -322,6 +337,26 @@ describe('CodexAdapter', () => {
 
       const defaults = adapter.getDefaultRunOptions(manifest, 'codex')
       expect(defaults.prompt).toBe('Register and send READY')
+    })
+
+    test('prefers target codex model_reasoning_effort over top-level defaults', () => {
+      const manifest: ProjectManifest = {
+        schema: 1,
+        codex: {
+          model_reasoning_effort: 'low',
+        },
+        targets: {
+          codex: {
+            compose: ['space:codex-space@stable'],
+            codex: {
+              model_reasoning_effort: 'high',
+            },
+          },
+        },
+      }
+
+      const defaults = adapter.getDefaultRunOptions(manifest, 'codex')
+      expect(defaults.modelReasoningEffort).toBe('high')
     })
   })
 

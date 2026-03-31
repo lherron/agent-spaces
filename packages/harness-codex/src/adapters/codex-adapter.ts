@@ -538,6 +538,9 @@ export class CodexAdapter implements HarnessAdapter {
       if (input.codexOptions.model) {
         targetOverrides['model'] = input.codexOptions.model
       }
+      if (input.codexOptions.model_reasoning_effort) {
+        targetOverrides['model_reasoning_effort'] = input.codexOptions.model_reasoning_effort
+      }
       if (input.codexOptions.approval_policy) {
         targetOverrides['approval_policy'] = input.codexOptions.approval_policy
       }
@@ -653,6 +656,9 @@ export class CodexAdapter implements HarnessAdapter {
     if (options.model) {
       args.push('--model', options.model)
     }
+    if (options.modelReasoningEffort) {
+      args.push('-c', `model_reasoning_effort="${options.modelReasoningEffort}"`)
+    }
     if (approvalPolicy) {
       // exec mode uses -c config override, interactive mode uses --ask-for-approval
       if (isExecMode) {
@@ -738,6 +744,7 @@ export class CodexAdapter implements HarnessAdapter {
 
     const defaults: Partial<HarnessRunOptions> = {
       model: codexOptions.model,
+      modelReasoningEffort: codexOptions.model_reasoning_effort,
       approvalPolicy: codexOptions.approval_policy,
       sandboxMode: codexOptions.sandbox_mode,
       profile: codexOptions.profile,

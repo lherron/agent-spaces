@@ -255,6 +255,8 @@ export interface HarnessRunOptions {
   aspHome?: string | undefined
   /** Model override */
   model?: string | undefined
+  /** Codex model reasoning effort override */
+  modelReasoningEffort?: string | undefined
   /** Codex runtime home directory (CODEX_HOME) override */
   codexHomeDir?: string | undefined
   /** Codex approval policy override */
