@@ -14,4 +14,9 @@ export {
   type SdkTurnOptions,
   type SdkTurnResult,
   type SdkTurnRunner,
+  getSdkInflightCapability,
+  deliverSdkInflightInput,
+  type SdkInflightInputOptions,
+  type SdkInflightInputResult,
+  type SdkInflightInputClient,
 } from './sdk-adapter/index.js'

@@ -46,6 +46,79 @@ export type SdkTurnResult = {
   result: RunTurnNonInteractiveResponse['result']
 }
 
+// ---------------------------------------------------------------------------
+// Phase 3: In-flight input capability and delivery
+// ---------------------------------------------------------------------------
+
+export function getSdkInflightCapability(provider: HrcProvider): boolean {
+  // agent-sdk (anthropic) supports in-flight input via queueInFlightInput
+  // pi-sdk (openai) does not
+  return provider === 'anthropic'
+}
+
+export type SdkInflightInputClient = {
+  queueInFlightInput(req: {
+    hostSessionId: string
+    runId: string
+    prompt: string
+  }): Promise<{ accepted: boolean; pendingTurns?: number }>
+}
+
+export type SdkInflightInputOptions = {
+  hostSessionId: string
+  runId: string
+  runtimeId: string
+  prompt: string
+  scopeRef: string
+  laneRef: string
+  generation: number
+  onHrcEvent?: ((event: Omit<HrcEventEnvelope, 'seq'>) => void | Promise<void>) | undefined
+  client?: SdkInflightInputClient | undefined
+}
+
+export type SdkInflightInputResult = {
+  accepted: boolean
+  pendingTurns?: number | undefined
+}
+
+export async function deliverSdkInflightInput(
+  options: SdkInflightInputOptions
+): Promise<SdkInflightInputResult> {
+  const client = options.client ?? createAgentSpacesClient()
+  const onHrcEvent = options.onHrcEvent ?? (() => {})
+
+  const response = await client.queueInFlightInput({
+    hostSessionId: options.hostSessionId,
+    runId: options.runId,
+    prompt: options.prompt,
+  })
+
+  await onHrcEvent({
+    ts: new Date().toISOString(),
+    hostSessionId: options.hostSessionId,
+    scopeRef: options.scopeRef,
+    laneRef: options.laneRef,
+    generation: options.generation,
+    runId: options.runId,
+    runtimeId: options.runtimeId,
+    source: 'agent-spaces',
+    eventKind: 'sdk.inflight_delivered',
+    eventJson: {
+      prompt: options.prompt,
+      accepted: response.accepted,
+    },
+  })
+
+  return {
+    accepted: response.accepted,
+    pendingTurns: response.pendingTurns,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1/2: SDK turn dispatch
+// ---------------------------------------------------------------------------
+
 function toFrontend(provider: HrcProvider): 'agent-sdk' | 'pi-sdk' {
   return provider === 'openai' ? 'pi-sdk' : 'agent-sdk'
 }
