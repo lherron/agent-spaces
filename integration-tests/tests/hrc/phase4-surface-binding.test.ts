@@ -18,9 +18,9 @@ import { join } from 'node:path'
 
 import type { HrcEventEnvelope } from 'hrc-core'
 import { HrcClient } from 'hrc-sdk'
-import { openHrcDatabase } from 'hrc-store-sqlite'
 import { createHrcServer } from 'hrc-server'
 import type { HrcServer, HrcServerOptions } from 'hrc-server'
+import { openHrcDatabase } from 'hrc-store-sqlite'
 
 // ---------------------------------------------------------------------------
 // Test harness
@@ -133,10 +133,7 @@ describe('Surface binding restart persistence', () => {
   it('binding survives daemon stop and restart', async () => {
     server = await createHrcServer(serverOpts())
     const c = client()
-    const { hostSessionId, runtimeId, generation } = await seedRuntime(
-      c,
-      'project:restart-persist'
-    )
+    const { hostSessionId, runtimeId, generation } = await seedRuntime(c, 'project:restart-persist')
 
     // Bind a surface
     const bound = await c.bindSurface({
@@ -198,9 +195,8 @@ describe('Surface rebind across runtimes', () => {
 
     // Record event seq baseline
     const eventsBeforeRebind = await fetchEvents(c)
-    const baselineSeq = eventsBeforeRebind.length > 0
-      ? eventsBeforeRebind[eventsBeforeRebind.length - 1]!.seq
-      : 0
+    const baselineSeq =
+      eventsBeforeRebind.length > 0 ? eventsBeforeRebind[eventsBeforeRebind.length - 1]!.seq : 0
 
     // Rebind to runtime B
     const boundB = await c.bindSurface({
@@ -329,10 +325,7 @@ describe('Surface unbind with event', () => {
   it('unbindSurface returns record with unboundAt and emits surface.unbound', async () => {
     server = await createHrcServer(serverOpts())
     const c = client()
-    const { hostSessionId, runtimeId, generation } = await seedRuntime(
-      c,
-      'project:unbind-test'
-    )
+    const { hostSessionId, runtimeId, generation } = await seedRuntime(c, 'project:unbind-test')
 
     const surfaceKind = 'ghostty'
     const surfaceId = 'unbind-surf-1'
