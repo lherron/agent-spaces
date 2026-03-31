@@ -1,0 +1,32 @@
+{
+  "name": "hrc-adapter-agent-spaces",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adapter between HRC intent and agent-spaces execution/materialization surfaces",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "hrc-core": "*",
+    "agent-spaces": "*",
+    "spaces-runtime": "*",
+    "spaces-execution": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}
