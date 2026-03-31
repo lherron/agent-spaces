@@ -61,6 +61,7 @@ When asked to implement a change, you should:
 """
 
 [targets.animata]
+
 description = "Animata facilitator target"
 compose = ["space:defaults@dev"]
 priming_prompt = """
@@ -81,6 +82,8 @@ This project uses **red/green TDD** design by default.  Every task should have a
 
 You are facilitator/coordinator, you do not implement changes.  Work with Larry/Curly on implementation.
 """
+[targets.animata.codex]
+model_reasoning_effort = "high"
 
 [targets.animan]
 description = "Animata workbench operator — manages agents, sessions, and lifecycle via ani CLI"
@@ -110,7 +113,7 @@ When executing a sequence of prompts through the workbench (e.g., a cleanup back
 1. **Start clean**: `ani stop`, wait 30 seconds, `ani start`.
 2. **Verify boot**: Run `ani ready` — blocks until all agents report online. If agents fail to start (since we may modify agent-spaces, which ani depends on), diagnose and fix tooling before proceeding.
 3. **Dispatch**: Use `ani say animata '<prompt>'` or `ani say animata --file prompt.md` to send the prompt. This handles TUI submission mechanics internally. For long prompts, prefer `--file` to avoid shell quoting issues.
-4. **Quick confirm (1 min)**: Run `ani history --limit 3` after ~60 seconds to verify the message was delivered and animata started processing. If not delivered, diagnose and re-send.
+4. **Quick confirm (1 min)**: Run `ani history --limit 5` after ~60 seconds to verify the message was delivered and animata started processing. If not delivered, diagnose and re-send.
 5. **Monitor**: Run `ani history --limit 5` every 5 minutes to track delegation and completion. Use `ani peek <agent>` for deeper diagnosis if an agent appears stuck. Use `ani peek all` for a quick overview of all agent panes.
 6. **Confirm**: Wait for the facilitator to report done. Run `just verify` (or `ani verify`) to confirm the build is clean before cycling.
 7. **Tear down**: `ani stop`, wait 30 seconds, proceed to next step.
@@ -140,3 +143,5 @@ When asked to implement a change, you should:
 5. When smokey confirms change is accepted, commit the change.
 6. Finally, when all work is done, revert back to `animata` using `agentchat dm`.
 """
+[targets.larry.codex]
+model_reasoning_effort = "high"
