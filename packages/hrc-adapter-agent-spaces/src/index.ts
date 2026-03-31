@@ -9,3 +9,9 @@ export {
   type CliInvocationResult,
   type SpecBuilder,
 } from './cli-adapter/index.js'
+export {
+  runSdkTurn,
+  type SdkTurnOptions,
+  type SdkTurnResult,
+  type SdkTurnRunner,
+} from './sdk-adapter/index.js'
