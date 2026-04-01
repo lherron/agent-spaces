@@ -23,6 +23,7 @@ import type { HrcLaunchArtifact } from 'hrc-core'
 // These imports are the RED gates — they will fail until Curly implements the modules
 import { readLaunchArtifact, writeLaunchArtifact } from '../launch-artifact'
 
+import { replaySpoolEntries } from '../index'
 import { readSpoolEntries, spoolCallback } from '../spool'
 
 import { buildHookEnvelope } from '../hook'
@@ -179,6 +180,67 @@ describe('Spool helpers', () => {
     const spoolDir = join(tmpDir, 'spool')
     const entries = await readSpoolEntries(spoolDir, 'nonexistent-launch')
     expect(entries).toEqual([])
+  })
+
+  it('does not overwrite entries when callbacks are spooled concurrently', async () => {
+    const spoolDir = join(tmpDir, 'spool')
+
+    await Promise.all(
+      Array.from({ length: 25 }, (_, i) => spoolCallback(spoolDir, 'launch-race', { index: i }))
+    )
+
+    const entries = await readSpoolEntries(spoolDir, 'launch-race')
+    expect(entries.length).toBe(25)
+    expect(new Set(entries.map((entry) => entry.seq)).size).toBe(25)
+    expect(entries.map((entry) => entry.seq)).toEqual(Array.from({ length: 25 }, (_, i) => i + 1))
+    expect(
+      entries
+        .map((entry) => (entry.payload as { index: number }).index)
+        .sort((left, right) => left - right)
+    ).toEqual(Array.from({ length: 25 }, (_, i) => i))
+  })
+
+  it('replays spooled callbacks through the public helper and removes delivered entries', async () => {
+    const spoolDir = join(tmpDir, 'spool')
+    const launchId = 'launch-replay'
+    const deliveredCalls: Array<{ endpoint: string; payload: object }> = []
+
+    await spoolCallback(spoolDir, launchId, {
+      endpoint: '/v1/internal/launches/launch-replay/wrapper-started',
+      payload: { step: 'wrapper-started' },
+    })
+    await spoolCallback(spoolDir, launchId, {
+      endpoint: '/v1/internal/launches/launch-replay/exited',
+      payload: { step: 'exited' },
+    })
+
+    const replayed = await replaySpoolEntries(
+      spoolDir,
+      launchId,
+      '/tmp/unused.sock',
+      async (_socketPath, endpoint, payload) => {
+        deliveredCalls.push({ endpoint, payload })
+        return endpoint.endsWith('/wrapper-started')
+      }
+    )
+
+    expect(replayed).toEqual({ attempted: 2, delivered: 1, retained: 1 })
+    expect(deliveredCalls).toEqual([
+      {
+        endpoint: '/v1/internal/launches/launch-replay/wrapper-started',
+        payload: { step: 'wrapper-started' },
+      },
+      {
+        endpoint: '/v1/internal/launches/launch-replay/exited',
+        payload: { step: 'exited' },
+      },
+    ])
+
+    const remaining = await readSpoolEntries(spoolDir, launchId)
+    expect(remaining.length).toBe(1)
+    expect((remaining[0].payload as { endpoint: string }).endpoint).toBe(
+      '/v1/internal/launches/launch-replay/exited'
+    )
   })
 })
 

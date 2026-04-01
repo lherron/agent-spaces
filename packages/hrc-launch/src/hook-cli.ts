@@ -33,6 +33,11 @@ async function main(): Promise<void> {
   }
 
   const generation = Number.parseInt(generationStr, 10)
+  if (Number.isNaN(generation)) {
+    process.stderr.write(`hrc-launch hook: invalid HRC_GENERATION: ${generationStr}\n`)
+    process.exit(1)
+  }
+
   const envelope = buildHookEnvelope(stdinJson, {
     launchId,
     hostSessionId,
