@@ -136,8 +136,9 @@ function parseReplayPayload(payload: unknown, path: string): { endpoint: string;
     throw new Error(`invalid spool entry payload in ${path}`)
   }
 
-  const endpoint = payload['endpoint']
-  const replayPayload = payload['payload']
+  const record = payload as Record<string, unknown>
+  const endpoint = record['endpoint']
+  const replayPayload = record['payload']
 
   if (typeof endpoint !== 'string') {
     throw new Error(`spool entry endpoint must be a string in ${path}`)

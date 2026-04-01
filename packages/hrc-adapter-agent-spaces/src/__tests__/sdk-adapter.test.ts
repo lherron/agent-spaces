@@ -31,7 +31,9 @@
  */
 import { describe, expect, it } from 'bun:test'
 
+import type { AgentEvent } from 'agent-spaces'
 import type { HrcEventEnvelope, HrcProvider, HrcRuntimeIntent } from 'hrc-core'
+import type { RuntimePlacement } from 'spaces-config'
 
 // RED GATE: These imports will fail until Curly implements the SDK adapter module
 import { type SdkTurnOptions, type SdkTurnRunner, runSdkTurn } from '../sdk-adapter/index'
@@ -42,37 +44,37 @@ import { type SdkTurnOptions, type SdkTurnRunner, runSdkTurn } from '../sdk-adap
 // mapping, buffer callbacks, continuation extraction) is exercised on top.
 // ---------------------------------------------------------------------------
 
+/** Base fields shared by all stub AgentEvents */
+const STUB_BASE = {
+  ts: new Date().toISOString(),
+  hostSessionId: 'hsid-test',
+  runId: 'run-test',
+} as const
+
+function stubEvent(
+  seq: number,
+  fields: Omit<AgentEvent, 'ts' | 'seq' | 'hostSessionId' | 'runId'>
+): AgentEvent {
+  return { ...STUB_BASE, seq, ...fields } as AgentEvent
+}
+
 function createStubRunner(opts?: {
-  events?: Array<{ type: string; [key: string]: unknown }>
-  continuation?: { provider: string; key?: string }
+  events?: AgentEvent[]
+  continuation?: { provider: 'anthropic' | 'openai'; key?: string }
 }): SdkTurnRunner {
-  const events = opts?.events ?? [
-    { type: 'state', state: 'running', seq: 1, hostSessionId: 'hsid-test', runId: 'run-test' },
-    {
-      type: 'message',
-      role: 'assistant',
-      content: 'Hello from SDK',
-      seq: 2,
-      hostSessionId: 'hsid-test',
-      runId: 'run-test',
-    },
-    {
-      type: 'complete',
-      result: { success: true, finalOutput: 'Done' },
-      seq: 3,
-      hostSessionId: 'hsid-test',
-      runId: 'run-test',
-    },
+  const events: AgentEvent[] = opts?.events ?? [
+    stubEvent(1, { type: 'state', state: 'running' }),
+    stubEvent(2, { type: 'message', role: 'assistant', content: 'Hello from SDK' }),
+    stubEvent(3, { type: 'complete', result: { success: true, finalOutput: 'Done' } }),
   ]
 
   return async (req) => {
-    // Fire events through callbacks
     for (const event of events) {
-      await req.callbacks.onEvent(event as any)
+      await req.callbacks.onEvent(event)
     }
 
     return {
-      continuation: (opts?.continuation as any) ?? {
+      continuation: opts?.continuation ?? {
         provider: req.frontend === 'pi-sdk' ? 'openai' : 'anthropic',
         key: 'cont-key-123',
       },
@@ -88,6 +90,12 @@ function createStubRunner(opts?: {
 // Helpers
 // ---------------------------------------------------------------------------
 
+const STUB_PLACEMENT: RuntimePlacement = {
+  agentRoot: '/tmp/agent',
+  runMode: 'task',
+  bundle: { kind: 'agent-default' },
+}
+
 function makeIntent(
   overrides: {
     provider?: 'anthropic' | 'openai'
@@ -96,11 +104,7 @@ function makeIntent(
   } = {}
 ): HrcRuntimeIntent {
   return {
-    placement: {
-      agentRoot: '/tmp/agent',
-      runMode: 'task',
-      bundle: { kind: 'agent-default' },
-    } as any,
+    placement: STUB_PLACEMENT,
     harness: {
       provider: overrides.provider ?? 'anthropic',
       interactive: overrides.interactive ?? false,
@@ -199,14 +203,8 @@ describe('event mapping', () => {
     const events: Omit<HrcEventEnvelope, 'seq'>[] = []
     const runner = createStubRunner({
       events: [
-        { type: 'state', state: 'running', seq: 1, hostSessionId: 'hsid-test', runId: 'run-test' },
-        {
-          type: 'complete',
-          result: { success: true },
-          seq: 2,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
+        stubEvent(1, { type: 'state', state: 'running' }),
+        stubEvent(2, { type: 'complete', result: { success: true } }),
       ],
     })
 
@@ -226,21 +224,8 @@ describe('event mapping', () => {
     const events: Omit<HrcEventEnvelope, 'seq'>[] = []
     const runner = createStubRunner({
       events: [
-        {
-          type: 'message',
-          role: 'assistant',
-          content: 'Hello',
-          seq: 1,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
-        {
-          type: 'complete',
-          result: { success: true },
-          seq: 2,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
+        stubEvent(1, { type: 'message', role: 'assistant', content: 'Hello' }),
+        stubEvent(2, { type: 'complete', result: { success: true } }),
       ],
     })
 
@@ -254,29 +239,16 @@ describe('event mapping', () => {
     const msg = events.find((e) => e.eventKind === 'sdk.message')
     expect(msg).toBeDefined()
     expect(msg!.source).toBe('agent-spaces')
-    expect((msg!.eventJson as any).role).toBe('assistant')
-    expect((msg!.eventJson as any).content).toBe('Hello')
+    expect(msg!.eventJson!['role']).toBe('assistant')
+    expect(msg!.eventJson!['content']).toBe('Hello')
   })
 
   it('maps message_delta to sdk.message_delta', async () => {
     const events: Omit<HrcEventEnvelope, 'seq'>[] = []
     const runner = createStubRunner({
       events: [
-        {
-          type: 'message_delta',
-          role: 'assistant',
-          delta: 'chunk',
-          seq: 1,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
-        {
-          type: 'complete',
-          result: { success: true },
-          seq: 2,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
+        stubEvent(1, { type: 'message_delta', role: 'assistant', delta: 'chunk' }),
+        stubEvent(2, { type: 'complete', result: { success: true } }),
       ],
     })
 
@@ -289,29 +261,15 @@ describe('event mapping', () => {
 
     const delta = events.find((e) => e.eventKind === 'sdk.message_delta')
     expect(delta).toBeDefined()
-    expect((delta!.eventJson as any).delta).toBe('chunk')
+    expect(delta!.eventJson!['delta']).toBe('chunk')
   })
 
   it('maps tool_call to sdk.tool_call', async () => {
     const events: Omit<HrcEventEnvelope, 'seq'>[] = []
     const runner = createStubRunner({
       events: [
-        {
-          type: 'tool_call',
-          toolUseId: 'tu-1',
-          toolName: 'read_file',
-          input: {},
-          seq: 1,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
-        {
-          type: 'complete',
-          result: { success: true },
-          seq: 2,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
+        stubEvent(1, { type: 'tool_call', toolUseId: 'tu-1', toolName: 'read_file', input: {} }),
+        stubEvent(2, { type: 'complete', result: { success: true } }),
       ],
     })
 
@@ -324,30 +282,21 @@ describe('event mapping', () => {
 
     const tc = events.find((e) => e.eventKind === 'sdk.tool_call')
     expect(tc).toBeDefined()
-    expect((tc!.eventJson as any).toolName).toBe('read_file')
+    expect(tc!.eventJson!['toolName']).toBe('read_file')
   })
 
   it('maps tool_result to sdk.tool_result', async () => {
     const events: Omit<HrcEventEnvelope, 'seq'>[] = []
     const runner = createStubRunner({
       events: [
-        {
+        stubEvent(1, {
           type: 'tool_result',
           toolUseId: 'tu-1',
           toolName: 'read_file',
           output: 'file contents',
           isError: false,
-          seq: 1,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
-        {
-          type: 'complete',
-          result: { success: true },
-          seq: 2,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
+        }),
+        stubEvent(2, { type: 'complete', result: { success: true } }),
       ],
     })
 
@@ -360,21 +309,13 @@ describe('event mapping', () => {
 
     const tr = events.find((e) => e.eventKind === 'sdk.tool_result')
     expect(tr).toBeDefined()
-    expect((tr!.eventJson as any).toolName).toBe('read_file')
+    expect(tr!.eventJson!['toolName']).toBe('read_file')
   })
 
   it('maps complete to sdk.complete', async () => {
     const events: Omit<HrcEventEnvelope, 'seq'>[] = []
     const runner = createStubRunner({
-      events: [
-        {
-          type: 'complete',
-          result: { success: true, finalOutput: 'Done' },
-          seq: 1,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
-      ],
+      events: [stubEvent(1, { type: 'complete', result: { success: true, finalOutput: 'Done' } })],
     })
 
     await runSdkTurn(
@@ -386,28 +327,15 @@ describe('event mapping', () => {
 
     const complete = events.find((e) => e.eventKind === 'sdk.complete')
     expect(complete).toBeDefined()
-    expect((complete!.eventJson as any).result.success).toBe(true)
+    expect((complete!.eventJson!['result'] as Record<string, unknown>)['success']).toBe(true)
   })
 
   it('maps log to sdk.log', async () => {
     const events: Omit<HrcEventEnvelope, 'seq'>[] = []
     const runner = createStubRunner({
       events: [
-        {
-          type: 'log',
-          level: 'info',
-          message: 'test log',
-          seq: 1,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
-        {
-          type: 'complete',
-          result: { success: true },
-          seq: 2,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
+        stubEvent(1, { type: 'log', level: 'info', message: 'test log' }),
+        stubEvent(2, { type: 'complete', result: { success: true } }),
       ],
     })
 
@@ -420,7 +348,7 @@ describe('event mapping', () => {
 
     const log = events.find((e) => e.eventKind === 'sdk.log')
     expect(log).toBeDefined()
-    expect((log!.eventJson as any).level).toBe('info')
+    expect(log!.eventJson!['level']).toBe('info')
   })
 })
 
@@ -432,14 +360,8 @@ describe('event envelope context', () => {
     const events: Omit<HrcEventEnvelope, 'seq'>[] = []
     const runner = createStubRunner({
       events: [
-        { type: 'state', state: 'running', seq: 1, hostSessionId: 'hsid-test', runId: 'run-test' },
-        {
-          type: 'complete',
-          result: { success: true },
-          seq: 2,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
+        stubEvent(1, { type: 'state', state: 'running' }),
+        stubEvent(2, { type: 'complete', result: { success: true } }),
       ],
     })
 
@@ -476,29 +398,9 @@ describe('buffer callbacks', () => {
     const bufferChunks: string[] = []
     const runner = createStubRunner({
       events: [
-        {
-          type: 'message_delta',
-          role: 'assistant',
-          delta: 'chunk1',
-          seq: 1,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
-        {
-          type: 'message_delta',
-          role: 'assistant',
-          delta: 'chunk2',
-          seq: 2,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
-        {
-          type: 'complete',
-          result: { success: true },
-          seq: 3,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
+        stubEvent(1, { type: 'message_delta', role: 'assistant', delta: 'chunk1' }),
+        stubEvent(2, { type: 'message_delta', role: 'assistant', delta: 'chunk2' }),
+        stubEvent(3, { type: 'complete', result: { success: true } }),
       ],
     })
 
@@ -517,21 +419,8 @@ describe('buffer callbacks', () => {
     const bufferChunks: string[] = []
     const runner = createStubRunner({
       events: [
-        {
-          type: 'message',
-          role: 'assistant',
-          content: 'Full response',
-          seq: 1,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
-        {
-          type: 'complete',
-          result: { success: true },
-          seq: 2,
-          hostSessionId: 'hsid-test',
-          runId: 'run-test',
-        },
+        stubEvent(1, { type: 'message', role: 'assistant', content: 'Full response' }),
+        stubEvent(2, { type: 'complete', result: { success: true } }),
       ],
     })
 
@@ -638,19 +527,12 @@ describe('Step 4 red-gate: adapter contract fixes (T-00981)', () => {
   // and throw a descriptive error on mismatch.
   it('M-11: runSdkTurn throws on invalid provider from runner response', async () => {
     const runner: SdkTurnRunner = async (req) => {
-      // Fire minimum events to complete
-      await req.callbacks.onEvent({
-        type: 'complete',
-        result: { success: true },
-        seq: 1,
-        hostSessionId: 'hsid-test',
-        runId: 'run-test',
-      } as any)
+      await req.callbacks.onEvent(stubEvent(1, { type: 'complete', result: { success: true } }))
 
       return {
         continuation: undefined,
-        // This is NOT a valid HrcProvider — should be caught by validation
-        provider: 'unknown-bogus-provider' as any,
+        // Intentionally invalid provider string to test validation
+        provider: 'unknown-bogus-provider' as 'anthropic',
         frontend: 'agent-sdk',
         result: { success: true },
       }
@@ -693,13 +575,7 @@ describe('Step 4 red-gate: adapter contract fixes (T-00981)', () => {
       // Simulate a long-running turn — abort fires while waiting
       await new Promise((resolve) => setTimeout(resolve, 200))
       runnerCompleted = true
-      await req.callbacks.onEvent({
-        type: 'complete',
-        result: { success: true },
-        seq: 1,
-        hostSessionId: 'hsid-test',
-        runId: 'run-test',
-      } as any)
+      await req.callbacks.onEvent(stubEvent(1, { type: 'complete', result: { success: true } }))
       return {
         continuation: undefined,
         provider: 'anthropic',
