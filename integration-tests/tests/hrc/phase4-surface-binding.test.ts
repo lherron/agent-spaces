@@ -71,7 +71,7 @@ async function seedRuntime(
   const runtimeId = `rt-test-${randomUUID()}`
   const now = ts()
   const db = openHrcDatabase(dbPath)
-  db.runtimes.create({
+  db.runtimes.insert({
     runtimeId,
     hostSessionId: resolved.hostSessionId,
     scopeRef: scopeRef.replace(/\/lane:.*$/, ''),
@@ -269,7 +269,7 @@ describe('Clear-context surface binding move', () => {
     const newRuntimeId = `rt-test-${randomUUID()}`
     const now = ts()
     const db = openHrcDatabase(dbPath)
-    db.runtimes.create({
+    db.runtimes.insert({
       runtimeId: newRuntimeId,
       hostSessionId: cleared.hostSessionId,
       scopeRef: 'project:clear-ctx-bind',
