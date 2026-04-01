@@ -24,109 +24,24 @@
  *  10. After close(), deliver() rejects (bridge no longer active)
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
 import { createHrcServer } from 'hrc-server'
 import type { HrcServer } from 'hrc-server'
 import { openHrcDatabase } from 'hrc-store-sqlite'
+import { createHrcTestFixture } from '../../../hrc-server/src/__tests__/fixtures/hrc-test-fixture'
+import type { HrcServerTestFixture } from '../../../hrc-server/src/__tests__/fixtures/hrc-test-fixture'
 
 // RED GATE: AgentchatBridge class does not exist yet
 import { AgentchatBridge } from '../index'
 
-let tmpDir: string
-let runtimeRoot: string
-let stateRoot: string
-let socketPath: string
-let lockPath: string
-let spoolDir: string
-let dbPath: string
-let tmuxSocketPath: string
-
-function ts(): string {
-  return new Date().toISOString()
-}
-
-async function postJson(path: string, body: unknown): Promise<Response> {
-  return fetch(`http://localhost${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    // @ts-expect-error -- Bun supports unix option on fetch
-    unix: socketPath,
-  })
-}
-
-/**
- * Helper: resolve a session + seed a runtime so we have valid IDs for bridge ops.
- */
-async function ensureRuntime(scopeRef: string): Promise<{
-  hostSessionId: string
-  generation: number
-  runtimeId: string
-}> {
-  const resolveRes = await postJson('/v1/sessions/resolve', {
-    sessionRef: `${scopeRef}/lane:default`,
-  })
-  const resolved = (await resolveRes.json()) as {
-    hostSessionId: string
-    generation: number
-  }
-
-  const runtimeId = `rt-test-${randomUUID()}`
-  const now = ts()
-  const db = openHrcDatabase(dbPath)
-  db.runtimes.insert({
-    runtimeId,
-    hostSessionId: resolved.hostSessionId,
-    scopeRef,
-    laneRef: 'default',
-    generation: resolved.generation,
-    transport: 'sdk',
-    harness: 'agent-sdk',
-    provider: 'anthropic',
-    status: 'ready',
-    supportsInflightInput: false,
-    adopted: false,
-    createdAt: now,
-    updatedAt: now,
-  })
-
-  return {
-    hostSessionId: resolved.hostSessionId,
-    generation: resolved.generation,
-    runtimeId,
-  }
-}
+let fixture: HrcServerTestFixture
 
 beforeEach(async () => {
-  tmpDir = await mkdtemp(join(tmpdir(), 'hrc-bridge-agentchat-test-'))
-  runtimeRoot = join(tmpDir, 'runtime')
-  stateRoot = join(tmpDir, 'state')
-  socketPath = join(runtimeRoot, 'hrc.sock')
-  lockPath = join(runtimeRoot, 'server.lock')
-  spoolDir = join(runtimeRoot, 'spool')
-  dbPath = join(stateRoot, 'state.sqlite')
-  tmuxSocketPath = join(runtimeRoot, 'tmux.sock')
-
-  await mkdir(runtimeRoot, { recursive: true })
-  await mkdir(stateRoot, { recursive: true })
-  await mkdir(spoolDir, { recursive: true })
+  fixture = await createHrcTestFixture('hrc-bridge-agentchat-test-')
 })
 
 afterEach(async () => {
-  try {
-    const { exited } = Bun.spawn(['tmux', '-S', tmuxSocketPath, 'kill-server'], {
-      stdout: 'ignore',
-      stderr: 'ignore',
-    })
-    await exited
-  } catch {
-    // fine
-  }
-  await rm(tmpDir, { recursive: true, force: true })
+  await fixture.cleanup()
 })
 
 // ---------------------------------------------------------------------------
@@ -140,19 +55,11 @@ describe('AgentchatBridge.registerTarget', () => {
   })
 
   it('registers a local bridge target and returns bridgeId', async () => {
-    server = await createHrcServer({
-      runtimeRoot,
-      stateRoot,
-      socketPath,
-      lockPath,
-      spoolDir,
-      dbPath,
-      tmuxSocketPath,
-    })
-    const { hostSessionId, generation, runtimeId } = await ensureRuntime('bridge-reg-test')
+    server = await createHrcServer(fixture.serverOpts())
+    const { hostSessionId, generation, runtimeId } = await fixture.ensureRuntime('bridge-reg-test')
 
     const bridge = new AgentchatBridge({
-      socketPath,
+      socketPath: fixture.socketPath,
       transport: 'legacy-agentchat',
       target: 'reg-test@agent-spaces',
     })
@@ -169,19 +76,11 @@ describe('AgentchatBridge.registerTarget', () => {
   })
 
   it('stores fence params from registration', async () => {
-    server = await createHrcServer({
-      runtimeRoot,
-      stateRoot,
-      socketPath,
-      lockPath,
-      spoolDir,
-      dbPath,
-      tmuxSocketPath,
-    })
-    const { hostSessionId, generation, runtimeId } = await ensureRuntime('bridge-fence-reg')
+    server = await createHrcServer(fixture.serverOpts())
+    const { hostSessionId, generation, runtimeId } = await fixture.ensureRuntime('bridge-fence-reg')
 
     const bridge = new AgentchatBridge({
-      socketPath,
+      socketPath: fixture.socketPath,
       transport: 'legacy-agentchat',
       target: 'fence-reg@agent-spaces',
     })
@@ -194,7 +93,7 @@ describe('AgentchatBridge.registerTarget', () => {
     })
 
     // Verify via DB that fence was stored
-    const db = openHrcDatabase(dbPath)
+    const db = openHrcDatabase(fixture.dbPath)
     try {
       const record = db.localBridges.findById(result.bridgeId)
       expect(record).not.toBeNull()
@@ -217,19 +116,11 @@ describe('AgentchatBridge.deliver', () => {
   })
 
   it('delivers text through the bridge', async () => {
-    server = await createHrcServer({
-      runtimeRoot,
-      stateRoot,
-      socketPath,
-      lockPath,
-      spoolDir,
-      dbPath,
-      tmuxSocketPath,
-    })
-    const { hostSessionId, generation, runtimeId } = await ensureRuntime('bridge-deliver')
+    server = await createHrcServer(fixture.serverOpts())
+    const { hostSessionId, generation, runtimeId } = await fixture.ensureRuntime('bridge-deliver')
 
     const bridge = new AgentchatBridge({
-      socketPath,
+      socketPath: fixture.socketPath,
       transport: 'legacy-agentchat',
       target: 'deliver@agent-spaces',
     })
@@ -246,19 +137,11 @@ describe('AgentchatBridge.deliver', () => {
   })
 
   it('rejects with stale_context when fence has rotated', async () => {
-    server = await createHrcServer({
-      runtimeRoot,
-      stateRoot,
-      socketPath,
-      lockPath,
-      spoolDir,
-      dbPath,
-      tmuxSocketPath,
-    })
-    const { hostSessionId, generation, runtimeId } = await ensureRuntime('bridge-stale')
+    server = await createHrcServer(fixture.serverOpts())
+    const { hostSessionId, generation, runtimeId } = await fixture.ensureRuntime('bridge-stale')
 
     const bridge = new AgentchatBridge({
-      socketPath,
+      socketPath: fixture.socketPath,
       transport: 'legacy-agentchat',
       target: 'stale@agent-spaces',
     })
@@ -273,7 +156,7 @@ describe('AgentchatBridge.deliver', () => {
     // Simulate context rotation by bumping the session's generation via
     // raw SQL. Fence validation checks the session, so this makes the
     // bridge's registered fence stale.
-    const db = openHrcDatabase(dbPath)
+    const db = openHrcDatabase(fixture.dbPath)
     db.sqlite.exec(
       `UPDATE sessions SET generation = ${generation + 100} WHERE host_session_id = '${hostSessionId}'`
     )
@@ -296,19 +179,11 @@ describe('AgentchatBridge.close', () => {
   })
 
   it('closes the bridge registration', async () => {
-    server = await createHrcServer({
-      runtimeRoot,
-      stateRoot,
-      socketPath,
-      lockPath,
-      spoolDir,
-      dbPath,
-      tmuxSocketPath,
-    })
-    const { hostSessionId, generation, runtimeId } = await ensureRuntime('bridge-close')
+    server = await createHrcServer(fixture.serverOpts())
+    const { hostSessionId, generation, runtimeId } = await fixture.ensureRuntime('bridge-close')
 
     const bridge = new AgentchatBridge({
-      socketPath,
+      socketPath: fixture.socketPath,
       transport: 'legacy-agentchat',
       target: 'close@agent-spaces',
     })
@@ -323,7 +198,7 @@ describe('AgentchatBridge.close', () => {
     await bridge.close()
 
     // Verify via DB
-    const db = openHrcDatabase(dbPath)
+    const db = openHrcDatabase(fixture.dbPath)
     try {
       const record = db.localBridges.findByTarget('legacy-agentchat', 'close@agent-spaces')
       expect(record).not.toBeNull()
@@ -334,19 +209,12 @@ describe('AgentchatBridge.close', () => {
   })
 
   it('is idempotent — calling close twice does not error', async () => {
-    server = await createHrcServer({
-      runtimeRoot,
-      stateRoot,
-      socketPath,
-      lockPath,
-      spoolDir,
-      dbPath,
-      tmuxSocketPath,
-    })
-    const { hostSessionId, generation, runtimeId } = await ensureRuntime('bridge-close-idem')
+    server = await createHrcServer(fixture.serverOpts())
+    const { hostSessionId, generation, runtimeId } =
+      await fixture.ensureRuntime('bridge-close-idem')
 
     const bridge = new AgentchatBridge({
-      socketPath,
+      socketPath: fixture.socketPath,
       transport: 'legacy-agentchat',
       target: 'close-idem@agent-spaces',
     })
@@ -364,19 +232,12 @@ describe('AgentchatBridge.close', () => {
   })
 
   it('deliver rejects after close', async () => {
-    server = await createHrcServer({
-      runtimeRoot,
-      stateRoot,
-      socketPath,
-      lockPath,
-      spoolDir,
-      dbPath,
-      tmuxSocketPath,
-    })
-    const { hostSessionId, generation, runtimeId } = await ensureRuntime('bridge-deliver-closed')
+    server = await createHrcServer(fixture.serverOpts())
+    const { hostSessionId, generation, runtimeId } =
+      await fixture.ensureRuntime('bridge-deliver-closed')
 
     const bridge = new AgentchatBridge({
-      socketPath,
+      socketPath: fixture.socketPath,
       transport: 'legacy-agentchat',
       target: 'deliver-closed@agent-spaces',
     })
