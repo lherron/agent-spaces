@@ -58,6 +58,9 @@ export async function readLaunchArtifact(path: string): Promise<HrcLaunchArtifac
   if (!Array.isArray(obj['argv'])) {
     throw new Error(`Launch artifact 'argv' must be an array: ${path}`)
   }
+  if ((obj['argv'] as unknown[]).length === 0) {
+    throw new Error(`Launch artifact 'argv' must not be empty: ${path}`)
+  }
 
   return parsed as HrcLaunchArtifact
 }
