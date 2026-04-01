@@ -1,5 +1,5 @@
 import { HrcDomainError } from 'hrc-core'
-import type { HrcErrorCodeValue, HrcLocalBridgeRecord } from 'hrc-core'
+import type { HrcErrorCode, HrcLocalBridgeRecord } from 'hrc-core'
 
 const BASE_URL = 'http://hrc'
 
@@ -123,7 +123,7 @@ export class AgentchatBridge {
 
     if (body?.error) {
       throw new HrcDomainError(
-        body.error.code as HrcErrorCodeValue,
+        body.error.code as HrcErrorCode,
         `${body.error.code}: ${body.error.message}`,
         (body.error.detail ?? {}) as Record<string, unknown>
       )
