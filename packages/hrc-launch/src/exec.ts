@@ -18,6 +18,14 @@ async function callbackOrSpool(
   }
 }
 
+function formatError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.stack ?? `${err.name}: ${err.message}`
+  }
+
+  return String(err)
+}
+
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
@@ -79,17 +87,29 @@ async function main(): Promise<void> {
   })
 
   // POST child-started
-  await callbackOrSpool(
-    callbackSocketPath,
-    `/v1/internal/launches/${launchId}/child-started`,
-    { launchId, hostSessionId, childPid: child.pid },
-    spoolDir,
-    launchId
-  )
+  if (child.pid !== undefined) {
+    await callbackOrSpool(
+      callbackSocketPath,
+      `/v1/internal/launches/${launchId}/child-started`,
+      { launchId, hostSessionId, childPid: child.pid },
+      spoolDir,
+      launchId
+    )
+  }
 
   // Wait for exit
   const exitCode = await new Promise<number>((resolve) => {
-    child.on('exit', (code: number | null, signal: string | null) => {
+    let settled = false
+
+    const resolveOnce = (code: number): void => {
+      if (!settled) {
+        settled = true
+        resolve(code)
+      }
+    }
+
+    const handleTerminalState = (code: number | null, signal: string | null): void => {
+      const resolvedCode = code ?? 1
       const payload = {
         launchId,
         hostSessionId,
@@ -102,9 +122,25 @@ async function main(): Promise<void> {
         payload,
         spoolDir,
         launchId
-      ).then(() => {
-        resolve(code ?? 1)
-      })
+      )
+        .then(() => {
+          resolveOnce(resolvedCode)
+        })
+        .catch((err: unknown) => {
+          process.stderr.write(
+            `hrc-launch exec: failed to post/spool exit callback: ${formatError(err)}\n`
+          )
+          resolveOnce(resolvedCode)
+        })
+    }
+
+    child.on('error', (err: Error) => {
+      process.stderr.write(`hrc-launch exec: spawn failed: ${formatError(err)}\n`)
+      handleTerminalState(1, null)
+    })
+
+    child.on('exit', (code: number | null, signal: string | null) => {
+      handleTerminalState(code, signal)
     })
   })
 
