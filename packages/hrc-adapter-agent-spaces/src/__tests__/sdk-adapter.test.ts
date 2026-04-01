@@ -31,7 +31,7 @@
  */
 import { describe, expect, it } from 'bun:test'
 
-import type { HrcEventEnvelope, HrcRuntimeIntent } from 'hrc-core'
+import type { HrcEventEnvelope, HrcProvider, HrcRuntimeIntent } from 'hrc-core'
 
 // RED GATE: These imports will fail until Curly implements the SDK adapter module
 import { type SdkTurnOptions, type SdkTurnRunner, runSdkTurn } from '../sdk-adapter/index'
@@ -123,6 +123,7 @@ function makeOptions(overrides: Partial<SdkTurnOptions> = {}): SdkTurnOptions {
     onBuffer: overrides.onBuffer ?? (() => {}),
     runner: overrides.runner,
     existingProvider: overrides.existingProvider,
+    signal: overrides.signal,
   }
 }
 
@@ -615,5 +616,113 @@ describe('provider mismatch', () => {
     )
 
     expect(result).toBeDefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 8. Step 4 red-gate tests (T-00981): M-11, m-21
+//
+// RED GATE: These tests exercise error/edge paths that do NOT exist yet:
+//   - M-11: runSdkTurn must validate response.provider against HrcProvider union
+//   - m-21: runSdkTurn must accept AbortSignal and reject on abort
+//
+// Pass conditions for Curly (T-00981):
+//   1. runSdkTurn throws descriptive error when runner returns invalid provider (M-11)
+//   2. runSdkTurn rejects with abort error when signal fires during runner (m-21)
+// ---------------------------------------------------------------------------
+describe('Step 4 red-gate: adapter contract fixes (T-00981)', () => {
+  // -- M-11: Unchecked provider cast in SDK adapter --
+  // Current code: `response.provider as HrcProvider` (sdk-adapter/index.ts:276,283)
+  // No runtime validation — an unexpected provider string enters the domain silently.
+  // Expected: validate response.provider against the HrcProvider union ('anthropic' | 'openai')
+  // and throw a descriptive error on mismatch.
+  it('M-11: runSdkTurn throws on invalid provider from runner response', async () => {
+    const runner: SdkTurnRunner = async (req) => {
+      // Fire minimum events to complete
+      await req.callbacks.onEvent({
+        type: 'complete',
+        result: { success: true },
+        seq: 1,
+        hostSessionId: 'hsid-test',
+        runId: 'run-test',
+      } as any)
+
+      return {
+        continuation: undefined,
+        // This is NOT a valid HrcProvider — should be caught by validation
+        provider: 'unknown-bogus-provider' as any,
+        frontend: 'agent-sdk',
+        result: { success: true },
+      }
+    }
+
+    // After fix: runSdkTurn must reject with an error about the invalid provider.
+    await expect(
+      runSdkTurn(
+        makeOptions({
+          intent: makeIntent({ provider: 'anthropic' }),
+          runner,
+        })
+      )
+    ).rejects.toThrow(/invalid provider|provider.?mismatch/i)
+  })
+
+  it('M-11: runSdkTurn accepts valid providers without error', async () => {
+    // Confirm 'anthropic' and 'openai' still work after validation is added
+    for (const provider of ['anthropic', 'openai'] as HrcProvider[]) {
+      const runner = createStubRunner()
+      const result = await runSdkTurn(
+        makeOptions({
+          intent: makeIntent({ provider }),
+          runner,
+        })
+      )
+      expect(result.provider).toBe(provider)
+    }
+  })
+
+  // -- m-21: SDK turn has no timeout/cancellation --
+  // Current code: SdkTurnOptions has no signal field.
+  // runner() call at sdk-adapter/index.ts:237 has no abort handling.
+  // Expected: accept optional AbortSignal in SdkTurnOptions, reject when aborted.
+  it('m-21: runSdkTurn rejects with abort error when signal fires', async () => {
+    const controller = new AbortController()
+    let runnerCompleted = false
+
+    const runner: SdkTurnRunner = async (req) => {
+      // Simulate a long-running turn — abort fires while waiting
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      runnerCompleted = true
+      await req.callbacks.onEvent({
+        type: 'complete',
+        result: { success: true },
+        seq: 1,
+        hostSessionId: 'hsid-test',
+        runId: 'run-test',
+      } as any)
+      return {
+        continuation: undefined,
+        provider: 'anthropic',
+        frontend: 'agent-sdk',
+        result: { success: true },
+      }
+    }
+
+    // Abort after 50ms — before runner completes at 200ms
+    setTimeout(() => controller.abort(), 50)
+
+    // After fix: runSdkTurn should reject when the signal fires at 50ms.
+    await expect(
+      runSdkTurn(
+        makeOptions({
+          intent: makeIntent({ provider: 'anthropic' }),
+          runner,
+          signal: controller.signal,
+        })
+      )
+    ).rejects.toThrow(/abort/i)
+
+    // The abort should have prevented the runner from completing.
+    expect(runnerCompleted).toBe(false)
   })
 })

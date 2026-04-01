@@ -35,6 +35,7 @@ export type SdkTurnOptions = {
   runner?: SdkTurnRunner | undefined
   onHrcEvent?: ((event: Omit<HrcEventEnvelope, 'seq'>) => void | Promise<void>) | undefined
   onBuffer?: ((text: string) => void | Promise<void>) | undefined
+  signal?: AbortSignal | undefined
 }
 
 export type SdkTurnResult = {
@@ -118,6 +119,8 @@ export async function deliverSdkInflightInput(
 // ---------------------------------------------------------------------------
 // Phase 1/2: SDK turn dispatch
 // ---------------------------------------------------------------------------
+
+const VALID_PROVIDERS: readonly string[] = ['anthropic', 'openai'] satisfies readonly HrcProvider[]
 
 function toFrontend(provider: HrcProvider): 'agent-sdk' | 'pi-sdk' {
   return provider === 'openai' ? 'pi-sdk' : 'agent-sdk'
@@ -234,7 +237,7 @@ export async function runSdkTurn(options: SdkTurnOptions): Promise<SdkTurnResult
   const onHrcEvent = options.onHrcEvent ?? (() => {})
   const onBuffer = options.onBuffer ?? (() => {})
 
-  const response = await runner({
+  const runnerPromise = runner({
     aspHome: '',
     spec: { spaces: [] },
     cwd: '/',
@@ -270,6 +273,37 @@ export async function runSdkTurn(options: SdkTurnOptions): Promise<SdkTurnResult
       },
     },
   })
+
+  let response: RunTurnNonInteractiveResponse
+  if (options.signal) {
+    const signal = options.signal
+    response = await Promise.race([
+      runnerPromise,
+      new Promise<never>((_resolve, reject) => {
+        if (signal.aborted) {
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+          return
+        }
+        signal.addEventListener(
+          'abort',
+          () => {
+            reject(new DOMException('The operation was aborted.', 'AbortError'))
+          },
+          { once: true }
+        )
+      }),
+    ])
+  } else {
+    response = await runnerPromise
+  }
+
+  if (!VALID_PROVIDERS.includes(response.provider)) {
+    throw new HrcUnprocessableEntityError(
+      HrcErrorCode.PROVIDER_MISMATCH,
+      `invalid provider returned by runner: "${response.provider}" (expected one of: ${VALID_PROVIDERS.join(', ')})`,
+      { provider: response.provider }
+    )
+  }
 
   const continuation = response.continuation as HrcContinuationRef | undefined
   const harnessSessionJson = inferHarnessSessionJson(
