@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url'
 
 import type { HrcLaunchArtifact } from 'hrc-core'
 
-import { writeLaunchArtifact } from '../launch-artifact'
-import { readSpoolEntries } from '../spool'
+import { writeLaunchArtifact } from '../launch/launch-artifact'
+import { readSpoolEntries } from '../launch/spool'
 
-const EXEC_PATH = fileURLToPath(new URL('../exec.ts', import.meta.url))
+const EXEC_PATH = fileURLToPath(new URL('../launch/exec.ts', import.meta.url))
 
 let tmpDir: string
 const servers = new Set<Server>()

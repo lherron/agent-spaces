@@ -15,7 +15,7 @@ import {
   HrcUnprocessableEntityError,
 } from 'hrc-core'
 
-import { UnsupportedHarnessError } from '../cli-adapter/index.js'
+import { UnsupportedHarnessError } from './cli-adapter.js'
 
 export type SdkTurnRunner = (
   request: RunTurnNonInteractiveRequest

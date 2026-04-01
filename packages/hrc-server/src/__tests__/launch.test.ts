@@ -21,14 +21,14 @@ import { join } from 'node:path'
 import type { HrcLaunchArtifact } from 'hrc-core'
 
 // These imports are the RED gates — they will fail until Curly implements the modules
-import { readLaunchArtifact, writeLaunchArtifact } from '../launch-artifact'
+import { readLaunchArtifact, writeLaunchArtifact } from '../launch/launch-artifact'
 
-import { replaySpoolEntries } from '../index'
-import { readSpoolEntries, spoolCallback } from '../spool'
+import { replaySpoolEntries } from '../launch/index'
+import { readSpoolEntries, spoolCallback } from '../launch/spool'
 
-import { buildHookEnvelope } from '../hook'
+import { buildHookEnvelope } from '../launch/hook'
 
-import { postCallback } from '../callback-client'
+import { postCallback } from '../launch/callback-client'
 
 let tmpDir: string
 
@@ -374,7 +374,7 @@ describe('n-37: Error-path integration (T-00985)', () => {
     })
     const launchFile = await writeLaunchArtifact(artifact, tmpDir)
 
-    const execPath = join(import.meta.dir, '..', 'exec.ts')
+    const execPath = join(import.meta.dir, '..', 'launch', 'exec.ts')
     const proc = Bun.spawn(['bun', 'run', execPath, '--launch-file', launchFile], {
       cwd: tmpDir,
       stdout: 'pipe',
@@ -438,7 +438,7 @@ describe('n-37: Error-path integration (T-00985)', () => {
     })
     const launchFile = await writeLaunchArtifact(artifact, tmpDir)
 
-    const execPath = join(import.meta.dir, '..', 'exec.ts')
+    const execPath = join(import.meta.dir, '..', 'launch', 'exec.ts')
     const proc = Bun.spawn(['bun', 'run', execPath, '--launch-file', launchFile], {
       cwd: tmpDir,
       stdout: 'pipe',

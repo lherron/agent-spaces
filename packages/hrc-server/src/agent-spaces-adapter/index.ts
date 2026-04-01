@@ -8,7 +8,7 @@ export {
   type BuildCliInvocationOptions,
   type CliInvocationResult,
   type SpecBuilder,
-} from './cli-adapter/index.js'
+} from './cli-adapter.js'
 export {
   runSdkTurn,
   type SdkTurnOptions,
@@ -19,4 +19,4 @@ export {
   type SdkInflightInputOptions,
   type SdkInflightInputResult,
   type SdkInflightInputClient,
-} from './sdk-adapter/index.js'
+} from './sdk-adapter.js'

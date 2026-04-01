@@ -27,7 +27,12 @@ import { describe, expect, it } from 'bun:test'
 
 import type { HrcRuntimeIntent } from 'hrc-core'
 
-import { type SpecBuilder, UnsupportedHarnessError, buildCliInvocation, mergeEnv } from '../index'
+import {
+  type SpecBuilder,
+  UnsupportedHarnessError,
+  buildCliInvocation,
+  mergeEnv,
+} from '../agent-spaces-adapter/index'
 
 // ---------------------------------------------------------------------------
 // Stub SpecBuilder — returns a deterministic response without needing

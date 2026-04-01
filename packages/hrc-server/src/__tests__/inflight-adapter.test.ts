@@ -41,7 +41,7 @@ import {
   type SdkInflightInputOptions,
   deliverSdkInflightInput,
   getSdkInflightCapability,
-} from '../sdk-adapter/index'
+} from '../agent-spaces-adapter/sdk-adapter'
 
 // ---------------------------------------------------------------------------
 // Stub client — simulates agent-spaces queueInFlightInput

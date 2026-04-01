@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const HOOK_CLI_PATH = fileURLToPath(new URL('../hook-cli.ts', import.meta.url))
+const HOOK_CLI_PATH = fileURLToPath(new URL('../launch/hook-cli.ts', import.meta.url))
 
 let tmpDir: string
 

@@ -36,7 +36,11 @@ import type { HrcEventEnvelope, HrcProvider, HrcRuntimeIntent } from 'hrc-core'
 import type { RuntimePlacement } from 'spaces-config'
 
 // RED GATE: These imports will fail until Curly implements the SDK adapter module
-import { type SdkTurnOptions, type SdkTurnRunner, runSdkTurn } from '../sdk-adapter/index'
+import {
+  type SdkTurnOptions,
+  type SdkTurnRunner,
+  runSdkTurn,
+} from '../agent-spaces-adapter/sdk-adapter'
 
 // ---------------------------------------------------------------------------
 // Stub SdkTurnRunner — simulates runTurnNonInteractive without a real

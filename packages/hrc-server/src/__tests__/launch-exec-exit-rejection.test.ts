@@ -23,7 +23,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { HrcLaunchArtifact } from 'hrc-core'
-import { writeLaunchArtifact } from '../launch-artifact'
+import { writeLaunchArtifact } from '../launch/launch-artifact'
 
 let tmpDir: string
 const servers = new Set<Server>()
@@ -111,7 +111,7 @@ describe('C-4: exec exit handler unhandled rejection', () => {
     })
     const launchFile = await writeLaunchArtifact(artifact, tmpDir)
 
-    const execPath = join(import.meta.dir, '..', 'exec.ts')
+    const execPath = join(import.meta.dir, '..', 'launch', 'exec.ts')
     const proc = Bun.spawn(['bun', 'run', execPath, '--launch-file', launchFile], {
       cwd: tmpDir,
       stdout: 'pipe',
@@ -152,7 +152,7 @@ describe('C-4: exec exit handler unhandled rejection', () => {
     })
     const launchFile = await writeLaunchArtifact(artifact, tmpDir)
 
-    const execPath = join(import.meta.dir, '..', 'exec.ts')
+    const execPath = join(import.meta.dir, '..', 'launch', 'exec.ts')
     const proc = Bun.spawn(['bun', 'run', execPath, '--launch-file', launchFile], {
       cwd: tmpDir,
       stdout: 'pipe',
@@ -197,7 +197,7 @@ describe('C-4: exec exit handler unhandled rejection', () => {
     })
     const launchFile = await writeLaunchArtifact(artifact, tmpDir)
 
-    const execPath = join(import.meta.dir, '..', 'exec.ts')
+    const execPath = join(import.meta.dir, '..', 'launch', 'exec.ts')
     const proc = Bun.spawn(['bun', 'run', execPath, '--launch-file', launchFile], {
       cwd: tmpDir,
       stdout: 'pipe',

@@ -25,14 +25,14 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
-import { createHrcServer } from 'hrc-server'
-import type { HrcServer } from 'hrc-server'
 import { openHrcDatabase } from 'hrc-store-sqlite'
-import { createHrcTestFixture } from '../../../hrc-server/src/__tests__/fixtures/hrc-test-fixture'
-import type { HrcServerTestFixture } from '../../../hrc-server/src/__tests__/fixtures/hrc-test-fixture'
+import { createHrcServer } from '../index'
+import type { HrcServer } from '../index'
+import { createHrcTestFixture } from './fixtures/hrc-test-fixture'
+import type { HrcServerTestFixture } from './fixtures/hrc-test-fixture'
 
 // RED GATE: AgentchatBridge class does not exist yet
-import { AgentchatBridge } from '../index'
+import { AgentchatBridge } from '../agentchat-bridge'
 
 let fixture: HrcServerTestFixture
 

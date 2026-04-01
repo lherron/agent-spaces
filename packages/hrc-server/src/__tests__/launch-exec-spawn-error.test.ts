@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { HrcLaunchArtifact } from 'hrc-core'
-import { writeLaunchArtifact } from '../launch-artifact'
+import { writeLaunchArtifact } from '../launch/launch-artifact'
 
 let tmpDir: string
 let spoolDir: string
@@ -70,7 +70,7 @@ describe('C-3: exec spawn error handling', () => {
     const launchFile = await writeLaunchArtifact(artifact, tmpDir)
 
     // Run exec.ts as a subprocess — it should exit with non-zero, not hang
-    const execPath = join(import.meta.dir, '..', 'exec.ts')
+    const execPath = join(import.meta.dir, '..', 'launch', 'exec.ts')
     const proc = Bun.spawn(['bun', 'run', execPath, '--launch-file', launchFile], {
       cwd: tmpDir,
       stdout: 'pipe',
@@ -98,7 +98,7 @@ describe('C-3: exec spawn error handling', () => {
     })
     const launchFile = await writeLaunchArtifact(artifact, tmpDir)
 
-    const execPath = join(import.meta.dir, '..', 'exec.ts')
+    const execPath = join(import.meta.dir, '..', 'launch', 'exec.ts')
     const proc = Bun.spawn(['bun', 'run', execPath, '--launch-file', launchFile], {
       cwd: tmpDir,
       stdout: 'pipe',
@@ -114,7 +114,7 @@ describe('C-3: exec spawn error handling', () => {
     clearTimeout(timeout)
 
     // Check that a spool entry was written for the failure
-    const { readSpoolEntries } = await import('../spool')
+    const { readSpoolEntries } = await import('../launch/spool')
     const entries = await readSpoolEntries(spoolDir, 'launch-spool-check')
 
     // RED: currently no spool entry is written because the error handler doesn't exist
@@ -140,7 +140,7 @@ describe('C-3: exec spawn error handling', () => {
     })
     const launchFile = await writeLaunchArtifact(artifact, tmpDir)
 
-    const execPath = join(import.meta.dir, '..', 'exec.ts')
+    const execPath = join(import.meta.dir, '..', 'launch', 'exec.ts')
     const proc = Bun.spawn(['bun', 'run', execPath, '--launch-file', launchFile], {
       cwd: tmpDir,
       stdout: 'pipe',
