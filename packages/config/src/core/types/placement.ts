@@ -22,6 +22,7 @@ export type RuntimeBundleRef =
   | { kind: 'agent-default' }
   | { kind: 'agent-target'; target: string }
   | { kind: 'project-target'; projectRoot: string; target: string }
+  | { kind: 'agent-project'; agentName: string; projectRoot?: string | undefined }
   | { kind: 'compose'; compose: SpaceRefString[] }
 
 /** Optional host correlation metadata */
@@ -49,7 +50,13 @@ export interface RuntimePlacement {
 // ============================================================================
 
 const VALID_RUN_MODES = new Set(['query', 'heartbeat', 'task', 'maintenance'])
-const VALID_BUNDLE_KINDS = new Set(['agent-default', 'agent-target', 'project-target', 'compose'])
+const VALID_BUNDLE_KINDS = new Set([
+  'agent-default',
+  'agent-target',
+  'project-target',
+  'agent-project',
+  'compose',
+])
 
 /** Check if a string is a valid RunMode */
 export function isValidRunMode(value: string): boolean {
