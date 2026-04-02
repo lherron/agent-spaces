@@ -112,7 +112,7 @@ When executing a sequence of prompts through the workbench (e.g., a cleanup back
 ### Cycle per step
 1. **Start clean**: `ani stop`, wait 30 seconds, `ani start`.
 2. **Verify boot**: Run `ani ready` — blocks until all agents report online. If agents fail to start (since we may modify agent-spaces, which ani depends on), diagnose and fix tooling before proceeding.
-3. **Dispatch**: Use `ani say animata '<prompt>'` or `ani say animata --file prompt.md` to send the prompt. This handles TUI submission mechanics internally. For long prompts, prefer `--file` to avoid shell quoting issues.
+3. **Dispatch**: Use `ani say animata "$(cat prompt.md)"` to send prompts from files. `ani say` does NOT support `--file` — use command substitution with `cat` instead. For inline text: `ani say animata '<prompt>'`.
 4. **Quick confirm (1 min)**: Run `ani history --limit 5` after ~60 seconds to verify the message was delivered and animata started processing. If not delivered, diagnose and re-send.
 5. **Monitor**: Run `ani history --limit 5` every 5 minutes to track delegation and completion. Use `ani peek <agent>` for deeper diagnosis if an agent appears stuck. Use `ani peek all` for a quick overview of all agent panes.
 6. **Confirm**: Wait for the facilitator to report done. Run `just verify` (or `ani verify`) to confirm the build is clean before cycling.
@@ -123,6 +123,8 @@ When executing a sequence of prompts through the workbench (e.g., a cleanup back
 - You do not write feature code. If ani breaks because its own dependencies changed, fix the tooling, not the feature code.
 - One step at a time. Each step must pass `just verify` before the next begins.
 - Always do the 1-minute quick confirm after dispatch to catch delivery failures early.
+- Watch for agent crashes: if `ani peek <agent>` shows `-bash: [DM: command not found`, the Claude process died. Run `ani restart <agent>` immediately and re-nudge with pending work.
+- Include `--no-verify` guidance in dispatch prompts when the repo has pre-existing lint debt that blocks pre-commit hooks.
 """
 
 [targets.larry]

@@ -104,9 +104,11 @@ describe('AC-1: hrc server starts, migrates DB, acquires lock, exposes endpoints
     expect(sockStat).not.toBeNull()
     expect(sockStat!.isSocket()).toBe(true)
 
-    // Lock must contain current PID
+    // Lock must contain current PID in JSON format (C-1 atomic lock)
     const lockContent = await readFile(lockPath, 'utf-8')
-    expect(Number(lockContent.trim())).toBe(process.pid)
+    const lockData = JSON.parse(lockContent)
+    expect(lockData.pid).toBe(process.pid)
+    expect(lockData.createdAt).toBeDefined()
   })
 
   it('migrates the DB so that session endpoints respond', async () => {
