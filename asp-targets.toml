@@ -45,6 +45,7 @@ model_reasoning_effort = "high"
 
 [targets.animan]
 description = "Animan for agent-spaces"
+yolo = true
 compose = ["space:ani-manager@dev", "space:defaults@dev", "space:praesidium-defaults@dev"]
 priming_prompt_append = """
 
