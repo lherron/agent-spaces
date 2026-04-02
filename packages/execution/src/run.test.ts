@@ -18,6 +18,11 @@ import {
   prepareCodexRuntimeHome,
 } from './run.js'
 
+import type { AgentRuntimeProfile, SpaceRefString, TargetDefinition } from 'spaces-config'
+import { resolveEffectiveCompose } from 'spaces-config'
+// Agent-profile integration: import run module as namespace for testing new exports
+import * as runModule from './run.js'
+
 let tempDirs: string[] = []
 
 afterEach(async () => {
@@ -157,5 +162,311 @@ describe('prepareCodexRuntimeHome', () => {
     expect(metadata.mode).toBe('project')
     expect(metadata.targetName).toBe('codex')
     expect(metadata.projectPath).toBe(projectPath)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Agent-profile integration tests for asp run (T-00995)
+//
+// RED GATE: These tests verify that `asp run` merges agent-profile.toml
+// defaults into run options. They are expected to FAIL until run.ts exports
+// `resolveAgentRunDefaults()` and wires it into the run() pipeline.
+//
+// Pass condition: Larry implements resolveAgentRunDefaults in run.ts that
+// loads ~/agents/<target>/agent-profile.toml and returns merged defaults
+// including yolo, model, harness, claude/codex options, and compose.
+//
+// See ASP_RUN_GAPS.md for full specification of each gap.
+// ---------------------------------------------------------------------------
+
+/** Helper: access resolveAgentRunDefaults from run.ts (may not exist yet). */
+const resolveAgentRunDefaults = (runModule as Record<string, unknown>)['resolveAgentRunDefaults'] as
+  | ((
+      targetName: string,
+      target: TargetDefinition | undefined,
+      options?: { agentsRoot?: string }
+    ) =>
+      | {
+          yolo?: boolean
+          model?: string
+          harness?: string
+          claude?: Record<string, unknown>
+          codex?: Record<string, unknown>
+          compose?: SpaceRefString[]
+        }
+      | undefined)
+  | undefined
+
+/** Helper: write an agent-profile.toml into a temp agents dir. */
+async function writeAgentProfile(
+  agentsDir: string,
+  agentName: string,
+  toml: string
+): Promise<void> {
+  const agentDir = join(agentsDir, agentName)
+  await mkdir(agentDir, { recursive: true })
+  await writeFile(join(agentDir, 'agent-profile.toml'), toml)
+}
+
+describe('agent-profile integration (asp run gaps)', () => {
+  // -------------------------------------------------------------------------
+  // Precondition: resolveAgentRunDefaults must exist as an export from run.ts
+  // -------------------------------------------------------------------------
+  test('resolveAgentRunDefaults is exported from run.ts', () => {
+    // RED: This function does not exist yet. run.ts must export it.
+    expect(resolveAgentRunDefaults).toBeDefined()
+    expect(typeof resolveAgentRunDefaults).toBe('function')
+  })
+
+  // -------------------------------------------------------------------------
+  // Gap 1: yolo falls back to profile.harnessDefaults.yolo
+  //
+  // When target and CLI both omit yolo, asp run should read
+  // profile.harnessDefaults.yolo from the agent's agent-profile.toml.
+  // Regression: animan lost yolo=true after Phase 5 migration.
+  // -------------------------------------------------------------------------
+  test('gap 1: yolo falls back to profile.harnessDefaults.yolo when target/CLI omit it', async () => {
+    const agentsDir = await createTempDir('smokey-agents-yolo-')
+    await writeAgentProfile(
+      agentsDir,
+      'animan',
+      `
+schema_version = 2
+
+[harnessDefaults]
+yolo = true
+`
+    )
+
+    // Target has no yolo set
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString],
+    }
+
+    // RED: resolveAgentRunDefaults doesn't exist yet
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('animan', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeDefined()
+    expect(defaults!.yolo).toBe(true)
+  })
+
+  // -------------------------------------------------------------------------
+  // Gap 2: model falls back to profile.harnessDefaults.model
+  //
+  // Precedence: CLI --model > target-level model > profile.harnessDefaults.model
+  // When no CLI or target model is set, the profile default should apply.
+  // -------------------------------------------------------------------------
+  test('gap 2: model falls back to profile.harnessDefaults.model when CLI/target omit it', async () => {
+    const agentsDir = await createTempDir('smokey-agents-model-')
+    await writeAgentProfile(
+      agentsDir,
+      'larry',
+      `
+schema_version = 2
+
+[harnessDefaults]
+model = "claude-opus-4-6"
+`
+    )
+
+    // Target has no model
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString],
+    }
+
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeDefined()
+    expect(defaults!.model).toBe('claude-opus-4-6')
+  })
+
+  test('gap 2: target-level model overrides profile.harnessDefaults.model', async () => {
+    const agentsDir = await createTempDir('smokey-agents-model-prec-')
+    await writeAgentProfile(
+      agentsDir,
+      'larry',
+      `
+schema_version = 2
+
+[harnessDefaults]
+model = "claude-opus-4-6"
+`
+    )
+
+    // Target specifies a codex model — should take precedence
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString],
+      codex: { model: 'gpt-5.3-codex' },
+    }
+
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeDefined()
+    // Target codex.model should win over profile harnessDefaults.model
+    expect(defaults!.model).toBe('gpt-5.3-codex')
+  })
+
+  // -------------------------------------------------------------------------
+  // Gap 3: harness-specific defaults merge from profile under target overrides
+  //
+  // profile.harnessDefaults.codex provides defaults; target.codex overrides
+  // individual fields. The result should be a field-level merge.
+  // -------------------------------------------------------------------------
+  test('gap 3: codex defaults from profile merge under target overrides', async () => {
+    const agentsDir = await createTempDir('smokey-agents-codex-')
+    await writeAgentProfile(
+      agentsDir,
+      'animata',
+      `
+schema_version = 2
+
+[harnessDefaults.codex]
+model = "gpt-5.3-codex"
+model_reasoning_effort = "medium"
+approval_policy = "on-failure"
+sandbox_mode = "workspace-write"
+`
+    )
+
+    // Target overrides only model — other codex defaults should come from profile
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString],
+      codex: { model: 'gpt-5.4-codex' },
+    }
+
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('animata', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeDefined()
+    expect(defaults!.codex).toBeDefined()
+    // Target model wins
+    expect(defaults!.codex!['model']).toBe('gpt-5.4-codex')
+    // Profile defaults fill in the rest
+    expect(defaults!.codex!['model_reasoning_effort']).toBe('medium')
+    expect(defaults!.codex!['approval_policy']).toBe('on-failure')
+    expect(defaults!.codex!['sandbox_mode']).toBe('workspace-write')
+  })
+
+  test('gap 3: claude defaults from profile merge under target overrides', async () => {
+    const agentsDir = await createTempDir('smokey-agents-claude-')
+    await writeAgentProfile(
+      agentsDir,
+      'smokey',
+      `
+schema_version = 2
+
+[harnessDefaults.claude]
+model = "claude-sonnet-4-6"
+permission_mode = "plan"
+`
+    )
+
+    // Target overrides permission_mode only
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString],
+      claude: { permission_mode: 'bypassPermissions' },
+    }
+
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('smokey', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeDefined()
+    expect(defaults!.claude).toBeDefined()
+    // Target override wins
+    expect(defaults!.claude!['permission_mode']).toBe('bypassPermissions')
+    // Profile default fills in
+    expect(defaults!.claude!['model']).toBe('claude-sonnet-4-6')
+  })
+
+  // -------------------------------------------------------------------------
+  // Gap 4: identity.harness is used when no --harness flag and no target harness
+  //
+  // When an agent's profile specifies identity.harness = "codex", asp run
+  // should select codex as the harness rather than the default ("claude").
+  // -------------------------------------------------------------------------
+  test('gap 4: identity.harness is used when no --harness and no target harness', async () => {
+    const agentsDir = await createTempDir('smokey-agents-harness-')
+    await writeAgentProfile(
+      agentsDir,
+      'larry',
+      `
+schema_version = 2
+
+[identity]
+display = "Larry"
+role = "implementer"
+harness = "codex"
+`
+    )
+
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString],
+    }
+
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeDefined()
+    expect(defaults!.harness).toBe('codex')
+  })
+
+  // -------------------------------------------------------------------------
+  // Gap 5: compose_mode = "merge" merges agent profile spaces with project
+  //
+  // When a target has compose_mode = "merge", the agent's profile spaces
+  // should be combined with the project compose (deduplicated).
+  // This tests resolveEffectiveCompose directly — it already works, but
+  // run.ts doesn't call it. The RED test verifies the integration path.
+  // -------------------------------------------------------------------------
+  test('gap 5: compose_mode merge combines agent profile spaces with project compose', async () => {
+    const agentsDir = await createTempDir('smokey-agents-compose-')
+    await writeAgentProfile(
+      agentsDir,
+      'smokey',
+      `
+schema_version = 2
+
+[spaces]
+base = ["space:smokey@dev"]
+`
+    )
+
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString, 'space:project@dev' as SpaceRefString],
+      compose_mode: 'merge',
+    }
+
+    // First: verify resolveEffectiveCompose itself works correctly (this should pass)
+    const profile: AgentRuntimeProfile = {
+      schemaVersion: 2,
+      spaces: { base: ['space:smokey@dev' as SpaceRefString] },
+    }
+    const merged = resolveEffectiveCompose(profile, target, 'task')
+    expect(merged).toContain('space:smokey@dev' as SpaceRefString)
+    expect(merged).toContain('space:defaults@stable' as SpaceRefString)
+    expect(merged).toContain('space:project@dev' as SpaceRefString)
+
+    // Second: verify that resolveAgentRunDefaults returns the merged compose
+    // RED: resolveAgentRunDefaults doesn't exist yet
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('smokey', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeDefined()
+    expect(defaults!.compose).toBeDefined()
+    expect(defaults!.compose).toContain('space:smokey@dev' as SpaceRefString)
+    expect(defaults!.compose).toContain('space:defaults@stable' as SpaceRefString)
+    expect(defaults!.compose).toContain('space:project@dev' as SpaceRefString)
+  })
+
+  // -------------------------------------------------------------------------
+  // Fallback: no agent profile → current behavior unchanged
+  // -------------------------------------------------------------------------
+  test('returns undefined when no agent profile exists for target', async () => {
+    const agentsDir = await createTempDir('smokey-agents-empty-')
+    // No agent-profile.toml written for 'clod'
+
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString],
+    }
+
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('clod', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeUndefined()
   })
 })

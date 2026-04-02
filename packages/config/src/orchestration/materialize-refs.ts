@@ -83,6 +83,10 @@ export interface MaterializeFromRefsOptions {
   fetchRegistry?: boolean
   /** Force refresh from source (default: false) */
   refresh?: boolean
+  /** Inherit project-level settings during composition */
+  inheritProject?: boolean
+  /** Inherit user-level settings during composition */
+  inheritUser?: boolean
   /** Project path for asp_modules output (default: dirname of lockPath) */
   projectPath?: string
   /** Agent root directory for resolving space:agent:<id> refs */
@@ -204,6 +208,8 @@ export async function materializeFromRefs(
     harness,
     refresh,
     adapter,
+    inheritProject: options.inheritProject,
+    inheritUser: options.inheritUser,
     ...(options.agentRoot ? { agentPath: options.agentRoot } : {}),
   }
   const materialization = await materializeTarget(targetName, mergedLock, matOptions)
