@@ -64,3 +64,12 @@ priming_prompt_append = """
 """
 [targets.larry.codex]
 model_reasoning_effort = "high"
+
+[targets.locallarry]
+description = "Local Larry clone (no agent profile, targets-only)"
+harness = "codex"
+compose = ["space:defaults@dev"]
+yolo = true
+priming_prompt = "You are locallarry, a test target with no agent profile."
+[targets.locallarry.codex]
+model_reasoning_effort = "high"

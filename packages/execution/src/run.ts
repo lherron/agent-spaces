@@ -806,7 +806,10 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     ? resolveAgentRunDefaultsFromProfile(target, agentProfile)
     : undefined
   const harnessId =
-    options.harness ?? resolveProfileHarnessForRun(agentDefaults?.harness) ?? DEFAULT_HARNESS
+    options.harness ??
+    resolveProfileHarnessForRun(agentDefaults?.harness) ??
+    resolveProfileHarnessForRun(target?.harness) ??
+    DEFAULT_HARNESS
   const adapter = harnessRegistry.getOrThrow(harnessId)
 
   debugLog('detect harness', harnessId)

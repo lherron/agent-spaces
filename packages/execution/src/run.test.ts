@@ -455,6 +455,106 @@ base = ["space:smokey@dev"]
   })
 
   // -------------------------------------------------------------------------
+  // Gap 6 (T-00996): target-level harness precedence
+  //
+  // Precedence: CLI --harness > target.harness > profile.identity.harness > DEFAULT_HARNESS
+  //
+  // RED GATE: TargetDefinition does not have a `harness` field yet.
+  // resolveAgentRunDefaults must thread target.harness into the result.
+  //
+  // Pass condition: Larry adds `harness?: string` to TargetDefinition,
+  // updates mergeAgentWithProjectTarget to prefer target.harness over
+  // profile.identity.harness, and run.ts already chains via
+  // options.harness ?? agentDefaults.harness ?? DEFAULT_HARNESS.
+  // -------------------------------------------------------------------------
+
+  test('gap 6a: target-level harness overrides profile identity.harness', async () => {
+    const agentsDir = await createTempDir('smokey-agents-tgt-harness-')
+    await writeAgentProfile(
+      agentsDir,
+      'larry',
+      `
+schema_version = 2
+
+[identity]
+display = "Larry"
+role = "implementer"
+harness = "codex"
+`
+    )
+
+    // Target explicitly sets harness = "claude-code" → should override profile's "codex"
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString],
+      harness: 'claude-code',
+    } as TargetDefinition // cast needed: harness field does not exist on TargetDefinition yet
+
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeDefined()
+    expect(defaults!.harness).toBe('claude-code')
+  })
+
+  test('gap 6b: fallback to profile identity.harness when target has no harness', async () => {
+    const agentsDir = await createTempDir('smokey-agents-tgt-harness-fb-')
+    await writeAgentProfile(
+      agentsDir,
+      'larry',
+      `
+schema_version = 2
+
+[identity]
+display = "Larry"
+role = "implementer"
+harness = "codex"
+`
+    )
+
+    // Target has no harness field
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString],
+    }
+
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeDefined()
+    // Profile identity.harness should be used as fallback
+    expect(defaults!.harness).toBe('codex')
+  })
+
+  test('gap 6c: fallback to DEFAULT_HARNESS when neither target nor profile set harness', async () => {
+    const agentsDir = await createTempDir('smokey-agents-tgt-harness-def-')
+    await writeAgentProfile(
+      agentsDir,
+      'smokey',
+      `
+schema_version = 2
+
+[identity]
+display = "Smokey"
+role = "tester"
+`
+    )
+
+    // No harness on target or profile
+    const target: TargetDefinition = {
+      compose: ['space:defaults@stable' as SpaceRefString],
+    }
+
+    expect(resolveAgentRunDefaults).toBeDefined()
+    const defaults = resolveAgentRunDefaults!('smokey', target, { agentsRoot: agentsDir })
+    expect(defaults).toBeDefined()
+    // Should fall back to DEFAULT_HARNESS (currently 'claude-code')
+    expect(defaults!.harness).toBe('claude-code')
+  })
+
+  // NOTE: CLI --harness precedence is tested implicitly at the run() call site:
+  // run.ts line ~809: options.harness ?? agentDefaults.harness ?? DEFAULT_HARNESS
+  // The CLI --harness feeds options.harness, which always wins. This test validates
+  // that resolveAgentRunDefaults does NOT need CLI awareness — run() handles it.
+  // A full E2E test of CLI > target > profile > default requires the run() entrypoint.
+
+  // -------------------------------------------------------------------------
   // Fallback: no agent profile → current behavior unchanged
   // -------------------------------------------------------------------------
   test('returns undefined when no agent profile exists for target', async () => {
