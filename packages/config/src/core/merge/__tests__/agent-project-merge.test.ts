@@ -274,7 +274,60 @@ describe('mergeAgentWithProjectTarget: yolo and model', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. priming_prompt_file resolution
+// 7. Target-level harness precedence (T-00996)
+//
+// RED GATE: TargetDefinition does not yet have a `harness` field.
+// mergeAgentWithProjectTarget must prefer target.harness over profile.identity.harness.
+//
+// Pass conditions:
+// 1. TargetDefinition gains `harness?: string`
+// 2. mergeAgentWithProjectTarget uses: target.harness ?? profile.identity.harness ?? 'claude-code'
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('mergeAgentWithProjectTarget: target-level harness (T-00996)', () => {
+  test('target.harness overrides profile identity.harness', () => {
+    const profile = makeProfile({
+      identity: { display: 'Larry', role: 'implementer', harness: 'codex' },
+    })
+    const target = makeTarget({
+      harness: 'claude-code',
+    } as Partial<TargetDefinition>) // cast: harness not on TargetDefinition yet
+    const result = mergeAgentWithProjectTarget(profile, target, 'query')
+    expect(result.harness).toBe('claude-code')
+  })
+
+  test('profile identity.harness used when target has no harness', () => {
+    const profile = makeProfile({
+      identity: { display: 'Larry', role: 'implementer', harness: 'codex' },
+    })
+    const target = makeTarget({}) // no harness field
+    const result = mergeAgentWithProjectTarget(profile, target, 'query')
+    expect(result.harness).toBe('codex')
+  })
+
+  test('defaults to claude-code when neither target nor profile set harness', () => {
+    const profile = makeProfile({
+      identity: { display: 'Smokey', role: 'tester' },
+    })
+    const target = makeTarget({})
+    const result = mergeAgentWithProjectTarget(profile, target, 'query')
+    expect(result.harness).toBe('claude-code')
+  })
+
+  test('target.harness = "agent-sdk" overrides profile harness = "claude-code"', () => {
+    const profile = makeProfile({
+      identity: { display: 'Animata', role: 'coordinator', harness: 'claude-code' },
+    })
+    const target = makeTarget({
+      harness: 'agent-sdk',
+    } as Partial<TargetDefinition>)
+    const result = mergeAgentWithProjectTarget(profile, target, 'query')
+    expect(result.harness).toBe('agent-sdk')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. priming_prompt_file resolution
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('resolveAgentPrimingPrompt', () => {
