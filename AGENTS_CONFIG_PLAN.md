@@ -709,6 +709,203 @@ if (placement.bundle.kind === 'agent-project') {
 - `project-with-append/asp-targets.toml` — project using priming_prompt_append
 - `bare-project/` — directory with no asp-targets.toml (tests agent-only path)
 
+### Phase 5: Agent Home Migration
+
+Create `~/agents/<agent>/` directories with `agent-profile.toml` v2 files for all workbench agents, extract priming prompts from `asp-targets.toml`, and slim down `asp-targets.toml` to project-specific overrides only.
+
+#### Agents to migrate
+
+| Agent | Role | Harness | Spaces (agent default) | Project-specific? |
+|---|---|---|---|---|
+| `larry` | coder | codex | `space:defaults@dev` | priming_prompt mentions project name |
+| `curly` | coder | claude-code | `space:defaults@dev` | priming_prompt mentions project name |
+| `smokey` | qa | claude-code | `space:smokey@dev`, `space:defaults@dev` | priming_prompt mentions project name |
+| `animata` | facilitator | codex | `space:defaults@dev` | priming_prompt mentions project name, codex.model_reasoning_effort |
+| `animan` | ops | claude-code | `space:ani-manager@dev`, `space:defaults@dev`, `space:praesidium-defaults@dev` | priming_prompt mentions project name |
+| `clod` | user-interactive | claude-code | `space:defaults@dev`, `space:praesidium-defaults@dev`, `space:praesidium-architect@dev` | Not agent-based (user target) |
+
+**Note:** `clod` is a user-interactive target, not an agent — it stays in `asp-targets.toml` as-is.
+
+#### Step 5.1 — Create agent home directories
+
+For each agent, create `~/agents/<name>/` with:
+
+```
+~/agents/larry/
+├── SOUL.md                    # Required by agent root validation
+├── agent-profile.toml         # v2 profile with identity + defaults
+└── PRIMING.md                 # Optional: priming prompt as separate file
+```
+
+**`~/agents/larry/agent-profile.toml`** (example):
+```toml
+schemaVersion = 2
+
+[identity]
+display = "Larry"
+role = "coder"
+harness = "codex"
+
+priming_prompt = """
+You are Larry, a coding agent in a shared workbench.
+
+## Startup
+1. Run `agentchat info` and `wrkq info` immediately to understand how to communicate with other agents.
+2. Wait for incoming requests and respond with concise, actionable updates.
+
+## Workflow
+When asked to implement a change, you should:
+1. Review the wrkq task for the change. If no wrkq task exists, review the request and create one.
+2. This project uses red/green TDD design by default. Every task should have an associated failure/red test. Work with agent smokey via agentchat if no tests exist. Don't be pedantic, engage smokey for new features with impactful changes, not every minor defect fix.
+3. When both the wrkq task exists and the failing test case exists, begin implementation.
+4. When implementation is complete, use agentchat dm to ask smokey to validate the changes.
+5. When smokey confirms change is accepted, commit the change.
+6. Finally, when all work is done, revert back to animata using agentchat dm.
+"""
+
+[spaces]
+base = ["space:defaults@dev"]
+
+[harnessDefaults]
+model = "claude-opus-4-6"
+
+[harnessDefaults.codex]
+model_reasoning_effort = "high"
+```
+
+**`~/agents/smokey/agent-profile.toml`** (example):
+```toml
+schemaVersion = 2
+
+[identity]
+display = "Smokey"
+role = "qa"
+harness = "claude-code"
+
+priming_prompt = """
+You are Smokey, the E2E test validator and red/green TDD test creator.
+
+## Startup
+1. Run `agentchat info` and `wrkq info` immediately.
+2. Read your smoke-testing skill: run `/smoke-testing` to load it.
+
+## Role
+You are NOT a unit test runner. Other agents already run unit tests — you must add value beyond that.
+
+When asked to create a test, you should:
+1. Work with the requesting agent to understand requirement and scope.
+2. Confirm a wrkq task is associated with the change request.
+3. Define the test such that it demonstrably fails.
+4. Run the test, confirm status is red, record the failed run as a comment in the wrkq task.
+5. Return to the agent the pass conditions that will cause success.
+
+When asked to verify a change, you should:
+1. Review the wrkq task to confirm there was a test created and failure recorded.
+2. Confirm there was a test run with a fail result.
+3. Run the test and confirm the condition now passes.
+4. Report with substance — results, E2E steps, concerns.
+
+You should never report a change as complete without first running a true E2E smoke test with real (non-mocked) backend.
+"""
+
+[spaces]
+base = ["space:smokey@dev", "space:defaults@dev"]
+```
+
+**Key design decisions for prompt extraction:**
+- Generic role/workflow instructions go into agent-profile.toml `priming_prompt`
+- Project-specific references (project name, specific build commands, specific agent names for this project's roster) stay in `asp-targets.toml` via `priming_prompt_append`
+- Where the current prompt says "for the agent-spaces project" or "for the 'agent-spaces' project", that part moves to the project append
+
+#### Step 5.2 — Slim down asp-targets.toml
+
+Replace full priming prompts with `priming_prompt_append` containing only project-specific context:
+
+```toml
+schema = 1
+
+[targets.clod]
+description = "clod code rules the world"
+yolo = true
+compose = ["space:defaults@dev", "space:praesidium-defaults@dev", "space:praesidium-architect@dev"]
+
+[targets.smokey]
+description = "Smokey for agent-spaces"
+compose_mode = "merge"
+priming_prompt_append = """
+
+## Project: agent-spaces
+- Uses Bun workspace, TypeScript. Run `just verify` before accepting changes.
+- This project uses red/green TDD.
+"""
+
+[targets.curly]
+description = "Curly for agent-spaces"
+compose_mode = "merge"
+priming_prompt_append = """
+
+## Project: agent-spaces
+- Uses Bun workspace, TypeScript.
+- Work with Larry on implementation, Smokey on testing.
+"""
+
+[targets.animata]
+description = "Animata facilitator for agent-spaces"
+compose_mode = "merge"
+priming_prompt_append = """
+
+## Project: agent-spaces
+- Uses Bun workspace, TypeScript. Run `just verify` before accepting changes.
+- Study `asp-targets.toml` to understand agent instructions for this project.
+- Work with Larry/Curly on implementation, Smokey on testing.
+"""
+[targets.animata.codex]
+model_reasoning_effort = "high"
+
+[targets.animan]
+description = "Animan for agent-spaces"
+compose_mode = "merge"
+priming_prompt_append = """
+
+## Project: agent-spaces
+- Uses Bun workspace, TypeScript.
+"""
+
+[targets.larry]
+description = "Larry for agent-spaces"
+compose_mode = "merge"
+priming_prompt_append = """
+
+## Project: agent-spaces
+- Uses Bun workspace, TypeScript.
+- Work with Curly as co-implementer, Smokey for test validation.
+"""
+[targets.larry.codex]
+model_reasoning_effort = "high"
+```
+
+#### Step 5.3 — Create SOUL.md files
+
+Each agent home needs a `SOUL.md` (required by `validateAgentRoot()`). This can be minimal:
+
+```markdown
+# Larry
+
+Coding agent for shared workbench environments.
+```
+
+#### Step 5.4 — Verify agent discovery
+
+After creating agent homes, verify:
+1. `ASP_AGENTS_ROOT` is set (or `~/agents` convention works)
+2. `asp agent larry:agent-spaces resolve` shows merged config from agent-profile.toml + asp-targets.toml
+3. `asp agent larry:random-project resolve` shows agent-only defaults (no project override)
+4. Workbench cycle (ani stop/start) still works with slimmed asp-targets.toml
+
+#### Step 5.5 — Migration is manual / scripted (not dispatched to workbench)
+
+This phase creates files **outside the repo** (`~/agents/`) and modifies `asp-targets.toml` in a way that depends on the new Phase 2-4 runtime. It should be done manually or via a migration script after Phases 1-4 are merged, not dispatched to the workbench agents (who would be modifying their own config mid-flight).
+
 ### Phase 6: .animata/config.toml Simplification (downstream, not in this PR)
 
 After agent-profile.toml v2 is live, `.animata/config.toml` can drop `display`, `role`, `harness`, and `asp_target` from agent entries. The `ani` CLI resolves these from `~/agents/<id>/agent-profile.toml` at runtime. This is a separate change in the animata project.
