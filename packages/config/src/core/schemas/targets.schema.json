@@ -110,6 +110,11 @@
         "yolo": {
           "type": "boolean",
           "description": "Skip all permission prompts (--dangerously-skip-permissions)"
+        },
+
+        "harness": {
+          "type": "string",
+          "description": "Preferred harness for this target (overrides agent-profile identity.harness)"
         }
       }
     }

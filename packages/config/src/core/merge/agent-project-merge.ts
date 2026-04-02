@@ -116,7 +116,7 @@ export function mergeAgentWithProjectTarget(
     priming_prompt: mergePrimingPrompt(profile.priming_prompt, projectTarget),
     compose: resolveEffectiveCompose(profile, projectTarget, runMode),
     yolo: projectTarget?.yolo ?? profile.harnessDefaults?.yolo ?? false,
-    harness: profile.identity?.harness ?? 'claude-code',
+    harness: projectTarget?.harness ?? profile.identity?.harness ?? 'claude-code',
     model:
       projectTarget?.claude?.model ?? projectTarget?.codex?.model ?? profile.harnessDefaults?.model,
     claude: mergeClaudeOptions(profile.harnessDefaults?.claude, projectTarget?.claude),
