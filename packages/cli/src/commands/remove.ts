@@ -53,8 +53,9 @@ export function registerRemoveCommand(program: Command): void {
           )
         }
 
-        const originalLength = target.compose.length
-        target.compose = target.compose.filter((ref) => extractSpaceId(ref) !== spaceId)
+        const compose = target.compose ?? []
+        const originalLength = compose.length
+        target.compose = compose.filter((ref) => extractSpaceId(ref) !== spaceId)
 
         if (target.compose.length === originalLength) {
           console.log(chalk.yellow(`Space "${spaceId}" not found in target "${targetName}"`))

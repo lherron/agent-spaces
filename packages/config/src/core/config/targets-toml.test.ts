@@ -350,24 +350,27 @@ schema = 1
       expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
     })
 
-    test('throws ConfigValidationError for missing compose in target', () => {
+    test('allows target without compose (agent-profile provides defaults)', () => {
       const toml = `
 schema = 1
 
 [targets.default]
-description = "Missing compose"
+description = "No compose — agent-profile provides defaults"
 `
-      expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
+      const manifest = parseTargetsToml(toml)
+      expect(manifest.targets['default']).toBeDefined()
+      expect(manifest.targets['default'].compose).toBeUndefined()
     })
 
-    test('throws ConfigValidationError for empty compose array', () => {
+    test('allows target with empty compose array', () => {
       const toml = `
 schema = 1
 
 [targets.default]
 compose = []
 `
-      expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
+      const manifest = parseTargetsToml(toml)
+      expect(manifest.targets['default'].compose).toEqual([])
     })
 
     test('throws ConfigValidationError for invalid space ref format', () => {

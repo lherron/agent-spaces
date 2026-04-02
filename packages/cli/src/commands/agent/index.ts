@@ -351,7 +351,11 @@ function buildPlacement(
   options: AgentCommandOptions,
   laneRef: string
 ): RuntimePlacement {
-  const bundle = buildBundleRef({ ...options, agentName: parseScopeRef(scopeRef).agentId })
+  const bundle = buildBundleRef({
+    ...options,
+    agentName: parseScopeRef(scopeRef).agentId,
+    agentRoot: options.agentRoot,
+  })
   const scaffoldPackets = options.scaffoldFile
     ? JSON.parse(readFileSync(options.scaffoldFile, 'utf8'))
     : undefined

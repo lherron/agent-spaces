@@ -58,12 +58,14 @@ export function registerAddCommand(program: Command): void {
 
         // Check if space already in compose
         const target = manifest.targets[targetName]
-        if (target.compose.includes(spaceRef as SpaceRefString)) {
+        const compose = target.compose ?? []
+        if (compose.includes(spaceRef as SpaceRefString)) {
           console.log(chalk.yellow(`Space "${spaceRef}" already in target "${targetName}"`))
           process.exit(0)
         }
 
         // Add space to compose
+        if (!target.compose) target.compose = []
         target.compose.push(spaceRef as SpaceRefString)
 
         // Write updated manifest

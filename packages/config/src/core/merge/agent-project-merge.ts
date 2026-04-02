@@ -58,7 +58,7 @@ export function resolveEffectiveCompose(
 ): SpaceRefString[] {
   const agentCompose = getAgentCompose(profile, runMode)
 
-  if (!projectTarget || projectTarget.compose.length === 0) {
+  if (!projectTarget || !projectTarget.compose || projectTarget.compose.length === 0) {
     return agentCompose
   }
 

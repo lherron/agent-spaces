@@ -47,8 +47,8 @@ export interface TargetDefinition {
   priming_prompt?: string | undefined
   /** Prompt text to append to the agent-level priming prompt */
   priming_prompt_append?: string | undefined
-  /** Ordered list of space refs to compose */
-  compose: SpaceRefString[]
+  /** Ordered list of space refs to compose (optional when agent-profile provides defaults) */
+  compose?: SpaceRefString[] | undefined
   /** How project compose should interact with agent-level compose defaults */
   compose_mode?: 'replace' | 'merge' | undefined
   /** Target-specific claude options (override defaults) */
