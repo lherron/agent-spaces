@@ -2,10 +2,24 @@ import TOML from '@iarna/toml'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import type { AgentRuntimeProfile, HarnessSettings, RunMode } from '../types/agent-profile.js'
+import type { AgentIdentity } from '../types/agent-profile.js'
 import { type SpaceRefString, isSpaceRefString } from '../types/refs.js'
+import type { ClaudeOptions, CodexOptions } from '../types/targets.js'
 
 const AGENT_PROFILE_FILENAME = 'agent-profile.toml'
 const RUN_MODES = new Set<RunMode>(['query', 'heartbeat', 'task', 'maintenance'])
+const IDENTITY_HARNESSES = new Set([
+  'claude-code',
+  'claude',
+  'codex-cli',
+  'codex',
+  'agent-sdk',
+  'claude-agent-sdk',
+  'pi',
+  'pi-sdk',
+])
+const CODEX_APPROVAL_POLICIES = new Set(['untrusted', 'on-failure', 'on-request', 'never'])
+const CODEX_SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 
 interface ValidationIssue {
   path: string
@@ -134,7 +148,8 @@ function parseByModeSpaceRefs(
 function parseHarnessSettings(
   value: unknown,
   source: string,
-  path: string
+  path: string,
+  schemaVersion: 1 | 2
 ): HarnessSettings | undefined {
   if (value === undefined) {
     return undefined
@@ -143,14 +158,47 @@ function parseHarnessSettings(
     fail(source, path, 'must be a table', 'type')
   }
 
-  assertOnlyKeys(value, ['model', 'sandboxMode', 'approvalPolicy', 'profile'], source, path)
+  const allowedKeys =
+    schemaVersion >= 2
+      ? ['model', 'sandboxMode', 'approvalPolicy', 'profile', 'yolo', 'claude', 'codex']
+      : ['model', 'sandboxMode', 'approvalPolicy', 'profile']
+  assertOnlyKeys(value, allowedKeys, source, path)
 
   const settings: HarnessSettings = {}
   for (const [key, raw] of Object.entries(value)) {
+    if (key === 'yolo') {
+      if (typeof raw !== 'boolean') {
+        fail(source, `${path}/${key}`, 'must be a boolean', 'type')
+      }
+      settings.yolo = raw
+      continue
+    }
+    if (key === 'claude') {
+      settings.claude = parseClaudeOptions(raw, source, `${path}/${key}`)
+      continue
+    }
+    if (key === 'codex') {
+      settings.codex = parseCodexOptions(raw, source, `${path}/${key}`)
+      continue
+    }
     if (typeof raw !== 'string') {
       fail(source, `${path}/${key}`, 'must be a string', 'type')
     }
-    settings[key as keyof HarnessSettings] = raw
+    if (key === 'model') {
+      settings.model = raw
+      continue
+    }
+    if (key === 'sandboxMode') {
+      settings.sandboxMode = raw
+      continue
+    }
+    if (key === 'approvalPolicy') {
+      settings.approvalPolicy = raw
+      continue
+    }
+    if (key === 'profile') {
+      settings.profile = raw
+    }
   }
   return settings
 }
@@ -158,7 +206,8 @@ function parseHarnessSettings(
 function parseHarnessByMode(
   value: unknown,
   source: string,
-  path: string
+  path: string,
+  schemaVersion: 1 | 2
 ): Partial<Record<RunMode, HarnessSettings>> | undefined {
   if (value === undefined) {
     return undefined
@@ -172,12 +221,136 @@ function parseHarnessByMode(
     if (!RUN_MODES.has(mode as RunMode)) {
       fail(source, `${path}/${mode}`, `unsupported run mode "${mode}"`, 'enum')
     }
-    const parsedSettings = parseHarnessSettings(settings, source, `${path}/${mode}`)
+    const parsedSettings = parseHarnessSettings(settings, source, `${path}/${mode}`, schemaVersion)
     if (parsedSettings) {
       result[mode as RunMode] = parsedSettings
     }
   }
   return result
+}
+
+function parseIdentity(value: unknown, source: string, path: string): AgentIdentity | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (!isPlainObject(value)) {
+    fail(source, path, 'must be a table', 'type')
+  }
+
+  assertOnlyKeys(value, ['display', 'role', 'harness'], source, path)
+
+  const identity: AgentIdentity = {}
+  for (const [key, raw] of Object.entries(value)) {
+    if (typeof raw !== 'string') {
+      fail(source, `${path}/${key}`, 'must be a string', 'type')
+    }
+    if (key === 'harness' && !IDENTITY_HARNESSES.has(raw)) {
+      fail(source, `${path}/${key}`, `unsupported harness "${raw}"`, 'enum')
+    }
+    identity[key as keyof AgentIdentity] = raw
+  }
+  return identity
+}
+
+function parseClaudeOptions(
+  value: unknown,
+  source: string,
+  path: string
+): ClaudeOptions | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (!isPlainObject(value)) {
+    fail(source, path, 'must be a table', 'type')
+  }
+
+  assertOnlyKeys(value, ['model', 'permission_mode', 'args'], source, path)
+
+  const options: ClaudeOptions = {}
+  if (value['model'] !== undefined) {
+    if (typeof value['model'] !== 'string') {
+      fail(source, `${path}/model`, 'must be a string', 'type')
+    }
+    options.model = value['model']
+  }
+  if (value['permission_mode'] !== undefined) {
+    if (typeof value['permission_mode'] !== 'string') {
+      fail(source, `${path}/permission_mode`, 'must be a string', 'type')
+    }
+    options.permission_mode = value['permission_mode']
+  }
+  if (value['args'] !== undefined) {
+    const args = parseStringArray(value['args'], source, `${path}/args`)
+    if (args) {
+      options.args = args
+    }
+  }
+  return options
+}
+
+function parseCodexOptions(value: unknown, source: string, path: string): CodexOptions | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (!isPlainObject(value)) {
+    fail(source, path, 'must be a table', 'type')
+  }
+
+  assertOnlyKeys(
+    value,
+    ['model', 'model_reasoning_effort', 'approval_policy', 'sandbox_mode', 'profile'],
+    source,
+    path
+  )
+
+  const options: CodexOptions = {}
+  if (value['model'] !== undefined) {
+    if (typeof value['model'] !== 'string') {
+      fail(source, `${path}/model`, 'must be a string', 'type')
+    }
+    options.model = value['model']
+  }
+  if (value['model_reasoning_effort'] !== undefined) {
+    if (typeof value['model_reasoning_effort'] !== 'string') {
+      fail(source, `${path}/model_reasoning_effort`, 'must be a string', 'type')
+    }
+    options.model_reasoning_effort = value['model_reasoning_effort']
+  }
+  if (value['approval_policy'] !== undefined) {
+    if (typeof value['approval_policy'] !== 'string') {
+      fail(source, `${path}/approval_policy`, 'must be a string', 'type')
+    }
+    if (!CODEX_APPROVAL_POLICIES.has(value['approval_policy'])) {
+      fail(
+        source,
+        `${path}/approval_policy`,
+        `unsupported approval policy "${value['approval_policy']}"`,
+        'enum'
+      )
+    }
+    options.approval_policy = value['approval_policy'] as CodexOptions['approval_policy']
+  }
+  if (value['sandbox_mode'] !== undefined) {
+    if (typeof value['sandbox_mode'] !== 'string') {
+      fail(source, `${path}/sandbox_mode`, 'must be a string', 'type')
+    }
+    if (!CODEX_SANDBOX_MODES.has(value['sandbox_mode'])) {
+      fail(
+        source,
+        `${path}/sandbox_mode`,
+        `unsupported sandbox mode "${value['sandbox_mode']}"`,
+        'enum'
+      )
+    }
+    options.sandbox_mode = value['sandbox_mode'] as CodexOptions['sandbox_mode']
+  }
+  if (value['profile'] !== undefined) {
+    if (typeof value['profile'] !== 'string') {
+      fail(source, `${path}/profile`, 'must be a string', 'type')
+    }
+    options.profile = value['profile']
+  }
+  return options
 }
 
 export function parseAgentProfile(content: string, filePath?: string): AgentRuntimeProfile {
@@ -197,17 +370,61 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
 
   assertOnlyKeys(
     parsed,
-    ['schemaVersion', 'instructions', 'spaces', 'targets', 'harnessDefaults', 'harnessByMode'],
+    [
+      'schemaVersion',
+      'identity',
+      'priming_prompt',
+      'priming_prompt_file',
+      'instructions',
+      'spaces',
+      'targets',
+      'harnessDefaults',
+      'harnessByMode',
+    ],
     source,
     ''
   )
 
-  if (parsed['schemaVersion'] !== 1) {
-    fail(source, '/schemaVersion', 'unsupported schema version; expected 1', 'const')
+  const schemaVersion = parsed['schemaVersion']
+  if (schemaVersion !== 1 && schemaVersion !== 2) {
+    fail(source, '/schemaVersion', 'unsupported schema version; expected 1 or 2', 'const')
   }
 
   const profile: AgentRuntimeProfile = {
-    schemaVersion: 1,
+    schemaVersion,
+  }
+
+  if (schemaVersion === 1) {
+    for (const key of ['identity', 'priming_prompt', 'priming_prompt_file']) {
+      if (parsed[key] !== undefined) {
+        fail(source, `/${key}`, 'unsupported in schemaVersion 1; requires schemaVersion 2', 'const')
+      }
+    }
+  }
+
+  profile.identity = parseIdentity(parsed['identity'], source, '/identity')
+
+  if (parsed['priming_prompt'] !== undefined) {
+    if (typeof parsed['priming_prompt'] !== 'string') {
+      fail(source, '/priming_prompt', 'must be a string', 'type')
+    }
+    profile.priming_prompt = parsed['priming_prompt']
+  }
+
+  if (parsed['priming_prompt_file'] !== undefined) {
+    if (typeof parsed['priming_prompt_file'] !== 'string') {
+      fail(source, '/priming_prompt_file', 'must be a string', 'type')
+    }
+    profile.priming_prompt_file = parsed['priming_prompt_file']
+  }
+
+  if (profile.priming_prompt !== undefined && profile.priming_prompt_file !== undefined) {
+    fail(
+      source,
+      '/priming_prompt_file',
+      'cannot set both priming_prompt and priming_prompt_file',
+      'conflict'
+    )
   }
 
   if (parsed['instructions'] !== undefined) {
@@ -269,9 +486,15 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
   profile.harnessDefaults = parseHarnessSettings(
     parsed['harnessDefaults'],
     source,
-    '/harnessDefaults'
+    '/harnessDefaults',
+    schemaVersion
   )
-  profile.harnessByMode = parseHarnessByMode(parsed['harnessByMode'], source, '/harnessByMode')
+  profile.harnessByMode = parseHarnessByMode(
+    parsed['harnessByMode'],
+    source,
+    '/harnessByMode',
+    schemaVersion
+  )
 
   return profile
 }

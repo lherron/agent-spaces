@@ -21,6 +21,15 @@ export {
 } from './schemas/index.js'
 export type { ValidationError, ValidationResult } from './schemas/index.js'
 
+// Merge helpers
+export {
+  mergeAgentWithProjectTarget,
+  mergePrimingPrompt,
+  resolveAgentPrimingPrompt,
+  resolveEffectiveCompose,
+} from './merge/agent-project-merge.js'
+export type { EffectiveTargetConfig } from './merge/agent-project-merge.js'
+
 // Config parsers
 export {
   LOCK_FILENAME,
