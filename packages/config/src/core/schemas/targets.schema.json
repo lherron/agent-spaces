@@ -60,12 +60,17 @@
       "properties": {
         "description": { "type": "string", "maxLength": 300 },
         "priming_prompt": { "type": "string" },
+        "priming_prompt_append": { "type": "string" },
 
         "compose": {
           "type": "array",
           "description": "Ordered list of space refs. Later entries are higher-precedence for collision warnings and load order.",
           "minItems": 1,
           "items": { "$ref": "#/$defs/spaceRef" }
+        },
+        "compose_mode": {
+          "type": "string",
+          "enum": ["replace", "merge"]
         },
 
         "claude": {

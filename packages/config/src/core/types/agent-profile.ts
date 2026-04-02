@@ -1,12 +1,22 @@
 import type { SpaceRefString } from './refs.js'
+import type { ClaudeOptions, CodexOptions } from './targets.js'
 
 export type RunMode = 'query' | 'heartbeat' | 'task' | 'maintenance'
+
+export interface AgentIdentity {
+  display?: string | undefined
+  role?: string | undefined
+  harness?: string | undefined
+}
 
 export interface HarnessSettings {
   model?: string | undefined
   sandboxMode?: string | undefined
   approvalPolicy?: string | undefined
   profile?: string | undefined
+  yolo?: boolean | undefined
+  claude?: ClaudeOptions | undefined
+  codex?: CodexOptions | undefined
 }
 
 export interface AgentProfileInstructions {
@@ -24,7 +34,10 @@ export interface AgentProfileTarget {
 }
 
 export interface AgentRuntimeProfile {
-  schemaVersion: 1
+  schemaVersion: 1 | 2
+  identity?: AgentIdentity | undefined
+  priming_prompt?: string | undefined
+  priming_prompt_file?: string | undefined
   instructions?: AgentProfileInstructions | undefined
   spaces?: AgentProfileSpaces | undefined
   targets?: Record<string, AgentProfileTarget> | undefined

@@ -42,19 +42,23 @@ export interface ResolverConfig {
 /** A Run Target definition */
 export interface TargetDefinition {
   /** Human-readable description */
-  description?: string
+  description?: string | undefined
   /** Initial prompt sent when running this target unless overridden by CLI prompt */
-  priming_prompt?: string
+  priming_prompt?: string | undefined
+  /** Prompt text to append to the agent-level priming prompt */
+  priming_prompt_append?: string | undefined
   /** Ordered list of space refs to compose */
   compose: SpaceRefString[]
+  /** How project compose should interact with agent-level compose defaults */
+  compose_mode?: 'replace' | 'merge' | undefined
   /** Target-specific claude options (override defaults) */
-  claude?: ClaudeOptions
+  claude?: ClaudeOptions | undefined
   /** Target-specific codex options (override defaults) */
-  codex?: CodexOptions
+  codex?: CodexOptions | undefined
   /** Resolver configuration */
-  resolver?: ResolverConfig
+  resolver?: ResolverConfig | undefined
   /** Skip all permission prompts (--dangerously-skip-permissions) */
-  yolo?: boolean
+  yolo?: boolean | undefined
 }
 
 /**
