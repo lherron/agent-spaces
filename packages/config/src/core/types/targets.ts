@@ -59,6 +59,8 @@ export interface TargetDefinition {
   resolver?: ResolverConfig | undefined
   /** Skip all permission prompts (--dangerously-skip-permissions) */
   yolo?: boolean | undefined
+  /** Preferred harness for this target (overrides agent-profile identity.harness) */
+  harness?: string | undefined
 }
 
 /**
