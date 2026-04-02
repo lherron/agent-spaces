@@ -10,6 +10,7 @@
 
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
 import {
   copyFile,
   cp,
@@ -60,6 +61,7 @@ import { PathResolver, copyDir, createSnapshot, ensureDir, getAspHome } from 'sp
 
 import type { BuildResult } from 'spaces-config'
 import { type ResolveOptions, install as configInstall, loadProjectManifest } from 'spaces-config'
+import { getAgentsRoot, parseAgentProfile, resolveAgentPrimingPrompt } from 'spaces-config'
 import { harnessRegistry } from './harness/index.js'
 
 function shellQuote(value: string): string {
@@ -602,6 +604,35 @@ async function persistGlobalLock(newLock: LockFile, globalLockPath: string): Pro
 }
 
 /**
+ * Resolve the effective priming prompt for asp-run when the target uses priming_prompt_append.
+ * Loads the agent profile from ~/agents/<targetName>/ and merges the append text.
+ */
+function resolveAgentPrimingPromptForRun(
+  targetName: string,
+  target: { priming_prompt_append?: string | undefined }
+): string | undefined {
+  try {
+    const agentsRoot = getAgentsRoot()
+    if (!agentsRoot) return target.priming_prompt_append
+
+    const agentRoot = join(agentsRoot, targetName)
+    const profilePath = join(agentRoot, 'agent-profile.toml')
+    if (!existsSync(profilePath)) return target.priming_prompt_append
+
+    const profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
+    const basePrompt = resolveAgentPrimingPrompt(profile, agentRoot)
+
+    if (basePrompt && target.priming_prompt_append) {
+      return `${basePrompt}\n${target.priming_prompt_append}`
+    }
+    return basePrompt ?? target.priming_prompt_append
+  } catch {
+    // If agent profile loading fails, fall back to append text only
+    return target.priming_prompt_append
+  }
+}
+
+/**
  * Run a target with a harness adapter.
  */
 export async function run(targetName: string, options: RunOptions): Promise<RunResult> {
@@ -659,7 +690,14 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   debugLog('manifest ok')
 
   const defaults = adapter.getDefaultRunOptions(manifest, targetName)
-  const primingPrompt = manifest.targets[targetName]?.priming_prompt
+  const target = manifest.targets[targetName]
+  let primingPrompt = target?.priming_prompt
+
+  // If target uses priming_prompt_append, merge with agent-profile.toml base prompt
+  if (!primingPrompt && target?.priming_prompt_append) {
+    primingPrompt = resolveAgentPrimingPromptForRun(targetName, target)
+  }
+
   const effectivePrompt = combinePrompts(defaults.prompt ?? primingPrompt, options.prompt)
   const cliRunOptions: HarnessRunOptions = {
     aspHome: options.aspHome,
