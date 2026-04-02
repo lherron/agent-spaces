@@ -28,6 +28,9 @@ import {
 import { basename, dirname, join, relative, resolve } from 'node:path'
 
 import {
+  type AgentRuntimeProfile,
+  type ClaudeOptions,
+  type CodexOptions,
   type ComposeTargetInput,
   type ComposedTargetBundle,
   DEFAULT_HARNESS,
@@ -37,15 +40,21 @@ import {
   type HarnessRunOptions,
   LOCK_FILENAME,
   type LockFile,
+  type ProjectManifest,
   type ResolvedSpaceArtifact,
   type SpaceKey,
   type SpaceRefString,
   type SpaceSettings,
+  type TargetDefinition,
   getAspModulesPath,
+  getRegistryPath,
   harnessOutputExists,
+  isHarnessId,
   isHarnessSupported,
   isSpaceRefString,
   lockFileExists,
+  materializeFromRefs,
+  mergeAgentWithProjectTarget,
   parseSpaceRef,
   readLockJson,
   readSpaceToml,
@@ -210,6 +219,16 @@ async function pathExists(path: string): Promise<boolean> {
 function isWithinPath(path: string, parent: string): boolean {
   const rel = relative(resolve(parent), resolve(path))
   return rel !== '' && !rel.startsWith('..') && !rel.startsWith('/')
+}
+
+function composeArraysMatch(
+  manifestCompose: readonly SpaceRefString[],
+  lockCompose: readonly SpaceRefString[]
+): boolean {
+  if (manifestCompose.length !== lockCompose.length) {
+    return false
+  }
+  return manifestCompose.every((ref, index) => ref === lockCompose[index])
 }
 
 function computeCodexRuntimeKey(targetName: string, cwd: string): string {
@@ -604,31 +623,165 @@ async function persistGlobalLock(newLock: LockFile, globalLockPath: string): Pro
 }
 
 /**
- * Resolve the effective priming prompt for asp-run when the target uses priming_prompt_append.
- * Loads the agent profile from ~/agents/<targetName>/ and merges the append text.
+ * Agent profile data loaded for asp-run integration.
  */
-function resolveAgentPrimingPromptForRun(
+interface LoadedAgentProfile {
+  agentRoot: string
+  profile: AgentRuntimeProfile
+}
+
+function loadAgentProfileForRun(
   targetName: string,
-  target: { priming_prompt_append?: string | undefined }
+  options?: { agentsRoot?: string | undefined }
+): LoadedAgentProfile | undefined {
+  const agentsRoot = options?.agentsRoot ?? getAgentsRoot()
+  if (!agentsRoot) {
+    return undefined
+  }
+
+  const agentRoot = join(agentsRoot, targetName)
+  const profilePath = join(agentRoot, 'agent-profile.toml')
+  if (!existsSync(profilePath)) {
+    return undefined
+  }
+  const profileSource = readFileSync(profilePath, 'utf8').replace(
+    /^(\s*)schema_version(\s*=)/m,
+    '$1schemaVersion$2'
+  )
+
+  return {
+    agentRoot,
+    profile: parseAgentProfile(profileSource, profilePath),
+  }
+}
+
+function resolveProfileHarnessForRun(harness: string | undefined): HarnessId | undefined {
+  switch (harness) {
+    case undefined:
+      return undefined
+    case 'claude-code':
+      return 'claude'
+    case 'codex-cli':
+      return 'codex'
+    case 'agent-sdk':
+      return 'claude-agent-sdk'
+    default:
+      return isHarnessId(harness) ? harness : undefined
+  }
+}
+
+function resolveAgentPrimingPromptForRun(
+  target:
+    | {
+        priming_prompt?: string | undefined
+        priming_prompt_append?: string | undefined
+      }
+    | undefined,
+  agentProfile: LoadedAgentProfile | undefined
 ): string | undefined {
-  try {
-    const agentsRoot = getAgentsRoot()
-    if (!agentsRoot) return target.priming_prompt_append
+  if (target?.priming_prompt !== undefined) {
+    return target.priming_prompt
+  }
+  if (!target?.priming_prompt_append) {
+    return undefined
+  }
 
-    const agentRoot = join(agentsRoot, targetName)
-    const profilePath = join(agentRoot, 'agent-profile.toml')
-    if (!existsSync(profilePath)) return target.priming_prompt_append
+  const basePrompt = agentProfile
+    ? resolveAgentPrimingPrompt(agentProfile.profile, agentProfile.agentRoot)
+    : undefined
 
-    const profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
-    const basePrompt = resolveAgentPrimingPrompt(profile, agentRoot)
+  if (basePrompt) {
+    return `${basePrompt}\n${target.priming_prompt_append}`
+  }
+  return target.priming_prompt_append
+}
 
-    if (basePrompt && target.priming_prompt_append) {
-      return `${basePrompt}\n${target.priming_prompt_append}`
+function resolveAgentRunDefaultsFromProfile(
+  target: TargetDefinition | undefined,
+  agentProfile: LoadedAgentProfile
+): {
+  yolo?: boolean
+  model?: string
+  harness?: string
+  claude?: ClaudeOptions
+  codex?: CodexOptions
+  compose?: SpaceRefString[]
+} {
+  const primingPrompt = resolveAgentPrimingPrompt(agentProfile.profile, agentProfile.agentRoot)
+  const effective = mergeAgentWithProjectTarget(
+    {
+      ...agentProfile.profile,
+      ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
+    },
+    target,
+    'task'
+  )
+
+  return {
+    yolo: effective.yolo,
+    harness: effective.harness,
+    claude: effective.claude,
+    codex: effective.codex,
+    compose: effective.compose,
+    ...(effective.model !== undefined ? { model: effective.model } : {}),
+  }
+}
+
+export function resolveAgentRunDefaults(
+  targetName: string,
+  target: TargetDefinition | undefined,
+  options?: { agentsRoot?: string | undefined }
+):
+  | {
+      yolo?: boolean
+      model?: string
+      harness?: string
+      claude?: ClaudeOptions
+      codex?: CodexOptions
+      compose?: SpaceRefString[]
     }
-    return basePrompt ?? target.priming_prompt_append
-  } catch {
-    // If agent profile loading fails, fall back to append text only
-    return target.priming_prompt_append
+  | undefined {
+  const agentProfile = loadAgentProfileForRun(targetName, options)
+  if (!agentProfile) {
+    return undefined
+  }
+  return resolveAgentRunDefaultsFromProfile(target, agentProfile)
+}
+
+function buildSyntheticRunManifest(
+  manifest: ProjectManifest,
+  targetName: string,
+  defaults: NonNullable<ReturnType<typeof resolveAgentRunDefaults>>,
+  harnessId: HarnessId,
+  primingPrompt: string | undefined
+): ProjectManifest {
+  const claude: ClaudeOptions = { ...(defaults.claude ?? {}) }
+  const codex: CodexOptions = { ...(defaults.codex ?? {}) }
+
+  if (
+    (harnessId === 'claude' || harnessId === 'claude-agent-sdk') &&
+    defaults.model !== undefined &&
+    claude.model === undefined
+  ) {
+    claude.model = defaults.model
+  }
+  if (harnessId === 'codex' && defaults.model !== undefined && codex.model === undefined) {
+    codex.model = defaults.model
+  }
+
+  return {
+    schema: 1,
+    ...(manifest.claude ? { claude: manifest.claude } : {}),
+    ...(manifest.codex ? { codex: manifest.codex } : {}),
+    targets: {
+      [targetName]: {
+        compose: defaults.compose ?? [],
+        ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
+        ...(defaults.yolo ? { yolo: true } : {}),
+        ...(Object.keys(claude).length > 0 ? { claude } : {}),
+        ...(Object.keys(codex).length > 0 ? { codex } : {}),
+      },
+    },
   }
 }
 
@@ -643,7 +796,17 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     }
   }
 
-  const harnessId = options.harness ?? DEFAULT_HARNESS
+  debugLog('load manifest')
+  const manifest = await loadProjectManifest(options.projectPath, options.aspHome)
+  debugLog('manifest ok')
+
+  const target = manifest.targets[targetName]
+  const agentProfile = loadAgentProfileForRun(targetName)
+  const agentDefaults = agentProfile
+    ? resolveAgentRunDefaultsFromProfile(target, agentProfile)
+    : undefined
+  const harnessId =
+    options.harness ?? resolveProfileHarnessForRun(agentDefaults?.harness) ?? DEFAULT_HARNESS
   const adapter = harnessRegistry.getOrThrow(harnessId)
 
   debugLog('detect harness', harnessId)
@@ -659,21 +822,48 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     await migrateLegacyProjectCodexRuntimeHome(aspHome, options.projectPath, targetName)
   }
 
+  const lockPath = join(options.projectPath, LOCK_FILENAME)
+  const lockExists = await lockFileExists(lockPath)
+  const existingLock = lockExists ? await readLockJson(lockPath) : undefined
+  const effectiveCompose = agentDefaults?.compose
+  const composeChanged =
+    effectiveCompose !== undefined &&
+    !composeArraysMatch(effectiveCompose, existingLock?.targets[targetName]?.compose ?? [])
   const needsInstall =
-    options.refresh || !(await harnessOutputExists(options.projectPath, targetName, harnessId))
+    options.refresh ||
+    !lockExists ||
+    !(await harnessOutputExists(options.projectPath, targetName, harnessId)) ||
+    composeChanged
   if (needsInstall) {
     debugLog('install', options.refresh ? '(refresh)' : '(missing output)')
-    await configInstall({
-      ...options,
-      harness: harnessId,
-      targets: [targetName],
-      adapter,
-    })
+    if (effectiveCompose !== undefined) {
+      await materializeFromRefs({
+        targetName,
+        refs: effectiveCompose,
+        registryPath: getRegistryPath(options),
+        lockPath,
+        projectPath: options.projectPath,
+        harness: harnessId,
+        adapter,
+        ...(options.aspHome !== undefined ? { aspHome: options.aspHome } : {}),
+        ...(options.refresh !== undefined ? { refresh: options.refresh } : {}),
+        ...(options.inheritProject !== undefined ? { inheritProject: options.inheritProject } : {}),
+        ...(options.inheritUser !== undefined ? { inheritUser: options.inheritUser } : {}),
+        ...(agentProfile ? { agentRoot: agentProfile.agentRoot } : {}),
+        projectRoot: options.projectPath,
+      })
+    } else {
+      await configInstall({
+        ...options,
+        harness: harnessId,
+        targets: [targetName],
+        adapter,
+      })
+    }
     debugLog('install done')
   }
 
   debugLog('read lock')
-  const lockPath = join(options.projectPath, LOCK_FILENAME)
   const lock = await readLockJson(lockPath)
   debugLog('lock ok')
 
@@ -684,19 +874,12 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   }
 
   const bundle = await adapter.loadTargetBundle(harnessOutputPath, targetName)
-
-  debugLog('load manifest')
-  const manifest = await loadProjectManifest(options.projectPath, options.aspHome)
-  debugLog('manifest ok')
-
-  const defaults = adapter.getDefaultRunOptions(manifest, targetName)
-  const target = manifest.targets[targetName]
-  let primingPrompt = target?.priming_prompt
-
-  // If target uses priming_prompt_append, merge with agent-profile.toml base prompt
-  if (!primingPrompt && target?.priming_prompt_append) {
-    primingPrompt = resolveAgentPrimingPromptForRun(targetName, target)
-  }
+  const primingPrompt = resolveAgentPrimingPromptForRun(target, agentProfile)
+  const effectiveManifest =
+    agentDefaults !== undefined
+      ? buildSyntheticRunManifest(manifest, targetName, agentDefaults, harnessId, primingPrompt)
+      : manifest
+  const defaults = adapter.getDefaultRunOptions(effectiveManifest, targetName)
 
   const effectivePrompt = combinePrompts(defaults.prompt ?? primingPrompt, options.prompt)
   const cliRunOptions: HarnessRunOptions = {
