@@ -156,7 +156,7 @@ describe('agent-profile.toml parser (T-00853)', () => {
     const profile = parseAgentProfile(content)
 
     expect(profile.harnessDefaults).toBeDefined()
-    expect(profile.harnessDefaults!.model).toBe('claude/sonnet')
+    expect(profile.harnessDefaults!.model).toBeUndefined()
     expect(profile.harnessDefaults!.sandboxMode).toBe('workspace-write')
     expect(profile.harnessDefaults!.approvalPolicy).toBe('on-request')
   })

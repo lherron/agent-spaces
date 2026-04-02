@@ -16,6 +16,5 @@ compose = ["space:agent:private-ops", "space:project:repo-defaults"]
 compose = ["space:agent:task-worker", "space:project:task-scaffolds"]
 
 [harnessDefaults]
-model = "claude/sonnet"
 sandboxMode = "workspace-write"
 approvalPolicy = "on-request"

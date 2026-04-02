@@ -56,7 +56,6 @@
     "target": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["compose"],
       "properties": {
         "description": { "type": "string", "maxLength": 300 },
         "priming_prompt": { "type": "string" },
@@ -65,7 +64,6 @@
         "compose": {
           "type": "array",
           "description": "Ordered list of space refs. Later entries are higher-precedence for collision warnings and load order.",
-          "minItems": 1,
           "items": { "$ref": "#/$defs/spaceRef" }
         },
         "compose_mode": {

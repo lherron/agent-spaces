@@ -2,10 +2,13 @@
  * Shared utilities for agent CLI commands.
  */
 
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { RuntimeBundleRef, SpaceRefString } from 'spaces-config'
 
 interface BundleRefOptions {
   agentName?: string | undefined
+  agentRoot?: string | undefined
   bundle?: string | undefined
   agentTarget?: string | undefined
   projectTarget?: string | undefined
@@ -15,7 +18,8 @@ interface BundleRefOptions {
 
 /**
  * Build a RuntimeBundleRef from CLI options.
- * Defaults to agent-default when no explicit selector is provided.
+ * Produces agent-project when agent-profile.toml exists at agent root,
+ * otherwise falls back to agent-default.
  */
 export function buildBundleRef(options: BundleRefOptions): RuntimeBundleRef {
   if (options.agentTarget) {
@@ -34,11 +38,15 @@ export function buildBundleRef(options: BundleRefOptions): RuntimeBundleRef {
   if (options.compose && options.compose.length > 0) {
     return { kind: 'compose', compose: options.compose as SpaceRefString[] }
   }
-  if (options.agentName) {
-    return {
-      kind: 'agent-project',
-      agentName: options.agentName,
-      ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
+  // Only use agent-project when a v2 agent-profile.toml exists
+  if (options.agentName && options.agentRoot) {
+    const profilePath = join(options.agentRoot, 'agent-profile.toml')
+    if (existsSync(profilePath)) {
+      return {
+        kind: 'agent-project',
+        agentName: options.agentName,
+        ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
+      }
     }
   }
   return { kind: 'agent-default' }
