@@ -10,10 +10,12 @@ import {
   CLAUDE_CODE_MODELS,
   DEFAULT_AGENT_SDK_MODEL,
   DEFAULT_CLAUDE_CODE_MODEL,
+  type EffectiveTargetConfig,
   type HarnessId,
   type LintWarning,
   type LockFile,
   PathResolver,
+  type ProjectManifest,
   type SpaceRefString,
   type TargetDefinition,
   asSha256Integrity,
@@ -30,6 +32,7 @@ import {
   parseAgentProfile,
   parseTargetsToml,
   readHooksWithPrecedence,
+  resolveAgentPrimingPrompt,
   resolveTarget,
 } from 'spaces-config'
 
@@ -275,6 +278,53 @@ function computeSpacesTargetName(spaces: string[]): string {
   return `spaces-${hash.digest('hex').slice(0, 12)}`
 }
 
+function buildSyntheticAgentProjectManifest(
+  targetName: string,
+  effectiveConfig: EffectiveTargetConfig
+): ProjectManifest {
+  return {
+    schema: 1,
+    ...(Object.keys(effectiveConfig.claude).length > 0 ? { claude: effectiveConfig.claude } : {}),
+    ...(Object.keys(effectiveConfig.codex).length > 0 ? { codex: effectiveConfig.codex } : {}),
+    targets: {
+      [targetName]: {
+        compose: effectiveConfig.compose,
+        ...(effectiveConfig.priming_prompt !== undefined
+          ? { priming_prompt: effectiveConfig.priming_prompt }
+          : {}),
+        ...(effectiveConfig.yolo ? { yolo: effectiveConfig.yolo } : {}),
+        ...(Object.keys(effectiveConfig.claude).length > 0
+          ? { claude: effectiveConfig.claude }
+          : {}),
+        ...(Object.keys(effectiveConfig.codex).length > 0 ? { codex: effectiveConfig.codex } : {}),
+      },
+    },
+  }
+}
+
+function loadOptionalProjectTarget(
+  projectRoot: string | undefined,
+  agentName: string
+): TargetDefinition | undefined {
+  if (!projectRoot) {
+    return undefined
+  }
+
+  const targetsPath = join(projectRoot, 'asp-targets.toml')
+  if (!existsSync(targetsPath)) {
+    return undefined
+  }
+
+  const content = readFileSync(targetsPath, 'utf8')
+  const parsed = parseToml(content) as Record<string, unknown>
+  const rawTargets = parsed['targets'] as Record<string, unknown> | undefined
+  if (!rawTargets?.[agentName]) {
+    return undefined
+  }
+
+  return parseTargetsToml(content, targetsPath).targets[agentName]
+}
+
 /**
  * Convert a RuntimePlacement into a ValidatedSpec for the unified materialization pipeline.
  * Also returns agentRoot/projectRoot for closure resolution of local spaces.
@@ -283,6 +333,8 @@ function placementToSpec(placement: RuntimePlacement): {
   spec: ValidatedSpec
   agentRoot?: string | undefined
   projectRoot?: string | undefined
+  effectiveConfig?: EffectiveTargetConfig | undefined
+  manifest?: ProjectManifest | undefined
 } {
   const { bundle } = placement
   const agentRoot = placement.agentRoot
@@ -333,22 +385,25 @@ function placementToSpec(placement: RuntimePlacement): {
 
       if (existsSync(profilePath)) {
         const profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
-        let projectTarget: TargetDefinition | undefined
+        const primingPrompt = resolveAgentPrimingPrompt(profile, agentRoot)
+        const projectTarget = loadOptionalProjectTarget(bundle.projectRoot, bundle.agentName)
+        const effective = mergeAgentWithProjectTarget(
+          {
+            ...profile,
+            ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
+          },
+          projectTarget,
+          placement.runMode
+        )
 
-        if (bundle.projectRoot) {
-          const targetsPath = join(bundle.projectRoot, 'asp-targets.toml')
-          if (existsSync(targetsPath)) {
-            const content = readFileSync(targetsPath, 'utf8')
-            const parsed = parseToml(content) as Record<string, unknown>
-            const rawTargets = parsed['targets'] as Record<string, unknown> | undefined
-            if (rawTargets?.[bundle.agentName]) {
-              const manifest = parseTargetsToml(content, targetsPath)
-              projectTarget = manifest.targets[bundle.agentName]
-            }
-          }
+        compose = effective.compose
+        return {
+          spec: { kind: 'spaces', spaces: effective.compose },
+          agentRoot,
+          projectRoot,
+          effectiveConfig: effective, // effectiveConfig includes priming_prompt, yolo, model.
+          manifest: buildSyntheticAgentProjectManifest(bundle.agentName, effective),
         }
-
-        compose = mergeAgentWithProjectTarget(profile, projectTarget, placement.runMode).compose
       }
 
       return { spec: { kind: 'spaces', spaces: compose }, agentRoot, projectRoot }
@@ -1453,11 +1508,13 @@ async function buildPlacementInvocationSpec(
   // Validate provider match with continuation if provided
   validateProviderMatch(frontendDef, req.continuation)
 
-  // Validate model
-  const modelResolution = resolveModel(frontendDef, req.model)
-  if (!modelResolution.ok) {
-    throw new Error(`Model not supported for frontend ${req.frontend}: ${modelResolution.modelId}`)
-  }
+  const {
+    spec,
+    agentRoot,
+    projectRoot,
+    effectiveConfig,
+    manifest: syntheticManifest,
+  } = placementToSpec(placement)
 
   // Resolve placement to get audit metadata (invocation building is lenient)
   const resolvedBundle = await resolvePlacement({ ...placement, dryRun: true })
@@ -1476,8 +1533,21 @@ async function buildPlacementInvocationSpec(
     )
   }
 
+  const defaultRunOptions =
+    placement.bundle.kind === 'agent-project' && syntheticManifest
+      ? adapter.getDefaultRunOptions(syntheticManifest, placement.bundle.agentName)
+      : {}
+
+  // Validate model
+  const modelResolution = resolveModel(
+    frontendDef,
+    req.model ?? defaultRunOptions.model ?? effectiveConfig?.model
+  )
+  if (!modelResolution.ok) {
+    throw new Error(`Model not supported for frontend ${req.frontend}: ${modelResolution.modelId}`)
+  }
+
   // Unified materialization: convert placement to ValidatedSpec, then use materializeSpec
-  const { spec, agentRoot, projectRoot } = placementToSpec(placement)
   const materialized = await materializeSpec(spec, aspHome, frontendDef.internalId, {
     agentRoot,
     projectRoot,
@@ -1491,13 +1561,15 @@ async function buildPlacementInvocationSpec(
 
   // Build run options for the adapter
   const isResume = !!req.continuation?.key
+  const prompt = req.prompt ?? defaultRunOptions.prompt ?? effectiveConfig?.priming_prompt
   const runOptions = {
+    ...defaultRunOptions,
     interactive: req.interactionMode === 'interactive',
     model: modelResolution.info.model,
     projectPath: cwd,
     cwd,
-    yolo: req.yolo,
-    ...(req.prompt ? { prompt: req.prompt } : {}),
+    yolo: req.yolo ?? defaultRunOptions.yolo ?? effectiveConfig?.yolo,
+    ...(prompt !== undefined ? { prompt } : {}),
     ...(isResume && req.continuation?.key ? { continuationKey: req.continuation.key } : {}),
   }
 
