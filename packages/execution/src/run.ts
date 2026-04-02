@@ -765,9 +765,10 @@ function buildSyntheticRunManifest(
   ) {
     claude.model = defaults.model
   }
-  if (harnessId === 'codex' && defaults.model !== undefined && codex.model === undefined) {
-    codex.model = defaults.model
-  }
+  // Only promote defaults.model to codex if codex doesn't already have a model set via
+  // harnessDefaults.codex.model. Skip promotion entirely — harnessDefaults.model is typically
+  // a Claude model name (e.g. "claude-opus-4-6") which codex doesn't support. Codex should
+  // get its model from harnessDefaults.codex.model or its built-in default.
 
   return {
     schema: 1,
