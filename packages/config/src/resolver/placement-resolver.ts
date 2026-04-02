@@ -16,6 +16,9 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
+import { parse as parseToml } from '@iarna/toml'
+import { mergeAgentWithProjectTarget, parseAgentProfile, parseTargetsToml } from '../core/index.js'
+import type { AgentRuntimeProfile, TargetDefinition } from '../core/types/index.js'
 import type {
   ResolvedInstruction,
   ResolvedRuntimeBundle,
@@ -76,6 +79,7 @@ export async function resolvePlacement(
     projectRoot: placement.projectRoot,
     runMode: placement.runMode,
     bundleSpaces,
+    includeProfileSpaces: placement.bundle.kind !== 'agent-project',
   })
 
   // 5. Resolve effective cwd (section 9)
@@ -147,6 +151,11 @@ function resolveBundleSpaces(placement: RuntimePlacement): string[] {
       }
       return (target['compose'] as string[] | undefined) ?? []
     }
+    case 'agent-project': {
+      const profile = loadAgentProfile(placement.agentRoot)
+      const projectTarget = loadProjectTargetOptional(bundle.projectRoot, bundle.agentName)
+      return mergeAgentWithProjectTarget(profile, projectTarget, placement.runMode).compose
+    }
     case 'compose': {
       return bundle.compose as string[]
     }
@@ -167,6 +176,10 @@ function resolveEffectiveCwd(placement: RuntimePlacement): string {
 
   // 2. project-target defaults to projectRoot
   if (placement.bundle.kind === 'project-target') {
+    return placement.bundle.projectRoot
+  }
+
+  if (placement.bundle.kind === 'agent-project' && placement.bundle.projectRoot) {
     return placement.bundle.projectRoot
   }
 
@@ -255,6 +268,9 @@ function computeBundleIdentity(placement: RuntimePlacement): string {
     case 'compose':
       parts.push(`compose:${bundle.compose.join(',')}`)
       break
+    case 'agent-project':
+      parts.push(`agent-project:${bundle.agentName}:${bundle.projectRoot ?? ''}`)
+      break
   }
 
   const hash = createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 16)
@@ -279,4 +295,36 @@ function loadProfileTargets(agentRoot: string): Record<string, { compose: string
     result[name] = { compose: (def['compose'] as string[] | undefined) ?? [] }
   }
   return result
+}
+
+function loadAgentProfile(agentRoot: string): AgentRuntimeProfile {
+  const profilePath = join(agentRoot, 'agent-profile.toml')
+  if (!existsSync(profilePath)) {
+    return { schemaVersion: 1 }
+  }
+  return parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
+}
+
+function loadProjectTargetOptional(
+  projectRoot: string | undefined,
+  targetName: string
+): TargetDefinition | undefined {
+  if (!projectRoot) {
+    return undefined
+  }
+
+  const targetsPath = join(projectRoot, 'asp-targets.toml')
+  if (!existsSync(targetsPath)) {
+    return undefined
+  }
+
+  const content = readFileSync(targetsPath, 'utf8')
+  const parsed = parseToml(content) as Record<string, unknown>
+  const rawTargets = parsed['targets'] as Record<string, unknown> | undefined
+  if (!rawTargets?.[targetName]) {
+    return undefined
+  }
+
+  const manifest = parseTargetsToml(content, targetsPath)
+  return manifest.targets[targetName]
 }

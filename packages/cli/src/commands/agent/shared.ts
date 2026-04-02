@@ -5,6 +5,7 @@
 import type { RuntimeBundleRef, SpaceRefString } from 'spaces-config'
 
 interface BundleRefOptions {
+  agentName?: string | undefined
   bundle?: string | undefined
   agentTarget?: string | undefined
   projectTarget?: string | undefined
@@ -32,6 +33,13 @@ export function buildBundleRef(options: BundleRefOptions): RuntimeBundleRef {
   }
   if (options.compose && options.compose.length > 0) {
     return { kind: 'compose', compose: options.compose as SpaceRefString[] }
+  }
+  if (options.agentName) {
+    return {
+      kind: 'agent-project',
+      agentName: options.agentName,
+      ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
+    }
   }
   return { kind: 'agent-default' }
 }

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { readFile, symlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
+import { parse as parseToml } from '@iarna/toml'
 
 import {
   AGENT_SDK_MODELS,
@@ -14,6 +15,7 @@ import {
   type LockFile,
   PathResolver,
   type SpaceRefString,
+  type TargetDefinition,
   asSha256Integrity,
   asSpaceId,
   computeClosure,
@@ -23,7 +25,10 @@ import {
   getAspHome,
   getRegistryPath,
   lintSpaces,
+  mergeAgentWithProjectTarget,
   normalizeAgentSdkModel,
+  parseAgentProfile,
+  parseTargetsToml,
   readHooksWithPrecedence,
   resolveTarget,
 } from 'spaces-config'
@@ -321,6 +326,33 @@ function placementToSpec(placement: RuntimePlacement): {
         agentRoot,
         projectRoot,
       }
+
+    case 'agent-project': {
+      const profilePath = join(agentRoot, 'agent-profile.toml')
+      let compose: string[] = []
+
+      if (existsSync(profilePath)) {
+        const profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
+        let projectTarget: TargetDefinition | undefined
+
+        if (bundle.projectRoot) {
+          const targetsPath = join(bundle.projectRoot, 'asp-targets.toml')
+          if (existsSync(targetsPath)) {
+            const content = readFileSync(targetsPath, 'utf8')
+            const parsed = parseToml(content) as Record<string, unknown>
+            const rawTargets = parsed['targets'] as Record<string, unknown> | undefined
+            if (rawTargets?.[bundle.agentName]) {
+              const manifest = parseTargetsToml(content, targetsPath)
+              projectTarget = manifest.targets[bundle.agentName]
+            }
+          }
+        }
+
+        compose = mergeAgentWithProjectTarget(profile, projectTarget, placement.runMode).compose
+      }
+
+      return { spec: { kind: 'spaces', spaces: compose }, agentRoot, projectRoot }
+    }
 
     case 'agent-default': {
       // Load profile spaces.base + spaces.byMode[runMode] overlays

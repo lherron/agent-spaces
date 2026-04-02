@@ -15,7 +15,14 @@ interface AspConfigFile {
 }
 
 export function getAgentsRoot(opts?: ConfigOptions): string | undefined {
-  return getConfiguredRoot('ASP_AGENTS_ROOT', 'agents-root', opts)
+  const explicit = getConfiguredRoot('ASP_AGENTS_ROOT', 'agents-root', opts)
+  if (explicit) return explicit
+
+  const env = opts?.env
+  const home = env?.['HOME'] ?? (!opts ? homedir() : undefined)
+  if (!home) return undefined
+  const conventionPath = join(home, 'agents')
+  return existsSync(conventionPath) ? conventionPath : undefined
 }
 
 export function getProjectsRoot(opts?: ConfigOptions): string | undefined {

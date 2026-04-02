@@ -28,6 +28,7 @@ export interface SpaceCompositionInput {
   projectRoot?: string | undefined
   runMode: RunMode
   bundleSpaces: string[]
+  includeProfileSpaces?: boolean | undefined
 }
 
 /**
@@ -44,6 +45,7 @@ export async function resolveSpaceComposition(
   const profile = loadAgentProfile(input.agentRoot)
   const seen = new Set<string>()
   const result: ComposedSpaceEntry[] = []
+  const includeProfileSpaces = input.includeProfileSpaces ?? true
 
   function addUnique(ref: string, source: ComposedSpaceEntry['source']) {
     // Normalize the ref for dedup: strip @dev suffix when comparing
@@ -54,27 +56,29 @@ export async function resolveSpaceComposition(
     }
   }
 
-  // 1. agent-profile.toml -> spaces.base
-  const spaces = profile?.['spaces'] as Record<string, unknown> | undefined
-  if (spaces) {
-    const base = spaces['base']
-    if (Array.isArray(base)) {
-      for (const ref of base) {
-        addUnique(ref as string, 'profile-base')
+  if (includeProfileSpaces) {
+    // 1. agent-profile.toml -> spaces.base
+    const spaces = profile?.['spaces'] as Record<string, unknown> | undefined
+    if (spaces) {
+      const base = spaces['base']
+      if (Array.isArray(base)) {
+        for (const ref of base) {
+          addUnique(ref as string, 'profile-base')
+        }
       }
     }
-  }
 
-  // 2. agent-profile.toml -> spaces.byMode[runMode]
-  if (spaces) {
-    const byMode = spaces['byMode'] as Record<string, unknown> | undefined
-    if (byMode) {
-      const modeConfig = byMode[input.runMode] as Record<string, unknown> | undefined
-      if (modeConfig) {
-        const modeBase = modeConfig['base']
-        if (Array.isArray(modeBase)) {
-          for (const ref of modeBase) {
-            addUnique(ref as string, 'profile-by-mode')
+    // 2. agent-profile.toml -> spaces.byMode[runMode]
+    if (spaces) {
+      const byMode = spaces['byMode'] as Record<string, unknown> | undefined
+      if (byMode) {
+        const modeConfig = byMode[input.runMode] as Record<string, unknown> | undefined
+        if (modeConfig) {
+          const modeBase = modeConfig['base']
+          if (Array.isArray(modeBase)) {
+            for (const ref of modeBase) {
+              addUnique(ref as string, 'profile-by-mode')
+            }
           }
         }
       }
