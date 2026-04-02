@@ -59,7 +59,7 @@ interface RunOptions {
   inheritUser?: boolean
   inheritLocal?: boolean
   settings?: string
-  harness?: HarnessId
+  harness?: HarnessId | undefined
   model?: string
   resume?: string | boolean
   remoteControl?: boolean
@@ -337,11 +337,13 @@ function showInvalidModeHelp(): never {
 /**
  * Validate harness option and return the harness ID.
  */
-function validateHarness(harness: string | undefined): HarnessId {
-  const harnessId = harness ?? 'claude'
+function validateHarness(harness: string | undefined): HarnessId | undefined {
+  if (harness === undefined) {
+    return undefined
+  }
 
-  if (!isHarnessId(harnessId)) {
-    console.error(chalk.red(`Error: Unknown harness "${harnessId}"`))
+  if (!isHarnessId(harness)) {
+    console.error(chalk.red(`Error: Unknown harness "${harness}"`))
     console.error(chalk.gray(''))
     console.error(chalk.gray('Available harnesses:'))
     for (const adapter of harnessRegistry.getAll()) {
@@ -350,7 +352,7 @@ function validateHarness(harness: string | undefined): HarnessId {
     process.exit(1)
   }
 
-  return harnessId
+  return harness
 }
 
 /**
