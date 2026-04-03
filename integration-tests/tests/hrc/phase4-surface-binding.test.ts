@@ -4,7 +4,7 @@
  * End-to-end coverage using real HRC server instances (createHrcServer):
  *   1. Bind a surface, verify it persists across daemon restart
  *   2. Bind to runtime A, rebind same surface to runtime B → surface.rebound event
- *   3. Clear-context then attach to new session's runtime → binding moves correctly
+ *   3. Clear-context invalidates old surfaces → fresh bind on new context
  *   4. Unbind → verify surface.unbound event
  *   5. List surfaces for a runtime
  *
@@ -237,10 +237,10 @@ describe('Surface rebind across runtimes', () => {
 })
 
 // ===========================================================================
-// 3. Clear-context then attach to new session's runtime → binding moves
+// 3. Clear-context then attach to new session's runtime → fresh bind
 // ===========================================================================
 describe('Clear-context surface binding move', () => {
-  it('after clear-context, surface can be rebound to new session runtime', async () => {
+  it('after clear-context, surface is unbound and can be freshly bound to new runtime', async () => {
     server = await createHrcServer(serverOpts())
     const c = client()
 
@@ -285,29 +285,29 @@ describe('Clear-context surface binding move', () => {
       updatedAt: now,
     })
 
-    // Rebind surface to the new runtime (simulating attach after clear-context)
-    const rebound = await c.bindSurface({
+    // Bind surface to the new runtime after clear-context.
+    // Phase 5 spec: clear-context invalidates old surfaces, so this is a fresh
+    // bind (not a rebound) — no surface.rebound event is expected.
+    const bound = await c.bindSurface({
       surfaceKind,
       surfaceId,
       runtimeId: newRuntimeId,
       hostSessionId: cleared.hostSessionId,
       generation: cleared.generation,
     })
-    expect(rebound.runtimeId).toBe(newRuntimeId)
-    expect(rebound.hostSessionId).toBe(cleared.hostSessionId)
-    expect(rebound.generation).toBe(cleared.generation)
+    expect(bound.runtimeId).toBe(newRuntimeId)
+    expect(bound.hostSessionId).toBe(cleared.hostSessionId)
+    expect(bound.generation).toBe(cleared.generation)
 
-    // Verify surface.rebound event references original runtime
+    // Verify a surface.bound event (fresh bind, not rebound) was emitted
     const events = await fetchEvents(c)
-    const reboundEvent = events.find(
+    const boundEvent = events.find(
       (e) =>
-        e.eventKind === 'surface.rebound' &&
-        (e.eventJson as Record<string, unknown>).surfaceId === surfaceId
+        e.eventKind === 'surface.bound' &&
+        (e.eventJson as Record<string, unknown>).surfaceId === surfaceId &&
+        (e.eventJson as Record<string, unknown>).hostSessionId === cleared.hostSessionId
     )
-    expect(reboundEvent).toBeDefined()
-    const payload = reboundEvent!.eventJson as Record<string, unknown>
-    expect(payload.previousRuntimeId).toBe(original.runtimeId)
-    expect(payload.previousHostSessionId).toBe(original.hostSessionId)
+    expect(boundEvent).toBeDefined()
 
     // New runtime lists the surface; old runtime does not
     const newSurfaces = await c.listSurfaces({ runtimeId: newRuntimeId })
