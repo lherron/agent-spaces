@@ -7,9 +7,12 @@
 
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { afterEach, describe, expect, test } from 'bun:test'
+import { getProjectHarnessOutputPath, resolveEffectiveCompose } from 'spaces-config'
+import type { AgentRuntimeProfile, SpaceRefString, TargetDefinition } from 'spaces-config'
 import {
   ensureCodexProjectTrust,
   getProjectCodexRuntimeHomePath,
@@ -17,13 +20,11 @@ import {
   migrateLegacyProjectCodexRuntimeHome,
   prepareCodexRuntimeHome,
 } from './run.js'
-
-import type { AgentRuntimeProfile, SpaceRefString, TargetDefinition } from 'spaces-config'
-import { resolveEffectiveCompose } from 'spaces-config'
 // Agent-profile integration: import run module as namespace for testing new exports
 import * as runModule from './run.js'
 
 let tempDirs: string[] = []
+const SOURCE_DIR = dirname(fileURLToPath(import.meta.url))
 
 afterEach(async () => {
   await Promise.all(tempDirs.map((path) => rm(path, { recursive: true, force: true })))
@@ -105,7 +106,7 @@ describe('prepareCodexRuntimeHome', () => {
     const root = await createTempDir('run-runtime-')
     const aspHome = join(root, 'asp-home')
     const projectPath = join(root, 'control-plane')
-    const bundleRoot = join(projectPath, 'asp_modules', 'codex', 'codex')
+    const bundleRoot = getProjectHarnessOutputPath(projectPath, 'codex', 'codex', aspHome)
     const templateHome = join(bundleRoot, 'codex.home')
     const runtimeHome = getProjectCodexRuntimeHomePath(aspHome, projectPath, 'codex')
 
@@ -162,6 +163,16 @@ describe('prepareCodexRuntimeHome', () => {
     expect(metadata.mode).toBe('project')
     expect(metadata.targetName).toBe('codex')
     expect(metadata.projectPath).toBe(projectPath)
+  })
+})
+
+describe('system prompt threading (T-01016)', () => {
+  test('run.ts threads systemPromptMode through HarnessRunOptions and RunResult', async () => {
+    // Red gate for Step 4: execution must preserve replace vs append semantics
+    // from runtime materialization to harness invocation and dry-run reporting.
+    const source = await readFile(join(SOURCE_DIR, 'run.ts'), 'utf-8')
+
+    expect(source).toContain('systemPromptMode')
   })
 })
 

@@ -13,6 +13,7 @@ export interface CreateSessionOptions {
   allowedTools?: string[]
   plugins?: Array<{ type: 'local'; path: string }>
   systemPrompt?: string
+  systemPromptMode?: 'replace' | 'append'
   maxTurns?: number
   /** Provider-native continuation key (loads conversation history) */
   continuationKey?: string

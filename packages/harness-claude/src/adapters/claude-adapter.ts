@@ -421,6 +421,8 @@ export class ClaudeAdapter implements HarnessAdapter {
       settingSources,
       debug: options.debug,
       model: options.model ?? DEFAULT_CLAUDE_CODE_MODEL,
+      systemPrompt: options.systemPromptMode === 'append' ? undefined : options.systemPrompt,
+      appendSystemPrompt: options.systemPromptMode === 'append' ? options.systemPrompt : undefined,
       args: extraArgs,
     })
   }

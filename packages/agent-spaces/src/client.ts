@@ -61,9 +61,9 @@ import {
   resolveInFlight,
 } from './run-tracker.js'
 
+import { materializeSystemPrompt } from 'spaces-runtime'
 import {
   applyEnvOverlay,
-  materializeSoulMd,
   piSessionPath,
   resolveHostSessionId,
   resolveRunId,
@@ -1552,7 +1552,10 @@ async function buildPlacementInvocationSpec(
     agentRoot,
     projectRoot,
   })
-  materializeSoulMd(materialized.materialization.outputPath, placement)
+  const systemPrompt = await materializeSystemPrompt(
+    materialized.materialization.outputPath,
+    placement
+  )
 
   const bundle = await adapter.loadTargetBundle(
     materialized.materialization.outputPath,
@@ -1571,6 +1574,12 @@ async function buildPlacementInvocationSpec(
     yolo: req.yolo ?? defaultRunOptions.yolo ?? effectiveConfig?.yolo,
     ...(prompt !== undefined ? { prompt } : {}),
     ...(isResume && req.continuation?.key ? { continuationKey: req.continuation.key } : {}),
+    ...(systemPrompt
+      ? {
+          systemPrompt: systemPrompt.content,
+          systemPromptMode: systemPrompt.mode,
+        }
+      : {}),
   }
 
   // Build argv and env using the adapter
@@ -1622,6 +1631,7 @@ async function buildPlacementInvocationSpec(
     ioMode: req.ioMode,
     ...(continuation ? { continuation } : {}),
     displayCommand,
+    ...(systemPrompt ? { systemPromptFile: systemPrompt.path } : {}),
   }
 
   return {
@@ -1742,6 +1752,13 @@ async function runPlacementTurnNonInteractive(
           type: 'local' as const,
           path: dir,
         }))
+
+        // Materialize the instruction layer into a system prompt file and read it
+        const systemPrompt = await materializeSystemPrompt(
+          materialized.materialization.outputPath,
+          placement
+        )
+
         session = createSession({
           kind: 'agent-sdk',
           sessionId: continuationKey ?? (hostSessionId as string),
@@ -1750,6 +1767,12 @@ async function runPlacementTurnNonInteractive(
           plugins,
           permissionHandler,
           ...(continuationKey ? { continuationKey } : {}),
+          ...(systemPrompt
+            ? {
+                systemPrompt: systemPrompt.content,
+                systemPromptMode: systemPrompt.mode,
+              }
+            : {}),
         })
       } else {
         // pi-sdk — load bundle from materialized output

@@ -42,6 +42,10 @@ export interface ClaudeInvokeOptions {
   settings?: string | undefined
   /** Debug mode (--debug hooks) */
   debug?: boolean | undefined
+  /** System prompt content (--system-prompt flag, replaces default system prompt) */
+  systemPrompt?: string | undefined
+  /** System prompt content to append via --append-system-prompt */
+  appendSystemPrompt?: string | undefined
   /** Additional arguments to pass through */
   args?: string[] | undefined
   /** Working directory for Claude */
@@ -106,6 +110,13 @@ export function buildClaudeArgs(options: ClaudeInvokeOptions): string[] {
   // Add settings file or JSON
   if (options.settings) {
     args.push('--settings', options.settings)
+  }
+
+  // Append-mode prompt takes precedence over replace-mode prompt.
+  if (options.appendSystemPrompt) {
+    args.push('--append-system-prompt', options.appendSystemPrompt)
+  } else if (options.systemPrompt) {
+    args.push('--system-prompt', options.systemPrompt)
   }
 
   // Add debug mode for hooks
