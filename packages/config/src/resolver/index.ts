@@ -128,15 +128,6 @@ export {
   type RootRefResolveOptions,
 } from './root-relative-refs.js'
 
-// Instruction layering
-export {
-  resolveInstructionLayer,
-  type RunMode,
-  type ResolvedInstructionSlot,
-  type ScaffoldPacket,
-  type InstructionLayerInput,
-} from './instruction-layer.js'
-
 // Space composition
 export {
   resolveSpaceComposition,

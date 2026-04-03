@@ -15,9 +15,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { RunMode, ScaffoldPacket } from 'spaces-config'
+import type { RunMode, RunScaffoldPacket } from 'spaces-config'
 
-describe('materializeSystemPrompt Step 3', () => {
+describe('materializeSystemPrompt canonical helper', () => {
   let tempRoot: string
   let agentRoot: string
   let agentsRoot: string
@@ -43,10 +43,46 @@ describe('materializeSystemPrompt Step 3', () => {
     await rm(tempRoot, { recursive: true, force: true })
   })
 
-  test('exports materializeSystemPromptV2 from the runtime package surface', async () => {
+  test('exports materializeSystemPrompt as the canonical runtime helper', async () => {
     const runtimeModule = (await import('./index.js')) as Record<string, unknown>
 
-    expect(typeof runtimeModule.materializeSystemPromptV2).toBe('function')
+    expect(typeof runtimeModule.materializeSystemPrompt).toBe('function')
+  })
+
+  test('canonical helper returns the structured materialization result shape', async () => {
+    // T-01016 red gate: Step 4 migrates callers off the V2 name onto the canonical helper.
+    await writeAgentProfile(`
+schemaVersion = 2
+
+[instructions]
+template = "append-template.toml"
+`)
+    await writeFile(
+      join(agentRoot, 'append-template.toml'),
+      `
+schema_version = 1
+mode = "append"
+
+[[section]]
+name = "notice"
+type = "inline"
+content = "append me"
+`
+    )
+
+    const result = await materializeSystemPrompt(outputRoot, {
+      agentRoot,
+      agentsRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'task',
+    })
+
+    expect(result).toEqual({
+      path: join(outputRoot, 'system-prompt.md'),
+      content: 'append me',
+      mode: 'append',
+    })
   })
 
   test('prefers agent-profile instructions.template over agentsRoot and built-in fallbacks', async () => {
@@ -59,7 +95,7 @@ template = "agent-template.toml"
     await writeFile(join(agentRoot, 'agent-template.toml'), replaceTemplate('agent override'))
     await writeFile(join(agentsRoot, 'system-prompt-template.toml'), replaceTemplate('agents root'))
 
-    const result = await materializeSystemPromptV2(outputRoot, {
+    const result = await materializeSystemPrompt(outputRoot, {
       agentRoot,
       agentsRoot,
       aspHome,
@@ -78,7 +114,7 @@ template = "agent-template.toml"
   test('falls back to the agentsRoot template when no agent-specific template is configured', async () => {
     await writeFile(join(agentsRoot, 'system-prompt-template.toml'), replaceTemplate('agents root'))
 
-    const result = await materializeSystemPromptV2(outputRoot, {
+    const result = await materializeSystemPrompt(outputRoot, {
       agentRoot,
       agentsRoot,
       aspHome,
@@ -96,7 +132,7 @@ template = "agent-template.toml"
   test('falls back to ASP_HOME/system-prompt-template.toml when agent-specific and agentsRoot templates are absent', async () => {
     await writeFile(join(aspHome, 'system-prompt-template.toml'), replaceTemplate('asp home'))
 
-    const result = await materializeSystemPromptV2(outputRoot, {
+    const result = await materializeSystemPrompt(outputRoot, {
       agentRoot,
       agentsRoot,
       aspHome,
@@ -111,7 +147,7 @@ template = "agent-template.toml"
     })
   })
 
-  test('built-in default fallback reproduces the legacy system prompt assembly and preserves the legacy return type', async () => {
+  test('built-in default fallback reproduces the legacy system prompt assembly with the canonical result shape', async () => {
     await writeFile(join(agentRoot, 'SOUL.md'), 'Soul')
     await writeAgentProfile(`
 schemaVersion = 2
@@ -129,21 +165,13 @@ heartbeat = ["agent-root:///by-mode.md"]
       'By mode should not appear in the built-in default'
     )
 
-    const scaffoldPackets: ScaffoldPacket[] = [
+    const scaffoldPackets: RunScaffoldPacket[] = [
       { slot: 'scaffold', content: 'Scaffold inline' },
       { slot: 'scaffold', ref: 'agent-root:///scaffold.md' },
     ]
     await writeFile(join(agentRoot, 'scaffold.md'), 'Scaffold ref')
 
-    const legacyPath = await materializeSystemPrompt(outputRoot, {
-      agentRoot,
-      agentsRoot,
-      aspHome,
-      projectRoot,
-      runMode: 'heartbeat',
-      scaffoldPackets,
-    })
-    const result = await materializeSystemPromptV2(outputRoot, {
+    const result = await materializeSystemPrompt(outputRoot, {
       agentRoot,
       agentsRoot,
       aspHome,
@@ -156,25 +184,17 @@ heartbeat = ["agent-root:///by-mode.md"]
       '\n\n---\n\n'
     )
 
-    expect(legacyPath).toBe(join(outputRoot, 'system-prompt.md'))
     expect(result).toEqual({
       path: join(outputRoot, 'system-prompt.md'),
       content: expectedContent,
       mode: 'replace',
     })
-    expect(readPromptFile(legacyPath)).toBe(expectedContent)
+    expect(readPromptFile(result?.path)).toBe(expectedContent)
     expect(result?.content).not.toContain('By mode should not appear')
   })
 
   test('returns undefined when the built-in default fallback cannot find SOUL.md', async () => {
-    const legacyPath = await materializeSystemPrompt(outputRoot, {
-      agentRoot,
-      agentsRoot,
-      aspHome,
-      projectRoot,
-      runMode: 'task',
-    })
-    const result = await materializeSystemPromptV2(outputRoot, {
+    const result = await materializeSystemPrompt(outputRoot, {
       agentRoot,
       agentsRoot,
       aspHome,
@@ -182,7 +202,6 @@ heartbeat = ["agent-root:///by-mode.md"]
       runMode: 'task',
     })
 
-    expect(legacyPath).toBeUndefined()
     expect(result).toBeUndefined()
     expect(existsSync(join(outputRoot, 'system-prompt.md'))).toBe(false)
   })
@@ -207,7 +226,7 @@ content = "append me"
 `
     )
 
-    const result = await materializeSystemPromptV2(outputRoot, {
+    const result = await materializeSystemPrompt(outputRoot, {
       agentRoot,
       agentsRoot,
       aspHome,
@@ -248,11 +267,6 @@ content = "${content}"
 type MaterializeSystemPromptFn = (
   outputPath: string,
   input: MaterializeSystemPromptTestInput
-) => Promise<string | undefined>
-
-type MaterializeSystemPromptV2Fn = (
-  outputPath: string,
-  input: MaterializeSystemPromptTestInput
 ) => Promise<MaterializedSystemPrompt | undefined>
 
 interface MaterializeSystemPromptTestInput {
@@ -261,7 +275,7 @@ interface MaterializeSystemPromptTestInput {
   aspHome?: string | undefined
   projectRoot?: string | undefined
   runMode: RunMode
-  scaffoldPackets?: ScaffoldPacket[] | undefined
+  scaffoldPackets?: RunScaffoldPacket[] | undefined
 }
 
 interface MaterializedSystemPrompt {
@@ -280,16 +294,4 @@ async function materializeSystemPrompt(
 
   expect(typeof module.materializeSystemPrompt).toBe('function')
   return module.materializeSystemPrompt!(outputPath, input)
-}
-
-async function materializeSystemPromptV2(
-  outputPath: string,
-  input: MaterializeSystemPromptTestInput
-) {
-  const module = (await import('./system-prompt.js')) as {
-    materializeSystemPromptV2?: MaterializeSystemPromptV2Fn
-  }
-
-  expect(typeof module.materializeSystemPromptV2).toBe('function')
-  return module.materializeSystemPromptV2!(outputPath, input)
 }

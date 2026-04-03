@@ -84,8 +84,7 @@ export {
   readSpaceManifestOrNull,
   // Placement resolver
   resolvePlacement,
-  // Instruction and space layering
-  resolveInstructionLayer,
+  // Space layering
   resolveSpaceComposition,
   // Root-relative refs
   resolveRootRelativeRef,
