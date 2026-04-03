@@ -1,2 +1,5 @@
 export * from './harness/index.js'
 export * from './session/index.js'
+export { materializeSystemPrompt } from './system-prompt.js'
+export * from './system-prompt-template.js'
+export type { MaterializeSystemPromptInput } from './system-prompt.js'
