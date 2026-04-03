@@ -2,8 +2,8 @@
  * Harness launch orchestration (run command).
  *
  * WHY: Orchestrates the full run process:
- * - Ensure target is installed (via asp_modules)
- * - Load composed bundle from asp_modules
+ * - Ensure target is installed (via ASP_HOME project bundles)
+ * - Load composed bundle from ASP_HOME project bundles
  * - Launch harness with adapter-built args/env
  * - Emit structured JSONL events for observability
  */
@@ -46,9 +46,7 @@ import {
   type SpaceRefString,
   type SpaceSettings,
   type TargetDefinition,
-  getAspModulesPath,
   getRegistryPath,
-  harnessOutputExists,
   isHarnessId,
   isHarnessSupported,
   isSpaceRefString,
@@ -61,6 +59,7 @@ import {
   resolveSpaceManifest,
   serializeLockJson,
 } from 'spaces-config'
+import { materializeSystemPrompt } from 'spaces-runtime'
 
 import type { LintWarning } from 'spaces-config'
 
@@ -148,6 +147,10 @@ export interface RunResult {
   exitCode: number
   /** Full harness command (for dry-run mode) */
   command?: string | undefined
+  /** Materialized system prompt content (for dry-run display) */
+  systemPrompt?: string | undefined
+  /** How the materialized system prompt will be applied */
+  systemPromptMode?: 'replace' | 'append' | undefined
 }
 
 /**
@@ -205,6 +208,8 @@ interface ExecuteHarnessResult {
   exitCode: number
   invocation?: RunInvocationResult | undefined
   command: string
+  systemPrompt?: string | undefined
+  systemPromptMode?: 'replace' | 'append' | undefined
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -268,8 +273,7 @@ export function getProjectCodexRuntimeHomePath(
 }
 
 function getLegacyProjectCodexRuntimeHomePath(projectPath: string, targetName: string): string {
-  const aspModulesDir = getAspModulesPath(projectPath)
-  return join(aspModulesDir, targetName, 'codex', 'codex.runtime')
+  return join(projectPath, 'asp_modules', targetName, 'codex', 'codex.runtime')
 }
 
 const CODEX_RUNTIME_METADATA_FILE = '.asp-runtime.json'
@@ -289,8 +293,9 @@ function resolveCodexRuntimeHomePath(
   runOptions: HarnessRunOptions
 ): string {
   if (runOptions.projectPath) {
-    const aspModulesDir = getAspModulesPath(runOptions.projectPath)
-    if (isWithinPath(bundle.rootDir, aspModulesDir)) {
+    const aspHome = runOptions.aspHome ?? getAspHome()
+    const paths = new PathResolver({ aspHome })
+    if (isWithinPath(bundle.rootDir, paths.projectTargets(runOptions.projectPath))) {
       const aspHome = runOptions.aspHome ?? getAspHome()
       return getProjectCodexRuntimeHomePath(aspHome, runOptions.projectPath, bundle.targetName)
     }
@@ -524,9 +529,19 @@ async function executeHarnessRun(
   const command = formatEnvPrefix(harnessEnv) + formatCommand(commandPath, args)
 
   if (options.dryRun) {
-    return { exitCode: 0, command }
+    return {
+      exitCode: 0,
+      command,
+      systemPrompt: preparedRunOptions.systemPrompt,
+      systemPromptMode: preparedRunOptions.systemPromptMode,
+    }
   }
 
+  if (preparedRunOptions.systemPrompt) {
+    console.log('\x1b[36mSystem prompt:\x1b[0m')
+    console.log(preparedRunOptions.systemPrompt)
+    console.log('')
+  }
   console.log(`\x1b[90m$ ${command}\x1b[0m`)
   console.log('')
 
@@ -817,12 +832,15 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const detection = await adapter.detect()
   debugLog('detect ok', detection.available ? (detection.version ?? 'unknown') : 'unavailable')
 
-  const aspModulesDir = getAspModulesPath(options.projectPath)
-  const harnessOutputPath = adapter.getTargetOutputPath(aspModulesDir, targetName)
+  const aspHome = options.aspHome ?? getAspHome()
+  const paths = new PathResolver({ aspHome })
+  const harnessOutputPath = adapter.getTargetOutputPath(
+    paths.projectTargets(options.projectPath),
+    targetName
+  )
   debugLog('harness output path', harnessOutputPath)
 
   if (adapter.id === 'codex') {
-    const aspHome = options.aspHome ?? getAspHome()
     await migrateLegacyProjectCodexRuntimeHome(aspHome, options.projectPath, targetName)
   }
 
@@ -834,10 +852,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     effectiveCompose !== undefined &&
     !composeArraysMatch(effectiveCompose, existingLock?.targets[targetName]?.compose ?? [])
   const needsInstall =
-    options.refresh ||
-    !lockExists ||
-    !(await harnessOutputExists(options.projectPath, targetName, harnessId)) ||
-    composeChanged
+    options.refresh || !lockExists || !(await pathExists(harnessOutputPath)) || composeChanged
   if (needsInstall) {
     debugLog('install', options.refresh ? '(refresh)' : '(missing output)')
     if (effectiveCompose !== undefined) {
@@ -904,6 +919,19 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     continuationKey: options.continuationKey,
     remoteControl: options.remoteControl,
   }
+  // Materialize system prompt when an agent root is present
+  if (agentProfile) {
+    const systemPrompt = await materializeSystemPrompt(harnessOutputPath, {
+      agentRoot: agentProfile.agentRoot,
+      projectRoot: options.projectPath,
+      runMode: 'query',
+    })
+    if (systemPrompt) {
+      cliRunOptions.systemPrompt = systemPrompt.content
+      cliRunOptions.systemPromptMode = systemPrompt.mode
+    }
+  }
+
   const runOptions = mergeDefined(defaults, cliRunOptions)
 
   if (runOptions.interactive === false && runOptions.prompt === undefined) {
@@ -936,6 +964,8 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     invocation: execution.invocation,
     exitCode: execution.exitCode,
     command: execution.command,
+    systemPrompt: execution.systemPrompt,
+    systemPromptMode: execution.systemPromptMode,
   }
 }
 

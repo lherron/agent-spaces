@@ -62,12 +62,28 @@ describe('buildClaudeArgs', () => {
     expect(args).toEqual(['--print', 'hello'])
   })
 
+  test('adds system prompt', () => {
+    const args = buildClaudeArgs({
+      systemPrompt: 'You are Alice.',
+    })
+    expect(args).toEqual(['--system-prompt', 'You are Alice.'])
+  })
+
+  test('adds append system prompt with the dedicated Claude flag', () => {
+    // T-01016 red gate: append-mode prompts must not reuse --system-prompt.
+    const args = buildClaudeArgs({
+      appendSystemPrompt: 'Add this after the default prompt.',
+    } as any)
+    expect(args).toEqual(['--append-system-prompt', 'Add this after the default prompt.'])
+  })
+
   test('combines all options in correct order', () => {
     const args = buildClaudeArgs({
       pluginDirs: ['/plugin1', '/plugin2'],
       mcpConfig: '/mcp.json',
       model: 'opus',
       permissionMode: 'full',
+      systemPrompt: 'You are Alice.',
       args: ['--print', 'hello'],
     })
     expect(args).toEqual([
@@ -81,9 +97,22 @@ describe('buildClaudeArgs', () => {
       'opus',
       '--permission-mode',
       'full',
+      '--system-prompt',
+      'You are Alice.',
       '--print',
       'hello',
     ])
+  })
+
+  test('prefers append flag over replace flag when only append content is supplied', () => {
+    // T-01016 red gate: append mode must survive argv generation intact.
+    const args = buildClaudeArgs({
+      appendSystemPrompt: 'append-only prompt',
+      args: ['--print', 'hello'],
+    } as any)
+
+    expect(args).toContain('--append-system-prompt')
+    expect(args).not.toContain('--system-prompt')
   })
 })
 

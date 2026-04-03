@@ -25,13 +25,6 @@ export interface MaterializeResult {
 export async function materializeSystemPrompt(
   outputPath: string,
   input: MaterializeSystemPromptInput
-): Promise<string | undefined> {
-  return (await materializeSystemPromptV2(outputPath, input))?.path
-}
-
-export async function materializeSystemPromptV2(
-  outputPath: string,
-  input: MaterializeSystemPromptInput
 ): Promise<MaterializeResult | undefined> {
   const aspHome = input.aspHome ?? getAspHome()
   const agentsRoot = input.agentsRoot ?? dirname(resolve(input.agentRoot))
@@ -82,6 +75,8 @@ export async function materializeSystemPromptV2(
 
   return writeMaterializedPrompt(outputPath, resolved)
 }
+
+export const materializeSystemPromptV2 = materializeSystemPrompt
 
 function writeMaterializedPrompt(
   outputPath: string,
