@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
-import type { RunMode } from './instruction-layer.js'
+import type { RunMode } from '../core/types/agent-profile.js'
 
 /** A resolved space entry in composition order */
 export interface ComposedSpaceEntry {

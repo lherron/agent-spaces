@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
-import type { RunMode, ScaffoldPacket } from 'spaces-config'
+import type { RunMode, RunScaffoldPacket } from 'spaces-config'
 import { getAspHome } from 'spaces-config'
 import { resolveSystemPromptTemplate } from './system-prompt-resolver.js'
 import { parseSystemPromptTemplate } from './system-prompt-template.js'
@@ -13,7 +13,7 @@ export interface MaterializeSystemPromptInput {
   aspHome?: string | undefined
   projectRoot?: string | undefined
   runMode: RunMode
-  scaffoldPackets?: ScaffoldPacket[] | undefined
+  scaffoldPackets?: RunScaffoldPacket[] | undefined
 }
 
 export interface MaterializeResult {
@@ -75,9 +75,6 @@ export async function materializeSystemPrompt(
 
   return writeMaterializedPrompt(outputPath, resolved)
 }
-
-export const materializeSystemPromptV2 = materializeSystemPrompt
-
 function writeMaterializedPrompt(
   outputPath: string,
   prompt: { content: string; mode: SystemPromptMode }
@@ -185,7 +182,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function buildDefaultTemplateToml(
   additionalBase: string[] | undefined,
-  scaffoldPackets: ScaffoldPacket[] | undefined
+  scaffoldPackets: RunScaffoldPacket[] | undefined
 ): string {
   const sections = [
     fileSectionToml('soul', 'agent-root:///SOUL.md'),
@@ -203,7 +200,7 @@ function buildDefaultTemplateToml(
   return ['schema_version = 1', 'mode = "replace"', '', ...sections].join('\n\n')
 }
 
-function buildScaffoldSectionsToml(scaffoldPackets: ScaffoldPacket[] | undefined): string[] {
+function buildScaffoldSectionsToml(scaffoldPackets: RunScaffoldPacket[] | undefined): string[] {
   if (!scaffoldPackets) {
     return []
   }

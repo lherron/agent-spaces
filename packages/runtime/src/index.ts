@@ -1,6 +1,6 @@
 export * from './harness/index.js'
 export * from './session/index.js'
-export { materializeSystemPrompt, materializeSystemPromptV2 } from './system-prompt.js'
+export { materializeSystemPrompt } from './system-prompt.js'
 export { resolveSystemPromptTemplate } from './system-prompt-resolver.js'
 export * from './system-prompt-template.js'
 export type { ResolvedSystemPrompt, ResolverContext } from './system-prompt-resolver.js'

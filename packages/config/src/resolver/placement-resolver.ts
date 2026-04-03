@@ -7,7 +7,7 @@
  * 1. Validate agent root (SOUL.md required)
  * 2. Load agent profile if present
  * 3. Determine base bundle spaces from RuntimeBundleRef
- * 4. Compute instruction layering (M3 resolveInstructionLayer)
+ * 4. Compute instruction audit metadata
  * 5. Compute space composition (M3 resolveSpaceComposition)
  * 6. Resolve effective cwd (section 9)
  * 7. Build audit metadata (section 11)
@@ -23,10 +23,11 @@ import type {
   ResolvedInstruction,
   ResolvedRuntimeBundle,
   ResolvedSpace,
+  RunScaffoldPacket,
   RuntimePlacement,
 } from '../core/types/placement.js'
 import { validateAgentRoot } from './agent-root.js'
-import { resolveInstructionLayer } from './instruction-layer.js'
+import { resolveRootRelativeRef } from './root-relative-refs.js'
 import { resolveSpaceComposition } from './space-composition.js'
 
 /**
@@ -50,26 +51,15 @@ export async function resolvePlacement(
   // 2. Determine base bundle spaces from RuntimeBundleRef
   const bundleSpaces = resolveBundleSpaces(placement)
 
-  // 3. Compute instruction layering
-  const scaffoldPackets = placement.scaffoldPackets?.map((p) => ({
-    slot: p.slot,
-    content: p.content,
-    ref: p.ref,
-  }))
-
-  let instructions: Awaited<ReturnType<typeof resolveInstructionLayer>>
+  // 3. Compute instruction audit metadata
+  let instructions: ResolvedInstruction[]
   try {
-    instructions = await resolveInstructionLayer({
-      agentRoot: placement.agentRoot,
-      projectRoot: placement.projectRoot,
-      runMode: placement.runMode,
-      scaffoldPackets,
-    })
+    instructions = resolvePlacementInstructions(placement)
   } catch (err) {
     if (!placement.dryRun) {
       throw err
     }
-    // dry-run: instruction layer may fail if SOUL.md missing — return empty
+    // dry-run: instruction resolution may fail if SOUL.md is missing — return empty
     instructions = []
   }
 
@@ -86,12 +76,6 @@ export async function resolvePlacement(
   const cwd = resolveEffectiveCwd(placement)
 
   // 6. Build audit metadata
-  const resolvedInstructions: ResolvedInstruction[] = instructions.map((inst) => ({
-    slot: inst.slot,
-    ref: inst.ref ?? '',
-    contentHash: computeContentHash(inst.content),
-  }))
-
   const resolvedSpaces: ResolvedSpace[] = composedSpaces.map((space) => ({
     ref: space.ref,
     resolvedKey: deriveSpaceKey(space.ref),
@@ -105,7 +89,7 @@ export async function resolvePlacement(
     bundleIdentity,
     runMode: placement.runMode,
     cwd,
-    instructions: resolvedInstructions,
+    instructions,
     spaces: resolvedSpaces,
   }
 }
@@ -275,6 +259,108 @@ function computeBundleIdentity(placement: RuntimePlacement): string {
 
   const hash = createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 16)
   return `bundle:${hash}`
+}
+
+interface PlacementInstructionSlot {
+  slot: string
+  content: string
+  ref?: string | undefined
+}
+
+function resolvePlacementInstructions(placement: RuntimePlacement): ResolvedInstruction[] {
+  const soulPath = join(placement.agentRoot, 'SOUL.md')
+  if (!existsSync(soulPath)) {
+    if (placement.dryRun) {
+      return []
+    }
+    throw new Error(`SOUL.md is required in agent root: ${placement.agentRoot}`)
+  }
+
+  const slots: PlacementInstructionSlot[] = [
+    {
+      slot: 'soul',
+      content: readFileSync(soulPath, 'utf8'),
+      ref: 'agent-root:///SOUL.md',
+    },
+  ]
+  const instructions = loadAgentProfile(placement.agentRoot).instructions
+
+  for (const ref of instructions?.additionalBase ?? []) {
+    const content = resolveInstructionRef(ref, placement)
+    if (content !== undefined) {
+      slots.push({ slot: 'additional-base', content, ref })
+    }
+  }
+
+  if (placement.runMode === 'heartbeat') {
+    const heartbeatPath = join(placement.agentRoot, 'HEARTBEAT.md')
+    if (existsSync(heartbeatPath)) {
+      slots.push({
+        slot: 'heartbeat',
+        content: readFileSync(heartbeatPath, 'utf8'),
+        ref: 'agent-root:///HEARTBEAT.md',
+      })
+    }
+  }
+
+  for (const ref of instructions?.byMode?.[placement.runMode] ?? []) {
+    const content = resolveInstructionRef(ref, placement)
+    if (content !== undefined) {
+      slots.push({ slot: 'by-mode', content, ref })
+    }
+  }
+
+  for (const packet of placement.scaffoldPackets ?? []) {
+    slots.push(...resolveScaffoldPacket(packet, placement))
+  }
+
+  return slots.map((slot) => ({
+    slot: slot.slot,
+    ref: slot.ref ?? '',
+    contentHash: computeContentHash(slot.content),
+  }))
+}
+
+function resolveScaffoldPacket(
+  packet: RunScaffoldPacket,
+  placement: RuntimePlacement
+): PlacementInstructionSlot[] {
+  let content = packet.content
+  if (!content && packet.ref) {
+    content = resolveInstructionRef(packet.ref, placement) ?? ''
+  }
+
+  if (content === undefined) {
+    return []
+  }
+
+  return [
+    {
+      slot: packet.slot,
+      content,
+      ref: packet.ref,
+    },
+  ]
+}
+
+function resolveInstructionRef(ref: string, placement: RuntimePlacement): string | undefined {
+  try {
+    const filePath =
+      ref.startsWith('agent-root:///') || ref.startsWith('project-root:///')
+        ? resolveRootRelativeRef(ref, {
+            agentRoot: placement.agentRoot,
+            projectRoot: placement.projectRoot,
+          })
+        : join(placement.agentRoot, ref)
+
+    if (!existsSync(filePath)) {
+      return undefined
+    }
+
+    return readFileSync(filePath, 'utf8')
+  } catch {
+    return undefined
+  }
 }
 
 /**
