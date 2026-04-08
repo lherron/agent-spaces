@@ -2,11 +2,11 @@
  * Run command - Launch Claude with composed plugin directories.
  *
  * WHY: This is the primary command users interact with. It ensures
- * the target is installed (materializing to asp_modules/ if needed)
+ * the target is installed (materializing under ASP_HOME if needed)
  * and launches Claude with the plugin directories.
  *
  * Supports three modes:
- * 1. Project mode: Run a target from asp-targets.toml (uses asp_modules/)
+ * 1. Project mode: Run a target from asp-targets.toml (uses ASP_HOME project bundles)
  * 2. Global mode: Run a space reference (space:id@selector) without a project
  * 3. Dev mode: Run a local space directory (./path/to/space)
  */
@@ -63,6 +63,14 @@ interface RunOptions {
   model?: string
   resume?: string | boolean
   remoteControl?: boolean
+}
+
+function formatSectionSizes(sectionSizes: string[] | undefined): string | undefined {
+  if (!sectionSizes || sectionSizes.length === 0) {
+    return undefined
+  }
+
+  return sectionSizes.join(', ')
 }
 
 /**
@@ -375,7 +383,7 @@ export function registerRunCommand(program: Command): void {
     .option('--no-warnings', 'Suppress lint warnings')
     .option('--dry-run', 'Print the harness command without executing')
     .option('--print-command', 'Output only the command (for piping/scripting)')
-    .option('--no-refresh', 'Skip refresh and use cached asp_modules')
+    .option('--no-refresh', 'Skip refresh and use cached project bundles')
     .option('--yolo', 'Skip all permission prompts (--dangerously-skip-permissions)')
     .option('--debug', 'Enable Claude hook debugging (--debug hooks)')
     .option('--inherit-all', 'Inherit all harness settings (user, project, local)')
@@ -425,11 +433,59 @@ export function registerRunCommand(program: Command): void {
           process.exit(0)
         }
 
-        // In dry-run mode, print the command with formatting
-        if (options.dryRun && result.command) {
-          console.log('')
-          console.log(chalk.cyan('Command:'))
-          console.log(result.command)
+        // In dry-run mode, print the system prompt, reminder, and command with formatting
+        if (options.dryRun) {
+          if (result.systemPrompt) {
+            console.log('')
+            console.log(chalk.cyan('## System Prompt'))
+            console.log(result.systemPrompt)
+            const promptDetails = formatSectionSizes(result.promptSectionSizes)
+            console.log(
+              chalk.gray(
+                promptDetails
+                  ? `  (${result.systemPrompt.length} chars; ${promptDetails})`
+                  : `  (${result.systemPrompt.length} chars)`
+              )
+            )
+          }
+          if (result.reminderContent) {
+            console.log('')
+            console.log(chalk.cyan('## Session Reminder'))
+            console.log(result.reminderContent)
+            const reminderDetails = formatSectionSizes(result.reminderSectionSizes)
+            console.log(
+              chalk.gray(
+                reminderDetails
+                  ? `  (${result.reminderContent.length} chars; ${reminderDetails})`
+                  : `  (${result.reminderContent.length} chars)`
+              )
+            )
+          }
+          if (result.systemPrompt || result.reminderContent) {
+            const promptChars = result.systemPrompt?.length ?? 0
+            const reminderChars = result.reminderContent?.length ?? 0
+            const totalChars = result.totalContextChars ?? promptChars + reminderChars
+            console.log('')
+            if (result.maxChars !== undefined) {
+              console.log(chalk.gray(`Budget: ${totalChars}/${result.maxChars} chars`))
+              if (result.nearMaxChars) {
+                console.log(
+                  chalk.yellow('Warning: resolved context is approaching max_chars budget')
+                )
+              }
+            } else {
+              console.log(
+                chalk.gray(
+                  `Total context: ${totalChars} chars (prompt: ${promptChars}, reminder: ${reminderChars})`
+                )
+              )
+            }
+          }
+          if (result.command) {
+            console.log('')
+            console.log(chalk.cyan('Command:'))
+            console.log(result.command)
+          }
         }
 
         process.exit(result.exitCode)

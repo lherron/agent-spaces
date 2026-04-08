@@ -33,12 +33,18 @@ export interface AgentProfileTarget {
   compose: SpaceRefString[]
 }
 
+export interface AgentProfileSession {
+  additionalContext?: string[] | undefined
+  additionalExec?: string[] | undefined
+}
+
 export interface AgentRuntimeProfile {
   schemaVersion: 1 | 2
   identity?: AgentIdentity | undefined
   priming_prompt?: string | undefined
   priming_prompt_file?: string | undefined
   instructions?: AgentProfileInstructions | undefined
+  session?: AgentProfileSession | undefined
   spaces?: AgentProfileSpaces | undefined
   targets?: Record<string, AgentProfileTarget> | undefined
   harnessDefaults?: HarnessSettings | undefined
