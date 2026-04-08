@@ -45,20 +45,63 @@ export interface ResolvedContext {
   reminder: string | undefined
 }
 
+export interface ResolvedZoneDiagnostics {
+  sectionSizes: string[]
+  totalChars: number
+}
+
+export interface ResolvedContextDiagnostics {
+  prompt: ResolvedZoneDiagnostics
+  reminder: ResolvedZoneDiagnostics
+  totalChars: number
+  maxChars?: number | undefined
+  nearMaxChars: boolean
+}
+
+export interface ResolveContextTemplateOptions {
+  includePrompt?: boolean | undefined
+  includeReminder?: boolean | undefined
+}
+
+export interface ResolvedContextDetailed extends ResolvedContext {
+  diagnostics: ResolvedContextDiagnostics
+}
+
 interface ResolvedZone {
   content: string | undefined
   sectionSizes: string[]
   totalChars: number
 }
 
+const MAX_CHARS_WARNING_RATIO = 0.9
+
 export async function resolveContextTemplate(
   template: ContextTemplate,
   context: ContextResolverContext
 ): Promise<ResolvedContext> {
-  const prompt = await resolveZone(template.promptSections, context)
-  const reminder = await resolveZone(template.reminderSections, context)
+  const resolved = await resolveContextTemplateDetailed(template, context)
 
-  enforceGlobalMaxChars(template, [prompt, reminder])
+  return {
+    prompt: resolved.prompt,
+    reminder: resolved.reminder,
+  }
+}
+
+export async function resolveContextTemplateDetailed(
+  template: ContextTemplate,
+  context: ContextResolverContext,
+  options: ResolveContextTemplateOptions = {}
+): Promise<ResolvedContextDetailed> {
+  const includePrompt = options.includePrompt ?? true
+  const includeReminder = options.includeReminder ?? true
+  const prompt = includePrompt
+    ? await resolveZone(template.promptSections, context, 'prompt')
+    : emptyZone()
+  const reminder = includeReminder
+    ? await resolveZone(template.reminderSections, context, 'reminder')
+    : emptyZone()
+
+  const totalChars = enforceGlobalMaxChars(template, [prompt, reminder])
 
   return {
     prompt:
@@ -69,12 +112,29 @@ export async function resolveContextTemplate(
             mode: template.mode,
           },
     reminder: reminder.content,
+    diagnostics: {
+      prompt: {
+        sectionSizes: prompt.sectionSizes,
+        totalChars: prompt.totalChars,
+      },
+      reminder: {
+        sectionSizes: reminder.sectionSizes,
+        totalChars: reminder.totalChars,
+      },
+      totalChars,
+      ...(template.maxChars !== undefined ? { maxChars: template.maxChars } : {}),
+      nearMaxChars:
+        template.maxChars !== undefined &&
+        template.maxChars > 0 &&
+        totalChars / template.maxChars >= MAX_CHARS_WARNING_RATIO,
+    },
   }
 }
 
 async function resolveZone(
   sections: ContextTemplate['promptSections'],
-  context: ContextResolverContext
+  context: ContextResolverContext,
+  zoneName: 'prompt' | 'reminder'
 ): Promise<ResolvedZone> {
   const resolvedSections: string[] = []
   const sectionSizes: string[] = []
@@ -95,7 +155,7 @@ async function resolveZone(
     }
 
     resolvedSections.push(truncated)
-    sectionSizes.push(`${section.name}=${truncated.length}`)
+    sectionSizes.push(`${zoneName}.${section.name}=${truncated.length}`)
   }
 
   if (resolvedSections.length === 0) {
@@ -111,6 +171,14 @@ async function resolveZone(
     content,
     sectionSizes,
     totalChars: content.length,
+  }
+}
+
+function emptyZone(): ResolvedZone {
+  return {
+    content: undefined,
+    sectionSizes: [],
+    totalChars: 0,
   }
 }
 
@@ -358,14 +426,14 @@ function truncateSectionContent(content: string, maxChars?: number | undefined):
   return `${content.slice(0, maxChars - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`
 }
 
-function enforceGlobalMaxChars(template: ContextTemplate, zones: ResolvedZone[]): void {
+function enforceGlobalMaxChars(template: ContextTemplate, zones: ResolvedZone[]): number {
+  const totalChars = zones.reduce((sum, zone) => sum + zone.totalChars, 0)
   if (template.maxChars === undefined) {
-    return
+    return totalChars
   }
 
-  const totalChars = zones.reduce((sum, zone) => sum + zone.totalChars, 0)
   if (totalChars <= template.maxChars) {
-    return
+    return totalChars
   }
 
   const sectionSizes = zones.flatMap((zone) => zone.sectionSizes)

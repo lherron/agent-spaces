@@ -200,6 +200,23 @@ sandboxMode = "read-only"
     expect(profile.harnessByMode!['heartbeat']).toBeDefined()
     expect(profile.harnessByMode!['heartbeat']!.model).toBe('claude/haiku')
   })
+
+  test('parses schemaVersion 2 session reminder config', async () => {
+    const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
+
+    const profile = parseAgentProfile(`
+schemaVersion = 2
+
+[session]
+additionalContext = ["agent-root:///session-banner.md"]
+additionalExec = ["printf 'queue context'"]
+`)
+
+    expect(profile.session).toEqual({
+      additionalContext: ['agent-root:///session-banner.md'],
+      additionalExec: ["printf 'queue context'"],
+    })
+  })
 })
 
 // ===================================================================

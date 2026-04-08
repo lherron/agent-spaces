@@ -376,6 +376,7 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
       'priming_prompt',
       'priming_prompt_file',
       'instructions',
+      'session',
       'spaces',
       'targets',
       'harnessDefaults',
@@ -440,6 +441,31 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
         '/instructions/additionalBase'
       ),
       byMode: parseByModeStringArrays(instructions['byMode'], source, '/instructions/byMode'),
+    }
+  }
+
+  if (parsed['session'] !== undefined) {
+    if (schemaVersion === 1) {
+      fail(source, '/session', 'unsupported in schemaVersion 1; requires schemaVersion 2', 'const')
+    }
+
+    const session = parsed['session']
+    if (!isPlainObject(session)) {
+      fail(source, '/session', 'must be a table', 'type')
+    }
+
+    assertOnlyKeys(session, ['additionalContext', 'additionalExec'], source, '/session')
+    profile.session = {
+      additionalContext: parseStringArray(
+        session['additionalContext'],
+        source,
+        '/session/additionalContext'
+      ),
+      additionalExec: parseStringArray(
+        session['additionalExec'],
+        source,
+        '/session/additionalExec'
+      ),
     }
   }
 

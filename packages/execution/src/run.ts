@@ -59,7 +59,11 @@ import {
   resolveSpaceManifest,
   serializeLockJson,
 } from 'spaces-config'
-import { materializeSystemPrompt } from 'spaces-runtime'
+import {
+  discoverContextTemplate,
+  materializeSystemPrompt,
+  resolveContextTemplateDetailed,
+} from 'spaces-runtime'
 
 import type { LintWarning } from 'spaces-config'
 
@@ -151,6 +155,18 @@ export interface RunResult {
   systemPrompt?: string | undefined
   /** How the materialized system prompt will be applied */
   systemPromptMode?: 'replace' | 'append' | undefined
+  /** Materialized session reminder content for dry-run display */
+  reminderContent?: string | undefined
+  /** Global max_chars budget from a v2 context template */
+  maxChars?: number | undefined
+  /** Per-section char counts for the prompt zone */
+  promptSectionSizes?: string[] | undefined
+  /** Per-section char counts for the reminder zone */
+  reminderSectionSizes?: string[] | undefined
+  /** Total chars across the resolved prompt/reminder zones */
+  totalContextChars?: number | undefined
+  /** Whether total chars are near the configured max_chars budget */
+  nearMaxChars?: boolean | undefined
 }
 
 /**
@@ -210,6 +226,13 @@ interface ExecuteHarnessResult {
   command: string
   systemPrompt?: string | undefined
   systemPromptMode?: 'replace' | 'append' | undefined
+}
+
+interface MaterializedPromptResult {
+  content: string
+  mode: 'replace' | 'append'
+  reminderContent?: string | undefined
+  maxChars?: number | undefined
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -919,6 +942,12 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     continuationKey: options.continuationKey,
     remoteControl: options.remoteControl,
   }
+  let reminderContent: string | undefined
+  let maxChars: number | undefined
+  let promptSectionSizes: string[] | undefined
+  let reminderSectionSizes: string[] | undefined
+  let totalContextChars: number | undefined
+  let nearMaxChars: boolean | undefined
   // Materialize system prompt when an agent root is present
   if (agentProfile) {
     const systemPrompt = await materializeSystemPrompt(harnessOutputPath, {
@@ -927,8 +956,35 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
       runMode: 'query',
     })
     if (systemPrompt) {
-      cliRunOptions.systemPrompt = systemPrompt.content
-      cliRunOptions.systemPromptMode = systemPrompt.mode
+      const materializedPrompt = systemPrompt as MaterializedPromptResult
+      reminderContent = materializedPrompt.reminderContent
+      maxChars = materializedPrompt.maxChars
+      if (materializedPrompt.content.length > 0) {
+        cliRunOptions.systemPrompt = materializedPrompt.content
+        cliRunOptions.systemPromptMode = materializedPrompt.mode
+      }
+    }
+
+    if (options.dryRun) {
+      const discovered = discoverContextTemplate({
+        agentRoot: agentProfile.agentRoot,
+        aspHome: options.aspHome,
+      })
+
+      if (discovered.templateSource?.kind === 'context') {
+        const resolved = await resolveContextTemplateDetailed(discovered.templateSource.template, {
+          agentRoot: agentProfile.agentRoot,
+          agentsRoot: discovered.agentsRoot,
+          projectRoot: options.projectPath,
+          runMode: 'query',
+          ...(discovered.profile.rawProfile ? { agentProfile: discovered.profile.rawProfile } : {}),
+        })
+
+        promptSectionSizes = resolved.diagnostics.prompt.sectionSizes
+        reminderSectionSizes = resolved.diagnostics.reminder.sectionSizes
+        totalContextChars = resolved.diagnostics.totalChars
+        nearMaxChars = resolved.diagnostics.nearMaxChars
+      }
     }
   }
 
@@ -966,6 +1022,12 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     command: execution.command,
     systemPrompt: execution.systemPrompt,
     systemPromptMode: execution.systemPromptMode,
+    reminderContent,
+    maxChars,
+    promptSectionSizes,
+    reminderSectionSizes,
+    totalContextChars,
+    nearMaxChars,
   }
 }
 
