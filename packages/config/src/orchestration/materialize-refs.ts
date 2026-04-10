@@ -12,6 +12,7 @@ import { basename, dirname, join, relative, sep } from 'node:path'
 
 import {
   AGENT_COMMIT_MARKER,
+  type AgentLocalComponents,
   type CommitSha,
   DEFAULT_HARNESS,
   type HarnessAdapter,
@@ -87,12 +88,17 @@ export interface MaterializeFromRefsOptions {
   inheritProject?: boolean
   /** Inherit user-level settings during composition */
   inheritUser?: boolean
-  /** Project path for asp_modules output (default: dirname of lockPath) */
+  /** Project path used to derive the ASP_HOME bundle location (default: dirname of lockPath) */
   projectPath?: string
   /** Agent root directory for resolving space:agent:<id> refs */
   agentRoot?: string
   /** Project root directory for resolving space:project:<id> refs */
   projectRoot?: string
+  /**
+   * Agent-local components (skills/ and commands/ directories) detected at the agent root.
+   * When present, a synthetic plugin artifact is appended to the target bundle.
+   */
+  agentLocalComponents?: AgentLocalComponents | undefined
 }
 
 /**
@@ -211,11 +217,15 @@ export async function materializeFromRefs(
     inheritProject: options.inheritProject,
     inheritUser: options.inheritUser,
     ...(options.agentRoot ? { agentPath: options.agentRoot } : {}),
+    ...(options.agentLocalComponents ? { agentLocalComponents: options.agentLocalComponents } : {}),
   }
   const materialization = await materializeTarget(targetName, mergedLock, matOptions)
 
-  // Discover skills from materialized plugins
+  // Discover skills from materialized plugins (includes collision detection)
   const skills = await discoverSkills(materialization.pluginDirs)
+
+  // Detect command name collisions across plugins
+  await detectCommandConflicts(materialization.pluginDirs)
 
   return {
     lock: mergedLock,
@@ -305,6 +315,9 @@ async function populateSnapshots(
 
 /**
  * Discover SKILL.md files from plugin directories.
+ *
+ * Checks for name collisions across plugins — if the same skill name
+ * appears in two different plugin directories, an error is thrown.
  */
 export async function discoverSkills(pluginDirs: string[]): Promise<SkillMetadata[]> {
   const skills: SkillMetadata[] = []
@@ -322,7 +335,49 @@ export async function discoverSkills(pluginDirs: string[]): Promise<SkillMetadat
     }
   }
 
+  // Check for name collisions across plugins
+  const seen = new Map<string, SkillMetadata>()
+  for (const skill of skills) {
+    const existing = seen.get(skill.name)
+    if (existing) {
+      throw new Error(
+        `Skill name conflict: "${skill.name}" exists in both ` +
+          `${basename(existing.pluginDir)} and ${basename(skill.pluginDir)}`
+      )
+    }
+    seen.set(skill.name, skill)
+  }
+
   return skills
+}
+
+/**
+ * Detect command name collisions across plugin directories.
+ *
+ * Commands are `.md` files directly inside `commands/` directories.
+ * If the same command name appears in two different plugins, an error is thrown.
+ */
+export async function detectCommandConflicts(pluginDirs: string[]): Promise<void> {
+  const seen = new Map<string, string>() // name → pluginDir basename
+
+  for (const pluginDir of pluginDirs) {
+    const commandsDir = join(pluginDir, 'commands')
+    if (!existsSync(commandsDir)) continue
+
+    const entries = await readdir(commandsDir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.md')) continue
+      const name = entry.name.replace(/\.md$/, '')
+      const existing = seen.get(name)
+      if (existing) {
+        throw new Error(
+          `Command name conflict: "${name}" exists in both ` +
+            `${existing} and ${basename(pluginDir)}`
+        )
+      }
+      seen.set(name, basename(pluginDir))
+    }
+  }
 }
 
 /**

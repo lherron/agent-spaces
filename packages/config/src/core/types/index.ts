@@ -154,3 +154,6 @@ export {
   isHarnessSupported,
   isHarnessId,
 } from './harness.js'
+
+// Agent-local components types (agent-local skills/commands auto-discovery)
+export type { AgentLocalComponents } from './agent-local.js'

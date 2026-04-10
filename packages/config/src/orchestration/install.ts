@@ -6,13 +6,15 @@
  * - Resolve all space references
  * - Write lock file
  * - Populate store with space snapshots
- * - Materialize plugins to asp_modules directory
+ * - Materialize composed bundles under ASP_HOME
  */
 
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 
 import {
+  type AgentLocalComponents,
   type CodexOptions,
   type CommitSha,
   type ComposeTargetInput,
@@ -32,7 +34,6 @@ import {
   TARGETS_FILENAME,
   atomicWriteJson,
   createEmptyLockFile,
-  getAspModulesPath,
   getEffectiveCodexOptions,
   getLoadOrderEntries,
   isHarnessSupported,
@@ -41,6 +42,7 @@ import {
 } from '../core/index.js'
 
 import { AGENT_COMMIT_MARKER, PROJECT_COMMIT_MARKER } from '../core/index.js'
+import { linkDirectory } from '../materializer/link-components.js'
 import { DEV_COMMIT_MARKER, DEV_INTEGRITY, mergeLockFiles } from '../resolver/index.js'
 
 import {
@@ -111,6 +113,11 @@ export interface InstallOptions extends ResolveOptions {
    * Maps to --inherit-user CLI flag.
    */
   inheritUser?: boolean | undefined
+  /**
+   * Agent-local components (skills/ and commands/ directories) detected at the agent root.
+   * When present, a synthetic plugin artifact is appended to the target bundle.
+   */
+  agentLocalComponents?: AgentLocalComponents | undefined
 }
 
 /**
@@ -119,7 +126,7 @@ export interface InstallOptions extends ResolveOptions {
 export interface TargetMaterializationResult {
   /** Target name */
   target: string
-  /** Path to the target's output directory (asp_modules/<target>/) */
+  /** Path to the target's output directory under ASP_HOME */
   outputPath: string
   /** Paths to materialized plugin directories */
   pluginDirs: string[]
@@ -220,7 +227,7 @@ export async function writeLockFile(lock: LockFile, projectPath: string): Promis
 }
 
 /**
- * Materialize a single target to asp_modules directory.
+ * Materialize a single target to the ASP_HOME project bundle directory.
  *
  * Uses the harness adapter's two-phase approach:
  * 1. materializeSpace() - Creates plugin artifacts with harness-specific transforms
@@ -244,10 +251,10 @@ export async function materializeTarget(
     )
   }
 
-  // Get output paths using harness adapter
-  // Returns: asp_modules/<target>/claude for ClaudeAdapter
-  const aspModulesDir = getAspModulesPath(options.projectPath)
-  const outputPath = adapter.getTargetOutputPath(aspModulesDir, targetName)
+  // Get output paths using harness adapter.
+  // Returns: ~/.asp/projects/<project>/targets/<target>/claude for ClaudeAdapter.
+  const outputRoot = paths.projectTargets(options.projectPath)
+  const outputPath = adapter.getTargetOutputPath(outputRoot, targetName)
 
   // Get spaces in load order for this target (from lock)
   const entries = getLoadOrderEntries(lock, targetName)
@@ -390,6 +397,15 @@ export async function materializeTarget(
     }
   }
 
+  // Phase 1b: Materialize agent-local components as a synthetic plugin (appended last)
+  if (options.agentLocalComponents) {
+    const agentArtifact = await materializeAgentLocalComponents(options.agentLocalComponents, paths)
+    if (agentArtifact) {
+      artifacts.push(agentArtifact)
+      settingsInputs.push({}) // no settings from agent components
+    }
+  }
+
   // Phase 2: Compose target using harness adapter
   // This handles assembling artifacts into the final target bundle
   const target = lock.targets[targetName]
@@ -415,12 +431,89 @@ export async function materializeTarget(
     inheritUser: options.inheritUser,
   })
 
+  // Cleanup: remove the temporary agent-components directory after composition
+  // The composeTarget() call copies contents into the bundle, so the tmp dir is no longer needed
+  if (options.agentLocalComponents) {
+    const agentTmpDir = join(
+      paths.temp,
+      `agent-components-${basename(options.agentLocalComponents.agentRoot)}`
+    )
+    await rm(agentTmpDir, { recursive: true, force: true }).catch(() => {})
+  }
+
   return {
     target: targetName,
     outputPath: bundle.rootDir,
     pluginDirs: bundle.pluginDirs ?? [],
     mcpConfigPath: bundle.mcpConfigPath,
     settingsPath: bundle.settingsPath,
+  }
+}
+
+/**
+ * Materialize agent-local skills and commands as a synthetic plugin artifact.
+ *
+ * Agent-local components (skills/ and commands/ directories at the agent root)
+ * are copied into a temporary directory structured as a plugin, then returned
+ * as a ResolvedSpaceArtifact to be appended to the artifacts array.
+ *
+ * Key properties:
+ * - Uses forceCopy (not hardlinks) since agent files are mutable
+ * - Always rebuilt on every run (no caching — mutable local files)
+ * - Appended last to artifacts[] so it gets the highest numeric prefix in the bundle
+ *
+ * @param components - Detected agent-local components
+ * @param paths - Path resolver for ASP_HOME locations
+ * @returns Artifact entry or undefined if no components exist
+ */
+export async function materializeAgentLocalComponents(
+  components: AgentLocalComponents | undefined,
+  paths: PathResolver
+): Promise<ResolvedSpaceArtifact | undefined> {
+  if (!components || (!components.hasSkills && !components.hasCommands)) {
+    return undefined
+  }
+
+  const agentName = basename(components.agentRoot)
+  const pluginName = `${agentName}-agent`
+
+  // Build in a temp directory under ASP_HOME/tmp
+  const tmpDir = join(paths.temp, `agent-components-${agentName}`)
+  await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+  await mkdir(tmpDir, { recursive: true })
+
+  // Write minimal plugin.json
+  const pluginDir = join(tmpDir, '.claude-plugin')
+  await mkdir(pluginDir, { recursive: true })
+  await writeFile(
+    join(pluginDir, 'plugin.json'),
+    JSON.stringify(
+      {
+        name: pluginName,
+        version: '0.0.0',
+        description: 'Agent-local skills and commands',
+      },
+      null,
+      2
+    )
+  )
+
+  // Copy skills/ if present (forceCopy — mutable source files)
+  if (components.hasSkills) {
+    await linkDirectory(components.skillsDir, join(tmpDir, 'skills'), { forceCopy: true })
+  }
+
+  // Copy commands/ if present
+  if (components.hasCommands) {
+    await linkDirectory(components.commandsDir, join(tmpDir, 'commands'), { forceCopy: true })
+  }
+
+  return {
+    spaceKey: `${pluginName}@local` as SpaceKey,
+    spaceId: pluginName,
+    artifactPath: tmpDir,
+    pluginName,
+    pluginVersion: '0.0.0',
   }
 }
 
@@ -433,7 +526,7 @@ export async function materializeTarget(
  * 3. Merges resolution results into a lock file
  * 4. Populates store with space snapshots
  * 5. Writes lock file
- * 6. Materializes plugins to asp_modules directory
+ * 6. Materializes composed bundles under ASP_HOME
  */
 export async function install(options: InstallOptions): Promise<InstallResult> {
   // Ensure registry is available
@@ -533,7 +626,7 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
     return writeLockFile(mergedLock, options.projectPath)
   })
 
-  // Materialize each target to asp_modules directory
+  // Materialize each target to the ASP_HOME project bundle directory
   const materializations: TargetMaterializationResult[] = []
   for (const targetName of targetNames) {
     const matResult = await materializeTarget(targetName, mergedLock, options)

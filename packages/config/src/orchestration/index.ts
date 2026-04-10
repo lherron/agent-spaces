@@ -24,6 +24,7 @@ export {
   populateStore,
   writeLockFile,
   materializeTarget,
+  materializeAgentLocalComponents,
   type InstallOptions,
   type InstallResult,
   type TargetMaterializationResult,
@@ -33,6 +34,7 @@ export {
 export {
   materializeFromRefs,
   discoverSkills,
+  detectCommandConflicts,
   type MaterializeFromRefsOptions,
   type MaterializeFromRefsResult,
   type SkillMetadata,

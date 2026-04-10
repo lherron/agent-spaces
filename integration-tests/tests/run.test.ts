@@ -28,6 +28,7 @@ import {
 describe('asp run', () => {
   let aspHome: string
   let projectDir: string
+  let agentsRoot: string | undefined
   let originalEnv: NodeJS.ProcessEnv
 
   beforeAll(async () => {
@@ -71,10 +72,32 @@ describe('asp run', () => {
     // Restore original env
     process.env = originalEnv
 
+    if (agentsRoot) {
+      await fs.rm(agentsRoot, { recursive: true, force: true })
+      agentsRoot = undefined
+    }
+
     await cleanupTempAspHome(aspHome)
     await cleanupTempProject(projectDir)
     await cleanupShimOutput()
   })
+
+  async function createTempAgentsRoot(): Promise<string> {
+    const dir = await fs.mkdtemp('/tmp/asp-agents-')
+    agentsRoot = dir
+    return dir
+  }
+
+  async function writeAgentProfile(
+    root: string,
+    agentName: string,
+    profileToml: string
+  ): Promise<string> {
+    const agentDir = path.join(root, agentName)
+    await fs.mkdir(agentDir, { recursive: true })
+    await fs.writeFile(path.join(agentDir, 'agent-profile.toml'), profileToml)
+    return agentDir
+  }
 
   test('invokes claude with correct plugin directories', async () => {
     const result = await runWithPrompt('dev', 'Hello, Claude!', {
@@ -299,5 +322,97 @@ describe('asp run', () => {
     expect(result.command).toBeDefined()
     expect(result.command).toContain('-p')
     expect(result.command).toContain('Hello, Claude!')
+  })
+
+  test('dry-run materializes agent-local skills and commands as an appended synthetic plugin', async () => {
+    await cleanupTempProject(projectDir)
+    projectDir = await createTempProject({
+      animan: {
+        description: 'Agent-local integration proof',
+        compose: [],
+      },
+    })
+
+    const tempAgentsRoot = await createTempAgentsRoot()
+    const agentDir = await writeAgentProfile(
+      tempAgentsRoot,
+      'animan',
+      `
+schema_version = 2
+
+[spaces]
+base = ["space:base@stable"]
+`
+    )
+
+    await fs.mkdir(path.join(agentDir, 'skills', 'review-code'), { recursive: true })
+    await fs.mkdir(path.join(agentDir, 'commands'), { recursive: true })
+    await fs.writeFile(path.join(agentDir, 'skills', 'review-code', 'SKILL.md'), '# review\n')
+    await fs.writeFile(path.join(agentDir, 'commands', 'deploy.md'), '# deploy\n')
+    process.env['ASP_AGENTS_ROOT'] = tempAgentsRoot
+
+    const result = await run('animan', {
+      projectPath: projectDir,
+      registryPath: SAMPLE_REGISTRY_DIR,
+      aspHome,
+      dryRun: true,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.command).toContain('--plugin-dir')
+
+    const pluginNames: string[] = []
+    for (const dir of result.build.pluginDirs) {
+      const pluginJsonPath = path.join(dir, '.claude-plugin', 'plugin.json')
+      const content = await fs.readFile(pluginJsonPath, 'utf-8')
+      const pluginJson = JSON.parse(content) as { name: string }
+      pluginNames.push(pluginJson.name)
+    }
+
+    expect(pluginNames.at(-1)).toBe('animan-agent')
+
+    const agentPluginDir = result.build.pluginDirs.at(-1)
+    expect(agentPluginDir).toBeDefined()
+    expect(
+      await fs.readFile(path.join(agentPluginDir!, 'skills', 'review-code', 'SKILL.md'), 'utf-8')
+    ).toBe('# review\n')
+    expect(await fs.readFile(path.join(agentPluginDir!, 'commands', 'deploy.md'), 'utf-8')).toBe(
+      '# deploy\n'
+    )
+  })
+
+  test('dry-run fails when an agent-local command collides with a composed space command', async () => {
+    await cleanupTempProject(projectDir)
+    projectDir = await createTempProject({
+      animan: {
+        description: 'Agent-local collision proof',
+        compose: [],
+      },
+    })
+
+    const tempAgentsRoot = await createTempAgentsRoot()
+    const agentDir = await writeAgentProfile(
+      tempAgentsRoot,
+      'animan',
+      `
+schema_version = 2
+
+[spaces]
+base = ["space:frontend@stable"]
+`
+    )
+
+    await fs.mkdir(path.join(agentDir, 'commands'), { recursive: true })
+    await fs.writeFile(path.join(agentDir, 'commands', 'build.md'), '# build\n')
+    process.env['ASP_AGENTS_ROOT'] = tempAgentsRoot
+
+    await expect(
+      run('animan', {
+        projectPath: projectDir,
+        registryPath: SAMPLE_REGISTRY_DIR,
+        aspHome,
+        dryRun: true,
+      })
+    ).rejects.toThrow('Command name conflict')
   })
 })
