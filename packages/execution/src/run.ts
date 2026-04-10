@@ -28,6 +28,7 @@ import {
 import { basename, dirname, join, relative, resolve } from 'node:path'
 
 import {
+  type AgentLocalComponents,
   type AgentRuntimeProfile,
   type ClaudeOptions,
   type CodexOptions,
@@ -668,6 +669,27 @@ interface LoadedAgentProfile {
   profile: AgentRuntimeProfile
 }
 
+export async function detectAgentLocalComponents(
+  agentRoot: string
+): Promise<AgentLocalComponents | undefined> {
+  const skillsDir = join(agentRoot, 'skills')
+  const commandsDir = join(agentRoot, 'commands')
+  const hasSkills = await pathExists(skillsDir)
+  const hasCommands = await pathExists(commandsDir)
+
+  if (!hasSkills && !hasCommands) {
+    return undefined
+  }
+
+  return {
+    agentRoot,
+    hasSkills,
+    hasCommands,
+    skillsDir,
+    commandsDir,
+  }
+}
+
 function loadAgentProfileForRun(
   targetName: string,
   options?: { agentsRoot?: string | undefined }
@@ -841,6 +863,9 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
 
   const target = manifest.targets[targetName]
   const agentProfile = loadAgentProfileForRun(targetName)
+  const agentLocalComponents = agentProfile
+    ? await detectAgentLocalComponents(agentProfile.agentRoot)
+    : undefined
   const agentDefaults = agentProfile
     ? resolveAgentRunDefaultsFromProfile(target, agentProfile)
     : undefined
@@ -891,6 +916,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         ...(options.refresh !== undefined ? { refresh: options.refresh } : {}),
         ...(options.inheritProject !== undefined ? { inheritProject: options.inheritProject } : {}),
         ...(options.inheritUser !== undefined ? { inheritUser: options.inheritUser } : {}),
+        ...(agentLocalComponents ? { agentLocalComponents } : {}),
         ...(agentProfile ? { agentRoot: agentProfile.agentRoot } : {}),
         projectRoot: options.projectPath,
       })

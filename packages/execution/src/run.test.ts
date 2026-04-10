@@ -177,6 +177,104 @@ describe('system prompt threading (T-01016)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Agent-local skills/commands discovery threading (T-01067)
+//
+// RED GATE: execution must detect agent-root `skills/` and `commands/`
+// directories and thread that payload into materializeFromRefs().
+//
+// Pass condition:
+// - run.ts exports detectAgentLocalComponents(agentRoot)
+// - helper returns undefined when neither directory exists
+// - helper reports hasSkills/hasCommands and absolute paths for each combo
+// - run() computes `agentLocalComponents` and passes it to materializeFromRefs
+// ---------------------------------------------------------------------------
+
+const detectAgentLocalComponents = (runModule as Record<string, unknown>)[
+  'detectAgentLocalComponents'
+] as
+  | ((agentRoot: string) => Promise<
+      | {
+          agentRoot: string
+          hasSkills: boolean
+          hasCommands: boolean
+          skillsDir: string
+          commandsDir: string
+        }
+      | undefined
+    >)
+  | undefined
+
+describe('agent-local component discovery (T-01067)', () => {
+  test('detectAgentLocalComponents is exported from run.ts', () => {
+    expect(detectAgentLocalComponents).toBeDefined()
+    expect(typeof detectAgentLocalComponents).toBe('function')
+  })
+
+  test('returns undefined when agent root has neither skills nor commands', async () => {
+    const agentRoot = await createTempDir('smokey-agent-local-none-')
+
+    expect(detectAgentLocalComponents).toBeDefined()
+    await expect(detectAgentLocalComponents!(agentRoot)).resolves.toBeUndefined()
+  })
+
+  test('detects skills-only agent roots', async () => {
+    const agentRoot = await createTempDir('smokey-agent-local-skills-')
+    await mkdir(join(agentRoot, 'skills', 'review-code'), { recursive: true })
+    await writeFile(join(agentRoot, 'skills', 'review-code', 'SKILL.md'), '# review\n')
+
+    expect(detectAgentLocalComponents).toBeDefined()
+    await expect(detectAgentLocalComponents!(agentRoot)).resolves.toEqual({
+      agentRoot,
+      hasSkills: true,
+      hasCommands: false,
+      skillsDir: join(agentRoot, 'skills'),
+      commandsDir: join(agentRoot, 'commands'),
+    })
+  })
+
+  test('detects commands-only agent roots', async () => {
+    const agentRoot = await createTempDir('smokey-agent-local-commands-')
+    await mkdir(join(agentRoot, 'commands'), { recursive: true })
+    await writeFile(join(agentRoot, 'commands', 'deploy.md'), '# deploy\n')
+
+    expect(detectAgentLocalComponents).toBeDefined()
+    await expect(detectAgentLocalComponents!(agentRoot)).resolves.toEqual({
+      agentRoot,
+      hasSkills: false,
+      hasCommands: true,
+      skillsDir: join(agentRoot, 'skills'),
+      commandsDir: join(agentRoot, 'commands'),
+    })
+  })
+
+  test('detects agent roots with both skills and commands', async () => {
+    const agentRoot = await createTempDir('smokey-agent-local-both-')
+    await mkdir(join(agentRoot, 'skills', 'triage'), { recursive: true })
+    await mkdir(join(agentRoot, 'commands'), { recursive: true })
+    await writeFile(join(agentRoot, 'skills', 'triage', 'SKILL.md'), '# triage\n')
+    await writeFile(join(agentRoot, 'commands', 'deploy.md'), '# deploy\n')
+
+    expect(detectAgentLocalComponents).toBeDefined()
+    await expect(detectAgentLocalComponents!(agentRoot)).resolves.toEqual({
+      agentRoot,
+      hasSkills: true,
+      hasCommands: true,
+      skillsDir: join(agentRoot, 'skills'),
+      commandsDir: join(agentRoot, 'commands'),
+    })
+  })
+
+  test('run.ts threads detected agentLocalComponents into materializeFromRefs', async () => {
+    const source = await readFile(join(SOURCE_DIR, 'run.ts'), 'utf-8')
+
+    expect(source).toContain('detectAgentLocalComponents')
+    expect(source).toContain('const agentLocalComponents = agentProfile')
+    expect(source).toContain('await detectAgentLocalComponents(agentProfile.agentRoot)')
+    expect(source).toContain('...(agentLocalComponents ? { agentLocalComponents } : {}),')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Agent-profile integration tests for asp run (T-00995)
 //
 // RED GATE: These tests verify that `asp run` merges agent-profile.toml
