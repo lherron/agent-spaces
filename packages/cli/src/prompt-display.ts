@@ -117,7 +117,8 @@ export async function displayPrompts(opts: DisplayPromptOptions): Promise<void> 
   const hasReminder = !!opts.reminderContent
   const hasPriming = !!opts.primingPrompt
 
-  if (!hasPrompt && !hasReminder && !hasPriming) {
+  const hasCommand = !!(opts.showCommand && opts.command)
+  if (!hasPrompt && !hasReminder && !hasPriming && !hasCommand) {
     return
   }
 

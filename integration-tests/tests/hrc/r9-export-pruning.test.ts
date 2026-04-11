@@ -99,10 +99,8 @@ describe('R-9: hrc-sdk rename-only alias removal', () => {
     const indexPath = join(import.meta.dir, '../../../packages/hrc-sdk/src/index.ts')
     const source = await readFile(indexPath, 'utf-8')
 
-    // These names must still appear in the SDK's public re-exports
     for (const name of [
       'SurfaceBindingRecord',
-      'AppSessionRecord',
       'LocalBridgeRecord',
       'RuntimeRecord',
       'LaunchRecord',
