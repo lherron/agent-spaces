@@ -631,13 +631,14 @@ async function executeHarnessRun(
   }
 
   const commandPath = detection.path ?? adapter.id
-  const command = formatEnvPrefix(harnessEnv) + formatCommand(commandPath, args)
+  const envPrefix = formatEnvPrefix(harnessEnv)
+  const command = envPrefix + formatCommand(commandPath, args)
 
   if (options.dryRun) {
     return {
       exitCode: 0,
       command,
-      displayCommand: formatDisplayCommand(commandPath, args),
+      displayCommand: envPrefix + formatDisplayCommand(commandPath, args),
       systemPrompt: preparedRunOptions.systemPrompt,
       systemPromptMode: preparedRunOptions.systemPromptMode,
     }
@@ -713,7 +714,7 @@ async function executeHarnessRun(
   return {
     exitCode,
     command,
-    displayCommand: formatDisplayCommand(commandPath, args),
+    displayCommand: envPrefix + formatDisplayCommand(commandPath, args),
     invocation:
       preparedRunOptions.interactive === false
         ? {
