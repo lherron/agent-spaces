@@ -22,7 +22,8 @@
   "dependencies": {
     "spaces-config": "*",
     "spaces-execution": "*",
-    "spaces-harness-pi-sdk": "*"
+    "spaces-harness-pi-sdk": "*",
+    "spaces-runtime": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",

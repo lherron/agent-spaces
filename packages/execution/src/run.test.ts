@@ -173,6 +173,8 @@ describe('system prompt threading (T-01016)', () => {
     const source = await readFile(join(SOURCE_DIR, 'run.ts'), 'utf-8')
 
     expect(source).toContain('systemPromptMode')
+    expect(source).toContain('reminderContent')
+    expect(source).toContain('maxChars')
   })
 })
 

@@ -15,6 +15,7 @@ export interface HarnessSettings {
   approvalPolicy?: string | undefined
   profile?: string | undefined
   yolo?: boolean | undefined
+  remote_control?: boolean | undefined
   claude?: ClaudeOptions | undefined
   codex?: CodexOptions | undefined
 }

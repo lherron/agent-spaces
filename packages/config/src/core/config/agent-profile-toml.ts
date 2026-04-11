@@ -160,7 +160,16 @@ function parseHarnessSettings(
 
   const allowedKeys =
     schemaVersion >= 2
-      ? ['model', 'sandboxMode', 'approvalPolicy', 'profile', 'yolo', 'claude', 'codex']
+      ? [
+          'model',
+          'sandboxMode',
+          'approvalPolicy',
+          'profile',
+          'yolo',
+          'remote_control',
+          'claude',
+          'codex',
+        ]
       : ['model', 'sandboxMode', 'approvalPolicy', 'profile']
   assertOnlyKeys(value, allowedKeys, source, path)
 
@@ -171,6 +180,13 @@ function parseHarnessSettings(
         fail(source, `${path}/${key}`, 'must be a boolean', 'type')
       }
       settings.yolo = raw
+      continue
+    }
+    if (key === 'remote_control') {
+      if (typeof raw !== 'boolean') {
+        fail(source, `${path}/${key}`, 'must be a boolean', 'type')
+      }
+      settings.remote_control = raw
       continue
     }
     if (key === 'claude') {
@@ -433,7 +449,7 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
     if (!isPlainObject(instructions)) {
       fail(source, '/instructions', 'must be a table', 'type')
     }
-    assertOnlyKeys(instructions, ['additionalBase', 'byMode'], source, '/instructions')
+    assertOnlyKeys(instructions, ['additionalBase', 'byMode', 'template'], source, '/instructions')
     profile.instructions = {
       additionalBase: parseStringArray(
         instructions['additionalBase'],

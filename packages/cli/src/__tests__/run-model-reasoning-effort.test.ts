@@ -21,6 +21,8 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { getProjectHarnessOutputPath } from 'spaces-config'
+
 const ASP_CLI = join(import.meta.dirname, '..', '..', 'bin', 'asp.js')
 
 function runAsp(
@@ -61,12 +63,15 @@ describe('asp run --help: --model-reasoning-effort (T-00947)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('asp run --print-command: model_reasoning_effort in codex invocation (T-00947)', () => {
+  let aspHome: string
   let projectDir: string
 
-  // Set up a minimal project with asp-targets.toml and a pre-composed asp_modules
+  // Set up a minimal project with asp-targets.toml and a pre-composed bundle
   // directory so dry-run can load the bundle without a real registry.
   async function setupMinimalProject(): Promise<void> {
+    aspHome = join(tmpdir(), `asp-mre-home-${Date.now()}`)
     projectDir = join(tmpdir(), `asp-mre-cli-test-${Date.now()}`)
+    await mkdir(aspHome, { recursive: true })
     await mkdir(projectDir, { recursive: true })
 
     await writeFile(
@@ -81,9 +86,12 @@ model = "gpt-5.4"
 `
     )
 
-    // Pre-create a minimal asp_modules/codex-target/codex structure so the CLI
+    // Pre-create a minimal project bundle so the CLI
     // can load the bundle without needing a real registry install
-    const codexHome = join(projectDir, 'asp_modules', 'codex-target', 'codex', 'codex.home')
+    const codexHome = join(
+      getProjectHarnessOutputPath(projectDir, 'codex-target', 'codex', aspHome),
+      'codex.home'
+    )
     await mkdir(codexHome, { recursive: true })
     await mkdir(join(codexHome, 'skills'), { recursive: true })
     await mkdir(join(codexHome, 'prompts'), { recursive: true })
@@ -135,6 +143,7 @@ model = "gpt-5.4"
   }
 
   async function teardownProject(): Promise<void> {
+    await rm(aspHome, { recursive: true, force: true })
     await rm(projectDir, { recursive: true, force: true })
   }
 
@@ -150,6 +159,8 @@ model = "gpt-5.4"
         'high',
         '--print-command',
         '--no-refresh',
+        '--asp-home',
+        aspHome,
         '--project',
         projectDir,
       ])
@@ -175,6 +186,8 @@ model = "gpt-5.4"
         'codex',
         '--print-command',
         '--no-refresh',
+        '--asp-home',
+        aspHome,
         '--project',
         projectDir,
       ])

@@ -54,6 +54,8 @@ export type ProcessInvocationSpec = {
   ioMode: IoMode
   continuation?: HarnessContinuationRef | undefined
   displayCommand?: string | undefined
+  /** Path to the materialized system prompt file (for audit/inspection) */
+  systemPromptFile?: string | undefined
 }
 
 // ---------------------------------------------------------------------------

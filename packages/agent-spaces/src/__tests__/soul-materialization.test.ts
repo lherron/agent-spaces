@@ -1,21 +1,20 @@
 /**
- * RED tests for T-00900: SOUL.md must be materialized into harness plugin directory.
+ * Tests for system prompt materialization (T-00900).
  *
- * Bug: validateAgentRoot() reads SOUL.md and HEARTBEAT.md content, but the
- * placement pipeline (placementToSpec → materializeSpec → buildProcessInvocationSpec)
- * never writes that content into the materialized plugin directory. The agent
- * responds as generic Claude instead of its persona.
+ * The instruction layer (SOUL.md, HEARTBEAT.md, additionalBase, byMode) is
+ * resolved, materialized to a file, read back, and passed via --system-prompt
+ * to CLI harnesses (replacing the default system prompt).
  *
  * PASS CONDITIONS:
- * 1. After buildProcessInvocationSpec, the base plugin directory contains a CLAUDE.md
- *    (or equivalent) with the SOUL.md content from the agent root.
- * 2. In heartbeat mode, CLAUDE.md contains both SOUL.md and HEARTBEAT.md content.
- * 3. In query mode, CLAUDE.md contains only SOUL.md content, not HEARTBEAT.md.
- * 4. Empty SOUL.md still creates the plugin directory entry.
+ * 1. After buildProcessInvocationSpec, argv contains --system-prompt with SOUL.md content.
+ * 2. In heartbeat mode, the prompt contains both SOUL.md and HEARTBEAT.md content.
+ * 3. In query mode, the prompt contains only SOUL.md content, not HEARTBEAT.md.
+ * 4. Empty SOUL.md still produces a --system-prompt flag.
+ * 5. The spec.systemPromptFile field points to the materialized file.
  */
 
 import { describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -48,11 +47,19 @@ function createTempAgentRoot(opts: {
   }
 }
 
+/**
+ * Helper to extract --system-prompt value from argv.
+ */
+function getSystemPromptFromArgv(argv: string[]): string | undefined {
+  const idx = argv.indexOf('--system-prompt')
+  return idx > -1 ? (argv[idx + 1] as string) : undefined
+}
+
 // ===================================================================
-// T-00900: SOUL.md content appears in materialized output
+// T-00900: SOUL.md content appears via --system-prompt
 // ===================================================================
-describe('SOUL.md materialization (T-00900)', () => {
-  test('SOUL.md content appears in base plugin CLAUDE.md after buildProcessInvocationSpec', async () => {
+describe('system prompt materialization (T-00900)', () => {
+  test('SOUL.md content appears as --system-prompt value in argv', async () => {
     const { agentRoot, aspHome, cleanup } = createTempAgentRoot({
       soulContent: '# Alice\n\nYou are Alice, a helpful coding assistant.',
       heartbeatContent: '# Heartbeat\n\nCheck system status.',
@@ -74,31 +81,12 @@ describe('SOUL.md materialization (T-00900)', () => {
         ioMode: 'pipes',
       } as any)
 
-      // Find the base plugin directory from argv (--plugin-dir flag)
-      // or from the materialized output path
-      const argv = response.spec.argv
-      const pluginDirIdx = argv.indexOf('--plugin-dir')
+      const systemPrompt = getSystemPromptFromArgv(response.spec.argv)
+      expect(systemPrompt).toBeDefined()
+      expect(systemPrompt).toContain('You are Alice')
 
-      // There should be at least one --plugin-dir in argv
-      expect(pluginDirIdx).toBeGreaterThan(-1)
-
-      // Check if any plugin dir contains a CLAUDE.md with SOUL.md content
-      let foundSoulContent = false
-      for (let i = 0; i < argv.length; i++) {
-        if (argv[i] === '--plugin-dir' && argv[i + 1]) {
-          const dir = argv[i + 1] as string
-          const claudeMdPath = join(dir, 'CLAUDE.md')
-          if (existsSync(claudeMdPath)) {
-            const content = readFileSync(claudeMdPath, 'utf8')
-            if (content.includes('You are Alice')) {
-              foundSoulContent = true
-              break
-            }
-          }
-        }
-      }
-
-      expect(foundSoulContent).toBe(true)
+      // spec should carry the materialized file path for audit
+      expect(response.spec.systemPromptFile).toBeDefined()
     } finally {
       cleanup()
     }
@@ -109,7 +97,7 @@ describe('SOUL.md materialization (T-00900)', () => {
 // T-00900: HEARTBEAT.md included in heartbeat mode
 // ===================================================================
 describe('HEARTBEAT.md in heartbeat mode (T-00900)', () => {
-  test('CLAUDE.md contains both SOUL.md and HEARTBEAT.md in heartbeat mode', async () => {
+  test('--system-prompt contains both SOUL.md and HEARTBEAT.md in heartbeat mode', async () => {
     const { agentRoot, aspHome, cleanup } = createTempAgentRoot({
       soulContent: '# Alice\n\nYou are Alice.',
       heartbeatContent: '# Heartbeat\n\nCheck system status periodically.',
@@ -131,24 +119,10 @@ describe('HEARTBEAT.md in heartbeat mode (T-00900)', () => {
         ioMode: 'pipes',
       } as any)
 
-      const argv = response.spec.argv
-      let foundSoul = false
-      let foundHeartbeat = false
-
-      for (let i = 0; i < argv.length; i++) {
-        if (argv[i] === '--plugin-dir' && argv[i + 1]) {
-          const dir = argv[i + 1] as string
-          const claudeMdPath = join(dir, 'CLAUDE.md')
-          if (existsSync(claudeMdPath)) {
-            const content = readFileSync(claudeMdPath, 'utf8')
-            if (content.includes('You are Alice')) foundSoul = true
-            if (content.includes('Check system status periodically')) foundHeartbeat = true
-          }
-        }
-      }
-
-      expect(foundSoul).toBe(true)
-      expect(foundHeartbeat).toBe(true)
+      const systemPrompt = getSystemPromptFromArgv(response.spec.argv)
+      expect(systemPrompt).toBeDefined()
+      expect(systemPrompt).toContain('You are Alice')
+      expect(systemPrompt).toContain('Check system status periodically')
     } finally {
       cleanup()
     }
@@ -159,7 +133,7 @@ describe('HEARTBEAT.md in heartbeat mode (T-00900)', () => {
 // T-00900: No HEARTBEAT.md in query mode
 // ===================================================================
 describe('no HEARTBEAT.md in query mode (T-00900)', () => {
-  test('CLAUDE.md contains SOUL.md but NOT HEARTBEAT.md in query mode', async () => {
+  test('--system-prompt contains SOUL.md but NOT HEARTBEAT.md in query mode', async () => {
     const { agentRoot, aspHome, cleanup } = createTempAgentRoot({
       soulContent: '# Alice\n\nYou are Alice.',
       heartbeatContent: '# Heartbeat\n\nDO NOT INCLUDE THIS IN QUERY MODE.',
@@ -181,24 +155,10 @@ describe('no HEARTBEAT.md in query mode (T-00900)', () => {
         ioMode: 'pipes',
       } as any)
 
-      const argv = response.spec.argv
-      let foundSoul = false
-      let foundHeartbeat = false
-
-      for (let i = 0; i < argv.length; i++) {
-        if (argv[i] === '--plugin-dir' && argv[i + 1]) {
-          const dir = argv[i + 1] as string
-          const claudeMdPath = join(dir, 'CLAUDE.md')
-          if (existsSync(claudeMdPath)) {
-            const content = readFileSync(claudeMdPath, 'utf8')
-            if (content.includes('You are Alice')) foundSoul = true
-            if (content.includes('DO NOT INCLUDE THIS IN QUERY MODE')) foundHeartbeat = true
-          }
-        }
-      }
-
-      expect(foundSoul).toBe(true)
-      expect(foundHeartbeat).toBe(false)
+      const systemPrompt = getSystemPromptFromArgv(response.spec.argv)
+      expect(systemPrompt).toBeDefined()
+      expect(systemPrompt).toContain('You are Alice')
+      expect(systemPrompt).not.toContain('DO NOT INCLUDE THIS IN QUERY MODE')
     } finally {
       cleanup()
     }
@@ -209,7 +169,7 @@ describe('no HEARTBEAT.md in query mode (T-00900)', () => {
 // T-00900: Empty SOUL.md edge case
 // ===================================================================
 describe('empty SOUL.md edge case (T-00900)', () => {
-  test('empty SOUL.md still creates plugin directory', async () => {
+  test('empty SOUL.md still produces --system-prompt flag', async () => {
     const { agentRoot, aspHome, cleanup } = createTempAgentRoot({
       soulContent: '',
     })
@@ -233,6 +193,9 @@ describe('empty SOUL.md edge case (T-00900)', () => {
       // Should succeed without error even with empty SOUL.md
       expect(response.spec).toBeDefined()
       expect(response.spec.argv.length).toBeGreaterThan(0)
+
+      // System prompt file should still be set
+      expect(response.spec.systemPromptFile).toBeDefined()
     } finally {
       cleanup()
     }

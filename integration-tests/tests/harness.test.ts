@@ -6,7 +6,7 @@
  * - The `asp harnesses` command correctly lists available harnesses
  * - The --harness flag on run/build/install/explain commands works correctly
  * - Invalid harness IDs produce helpful error messages
- * - Output paths include the harness subdirectory (asp_modules/<target>/<harness>/)
+ * - Output paths include the harness subdirectory under ASP_HOME
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
@@ -293,6 +293,12 @@ describe('asp install --harness', () => {
     await cleanupTempProject(projectDir)
   })
 
+  function extractHarnessPath(stdout: string): string {
+    const match = stdout.match(/ASP_PLUGIN_ROOT=([^\s\\]+)/)
+    expect(match).toBeDefined()
+    return match?.[1] ?? ''
+  }
+
   test('installs with --harness claude', async () => {
     const { stdout, exitCode } = await runCli(
       ['install', '--harness', 'claude', '--asp-home', aspHome],
@@ -301,9 +307,9 @@ describe('asp install --harness', () => {
 
     expect(exitCode).toBe(0)
     expect(stdout).toContain('Installed')
+    expect(stdout).toContain(`${aspHome}/projects/`)
 
-    // Verify asp_modules/<target>/claude/ directory exists
-    const harnessOutputPath = path.join(projectDir, 'asp_modules', 'test-target', 'claude')
+    const harnessOutputPath = extractHarnessPath(stdout)
     const exists = await fs
       .access(harnessOutputPath)
       .then(() => true)
@@ -312,9 +318,13 @@ describe('asp install --harness', () => {
   })
 
   test('creates harness-specific output directory structure', async () => {
-    await runCli(['install', '--harness', 'claude', '--asp-home', aspHome], { cwd: projectDir })
+    const { stdout, exitCode } = await runCli(
+      ['install', '--harness', 'claude', '--asp-home', aspHome],
+      { cwd: projectDir }
+    )
+    expect(exitCode).toBe(0)
 
-    const harnessPath = path.join(projectDir, 'asp_modules', 'test-target', 'claude')
+    const harnessPath = extractHarnessPath(stdout)
 
     // Should have plugins directory
     const pluginsExists = await fs

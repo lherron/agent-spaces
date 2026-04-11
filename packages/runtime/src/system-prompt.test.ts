@@ -1,9 +1,11 @@
 /**
- * Red/green ownership for wrkq T-01015.
+ * Red/green ownership for wrkq T-01015 and T-01044.
  *
  * Spec sources:
  * - SYSTEM_PROMPT_RESOLUTION.md, "Implementation plan" Step 3
+ * - PROMPT_TEMPLATE_UPDATES.md, sections 3 and 4
  * - agentchat DM #2550 from animata@agent-spaces to smokey@agent-spaces
+ * - agentchat DM #75 from animata@agent-spaces to smokey@agent-spaces
  *
  * These tests define the materialization contract before the Step 3 runtime
  * rewire exists. Keep the scenarios aligned with the wrkq red-run history so a
@@ -129,6 +131,41 @@ template = "agent-template.toml"
     })
   })
 
+  test('prefers agentsRoot/context-template.toml over agentsRoot/system-prompt-template.toml for v2 discovery', async () => {
+    await writeFile(
+      join(agentsRoot, 'context-template.toml'),
+      `
+schema_version = 2
+mode = "replace"
+
+[[prompt]]
+name = "notice"
+type = "inline"
+content = "context template wins"
+`
+    )
+    await writeFile(
+      join(agentsRoot, 'system-prompt-template.toml'),
+      replaceTemplate('legacy template loses')
+    )
+
+    const result = await materializeSystemPrompt(outputRoot, {
+      agentRoot,
+      agentsRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'task',
+    })
+
+    expect(result).toEqual({
+      path: join(outputRoot, 'system-prompt.md'),
+      content: 'context template wins',
+      mode: 'replace',
+      reminderContent: undefined,
+    })
+    expect(readPromptFile(result?.path)).toBe('context template wins')
+  })
+
   test('falls back to ASP_HOME/system-prompt-template.toml when agent-specific and agentsRoot templates are absent', async () => {
     await writeFile(join(aspHome, 'system-prompt-template.toml'), replaceTemplate('asp home'))
 
@@ -242,6 +279,73 @@ content = "append me"
     expect(readPromptFile(result?.path)).toBe('append me')
   })
 
+  test('returns reminderContent when a v2 context template resolves reminder sections', async () => {
+    await writeFile(
+      join(agentsRoot, 'context-template.toml'),
+      `
+schema_version = 2
+mode = "append"
+
+[[prompt]]
+name = "prompt"
+type = "inline"
+content = "prompt body"
+
+[[reminder]]
+name = "reminder"
+type = "inline"
+content = "reminder body"
+`
+    )
+
+    const result = await materializeSystemPrompt(outputRoot, {
+      agentRoot,
+      agentsRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'task',
+    })
+
+    expect(result).toEqual({
+      path: join(outputRoot, 'system-prompt.md'),
+      content: 'prompt body',
+      mode: 'append',
+      reminderContent: 'reminder body',
+    })
+    expect(readPromptFile(result?.path)).toBe('prompt body')
+  })
+
+  test('writes session-reminder.md when a v2 context template resolves reminder sections', async () => {
+    await writeFile(
+      join(agentsRoot, 'context-template.toml'),
+      `
+schema_version = 2
+mode = "replace"
+
+[[prompt]]
+name = "prompt"
+type = "inline"
+content = "prompt body"
+
+[[reminder]]
+name = "reminder"
+type = "inline"
+content = "reminder body"
+`
+    )
+
+    const result = await materializeSystemPrompt(outputRoot, {
+      agentRoot,
+      agentsRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'task',
+    })
+
+    expect(result?.reminderContent).toBe('reminder body')
+    expect(readPromptFile(join(outputRoot, 'session-reminder.md'))).toBe('reminder body')
+  })
+
   async function writeAgentProfile(content: string) {
     await writeFile(join(agentRoot, 'agent-profile.toml'), content.trimStart())
   }
@@ -282,6 +386,7 @@ interface MaterializedSystemPrompt {
   path: string
   content: string
   mode: 'replace' | 'append'
+  reminderContent?: string | undefined
 }
 
 async function materializeSystemPrompt(

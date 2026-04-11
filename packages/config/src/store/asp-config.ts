@@ -21,7 +21,7 @@ export function getAgentsRoot(opts?: ConfigOptions): string | undefined {
   const env = opts?.env
   const home = env?.['HOME'] ?? (!opts ? homedir() : undefined)
   if (!home) return undefined
-  const conventionPath = join(home, 'agents')
+  const conventionPath = join(home, 'praesidium', 'var', 'agents')
   return existsSync(conventionPath) ? conventionPath : undefined
 }
 

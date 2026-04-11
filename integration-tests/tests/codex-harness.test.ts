@@ -147,8 +147,10 @@ describe('asp codex harness', () => {
 
     expect(exitCode).toBe(0)
     expect(stdout).toContain('Installed')
+    expect(stdout).toContain(`${aspHome}/projects/`)
 
-    const codexHome = path.join(projectDir, 'asp_modules', 'codex-target', 'codex', 'codex.home')
+    const codexHome = stdout.match(/CODEX_HOME=(\S+)/)?.[1]
+    expect(codexHome).toBeDefined()
     const agentsPath = path.join(codexHome, 'AGENTS.md')
     const configPath = path.join(codexHome, 'config.toml')
     const promptsDir = path.join(codexHome, 'prompts')

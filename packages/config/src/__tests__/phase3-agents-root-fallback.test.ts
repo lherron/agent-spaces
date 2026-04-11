@@ -1,15 +1,15 @@
 /**
- * RED tests: Phase 3 — getAgentsRoot ~/agents convention fallback (T-00993)
+ * RED tests: Phase 3 — getAgentsRoot ~/praesidium/var/agents convention fallback (T-00993)
  *
  * WHY: When no explicit agents-root is configured (no env var, no config.toml),
- * getAgentsRoot should fall back to ~/agents if that directory exists on disk.
+ * getAgentsRoot should fall back to ~/praesidium/var/agents if that directory exists on disk.
  * This enables zero-config agent discovery for users who follow the convention.
  *
  * PASS CONDITIONS (all tests green when):
- * 1. getAgentsRoot returns ~/agents path when ~/agents dir exists and no explicit config
- * 2. getAgentsRoot returns undefined when ~/agents does NOT exist and no explicit config
- * 3. Explicit ASP_AGENTS_ROOT env var still takes precedence over ~/agents fallback
- * 4. config.toml agents-root still takes precedence over ~/agents fallback
+ * 1. getAgentsRoot returns ~/praesidium/var/agents path when that dir exists and no explicit config
+ * 2. getAgentsRoot returns undefined when ~/praesidium/var/agents does NOT exist and no explicit config
+ * 3. Explicit ASP_AGENTS_ROOT env var still takes precedence over the convention fallback
+ * 4. config.toml agents-root still takes precedence over the convention fallback
  * 5. HOME env override is respected for convention path construction
  *
  * wrkq task: T-00993
@@ -24,13 +24,13 @@ import { join } from 'node:path'
 import { getAgentsRoot } from '../store/asp-config.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper: set up a fake HOME with optional ~/agents directory
+// Helper: set up a fake HOME with optional ~/praesidium/var/agents directory
 // ─────────────────────────────────────────────────────────────────────────────
 
 function createFakeHome(withAgentsDir: boolean): { home: string; cleanup: () => void } {
   const home = mkdtempSync(join(tmpdir(), 'home-'))
   if (withAgentsDir) {
-    mkdirSync(join(home, 'agents'), { recursive: true })
+    mkdirSync(join(home, 'praesidium', 'var', 'agents'), { recursive: true })
   }
   return {
     home,
@@ -44,9 +44,9 @@ function emptyAspHome(): string {
 }
 
 // ===================================================================
-// T-00993 Phase 3.3: ~/agents convention fallback
+// T-00993 Phase 3.3: ~/praesidium/var/agents convention fallback
 // ===================================================================
-describe('getAgentsRoot: ~/agents convention fallback (T-00993)', () => {
+describe('getAgentsRoot: ~/praesidium/var/agents convention fallback (T-00993)', () => {
   let fakeHome: { home: string; cleanup: () => void }
   let aspHome: string
 
@@ -59,16 +59,16 @@ describe('getAgentsRoot: ~/agents convention fallback (T-00993)', () => {
     rmSync(aspHome, { recursive: true, force: true })
   })
 
-  test('returns ~/agents when directory exists and no explicit config', () => {
+  test('returns ~/praesidium/var/agents when directory exists and no explicit config', () => {
     fakeHome = createFakeHome(true)
     const result = getAgentsRoot({
       aspHome,
       env: { HOME: fakeHome.home },
     })
-    expect(result).toBe(join(fakeHome.home, 'agents'))
+    expect(result).toBe(join(fakeHome.home, 'praesidium', 'var', 'agents'))
   })
 
-  test('returns undefined when ~/agents does NOT exist and no explicit config', () => {
+  test('returns undefined when ~/praesidium/var/agents does NOT exist and no explicit config', () => {
     fakeHome = createFakeHome(false)
     const result = getAgentsRoot({
       aspHome,
@@ -77,7 +77,7 @@ describe('getAgentsRoot: ~/agents convention fallback (T-00993)', () => {
     expect(result).toBeUndefined()
   })
 
-  test('ASP_AGENTS_ROOT env var takes precedence over ~/agents fallback', () => {
+  test('ASP_AGENTS_ROOT env var takes precedence over the convention fallback', () => {
     fakeHome = createFakeHome(true)
     const result = getAgentsRoot({
       aspHome,
@@ -86,11 +86,11 @@ describe('getAgentsRoot: ~/agents convention fallback (T-00993)', () => {
         ASP_AGENTS_ROOT: '/explicit/agents/root',
       },
     })
-    // Env var wins — should NOT be ~/agents
+    // Env var wins over the convention path
     expect(result).toBe('/explicit/agents/root')
   })
 
-  test('config.toml agents-root takes precedence over ~/agents fallback', async () => {
+  test('config.toml agents-root takes precedence over the convention fallback', async () => {
     fakeHome = createFakeHome(true)
     // Write a config.toml with agents-root
     const { writeFile, mkdir } = await import('node:fs/promises')
@@ -112,6 +112,6 @@ describe('getAgentsRoot: ~/agents convention fallback (T-00993)', () => {
       env: { HOME: customHome },
     })
     // Should use HOME env, not process.env.HOME or os.homedir()
-    expect(result).toBe(join(customHome, 'agents'))
+    expect(result).toBe(join(customHome, 'praesidium', 'var', 'agents'))
   })
 })

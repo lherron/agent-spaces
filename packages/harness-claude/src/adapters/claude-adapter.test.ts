@@ -708,7 +708,7 @@ paths = ["/var/log"]
       expect(args).toContain('project,user')
     })
 
-    test('passes prompt as positional argument in interactive mode', () => {
+    test('passes prompt as positional argument with -- separator in interactive mode', () => {
       const bundle = {
         harnessId: 'claude' as const,
         targetName: 'test',
@@ -721,7 +721,9 @@ paths = ["/var/log"]
         prompt: 'Start by checking failing tests',
       })
 
-      expect(args).toContain('Start by checking failing tests')
+      const sepIndex = args.indexOf('--')
+      expect(sepIndex).toBeGreaterThanOrEqual(0)
+      expect(args[sepIndex + 1]).toBe('Start by checking failing tests')
       expect(args).not.toContain('-p')
     })
 
@@ -741,6 +743,44 @@ paths = ["/var/log"]
       const pIndex = args.indexOf('-p')
       expect(pIndex).toBeGreaterThanOrEqual(0)
       expect(args[pIndex + 1]).toBe('Summarize repository health')
+    })
+
+    test('routes replace mode system prompts to --system-prompt', () => {
+      // T-01016 red/green: Claude adapter must preserve replace semantics.
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'test',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      const args = adapter.buildRunArgs(bundle, {
+        systemPrompt: 'replace prompt',
+        systemPromptMode: 'replace',
+      } as any)
+
+      expect(args).toContain('--system-prompt')
+      expect(args).toContain('replace prompt')
+      expect(args).not.toContain('--append-system-prompt')
+    })
+
+    test('routes append mode system prompts to --append-system-prompt', () => {
+      // T-01016 red/green: append prompts must not clobber Claude's default prompt.
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'test',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      const args = adapter.buildRunArgs(bundle, {
+        systemPrompt: 'append prompt',
+        systemPromptMode: 'append',
+      } as any)
+
+      expect(args).toContain('--append-system-prompt')
+      expect(args).toContain('append prompt')
+      expect(args).not.toContain('--system-prompt')
     })
   })
 

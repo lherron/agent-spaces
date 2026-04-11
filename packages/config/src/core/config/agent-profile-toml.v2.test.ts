@@ -112,6 +112,38 @@ display = 42
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 2b. [session] section for reminder customization
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('parseAgentProfile: session section (T-01045)', () => {
+  test('parses session.additionalContext and session.additionalExec', () => {
+    const toml = `
+schemaVersion = 2
+
+[session]
+additionalContext = ["banner.md", "project-root:///README.md"]
+additionalExec = ["printf 'task context'", "printf 'queue context'"]
+`
+    const result = parseAgentProfile(toml)
+    expect(result.session).toEqual({
+      additionalContext: ['banner.md', 'project-root:///README.md'],
+      additionalExec: ["printf 'task context'", "printf 'queue context'"],
+    })
+  })
+
+  test('rejects unknown keys in session', () => {
+    const toml = `
+schemaVersion = 2
+
+[session]
+additionalContext = ["banner.md"]
+unexpected = "nope"
+`
+    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 3. priming_prompt and priming_prompt_file
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -188,6 +220,18 @@ yolo = true
 `
     const result = parseAgentProfile(toml)
     expect(result.harnessDefaults?.yolo).toBe(true)
+  })
+
+  test('parses harnessDefaults.remote_control as boolean', () => {
+    const toml = `
+schemaVersion = 2
+
+[harnessDefaults]
+model = "claude-opus-4-6"
+remote_control = true
+`
+    const result = parseAgentProfile(toml)
+    expect(result.harnessDefaults?.remote_control).toBe(true)
   })
 
   test('parses harnessDefaults.claude sub-table', () => {

@@ -36,6 +36,7 @@ import { registerListCommand } from './commands/list.js'
 import { registerPathCommand } from './commands/path.js'
 import { registerRemoveCommand } from './commands/remove.js'
 import { registerRepoCommands } from './commands/repo/index.js'
+import { registerResolveReminderCommand } from './commands/resolve-reminder.js'
 import { registerRunCommand } from './commands/run.js'
 import { registerSpacesCommands } from './commands/spaces/index.js'
 import { registerUpgradeCommand } from './commands/upgrade.js'
@@ -115,6 +116,7 @@ function createProgram(): Command {
   registerUpgradeCommand(program)
   registerDiffCommand(program)
   registerHarnessesCommand(program)
+  registerResolveReminderCommand(program)
   registerRepoCommands(program)
   registerSpacesCommands(program)
   registerAgentCommands(program)

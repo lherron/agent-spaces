@@ -1,5 +1,5 @@
 /**
- * Install command - Generate/update lock file and materialize to asp_modules.
+ * Install command - Generate/update lock file and materialize project bundles under ASP_HOME.
  */
 
 import type { Command } from 'commander'
@@ -60,7 +60,7 @@ function formatEnvPrefix(env: Record<string, string>): string {
 export function registerInstallCommand(program: Command): void {
   program
     .command('install')
-    .description('Resolve targets and materialize to asp_modules/')
+    .description('Resolve targets and materialize project bundles under ASP_HOME')
     .option('--targets <names...>', 'Specific targets to install')
     .option(
       '--harness <id>',
