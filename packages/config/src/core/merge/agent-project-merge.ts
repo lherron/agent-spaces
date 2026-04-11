@@ -12,6 +12,7 @@ export interface EffectiveTargetConfig {
   priming_prompt?: string | undefined
   compose: SpaceRefString[]
   yolo: boolean
+  remoteControl: boolean
   harness: string
   model?: string | undefined
   claude: ClaudeOptions
@@ -116,6 +117,8 @@ export function mergeAgentWithProjectTarget(
     priming_prompt: mergePrimingPrompt(profile.priming_prompt, projectTarget),
     compose: resolveEffectiveCompose(profile, projectTarget, runMode),
     yolo: projectTarget?.yolo ?? profile.harnessDefaults?.yolo ?? false,
+    remoteControl:
+      projectTarget?.remote_control ?? profile.harnessDefaults?.remote_control ?? false,
     harness: projectTarget?.harness ?? profile.identity?.harness ?? 'claude-code',
     model:
       projectTarget?.claude?.model ?? projectTarget?.codex?.model ?? profile.harnessDefaults?.model,

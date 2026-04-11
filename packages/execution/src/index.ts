@@ -66,10 +66,14 @@ export {
   runGlobalSpace,
   runLocalSpace,
   isSpaceReference,
+  detectAgentLocalComponents,
   type RunOptions,
   type RunResult,
   type GlobalRunOptions,
 } from './run.js'
+
+// Terminal pager
+export { paginate } from './pager.js'
 
 /**
  * Install options (with automatic harness adapter resolution)
@@ -89,7 +93,7 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
 }
 
 /**
- * Materialize a single target to asp_modules directory.
+ * Materialize a single target to the ASP_HOME project bundle directory.
  *
  * This wraps the config package's materializeTarget function and automatically
  * provides the harness adapter from the execution package's registry.

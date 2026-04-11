@@ -274,6 +274,37 @@ describe('mergeAgentWithProjectTarget: yolo and model', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6b. remoteControl override
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('mergeAgentWithProjectTarget: remoteControl', () => {
+  test('project remote_control overrides agent default', () => {
+    const profile = makeProfile({
+      harnessDefaults: { remote_control: false },
+    })
+    const target = makeTarget({ remote_control: true })
+    const result = mergeAgentWithProjectTarget(profile, target, 'query')
+    expect(result.remoteControl).toBe(true)
+  })
+
+  test('agent remote_control used when project does not set it', () => {
+    const profile = makeProfile({
+      harnessDefaults: { remote_control: true },
+    })
+    const target = makeTarget({})
+    const result = mergeAgentWithProjectTarget(profile, target, 'query')
+    expect(result.remoteControl).toBe(true)
+  })
+
+  test('defaults to false when neither agent nor project sets it', () => {
+    const profile = makeProfile({})
+    const target = makeTarget({})
+    const result = mergeAgentWithProjectTarget(profile, target, 'query')
+    expect(result.remoteControl).toBe(false)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 7. Target-level harness precedence (T-00996)
 //
 // RED GATE: TargetDefinition does not yet have a `harness` field.

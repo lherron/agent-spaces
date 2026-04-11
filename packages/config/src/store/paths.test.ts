@@ -14,6 +14,10 @@ import {
   getAspHome,
   getCachePath,
   getPluginCachePath,
+  getProjectDataPath,
+  getProjectHarnessOutputPath,
+  getProjectTargetsPath,
+  getProjectsPath,
   getRepoPath,
   getSnapshotPath,
   getSnapshotsPath,
@@ -75,6 +79,10 @@ describe('path functions', () => {
     expect(getCachePath()).toBe('/test/asp/cache')
   })
 
+  it('should build projects path', () => {
+    expect(getProjectsPath()).toBe('/test/asp/projects')
+  })
+
   it('should build temp path', () => {
     expect(getTempPath()).toBe('/test/asp/tmp')
   })
@@ -86,6 +94,15 @@ describe('path functions', () => {
 
   it('should build plugin cache path', () => {
     expect(getPluginCachePath('cache-key-123')).toBe('/test/asp/cache/cache-key-123')
+  })
+
+  it('should build project-scoped bundle paths', () => {
+    const projectDataPath = getProjectDataPath('/work/My Project')
+    expect(projectDataPath).toMatch(/^\/test\/asp\/projects\/my-project-[0-9a-f]{8}$/)
+    expect(getProjectTargetsPath('/work/My Project')).toBe(`${projectDataPath}/targets`)
+    expect(getProjectHarnessOutputPath('/work/My Project', 'dev', 'claude')).toBe(
+      `${projectDataPath}/targets/dev/claude`
+    )
   })
 })
 
@@ -109,6 +126,14 @@ describe('PathResolver', () => {
   it('should build plugin cache path', () => {
     const resolver = new PathResolver({ aspHome: '/custom/home' })
     expect(resolver.pluginCache('my-cache')).toBe('/custom/home/cache/my-cache')
+  })
+
+  it('should build project harness output path', () => {
+    const resolver = new PathResolver({ aspHome: '/custom/home' })
+    const outputPath = resolver.projectHarnessOutput('/work/Control Plane', 'Code Review', 'codex')
+    expect(outputPath).toMatch(
+      /^\/custom\/home\/projects\/control-plane-[0-9a-f]{8}\/targets\/Code Review\/codex$/
+    )
   })
 
   it('should build space source path', () => {

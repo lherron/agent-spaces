@@ -28,6 +28,16 @@ export interface AgentSessionConfig {
   plugins?: Array<{ type: 'local'; path: string }>
   /** Custom system prompt to override default Claude Code prompt */
   systemPrompt?: string
+  /**
+   * How systemPrompt is applied to the SDK session:
+   * - 'replace' (default): systemPrompt replaces the entire default prompt
+   * - 'append': systemPrompt is appended to the default Claude Code preset prompt
+   *
+   * When mode is 'append', the SDK receives:
+   *   `{ type: 'preset', preset: 'claude_code', append: systemPrompt }`
+   * When mode is 'replace' (or omitted), the SDK receives the raw string.
+   */
+  systemPromptMode?: 'replace' | 'append'
   /** Provider-native continuation key (loads conversation history from previous session) */
   continuationKey?: string
 }
@@ -134,7 +144,7 @@ export class AgentSession implements UnifiedSession {
       canUseTool: this.hooksBridge.createCanUseToolCallback() as any,
       ...(this.config.allowedTools ? { allowedTools: this.config.allowedTools } : {}),
       ...(this.config.plugins ? { plugins: this.config.plugins } : {}),
-      ...(this.config.systemPrompt ? { systemPrompt: this.config.systemPrompt } : {}),
+      ...this.resolveSystemPromptOption(),
       ...(this.config.continuationKey ? { resume: this.config.continuationKey } : {}),
     }
 
@@ -147,6 +157,32 @@ export class AgentSession implements UnifiedSession {
     this.sdkQuery = result
     this.outputIterator = result[Symbol.asyncIterator]()
     this.startOutputListener()
+  }
+
+  /**
+   * Build the systemPrompt option for the SDK query based on systemPromptMode.
+   *
+   * - 'append': uses the SDK's preset+append form so the default Claude Code
+   *   system prompt is preserved and systemPrompt text is appended.
+   * - 'replace' (default): passes systemPrompt as a raw string, fully replacing
+   *   the default prompt.
+   */
+  private resolveSystemPromptOption(): {
+    systemPrompt?: string | { type: 'preset'; preset: 'claude_code'; append?: string }
+  } {
+    const { systemPrompt, systemPromptMode } = this.config
+    if (!systemPrompt) return {}
+
+    if (systemPromptMode === 'append') {
+      // SDK natively supports append via the preset form:
+      //   { type: 'preset', preset: 'claude_code', append: '...' }
+      return {
+        systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPrompt },
+      }
+    }
+
+    // Default: replace mode — pass raw string
+    return { systemPrompt }
   }
 
   /**

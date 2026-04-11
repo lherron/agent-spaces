@@ -53,9 +53,6 @@ async function readSource(packagePath: string): Promise<string> {
 const SHARED_WIRE_DTOS = [
   'ResolveSessionRequest',
   'ResolveSessionResponse',
-  'ApplyAppSessionInput',
-  'ApplyAppSessionsRequest',
-  'ApplyAppSessionsResponse',
   'EnsureRuntimeRequest',
   'EnsureRuntimeResponse',
   'DispatchTurnRequest',

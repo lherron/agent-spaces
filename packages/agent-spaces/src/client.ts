@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, symlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
 
 import {
@@ -17,6 +17,7 @@ import {
   PathResolver,
   type ProjectManifest,
   type SpaceRefString,
+  TARGETS_FILENAME,
   type TargetDefinition,
   asSha256Integrity,
   asSpaceId,
@@ -24,6 +25,7 @@ import {
   discoverSkills,
   ensureDir,
   generateLockFileForTarget,
+  getAgentsRoot,
   getAspHome,
   getRegistryPath,
   lintSpaces,
@@ -32,6 +34,7 @@ import {
   parseAgentProfile,
   parseTargetsToml,
   readHooksWithPrecedence,
+  readTargetsToml,
   resolveAgentPrimingPrompt,
   resolveTarget,
 } from 'spaces-config'
@@ -42,6 +45,7 @@ import {
   type UnifiedSession,
   type UnifiedSessionEvent,
   createSession,
+  detectAgentLocalComponents,
   harnessRegistry,
   materializeFromRefs,
   materializeTarget,
@@ -548,6 +552,7 @@ async function materializeSpec(
     registryPathOverride?: string | undefined
     agentRoot?: string | undefined
     projectRoot?: string | undefined
+    agentLocalComponents?: import('spaces-config').AgentLocalComponents | undefined
   }
 ): Promise<MaterializedSpec> {
   const registryPathOverride = options?.registryPathOverride
@@ -611,6 +616,9 @@ async function materializeSpec(
     harness: harnessId,
     ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
     ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
+    ...(options?.agentLocalComponents
+      ? { agentLocalComponents: options.agentLocalComponents }
+      : {}),
   })
 
   return {
@@ -1533,24 +1541,82 @@ async function buildPlacementInvocationSpec(
     )
   }
 
-  const defaultRunOptions =
-    placement.bundle.kind === 'agent-project' && syntheticManifest
-      ? adapter.getDefaultRunOptions(syntheticManifest, placement.bundle.agentName)
-      : {}
+  let defaultRunOptions: Partial<import('spaces-execution').HarnessRunOptions> = {}
+  if (placement.bundle.kind === 'agent-project' && syntheticManifest) {
+    defaultRunOptions = adapter.getDefaultRunOptions(syntheticManifest, placement.bundle.agentName)
+  } else if (placement.bundle.kind === 'project-target') {
+    try {
+      const targetsPath = join(placement.bundle.projectRoot, TARGETS_FILENAME)
+      const manifest = await readTargetsToml(targetsPath)
+      const target = manifest.targets[placement.bundle.target]
 
-  // Validate model
-  const modelResolution = resolveModel(
-    frontendDef,
-    req.model ?? defaultRunOptions.model ?? effectiveConfig?.model
-  )
+      // Load agent profile (~/praesidium/var/agents/<target>/agent-profile.toml)
+      // to get priming prompt and harness defaults, matching asp run behavior.
+      const agentsRoot = getAgentsRoot({ aspHome })
+      const agentProfileRoot = agentsRoot ? join(agentsRoot, placement.bundle.target) : undefined
+      const agentProfilePath = agentProfileRoot
+        ? join(agentProfileRoot, 'agent-profile.toml')
+        : undefined
+      let agentProfile: ReturnType<typeof parseAgentProfile> | undefined
+      if (agentProfilePath && existsSync(agentProfilePath)) {
+        const profileSource = readFileSync(agentProfilePath, 'utf8').replace(
+          /^(\s*)schema_version(\s*=)/m,
+          '$1schemaVersion$2'
+        )
+        agentProfile = parseAgentProfile(profileSource, agentProfilePath)
+      }
+
+      // Build a synthetic manifest that merges agent profile defaults with target,
+      // mirroring what asp run does via buildSyntheticRunManifest.
+      if (agentProfile && agentProfileRoot) {
+        const primingPrompt =
+          target?.priming_prompt ?? resolveAgentPrimingPrompt(agentProfile, agentProfileRoot)
+        if (primingPrompt && !target?.priming_prompt) {
+          // Inject agent profile priming prompt into the target so getDefaultRunOptions picks it up
+          const syntheticTarget = { ...target, priming_prompt: primingPrompt }
+          const syntheticManifest2 = {
+            ...manifest,
+            targets: { ...manifest.targets, [placement.bundle.target]: syntheticTarget },
+          }
+          defaultRunOptions = adapter.getDefaultRunOptions(
+            syntheticManifest2,
+            placement.bundle.target
+          )
+        } else {
+          defaultRunOptions = adapter.getDefaultRunOptions(manifest, placement.bundle.target)
+        }
+      } else {
+        defaultRunOptions = adapter.getDefaultRunOptions(manifest, placement.bundle.target)
+      }
+    } catch {
+      // Target manifest unavailable — proceed without defaults
+    }
+  }
+
+  // Validate model — skip effectiveConfig model if it belongs to a different provider
+  // (e.g. claude-opus-4-6 from harnessDefaults.model when running codex).
+  const effectiveModel = effectiveConfig?.model
+  const candidateModel =
+    req.model ??
+    defaultRunOptions.model ??
+    (effectiveModel
+      ? resolveModel(frontendDef, effectiveModel).ok
+        ? effectiveModel
+        : undefined
+      : undefined)
+  const modelResolution = resolveModel(frontendDef, candidateModel)
   if (!modelResolution.ok) {
     throw new Error(`Model not supported for frontend ${req.frontend}: ${modelResolution.modelId}`)
   }
+
+  // Detect agent-local skills/ and commands/ for materialization
+  const agentLocalComponents = agentRoot ? await detectAgentLocalComponents(agentRoot) : undefined
 
   // Unified materialization: convert placement to ValidatedSpec, then use materializeSpec
   const materialized = await materializeSpec(spec, aspHome, frontendDef.internalId, {
     agentRoot,
     projectRoot,
+    agentLocalComponents,
   })
   const systemPrompt = await materializeSystemPrompt(
     materialized.materialization.outputPath,
@@ -1597,6 +1663,26 @@ async function buildPlacementInvocationSpec(
       } catch {
         // Ignore symlink failures to match codex adapter composition behavior.
       }
+
+      // Ensure the project directory is trusted in the codex config so the
+      // interactive trust prompt is suppressed (matching asp run behavior).
+      const configPath = join(codexHome, 'config.toml')
+      if (existsSync(configPath)) {
+        try {
+          const configContent = readFileSync(configPath, 'utf8')
+          const normalizedCwd = resolve(cwd)
+          const projectKey = `[projects.${JSON.stringify(normalizedCwd)}]`
+          if (!configContent.includes(projectKey)) {
+            const suffix = configContent.endsWith('\n') ? '' : '\n'
+            writeFileSync(
+              configPath,
+              `${configContent}${suffix}\n${projectKey}\ntrust_level = "trusted"\n`
+            )
+          }
+        } catch {
+          // Non-fatal — codex may still prompt but will function.
+        }
+      }
     }
   }
   const commandPath = detection.path ?? frontendDef.internalId
@@ -1605,10 +1691,20 @@ async function buildPlacementInvocationSpec(
   // Build correlation env vars
   const correlationEnv = buildCorrelationEnvVars(placement)
 
-  // Merge env: adapter env + correlation + request env delta + ASP_HOME
+  // Derive ASP_PROJECT and AGENTCHAT_ID so tools like agentchat can discover
+  // their project and agent context without a manual .env.local.
+  const agentchatEnv: Record<string, string> = {
+    AGENTCHAT_ID: basename(placement.agentRoot),
+  }
+  if (placement.projectRoot) {
+    agentchatEnv['ASP_PROJECT'] = basename(resolve(placement.projectRoot))
+  }
+
+  // Merge env: adapter env + correlation + agentchat + request env delta + ASP_HOME
   const env: Record<string, string> = {
     ...adapterEnv,
     ...correlationEnv,
+    ...agentchatEnv,
     ...(req.env ?? {}),
     ASP_HOME: aspHome,
   }
@@ -1738,9 +1834,13 @@ async function runPlacementTurnNonInteractive(
         agentRoot: placementAgentRoot,
         projectRoot: placementProjectRoot,
       } = placementToSpec(placement)
+      const placementAgentLocalComponents = placementAgentRoot
+        ? await detectAgentLocalComponents(placementAgentRoot)
+        : undefined
       const materialized = await materializeSpec(spec, aspHome, frontendDef.internalId, {
         agentRoot: placementAgentRoot,
         projectRoot: placementProjectRoot,
+        agentLocalComponents: placementAgentLocalComponents,
       })
 
       if (frontendDef.frontend === PI_SDK_FRONTEND) {

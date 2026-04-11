@@ -329,8 +329,8 @@ content = "reminder alpha"
 
     const combined = result.stdout + result.stderr
     expect(result.exitCode).toBe(0)
-    expect(combined).toContain('## System Prompt')
-    expect(combined).toContain('## Session Reminder')
+    expect(combined).toContain('System Prompt')
+    expect(combined).toContain('Session Reminder')
     expect(combined).toContain('prompt alpha')
     expect(combined).toContain('reminder alpha')
     expect(combined).toMatch(/prompt-alpha=\d+/)
@@ -441,7 +441,7 @@ source = "session.additionalExec"
 
     const combined = result.stdout + result.stderr
     expect(result.exitCode).toBe(0)
-    expect(combined).toContain('## Session Reminder')
+    expect(combined).toContain('Session Reminder')
     expect(combined).toContain('Session banner')
     expect(combined).toContain('task context')
     expect(combined).not.toContain('unknown property "session"')

@@ -6,7 +6,7 @@
  */
 
 import { chmod, copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type {
   ComposeTargetInput,
@@ -404,11 +404,29 @@ export class ClaudeAdapter implements HarnessAdapter {
       }
     }
 
+    // Insert '--' before a bare positional prompt to prevent boolean flags
+    // (e.g. --remote-control) from consuming it as their value.
+    const needsSeparator = promptArgs.length === 1 && promptArgs[0] !== '-p'
     const extraArgs = [
       ...(options.yolo ? ['--dangerously-skip-permissions'] : []),
-      ...(options.remoteControl ? ['--remote-control'] : []),
+      ...(options.remoteControl
+        ? (() => {
+            const autoName = `${bundle.targetName}-${basename(options.projectPath ?? options.cwd ?? process.cwd())}`
+            const name = options.sessionNamePrefix
+              ? `${options.sessionNamePrefix}-${autoName}`
+              : autoName
+            return [
+              '--remote-control',
+              '--remote-control-session-name-prefix',
+              name,
+              '--name',
+              name,
+            ]
+          })()
+        : []),
       ...(options.extraArgs ?? []),
       ...resumeArgs,
+      ...(needsSeparator ? ['--'] : []),
       ...promptArgs,
     ]
 
@@ -489,6 +507,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       extraArgs: claudeOptions.args,
       prompt: target?.priming_prompt,
       yolo: target?.yolo ?? false,
+      remoteControl: target?.remote_control ?? false,
     }
   }
 }

@@ -5,9 +5,10 @@
  * This module provides consistent path builders for all storage locations.
  */
 
+import { createHash } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import type { Sha256Integrity } from '../core/index.js'
 
 /**
@@ -40,19 +41,11 @@ export function getAspHome(): string {
  * │   └── <cacheKey>/    # Keyed by pluginCacheKey
  * │       ├── .claude-plugin/
  * │       └── ...
+ * ├── projects/          # Project-scoped composed target bundles
+ * │   └── <project-id>/
+ * │       └── targets/
+ * │           └── <target>/<harness>/
  * └── tmp/               # Temporary files during operations
- *
- * Project-local structure (asp_modules/):
- *
- * my-project/
- * ├── asp-targets.toml   # Project manifest
- * ├── .asp.lock          # Lock file
- * └── asp_modules/       # Materialized artifacts
- *     └── <target>/      # Per-target output
- *         ├── plugins/   # Materialized plugin directories
- *         │   └── <space>/
- *         ├── mcp.json   # Composed MCP config
- *         └── settings.json
  */
 
 /**
@@ -81,6 +74,13 @@ export function getStorePath(): string {
  */
 export function getCachePath(): string {
   return join(getAspHome(), 'cache')
+}
+
+/**
+ * Get the project bundle storage path.
+ */
+export function getProjectsPath(aspHome?: string | undefined): string {
+  return join(aspHome ?? getAspHome(), 'projects')
 }
 
 /**
@@ -144,6 +144,68 @@ export function getGlobalLockPath(): string {
   return join(getAspHome(), 'global-lock.json')
 }
 
+function sanitizeProjectSegment(value: string): string {
+  const sanitized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-_.]+|[-_.]+$/g, '')
+  return sanitized || 'project'
+}
+
+function getProjectStorageId(projectPath: string): string {
+  const normalizedProjectPath = resolve(projectPath)
+  const projectSlug = sanitizeProjectSegment(basename(normalizedProjectPath))
+  const projectHash = createHash('sha256').update(normalizedProjectPath).digest('hex').slice(0, 8)
+  return `${projectSlug}-${projectHash}`
+}
+
+/**
+ * Get the root path for bundles associated with a project.
+ */
+export function getProjectDataPath(projectPath: string, aspHome?: string | undefined): string {
+  return join(getProjectsPath(aspHome), getProjectStorageId(projectPath))
+}
+
+/**
+ * Get the targets directory for a project bundle set.
+ */
+export function getProjectTargetsPath(projectPath: string, aspHome?: string | undefined): string {
+  return join(getProjectDataPath(projectPath, aspHome), 'targets')
+}
+
+/**
+ * Get the harness-specific composed bundle path for a project target.
+ */
+export function getProjectHarnessOutputPath(
+  projectPath: string,
+  targetName: string,
+  harnessId: string,
+  aspHome?: string | undefined
+): string {
+  return join(getProjectTargetsPath(projectPath, aspHome), targetName, harnessId)
+}
+
+/**
+ * Check if a project target bundle exists under ASP_HOME.
+ */
+export async function projectHarnessOutputExists(
+  projectPath: string,
+  targetName: string,
+  harnessId: string,
+  aspHome?: string | undefined
+): Promise<boolean> {
+  const harnessPath = getProjectHarnessOutputPath(projectPath, targetName, harnessId, aspHome)
+  try {
+    const { stat } = await import('node:fs/promises')
+    const stats = await stat(harnessPath)
+    return stats.isDirectory()
+  } catch {
+    return false
+  }
+}
+
 /**
  * Ensure a directory exists, creating it if necessary.
  */
@@ -159,6 +221,7 @@ export async function ensureAspHome(): Promise<void> {
     ensureDir(getRepoPath()),
     ensureDir(getSnapshotsPath()),
     ensureDir(getCachePath()),
+    ensureDir(getProjectsPath()),
     ensureDir(getTempPath()),
   ])
 }
@@ -198,12 +261,28 @@ export class PathResolver {
     return join(this.aspHome, 'cache')
   }
 
+  get projects(): string {
+    return join(this.aspHome, 'projects')
+  }
+
   get temp(): string {
     return join(this.aspHome, 'tmp')
   }
 
   get globalLock(): string {
     return join(this.aspHome, 'global-lock.json')
+  }
+
+  projectData(projectPath: string): string {
+    return join(this.projects, getProjectStorageId(projectPath))
+  }
+
+  projectTargets(projectPath: string): string {
+    return join(this.projectData(projectPath), 'targets')
+  }
+
+  projectHarnessOutput(projectPath: string, targetName: string, harnessId: string): string {
+    return join(this.projectTargets(projectPath), targetName, harnessId)
   }
 
   snapshot(integrity: Sha256Integrity): string {
@@ -224,6 +303,7 @@ export class PathResolver {
       ensureDir(this.repo),
       ensureDir(this.snapshots),
       ensureDir(this.cache),
+      ensureDir(this.projects),
       ensureDir(this.temp),
     ])
   }

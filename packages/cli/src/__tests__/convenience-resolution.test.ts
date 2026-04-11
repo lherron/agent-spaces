@@ -217,13 +217,16 @@ describe('missing agents root error (T-00899)', () => {
   test('no ASP_AGENTS_ROOT and no --agent-root produces clear error', async () => {
     const base = join(tmpdir(), `asp-empty-${Date.now()}`)
     const aspHome = join(base, 'asp-home')
+    const home = join(base, 'home')
     await mkdir(aspHome, { recursive: true })
+    await mkdir(home, { recursive: true })
 
     try {
       const result = runAsp(['agent', 'alice@demo', 'resolve', '--json'], {
         env: {
           ASP_HOME: aspHome,
-          // No ASP_AGENTS_ROOT, no --agent-root flag
+          HOME: home,
+          // No ASP_AGENTS_ROOT, no --agent-root flag, and no convention root under HOME
         },
         expectError: true,
       })

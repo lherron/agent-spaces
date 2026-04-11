@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { RuntimePlacement } from 'spaces-config'
@@ -69,30 +68,5 @@ export function resolveRunId(input: {
   return input.runId ?? input.placement?.correlation?.runId
 }
 
-// ---------------------------------------------------------------------------
-// SOUL.md materialization
-// ---------------------------------------------------------------------------
-
-/**
- * Materialize SOUL.md (and HEARTBEAT.md for heartbeat mode) into a base plugin
- * directory so the agent's identity instructions are included in the harness invocation.
- */
-export function materializeSoulMd(outputPath: string, placement: RuntimePlacement): void {
-  if (!placement.agentRoot) return
-
-  const soulPath = join(placement.agentRoot, 'SOUL.md')
-  if (!existsSync(soulPath)) return
-
-  const pluginsDir = join(outputPath, 'plugins')
-  const soulPluginDir = join(pluginsDir, '000-soul')
-  mkdirSync(soulPluginDir, { recursive: true })
-
-  let content = readFileSync(soulPath, 'utf8')
-  if (placement.runMode === 'heartbeat') {
-    const heartbeatPath = join(placement.agentRoot, 'HEARTBEAT.md')
-    if (existsSync(heartbeatPath)) {
-      content += `\n\n---\n\n${readFileSync(heartbeatPath, 'utf8')}`
-    }
-  }
-  writeFileSync(join(soulPluginDir, 'CLAUDE.md'), content, 'utf8')
-}
+// materializeSystemPrompt is now in spaces-runtime for shared use by both
+// agent-spaces client and execution CLI paths.

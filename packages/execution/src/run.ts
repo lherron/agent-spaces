@@ -27,6 +27,8 @@ import {
 } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 
+import chalk from 'chalk'
+
 import {
   type AgentLocalComponents,
   type AgentRuntimeProfile,
@@ -86,6 +88,40 @@ function formatCommand(commandPath: string, args: string[]): string {
   return [shellQuote(commandPath), ...args.map(shellQuote)].join(' ')
 }
 
+const PROMPT_FLAGS = new Set(['--system-prompt', '--append-system-prompt'])
+const LONG_ARG_THRESHOLD = 200
+
+/** Format command for display, truncating long prompt values. */
+function formatDisplayCommand(commandPath: string, args: string[]): string {
+  const parts: string[] = [shellQuote(commandPath)]
+  let pastSeparator = false
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === undefined) {
+      continue
+    }
+    if (arg === '--') {
+      pastSeparator = true
+      parts.push(arg)
+      continue
+    }
+    if (PROMPT_FLAGS.has(arg) && i + 1 < args.length) {
+      const value = args[i + 1]
+      if (value === undefined) {
+        continue
+      }
+      parts.push(shellQuote(arg))
+      parts.push(`'<${value.length.toLocaleString()} chars>'`)
+      i++
+    } else if (pastSeparator && arg.length > LONG_ARG_THRESHOLD) {
+      parts.push(`'<${arg.length.toLocaleString()} chars>'`)
+    } else {
+      parts.push(shellQuote(arg))
+    }
+  }
+  return parts.join(' ')
+}
+
 /**
  * Options for run operation.
  */
@@ -132,6 +168,10 @@ export interface RunOptions extends ResolveOptions {
   continuationKey?: string | boolean | undefined
   /** Enable remote control via TCP (--remote-control) */
   remoteControl?: boolean | undefined
+  /** User prefix prepended to the auto-generated session name */
+  sessionNamePrefix?: string | undefined
+  /** Page prompt output one screenful at a time */
+  pagePrompts?: boolean | undefined
 }
 
 export interface RunInvocationResult {
@@ -150,8 +190,10 @@ export interface RunResult {
   invocation?: RunInvocationResult | undefined
   /** Exit code from harness */
   exitCode: number
-  /** Full harness command (for dry-run mode) */
+  /** Full harness command (for dry-run mode and --print-command) */
   command?: string | undefined
+  /** Display-friendly command with long prompt values truncated */
+  displayCommand?: string | undefined
   /** Materialized system prompt content (for dry-run display) */
   systemPrompt?: string | undefined
   /** How the materialized system prompt will be applied */
@@ -168,6 +210,8 @@ export interface RunResult {
   totalContextChars?: number | undefined
   /** Whether total chars are near the configured max_chars budget */
   nearMaxChars?: boolean | undefined
+  /** Resolved priming prompt (initial user message) for dry-run display */
+  primingPrompt?: string | undefined
 }
 
 /**
@@ -225,6 +269,7 @@ interface ExecuteHarnessResult {
   exitCode: number
   invocation?: RunInvocationResult | undefined
   command: string
+  displayCommand: string
   systemPrompt?: string | undefined
   systemPromptMode?: 'replace' | 'append' | undefined
 }
@@ -532,6 +577,30 @@ async function executeHarnessCommand(
   })
 }
 
+/**
+ * Render a framed prompt section to lines (does not print).
+ */
+function renderPromptSectionLines(
+  title: string,
+  content: string,
+  color: (text: string) => string
+): string[] {
+  const width = 72
+  const lines: string[] = []
+  const titleSegment = `─ ${title} `
+  const rule = '─'.repeat(Math.max(0, width - titleSegment.length - 1))
+  lines.push(color(`┌${titleSegment}`) + chalk.dim(rule))
+  lines.push(chalk.dim('│'))
+  for (const line of content.split('\n')) {
+    lines.push(chalk.dim('│  ') + line)
+  }
+  lines.push(chalk.dim('│'))
+  const meta = ` ${content.length.toLocaleString()} chars`
+  const bottomRule = '─'.repeat(Math.max(0, width - meta.length - 1))
+  lines.push(chalk.dim(`└${bottomRule}${meta}`))
+  return lines
+}
+
 async function executeHarnessRun(
   adapter: HarnessAdapter,
   detection: HarnessDetection,
@@ -540,11 +609,23 @@ async function executeHarnessRun(
   options: {
     env?: Record<string, string> | undefined
     dryRun?: boolean | undefined
+    reminderContent?: string | undefined
+    pagePrompts?: boolean | undefined
   }
 ): Promise<ExecuteHarnessResult> {
   const preparedRunOptions = await prepareRunOptions(adapter, bundle, runOptions)
   const args = adapter.buildRunArgs(bundle, preparedRunOptions)
+  // Inject ASP_PROJECT and AGENTCHAT_ID so tools like agentchat can discover
+  // their project and agent context without a manual .env.local.
+  const projectEnv: Record<string, string> = {}
+  const projectPath = preparedRunOptions.projectPath ?? runOptions.projectPath
+  if (projectPath) {
+    projectEnv['ASP_PROJECT'] = basename(resolve(projectPath))
+  }
+  projectEnv['AGENTCHAT_ID'] = bundle.targetName
+
   const harnessEnv: Record<string, string> = {
+    ...projectEnv,
     ...(options.env ?? {}),
     ...adapter.getRunEnv(bundle, preparedRunOptions),
   }
@@ -556,18 +637,65 @@ async function executeHarnessRun(
     return {
       exitCode: 0,
       command,
+      displayCommand: formatDisplayCommand(commandPath, args),
       systemPrompt: preparedRunOptions.systemPrompt,
       systemPromptMode: preparedRunOptions.systemPromptMode,
     }
   }
 
+  // Build prompt display lines
+  const allLines: string[] = []
+  const summary: string[] = []
+
   if (preparedRunOptions.systemPrompt) {
-    console.log('\x1b[36mSystem prompt:\x1b[0m')
-    console.log(preparedRunOptions.systemPrompt)
-    console.log('')
+    allLines.push('')
+    const promptTitle =
+      preparedRunOptions.systemPromptMode === 'append'
+        ? 'System Prompt (append)'
+        : 'System Prompt (replace)'
+    allLines.push(
+      ...renderPromptSectionLines(promptTitle, preparedRunOptions.systemPrompt, chalk.cyan)
+    )
+    summary.push(`system: ${preparedRunOptions.systemPrompt.length.toLocaleString()}`)
   }
-  console.log(`\x1b[90m$ ${command}\x1b[0m`)
-  console.log('')
+  if (options.reminderContent) {
+    allLines.push('')
+    allLines.push(
+      ...renderPromptSectionLines('Session Reminder', options.reminderContent, chalk.yellow)
+    )
+    summary.push(`reminder: ${options.reminderContent.length.toLocaleString()}`)
+  }
+  if (preparedRunOptions.prompt) {
+    allLines.push('')
+    allLines.push(
+      ...renderPromptSectionLines('Priming Prompt', preparedRunOptions.prompt, chalk.green)
+    )
+    summary.push(`priming: ${preparedRunOptions.prompt.length.toLocaleString()}`)
+  }
+
+  if (summary.length > 0) {
+    const totalChars =
+      (preparedRunOptions.systemPrompt?.length ?? 0) +
+      (options.reminderContent?.length ?? 0) +
+      (preparedRunOptions.prompt?.length ?? 0)
+    allLines.push('')
+    allLines.push(
+      chalk.dim(`  Total: ${totalChars.toLocaleString()} chars (${summary.join(', ')})`)
+    )
+  }
+
+  allLines.push('')
+  allLines.push(chalk.dim(`$ ${formatDisplayCommand(commandPath, args)}`))
+  allLines.push('')
+
+  if (options.pagePrompts && allLines.length > 0) {
+    const { paginate } = await import('./pager.js')
+    await paginate(allLines)
+  } else {
+    for (const line of allLines) {
+      console.log(line)
+    }
+  }
 
   const { exitCode, stdout, stderr } = await executeHarnessCommand(commandPath, args, {
     interactive: preparedRunOptions.interactive,
@@ -585,6 +713,7 @@ async function executeHarnessRun(
   return {
     exitCode,
     command,
+    displayCommand: formatDisplayCommand(commandPath, args),
     invocation:
       preparedRunOptions.interactive === false
         ? {
@@ -742,18 +871,19 @@ function resolveAgentPrimingPromptForRun(
   if (target?.priming_prompt !== undefined) {
     return target.priming_prompt
   }
-  if (!target?.priming_prompt_append) {
-    return undefined
-  }
 
   const basePrompt = agentProfile
     ? resolveAgentPrimingPrompt(agentProfile.profile, agentProfile.agentRoot)
     : undefined
 
-  if (basePrompt) {
-    return `${basePrompt}\n${target.priming_prompt_append}`
+  if (target?.priming_prompt_append) {
+    if (basePrompt) {
+      return `${basePrompt}\n${target.priming_prompt_append}`
+    }
+    return target.priming_prompt_append
   }
-  return target.priming_prompt_append
+
+  return basePrompt
 }
 
 function resolveAgentRunDefaultsFromProfile(
@@ -761,6 +891,7 @@ function resolveAgentRunDefaultsFromProfile(
   agentProfile: LoadedAgentProfile
 ): {
   yolo?: boolean
+  remoteControl?: boolean
   model?: string
   harness?: string
   claude?: ClaudeOptions
@@ -779,6 +910,7 @@ function resolveAgentRunDefaultsFromProfile(
 
   return {
     yolo: effective.yolo,
+    remoteControl: effective.remoteControl,
     harness: effective.harness,
     claude: effective.claude,
     codex: effective.codex,
@@ -794,6 +926,7 @@ export function resolveAgentRunDefaults(
 ):
   | {
       yolo?: boolean
+      remoteControl?: boolean
       model?: string
       harness?: string
       claude?: ClaudeOptions
@@ -839,6 +972,7 @@ function buildSyntheticRunManifest(
         compose: defaults.compose ?? [],
         ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
         ...(defaults.yolo ? { yolo: true } : {}),
+        ...(defaults.remoteControl ? { remote_control: true } : {}),
         ...(Object.keys(claude).length > 0 ? { claude } : {}),
         ...(Object.keys(codex).length > 0 ? { codex } : {}),
       },
@@ -967,6 +1101,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     artifactDir: options.artifactDir,
     continuationKey: options.continuationKey,
     remoteControl: options.remoteControl,
+    sessionNamePrefix: options.sessionNamePrefix,
   }
   let reminderContent: string | undefined
   let maxChars: number | undefined
@@ -1031,6 +1166,8 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
     env: options.env,
     dryRun: options.dryRun,
+    reminderContent,
+    pagePrompts: options.pagePrompts,
   })
 
   const buildResult: BuildResult = {
@@ -1046,6 +1183,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     invocation: execution.invocation,
     exitCode: execution.exitCode,
     command: execution.command,
+    displayCommand: execution.displayCommand,
     systemPrompt: execution.systemPrompt,
     systemPromptMode: execution.systemPromptMode,
     reminderContent,
@@ -1054,6 +1192,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     reminderSectionSizes,
     totalContextChars,
     nearMaxChars,
+    primingPrompt: effectivePrompt,
   }
 }
 
@@ -1141,6 +1280,10 @@ export interface GlobalRunOptions {
   continuationKey?: string | boolean | undefined
   /** Enable remote control via TCP (--remote-control) */
   remoteControl?: boolean | undefined
+  /** User prefix prepended to the auto-generated session name */
+  sessionNamePrefix?: string | undefined
+  /** Page prompt output one screenful at a time */
+  pagePrompts?: boolean | undefined
 }
 
 /**
@@ -1292,6 +1435,7 @@ export async function runGlobalSpace(
       artifactDir: options.artifactDir,
       continuationKey: options.continuationKey,
       remoteControl: options.remoteControl,
+      sessionNamePrefix: options.sessionNamePrefix,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
 
@@ -1302,6 +1446,7 @@ export async function runGlobalSpace(
     const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
       env: options.env,
       dryRun: options.dryRun,
+      pagePrompts: options.pagePrompts,
     })
 
     const shouldCleanup = options.dryRun ? false : (options.cleanup ?? !options.interactive)
@@ -1320,6 +1465,7 @@ export async function runGlobalSpace(
       invocation: execution.invocation,
       exitCode: execution.exitCode,
       command: execution.command,
+      displayCommand: execution.displayCommand,
     }
   } catch (error) {
     await cleanupTempDir(tempDir)
@@ -1415,6 +1561,7 @@ export async function runLocalSpace(
       artifactDir: options.artifactDir,
       continuationKey: options.continuationKey,
       remoteControl: options.remoteControl,
+      sessionNamePrefix: options.sessionNamePrefix,
     }
     const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
 
@@ -1425,6 +1572,7 @@ export async function runLocalSpace(
     const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
       env: options.env,
       dryRun: options.dryRun,
+      pagePrompts: options.pagePrompts,
     })
 
     const shouldCleanup = options.dryRun ? false : (options.cleanup ?? !options.interactive)
@@ -1452,6 +1600,7 @@ export async function runLocalSpace(
       invocation: execution.invocation,
       exitCode: execution.exitCode,
       command: execution.command,
+      displayCommand: execution.displayCommand,
     }
   } catch (error) {
     await cleanupTempDir(tempDir)

@@ -17,7 +17,7 @@ import { resolve } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { parseSpaceRef } from 'spaces-config'
+import { getAgentsRoot, parseSpaceRef } from 'spaces-config'
 import {
   type HarnessId,
   type RunResult,
@@ -31,6 +31,7 @@ import {
 
 import { handleCliError, logInvocationOutput } from '../helpers.js'
 import { findProjectRoot } from '../index.js'
+import { displayPrompts } from '../prompt-display.js'
 
 /**
  * Run modes for the command.
@@ -63,14 +64,8 @@ interface RunOptions {
   model?: string
   resume?: string | boolean
   remoteControl?: boolean
-}
-
-function formatSectionSizes(sectionSizes: string[] | undefined): string | undefined {
-  if (!sectionSizes || sectionSizes.length === 0) {
-    return undefined
-  }
-
-  return sectionSizes.join(', ')
+  namePrefix?: string
+  pagePrompts?: boolean
 }
 
 /**
@@ -117,13 +112,24 @@ async function isLocalSpacePath(targetPath: string): Promise<boolean> {
 }
 
 /**
+ * Check if an agent profile exists for the given target name.
+ */
+function hasAgentProfile(target: string): boolean {
+  const agentsRoot = getAgentsRoot()
+  if (!agentsRoot) return false
+  const { existsSync } = require('node:fs') as typeof import('node:fs')
+  return existsSync(resolve(agentsRoot, target, 'agent-profile.toml'))
+}
+
+/**
  * Detect which run mode to use based on project path and target.
  *
  * Priority:
  * 1. Space reference (space:id@selector) → global mode
  * 2. Local path with space.toml → dev mode
  * 3. Project found → project mode (target is a target name)
- * 4. Otherwise → invalid
+ * 4. Agent profile exists → project mode (use cwd as project path)
+ * 5. Otherwise → invalid
  */
 async function detectRunMode(projectPath: string | null, target: string): Promise<RunMode> {
   // Space references always use global mode
@@ -139,6 +145,11 @@ async function detectRunMode(projectPath: string | null, target: string): Promis
 
   // If in a project, treat target as a target name
   if (projectPath) {
+    return 'project'
+  }
+
+  // No asp-targets.toml but agent profile exists — use project mode with cwd
+  if (hasAgentProfile(target)) {
     return 'project'
   }
 
@@ -175,6 +186,8 @@ async function runProjectMode(
     inheritUser: options.inheritUser,
     continuationKey: options.resume,
     remoteControl: options.remoteControl,
+    sessionNamePrefix: options.namePrefix,
+    pagePrompts: options.pagePrompts,
   }
 
   if (options.dryRun) {
@@ -265,6 +278,8 @@ async function runGlobalMode(
     inheritUser: options.inheritUser,
     continuationKey: options.resume,
     remoteControl: options.remoteControl,
+    sessionNamePrefix: options.namePrefix,
+    pagePrompts: options.pagePrompts,
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -314,6 +329,8 @@ async function runDevMode(
     continuationKey: options.resume,
     inheritUser: options.inheritUser,
     remoteControl: options.remoteControl,
+    sessionNamePrefix: options.namePrefix,
+    pagePrompts: options.pagePrompts,
   }
 
   const result = await runLocalSpace(targetPath, devOptions)
@@ -393,6 +410,8 @@ export function registerRunCommand(program: Command): void {
     .option('--settings <file-or-json>', 'Path to settings JSON file or JSON string')
     .option('--resume [session-id]', 'Resume a previous session (opens picker if no ID provided)')
     .option('--remote-control', 'Enable remote control via TCP (Claude --remote-control)')
+    .option('--name-prefix <prefix>', 'Prefix prepended to the auto-generated session name')
+    .option('--page-prompts', 'Page prompt output one screenful at a time (q to skip)')
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
@@ -414,8 +433,8 @@ export function registerRunCommand(program: Command): void {
 
         switch (mode) {
           case 'project':
-            // projectPath is guaranteed non-null when mode is 'project' (checked in detectRunMode)
-            result = await runProjectMode(target, prompt, projectPath as string, options)
+            // projectPath may be null when falling back to agent profile mode (no asp-targets.toml)
+            result = await runProjectMode(target, prompt, projectPath ?? process.cwd(), options)
             break
           case 'global':
             result = await runGlobalMode(target, prompt, options)
@@ -435,57 +454,20 @@ export function registerRunCommand(program: Command): void {
 
         // In dry-run mode, print the system prompt, reminder, and command with formatting
         if (options.dryRun) {
-          if (result.systemPrompt) {
-            console.log('')
-            console.log(chalk.cyan('## System Prompt'))
-            console.log(result.systemPrompt)
-            const promptDetails = formatSectionSizes(result.promptSectionSizes)
-            console.log(
-              chalk.gray(
-                promptDetails
-                  ? `  (${result.systemPrompt.length} chars; ${promptDetails})`
-                  : `  (${result.systemPrompt.length} chars)`
-              )
-            )
-          }
-          if (result.reminderContent) {
-            console.log('')
-            console.log(chalk.cyan('## Session Reminder'))
-            console.log(result.reminderContent)
-            const reminderDetails = formatSectionSizes(result.reminderSectionSizes)
-            console.log(
-              chalk.gray(
-                reminderDetails
-                  ? `  (${result.reminderContent.length} chars; ${reminderDetails})`
-                  : `  (${result.reminderContent.length} chars)`
-              )
-            )
-          }
-          if (result.systemPrompt || result.reminderContent) {
-            const promptChars = result.systemPrompt?.length ?? 0
-            const reminderChars = result.reminderContent?.length ?? 0
-            const totalChars = result.totalContextChars ?? promptChars + reminderChars
-            console.log('')
-            if (result.maxChars !== undefined) {
-              console.log(chalk.gray(`Budget: ${totalChars}/${result.maxChars} chars`))
-              if (result.nearMaxChars) {
-                console.log(
-                  chalk.yellow('Warning: resolved context is approaching max_chars budget')
-                )
-              }
-            } else {
-              console.log(
-                chalk.gray(
-                  `Total context: ${totalChars} chars (prompt: ${promptChars}, reminder: ${reminderChars})`
-                )
-              )
-            }
-          }
-          if (result.command) {
-            console.log('')
-            console.log(chalk.cyan('Command:'))
-            console.log(result.command)
-          }
+          await displayPrompts({
+            systemPrompt: result.systemPrompt,
+            systemPromptMode: result.systemPromptMode,
+            reminderContent: result.reminderContent,
+            primingPrompt: result.primingPrompt,
+            promptSectionSizes: result.promptSectionSizes,
+            reminderSectionSizes: result.reminderSectionSizes,
+            totalContextChars: result.totalContextChars,
+            maxChars: result.maxChars,
+            nearMaxChars: result.nearMaxChars,
+            command: result.displayCommand ?? result.command,
+            showCommand: true,
+            pagePrompts: options.pagePrompts,
+          })
         }
 
         process.exit(result.exitCode)

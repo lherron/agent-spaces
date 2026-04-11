@@ -293,6 +293,8 @@ export interface HarnessRunOptions {
   continuationKey?: string | boolean | undefined
   /** Enable remote control via TCP (--remote-control) */
   remoteControl?: boolean | undefined
+  /** User prefix prepended to the auto-generated session name */
+  sessionNamePrefix?: string | undefined
   /** System prompt content (replaces default system prompt via --system-prompt) */
   systemPrompt?: string | undefined
   /** How the harness should apply the custom system prompt */
