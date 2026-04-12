@@ -199,6 +199,66 @@ function buildAgentsMarkdown(
   return lines.join('\n')
 }
 
+const PRAESIDIUM_BEGIN_MARKER = '<!-- BEGIN praesidium-context -->'
+const PRAESIDIUM_END_MARKER = '<!-- END praesidium-context -->'
+
+/**
+ * Write praesidium-materialized system prompt + reminder content into a runtime
+ * codex home's AGENTS.md so codex picks it up via its native user_instructions
+ * load path. Replaces any existing praesidium-context block on each call so
+ * repeated runs don't accumulate stale content.
+ *
+ * Codex's base_instructions are not touched — this only adds to the
+ * AGENTS.md that becomes config.user_instructions inside codex.
+ */
+export async function applyPraesidiumContextToCodexHome(
+  codexHome: string,
+  context: { systemPrompt?: string | undefined; reminderContent?: string | undefined }
+): Promise<boolean> {
+  const systemPrompt = context.systemPrompt?.trim() ?? ''
+  const reminderContent = context.reminderContent?.trim() ?? ''
+  if (!systemPrompt && !reminderContent) {
+    return false
+  }
+
+  const agentsPath = join(codexHome, CODEX_AGENTS_FILE)
+  let existing = ''
+  try {
+    existing = await readFile(agentsPath, 'utf-8')
+  } catch {
+    // No existing AGENTS.md (e.g. ad-hoc bundle); start fresh.
+    existing = ''
+  }
+
+  // Strip any prior praesidium block so we always emit fresh content.
+  const stripped = stripPraesidiumBlock(existing).trimEnd()
+
+  const sections: string[] = []
+  if (systemPrompt) {
+    sections.push(systemPrompt)
+  }
+  if (reminderContent) {
+    sections.push(reminderContent)
+  }
+
+  const block = [PRAESIDIUM_BEGIN_MARKER, sections.join('\n\n'), PRAESIDIUM_END_MARKER].join('\n')
+  const next = stripped.length > 0 ? `${stripped}\n\n${block}\n` : `${block}\n`
+  await writeFile(agentsPath, next)
+  return true
+}
+
+function stripPraesidiumBlock(content: string): string {
+  const beginIdx = content.indexOf(PRAESIDIUM_BEGIN_MARKER)
+  if (beginIdx === -1) {
+    return content
+  }
+  const endIdx = content.indexOf(PRAESIDIUM_END_MARKER, beginIdx)
+  if (endIdx === -1) {
+    return content
+  }
+  return content.slice(0, beginIdx) + content.slice(endIdx + PRAESIDIUM_END_MARKER.length)
+}
+
 function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex')
 }

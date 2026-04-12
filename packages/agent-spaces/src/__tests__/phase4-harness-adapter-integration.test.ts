@@ -139,6 +139,11 @@ describe('buildPlacementInvocationSpec threads effectiveConfig defaults (T-00994
     expect(reqIdx).toBeGreaterThanOrEqual(0)
     expect(effIdx).toBeGreaterThan(reqIdx)
   })
+
+  test('agent-project codex runs pass agentName as codexRuntimeTargetName', () => {
+    const fn = extractFunction(clientSource, 'buildPlacementInvocationSpec')
+    expect(fn).toMatch(/codexRuntimeTargetName:\s*placement\.bundle\.agentName/)
+  })
 })
 
 // ===================================================================

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { readFile, symlink } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { existsSync, readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
 
@@ -49,6 +49,7 @@ import {
   harnessRegistry,
   materializeFromRefs,
   materializeTarget,
+  prepareCodexRuntimeHome,
 } from 'spaces-execution'
 
 import { PiSession, loadPiSdkBundle } from 'spaces-harness-pi-sdk/pi-session'
@@ -1631,7 +1632,7 @@ async function buildPlacementInvocationSpec(
   // Build run options for the adapter
   const isResume = !!req.continuation?.key
   const prompt = req.prompt ?? defaultRunOptions.prompt ?? effectiveConfig?.priming_prompt
-  const runOptions = {
+  let runOptions: import('spaces-config').HarnessRunOptions = {
     ...defaultRunOptions,
     interactive: req.interactionMode === 'interactive',
     model: modelResolution.info.model,
@@ -1648,43 +1649,25 @@ async function buildPlacementInvocationSpec(
       : {}),
   }
 
+  // For codex frontends, prepare the stable runtime home directory so that
+  // hrc run uses the same CODEX_HOME as asp run (codex-homes/<project>_<target>).
+  // prepareCodexRuntimeHome syncs managed files, injects system prompt into
+  // AGENTS.md, ensures project trust, and symlinks auth — all the steps that
+  // were previously duplicated inline here.
+  if (frontendDef.frontend === CODEX_CLI_FRONTEND) {
+    const codexHomeDir = await prepareCodexRuntimeHome(bundle, {
+      ...runOptions,
+      aspHome,
+      ...(placement.bundle.kind === 'agent-project'
+        ? { codexRuntimeTargetName: placement.bundle.agentName }
+        : {}),
+    })
+    runOptions = { ...runOptions, codexHomeDir }
+  }
+
   // Build argv and env using the adapter
   const args = adapter.buildRunArgs(bundle, runOptions)
   const adapterEnv = adapter.getRunEnv(bundle, runOptions)
-  if (frontendDef.frontend === CODEX_CLI_FRONTEND) {
-    const codexHome = adapterEnv['CODEX_HOME']
-    if (codexHome) {
-      const userAuthPath = join(homedir(), '.codex', 'auth.json')
-      const destAuthPath = join(codexHome, 'auth.json')
-      try {
-        if (!existsSync(destAuthPath) && existsSync(userAuthPath)) {
-          await symlink(userAuthPath, destAuthPath)
-        }
-      } catch {
-        // Ignore symlink failures to match codex adapter composition behavior.
-      }
-
-      // Ensure the project directory is trusted in the codex config so the
-      // interactive trust prompt is suppressed (matching asp run behavior).
-      const configPath = join(codexHome, 'config.toml')
-      if (existsSync(configPath)) {
-        try {
-          const configContent = readFileSync(configPath, 'utf8')
-          const normalizedCwd = resolve(cwd)
-          const projectKey = `[projects.${JSON.stringify(normalizedCwd)}]`
-          if (!configContent.includes(projectKey)) {
-            const suffix = configContent.endsWith('\n') ? '' : '\n'
-            writeFileSync(
-              configPath,
-              `${configContent}${suffix}\n${projectKey}\ntrust_level = "trusted"\n`
-            )
-          }
-        } catch {
-          // Non-fatal — codex may still prompt but will function.
-        }
-      }
-    }
-  }
   const commandPath = detection.path ?? frontendDef.internalId
   const argv = [commandPath, ...args]
 

@@ -22,6 +22,7 @@
   "dependencies": {
     "spaces-config": "*",
     "spaces-execution": "*",
+    "spaces-harness-codex": "*",
     "spaces-harness-pi-sdk": "*",
     "spaces-runtime": "*"
   },

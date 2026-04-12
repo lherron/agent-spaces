@@ -164,6 +164,51 @@ describe('prepareCodexRuntimeHome', () => {
     expect(metadata.targetName).toBe('codex')
     expect(metadata.projectPath).toBe(projectPath)
   })
+
+  test('uses codexRuntimeTargetName for stable project runtime homes outside project-target output', async () => {
+    const root = await createTempDir('run-agent-project-runtime-')
+    const aspHome = join(root, 'asp-home')
+    const projectPath = join(root, 'agent-spaces')
+    const bundleRoot = join(aspHome, 'snapshots', 'abc123', 'codex')
+    const templateHome = join(bundleRoot, 'codex.home')
+    const runtimeHome = getProjectCodexRuntimeHomePath(aspHome, projectPath, 'cody')
+
+    await mkdir(join(templateHome, 'skills'), { recursive: true })
+    await mkdir(join(templateHome, 'prompts'), { recursive: true })
+    await writeFile(join(templateHome, 'AGENTS.md'), 'fresh agents\n')
+    await writeFile(join(templateHome, 'config.toml'), 'model = "gpt-5.4"\n')
+    await writeFile(join(templateHome, 'manifest.json'), '{"name":"cody"}\n')
+
+    const resolvedRuntime = await prepareCodexRuntimeHome(
+      {
+        harnessId: 'codex',
+        targetName: 'placement-cody',
+        rootDir: bundleRoot,
+        pluginDirs: [templateHome],
+        codex: {
+          homeTemplatePath: templateHome,
+          configPath: join(templateHome, 'config.toml'),
+          agentsPath: join(templateHome, 'AGENTS.md'),
+          skillsDir: join(templateHome, 'skills'),
+          promptsDir: join(templateHome, 'prompts'),
+        },
+      },
+      {
+        aspHome,
+        projectPath,
+        codexRuntimeTargetName: 'cody',
+      }
+    )
+
+    expect(resolvedRuntime).toBe(runtimeHome)
+
+    const metadata = JSON.parse(
+      await readFile(join(runtimeHome, '.asp-runtime.json'), 'utf-8')
+    ) as { mode: string; targetName: string; projectPath: string }
+    expect(metadata.mode).toBe('project')
+    expect(metadata.targetName).toBe('cody')
+    expect(metadata.projectPath).toBe(projectPath)
+  })
 })
 
 describe('system prompt threading (T-01016)', () => {
