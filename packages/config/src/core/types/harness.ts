@@ -259,6 +259,8 @@ export interface HarnessRunOptions {
   modelReasoningEffort?: string | undefined
   /** Codex runtime home directory (CODEX_HOME) override */
   codexHomeDir?: string | undefined
+  /** Logical project target name for stable Codex runtime home resolution */
+  codexRuntimeTargetName?: string | undefined
   /** Codex approval policy override */
   approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
   /** Codex sandbox mode override */
@@ -299,6 +301,8 @@ export interface HarnessRunOptions {
   systemPrompt?: string | undefined
   /** How the harness should apply the custom system prompt */
   systemPromptMode?: 'replace' | 'append' | undefined
+  /** Session reminder content materialized from [[reminder]] template sections */
+  reminderContent?: string | undefined
 }
 
 // ============================================================================

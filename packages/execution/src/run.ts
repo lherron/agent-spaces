@@ -77,6 +77,7 @@ import { PathResolver, copyDir, createSnapshot, ensureDir, getAspHome } from 'sp
 import type { BuildResult } from 'spaces-config'
 import { type ResolveOptions, install as configInstall, loadProjectManifest } from 'spaces-config'
 import { getAgentsRoot, parseAgentProfile, resolveAgentPrimingPrompt } from 'spaces-config'
+import { applyPraesidiumContextToCodexHome } from 'spaces-harness-codex'
 import { harnessRegistry } from './harness/index.js'
 
 function shellQuote(value: string): string {
@@ -364,9 +365,13 @@ function resolveCodexRuntimeHomePath(
   if (runOptions.projectPath) {
     const aspHome = runOptions.aspHome ?? getAspHome()
     const paths = new PathResolver({ aspHome })
-    if (isWithinPath(bundle.rootDir, paths.projectTargets(runOptions.projectPath))) {
-      const aspHome = runOptions.aspHome ?? getAspHome()
-      return getProjectCodexRuntimeHomePath(aspHome, runOptions.projectPath, bundle.targetName)
+    const runtimeTargetName =
+      runOptions.codexRuntimeTargetName ??
+      (isWithinPath(bundle.rootDir, paths.projectTargets(runOptions.projectPath))
+        ? bundle.targetName
+        : undefined)
+    if (runtimeTargetName) {
+      return getProjectCodexRuntimeHomePath(aspHome, runOptions.projectPath, runtimeTargetName)
     }
   }
 
@@ -480,6 +485,14 @@ export async function prepareCodexRuntimeHome(
   await syncManagedDir(templateHome, runtimeHome, 'skills')
   await syncManagedDir(templateHome, runtimeHome, 'prompts')
 
+  // Inject praesidium-materialized system prompt + reminder content into the
+  // runtime home's AGENTS.md so codex picks it up via its native
+  // user_instructions load path. Codex's base_instructions are untouched.
+  await applyPraesidiumContextToCodexHome(runtimeHome, {
+    systemPrompt: runOptions.systemPrompt,
+    reminderContent: runOptions.reminderContent,
+  })
+
   const configPath = join(runtimeHome, 'config.toml')
   const projectPath = runOptions.cwd ?? runOptions.projectPath
   if (projectPath && (await pathExists(configPath))) {
@@ -495,7 +508,7 @@ export async function prepareCodexRuntimeHome(
         schemaVersion: 1,
         harnessId: 'codex',
         mode: 'project',
-        targetName: bundle.targetName,
+        targetName: runOptions.codexRuntimeTargetName ?? bundle.targetName,
         projectPath: resolve(projectPath),
       }
     : {
@@ -1124,6 +1137,9 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
       if (materializedPrompt.content.length > 0) {
         cliRunOptions.systemPrompt = materializedPrompt.content
         cliRunOptions.systemPromptMode = materializedPrompt.mode
+      }
+      if (reminderContent) {
+        cliRunOptions.reminderContent = reminderContent
       }
     }
 

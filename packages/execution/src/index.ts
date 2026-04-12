@@ -67,6 +67,7 @@ export {
   runLocalSpace,
   isSpaceReference,
   detectAgentLocalComponents,
+  prepareCodexRuntimeHome,
   type RunOptions,
   type RunResult,
   type GlobalRunOptions,
