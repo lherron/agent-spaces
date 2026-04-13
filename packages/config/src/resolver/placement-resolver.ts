@@ -17,10 +17,23 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
-import { mergeAgentWithProjectTarget, parseAgentProfile, parseTargetsToml } from '../core/index.js'
-import type { AgentRuntimeProfile, TargetDefinition } from '../core/types/index.js'
+import {
+  mergeAgentWithProjectTarget,
+  parseAgentProfile,
+  parseTargetsToml,
+  resolveAgentPrimingPrompt,
+} from '../core/index.js'
+import type { EffectiveTargetConfig } from '../core/merge/agent-project-merge.js'
+import type {
+  AgentRuntimeProfile,
+  ProjectManifest,
+  SpaceRefString,
+  TargetDefinition,
+} from '../core/types/index.js'
 import type {
   ResolvedInstruction,
+  ResolvedPlacementContext,
+  ResolvedPlacementMaterialization,
   ResolvedRuntimeBundle,
   ResolvedSpace,
   RunScaffoldPacket,
@@ -31,13 +44,12 @@ import { resolveRootRelativeRef } from './root-relative-refs.js'
 import { resolveSpaceComposition } from './space-composition.js'
 
 /**
- * Resolve a RuntimePlacement into a ResolvedRuntimeBundle.
- *
- * This is the main entry point for placement-driven resolution.
+ * Resolve a RuntimePlacement into a ResolvedRuntimeBundle plus
+ * materialization context for downstream runtime planning.
  */
-export async function resolvePlacement(
+export async function resolvePlacementContext(
   placement: RuntimePlacement
-): Promise<ResolvedRuntimeBundle> {
+): Promise<ResolvedPlacementContext> {
   // 1. Validate agent root (SOUL.md required for actual execution)
   try {
     validateAgentRoot(placement.agentRoot)
@@ -48,8 +60,8 @@ export async function resolvePlacement(
     // dry-run: agentRoot doesn't exist or SOUL.md missing — allow for invocation building
   }
 
-  // 2. Determine base bundle spaces from RuntimeBundleRef
-  const bundleSpaces = resolveBundleSpaces(placement)
+  // 2. Determine base bundle spaces and materialization inputs from RuntimeBundleRef
+  const { bundleSpaces, materialization } = resolvePlacementMaterialization(placement)
 
   // 3. Compute instruction audit metadata
   let instructions: ResolvedInstruction[]
@@ -86,24 +98,50 @@ export async function resolvePlacement(
   const bundleIdentity = computeBundleIdentity(placement)
 
   return {
-    bundleIdentity,
-    runMode: placement.runMode,
-    cwd,
-    instructions,
-    spaces: resolvedSpaces,
+    resolvedBundle: {
+      bundleIdentity,
+      runMode: placement.runMode,
+      cwd,
+      instructions,
+      spaces: resolvedSpaces,
+    },
+    materialization,
   }
 }
 
 /**
- * Extract the compose space list from a RuntimeBundleRef.
+ * Resolve a RuntimePlacement into a ResolvedRuntimeBundle.
+ *
+ * This preserves the original audit-only API for existing callers.
  */
-function resolveBundleSpaces(placement: RuntimePlacement): string[] {
+export async function resolvePlacement(
+  placement: RuntimePlacement
+): Promise<ResolvedRuntimeBundle> {
+  return (await resolvePlacementContext(placement)).resolvedBundle
+}
+
+interface PlacementMaterializationResolution {
+  bundleSpaces: string[]
+  materialization: ResolvedPlacementMaterialization
+}
+
+/**
+ * Extract materialization inputs and compose-space list from a RuntimeBundleRef.
+ */
+function resolvePlacementMaterialization(
+  placement: RuntimePlacement
+): PlacementMaterializationResolution {
   const { bundle } = placement
 
   switch (bundle.kind) {
     case 'agent-default': {
-      // Use profile's default target if defined, otherwise empty
-      return []
+      const spaces = loadAgentDefaultSpaces(placement.agentRoot, placement.runMode)
+      return {
+        bundleSpaces: spaces,
+        materialization: {
+          spec: { kind: 'spaces', spaces },
+        },
+      }
     }
     case 'agent-target': {
       // Load target from agent-profile.toml
@@ -112,36 +150,66 @@ function resolveBundleSpaces(placement: RuntimePlacement): string[] {
       if (!target) {
         throw new Error(`Agent target "${bundle.target}" not found in agent-profile.toml`)
       }
-      return target.compose ?? []
+      const spaces = target.compose ?? []
+      return {
+        bundleSpaces: spaces,
+        materialization: {
+          spec: { kind: 'spaces', spaces },
+        },
+      }
     }
     case 'project-target': {
       if (!bundle.target) {
         throw new Error('Empty target: project-target requires a target name')
       }
-      // Load target from project's asp-targets.toml
-      const targetsPath = join(bundle.projectRoot, 'asp-targets.toml')
-      if (!existsSync(targetsPath)) {
-        throw new Error(`Project target manifest not found: ${targetsPath}`)
-      }
-      // For now, load the target manifest minimally
-      // Full integration with existing target loading will come in M5
-      const { parse } = require('@iarna/toml') as { parse: (s: string) => Record<string, unknown> }
-      const content = readFileSync(targetsPath, 'utf8')
-      const manifest = parse(content) as Record<string, unknown>
-      const targets = manifest['targets'] as Record<string, unknown> | undefined
-      const target = targets?.[bundle.target] as Record<string, unknown> | undefined
+      const manifest = loadProjectManifest(bundle.projectRoot)
+      const target = manifest.targets[bundle.target]
       if (!target) {
-        throw new Error(`Project target "${bundle.target}" not found in ${targetsPath}`)
+        throw new Error(
+          `Project target "${bundle.target}" not found in ${join(bundle.projectRoot, 'asp-targets.toml')}`
+        )
       }
-      return (target['compose'] as string[] | undefined) ?? []
+      return {
+        bundleSpaces: target.compose ?? [],
+        materialization: {
+          spec: {
+            kind: 'target',
+            targetName: bundle.target,
+            targetDir: bundle.projectRoot,
+          },
+          manifest,
+        },
+      }
     }
     case 'agent-project': {
       const profile = loadAgentProfile(placement.agentRoot)
       const projectTarget = loadProjectTargetOptional(bundle.projectRoot, bundle.agentName)
-      return mergeAgentWithProjectTarget(profile, projectTarget, placement.runMode).compose
+      const primingPrompt = resolveAgentPrimingPrompt(profile, placement.agentRoot)
+      const effective = mergeAgentWithProjectTarget(
+        {
+          ...profile,
+          ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
+        },
+        projectTarget,
+        placement.runMode
+      )
+      return {
+        bundleSpaces: effective.compose,
+        materialization: {
+          spec: { kind: 'spaces', spaces: effective.compose },
+          effectiveConfig: effective,
+          manifest: buildSyntheticAgentProjectManifest(bundle.agentName, effective),
+        },
+      }
     }
     case 'compose': {
-      return bundle.compose as string[]
+      const spaces = bundle.compose as SpaceRefString[]
+      return {
+        bundleSpaces: spaces,
+        materialization: {
+          spec: { kind: 'spaces', spaces },
+        },
+      }
     }
   }
 }
@@ -366,7 +434,9 @@ function resolveInstructionRef(ref: string, placement: RuntimePlacement): string
 /**
  * Load target definitions from agent-profile.toml.
  */
-function loadProfileTargets(agentRoot: string): Record<string, { compose: string[] }> | undefined {
+function loadProfileTargets(
+  agentRoot: string
+): Record<string, { compose: SpaceRefString[] }> | undefined {
   const profilePath = join(agentRoot, 'agent-profile.toml')
   if (!existsSync(profilePath)) return undefined
 
@@ -376,11 +446,47 @@ function loadProfileTargets(agentRoot: string): Record<string, { compose: string
   const targets = parsed['targets'] as Record<string, Record<string, unknown>> | undefined
   if (!targets) return undefined
 
-  const result: Record<string, { compose: string[] }> = {}
+  const result: Record<string, { compose: SpaceRefString[] }> = {}
   for (const [name, def] of Object.entries(targets)) {
-    result[name] = { compose: (def['compose'] as string[] | undefined) ?? [] }
+    result[name] = { compose: (def['compose'] as SpaceRefString[] | undefined) ?? [] }
   }
   return result
+}
+
+function loadAgentDefaultSpaces(
+  agentRoot: string,
+  runMode: RuntimePlacement['runMode']
+): SpaceRefString[] {
+  const profilePath = join(agentRoot, 'agent-profile.toml')
+  if (!existsSync(profilePath)) {
+    return []
+  }
+
+  const content = readFileSync(profilePath, 'utf8')
+  const parsed = parseToml(content) as Record<string, unknown>
+  const spacesConfig = parsed['spaces'] as Record<string, unknown> | undefined
+  if (!spacesConfig) {
+    return []
+  }
+
+  const spaces: SpaceRefString[] = []
+  const base = spacesConfig['base']
+  if (Array.isArray(base)) {
+    spaces.push(...(base as SpaceRefString[]))
+  }
+
+  const byMode = spacesConfig['byMode'] as Record<string, Record<string, unknown>> | undefined
+  const modeConfig = byMode?.[runMode]
+  const modeBase = modeConfig?.['base']
+  if (Array.isArray(modeBase)) {
+    for (const ref of modeBase as SpaceRefString[]) {
+      if (!spaces.includes(ref)) {
+        spaces.push(ref)
+      }
+    }
+  }
+
+  return spaces
 }
 
 function loadAgentProfile(agentRoot: string): AgentRuntimeProfile {
@@ -389,6 +495,15 @@ function loadAgentProfile(agentRoot: string): AgentRuntimeProfile {
     return { schemaVersion: 1 }
   }
   return parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
+}
+
+function loadProjectManifest(projectRoot: string): ProjectManifest {
+  const targetsPath = join(projectRoot, 'asp-targets.toml')
+  if (!existsSync(targetsPath)) {
+    throw new Error(`Project target manifest not found: ${targetsPath}`)
+  }
+
+  return parseTargetsToml(readFileSync(targetsPath, 'utf8'), targetsPath)
 }
 
 function loadProjectTargetOptional(
@@ -413,4 +528,32 @@ function loadProjectTargetOptional(
 
   const manifest = parseTargetsToml(content, targetsPath)
   return manifest.targets[targetName]
+}
+
+function buildSyntheticAgentProjectManifest(
+  targetName: string,
+  effectiveConfig: EffectiveTargetConfig
+): ProjectManifest {
+  return {
+    schema: 1,
+    ...(Object.keys(effectiveConfig.claude).length > 0 ? { claude: effectiveConfig.claude } : {}),
+    ...(Object.keys(effectiveConfig.codex).length > 0 ? { codex: effectiveConfig.codex } : {}),
+    targets: {
+      [targetName]: {
+        compose: effectiveConfig.compose,
+        ...(effectiveConfig.description !== undefined
+          ? { description: effectiveConfig.description }
+          : {}),
+        ...(effectiveConfig.priming_prompt !== undefined
+          ? { priming_prompt: effectiveConfig.priming_prompt }
+          : {}),
+        ...(effectiveConfig.yolo ? { yolo: effectiveConfig.yolo } : {}),
+        ...(Object.keys(effectiveConfig.claude).length > 0
+          ? { claude: effectiveConfig.claude }
+          : {}),
+        ...(Object.keys(effectiveConfig.codex).length > 0 ? { codex: effectiveConfig.codex } : {}),
+        ...(effectiveConfig.harness ? { harness: effectiveConfig.harness } : {}),
+      },
+    },
+  }
 }

@@ -223,6 +223,17 @@ describe('system prompt threading (T-01016)', () => {
   })
 })
 
+describe('placement runtime planner (T-01097)', () => {
+  test('run.ts exports a placement planner driven by ResolvedPlacementContext', async () => {
+    const source = await readFile(join(SOURCE_DIR, 'run.ts'), 'utf-8')
+
+    expect(source).toContain('export async function planPlacementRuntime')
+    expect(source).toContain('placementContext: ResolvedPlacementContext')
+    expect(source).toContain('getHarnessCatalogEntryByFrontend')
+    expect(source).toContain('getDefaultRunOptions(')
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Agent-local skills/commands discovery threading (T-01067)
 //

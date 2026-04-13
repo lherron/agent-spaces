@@ -12,7 +12,7 @@
  * 4. --project-root flag overrides ASP_PROJECTS_ROOT
  * 5. Bare scope (no projectId) leaves projectRoot undefined
  * 6. No ASP_AGENTS_ROOT and no --agent-root → clear error mentioning config.toml
- * 7. --harness defaults to claude-code when not specified
+ * 7. --harness falls back to claude-code only when no profile/target default exists
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -259,6 +259,37 @@ describe('default frontend (T-00899)', () => {
       const parsed = JSON.parse(result.stdout)
       // Default frontend should be claude-code — verify via argv or spec
       expect(parsed.spec).toBeDefined()
+    } finally {
+      await cleanup()
+    }
+  })
+
+  test('uses agent profile harness when --harness is omitted', async () => {
+    const { agentsRoot, aspHome, cleanup } = await setupConvenienceDirs()
+    const profilePath = join(agentsRoot, 'alice', 'agent-profile.toml')
+    try {
+      const profile = (await Bun.file(profilePath).text()).replace(
+        /^schemaVersion = 1$/m,
+        'schemaVersion = 2'
+      )
+      await writeFile(
+        profilePath,
+        `${profile}\n[identity]\ndisplay = "Alice"\nrole = "assistant"\nharness = "codex"\n`,
+        'utf8'
+      )
+
+      const result = runAsp(['agent', 'alice', 'query', 'hello', '--dry-run', '--json'], {
+        env: {
+          ASP_AGENTS_ROOT: agentsRoot,
+          ASP_HOME: aspHome,
+          PATH: `${join(import.meta.dirname, '..', '..', '..', '..', 'integration-tests', 'fixtures', 'codex-shim')}:${process.env.PATH ?? ''}`,
+        },
+      })
+
+      expect(result.exitCode).toBe(0)
+      const parsed = JSON.parse(result.stdout)
+      expect(parsed.spec.frontend).toBe('codex-cli')
+      expect(parsed.spec.provider).toBe('openai')
     } finally {
       await cleanup()
     }

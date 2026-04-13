@@ -67,10 +67,14 @@ export {
   runLocalSpace,
   isSpaceReference,
   detectAgentLocalComponents,
+  planPlacementRuntime,
   prepareCodexRuntimeHome,
   type RunOptions,
   type RunResult,
   type GlobalRunOptions,
+  type PlanPlacementRuntimeOptions,
+  type PlacementRuntimeModelResolution,
+  type PlacementRuntimePlan,
 } from './run.js'
 
 // Terminal pager

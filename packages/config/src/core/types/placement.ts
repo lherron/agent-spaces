@@ -5,8 +5,10 @@
  * See AGENT_SPACES_PLAN.md section 2.
  */
 
+import type { EffectiveTargetConfig } from '../merge/agent-project-merge.js'
 import type { RunMode } from './agent-profile.js'
 import type { SpaceRefString } from './refs.js'
+import type { ProjectManifest } from './targets.js'
 
 /** Scaffold packet injected by the host at run time */
 export interface RunScaffoldPacket {
@@ -98,4 +100,22 @@ export interface ResolvedRuntimeBundle {
   cwd: string
   instructions: ResolvedInstruction[]
   spaces: ResolvedSpace[]
+}
+
+/** Materialization spec derived from a placement */
+export type ResolvedPlacementSpec =
+  | { kind: 'spaces'; spaces: SpaceRefString[] }
+  | { kind: 'target'; targetName: string; targetDir: string }
+
+/** Extra materialization context derived during placement resolution */
+export interface ResolvedPlacementMaterialization {
+  spec: ResolvedPlacementSpec
+  effectiveConfig?: EffectiveTargetConfig | undefined
+  manifest?: ProjectManifest | undefined
+}
+
+/** Full placement resolution result including audit bundle and materialization context */
+export interface ResolvedPlacementContext {
+  resolvedBundle: ResolvedRuntimeBundle
+  materialization: ResolvedPlacementMaterialization
 }
