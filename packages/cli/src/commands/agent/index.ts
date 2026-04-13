@@ -9,30 +9,23 @@
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  formatScopeRef,
-  parseScopeHandle,
-  parseScopeRef,
-  parseSessionHandle,
-  validateScopeHandle,
-  validateScopeRef,
-} from 'agent-scope'
+import { parseScopeRef, resolveScopeInput } from 'agent-scope'
 import { type AgentEvent, createAgentSpacesClient } from 'agent-spaces'
 import type { Command } from 'commander'
 import {
   type RuntimePlacement,
   type TargetDefinition,
-  getAgentsRoot,
-  getProjectsRoot,
+  buildRuntimeBundleRef,
   mergeAgentWithProjectTarget,
   parseAgentProfile,
   parseTargetsToml,
+  resolveAgentPlacementPaths,
   resolveAgentPrimingPrompt,
   normalizeHarnessFrontend as resolveHarnessFrontendName,
   resolveHarnessProvider,
   resolvePlacement,
 } from 'spaces-config'
-import { buildBundleRef, parseEnvFlags } from './shared.js'
+import { parseEnvFlags } from './shared.js'
 
 const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance', 'resolve'] as const
 type RunMode = (typeof VALID_MODES)[number]
@@ -98,7 +91,7 @@ function resolveHarnessOption(
     return 'claude-code'
   }
 
-  const bundle = buildBundleRef({
+  const bundle = buildRuntimeBundleRef({
     ...options,
     agentName: parseScopeRef(scopeRef).agentId,
     agentRoot: options.agentRoot,
@@ -211,22 +204,20 @@ export function registerAgentCommands(program: Command): void {
         prompt: string | undefined,
         options: AgentCommandOptions
       ) => {
-        const { scopeRef: canonicalRef, laneId } = resolveInput(scope, options.laneRef)
-        const parsed = parseScopeRef(canonicalRef)
+        const { parsed, scopeRef: canonicalRef, laneId } = resolveScopeInput(scope, options.laneRef)
         options.laneRef = laneId
 
-        if (!options.agentRoot) {
-          const agentsRoot = getAgentsRoot()
-          if (agentsRoot) {
-            options.agentRoot = join(agentsRoot, parsed.agentId)
-          }
+        const paths = resolveAgentPlacementPaths({
+          agentId: parsed.agentId,
+          projectId: parsed.projectId,
+          agentRoot: options.agentRoot,
+          projectRoot: options.projectRoot,
+        })
+        if (paths.agentRoot) {
+          options.agentRoot = paths.agentRoot
         }
-
-        if (!options.projectRoot && parsed.projectId) {
-          const projectsRoot = getProjectsRoot()
-          if (projectsRoot) {
-            options.projectRoot = join(projectsRoot, parsed.projectId)
-          }
+        if (paths.projectRoot) {
+          options.projectRoot = paths.projectRoot
         }
 
         if (mode === 'resolve') {
@@ -238,27 +229,6 @@ export function registerAgentCommands(program: Command): void {
     )
 }
 
-function resolveInput(input: string, flagLaneRef?: string): { scopeRef: string; laneId: string } {
-  if (input.includes('~')) {
-    const session = parseSessionHandle(input)
-    const laneId = session.laneRef === 'main' ? 'main' : session.laneRef.slice(5)
-    return { scopeRef: session.scopeRef, laneId }
-  }
-
-  const handleResult = validateScopeHandle(input)
-  if (handleResult.ok) {
-    const parsed = parseScopeHandle(input)
-    return { scopeRef: formatScopeRef(parsed), laneId: flagLaneRef ?? 'main' }
-  }
-
-  const refResult = validateScopeRef(input)
-  if (refResult.ok) {
-    return { scopeRef: input, laneId: flagLaneRef ?? 'main' }
-  }
-
-  throw new Error(`Invalid scope input "${input}": not a valid ScopeHandle or ScopeRef`)
-}
-
 async function handleResolve(scopeRef: string, options: AgentCommandOptions): Promise<void> {
   if (!options.agentRoot) {
     throw new Error(
@@ -266,9 +236,8 @@ async function handleResolve(scopeRef: string, options: AgentCommandOptions): Pr
     )
   }
 
-  const { scopeRef: canonicalRef, laneId } = resolveInput(scopeRef, options.laneRef)
-  const typedLaneRef = laneId === 'main' ? 'main' : `lane:${laneId}`
-  const placement = buildPlacement(canonicalRef, 'resolve', options, typedLaneRef)
+  const { scopeRef: canonicalRef, laneRef } = resolveScopeInput(scopeRef, options.laneRef)
+  const placement = buildPlacement(canonicalRef, 'resolve', options, laneRef)
   const resolved = await resolvePlacement(placement)
 
   if (options.json) {
@@ -307,7 +276,7 @@ async function handleExecute(
     )
   }
 
-  const { scopeRef: canonicalRef, laneId } = resolveInput(scopeRef, options.laneRef)
+  const { scopeRef: canonicalRef, laneId } = resolveScopeInput(scopeRef, options.laneRef)
 
   if (!VALID_MODES.includes(mode as RunMode)) {
     throw new Error(`Invalid mode "${mode}". Must be one of: ${VALID_MODES.join(', ')}`)
@@ -437,7 +406,7 @@ function buildPlacement(
   options: AgentCommandOptions,
   laneRef: string
 ): RuntimePlacement {
-  const bundle = buildBundleRef({
+  const bundle = buildRuntimeBundleRef({
     ...options,
     agentName: parseScopeRef(scopeRef).agentId,
     agentRoot: options.agentRoot,

@@ -36,6 +36,15 @@ export {
   type PathOptions,
 } from './paths.js'
 export { getAgentsRoot, getProjectsRoot } from './asp-config.js'
+export {
+  buildRuntimeBundleRef,
+  inferProjectIdFromCwd,
+  resolveAgentPlacementPaths,
+  type InferProjectIdFromCwdOptions,
+  type ResolvedAgentPlacementPaths,
+  type ResolveAgentPlacementPathsOptions,
+  type RuntimeBundleRefOptions,
+} from './runtime-placement.js'
 
 // Snapshot operations
 export {
