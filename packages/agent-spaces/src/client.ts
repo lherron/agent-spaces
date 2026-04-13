@@ -1,34 +1,13 @@
-import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 
-import { basename, isAbsolute, join, resolve } from 'node:path'
+import { basename, isAbsolute, resolve } from 'node:path'
 
 import {
-  AGENT_SDK_MODELS,
-  CLAUDE_CODE_MODELS,
-  DEFAULT_AGENT_SDK_MODEL,
-  DEFAULT_CLAUDE_CODE_MODEL,
   HARNESS_PROVIDERS,
-  type HarnessId,
-  type LintWarning,
-  type LockFile,
-  PathResolver,
-  type SpaceRefString,
-  asSha256Integrity,
-  asSpaceId,
-  computeClosure,
-  discoverSkills,
   ensureDir,
-  generateLockFileForTarget,
   getAspHome,
-  getHarnessCatalogEntryByFrontend,
   getHarnessFrontendsForProvider,
-  getRegistryPath,
-  lintSpaces,
   normalizeAgentSdkModel,
-  readHooksWithPrecedence,
-  resolveTarget,
 } from 'spaces-config'
 
 import { type RuntimePlacement, resolvePlacementContext } from 'spaces-config'
@@ -39,8 +18,6 @@ import {
   createSession,
   detectAgentLocalComponents,
   harnessRegistry,
-  materializeFromRefs,
-  materializeTarget,
   planPlacementRuntime,
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
@@ -76,6 +53,26 @@ import {
   runSession,
 } from './session-events.js'
 
+import {
+  type ValidatedSpec,
+  collectHooks,
+  collectLintWarnings,
+  collectTools,
+  materializeSpec,
+  resolveSpecToLock,
+  validateSpec,
+} from './client-materialization.js'
+import {
+  AGENT_SDK_FRONTEND,
+  CODEX_CLI_FRONTEND,
+  CodedError,
+  FRONTEND_DEFS,
+  PI_SDK_FRONTEND,
+  formatDisplayCommand,
+  resolveFrontend,
+  resolveModel,
+  validateProviderMatch,
+} from './client-support.js'
 import type {
   AgentSpacesClient,
   AgentSpacesError,
@@ -88,7 +85,6 @@ import type {
   HarnessFrontend,
   InterruptInFlightTurnRequest,
   ProcessInvocationSpec,
-  ProviderDomain,
   QueueInFlightInputRequest,
   QueueInFlightInputResponse,
   ResolveRequest,
@@ -97,426 +93,11 @@ import type {
   RunTurnInFlightRequest,
   RunTurnNonInteractiveRequest,
   RunTurnNonInteractiveResponse,
-  SpaceSpec,
 } from './types.js'
 
 // ---------------------------------------------------------------------------
 // Frontend definitions (provider-typed harness registry, spec §5.1)
 // ---------------------------------------------------------------------------
-
-const AGENT_SDK_FRONTEND: HarnessFrontend = 'agent-sdk'
-const PI_SDK_FRONTEND: HarnessFrontend = 'pi-sdk'
-const CLAUDE_CODE_FRONTEND: HarnessFrontend = 'claude-code'
-const CODEX_CLI_FRONTEND: HarnessFrontend = 'codex-cli'
-
-const PI_SDK_MODELS = [
-  'openai-codex/gpt-5.4',
-  'openai-codex/gpt-5.3-codex',
-  'openai-codex/gpt-5.3',
-  'openai-codex/gpt-5.2-codex',
-  'openai-codex/gpt-5.2',
-  'api/gpt-5.4',
-  'api/gpt-5.3-codex',
-  'api/gpt-5.3',
-  'api/gpt-5.2-codex',
-  'api/gpt-5.2',
-]
-
-const CODEX_CLI_MODELS = [
-  'gpt-5.4',
-  'gpt-5.3-codex',
-  'gpt-5.3',
-  'gpt-5.2-codex',
-  'gpt-5.1-codex-mini',
-  'gpt-5.1-codex-max',
-  'gpt-5.2',
-  'gpt-5.1',
-  'gpt-5.1-codex',
-  'gpt-5-codex',
-  'gpt-5-codex-mini',
-  'gpt-5',
-]
-
-const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.4'
-const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.4'
-
-interface FrontendDef {
-  provider: ProviderDomain
-  internalId: HarnessId
-  frontend: HarnessFrontend
-  models: string[]
-  defaultModel: string
-}
-
-function createFrontendDef(
-  frontend: HarnessFrontend,
-  models: string[],
-  defaultModel: string
-): FrontendDef {
-  const catalogEntry = getHarnessCatalogEntryByFrontend(frontend)
-  if (!catalogEntry) {
-    throw new Error(`Unknown harness frontend "${frontend}"`)
-  }
-  return {
-    provider: catalogEntry.provider,
-    internalId: catalogEntry.id,
-    frontend,
-    models,
-    defaultModel,
-  }
-}
-
-const FRONTEND_DEFS = new Map<HarnessFrontend, FrontendDef>([
-  [
-    AGENT_SDK_FRONTEND,
-    createFrontendDef(AGENT_SDK_FRONTEND, AGENT_SDK_MODELS, DEFAULT_AGENT_SDK_MODEL),
-  ],
-  [PI_SDK_FRONTEND, createFrontendDef(PI_SDK_FRONTEND, PI_SDK_MODELS, DEFAULT_PI_SDK_MODEL)],
-  [
-    CLAUDE_CODE_FRONTEND,
-    createFrontendDef(CLAUDE_CODE_FRONTEND, CLAUDE_CODE_MODELS, DEFAULT_CLAUDE_CODE_MODEL),
-  ],
-  [
-    CODEX_CLI_FRONTEND,
-    createFrontendDef(CODEX_CLI_FRONTEND, CODEX_CLI_MODELS, DEFAULT_CODEX_CLI_MODEL),
-  ],
-])
-
-// ---------------------------------------------------------------------------
-// Coded errors (carry structured error codes for spec compliance)
-// ---------------------------------------------------------------------------
-
-class CodedError extends Error {
-  readonly code: NonNullable<AgentSpacesError['code']>
-  constructor(message: string, code: NonNullable<AgentSpacesError['code']>) {
-    super(message)
-    this.code = code
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Internal types
-// ---------------------------------------------------------------------------
-
-interface ValidatedSpec {
-  kind: 'spaces' | 'target'
-  spaces?: string[]
-  targetName?: string
-  targetDir?: string
-}
-
-interface MaterializedSpec {
-  targetName: string
-  materialization: {
-    outputPath: string
-    pluginDirs: string[]
-    mcpConfigPath?: string | undefined
-  }
-  skills: string[]
-}
-
-interface ModelInfo {
-  effectiveModel: string
-  provider: string
-  model: string
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: spec validation
-// ---------------------------------------------------------------------------
-
-function validateSpec(spec: SpaceSpec): ValidatedSpec {
-  const hasSpaces = 'spaces' in spec
-  const hasTarget = 'target' in spec
-
-  if (hasSpaces === hasTarget) {
-    throw new Error('SpaceSpec must include exactly one of "spaces" or "target"')
-  }
-
-  if (hasTarget) {
-    const target = spec.target
-    if (!target?.targetName) {
-      throw new Error('SpaceSpec target must include targetName')
-    }
-    if (!target?.targetDir) {
-      throw new Error('SpaceSpec target must include targetDir')
-    }
-    if (!isAbsolute(target.targetDir)) {
-      throw new Error('SpaceSpec targetDir must be an absolute path')
-    }
-    return {
-      kind: 'target',
-      targetName: target.targetName,
-      targetDir: target.targetDir,
-    }
-  }
-
-  if (!spec.spaces || spec.spaces.length === 0) {
-    throw new Error('SpaceSpec spaces must include at least one space reference')
-  }
-
-  return {
-    kind: 'spaces',
-    spaces: spec.spaces,
-  }
-}
-
-function computeSpacesTargetName(spaces: string[]): string {
-  const hash = createHash('sha256')
-  hash.update(JSON.stringify(spaces))
-  return `spaces-${hash.digest('hex').slice(0, 12)}`
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: frontend resolution + model validation
-// ---------------------------------------------------------------------------
-
-function resolveFrontend(frontend: HarnessFrontend): FrontendDef & { frontend: HarnessFrontend } {
-  const def = FRONTEND_DEFS.get(frontend)
-  if (!def) {
-    throw new CodedError(`Unsupported frontend: ${frontend}`, 'unsupported_frontend')
-  }
-  return { ...def, frontend }
-}
-
-function validateProviderMatch(
-  frontendDef: FrontendDef & { frontend: HarnessFrontend },
-  continuation: HarnessContinuationRef | undefined
-): void {
-  if (continuation && continuation.provider !== frontendDef.provider) {
-    throw new CodedError(
-      `Provider mismatch: frontend "${frontendDef.frontend}" is provider "${frontendDef.provider}" but continuation is provider "${continuation.provider}"`,
-      'provider_mismatch'
-    )
-  }
-}
-
-function parseModelId(modelId: string): ModelInfo | null {
-  const separatorIndex = modelId.indexOf('/')
-  if (separatorIndex === -1) {
-    return { effectiveModel: modelId, provider: 'codex', model: modelId }
-  }
-  if (separatorIndex <= 0 || separatorIndex === modelId.length - 1) {
-    return null
-  }
-  const provider = modelId.slice(0, separatorIndex)
-  const model = modelId.slice(separatorIndex + 1)
-  if (!provider || !model) {
-    return null
-  }
-  return { effectiveModel: modelId, provider, model }
-}
-
-function resolveModel(
-  frontendDef: { models: string[]; defaultModel: string },
-  requested: string | undefined
-): { ok: true; info: ModelInfo } | { ok: false; modelId: string } {
-  const modelId = requested ?? frontendDef.defaultModel
-  if (!frontendDef.models.includes(modelId)) {
-    return { ok: false, modelId }
-  }
-  const info = parseModelId(modelId)
-  if (!info) {
-    return { ok: false, modelId }
-  }
-  return { ok: true, info }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: spec resolution + materialization
-// ---------------------------------------------------------------------------
-
-async function resolveSpecToLock(
-  spec: ValidatedSpec,
-  aspHome: string,
-  registryPathOverride?: string | undefined
-): Promise<{ targetName: string; lock: LockFile; registryPath: string }> {
-  if (spec.kind === 'target') {
-    const result = await resolveTarget(spec.targetName as string, {
-      projectPath: spec.targetDir as string,
-      aspHome,
-      ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
-    })
-    const registryPath = getRegistryPath({
-      projectPath: spec.targetDir as string,
-      aspHome,
-      ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
-    })
-    return { targetName: spec.targetName as string, lock: result.lock, registryPath }
-  }
-
-  const refs = spec.spaces as string[]
-  const targetName = computeSpacesTargetName(refs)
-  const paths = new PathResolver({ aspHome })
-  const registryPath = registryPathOverride ?? paths.repo
-  const closure = await computeClosure(refs as SpaceRefString[], {
-    cwd: registryPath,
-  })
-  const lock = await generateLockFileForTarget(targetName, refs as SpaceRefString[], closure, {
-    cwd: registryPath,
-    registry: { type: 'git', url: registryPath },
-  })
-
-  return { targetName, lock, registryPath }
-}
-
-async function materializeSpec(
-  spec: ValidatedSpec,
-  aspHome: string,
-  harnessId: HarnessId,
-  options?: {
-    registryPathOverride?: string | undefined
-    agentRoot?: string | undefined
-    projectRoot?: string | undefined
-    agentLocalComponents?: import('spaces-config').AgentLocalComponents | undefined
-  }
-): Promise<MaterializedSpec> {
-  const registryPathOverride = options?.registryPathOverride
-  if (spec.kind === 'target') {
-    const { targetName, lock, registryPath } = await resolveSpecToLock(
-      spec,
-      aspHome,
-      registryPathOverride
-    )
-    const materialization = await materializeTarget(targetName, lock, {
-      projectPath: spec.targetDir as string,
-      aspHome,
-      registryPath,
-      harness: harnessId,
-    })
-    const skillMetadata = await discoverSkills(materialization.pluginDirs)
-    return {
-      targetName,
-      materialization: {
-        outputPath: materialization.outputPath,
-        pluginDirs: materialization.pluginDirs,
-        mcpConfigPath: materialization.mcpConfigPath,
-      },
-      skills: skillMetadata.map((skill) => skill.name),
-    }
-  }
-
-  const refs = spec.spaces as string[]
-  if (refs.length === 0) {
-    // No spaces — create minimal empty materialization
-    const targetName = 'placement-empty'
-    const paths = new PathResolver({ aspHome })
-    const materialized = await materializeFromRefs({
-      targetName,
-      refs: [],
-      registryPath: registryPathOverride ?? paths.repo,
-      aspHome,
-      lockPath: paths.globalLock,
-      harness: harnessId,
-    })
-    return {
-      targetName,
-      materialization: {
-        outputPath: materialized.materialization.outputPath,
-        pluginDirs: materialized.materialization.pluginDirs,
-        mcpConfigPath: materialized.materialization.mcpConfigPath,
-      },
-      skills: materialized.skills.map((skill) => skill.name),
-    }
-  }
-
-  const targetName = computeSpacesTargetName(refs)
-  const paths = new PathResolver({ aspHome })
-  const registryPath = registryPathOverride ?? paths.repo
-  const materialized = await materializeFromRefs({
-    targetName,
-    refs: refs as SpaceRefString[],
-    registryPath,
-    aspHome,
-    lockPath: paths.globalLock,
-    harness: harnessId,
-    ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
-    ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
-    ...(options?.agentLocalComponents
-      ? { agentLocalComponents: options.agentLocalComponents }
-      : {}),
-  })
-
-  return {
-    targetName,
-    materialization: {
-      outputPath: materialized.materialization.outputPath,
-      pluginDirs: materialized.materialization.pluginDirs,
-      mcpConfigPath: materialized.materialization.mcpConfigPath,
-    },
-    skills: materialized.skills.map((skill) => skill.name),
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: lint, hooks, tools
-// ---------------------------------------------------------------------------
-
-async function collectLintWarnings(
-  spec: ValidatedSpec,
-  aspHome: string,
-  registryPathOverride?: string | undefined
-): Promise<LintWarning[]> {
-  const { targetName, lock, registryPath } = await resolveSpecToLock(
-    spec,
-    aspHome,
-    registryPathOverride
-  )
-  const target = lock.targets[targetName]
-  if (!target) {
-    const available = Object.keys(lock.targets)
-    const availableStr =
-      available.length > 0 ? `Available: ${available.join(', ')}` : 'No targets in lock'
-    throw new Error(`Target "${targetName}" not found in lock file. ${availableStr}`)
-  }
-
-  const paths = new PathResolver({ aspHome })
-  const lintData = target.loadOrder.map((key) => {
-    const entry = lock.spaces[key]
-    if (!entry) {
-      throw new Error(`Space entry "${key}" not found in lock for target "${targetName}"`)
-    }
-    const isDev = entry.commit === 'dev'
-    const pluginPath = isDev
-      ? join(registryPath, entry.path)
-      : paths.snapshot(asSha256Integrity(entry.integrity))
-
-    return {
-      key,
-      manifest: {
-        schema: 1 as const,
-        id: asSpaceId(entry.id),
-        plugin: {
-          name: entry.plugin.name,
-          version: entry.plugin.version,
-        },
-      },
-      pluginPath,
-    }
-  })
-
-  return lintSpaces({ spaces: lintData })
-}
-
-async function collectHooks(pluginDirs: string[]): Promise<string[]> {
-  const hooks: string[] = []
-  for (const dir of pluginDirs) {
-    const hooksDir = join(dir, 'hooks')
-    const result = await readHooksWithPrecedence(hooksDir)
-    for (const hook of result.hooks) {
-      hooks.push(hook.event)
-    }
-  }
-  return hooks
-}
-
-async function collectTools(mcpConfigPath: string | undefined): Promise<string[]> {
-  if (!mcpConfigPath) return []
-  const raw = await readFile(mcpConfigPath, 'utf-8')
-  const parsed = JSON.parse(raw) as { mcpServers?: Record<string, unknown> } | undefined
-  if (!parsed?.mcpServers) return []
-  return Object.keys(parsed.mcpServers)
-}
 
 // ---------------------------------------------------------------------------
 // Helpers: error conversion
@@ -534,27 +115,6 @@ function toAgentSpacesError(error: unknown, code?: AgentSpacesError['code']): Ag
     ...(errorCode ? { code: errorCode } : {}),
     ...(Object.keys(details).length > 0 ? { details } : {}),
   }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: shell quoting (for displayCommand in buildProcessInvocationSpec)
-// ---------------------------------------------------------------------------
-
-function shellQuote(value: string): string {
-  if (/^[a-zA-Z0-9_./-]+$/.test(value)) return value
-  return `'${value.replace(/'/g, "'\\''")}'`
-}
-
-function formatDisplayCommand(
-  commandPath: string,
-  args: string[],
-  env: Record<string, string>
-): string {
-  const envPrefix = Object.entries(env)
-    .map(([key, value]) => `${key}=${shellQuote(value)}`)
-    .join(' ')
-  const command = [shellQuote(commandPath), ...args.map(shellQuote)].join(' ')
-  return envPrefix ? `${envPrefix} ${command}` : command
 }
 
 // ---------------------------------------------------------------------------
