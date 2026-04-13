@@ -22,7 +22,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { buildBundleRef } from '../shared.js'
+import { buildRuntimeBundleRef as buildBundleRef } from 'spaces-config'
 
 // Create a temp agent root with agent-profile.toml for tests
 const testAgentRoot = join(tmpdir(), `asp-test-agent-root-${Date.now()}`)
