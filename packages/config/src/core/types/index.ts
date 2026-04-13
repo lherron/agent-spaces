@@ -91,6 +91,9 @@ export type {
 // Placement types
 export type {
   HostCorrelation,
+  ResolvedPlacementContext,
+  ResolvedPlacementMaterialization,
+  ResolvedPlacementSpec,
   ResolvedInstruction,
   ResolvedRuntimeBundle,
   ResolvedSpace,
@@ -131,10 +134,14 @@ export type {
   ComposeTargetOptions,
   ComposeTargetResult,
   HarnessAdapter,
+  HarnessCatalogEntry,
   HarnessDetection,
+  HarnessFrontend,
   HarnessId,
   HarnessModelInfo,
+  HarnessProvider,
   HarnessRunOptions,
+  HarnessTransport,
   HarnessValidationResult,
   MaterializeSpaceInput,
   MaterializeSpaceOptions,
@@ -150,9 +157,21 @@ export type {
 
 export {
   DEFAULT_HARNESS,
+  getHarnessCatalogEntry,
+  getHarnessCatalogEntryByFrontend,
+  getHarnessFrontendsForProvider,
+  HARNESS_CATALOG,
+  HARNESS_FRONTENDS,
   HARNESS_IDS,
+  HARNESS_NAMES,
+  HARNESS_PROVIDERS,
   isHarnessSupported,
   isHarnessId,
+  normalizeHarnessFrontend,
+  normalizeHarnessId,
+  resolveHarnessCatalogEntry,
+  resolveHarnessFrontendForProvider,
+  resolveHarnessProvider,
 } from './harness.js'
 
 // Agent-local components types (agent-local skills/commands auto-discovery)

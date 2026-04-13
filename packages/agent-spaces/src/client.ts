@@ -1,45 +1,37 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 
 import { basename, isAbsolute, join, resolve } from 'node:path'
-import { parse as parseToml } from '@iarna/toml'
 
 import {
   AGENT_SDK_MODELS,
   CLAUDE_CODE_MODELS,
   DEFAULT_AGENT_SDK_MODEL,
   DEFAULT_CLAUDE_CODE_MODEL,
-  type EffectiveTargetConfig,
+  HARNESS_PROVIDERS,
   type HarnessId,
   type LintWarning,
   type LockFile,
   PathResolver,
-  type ProjectManifest,
   type SpaceRefString,
-  TARGETS_FILENAME,
-  type TargetDefinition,
   asSha256Integrity,
   asSpaceId,
   computeClosure,
   discoverSkills,
   ensureDir,
   generateLockFileForTarget,
-  getAgentsRoot,
   getAspHome,
+  getHarnessCatalogEntryByFrontend,
+  getHarnessFrontendsForProvider,
   getRegistryPath,
   lintSpaces,
-  mergeAgentWithProjectTarget,
   normalizeAgentSdkModel,
-  parseAgentProfile,
-  parseTargetsToml,
   readHooksWithPrecedence,
-  readTargetsToml,
-  resolveAgentPrimingPrompt,
   resolveTarget,
 } from 'spaces-config'
 
-import { type RuntimePlacement, resolvePlacement } from 'spaces-config'
+import { type RuntimePlacement, resolvePlacementContext } from 'spaces-config'
 
 import {
   type UnifiedSession,
@@ -49,6 +41,7 @@ import {
   harnessRegistry,
   materializeFromRefs,
   materializeTarget,
+  planPlacementRuntime,
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
 
@@ -116,11 +109,6 @@ const PI_SDK_FRONTEND: HarnessFrontend = 'pi-sdk'
 const CLAUDE_CODE_FRONTEND: HarnessFrontend = 'claude-code'
 const CODEX_CLI_FRONTEND: HarnessFrontend = 'codex-cli'
 
-const AGENT_SDK_INTERNAL: HarnessId = 'claude-agent-sdk'
-const PI_SDK_INTERNAL: HarnessId = 'pi-sdk'
-const CLAUDE_CODE_INTERNAL: HarnessId = 'claude'
-const CODEX_CLI_INTERNAL: HarnessId = 'codex'
-
 const PI_SDK_MODELS = [
   'openai-codex/gpt-5.4',
   'openai-codex/gpt-5.3-codex',
@@ -155,46 +143,42 @@ const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.4'
 interface FrontendDef {
   provider: ProviderDomain
   internalId: HarnessId
+  frontend: HarnessFrontend
   models: string[]
   defaultModel: string
+}
+
+function createFrontendDef(
+  frontend: HarnessFrontend,
+  models: string[],
+  defaultModel: string
+): FrontendDef {
+  const catalogEntry = getHarnessCatalogEntryByFrontend(frontend)
+  if (!catalogEntry) {
+    throw new Error(`Unknown harness frontend "${frontend}"`)
+  }
+  return {
+    provider: catalogEntry.provider,
+    internalId: catalogEntry.id,
+    frontend,
+    models,
+    defaultModel,
+  }
 }
 
 const FRONTEND_DEFS = new Map<HarnessFrontend, FrontendDef>([
   [
     AGENT_SDK_FRONTEND,
-    {
-      provider: 'anthropic',
-      internalId: AGENT_SDK_INTERNAL,
-      models: AGENT_SDK_MODELS,
-      defaultModel: DEFAULT_AGENT_SDK_MODEL,
-    },
+    createFrontendDef(AGENT_SDK_FRONTEND, AGENT_SDK_MODELS, DEFAULT_AGENT_SDK_MODEL),
   ],
-  [
-    PI_SDK_FRONTEND,
-    {
-      provider: 'openai',
-      internalId: PI_SDK_INTERNAL,
-      models: PI_SDK_MODELS,
-      defaultModel: DEFAULT_PI_SDK_MODEL,
-    },
-  ],
+  [PI_SDK_FRONTEND, createFrontendDef(PI_SDK_FRONTEND, PI_SDK_MODELS, DEFAULT_PI_SDK_MODEL)],
   [
     CLAUDE_CODE_FRONTEND,
-    {
-      provider: 'anthropic',
-      internalId: CLAUDE_CODE_INTERNAL,
-      models: CLAUDE_CODE_MODELS,
-      defaultModel: DEFAULT_CLAUDE_CODE_MODEL,
-    },
+    createFrontendDef(CLAUDE_CODE_FRONTEND, CLAUDE_CODE_MODELS, DEFAULT_CLAUDE_CODE_MODEL),
   ],
   [
     CODEX_CLI_FRONTEND,
-    {
-      provider: 'openai',
-      internalId: CODEX_CLI_INTERNAL,
-      models: CODEX_CLI_MODELS,
-      defaultModel: DEFAULT_CODEX_CLI_MODEL,
-    },
+    createFrontendDef(CODEX_CLI_FRONTEND, CODEX_CLI_MODELS, DEFAULT_CODEX_CLI_MODEL),
   ],
 ])
 
@@ -281,175 +265,6 @@ function computeSpacesTargetName(spaces: string[]): string {
   const hash = createHash('sha256')
   hash.update(JSON.stringify(spaces))
   return `spaces-${hash.digest('hex').slice(0, 12)}`
-}
-
-function buildSyntheticAgentProjectManifest(
-  targetName: string,
-  effectiveConfig: EffectiveTargetConfig
-): ProjectManifest {
-  return {
-    schema: 1,
-    ...(Object.keys(effectiveConfig.claude).length > 0 ? { claude: effectiveConfig.claude } : {}),
-    ...(Object.keys(effectiveConfig.codex).length > 0 ? { codex: effectiveConfig.codex } : {}),
-    targets: {
-      [targetName]: {
-        compose: effectiveConfig.compose,
-        ...(effectiveConfig.priming_prompt !== undefined
-          ? { priming_prompt: effectiveConfig.priming_prompt }
-          : {}),
-        ...(effectiveConfig.yolo ? { yolo: effectiveConfig.yolo } : {}),
-        ...(Object.keys(effectiveConfig.claude).length > 0
-          ? { claude: effectiveConfig.claude }
-          : {}),
-        ...(Object.keys(effectiveConfig.codex).length > 0 ? { codex: effectiveConfig.codex } : {}),
-      },
-    },
-  }
-}
-
-function loadOptionalProjectTarget(
-  projectRoot: string | undefined,
-  agentName: string
-): TargetDefinition | undefined {
-  if (!projectRoot) {
-    return undefined
-  }
-
-  const targetsPath = join(projectRoot, 'asp-targets.toml')
-  if (!existsSync(targetsPath)) {
-    return undefined
-  }
-
-  const content = readFileSync(targetsPath, 'utf8')
-  const parsed = parseToml(content) as Record<string, unknown>
-  const rawTargets = parsed['targets'] as Record<string, unknown> | undefined
-  if (!rawTargets?.[agentName]) {
-    return undefined
-  }
-
-  return parseTargetsToml(content, targetsPath).targets[agentName]
-}
-
-/**
- * Convert a RuntimePlacement into a ValidatedSpec for the unified materialization pipeline.
- * Also returns agentRoot/projectRoot for closure resolution of local spaces.
- */
-function placementToSpec(placement: RuntimePlacement): {
-  spec: ValidatedSpec
-  agentRoot?: string | undefined
-  projectRoot?: string | undefined
-  effectiveConfig?: EffectiveTargetConfig | undefined
-  manifest?: ProjectManifest | undefined
-} {
-  const { bundle } = placement
-  const agentRoot = placement.agentRoot
-  const projectRoot = placement.projectRoot
-
-  switch (bundle.kind) {
-    case 'project-target':
-      return {
-        spec: {
-          kind: 'target',
-          targetName: bundle.target,
-          targetDir: bundle.projectRoot,
-        },
-        agentRoot,
-        projectRoot,
-      }
-
-    case 'agent-target': {
-      // Load target compose list from agent-profile.toml
-      const profilePath = join(agentRoot, 'agent-profile.toml')
-      let compose: string[] = []
-      if (existsSync(profilePath)) {
-        const { parse } = require('@iarna/toml') as {
-          parse: (s: string) => Record<string, unknown>
-        }
-        const content = readFileSync(profilePath, 'utf8')
-        const parsed = parse(content) as Record<string, unknown>
-        const targets = parsed['targets'] as Record<string, Record<string, unknown>> | undefined
-        const target = targets?.[bundle.target]
-        if (!target) {
-          throw new Error(`Agent target "${bundle.target}" not found in agent-profile.toml`)
-        }
-        compose = (target['compose'] as string[] | undefined) ?? []
-      }
-      return { spec: { kind: 'spaces', spaces: compose }, agentRoot, projectRoot }
-    }
-
-    case 'compose':
-      return {
-        spec: { kind: 'spaces', spaces: bundle.compose as string[] },
-        agentRoot,
-        projectRoot,
-      }
-
-    case 'agent-project': {
-      const profilePath = join(agentRoot, 'agent-profile.toml')
-      let compose: string[] = []
-
-      if (existsSync(profilePath)) {
-        const profile = parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
-        const primingPrompt = resolveAgentPrimingPrompt(profile, agentRoot)
-        const projectTarget = loadOptionalProjectTarget(bundle.projectRoot, bundle.agentName)
-        const effective = mergeAgentWithProjectTarget(
-          {
-            ...profile,
-            ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
-          },
-          projectTarget,
-          placement.runMode
-        )
-
-        compose = effective.compose
-        return {
-          spec: { kind: 'spaces', spaces: effective.compose },
-          agentRoot,
-          projectRoot,
-          effectiveConfig: effective, // effectiveConfig includes priming_prompt, yolo, model.
-          manifest: buildSyntheticAgentProjectManifest(bundle.agentName, effective),
-        }
-      }
-
-      return { spec: { kind: 'spaces', spaces: compose }, agentRoot, projectRoot }
-    }
-
-    case 'agent-default': {
-      // Load profile spaces.base + spaces.byMode[runMode] overlays
-      const profilePath = join(agentRoot, 'agent-profile.toml')
-      let spaces: string[] = []
-      if (existsSync(profilePath)) {
-        const { parse } = require('@iarna/toml') as {
-          parse: (s: string) => Record<string, unknown>
-        }
-        const content = readFileSync(profilePath, 'utf8')
-        const parsed = parse(content) as Record<string, unknown>
-        const spacesConfig = parsed['spaces'] as Record<string, unknown> | undefined
-        if (spacesConfig) {
-          const base = spacesConfig['base']
-          if (Array.isArray(base)) {
-            spaces = base as string[]
-          }
-          // Merge byMode[runMode] overlays
-          const byMode = spacesConfig['byMode'] as
-            | Record<string, Record<string, unknown>>
-            | undefined
-          const modeConfig = byMode?.[placement.runMode]
-          if (modeConfig) {
-            const modeBase = modeConfig['base']
-            if (Array.isArray(modeBase)) {
-              for (const ref of modeBase) {
-                if (!spaces.includes(ref as string)) {
-                  spaces.push(ref as string)
-                }
-              }
-            }
-          }
-        }
-      }
-      return { spec: { kind: 'spaces', spaces }, agentRoot, projectRoot }
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -824,20 +639,15 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
 
     async getHarnessCapabilities(): Promise<HarnessCapabilities> {
       return {
-        harnesses: [
-          {
-            id: 'anthropic',
-            provider: 'anthropic',
-            frontends: [AGENT_SDK_FRONTEND, CLAUDE_CODE_FRONTEND],
-            models: [...AGENT_SDK_MODELS, ...CLAUDE_CODE_MODELS],
-          },
-          {
-            id: 'openai',
-            provider: 'openai',
-            frontends: [PI_SDK_FRONTEND, CODEX_CLI_FRONTEND],
-            models: [...PI_SDK_MODELS, ...CODEX_CLI_MODELS],
-          },
-        ],
+        harnesses: HARNESS_PROVIDERS.map((provider) => {
+          const frontends = getHarnessFrontendsForProvider(provider) as HarnessFrontend[]
+          return {
+            id: provider,
+            provider,
+            frontends,
+            models: frontends.flatMap((frontend) => FRONTEND_DEFS.get(frontend)?.models ?? []),
+          }
+        }),
       }
     },
 
@@ -1517,106 +1327,49 @@ async function buildPlacementInvocationSpec(
   // Validate provider match with continuation if provided
   validateProviderMatch(frontendDef, req.continuation)
 
-  const {
-    spec,
-    agentRoot,
-    projectRoot,
-    effectiveConfig,
-    manifest: syntheticManifest,
-  } = placementToSpec(placement)
+  const placementContext = await resolvePlacementContext({ ...placement, dryRun: true })
+  const { spec } = placementContext.materialization
 
-  // Resolve placement to get audit metadata (invocation building is lenient)
-  const resolvedBundle = await resolvePlacement({ ...placement, dryRun: true })
+  // Resolve placement to get audit metadata and materialization inputs
+  const resolvedBundle = placementContext.resolvedBundle
 
   // Resolve effective cwd from placement
   const cwd = resolvedBundle.cwd
 
   const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
-
-  // Get adapter from registry and detect binary
-  const adapter = harnessRegistry.getOrThrow(frontendDef.internalId)
-  const detection = await adapter.detect()
-  if (!detection.available) {
+  const runtimePlan = await planPlacementRuntime({
+    placement,
+    placementContext,
+    frontend: req.frontend,
+    aspHome,
+    model: req.model,
+    prompt: req.prompt,
+    yolo: req.yolo,
+    interactive: req.interactionMode === 'interactive',
+    continuationKey: req.continuation?.key,
+  })
+  if (!runtimePlan.model.ok) {
     throw new Error(
-      `Harness "${frontendDef.internalId}" is not available: ${detection.error ?? 'not found'}`
+      `Model not supported for frontend ${req.frontend}: ${runtimePlan.model.modelId}`
     )
   }
 
-  let defaultRunOptions: Partial<import('spaces-execution').HarnessRunOptions> = {}
-  if (placement.bundle.kind === 'agent-project' && syntheticManifest) {
-    defaultRunOptions = adapter.getDefaultRunOptions(syntheticManifest, placement.bundle.agentName)
-  } else if (placement.bundle.kind === 'project-target') {
-    try {
-      const targetsPath = join(placement.bundle.projectRoot, TARGETS_FILENAME)
-      const manifest = await readTargetsToml(targetsPath)
-      const target = manifest.targets[placement.bundle.target]
-
-      // Load agent profile (~/praesidium/var/agents/<target>/agent-profile.toml)
-      // to get priming prompt and harness defaults, matching asp run behavior.
-      const agentsRoot = getAgentsRoot({ aspHome })
-      const agentProfileRoot = agentsRoot ? join(agentsRoot, placement.bundle.target) : undefined
-      const agentProfilePath = agentProfileRoot
-        ? join(agentProfileRoot, 'agent-profile.toml')
-        : undefined
-      let agentProfile: ReturnType<typeof parseAgentProfile> | undefined
-      if (agentProfilePath && existsSync(agentProfilePath)) {
-        const profileSource = readFileSync(agentProfilePath, 'utf8').replace(
-          /^(\s*)schema_version(\s*=)/m,
-          '$1schemaVersion$2'
-        )
-        agentProfile = parseAgentProfile(profileSource, agentProfilePath)
-      }
-
-      // Build a synthetic manifest that merges agent profile defaults with target,
-      // mirroring what asp run does via buildSyntheticRunManifest.
-      if (agentProfile && agentProfileRoot) {
-        const primingPrompt =
-          target?.priming_prompt ?? resolveAgentPrimingPrompt(agentProfile, agentProfileRoot)
-        if (primingPrompt && !target?.priming_prompt) {
-          // Inject agent profile priming prompt into the target so getDefaultRunOptions picks it up
-          const syntheticTarget = { ...target, priming_prompt: primingPrompt }
-          const syntheticManifest2 = {
-            ...manifest,
-            targets: { ...manifest.targets, [placement.bundle.target]: syntheticTarget },
-          }
-          defaultRunOptions = adapter.getDefaultRunOptions(
-            syntheticManifest2,
-            placement.bundle.target
-          )
-        } else {
-          defaultRunOptions = adapter.getDefaultRunOptions(manifest, placement.bundle.target)
-        }
-      } else {
-        defaultRunOptions = adapter.getDefaultRunOptions(manifest, placement.bundle.target)
-      }
-    } catch {
-      // Target manifest unavailable — proceed without defaults
-    }
-  }
-
-  // Validate model — skip effectiveConfig model if it belongs to a different provider
-  // (e.g. claude-opus-4-6 from harnessDefaults.model when running codex).
-  const effectiveModel = effectiveConfig?.model
-  const candidateModel =
-    req.model ??
-    defaultRunOptions.model ??
-    (effectiveModel
-      ? resolveModel(frontendDef, effectiveModel).ok
-        ? effectiveModel
-        : undefined
-      : undefined)
-  const modelResolution = resolveModel(frontendDef, candidateModel)
-  if (!modelResolution.ok) {
-    throw new Error(`Model not supported for frontend ${req.frontend}: ${modelResolution.modelId}`)
+  // Get adapter from registry and detect binary
+  const adapter = harnessRegistry.getOrThrow(runtimePlan.harnessId)
+  const detection = await adapter.detect()
+  if (!detection.available) {
+    throw new Error(
+      `Harness "${runtimePlan.harnessId}" is not available: ${detection.error ?? 'not found'}`
+    )
   }
 
   // Detect agent-local skills/ and commands/ for materialization
-  const agentLocalComponents = agentRoot ? await detectAgentLocalComponents(agentRoot) : undefined
+  const agentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
 
-  // Unified materialization: convert placement to ValidatedSpec, then use materializeSpec
-  const materialized = await materializeSpec(spec, aspHome, frontendDef.internalId, {
-    agentRoot,
-    projectRoot,
+  // Unified materialization: use the shared placement context, then materialize the resolved spec.
+  const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
+    agentRoot: placement.agentRoot,
+    projectRoot: placement.projectRoot,
     agentLocalComponents,
   })
   const systemPrompt = await materializeSystemPrompt(
@@ -1630,17 +1383,11 @@ async function buildPlacementInvocationSpec(
   )
 
   // Build run options for the adapter
-  const isResume = !!req.continuation?.key
-  const prompt = req.prompt ?? defaultRunOptions.prompt ?? effectiveConfig?.priming_prompt
   let runOptions: import('spaces-config').HarnessRunOptions = {
-    ...defaultRunOptions,
-    interactive: req.interactionMode === 'interactive',
-    model: modelResolution.info.model,
-    projectPath: cwd,
-    cwd,
-    yolo: req.yolo ?? defaultRunOptions.yolo ?? effectiveConfig?.yolo,
-    ...(prompt !== undefined ? { prompt } : {}),
-    ...(isResume && req.continuation?.key ? { continuationKey: req.continuation.key } : {}),
+    ...runtimePlan.runOptions,
+    model: runtimePlan.model.info.model,
+    ...(runtimePlan.prompt !== undefined ? { prompt: runtimePlan.prompt } : {}),
+    ...(runtimePlan.yolo !== undefined ? { yolo: runtimePlan.yolo } : {}),
     ...(systemPrompt
       ? {
           systemPrompt: systemPrompt.content,
@@ -1658,9 +1405,6 @@ async function buildPlacementInvocationSpec(
     const codexHomeDir = await prepareCodexRuntimeHome(bundle, {
       ...runOptions,
       aspHome,
-      ...(placement.bundle.kind === 'agent-project'
-        ? { codexRuntimeTargetName: placement.bundle.agentName }
-        : {}),
     })
     runOptions = { ...runOptions, codexHomeDir }
   }
@@ -1668,7 +1412,7 @@ async function buildPlacementInvocationSpec(
   // Build argv and env using the adapter
   const args = adapter.buildRunArgs(bundle, runOptions)
   const adapterEnv = adapter.getRunEnv(bundle, runOptions)
-  const commandPath = detection.path ?? frontendDef.internalId
+  const commandPath = detection.path ?? runtimePlan.harnessId
   const argv = [commandPath, ...args]
 
   // Build correlation env vars
@@ -1697,11 +1441,11 @@ async function buildPlacementInvocationSpec(
 
   // Build continuation ref
   const continuation: HarnessContinuationRef | undefined = req.continuation
-    ? { provider: frontendDef.provider, key: req.continuation.key }
+    ? { provider: runtimePlan.provider, key: req.continuation.key }
     : undefined
 
   const invocationSpec: ProcessInvocationSpec = {
-    provider: frontendDef.provider,
+    provider: runtimePlan.provider,
     frontend: req.frontend,
     argv,
     cwd,
@@ -1738,12 +1482,27 @@ async function runPlacementTurnNonInteractive(
     req.continuation
   )
 
-  let modelResolution: ReturnType<typeof resolveModel>
+  let runtimePlan: Awaited<ReturnType<typeof planPlacementRuntime>>
   let continuationKey = req.continuation?.key
+  let resolvedPrompt = req.prompt
 
   try {
     validateProviderMatch(frontendDef, req.continuation)
-    modelResolution = resolveModel(frontendDef, req.model)
+
+    const placementContext = await resolvePlacementContext({ ...placement, dryRun: true })
+    const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
+    runtimePlan = await planPlacementRuntime({
+      placement,
+      placementContext,
+      frontend: req.frontend,
+      aspHome,
+      model: req.model,
+      prompt: req.prompt,
+      promptOverrideMode: 'truthy',
+      yolo: req.yolo,
+      continuationKey,
+    })
+    resolvedPrompt = runtimePlan.prompt ?? ''
   } catch (error) {
     const result: RunResult = { success: false, error: toAgentSpacesError(error) }
     await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
@@ -1758,7 +1517,7 @@ async function runPlacementTurnNonInteractive(
 
   if (continuationKey) {
     eventEmitter.setContinuation({
-      provider: frontendDef.provider,
+      provider: runtimePlan.provider,
       key: continuationKey,
     })
   }
@@ -1767,13 +1526,13 @@ async function runPlacementTurnNonInteractive(
   await eventEmitter.emit({
     type: 'message',
     role: 'user',
-    content: req.prompt,
+    content: resolvedPrompt,
   } as EventPayload)
 
-  if (!modelResolution.ok) {
+  if (!runtimePlan.model.ok) {
     const error = toAgentSpacesError(
       new Error(
-        `Model not supported for frontend ${frontendDef.frontend}: ${modelResolution.modelId}`
+        `Model not supported for frontend ${frontendDef.frontend}: ${runtimePlan.model.modelId}`
       ),
       'model_not_supported'
     )
@@ -1781,9 +1540,9 @@ async function runPlacementTurnNonInteractive(
     await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
     await eventEmitter.emit({ type: 'complete', result } as EventPayload)
     return {
-      provider: frontendDef.provider,
+      provider: runtimePlan.provider,
       frontend: req.frontend,
-      model: modelResolution.modelId,
+      model: runtimePlan.model.modelId,
       result,
     }
   }
@@ -1797,8 +1556,9 @@ async function runPlacementTurnNonInteractive(
   }
 
   try {
-    // Resolve placement to get audit metadata and effective cwd
-    const resolvedBundle = await resolvePlacement(placement)
+    // Resolve placement to get audit metadata, effective cwd, and materialization inputs.
+    const placementContext = await resolvePlacementContext(placement)
+    const resolvedBundle = placementContext.resolvedBundle
     const cwd = resolvedBundle.cwd
 
     // Build correlation env vars and apply env overlay
@@ -1811,18 +1571,30 @@ async function runPlacementTurnNonInteractive(
     const restoreEnv = applyEnvOverlay(harnessEnv)
 
     try {
-      // Unified materialization: convert placement to ValidatedSpec
-      const {
-        spec,
-        agentRoot: placementAgentRoot,
-        projectRoot: placementProjectRoot,
-      } = placementToSpec(placement)
-      const placementAgentLocalComponents = placementAgentRoot
-        ? await detectAgentLocalComponents(placementAgentRoot)
-        : undefined
-      const materialized = await materializeSpec(spec, aspHome, frontendDef.internalId, {
-        agentRoot: placementAgentRoot,
-        projectRoot: placementProjectRoot,
+      // Unified materialization: use the shared placement context rather than
+      // reconstructing client-local synthetic planning state.
+      const { spec } = placementContext.materialization
+      runtimePlan = await planPlacementRuntime({
+        placement,
+        placementContext,
+        frontend: req.frontend,
+        aspHome,
+        model: req.model,
+        prompt: req.prompt,
+        promptOverrideMode: 'truthy',
+        yolo: req.yolo,
+        continuationKey,
+      })
+      if (!runtimePlan.model.ok) {
+        throw new Error(
+          `Model not supported for frontend ${frontendDef.frontend}: ${runtimePlan.model.modelId}`
+        )
+      }
+      const resolvedYolo = runtimePlan.yolo ?? false
+      const placementAgentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
+      const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
+        agentRoot: placement.agentRoot,
+        projectRoot: placement.projectRoot,
         agentLocalComponents: placementAgentLocalComponents,
       })
 
@@ -1846,7 +1618,7 @@ async function runPlacementTurnNonInteractive(
           kind: 'agent-sdk',
           sessionId: continuationKey ?? (hostSessionId as string),
           cwd,
-          model: normalizeAgentSdkModel(modelResolution.info.model),
+          model: normalizeAgentSdkModel(runtimePlan.model.info.model),
           plugins,
           permissionHandler,
           ...(continuationKey ? { continuationKey } : {}),
@@ -1864,14 +1636,14 @@ async function runPlacementTurnNonInteractive(
           continuationKey = piSessionPath(aspHome, hostSessionId as string)
           await ensureDir(continuationKey)
           eventEmitter.setContinuation({
-            provider: frontendDef.provider,
+            provider: runtimePlan.provider,
             key: continuationKey,
           })
         }
 
         const piBundle = await loadPiSdkBundle(materialized.materialization.outputPath, {
           cwd,
-          yolo: true,
+          yolo: resolvedYolo,
           noExtensions: false,
           noSkills: false,
           agentDir: materialized.materialization.outputPath,
@@ -1879,8 +1651,8 @@ async function runPlacementTurnNonInteractive(
         const piSession = new PiSession({
           ownerId: hostSessionId as string,
           cwd,
-          provider: modelResolution.info.provider,
-          model: modelResolution.info.model,
+          provider: runtimePlan.model.info.provider,
+          model: runtimePlan.model.info.model,
           sessionId: hostSessionId as string,
           extensions: piBundle.extensions,
           skills: piBundle.skills,
@@ -1903,7 +1675,7 @@ async function runPlacementTurnNonInteractive(
             (key) => {
               continuationKey = key
               eventEmitter.setContinuation({
-                provider: frontendDef.provider,
+                provider: runtimePlan.provider,
                 key,
               })
             },
@@ -1918,7 +1690,7 @@ async function runPlacementTurnNonInteractive(
         })
       })
 
-      await runSession(session, req.prompt, req.attachments, runId as string)
+      await runSession(session, resolvedPrompt, req.attachments, runId as string)
       await turnPromise
       await session.stop('complete')
       await eventEmitter.idle()
@@ -1932,14 +1704,14 @@ async function runPlacementTurnNonInteractive(
     await eventEmitter.emit({ type: 'complete', result } as EventPayload)
 
     const finalContinuation: HarnessContinuationRef | undefined = continuationKey
-      ? { provider: frontendDef.provider, key: continuationKey }
+      ? { provider: runtimePlan.provider, key: continuationKey }
       : undefined
 
     return {
       ...(finalContinuation ? { continuation: finalContinuation } : {}),
-      provider: frontendDef.provider,
+      provider: runtimePlan.provider,
       frontend: req.frontend,
-      model: modelResolution.info.effectiveModel,
+      model: runtimePlan.model.info.effectiveModel,
       result,
       resolvedBundle,
     }
@@ -1960,14 +1732,14 @@ async function runPlacementTurnNonInteractive(
     await eventEmitter.emit({ type: 'complete', result } as EventPayload)
 
     const finalContinuation: HarnessContinuationRef | undefined = continuationKey
-      ? { provider: frontendDef.provider, key: continuationKey }
+      ? { provider: runtimePlan.provider, key: continuationKey }
       : undefined
 
     return {
       ...(finalContinuation ? { continuation: finalContinuation } : {}),
-      provider: frontendDef.provider,
+      provider: runtimePlan.provider,
       frontend: req.frontend,
-      model: modelResolution.ok ? modelResolution.info.effectiveModel : req.model,
+      model: runtimePlan.model.ok ? runtimePlan.model.info.effectiveModel : req.model,
       result,
     }
   }

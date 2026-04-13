@@ -83,6 +83,7 @@ export interface RunTurnNonInteractiveRequest {
   spec: SpaceSpec
   frontend: 'agent-sdk' | 'pi-sdk'
   model?: string | undefined
+  yolo?: boolean | undefined
   continuation?: HarnessContinuationRef | undefined
   cwd: string
   env?: Record<string, string> | undefined

@@ -522,11 +522,11 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
 
 // ===================================================================
 // T-00876: unified placement materialization
-// Both placement functions use placementToSpec + materializeSpec
+// Both placement functions use resolvePlacementContext + materializeSpec
 // instead of manual registryRefs filtering.
 // ===================================================================
 describe('unified placement materialization (T-00876)', () => {
-  test('both placement functions use placementToSpec + materializeSpec pipeline', () => {
+  test('both placement functions use resolvePlacementContext + planPlacementRuntime pipeline', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
     const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
@@ -538,17 +538,45 @@ describe('unified placement materialization (T-00876)', () => {
     expect(buildFn).toBeDefined()
     expect(runFn).toBeDefined()
 
-    // Both must use placementToSpec for conversion
-    expect(buildFn).toMatch(/placementToSpec\(/)
-    expect(runFn).toMatch(/placementToSpec\(/)
+    // Both must use resolvePlacementContext for conversion
+    expect(buildFn).toMatch(/resolvePlacementContext\(/)
+    expect(runFn).toMatch(/resolvePlacementContext\(/)
 
-    // Both must use materializeSpec for unified materialization
-    expect(buildFn).toMatch(/materializeSpec\(/)
-    expect(runFn).toMatch(/materializeSpec\(/)
+    // Both must use the shared runtime planner after resolution.
+    expect(buildFn).toMatch(/planPlacementRuntime\(/)
+    expect(runFn).toMatch(/planPlacementRuntime\(/)
 
-    // Neither should have manual registryRefs filtering (replaced by unified path)
-    expect(buildFn).not.toMatch(/registryRefs/)
-    expect(runFn).not.toMatch(/registryRefs/)
+    // The planner cutover should remove client-local placement planning helpers.
+    expect(source).not.toMatch(/async function resolvePlacementDefaultRunOptions/)
+    expect(source).not.toMatch(/function resolvePlacementModel\(/)
+  })
+})
+
+// ===================================================================
+// T-01092: SDK placement defaults must match CLI planning defaults
+// ===================================================================
+describe('non-interactive placement defaults (T-01092)', () => {
+  test('runPlacementTurnNonInteractive consumes the shared placement runtime plan', () => {
+    const { readFileSync } = require('node:fs')
+    const { join } = require('node:path')
+    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+    const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
+
+    expect(runFn).toBeDefined()
+    expect(runFn).toMatch(/planPlacementRuntime\(/)
+    expect(runFn).toMatch(/runtimePlan\.prompt/)
+    expect(runFn).toMatch(/runtimePlan\.yolo/)
+    expect(runFn).toMatch(/runtimePlan\.model/)
+  })
+
+  test('pi-sdk path does not hardcode yolo true', () => {
+    const { readFileSync } = require('node:fs')
+    const { join } = require('node:path')
+    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+    const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
+
+    expect(runFn).toBeDefined()
+    expect(runFn).not.toMatch(/yolo:\s*true/)
   })
 })
 
@@ -670,11 +698,9 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
 // ===================================================================
 // T-00890: Audit bundle must include byMode space overlays
 //
-// Defect: placementToSpec() (client.ts:337-356) only reads spaces.base
-// for agent-default bundles — ignores spaces.byMode[runMode] overlays
-// from agent-profile.toml. resolvePlacement (via resolveSpaceComposition)
-// includes them, causing resolvedBundle.spaces to diverge from what's
-// actually materialized.
+// Defect: the materialization planning path must include spaces.byMode[runMode]
+// overlays for agent-default bundles, or resolvedBundle.spaces will diverge
+// from what's actually materialized.
 //
 // PASS CONDITIONS:
 // 1. buildProcessInvocationSpec with runMode 'heartbeat' and an
@@ -683,55 +709,56 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
 // 2. Same profile with runMode 'query' does NOT include heartbeat overlay.
 // ===================================================================
 describe('audit bundle includes byMode space overlays (T-00890)', () => {
-  test('placementToSpec reads spaces.byMode[runMode] overlays (static)', () => {
-    // RED: placementToSpec (client.ts) only reads spaces.base for agent-default
-    // bundles. It ignores spaces.byMode[runMode] overlays from agent-profile.toml.
-    // The fix must make placementToSpec aware of runMode so it can include byMode
-    // space overlays in the materialized spec.
-    //
-    // This is a static code analysis test — we verify that placementToSpec
-    // references byMode. Currently it does NOT, so this will FAIL.
+  test('resolvePlacementContext reads spaces.byMode[runMode] overlays (static)', () => {
     const { readFileSync } = require('node:fs')
-    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+    const source = readFileSync(
+      join(
+        import.meta.dirname,
+        '..',
+        '..',
+        '..',
+        'config',
+        'src',
+        'resolver',
+        'placement-resolver.ts'
+      ),
+      'utf8'
+    )
 
-    // Extract the placementToSpec function body
-    // Extract the placementToSpec function: from its declaration to the next
-    // top-level function (avoids false match on the return type's closing brace)
-    const fnStart = source.indexOf('function placementToSpec')
+    const fnStart = source.indexOf('function loadAgentDefaultSpaces')
     expect(fnStart).toBeGreaterThan(-1)
     const nextFn = source.indexOf('\nfunction ', fnStart + 1)
     const fn = source.slice(fnStart, nextFn > -1 ? nextFn : undefined)
     expect(fn).toBeDefined()
 
-    // The function must read spaces.byMode to include mode-specific overlays.
-    // Currently it only reads spaces.base (spacesConfig['base']).
     expect(fn).toMatch(/byMode/)
   })
 
-  test('placementToSpec agent-default case references byMode (static)', () => {
-    // RED: The agent-default case in placementToSpec only reads spacesConfig['base'].
-    // After the fix, it must also read spacesConfig.byMode[runMode] overlays.
-    // We verify this by checking that the source between 'agent-default' and
-    // the next return statement references 'byMode'.
+  test('resolvePlacementContext agent-default case delegates to shared byMode-aware compose helper (static)', () => {
     const { readFileSync } = require('node:fs')
-    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+    const source = readFileSync(
+      join(
+        import.meta.dirname,
+        '..',
+        '..',
+        '..',
+        'config',
+        'src',
+        'resolver',
+        'placement-resolver.ts'
+      ),
+      'utf8'
+    )
 
-    // Find the agent-default case in placementToSpec
-    const fnStart = source.indexOf('function placementToSpec')
+    const fnStart = source.indexOf('function resolvePlacementMaterialization')
     expect(fnStart).toBeGreaterThan(-1)
     const agentDefaultStart = source.indexOf("case 'agent-default'", fnStart)
     expect(agentDefaultStart).toBeGreaterThan(-1)
-    // Look at the ~40 lines after "case 'agent-default'"
     const snippet = source.slice(agentDefaultStart, agentDefaultStart + 800)
-    expect(snippet).toMatch(/byMode/)
+    expect(snippet).toMatch(/loadAgentDefaultSpaces/)
   })
 
   test('heartbeat byMode spaces are materialized (integration)', async () => {
-    // RED: Even though resolvedBundle.spaces includes heartbeat-monitor
-    // (from resolvePlacement -> resolveSpaceComposition), the materialized
-    // spec from placementToSpec only has base spaces. We verify that
-    // the materialized output includes the byMode overlay space by
-    // checking that the pluginDirs reference the heartbeat-monitor space.
     const tempDir = mkdtempSync(join(tmpdir(), 'bymode-overlay-'))
     const agentRoot = join(tempDir, 'agent-root')
     mkdirSync(agentRoot, { recursive: true })
@@ -766,7 +793,6 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
       } as any)
 
       // The materialized pluginDirs should include heartbeat-monitor space.
-      // Currently it won't because placementToSpec omits byMode spaces.
       const allEnvVals = Object.values(response.spec.env ?? {}).join('\n')
 
       // resolvedBundle.spaces says heartbeat-monitor is included

@@ -39,23 +39,28 @@ import {
   DEFAULT_HARNESS,
   type HarnessAdapter,
   type HarnessDetection,
+  type HarnessFrontend,
   type HarnessId,
+  type HarnessProvider,
   type HarnessRunOptions,
   LOCK_FILENAME,
   type LockFile,
   type ProjectManifest,
+  type ResolvedPlacementContext,
   type ResolvedSpaceArtifact,
+  type RuntimePlacement,
   type SpaceKey,
   type SpaceRefString,
   type SpaceSettings,
   type TargetDefinition,
+  getHarnessCatalogEntryByFrontend,
   getRegistryPath,
-  isHarnessId,
   isHarnessSupported,
   isSpaceRefString,
   lockFileExists,
   materializeFromRefs,
   mergeAgentWithProjectTarget,
+  normalizeHarnessId,
   parseSpaceRef,
   readLockJson,
   readSpaceToml,
@@ -264,6 +269,184 @@ function resolveInteractive(interactive: boolean | undefined): boolean | undefin
     return interactive
   }
   return undefined
+}
+
+interface PlacementRuntimeModelInfo {
+  effectiveModel: string
+  provider: string
+  model: string
+}
+
+export type PlacementRuntimeModelResolution =
+  | { ok: true; info: PlacementRuntimeModelInfo }
+  | { ok: false; modelId: string }
+
+export interface PlacementRuntimePlan {
+  frontend: HarnessFrontend
+  harnessId: HarnessId
+  provider: HarnessProvider
+  cwd: string
+  defaultRunOptions: Partial<HarnessRunOptions>
+  prompt?: string | undefined
+  yolo?: boolean | undefined
+  model: PlacementRuntimeModelResolution
+  runOptions: Partial<HarnessRunOptions>
+}
+
+export interface PlanPlacementRuntimeOptions {
+  placement: RuntimePlacement
+  placementContext: ResolvedPlacementContext
+  frontend: HarnessFrontend
+  aspHome: string
+  model?: string | undefined
+  prompt?: string | undefined
+  promptOverrideMode?: 'nullish' | 'truthy' | undefined
+  yolo?: boolean | undefined
+  interactive?: boolean | undefined
+  continuationKey?: string | boolean | undefined
+}
+
+function parsePlacementRuntimeModelId(modelId: string): PlacementRuntimeModelInfo | null {
+  const separatorIndex = modelId.indexOf('/')
+  if (separatorIndex === -1) {
+    return { effectiveModel: modelId, provider: 'codex', model: modelId }
+  }
+  if (separatorIndex <= 0 || separatorIndex === modelId.length - 1) {
+    return null
+  }
+  const provider = modelId.slice(0, separatorIndex)
+  const model = modelId.slice(separatorIndex + 1)
+  if (!provider || !model) {
+    return null
+  }
+  return { effectiveModel: modelId, provider, model }
+}
+
+function resolvePlacementRuntimeModel(
+  adapter: HarnessAdapter,
+  requestedModel: string | undefined,
+  defaultRunOptions: Partial<HarnessRunOptions>,
+  effectiveConfig: ResolvedPlacementContext['materialization']['effectiveConfig']
+): PlacementRuntimeModelResolution {
+  const defaultModelId =
+    adapter.models.find((model) => model.default)?.id ?? adapter.models[0]?.id ?? requestedModel
+  const supportedModels = new Set(adapter.models.map((model) => model.id))
+  const effectiveModel = effectiveConfig?.model
+  const candidateModel =
+    requestedModel ??
+    defaultRunOptions.model ??
+    (effectiveModel && supportedModels.has(effectiveModel) ? effectiveModel : undefined) ??
+    defaultModelId
+
+  if (!candidateModel || !supportedModels.has(candidateModel)) {
+    return { ok: false, modelId: candidateModel ?? 'unknown' }
+  }
+
+  const info = parsePlacementRuntimeModelId(candidateModel)
+  if (!info) {
+    return { ok: false, modelId: candidateModel }
+  }
+
+  return { ok: true, info }
+}
+
+function resolvePlacementPlannerDefaultRunOptions(
+  placement: RuntimePlacement,
+  placementContext: ResolvedPlacementContext,
+  adapter: HarnessAdapter,
+  harnessId: HarnessId,
+  aspHome: string
+): Partial<HarnessRunOptions> {
+  const { manifest } = placementContext.materialization
+  if (!manifest) {
+    return {}
+  }
+
+  if (placement.bundle.kind === 'agent-project') {
+    return adapter.getDefaultRunOptions(manifest, placement.bundle.agentName)
+  }
+
+  if (placement.bundle.kind !== 'project-target') {
+    return {}
+  }
+
+  const targetName = placement.bundle.target
+  const target = manifest.targets[targetName]
+  const agentsRoot = getAgentsRoot({ aspHome })
+  const agentProfile = loadAgentProfileForRun(targetName, { agentsRoot })
+  const agentDefaults = agentProfile
+    ? resolveAgentRunDefaultsFromProfile(target, agentProfile)
+    : undefined
+  const primingPrompt = resolveAgentPrimingPromptForRun(target, agentProfile)
+  const effectiveManifest =
+    agentDefaults !== undefined
+      ? buildSyntheticRunManifest(manifest, targetName, agentDefaults, harnessId, primingPrompt)
+      : manifest
+
+  return adapter.getDefaultRunOptions(effectiveManifest, targetName)
+}
+
+export async function planPlacementRuntime(
+  options: PlanPlacementRuntimeOptions
+): Promise<PlacementRuntimePlan> {
+  const { placement, placementContext, frontend, aspHome } = options
+  const frontendEntry = getHarnessCatalogEntryByFrontend(frontend)
+  if (!frontendEntry) {
+    throw new Error(`Unknown harness frontend "${frontend}"`)
+  }
+
+  const adapter = harnessRegistry.getOrThrow(frontendEntry.id)
+  const defaultRunOptions = resolvePlacementPlannerDefaultRunOptions(
+    placement,
+    placementContext,
+    adapter,
+    frontendEntry.id,
+    aspHome
+  )
+  const model = resolvePlacementRuntimeModel(
+    adapter,
+    options.model,
+    defaultRunOptions,
+    placementContext.materialization.effectiveConfig
+  )
+  const defaultPrompt =
+    defaultRunOptions.prompt ?? placementContext.materialization.effectiveConfig?.priming_prompt
+  const prompt =
+    options.promptOverrideMode === 'truthy'
+      ? options.prompt || defaultPrompt
+      : (options.prompt ?? defaultPrompt)
+  const yolo =
+    options.yolo ?? defaultRunOptions.yolo ?? placementContext.materialization.effectiveConfig?.yolo
+  const cwd = placementContext.resolvedBundle.cwd
+  const runOptions: Partial<HarnessRunOptions> = {
+    ...defaultRunOptions,
+    aspHome,
+    interactive: resolveInteractive(options.interactive),
+    projectPath: cwd,
+    cwd,
+    ...(prompt !== undefined ? { prompt } : {}),
+    ...(yolo !== undefined ? { yolo } : {}),
+    ...(options.continuationKey !== undefined ? { continuationKey: options.continuationKey } : {}),
+    ...(placement.bundle.kind === 'agent-project'
+      ? { codexRuntimeTargetName: placement.bundle.agentName }
+      : {}),
+  }
+
+  if (model.ok) {
+    runOptions.model = model.info.model
+  }
+
+  return {
+    frontend,
+    harnessId: frontendEntry.id,
+    provider: frontendEntry.provider,
+    cwd,
+    defaultRunOptions,
+    ...(prompt !== undefined ? { prompt } : {}),
+    ...(yolo !== undefined ? { yolo } : {}),
+    model,
+    runOptions,
+  }
 }
 
 interface ExecuteHarnessResult {
@@ -859,18 +1042,7 @@ function loadAgentProfileForRun(
 }
 
 function resolveProfileHarnessForRun(harness: string | undefined): HarnessId | undefined {
-  switch (harness) {
-    case undefined:
-      return undefined
-    case 'claude-code':
-      return 'claude'
-    case 'codex-cli':
-      return 'codex'
-    case 'agent-sdk':
-      return 'claude-agent-sdk'
-    default:
-      return isHarnessId(harness) ? harness : undefined
-  }
+  return normalizeHarnessId(harness)
 }
 
 function resolveAgentPrimingPromptForRun(

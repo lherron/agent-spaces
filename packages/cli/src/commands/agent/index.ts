@@ -7,7 +7,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   formatScopeRef,
@@ -21,34 +21,120 @@ import { type AgentEvent, createAgentSpacesClient } from 'agent-spaces'
 import type { Command } from 'commander'
 import {
   type RuntimePlacement,
+  type TargetDefinition,
   getAgentsRoot,
   getProjectsRoot,
+  mergeAgentWithProjectTarget,
+  parseAgentProfile,
+  parseTargetsToml,
+  resolveAgentPrimingPrompt,
+  normalizeHarnessFrontend as resolveHarnessFrontendName,
+  resolveHarnessProvider,
   resolvePlacement,
 } from 'spaces-config'
 import { buildBundleRef, parseEnvFlags } from './shared.js'
 
 const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance', 'resolve'] as const
 type RunMode = (typeof VALID_MODES)[number]
+type ExecuteMode = Exclude<RunMode, 'resolve'>
 
 /** Map display names and aliases to internal HarnessId values */
 function normalizeHarness(input: string): { frontend: string; provider: 'anthropic' | 'openai' } {
-  switch (input) {
-    case 'claude-code':
-    case 'claude':
-      return { frontend: 'claude-code', provider: 'anthropic' }
-    case 'codex-cli':
-    case 'codex':
-      return { frontend: 'codex-cli', provider: 'openai' }
-    case 'agent-sdk':
-    case 'claude-agent-sdk':
-      return { frontend: 'agent-sdk', provider: 'anthropic' }
-    case 'pi-sdk':
-      return { frontend: 'pi-sdk', provider: 'anthropic' }
-    default:
-      throw new Error(
-        `Invalid harness "${input}". Must be one of: claude-code, claude, codex-cli, codex, agent-sdk, claude-agent-sdk, pi-sdk`
-      )
+  const frontend = resolveHarnessFrontendName(input)
+  const provider = resolveHarnessProvider(input)
+  if (!frontend || !provider) {
+    throw new Error(
+      `Invalid harness "${input}". Must be one of: claude-code, claude, codex-cli, codex, agent-sdk, claude-agent-sdk, pi-sdk`
+    )
   }
+  return { frontend, provider }
+}
+
+function normalizeConfiguredHarness(input: string | undefined): string | undefined {
+  return resolveHarnessFrontendName(input)
+}
+
+function loadProjectTarget(
+  projectRoot: string | undefined,
+  targetName: string
+): TargetDefinition | undefined {
+  if (!projectRoot) {
+    return undefined
+  }
+
+  const targetsPath = join(projectRoot, 'asp-targets.toml')
+  if (!existsSync(targetsPath)) {
+    return undefined
+  }
+
+  const parsed = parseTargetsToml(readFileSync(targetsPath, 'utf8'), targetsPath)
+  return parsed.targets[targetName]
+}
+
+function loadAgentProfile(agentRoot: string): ReturnType<typeof parseAgentProfile> | undefined {
+  const profilePath = join(agentRoot, 'agent-profile.toml')
+  if (!existsSync(profilePath)) {
+    return undefined
+  }
+
+  const source = readFileSync(profilePath, 'utf8').replace(
+    /^(\s*)schema_version(\s*=)/m,
+    '$1schemaVersion$2'
+  )
+  return parseAgentProfile(source, profilePath)
+}
+
+function resolveHarnessOption(
+  scopeRef: string,
+  runMode: ExecuteMode,
+  options: AgentCommandOptions
+): string {
+  const explicitHarness = normalizeConfiguredHarness(options.harness)
+  if (explicitHarness) {
+    return explicitHarness
+  }
+
+  if (!options.agentRoot) {
+    return 'claude-code'
+  }
+
+  const bundle = buildBundleRef({
+    ...options,
+    agentName: parseScopeRef(scopeRef).agentId,
+    agentRoot: options.agentRoot,
+    projectRoot: options.projectRoot,
+  })
+
+  if (bundle.kind === 'compose') {
+    return 'claude-code'
+  }
+
+  if (bundle.kind === 'project-target') {
+    return (
+      normalizeConfiguredHarness(loadProjectTarget(bundle.projectRoot, bundle.target)?.harness) ??
+      'claude-code'
+    )
+  }
+
+  const profile = loadAgentProfile(options.agentRoot)
+  if (!profile) {
+    return 'claude-code'
+  }
+
+  if (bundle.kind === 'agent-project') {
+    const primingPrompt = resolveAgentPrimingPrompt(profile, options.agentRoot)
+    const effective = mergeAgentWithProjectTarget(
+      {
+        ...profile,
+        ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
+      },
+      loadProjectTarget(bundle.projectRoot, bundle.agentName),
+      runMode
+    )
+    return normalizeConfiguredHarness(effective.harness) ?? 'claude-code'
+  }
+
+  return normalizeConfiguredHarness(profile.identity?.harness) ?? 'claude-code'
 }
 
 interface AgentCommandOptions {
@@ -143,10 +229,6 @@ export function registerAgentCommands(program: Command): void {
           }
         }
 
-        if (!options.harness) {
-          options.harness = 'claude-code'
-        }
-
         if (mode === 'resolve') {
           await handleResolve(canonicalRef, options)
         } else {
@@ -224,15 +306,18 @@ async function handleExecute(
       '--agent-root is required (or set ASP_AGENTS_ROOT env var / agents-root in $ASP_HOME/config.toml)'
     )
   }
-  if (!options.harness) throw new Error('--harness is required')
 
   const { scopeRef: canonicalRef, laneId } = resolveInput(scopeRef, options.laneRef)
 
   if (!VALID_MODES.includes(mode as RunMode)) {
     throw new Error(`Invalid mode "${mode}". Must be one of: ${VALID_MODES.join(', ')}`)
   }
-  const runMode = mode as RunMode
-  const { frontend, provider } = normalizeHarness(options.harness)
+  if (mode === 'resolve') {
+    throw new Error('resolve mode must be handled by handleResolve')
+  }
+  const runMode = mode as ExecuteMode
+  const harness = resolveHarnessOption(canonicalRef, runMode, options)
+  const { frontend, provider } = normalizeHarness(harness)
 
   // Resolve prompt
   const prompt = resolvePrompt(positionalPrompt, options)
@@ -311,6 +396,7 @@ async function handleExecute(
       placement,
       frontend: frontend as 'agent-sdk' | 'pi-sdk',
       model: options.model,
+      yolo: options.yolo,
       continuation,
       env: envVars,
       prompt: prompt ?? '',
@@ -325,7 +411,7 @@ async function handleExecute(
       },
       hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
       runId: options.runId ?? '',
-    } as Parameters<typeof client.runTurnNonInteractive>[0])
+    } as unknown as Parameters<typeof client.runTurnNonInteractive>[0])
     if (!response.result.success) process.exit(1)
   }
 }

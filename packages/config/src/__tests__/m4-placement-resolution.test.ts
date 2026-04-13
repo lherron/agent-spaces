@@ -581,3 +581,114 @@ describe('SOUL.md enforcement (T-00889)', () => {
     // In dry-run, soul slot is absent but that's OK
   })
 })
+
+// ===================================================================
+// T-01094: richer placement materialization context
+// ===================================================================
+describe('resolvePlacementContext materialization (T-01094)', () => {
+  test('agent-project returns effective config and synthetic manifest for downstream planning', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'placement-context-'))
+
+    try {
+      const agentRoot = join(tempDir, 'agent-root')
+      const projectRoot = join(tempDir, 'project-root')
+
+      mkdirSync(agentRoot, { recursive: true })
+      mkdirSync(projectRoot, { recursive: true })
+
+      writeFileSync(join(agentRoot, 'SOUL.md'), '# Test Agent\n')
+      writeFileSync(
+        join(agentRoot, 'agent-profile.toml'),
+        `
+schemaVersion = 2
+priming_prompt = "Agent prompt"
+
+[identity]
+harness = "codex"
+
+[spaces]
+base = ["space:agent-base@dev"]
+
+[harnessDefaults]
+model = "gpt-5.4"
+`
+      )
+
+      writeFileSync(
+        join(projectRoot, 'asp-targets.toml'),
+        `
+schema = 1
+
+[targets.smokey]
+compose_mode = "merge"
+compose = ["space:project-extra@dev"]
+priming_prompt_append = "Project append"
+yolo = true
+harness = "codex"
+
+[targets.smokey.codex]
+model = "gpt-5.3-codex"
+`
+      )
+
+      const { resolvePlacementContext } = await import('../resolver/placement-resolver.js')
+      const context = await resolvePlacementContext({
+        agentRoot,
+        projectRoot,
+        runMode: 'query',
+        bundle: {
+          kind: 'agent-project',
+          agentName: 'smokey',
+          projectRoot,
+        },
+      })
+
+      expect(context.materialization.spec).toEqual({
+        kind: 'spaces',
+        spaces: ['space:agent-base@dev', 'space:project-extra@dev'],
+      })
+      expect(context.materialization.effectiveConfig).toMatchObject({
+        priming_prompt: 'Agent prompt\nProject append',
+        yolo: true,
+        harness: 'codex',
+        model: 'gpt-5.3-codex',
+      })
+      expect(context.materialization.manifest?.targets.smokey).toMatchObject({
+        compose: ['space:agent-base@dev', 'space:project-extra@dev'],
+        priming_prompt: 'Agent prompt\nProject append',
+        yolo: true,
+        harness: 'codex',
+      })
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('project-target returns target materialization spec and manifest', async () => {
+    const { resolvePlacementContext } = await import('../resolver/placement-resolver.js')
+    const roots = createTempFixtureRoots()
+
+    try {
+      const context = await resolvePlacementContext({
+        agentRoot: roots.agentRoot,
+        projectRoot: roots.projectRoot,
+        runMode: 'task',
+        bundle: {
+          kind: 'project-target',
+          projectRoot: roots.projectRoot,
+          target: 'codex-fast',
+        },
+      })
+
+      expect(context.materialization.spec).toEqual({
+        kind: 'target',
+        targetName: 'codex-fast',
+        targetDir: roots.projectRoot,
+      })
+      expect(context.materialization.manifest?.targets['codex-fast']).toBeDefined()
+      expect(context.resolvedBundle.cwd).toBe(roots.projectRoot)
+    } finally {
+      roots.cleanup()
+    }
+  })
+})

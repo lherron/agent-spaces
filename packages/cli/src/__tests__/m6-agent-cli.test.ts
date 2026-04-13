@@ -183,6 +183,23 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
 })
 
 // ===================================================================
+// T-01092: pi-sdk provider mapping
+// ===================================================================
+describe('pi-sdk provider mapping (T-01092)', () => {
+  test('normalizeHarness delegates provider/frontend resolution to shared catalog helpers', () => {
+    const source = readFileSync(
+      join(import.meta.dirname, '..', 'commands', 'agent', 'index.ts'),
+      'utf8'
+    )
+    const fn = source.match(/function normalizeHarness[\s\S]*?^}/m)?.[0]
+
+    expect(fn).toBeDefined()
+    expect(fn).toMatch(/const frontend = resolveHarnessFrontendName\(input\)/)
+    expect(fn).toMatch(/const provider = resolveHarnessProvider\(input\)/)
+  })
+})
+
+// ===================================================================
 // T-00866: asp agent resolve <scope-ref>
 // ===================================================================
 describe('asp agent resolve (T-00866)', () => {
@@ -948,8 +965,8 @@ describe('pi-sdk placement path (T-00879)', () => {
     // Extract the runPlacementTurnNonInteractive function body
     const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
     expect(runFn).toBeDefined()
-    // Must use placementToSpec + materializeSpec (unified pipeline)
-    expect(runFn).toMatch(/placementToSpec\(/)
+    // Must use resolvePlacementContext + materializeSpec (unified pipeline)
+    expect(runFn).toMatch(/resolvePlacementContext\(/)
     expect(runFn).toMatch(/materializeSpec\(/)
     // Pi-sdk should load bundle from materialized output (composeTarget produces bundle.json)
     expect(runFn).toMatch(/loadPiSdkBundle\(materialized/)

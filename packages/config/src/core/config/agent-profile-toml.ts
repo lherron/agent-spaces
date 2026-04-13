@@ -3,21 +3,12 @@ import TOML from '@iarna/toml'
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import type { AgentRuntimeProfile, HarnessSettings, RunMode } from '../types/agent-profile.js'
 import type { AgentIdentity } from '../types/agent-profile.js'
+import { resolveHarnessCatalogEntry } from '../types/harness.js'
 import { type SpaceRefString, isSpaceRefString } from '../types/refs.js'
 import type { ClaudeOptions, CodexOptions } from '../types/targets.js'
 
 const AGENT_PROFILE_FILENAME = 'agent-profile.toml'
 const RUN_MODES = new Set<RunMode>(['query', 'heartbeat', 'task', 'maintenance'])
-const IDENTITY_HARNESSES = new Set([
-  'claude-code',
-  'claude',
-  'codex-cli',
-  'codex',
-  'agent-sdk',
-  'claude-agent-sdk',
-  'pi',
-  'pi-sdk',
-])
 const CODEX_APPROVAL_POLICIES = new Set(['untrusted', 'on-failure', 'on-request', 'never'])
 const CODEX_SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 
@@ -260,7 +251,7 @@ function parseIdentity(value: unknown, source: string, path: string): AgentIdent
     if (typeof raw !== 'string') {
       fail(source, `${path}/${key}`, 'must be a string', 'type')
     }
-    if (key === 'harness' && !IDENTITY_HARNESSES.has(raw)) {
+    if (key === 'harness' && !resolveHarnessCatalogEntry(raw)) {
       fail(source, `${path}/${key}`, `unsupported harness "${raw}"`, 'enum')
     }
     identity[key as keyof AgentIdentity] = raw

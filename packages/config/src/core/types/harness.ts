@@ -18,6 +18,24 @@ import type { CodexOptions, ProjectManifest } from './targets.js'
 /** Supported harness identifiers */
 export type HarnessId = 'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk' | 'codex'
 
+/** Provider family for a harness. */
+export type HarnessProvider = 'anthropic' | 'openai'
+
+/** Provider-facing frontend identifier used by placement/runtime APIs. */
+export type HarnessFrontend = 'agent-sdk' | 'pi-sdk' | 'claude-code' | 'codex-cli'
+
+/** Runtime transport family for a harness. */
+export type HarnessTransport = 'cli' | 'sdk'
+
+/** Canonical metadata for a harness variant. */
+export interface HarnessCatalogEntry {
+  id: HarnessId
+  aliases: readonly string[]
+  provider: HarnessProvider
+  transport: HarnessTransport
+  frontend?: HarnessFrontend | undefined
+}
+
 /** All known harness IDs */
 export const HARNESS_IDS: readonly HarnessId[] = [
   'claude',
@@ -27,9 +45,135 @@ export const HARNESS_IDS: readonly HarnessId[] = [
   'codex',
 ] as const
 
+/** Frontends that can be used via placement/runtime APIs. */
+export const HARNESS_FRONTENDS: readonly HarnessFrontend[] = [
+  'agent-sdk',
+  'pi-sdk',
+  'claude-code',
+  'codex-cli',
+] as const
+
+/** Known provider families. */
+export const HARNESS_PROVIDERS: readonly HarnessProvider[] = ['anthropic', 'openai'] as const
+
+/** Canonical harness metadata shared across config, runtime, and CLIs. */
+export const HARNESS_CATALOG: readonly HarnessCatalogEntry[] = [
+  {
+    id: 'claude',
+    aliases: ['claude-code'],
+    provider: 'anthropic',
+    transport: 'cli',
+    frontend: 'claude-code',
+  },
+  {
+    id: 'claude-agent-sdk',
+    aliases: ['agent-sdk'],
+    provider: 'anthropic',
+    transport: 'sdk',
+    frontend: 'agent-sdk',
+  },
+  {
+    id: 'pi',
+    aliases: [],
+    provider: 'openai',
+    transport: 'cli',
+  },
+  {
+    id: 'pi-sdk',
+    aliases: [],
+    provider: 'openai',
+    transport: 'sdk',
+    frontend: 'pi-sdk',
+  },
+  {
+    id: 'codex',
+    aliases: ['codex-cli'],
+    provider: 'openai',
+    transport: 'cli',
+    frontend: 'codex-cli',
+  },
+] as const
+
+const HARNESS_CATALOG_BY_ID = new Map<HarnessId, HarnessCatalogEntry>(
+  HARNESS_CATALOG.map((entry) => [entry.id, entry])
+)
+const HARNESS_CATALOG_BY_FRONTEND = new Map<HarnessFrontend, HarnessCatalogEntry>(
+  HARNESS_CATALOG.flatMap((entry) => (entry.frontend ? [[entry.frontend, entry]] : []))
+)
+const HARNESS_CATALOG_BY_NAME = new Map<string, HarnessCatalogEntry>()
+
+for (const entry of HARNESS_CATALOG) {
+  HARNESS_CATALOG_BY_NAME.set(entry.id, entry)
+  for (const alias of entry.aliases) {
+    HARNESS_CATALOG_BY_NAME.set(alias, entry)
+  }
+  if (entry.frontend) {
+    HARNESS_CATALOG_BY_NAME.set(entry.frontend, entry)
+  }
+}
+
+/** All accepted harness names, including internal ids, aliases, and frontends. */
+export const HARNESS_NAMES: readonly string[] = [...HARNESS_CATALOG_BY_NAME.keys()]
+
 /** Type guard for HarnessId */
 export function isHarnessId(value: string): value is HarnessId {
   return HARNESS_IDS.includes(value as HarnessId)
+}
+
+/** Return the catalog entry for an internal harness id. */
+export function getHarnessCatalogEntry(id: HarnessId): HarnessCatalogEntry {
+  const entry = HARNESS_CATALOG_BY_ID.get(id)
+  if (!entry) {
+    throw new Error(`Unknown harness id "${id}"`)
+  }
+  return entry
+}
+
+/** Return the catalog entry for a placement/runtime frontend. */
+export function getHarnessCatalogEntryByFrontend(
+  frontend: HarnessFrontend
+): HarnessCatalogEntry | undefined {
+  return HARNESS_CATALOG_BY_FRONTEND.get(frontend)
+}
+
+/** Resolve a harness name, alias, or frontend to its canonical catalog entry. */
+export function resolveHarnessCatalogEntry(
+  value: string | undefined
+): HarnessCatalogEntry | undefined {
+  if (!value) return undefined
+  return HARNESS_CATALOG_BY_NAME.get(value)
+}
+
+/** Normalize any accepted harness name to its internal harness id. */
+export function normalizeHarnessId(value: string | undefined): HarnessId | undefined {
+  return resolveHarnessCatalogEntry(value)?.id
+}
+
+/** Normalize any accepted harness name to its placement/runtime frontend. */
+export function normalizeHarnessFrontend(value: string | undefined): HarnessFrontend | undefined {
+  return resolveHarnessCatalogEntry(value)?.frontend
+}
+
+/** Resolve the provider family for any accepted harness name. */
+export function resolveHarnessProvider(value: string | undefined): HarnessProvider | undefined {
+  return resolveHarnessCatalogEntry(value)?.provider
+}
+
+/** Resolve the preferred placement/runtime frontend for a provider/transport pair. */
+export function resolveHarnessFrontendForProvider(
+  provider: HarnessProvider,
+  transport: HarnessTransport
+): HarnessFrontend | undefined {
+  return HARNESS_CATALOG.find(
+    (entry) => entry.provider === provider && entry.transport === transport && entry.frontend
+  )?.frontend
+}
+
+/** List all placement/runtime frontends available for a provider family. */
+export function getHarnessFrontendsForProvider(provider: HarnessProvider): HarnessFrontend[] {
+  return HARNESS_CATALOG.filter((entry) => entry.provider === provider && entry.frontend).map(
+    (entry) => entry.frontend as HarnessFrontend
+  )
 }
 
 /** Check if a space supports a harness (including alias compatibility) */
