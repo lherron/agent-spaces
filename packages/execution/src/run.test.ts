@@ -234,6 +234,19 @@ describe('placement runtime planner (T-01097)', () => {
   })
 })
 
+describe('project-target runtime planner (T-01099)', () => {
+  test('run.ts routes asp run target planning through a shared helper', async () => {
+    const source = await readFile(join(SOURCE_DIR, 'run.ts'), 'utf-8')
+
+    expect(source).toContain('function planProjectTargetRuntime')
+    expect(source).toContain('const runtimePlan = planProjectTargetRuntime(manifest, targetName, {')
+    expect(source).toContain('planProjectTargetRuntime(')
+    expect(source).toContain(
+      'const effectivePrompt = combinePrompts(defaultPrompt, options.prompt)'
+    )
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Agent-local skills/commands discovery threading (T-01067)
 //

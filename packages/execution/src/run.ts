@@ -306,6 +306,16 @@ export interface PlanPlacementRuntimeOptions {
   continuationKey?: string | boolean | undefined
 }
 
+interface ProjectTargetRuntimePlan {
+  target: TargetDefinition | undefined
+  agentProfile: LoadedAgentProfile | undefined
+  harnessId: HarnessId
+  adapter: HarnessAdapter
+  defaultPrompt?: string | undefined
+  effectiveCompose?: SpaceRefString[] | undefined
+  defaultRunOptions: Partial<HarnessRunOptions>
+}
+
 function parsePlacementRuntimeModelId(modelId: string): PlacementRuntimeModelInfo | null {
   const separatorIndex = modelId.indexOf('/')
   if (separatorIndex === -1) {
@@ -350,40 +360,44 @@ function resolvePlacementRuntimeModel(
   return { ok: true, info }
 }
 
-function resolvePlacementPlannerDefaultRunOptions(
-  placement: RuntimePlacement,
-  placementContext: ResolvedPlacementContext,
-  adapter: HarnessAdapter,
-  harnessId: HarnessId,
-  aspHome: string
-): Partial<HarnessRunOptions> {
-  const { manifest } = placementContext.materialization
-  if (!manifest) {
-    return {}
+function planProjectTargetRuntime(
+  manifest: ProjectManifest,
+  targetName: string,
+  options: {
+    aspHome: string
+    harness?: HarnessId | undefined
   }
-
-  if (placement.bundle.kind === 'agent-project') {
-    return adapter.getDefaultRunOptions(manifest, placement.bundle.agentName)
-  }
-
-  if (placement.bundle.kind !== 'project-target') {
-    return {}
-  }
-
-  const targetName = placement.bundle.target
+): ProjectTargetRuntimePlan {
   const target = manifest.targets[targetName]
-  const agentsRoot = getAgentsRoot({ aspHome })
-  const agentProfile = loadAgentProfileForRun(targetName, { agentsRoot })
+  const agentProfile = loadAgentProfileForRun(targetName, {
+    agentsRoot: getAgentsRoot({ aspHome: options.aspHome }),
+  })
   const agentDefaults = agentProfile
     ? resolveAgentRunDefaultsFromProfile(target, agentProfile)
     : undefined
+  const harnessId =
+    options.harness ??
+    resolveProfileHarnessForRun(agentDefaults?.harness) ??
+    resolveProfileHarnessForRun(target?.harness) ??
+    DEFAULT_HARNESS
+  const adapter = harnessRegistry.getOrThrow(harnessId)
   const primingPrompt = resolveAgentPrimingPromptForRun(target, agentProfile)
   const effectiveManifest =
     agentDefaults !== undefined
       ? buildSyntheticRunManifest(manifest, targetName, agentDefaults, harnessId, primingPrompt)
       : manifest
+  const defaultRunOptions = adapter.getDefaultRunOptions(effectiveManifest, targetName)
+  const defaultPrompt = defaultRunOptions.prompt ?? primingPrompt
 
-  return adapter.getDefaultRunOptions(effectiveManifest, targetName)
+  return {
+    target,
+    agentProfile,
+    harnessId,
+    adapter,
+    ...(defaultPrompt !== undefined ? { defaultPrompt } : {}),
+    ...(agentDefaults?.compose !== undefined ? { effectiveCompose: agentDefaults.compose } : {}),
+    defaultRunOptions,
+  }
 }
 
 export async function planPlacementRuntime(
@@ -396,13 +410,23 @@ export async function planPlacementRuntime(
   }
 
   const adapter = harnessRegistry.getOrThrow(frontendEntry.id)
-  const defaultRunOptions = resolvePlacementPlannerDefaultRunOptions(
-    placement,
-    placementContext,
-    adapter,
-    frontendEntry.id,
-    aspHome
-  )
+  const defaultRunOptions = !placementContext.materialization.manifest
+    ? {}
+    : placement.bundle.kind === 'agent-project'
+      ? adapter.getDefaultRunOptions(
+          placementContext.materialization.manifest,
+          placement.bundle.agentName
+        )
+      : placement.bundle.kind === 'project-target'
+        ? planProjectTargetRuntime(
+            placementContext.materialization.manifest,
+            placement.bundle.target,
+            {
+              aspHome,
+              harness: frontendEntry.id,
+            }
+          ).defaultRunOptions
+        : {}
   const model = resolvePlacementRuntimeModel(
     adapter,
     options.model,
@@ -1177,30 +1201,31 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     }
   }
 
+  const aspHome = options.aspHome ?? getAspHome()
   debugLog('load manifest')
-  const manifest = await loadProjectManifest(options.projectPath, options.aspHome)
+  const manifest = await loadProjectManifest(options.projectPath, aspHome)
   debugLog('manifest ok')
 
-  const target = manifest.targets[targetName]
-  const agentProfile = loadAgentProfileForRun(targetName)
+  const runtimePlan = planProjectTargetRuntime(manifest, targetName, {
+    aspHome,
+    harness: options.harness,
+  })
+  const {
+    agentProfile,
+    harnessId,
+    adapter,
+    defaultPrompt,
+    effectiveCompose,
+    defaultRunOptions: defaults,
+  } = runtimePlan
   const agentLocalComponents = agentProfile
     ? await detectAgentLocalComponents(agentProfile.agentRoot)
     : undefined
-  const agentDefaults = agentProfile
-    ? resolveAgentRunDefaultsFromProfile(target, agentProfile)
-    : undefined
-  const harnessId =
-    options.harness ??
-    resolveProfileHarnessForRun(agentDefaults?.harness) ??
-    resolveProfileHarnessForRun(target?.harness) ??
-    DEFAULT_HARNESS
-  const adapter = harnessRegistry.getOrThrow(harnessId)
 
   debugLog('detect harness', harnessId)
   const detection = await adapter.detect()
   debugLog('detect ok', detection.available ? (detection.version ?? 'unknown') : 'unavailable')
 
-  const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
   const harnessOutputPath = adapter.getTargetOutputPath(
     paths.projectTargets(options.projectPath),
@@ -1215,7 +1240,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const lockPath = join(options.projectPath, LOCK_FILENAME)
   const lockExists = await lockFileExists(lockPath)
   const existingLock = lockExists ? await readLockJson(lockPath) : undefined
-  const effectiveCompose = agentDefaults?.compose
   const composeChanged =
     effectiveCompose !== undefined &&
     !composeArraysMatch(effectiveCompose, existingLock?.targets[targetName]?.compose ?? [])
@@ -1262,16 +1286,9 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   }
 
   const bundle = await adapter.loadTargetBundle(harnessOutputPath, targetName)
-  const primingPrompt = resolveAgentPrimingPromptForRun(target, agentProfile)
-  const effectiveManifest =
-    agentDefaults !== undefined
-      ? buildSyntheticRunManifest(manifest, targetName, agentDefaults, harnessId, primingPrompt)
-      : manifest
-  const defaults = adapter.getDefaultRunOptions(effectiveManifest, targetName)
-
-  const effectivePrompt = combinePrompts(defaults.prompt ?? primingPrompt, options.prompt)
+  const effectivePrompt = combinePrompts(defaultPrompt, options.prompt)
   const cliRunOptions: HarnessRunOptions = {
-    aspHome: options.aspHome,
+    aspHome,
     model: options.model,
     modelReasoningEffort: options.modelReasoningEffort,
     extraArgs: options.extraArgs,
