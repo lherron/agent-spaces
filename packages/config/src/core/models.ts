@@ -85,6 +85,8 @@ export function normalizeAgentSdkModel(model: string): AgentSdkModelAlias {
     case 'opus-4-6':
       return model
     case CLAUDE_OPUS_4_6:
+    case CLAUDE_OPUS_4_6_1M:
+    case ALIAS_OPUS_1M:
       return 'opus-4-6'
     default:
       throw new Error(`Unsupported agent-sdk model: ${model}`)
