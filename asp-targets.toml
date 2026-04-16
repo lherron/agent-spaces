@@ -26,7 +26,7 @@ priming_prompt_append = """
 model_reasoning_effort = "medium"
 [targets.curly]
 description = "Curly for agent-spaces"
-compose = ["space:defaults@dev"]
+compose = ["space:defaults@dev", "space:praesidium-defaults@dev"]
 priming_prompt_append = """
 
 ## Project: agent-spaces

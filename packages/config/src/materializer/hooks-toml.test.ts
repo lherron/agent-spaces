@@ -307,6 +307,61 @@ describe('toClaudeHooksConfig', () => {
     expect(config.hooks.SessionStart).toHaveLength(1)
     expect(config.hooks.SessionStart?.[0]?.matcher).toBeUndefined()
   })
+
+  it('materializes Claude lifecycle hooks with matcher and plugin-rooted commands', () => {
+    const hooks: CanonicalHookDefinition[] = [
+      {
+        event: 'session_start',
+        matcher: 'startup',
+        script: 'hooks/scripts/session-ready.sh',
+        harness: 'claude',
+      },
+      {
+        event: 'user_prompt_submit',
+        script: 'hooks/scripts/turn-started.sh',
+        harness: 'claude',
+      },
+      {
+        event: 'stop',
+        script: 'hooks/scripts/turn-stopped.sh',
+        harness: 'claude',
+      },
+    ]
+
+    const config = toClaudeHooksConfig(hooks)
+
+    expect(config.hooks.SessionStart).toEqual([
+      {
+        matcher: 'startup',
+        hooks: [
+          {
+            type: 'command',
+            command: '${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-ready.sh',
+          },
+        ],
+      },
+    ])
+    expect(config.hooks.UserPromptSubmit).toEqual([
+      {
+        hooks: [
+          {
+            type: 'command',
+            command: '${CLAUDE_PLUGIN_ROOT}/hooks/scripts/turn-started.sh',
+          },
+        ],
+      },
+    ])
+    expect(config.hooks.Stop).toEqual([
+      {
+        hooks: [
+          {
+            type: 'command',
+            command: '${CLAUDE_PLUGIN_ROOT}/hooks/scripts/turn-stopped.sh',
+          },
+        ],
+      },
+    ])
+  })
 })
 
 describe('generateClaudeHooksJson', () => {

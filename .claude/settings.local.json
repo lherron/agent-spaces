@@ -12,7 +12,9 @@
       "Bash(mkdir -p /tmp/ani-skill-backup)",
       "Bash(mv /Users/lherron/praesidium/agent-spaces/asp_modules/animan/claude/plugins/000-ani-defaults/skills/ani-operations /tmp/ani-skill-backup/)",
       "Bash(asp install:*)",
-      "Bash(asp run:*)"
+      "Bash(asp run:*)",
+      "Bash(bun test *)",
+      "Bash(agentchat dm *)"
     ]
   }
 }
