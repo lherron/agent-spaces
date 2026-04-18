@@ -1,6 +1,6 @@
 {
   "name": "@lherron/agent-spaces",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "description": "Command line interface for Agent Spaces v2",
   "repository": {
     "type": "git",
@@ -91,26 +91,29 @@
     "spaces-harness-pi",
     "spaces-harness-pi-sdk"
   ],
-  "bundledDependencies": [
-    "agent-scope",
-    "agent-spaces",
-    "spaces-config",
-    "spaces-execution",
-    "spaces-runtime",
-    "spaces-harness-claude",
-    "spaces-harness-codex",
-    "spaces-harness-pi",
-    "spaces-harness-pi-sdk"
-  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "prepack": "mkdir -p node_modules && for pkg in config runtime harness-claude harness-pi harness-pi-sdk harness-codex execution; do mkdir -p node_modules/spaces-\"$pkg\" && cp -r ../\"$pkg\"/dist node_modules/spaces-\"$pkg\"/ && cp ../\"$pkg\"/package.json node_modules/spaces-\"$pkg\"/; done && mkdir -p node_modules/agent-spaces && cp -r ../agent-spaces/dist node_modules/agent-spaces/ && cp ../agent-spaces/package.json node_modules/agent-spaces/ && mkdir -p node_modules/agent-scope && cp -r ../agent-scope/dist node_modules/agent-scope/ && cp ../agent-scope/package.json node_modules/agent-scope/"
+    "prepack": "bun scripts/prepack.ts",
+    "postpack": "bun scripts/postpack.ts"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.72",
+    "@iarna/toml": "^2.2.5",
+    "@mariozechner/pi-coding-agent": "^0.63.1",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "figures": "^6.1.0",
+    "ora": "^9.0.0",
+    "proper-lockfile": "^4.1.2",
+    "semver": "^7.7.2"
+  },
+  "optionalDependencies": {
     "agent-scope": "*",
     "agent-spaces": "*",
     "spaces-config": "*",
@@ -119,11 +122,7 @@
     "spaces-harness-claude": "*",
     "spaces-harness-codex": "*",
     "spaces-harness-pi": "*",
-    "spaces-harness-pi-sdk": "*",
-    "chalk": "^5.3.0",
-    "commander": "^12.1.0",
-    "figures": "^6.1.0",
-    "ora": "^9.0.0"
+    "spaces-harness-pi-sdk": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",
