@@ -695,15 +695,24 @@ export class CodexAdapter implements HarnessAdapter {
     const approvalPolicy = options.yolo ? 'never' : options.approvalPolicy
     const sandboxMode = options.yolo ? 'danger-full-access' : options.sandboxMode
 
-    // Resume mode: codex resume [--last | session-id]
-    if (isResumeMode) {
-      args.push('resume')
+    // Resume mode: interactive `codex resume [session-id]` or
+    // headless `codex exec resume <session-id> <prompt>`.
+    if (isResumeMode && isExecMode) {
+      args.push('exec', 'resume')
       if (typeof options.continuationKey === 'string') {
-        // If a specific session ID is provided, use it
-        // Codex resume takes session ID as positional arg or uses --last
         args.push(options.continuationKey)
       }
-      // If continuationKey is just `true`, codex resume will open the picker
+      if (options.prompt) {
+        args.push(options.prompt)
+      }
+    } else if (isResumeMode) {
+      args.push('resume')
+      if (typeof options.continuationKey === 'string') {
+        args.push(options.continuationKey)
+      }
+      if (options.prompt) {
+        args.push(options.prompt)
+      }
     } else if (isExecMode) {
       args.push('exec')
       if (options.prompt) {
@@ -728,7 +737,13 @@ export class CodexAdapter implements HarnessAdapter {
       }
     }
     if (sandboxMode) {
-      args.push('--sandbox', sandboxMode)
+      // `codex exec resume` doesn't accept --sandbox as a flag — use a config
+      // override which both `codex exec` and `codex exec resume` accept.
+      if (isExecMode && isResumeMode) {
+        args.push('-c', `sandbox_mode="${sandboxMode}"`)
+      } else {
+        args.push('--sandbox', sandboxMode)
+      }
     }
     if (options.profile) {
       args.push('--profile', options.profile)
