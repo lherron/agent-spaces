@@ -80,6 +80,18 @@ export {
 // Terminal pager
 export { paginate } from './pager.js'
 
+// Prompt display formatting (shared by `asp run` and `hrc launch exec`)
+export {
+  displayPrompts,
+  displayCommand,
+  formatDisplayCommand,
+  renderSection,
+  renderKeyValueSection,
+  type DisplayPromptOptions,
+  type PromptSection,
+  type PromptBudget,
+} from './prompt-display.js'
+
 /**
  * Install options (with automatic harness adapter resolution)
  */

@@ -77,6 +77,8 @@ export {
   prepareCodexRuntimeHome,
 } from './run-codex.js'
 
+import { formatDisplayCommand, renderSection } from './prompt-display.js'
+
 function shellQuote(value: string): string {
   if (/^[a-zA-Z0-9_./-]+$/.test(value)) return value
   return `'${value.replace(/'/g, "'\\''")}'`
@@ -84,40 +86,6 @@ function shellQuote(value: string): string {
 
 function formatCommand(commandPath: string, args: string[]): string {
   return [shellQuote(commandPath), ...args.map(shellQuote)].join(' ')
-}
-
-const PROMPT_FLAGS = new Set(['--system-prompt', '--append-system-prompt'])
-const LONG_ARG_THRESHOLD = 200
-
-/** Format command for display, truncating long prompt values. */
-function formatDisplayCommand(commandPath: string, args: string[]): string {
-  const parts: string[] = [shellQuote(commandPath)]
-  let pastSeparator = false
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === undefined) {
-      continue
-    }
-    if (arg === '--') {
-      pastSeparator = true
-      parts.push(arg)
-      continue
-    }
-    if (PROMPT_FLAGS.has(arg) && i + 1 < args.length) {
-      const value = args[i + 1]
-      if (value === undefined) {
-        continue
-      }
-      parts.push(shellQuote(arg))
-      parts.push(`'<${value.length.toLocaleString()} chars>'`)
-      i++
-    } else if (pastSeparator && arg.length > LONG_ARG_THRESHOLD) {
-      parts.push(`'<${arg.length.toLocaleString()} chars>'`)
-    } else {
-      parts.push(shellQuote(arg))
-    }
-  }
-  return parts.join(' ')
 }
 
 /**
@@ -554,30 +522,6 @@ async function executeHarnessCommand(
   })
 }
 
-/**
- * Render a framed prompt section to lines (does not print).
- */
-function renderPromptSectionLines(
-  title: string,
-  content: string,
-  color: (text: string) => string
-): string[] {
-  const width = 72
-  const lines: string[] = []
-  const titleSegment = `─ ${title} `
-  const rule = '─'.repeat(Math.max(0, width - titleSegment.length - 1))
-  lines.push(color(`┌${titleSegment}`) + chalk.dim(rule))
-  lines.push(chalk.dim('│'))
-  for (const line of content.split('\n')) {
-    lines.push(chalk.dim('│  ') + line)
-  }
-  lines.push(chalk.dim('│'))
-  const meta = ` ${content.length.toLocaleString()} chars`
-  const bottomRule = '─'.repeat(Math.max(0, width - meta.length - 1))
-  lines.push(chalk.dim(`└${bottomRule}${meta}`))
-  return lines
-}
-
 async function executeHarnessRun(
   adapter: HarnessAdapter,
   detection: HarnessDetection,
@@ -632,21 +576,33 @@ async function executeHarnessRun(
         ? 'System Prompt (append)'
         : 'System Prompt (replace)'
     allLines.push(
-      ...renderPromptSectionLines(promptTitle, preparedRunOptions.systemPrompt, chalk.cyan)
+      ...renderSection({
+        title: promptTitle,
+        content: preparedRunOptions.systemPrompt,
+        color: chalk.cyan,
+      })
     )
     summary.push(`system: ${preparedRunOptions.systemPrompt.length.toLocaleString()}`)
   }
   if (options.reminderContent) {
     allLines.push('')
     allLines.push(
-      ...renderPromptSectionLines('Session Reminder', options.reminderContent, chalk.yellow)
+      ...renderSection({
+        title: 'Session Reminder',
+        content: options.reminderContent,
+        color: chalk.yellow,
+      })
     )
     summary.push(`reminder: ${options.reminderContent.length.toLocaleString()}`)
   }
   if (preparedRunOptions.prompt) {
     allLines.push('')
     allLines.push(
-      ...renderPromptSectionLines('Priming Prompt', preparedRunOptions.prompt, chalk.green)
+      ...renderSection({
+        title: 'Priming Prompt',
+        content: preparedRunOptions.prompt,
+        color: chalk.green,
+      })
     )
     summary.push(`priming: ${preparedRunOptions.prompt.length.toLocaleString()}`)
   }
