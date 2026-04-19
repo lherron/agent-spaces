@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
 import type { RuntimeBundleRef } from '../core/types/placement.js'
@@ -35,6 +36,12 @@ export interface InferProjectIdFromCwdOptions {
   cwd?: string | undefined
   aspHome?: string | undefined
   env?: Record<string, string | undefined> | undefined
+}
+
+function expandHome(p: string): string {
+  if (p === '~') return homedir()
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2))
+  return p
 }
 
 function toConfigOptions(options?: {
@@ -92,6 +99,11 @@ export function resolveAgentPlacementPaths(
     (() => {
       if (!options.projectId) {
         return undefined
+      }
+      const env = options.env ?? process.env
+      const override = env['ASP_PROJECT_ROOT_OVERRIDE']
+      if (override) {
+        return expandHome(override)
       }
       const projectsRoot = getProjectsRoot(toConfigOptions(options))
       return projectsRoot ? join(projectsRoot, options.projectId) : undefined

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
@@ -62,6 +62,58 @@ describe('runtime placement helpers', () => {
       agentRoot: '/tmp/agents/larry',
       projectRoot: '/tmp/projects/agent-spaces',
       cwd: '/tmp/projects/agent-spaces',
+    })
+  })
+
+  test('resolveAgentPlacementPaths honors ASP_PROJECT_ROOT_OVERRIDE', () => {
+    expect(
+      resolveAgentPlacementPaths({
+        agentId: 'larry',
+        projectId: 'raw2draft',
+        env: {
+          ASP_AGENTS_ROOT: '/tmp/agents',
+          ASP_PROJECTS_ROOT: '/tmp/projects',
+          ASP_PROJECT_ROOT_OVERRIDE: '/opt/external/raw2draft',
+        },
+      })
+    ).toEqual({
+      agentRoot: '/tmp/agents/larry',
+      projectRoot: '/opt/external/raw2draft',
+      cwd: '/opt/external/raw2draft',
+    })
+  })
+
+  test('resolveAgentPlacementPaths expands ~ in ASP_PROJECT_ROOT_OVERRIDE', () => {
+    expect(
+      resolveAgentPlacementPaths({
+        agentId: 'larry',
+        projectId: 'raw2draft',
+        env: {
+          ASP_AGENTS_ROOT: '/tmp/agents',
+          ASP_PROJECTS_ROOT: '/tmp/projects',
+          ASP_PROJECT_ROOT_OVERRIDE: '~/tools/raw2draft',
+        },
+      })
+    ).toEqual({
+      agentRoot: '/tmp/agents/larry',
+      projectRoot: join(homedir(), 'tools/raw2draft'),
+      cwd: join(homedir(), 'tools/raw2draft'),
+    })
+  })
+
+  test('resolveAgentPlacementPaths ignores ASP_PROJECT_ROOT_OVERRIDE when projectId is absent', () => {
+    expect(
+      resolveAgentPlacementPaths({
+        agentId: 'larry',
+        env: {
+          ASP_AGENTS_ROOT: '/tmp/agents',
+          ASP_PROJECTS_ROOT: '/tmp/projects',
+          ASP_PROJECT_ROOT_OVERRIDE: '/opt/external/raw2draft',
+        },
+      })
+    ).toEqual({
+      agentRoot: '/tmp/agents/larry',
+      cwd: '/tmp/agents/larry',
     })
   })
 
