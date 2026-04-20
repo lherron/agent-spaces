@@ -252,10 +252,10 @@ source = "session.additionalContext"
     expect(result.stdout).not.toContain('missing-prompt')
   })
 
-  test('exits 0 with empty stdout for legacy v1 templates with no reminder sections', async () => {
+  test('fails for legacy v1 templates', async () => {
     const fixture = await setupCliFixture()
     await writeFile(
-      join(fixture.agentsRoot, 'system-prompt-template.toml'),
+      join(fixture.agentsRoot, 'context-template.toml'),
       `
 schema_version = 1
 mode = "replace"
@@ -279,8 +279,8 @@ content = "legacy prompt body"
       { cwd: fixture.projectDir, env: fixture.env }
     )
 
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toBe('')
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain('schema_version')
   })
 })
 
@@ -337,6 +337,44 @@ content = "reminder alpha"
     expect(combined).toMatch(/prompt-beta=\d+/)
     expect(combined).toMatch(/reminder-alpha=\d+/)
     expect(combined).toContain('Budget:')
+  })
+
+  test('interpolates agent_name inside file prompt sections in dry-run output', async () => {
+    const fixture = await setupCliFixture()
+    await writeFile(join(fixture.agentsRoot, 'AGENT_MOTD.md'), 'Hello {{agent_name}} from MOTD.')
+    await writeFile(
+      join(fixture.agentsRoot, 'context-template.toml'),
+      `
+schema_version = 2
+mode = "replace"
+
+[[prompt]]
+name = "platform"
+type = "file"
+path = "AGENT_MOTD.md"
+`.trimStart()
+    )
+
+    const result = runAsp(
+      [
+        'run',
+        fixture.targetName,
+        '--harness',
+        'codex',
+        '--dry-run',
+        '--no-refresh',
+        '--asp-home',
+        fixture.aspHome,
+        '--project',
+        fixture.projectDir,
+      ],
+      { cwd: fixture.projectDir, env: fixture.env }
+    )
+
+    const combined = result.stdout + result.stderr
+    expect(result.exitCode).toBe(0)
+    expect(combined).toContain(`Hello ${fixture.targetName} from MOTD.`)
+    expect(combined).not.toContain('{{agent_name}}')
   })
 
   test('surfaces max_chars failures with per-section size details', async () => {

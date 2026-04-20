@@ -72,10 +72,10 @@ template = "append-template.toml"
     await writeFile(
       join(agentRoot, 'append-template.toml'),
       `
-schema_version = 1
+schema_version = 2
 mode = "append"
 
-[[section]]
+[[prompt]]
 name = "notice"
 type = "inline"
 content = "append me"
@@ -105,7 +105,7 @@ schemaVersion = 2
 template = "agent-template.toml"
 `)
     await writeFile(join(agentRoot, 'agent-template.toml'), replaceTemplate('agent override'))
-    await writeFile(join(agentsRoot, 'system-prompt-template.toml'), replaceTemplate('agents root'))
+    await writeFile(join(agentsRoot, 'context-template.toml'), replaceTemplate('agents root'))
 
     const result = await materializeSystemPrompt(outputRoot, {
       agentRoot,
@@ -124,7 +124,7 @@ template = "agent-template.toml"
   })
 
   test('falls back to the agentsRoot template when no agent-specific template is configured', async () => {
-    await writeFile(join(agentsRoot, 'system-prompt-template.toml'), replaceTemplate('agents root'))
+    await writeFile(join(agentsRoot, 'context-template.toml'), replaceTemplate('agents root'))
 
     const result = await materializeSystemPrompt(outputRoot, {
       agentRoot,
@@ -141,7 +141,21 @@ template = "agent-template.toml"
     })
   })
 
-  test('prefers agentsRoot/context-template.toml over agentsRoot/system-prompt-template.toml for v2 discovery', async () => {
+  test('ignores legacy system-prompt-template.toml fallbacks', async () => {
+    await writeFile(join(agentsRoot, 'system-prompt-template.toml'), 'schema_version = 1\n')
+
+    const result = await materializeSystemPrompt(outputRoot, {
+      agentRoot,
+      agentsRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'task',
+    })
+
+    expect(result).toBeUndefined()
+  })
+
+  test('uses agentsRoot/context-template.toml when no agent-specific template is configured', async () => {
     await writeFile(
       join(agentsRoot, 'context-template.toml'),
       `
@@ -153,10 +167,6 @@ name = "notice"
 type = "inline"
 content = "context template wins"
 `
-    )
-    await writeFile(
-      join(agentsRoot, 'system-prompt-template.toml'),
-      replaceTemplate('legacy template loses')
     )
 
     const result = await materializeSystemPrompt(outputRoot, {
@@ -176,8 +186,8 @@ content = "context template wins"
     expect(readPromptFile(result?.path)).toBe('context template wins')
   })
 
-  test('falls back to ASP_HOME/system-prompt-template.toml when agent-specific and agentsRoot templates are absent', async () => {
-    await writeFile(join(aspHome, 'system-prompt-template.toml'), replaceTemplate('asp home'))
+  test('falls back to ASP_HOME/context-template.toml when agent-specific and agentsRoot templates are absent', async () => {
+    await writeFile(join(aspHome, 'context-template.toml'), replaceTemplate('asp home'))
 
     const result = await materializeSystemPrompt(outputRoot, {
       agentRoot,
@@ -302,10 +312,10 @@ template = "append-template.toml"
     await writeFile(
       join(agentRoot, 'append-template.toml'),
       `
-schema_version = 1
+schema_version = 2
 mode = "append"
 
-[[section]]
+[[prompt]]
 name = "notice"
 type = "inline"
 content = "append me"
@@ -401,10 +411,10 @@ content = "reminder body"
 
   function replaceTemplate(content: string): string {
     return `
-schema_version = 1
+schema_version = 2
 mode = "replace"
 
-[[section]]
+[[prompt]]
 name = "notice"
 type = "inline"
 content = "${content}"

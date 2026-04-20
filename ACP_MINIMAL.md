@@ -41,8 +41,9 @@ correlate through `links.taskId`.
   server-side validator enforces. This preserves the single-source-of-truth
   invariant between gate enforcement and agent guidance without needing a
   typed packet.
-- Revisit the packet abstraction when role overlays, a second preset, or
-  waivers arrive — none are in MVP.
+- Revisit the packet abstraction when role overlays or a second preset
+  arrive. MVP may carry explicit waiver evidence without introducing a
+  richer approval surface.
 
 **ACP ↔ ASP coupling: none.** ASP does **not** import `acp-core`, does
 **not** import `wrkq-lib`, does **not** read tasks. Task context flows into
@@ -215,24 +216,28 @@ pick cleanly from it; do not try to migrate it.
 
 **Phase graph:** `open → red → green → verified → completed`
 
-**Roles:** `triager`, `implementer`, `tester` (required at medium-risk).
+**Roles:** `triager`, `implementer`, `tester` (preferred for handoff and
+independent verification; medium-risk requires an independent verifier, not
+necessarily an exactly pre-assigned tester).
 
 **Transition gates** (from
 `../acp-spec/spec/orchestration/TASK_WORKFLOWS.md §5.2`):
 
 | From → To | Allowed role | Required evidence |
 |---|---|---|
-| `open → red` | triager or implementer | `tdd_red_bundle` (repro + base build/version) |
+| `open → red` | triager or implementer | `tdd_red_bundle` (repro; base build/version recommended) |
 | `red → green` | implementer | `tdd_green_bundle` (fix ref + now-passing test) |
-| `green → verified` | **tester** (required at medium-risk; SoD: `disallowSameAgentAsRoles: ["implementer"]`) | `qa_bundle` (smoke + build_ref) |
-| `verified → completed` | owner or implementer (policy) | merge/deploy ref |
+| `green → verified` | **tester** for medium/high risk, or `implementer` for low risk (SoD: `disallowSameAgentAsRoles: ["implementer"]`) | `qa_bundle` (smoke proof; build ref recommended) |
+| `verified → completed` | owner or implementer (policy) | no hard gate; merge/deploy ref strongly recommended |
 
 **End-to-end scenario the MVP must support:**
 
 1. User runs `wrkq touch --project <p> inbox/bug -t "Title"` → creates a Task.
 2. Task is promoted to preset-driven: `workflowPreset=code_defect_fastlane`,
-   `presetVersion=1`, `riskClass=medium`, role map assigns distinct agents as
-   `implementer` and `tester`.
+   `presetVersion=1`, `riskClass=medium`. The demo path assigns distinct
+   `implementer` and `tester` agents so handoff and independent verification
+   are visible end-to-end, but fastlane does not require exact tester
+   assignment as a hard gate.
 3. Implementer session opens with role-scoped ScopeRef
    `agent:<impl>:project:<p>:task:<t>:role:implementer`, lane `main`. Agent
    sees a GuidancePacket (current phase, required evidence, hints).
@@ -245,10 +250,11 @@ pick cleanly from it; do not try to migrate it.
    targeting the tester's SessionRef — all in one transaction.
 7. Tester wakes with role-scoped ScopeRef
    `agent:<test>:project:<p>:task:<t>:role:tester` → verifies → attaches
-   `qa_bundle` → transitions `green → verified`. SoD validator rejects if
+   `qa_bundle` → transitions `green → verified`. Medium-risk policy requires
+   an independent verifier; SoD validator rejects if
    `actor.agentId == roleMap.implementer`.
-8. Transition `verified → completed` closes the task; merge/deploy ref
-   attached as evidence.
+8. Transition `verified → completed` closes the task; merge/deploy ref is
+   strongly recommended close-out evidence rather than a mandatory blocker.
 
 This is the smallest cut where the system demonstrates role-scoped
 separation-of-duties, transactional handoff, and evidence-gated transitions
@@ -669,7 +675,8 @@ Do not, in this MVP:
 - Build gateway ingress (Discord, email, etc.).
 - Build a conversation-surface UI.
 - Add scheduling (`Job` / `JobRun`).
-- Implement waivers or break-glass flows.
+- Build a richer waiver-governance or approval workflow beyond explicit
+  waiver evidence attached to transitions.
 - Migrate or port data from the old `agent-control-plane` repo.
 - Do role-specific SOUL.md / HEARTBEAT.md overlays. The GuidancePacket
   carries role-specific agentHints, which is sufficient.
@@ -681,13 +688,14 @@ Do not, in this MVP:
 - `wrkq touch --project demo inbox/bug -t "Test defect"` creates a task
   that is then promoted (via ACP CLI or a wrkq intake hook) to
   `workflowPreset=code_defect_fastlane`, `presetVersion=1`,
-  `riskClass=medium`, with distinct `implementer` and `tester` agent ids
-  assigned.
+  `riskClass=medium`. The demonstrated happy path uses distinct
+  `implementer` and `tester` agent ids so the handoff path is visible.
 - Running `acp task show --task <t>` renders a GuidancePacket with the
   current phase's objective, required evidence, and hints.
 - Executing the full `open → red → green → verified → completed`
-  sequence via the CLI succeeds with appropriate evidence attached at
-  each gate.
+  sequence via the CLI succeeds with the required evidence attached at the
+  red/green/verified gates; close-out provenance is recommended rather than
+  mandatory.
 - Attempting `green → verified` with the implementer's agentId is
   rejected with an SoD error.
 - The `red → green` transition (when it declares a tester handoff)

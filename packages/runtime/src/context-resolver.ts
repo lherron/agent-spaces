@@ -228,7 +228,7 @@ async function resolveFileSection(
     return undefined
   }
 
-  return content
+  return interpolateContent(content, context)
 }
 
 async function resolveExecSection(
@@ -311,12 +311,13 @@ async function resolveScaffoldSlot(context: ContextResolverContext): Promise<str
   const contents: Array<string | undefined> = []
   for (const packet of packets) {
     if (packet.content && packet.content.length > 0) {
-      contents.push(packet.content)
+      contents.push(interpolateContent(packet.content, context))
     }
 
     if (packet.ref) {
       const filePath = resolveTemplateRef(packet.ref, context)
-      contents.push(await readOptionalFile(filePath))
+      const content = await readOptionalFile(filePath)
+      contents.push(content === undefined ? undefined : interpolateContent(content, context))
     }
   }
 
@@ -331,7 +332,8 @@ async function resolveFileRefSlot(
 
   for (const ref of refs) {
     const filePath = resolveTemplateRef(ref, context)
-    contents.push(await readOptionalFile(filePath))
+    const content = await readOptionalFile(filePath)
+    contents.push(content === undefined ? undefined : interpolateContent(content, context))
   }
 
   return joinResolvedContent(contents)
@@ -407,6 +409,10 @@ function interpolateVariables(content: string, context: ContextResolverContext):
   return content.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (match, variableName: string) =>
     variableName in variables ? (variables[variableName] ?? '') : match
   )
+}
+
+function interpolateContent(content: string, context: ContextResolverContext): string {
+  return interpolateVariables(content, context)
 }
 
 function getAgentNameFromProfile(profile: Record<string, unknown> | undefined): string | undefined {

@@ -113,39 +113,20 @@ source = "session.additionalContext"
     })
   })
 
-  test('parses v1 section arrays into promptSections only', () => {
-    const template = parseContextTemplate(`
+  test('rejects schema_version 1 templates', () => {
+    expect(() =>
+      parseContextTemplate(`
 schema_version = 1
 
 [[section]]
 name = "platform"
 type = "file"
 path = "platform-prompt.md"
-
-[[section]]
-name = "scaffold"
-type = "slot"
 `)
-
-    expect(template).toEqual({
-      schemaVersion: 1,
-      mode: 'replace',
-      promptSections: [
-        {
-          name: 'platform',
-          type: 'file',
-          path: 'platform-prompt.md',
-        },
-        {
-          name: 'scaffold',
-          type: 'slot',
-        },
-      ],
-      reminderSections: [],
-    })
+    ).toThrow(/schema_version.*2/i)
   })
 
-  test('rejects v2 templates that still use section headers', () => {
+  test('rejects section headers in v2 templates', () => {
     expect(() =>
       parseContextTemplate(`
 schema_version = 2

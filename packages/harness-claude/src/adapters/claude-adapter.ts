@@ -408,6 +408,7 @@ export class ClaudeAdapter implements HarnessAdapter {
     // (e.g. --remote-control) from consuming it as their value.
     const needsSeparator = promptArgs.length === 1 && promptArgs[0] !== '-p'
     const extraArgs = [
+      '--chrome',
       ...(options.yolo ? ['--dangerously-skip-permissions'] : []),
       ...(options.remoteControl
         ? (() => {

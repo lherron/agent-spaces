@@ -224,28 +224,42 @@ content = "You are {{agent_name}} in {{project_id}} at {{agent_root}} with run m
     expect(resolved.reminder).toBeUndefined()
   })
 
-  test('supports v1 templates as prompt-only output without reminders', async () => {
-    await writeFile(join(agentRoot, 'SOUL.md'), 'Legacy prompt\n')
+  test('interpolates file section content from resolver context', async () => {
+    await writeFile(
+      join(agentRoot, 'MOTD.md'),
+      'You are {{agent_name}} in {{project_id}} at {{agent_root}} with run mode {{run_mode}}.\n'
+    )
 
     const resolved = await resolve(
       parseContextTemplate(`
-schema_version = 1
+schema_version = 2
 
-[[section]]
-name = "soul"
+[[prompt]]
+name = "motd"
 type = "file"
-path = "agent-root:///SOUL.md"
+path = "agent-root:///MOTD.md"
 required = true
 `)
     )
 
-    expect(resolved).toEqual({
-      prompt: {
-        content: 'Legacy prompt\n',
-        mode: 'replace',
-      },
-      reminder: undefined,
+    expect(resolved.prompt).toEqual({
+      content: `You are smokey in agent-spaces at ${agentRoot} with run mode task.\n`,
+      mode: 'replace',
     })
+    expect(resolved.reminder).toBeUndefined()
+  })
+
+  test('rejects schema_version 1 templates', () => {
+    expect(() =>
+      parseContextTemplate(`
+schema_version = 1
+
+[[section]]
+name = "legacy"
+type = "inline"
+content = "legacy prompt"
+`)
+    ).toThrow(/schema_version.*2/i)
   })
 
   test('skips exec sections when commands time out or exit non-zero', async () => {

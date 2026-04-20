@@ -1054,6 +1054,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
       if (discovered.templateSource?.kind === 'context') {
         const resolved = await resolveContextTemplateDetailed(discovered.templateSource.template, {
           agentRoot: agentProfile.agentRoot,
+          agentName: basename(agentProfile.agentRoot),
           agentsRoot: discovered.agentsRoot,
           projectRoot: options.projectPath,
           runMode: 'query',
