@@ -5,6 +5,197 @@ Everything needed to execute should be in this document or linked from it.
 
 ---
 
+## 0. Planning session resolutions (2026-04-19)
+
+These decisions were made in a coordinator planning session with the user and
+supersede anything below that conflicts. Read these first. §12 open questions
+are all resolved here; traceable answers are kept in §12 for reference.
+
+**Scope for this run.** Execute the full §10 sequence, *with §10.1 (repo
+rename) deferred*. Keep the `agent-spaces` directory name and the
+`@lherron/agent-spaces` npm package for now. Revisit the rename after MVP
+ships.
+
+**wrkq schema coordination.** Coordinate schema additions with the wrkq
+maintainer agents — `cody@wrkq` or `clod@wrkq` via `hrcchat dm`. Do **not**
+proceed to `packages/wrkq-lib` until wrkq has merged and shipped the agreed
+schema. This is the longest-pole blocker; start it first.
+
+**SQLite layout.** One file per package. `wrkq.db` is owned by wrkq;
+wrkq-lib is a client. `coordination.db` is owned by
+`packages/coordination-substrate`. No cross-database foreign keys —
+correlate through `links.taskId`.
+
+**No GuidancePacket abstraction.** The typed `GuidancePacket` concept from
+`TASK_WORKFLOWS.md §6.4` is *not* implemented in the MVP. Instead:
+- The launcher (acp-server, when dispatching a role-scoped session via
+  HRC) computes `{phase, requiredEvidenceKinds, hintsText}` for the
+  `(preset, task, role)` triple and sets env vars on the child:
+  `HRC_TASK_ID`, `HRC_TASK_PHASE`, `HRC_TASK_ROLE`,
+  `HRC_TASK_REQUIRED_EVIDENCE` (comma-separated kinds), `HRC_TASK_HINTS`
+  (pre-rendered text).
+- The system-prompt renderer reads those env vars and appends a short
+  "Current task context" block when present.
+- A small pure helper in `acp-core` renders `hintsText` from the preset so
+  the agent-facing text stays derived from the same preset that the
+  server-side validator enforces. This preserves the single-source-of-truth
+  invariant between gate enforcement and agent guidance without needing a
+  typed packet.
+- Revisit the packet abstraction when role overlays, a second preset, or
+  waivers arrive — none are in MVP.
+
+**ACP ↔ ASP coupling: none.** ASP does **not** import `acp-core`, does
+**not** import `wrkq-lib`, does **not** read tasks. Task context flows into
+the run only via env vars populated by the launcher. ASP stays plane-clean:
+it knows agents, spaces, placements — not tasks/presets/roles. This
+supersedes §12.4's (c) recommendation.
+
+**Agent identity on HTTP.** Accept `actor.agentId` as a request header or
+body field. No auth boundary (spec warning in `TASK_WORKFLOWS.md §6.2` that
+ScopeRef is not an auth boundary still applies).
+
+**Authz model.** Membership-only. No hub authority in MVP.
+
+**Demo agents for E2E.** `larry` as `implementer`, `curly` as `tester`.
+Distinct agent ids are required so the SoD validator has something real to
+reject when the implementer attempts `green → verified`.
+
+**Dispatch model during implementation.** Each §10 phase is executed by a
+cody session scoped to its wrkq task handle — `cody@agent-spaces:T-XXXXX`.
+Each task gets its own session continuity; phases are coordinated via
+`hrcchat dm` and wrkq state. The wrkq schema proposal specifically
+dispatches to `cody@wrkq` or `clod@wrkq` instead.
+
+**Dispatch order.**
+- **Parallel kickoff:** §10.2 (wrkq schema proposal, via cody@wrkq or
+  clod@wrkq), plus §10.4 / §10.5 / §10.6 (pure-TS, no wrkq dependency).
+- **Sequential after wrkq ships the schema:** §10.3 (wrkq-lib), then §10.7,
+  §10.8, §10.9, §10.10, §10.11 in order.
+
+---
+
+## 0.5 Implementation status (2026-04-19) — MVP shipped
+
+The §10 plan executed end-to-end. All §14 Definition-of-Done items
+demonstrated. The list below is the source of truth for what landed; the
+detailed phase descriptions in §10 still describe the original intent.
+
+### Phases
+
+| § | wrkq | Deliverable | Tests | Status |
+|---|------|-------------|-------|--------|
+| 10.1 | — | repo rename | — | **DEFERRED** per §0 |
+| 10.2 | T-01134 | wrkq schema (4 cols + 3 tables, migration `000013_task_workflow_schema.sql`) | go test ✓ | shipped |
+| 10.3 | T-01137 | `packages/wrkq-lib` | 21/21 | shipped |
+| 10.4+5 | T-01135 | `packages/acp-core` (preset, validator, task-context, 6 ported regressions) | 20/20 | shipped (combined — see deviations) |
+| 10.6 | T-01136 | `packages/coordination-substrate` | 11/11 contract | shipped |
+| 10.7 | T-01138 | `packages/acp-server` HTTP surface | 37/37 | shipped |
+| 10.7+ | T-01143 | `acp-server` Bun.serve bin (follow-up — see deviations) | bin smoke ✓ | shipped |
+| 10.8 | T-01139 | `HRC_TASK_*` env-var threading (system-prompt + cli-adapter + launcher) | 23/23 | shipped |
+| 10.9 | T-01140 | `packages/acp-cli` | 21/21 | shipped |
+| 10.10 | T-01141 | `packages/acp-e2e` (full §2 scenario) | 8/8 sub-tests | shipped |
+| 10.11 | T-01142 | `acp task promote` + endpoint (wrkq intake wrapper) | promote tests + e2e sub-test | shipped |
+
+**Cumulative bun-test count across new packages: ≈220 passing, 0 failing.**
+A pre-existing unrelated `packages/hrc-server/src/__tests__/launch.test.ts`
+ENOENT failure remains; it pre-dates this work.
+
+### §14 Definition of Done — verified
+
+- ✅ `wrkq touch --kind bug` → `acp task promote` produces a defect-fastlane
+  task with distinct `larry`/`curly` roles
+- ✅ `acp task show --role <r>` renders the task-context block (current
+  phase, required evidence, hints) — the spiritual successor to the
+  deferred GuidancePacket
+- ✅ Full `open → red → green → verified → completed` runs through the CLI
+  with appropriate evidence
+- ✅ `green → verified` attempted by the implementer's `agentId` returns
+  422 `sod_violation`
+- ✅ `red → green` writes one CoordinationEvent + one Handoff +
+  one WakeRequest atomically (verified by reading `coordination.db`
+  directly in both the e2e and the live smoke)
+- ✅ Tester intent receives `HRC_TASK_*` env vars; `materializeSystemPrompt`
+  emits the "Current task context" block when they're present
+- ✅ 6 ported regression tests pass in `acp-core`
+- ✅ 11 coordination-substrate contract tests pass
+- ✅ 8 acp-e2e sub-tests pass (full §2 scenario in-process with recording
+  mock launcher)
+
+### Deviations from the spec as written
+
+These are intentional choices made during execution; flagged so future
+readers don't trust the original §10 phrasing literally.
+
+1. **§10.4 + §10.5 combined into one task.** Both phases mutate
+   `packages/acp-core`. Dispatching them as parallel siblings would have
+   put two cody sessions on the same directory. Combined them into
+   T-01135 to avoid the file-conflict trap. Spec listed them as
+   parallel-safe; in practice the package boundary forces serialization.
+
+2. **acp-server bin was added in a follow-up (T-01143), not §10.7.**
+   The spec text in §7.3 framed the bin as "optional for MVP — the tests
+   exercise the handler directly." That deferral made the entire CLI
+   surface (§10.9) unusable end-to-end since it had nothing to talk to.
+   The bin is `acp-server`, reads `ACP_WRKQ_DB_PATH` /
+   `ACP_COORD_DB_PATH` / `ACP_PORT` / `ACP_HOST` / `ACP_ACTOR` env vars,
+   logs a one-line startup banner, and exits cleanly on SIGINT/SIGTERM.
+
+3. **`HrcRuntimeIntent.taskContext` lives at the top level**, not under
+   `intent.placement.taskContext`. Putting it on `placement` would have
+   coupled ASP/config to ACP, which §0 explicitly forbids. The launcher
+   (acp-server) sets `intent.taskContext` directly; cli-adapter's
+   `buildHrcCorrelationEnv` reads from there.
+
+4. **wrkq-lib uses `bun:sqlite` at runtime, falls back to
+   `better-sqlite3` elsewhere.** The original §7.1 said "Use
+   better-sqlite3 or equivalent." better-sqlite3 doesn't load natively
+   under Bun. The fix landed in T-01143 as a runtime conditional in
+   `packages/wrkq-lib/src/sqlite.ts` rather than a global `bunfig.toml`
+   preload (which would have required `bun:test` semantics that aren't
+   safe at runtime).
+
+5. **`acp task promote` chosen over a wrkq-side intake hook for §10.11.**
+   The spec offered two options; chose the ACP-side wrapper to keep wrkq
+   ACP-agnostic. No wrkq Go changes for §10.11. Promote is one-way for
+   MVP — re-promoting an already-preset-driven task returns 409
+   `already_preset_driven`.
+
+6. **`POST /v1/tasks/:taskId/evidence` returns 204 No Content.** The
+   `acp task evidence add --json` therefore prints `null` on success.
+   E2E tests assert exit code rather than stdout payload.
+
+7. **`acp-coordination.db` location.** Spec didn't dictate a path;
+   chose `/Users/lherron/praesidium/var/db/acp-coordination.db` as
+   sibling of the canonical `wrkq.db`. The bin auto-creates the file
+   if missing.
+
+8. **Demo agents `larry` (implementer) + `curly` (tester)** as resolved
+   in §0. Both seeded as wrkq actors lazily by `wrkq-lib`'s
+   `ActorResolver` on first reference.
+
+9. **No GuidancePacket type** (per §0). The agent-facing context is a
+   plain "Current task context" markdown section appended to the system
+   prompt, sourced from `HRC_TASK_*` env vars. The server-side validator
+   reads `requiredEvidenceKinds` from the same preset lookup that
+   `computeTaskContext` uses, preserving the single-source-of-truth
+   invariant without a typed packet.
+
+### Live smoke (manual e2e against canonical state)
+
+Verified `2026-04-19` against `/Users/lherron/praesidium/var/db/wrkq.db`
+with the live `acp-server` bin and the live `acp` CLI:
+
+- T-01144 created via `wrkq touch --kind bug`, promoted to defect-fastlane
+- larry created `/tmp/acp-hello-world/hello.txt`
+- Full transition sequence advanced through versions 3→4→5→6→7
+- Handoff + Wake (`01KPM7GKMK…EKT` / `01KPM7GKMK…J18`) fired on red→green
+- SoD probe (larry attempting verified) returned exit 1 with code
+  `sod_violation`
+- coordination.db inspection: exactly 1 event + 1 handoff + 1 wake linked
+  to T-01144
+
+---
+
 ## 1. Purpose
 
 Build the minimum ACP surface needed for the `code_defect_fastlane` workflow
@@ -149,8 +340,10 @@ Entity poster for visual overview:
   timestamp, build?:{id,version,env}}` per §4.1.
 - **RoleMap** — `task_role_assignments(task_uuid, role, actor_uuid,
   assigned_at)` in wrkq schema-compatible shape.
-- **GuidancePacket** — §6.4 packet injected into the run via
-  RunScaffoldPacket.
+- **Task context env vars** *(replaces GuidancePacket for MVP; see §0)* —
+  the launcher sets `HRC_TASK_ID`, `HRC_TASK_PHASE`, `HRC_TASK_ROLE`,
+  `HRC_TASK_REQUIRED_EVIDENCE`, `HRC_TASK_HINTS` on the launched run. The
+  system-prompt renderer appends a short context block when present.
 
 ### Coordination substrate (new, required because of tester handoff)
 
@@ -170,21 +363,21 @@ Entity poster for visual overview:
   `HrcLaunchRecord`, `hrc-launch` — present in
   `packages/hrc-core`, `packages/hrc-server`. No new work.
 
-### ASP (already implemented; one extension needed)
+### ASP (already implemented; minimal extension)
 
 - `agentRoot`, `SOUL.md`, `HEARTBEAT.md`, `agent-profile.toml` — scaffolds OK
 - `space:agent:`, `space:project:`, `RuntimeBundleRef`, `ResolvedInstruction`,
   `ResolvedSpace`, `ResolvedRuntimeBundle`, `InvocationSpec` — all present
-- **`RunScaffoldPacket`** — plumbing exists; **needs to carry the
-  GuidancePacket**. Required changes:
-  - `packages/config/src/resolver/placement-resolver.ts` — read
-    `correlation.sessionRef`, look up task phase via wrkq-lib, compose
-    GuidancePacket.
-  - `packages/runtime/src/system-prompt.ts` — accept packet and compose into
-    system prompt.
+- **Task context env vars** *(per §0 — no GuidancePacket type)*. The
+  launcher (acp-server) composes task context and sets env vars on the
+  child; ASP forwards them through. Required changes:
+  - `packages/runtime/src/system-prompt.ts` — append a short "Current task
+    context" block rendered from `HRC_TASK_*` env vars when present.
   - `packages/hrc-server/src/agent-spaces-adapter/cli-adapter.ts` —
-    `buildHrcCorrelationEnv()` adds `HRC_TASK_ID`, `HRC_TASK_PHASE`,
-    `HRC_TASK_ROLE`.
+    `buildHrcCorrelationEnv()` forwards the `HRC_TASK_*` env vars received
+    from the caller through to the child process environment.
+  - `packages/config/src/resolver/placement-resolver.ts` is **not** touched.
+    ASP does not read tasks or import `acp-core` / `wrkq-lib`.
 
 ### Deferred (explicitly out of scope for this MVP)
 
@@ -204,7 +397,8 @@ Entity poster for visual overview:
 ## 6. Architectural decisions already made
 
 1. **Greenfield in this repo**; do not uplift the old ACP.
-2. **Monorepo rename:** `agent-spaces` → `praesidium-runtime`.
+2. **Monorepo rename:** `agent-spaces` → `praesidium-runtime`. **Deferred
+   for MVP — see §0.**
 3. **wrkq-lib is a TypeScript library over wrkq's SQLite file** — direct
    DB access. No daemon, no RPC, no wrkq CLI subprocess. Schema migrations
    remain in wrkq's Go code; TS never writes DDL.
@@ -225,8 +419,8 @@ Entity poster for visual overview:
 8. **Medium-risk is the MVP default** for defect fastlane. Low-risk
    self-verify works too but is not the demo path.
 9. **ASP role overlays are deferred.** Role-specific SOUL.md swaps are not
-   in scope for MVP. The GuidancePacket carries role-specific agentHints,
-   which is sufficient.
+   in scope for MVP. The `HRC_TASK_HINTS` env var carries role-specific
+   hints rendered from the preset (see §0); no packet type.
 
 ## 7. New packages to build
 
@@ -269,12 +463,15 @@ Contains:
 - `src/presets/registry.ts` — `getPreset(presetId, version): Preset`.
   Immutable.
 - `src/validators/transition-policy.ts` — eight-step validator from §6.6.
-- `src/models/` — `Task`, `EvidenceItem`, `RoleMap`, `GuidancePacket`,
-  `InputAttempt`, `Run`, `Session` types and pure functions.
+- `src/models/` — `Task`, `EvidenceItem`, `RoleMap`, `InputAttempt`, `Run`,
+  `Session` types and pure functions. *No `GuidancePacket` type — see §0.*
 - `src/wrkq-client.ts` — wraps `wrkq-lib` with ACP semantics (e.g., ensures
   `version` bumping on updates).
-- `src/guidance.ts` — derive GuidancePacket from preset + current
-  task state.
+- `src/task-context.ts` — pure helpers mapping `(preset, task, role) →
+  { phase, requiredEvidenceKinds, hintsText }`. The launcher calls these to
+  populate `HRC_TASK_*` env vars at dispatch time. The server-side
+  validator reads `requiredEvidenceKinds` from the same preset lookup, so
+  agent guidance and gate enforcement stay in sync without a packet type.
 
 Depends on: `packages/wrkq-lib`, `packages/agent-scope`.
 
@@ -283,7 +480,9 @@ Depends on: `packages/wrkq-lib`, `packages/agent-scope`.
 HTTP endpoints (match `../acp-spec/spec/orchestration/API.md`):
 - `POST /v1/tasks` — accepts `workflowPreset`, `presetVersion`,
   `riskClass`, role map
-- `GET /v1/tasks/:taskId` — returns task + current GuidancePacket
+- `GET /v1/tasks/:taskId` — returns task + current phase,
+  `requiredEvidenceKinds`, and rendered `hintsText` for the actor's role
+  (derived via `task-context.ts`; no separate packet type per §0)
 - `POST /v1/tasks/:taskId/transitions` — runs TransitionPolicy validator
 - `GET /v1/tasks/:taskId/transitions` — audit log
 - `POST /v1/tasks/:taskId/evidence` — attach without transitioning
@@ -369,13 +568,18 @@ From `/Users/lherron/praesidium/agent-control-plane`:
 
 Each step should be a mergeable unit.
 
-1. **Rename repo.** `agent-spaces` → `praesidium-runtime`. Update internal
-   refs. Update `AGENTS.md` with the three-plane narrative and seams.
-   Archive `agent-control-plane` (add README pointer, mark read-only).
-2. **Propose wrkq schema additions** to wrkq maintainer: `workflow_preset`,
-   `preset_version`, `phase`, `risk_class` columns on `tasks`; new tables
-   `task_role_assignments`, `evidence_items`, `task_transitions`. Do not
-   proceed on wrkq-lib until schema is agreed and shipped in wrkq.
+1. **[DEFERRED]** Repo rename `agent-spaces` → `praesidium-runtime`.
+   Skipped for MVP per §0. Revisit after MVP ships. Still worth doing as a
+   one-off: archive `agent-control-plane` (add README pointer, mark
+   read-only) — no rename required. Also update `AGENTS.md` with the
+   three-plane narrative and seams under the current repo name.
+2. **Propose wrkq schema additions** to the wrkq maintainer agents —
+   `cody@wrkq` or `clod@wrkq` via `hrcchat dm`. Proposal covers:
+   `workflow_preset`, `preset_version`, `phase`, `risk_class` columns on
+   `tasks`; new tables `task_role_assignments`, `evidence_items`,
+   `task_transitions`. Do not proceed on wrkq-lib until wrkq has merged and
+   shipped the agreed schema. Dispatch this in parallel with §10.4-6 since
+   those have no wrkq dependency.
 3. **`packages/wrkq-lib`**: thin TS layer over wrkq's SQLite. Repositories
    only. Unit-test against a temp SQLite file.
 4. **`packages/acp-core` skeleton**: types + `code_defect_fastlane.v1` preset
@@ -392,15 +596,19 @@ Each step should be a mergeable unit.
    `/runtime/resolve`, `/sessions/resolve`. Wire TransitionPolicy to
    `/transitions`. Wire `appendEvent` to `/messages` when body requests
    handoff/trigger.
-8. **GuidancePacket injection via ASP**:
-   - Update `packages/config/src/resolver/placement-resolver.ts` to read
-     `correlation.sessionRef.scopeRef`, detect `:task:<id>:role:<r>`,
-     fetch phase + preset from ACP (over HTTP), compose GuidancePacket
-     into a `RunScaffoldPacket`.
-   - Update `packages/runtime/src/system-prompt.ts` to accept and render it.
-   - Update `packages/hrc-server/src/agent-spaces-adapter/cli-adapter.ts`
-     `buildHrcCorrelationEnv()` to add `HRC_TASK_ID`, `HRC_TASK_PHASE`,
-     `HRC_TASK_ROLE`.
+8. **Task context injection via env vars** (no packet — see §0):
+   - acp-server, when launching a role-scoped session, calls
+     `acp-core/task-context.ts` to compute
+     `{phase, requiredEvidenceKinds, hintsText}` for `(preset, task, role)`
+     and sets `HRC_TASK_ID`, `HRC_TASK_PHASE`, `HRC_TASK_ROLE`,
+     `HRC_TASK_REQUIRED_EVIDENCE`, `HRC_TASK_HINTS` on the HRC launch
+     request.
+   - `packages/hrc-server/src/agent-spaces-adapter/cli-adapter.ts`
+     `buildHrcCorrelationEnv()` forwards those env vars to the child.
+   - `packages/runtime/src/system-prompt.ts` appends a short "Current task
+     context" block rendered from the env vars when present.
+   - `placement-resolver.ts` is **not** touched. ASP does not read tasks
+     or import `acp-core` / `wrkq-lib`.
 9. **`packages/acp-cli`**: subcommands listed in §7.4.
 10. **End-to-end integration test**: the §2 scenario as an automated
     test. Two distinct agent ids acting as implementer and tester. Assert
@@ -428,32 +636,30 @@ Must pass before the substrate is considered done:
 10. Replay ordering (stable per-project sequence).
 11. Conversation correlation.
 
-## 12. Open questions the executing agent must resolve
+## 12. Open questions — resolved
 
-1. **wrkq schema coordination.** Who owns the schema change proposal? Is
-   there an existing RFC flow in wrkq? Does wrkq prefer migrations as
-   separate `.sql` files or embedded in Go? Read
-   `../wrkq/WRKQ_STATE_MACHINE_SPEC.md` and `../wrkq/AGENTS.md`.
-2. **SQLite file(s).** One file with multiple attached schemas, or one
-   file per package (wrkq.db, coordination.db)? Default to the latter
-   unless there's a strong reason to share.
-3. **HTTP framework choice.** Match whatever `packages/hrc-server` uses —
-   do not introduce a new one.
-4. **ACP ↔ ASP call shape.** The placement resolver needs to fetch task
-   phase/preset. Options: (a) direct wrkq-lib access from ASP (tightest),
-   (b) HTTP call to `acp-server`, (c) shared `acp-core` lib dependency.
-   Recommend (c) — ASP imports `acp-core` and reads wrkq via wrkq-lib.
-   Avoids a network hop on the critical run path.
-5. **Hub / membership authz model.** Spec mentions hubs, but MVP can
-   skip hub authority entirely. Confirm with the user that
-   membership-only authz is acceptable.
-6. **Agent identity / actor.** How does the HTTP layer know which
-   `agentId` is making a request? For MVP, accept it as a request header
-   or body field — no auth boundary. Note the spec warning
-   (`TASK_WORKFLOWS.md §6.2`) that ScopeRef is not an auth boundary.
-7. **Renaming cost.** Confirm with user before renaming: touches CI,
-   npm package names (`@lherron/agent-spaces`?), any publication steps,
-   any external integrations.
+All resolved in the 2026-04-19 planning session. See §0 for the definitive
+statements; answers inline below for traceability.
+
+1. **wrkq schema coordination.** Resolved: coordinate via `cody@wrkq` or
+   `clod@wrkq` over `hrcchat dm`. Do not proceed to wrkq-lib until wrkq
+   merges and ships the schema. Read `../wrkq/WRKQ_STATE_MACHINE_SPEC.md`
+   and `../wrkq/AGENTS.md` before drafting the proposal.
+2. **SQLite file(s).** Resolved: one file per package (`wrkq.db` owned by
+   wrkq; `coordination.db` owned by `coordination-substrate`). No shared
+   attached DB.
+3. **HTTP framework choice.** Still an implementation detail — match
+   whatever `packages/hrc-server` uses; do not introduce a new one. The
+   executing agent confirms this while starting §10.7.
+4. **ACP ↔ ASP call shape.** Resolved: *none*. ASP does not read tasks,
+   does not import `acp-core`, does not import `wrkq-lib`. Task context
+   flows into the run via env vars populated by acp-server at launch.
+   Supersedes the spec's (c) recommendation.
+5. **Hub / membership authz.** Resolved: membership-only. No hubs in MVP.
+6. **Agent identity / actor.** Resolved: `actor.agentId` as request
+   header or body field. No auth boundary.
+7. **Renaming cost.** Resolved: deferred (see §10.1). MVP keeps
+   `agent-spaces` and `@lherron/agent-spaces`.
 
 ## 13. Out-of-scope reminders
 
@@ -488,16 +694,25 @@ Do not, in this MVP:
   atomically writes one CoordinationEvent, one Handoff (state=open), and
   one WakeRequest (state=queued), all linked by `sourceEventId` /
   `taskId`.
-- The tester's agent run (launched via HRC through ASP) receives a
-  GuidancePacket in its system prompt context matching its current phase
-  (`green`) and role (`tester`).
+- The tester's agent run (launched via HRC through ASP) receives
+  `HRC_TASK_*` env vars matching its current phase (`green`) and role
+  (`tester`), and the system prompt renders a "Current task context" block
+  from them.
 - The 6 regression tests ported from the old ACP pass.
 - The 11 coordination-substrate contract tests pass.
 - The end-to-end integration test in §10.10 passes.
 
 ---
 
-**Start here:** read this file, `../acp-spec/spec/orchestration/TASK_WORKFLOWS.md`
-(especially §2.2, §5.2, §6), and `../acp-spec/spec/orchestration/COORDINATION_SUBSTRATE.md`
-(especially §5-8). Then resolve §12 open questions with the user before
-writing code.
+**Start here:** read §0 (planning resolutions) first, then the rest of this
+file, then `../acp-spec/spec/orchestration/TASK_WORKFLOWS.md` (especially
+§2.2, §5.2, §6), and `../acp-spec/spec/orchestration/COORDINATION_SUBSTRATE.md`
+(especially §5-8). §12 is already resolved — no need to gather more answers
+from the user before starting.
+
+**Suggested dispatch order.**
+- §10.2 (wrkq schema proposal to `cody@wrkq` / `clod@wrkq`) — blocks §10.3.
+  Start this first.
+- §10.4, §10.5, §10.6 — can run in parallel; pure TS, no wrkq dependency.
+- §10.3 (wrkq-lib) — runs once wrkq ships the schema.
+- §10.7, §10.8, §10.9, §10.10, §10.11 — sequential after deps land.
