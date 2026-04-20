@@ -1,15 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
 import { type RunMode, type RunScaffoldPacket, getAspHome } from 'spaces-config'
 import { resolveContextTemplate } from './context-resolver.js'
 import { type ContextTemplate, parseContextTemplate } from './context-template.js'
-import { resolveSystemPromptTemplate } from './system-prompt-resolver.js'
-import {
-  type SystemPromptMode,
-  type SystemPromptTemplate,
-  parseSystemPromptTemplate,
-} from './system-prompt-template.js'
+import type { SystemPromptMode } from './context-template.js'
 
 export interface MaterializeSystemPromptInput {
   agentRoot: string
@@ -34,17 +29,11 @@ export interface TemplateDiscoveryProfile {
   rawProfile?: Record<string, unknown> | undefined
 }
 
-export type DiscoveredTemplateSource =
-  | {
-      kind: 'context'
-      path: string
-      template: ContextTemplate
-    }
-  | {
-      kind: 'system-prompt'
-      path: string
-      template: SystemPromptTemplate
-    }
+export type DiscoveredTemplateSource = {
+  kind: 'context'
+  path: string
+  template: ContextTemplate
+}
 
 export interface DiscoverContextTemplateInput {
   agentRoot: string
@@ -100,6 +89,7 @@ export async function materializeSystemPrompt(
   if (templateSource?.kind === 'context') {
     const resolved = await resolveContextTemplate(templateSource.template, {
       agentRoot: input.agentRoot,
+      agentName: basename(input.agentRoot),
       agentsRoot,
       projectRoot: input.projectRoot,
       runMode: input.runMode,
@@ -117,11 +107,10 @@ export async function materializeSystemPrompt(
 
   const template =
     templateSource?.template ??
-    parseSystemPromptTemplate(
-      buildDefaultTemplateToml(profile.additionalBase, input.scaffoldPackets)
-    )
-  const resolved = await resolveSystemPromptTemplate(template, {
+    parseContextTemplate(buildDefaultTemplateToml(profile.additionalBase, input.scaffoldPackets))
+  const resolved = await resolveContextTemplate(template, {
     agentRoot: input.agentRoot,
+    agentName: basename(input.agentRoot),
     agentsRoot,
     projectRoot: input.projectRoot,
     runMode: input.runMode,
@@ -137,20 +126,20 @@ export async function materializeSystemPrompt(
       : {}),
   })
 
-  if (!resolved) {
+  if (!resolved.prompt) {
     if (templateSource || !existsSync(join(input.agentRoot, 'SOUL.md'))) {
       return undefined
     }
 
     return writeMaterializedPrompt(outputPath, {
       content: '',
-      mode: 'replace',
+      mode: template.mode,
     })
   }
 
   return writeMaterializedPrompt(outputPath, {
-    ...resolved,
-    content: appendTaskContextSection(resolved.content),
+    mode: resolved.prompt.mode,
+    content: appendTaskContextSection(resolved.prompt.content),
   })
 }
 function writeMaterializedPrompt(
@@ -210,15 +199,7 @@ function loadSystemPromptTemplate(input: {
       required: false,
     },
     {
-      path: join(input.agentsRoot, 'system-prompt-template.toml'),
-      required: false,
-    },
-    {
       path: join(input.aspHome, 'context-template.toml'),
-      required: false,
-    },
-    {
-      path: join(input.aspHome, 'system-prompt-template.toml'),
       required: false,
     },
   ]
@@ -245,25 +226,10 @@ function parseTemplateFile(filePath: string) {
   const fileContent = readFileSync(filePath, 'utf8')
 
   try {
-    const parsed = parseToml(fileContent)
-    const templateType =
-      isRecord(parsed) &&
-      (parsed['schema_version'] === 2 || 'prompt' in parsed || 'reminder' in parsed)
-        ? 'context'
-        : 'system-prompt'
-
-    if (templateType === 'context') {
-      return {
-        kind: 'context',
-        path: filePath,
-        template: parseContextTemplate(fileContent),
-      } satisfies DiscoveredTemplateSource
-    }
-
     return {
-      kind: 'system-prompt',
+      kind: 'context',
       path: filePath,
-      template: parseSystemPromptTemplate(fileContent),
+      template: parseContextTemplate(fileContent),
     } satisfies DiscoveredTemplateSource
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -311,10 +277,12 @@ function buildDefaultTemplateToml(
   scaffoldPackets: RunScaffoldPacket[] | undefined
 ): string {
   const sections = [
-    fileSectionToml('soul', 'agent-root:///SOUL.md'),
-    ...(additionalBase ?? []).map((ref, index) => fileSectionToml(`additional-base-${index}`, ref)),
+    fileSectionToml('prompt', 'soul', 'agent-root:///SOUL.md'),
+    ...(additionalBase ?? []).map((ref, index) =>
+      fileSectionToml('prompt', `additional-base-${index}`, ref)
+    ),
     [
-      '[[section]]',
+      '[[prompt]]',
       'name = "heartbeat"',
       'type = "file"',
       `path = ${quoteTomlString('agent-root:///HEARTBEAT.md')}`,
@@ -323,7 +291,7 @@ function buildDefaultTemplateToml(
     ...buildScaffoldSectionsToml(scaffoldPackets),
   ]
 
-  return ['schema_version = 1', 'mode = "replace"', '', ...sections].join('\n\n')
+  return ['schema_version = 2', 'mode = "replace"', '', ...sections].join('\n\n')
 }
 
 function buildScaffoldSectionsToml(scaffoldPackets: RunScaffoldPacket[] | undefined): string[] {
@@ -337,7 +305,7 @@ function buildScaffoldSectionsToml(scaffoldPackets: RunScaffoldPacket[] | undefi
     if (packet.content !== undefined) {
       sections.push(
         [
-          '[[section]]',
+          '[[prompt]]',
           `name = ${quoteTomlString(`scaffold-inline-${index}`)}`,
           'type = "inline"',
           `content = ${quoteTomlString(packet.content)}`,
@@ -346,16 +314,16 @@ function buildScaffoldSectionsToml(scaffoldPackets: RunScaffoldPacket[] | undefi
     }
 
     if (packet.ref) {
-      sections.push(fileSectionToml(`scaffold-ref-${index}`, packet.ref))
+      sections.push(fileSectionToml('prompt', `scaffold-ref-${index}`, packet.ref))
     }
 
     return sections
   })
 }
 
-function fileSectionToml(name: string, path: string): string {
+function fileSectionToml(tableName: 'prompt' | 'reminder', name: string, path: string): string {
   return [
-    '[[section]]',
+    `[[${tableName}]]`,
     `name = ${quoteTomlString(name)}`,
     'type = "file"',
     `path = ${quoteTomlString(path)}`,

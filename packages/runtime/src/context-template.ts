@@ -1,10 +1,7 @@
 import { parse as parseToml } from '@iarna/toml'
 
-import type { SystemPromptMode, SystemPromptSlotName } from './system-prompt-template.js'
-
-export type { SystemPromptMode } from './system-prompt-template.js'
-
-export type ContextTemplateSchemaVersion = 1 | 2
+export type SystemPromptMode = 'replace' | 'append'
+export type ContextTemplateSchemaVersion = 2
 export type ContextSectionType = 'file' | 'inline' | 'exec' | 'slot'
 
 export interface WhenPredicate {
@@ -53,10 +50,6 @@ export interface ContextTemplate {
 
 const CONTEXT_SECTION_TYPES = ['file', 'inline', 'exec', 'slot'] as const
 const SYSTEM_PROMPT_MODES = ['replace', 'append'] as const
-const V1_SLOT_NAMES = [
-  'additional-base',
-  'scaffold',
-] as const satisfies readonly SystemPromptSlotName[]
 
 export function parseContextTemplate(tomlContent: string): ContextTemplate {
   const parsed = parseTomlDocument(tomlContent)
@@ -64,21 +57,9 @@ export function parseContextTemplate(tomlContent: string): ContextTemplate {
   const mode = parseMode(parsed['mode'])
   const maxChars = parseOptionalPositiveInteger(parsed['max_chars'], 'Context template max_chars')
 
-  if (schemaVersion === 1) {
-    const promptSections = parseSections(parsed['section'], 'section', schemaVersion)
-
-    return {
-      schemaVersion,
-      mode,
-      promptSections,
-      reminderSections: [],
-      ...(maxChars !== undefined ? { maxChars } : {}),
-    }
-  }
-
   if (parsed['section'] !== undefined) {
     throw new Error(
-      'Context template schema_version 2 does not support [[section]]; use [[prompt]] and [[reminder]]'
+      'Context template does not support [[section]]; use [[prompt]] and [[reminder]]'
     )
   }
 
@@ -110,12 +91,12 @@ function parseTomlDocument(tomlContent: string): Record<string, unknown> {
 function parseSchemaVersion(input: unknown): ContextTemplateSchemaVersion {
   if (!Number.isInteger(input)) {
     throw new Error(
-      `Context template schema_version must be the integer 1 or 2, received ${describeValue(input)}`
+      `Context template schema_version must be the integer 2, received ${describeValue(input)}`
     )
   }
 
-  if (input !== 1 && input !== 2) {
-    throw new Error(`Context template schema_version must be 1 or 2, received ${input}`)
+  if (input !== 2) {
+    throw new Error(`Context template schema_version must be 2, received ${input}`)
   }
 
   return input
@@ -137,7 +118,7 @@ function parseMode(input: unknown): SystemPromptMode {
 
 function parseSections(
   input: unknown,
-  tableName: 'section' | 'prompt' | 'reminder',
+  tableName: 'prompt' | 'reminder',
   schemaVersion: ContextTemplateSchemaVersion
 ): ContextSection[] {
   if (input === undefined) {
@@ -154,8 +135,8 @@ function parseSections(
 function parseSection(
   input: unknown,
   index: number,
-  tableName: 'section' | 'prompt' | 'reminder',
-  schemaVersion: ContextTemplateSchemaVersion
+  tableName: 'prompt' | 'reminder',
+  _schemaVersion: ContextTemplateSchemaVersion
 ): ContextSection {
   const location = describeSection(index, tableName)
   if (!isRecord(input)) {
@@ -210,23 +191,6 @@ function parseSection(
     }
 
     case 'slot': {
-      if (schemaVersion === 1) {
-        if (!isOneOf(name, V1_SLOT_NAMES)) {
-          throw new Error(
-            `${sectionLocation}.name must be "additional-base" or "scaffold" for schema_version 1 slot sections, received ${describeValue(
-              name
-            )}`
-          )
-        }
-
-        return {
-          name,
-          type,
-          ...(when ? { when } : {}),
-          ...(maxChars !== undefined ? { maxChars } : {}),
-        }
-      }
-
       const source = parseRequiredString(input['source'], `${sectionLocation}.source`)
 
       return {
@@ -337,7 +301,7 @@ function parseOptionalPositiveInteger(input: unknown, fieldName: string): number
   return input
 }
 
-function describeSection(index: number, tableName: 'section' | 'prompt' | 'reminder'): string {
+function describeSection(index: number, tableName: 'prompt' | 'reminder'): string {
   return `Context template ${tableName}[${index + 1}]`
 }
 

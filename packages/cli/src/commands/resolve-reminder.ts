@@ -3,17 +3,17 @@
  *
  * WHY: SessionStart hooks call `asp resolve-reminder` to inject dynamic
  * reminder content into <system-reminder> blocks. This command discovers
- * the active context template (v1 or v2), resolves only the reminder
+ * the active context template, resolves only the reminder
  * sections, and outputs the result to stdout for hook consumption.
  *
  * Exit behavior:
- * - Exit 0 with empty stdout when no reminder content exists (v1 template or empty reminders)
+ * - Exit 0 with empty stdout when no reminder content exists
  * - Exit 0 with reminder content on stdout when reminders resolve
  * - Exit 1 on errors (template parse failure, required file missing, etc.)
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import { parse as parseToml } from '@iarna/toml'
 import chalk from 'chalk'
@@ -169,16 +169,6 @@ export function registerResolveReminderCommand(program: Command): void {
           process.exit(0)
         }
 
-        // v1 system-prompt templates have no reminder sections — exit 0
-        if (discovered.templateSource.kind !== 'context') {
-          if (options.debug) {
-            console.error(
-              chalk.gray('[resolve-reminder] v1 system-prompt template — no reminder sections')
-            )
-          }
-          process.exit(0)
-        }
-
         const contextTemplate = discovered.templateSource.template
 
         if (contextTemplate.reminderSections.length === 0) {
@@ -191,6 +181,7 @@ export function registerResolveReminderCommand(program: Command): void {
         // Build resolver context
         const resolverContext: ContextResolverContext = {
           agentRoot: agentRoot ?? agentsRoot,
+          agentName: basename(agentRoot ?? agentsRoot),
           agentsRoot: discovered.agentsRoot,
           projectRoot: process.cwd(),
           runMode: 'query',
