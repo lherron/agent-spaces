@@ -80,6 +80,8 @@ export function discoverContextTemplate(
 
 export const discoverSystemPromptTemplate = discoverContextTemplate
 
+const SECTION_SEPARATOR = '\n\n---\n\n'
+
 export async function materializeSystemPrompt(
   outputPath: string,
   input: MaterializeSystemPromptInput
@@ -106,7 +108,7 @@ export async function materializeSystemPrompt(
     })
 
     return writeMaterializedContext(outputPath, {
-      content: resolved.prompt?.content ?? '',
+      content: appendTaskContextSection(resolved.prompt?.content ?? ''),
       mode: resolved.prompt?.mode ?? templateSource.template.mode,
       reminderContent: resolved.reminder,
       maxChars: templateSource.template.maxChars,
@@ -146,7 +148,10 @@ export async function materializeSystemPrompt(
     })
   }
 
-  return writeMaterializedPrompt(outputPath, resolved)
+  return writeMaterializedPrompt(outputPath, {
+    ...resolved,
+    content: appendTaskContextSection(resolved.content),
+  })
 }
 function writeMaterializedPrompt(
   outputPath: string,
@@ -359,4 +364,69 @@ function fileSectionToml(name: string, path: string): string {
 
 function quoteTomlString(value: string): string {
   return JSON.stringify(value)
+}
+
+function appendTaskContextSection(content: string): string {
+  const section = buildTaskContextSection(process.env)
+  if (section === undefined) {
+    return content
+  }
+
+  if (content.trim().length === 0) {
+    return section
+  }
+
+  return `${content}${SECTION_SEPARATOR}${section}`
+}
+
+function buildTaskContextSection(env: NodeJS.ProcessEnv): string | undefined {
+  const taskId = readTaskEnv(env, 'HRC_TASK_ID')
+  const phase = readTaskEnv(env, 'HRC_TASK_PHASE')
+  const role = readTaskEnv(env, 'HRC_TASK_ROLE')
+  const requiredEvidence = readTaskEnv(env, 'HRC_TASK_REQUIRED_EVIDENCE')
+  const hints = readTaskEnv(env, 'HRC_TASK_HINTS')
+
+  if (
+    taskId === undefined &&
+    phase === undefined &&
+    role === undefined &&
+    requiredEvidence === undefined &&
+    hints === undefined
+  ) {
+    return undefined
+  }
+
+  const lines = ['## Current task context']
+
+  if (taskId !== undefined) {
+    lines.push(`- Task ID: ${taskId}`)
+  }
+
+  if (phase !== undefined) {
+    lines.push(`- Phase: ${phase}`)
+  }
+
+  if (role !== undefined) {
+    lines.push(`- Role: ${role}`)
+  }
+
+  if (requiredEvidence !== undefined) {
+    lines.push(`- Required evidence: ${requiredEvidence.length > 0 ? requiredEvidence : '(none)'}`)
+  }
+
+  if (hints !== undefined) {
+    lines.push('', '### Hints', hints)
+  }
+
+  return lines.join('\n')
+}
+
+function readTaskEnv(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  const value = env[key]
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : ''
 }
