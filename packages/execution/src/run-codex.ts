@@ -211,6 +211,7 @@ export async function prepareCodexRuntimeHome(
 
   await syncManagedFile(templateHome, runtimeHome, 'AGENTS.md')
   await syncManagedFile(templateHome, runtimeHome, 'config.toml')
+  await syncManagedFile(templateHome, runtimeHome, 'hooks.json')
   await syncManagedFile(templateHome, runtimeHome, 'mcp.json')
   await syncManagedFile(templateHome, runtimeHome, 'manifest.json')
   await syncManagedFile(templateHome, runtimeHome, 'auth.json')

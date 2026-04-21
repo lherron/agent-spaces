@@ -23,6 +23,8 @@ export interface CodexOptions {
   model?: string | undefined
   /** Model reasoning effort override */
   model_reasoning_effort?: string | undefined
+  /** Ordered TUI status-line item identifiers, mapped to `tui.status_line` */
+  status_line?: string[] | undefined
   /** Approval policy */
   approval_policy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
   /** Sandbox mode */
@@ -129,6 +131,7 @@ export function mergeCodexOptions(
   return {
     model: overrides.model ?? defaults.model,
     model_reasoning_effort: overrides.model_reasoning_effort ?? defaults.model_reasoning_effort,
+    status_line: overrides.status_line ?? defaults.status_line,
     approval_policy: overrides.approval_policy ?? defaults.approval_policy,
     sandbox_mode: overrides.sandbox_mode ?? defaults.sandbox_mode,
     profile: overrides.profile ?? defaults.profile,

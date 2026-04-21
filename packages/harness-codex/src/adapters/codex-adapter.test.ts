@@ -218,6 +218,7 @@ describe('CodexAdapter', () => {
         codexOptions: {
           model: 'gpt-5.3-codex',
           model_reasoning_effort: 'medium',
+          status_line: ['model', 'context-remaining', 'git-branch'],
           approval_policy: 'on-request',
           sandbox_mode: 'danger-full-access',
           profile: 'default',
@@ -248,10 +249,27 @@ describe('CodexAdapter', () => {
       expect(parsed['model']).toBe('gpt-5.3-codex')
       expect(parsed['model_reasoning_effort']).toBe('medium')
       expect(parsed['profile']).toBe('default')
+      expect((parsed['features'] as Record<string, unknown>)['codex_hooks']).toBe(true)
+      expect((parsed['tui'] as Record<string, unknown>)['status_line']).toEqual([
+        'model',
+        'context-remaining',
+        'git-branch',
+      ])
 
       const mcpServers = parsed['mcp_servers'] as Record<string, Record<string, unknown>>
       expect(mcpServers['serverA']?.['command']).toBe('override')
       expect(mcpServers['serverB']?.['command']).toBe('cmd-b')
+
+      const hooksRaw = await readFile(join(codexHome, 'hooks.json'), 'utf-8')
+      const hooks = JSON.parse(hooksRaw) as {
+        hooks?: { Stop?: Array<{ hooks?: Array<Record<string, unknown>> }> }
+      }
+      const stopCommand = hooks.hooks?.Stop?.[0]?.hooks?.[0]
+      expect(stopCommand).toEqual({
+        type: 'command',
+        command: 'if [ -n "${HRC_LAUNCH_HOOK_CLI:-}" ]; then bun "$HRC_LAUNCH_HOOK_CLI"; fi',
+        statusMessage: 'capturing Codex turn',
+      })
     })
 
     test('pins the default codex model when the target does not specify one', async () => {
@@ -277,6 +295,12 @@ describe('CodexAdapter', () => {
       const configRaw = await readFile(join(outputDir, 'codex.home', 'config.toml'), 'utf-8')
       const parsed = TOML.parse(configRaw) as Record<string, unknown>
       expect(parsed['model']).toBe('gpt-5.4')
+      expect((parsed['features'] as Record<string, unknown>)['codex_hooks']).toBe(true)
+      expect((parsed['tui'] as Record<string, unknown>)['status_line']).toEqual([
+        'model-with-reasoning',
+        'context-remaining',
+        'current-dir',
+      ])
     })
   })
 

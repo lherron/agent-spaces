@@ -305,7 +305,14 @@ function parseCodexOptions(value: unknown, source: string, path: string): CodexO
 
   assertOnlyKeys(
     value,
-    ['model', 'model_reasoning_effort', 'approval_policy', 'sandbox_mode', 'profile'],
+    [
+      'model',
+      'model_reasoning_effort',
+      'status_line',
+      'approval_policy',
+      'sandbox_mode',
+      'profile',
+    ],
     source,
     path
   )
@@ -322,6 +329,12 @@ function parseCodexOptions(value: unknown, source: string, path: string): CodexO
       fail(source, `${path}/model_reasoning_effort`, 'must be a string', 'type')
     }
     options.model_reasoning_effort = value['model_reasoning_effort']
+  }
+  if (value['status_line'] !== undefined) {
+    const statusLine = parseStringArray(value['status_line'], source, `${path}/status_line`)
+    if (statusLine) {
+      options.status_line = statusLine
+    }
   }
   if (value['approval_policy'] !== undefined) {
     if (typeof value['approval_policy'] !== 'string') {
