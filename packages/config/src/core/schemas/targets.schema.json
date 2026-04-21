@@ -29,6 +29,10 @@
       "properties": {
         "model": { "type": "string" },
         "model_reasoning_effort": { "type": "string" },
+        "status_line": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "approval_policy": {
           "type": "string",
           "enum": ["untrusted", "on-failure", "on-request", "never"]
@@ -86,6 +90,10 @@
           "properties": {
             "model": { "type": "string" },
             "model_reasoning_effort": { "type": "string" },
+            "status_line": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
             "approval_policy": {
               "type": "string",
               "enum": ["untrusted", "on-failure", "on-request", "never"]

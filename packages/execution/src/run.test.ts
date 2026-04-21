@@ -114,6 +114,7 @@ describe('prepareCodexRuntimeHome', () => {
     await mkdir(join(templateHome, 'prompts'), { recursive: true })
     await writeFile(join(templateHome, 'AGENTS.md'), 'fresh agents\n')
     await writeFile(join(templateHome, 'config.toml'), 'model = "gpt-5.4"\n')
+    await writeFile(join(templateHome, 'hooks.json'), '{"hooks":{"Stop":[]}}\n')
     await writeFile(join(templateHome, 'manifest.json'), '{"name":"codex"}\n')
     await writeFile(join(templateHome, 'skills', 'fresh-skill', 'SKILL.md'), 'fresh skill\n')
     await writeFile(join(templateHome, 'prompts', 'review.md'), 'fresh prompt\n')
@@ -145,6 +146,7 @@ describe('prepareCodexRuntimeHome', () => {
 
     expect(resolvedRuntime).toBe(runtimeHome)
     expect(await readFile(join(runtimeHome, 'AGENTS.md'), 'utf-8')).toBe('fresh agents\n')
+    expect(await readFile(join(runtimeHome, 'hooks.json'), 'utf-8')).toBe('{"hooks":{"Stop":[]}}\n')
     expect(await readFile(join(runtimeHome, 'skills', 'fresh-skill', 'SKILL.md'), 'utf-8')).toBe(
       'fresh skill\n'
     )

@@ -263,12 +263,14 @@ model = "claude-opus-4-6"
 model_reasoning_effort = "high"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
+status_line = ["model", "context-remaining", "git-branch"]
 `
     const result = parseAgentProfile(toml)
     expect(result.harnessDefaults?.codex).toEqual({
       model_reasoning_effort: 'high',
       approval_policy: 'on-request',
       sandbox_mode: 'workspace-write',
+      status_line: ['model', 'context-remaining', 'git-branch'],
     })
   })
 
@@ -324,9 +326,15 @@ model = "claude-haiku-4-5"
 
 [harnessByMode.heartbeat.codex]
 approval_policy = "never"
+status_line = ["model-with-reasoning", "context-remaining", "current-dir"]
 `
     const result = parseAgentProfile(toml)
     expect(result.harnessByMode?.heartbeat?.codex?.approval_policy).toBe('never')
+    expect(result.harnessByMode?.heartbeat?.codex?.status_line).toEqual([
+      'model-with-reasoning',
+      'context-remaining',
+      'current-dir',
+    ])
   })
 })
 

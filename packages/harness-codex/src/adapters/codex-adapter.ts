@@ -55,12 +55,17 @@ const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.4'
 const MIN_CODEX_VERSION = '0.1.0'
 const CODEX_HOME_DIRNAME = 'codex.home'
 const CODEX_CONFIG_FILE = 'config.toml'
+const CODEX_HOOKS_FILE = 'hooks.json'
 const CODEX_AGENTS_FILE = 'AGENTS.md'
 const CODEX_PROMPTS_DIR = 'prompts'
 const CODEX_SKILLS_DIR = 'skills'
 
 const SPACE_INSTRUCTIONS_FILE = 'instructions.md'
 const SPACE_CODEX_CONFIG_FILE = 'codex.config.json'
+const DEFAULT_TUI_STATUS_LINE = ['model-with-reasoning', 'context-remaining', 'current-dir']
+type CodexOptionsWithStatusLine = ComposeTargetInput['codexOptions'] & {
+  status_line?: string[] | undefined
+}
 
 async function fileExists(path: string): Promise<boolean> {
   try {
@@ -126,6 +131,39 @@ function mergeCodexConfig(
   return merged
 }
 
+function ensureCodexHooksFeature(config: Record<string, unknown>): Record<string, unknown> {
+  const features =
+    config['features'] &&
+    typeof config['features'] === 'object' &&
+    !Array.isArray(config['features'])
+      ? { ...(config['features'] as Record<string, unknown>) }
+      : {}
+
+  features['codex_hooks'] = true
+  return {
+    ...config,
+    features,
+  }
+}
+
+function buildHrcCodexHooksConfig(): Record<string, unknown> {
+  return {
+    hooks: {
+      Stop: [
+        {
+          hooks: [
+            {
+              type: 'command',
+              command: 'if [ -n "${HRC_LAUNCH_HOOK_CLI:-}" ]; then bun "$HRC_LAUNCH_HOOK_CLI"; fi',
+              statusMessage: 'capturing Codex turn',
+            },
+          ],
+        },
+      ],
+    },
+  }
+}
+
 async function readInstructionsFromSpace(
   snapshotPath: string
 ): Promise<{ source: string; content: string } | null> {
@@ -160,6 +198,9 @@ function buildCodexConfig(
     sandbox_mode: DEFAULT_SANDBOX_MODE,
     approval_policy: DEFAULT_APPROVAL_POLICY,
     project_doc_fallback_filenames: ['AGENTS.md', 'AGENT.md'],
+    tui: {
+      status_line: DEFAULT_TUI_STATUS_LINE,
+    },
   }
 
   if (Object.keys(mcpConfig.mcpServers).length > 0) {
@@ -180,7 +221,7 @@ function buildCodexConfig(
     base['mcp_servers'] = mcpServers
   }
 
-  return mergeCodexConfig(base, overrides)
+  return ensureCodexHooksFeature(mergeCodexConfig(base, overrides))
 }
 
 function buildAgentsMarkdown(
@@ -594,21 +635,25 @@ export class CodexAdapter implements HarnessAdapter {
     }
 
     if (input.codexOptions) {
+      const codexOptions = input.codexOptions as CodexOptionsWithStatusLine
       const targetOverrides: Record<string, unknown> = {}
-      if (input.codexOptions.model) {
-        targetOverrides['model'] = input.codexOptions.model
+      if (codexOptions.model) {
+        targetOverrides['model'] = codexOptions.model
       }
-      if (input.codexOptions.model_reasoning_effort) {
-        targetOverrides['model_reasoning_effort'] = input.codexOptions.model_reasoning_effort
+      if (codexOptions.model_reasoning_effort) {
+        targetOverrides['model_reasoning_effort'] = codexOptions.model_reasoning_effort
       }
-      if (input.codexOptions.approval_policy) {
-        targetOverrides['approval_policy'] = input.codexOptions.approval_policy
+      if (codexOptions.status_line) {
+        targetOverrides['tui.status_line'] = codexOptions.status_line
       }
-      if (input.codexOptions.sandbox_mode) {
-        targetOverrides['sandbox_mode'] = input.codexOptions.sandbox_mode
+      if (codexOptions.approval_policy) {
+        targetOverrides['approval_policy'] = codexOptions.approval_policy
       }
-      if (input.codexOptions.profile) {
-        targetOverrides['profile'] = input.codexOptions.profile
+      if (codexOptions.sandbox_mode) {
+        targetOverrides['sandbox_mode'] = codexOptions.sandbox_mode
+      }
+      if (codexOptions.profile) {
+        targetOverrides['profile'] = codexOptions.profile
       }
       if (Object.keys(targetOverrides).length > 0) {
         codexOverrides.push(targetOverrides)
@@ -635,6 +680,9 @@ export class CodexAdapter implements HarnessAdapter {
     const configPath = join(codexHome, CODEX_CONFIG_FILE)
     const configToml = TOML.stringify(config as TOML.JsonMap)
     await writeFile(configPath, `${configToml}\n`)
+
+    const hooksPath = join(codexHome, CODEX_HOOKS_FILE)
+    await writeJson(hooksPath, buildHrcCodexHooksConfig())
 
     // Symlink auth.json from user's ~/.codex if it exists so OAuth credentials are available
     const userCodexHome = join(homedir(), '.codex')
