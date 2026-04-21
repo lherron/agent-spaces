@@ -9,9 +9,18 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
-import { getAgentsRoot, getAspHome } from 'spaces-config'
+import { parse as parseToml } from '@iarna/toml'
+
+import { getAgentsRoot, getAspHome, resolveRootRelativeRef } from 'spaces-config'
+import {
+  type ContextResolverContext,
+  type ContextTemplate,
+  type DiscoveredContextTemplate,
+  discoverContextTemplate,
+  resolveContextTemplateDetailed,
+} from 'spaces-runtime'
 
 /**
  * Lenient subset of the HRC launch artifact. The real type lives in
@@ -87,6 +96,43 @@ export interface ResolveSelfContextOptions {
   cwd?: string
 }
 
+export interface ResolveSelfTemplateContextOptions {
+  runMode?: string | undefined
+}
+
+export interface SelfTemplateContext {
+  discovered: DiscoveredContextTemplate
+  template: ContextTemplate | null
+  resolverContext: ContextResolverContext
+  runMode: string
+}
+
+export type TemplateSourceKind =
+  | 'agent-local'
+  | 'shared-agents-root'
+  | 'asp-home'
+  | 'custom'
+  | 'built-in'
+  | 'none'
+
+export interface TemplateSourceInfo {
+  kind: TemplateSourceKind
+  path: string | null
+}
+
+export type TemplateSection = ContextTemplate['promptSections'][number]
+
+export interface SectionReport {
+  zone: 'prompt' | 'reminder'
+  name: string
+  source: string
+  chars: number
+  bytes: number
+  included: boolean
+  when?: string | undefined
+  error?: string | undefined
+}
+
 /**
  * Pull the system prompt out of argv. Claude uses `--append-system-prompt`;
  * other harnesses use `--system-prompt`. Mirrors hrc-server's exec.ts.
@@ -132,6 +178,28 @@ function parseIntOrNull(value: string | undefined): number | null {
   if (value === undefined) return null
   const parsed = Number.parseInt(value, 10)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function readAgentProfile(agentRoot: string | null): Record<string, unknown> | null {
+  if (!agentRoot) {
+    return null
+  }
+
+  const profilePath = join(agentRoot, 'agent-profile.toml')
+  if (!existsSync(profilePath)) {
+    return null
+  }
+
+  const parsed = parseToml(readFileSync(profilePath, 'utf8'))
+  if (!isRecord(parsed)) {
+    throw new Error(`Agent profile must parse to a TOML table: ${profilePath}`)
+  }
+
+  return parsed
 }
 
 /**
@@ -219,6 +287,166 @@ export function resolveSelfContext(options: ResolveSelfContextOptions = {}): Sel
     systemPrompt,
     primingPrompt,
   }
+}
+
+export function resolveSelfTemplateContext(
+  ctx: SelfContext,
+  options: ResolveSelfTemplateContextOptions = {}
+): SelfTemplateContext {
+  const syntheticAgentRoot = ctx.agentRoot ?? ctx.agentsRoot
+  const discovered = discoverContextTemplate({
+    agentRoot: syntheticAgentRoot,
+    agentsRoot: ctx.agentsRoot,
+    aspHome: ctx.aspHome,
+  })
+
+  const runMode = options.runMode ?? 'query'
+  const resolverContext: ContextResolverContext = {
+    agentRoot: syntheticAgentRoot,
+    agentName: ctx.agentName ?? basename(syntheticAgentRoot),
+    agentsRoot: discovered.agentsRoot,
+    projectRoot: ctx.cwd,
+    runMode,
+    ...(ctx.projectId ? { projectId: ctx.projectId } : {}),
+  }
+
+  if (discovered.profile.rawProfile) {
+    resolverContext.agentProfile = discovered.profile.rawProfile
+  } else {
+    const profile = readAgentProfile(ctx.agentRoot)
+    if (profile) {
+      resolverContext.agentProfile = profile
+    }
+  }
+
+  return {
+    discovered,
+    template: discovered.templateSource?.template ?? null,
+    resolverContext,
+    runMode,
+  }
+}
+
+export function classifyTemplateSource(
+  ctx: Pick<SelfContext, 'agentRoot' | 'agentsRoot' | 'aspHome'>,
+  templatePath: string | null
+): TemplateSourceInfo {
+  if (!templatePath) {
+    return { kind: 'built-in', path: null }
+  }
+
+  if (ctx.agentRoot && templatePath === join(ctx.agentRoot, 'context-template.toml')) {
+    return { kind: 'agent-local', path: templatePath }
+  }
+
+  if (templatePath === join(ctx.agentsRoot, 'context-template.toml')) {
+    return { kind: 'shared-agents-root', path: templatePath }
+  }
+
+  if (templatePath === join(ctx.aspHome, 'context-template.toml')) {
+    return { kind: 'asp-home', path: templatePath }
+  }
+
+  return { kind: 'custom', path: templatePath }
+}
+
+export function describeTemplateSectionSource(
+  section: TemplateSection,
+  resolverContext: Pick<ContextResolverContext, 'agentRoot' | 'agentsRoot' | 'projectRoot'>
+): string {
+  switch (section.type) {
+    case 'inline':
+      return 'inline content'
+    case 'exec':
+      return `exec: ${section.command}`
+    case 'slot':
+      return `slot: ${section.source}`
+    case 'file': {
+      try {
+        const resolved =
+          section.path.startsWith('agent-root:///') || section.path.startsWith('project-root:///')
+            ? resolveRootRelativeRef(section.path, {
+                agentRoot: resolverContext.agentRoot,
+                projectRoot: resolverContext.projectRoot,
+              })
+            : join(resolverContext.agentsRoot, section.path)
+        return `${section.path} -> ${resolved}`
+      } catch {
+        return `file: ${section.path}`
+      }
+    }
+  }
+}
+
+function formatWhenPredicate(section: TemplateSection): string | undefined {
+  if (!section.when) {
+    return undefined
+  }
+
+  const parts: string[] = []
+  if (section.when.runMode) {
+    parts.push(`runMode=${section.when.runMode}`)
+  }
+  if (section.when.exists) {
+    parts.push(`exists=${section.when.exists}`)
+  }
+
+  return parts.length > 0 ? parts.join(', ') : undefined
+}
+
+export async function analyzeTemplateSections(input: {
+  template: ContextTemplate
+  resolverContext: ContextResolverContext
+  zone: 'prompt' | 'reminder'
+}): Promise<SectionReport[]> {
+  const sections =
+    input.zone === 'prompt' ? input.template.promptSections : input.template.reminderSections
+
+  return Promise.all(
+    sections.map(async (section) => {
+      const singleTemplate: ContextTemplate = {
+        schemaVersion: input.template.schemaVersion,
+        mode: input.template.mode,
+        promptSections: input.zone === 'prompt' ? [section] : [],
+        reminderSections: input.zone === 'reminder' ? [section] : [],
+      }
+
+      const base: SectionReport = {
+        zone: input.zone,
+        name: section.name,
+        source: describeTemplateSectionSource(section, input.resolverContext),
+        chars: 0,
+        bytes: 0,
+        included: false,
+        ...(formatWhenPredicate(section) ? { when: formatWhenPredicate(section) } : {}),
+      }
+
+      try {
+        const resolved = await resolveContextTemplateDetailed(
+          singleTemplate,
+          input.resolverContext,
+          {
+            includePrompt: input.zone === 'prompt',
+            includeReminder: input.zone === 'reminder',
+          }
+        )
+        const content = input.zone === 'prompt' ? resolved.prompt?.content : resolved.reminder
+
+        return {
+          ...base,
+          chars: charCount(content),
+          bytes: byteCount(content),
+          included: typeof content === 'string' && content.length > 0,
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return {
+          ...base,
+          error: message,
+        }
+      }
+    })
+  )
 }
 
 /**
