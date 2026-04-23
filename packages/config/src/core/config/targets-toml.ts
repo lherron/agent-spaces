@@ -39,6 +39,11 @@ export function parseTargetsToml(content: string, filePath?: string): ProjectMan
     throw new ConfigValidationError('Invalid asp-targets.toml', source, result.errors)
   }
 
+  // Default missing targets to {} so a marker-only file (schema = 1) is valid.
+  if (!result.data.targets) {
+    result.data.targets = {}
+  }
+
   for (const [targetName, target] of Object.entries(result.data.targets)) {
     if (target.priming_prompt !== undefined && target.priming_prompt_append !== undefined) {
       throw new ConfigValidationError('Invalid asp-targets.toml', source, [

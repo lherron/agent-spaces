@@ -336,18 +336,20 @@ compose = ["space:my-space@stable"]
       expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
     })
 
-    test('throws ConfigValidationError for missing targets', () => {
+    test('marker-only file (schema = 1, no targets) is valid with targets = {}', () => {
       const toml = 'schema = 1'
-      expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
+      const manifest = parseTargetsToml(toml)
+      expect(manifest.targets).toEqual({})
     })
 
-    test('throws ConfigValidationError for empty targets', () => {
+    test('empty [targets] table parses to an empty map', () => {
       const toml = `
 schema = 1
 
 [targets]
 `
-      expect(() => parseTargetsToml(toml)).toThrow(ConfigValidationError)
+      const manifest = parseTargetsToml(toml)
+      expect(manifest.targets).toEqual({})
     })
 
     test('allows target without compose (agent-profile provides defaults)', () => {

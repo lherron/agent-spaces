@@ -4,7 +4,7 @@
   "title": "Agent Spaces v2 - asp-targets.toml",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "targets"],
+  "required": ["schema"],
   "properties": {
     "schema": { "type": "integer", "const": 1 },
 
@@ -47,7 +47,6 @@
 
     "targets": {
       "type": "object",
-      "minProperties": 1,
       "additionalProperties": { "$ref": "#/$defs/target" }
     }
   },

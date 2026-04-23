@@ -1,22 +1,19 @@
 /**
- * RED tests for T-00899: CLI convenience resolution via ASP_AGENTS_ROOT / ASP_PROJECTS_ROOT.
+ * Tests for `asp agent` convenience resolution.
  *
- * When --agent-root is not provided, `asp agent` should derive it from
- * ASP_AGENTS_ROOT (env or config.toml) + agentId from the scope handle.
- * Same for --project-root from ASP_PROJECTS_ROOT + projectId.
- *
- * PASS CONDITIONS:
- * 1. ASP_AGENTS_ROOT + agentId → agent-root = $ASP_AGENTS_ROOT/<agentId>/
- * 2. ASP_PROJECTS_ROOT + projectId → project-root = $ASP_PROJECTS_ROOT/<projectId>/
- * 3. --agent-root flag overrides ASP_AGENTS_ROOT
- * 4. --project-root flag overrides ASP_PROJECTS_ROOT
- * 5. Bare scope (no projectId) leaves projectRoot undefined
- * 6. No ASP_AGENTS_ROOT and no --agent-root → clear error mentioning config.toml
- * 7. --harness falls back to claude-code only when no profile/target default exists
+ * Resolution paths covered:
+ * - ASP_AGENTS_ROOT (env or config.toml) + agentId → agent-root = $ASP_AGENTS_ROOT/<agentId>/
+ * - --agent-root flag overrides ASP_AGENTS_ROOT
+ * - --project-root flag sets projectRoot explicitly
+ * - Marker walk-up: cwd under a dir containing asp-targets.toml → projectRoot = that dir
+ * - Bare scope (no projectId) leaves projectRoot undefined
+ * - Missing ASP_AGENTS_ROOT produces a clear error
+ * - --harness falls back to claude-code when no profile/target default exists
  */
 
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -35,13 +32,14 @@ const ASP_CLI = join(import.meta.dirname, '..', '..', 'bin', 'asp.js')
 
 function runAsp(
   args: string[],
-  options: { env?: Record<string, string>; expectError?: boolean } = {}
+  options: { env?: Record<string, string>; cwd?: string; expectError?: boolean } = {}
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
     const result = execFileSync('bun', ['run', ASP_CLI, ...args], {
       encoding: 'utf8',
       timeout: 15000,
       env: { ...process.env, ...options.env, NO_COLOR: '1' },
+      ...(options.cwd ? { cwd: options.cwd } : {}),
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     return { stdout: result, stderr: '', exitCode: 0 }
@@ -55,37 +53,31 @@ function runAsp(
 }
 
 /**
- * Set up a temp agents-root with a real agent directory (copied from fixtures).
- * Also creates a temp projects-root with a minimal project directory.
+ * Set up a temp agents-root (with "alice" copied from fixtures) and a
+ * projects dir containing a "demo" project with an asp-targets.toml marker.
  */
 async function setupConvenienceDirs(): Promise<{
   agentsRoot: string
-  projectsRoot: string
+  projectDir: string
   aspHome: string
   cleanup: () => Promise<void>
 }> {
   const base = join(tmpdir(), `asp-conv-${Date.now()}-${Math.random().toString(36).slice(2)}`)
   const agentsRoot = join(base, 'agents')
-  const projectsRoot = join(base, 'projects')
+  const projectDir = join(base, 'projects', 'demo')
   const aspHome = join(base, 'asp-home')
 
-  // Create agents-root with an "alice" agent (copy from fixture)
   await cp(join(FIXTURES_DIR, 'agent-root'), join(agentsRoot, 'alice'), { recursive: true })
 
-  // Create projects-root with a "demo" project (minimal)
-  await mkdir(join(projectsRoot, 'demo'), { recursive: true })
-  await writeFile(
-    join(projectsRoot, 'demo', 'asp-targets.toml'),
-    '[targets.default]\ncompose = []\n',
-    'utf8'
-  )
+  // Project dir with marker (schema-only is now valid).
+  await mkdir(projectDir, { recursive: true })
+  await writeFile(join(projectDir, 'asp-targets.toml'), 'schema = 1\n', 'utf8')
 
-  // Create ASP_HOME
   await mkdir(aspHome, { recursive: true })
 
   return {
     agentsRoot,
-    projectsRoot,
+    projectDir,
     aspHome,
     cleanup: async () => {
       await rm(base, { recursive: true, force: true })
@@ -93,17 +85,13 @@ async function setupConvenienceDirs(): Promise<{
   }
 }
 
-// ===================================================================
-// T-00899: Agent root from ASP_AGENTS_ROOT
-// ===================================================================
-describe('ASP_AGENTS_ROOT convenience (T-00899)', () => {
+describe('agents-root resolution', () => {
   test('derives agent-root from ASP_AGENTS_ROOT + agentId', async () => {
-    const { agentsRoot, projectsRoot, aspHome, cleanup } = await setupConvenienceDirs()
+    const { agentsRoot, aspHome, cleanup } = await setupConvenienceDirs()
     try {
-      const result = runAsp(['agent', 'alice@demo', 'resolve', '--json'], {
+      const result = runAsp(['agent', 'alice', 'resolve', '--json'], {
         env: {
           ASP_AGENTS_ROOT: agentsRoot,
-          ASP_PROJECTS_ROOT: projectsRoot,
           ASP_HOME: aspHome,
         },
       })
@@ -116,30 +104,6 @@ describe('ASP_AGENTS_ROOT convenience (T-00899)', () => {
     }
   })
 
-  test('derives project-root from ASP_PROJECTS_ROOT + projectId', async () => {
-    const { agentsRoot, projectsRoot, aspHome, cleanup } = await setupConvenienceDirs()
-    try {
-      const result = runAsp(['agent', 'alice@demo', 'resolve', '--json'], {
-        env: {
-          ASP_AGENTS_ROOT: agentsRoot,
-          ASP_PROJECTS_ROOT: projectsRoot,
-          ASP_HOME: aspHome,
-        },
-      })
-
-      expect(result.exitCode).toBe(0)
-      const parsed = JSON.parse(result.stdout)
-      expect(parsed.placement.projectRoot).toBe(join(projectsRoot, 'demo'))
-    } finally {
-      await cleanup()
-    }
-  })
-})
-
-// ===================================================================
-// T-00899: Flag overrides
-// ===================================================================
-describe('flag overrides convenience roots (T-00899)', () => {
   test('--agent-root overrides ASP_AGENTS_ROOT', async () => {
     const { agentsRoot, aspHome, cleanup } = await setupConvenienceDirs()
     const explicitRoot = join(FIXTURES_DIR, 'agent-root')
@@ -153,15 +117,16 @@ describe('flag overrides convenience roots (T-00899)', () => {
 
       expect(result.exitCode).toBe(0)
       const parsed = JSON.parse(result.stdout)
-      // Explicit flag should win over env-derived path
       expect(parsed.placement.agentRoot).toBe(explicitRoot)
     } finally {
       await cleanup()
     }
   })
+})
 
-  test('--project-root overrides ASP_PROJECTS_ROOT', async () => {
-    const { agentsRoot, projectsRoot, aspHome, cleanup } = await setupConvenienceDirs()
+describe('project-root resolution', () => {
+  test('--project-root sets projectRoot explicitly', async () => {
+    const { agentsRoot, aspHome, cleanup } = await setupConvenienceDirs()
     const explicitProjectRoot = join(FIXTURES_DIR, 'project-root')
     try {
       const result = runAsp(
@@ -169,7 +134,6 @@ describe('flag overrides convenience roots (T-00899)', () => {
         {
           env: {
             ASP_AGENTS_ROOT: agentsRoot,
-            ASP_PROJECTS_ROOT: projectsRoot,
             ASP_HOME: aspHome,
           },
         }
@@ -182,19 +146,36 @@ describe('flag overrides convenience roots (T-00899)', () => {
       await cleanup()
     }
   })
+
+  test('marker walk-up from cwd sets projectRoot when projectId matches', async () => {
+    const { agentsRoot, projectDir, aspHome, cleanup } = await setupConvenienceDirs()
+    try {
+      const result = runAsp(['agent', 'alice@demo', 'resolve', '--json'], {
+        env: {
+          ASP_AGENTS_ROOT: agentsRoot,
+          ASP_HOME: aspHome,
+        },
+        cwd: projectDir,
+      })
+
+      expect(result.exitCode).toBe(0)
+      const parsed = JSON.parse(result.stdout)
+      // realpathSync resolves macOS /var -> /private/var, matching what the
+      // marker walk-up returns.
+      expect(parsed.placement.projectRoot).toBe(realpathSync(projectDir))
+    } finally {
+      await cleanup()
+    }
+  })
 })
 
-// ===================================================================
-// T-00899: Bare scope (no projectId)
-// ===================================================================
-describe('bare scope without projectId (T-00899)', () => {
+describe('bare scope without projectId', () => {
   test('alice (no @project) leaves projectRoot undefined', async () => {
-    const { agentsRoot, projectsRoot, aspHome, cleanup } = await setupConvenienceDirs()
+    const { agentsRoot, aspHome, cleanup } = await setupConvenienceDirs()
     try {
       const result = runAsp(['agent', 'alice', 'resolve', '--json'], {
         env: {
           ASP_AGENTS_ROOT: agentsRoot,
-          ASP_PROJECTS_ROOT: projectsRoot,
           ASP_HOME: aspHome,
         },
       })
@@ -202,7 +183,6 @@ describe('bare scope without projectId (T-00899)', () => {
       expect(result.exitCode).toBe(0)
       const parsed = JSON.parse(result.stdout)
       expect(parsed.placement.agentRoot).toBe(join(agentsRoot, 'alice'))
-      // No projectId in scope → projectRoot should not be set
       expect(parsed.placement.projectRoot).toBeUndefined()
     } finally {
       await cleanup()
@@ -210,10 +190,7 @@ describe('bare scope without projectId (T-00899)', () => {
   })
 })
 
-// ===================================================================
-// T-00899: Missing ASP_AGENTS_ROOT error
-// ===================================================================
-describe('missing agents root error (T-00899)', () => {
+describe('missing agents root error', () => {
   test('no ASP_AGENTS_ROOT and no --agent-root produces clear error', async () => {
     const base = join(tmpdir(), `asp-empty-${Date.now()}`)
     const aspHome = join(base, 'asp-home')
@@ -226,14 +203,12 @@ describe('missing agents root error (T-00899)', () => {
         env: {
           ASP_HOME: aspHome,
           HOME: home,
-          // No ASP_AGENTS_ROOT, no --agent-root flag, and no convention root under HOME
         },
         expectError: true,
       })
 
       expect(result.exitCode).not.toBe(0)
       const output = result.stdout + result.stderr
-      // Should mention how to configure — either env var, flag, or config.toml
       expect(output).toMatch(/agent.?root|ASP_AGENTS_ROOT|config\.toml/i)
     } finally {
       await rm(base, { recursive: true, force: true })
@@ -241,10 +216,7 @@ describe('missing agents root error (T-00899)', () => {
   })
 })
 
-// ===================================================================
-// T-00899: Default frontend
-// ===================================================================
-describe('default frontend (T-00899)', () => {
+describe('default frontend', () => {
   test('--harness defaults to claude-code when not specified', async () => {
     const { agentsRoot, aspHome, cleanup } = await setupConvenienceDirs()
     try {
@@ -257,7 +229,6 @@ describe('default frontend (T-00899)', () => {
 
       expect(result.exitCode).toBe(0)
       const parsed = JSON.parse(result.stdout)
-      // Default frontend should be claude-code — verify via argv or spec
       expect(parsed.spec).toBeDefined()
     } finally {
       await cleanup()
