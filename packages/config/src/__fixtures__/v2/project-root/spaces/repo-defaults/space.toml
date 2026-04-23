@@ -6,4 +6,4 @@ description = "Project-local Pi SDK fixture"
 supports = ["pi-sdk"]
 
 [pi]
-model = "openai-codex/gpt-5.4"
+model = "openai-codex/gpt-5.5"

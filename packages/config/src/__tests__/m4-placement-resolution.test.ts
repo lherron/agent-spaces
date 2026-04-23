@@ -610,7 +610,7 @@ harness = "codex"
 base = ["space:agent-base@dev"]
 
 [harnessDefaults]
-model = "gpt-5.4"
+model = "gpt-5.5"
 `
       )
 

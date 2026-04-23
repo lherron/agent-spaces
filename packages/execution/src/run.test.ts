@@ -113,7 +113,7 @@ describe('prepareCodexRuntimeHome', () => {
     await mkdir(join(templateHome, 'skills', 'fresh-skill'), { recursive: true })
     await mkdir(join(templateHome, 'prompts'), { recursive: true })
     await writeFile(join(templateHome, 'AGENTS.md'), 'fresh agents\n')
-    await writeFile(join(templateHome, 'config.toml'), 'model = "gpt-5.4"\n')
+    await writeFile(join(templateHome, 'config.toml'), 'model = "gpt-5.5"\n')
     await writeFile(join(templateHome, 'hooks.json'), '{"hooks":{"Stop":[]}}\n')
     await writeFile(join(templateHome, 'manifest.json'), '{"name":"codex"}\n')
     await writeFile(join(templateHome, 'skills', 'fresh-skill', 'SKILL.md'), 'fresh skill\n')
@@ -156,7 +156,7 @@ describe('prepareCodexRuntimeHome', () => {
     await expect(stat(join(runtimeHome, 'skills', 'stale-skill'))).rejects.toThrow()
 
     const config = await readFile(join(runtimeHome, 'config.toml'), 'utf-8')
-    expect(config).toContain('model = "gpt-5.4"')
+    expect(config).toContain('model = "gpt-5.5"')
     expect(config).toContain(`[projects.${JSON.stringify(projectPath)}]`)
 
     const metadata = JSON.parse(
@@ -178,7 +178,7 @@ describe('prepareCodexRuntimeHome', () => {
     await mkdir(join(templateHome, 'skills'), { recursive: true })
     await mkdir(join(templateHome, 'prompts'), { recursive: true })
     await writeFile(join(templateHome, 'AGENTS.md'), 'fresh agents\n')
-    await writeFile(join(templateHome, 'config.toml'), 'model = "gpt-5.4"\n')
+    await writeFile(join(templateHome, 'config.toml'), 'model = "gpt-5.5"\n')
     await writeFile(join(templateHome, 'manifest.json'), '{"name":"cody"}\n')
 
     const resolvedRuntime = await prepareCodexRuntimeHome(
@@ -513,7 +513,7 @@ sandbox_mode = "workspace-write"
     // Target overrides only model — other codex defaults should come from profile
     const target: TargetDefinition = {
       compose: ['space:defaults@stable' as SpaceRefString],
-      codex: { model: 'gpt-5.4-codex' },
+      codex: { model: 'gpt-5.5-codex' },
     }
 
     expect(resolveAgentRunDefaults).toBeDefined()
@@ -521,7 +521,7 @@ sandbox_mode = "workspace-write"
     expect(defaults).toBeDefined()
     expect(defaults!.codex).toBeDefined()
     // Target model wins
-    expect(defaults!.codex!['model']).toBe('gpt-5.4-codex')
+    expect(defaults!.codex!['model']).toBe('gpt-5.5-codex')
     // Profile defaults fill in the rest
     expect(defaults!.codex!['model_reasoning_effort']).toBe('medium')
     expect(defaults!.codex!['approval_policy']).toBe('on-failure')

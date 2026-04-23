@@ -58,7 +58,7 @@ import {
 // Constants & Types
 // ============================================================================
 
-const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.4'
+const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.5'
 
 const RUNNER_PATH = fileURLToPath(new URL('../pi-sdk/pi-sdk/runner.js', import.meta.url))
 const SDK_ENTRY_CANDIDATES = [
@@ -190,7 +190,7 @@ export class PiSdkAdapter implements HarnessAdapter {
   readonly name = 'Pi SDK'
 
   readonly models: HarnessModelInfo[] = [
-    { id: DEFAULT_PI_SDK_MODEL, name: 'GPT-5.4', default: true },
+    { id: DEFAULT_PI_SDK_MODEL, name: 'GPT-5.5', default: true },
     { id: 'openai-codex/gpt-5.3-codex', name: 'GPT-5.3 Codex' },
     { id: 'openai-codex/gpt-5.3', name: 'GPT-5.3' },
     { id: 'openai-codex/gpt-5.2-codex', name: 'GPT-5.2 Codex' },

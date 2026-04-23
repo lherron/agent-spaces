@@ -20,12 +20,12 @@ export const CLAUDE_CODE_FRONTEND: HarnessFrontend = 'claude-code'
 export const CODEX_CLI_FRONTEND: HarnessFrontend = 'codex-cli'
 
 const PI_SDK_MODELS = [
-  'openai-codex/gpt-5.4',
+  'openai-codex/gpt-5.5',
   'openai-codex/gpt-5.3-codex',
   'openai-codex/gpt-5.3',
   'openai-codex/gpt-5.2-codex',
   'openai-codex/gpt-5.2',
-  'api/gpt-5.4',
+  'api/gpt-5.5',
   'api/gpt-5.3-codex',
   'api/gpt-5.3',
   'api/gpt-5.2-codex',
@@ -33,7 +33,7 @@ const PI_SDK_MODELS = [
 ]
 
 const CODEX_CLI_MODELS = [
-  'gpt-5.4',
+  'gpt-5.5',
   'gpt-5.3-codex',
   'gpt-5.3',
   'gpt-5.2-codex',
@@ -47,8 +47,8 @@ const CODEX_CLI_MODELS = [
   'gpt-5',
 ]
 
-const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.4'
-const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.4'
+const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.5'
+const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.5'
 
 export class CodedError extends Error {
   readonly code: NonNullable<AgentSpacesError['code']>
