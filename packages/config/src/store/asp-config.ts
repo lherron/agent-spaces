@@ -11,7 +11,6 @@ interface ConfigOptions {
 
 interface AspConfigFile {
   'agents-root'?: unknown
-  'projects-root'?: unknown
 }
 
 export function getAgentsRoot(opts?: ConfigOptions): string | undefined {
@@ -25,13 +24,9 @@ export function getAgentsRoot(opts?: ConfigOptions): string | undefined {
   return existsSync(conventionPath) ? conventionPath : undefined
 }
 
-export function getProjectsRoot(opts?: ConfigOptions): string | undefined {
-  return getConfiguredRoot('ASP_PROJECTS_ROOT', 'projects-root', opts)
-}
-
 function getConfiguredRoot(
-  envKey: 'ASP_AGENTS_ROOT' | 'ASP_PROJECTS_ROOT',
-  configKey: 'agents-root' | 'projects-root',
+  envKey: 'ASP_AGENTS_ROOT',
+  configKey: 'agents-root',
   opts?: ConfigOptions
 ): string | undefined {
   const env = opts?.env ?? process.env

@@ -244,3 +244,17 @@ export function getCodexTestEnv(aspHome: string): Record<string, string> {
     PATH: pathEnv,
   }
 }
+
+export function extractDryRunCommand(stdout: string): string {
+  const commandLabelIndex = stdout.indexOf('Command:')
+  if (commandLabelIndex >= 0) {
+    return stdout.slice(commandLabelIndex + 'Command:'.length).trim()
+  }
+
+  const commandBlockIndex = stdout.indexOf('── command ──')
+  if (commandBlockIndex >= 0) {
+    return stdout.slice(commandBlockIndex + '── command ──'.length).trim()
+  }
+
+  return ''
+}

@@ -35,12 +35,15 @@ export {
   PathResolver,
   type PathOptions,
 } from './paths.js'
-export { getAgentsRoot, getProjectsRoot } from './asp-config.js'
+export { getAgentsRoot } from './asp-config.js'
 export {
   buildRuntimeBundleRef,
+  findProjectMarker,
   inferProjectIdFromCwd,
+  PROJECT_MARKER_FILENAME,
   resolveAgentPlacementPaths,
   type InferProjectIdFromCwdOptions,
+  type ProjectMarker,
   type ResolvedAgentPlacementPaths,
   type ResolveAgentPlacementPathsOptions,
   type RuntimeBundleRefOptions,

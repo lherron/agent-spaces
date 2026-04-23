@@ -23,6 +23,7 @@ import {
   cleanupTempProject,
   createTempAspHome,
   createTempProject,
+  extractDryRunCommand,
   getTestEnv,
 } from './setup.js'
 
@@ -155,7 +156,7 @@ describe('asp run --harness', () => {
 
     expect(exitCode).toBe(0)
     expect(stdout).toContain('Dry run')
-    expect(stdout).toContain('Command:')
+    expect(extractDryRunCommand(stdout)).not.toBe('')
     expect(stdout).toContain('--plugin-dir')
     expect(stdout).toContain('claude')
   })
@@ -168,7 +169,7 @@ describe('asp run --harness', () => {
     )
 
     expect(exitCode).toBe(0)
-    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    const command = extractDryRunCommand(stdout)
     expect(command).toContain('investigate')
     expect(command).not.toContain(' -p ')
   })
@@ -189,7 +190,7 @@ describe('asp run --harness', () => {
     )
 
     expect(exitCode).toBe(0)
-    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    const command = extractDryRunCommand(stdout)
     expect(command).toContain(' -p ')
     expect(command).toContain('investigate')
   })
@@ -202,7 +203,7 @@ describe('asp run --harness', () => {
     )
 
     expect(exitCode).toBe(0)
-    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    const command = extractDryRunCommand(stdout)
     expect(command).toContain('Register with agentchat and send READY\n\nplan-next-steps')
   })
 
@@ -215,7 +216,7 @@ describe('asp run --harness', () => {
 
     expect(exitCode).toBe(0)
     expect(stdout).toContain('Dry run')
-    expect(stdout).toContain('Command:')
+    expect(extractDryRunCommand(stdout)).not.toBe('')
     expect(stdout).toContain('--bundle')
     expect(stdout).toContain('pi-sdk')
   })
@@ -229,7 +230,7 @@ describe('asp run --harness', () => {
 
     expect(exitCode).toBe(0)
     expect(stdout).toContain('Dry run')
-    expect(stdout).toContain('Command:')
+    expect(extractDryRunCommand(stdout)).not.toBe('')
     expect(stdout).toContain('PI_CODING_AGENT_DIR=')
     expect(stdout).toContain('pi')
   })
@@ -252,10 +253,8 @@ describe('asp run --harness', () => {
     expect(exitWithout).toBe(0)
     expect(exitWith).toBe(0)
 
-    // Both should produce the same command
-    // Extract the command lines (after "Command:")
-    const commandWithout = withoutFlag.split('Command:')[1]?.trim()
-    const commandWith = withFlag.split('Command:')[1]?.trim()
+    const commandWithout = extractDryRunCommand(withoutFlag)
+    const commandWith = extractDryRunCommand(withFlag)
     expect(commandWithout).toEqual(commandWith)
   })
 

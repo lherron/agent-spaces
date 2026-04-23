@@ -16,6 +16,7 @@ import {
   cleanupTempProject,
   createTempAspHome,
   createTempProject,
+  extractDryRunCommand,
   getCodexTestEnv,
 } from './setup.js'
 
@@ -213,7 +214,7 @@ describe('asp codex harness', () => {
     )
 
     expect(exitCode).toBe(0)
-    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    const command = extractDryRunCommand(stdout)
     expect(command).toMatch(/-c ['"]model_reasoning_effort="high"['"]/)
   })
 
@@ -225,7 +226,7 @@ describe('asp codex harness', () => {
     )
 
     expect(exitCode).toBe(0)
-    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    const command = extractDryRunCommand(stdout)
     expect(command).toContain('investigate')
     expect(command).not.toContain(' exec ')
   })
@@ -238,7 +239,7 @@ describe('asp codex harness', () => {
     )
 
     expect(exitCode).toBe(0)
-    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    const command = extractDryRunCommand(stdout)
     expect(command).toContain(' exec ')
     expect(command).toContain('investigate')
   })
@@ -251,7 +252,7 @@ describe('asp codex harness', () => {
     )
 
     expect(exitCode).toBe(0)
-    const command = stdout.split('Command:')[1]?.trim() ?? ''
+    const command = extractDryRunCommand(stdout)
     expect(command).toContain('Register with agentchat and send READY\n\nplan-next-steps')
   })
 
