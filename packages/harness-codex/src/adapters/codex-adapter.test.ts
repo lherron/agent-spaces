@@ -294,7 +294,7 @@ describe('CodexAdapter', () => {
 
       const configRaw = await readFile(join(outputDir, 'codex.home', 'config.toml'), 'utf-8')
       const parsed = TOML.parse(configRaw) as Record<string, unknown>
-      expect(parsed['model']).toBe('gpt-5.4')
+      expect(parsed['model']).toBe('gpt-5.5')
       expect((parsed['features'] as Record<string, unknown>)['codex_hooks']).toBe(true)
       expect((parsed['tui'] as Record<string, unknown>)['status_line']).toEqual([
         'model-with-reasoning',
@@ -342,8 +342,8 @@ describe('CodexAdapter', () => {
       expect(args).toContain('model_reasoning_effort="high"')
     })
 
-    test('marks gpt-5.4 as the default supported model', () => {
-      expect(adapter.models[0]).toEqual({ id: 'gpt-5.4', name: 'GPT-5.4', default: true })
+    test('marks gpt-5.5 as the default supported model', () => {
+      expect(adapter.models[0]).toEqual({ id: 'gpt-5.5', name: 'GPT-5.5', default: true })
     })
   })
 

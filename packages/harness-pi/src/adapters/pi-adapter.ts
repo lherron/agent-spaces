@@ -75,7 +75,7 @@ export class PiBundleError extends AspError {
 /**
  * Common locations to search for the Pi binary.
  */
-const DEFAULT_PI_MODEL = 'gpt-5.4'
+const DEFAULT_PI_MODEL = 'gpt-5.5'
 const COMMON_PI_PATHS = [
   // Primary location
   join(process.env['HOME'] || '~', 'tools/pi-mono/packages/cli/bin/pi.js'),
@@ -611,7 +611,7 @@ export class PiAdapter implements HarnessAdapter {
   readonly name = 'Pi Coding Agent'
 
   readonly models: HarnessModelInfo[] = [
-    { id: DEFAULT_PI_MODEL, name: 'GPT-5.4', default: true, description: 'openai-codex provider' },
+    { id: DEFAULT_PI_MODEL, name: 'GPT-5.5', default: true, description: 'openai-codex provider' },
     {
       id: 'gpt-5.3-codex',
       name: 'GPT-5.3 Codex',
@@ -1096,7 +1096,7 @@ export class PiAdapter implements HarnessAdapter {
     args.push('--no-skills')
 
     // Model translation (sonnet -> claude-sonnet, etc.)
-    // Default to gpt-5.4 with openai-codex provider if no model specified
+    // Default to gpt-5.5 with openai-codex provider if no model specified
     const model = options.model || DEFAULT_PI_MODEL
     const translatedModel = PI_MODEL_TRANSLATION[model] || model
     args.push('--model', translatedModel)

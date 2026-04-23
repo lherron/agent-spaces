@@ -196,7 +196,7 @@ describe('CodexAdapter.composeTarget: model_reasoning_effort in config.toml', ()
       ],
       settingsInputs: [],
       codexOptions: {
-        model: 'gpt-5.4',
+        model: 'gpt-5.5',
       },
     }
 

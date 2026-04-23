@@ -896,10 +896,10 @@ describe('prompt in argv (T-00875)', () => {
 })
 
 // ===================================================================
-// T-00878: gpt-5.4 model support
+// T-00878: gpt-5.5 model support
 // ===================================================================
-describe('gpt-5.4 model support (T-00878)', () => {
-  test('codex-cli accepts gpt-5.4 model', () => {
+describe('gpt-5.5 model support (T-00878)', () => {
+  test('codex-cli accepts gpt-5.5 model', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -913,20 +913,20 @@ describe('gpt-5.4 model support (T-00878)', () => {
         '--harness',
         'codex-cli',
         '--model',
-        'gpt-5.4',
+        'gpt-5.5',
         '--dry-run',
         '--json',
       ],
       { expectError: true }
     )
 
-    // Should succeed (exit 0) — gpt-5.4 is a valid model
+    // Should succeed (exit 0) — gpt-5.5 is a valid model
     expect(result.exitCode).toBe(0)
     const parsed = JSON.parse(result.stdout)
     expect(parsed.spec.argv).toContain('--model')
   })
 
-  test('codex-cli default model is gpt-5.4 in dry-run', () => {
+  test('codex-cli default model is gpt-5.5 in dry-run', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -948,8 +948,8 @@ describe('gpt-5.4 model support (T-00878)', () => {
     const parsed = JSON.parse(result.stdout)
     const modelIdx = parsed.spec.argv.indexOf('--model')
     expect(modelIdx).toBeGreaterThan(-1)
-    // Default should be gpt-5.4
-    expect(parsed.spec.argv[modelIdx + 1]).toBe('gpt-5.4')
+    // Default should be gpt-5.5
+    expect(parsed.spec.argv[modelIdx + 1]).toBe('gpt-5.5')
   })
 })
 
