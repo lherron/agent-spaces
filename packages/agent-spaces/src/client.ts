@@ -1259,6 +1259,38 @@ async function runPlacementTurnNonInteractive(
       restoreEnv()
     }
 
+    // Detect silent "success with no content" — e.g. when the harness child
+    // crashed mid-turn or resumed into a corrupted transcript, turn_end can
+    // fire with no assistant message ever captured. Treat this as a failure
+    // so callers don't mistake an empty turn for a real response.
+    const producedContent =
+      (finalOutput !== undefined && finalOutput.length > 0) ||
+      assistantState.assistantBuffer.length > 0
+    if (!producedContent) {
+      const error = toAgentSpacesError(
+        new Error(
+          `Agent session produced no assistant output (frontend=${frontendDef.frontend}, continuationKey=${continuationKey ?? 'none'})`
+        ),
+        'empty_response'
+      )
+      const result: RunResult = { success: false, error }
+      await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
+      await eventEmitter.emit({ type: 'complete', result } as EventPayload)
+
+      const finalContinuation: HarnessContinuationRef | undefined = continuationKey
+        ? { provider: runtimePlan.provider, key: continuationKey }
+        : undefined
+
+      return {
+        ...(finalContinuation ? { continuation: finalContinuation } : {}),
+        provider: runtimePlan.provider,
+        frontend: req.frontend,
+        model: runtimePlan.model.info.effectiveModel,
+        result,
+        resolvedBundle,
+      }
+    }
+
     const result: RunResult = { success: true, ...(finalOutput ? { finalOutput } : {}) }
     await eventEmitter.emit({ type: 'state', state: 'complete' } as EventPayload)
     await eventEmitter.emit({ type: 'complete', result } as EventPayload)
