@@ -148,6 +148,10 @@ export class AgentSession implements UnifiedSession {
       ...(this.config.continuationKey ? { resume: this.config.continuationKey } : {}),
     }
 
+    console.log(
+      `[agent-sdk] session.start ${this.config.ownerId} model=${sdkModel} resume=${this.config.continuationKey ? truncateId(this.config.continuationKey) : 'none'} plugins=${this.config.plugins?.length ?? 0} maxTurns=${options.maxTurns}`
+    )
+
     const result = query({
       // biome-ignore lint/suspicious/noExplicitAny: SDK type compatibility - accepts simpler message formats at runtime
       prompt: this.promptQueue as any,
@@ -225,6 +229,7 @@ export class AgentSession implements UnifiedSession {
   async stop(reason?: string): Promise<void> {
     if (this.state === 'stopped') return
 
+    const priorState = this.state
     this.state = 'stopped'
     this.stopReason = reason
     this.promptQueue.close(reason)
@@ -236,7 +241,23 @@ export class AgentSession implements UnifiedSession {
       try {
         await this.sdkQuery.interrupt()
       } catch (error) {
-        console.error(`[agent-sdk] Failed to interrupt session ${this.config.ownerId}:`, error)
+        // When the SDK child process has already exited (e.g. crashed with
+        // code 1 earlier in the turn), interrupt() surfaces a
+        // "ProcessTransport is not ready for writing" error. That's not an
+        // error from our perspective — we're already stopping. Log it at
+        // debug level and continue with local teardown so callers don't see
+        // a cleanup failure masquerade as a turn failure.
+        const msg = error instanceof Error ? error.message : String(error)
+        if (msg.includes('ProcessTransport is not ready')) {
+          console.log(
+            `[agent-sdk] session ${this.config.ownerId} child already exited; skipping interrupt (priorState=${priorState}, reason=${reason ?? 'none'})`
+          )
+        } else {
+          console.error(
+            `[agent-sdk] Failed to interrupt session ${this.config.ownerId} (priorState=${priorState}, reason=${reason ?? 'none'}):`,
+            error
+          )
+        }
       }
     }
 
@@ -402,7 +423,18 @@ export class AgentSession implements UnifiedSession {
     } catch (error) {
       this.state = 'error'
       this.stopReason = this.stopReason ?? 'error'
+      const errMsg = error instanceof Error ? error.message : String(error)
+      console.error(
+        `[agent-sdk] listenToOutput failed for session ${this.config.ownerId} (sdkSessionId=${this.sdkSessionId ?? 'none'}, pendingTurns=${this.pendingTurnIds.length}, lastResponseLen=${this.lastResponse.length}): ${errMsg}`
+      )
       this.emitStopIfNeeded(undefined, this.lastResponse || undefined)
+      // Flush any pending turn_end events so callers awaiting turnPromise
+      // resolve instead of hanging. Without this, a mid-turn child crash
+      // leaves runPlacementTurnNonInteractive blocked until the outer
+      // abort/timeout fires, or worse, the turn is tracked as wedged.
+      while (this.pendingTurnIds.length > 0) {
+        this.emitTurnEndIfNeeded()
+      }
       throw error
     } finally {
       this.isListening = false
@@ -412,6 +444,13 @@ export class AgentSession implements UnifiedSession {
       // Emit final stop if session ends without a result
       if (this.lastResponse) {
         this.emitStopIfNeeded(undefined, this.lastResponse)
+      }
+      // Flush any pending turn_end events for the clean-exit case too —
+      // the SDK can end the iterator without emitting a terminal result
+      // (e.g. child exits 0 after an empty resume), and callers need to
+      // unblock on turn_end.
+      while (this.pendingTurnIds.length > 0) {
+        this.emitTurnEndIfNeeded()
       }
       this.emitAgentEnd(this.stopReason ?? (this.state === 'error' ? 'error' : 'stopped'))
     }
@@ -909,4 +948,11 @@ function normalizeToolResultBlocks(content: unknown): { blocks: ContentBlock[]; 
   }
 
   return { blocks, text: textParts.join('') }
+}
+
+// Shorten a UUID-like identifier for log lines. Full UUIDs are noisy and
+// the first segment is enough to correlate against DB records.
+function truncateId(id: string): string {
+  const dash = id.indexOf('-')
+  return dash > 0 ? id.slice(0, dash) : id.slice(0, 8)
 }

@@ -235,6 +235,7 @@ export interface AgentSpacesError {
     | 'continuation_not_found'
     | 'model_not_supported'
     | 'unsupported_frontend'
+    | 'empty_response'
     | undefined
   details?: Record<string, unknown> | undefined
 }
