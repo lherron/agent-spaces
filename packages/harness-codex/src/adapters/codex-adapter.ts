@@ -22,7 +22,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import TOML from '@iarna/toml'
 import type {
   ComposeTargetInput,
@@ -52,7 +52,9 @@ const INSTRUCTIONS_FILES = ['AGENTS.md', 'AGENT.md'] as const
 const DEFAULT_SANDBOX_MODE = 'workspace-write'
 const DEFAULT_APPROVAL_POLICY = 'on-request'
 const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.5'
-const MIN_CODEX_VERSION = '0.1.0'
+const MIN_CODEX_VERSION = '0.124.0'
+const CODEX_PATH_ENV = 'ASP_CODEX_PATH'
+const CODEX_SKIP_COMMON_PATHS_ENV = 'ASP_CODEX_SKIP_COMMON_PATHS'
 const CODEX_HOME_DIRNAME = 'codex.home'
 const CODEX_CONFIG_FILE = 'config.toml'
 const CODEX_HOOKS_FILE = 'hooks.json'
@@ -324,6 +326,54 @@ function isVersionAtLeast(version: string, minVersion: string): boolean {
   return true
 }
 
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    result.push(value)
+  }
+  return result
+}
+
+function pathCandidatesForCommand(command: string): string[] {
+  return (process.env['PATH'] ?? '')
+    .split(delimiter)
+    .filter(Boolean)
+    .map((dir) => join(dir, command))
+}
+
+function nvmCodexCandidates(): string[] {
+  const versionsDir = join(homedir(), '.nvm', 'versions', 'node')
+  try {
+    return readdirSync(versionsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(versionsDir, entry.name, 'bin', 'codex'))
+  } catch {
+    return []
+  }
+}
+
+function codexCommandCandidates(): string[] {
+  const commonCandidates =
+    process.env[CODEX_SKIP_COMMON_PATHS_ENV] === '1'
+      ? []
+      : [
+          ...nvmCodexCandidates(),
+          join(homedir(), '.bun', 'bin', 'codex'),
+          join(homedir(), '.local', 'bin', 'codex'),
+          '/opt/homebrew/bin/codex',
+          '/usr/local/bin/codex',
+        ]
+
+  return dedupeStrings([
+    process.env[CODEX_PATH_ENV] ?? '',
+    ...pathCandidatesForCommand('codex'),
+    ...commonCandidates,
+  ])
+}
+
 interface BunSpawnOptions {
   stdout: 'pipe' | 'inherit' | 'ignore'
   stderr: 'pipe' | 'inherit' | 'ignore'
@@ -383,35 +433,69 @@ export class CodexAdapter implements HarnessAdapter {
   ]
 
   async detect(): Promise<HarnessDetection> {
+    const errors: string[] = []
     try {
-      const versionResult = await runCommand(['codex', '--version'])
+      for (const candidate of codexCommandCandidates()) {
+        if (!existsSync(candidate)) {
+          continue
+        }
 
-      if (versionResult.exitCode !== 0) {
-        throw new Error(
-          versionResult.stderr.trim() || versionResult.stdout.trim() || 'codex --version failed'
-        )
+        let versionResult: Awaited<ReturnType<typeof runCommand>>
+        try {
+          versionResult = await runCommand([candidate, '--version'])
+        } catch (error) {
+          errors.push(`${candidate}: ${error instanceof Error ? error.message : String(error)}`)
+          continue
+        }
+
+        if (versionResult.exitCode !== 0) {
+          errors.push(
+            `${candidate}: ${
+              versionResult.stderr.trim() || versionResult.stdout.trim() || 'codex --version failed'
+            }`
+          )
+          continue
+        }
+
+        const versionOutput = versionResult.stdout.trim() || versionResult.stderr.trim()
+        const match = versionOutput.match(/(\d+\.\d+\.\d+)/)
+        const version = match?.[1] ?? (versionOutput || 'unknown')
+        if (!match || !isVersionAtLeast(version, MIN_CODEX_VERSION)) {
+          errors.push(`${candidate}: codex ${version} is below minimum ${MIN_CODEX_VERSION}`)
+          continue
+        }
+
+        let helpResult: Awaited<ReturnType<typeof runCommand>>
+        try {
+          helpResult = await runCommand([candidate, 'app-server', '--help'])
+        } catch (error) {
+          errors.push(`${candidate}: ${error instanceof Error ? error.message : String(error)}`)
+          continue
+        }
+        if (helpResult.exitCode !== 0) {
+          errors.push(
+            `${candidate}: ${
+              helpResult.stderr.trim() ||
+              helpResult.stdout.trim() ||
+              'codex app-server --help failed'
+            }`
+          )
+          continue
+        }
+
+        return {
+          available: true,
+          version,
+          path: candidate,
+          capabilities: ['appServer'],
+        }
       }
 
-      const versionOutput = versionResult.stdout.trim() || versionResult.stderr.trim()
-      const match = versionOutput.match(/(\d+\.\d+\.\d+)/)
-      const version = match?.[1] ?? (versionOutput || 'unknown')
-      if (match && !isVersionAtLeast(version, MIN_CODEX_VERSION)) {
-        throw new Error(`codex ${version} is below minimum ${MIN_CODEX_VERSION}`)
-      }
-
-      const helpResult = await runCommand(['codex', 'app-server', '--help'])
-      if (helpResult.exitCode !== 0) {
-        throw new Error(
-          helpResult.stderr.trim() || helpResult.stdout.trim() || 'codex app-server --help failed'
-        )
-      }
-
-      return {
-        available: true,
-        version,
-        path: 'codex',
-        capabilities: ['appServer'],
-      }
+      throw new Error(
+        errors.length > 0
+          ? errors.join('; ')
+          : `codex not found on PATH, ${CODEX_PATH_ENV}, or common user install paths`
+      )
     } catch (error) {
       return {
         available: false,

@@ -6,7 +6,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
@@ -48,6 +48,94 @@ describe('CodexAdapter', () => {
 
   beforeEach(() => {
     adapter = new CodexAdapter()
+  })
+
+  describe('detect', () => {
+    const originalPath = process.env.PATH
+    const originalAspCodexPath = process.env.ASP_CODEX_PATH
+    const originalSkipCommonPaths = process.env.ASP_CODEX_SKIP_COMMON_PATHS
+    let tmpDir: string
+
+    async function writeCodexShim(dir: string, version: string): Promise<string> {
+      await mkdir(dir, { recursive: true })
+      const shim = join(dir, 'codex')
+      await writeFile(
+        shim,
+        `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "codex-cli ${version}"
+  exit 0
+fi
+if [ "$1" = "app-server" ] && [ "$2" = "--help" ]; then
+  echo "app-server help"
+  exit 0
+fi
+exit 1
+`
+      )
+      await chmod(shim, 0o755)
+      return shim
+    }
+
+    beforeEach(async () => {
+      tmpDir = join(tmpdir(), `codex-adapter-detect-${Date.now()}`)
+      process.env.ASP_CODEX_PATH = undefined
+      process.env.ASP_CODEX_SKIP_COMMON_PATHS = '1'
+    })
+
+    afterEach(async () => {
+      process.env.PATH = originalPath
+      if (originalAspCodexPath === undefined) {
+        process.env.ASP_CODEX_PATH = undefined
+      } else {
+        process.env.ASP_CODEX_PATH = originalAspCodexPath
+      }
+      if (originalSkipCommonPaths === undefined) {
+        process.env.ASP_CODEX_SKIP_COMMON_PATHS = undefined
+      } else {
+        process.env.ASP_CODEX_SKIP_COMMON_PATHS = originalSkipCommonPaths
+      }
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('skips stale codex binaries and uses a new enough candidate', async () => {
+      const oldBin = join(tmpDir, 'old-bin')
+      const newBin = join(tmpDir, 'new-bin')
+      await writeCodexShim(oldBin, '0.92.0')
+      const newShim = await writeCodexShim(newBin, '0.124.0')
+      process.env.PATH = `${oldBin}:${newBin}`
+
+      const detection = await adapter.detect()
+
+      expect(detection.available).toBe(true)
+      expect(detection.version).toBe('0.124.0')
+      expect(detection.path).toBe(newShim)
+    })
+
+    test('reports the stale codex version when no candidate is new enough', async () => {
+      const oldBin = join(tmpDir, 'old-bin')
+      await writeCodexShim(oldBin, '0.92.0')
+      process.env.PATH = oldBin
+
+      const detection = await adapter.detect()
+
+      expect(detection.available).toBe(false)
+      expect(detection.error).toContain('codex 0.92.0 is below minimum 0.124.0')
+    })
+
+    test('honors ASP_CODEX_PATH before PATH', async () => {
+      const oldBin = join(tmpDir, 'old-bin')
+      const overrideBin = join(tmpDir, 'override-bin')
+      await writeCodexShim(oldBin, '0.92.0')
+      const overrideShim = await writeCodexShim(overrideBin, '0.124.0')
+      process.env.PATH = oldBin
+      process.env.ASP_CODEX_PATH = overrideShim
+
+      const detection = await adapter.detect()
+
+      expect(detection.available).toBe(true)
+      expect(detection.path).toBe(overrideShim)
+    })
   })
 
   describe('materializeSpace', () => {
