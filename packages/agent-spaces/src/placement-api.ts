@@ -81,6 +81,7 @@ export interface PlacementBuildInvocationResponse {
  * When correlation.sessionRef is present:
  * - AGENT_SCOPE_REF = sessionRef.scopeRef
  * - AGENT_LANE_REF = sessionRef.laneRef
+ * - HRC_SESSION_REF = scopeRef/laneRef  (consumed by hrcchat to identify the caller)
  *
  * When correlation.hostSessionId is present:
  * - AGENT_HOST_SESSION_ID = hostSessionId
@@ -93,6 +94,8 @@ export function buildCorrelationEnvVars(placement: RuntimePlacement): Record<str
   if (placement.correlation?.sessionRef) {
     env['AGENT_SCOPE_REF'] = placement.correlation.sessionRef.scopeRef
     env['AGENT_LANE_REF'] = placement.correlation.sessionRef.laneRef
+    env['HRC_SESSION_REF'] =
+      `${placement.correlation.sessionRef.scopeRef}/${placement.correlation.sessionRef.laneRef}`
   }
 
   if (placement.correlation?.hostSessionId) {
