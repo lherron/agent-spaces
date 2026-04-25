@@ -4,6 +4,7 @@ import type {
   ResolvedRuntimeBundle,
   RuntimePlacement,
 } from 'spaces-config'
+import type { AttachmentRef } from 'spaces-runtime'
 
 /** Re-export HostCorrelation from config for placement consumers */
 export type HostCorrelation = HostCorrelationType
@@ -63,6 +64,7 @@ export type ProcessInvocationSpec = {
 // ---------------------------------------------------------------------------
 
 export type SpaceSpec = { spaces: string[] } | { target: { targetName: string; targetDir: string } }
+export type AgentSpacesAttachmentInput = string | AttachmentRef
 
 export interface SessionCallbacks {
   onEvent(event: AgentEvent): void | Promise<void>
@@ -88,7 +90,7 @@ export interface RunTurnNonInteractiveRequest {
   cwd: string
   env?: Record<string, string> | undefined
   prompt: string
-  attachments?: string[] | undefined
+  attachments?: AgentSpacesAttachmentInput[] | undefined
   callbacks: SessionCallbacks
   /** Placement-based request (v2) — when set, legacy session/spec/aspHome/cwd are ignored */
   placement?: RuntimePlacement | undefined
@@ -116,7 +118,7 @@ export interface QueueInFlightInputRequest {
   cpSessionId?: string | undefined
   runId: string
   prompt: string
-  attachments?: string[] | undefined
+  attachments?: AgentSpacesAttachmentInput[] | undefined
 }
 
 export interface QueueInFlightInputResponse {
@@ -153,6 +155,8 @@ export interface BuildProcessInvocationSpecRequest {
   artifactDir?: string | undefined
   /** Prompt text to include in the invocation argv */
   prompt?: string | undefined
+  /** Attachment refs to thread into the invocation (image attachments become CLI `-i <path>` args) */
+  attachments?: AttachmentRef[] | undefined
   /** YOLO mode - skip all permission prompts (--dangerously-skip-permissions) */
   yolo?: boolean | undefined
   /** Placement-based request (v2) — when set, legacy session/spec/aspHome/cwd are ignored */

@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs'
 
-import { basename, isAbsolute, resolve } from 'node:path'
+import { basename, extname, isAbsolute, resolve } from 'node:path'
+
+import type { AttachmentRef } from 'spaces-runtime'
 
 import {
   HARNESS_PROVIDERS,
@@ -102,6 +104,39 @@ import type {
 // ---------------------------------------------------------------------------
 // Helpers: error conversion
 // ---------------------------------------------------------------------------
+
+const IMAGE_ATTACHMENT_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.bmp',
+  '.tiff',
+  '.tif',
+  '.heic',
+  '.heif',
+  '.avif',
+])
+
+function isImageAttachment(attachment: AttachmentRef): boolean {
+  if (attachment.contentType?.toLowerCase().startsWith('image/') === true) return true
+  const ref = attachment.path ?? attachment.url
+  if (!ref) return false
+  const clean = ref.split('?')[0]?.split('#')[0] ?? ref
+  return IMAGE_ATTACHMENT_EXTENSIONS.has(extname(clean).toLowerCase())
+}
+
+function extractImageAttachmentPaths(attachments: AttachmentRef[] | undefined): string[] {
+  if (!attachments) return []
+  const paths: string[] = []
+  for (const attachment of attachments) {
+    if (attachment.kind !== 'file' || !attachment.path) continue
+    if (!isImageAttachment(attachment)) continue
+    paths.push(attachment.path)
+  }
+  return paths
+}
 
 function toAgentSpacesError(error: unknown, code?: AgentSpacesError['code']): AgentSpacesError {
   const message = error instanceof Error ? error.message : String(error)
@@ -942,12 +977,15 @@ async function buildPlacementInvocationSpec(
     materialized.targetName
   )
 
+  const imageAttachmentPaths = extractImageAttachmentPaths(req.attachments)
+
   // Build run options for the adapter
   let runOptions: import('spaces-config').HarnessRunOptions = {
     ...runtimePlan.runOptions,
     model: runtimePlan.model.info.model,
     ...(runtimePlan.prompt !== undefined ? { prompt: runtimePlan.prompt } : {}),
     ...(runtimePlan.yolo !== undefined ? { yolo: runtimePlan.yolo } : {}),
+    ...(imageAttachmentPaths.length > 0 ? { imageAttachments: imageAttachmentPaths } : {}),
     ...(systemPrompt
       ? {
           systemPrompt: systemPrompt.content,

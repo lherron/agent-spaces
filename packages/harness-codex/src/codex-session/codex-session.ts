@@ -715,6 +715,10 @@ function isImagePath(path: string): boolean {
   return IMAGE_EXTENSIONS.has(ext)
 }
 
+function isImageAttachment(attachment: AttachmentRef, ref: string): boolean {
+  return attachment.contentType?.toLowerCase().startsWith('image/') === true || isImagePath(ref)
+}
+
 function formatCodexError(params: ErrorNotification): string {
   const headerParts: string[] = ['Codex error']
   if (params.turnId) {
@@ -742,7 +746,7 @@ async function buildUserInputs(
 
   for (const attachment of attachments) {
     if (attachment.kind === 'url' && attachment.url) {
-      if (isImagePath(attachment.url)) {
+      if (isImageAttachment(attachment, attachment.url)) {
         inputs.push({ type: 'image', url: attachment.url })
       } else {
         inputs.push({ type: 'text', text: `Attached URL: ${attachment.url}`, text_elements: [] })
@@ -751,7 +755,7 @@ async function buildUserInputs(
     }
 
     if (attachment.kind === 'file' && attachment.path) {
-      if (isImagePath(attachment.path)) {
+      if (isImageAttachment(attachment, attachment.path)) {
         const stats = await stat(attachment.path)
         if (stats.size > MAX_IMAGE_BYTES) {
           throw new Error(`Attachment exceeds ${MAX_IMAGE_BYTES} bytes: ${attachment.path}`)

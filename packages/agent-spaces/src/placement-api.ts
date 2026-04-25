@@ -6,6 +6,7 @@
  */
 
 import type { ResolvedRuntimeBundle, RuntimePlacement } from 'spaces-config'
+import type { AttachmentRef } from 'spaces-runtime'
 import type {
   AgentSpacesError,
   HarnessContinuationRef,
@@ -36,7 +37,7 @@ export interface PlacementRunTurnRequest {
   continuation?: HarnessContinuationRef | undefined
   env?: Record<string, string> | undefined
   prompt: string
-  attachments?: string[] | undefined
+  attachments?: Array<string | AttachmentRef> | undefined
   callbacks: SessionCallbacks
 }
 

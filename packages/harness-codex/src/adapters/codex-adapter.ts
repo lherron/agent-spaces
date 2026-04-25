@@ -881,6 +881,12 @@ export class CodexAdapter implements HarnessAdapter {
       args.push('--profile', options.profile)
     }
 
+    if (options.imageAttachments && options.imageAttachments.length > 0) {
+      for (const imagePath of options.imageAttachments) {
+        args.push('-i', imagePath)
+      }
+    }
+
     if (options.extraArgs) {
       args.push(...options.extraArgs)
     }

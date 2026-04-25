@@ -429,6 +429,8 @@ export interface HarnessRunOptions {
   cwd?: string | undefined
   /** Initial prompt text for the harness session */
   prompt?: string | undefined
+  /** Local image file paths to attach to the initial prompt (Codex CLI `-i <path>`) */
+  imageAttachments?: string[] | undefined
   /** Disable hook blocking and permissions (YOLO mode) */
   yolo?: boolean | undefined
   /** Path to artifact directory for run outputs (events, transcripts) */
