@@ -1,6 +1,11 @@
 import { basename } from 'node:path'
 
-import type { PermissionHandler, UnifiedSession, UnifiedSessionEvent } from 'spaces-execution'
+import type {
+  AttachmentRef,
+  PermissionHandler,
+  UnifiedSession,
+  UnifiedSessionEvent,
+} from 'spaces-execution'
 
 import type { AgentEvent, HarnessContinuationRef } from './types.js'
 
@@ -186,18 +191,28 @@ export function buildAutoPermissionHandler(): PermissionHandler {
 export async function runSession(
   session: UnifiedSession,
   prompt: string,
-  attachments: string[] | undefined,
+  attachments: Array<string | AttachmentRef> | undefined,
   runId: string
 ): Promise<void> {
-  const attachmentRefs = attachments?.map((path) => ({
-    kind: 'file' as const,
-    path,
-    filename: basename(path),
-  }))
+  const attachmentRefs = normalizeAttachmentRefs(attachments)
 
   await session.start()
   await session.sendPrompt(prompt, {
     ...(attachmentRefs ? { attachments: attachmentRefs } : {}),
     runId,
   })
+}
+
+function normalizeAttachmentRefs(
+  attachments: Array<string | AttachmentRef> | undefined
+): AttachmentRef[] | undefined {
+  return attachments?.map((attachment) =>
+    typeof attachment === 'string'
+      ? {
+          kind: 'file' as const,
+          path: attachment,
+          filename: basename(attachment),
+        }
+      : attachment
+  )
 }

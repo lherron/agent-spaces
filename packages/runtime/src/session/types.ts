@@ -129,9 +129,12 @@ export type UnifiedSessionState = 'idle' | 'running' | 'streaming' | 'stopped' |
 
 export interface AttachmentRef {
   kind: 'url' | 'file'
-  filename?: string
-  url?: string
-  path?: string
+  filename?: string | undefined
+  url?: string | undefined
+  path?: string | undefined
+  contentType?: string | undefined
+  sizeBytes?: number | undefined
+  alt?: string | undefined
 }
 
 export interface PromptOptions {

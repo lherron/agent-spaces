@@ -1,6 +1,6 @@
 import { basename } from 'node:path'
 
-import type { UnifiedSession } from 'spaces-execution'
+import type { AttachmentRef, UnifiedSession } from 'spaces-execution'
 
 import type { EventEmitter, EventPayload } from './session-events.js'
 
@@ -124,14 +124,10 @@ export function rejectInFlight(context: InFlightRunContext, error: unknown): voi
 export function enqueueInFlightPrompt(
   context: InFlightRunContext,
   prompt: string,
-  attachments: string[] | undefined
+  attachments: Array<string | AttachmentRef> | undefined
 ): Promise<void> {
   context.outstandingTurns += 1
-  const attachmentRefs = attachments?.map((path) => ({
-    kind: 'file' as const,
-    path,
-    filename: basename(path),
-  }))
+  const attachmentRefs = normalizeAttachmentRefs(attachments)
 
   context.sendChain = context.sendChain.then(async () => {
     await context.started
@@ -142,4 +138,18 @@ export function enqueueInFlightPrompt(
   })
 
   return context.sendChain
+}
+
+function normalizeAttachmentRefs(
+  attachments: Array<string | AttachmentRef> | undefined
+): AttachmentRef[] | undefined {
+  return attachments?.map((attachment) =>
+    typeof attachment === 'string'
+      ? {
+          kind: 'file' as const,
+          path: attachment,
+          filename: basename(attachment),
+        }
+      : attachment
+  )
 }

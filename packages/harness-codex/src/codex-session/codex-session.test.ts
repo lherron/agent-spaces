@@ -22,6 +22,7 @@ const fs = require('fs');
 const readline = require('readline');
 
 const approvalLog = process.env.CODEX_APPROVAL_LOG;
+const turnStartLog = process.env.CODEX_TURN_START_LOG;
 const rl = readline.createInterface({ input: process.stdin });
 
 const threadId = 'thread-test';
@@ -54,6 +55,11 @@ function turn(status) {
 function logApproval(result) {
   if (!approvalLog) return;
   fs.appendFileSync(approvalLog, JSON.stringify(result) + '\\n');
+}
+
+function logTurnStart(params) {
+  if (!turnStartLog) return;
+  fs.appendFileSync(turnStartLog, JSON.stringify(params) + '\\n');
 }
 
 rl.on('line', (line) => {
@@ -101,6 +107,7 @@ rl.on('line', (line) => {
     return;
   }
   if (msg.method === 'turn/start') {
+    logTurnStart(msg.params);
     send({ jsonrpc: '2.0', id: msg.id, result: { turn: turn('inProgress') } });
     send({ jsonrpc: '2.0', method: 'turn/started', params: { threadId, turn: turn('inProgress') } });
     send({
@@ -324,6 +331,66 @@ describe('CodexSession', () => {
     const approvalLine = approvalRaw.trim().split('\n')[0]
     const approval = JSON.parse(approvalLine) as { decision?: string }
     expect(approval.decision).toBe('acceptForSession')
+  })
+
+  test('sends image file attachments to Codex as localImage inputs', async () => {
+    const shimPath = join(tmpDir, 'codex-shim-local-image.js')
+    const turnStartLog = join(tmpDir, 'turn-start.jsonl')
+    const codexHome = join(tmpDir, 'codex-home-local-image')
+    const imagePath = join(tmpDir, 'screenshot.png')
+
+    await writeFile(shimPath, codexShimScript(), 'utf-8')
+    await chmod(shimPath, 0o755)
+    await mkdir(codexHome, { recursive: true })
+    await writeFile(imagePath, 'png-bytes')
+
+    const priorTurnStartLog = process.env['CODEX_TURN_START_LOG']
+    process.env['CODEX_TURN_START_LOG'] = turnStartLog
+
+    const session = new CodexSession({
+      ownerId: 'owner',
+      cwd: '/tmp',
+      sessionId: 'session-local-image',
+      homeDir: codexHome,
+      appServerCommand: shimPath,
+      model: 'gpt-5.3-codex',
+      approvalPolicy: 'on-request',
+    })
+
+    session.setPermissionHandler({
+      isAutoAllowed: () => true,
+      requestPermission: async () => ({ allowed: true }),
+    })
+
+    try {
+      await session.start()
+      await session.sendPrompt('Inspect this image', {
+        attachments: [
+          {
+            kind: 'file',
+            path: imagePath,
+            filename: 'screenshot.png',
+            contentType: 'image/png',
+          },
+        ],
+      })
+      await session.stop('complete')
+    } finally {
+      if (priorTurnStartLog === undefined) {
+        process.env['CODEX_TURN_START_LOG'] = undefined
+      } else {
+        process.env['CODEX_TURN_START_LOG'] = priorTurnStartLog
+      }
+    }
+
+    const raw = await readFile(turnStartLog, 'utf-8')
+    const logged = JSON.parse(raw.trim().split('\n')[0] ?? '{}') as {
+      input?: Array<Record<string, unknown>>
+    }
+    expect(logged.input).toEqual([
+      { type: 'text', text: 'Inspect this image', text_elements: [] },
+      { type: 'localImage', path: imagePath },
+    ])
   })
 
   test('surfaces error notifications', async () => {
