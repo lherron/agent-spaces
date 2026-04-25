@@ -18,6 +18,7 @@ export const AGENT_SDK_FRONTEND: HarnessFrontend = 'agent-sdk'
 export const PI_SDK_FRONTEND: HarnessFrontend = 'pi-sdk'
 export const CLAUDE_CODE_FRONTEND: HarnessFrontend = 'claude-code'
 export const CODEX_CLI_FRONTEND: HarnessFrontend = 'codex-cli'
+export const PI_CLI_FRONTEND: HarnessFrontend = 'pi-cli'
 
 const PI_SDK_MODELS = [
   'openai-codex/gpt-5.5',
@@ -104,6 +105,7 @@ export const FRONTEND_DEFS = new Map<HarnessFrontend, FrontendDef>([
     CODEX_CLI_FRONTEND,
     createFrontendDef(CODEX_CLI_FRONTEND, CODEX_CLI_MODELS, DEFAULT_CODEX_CLI_MODEL),
   ],
+  [PI_CLI_FRONTEND, createFrontendDef(PI_CLI_FRONTEND, CODEX_CLI_MODELS, DEFAULT_CODEX_CLI_MODEL)],
 ])
 
 export function resolveFrontend(

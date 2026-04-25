@@ -22,7 +22,7 @@ export type HarnessId = 'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk' | 'codex
 export type HarnessProvider = 'anthropic' | 'openai'
 
 /** Provider-facing frontend identifier used by placement/runtime APIs. */
-export type HarnessFrontend = 'agent-sdk' | 'pi-sdk' | 'claude-code' | 'codex-cli'
+export type HarnessFrontend = 'agent-sdk' | 'pi-sdk' | 'claude-code' | 'codex-cli' | 'pi-cli'
 
 /** Runtime transport family for a harness. */
 export type HarnessTransport = 'cli' | 'sdk'
@@ -51,6 +51,7 @@ export const HARNESS_FRONTENDS: readonly HarnessFrontend[] = [
   'pi-sdk',
   'claude-code',
   'codex-cli',
+  'pi-cli',
 ] as const
 
 /** Known provider families. */
@@ -74,9 +75,10 @@ export const HARNESS_CATALOG: readonly HarnessCatalogEntry[] = [
   },
   {
     id: 'pi',
-    aliases: [],
+    aliases: ['pi-cli'],
     provider: 'openai',
     transport: 'cli',
+    frontend: 'pi-cli',
   },
   {
     id: 'pi-sdk',

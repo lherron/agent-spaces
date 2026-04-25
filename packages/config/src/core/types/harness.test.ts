@@ -28,7 +28,7 @@ describe('harness catalog', () => {
     expect(normalizeHarnessFrontend('codex')).toBe('codex-cli')
     expect(normalizeHarnessFrontend('agent-sdk')).toBe('agent-sdk')
     expect(normalizeHarnessFrontend('pi-sdk')).toBe('pi-sdk')
-    expect(normalizeHarnessFrontend('pi')).toBeUndefined()
+    expect(normalizeHarnessFrontend('pi')).toBe('pi-cli')
   })
 
   test('resolves provider families from canonical names and aliases', () => {
@@ -42,7 +42,7 @@ describe('harness catalog', () => {
   test('derives preferred placement frontends by provider and transport', () => {
     expect(resolveHarnessFrontendForProvider('anthropic', 'cli')).toBe('claude-code')
     expect(resolveHarnessFrontendForProvider('anthropic', 'sdk')).toBe('agent-sdk')
-    expect(resolveHarnessFrontendForProvider('openai', 'cli')).toBe('codex-cli')
+    expect(resolveHarnessFrontendForProvider('openai', 'cli')).toBe('pi-cli')
     expect(resolveHarnessFrontendForProvider('openai', 'sdk')).toBe('pi-sdk')
   })
 
@@ -74,7 +74,7 @@ describe('harness catalog', () => {
     expect(HARNESS_NAMES).toContain('pi-sdk')
 
     expect(getHarnessFrontendsForProvider('anthropic')).toEqual(['claude-code', 'agent-sdk'])
-    expect(getHarnessFrontendsForProvider('openai')).toEqual(['pi-sdk', 'codex-cli'])
+    expect(getHarnessFrontendsForProvider('openai')).toEqual(['pi-cli', 'pi-sdk', 'codex-cli'])
   })
 
   test('resolves catalog entries for all canonical harness ids', () => {
@@ -87,5 +87,24 @@ describe('harness catalog', () => {
     ] satisfies HarnessId[]) {
       expect(resolveHarnessCatalogEntry(harnessId)).toEqual(getHarnessCatalogEntry(harnessId))
     }
+  })
+
+  test('registers the public pi-cli frontend for the internal pi harness id', () => {
+    expect(getHarnessCatalogEntry('pi')).toMatchObject({
+      id: 'pi',
+      provider: 'openai',
+      transport: 'cli',
+      frontend: 'pi-cli',
+    })
+    expect(getHarnessCatalogEntryByFrontend('pi-cli')).toMatchObject({
+      id: 'pi',
+      frontend: 'pi-cli',
+    })
+    expect(resolveHarnessCatalogEntry('pi-cli')).toMatchObject({
+      id: 'pi',
+      frontend: 'pi-cli',
+    })
+    expect(normalizeHarnessFrontend('pi')).toBe('pi-cli')
+    expect(resolveHarnessFrontendForProvider('openai', 'cli')).toBe('pi-cli')
   })
 })
