@@ -58,6 +58,11 @@ function createMaterializeInput(
   }
 }
 
+function argValue(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag)
+  return index === -1 ? undefined : args[index + 1]
+}
+
 describe('PiAdapter', () => {
   let adapter: PiAdapter
 
@@ -857,6 +862,84 @@ paths = ["/tmp"]
       const exists = await Bun.file(join(outputDir, 'old-file.txt')).exists()
       expect(exists).toBe(false)
     })
+
+    test('always generates the HRC events bridge extension even when no ASP hooks exist', async () => {
+      const input = {
+        targetName: 'test-target',
+        compose: ['space1' as any],
+        roots: ['space1@abc' as SpaceKey],
+        loadOrder: ['space1@abc' as SpaceKey],
+        artifacts: [
+          {
+            spaceKey: 'space1@abc' as SpaceKey,
+            spaceId: 'space1',
+            artifactPath: artifact1Dir,
+            pluginName: 'plugin1',
+          },
+        ],
+        settingsInputs: [],
+      }
+
+      await adapter.composeTarget(input, outputDir, {})
+
+      const hrcBridgePath = join(outputDir, 'asp-hrc-events.bridge.js')
+      const hrcBridgeFile = Bun.file(hrcBridgePath)
+      expect(await hrcBridgeFile.exists()).toBe(true)
+
+      const bridgeContent = await hrcBridgeFile.text()
+      expect(bridgeContent.length).toBeGreaterThan(0)
+      expect(await Bun.file(join(outputDir, 'asp-hooks.bridge.js')).exists()).toBe(false)
+    })
+
+    test('HRC events bridge subscribes to Pi lifecycle and stream events', async () => {
+      const input = {
+        targetName: 'test-target',
+        compose: [],
+        roots: [],
+        loadOrder: [],
+        artifacts: [],
+        settingsInputs: [],
+      }
+
+      await adapter.composeTarget(input, outputDir, {})
+
+      const bridgeContent = await Bun.file(join(outputDir, 'asp-hrc-events.bridge.js')).text()
+      for (const eventName of [
+        'before_agent_start',
+        'agent_start',
+        'agent_end',
+        'turn_start',
+        'turn_end',
+        'message_start',
+        'message_update',
+        'message_end',
+        'tool_execution_start',
+        'tool_execution_update',
+        'tool_execution_end',
+        'session_shutdown',
+      ]) {
+        expect(bridgeContent).toContain(eventName)
+      }
+    })
+
+    test('HRC events bridge forwards structured payloads through HRC_LAUNCH_HOOK_CLI', async () => {
+      const input = {
+        targetName: 'test-target',
+        compose: [],
+        roots: [],
+        loadOrder: [],
+        artifacts: [],
+        settingsInputs: [],
+      }
+
+      await adapter.composeTarget(input, outputDir, {})
+
+      const bridgeContent = await Bun.file(join(outputDir, 'asp-hrc-events.bridge.js')).text()
+      expect(bridgeContent).toContain('process.env.HRC_LAUNCH_HOOK_CLI')
+      expect(bridgeContent).toContain('JSON.stringify')
+      expect(bridgeContent).toContain('eventName')
+      expect(bridgeContent).toContain('payload')
+    })
   })
 
   describe('buildRunArgs', () => {
@@ -925,6 +1008,231 @@ paths = ["/tmp"]
       const args = adapter.buildRunArgs(bundle, {})
 
       expect(args).toContain('--no-skills')
+
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('passes replacement system prompt file path with --system-prompt', async () => {
+      const tmpDir = join(tmpdir(), `pi-args-system-prompt-${Date.now()}`)
+      const extensionsDir = join(tmpDir, 'extensions')
+      const systemPromptPath = join(tmpDir, 'system-prompt.md')
+      await mkdir(extensionsDir, { recursive: true })
+      await writeFile(systemPromptPath, 'system prompt')
+
+      const bundle = {
+        harnessId: 'pi' as const,
+        targetName: 'test',
+        rootDir: tmpDir,
+        pi: {
+          extensionsDir,
+        },
+      }
+
+      const args = adapter.buildRunArgs(bundle, { systemPrompt: systemPromptPath })
+
+      expect(argValue(args, '--system-prompt')).toBe(systemPromptPath)
+
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('passes session reminder file path after replacement system prompt', async () => {
+      const tmpDir = join(tmpdir(), `pi-args-reminder-${Date.now()}`)
+      const extensionsDir = join(tmpDir, 'extensions')
+      const systemPromptPath = join(tmpDir, 'system-prompt.md')
+      const reminderPath = join(tmpDir, 'session-reminder.md')
+      await mkdir(extensionsDir, { recursive: true })
+      await writeFile(systemPromptPath, 'system prompt')
+      await writeFile(reminderPath, 'remember this')
+
+      const bundle = {
+        harnessId: 'pi' as const,
+        targetName: 'test',
+        rootDir: tmpDir,
+        pi: {
+          extensionsDir,
+        },
+      }
+
+      const args = adapter.buildRunArgs(bundle, {
+        systemPrompt: systemPromptPath,
+        reminderContent: reminderPath,
+      })
+
+      expect(argValue(args, '--append-system-prompt')).toBe(reminderPath)
+      expect(args.indexOf('--append-system-prompt')).toBeGreaterThan(
+        args.indexOf('--system-prompt')
+      )
+
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('passes explicit bundle skills directory while keeping --no-skills', async () => {
+      const tmpDir = join(tmpdir(), `pi-args-explicit-skills-${Date.now()}`)
+      const extensionsDir = join(tmpDir, 'extensions')
+      const skillsDir = join(tmpDir, 'skills')
+      await mkdir(extensionsDir, { recursive: true })
+      await mkdir(join(skillsDir, 'skill-one'), { recursive: true })
+
+      const bundle = {
+        harnessId: 'pi' as const,
+        targetName: 'test',
+        rootDir: tmpDir,
+        pi: {
+          extensionsDir,
+          skillsDir,
+        },
+      }
+
+      const args = adapter.buildRunArgs(bundle, {})
+
+      expect(args).toContain('--no-skills')
+      expect(argValue(args, '--skill')).toBe(skillsDir)
+
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('always disables native Pi context files', async () => {
+      const tmpDir = join(tmpdir(), `pi-args-context-${Date.now()}`)
+      const extensionsDir = join(tmpDir, 'extensions')
+      await mkdir(extensionsDir, { recursive: true })
+
+      const bundle = {
+        harnessId: 'pi' as const,
+        targetName: 'test',
+        rootDir: tmpDir,
+        pi: {
+          extensionsDir,
+        },
+      }
+
+      const args = adapter.buildRunArgs(bundle, {})
+
+      expect(args).toContain('--no-context-files')
+
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('uses named Pi session and HRC runtime session dir for continuation keys', async () => {
+      const tmpDir = join(tmpdir(), `pi-args-hrc-session-${Date.now()}`)
+      const extensionsDir = join(tmpDir, 'extensions')
+      const aspHome = join(tmpDir, 'asp-home')
+      await mkdir(extensionsDir, { recursive: true })
+
+      const bundle = {
+        harnessId: 'pi' as const,
+        targetName: 'test',
+        rootDir: tmpDir,
+        pi: {
+          extensionsDir,
+        },
+      }
+
+      const args = adapter.buildRunArgs(bundle, {
+        aspHome,
+        continuationKey: 'session-a',
+        runtimeId: 'rt-123',
+      } as any)
+
+      expect(argValue(args, '--session')).toBe('session-a')
+      expect(argValue(args, '--session-dir')).toBe(
+        join(aspHome, 'state/hrc/runtimes/rt-123/pi-sessions')
+      )
+      expect(args).not.toContain('--resume')
+
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('uses bundle-local session dir for continuation keys outside HRC runtime launches', async () => {
+      const tmpDir = join(tmpdir(), `pi-args-standalone-session-${Date.now()}`)
+      const extensionsDir = join(tmpDir, 'extensions')
+      await mkdir(extensionsDir, { recursive: true })
+
+      const bundle = {
+        harnessId: 'pi' as const,
+        targetName: 'test',
+        rootDir: tmpDir,
+        pi: {
+          extensionsDir,
+        },
+      }
+
+      const args = adapter.buildRunArgs(bundle, { continuationKey: 'session-b' })
+
+      expect(argValue(args, '--session')).toBe('session-b')
+      expect(argValue(args, '--session-dir')).toBe(join(tmpDir, 'sessions'))
+      expect(args).not.toContain('--resume')
+
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('keeps --resume only for explicit continuation picker requests', async () => {
+      const tmpDir = join(tmpdir(), `pi-args-picker-${Date.now()}`)
+      const extensionsDir = join(tmpDir, 'extensions')
+      await mkdir(extensionsDir, { recursive: true })
+
+      const bundle = {
+        harnessId: 'pi' as const,
+        targetName: 'test',
+        rootDir: tmpDir,
+        pi: {
+          extensionsDir,
+        },
+      }
+
+      const args = adapter.buildRunArgs(bundle, { continuationKey: true })
+
+      expect(args).toContain('--resume')
+      expect(args).not.toContain('--session')
+      expect(args).not.toContain('--session-dir')
+
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('always adds the HRC events bridge extension', async () => {
+      const tmpDir = join(tmpdir(), `pi-args-hrc-bridge-${Date.now()}`)
+      const extensionsDir = join(tmpDir, 'extensions')
+      const hrcBridgePath = join(tmpDir, 'asp-hrc-events.bridge.js')
+      await mkdir(extensionsDir, { recursive: true })
+      await writeFile(hrcBridgePath, 'export default {}')
+
+      const bundle = {
+        harnessId: 'pi' as const,
+        targetName: 'test',
+        rootDir: tmpDir,
+        pi: {
+          extensionsDir,
+          hrcEventsBridgePath: hrcBridgePath,
+        },
+      } as any
+
+      const args = adapter.buildRunArgs(bundle, {})
+
+      expect(args).toContain('--extension')
+      expect(args).toContain(hrcBridgePath)
+
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
+    test('keeps priming prompt as positional argv tail and exposes it in run env', async () => {
+      const tmpDir = join(tmpdir(), `pi-args-priming-${Date.now()}`)
+      const extensionsDir = join(tmpDir, 'extensions')
+      await mkdir(extensionsDir, { recursive: true })
+
+      const bundle = {
+        harnessId: 'pi' as const,
+        targetName: 'test',
+        rootDir: tmpDir,
+        pi: {
+          extensionsDir,
+        },
+      }
+      const prompt = 'Prime the interactive session.'
+
+      const args = adapter.buildRunArgs(bundle, { prompt })
+      const env = adapter.getRunEnv(bundle, { prompt })
+
+      expect(args.at(-1)).toBe(prompt)
+      expect(env['ASP_PRIMING_PROMPT']).toBe(prompt)
 
       await rm(tmpDir, { recursive: true, force: true })
     })
