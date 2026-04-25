@@ -37,9 +37,9 @@ export type IoMode = 'pty' | 'pipes' | 'inherit'
 /**
  * Frontend identifier.
  * SDK frontends (agent-sdk, pi-sdk) are executed by agent-spaces directly.
- * CLI frontends (claude-code, codex-cli) are prepared as invocation specs for CP to spawn.
+ * CLI frontends (claude-code, codex-cli, pi-cli) are prepared as invocation specs for CP to spawn.
  */
-export type HarnessFrontend = 'agent-sdk' | 'pi-sdk' | 'claude-code' | 'codex-cli'
+export type HarnessFrontend = 'agent-sdk' | 'pi-sdk' | 'claude-code' | 'codex-cli' | 'pi-cli'
 
 /**
  * Structured process invocation spec for CP to spawn a CLI harness process.
@@ -145,7 +145,7 @@ export interface BuildProcessInvocationSpecRequest {
   aspHome: string
   spec: SpaceSpec
   provider: ProviderDomain
-  frontend: 'claude-code' | 'codex-cli'
+  frontend: 'claude-code' | 'codex-cli' | 'pi-cli'
   model?: string | undefined
   interactionMode: 'interactive' | 'headless'
   ioMode: 'pty' | 'inherit' | 'pipes'
