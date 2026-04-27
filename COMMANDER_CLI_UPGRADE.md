@@ -1,8 +1,8 @@
 # Commander CLI Upgrade — Implementation Spec
 
-Status: Proposal, ready for implementation
+Status: Phases 0–6 complete (2026-04-27)
 Owner: TBD
-Last updated: 2026-04-26
+Last updated: 2026-04-27
 
 ## 1. Background & motivation
 
@@ -428,6 +428,68 @@ Highest risk because of the 2,707‑line test file.
 
 **Deliverable:** Clean tree, all builds pass.
 
+### Phase 6 — `hrc-cli` legacy‑passthrough sub‑tree migration
+
+Phase 3 moved `hrc-cli` to commander at the **outer** level only. Nine subcommand groups remain wired through the `addLegacyCommand()` helper at `packages/hrc-cli/src/cli.ts:3235-3256`, which deliberately disables auto‑help (`.helpOption(false)`) and forwards all argv into the legacy switch dispatcher (`.allowUnknownOption(true)` + `.argument('[args...]')`).
+
+Result — these nine groups violate the §9 user‑facing acceptance line ("`<bin> <verb> --help` … all produce sensible output"):
+
+| Sub‑group | `hrc <group> --help` observed | `hrc <group> <verb> --help` observed |
+|---|---|---|
+| `hrc server`   | exit 2, no `Usage:` line | runs the verb instead of emitting help |
+| `hrc session`  | exit 2, no `Usage:` line | runs the verb |
+| `hrc runtime`  | exit 2, no `Usage:` line | runs the verb |
+| `hrc launch`   | exit 2, no `Usage:` line | runs the verb |
+| `hrc turn`     | exit 2, no `Usage:` line | runs the verb |
+| `hrc inflight` | exit 2, no `Usage:` line | runs the verb |
+| `hrc capture`  | exit 1 | runs the verb |
+| `hrc surface`  | exit 2, no `Usage:` line | runs the verb |
+| `hrc bridge`   | exit 2, no `Usage:` line | runs the verb |
+
+asp/acp/hrcchat all pass this acceptance check (38/38 top‑level verbs sampled). hrc passes for its commander‑native verbs (`info`, `status`, `events`, `start`, `run`, `attach`). Only the nine `addLegacyCommand` groups fail.
+
+**Steps:**
+
+1. Pick `hrc server` as the reference (smallest group: `start`, `serve`, `stop`, `restart`, `status`, `health`, `tmux status`, `tmux kill`). Replace the `addLegacyCommand(program, 'server', cmdServer, …)` registration with a proper commander group:
+   ```ts
+   const server = program
+     .command('server')
+     .description('daemon lifecycle, health, and tmux backend control')
+
+   server.command('start')
+     .description('start the HRC server')
+     .option('--foreground')
+     .action(async (opts) => cmdServerStart(toLegacyArgv(opts), 'foreground'))
+
+   server.command('serve')
+     .description('serve in foreground (no fork)')
+     .action(async (opts) => cmdServerServe(toLegacyArgv(opts)))
+
+   // …one block per verb
+   ```
+   Drop the `cmdServer(args)` switch — route directly from each verb's action to the existing `cmdServerStart` / `cmdServerServe` / … functions. Keep handler signatures stable so behavior assertions in `cli.test.ts` continue to pass.
+
+2. Repeat for the remaining 8 groups: `session`, `runtime`, `launch`, `turn`, `inflight`, `capture`, `surface`, `bridge`. They share the same shape; once the `server` reference is locked, the rest mostly mechanical.
+
+3. After the last group migrates, delete `addLegacyCommand` and any helpers it pulled in. Confirm `grep -n addLegacyCommand packages/hrc-cli/src/` returns no matches.
+
+4. **Behavioral parity is non‑negotiable.** Each migrated verb must produce byte‑identical JSON output and exit codes versus pre‑Phase‑6. The 135 BEHAVIORAL assertions established in Phase 1 (T‑01273) must all stay green. Loosen only any *new* exact‑match help‑text assertions you introduce.
+
+5. **Verification — exhaustive `--help` sweep:**
+   ```bash
+   for cmd in $(hrc --help | awk '/^Commands:/{f=1;next} /^$/{f=0} f{print $1}' | grep -v '^help$'); do
+     hrc $cmd --help >/dev/null 2>&1
+     printf "hrc %s --help: exit=%d\n" "$cmd" "$?"
+   done
+   # Then probe one verb per migrated group, e.g.:
+   hrc server status --help; echo "exit=$?"
+   ```
+   All entries must exit 0 and emit a `Usage:` line.
+
+6. Update `scripts/cli-smoke.sh` (added in Wave 4.5) to add per‑group help assertions for the nine groups.
+
+**Deliverable:** All hrc subcommand groups serve commander‑auto‑generated help; `addLegacyCommand` removed; spec §9 user‑facing acceptance fully satisfied.
+
 ## 5. Risk register
 
 | Risk | Likelihood | Impact | Mitigation |
@@ -526,6 +588,7 @@ Each phase is one PR, independently revertable, no feature flags needed (CLIs ar
 | 3 | refactor(acp-cli): migrate to commander | Phase 2 | Biggest LOC delta (deletes ~530 lines) |
 | 4 | refactor(hrc-cli): migrate to commander | Phase 3 | Highest test churn |
 | 5 | chore(cli): bump commander 12 → 14 + adopt cli-kit | Phase 4 + 5 | Final cleanup, doc updates |
+| 6 | refactor(hrc-cli): migrate legacy passthrough sub‑tree to commander | Phase 6 | Closes spec §9 user‑facing acceptance gap (9 hrc groups) |
 
 PRs 2–4 should each be preceded by their **test‑sweep PR** (loosen exact‑match assertions to `toContain`). Those are no‑op and can land same day.
 
@@ -559,6 +622,8 @@ bun run --filter 'hrcchat-cli' test -- smoke
 ```
 
 User‑facing acceptance: `<bin> --help`, `<bin> <verb> --help`, and `<bin> <verb> <subverb> --help` all produce sensible output for `asp`, `acp`, `hrc`, `hrcchat`.
+
+**Status (post Phase 6, 2026-04-27):** asp / acp / hrc / hrcchat satisfy this fully. hrc top‑level verbs and subcommand groups are commander-native and return `Usage:` help with exit 0; the legacy passthrough helper has been removed.
 
 ## 10. Open questions
 

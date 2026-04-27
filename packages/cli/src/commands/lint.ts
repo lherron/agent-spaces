@@ -11,7 +11,7 @@ import type { Command } from 'commander'
 
 import { LOCK_FILENAME, explain, lockFileExists } from 'spaces-config'
 
-import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
+import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 /** W101 warning code for missing lock file */
 const WARNING_CODE_LOCK_MISSING = 'W101'
@@ -163,7 +163,7 @@ export function registerLintCommand(program: Command): void {
         // Exit with code 0 since warnings are non-fatal
         process.exit(0)
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error, options)
       }
     })
 }

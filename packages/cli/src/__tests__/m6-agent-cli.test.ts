@@ -988,6 +988,7 @@ describe('codex-cli placement auth propagation (T-00882)', () => {
       '..',
       '..',
       '..',
+      '..',
       'integration-tests',
       'fixtures',
       'codex-shim'

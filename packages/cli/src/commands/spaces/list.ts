@@ -11,7 +11,7 @@ import type { Command } from 'commander'
 
 import { PathResolver, getAspHome, readSpaceToml } from 'spaces-config'
 
-import { handleCliError } from '../../helpers.js'
+import { exitWithAspError } from '../../helpers.js'
 
 interface SpaceInfo {
   id: string
@@ -166,7 +166,7 @@ export function registerSpacesListCommand(parent: Command): void {
           formatListText(output)
         }
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error, options)
       }
     })
 }

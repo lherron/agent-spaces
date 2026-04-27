@@ -10,7 +10,7 @@ import type { Command } from 'commander'
 
 import { PathResolver, getAspHome, listTags } from 'spaces-config'
 
-import { handleCliError } from '../../helpers.js'
+import { exitWithAspError } from '../../helpers.js'
 
 interface RepoTagsOptions {
   json?: boolean | undefined
@@ -137,7 +137,7 @@ export function registerRepoTagsCommand(parent: Command): void {
           formatTagsText(output)
         }
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error, options)
       }
     })
 }

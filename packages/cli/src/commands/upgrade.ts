@@ -10,7 +10,7 @@ import type { Command } from 'commander'
 
 import { install } from 'spaces-execution'
 
-import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
+import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 interface UpgradeOptions extends CommonOptions {
   target?: string | undefined
@@ -59,7 +59,7 @@ export function registerUpgradeCommand(program: Command): void {
         console.log(`  Snapshots created: ${result.snapshotsCreated}`)
         console.log(`  Lock file: ${result.lockPath}`)
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error, options)
       }
     })
 }

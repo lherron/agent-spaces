@@ -10,8 +10,8 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import chalk from 'chalk'
-import { Command } from 'commander'
+import { CliUsageError, exitWithError } from 'cli-kit'
+import { Command, CommanderError } from 'commander'
 
 import { isAspError } from 'spaces-config'
 
@@ -41,6 +41,7 @@ import { registerRunCommand } from './commands/run.js'
 import { registerSelfCommands } from './commands/self/index.js'
 import { registerSpacesCommands } from './commands/spaces/index.js'
 import { registerUpgradeCommand } from './commands/upgrade.js'
+import { exitWithAspError } from './helpers.js'
 
 /**
  * Find project root by walking up looking for asp-targets.toml.
@@ -71,23 +72,15 @@ export async function findProjectRoot(startDir: string = process.cwd()): Promise
   return null
 }
 
-/**
- * Format error for display.
- */
-function formatError(error: unknown): string {
+function normalizeMainError(error: unknown): unknown {
   if (isAspError(error)) {
-    const lines: string[] = [chalk.red(`Error: ${error.message}`)]
     if (error.cause && error.cause instanceof Error) {
-      lines.push(chalk.gray(`  Cause: ${error.cause.message}`))
+      return new Error(`${error.message}\n  Cause: ${error.cause.message}`)
     }
-    return lines.join('\n')
+    return error
   }
 
-  if (error instanceof Error) {
-    return chalk.red(`Error: ${error.message}`)
-  }
-
-  return chalk.red(`Error: ${String(error)}`)
+  return error
 }
 
 /**
@@ -99,6 +92,9 @@ function createProgram(): Command {
     .description('Agent Spaces v2 - Compose Claude Code environments')
     .version(packageJson.version)
     .enablePositionalOptions()
+    .exitOverride((err) => {
+      throw err
+    })
 
   // Register all commands
   registerRunCommand(program)
@@ -135,15 +131,28 @@ export async function main(): Promise<void> {
   try {
     await program.parseAsync(process.argv)
   } catch (error) {
-    console.error(formatError(error))
-    process.exit(1)
+    if (error instanceof CommanderError) {
+      if (
+        error.code === 'commander.helpDisplayed' ||
+        error.code === 'commander.help' ||
+        error.code === 'commander.version'
+      ) {
+        process.exit(0)
+      }
+      exitWithError(new CliUsageError(error.message), { json: false, binName: 'asp' })
+    }
+
+    if (error instanceof CliUsageError) {
+      exitWithError(error, { json: false, binName: 'asp' })
+    }
+
+    exitWithAspError(normalizeMainError(error))
   }
 }
 
 // Only run if this is the main module (not imported in tests)
 if (import.meta.main) {
   main().catch((error) => {
-    console.error(formatError(error))
-    process.exit(1)
+    exitWithAspError(normalizeMainError(error))
   })
 }

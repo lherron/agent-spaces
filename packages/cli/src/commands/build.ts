@@ -17,7 +17,7 @@ import {
   isHarnessId,
 } from 'spaces-execution'
 
-import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
+import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 interface BuildOptions extends CommonOptions {
   output: string
@@ -131,7 +131,7 @@ export function registerBuildCommand(program: Command): void {
           formatAllBuildResults(results)
         }
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error, options)
       }
     })
 }

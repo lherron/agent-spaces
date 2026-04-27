@@ -11,7 +11,7 @@ import type { Command } from 'commander'
 
 import { PathResolver, getAspHome } from 'spaces-config'
 
-import { handleCliError } from '../../helpers.js'
+import { exitWithAspError } from '../../helpers.js'
 
 interface InitOptions {
   description?: string | undefined
@@ -150,7 +150,7 @@ export function registerSpacesInitCommand(parent: Command): void {
         console.log(`  4. Test locally: ${chalk.cyan(`asp run ${spaceDir}`)}`)
         console.log(`  5. Publish: ${chalk.cyan(`asp repo publish ${spaceId} --tag v0.1.0`)}`)
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error)
       }
     })
 }

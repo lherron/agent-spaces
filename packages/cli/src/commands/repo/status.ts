@@ -11,7 +11,7 @@ import type { Command } from 'commander'
 
 import { PathResolver, getAspHome, getStatus } from 'spaces-config'
 
-import { handleCliError } from '../../helpers.js'
+import { exitWithAspError } from '../../helpers.js'
 
 /**
  * Registry status output structure.
@@ -173,7 +173,7 @@ export function registerRepoStatusCommand(parent: Command): void {
           formatStatusText(status)
         }
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error, options)
       }
     })
 }

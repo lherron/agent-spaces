@@ -11,7 +11,7 @@ import type { Command } from 'commander'
 import { atomicWrite, readTargetsToml, serializeTargetsToml } from 'spaces-config'
 import { install } from 'spaces-execution'
 
-import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
+import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 interface RemoveOptions extends CommonOptions {
   target: string
@@ -87,7 +87,7 @@ export function registerRemoveCommand(program: Command): void {
           console.log(`  Snapshots created: ${result.snapshotsCreated}`)
         }
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error, options)
       }
     })
 }
