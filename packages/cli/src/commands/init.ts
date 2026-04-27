@@ -10,7 +10,7 @@ import type { Command } from 'commander'
 
 import { TARGETS_FILENAME } from 'spaces-config'
 
-import { handleCliError } from '../helpers.js'
+import { exitWithAspError } from '../helpers.js'
 
 interface InitOptions {
   target?: string | undefined
@@ -64,7 +64,7 @@ export function registerInitCommand(program: Command): void {
         console.log(`  2. Install:    ${chalk.cyan('asp install')}`)
         console.log(`  3. Run:        ${chalk.cyan(`asp run --target ${targetName}`)}`)
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error)
       }
     })
 }

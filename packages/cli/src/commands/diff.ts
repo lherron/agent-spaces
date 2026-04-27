@@ -17,7 +17,7 @@ import {
   resolveTarget,
 } from 'spaces-config'
 
-import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
+import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 /**
  * Represents a single change in a diff.
@@ -160,7 +160,7 @@ export function registerDiffCommand(program: Command): void {
         const diffs = await computeAllDiffs(ctx, options)
         outputDiffs(diffs, options)
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error, options)
       }
     })
 }

@@ -10,7 +10,7 @@ import type { Command } from 'commander'
 
 import { type LockFile, loadLockFileIfExists, loadProjectManifest } from 'spaces-config'
 
-import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
+import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 interface TargetInfo {
   name: string
@@ -119,7 +119,7 @@ export function registerListCommand(program: Command): void {
           formatListText(output)
         }
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error, options)
       }
     })
 }

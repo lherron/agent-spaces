@@ -29,7 +29,7 @@ import {
   runLocalSpace,
 } from 'spaces-execution'
 
-import { handleCliError, logInvocationOutput } from '../helpers.js'
+import { exitWithAspError, logInvocationOutput } from '../helpers.js'
 import { findProjectRoot } from '../index.js'
 import { displayPrompts } from '../prompt-display.js'
 
@@ -472,7 +472,7 @@ export function registerRunCommand(program: Command): void {
 
         process.exit(result.exitCode)
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error)
       }
     })
 }

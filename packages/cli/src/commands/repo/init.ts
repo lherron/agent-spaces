@@ -22,7 +22,7 @@ import {
   initRepo,
 } from 'spaces-config'
 
-import { handleCliError } from '../../helpers.js'
+import { exitWithAspError } from '../../helpers.js'
 import {
   MANAGER_SPACE_ID,
   MANAGER_SPACE_VERSION,
@@ -158,7 +158,7 @@ export function registerRepoInitCommand(parent: Command): void {
           printNextSteps(options.manager !== false)
         }
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error)
       }
     })
 }

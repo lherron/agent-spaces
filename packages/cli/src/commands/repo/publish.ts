@@ -16,7 +16,7 @@ import {
   gitExecLines,
 } from 'spaces-config'
 
-import { handleCliError } from '../../helpers.js'
+import { exitWithAspError } from '../../helpers.js'
 
 interface RepoPublishOptions {
   tag: string
@@ -136,7 +136,7 @@ export function registerRepoPublishCommand(parent: Command): void {
         console.log(chalk.gray('To push the tag:'))
         console.log(chalk.gray(`  cd ${paths.repo} && git push origin ${tagName}`))
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error)
       }
     })
 }

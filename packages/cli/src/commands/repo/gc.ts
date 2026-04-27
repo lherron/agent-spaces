@@ -20,7 +20,7 @@ import {
   runGC,
 } from 'spaces-config'
 
-import { handleCliError } from '../../helpers.js'
+import { exitWithAspError } from '../../helpers.js'
 
 interface RepoGcOptions {
   dryRun?: boolean | undefined
@@ -142,7 +142,7 @@ export function registerRepoGcCommand(repo: Command): void {
         console.log('')
         console.log(chalk.green('Repository garbage collection complete'))
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error)
       }
     })
 }

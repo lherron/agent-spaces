@@ -7,8 +7,9 @@
  */
 
 import chalk from 'chalk'
+import { CliUsageError, exitWithError } from 'cli-kit'
 
-import { PathResolver, getAspHome } from 'spaces-config'
+import { PathResolver, getAspHome, isAspError } from 'spaces-config'
 
 import { findProjectRoot } from './index.js'
 
@@ -59,20 +60,28 @@ export class ProjectNotFoundError extends Error {
   }
 }
 
-/**
- * Handle CLI errors with consistent formatting.
- * Prints error message and exits with code 1.
- */
-export function handleCliError(error: unknown): never {
+function normalizeCliError(error: unknown): unknown {
   if (error instanceof ProjectNotFoundError) {
-    console.error(chalk.red(`Error: ${error.message}`))
-    console.error(chalk.gray('Run this command from a project directory or use --project'))
-  } else if (error instanceof Error) {
-    console.error(chalk.red(`Error: ${error.message}`))
-  } else {
-    console.error(chalk.red(`Error: ${String(error)}`))
+    return new CliUsageError(
+      `${error.message}\nRun this command from a project directory or use --project`
+    )
   }
-  process.exit(1)
+
+  if (isAspError(error) && error.cause instanceof Error) {
+    return new Error(`${error.message}\n  Cause: ${error.cause.message}`)
+  }
+
+  return error
+}
+
+/**
+ * Exit with the shared cli-kit error contract.
+ */
+export function exitWithAspError(
+  error: unknown,
+  options: { json?: boolean | undefined } = {}
+): never {
+  exitWithError(normalizeCliError(error), { json: options.json ?? false, binName: 'asp' })
 }
 
 /**

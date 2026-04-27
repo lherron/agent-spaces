@@ -13,7 +13,7 @@ import { createAgentSpacesClient } from 'agent-spaces'
 import { TARGETS_FILENAME, formatWarnings, readTargetsToml } from 'spaces-config'
 import type { LintWarning } from 'spaces-config'
 
-import { type CommonOptions, getProjectContext, handleCliError } from '../helpers.js'
+import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 interface DescribeOptions extends CommonOptions {
   harness?: string | undefined
@@ -106,7 +106,7 @@ export function registerDescribeCommand(program: Command): void {
           console.log('')
         }
       } catch (error) {
-        handleCliError(error)
+        exitWithAspError(error, options)
       }
     })
 }
