@@ -14,7 +14,7 @@ Add Codex CLI event capture to HRC by ingesting Codex OpenTelemetry log exports 
 
 - events are written into the existing `events` SQLite table via `db.events.append(...)`
 - live followers receive them through the existing `notifyEvent(...)` fanout
-- `hrc events --follow` works for Codex with no CLI read-path changes
+- `hrc monitor watch --follow` works for Codex with no CLI read-path changes
 
 This implementation is intended to make Codex event capture behave like current Claude Code capture at the HRC boundary: durable append into SQLite plus live NDJSON streaming to watchers.
 
@@ -25,7 +25,7 @@ The current HRC event path already has the correct persistence and streaming bou
 - `packages/hrc-store-sqlite/src/repositories.ts`: `EventRepository.append(...)`
 - `packages/hrc-server/src/index.ts`: `notifyEvent(...)`
 - `packages/hrc-sdk/src/client.ts`: `watch(...)` on `GET /v1/events`
-- `packages/hrc-cli/src/cli.ts`: `hrc events` / `watch`
+- `packages/hrc-cli/src/cli.ts`: `hrc monitor watch` / `watch`
 
 Codex is the missing ingress path. Claude Code can emit lifecycle/hook events directly into HRC; Codex cannot provide equivalent hook coverage and instead exposes structured OpenTelemetry log export. Codex supports OTEL log export through `[otel]`, with `otel.exporter` selectable as `otlp-http` or `otlp-grpc`, configurable endpoint/headers/protocol, and representative `codex.*` event families including conversation, API, SSE, and tool events. Exporters batch asynchronously and flush on shutdown.  [oai_citation:0‡OpenAI Developers](https://developers.openai.com/codex/config-advanced)
 
@@ -64,7 +64,7 @@ This spec does **not** include:
 - metrics ingestion
 - redaction or payload filtering
 - derived/synthetic high-level events beyond direct OTEL log capture
-- changes to `hrc events --follow` output format
+- changes to `hrc monitor watch --follow` output format
 - normalization of Codex logs into Claude-style hook semantics
 
 This version stores full Codex OTEL event payloads as received and normalized.
@@ -342,8 +342,8 @@ Do not change:
 
 - `GET /v1/events`
 - `hrc-sdk` watch semantics
-- `hrc events --follow`
-- NDJSON line format
+- `hrc monitor watch --follow`
+- monitor JSON line format
 
 Codex OTEL events must appear as ordinary HRC events once appended.
 
@@ -459,7 +459,7 @@ Implementation is complete when all of the following are true.
 1. Launching a Codex runtime through HRC writes OTEL config into the generated `CODEX_HOME/config.toml`.
 2. Codex sends OTEL logs to the HRC daemon over loopback HTTP.
 3. The daemon appends those logs into the existing `events` table with `source = 'otel'`.
-4. `hrc events --follow` shows those events live without any CLI read-path changes.
+4. `hrc monitor watch --follow` shows those events live without any CLI read-path changes.
 5. Historical replay via `--from-seq` includes previously ingested Codex OTEL events.
 6. Launch/session/runtime correlation fields are populated from the HRC launch context, not guessed from Codex payloads.
 

@@ -4,7 +4,7 @@ Notes for continuing the HRC event investigation in a fresh session.
 
 ## Current Symptom
 
-`hrc events cody@agent-spaces` can show user prompts and tool activity for interactive/tmux Codex runs, but may not show assistant LLM responses as semantic `turn.message` events.
+`hrc monitor watch cody@agent-spaces` can show user prompts and tool activity for interactive/tmux Codex runs, but may not show assistant LLM responses as semantic `turn.message` events.
 
 Observed example:
 
@@ -17,9 +17,9 @@ Observed example:
 
 ## What Was Ruled Out
 
-- The `hrc events --pretty` renderer rewrite was not the production Discord failure.
-- Production ACP/gateway code does not shell out to `hrc events`.
-- `hrc events` displays assistant responses when `turn.message` rows exist.
+- The `hrc monitor watch --json` renderer rewrite was not the production Discord failure.
+- Production ACP/gateway code does not shell out to `hrc monitor watch`.
+- `hrc monitor watch` displays assistant responses when `turn.message` rows exist.
 - Headless Codex runs used through ACP/Discord can emit `turn.message`; verified by Discord e2e on 2026-04-21 with marker `ACP_E2E_OK_1511`.
 
 ## Likely Gap
@@ -74,7 +74,7 @@ Useful tables:
 
 ## Related Historical Context
 
-Earlier Discord failure on 2026-04-21 was caused by ACP/gateway process issues, not `hrc events` rendering:
+Earlier Discord failure on 2026-04-21 was caused by ACP/gateway process issues, not `hrc monitor watch` rendering:
 
 - Gateway could send a Discord "Processing" placeholder.
 - ACP ingress either was not running or failed before launch/delivery.

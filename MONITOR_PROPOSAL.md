@@ -32,8 +32,8 @@ The need comes from repeated agent coordination failures:
 
 - An agent run fails or hangs and the caller receives no useful notification.
 - A called agent finishes, but the calling agent does not wake up to process the next turn.
-- `hrcchat dm --wait` behaves like a reply waiter, but has produced noisy timeout/failure notifications that do not match the actual target runtime state.
-- `hrc events --follow` has exited early, so operators fell back to polling.
+- The former hrcchat synchronous-DM wait flow behaved like a reply waiter, but produced noisy timeout/failure notifications that did not match the actual target runtime state.
+- `hrc monitor watch --follow` has exited early, so operators fell back to polling.
 - HRC and hrcchat currently spread monitoring/status responsibilities across several commands.
 
 The surface should make "what is this runtime/session doing?" and "has the turn I care about finished?" answerable directly from HRC.
@@ -45,9 +45,9 @@ These are removed after `hrc monitor` lands. They are not kept as aliases.
 ### 3.1 Removed from `hrc`
 
 ```bash
-hrc status
-hrc events
-hrc server health
+top-level HRC status command
+top-level HRC event-stream command
+server health alias
 ```
 
 Replacement for agent/session/runtime monitoring:
@@ -72,15 +72,15 @@ hrc server tmux kill
 
 Those commands own HRC daemon control and direct liveness checks. They do not own agent/session/turn monitoring.
 
-`hrc server health` is not kept as a legacy alias. Its behavior is consolidated into `hrc server status`.
+The server health alias is not kept. Its behavior is consolidated into `hrc server status`.
 
 ### 3.2 Removed from `hrcchat`
 
 ```bash
-hrcchat status
-hrcchat watch
-hrcchat wait
-hrcchat dm --wait
+status command in hrcchat
+watch command in hrcchat
+wait command in hrcchat
+synchronous-DM wait flag in hrcchat
 ```
 
 Replacement:
@@ -552,11 +552,11 @@ After T-01295/T-01297/T-01298 hot-fixes, smokey's final F3pre re-smoke (capture 
 
 ### 15.6 Next-step playbook (resume in new session)
 
-1. **Dispatch T-01299** to cody for both bugs above. Task body already has full diagnosis. Use `hrcchat dm cody@agent-spaces:T-01299 --wait --timeout 30m` with the standard test-then-impl + commit-before-close checklist.
+1. **Dispatch T-01299** to cody for both bugs above. Task body already has full diagnosis. Use a JSON DM handoff plus `hrc monitor wait msg:<messageId> --until response-or-idle --timeout 30m` with the standard test-then-impl + commit-before-close checklist.
 2. **After cody closes T-01299:** tell smokey to re-run F3pre items #8 and #11 against `agent-minder@agent-spaces`. If both green, smokey appends a final 're-smoke after T-01299' section to `MONITOR_REMOVAL_AUDIT.md`, commits, closes T-01294 + T-01296.
 3. **Dispatch F3** (legacy command removals) per §3 of this proposal. Owner: cody (root-cause-style cleanup). Prerequisite list: every commit listed in §15.3 plus T-01299. F3 removes:
-   - `hrc status`, `hrc events`, `hrc server health`
-   - `hrcchat status`, `hrcchat watch`, `hrcchat wait`, `hrcchat dm --wait`
+   - the top-level HRC status/event commands and server health alias
+   - the status/watch/wait hrcchat commands and synchronous-DM wait flag
    Migration mapping is documented in `packages/hrc-cli/MONITOR_REMOVAL_AUDIT.md` (commit `d2761c7`).
 4. **F4 (clod-driven e2e live smoke):** coordinator runs the full §3 replacement command set against canonical paths in `~/praesidium`, captures output for the audit doc, files any final defects.
 
@@ -565,5 +565,5 @@ After T-01295/T-01297/T-01298 hot-fixes, smokey's final F3pre re-smoke (capture 
 - **Never have a dispatched agent restart hrc-server.** It kills every active session including the agent itself. Coordinator owns hrc lifecycle. (One agent did this and lost their session; clod committed on their behalf.)
 - **Sibling reds in the wider package suite are NOT a closure gate** for parallel-wave assignees. Tell each assignee explicitly: "verify YOUR files only; sibling tests in flight are out of scope." (Several Wave-3 implementers initially blocked on this.)
 - **Closure checklist must include 'COMMIT before close'.** Several agents in early waves closed wrkq tasks with uncommitted impl in the working tree. Adding an explicit commit step in the dispatch DM resolved this in later waves.
-- **`hrcchat dm --wait` correlation timeout is routine.** Treat the `failed` task notification as noise for `run_in_background` dispatches; verify via `hrcchat messages` and `wrkq cat T-XXXXX`.
+- **DM response correlation timeout is routine during the historical flow.** Treat the `failed` task notification as noise for `run_in_background` dispatches; verify via `hrcchat messages` and `wrkq cat T-XXXXX`.
 - **Live smoke against a busy coordinator self-deadlocks.** When the coordinator is also the smoke target for `--until idle` / `--until turn-finished` / `response-or-idle`, conditions can never satisfy. Use a third-party idle target (e.g. `agent-minder@agent-spaces`).

@@ -208,8 +208,6 @@ hrcchat [--project <project>] dm <target|human|system> --file <path>
 hrcchat [--project <project>] dm <target> --mode auto|headless|nonInteractive
 hrcchat [--project <project>] dm <target|human|system> --respond-to <me|human|system|target>
 hrcchat [--project <project>] dm <target|human|system> --reply-to <message-id|seq>
-hrcchat [--project <project>] dm <target|human|system> --wait
-hrcchat [--project <project>] dm <target|human|system> --timeout <duration>
 hrcchat [--project <project>] dm <target|human|system> --json
 
 hrcchat [--project <project>] send <target> [message|-]
@@ -227,31 +225,16 @@ hrcchat [--project <project>] messages --after <cursor>
 hrcchat [--project <project>] messages --limit <n>
 hrcchat [--project <project>] messages --json
 
-hrcchat [--project <project>] watch [<target>]
-hrcchat [--project <project>] watch --to <me|human|system|target>
-hrcchat [--project <project>] watch --from <me|human|system|target>
-hrcchat [--project <project>] watch --responses-to <me|human|system|target>
-hrcchat [--project <project>] watch --thread <message-id|seq>
-hrcchat [--project <project>] watch --after <cursor>
-hrcchat [--project <project>] watch --follow
-hrcchat [--project <project>] watch --timeout <duration>
-hrcchat [--project <project>] watch --json
-
-hrcchat [--project <project>] wait
-hrcchat [--project <project>] wait --to <me|human|system|target>
-hrcchat [--project <project>] wait --responses-to <me|human|system|target>
-hrcchat [--project <project>] wait --thread <message-id|seq>
-hrcchat [--project <project>] wait --after <cursor>
-hrcchat [--project <project>] wait --timeout <duration>
-hrcchat [--project <project>] wait --json
+hrc monitor watch [selector] [--follow] [--timeout <duration>] [--json]
+hrc monitor wait msg:<message-id> --until response-or-idle [--timeout <duration>] [--json]
 
 hrcchat [--project <project>] peek <target>
 hrcchat [--project <project>] peek <target> --lines <n>
 hrcchat [--project <project>] peek <target> --json
 
-hrcchat status
-hrcchat status --json
-hrcchat [--project <project>] status <target>
+hrc monitor show
+hrc monitor show --json
+hrc monitor show <target>
 
 hrcchat doctor
 hrcchat doctor --json
@@ -374,26 +357,20 @@ That means:
 
 `--respond-to human` is the mechanism for controller-agent workflows where another agent should answer the human directly.
 
-#### 11.3.7 Default `--wait` behavior
+#### 11.3.7 Handoff envelope and monitor wait
 
-`dm --wait` must perform a server-side blocking wait. The default filter is:
+`dm --json` returns a handoff envelope. Callers that need to block for a response use `hrc monitor wait msg:<messageId> --until response-or-idle`.
 
-- `thread = newly created outbound request message`
-- `to = respond-to address`
-- `phase = response`
-- `after = outbound request sequence`
-
-This is intentionally stronger than “any message to me after now”; it waits on causal descendants of the new request.
+The monitor wait condition correlates the response to the newly created outbound request message.
 
 #### 11.3.8 Output behavior
 
 Human-mode output rules:
 
 - if `dm` produces an immediate reply message addressed to `me`, print the reply body
-- if `--wait` is used, print the matched message body when a match arrives
 - otherwise print an acknowledgement with the request target and message sequence/id
 
-JSON-mode output should return the request record, execution metadata, and reply record if available.
+JSON-mode output returns the request record, execution metadata, reply record if available, and top-level monitor handoff fields.
 
 ### 11.4 `send`
 
@@ -673,7 +650,7 @@ For replies:
 - `replyToMessageId = parent message id`
 - `rootMessageId = root request message id`
 
-This is required so `dm --wait`, `watch --thread`, and `wait --thread` can be precise and avoid waking on unrelated messages to the same recipient.
+This is required so `dm --json plus hrc monitor wait`, `watch --thread`, and `wait --thread` can be precise and avoid waking on unrelated messages to the same recipient.
 
 ## 15. HRC primitive additions
 
@@ -1026,11 +1003,11 @@ V1 is complete when all of the following work end-to-end.
    - an outbound request message
    - an automatic reply message when final text is available
 4. `hrcchat dm <target> ... --respond-to human` stores the reply addressed to `human`.
-5. `hrcchat wait --responses-to human --thread <root> --timeout <d>` blocks server-side and returns the first matching reply or timeout.
-6. `hrcchat watch --follow` streams new durable messages without polling.
+5. `hrc monitor wait msg:<messageId> --until response-or-idle --timeout <d>` blocks server-side and returns the monitor condition result.
+6. `hrc monitor watch --follow` streams new durable messages without polling.
 7. `hrcchat send <target> ...` succeeds only when a live literal-capable runtime is present.
 8. `hrcchat peek <target>` captures live output without requiring raw `runtimeId`.
-9. `who` / `status` / `doctor` report availability from HRC truth, not heartbeats.
+9. `who` / `doctor` report availability from HRC truth, not heartbeats; monitor state lives under `hrc monitor show`.
 10. Session rotation preserves continuation/profile such that later `dm` requests continue the same logical target.
 
 ## 21. Representative examples
@@ -1056,7 +1033,7 @@ hrcchat dm cody@agentchat "Summarize the current risks for the human." --respond
 Wait until someone responds to the human on the same request thread:
 
 ```bash
-hrcchat wait --responses-to human --thread msg_01J... --timeout 15m
+hrc monitor wait msg:msg_01J... --until response-or-idle --timeout 15m
 ```
 
 Tail all messages involving a target:
@@ -1068,7 +1045,7 @@ hrcchat messages cody@agentchat --limit 50
 Follow new replies to the current caller:
 
 ```bash
-hrcchat watch --responses-to me --follow --timeout 10m
+hrc monitor watch msg:msg_01J... --follow --timeout 10m
 ```
 
 Literal-type into a currently live runtime:

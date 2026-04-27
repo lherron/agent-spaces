@@ -546,7 +546,7 @@ Start event follower:
 ghostmux new \
   --title pi-hrc-events \
   --cwd /Users/lherron/praesidium/agent-spaces \
-  --command 'hrc events pi-e2e@agent-spaces --follow --format=ndjson'
+  --command 'hrc monitor watch pi-e2e@agent-spaces --follow --json'
 ```
 
 Start Pi through HRC:

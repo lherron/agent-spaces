@@ -51,7 +51,7 @@ Required reading per CLI:
 - `src/cli-args.ts` (58 lines) — parser
 - `src/cli-runtime.ts` (417 lines) — server lifecycle helpers (KEEP, not parser)
 - `src/__tests__/cli.test.ts` (2,707 lines) — primary test surface
-- `src/events-render.ts` — render output, KEEP untouched
+- monitor command modules — snapshot/watch/wait output surface
 
 **`packages/hrcchat-cli`**
 - `src/main.ts` (144 lines) — top‑level dispatch
@@ -101,10 +101,7 @@ packages/hrcchat-cli/src/commands/messages.ts
 packages/hrcchat-cli/src/commands/peek.ts
 packages/hrcchat-cli/src/commands/send.ts
 packages/hrcchat-cli/src/commands/show.ts
-packages/hrcchat-cli/src/commands/status.ts
 packages/hrcchat-cli/src/commands/summon.ts
-packages/hrcchat-cli/src/commands/wait.ts
-packages/hrcchat-cli/src/commands/watch.ts
 packages/hrcchat-cli/src/commands/who.ts
 ```
 
@@ -389,7 +386,7 @@ Highest risk because of the 2,707‑line test file.
 2. Add `commander: ^14.0.0` and `cli-kit: *` to `packages/hrc-cli/package.json`.
 3. Migrate `src/cli.ts` the same way as `acp-cli`. The verb tree is flatter (mostly `hrc <noun> <verb>`); subcommand groups: `server`, `agent`, `lane`, `event`.
 4. **Keep `src/cli-runtime.ts` intact** — it's server lifecycle (`collectServerRuntimeStatus`, `daemonizeAndWait`, `stopServerProcess`, launchd helpers). Not parser concerns.
-5. **Keep `src/events-render.ts` intact.**
+5. Keep the monitor command modules intact; parser migration should not change monitor behavior.
 6. Delete `src/cli-args.ts` (58 lines).
 7. Re‑run the test file. Expect:
    - All behavioral assertions to pass unchanged (if they don't, the action handler is being called wrong — investigate before adjusting tests).

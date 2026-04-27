@@ -1,19 +1,19 @@
 # HRC_STATUS_SPEC
 
-Spec for beefing up `hrc status`. Validated against the codebase
+Spec for beefing up `hrc monitor show`. Validated against the codebase
 (`packages/hrc-cli`, `packages/hrc-store-sqlite`, `packages/hrc-sdk`,
 `packages/hrc-server`, `packages/hrc-events`, `packages/hrc-core`,
 `packages/agent-scope`) so we only render data that already exists in state.
 
 ## Goals
 
-1. Fix the `hrc status --help` bug — currently prints status output instead of help.
-2. Add `hrc status <scopeRef>` that answers, in one screen, *"is this agent
+1. Fix the `hrc monitor show --help` bug — currently prints status output instead of help.
+2. Add `hrc monitor show <scopeRef>` that answers, in one screen, *"is this agent
    alive, blocked, or just busy?"*
 3. Avoid fabricated/aspirational fields. If the schema does not back a field,
    it is not in v1.
 
-## Bug fix: `hrc status --help`
+## Bug fix: `hrc monitor show --help`
 
 `cmdStatus` in `packages/hrc-cli/src/cli.ts:1295` runs the status request
 unconditionally; the global `--help` check in `main()` only fires when `--help`
@@ -26,7 +26,7 @@ Fix:
 - Add a `printStatusUsage()` that mirrors the shape of `printEventsUsage()`
   (`cli.ts:995`).
 
-## New: `hrc status <scopeRef>`
+## New: `hrc monitor show <scopeRef>`
 
 ### Scope resolution
 
@@ -35,7 +35,7 @@ Use `resolveScopeInput` from `packages/agent-scope/src/input.ts:24-60`
 `resolveManagedScopeContext` — that auto-registers projects, which is wrong
 for a read-only inspection command.
 
-Accepted forms (same as `hrc events <scope>`):
+Accepted forms (same as `hrc monitor watch <scope>`):
 
 - `<agentId>`
 - `<agentId>@<projectId>`
@@ -78,7 +78,7 @@ Runtime:    rt-d6fbdec0… / claude-code / tmux / busy   [LIVE]
 
 Turn:       IN PROGRESS — run-9328aef4 · launch-04c9635f
             started 1m48s ago · 14 tool calls · last: Bash (3s ago)
-            user prompt: "We need to beef up `hrc status`."
+            user prompt: "We need to beef up `hrc monitor show`."
 
 Continuation: claude-code:sess-71ed… (fresh)
 Surfaces:    ghostty:60F57AFE-… (bound)
@@ -91,7 +91,7 @@ Recent events (10):
   ...
 
 Next:
-  hrc events clod@agent-spaces --from-seq 12345 --follow
+  hrc monitor watch clod@agent-spaces --from-seq 12345 --follow
   hrc runtime inspect rt-d6fbdec0…
   hrc attach clod@agent-spaces
 ```
@@ -162,7 +162,7 @@ Render: `<ts> <eventKind> seq=<hrcSeq> — <one-line reason from payload>`.
 
 Static set, picked by current state:
 
-- Always: `hrc events <scope> --from-seq <N> --follow`
+- Always: `hrc monitor watch <scope> --from-seq <N> --follow`
 - If runtime present: `hrc runtime inspect <runtimeId>`
 - If runtime tmux + LIVE: `hrc attach <scope>`
 - If STALE: `hrc runtime sweep --status busy --scope <scope>`,
@@ -193,10 +193,10 @@ Static set, picked by current state:
 
 ## Tests
 
-- `hrc status --help` prints usage and exits 0; does not contact the daemon.
-- `hrc status` with no args behaves exactly as today (no regression).
-- `hrc status <scope>` with idle session prints `Turn: IDLE`.
-- `hrc status <scope>` with latest event `turn.started` for the active
+- `hrc monitor show --help` prints usage and exits 0; does not contact the daemon.
+- `hrc monitor show` with no args behaves exactly as today (no regression).
+- `hrc monitor show <scope>` with idle session prints `Turn: IDLE`.
+- `hrc monitor show <scope>` with latest event `turn.started` for the active
   `runId` prints `IN PROGRESS` with correct duration + tool count.
 - Liveness probe: synthetic runtime row with `wrapperPid` pointing to a dead
   PID is rendered `[STALE]`; live PID renders `[LIVE]`; terminal status
@@ -204,7 +204,7 @@ Static set, picked by current state:
 - Failure derivation picks the closest matching event among the supported
   kinds; ignores non-failure events.
 - `--json` shape is stable (snapshot test).
-- Scope selector resolves identically to `hrc events <scope>` (shared
+- Scope selector resolves identically to `hrc monitor watch <scope>` (shared
   `resolveScopeInput`).
 
 ## Implementation phases
