@@ -522,36 +522,23 @@ This section captures the state of the implementation effort so a new session ca
 | Hot-fix | Condition engine ready-idle short-circuit + msg-response reply correlation (`packages/hrc-core/src/monitor/condition-engine.ts`, `packages/hrc-core/src/monitor/index.ts`, `packages/hrc-cli/src/monitor-watch.ts`, `packages/hrc-cli/src/monitor-wait.ts`) | cody (red by smokey) | T-01299 | `7550245` red + `38edf23` green |
 | F3 | Legacy command removal (hrc status/events/server health, hrcchat status/watch/wait/dm --wait, test + doc + script migration) | cody | T-01300 | `70ab540` |
 | F4 | Clod-driven e2e live smoke against canonical paths; F4 evidence appended to audit doc | clod | (post-task) | `a132d78` |
+| Hot-fix | `hrcchat dm --json` envelope written as compact single-line JSON via `printJsonLine` (`packages/hrcchat-cli/src/commands/dm.ts`, `packages/hrcchat-cli/src/print.ts`) | cody (red by smokey) | T-01301 | `9bf069b` red + `73bbc32` green |
 
 Note on T-01298 closure: curly's runtime was killed at 17:23:55 by an attempted `hrc server restart` from inside curly's own session. Fix files were preserved in the working tree and verified by 20/0 hrcchat-cli + 257/0 hrc-server tests. Coordinator (clod) committed and closed on curly's behalf with attribution in the commit message.
 
-### 15.4 Open wrkq tasks (in flight or pending)
+### 15.4 Open wrkq tasks
 
-| Task | Owner | Title | Status |
-|---|---|---|---|
-| T-01301 | cody (in flight) | Defect: `hrcchat dm --json` emits literal LF in body field (intermittent) | OPEN — filed during F4 e2e smoke; non-blocking for the migration but breaks the documented `dm --wait` replacement contract for `jq`-piped scripts |
-
-All earlier tasks (T-01294, T-01295, T-01296, T-01297, T-01298, T-01299, T-01300) are completed.
+None. All migration tasks (T-01294, T-01295, T-01296, T-01297, T-01298, T-01299, T-01300, T-01301) are completed.
 
 ### 15.5 Known remaining bugs
 
-**T-01301 — `hrcchat dm --json` intermittent JSON-escaping defect:**
+None known. T-01301 (the only outstanding defect surfaced during F4) was fixed via `73bbc32`. Independent verification: 50/50 multi-line body dispatches parse cleanly via `jq -e .` after the fix.
 
-- Repro: `hrcchat dm --json agent-minder@agent-spaces - <<EOF` with a multi-line HEREDOC body. The serialized envelope sometimes contains a literal U+000A inside the `body` string, violating RFC 8259 §7.
-- Caught in F4 capture `/tmp/hrc-monitor-F4-clod-smoke/07_dm_json_envelope.out` (lines 23-24). Subsequent dispatches in the same shell with similar input produced valid JSON, so the bug is intermittent.
-- Workaround used during F4: extract `messageId` via `grep -oE 'msg-[a-f0-9-]+'` instead of `jq`; the rest of the handoff flow then completes cleanly with `monitor wait msg:<id> --until response-or-idle`.
-- Fix scope (hypothesis): `packages/hrcchat-cli/src/commands/dm.ts` envelope writer likely has multiple write paths; one streams literal text, another goes through `JSON.stringify`. The body must always go through strict serialization.
-- Status as of writing: dispatched to cody.
+The actual fix differed from the original hypothesis. The defect was not multiple write paths concatenating raw text — it was that the shared `printJson` helper was using `JSON.stringify(value, null, 2)` (pretty-printed with indent), so the envelope spanned multiple lines and stream consumers (jq) would read partial JSON when scripts captured via shell command substitution. Multiline bodies aggravated the symptom because the body's literal LFs landed inside the pretty-printed body string. Fix: route `dm --json` through a new `printJsonLine` helper that uses compact `JSON.stringify(value)`, producing one strict JSON value per dispatch.
 
-### 15.6 Next-step playbook (resume in new session)
+### 15.6 Next-step playbook
 
-All migration phases (F0 through F4) are complete and verified against canonical paths. The §3 replacement surface is live; legacy commands are removed.
-
-The only outstanding work is T-01301 (intermittent JSON-escaping defect dispatched to cody). Once T-01301 lands:
-
-1. Optionally append a re-smoke section to `MONITOR_REMOVAL_AUDIT.md` confirming the fix on F4's failing capture.
-2. Update §15.4 / §15.5 above to mark the migration as fully closed.
-3. ACP monitoring topics (deferred per §12) become eligible for evaluation.
+Migration is fully closed. ACP monitoring topics (deferred per §12) become eligible for evaluation.
 
 ### 15.7 Dispatch hygiene notes (lessons learned this session)
 
