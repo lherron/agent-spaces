@@ -518,7 +518,10 @@ This section captures the state of the implementation effort so a new session ca
 | Hot-fix | Multi-generation resolver: prefer latest active gen for target lookup; correlation join captures live gen at message-create time (`packages/hrc-core/src/monitor/index.ts`, `packages/hrc-server/src/index.ts`) | cody | T-01295 | `e4ed9ea` |
 | Hot-fix | Polling condition reader for `monitor watch --follow --until <condition>` with deadlines (`packages/hrc-cli/src/monitor-watch.ts`) | curly | T-01297 | `60a32f7` |
 | Hot-fix | `hrcchat dm --json` populates `runtimeId` for already-summoned targets (`packages/hrc-server/src/index.ts`, `packages/hrcchat-cli/src/__tests__/smoke.test.ts`) | curly (committed by clod) | T-01298 | `89c7908` |
-| F3pre | Pre-removal repo-wide audit doc (`packages/hrc-cli/MONITOR_REMOVAL_AUDIT.md`) | smokey | T-01294 | `d2761c7` (audit doc only — task held open, smoke gate still RED, see §15.5) |
+| F3pre | Pre-removal repo-wide audit doc + live smoke gate (`packages/hrc-cli/MONITOR_REMOVAL_AUDIT.md`) | smokey | T-01294 | `d2761c7` audit + `9351f69` final green re-smoke |
+| Hot-fix | Condition engine ready-idle short-circuit + msg-response reply correlation (`packages/hrc-core/src/monitor/condition-engine.ts`, `packages/hrc-core/src/monitor/index.ts`, `packages/hrc-cli/src/monitor-watch.ts`, `packages/hrc-cli/src/monitor-wait.ts`) | cody (red by smokey) | T-01299 | `7550245` red + `38edf23` green |
+| F3 | Legacy command removal (hrc status/events/server health, hrcchat status/watch/wait/dm --wait, test + doc + script migration) | cody | T-01300 | `70ab540` |
+| F4 | Clod-driven e2e live smoke against canonical paths; F4 evidence appended to audit doc | clod | (post-task) | `a132d78` |
 
 Note on T-01298 closure: curly's runtime was killed at 17:23:55 by an attempted `hrc server restart` from inside curly's own session. Fix files were preserved in the working tree and verified by 20/0 hrcchat-cli + 257/0 hrc-server tests. Coordinator (clod) committed and closed on curly's behalf with attribution in the commit message.
 
@@ -526,39 +529,29 @@ Note on T-01298 closure: curly's runtime was killed at 17:23:55 by an attempted 
 
 | Task | Owner | Title | Status |
 |---|---|---|---|
-| T-01294 | smokey | F3pre live monitor smoke gate | OPEN — 9/11 smoke items green; 2 still RED (see §15.5) |
-| T-01296 | smokey (informational blocker) | F3pre re-smoke blocked by clod busy turn | OPEN — superseded by §15.5 bugs since smokey switched to agent-minder target |
-| T-01299 | (not yet dispatched) | Hot-fix: monitor watch at-start check + msg-response correlation | OPEN — task body created with full diagnosis; needs cody dispatch |
+| T-01301 | cody (in flight) | Defect: `hrcchat dm --json` emits literal LF in body field (intermittent) | OPEN — filed during F4 e2e smoke; non-blocking for the migration but breaks the documented `dm --wait` replacement contract for `jq`-piped scripts |
 
-### 15.5 Known remaining bugs (F3pre smoke)
+All earlier tasks (T-01294, T-01295, T-01296, T-01297, T-01298, T-01299, T-01300) are completed.
 
-After T-01295/T-01297/T-01298 hot-fixes, smokey's final F3pre re-smoke (capture dir `/tmp/hrc-monitor-final-smoke-T-01294`) is **9/11 green**. Two bugs remain.
+### 15.5 Known remaining bugs
 
-**Bug A — `monitor watch --follow --until idle` skips at-start check:**
+**T-01301 — `hrcchat dm --json` intermittent JSON-escaping defect:**
 
-- Repro: `hrc monitor watch --follow --until idle agent-minder@agent-spaces --timeout 10s` exits `1` `result=timeout`.
-- Disproof of state issue: agent-minder IS idle (`state=summoned, runtime.status=ready, activeTurnId=null`). `hrc monitor wait agent-minder@agent-spaces --until idle --timeout 5s` returns `0 result=already_idle` ✅.
-- Root cause: T-01297's `createPollingConditionReader` (`packages/hrc-cli/src/monitor-watch.ts`) only watches for new events arriving after the start snapshot; it never evaluates whether the start state already satisfies the condition. Already-idle/already-busy/already-dead targets always time out under `--follow`.
-- Fix scope: on first poll, mirror the at-start short-circuit logic from the F1b condition engine wait path. Emit `monitor.completed result=already_idle/already_busy/already_dead/no_active_turn` and exit `0`.
-- Test gap: F2b unit tests synthesize event streams; no test covers the `--follow --until <condition>` against an already-satisfying state.
-
-**Bug B — `monitor wait msg:<id> --until response-or-idle` doesn't correlate replies:**
-
-- Repro: `hrcchat dm --json agent-minder@agent-spaces - <<<'ping'` returns `msg-7d353ba0-...`. Agent-minder replies (visible in `hrcchat messages`). `hrc monitor wait msg:msg-7d353ba0-... --until response-or-idle --timeout 2m` exits `1 result=timeout` (should be `0 result=response`).
-- Disproof of correlation issue: `hrc monitor show msg:<id>` resolves correctly to agent-minder's runtime. The reply IS in `hrcchat messages`.
-- Root cause: F1b condition engine (`packages/hrc-core/src/monitor/condition-engine.ts`) for `response` / `response-or-idle` doesn't correlate inbound messages back to the outbound `msg:<id>` by reply chain. Likely needs to watch for any inbound message whose `replyToMessageId == <id>` (or whatever correlation field hrcchat dm reply persists in the message store).
-- Fix scope: inspect `packages/hrcchat-cli/src/commands/dm.ts` and the message store for the correlation field; teach the condition engine to follow it. Add a focused test using fixture state with an outbound→inbound correlated message pair.
-- Test gap: F1b's synthesized acceptance tests do not exercise full live response correlation; smokey already noted this red in `hrc-core/monitor-condition-engine.acceptance.test.ts` (msg selector response correlation) at the time of F1b's original commit.
+- Repro: `hrcchat dm --json agent-minder@agent-spaces - <<EOF` with a multi-line HEREDOC body. The serialized envelope sometimes contains a literal U+000A inside the `body` string, violating RFC 8259 §7.
+- Caught in F4 capture `/tmp/hrc-monitor-F4-clod-smoke/07_dm_json_envelope.out` (lines 23-24). Subsequent dispatches in the same shell with similar input produced valid JSON, so the bug is intermittent.
+- Workaround used during F4: extract `messageId` via `grep -oE 'msg-[a-f0-9-]+'` instead of `jq`; the rest of the handoff flow then completes cleanly with `monitor wait msg:<id> --until response-or-idle`.
+- Fix scope (hypothesis): `packages/hrcchat-cli/src/commands/dm.ts` envelope writer likely has multiple write paths; one streams literal text, another goes through `JSON.stringify`. The body must always go through strict serialization.
+- Status as of writing: dispatched to cody.
 
 ### 15.6 Next-step playbook (resume in new session)
 
-1. **Dispatch T-01299** to cody for both bugs above. Task body already has full diagnosis. Use a JSON DM handoff plus `hrc monitor wait msg:<messageId> --until response-or-idle --timeout 30m` with the standard test-then-impl + commit-before-close checklist.
-2. **After cody closes T-01299:** tell smokey to re-run F3pre items #8 and #11 against `agent-minder@agent-spaces`. If both green, smokey appends a final 're-smoke after T-01299' section to `MONITOR_REMOVAL_AUDIT.md`, commits, closes T-01294 + T-01296.
-3. **Dispatch F3** (legacy command removals) per §3 of this proposal. Owner: cody (root-cause-style cleanup). Prerequisite list: every commit listed in §15.3 plus T-01299. F3 removes:
-   - the top-level HRC status/event commands and server health alias
-   - the status/watch/wait hrcchat commands and synchronous-DM wait flag
-   Migration mapping is documented in `packages/hrc-cli/MONITOR_REMOVAL_AUDIT.md` (commit `d2761c7`).
-4. **F4 (clod-driven e2e live smoke):** coordinator runs the full §3 replacement command set against canonical paths in `~/praesidium`, captures output for the audit doc, files any final defects.
+All migration phases (F0 through F4) are complete and verified against canonical paths. The §3 replacement surface is live; legacy commands are removed.
+
+The only outstanding work is T-01301 (intermittent JSON-escaping defect dispatched to cody). Once T-01301 lands:
+
+1. Optionally append a re-smoke section to `MONITOR_REMOVAL_AUDIT.md` confirming the fix on F4's failing capture.
+2. Update §15.4 / §15.5 above to mark the migration as fully closed.
+3. ACP monitoring topics (deferred per §12) become eligible for evaluation.
 
 ### 15.7 Dispatch hygiene notes (lessons learned this session)
 
