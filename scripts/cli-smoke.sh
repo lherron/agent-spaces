@@ -247,12 +247,12 @@ echo "${BOLD}--- hrc ---${RESET}"
 run_cli "hrc --help exits 0" 0 "$HRC_BIN --help" || true
 assert_stdout_contains "hrc --help shows commands" "Commands:"
 
-for group in server session runtime launch turn inflight surface bridge; do
+for group in server session runtime launch turn inflight surface bridge monitor; do
   run_cli "hrc $group --help exits 0" 0 "$HRC_BIN $group --help" || true
   assert_stdout_contains "hrc $group --help shows usage" "Usage:"
 done
 
-for command in status events start run capture attach; do
+for command in start run capture attach; do
   run_cli "hrc $command --help exits 0" 0 "$HRC_BIN $command --help" || true
   assert_stdout_contains "hrc $command --help shows usage" "Usage:"
 done
@@ -261,8 +261,8 @@ run_cli "hrc server status --json exits 0" 0 "$HRC_BIN server status --json" || 
 assert_valid_json "hrc server status --json is valid JSON"
 assert_stdout_contains "hrc server status --json has running key" "running"
 
-run_cli "hrc events --from-seq -1 exits 2 (integer validation)" 2 "$HRC_BIN events --from-seq -1" || true
-assert_stderr_contains "hrc events --from-seq -1 error message" "positive integer"
+run_cli "hrc monitor watch --from-seq -1 exits 2 (integer validation)" 2 "$HRC_BIN monitor watch --from-seq -1" || true
+assert_stderr_contains "hrc monitor watch --from-seq -1 error message" "positive integer"
 
 run_cli "hrc <unknown> exits 2" 2 "$HRC_BIN definitely-not-a-command" || true
 assert_stderr_contains "hrc <unknown> mentions command" "definitely-not-a-command"
