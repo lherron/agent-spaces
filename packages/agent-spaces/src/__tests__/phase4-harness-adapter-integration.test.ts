@@ -27,7 +27,7 @@ const placementResolverSource = readFileSync(
   'utf8'
 )
 const executionSource = readFileSync(
-  join(import.meta.dirname, '..', '..', '..', 'execution', 'src', 'run.ts'),
+  join(import.meta.dirname, '..', '..', '..', 'execution', 'src', 'run', 'placement-plan.ts'),
   'utf8'
 )
 

@@ -7,8 +7,7 @@
 
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'bun:test'
 import { getProjectHarnessOutputPath, resolveEffectiveCompose } from 'spaces-config'
@@ -20,11 +19,9 @@ import {
   migrateLegacyProjectCodexRuntimeHome,
   prepareCodexRuntimeHome,
 } from './run.js'
-// Agent-profile integration: import run module as namespace for testing new exports
 import * as runModule from './run.js'
 
 let tempDirs: string[] = []
-const SOURCE_DIR = dirname(fileURLToPath(import.meta.url))
 
 afterEach(async () => {
   await Promise.all(tempDirs.map((path) => rm(path, { recursive: true, force: true })))
@@ -214,38 +211,120 @@ describe('prepareCodexRuntimeHome', () => {
 })
 
 describe('system prompt threading (T-01016)', () => {
-  test('run.ts threads systemPromptMode through HarnessRunOptions and RunResult', async () => {
-    // Red gate for Step 4: execution must preserve replace vs append semantics
-    // from runtime materialization to harness invocation and dry-run reporting.
-    const source = await readFile(join(SOURCE_DIR, 'run.ts'), 'utf-8')
-
-    expect(source).toContain('systemPromptMode')
-    expect(source).toContain('reminderContent')
-    expect(source).toContain('maxChars')
+  test('RunResult exposes systemPromptMode, reminderContent, and maxChars', () => {
+    // Structural gate: the RunResult type must keep these prompt-threading
+    // fields. Removing one would fail this construction at typecheck time.
+    const result: runModule.RunResult = {
+      build: {
+        pluginDirs: [],
+        warnings: [],
+        lock: {
+          lockfileVersion: 1,
+          resolverVersion: 1,
+          generatedAt: '2026-01-01T00:00:00Z',
+          registry: { type: 'git', url: 'local' },
+          spaces: {},
+          targets: {},
+        },
+      },
+      exitCode: 0,
+      systemPromptMode: 'append',
+      reminderContent: 'reminder',
+      maxChars: 8192,
+    }
+    expect(result.systemPromptMode).toBe('append')
+    expect(result.reminderContent).toBe('reminder')
+    expect(result.maxChars).toBe(8192)
   })
 })
 
 describe('placement runtime planner (T-01097)', () => {
-  test('run.ts exports a placement planner driven by ResolvedPlacementContext', async () => {
-    const source = await readFile(join(SOURCE_DIR, 'run.ts'), 'utf-8')
+  test('planPlacementRuntime is exported and callable', async () => {
+    const planPlacementRuntime = (runModule as Record<string, unknown>)['planPlacementRuntime']
+    expect(planPlacementRuntime).toBeDefined()
+    expect(typeof planPlacementRuntime).toBe('function')
+  })
 
-    expect(source).toContain('export async function planPlacementRuntime')
-    expect(source).toContain('placementContext: ResolvedPlacementContext')
-    expect(source).toContain('getHarnessCatalogEntryByFrontend')
-    expect(source).toContain('getDefaultRunOptions(')
+  test('planPlacementRuntime resolves frontend, harness, model, and runOptions', async () => {
+    const aspHome = await createTempDir('placement-plan-')
+    const placement = {
+      bundle: { kind: 'agent-project' as const, agentName: 'test-agent' },
+    } as unknown as Parameters<typeof runModule.planPlacementRuntime>[0]['placement']
+    const placementContext = {
+      materialization: { manifest: undefined, effectiveConfig: undefined },
+      resolvedBundle: { cwd: aspHome },
+    } as unknown as Parameters<typeof runModule.planPlacementRuntime>[0]['placementContext']
+
+    const plan = await runModule.planPlacementRuntime({
+      placement,
+      placementContext,
+      frontend: 'claude-code',
+      aspHome,
+    })
+
+    expect(plan.frontend).toBe('claude-code')
+    expect(plan.harnessId).toBe('claude')
+    expect(plan.cwd).toBe(aspHome)
+    expect(plan.runOptions.aspHome).toBe(aspHome)
+    expect(plan.runOptions.projectPath).toBe(aspHome)
+    expect(plan.runOptions.cwd).toBe(aspHome)
+    // Model resolution returns the discriminated union shape
+    expect(plan.model.ok === true || plan.model.ok === false).toBe(true)
+  })
+
+  test('planPlacementRuntime throws on unknown frontend', async () => {
+    const aspHome = await createTempDir('placement-plan-bad-')
+    const placement = {
+      bundle: { kind: 'agent-project' as const, agentName: 'x' },
+    } as unknown as Parameters<typeof runModule.planPlacementRuntime>[0]['placement']
+    const placementContext = {
+      materialization: { manifest: undefined, effectiveConfig: undefined },
+      resolvedBundle: { cwd: aspHome },
+    } as unknown as Parameters<typeof runModule.planPlacementRuntime>[0]['placementContext']
+
+    await expect(
+      runModule.planPlacementRuntime({
+        placement,
+        placementContext,
+        frontend: 'no-such-frontend' as never,
+        aspHome,
+      })
+    ).rejects.toThrow(/Unknown harness frontend/)
   })
 })
 
 describe('project-target runtime planner (T-01099)', () => {
-  test('run.ts routes asp run target planning through a shared helper', async () => {
-    const source = await readFile(join(SOURCE_DIR, 'run.ts'), 'utf-8')
+  test('planProjectTargetRuntime resolves a project target into a runtime plan', async () => {
+    const { planProjectTargetRuntime } = await import('./run/placement-plan.js')
+    const aspHome = await createTempDir('proj-target-plan-')
+    const manifest = {
+      schema: 1 as const,
+      targets: {
+        my_target: {
+          compose: ['space:defaults@stable' as SpaceRefString],
+          priming_prompt: 'hello',
+        },
+      },
+    }
 
-    expect(source).toContain('function planProjectTargetRuntime')
-    expect(source).toContain('const runtimePlan = planProjectTargetRuntime(manifest, targetName, {')
-    expect(source).toContain('planProjectTargetRuntime(')
-    expect(source).toContain(
-      'const effectivePrompt = combinePrompts(defaultPrompt, options.prompt)'
-    )
+    const plan = planProjectTargetRuntime(manifest, 'my_target', {
+      aspHome,
+      harness: 'claude',
+    })
+
+    expect(plan.harnessId).toBe('claude')
+    expect(plan.adapter.id).toBe('claude')
+    expect(plan.target).toEqual(manifest.targets.my_target)
+    expect(plan.defaultPrompt).toBe('hello')
+  })
+
+  test('combinePrompts merges priming prompt and user prompt', async () => {
+    const { combinePrompts } = await import('./run/util.js')
+
+    expect(combinePrompts('priming', 'user')).toBe('priming\n\nuser')
+    expect(combinePrompts('priming', undefined)).toBe('priming')
+    expect(combinePrompts(undefined, 'user')).toBe('user')
+    expect(combinePrompts(undefined, undefined)).toBeUndefined()
   })
 })
 
@@ -337,13 +416,21 @@ describe('agent-local component discovery (T-01067)', () => {
     })
   })
 
-  test('run.ts threads detected agentLocalComponents into materializeFromRefs', async () => {
-    const source = await readFile(join(SOURCE_DIR, 'run.ts'), 'utf-8')
+  test('detectAgentLocalComponents has the signature run() expects', async () => {
+    // Structural gate: run() in run.ts threads the detector's return value
+    // into materializeFromRefs as `agentLocalComponents`. That call site
+    // requires a Promise<{ hasSkills, hasCommands, ... } | undefined>.
+    const agentRoot = await createTempDir('agent-local-signature-')
+    await mkdir(join(agentRoot, 'skills'), { recursive: true })
 
-    expect(source).toContain('detectAgentLocalComponents')
-    expect(source).toContain('const agentLocalComponents = agentProfile')
-    expect(source).toContain('await detectAgentLocalComponents(agentProfile.agentRoot)')
-    expect(source).toContain('...(agentLocalComponents ? { agentLocalComponents } : {}),')
+    expect(detectAgentLocalComponents).toBeDefined()
+    const components = await detectAgentLocalComponents!(agentRoot)
+    expect(components).toBeDefined()
+    expect(components!.agentRoot).toBe(agentRoot)
+    expect(typeof components!.hasSkills).toBe('boolean')
+    expect(typeof components!.hasCommands).toBe('boolean')
+    expect(typeof components!.skillsDir).toBe('string')
+    expect(typeof components!.commandsDir).toBe('string')
   })
 })
 
