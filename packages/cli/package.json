@@ -61,6 +61,7 @@
     "node_modules/spaces-*",
     "node_modules/agent-spaces",
     "node_modules/agent-scope",
+    "node_modules/cli-kit",
     "core.js",
     "core.d.ts",
     "resolver.js",
@@ -83,6 +84,7 @@
   "bundleDependencies": [
     "agent-scope",
     "agent-spaces",
+    "cli-kit",
     "spaces-config",
     "spaces-execution",
     "spaces-runtime",

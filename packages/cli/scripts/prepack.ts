@@ -22,6 +22,7 @@ const WORKSPACES: Array<{ src: string; dest: string }> = [
   { src: '../execution', dest: 'spaces-execution' },
   { src: '../agent-spaces', dest: 'agent-spaces' },
   { src: '../agent-scope', dest: 'agent-scope' },
+  { src: '../cli-kit', dest: 'cli-kit' },
 ]
 
 const SPECIFIER_TARGETS: Record<string, string> = {
@@ -40,6 +41,7 @@ const SPECIFIER_TARGETS: Record<string, string> = {
   'spaces-execution': 'spaces-execution/dist/index.js',
   'agent-spaces': 'agent-spaces/dist/index.js',
   'agent-scope': 'agent-scope/dist/index.js',
+  'cli-kit': 'cli-kit/dist/index.js',
 }
 
 const SHIMS = [
@@ -55,7 +57,7 @@ const SHIMS = [
 ]
 
 const BARE_IMPORT_RE =
-  /((?:from|import)\s*['"])(spaces-[a-z][a-z-]*(?:\/[a-z][a-z-]*)?|agent-spaces|agent-scope)(['"])/g
+  /((?:from|import)\s*['"])(spaces-[a-z][a-z-]*(?:\/[a-z][a-z-]*)?|agent-spaces|agent-scope|cli-kit)(['"])/g
 
 async function copyWorkspaces() {
   for (const { src, dest } of WORKSPACES) {

@@ -22,6 +22,7 @@ const BUNDLED_DIRS = [
   'spaces-harness-pi-sdk',
   'agent-spaces',
   'agent-scope',
+  'cli-kit',
 ]
 
 for (const d of BUNDLED_DIRS) {
