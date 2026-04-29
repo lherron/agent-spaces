@@ -45,7 +45,6 @@ interface RunOptions {
   project?: string
   aspHome?: string
   registry?: string
-  warnings?: boolean
   interactive?: boolean
   extraArgs?: string[]
   dryRun?: boolean
@@ -170,7 +169,6 @@ async function runProjectMode(
     projectPath,
     aspHome: options.aspHome,
     registryPath: options.registry,
-    printWarnings: options.warnings !== false,
     extraArgs: options.extraArgs,
     dryRun: options.dryRun,
     refresh: options.refresh,
@@ -260,7 +258,6 @@ async function runGlobalMode(
   const globalOptions = {
     aspHome: options.aspHome,
     registryPath: options.registry,
-    printWarnings: options.warnings !== false,
     extraArgs: options.extraArgs,
     interactive: options.interactive !== false,
     prompt,
@@ -311,7 +308,6 @@ async function runDevMode(
   const devOptions = {
     aspHome: options.aspHome,
     registryPath: options.registry,
-    printWarnings: options.warnings !== false,
     extraArgs: options.extraArgs,
     interactive: options.interactive !== false,
     prompt,
@@ -397,7 +393,6 @@ export function registerRunCommand(program: Command): void {
     .option('--model-reasoning-effort <effort>', 'Codex model reasoning effort override')
     .option('--permission-mode <mode>', 'Claude permission mode (--permission-mode)')
     .option('--no-interactive', 'Run non-interactively')
-    .option('--no-warnings', 'Suppress lint warnings')
     .option('--dry-run', 'Print the harness command without executing')
     .option('--print-command', 'Output only the command (for piping/scripting)')
     .option('--no-refresh', 'Skip refresh and use cached project bundles')
