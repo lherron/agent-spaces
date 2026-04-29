@@ -14,7 +14,7 @@ context (no continuity reuse across runs).
 - **Production ACP server (launchd):** `http://127.0.0.1:18470` — uses real HRC launcher.
 - **Dev-flow validation server:** `http://127.0.0.1:18475` (only for engine validation; doc-sweeper does NOT use this).
 - **Today:** 2026-04-28.
-- **Recent state:** JobFlow MVP shipped (T-01305..T-01314). Phase-12 live validation ran in the prior session; results live in `JOB_FLOW_IMPL.md` §12. Two patches landed during validation:
+- **Recent state:** JobFlow MVP shipped (T-01305..T-01314). `step.fresh` engine work shipped (T-01315) — the Phase 0 prerequisite is done. JobFlow OS exec + exit-status branching shipped (T-01316..T-01321), gated on `ACP_JOB_FLOW_EXEC_ENABLED=1`; doc-sweeper does NOT need this for the MVP flow but it is available if a later refactor wants deterministic scan/self-disable steps. Phase-12 live validation ran in the prior session; results live in `JOB_FLOW_IMPL.md` §12. Two patches landed during validation:
   - `cli.ts:592` argv routing fix (was causing acp-server launchd flap; 2092 prior loops).
   - `scheduler.ts` auto-resume of in-flight flow JobRuns + `parseDurationMs` for `--timeout 5s` style suffixes.
   - New launcher `packages/acp-server/src/dev-flow-launcher.ts` (gated on `ACP_DEV_FLOW_LAUNCHER=1`).
@@ -27,28 +27,6 @@ context (no continuity reuse across runs).
 4. Agent: `cody` (codex). Project: `agent-spaces`. Taskless scope.
 5. Discord delivery to the agent-spaces channel via existing binding (verify).
 6. Pre-pre-flight smoke (validate every instruction is executable) before pre-flight smoke (full single flow run) before go-live.
-
-## Phase 0 — Prerequisite engine work: `step.fresh`
-
-**Why:** Cody continuation is keyed by `(scopeRef, laneRef)` and survives across runs within the 24h auto-rotation window. The doc-sweeper's hourly cadence falls inside that window, so without intervention every fire reuses the same conversation. The product owner has stated fresh context is a hard requirement.
-
-**Design:**
-
-- Add `JobFlowStep.fresh?: boolean` to `acp-core` types (`packages/acp-core/src/models/job.ts`).
-- Validator (`packages/acp-jobs-store/src/flow-validation.ts`) accepts the field; no other constraints.
-- Flow engine (`packages/acp-server/src/jobs/flow-engine.ts` + `dispatch-step.ts`): when a step has `fresh === true`, before dispatching call a new HRC client method to discard the active session's continuation. The cleanest contract is **rotate the session generation**:
-  - New HRC HTTP method `POST /v1/sessions/rotate-generation` with body `{sessionRef: {scopeRef, laneRef}}`. Server-side: insert a new row in `sessions` with `generation = current+1`, `prior_host_session_id = old`, `continuation_json = NULL`. Mark the old session inactive.
-  - Add `rotateSessionGeneration` to `AcpHrcClient` Pick in `acp-server/src/deps.ts`.
-  - Engine path: `if (step.fresh) await deps.hrcClient.rotateSessionGeneration({sessionRef})` immediately before `dispatchStepThroughInputs`.
-- Migration-free: `flow_json` is a TEXT blob, the new field rides inside it.
-
-**Tests:**
-
-- Unit: validator accepts `{fresh: true}`; engine calls `rotateSessionGeneration` when set.
-- Unit (HRC server): rotate increments generation, nulls continuation, creates parent link.
-- E2E: extend `packages/acp-e2e/test/jobflow-mvp.test.ts` with a fresh-session scenario.
-
-**Estimated effort:** ~2 hours (small change, well-scoped).
 
 ## Phase 1 — Discord routing verification
 
@@ -96,7 +74,7 @@ CLI shape; the goal is one-shot dispatch and assistant reply capture.)
 
 ## Phase 3 — Pre-flight smoke (full single flow run)
 
-1. **Create the doc-sweeper job, disabled, with `Phase 0` engine work in place:**
+1. **Create the doc-sweeper job, disabled** (`step.fresh` is already implemented in T-01315):
 
 ```bash
 curl -sS -X POST http://127.0.0.1:18470/v1/admin/jobs \
@@ -160,7 +138,7 @@ EOF
 
 4. **Re-run a second manual fire:**
    - Confirm step `document` picked a **different** package (no duplicate).
-   - Confirm cody's reply does NOT reference prior-run content (proves `fresh: true` worked). If the reply mentions prior packages from memory, Phase 0 is broken — STOP, fix, re-smoke.
+   - Confirm cody's reply does NOT reference prior-run content (proves `fresh: true` worked). If the reply mentions prior packages from memory, the `step.fresh` engine path (T-01315) is regressing — STOP, file a defect, do not go-live.
 
 5. **Failure path drill:** temporarily edit the prompt to force a result-block parse failure (e.g. require a field cody won't emit), trigger once, confirm `onFailure` notify_failure ran, JobRun ends in `failed`, `RUN_HISTORY.md` has the failure row, Discord got the failure message. Then revert the prompt.
 
@@ -282,7 +260,7 @@ End your reply with EXACTLY this block:
    {"delivered_to_discord":true,"history_appended":true,"run_status":"failed"}
 ```
 
-## Companion wrkq task (file before starting Phase 0)
+## Companion wrkq task (file before going live)
 
 Title: `JobFlow scheduler concurrency policy`
 Slug: `inbox/scheduler-concurrency-policy`
@@ -307,33 +285,40 @@ Body:
 
 ## Open items the implementer should confirm at start
 
-1. **Phase 0 design choice.** I've proposed `step.fresh: true` triggering an HRC
-   `rotateSessionGeneration` call. An alternative is an engine-only hack:
-   pre-step that calls `hrcClient.terminate` AND nulls `continuation_json` via
-   a direct sqlite write. The HRC API approach is correct; the sqlite hack is
-   a stopgap. Pick the API approach unless time-pressured.
-2. **JobId injection** for self-disable. Plan uses option (a): hardcode the
+1. **JobId injection** for self-disable. Plan uses option (a): hardcode the
    jobId into `<DOCUMENT_PROMPT>` at creation time. Simple. Confirmed by user.
-3. **Discord noise from step 1.** Step 1 reply is intentionally terse so the
+2. **Discord noise from step 1.** Step 1 reply is intentionally terse so the
    step-1 Discord message is just one short ack line. If even that is too
    noisy, future work could add per-step delivery suppression. Not in scope.
-4. **HRC db path for `step.fresh` testing.** The dev-flow harness uses an
-   in-process fake launcher; engine-level fresh-session work needs HRC server
-   changes too, and end-to-end testing of fresh-session via real cody requires
-   the launchd ACP. Plan accordingly.
+3. **Continuation semantics within a job (already implemented).**
+   `step.fresh: true` rotates the cody continuation only for that step (via
+   HRC `clearContext({dropContinuation: true})` immediately before
+   `/v1/inputs` dispatch). Subsequent agent steps in the same JobRun
+   dispatch against the same `(scopeRef, laneRef)` and naturally inherit the
+   continuation built by the prior agent step — so step 2 of the doc-sweeper
+   already sees cody's WORK_RESULT block from step 1 without any
+   prompt-side gymnastics. Practical implication: put `fresh: true` on the
+   first step only; later steps in the same fire stay in the same
+   conversation. Across hourly fires, the first step's `fresh: true`
+   guarantees the clean slate the product owner requires.
 
-## Files the implementer will touch (Phase 0 + doc-sweeper creation)
+4. **Optional: refactor scan/self-disable as exec steps.** Now that JobFlow
+   supports `kind: "exec"` with exit-status branching (T-01316..T-01321),
+   the deterministic parts of `<DOCUMENT_PROMPT>` (RUN_HISTORY soft-mutex,
+   package listing, self-disable) could be hoisted out of the agent turn into
+   exec steps that branch on exit code. This trims the agent prompt and makes
+   self-disable verifiable from `result_json`. The only data-flow gap is at
+   the exec→agent boundary: exec stdout lives in `result_json` rather than
+   HRC continuation, so a downstream agent step would have to read job-run
+   state or re-list packages itself (agent→agent boundaries are unaffected
+   per item #3). Recommendation: keep the agent-only flow for the MVP
+   doc-sweeper; revisit after first 24h of fires.
 
-- `packages/acp-core/src/models/job.ts` — add `JobFlowStep.fresh?: boolean`.
-- `packages/acp-jobs-store/src/flow-validation.ts` — accept the field.
-- `packages/acp-server/src/jobs/dispatch-step.ts` (or `flow-engine.ts`) — call rotate when set.
-- `packages/acp-server/src/deps.ts` — extend `AcpHrcClient` Pick with `rotateSessionGeneration`.
-- `packages/hrc-sdk/src/index.ts` — add the client method.
-- `packages/hrc-server/src/handlers/sessions-rotate-generation.ts` — new handler (or extend an existing sessions handler).
-- `packages/hrc-server/src/routes.ts` — register route.
-- Tests in each of the above where appropriate.
-- `acp-spec/spec/orchestration/JOB_FLOW.md` — document the new field.
-- No migrations needed (flow_json is a JSON blob).
+## Files the implementer will touch (doc-sweeper creation only — `step.fresh` engine is already in main)
+
+- The engine work for `step.fresh` is already in main (T-01315). No core/jobs-store/server/HRC source edits needed for this plan.
+- Job spec lives in the curl payload in §Phase 3 — no source files to add for the doc-sweeper itself.
+- If pursuing the optional exec-step refactor (Open item #3), add a small `scripts/doc-sweeper-scan.ts` or similar pure-node script that the exec step invokes. No source edits beyond that script and the job spec. Note: prod ACP launchd plist must export `ACP_JOB_FLOW_EXEC_ENABLED=1` for exec steps to dispatch.
 
 ## How to verify success at the end
 
