@@ -1,11 +1,17 @@
 /**
  * GatewayIosModule — lifecycle entry point.
  *
- * Stub implementation for P0. The start/stop lifecycle will be filled in
- * by later phases (P3-P7) as routes, reducers, and composition are added.
+ * Constructs an HrcClient against the configured Unix socket, builds the
+ * REST + WebSocket route surface from createGatewayIosServeConfig, and
+ * binds a Bun.serve listener on the configured host/port. Optional bearer
+ * token enforcement runs in front of the route table.
  */
 
+import type { Server } from 'bun'
+import { HrcClient } from 'hrc-sdk'
 import { createLogger } from './logger.js'
+import { type WsData, createGatewayIosServeConfig } from './routes.js'
+import { createSessionIndex } from './session-index.js'
 
 const log = createLogger({ component: 'gateway-ios' })
 
@@ -26,12 +32,13 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
   const host = options.host ?? '127.0.0.1'
   const port = options.port ?? 18480
   const gatewayId = options.gatewayId ?? 'ios-local'
+  const bearerToken = options.bearerToken
 
-  let running = false
+  let server: Server<WsData> | undefined
 
   return {
     async start() {
-      if (running) {
+      if (server) {
         throw new Error('gateway-ios is already running')
       }
 
@@ -39,24 +46,53 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
         data: { host, port, gatewayId, hrcSocketPath: options.hrcSocketPath },
       })
 
-      // Stub: real Bun.serve will be wired in P3/P7
-      running = true
+      const hrcClient = new HrcClient(options.hrcSocketPath)
+      const sessionIndex = createSessionIndex({ client: hrcClient })
+
+      const serveConfig = createGatewayIosServeConfig({
+        hrcClient,
+        gatewayId,
+        resolveSession: async (sessionRef: string) => {
+          const { sessions } = await sessionIndex.handleListSessions({})
+          const match = sessions.find((s) => s.sessionRef === sessionRef)
+          if (!match) {
+            throw new Error(`session not found: ${sessionRef}`)
+          }
+          return match
+        },
+      })
+
+      server = Bun.serve<WsData, never>({
+        hostname: host,
+        port,
+        fetch: async (request, srv) => {
+          if (bearerToken !== undefined) {
+            const auth = request.headers.get('authorization')
+            if (auth !== `Bearer ${bearerToken}`) {
+              return new Response(JSON.stringify({ ok: false, code: 'unauthorized' }), {
+                status: 401,
+                headers: { 'Content-Type': 'application/json' },
+              })
+            }
+          }
+          const response = await serveConfig.fetch(request, srv as Server<WsData>)
+          return response ?? new Response(null, { status: 101 })
+        },
+        websocket: serveConfig.websocket,
+      }) as Server<WsData>
 
       log.info('gateway.started', {
-        data: { host, port, gatewayId },
+        data: { host, port, gatewayId, bearerTokenConfigured: bearerToken !== undefined },
       })
 
       return { host, port }
     },
 
     async stop() {
-      if (!running) return
-
+      if (!server) return
       log.info('gateway.stopping', { data: { gatewayId } })
-
-      // Stub: real server shutdown will be wired in P3/P7
-      running = false
-
+      server.stop(true)
+      server = undefined
       log.info('gateway.stopped', { data: { gatewayId } })
     },
   }
