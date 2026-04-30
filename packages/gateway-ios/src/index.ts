@@ -62,3 +62,40 @@ export type {
 // Frame projector (P2)
 export { projectTimeline, projectIncremental } from './frame-projector.js'
 export type { ProjectionResult } from './frame-projector.js'
+
+// Health handler (P5)
+export { handleHealth } from './health.js'
+export type { GatewayHealthResponse } from './health.js'
+
+// Session index (P5)
+export { createSessionIndex } from './session-index.js'
+export type { SessionIndexDeps } from './session-index.js'
+
+// Routes (P5/P4/P6 + P3 WS)
+export {
+  createGatewayIosRoutes,
+  createGatewayIosFetchHandler,
+  createGatewayIosWsHandlers,
+  createGatewayIosServeConfig,
+} from './routes.js'
+export type { GatewayIosRoute, GatewayIosRouteDeps, WsData } from './routes.js'
+
+// Event pump (P3 — shared by timeline-ws and diagnostics-ws)
+export { runEventPump } from './event-pump.js'
+export type { EventPumpHrcClient, EventPumpOptions, EventPumpResult } from './event-pump.js'
+
+// Event filter (P3)
+export {
+  isRelevantToSession,
+  sessionRefFromEvent,
+  matchesCategory,
+  matchesEventKind,
+} from './event-filter.js'
+
+// Timeline WS (P3)
+export { createTimelineWsHandler } from './timeline-ws.js'
+export type { TimelineWsData, TimelineWsDeps } from './timeline-ws.js'
+
+// Diagnostics WS (P3)
+export { createDiagnosticsWsHandler } from './diagnostics-ws.js'
+export type { DiagnosticsWsData, DiagnosticsWsDeps } from './diagnostics-ws.js'
