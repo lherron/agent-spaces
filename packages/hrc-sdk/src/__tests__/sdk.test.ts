@@ -454,6 +454,29 @@ describe('watch NDJSON parsing', () => {
 
     expect(capturedUrl).toContain('follow=true')
   })
+
+  it('passes beforeHrcSeq and limit as query parameters', async () => {
+    let capturedUrl = ''
+
+    stubServer = Bun.serve({
+      unix: stubSocketPath,
+      fetch(req) {
+        capturedUrl = req.url
+        return new Response('', {
+          headers: { 'Content-Type': 'application/x-ndjson' },
+        })
+      },
+    })
+
+    const client = new HrcClient(stubSocketPath)
+
+    for await (const _event of client.watch({ beforeHrcSeq: 25, limit: 10 })) {
+      // should be empty
+    }
+
+    expect(capturedUrl).toContain('beforeHrcSeq=25')
+    expect(capturedUrl).toContain('limit=10')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -464,6 +487,125 @@ describe('watch NDJSON parsing', () => {
 // hrc-server, which is expected in the RED phase. When both packages are
 // implemented, these tests validate the integration seam.
 // ---------------------------------------------------------------------------
+describe('backwards paging round-trip', () => {
+  let tmpDir: string
+  let runtimeRoot: string
+  let stateRoot: string
+  let socketPath: string
+  let dbPath: string
+  let tmuxSocketPath: string
+  let server: { stop(): Promise<void> } | undefined
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'hrc-sdk-backwards-'))
+    runtimeRoot = join(tmpDir, 'runtime')
+    stateRoot = join(tmpDir, 'state')
+    socketPath = join(runtimeRoot, 'hrc.sock')
+    dbPath = join(stateRoot, 'state.sqlite')
+    tmuxSocketPath = join(runtimeRoot, 'tmux.sock')
+
+    await mkdir(runtimeRoot, { recursive: true })
+    await mkdir(stateRoot, { recursive: true })
+    await mkdir(join(runtimeRoot, 'spool'), { recursive: true })
+  })
+
+  afterEach(async () => {
+    if (server) {
+      await server.stop()
+      server = undefined
+    }
+    try {
+      const { exited } = Bun.spawn(['tmux', '-S', tmuxSocketPath, 'kill-server'], {
+        stdout: 'ignore',
+        stderr: 'ignore',
+      })
+      await exited
+    } catch {
+      // fine when no tmux server was created
+    }
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it('uses before cursors against a real hrc-server for events and messages', async () => {
+    const { openHrcDatabase } = await import('hrc-store-sqlite')
+    const db = openHrcDatabase(dbPath)
+    const scopeRef = 'agent:cody:project:agent-spaces'
+    const sessionRef = `${scopeRef}/lane:main`
+    const events = []
+    const messages = []
+    try {
+      const now = new Date().toISOString()
+      db.sessions.insert({
+        hostSessionId: 'hsid-sdk-backwards',
+        scopeRef,
+        laneRef: 'default',
+        generation: 1,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+        ancestorScopeRefs: [],
+      })
+
+      for (let i = 0; i < 5; i++) {
+        events.push(
+          db.hrcEvents.append({
+            ts: now,
+            hostSessionId: 'hsid-sdk-backwards',
+            scopeRef,
+            laneRef: 'default',
+            generation: 1,
+            category: 'turn',
+            eventKind: `turn.${i}`,
+            payload: {},
+          })
+        )
+        messages.push(
+          db.messages.insert({
+            messageId: `sdk-message-${i}`,
+            kind: 'dm',
+            phase: 'oneway',
+            from: { kind: 'entity', entity: 'human' },
+            to: { kind: 'session', sessionRef },
+            body: `message ${i}`,
+            execution: { sessionRef },
+          })
+        )
+      }
+    } finally {
+      db.close()
+    }
+
+    const { createHrcServer } = await import('hrc-server')
+    server = await createHrcServer({
+      runtimeRoot,
+      stateRoot,
+      socketPath,
+      lockPath: join(runtimeRoot, 'server.lock'),
+      spoolDir: join(runtimeRoot, 'spool'),
+      dbPath,
+      tmuxSocketPath,
+    })
+
+    const client = new HrcClient(socketPath)
+    const collected: HrcLifecycleEvent[] = []
+    for await (const event of client.watch({ beforeHrcSeq: events[4]!.hrcSeq, limit: 2 })) {
+      collected.push(event)
+    }
+    expect(collected.map((event) => event.hrcSeq)).toEqual([events[3]!.hrcSeq, events[2]!.hrcSeq])
+
+    const listed = await client.listMessages({
+      beforeSeq: messages[4]!.messageSeq,
+      sessionRef,
+      order: 'desc',
+      limit: 2,
+    })
+    expect(listed.messages.map((message) => message.messageId)).toEqual([
+      'sdk-message-3',
+      'sdk-message-2',
+    ])
+  })
+})
+
 // 5. Phase 6 diagnostics round-trip (T-00973 / T-00974)
 //
 // RED GATE: These tests call SDK methods that do not exist yet:

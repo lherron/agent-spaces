@@ -1570,11 +1570,31 @@ class HrcServerInstance implements HrcServer {
   }
 
   private handleEvents(url: URL, request: Request): Response {
+    const beforeHrcSeq = parseBeforeHrcSeq(url.searchParams.get('beforeHrcSeq'))
+    const limit = parseBackwardEventLimit(url.searchParams.get('limit'))
+    if (url.searchParams.has('fromSeq') && beforeHrcSeq !== undefined) {
+      throw new HrcBadRequestError(
+        HrcErrorCode.MALFORMED_REQUEST,
+        'fromSeq and beforeHrcSeq cannot both be provided',
+        { fields: ['fromSeq', 'beforeHrcSeq'] }
+      )
+    }
+
     const fromSeq = parseFromSeq(url.searchParams.get('fromSeq'))
     const follow = url.searchParams.get('follow') === 'true'
+    if (follow && beforeHrcSeq !== undefined) {
+      throw new HrcBadRequestError(
+        HrcErrorCode.MALFORMED_REQUEST,
+        'beforeHrcSeq cannot be combined with follow',
+        { fields: ['beforeHrcSeq', 'follow'] }
+      )
+    }
 
     if (!follow) {
-      const events = this.db.hrcEvents.listFromHrcSeq(fromSeq)
+      const events =
+        beforeHrcSeq !== undefined
+          ? this.db.hrcEvents.listBeforeHrcSeq(beforeHrcSeq, limit !== undefined ? { limit } : {})
+          : this.db.hrcEvents.listFromHrcSeq(fromSeq)
       return new Response(events.map(serializeEvent).join(''), {
         status: 200,
         headers: NDJSON_HEADERS,
@@ -7682,6 +7702,40 @@ function parseMessageFilterList<T extends string>(
   })
 }
 
+function parseBeforeHrcSeq(raw: string | null): number | undefined {
+  if (raw === null || raw.trim().length === 0) {
+    return undefined
+  }
+
+  const parsed = Number(raw)
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new HrcBadRequestError(
+      HrcErrorCode.MALFORMED_REQUEST,
+      'beforeHrcSeq must be a positive integer',
+      { field: 'beforeHrcSeq' }
+    )
+  }
+
+  return parsed
+}
+
+function parseBackwardEventLimit(raw: string | null): number | undefined {
+  if (raw === null || raw.trim().length === 0) {
+    return undefined
+  }
+
+  const parsed = Number(raw)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 500) {
+    throw new HrcBadRequestError(
+      HrcErrorCode.MALFORMED_REQUEST,
+      'limit must be an integer between 1 and 500',
+      { field: 'limit' }
+    )
+  }
+
+  return parsed
+}
+
 function parseMessageFilter(input: unknown): HrcMessageFilter {
   if (!isRecord(input)) {
     throw new HrcBadRequestError(HrcErrorCode.MALFORMED_REQUEST, 'request body must be an object')
@@ -7705,6 +7759,30 @@ function parseMessageFilter(input: unknown): HrcMessageFilter {
       HrcErrorCode.MALFORMED_REQUEST,
       'afterSeq must be a non-negative integer',
       { field: 'afterSeq' }
+    )
+  }
+
+  const beforeSeq = input['beforeSeq']
+  if (
+    beforeSeq !== undefined &&
+    (typeof beforeSeq !== 'number' || !Number.isInteger(beforeSeq) || beforeSeq < 0)
+  ) {
+    throw new HrcBadRequestError(
+      HrcErrorCode.MALFORMED_REQUEST,
+      'beforeSeq must be a non-negative integer',
+      { field: 'beforeSeq' }
+    )
+  }
+
+  const sessionRefInput = input['sessionRef']
+  if (
+    sessionRefInput !== undefined &&
+    (typeof sessionRefInput !== 'string' || sessionRefInput.trim().length === 0)
+  ) {
+    throw new HrcBadRequestError(
+      HrcErrorCode.MALFORMED_REQUEST,
+      'sessionRef must be a non-empty string',
+      { field: 'sessionRef' }
     )
   }
 
@@ -7745,6 +7823,10 @@ function parseMessageFilter(input: unknown): HrcMessageFilter {
       ? { thread: { rootMessageId: thread['rootMessageId'] as string } }
       : {}),
     ...(afterSeq !== undefined ? { afterSeq } : {}),
+    ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+    ...(sessionRefInput !== undefined
+      ? { sessionRef: normalizeTargetSessionRef(sessionRefInput as string) }
+      : {}),
     ...(kinds !== undefined ? { kinds } : {}),
     ...(phases !== undefined ? { phases } : {}),
     ...(limit !== undefined ? { limit } : {}),
@@ -7849,6 +7931,10 @@ function addressMatches(a: HrcMessageAddress, b: HrcMessageAddress): boolean {
 
 function matchesMessageFilter(record: HrcMessageRecord, filter: HrcMessageFilter): boolean {
   if (filter.afterSeq !== undefined && record.messageSeq <= filter.afterSeq) return false
+  if (filter.beforeSeq !== undefined && record.messageSeq >= filter.beforeSeq) return false
+  if (filter.sessionRef !== undefined && record.execution.sessionRef !== filter.sessionRef) {
+    return false
+  }
   if (filter.from && !addressMatches(record.from, filter.from)) return false
   if (filter.to && !addressMatches(record.to, filter.to)) return false
   if (filter.participant) {

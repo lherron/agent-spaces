@@ -207,6 +207,46 @@ describe('MessageRepository', () => {
     expect(after[1].messageId).toBe('msg-3')
   })
 
+  it('queries backwards with beforeSeq, limit, descending order, and sessionRef', () => {
+    const sessionRef = 'agent:cody:project:demo/lane:main'
+    const otherSessionRef = 'agent:clod:project:demo/lane:main'
+    const inserted = []
+
+    for (let i = 0; i < 5; i++) {
+      inserted.push(
+        db.messages.insert({
+          messageId: `session-a-${i}`,
+          kind: 'dm',
+          phase: 'oneway',
+          from: humanAddr,
+          to: codyAddr,
+          body: `session a ${i}`,
+          execution: { sessionRef },
+        })
+      )
+    }
+
+    db.messages.insert({
+      messageId: 'session-b-0',
+      kind: 'dm',
+      phase: 'oneway',
+      from: humanAddr,
+      to: clodAddr,
+      body: 'session b 0',
+      execution: { sessionRef: otherSessionRef },
+    })
+
+    const before = db.messages.query({
+      beforeSeq: inserted[4]!.messageSeq,
+      sessionRef,
+      order: 'desc',
+      limit: 2,
+    })
+
+    expect(before.map((message) => message.messageId)).toEqual(['session-a-3', 'session-a-2'])
+    expect(before.every((message) => message.execution.sessionRef === sessionRef)).toBe(true)
+  })
+
   it('stores and retrieves execution metadata', () => {
     const msg = db.messages.insert({
       messageId: 'exec-1',

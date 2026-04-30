@@ -422,6 +422,10 @@ export class HrcClient {
   async *watch(options?: WatchOptions): AsyncIterable<HrcLifecycleEvent> {
     const params = new URLSearchParams()
     if (options?.fromSeq !== undefined) params.set('fromSeq', String(options.fromSeq))
+    if (options?.beforeHrcSeq !== undefined) {
+      params.set('beforeHrcSeq', String(options.beforeHrcSeq))
+    }
+    if (options?.limit !== undefined) params.set('limit', String(options.limit))
     if (options?.follow) params.set('follow', 'true')
     const qs = params.toString()
     const path = qs ? `/v1/events?${qs}` : '/v1/events'

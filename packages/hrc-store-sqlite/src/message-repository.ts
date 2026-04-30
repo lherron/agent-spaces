@@ -234,6 +234,16 @@ export class MessageRepository {
       values.push(filter.afterSeq)
     }
 
+    if (filter.beforeSeq !== undefined) {
+      where.push('message_seq < ?')
+      values.push(filter.beforeSeq)
+    }
+
+    if (filter.sessionRef !== undefined) {
+      where.push('session_ref = ?')
+      values.push(filter.sessionRef)
+    }
+
     if (filter.kinds && filter.kinds.length > 0) {
       const placeholders = filter.kinds.map(() => '?').join(', ')
       where.push(`kind IN (${placeholders})`)

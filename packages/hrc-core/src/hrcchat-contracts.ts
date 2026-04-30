@@ -99,6 +99,8 @@ export type HrcMessageFilter = {
   to?: HrcMessageAddress | undefined
   thread?: { rootMessageId: string } | undefined
   afterSeq?: number | undefined
+  beforeSeq?: number | undefined
+  sessionRef?: string | undefined
   kinds?: HrcMessageKind[] | undefined
   phases?: HrcMessagePhase[] | undefined
   limit?: number | undefined

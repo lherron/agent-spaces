@@ -369,6 +369,51 @@ describe('HrcLifecycleEventRepository', () => {
       db.close()
     }
   })
+
+  it('lists events before an hrcSeq in descending order with limit and filters', () => {
+    const db = openHrcDatabase(dbPath)
+    try {
+      seedSession(db, 'hsid-back-a', 'back-a')
+      seedSession(db, 'hsid-back-b', 'back-b')
+      const baseA = {
+        ts: ts(),
+        hostSessionId: 'hsid-back-a',
+        scopeRef: scopeRef('back-a'),
+        laneRef: 'default',
+        generation: 1,
+        category: 'turn' as const,
+        payload: {},
+      }
+      const baseB = {
+        ts: ts(),
+        hostSessionId: 'hsid-back-b',
+        scopeRef: scopeRef('back-b'),
+        laneRef: 'default',
+        generation: 1,
+        category: 'turn' as const,
+        payload: {},
+      }
+
+      const a0 = db.hrcEvents.append({ ...baseA, eventKind: 'turn.0' })
+      db.hrcEvents.append({ ...baseB, eventKind: 'turn.other' })
+      const a1 = db.hrcEvents.append({ ...baseA, eventKind: 'turn.1' })
+      const a2 = db.hrcEvents.append({ ...baseA, eventKind: 'turn.2' })
+      const a3 = db.hrcEvents.append({ ...baseA, eventKind: 'turn.3' })
+      const a4 = db.hrcEvents.append({ ...baseA, eventKind: 'turn.4' })
+
+      const before = db.hrcEvents.listBeforeHrcSeq(a4.hrcSeq, {
+        scopeRef: scopeRef('back-a'),
+        laneRef: 'default',
+        limit: 3,
+      })
+
+      expect(before.map((event) => event.hrcSeq)).toEqual([a3.hrcSeq, a2.hrcSeq, a1.hrcSeq])
+      expect(before.every((event) => event.scopeRef === scopeRef('back-a'))).toBe(true)
+      expect(before.some((event) => event.hrcSeq === a0.hrcSeq)).toBe(false)
+    } finally {
+      db.close()
+    }
+  })
 })
 
 describe('0009_backfill_legacy_hrc_events', () => {

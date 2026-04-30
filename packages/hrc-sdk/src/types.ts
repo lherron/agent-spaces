@@ -50,6 +50,8 @@ export type SessionFilter = {
 
 export type WatchOptions = {
   fromSeq?: number | undefined
+  beforeHrcSeq?: number | undefined
+  limit?: number | undefined
   follow?: boolean | undefined
   signal?: AbortSignal | undefined
 }

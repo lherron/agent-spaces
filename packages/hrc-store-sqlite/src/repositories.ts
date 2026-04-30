@@ -2070,6 +2070,7 @@ export type HrcLifecycleQueryFilters = {
   category?: HrcLifecycleEvent['category'] | undefined
   fromHrcSeq?: number | undefined
   fromStreamSeq?: number | undefined
+  beforeHrcSeq?: number | undefined
   limit?: number | undefined
 }
 
@@ -2157,6 +2158,15 @@ export class HrcLifecycleEventRepository {
     return this.runQuery({ ...filters, fromStreamSeq }, 'stream_seq')
   }
 
+  listBeforeHrcSeq(
+    beforeHrcSeq: number,
+    filters: Omit<HrcLifecycleQueryFilters, 'fromHrcSeq' | 'fromStreamSeq' | 'beforeHrcSeq'> = {}
+  ): HrcLifecycleEvent[] {
+    const rawLimit = filters.limit ?? 50
+    const limit = Math.min(Math.max(rawLimit, 1), 500)
+    return this.runQuery({ ...filters, beforeHrcSeq, limit }, 'hrc_seq', 'desc')
+  }
+
   listByRun(
     runId: string,
     filters: Omit<HrcLifecycleQueryFilters, 'runId'> = {}
@@ -2187,7 +2197,8 @@ export class HrcLifecycleEventRepository {
 
   private runQuery(
     filters: HrcLifecycleQueryFilters,
-    orderColumn: 'hrc_seq' | 'stream_seq'
+    orderColumn: 'hrc_seq' | 'stream_seq',
+    order: 'asc' | 'desc' = 'asc'
   ): HrcLifecycleEvent[] {
     const where: string[] = []
     const values: Array<string | number> = []
@@ -2199,6 +2210,10 @@ export class HrcLifecycleEventRepository {
     if (filters.fromStreamSeq !== undefined) {
       where.push('stream_seq >= ?')
       values.push(filters.fromStreamSeq)
+    }
+    if (filters.beforeHrcSeq !== undefined) {
+      where.push('hrc_seq < ?')
+      values.push(filters.beforeHrcSeq)
     }
     if (filters.hostSessionId !== undefined) {
       where.push('host_session_id = ?')
@@ -2243,7 +2258,7 @@ export class HrcLifecycleEventRepository {
       .query<HrcEventRow, Array<string | number>>(
         `SELECT ${HRC_EVENT_COLUMNS} FROM hrc_events
           ${whereClause}
-          ORDER BY ${orderColumn} ASC${limitClause}`
+          ORDER BY ${orderColumn} ${order.toUpperCase()}${limitClause}`
       )
       .all(...values)
 
