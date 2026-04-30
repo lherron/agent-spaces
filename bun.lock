@@ -55,6 +55,8 @@
         "cli-kit": "*",
         "commander": "^14.0.0",
         "gateway-discord": "*",
+        "gateway-ios": "*",
+        "hrc-core": "*",
         "wrkq-lib": "*",
       },
       "devDependencies": {

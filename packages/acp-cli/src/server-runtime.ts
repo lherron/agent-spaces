@@ -13,6 +13,8 @@ import {
   GatewayDiscordApp,
   envNumber,
 } from 'gateway-discord'
+import { type GatewayIosModule, createGatewayIosModule } from 'gateway-ios'
+import { resolveControlSocketPath } from 'hrc-core'
 import { WrkqSchemaMissingError } from 'wrkq-lib'
 
 import { CliServerError, CliUsageError, printText } from './cli-runtime.js'
@@ -24,6 +26,9 @@ const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_PORT = 18470
 const DEFAULT_LAUNCHD_LABEL = 'com.praesidium.acp-server'
 const DEFAULT_GATEWAY_ID = 'acp-discord-smoke'
+const DEFAULT_IOS_HOST = '127.0.0.1'
+const DEFAULT_IOS_PORT = 18480
+const DEFAULT_IOS_GATEWAY_ID = 'ios-local'
 
 export type AcpServerPaths = {
   runtimeRoot: string
@@ -57,7 +62,8 @@ export function renderServerHelp(): string {
     '  acp server health',
     '',
     'Options:',
-    '  --no-discord              Start only the ACP HTTP server',
+    '  --no-discord              Start only the ACP HTTP server (no Discord gateway)',
+    '  --enable-ios-gateway      Start the iOS gateway alongside ACP',
     '  --wrkq-db-path <path>     Defaults to ACP_WRKQ_DB_PATH or WRKQ_DB_PATH',
     '  --coord-db-path <path>    Defaults to ACP_COORD_DB_PATH',
     '  --interface-db-path <path> Defaults to ACP_INTERFACE_DB_PATH',
@@ -70,6 +76,11 @@ export function renderServerHelp(): string {
     '  ACP_LOG_PATH              Daemon fallback log (default: /Users/lherron/praesidium/var/logs/acp-server.log)',
     '  ACP_REAL_HRC_LAUNCHER     Defaults to 1 for acp server',
     '  ACP_DISABLE_DISCORD_GATEWAY=1 disables the in-process Discord gateway',
+    '  ACP_IOS_GATEWAY_ENABLED=1 enables the iOS gateway (same as --enable-ios-gateway)',
+    '  ACP_IOS_GATEWAY_HOST      iOS gateway bind host (default: 127.0.0.1)',
+    '  ACP_IOS_GATEWAY_PORT      iOS gateway bind port (default: 18480)',
+    '  ACP_IOS_GATEWAY_TOKEN     Bearer token for iOS gateway auth (optional)',
+    '  ACP_IOS_GATEWAY_ID        iOS gateway identifier (default: ios-local)',
     '  DISCORD_TOKEN             Discord bot token; falls back to DISCORD_BLASTER_TOKEN, then Consul',
     '  ACP_DISCORD_TOKEN_KV      Consul KV path for token fallback',
     '  ACP_LAUNCHD_LABEL         LaunchAgent label (default: com.praesidium.acp-server)',
@@ -113,6 +124,7 @@ function stripLifecycleArgs(args: readonly string[]): string[] {
       arg === '-d' ||
       arg === '--background' ||
       arg === '--no-discord' ||
+      arg === '--enable-ios-gateway' ||
       arg === '--force' ||
       arg === '--json'
     ) {
@@ -318,6 +330,10 @@ export function formatAcpServerStatus(status: AcpServerRuntimeStatus): string {
   ].join('\n')}\n`
 }
 
+function iosGatewayEnabled(args: readonly string[], env: NodeJS.ProcessEnv = process.env): boolean {
+  return hasFlag(args, '--enable-ios-gateway') || env['ACP_IOS_GATEWAY_ENABLED'] === '1'
+}
+
 function gatewayDisabled(args: readonly string[], env: NodeJS.ProcessEnv = process.env): boolean {
   return (
     hasFlag(args, '--no-discord') ||
@@ -395,6 +411,28 @@ async function startGatewayInProcess(
   return app
 }
 
+async function startIosGatewayInProcess(
+  _options: AcpServerCliOptions,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<GatewayIosModule> {
+  const host = optionalEnvValue(env, 'ACP_IOS_GATEWAY_HOST') ?? DEFAULT_IOS_HOST
+  const rawPort = optionalEnvValue(env, 'ACP_IOS_GATEWAY_PORT')
+  const port = rawPort !== undefined ? Number.parseInt(rawPort, 10) : DEFAULT_IOS_PORT
+  const bearerToken = optionalEnvValue(env, 'ACP_IOS_GATEWAY_TOKEN')
+  const gatewayId = optionalEnvValue(env, 'ACP_IOS_GATEWAY_ID') ?? DEFAULT_IOS_GATEWAY_ID
+  const hrcSocketPath = resolveControlSocketPath()
+
+  const mod = createGatewayIosModule({
+    hrcSocketPath,
+    host,
+    port,
+    bearerToken,
+    gatewayId,
+  })
+  await mod.start()
+  return mod
+}
+
 async function serverForeground(args: readonly string[]): Promise<void> {
   process.env['ACP_REAL_HRC_LAUNCHER'] ??= '1'
 
@@ -410,6 +448,7 @@ async function serverForeground(args: readonly string[]): Promise<void> {
 
   let server: Awaited<ReturnType<typeof startAcpServeBin>> | undefined
   let gateway: GatewayDiscordApp | undefined
+  let iosGateway: GatewayIosModule | undefined
   try {
     server = await startAcpServeBin(resolved.options)
     await writeFile(paths.pidPath, `${process.pid}\n`)
@@ -419,10 +458,21 @@ async function serverForeground(args: readonly string[]): Promise<void> {
       gateway = await startGatewayInProcess(resolved.options)
     }
 
+    const iosEnabled = iosGatewayEnabled(args)
+    if (iosEnabled) {
+      iosGateway = await startIosGatewayInProcess(resolved.options)
+    }
+
+    const iosHost = process.env['ACP_IOS_GATEWAY_HOST'] ?? DEFAULT_IOS_HOST
+    const iosPort = process.env['ACP_IOS_GATEWAY_PORT']
+      ? Number.parseInt(process.env['ACP_IOS_GATEWAY_PORT'], 10)
+      : DEFAULT_IOS_PORT
+
     writeServerProcessLog('server.listening', {
       endpoint: `http://${resolved.options.host}:${resolved.options.port}`,
       pid: process.pid,
       discordGateway: discordEnabled ? resolveGatewayId() : null,
+      iosGateway: iosEnabled ? `http://${iosHost}:${iosPort}` : null,
     })
     process.stderr.write(`${server.startupLine}\n`)
 
@@ -432,8 +482,33 @@ async function serverForeground(args: readonly string[]): Promise<void> {
         return
       }
       shuttingDown = true
-      await gateway?.stop()
-      await server?.shutdown()
+
+      // Shut down gateways first, then the ACP server.
+      // Each step is wrapped so one failure doesn't block siblings.
+      try {
+        await iosGateway?.stop()
+      } catch (err) {
+        writeServerProcessLog('shutdown.ios_error', {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+
+      try {
+        await gateway?.stop()
+      } catch (err) {
+        writeServerProcessLog('shutdown.discord_error', {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+
+      try {
+        await server?.shutdown()
+      } catch (err) {
+        writeServerProcessLog('shutdown.server_error', {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+
       try {
         await unlink(paths.pidPath)
       } catch {}
@@ -444,8 +519,15 @@ async function serverForeground(args: readonly string[]): Promise<void> {
     process.on('SIGINT', () => void shutdown())
     process.on('SIGTERM', () => void shutdown())
   } catch (error) {
-    await gateway?.stop()
-    await server?.shutdown()
+    try {
+      await iosGateway?.stop()
+    } catch {}
+    try {
+      await gateway?.stop()
+    } catch {}
+    try {
+      await server?.shutdown()
+    } catch {}
     try {
       await unlink(paths.pidPath)
     } catch {}

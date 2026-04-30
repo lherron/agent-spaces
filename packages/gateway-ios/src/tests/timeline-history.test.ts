@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import type { HrcLifecycleEvent, HrcMessageFilter, HrcMessageRecord } from 'hrc-core'
 
 import { createGatewayIosFetchHandler } from '../routes.js'
-import { getTimelineHistoryPage, type TimelineHistoryClient } from '../timeline-history.js'
+import { type TimelineHistoryClient, getTimelineHistoryPage } from '../timeline-history.js'
 
 const SESSION_REF = 'agent:larry:project:agent-spaces:task:T-01332/lane:main'
 const OTHER_SESSION_REF = 'agent:clod:project:agent-spaces:task:T-01332/lane:main'
@@ -193,9 +193,7 @@ describe('timeline history', () => {
 
     const page = await getTimelineHistoryPage(
       client,
-      historyUrl(
-        `sessionRef=${encodeURIComponent(SESSION_REF)}&beforeMessageSeq=13&limit=2`
-      )
+      historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeMessageSeq=13&limit=2`)
     )
 
     expect(page.oldestCursor.messageSeq).toBe(11)
@@ -215,7 +213,9 @@ describe('timeline history', () => {
       messagePages: [[]],
     })
     const fetch = createGatewayIosFetchHandler({
-      hrcClient: client as unknown as Parameters<typeof createGatewayIosFetchHandler>[0]['hrcClient'],
+      hrcClient: client as unknown as Parameters<
+        typeof createGatewayIosFetchHandler
+      >[0]['hrcClient'],
       gatewayId: 'ios-test',
     })
 

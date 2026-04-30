@@ -25,10 +25,7 @@ type ParsedHistoryQuery = {
 class HistoryRequestError extends Error {
   readonly detail: Record<string, unknown> | undefined
 
-  constructor(
-    message: string,
-    detail?: Record<string, unknown> | undefined
-  ) {
+  constructor(message: string, detail?: Record<string, unknown> | undefined) {
     super(message)
     this.name = 'HistoryRequestError'
     this.detail = detail
@@ -166,7 +163,10 @@ function sortChronological(a: ReducerInput, b: ReducerInput): number {
   return aSeq - bSeq
 }
 
-function buildCursor(events: HrcLifecycleEvent[], messages: HrcMessageRecord[]): {
+function buildCursor(
+  events: HrcLifecycleEvent[],
+  messages: HrcMessageRecord[]
+): {
   oldestCursor: HistoryPage['oldestCursor']
   newestCursor: HistoryPage['newestCursor']
 } {
