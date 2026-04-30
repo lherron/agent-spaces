@@ -203,12 +203,34 @@ async function hasMoreBefore(
   return olderMessages.length > 0
 }
 
-export async function getTimelineHistoryPage(
+/**
+ * Project a window of past events/messages for a given session into a HistoryPage.
+ *
+ * Shared by both the GET /v1/history endpoint and the WS /v1/timeline snapshot
+ * builder. Queries events (before beforeHrcSeq) and messages (before
+ * beforeMessageSeq) from the HRC store, filters by session, projects through
+ * the reducer, and returns frames in chronological order with cursors.
+ */
+export async function projectPastWindow(
   hrcClient: TimelineHistoryClient,
-  url: URL
+  opts: {
+    sessionRef: string
+    beforeHrcSeq?: number | undefined
+    beforeMessageSeq?: number | undefined
+    limit: number
+  }
 ): Promise<HistoryPage> {
-  const query = parseHistoryQuery(url)
-  void query.raw
+  const sessionRef = normalizeSessionRef(opts.sessionRef)
+  const parts = splitSessionRef(sessionRef)
+  const query: ParsedHistoryQuery = {
+    sessionRef,
+    scopeRef: parts.scopeRef,
+    laneRef: parts.laneRef,
+    beforeHrcSeq: opts.beforeHrcSeq,
+    beforeMessageSeq: opts.beforeMessageSeq,
+    limit: opts.limit,
+    raw: false,
+  }
 
   const [eventsDescending, messagesDescending] = await Promise.all([
     collectSessionEventsBefore(hrcClient, query, query.limit),
@@ -231,6 +253,21 @@ export async function getTimelineHistoryPage(
     newestCursor,
     hasMoreBefore: await hasMoreBefore(hrcClient, query, oldestCursor),
   }
+}
+
+export async function getTimelineHistoryPage(
+  hrcClient: TimelineHistoryClient,
+  url: URL
+): Promise<HistoryPage> {
+  const query = parseHistoryQuery(url)
+  void query.raw
+
+  return projectPastWindow(hrcClient, {
+    sessionRef: query.sessionRef,
+    beforeHrcSeq: query.beforeHrcSeq,
+    beforeMessageSeq: query.beforeMessageSeq,
+    limit: query.limit,
+  })
 }
 
 export async function handleHistoryRequest(

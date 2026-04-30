@@ -28,6 +28,7 @@ import type { EventPumpHrcClient } from './event-pump.js'
 import { runEventPump } from './event-pump.js'
 import { createReducerState, reduce } from './event-reducer.js'
 import { createLogger } from './logger.js'
+import { type TimelineHistoryClient, projectPastWindow } from './timeline-history.js'
 import type { ReducerInput } from './types.js'
 
 const log = createLogger({ component: 'timeline-ws' })
@@ -45,9 +46,14 @@ export type TimelineWsData = {
   abortController: AbortController
 }
 
+/** Default number of past frames to include in the snapshot. */
+const SNAPSHOT_HISTORY_LIMIT = 50
+
 /** Dependencies injected into the timeline WS handler. */
 export type TimelineWsDeps = {
   hrcClient: EventPumpHrcClient
+  /** HRC client for querying past events/messages (history paging). */
+  historyClient: TimelineHistoryClient
   /** Resolve a session summary from sessionRef. */
   resolveSession: (sessionRef: string) => Promise<MobileSessionSummary>
 }
@@ -117,30 +123,51 @@ export function createTimelineWsHandler(deps: TimelineWsDeps) {
           fromMessageSeq,
           signal: abortController.signal,
 
-          // Build snapshot: project replay events+messages through reducer
+          // Build snapshot: query past events/messages from the HRC store,
+          // project through the reducer, and send the populated snapshot.
+          // This runs AFTER live pumps have started buffering, so any events
+          // arriving during this window are captured in the pump buffers and
+          // drained after the snapshot (race-safe).
           async buildSnapshot(_replay) {
-            // For now the snapshot builds an empty frame list starting from the
-            // requested cursors. The actual replay data would come from the
-            // HRC store (out of scope for the pump — the pump starts live
-            // iterators and the snapshot builder queries the store separately).
-            // In this implementation, we send an empty snapshot and let
-            // the live pump fill in frames.
+            // Query past events/messages using the shared projector from
+            // timeline-history.ts — same logic as GET /v1/history.
+            // beforeHrcSeq/beforeMessageSeq = undefined → query from head.
+            const history = await projectPastWindow(deps.historyClient, {
+              sessionRef,
+              beforeHrcSeq: undefined,
+              beforeMessageSeq: undefined,
+              limit: SNAPSHOT_HISTORY_LIMIT,
+            })
 
+            // Snapshot high-water = newest cursors from the projected window.
+            // The pump will only emit buffered items strictly newer than this.
             const snapshotHighWater: SnapshotHighWater = {
-              hrcSeq: fromHrcSeq,
-              messageSeq: fromMessageSeq,
+              hrcSeq: Math.max(fromHrcSeq, history.newestCursor.hrcSeq),
+              messageSeq: Math.max(fromMessageSeq, history.newestCursor.messageSeq),
+            }
+
+            // Seed reducer state with snapshot frames so live updates to
+            // the same frameIds merge correctly (no duplication). The
+            // frameId IS the identity key used by the reducer's frame map.
+            for (const frame of history.frames) {
+              const appliedHrcSeqs = new Set<number>()
+              for (const src of frame.sourceEvents) {
+                appliedHrcSeqs.add(src.hrcSeq)
+              }
+              reducerState.frames.set(frame.frameId, { frame, appliedHrcSeqs })
+            }
+            if (history.frames.length > 0) {
+              reducerState.nextFrameSeq = history.frames.length + 1
+              reducerState.highWaterHrcSeq = snapshotHighWater.hrcSeq
+              reducerState.highWaterMessageSeq = snapshotHighWater.messageSeq
+              frameSeqCounter = history.frames.length + 1
             }
 
             const snapshotMsg: SnapshotMessage = {
               type: 'snapshot',
               session,
               snapshotHighWater,
-              history: {
-                frames: [],
-                oldestCursor: { hrcSeq: fromHrcSeq, messageSeq: fromMessageSeq },
-                newestCursor: { hrcSeq: fromHrcSeq, messageSeq: fromMessageSeq },
-                hasMoreBefore: fromHrcSeq > 0,
-              },
+              history,
             }
 
             send(snapshotMsg)

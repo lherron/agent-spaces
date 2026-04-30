@@ -177,6 +177,7 @@ export function createGatewayIosFetchHandler(
 export function createGatewayIosWsHandlers(deps: GatewayIosRouteDeps) {
   const timelineHandler = createTimelineWsHandler({
     hrcClient: deps.hrcClient,
+    historyClient: deps.hrcClient,
     resolveSession:
       deps.resolveSession ??
       (async () => {
