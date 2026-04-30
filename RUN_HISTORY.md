@@ -58,3 +58,37 @@
 2026-04-29T05:00:23-05:00 | gateway-discord | started
 2026-04-29T05:00:23-05:00 | gateway-discord | documented | docs/refactor_gateway-discord.md
 2026-04-29T05:02:43-05:00 | gateway-discord | documented | docs/refactor_gateway-discord.md
+2026-04-29T06:01:34-05:00 | harness-claude | started
+2026-04-29T06:02:30-05:00 | harness-claude | documented | docs/refactor_harness-claude.md
+2026-04-29T06:02:56-05:00 | harness-claude | documented | docs/refactor_harness-claude.md
+2026-04-29T07:00:20-05:00 | harness-codex | started
+2026-04-29T07:02:56-05:00 | harness-codex | documented | docs/refactor_harness-codex.md
+2026-04-29T07:03:23-05:00 | harness-codex | documented | docs/refactor_harness-codex.md
+2026-04-29T08:00:33-05:00 | harness-pi | started
+2026-04-29T08:03:07-05:00 | harness-pi | documented | docs/refactor_harness-pi.md
+2026-04-29T08:04:02-05:00 | harness-pi | documented | docs/refactor_harness-pi.md
+2026-04-29T09:00:51-0500 | harness-pi-sdk | started
+2026-04-29T09:03:26-0500 | harness-pi-sdk | documented | docs/refactor_harness-pi-sdk.md
+2026-04-29T09:04:25-0500 | harness-pi-sdk | documented | docs/refactor_harness-pi-sdk.md
+2026-04-29T10:00:44-05:00 | hrc-cli | started
+2026-04-29T10:03:42-05:00 | hrc-cli | documented | docs/refactor_hrc-cli.md
+2026-04-29T10:04:00-05:00 | hrc-cli | documented | docs/refactor_hrc-cli.md
+2026-04-29T11:00:34-05:00 | hrc-core | started
+2026-04-29T11:03:30-05:00 | hrc-core | documented | docs/refactor_hrc-core.md
+2026-04-29T11:04:34-05:00 | hrc-core | documented | docs/refactor_hrc-core.md
+2026-04-29T12:00:24-05:00 | hrc-events | started
+2026-04-29T12:01:39-05:00 | hrc-events | documented | docs/refactor_hrc-events.md
+2026-04-29T12:02:43-05:00 | hrc-events | documented | docs/refactor_hrc-events.md
+2026-04-29T13:00:31-05:00 | hrc-sdk | started
+2026-04-29T13:02:52-05:00 | hrc-sdk | documented | docs/refactor_hrc-sdk.md
+2026-04-29T13:03:22-05:00 | hrc-sdk | documented | docs/refactor_hrc-sdk.md
+2026-04-29T19:00:27Z | hrc-server | started
+2026-04-29T19:03:53Z | hrc-server | documented | docs/refactor_hrc-server.md
+2026-04-29T19:04:08Z | hrc-server | documented | docs/refactor_hrc-server.md
+2026-04-29T15:00:35-05:00 | hrc-store-sqlite | started
+2026-04-29T15:02:30-05:00 | hrc-store-sqlite | documented | docs/refactor_hrc-store-sqlite.md
+2026-04-29T15:03:00-05:00 | hrc-store-sqlite | documented | docs/refactor_hrc-store-sqlite.md
+2026-04-29T16:00:33-05:00 | wrkq-lib | started
+2026-04-29T16:02:33-05:00 | wrkq-lib | documented | docs/refactor_wrkq-lib.md
+2026-04-29T16:03:03-05:00 | wrkq-lib | documented | docs/refactor_wrkq-lib.md
+2026-04-29T17:00:30-05:00 | - | all_documented | -
