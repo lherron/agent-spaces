@@ -73,12 +73,27 @@ Gaps:
 
 ## Recommended Refactors and Reductions
 
-1. Split `src/run.ts` into focused modules. The file is 1,536 lines and mixes model planning, agent profile loading, install decisions, prompt materialization, process spawning, global/local materialization, and result construction. Good extraction seams already exist around `planProjectTargetRuntime`, `executeHarnessRun`, agent-profile helpers, and global/local space materialization.
+Status: **Done** — all five recommendations shipped in PR #2 (commit `f8905dc`, branch `refactor-execution-package`, merged 2026-04-29).
 
-2. Remove or rewire the currently inert lint-warning path in `src/run.ts`. `printWarnings` is defined at lines 677-690, but `run` creates `const warnings: LintWarning[] = []` at line 995 and immediately prints that empty array. Either connect real lint warnings from install/materialization results or remove the dead branch so callers do not infer that lint warnings are being propagated.
+1. **Split `src/run.ts` into focused modules.** ✅ Done. `run.ts` went from 1,536 lines to 303 lines and now contains only `run`, `runWithPrompt`, `runInteractive`, `isSpaceReference`, and re-exports. Sub-modules under `src/run/`:
+   - `run/types.ts` — `RunOptions`, `RunResult`, `RunInvocationResult`, `GlobalRunOptions`
+   - `run/util.ts` — `shellQuote`, `formatCommand`, `formatEnvPrefix`, `mergeDefined`, `combinePrompts`, `resolveInteractive`, `pathExists`, `composeArraysMatch`, `createTempDir`, `cleanupTempDir`
+   - `run/agent-profile.ts` — `LoadedAgentProfile`, `detectAgentLocalComponents`, `loadAgentProfileForRun`, `resolveProfileHarnessForRun`, `resolveAgentPrimingPromptForRun`, `resolveAgentRunDefaultsFromProfile`, `resolveAgentRunDefaults`
+   - `run/placement-plan.ts` — `parsePlacementRuntimeModelId`, `resolvePlacementRuntimeModel`, `buildSyntheticRunManifest`, `planProjectTargetRuntime`, `planPlacementRuntime` (and the related public types)
+   - `run/execute.ts` — `executeHarnessCommand`, `executeHarnessRun`, `ExecuteHarnessResult`, `MaterializedPromptResult`
+   - `run/space-launch.ts` — `runGlobalSpace`, `runLocalSpace`, `executeSpaceRun`, `persistGlobalLock`
+   Public surface (re-exports through `run.ts` and `spaces-execution`) is unchanged.
 
-3. Consolidate prompt display rendering in `src/run.ts` with `src/prompt-display.ts`. `executeHarnessRun` manually builds prompt display lines at lines 570-632 while `displayPrompts` implements similar rendering at lines 183-289 of `src/prompt-display.ts`. Keeping both paths means prompt budgets, command labels, paging, and output stream behavior can drift.
+2. **Remove the inert lint-warning path.** ✅ Done. Removed `printWarnings()`, the `warnings: LintWarning[] = []` allocation, the `LintWarning` import, the `printWarnings` field on `RunOptions` and `GlobalRunOptions`, and the unused `--no-warnings` CLI flag (with its three call sites in `packages/cli/src/commands/run.ts`). The `BuildResult.warnings` field is still set (always to `[]`) since downstream consumers depend on the type shape.
 
-4. Extract the repeated run-option assembly and execution tail used by `runGlobalSpace` and `runLocalSpace`. The `cliRunOptions`, `mergeDefined`, non-interactive prompt guard, `executeHarnessRun`, cleanup, and `RunResult` construction blocks at lines 1341-1389 and 1467-1524 are nearly identical. A shared helper would reduce duplicated launch logic and make option additions less error-prone.
+3. **Consolidate prompt display rendering.** ✅ Done. The inline rendering block in `executeHarnessRun` (formerly run.ts:570-632) was replaced with a single call to `displayPrompts({ systemPrompt, systemPromptMode, reminderContent, primingPrompt, command, showCommand: true, pagePrompts })`. Live runs and dry-run mode now share the same budget, command label (`── command ──` style), paging logic, and output stream as `asp run --dry-run` and `hrc launch exec`. Net delta: ~95 lines removed and the `chalk` import is no longer needed in `run.ts`.
 
-5. Replace source-inspection tests in `src/run.test.ts` with behavior tests. The tests at lines 217-247 and 340-348 assert that `run.ts` contains particular strings rather than validating runtime behavior. These should become adapter-stub or helper-level tests for prompt threading, placement planning, project-target planning, and agent-local component materialization.
+4. **Extract the repeated run-option assembly used by `runGlobalSpace` and `runLocalSpace`.** ✅ Done. Both functions now delegate to `executeSpaceRun({ adapter, detection, bundle, options, aspHome, defaultCwd, tempDir, lock })`, which builds `cliRunOptions` from `GlobalRunOptions`, applies `mergeDefined` defaults, enforces the non-interactive prompt guard, calls `executeHarnessRun`, runs cleanup, and assembles the `RunResult`. The two call sites differ only in `defaultCwd` (`process.cwd()` vs `spacePath`) and `lock` (real lock vs synthetic).
+
+5. **Replace source-inspection tests with behavior tests.** ✅ Done. The four source-grep tests in `src/run.test.ts` were rewritten:
+   - **T-01097** (placement runtime planner) — now exercises `planPlacementRuntime` directly: verifies it resolves frontend/harness/cwd/runOptions, returns the model resolution discriminated union, and throws on unknown frontends.
+   - **T-01099** (project-target runtime planner) — now calls `planProjectTargetRuntime` with a synthetic manifest and asserts the resolved harness adapter, target, and `defaultPrompt`. Adds a behaviour test for `combinePrompts` covering all four input combinations.
+   - **T-01016** (system prompt threading) — converted to a structural test that constructs a `RunResult` literal with `systemPromptMode`/`reminderContent`/`maxChars`. Removing any of these fields fails the test at typecheck time.
+   - **T-01067** (agent-local component threading) — replaced the source-grep on `run.ts` with a behaviour test that verifies the `detectAgentLocalComponents` return type matches what `run()` threads into `materializeFromRefs` (asserts `agentRoot`, `hasSkills`, `hasCommands`, `skillsDir`, `commandsDir`).
+   - The unrelated source-extraction test in `packages/agent-spaces/src/__tests__/phase4-harness-adapter-integration.test.ts` was updated to read `run/placement-plan.ts` (where `planPlacementRuntime` now lives).
+   Test count went from 29 → 32. Verification: full `bun run test:fast` (1,845/1,845) and per-package suites for `spaces-execution`, `@lherron/agent-spaces`, `hrc-server`, `hrc-cli` all pass.
