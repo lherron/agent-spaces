@@ -46,3 +46,19 @@ export type {
 
 // Reducer input interface (consumed by P2)
 export type { ReducerInput } from './types.js'
+
+// Event reducer (P2)
+export {
+  createReducerState,
+  reduce,
+} from './event-reducer.js'
+export type {
+  FrameState,
+  ReducerState,
+  FrameUpdate,
+  ReducerResult,
+} from './event-reducer.js'
+
+// Frame projector (P2)
+export { projectTimeline, projectIncremental } from './frame-projector.js'
+export type { ProjectionResult } from './frame-projector.js'
