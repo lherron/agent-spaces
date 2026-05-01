@@ -15,6 +15,7 @@ import { describe, expect, test } from 'bun:test'
 import type { HrcLifecycleEvent, HrcSessionRecord } from 'hrc-core'
 import type { MobileSessionSummary } from '../contracts.js'
 import type { EventPumpHrcClient } from '../event-pump.js'
+import type { LocalLiveSource } from '../local-live-source.js'
 import { type GatewayIosRouteDeps, createGatewayIosServeConfig } from '../routes.js'
 
 // ---------------------------------------------------------------------------
@@ -63,23 +64,12 @@ const fakeSession: MobileSessionSummary = {
 }
 
 function createFakeHrcClient(
-  events: HrcLifecycleEvent[] = [],
   cancelTracking?: { eventCancelled: { value: boolean }; messageCancelled: { value: boolean } },
   sessions: HrcSessionRecord[] = []
 ): EventPumpHrcClient {
   return {
     async *watch(opts) {
       try {
-        for (const event of events) {
-          if (opts?.signal?.aborted) return
-          if (opts?.hostSessionId !== undefined && event.hostSessionId !== opts.hostSessionId) {
-            continue
-          }
-          if (opts?.generation !== undefined && event.generation !== opts.generation) {
-            continue
-          }
-          yield event
-        }
         if (opts?.follow) {
           await new Promise<void>((resolve) => {
             if (opts?.signal?.aborted) {
@@ -128,6 +118,30 @@ function createFakeHrcClient(
   } as unknown as EventPumpHrcClient
 }
 
+function createFakeLocalLiveSource(
+  events: HrcLifecycleEvent[] = [],
+  cancelTracking?: { eventCancelled: { value: boolean }; messageCancelled: { value: boolean } }
+): LocalLiveSource {
+  return {
+    async pollEvents(afterSeq, filter) {
+      if (cancelTracking) cancelTracking.eventCancelled.value = true
+      return events
+        .filter((event) => event.hrcSeq > afterSeq)
+        .filter(
+          (event) =>
+            filter.hostSessionId === undefined || event.hostSessionId === filter.hostSessionId
+        )
+        .filter(
+          (event) => filter.generation === undefined || event.generation === filter.generation
+        )
+    },
+    async pollMessages() {
+      if (cancelTracking) cancelTracking.messageCancelled.value = true
+      return []
+    },
+  }
+}
+
 async function collectWsMessages(
   ws: WebSocket,
   opts: { count?: number; timeoutMs?: number } = {}
@@ -167,10 +181,12 @@ function startTestServer(
   cancelTracking?: { eventCancelled: { value: boolean }; messageCancelled: { value: boolean } },
   sessions: HrcSessionRecord[] = []
 ) {
-  const hrcClient = createFakeHrcClient(events, cancelTracking, sessions)
+  const hrcClient = createFakeHrcClient(cancelTracking, sessions)
+  const localLiveSource = createFakeLocalLiveSource(events, cancelTracking)
 
   const deps: GatewayIosRouteDeps = {
     hrcClient: hrcClient as unknown as GatewayIosRouteDeps['hrcClient'],
+    localLiveSource,
     gatewayId: 'test-gateway',
     resolveSession: async () => fakeSession,
   }

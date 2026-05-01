@@ -16,9 +16,11 @@
 import type { HrcLifecycleEvent, HrcMessageRecord } from 'hrc-core'
 
 import type { SnapshotHighWater } from './contracts.js'
+import type { LocalLiveSource } from './local-live-source.js'
 import { createLogger } from './logger.js'
 
 const log = createLogger({ component: 'event-pump' })
+const DEFAULT_LIVE_POLL_INTERVAL_MS = 100
 
 // ---------------------------------------------------------------------------
 // HrcClient interface — the subset of HrcClient we actually need.
@@ -54,8 +56,14 @@ export type EventPumpHrcClient = {
 
 /** Configuration for an event pump instance. */
 export type EventPumpOptions = {
-  /** HRC client (or fake) for streaming events and messages. */
+  /** HRC client retained for handler compatibility; live tail uses localLiveSource. */
   hrcClient: EventPumpHrcClient
+
+  /** Local SQLite-backed live source for polling lifecycle events and messages. */
+  localLiveSource: LocalLiveSource
+
+  /** Poll interval for local live tail. Primarily overridden by tests. */
+  livePollIntervalMs?: number | undefined
 
   /** The sessionRef to filter events by (canonical format). */
   sessionRef: string
@@ -137,7 +145,8 @@ export type EventPumpResult = {
  */
 export async function runEventPump(options: EventPumpOptions): Promise<EventPumpResult> {
   const {
-    hrcClient,
+    localLiveSource,
+    livePollIntervalMs = DEFAULT_LIVE_POLL_INTERVAL_MS,
     sessionRef,
     hostSessionId,
     generation,
@@ -206,30 +215,53 @@ export async function runEventPump(options: EventPumpOptions): Promise<EventPump
     return true
   }
 
+  function waitForNextPoll(): Promise<void> {
+    return new Promise((resolve) => {
+      if (signal.aborted) {
+        resolve()
+        return
+      }
+      const timer = setTimeout(cleanup, livePollIntervalMs)
+      const onAbort = () => cleanup()
+      function cleanup() {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        resolve()
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+
   // --- Start event pump (async, runs in background) ---
   const runEventPumpAsync = async (): Promise<void> => {
+    let eventPollSeq = fromHrcSeq
     try {
-      const iter = hrcClient.watch({
-        ...(fromHrcSeq > 0 ? { fromSeq: fromHrcSeq } : {}),
-        hostSessionId,
-        generation,
-        follow: true,
-        signal,
-      })
+      while (!signal.aborted) {
+        const events = await localLiveSource.pollEvents(eventPollSeq, {
+          hostSessionId,
+          generation,
+        })
 
-      for await (const event of iter) {
-        if (signal.aborted) break
+        for (const event of events) {
+          if (signal.aborted) break
+          if (event.hrcSeq <= eventPollSeq) continue
+          eventPollSeq = event.hrcSeq
 
-        if (!isRelevantEvent(event)) continue
+          if (!isRelevantEvent(event)) continue
 
-        if (phase === 'buffering') {
-          eventBuffer.push(event)
-        } else {
-          // 'draining' or 'live' — emit directly
-          if (event.hrcSeq > hrcHighWater) {
-            hrcHighWater = event.hrcSeq
-            onEvent(event)
+          if (phase === 'buffering') {
+            eventBuffer.push(event)
+          } else {
+            // 'draining' or 'live' — emit directly
+            if (event.hrcSeq > hrcHighWater) {
+              hrcHighWater = event.hrcSeq
+              onEvent(event)
+            }
           }
+        }
+
+        if (events.length === 0) {
+          await waitForNextPoll()
         }
       }
     } catch (err: unknown) {
@@ -245,30 +277,34 @@ export async function runEventPump(options: EventPumpOptions): Promise<EventPump
 
   // --- Start message pump (async, runs in background) ---
   const runMessagePumpAsync = async (): Promise<void> => {
+    let messagePollSeq = fromMessageSeq
     try {
-      const iter = hrcClient.watchMessages({
-        filter: {
-          afterSeq: fromMessageSeq,
+      while (!signal.aborted) {
+        const messages = await localLiveSource.pollMessages(messagePollSeq, {
           hostSessionId,
           generation,
-        },
-        follow: true,
-        signal,
-      })
+        })
 
-      for await (const message of iter) {
-        if (signal.aborted) break
+        for (const message of messages) {
+          if (signal.aborted) break
+          if (message.messageSeq <= messagePollSeq) continue
+          messagePollSeq = message.messageSeq
 
-        if (!isRelevantMessage(message)) continue
+          if (!isRelevantMessage(message)) continue
 
-        if (phase === 'buffering') {
-          messageBuffer.push(message)
-        } else {
-          // 'draining' or 'live' — emit directly
-          if (message.messageSeq > messageHighWater) {
-            messageHighWater = message.messageSeq
-            onMessage(message)
+          if (phase === 'buffering') {
+            messageBuffer.push(message)
+          } else {
+            // 'draining' or 'live' — emit directly
+            if (message.messageSeq > messageHighWater) {
+              messageHighWater = message.messageSeq
+              onMessage(message)
+            }
           }
+        }
+
+        if (messages.length === 0) {
+          await waitForNextPoll()
         }
       }
     } catch (err: unknown) {

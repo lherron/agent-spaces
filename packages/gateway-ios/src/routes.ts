@@ -6,6 +6,7 @@ import { type DiagnosticsWsData, createDiagnosticsWsHandler } from './diagnostic
 import { handleHealth } from './health.js'
 import { handleInput, handleInterrupt } from './input.js'
 import type { InputHandlerDeps } from './input.js'
+import type { LocalLiveSource } from './local-live-source.js'
 import { createLogger } from './logger.js'
 import { createSessionIndex } from './session-index.js'
 import { handleHistoryRequest } from './timeline-history.js'
@@ -58,6 +59,7 @@ export type WsData = {
 
 export type GatewayIosRouteDeps = {
   hrcClient: HrcClient
+  localLiveSource?: LocalLiveSource | undefined
   gatewayId: string
   /** Session resolver for timeline WS. Omitted hostSessionId means active/latest for that sessionRef. */
   resolveSession?:
@@ -85,6 +87,18 @@ function parseSessionQuery(url: URL): { mode?: string; status?: string; q?: stri
   if (status !== null) filter.status = status
   if (q !== null) filter.q = q
   return filter
+}
+
+function requireLocalLiveSource(source: LocalLiveSource | undefined): LocalLiveSource {
+  if (source) return source
+  return {
+    async pollEvents() {
+      throw new Error('localLiveSource not configured')
+    },
+    async pollMessages() {
+      throw new Error('localLiveSource not configured')
+    },
+  }
 }
 
 export function createGatewayIosRoutes(deps: GatewayIosRouteDeps): GatewayIosRoutes {
@@ -181,9 +195,11 @@ export function createGatewayIosFetchHandler(
  * ```
  */
 export function createGatewayIosWsHandlers(deps: GatewayIosRouteDeps) {
+  const localLiveSource = requireLocalLiveSource(deps.localLiveSource)
   const timelineHandler = createTimelineWsHandler({
     hrcClient: deps.hrcClient,
     historyClient: deps.hrcClient,
+    localLiveSource,
     resolveSession:
       deps.resolveSession ??
       (async () => {
@@ -193,6 +209,7 @@ export function createGatewayIosWsHandlers(deps: GatewayIosRouteDeps) {
 
   const diagnosticsHandler = createDiagnosticsWsHandler({
     hrcClient: deps.hrcClient,
+    localLiveSource,
   })
 
   return {

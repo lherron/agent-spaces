@@ -27,6 +27,7 @@ import type {
 import type { EventPumpHrcClient } from './event-pump.js'
 import { runEventPump } from './event-pump.js'
 import { createReducerState, reduce } from './event-reducer.js'
+import type { LocalLiveSource } from './local-live-source.js'
 import { createLogger } from './logger.js'
 import { type TimelineHistoryClient, projectPastWindow } from './timeline-history.js'
 import type { ReducerInput } from './types.js'
@@ -56,6 +57,8 @@ export type TimelineWsDeps = {
   hrcClient: EventPumpHrcClient
   /** HRC client for querying past events/messages (history paging). */
   historyClient: TimelineHistoryClient
+  /** Local SQLite live-tail source. */
+  localLiveSource: LocalLiveSource
   /** Resolve a session summary from sessionRef plus optional hostSessionId. */
   resolveSession: (selector: {
     sessionRef: string
@@ -142,6 +145,7 @@ export function createTimelineWsHandler(deps: TimelineWsDeps) {
 
         await runEventPump({
           hrcClient: deps.hrcClient,
+          localLiveSource: deps.localLiveSource,
           sessionRef,
           hostSessionId: session.hostSessionId,
           generation: session.generation,

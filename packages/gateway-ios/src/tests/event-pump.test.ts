@@ -14,6 +14,7 @@ import { describe, expect, test } from 'bun:test'
 
 import type { HrcLifecycleEvent, HrcMessageRecord } from 'hrc-core'
 import { type EventPumpHrcClient, runEventPump } from '../event-pump.js'
+import type { LocalLiveSource } from '../local-live-source.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers: fake HRC client with controllable event/message streams
@@ -54,8 +55,6 @@ function makeMessage(messageSeq: number, overrides?: Partial<HrcMessageRecord>):
 }
 
 type FakeHrcClientOptions = {
-  events: HrcLifecycleEvent[]
-  messages: HrcMessageRecord[]
   watchCalls?: Array<{
     fromSeq?: number | undefined
     hostSessionId?: string | undefined
@@ -68,77 +67,87 @@ type FakeHrcClientOptions = {
       generation?: number | undefined
     }
   }>
+}
+
+type FakeLocalLiveSourceOptions = {
+  events: HrcLifecycleEvent[]
+  messages: HrcMessageRecord[]
   /** If set, delay emitting events until this promise resolves. */
   eventDelay?: Promise<void>
   /** If set, delay emitting messages until this promise resolves. */
   messageDelay?: Promise<void>
-  /** Tracked: whether the event iterator was properly consumed/cancelled. */
-  eventIteratorCancelled?: { value: boolean }
-  /** Tracked: whether the message iterator was properly consumed/cancelled. */
-  messageIteratorCancelled?: { value: boolean }
+  eventPollCalls?: Array<{
+    afterSeq: number
+    hostSessionId?: string | undefined
+    generation?: number | undefined
+  }>
+  messagePollCalls?: Array<{
+    afterSeq: number
+    hostSessionId?: string | undefined
+    generation?: number | undefined
+  }>
 }
 
 function createFakeHrcClient(options: FakeHrcClientOptions): EventPumpHrcClient {
   return {
-    async *watch(opts) {
-      try {
-        options.watchCalls?.push({
-          ...(opts?.fromSeq !== undefined ? { fromSeq: opts.fromSeq } : {}),
-          hostSessionId: opts?.hostSessionId,
-          generation: opts?.generation,
-        })
-        if (options.eventDelay) await options.eventDelay
-        for (const event of options.events) {
-          if (opts?.signal?.aborted) return
-          yield event
-        }
-        // Keep alive until signal abort if follow=true
-        if (opts?.follow) {
-          await new Promise<void>((_resolve, _reject) => {
-            const onAbort = () => {
-              opts?.signal?.removeEventListener('abort', onAbort)
-              _resolve()
-            }
-            if (opts?.signal?.aborted) {
-              _resolve()
-              return
-            }
-            opts?.signal?.addEventListener('abort', onAbort)
-          })
-        }
-      } finally {
-        if (options.eventIteratorCancelled) {
-          options.eventIteratorCancelled.value = true
-        }
-      }
+    watch(opts) {
+      options.watchCalls?.push({
+        ...(opts?.fromSeq !== undefined ? { fromSeq: opts.fromSeq } : {}),
+        hostSessionId: opts?.hostSessionId,
+        generation: opts?.generation,
+      })
+      return emptyAsyncIterable<HrcLifecycleEvent>()
     },
 
-    async *watchMessages(opts) {
-      try {
-        options.watchMessageCalls?.push({ filter: opts?.filter })
-        if (options.messageDelay) await options.messageDelay
-        for (const message of options.messages) {
-          if (opts?.signal?.aborted) return
-          yield message
-        }
-        if (opts?.follow) {
-          await new Promise<void>((_resolve) => {
-            const onAbort = () => {
-              opts?.signal?.removeEventListener('abort', onAbort)
-              _resolve()
-            }
-            if (opts?.signal?.aborted) {
-              _resolve()
-              return
-            }
-            opts?.signal?.addEventListener('abort', onAbort)
-          })
-        }
-      } finally {
-        if (options.messageIteratorCancelled) {
-          options.messageIteratorCancelled.value = true
-        }
+    watchMessages(opts) {
+      options.watchMessageCalls?.push({ filter: opts?.filter })
+      return emptyAsyncIterable<HrcMessageRecord>()
+    },
+  }
+}
+
+function emptyAsyncIterable<T>(): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        async next(): Promise<IteratorResult<T>> {
+          return { done: true, value: undefined } as IteratorResult<T>
+        },
       }
+    },
+  }
+}
+
+function createFakeLocalLiveSource(options: FakeLocalLiveSourceOptions): LocalLiveSource {
+  return {
+    async pollEvents(afterSeq, filter) {
+      options.eventPollCalls?.push({ afterSeq, ...filter })
+      if (options.eventDelay) await options.eventDelay
+      return options.events
+        .filter((event) => event.hrcSeq > afterSeq)
+        .filter(
+          (event) =>
+            filter.hostSessionId === undefined || event.hostSessionId === filter.hostSessionId
+        )
+        .filter(
+          (event) => filter.generation === undefined || event.generation === filter.generation
+        )
+    },
+
+    async pollMessages(afterSeq, filter) {
+      options.messagePollCalls?.push({ afterSeq, ...filter })
+      if (options.messageDelay) await options.messageDelay
+      return options.messages
+        .filter((message) => message.messageSeq > afterSeq)
+        .filter(
+          (message) =>
+            filter.hostSessionId === undefined ||
+            message.execution.hostSessionId === filter.hostSessionId
+        )
+        .filter(
+          (message) =>
+            filter.generation === undefined || message.execution.generation === filter.generation
+        )
     },
   }
 }
@@ -150,13 +159,21 @@ const SESSION_REF = 'agent:cody:project:agent-spaces/lane:main'
 // ---------------------------------------------------------------------------
 
 describe('event-pump', () => {
-  test('fresh HRC cursor does not forward fromSeq=0 to lifecycle watch', async () => {
+  test('fresh HRC cursor starts local live tail at seq 0 without HTTP watch', async () => {
     const watchCalls: FakeHrcClientOptions['watchCalls'] = []
+    const eventPollCalls: FakeLocalLiveSourceOptions['eventPollCalls'] = []
     const abortController = new AbortController()
-    const client = createFakeHrcClient({ events: [], messages: [], watchCalls })
+    const client = createFakeHrcClient({ watchCalls })
+    const localLiveSource = createFakeLocalLiveSource({
+      events: [],
+      messages: [],
+      eventPollCalls,
+    })
 
     const pumpPromise = runEventPump({
       hrcClient: client,
+      localLiveSource,
+      livePollIntervalMs: 5,
       sessionRef: SESSION_REF,
       fromHrcSeq: 0,
       fromMessageSeq: 0,
@@ -174,8 +191,8 @@ describe('event-pump', () => {
     abortController.abort()
     await pumpPromise
 
-    expect(watchCalls).toHaveLength(1)
-    expect(watchCalls[0]?.fromSeq).toBeUndefined()
+    expect(watchCalls).toHaveLength(0)
+    expect(eventPollCalls[0]?.afterSeq).toBe(0)
   })
 
   test('snapshot arrives before any live events', async () => {
@@ -186,10 +203,13 @@ describe('event-pump', () => {
 
     const abortController = new AbortController()
 
-    const client = createFakeHrcClient({ events, messages })
+    const client = createFakeHrcClient({})
+    const localLiveSource = createFakeLocalLiveSource({ events, messages })
 
     const pumpPromise = runEventPump({
       hrcClient: client,
+      localLiveSource,
+      livePollIntervalMs: 5,
       sessionRef: SESSION_REF,
       fromHrcSeq: 0,
       fromMessageSeq: 0,
@@ -234,13 +254,15 @@ describe('event-pump', () => {
     const abortController = new AbortController()
 
     // Events arrive immediately (before snapshot resolves)
-    const client = createFakeHrcClient({
-      events: [liveEvent],
-      messages: [liveMessage],
-    })
+    const events = [liveEvent]
+    const messages = [liveMessage]
+    const client = createFakeHrcClient({})
+    const localLiveSource = createFakeLocalLiveSource({ events, messages })
 
     const pumpPromise = runEventPump({
       hrcClient: client,
+      localLiveSource,
+      livePollIntervalMs: 5,
       sessionRef: SESSION_REF,
       fromHrcSeq: 0,
       fromMessageSeq: 0,
@@ -288,10 +310,13 @@ describe('event-pump', () => {
 
     const abortController = new AbortController()
 
-    const client = createFakeHrcClient({ events, messages })
+    const client = createFakeHrcClient({})
+    const localLiveSource = createFakeLocalLiveSource({ events, messages })
 
     const pumpPromise = runEventPump({
       hrcClient: client,
+      localLiveSource,
+      livePollIntervalMs: 5,
       sessionRef: SESSION_REF,
       fromHrcSeq: 0,
       fromMessageSeq: 0,
@@ -320,21 +345,19 @@ describe('event-pump', () => {
     expect(eventEntries.length).toBe(0)
   })
 
-  test('cancel: both iterators are cancelled on abort', async () => {
-    const eventCancelled = { value: false }
-    const messageCancelled = { value: false }
-
+  test('cancel: local polling pump exits on abort', async () => {
     const abortController = new AbortController()
 
-    const client = createFakeHrcClient({
+    const client = createFakeHrcClient({})
+    const localLiveSource = createFakeLocalLiveSource({
       events: [makeEvent(1)],
       messages: [makeMessage(1)],
-      eventIteratorCancelled: eventCancelled,
-      messageIteratorCancelled: messageCancelled,
     })
 
     const pumpPromise = runEventPump({
       hrcClient: client,
+      localLiveSource,
+      livePollIntervalMs: 5,
       sessionRef: SESSION_REF,
       fromHrcSeq: 0,
       fromMessageSeq: 0,
@@ -355,8 +378,6 @@ describe('event-pump', () => {
     const result = await pumpPromise
 
     expect(result.cancelled).toBe(true)
-    expect(eventCancelled.value).toBe(true)
-    expect(messageCancelled.value).toBe(true)
   })
 
   test('session filtering: only events for the requested session are emitted', async () => {
@@ -369,10 +390,14 @@ describe('event-pump', () => {
     const received: number[] = []
     const abortController = new AbortController()
 
-    const client = createFakeHrcClient({ events, messages: [] })
+    const messages: HrcMessageRecord[] = []
+    const client = createFakeHrcClient({})
+    const localLiveSource = createFakeLocalLiveSource({ events, messages })
 
     const pumpPromise = runEventPump({
       hrcClient: client,
+      localLiveSource,
+      livePollIntervalMs: 5,
       sessionRef: SESSION_REF,
       fromHrcSeq: 0,
       fromMessageSeq: 0,
@@ -397,9 +422,11 @@ describe('event-pump', () => {
     expect(received).toEqual([1, 3])
   })
 
-  test('hostSessionId and generation filter events, messages, and SDK watch options', async () => {
+  test('hostSessionId and generation filter events, messages, and local source options', async () => {
     const watchCalls: FakeHrcClientOptions['watchCalls'] = []
     const watchMessageCalls: FakeHrcClientOptions['watchMessageCalls'] = []
+    const eventPollCalls: FakeLocalLiveSourceOptions['eventPollCalls'] = []
+    const messagePollCalls: FakeLocalLiveSourceOptions['messagePollCalls'] = []
     const events = [
       makeEvent(1, { hostSessionId: 'host-selected', generation: 2 }),
       makeEvent(2, { hostSessionId: 'host-sibling', generation: 2 }),
@@ -420,10 +447,18 @@ describe('event-pump', () => {
     const receivedEvents: number[] = []
     const receivedMessages: number[] = []
     const abortController = new AbortController()
-    const client = createFakeHrcClient({ events, messages, watchCalls, watchMessageCalls })
+    const client = createFakeHrcClient({ watchCalls, watchMessageCalls })
+    const localLiveSource = createFakeLocalLiveSource({
+      events,
+      messages,
+      eventPollCalls,
+      messagePollCalls,
+    })
 
     const pumpPromise = runEventPump({
       hrcClient: client,
+      localLiveSource,
+      livePollIntervalMs: 5,
       sessionRef: SESSION_REF,
       hostSessionId: 'host-selected',
       generation: 2,
@@ -447,8 +482,13 @@ describe('event-pump', () => {
 
     expect(receivedEvents).toEqual([1])
     expect(receivedMessages).toEqual([1])
-    expect(watchCalls[0]).toEqual({ hostSessionId: 'host-selected', generation: 2 })
-    expect(watchMessageCalls[0]?.filter).toMatchObject({
+    expect(watchCalls).toHaveLength(0)
+    expect(watchMessageCalls).toHaveLength(0)
+    expect(eventPollCalls[0]).toMatchObject({
+      hostSessionId: 'host-selected',
+      generation: 2,
+    })
+    expect(messagePollCalls[0]).toMatchObject({
       hostSessionId: 'host-selected',
       generation: 2,
     })
@@ -464,10 +504,14 @@ describe('event-pump', () => {
     const received: number[] = []
     const abortController = new AbortController()
 
-    const client = createFakeHrcClient({ events, messages: [] })
+    const messages: HrcMessageRecord[] = []
+    const client = createFakeHrcClient({})
+    const localLiveSource = createFakeLocalLiveSource({ events, messages })
 
     const pumpPromise = runEventPump({
       hrcClient: client,
+      localLiveSource,
+      livePollIntervalMs: 5,
       sessionRef: SESSION_REF,
       fromHrcSeq: 0,
       fromMessageSeq: 0,
@@ -493,16 +537,70 @@ describe('event-pump', () => {
     expect(received).toEqual([1, 3])
   })
 
+  test('local live tail continues after simulated HTTP follow death window', async () => {
+    const lateEvent = makeEvent(25)
+    const lateMessage = makeMessage(12)
+    let eventPolls = 0
+    let messagePolls = 0
+
+    const client = createFakeHrcClient({})
+    const localLiveSource: LocalLiveSource = {
+      async pollEvents(afterSeq) {
+        eventPolls += 1
+        return eventPolls >= 8 && lateEvent.hrcSeq > afterSeq ? [lateEvent] : []
+      },
+      async pollMessages(afterSeq) {
+        messagePolls += 1
+        return messagePolls >= 10 && lateMessage.messageSeq > afterSeq ? [lateMessage] : []
+      },
+    }
+
+    const receivedEvents: number[] = []
+    const receivedMessages: number[] = []
+    const abortController = new AbortController()
+
+    const pumpPromise = runEventPump({
+      hrcClient: client,
+      localLiveSource,
+      livePollIntervalMs: 5,
+      sessionRef: SESSION_REF,
+      fromHrcSeq: 0,
+      fromMessageSeq: 0,
+      signal: abortController.signal,
+      async buildSnapshot() {
+        return { hrcSeq: 0, messageSeq: 0 }
+      },
+      onEvent(event) {
+        receivedEvents.push(event.hrcSeq)
+      },
+      onMessage(message) {
+        receivedMessages.push(message.messageSeq)
+      },
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    abortController.abort()
+    await pumpPromise
+
+    expect(eventPolls).toBeGreaterThanOrEqual(8)
+    expect(messagePolls).toBeGreaterThanOrEqual(10)
+    expect(receivedEvents).toEqual([25])
+    expect(receivedMessages).toEqual([12])
+  })
+
   test('high-water is tracked correctly across events and messages', async () => {
     const events = [makeEvent(10), makeEvent(20)]
     const messages = [makeMessage(5), makeMessage(15)]
 
     const abortController = new AbortController()
 
-    const client = createFakeHrcClient({ events, messages })
+    const client = createFakeHrcClient({})
+    const localLiveSource = createFakeLocalLiveSource({ events, messages })
 
     const pumpPromise = runEventPump({
       hrcClient: client,
+      localLiveSource,
+      livePollIntervalMs: 5,
       sessionRef: SESSION_REF,
       fromHrcSeq: 0,
       fromMessageSeq: 0,

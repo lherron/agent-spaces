@@ -99,3 +99,6 @@ export type { TimelineWsData, TimelineWsDeps } from './timeline-ws.js'
 // Diagnostics WS (P3)
 export { createDiagnosticsWsHandler } from './diagnostics-ws.js'
 export type { DiagnosticsWsData, DiagnosticsWsDeps } from './diagnostics-ws.js'
+
+export { createSqliteLocalLiveSource } from './local-live-source.js'
+export type { LocalLiveFilter, LocalLiveSource } from './local-live-source.js'

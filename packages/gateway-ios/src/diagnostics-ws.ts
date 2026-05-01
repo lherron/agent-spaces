@@ -16,6 +16,7 @@ import type { GatewayWsMessage, HrcEventMessage, SnapshotHighWater } from './con
 import { matchesCategory, matchesEventKind } from './event-filter.js'
 import type { EventPumpHrcClient } from './event-pump.js'
 import { runEventPump } from './event-pump.js'
+import type { LocalLiveSource } from './local-live-source.js'
 import { createLogger } from './logger.js'
 import { resolveSessionGeneration } from './session-generation.js'
 import type { SessionGenerationClient } from './session-generation.js'
@@ -40,6 +41,7 @@ export type DiagnosticsWsData = {
 /** Dependencies injected into the diagnostics WS handler. */
 export type DiagnosticsWsDeps = {
   hrcClient: EventPumpHrcClient & SessionGenerationClient
+  localLiveSource: LocalLiveSource
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +127,7 @@ export function createDiagnosticsWsHandler(deps: DiagnosticsWsDeps) {
 
         await runEventPump({
           hrcClient: deps.hrcClient,
+          localLiveSource: deps.localLiveSource,
           sessionRef,
           hostSessionId: selected.hostSessionId,
           generation: selected.generation,

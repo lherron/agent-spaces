@@ -9,6 +9,8 @@
 
 import type { Server } from 'bun'
 import { HrcClient } from 'hrc-sdk'
+import { createSqliteLocalLiveSource } from './local-live-source.js'
+import type { LocalLiveSource } from './local-live-source.js'
 import { createLogger } from './logger.js'
 import { type WsData, createGatewayIosServeConfig } from './routes.js'
 import { createSessionIndex } from './session-index.js'
@@ -35,6 +37,7 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
   const bearerToken = options.bearerToken
 
   let server: Server<WsData> | undefined
+  let localLiveSource: LocalLiveSource | undefined
 
   return {
     async start() {
@@ -47,10 +50,13 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
       })
 
       const hrcClient = new HrcClient(options.hrcSocketPath)
+      const dbPath = process.env['HRC_DB_PATH'] ?? (await hrcClient.getStatus()).dbPath
+      localLiveSource = createSqliteLocalLiveSource(dbPath)
       const sessionIndex = createSessionIndex({ client: hrcClient })
 
       const serveConfig = createGatewayIosServeConfig({
         hrcClient,
+        localLiveSource,
         gatewayId,
         resolveSession: async ({ sessionRef, hostSessionId, generation }) => {
           const { sessions } = await sessionIndex.handleListSessions({})
@@ -93,7 +99,7 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
       }) as Server<WsData>
 
       log.info('gateway.started', {
-        data: { host, port, gatewayId, bearerTokenConfigured: bearerToken !== undefined },
+        data: { host, port, gatewayId, bearerTokenConfigured: bearerToken !== undefined, dbPath },
       })
 
       return { host, port }
@@ -104,6 +110,8 @@ export function createGatewayIosModule(options: GatewayIosModuleOptions): Gatewa
       log.info('gateway.stopping', { data: { gatewayId } })
       server.stop(true)
       server = undefined
+      localLiveSource?.close?.()
+      localLiveSource = undefined
       log.info('gateway.stopped', { data: { gatewayId } })
     },
   }
