@@ -10,6 +10,14 @@ export type LocalLiveFilter = {
 export type LocalLiveSource = {
   pollEvents(afterSeq: number, filter: LocalLiveFilter): Promise<HrcLifecycleEvent[]>
   pollMessages(afterSeq: number, filter: LocalLiveFilter): Promise<HrcMessageRecord[]>
+  listEventsBefore(options: {
+    scopeRef: string
+    laneRef: string
+    hostSessionId?: string | undefined
+    generation?: number | undefined
+    beforeHrcSeq: number
+    limit: number
+  }): Promise<HrcLifecycleEvent[]>
   close?(): void
 }
 
@@ -36,6 +44,20 @@ export function createSqliteLocalLiveSourceFromDb(db: HrcDatabase): LocalLiveSou
         hostSessionId: filter.hostSessionId,
         generation: filter.generation,
       })
+    },
+
+    async listEventsBefore(options) {
+      if (options.limit <= 0 || options.beforeHrcSeq <= 0) return []
+      return db.hrcEvents
+        .listFromHrcSeq(1, {
+          scopeRef: options.scopeRef,
+          laneRef: options.laneRef,
+          hostSessionId: options.hostSessionId,
+          generation: options.generation,
+        })
+        .filter((event) => event.hrcSeq < options.beforeHrcSeq)
+        .sort((a, b) => b.hrcSeq - a.hrcSeq)
+        .slice(0, options.limit)
     },
 
     close() {

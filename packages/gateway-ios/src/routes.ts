@@ -98,6 +98,9 @@ function requireLocalLiveSource(source: LocalLiveSource | undefined): LocalLiveS
     async pollMessages() {
       throw new Error('localLiveSource not configured')
     },
+    async listEventsBefore() {
+      throw new Error('localLiveSource not configured')
+    },
   }
 }
 
@@ -138,7 +141,11 @@ export function createGatewayIosRoutes(deps: GatewayIosRouteDeps): GatewayIosRou
     routes.push({
       method: 'GET',
       path: '/v1/history',
-      handle: (request) => handleHistoryRequest(request, { hrcClient: deps.hrcClient }),
+      handle: (request) =>
+        handleHistoryRequest(request, {
+          hrcClient: deps.hrcClient,
+          localLiveSource: requireLocalLiveSource(deps.localLiveSource),
+        }),
     })
   }
 

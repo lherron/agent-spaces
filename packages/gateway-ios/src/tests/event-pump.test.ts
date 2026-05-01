@@ -149,6 +149,10 @@ function createFakeLocalLiveSource(options: FakeLocalLiveSourceOptions): LocalLi
             filter.generation === undefined || message.execution.generation === filter.generation
         )
     },
+
+    async listEventsBefore() {
+      return []
+    },
   }
 }
 
@@ -552,6 +556,9 @@ describe('event-pump', () => {
       async pollMessages(afterSeq) {
         messagePolls += 1
         return messagePolls >= 10 && lateMessage.messageSeq > afterSeq ? [lateMessage] : []
+      },
+      async listEventsBefore() {
+        return []
       },
     }
 

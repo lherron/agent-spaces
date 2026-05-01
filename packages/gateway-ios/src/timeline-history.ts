@@ -3,6 +3,7 @@ import { normalizeSessionRef, splitSessionRef } from 'hrc-core'
 
 import type { HistoryPage } from './contracts.js'
 import { projectTimeline } from './frame-projector.js'
+import type { LocalLiveSource } from './local-live-source.js'
 import { resolveSessionGeneration } from './session-generation.js'
 import type { SessionGenerationClient } from './session-generation.js'
 import type { ReducerInput } from './types.js'
@@ -12,12 +13,6 @@ const MAX_LIMIT = 200
 const INITIAL_BEFORE_HRC_SEQ = Number.MAX_SAFE_INTEGER
 
 export type TimelineHistoryClient = SessionGenerationClient & {
-  watch(options?: {
-    beforeHrcSeq?: number | undefined
-    limit?: number | undefined
-    hostSessionId?: string | undefined
-    generation?: number | undefined
-  }): AsyncIterable<HrcLifecycleEvent>
   listMessages(filter?: HrcMessageFilter | undefined): Promise<{ messages: HrcMessageRecord[] }>
 }
 
@@ -119,43 +114,22 @@ export function parseHistoryQuery(url: URL): ParsedHistoryQuery {
   }
 }
 
-async function collectAsync<T>(source: AsyncIterable<T>): Promise<T[]> {
-  const records: T[] = []
-  for await (const record of source) {
-    records.push(record)
-  }
-  return records
-}
-
-function eventMatchesSession(
-  event: HrcLifecycleEvent,
-  query: Pick<ParsedHistoryQuery, 'scopeRef' | 'laneRef' | 'hostSessionId' | 'generation'>
-): boolean {
-  return (
-    event.scopeRef === query.scopeRef &&
-    event.laneRef === query.laneRef &&
-    (query.hostSessionId === undefined || event.hostSessionId === query.hostSessionId) &&
-    (query.generation === undefined || event.generation === query.generation)
-  )
-}
-
 async function collectSessionEventsBefore(
-  hrcClient: TimelineHistoryClient,
+  localLiveSource: LocalLiveSource,
   query: ParsedHistoryQuery,
   limit: number,
   beforeHrcSeq = query.beforeHrcSeq
 ): Promise<HrcLifecycleEvent[]> {
   if (limit <= 0 || beforeHrcSeq === 0) return []
 
-  const batch = await collectAsync(
-    hrcClient.watch({
-      beforeHrcSeq: beforeHrcSeq ?? INITIAL_BEFORE_HRC_SEQ,
-      limit,
-      hostSessionId: query.hostSessionId,
-      generation: query.generation,
-    })
-  )
-  return batch.filter((event) => eventMatchesSession(event, query)).slice(0, limit)
+  return localLiveSource.listEventsBefore({
+    scopeRef: query.scopeRef,
+    laneRef: query.laneRef,
+    hostSessionId: query.hostSessionId,
+    generation: query.generation,
+    beforeHrcSeq: beforeHrcSeq ?? INITIAL_BEFORE_HRC_SEQ,
+    limit,
+  })
 }
 
 function messageMatchesSession(
@@ -228,12 +202,13 @@ function buildCursor(
 
 async function hasMoreBefore(
   hrcClient: TimelineHistoryClient,
+  localLiveSource: LocalLiveSource,
   query: ParsedHistoryQuery,
   oldestCursor: HistoryPage['oldestCursor']
 ): Promise<boolean> {
   const olderEvents =
     oldestCursor.hrcSeq > 0
-      ? await collectSessionEventsBefore(hrcClient, query, 1, oldestCursor.hrcSeq)
+      ? await collectSessionEventsBefore(localLiveSource, query, 1, oldestCursor.hrcSeq)
       : []
   if (olderEvents.length > 0) return true
 
@@ -254,6 +229,7 @@ async function hasMoreBefore(
  */
 export async function projectPastWindow(
   hrcClient: TimelineHistoryClient,
+  localLiveSource: LocalLiveSource,
   opts: {
     sessionRef: string
     hostSessionId?: string | undefined
@@ -281,7 +257,7 @@ export async function projectPastWindow(
   }
 
   const [eventsDescending, messagesDescending] = await Promise.all([
-    collectSessionEventsBefore(hrcClient, query, query.limit),
+    collectSessionEventsBefore(localLiveSource, query, query.limit),
     collectSessionMessagesBefore(hrcClient, query, query.limit),
   ])
 
@@ -299,12 +275,13 @@ export async function projectPastWindow(
     frames,
     oldestCursor,
     newestCursor,
-    hasMoreBefore: await hasMoreBefore(hrcClient, query, oldestCursor),
+    hasMoreBefore: await hasMoreBefore(hrcClient, localLiveSource, query, oldestCursor),
   }
 }
 
 export async function getTimelineHistoryPage(
   hrcClient: TimelineHistoryClient,
+  localLiveSource: LocalLiveSource,
   url: URL
 ): Promise<HistoryPage> {
   const query = parseHistoryQuery(url)
@@ -312,7 +289,7 @@ export async function getTimelineHistoryPage(
 
   // If hostSessionId is omitted, resolve only this sessionRef lineage to its
   // active/latest generation. Do not broaden history to every generation.
-  return projectPastWindow(hrcClient, {
+  return projectPastWindow(hrcClient, localLiveSource, {
     sessionRef: query.sessionRef,
     hostSessionId: query.hostSessionId,
     generation: query.generation,
@@ -324,10 +301,14 @@ export async function getTimelineHistoryPage(
 
 export async function handleHistoryRequest(
   request: Request,
-  options: { hrcClient: TimelineHistoryClient }
+  options: { hrcClient: TimelineHistoryClient; localLiveSource: LocalLiveSource }
 ): Promise<Response> {
   try {
-    const page = await getTimelineHistoryPage(options.hrcClient, new URL(request.url))
+    const page = await getTimelineHistoryPage(
+      options.hrcClient,
+      options.localLiveSource,
+      new URL(request.url)
+    )
     return Response.json(page)
   } catch (error) {
     if (error instanceof HistoryRequestError) {

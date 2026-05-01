@@ -157,7 +157,8 @@ function createFakeHrcClient(
 
 function createFakeLocalLiveSource(
   events: HrcLifecycleEvent[] = [],
-  cancelTracking?: { eventCancelled: { value: boolean }; messageCancelled: { value: boolean } }
+  cancelTracking?: { eventCancelled: { value: boolean }; messageCancelled: { value: boolean } },
+  pastEvents: HrcLifecycleEvent[] = []
 ): LocalLiveSource {
   return {
     async pollEvents(afterSeq, filter) {
@@ -175,6 +176,20 @@ function createFakeLocalLiveSource(
     async pollMessages() {
       if (cancelTracking) cancelTracking.messageCancelled.value = true
       return []
+    },
+    async listEventsBefore(options) {
+      return pastEvents
+        .filter((event) => event.scopeRef === options.scopeRef && event.laneRef === options.laneRef)
+        .filter(
+          (event) =>
+            options.hostSessionId === undefined || event.hostSessionId === options.hostSessionId
+        )
+        .filter(
+          (event) => options.generation === undefined || event.generation === options.generation
+        )
+        .filter((event) => event.hrcSeq < options.beforeHrcSeq)
+        .sort((a, b) => b.hrcSeq - a.hrcSeq)
+        .slice(0, options.limit)
     },
   }
 }
@@ -221,7 +236,7 @@ function startTestServer(
   sessions: HrcSessionRecord[] = []
 ) {
   const hrcClient = createFakeHrcClient(cancelTracking, pastEvents, sessions)
-  const localLiveSource = createFakeLocalLiveSource(events, cancelTracking)
+  const localLiveSource = createFakeLocalLiveSource(events, cancelTracking, pastEvents)
 
   const deps: GatewayIosRouteDeps = {
     hrcClient: hrcClient as unknown as GatewayIosRouteDeps['hrcClient'],

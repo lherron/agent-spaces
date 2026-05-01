@@ -162,7 +162,7 @@ export function createTimelineWsHandler(deps: TimelineWsDeps) {
             // Query past events/messages using the shared projector from
             // timeline-history.ts — same logic as GET /v1/history.
             // beforeHrcSeq/beforeMessageSeq = undefined → query from head.
-            const history = await projectPastWindow(deps.historyClient, {
+            const history = await projectPastWindow(deps.historyClient, deps.localLiveSource, {
               sessionRef,
               hostSessionId: session.hostSessionId,
               generation: session.generation,

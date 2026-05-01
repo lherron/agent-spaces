@@ -6,6 +6,7 @@ import type {
   HrcSessionRecord,
 } from 'hrc-core'
 
+import type { LocalLiveSource } from '../local-live-source.js'
 import { createGatewayIosFetchHandler } from '../routes.js'
 import { type TimelineHistoryClient, getTimelineHistoryPage } from '../timeline-history.js'
 
@@ -15,13 +16,18 @@ const SCOPE_REF = 'agent:larry:project:agent-spaces:task:T-01332'
 const OTHER_SCOPE_REF = 'agent:clod:project:agent-spaces:task:T-01332'
 
 type MockClient = TimelineHistoryClient & {
-  watchCalls: Array<{
+  messageCalls: HrcMessageFilter[]
+}
+
+type MockLocalLiveSource = LocalLiveSource & {
+  eventCalls: Array<{
+    scopeRef: string
+    laneRef: string
     beforeHrcSeq?: number | undefined
     limit?: number | undefined
     hostSessionId?: string | undefined
     generation?: number | undefined
   }>
-  messageCalls: HrcMessageFilter[]
 }
 
 function event(hrcSeq: number, sessionRef = SESSION_REF): HrcLifecycleEvent {
@@ -45,6 +51,14 @@ function event(hrcSeq: number, sessionRef = SESSION_REF): HrcLifecycleEvent {
       message: { role: 'user', content: `prompt ${hrcSeq}` },
     },
   }
+}
+
+function orderedEvent(hrcSeq: number): HrcLifecycleEvent {
+  const item = event(hrcSeq)
+  item.ts = `2026-04-30T10:${String(Math.floor(hrcSeq / 60)).padStart(2, '0')}:${String(
+    hrcSeq % 60
+  ).padStart(2, '0')}.000Z`
+  return item
 }
 
 function message(messageSeq: number, sessionRef = SESSION_REF): HrcMessageRecord {
@@ -82,40 +96,50 @@ function session(overrides: Partial<HrcSessionRecord> = {}): HrcSessionRecord {
   }
 }
 
-function asyncEvents(events: HrcLifecycleEvent[]): AsyncIterable<HrcLifecycleEvent> {
-  return (async function* () {
-    for (const item of events) yield item
-  })()
-}
-
 function createMockClient(input: {
-  eventPages?: HrcLifecycleEvent[][] | undefined
   messagePages?: HrcMessageRecord[][] | undefined
   sessions?: HrcSessionRecord[] | undefined
 }): MockClient {
-  const eventPages = [...(input.eventPages ?? [])]
   const messagePages = [...(input.messagePages ?? [])]
-  const watchCalls: MockClient['watchCalls'] = []
   const messageCalls: MockClient['messageCalls'] = []
 
   return {
-    watchCalls,
     messageCalls,
-    watch(options) {
-      watchCalls.push({
-        beforeHrcSeq: options?.beforeHrcSeq,
-        limit: options?.limit,
-        hostSessionId: options?.hostSessionId,
-        generation: options?.generation,
-      })
-      return asyncEvents(eventPages.shift() ?? [])
-    },
     async listMessages(filter) {
       messageCalls.push(filter ?? {})
       return { messages: messagePages.shift() ?? [] }
     },
     async listSessions() {
       return input.sessions ?? [session()]
+    },
+  }
+}
+
+function createMockLocalLiveSource(events: HrcLifecycleEvent[]): MockLocalLiveSource {
+  const eventCalls: MockLocalLiveSource['eventCalls'] = []
+
+  return {
+    eventCalls,
+    async pollEvents() {
+      return []
+    },
+    async pollMessages() {
+      return []
+    },
+    async listEventsBefore(options) {
+      eventCalls.push(options)
+      return events
+        .filter((item) => item.scopeRef === options.scopeRef && item.laneRef === options.laneRef)
+        .filter(
+          (item) =>
+            options.hostSessionId === undefined || item.hostSessionId === options.hostSessionId
+        )
+        .filter(
+          (item) => options.generation === undefined || item.generation === options.generation
+        )
+        .filter((item) => item.hrcSeq < options.beforeHrcSeq)
+        .sort((a, b) => b.hrcSeq - a.hrcSeq)
+        .slice(0, options.limit)
     },
   }
 }
@@ -127,12 +151,13 @@ function historyUrl(query: string): URL {
 describe('timeline history', () => {
   it('reverses descending event pages before reducing to chronological frames', async () => {
     const client = createMockClient({
-      eventPages: [[event(103), event(102), event(101)], []],
       messagePages: [[]],
     })
+    const localLiveSource = createMockLocalLiveSource([event(103), event(102), event(101)])
 
     const page = await getTimelineHistoryPage(
       client,
+      localLiveSource,
       historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeHrcSeq=104&limit=3`)
     )
 
@@ -143,12 +168,13 @@ describe('timeline history', () => {
 
   it('reports hasMoreBefore=true when older session events exist', async () => {
     const client = createMockClient({
-      eventPages: [[event(103), event(102)], [event(101)]],
       messagePages: [[]],
     })
+    const localLiveSource = createMockLocalLiveSource([event(103), event(102), event(101)])
 
     const page = await getTimelineHistoryPage(
       client,
+      localLiveSource,
       historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeHrcSeq=104&limit=2`)
     )
 
@@ -159,12 +185,13 @@ describe('timeline history', () => {
 
   it('reports hasMoreBefore=false at the start of history', async () => {
     const client = createMockClient({
-      eventPages: [[event(100)], []],
       messagePages: [[], []],
     })
+    const localLiveSource = createMockLocalLiveSource([event(100)])
 
     const page = await getTimelineHistoryPage(
       client,
+      localLiveSource,
       historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeHrcSeq=101&limit=1`)
     )
 
@@ -174,12 +201,17 @@ describe('timeline history', () => {
 
   it('does not leak lifecycle events from other sessions', async () => {
     const client = createMockClient({
-      eventPages: [[event(202, OTHER_SESSION_REF), event(201), event(200, OTHER_SESSION_REF)], []],
       messagePages: [[]],
     })
+    const localLiveSource = createMockLocalLiveSource([
+      event(202, OTHER_SESSION_REF),
+      event(201),
+      event(200, OTHER_SESSION_REF),
+    ])
 
     const page = await getTimelineHistoryPage(
       client,
+      localLiveSource,
       historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeHrcSeq=203&limit=3`)
     )
 
@@ -190,12 +222,13 @@ describe('timeline history', () => {
 
   it('honors limit=1', async () => {
     const client = createMockClient({
-      eventPages: [[event(302), event(301)], []],
       messagePages: [[]],
     })
+    const localLiveSource = createMockLocalLiveSource([event(302), event(301)])
 
     const page = await getTimelineHistoryPage(
       client,
+      localLiveSource,
       historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeHrcSeq=303&limit=1`)
     )
 
@@ -203,14 +236,60 @@ describe('timeline history', () => {
     expect(page.frames[0]!.lastHrcSeq).toBe(302)
   })
 
-  it('returns empty frames and false hasMoreBefore when before the start', async () => {
+  it('returns the latest event window when more events than the limit exist', async () => {
     const client = createMockClient({
-      eventPages: [[]],
-      messagePages: [[]],
+      messagePages: [[], []],
     })
+    const localLiveSource = createMockLocalLiveSource(
+      Array.from({ length: 100 }, (_, index) => orderedEvent(index + 1))
+    )
 
     const page = await getTimelineHistoryPage(
       client,
+      localLiveSource,
+      historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&limit=50`)
+    )
+
+    expect(page.frames.map((frame) => frame.lastHrcSeq)).toEqual(
+      Array.from({ length: 50 }, (_, index) => index + 51)
+    )
+    expect(page.oldestCursor.hrcSeq).toBe(51)
+    expect(page.newestCursor.hrcSeq).toBe(100)
+    expect(page.hasMoreBefore).toBe(true)
+  })
+
+  it('pages to the latest events strictly below beforeHrcSeq', async () => {
+    const client = createMockClient({
+      messagePages: [[], []],
+    })
+    const localLiveSource = createMockLocalLiveSource(
+      Array.from({ length: 100 }, (_, index) => orderedEvent(index + 1))
+    )
+
+    const page = await getTimelineHistoryPage(
+      client,
+      localLiveSource,
+      historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeHrcSeq=75&limit=10`)
+    )
+
+    expect(page.frames.map((frame) => frame.lastHrcSeq)).toEqual(
+      Array.from({ length: 10 }, (_, index) => index + 65)
+    )
+    expect(page.oldestCursor.hrcSeq).toBe(65)
+    expect(page.newestCursor.hrcSeq).toBe(74)
+    expect(localLiveSource.eventCalls[0]).toMatchObject({ beforeHrcSeq: 75, limit: 10 })
+    expect(page.hasMoreBefore).toBe(true)
+  })
+
+  it('returns empty frames and false hasMoreBefore when before the start', async () => {
+    const client = createMockClient({
+      messagePages: [[]],
+    })
+    const localLiveSource = createMockLocalLiveSource([])
+
+    const page = await getTimelineHistoryPage(
+      client,
+      localLiveSource,
       historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeHrcSeq=1&limit=50`)
     )
 
@@ -222,12 +301,13 @@ describe('timeline history', () => {
 
   it('queries messages with sessionRef and beforeMessageSeq', async () => {
     const client = createMockClient({
-      eventPages: [[], []],
       messagePages: [[message(12), message(11)], [message(10)]],
     })
+    const localLiveSource = createMockLocalLiveSource([])
 
     const page = await getTimelineHistoryPage(
       client,
+      localLiveSource,
       historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&beforeMessageSeq=13&limit=2`)
     )
 
@@ -253,12 +333,13 @@ describe('timeline history', () => {
     msgB.execution.generation = 2
 
     const client = createMockClient({
-      eventPages: [[hostB, hostA], []],
       messagePages: [[msgB, msgA], []],
     })
+    const localLiveSource = createMockLocalLiveSource([hostB, hostA])
 
     const page = await getTimelineHistoryPage(
       client,
+      localLiveSource,
       historyUrl(
         `sessionRef=${encodeURIComponent(SESSION_REF)}&hostSessionId=host-main&generation=1&limit=10`
       )
@@ -266,7 +347,10 @@ describe('timeline history', () => {
 
     expect(page.frames.some((frame) => frame.lastHrcSeq === 501)).toBe(true)
     expect(page.frames.some((frame) => frame.lastHrcSeq === 502)).toBe(false)
-    expect(client.watchCalls[0]).toMatchObject({ hostSessionId: 'host-main', generation: 1 })
+    expect(localLiveSource.eventCalls[0]).toMatchObject({
+      hostSessionId: 'host-main',
+      generation: 1,
+    })
     expect(client.messageCalls[0]).toMatchObject({ hostSessionId: 'host-main', generation: 1 })
   })
 
@@ -283,29 +367,34 @@ describe('timeline history', () => {
         session({ hostSessionId: 'host-old', generation: 1, status: 'inactive' }),
         session({ hostSessionId: 'host-latest', generation: 3, status: 'active' }),
       ],
-      eventPages: [[latestEvent, oldEvent], []],
       messagePages: [[]],
     })
+    const localLiveSource = createMockLocalLiveSource([latestEvent, oldEvent])
 
     const page = await getTimelineHistoryPage(
       client,
+      localLiveSource,
       historyUrl(`sessionRef=${encodeURIComponent(SESSION_REF)}&limit=10`)
     )
 
-    expect(client.watchCalls[0]).toMatchObject({ hostSessionId: 'host-latest', generation: 3 })
+    expect(localLiveSource.eventCalls[0]).toMatchObject({
+      hostSessionId: 'host-latest',
+      generation: 3,
+    })
     expect(client.messageCalls[0]).toMatchObject({ hostSessionId: 'host-latest', generation: 3 })
     expect(page.frames.map((frame) => frame.lastHrcSeq)).toEqual([602])
   })
 
   it('registers GET /v1/history in the route table', async () => {
     const client = createMockClient({
-      eventPages: [[event(401)], []],
       messagePages: [[]],
     })
+    const localLiveSource = createMockLocalLiveSource([event(401)])
     const fetch = createGatewayIosFetchHandler({
       hrcClient: client as unknown as Parameters<
         typeof createGatewayIosFetchHandler
       >[0]['hrcClient'],
+      localLiveSource,
       gatewayId: 'ios-test',
     })
 

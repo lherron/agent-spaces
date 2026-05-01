@@ -139,6 +139,9 @@ function createFakeLocalLiveSource(
       if (cancelTracking) cancelTracking.messageCancelled.value = true
       return []
     },
+    async listEventsBefore() {
+      return []
+    },
   }
 }
 
