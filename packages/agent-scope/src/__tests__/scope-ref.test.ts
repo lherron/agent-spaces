@@ -26,9 +26,11 @@ import {
   type ScopeKind,
   ancestorScopeRefs,
   formatScopeRef,
+  formatSessionRef,
   normalizeLaneRef,
   normalizeSessionRef,
   parseScopeRef,
+  parseSessionRef,
   validateLaneRef,
   validateScopeRef,
 } from '../../index.js'
@@ -254,6 +256,40 @@ describe('normalizeSessionRef (T-00846)', () => {
     })
     expect(result.scopeRef).toBe('agent:alice')
     expect(result.laneRef).toBe('main')
+  })
+})
+
+describe('parseSessionRef', () => {
+  test('parses canonical sessionRef strings and formats them back', () => {
+    const parsed = parseSessionRef('agent:rex:project:agent-spaces/lane:main')
+
+    expect(parsed).toEqual({
+      scopeRef: 'agent:rex:project:agent-spaces',
+      laneRef: 'main',
+    })
+    expect(formatSessionRef(parsed)).toBe('agent:rex:project:agent-spaces/lane:main')
+  })
+
+  test('normalizes non-main lane ids to lane refs', () => {
+    expect(parseSessionRef('agent:rex:project:agent-spaces/lane:repair')).toEqual({
+      scopeRef: 'agent:rex:project:agent-spaces',
+      laneRef: 'lane:repair',
+    })
+  })
+
+  test('rejects malformed sessionRef strings', () => {
+    const invalid = [
+      '',
+      'agent:rex:project:agent-spaces',
+      'agent:rex:project:agent-spaces/main',
+      '/lane:main',
+      'agent:rex:project:agent-spaces/lane:',
+      'agent:rex:project:agent-spaces/lane:main/extra',
+    ]
+
+    for (const input of invalid) {
+      expect(() => parseSessionRef(input)).toThrow()
+    }
   })
 })
 
