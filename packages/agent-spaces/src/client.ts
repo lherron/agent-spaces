@@ -658,7 +658,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
     ): Promise<RunTurnNonInteractiveResponse> {
       // Placement-based path (v2)
       if (req.placement) {
-        return runPlacementTurnNonInteractive(req, clientAspHome)
+        return runPlacementTurnNonInteractive(req, clientAspHome, inFlightRuns)
       }
 
       return withAspHome(req.aspHome, async () => {
@@ -1078,7 +1078,8 @@ async function buildPlacementInvocationSpec(
  */
 async function runPlacementTurnNonInteractive(
   req: RunTurnNonInteractiveRequest,
-  defaultAspHome?: string
+  defaultAspHome: string | undefined,
+  inFlightRuns: Map<string, InFlightRunContext>
 ): Promise<RunTurnNonInteractiveResponse> {
   const placement = req.placement as RuntimePlacement
   const frontendDef = resolveFrontend(req.frontend)
@@ -1157,6 +1158,7 @@ async function runPlacementTurnNonInteractive(
 
   const permissionHandler = buildAutoPermissionHandler()
   let session: UnifiedSession | undefined
+  let context: InFlightRunContext | undefined
   let turnEnded = false
   let finalOutput: string | undefined
   const assistantState: { assistantBuffer: string; lastAssistantText?: string | undefined } = {
@@ -1198,6 +1200,7 @@ async function runPlacementTurnNonInteractive(
           `Model not supported for frontend ${frontendDef.frontend}: ${runtimePlan.model.modelId}`
         )
       }
+      const effectiveModel = runtimePlan.model.info.effectiveModel
       const resolvedYolo = runtimePlan.yolo ?? false
       const placementAgentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
       const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
@@ -1274,7 +1277,30 @@ async function runPlacementTurnNonInteractive(
 
       const turnPromise = new Promise<void>((resolve, reject) => {
         if (!session) return
+        const started = session.start()
+        context = {
+          hostSessionId: hostSessionId as string,
+          runId: runId as string,
+          provider: runtimePlan.provider,
+          frontend: req.frontend,
+          model: effectiveModel,
+          session,
+          eventEmitter,
+          assistantState,
+          allowSessionIdUpdate: frontendDef.frontend !== PI_SDK_FRONTEND,
+          continuationKey,
+          outstandingTurns: 0,
+          acceptedInputApplicationIds: new Set<string>(),
+          started,
+          completion: { done: false, resolve: () => {}, reject: () => {} },
+          sendChain: Promise.resolve(),
+        }
+        inFlightRuns.set(hostSessionId as string, context)
+
         session.onEvent((event: UnifiedSessionEvent) => {
+          const activeContext = context
+          if (!activeContext || activeContext.completion.done) return
+
           const result = mapUnifiedEvents(
             event,
             (mapped) => {
@@ -1282,6 +1308,7 @@ async function runPlacementTurnNonInteractive(
             },
             (key) => {
               continuationKey = key
+              activeContext.continuationKey = key
               eventEmitter.setContinuation({
                 provider: runtimePlan.provider,
                 key,
@@ -1292,18 +1319,27 @@ async function runPlacementTurnNonInteractive(
           )
 
           if (result.turnEnded && !turnEnded) {
+            activeContext.outstandingTurns = Math.max(0, activeContext.outstandingTurns - 1)
+            if (activeContext.outstandingTurns !== 0) return
             turnEnded = true
+            activeContext.completion = { done: true }
             void eventEmitter.idle().then(resolve, reject)
           }
         })
+
+        void started.catch(reject)
       })
 
-      await runSession(session, resolvedPrompt, req.attachments, runId as string)
+      if (!context) {
+        throw new Error('Session creation failed unexpectedly')
+      }
+      await enqueueInFlightPrompt(context, resolvedPrompt, req.attachments)
       await turnPromise
       await session.stop('complete')
       await eventEmitter.idle()
       finalOutput = assistantState.lastAssistantText
     } finally {
+      inFlightRuns.delete(hostSessionId as string)
       restoreEnv()
     }
 
