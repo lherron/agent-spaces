@@ -28,6 +28,7 @@ export interface InFlightRunContext {
   allowSessionIdUpdate: boolean
   continuationKey?: string | undefined
   outstandingTurns: number
+  acceptedInputApplicationIds: Set<string>
   started: Promise<void>
   completion:
     | {

@@ -117,6 +117,8 @@ export interface QueueInFlightInputRequest {
   /** @deprecated Use hostSessionId instead */
   cpSessionId?: string | undefined
   runId: string
+  inputApplicationId?: string | undefined
+  idempotencyKey?: string | undefined
   prompt: string
   attachments?: AgentSpacesAttachmentInput[] | undefined
 }

@@ -500,6 +500,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
                   allowSessionIdUpdate: true,
                   continuationKey,
                   outstandingTurns: 0,
+                  acceptedInputApplicationIds: new Set<string>(),
                   started,
                   completion: { done: false, resolve, reject },
                   sendChain: Promise.resolve(),
@@ -607,6 +608,12 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
       if (context.completion.done) {
         throw new Error(`In-flight run ${req.runId} is already completed`)
       }
+      if (
+        req.inputApplicationId !== undefined &&
+        context.acceptedInputApplicationIds.has(req.inputApplicationId)
+      ) {
+        return { accepted: true, pendingTurns: context.outstandingTurns }
+      }
 
       await context.eventEmitter.emit({
         type: 'message',
@@ -615,6 +622,9 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
       } as EventPayload)
 
       await enqueueInFlightPrompt(context, req.prompt, req.attachments)
+      if (req.inputApplicationId !== undefined) {
+        context.acceptedInputApplicationIds.add(req.inputApplicationId)
+      }
       return { accepted: true, pendingTurns: context.outstandingTurns }
     },
 
