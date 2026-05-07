@@ -406,6 +406,7 @@ exit 1
         prompt: 'Start by checking failing tests',
       })
 
+      expect(args.slice(0, 2)).toEqual(['--enable', 'goals'])
       expect(args).toContain('Start by checking failing tests')
       expect(args).not.toContain('exec')
     })
@@ -416,7 +417,7 @@ exit 1
         prompt: 'Summarize repository health',
       })
 
-      expect(args[0]).toBe('exec')
+      expect(args.slice(0, 3)).toEqual(['exec', '--enable', 'goals'])
       expect(args).toContain('Summarize repository health')
     })
 

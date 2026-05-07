@@ -710,6 +710,8 @@ describe('placement invocation produces full argv (T-00874)', () => {
 
     const parsed = JSON.parse(result.stdout)
     expect(parsed.spec.argv.length).toBeGreaterThan(1)
+    expect(parsed.spec.argv).toContain('--enable')
+    expect(parsed.spec.argv).toContain('goals')
     expect(parsed.spec.argv).toContain('exec')
     expect(parsed.spec.argv).toContain('--model')
   })

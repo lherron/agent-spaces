@@ -52,6 +52,7 @@ const INSTRUCTIONS_FILES = ['AGENTS.md', 'AGENT.md'] as const
 const DEFAULT_SANDBOX_MODE = 'workspace-write'
 const DEFAULT_APPROVAL_POLICY = 'on-request'
 const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.5'
+const DEFAULT_CODEX_ENABLED_FEATURES = ['goals'] as const
 const MIN_CODEX_VERSION = '0.124.0'
 const CODEX_PATH_ENV = 'ASP_CODEX_PATH'
 const CODEX_SKIP_COMMON_PATHS_ENV = 'ASP_CODEX_SKIP_COMMON_PATHS'
@@ -826,11 +827,17 @@ export class CodexAdapter implements HarnessAdapter {
     const isResumeMode = !!options.continuationKey
     const approvalPolicy = options.yolo ? 'never' : options.approvalPolicy
     const sandboxMode = options.yolo ? 'danger-full-access' : options.sandboxMode
+    const appendDefaultFeatureFlags = () => {
+      for (const feature of DEFAULT_CODEX_ENABLED_FEATURES) {
+        args.push('--enable', feature)
+      }
+    }
 
     // Resume mode: interactive `codex resume [session-id]` or
     // headless `codex exec resume <session-id> <prompt>`.
     if (isResumeMode && isExecMode) {
       args.push('exec', 'resume')
+      appendDefaultFeatureFlags()
       if (typeof options.continuationKey === 'string') {
         args.push(options.continuationKey)
       }
@@ -839,6 +846,7 @@ export class CodexAdapter implements HarnessAdapter {
       }
     } else if (isResumeMode) {
       args.push('resume')
+      appendDefaultFeatureFlags()
       if (typeof options.continuationKey === 'string') {
         args.push(options.continuationKey)
       }
@@ -847,11 +855,15 @@ export class CodexAdapter implements HarnessAdapter {
       }
     } else if (isExecMode) {
       args.push('exec')
+      appendDefaultFeatureFlags()
       if (options.prompt) {
         args.push(options.prompt)
       }
     } else if (options.prompt) {
+      appendDefaultFeatureFlags()
       args.push(options.prompt)
+    } else {
+      appendDefaultFeatureFlags()
     }
 
     if (options.model) {
