@@ -16,6 +16,7 @@ import {
   getPluginCachePath,
   getProjectDataPath,
   getProjectHarnessOutputPath,
+  getProjectStorageId,
   getProjectTargetsPath,
   getProjectsPath,
   getRepoPath,
@@ -98,7 +99,10 @@ describe('path functions', () => {
 
   it('should build project-scoped bundle paths', () => {
     const projectDataPath = getProjectDataPath('/work/My Project')
+    const projectStorageId = getProjectStorageId('/work/My Project')
+    expect(projectStorageId).toMatch(/^my-project-[0-9a-f]{8}$/)
     expect(projectDataPath).toMatch(/^\/test\/asp\/projects\/my-project-[0-9a-f]{8}$/)
+    expect(projectDataPath).toBe(`/test/asp/projects/${projectStorageId}`)
     expect(getProjectTargetsPath('/work/My Project')).toBe(`${projectDataPath}/targets`)
     expect(getProjectHarnessOutputPath('/work/My Project', 'dev', 'claude')).toBe(
       `${projectDataPath}/targets/dev/claude`

@@ -7,7 +7,7 @@
 
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'bun:test'
 import { getProjectHarnessOutputPath, resolveEffectiveCompose } from 'spaces-config'
@@ -347,10 +347,15 @@ const detectAgentLocalComponents = (runModule as Record<string, unknown>)[
   | ((agentRoot: string) => Promise<
       | {
           agentRoot: string
+          agentName: string
           hasSkills: boolean
           hasCommands: boolean
+          hasTools: boolean
           skillsDir: string
           commandsDir: string
+          toolsDir: string
+          toolsBinDir: string
+          agentVarDir: string
         }
       | undefined
     >)
@@ -377,10 +382,15 @@ describe('agent-local component discovery (T-01067)', () => {
     expect(detectAgentLocalComponents).toBeDefined()
     await expect(detectAgentLocalComponents!(agentRoot)).resolves.toEqual({
       agentRoot,
+      agentName: basename(agentRoot),
       hasSkills: true,
       hasCommands: false,
+      hasTools: false,
       skillsDir: join(agentRoot, 'skills'),
       commandsDir: join(agentRoot, 'commands'),
+      toolsDir: join(agentRoot, 'tools'),
+      toolsBinDir: join(agentRoot, 'tools', 'bin'),
+      agentVarDir: join(agentRoot, 'var'),
     })
   })
 
@@ -392,10 +402,15 @@ describe('agent-local component discovery (T-01067)', () => {
     expect(detectAgentLocalComponents).toBeDefined()
     await expect(detectAgentLocalComponents!(agentRoot)).resolves.toEqual({
       agentRoot,
+      agentName: basename(agentRoot),
       hasSkills: false,
       hasCommands: true,
+      hasTools: false,
       skillsDir: join(agentRoot, 'skills'),
       commandsDir: join(agentRoot, 'commands'),
+      toolsDir: join(agentRoot, 'tools'),
+      toolsBinDir: join(agentRoot, 'tools', 'bin'),
+      agentVarDir: join(agentRoot, 'var'),
     })
   })
 
@@ -409,11 +424,51 @@ describe('agent-local component discovery (T-01067)', () => {
     expect(detectAgentLocalComponents).toBeDefined()
     await expect(detectAgentLocalComponents!(agentRoot)).resolves.toEqual({
       agentRoot,
+      agentName: basename(agentRoot),
       hasSkills: true,
       hasCommands: true,
+      hasTools: false,
       skillsDir: join(agentRoot, 'skills'),
       commandsDir: join(agentRoot, 'commands'),
+      toolsDir: join(agentRoot, 'tools'),
+      toolsBinDir: join(agentRoot, 'tools', 'bin'),
+      agentVarDir: join(agentRoot, 'var'),
     })
+  })
+
+  test('detects tools-only agent roots', async () => {
+    const agentRoot = await createTempDir('smokey-agent-local-tools-')
+    await mkdir(join(agentRoot, 'tools', 'bin'), { recursive: true })
+
+    expect(detectAgentLocalComponents).toBeDefined()
+    const components = await detectAgentLocalComponents!(agentRoot)
+    expect(components).toMatchObject({
+      agentRoot,
+      agentName: basename(agentRoot),
+      hasSkills: false,
+      hasCommands: false,
+      hasTools: true,
+      skillsDir: join(agentRoot, 'skills'),
+      commandsDir: join(agentRoot, 'commands'),
+      toolsDir: join(agentRoot, 'tools'),
+      toolsBinDir: join(agentRoot, 'tools', 'bin'),
+      agentVarDir: join(agentRoot, 'var'),
+    })
+  })
+
+  test('does not detect var-only agent roots', async () => {
+    const agentRoot = await createTempDir('smokey-agent-local-var-')
+    await mkdir(join(agentRoot, 'var', 'state'), { recursive: true })
+
+    await expect(detectAgentLocalComponents!(agentRoot)).resolves.toBeUndefined()
+  })
+
+  test('does not detect tools/bin when it is a file', async () => {
+    const agentRoot = await createTempDir('smokey-agent-local-tools-file-')
+    await mkdir(join(agentRoot, 'tools'), { recursive: true })
+    await writeFile(join(agentRoot, 'tools', 'bin'), '')
+
+    await expect(detectAgentLocalComponents!(agentRoot)).resolves.toBeUndefined()
   })
 
   test('detectAgentLocalComponents has the signature run() expects', async () => {
@@ -429,8 +484,12 @@ describe('agent-local component discovery (T-01067)', () => {
     expect(components!.agentRoot).toBe(agentRoot)
     expect(typeof components!.hasSkills).toBe('boolean')
     expect(typeof components!.hasCommands).toBe('boolean')
+    expect(typeof components!.hasTools).toBe('boolean')
     expect(typeof components!.skillsDir).toBe('string')
     expect(typeof components!.commandsDir).toBe('string')
+    expect(typeof components!.toolsDir).toBe('string')
+    expect(typeof components!.toolsBinDir).toBe('string')
+    expect(typeof components!.agentVarDir).toBe('string')
   })
 })
 

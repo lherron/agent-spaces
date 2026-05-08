@@ -40,6 +40,12 @@ export {
 } from './run-codex.js'
 
 import { detectAgentLocalComponents, resolveAgentRunDefaults } from './run/agent-profile.js'
+export {
+  prepareAgentToolRuntime,
+  validateAgentTools,
+  type AgentToolEnvResult,
+  type AgentToolRuntimeContext,
+} from './run/agent-tools.js'
 import { type MaterializedPromptResult, executeHarnessRun } from './run/execute.js'
 import {
   type PlacementRuntimeModelResolution,
@@ -123,8 +129,14 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const composeChanged =
     effectiveCompose !== undefined &&
     !composeArraysMatch(effectiveCompose, existingLock?.targets[targetName]?.compose ?? [])
+  const hasMutableAgentPromptMaterial =
+    agentLocalComponents?.hasSkills === true || agentLocalComponents?.hasCommands === true
   const needsInstall =
-    options.refresh || !lockExists || !(await pathExists(harnessOutputPath)) || composeChanged
+    options.refresh ||
+    !lockExists ||
+    !(await pathExists(harnessOutputPath)) ||
+    composeChanged ||
+    hasMutableAgentPromptMaterial
   if (needsInstall) {
     debugLog('install', options.refresh ? '(refresh)' : '(missing output)')
     if (effectiveCompose !== undefined) {
@@ -150,6 +162,8 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         harness: harnessId,
         targets: [targetName],
         adapter,
+        ...(agentProfile ? { agentPath: agentProfile.agentRoot } : {}),
+        ...(agentLocalComponents ? { agentLocalComponents } : {}),
       })
     }
     debugLog('install done')
@@ -248,13 +262,26 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     dryRun: options.dryRun,
     reminderContent,
     pagePrompts: options.pagePrompts,
+    ...(agentProfile && agentLocalComponents?.hasTools
+      ? {
+          agentToolRuntime: {
+            agentRoot: agentProfile.agentRoot,
+            projectRoot: options.projectPath,
+            components: agentLocalComponents,
+          },
+        }
+      : {}),
   })
 
   const buildResult: BuildResult = {
     pluginDirs: bundle.pluginDirs ?? [],
     mcpConfigPath: bundle.mcpConfigPath,
     settingsPath: bundle.settingsPath,
-    warnings: [],
+    warnings: execution.warnings.map((message) => ({
+      code: 'W401',
+      severity: 'warning',
+      message,
+    })),
     lock,
   }
 

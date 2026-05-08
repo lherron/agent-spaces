@@ -154,7 +154,7 @@ function sanitizeProjectSegment(value: string): string {
   return sanitized || 'project'
 }
 
-function getProjectStorageId(projectPath: string): string {
+export function getProjectStorageId(projectPath: string): string {
   const normalizedProjectPath = resolve(projectPath)
   const projectSlug = sanitizeProjectSegment(basename(normalizedProjectPath))
   const projectHash = createHash('sha256').update(normalizedProjectPath).digest('hex').slice(0, 8)

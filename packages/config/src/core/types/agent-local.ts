@@ -1,26 +1,35 @@
 /**
- * Types for agent-local skills and commands auto-discovery.
+ * Types for agent-local skills, commands, and tools auto-discovery.
  *
- * WHY: Agent-specific skills/ and commands/ directories are auto-discovered
- * in the agent root and materialized as a synthetic plugin. This interface
- * is the shared boundary between execution (detection) and config (materialization).
+ * WHY: Agent-specific skills/, commands/, and tools/bin directories are
+ * auto-discovered in the agent root. Skills and commands are materialized as a
+ * synthetic plugin; tools are exposed directly at runtime.
  */
 
 /**
- * Describes agent-local skills and commands directories detected at the agent root.
+ * Describes agent-local directories detected at the agent root.
  *
- * Produced by `detectAgentLocalComponents()` in execution/run.ts,
- * consumed by `materializeTarget()` in config/orchestration/install.ts.
+ * Produced by `detectAgentLocalComponents()` in execution/run.ts.
  */
 export interface AgentLocalComponents {
   /** Absolute path to the agent root directory */
   agentRoot: string
-  /** Whether <agentRoot>/skills/ exists */
+  /** Basename of agentRoot */
+  agentName: string
+  /** Whether <agentRoot>/skills is a directory */
   hasSkills: boolean
-  /** Whether <agentRoot>/commands/ exists */
+  /** Whether <agentRoot>/commands is a directory */
   hasCommands: boolean
+  /** Whether <agentRoot>/tools/bin is a directory */
+  hasTools: boolean
   /** Absolute path to <agentRoot>/skills */
   skillsDir: string
   /** Absolute path to <agentRoot>/commands */
   commandsDir: string
+  /** Absolute path to <agentRoot>/tools */
+  toolsDir: string
+  /** Absolute path to <agentRoot>/tools/bin */
+  toolsBinDir: string
+  /** Absolute path to <agentRoot>/var */
+  agentVarDir: string
 }

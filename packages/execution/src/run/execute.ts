@@ -11,6 +11,8 @@ import type {
 import { displayPrompts, formatDisplayCommand } from '../prompt-display.js'
 import { prepareRunOptions } from '../run-codex.js'
 
+import type { AgentToolRuntimeContext } from './agent-tools.js'
+import { prepareAgentToolRuntime } from './agent-tools.js'
 import type { RunInvocationResult } from './types.js'
 import { formatCommand, formatEnvPrefix } from './util.js'
 
@@ -19,6 +21,7 @@ export interface ExecuteHarnessResult {
   invocation?: RunInvocationResult | undefined
   command: string
   displayCommand: string
+  warnings: string[]
   systemPrompt?: string | undefined
   systemPromptMode?: 'replace' | 'append' | undefined
 }
@@ -90,6 +93,7 @@ export async function executeHarnessRun(
     dryRun?: boolean | undefined
     reminderContent?: string | undefined
     pagePrompts?: boolean | undefined
+    agentToolRuntime?: AgentToolRuntimeContext | undefined
   }
 ): Promise<ExecuteHarnessResult> {
   const preparedRunOptions = await prepareRunOptions(adapter, bundle, runOptions)
@@ -101,10 +105,16 @@ export async function executeHarnessRun(
   }
   projectEnv['AGENTCHAT_ID'] = bundle.targetName
 
-  const harnessEnv: Record<string, string> = {
+  let harnessEnv: Record<string, string> = {
     ...projectEnv,
     ...(options.env ?? {}),
     ...adapter.getRunEnv(bundle, preparedRunOptions),
+  }
+  const warnings: string[] = []
+  if (options.agentToolRuntime) {
+    const toolRuntime = await prepareAgentToolRuntime(options.agentToolRuntime, harnessEnv)
+    harnessEnv = { ...harnessEnv, ...toolRuntime.env }
+    warnings.push(...toolRuntime.warnings)
   }
 
   const commandPath = detection.path ?? adapter.id
@@ -116,6 +126,7 @@ export async function executeHarnessRun(
       exitCode: 0,
       command,
       displayCommand: envPrefix + formatDisplayCommand(commandPath, args),
+      warnings,
       systemPrompt: preparedRunOptions.systemPrompt,
       systemPromptMode: preparedRunOptions.systemPromptMode,
     }
@@ -148,6 +159,7 @@ export async function executeHarnessRun(
     exitCode,
     command,
     displayCommand: envPrefix + formatDisplayCommand(commandPath, args),
+    warnings,
     invocation:
       preparedRunOptions.interactive === false
         ? {

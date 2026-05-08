@@ -21,6 +21,7 @@ export {
   getTempPath,
   getSnapshotPath,
   getPluginCachePath,
+  getProjectStorageId,
   getProjectDataPath,
   getProjectTargetsPath,
   getProjectHarnessOutputPath,

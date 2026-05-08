@@ -21,6 +21,7 @@ import {
   detectAgentLocalComponents,
   harnessRegistry,
   planPlacementRuntime,
+  prepareAgentToolRuntime,
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
 
@@ -1067,12 +1068,25 @@ async function buildPlacementInvocationSpec(
   }
 
   // Merge env: adapter env + correlation + agentchat + request env delta + ASP_HOME
-  const env: Record<string, string> = {
+  let env: Record<string, string> = {
     ...adapterEnv,
     ...correlationEnv,
     ...agentchatEnv,
     ...(req.env ?? {}),
     ASP_HOME: aspHome,
+  }
+
+  if (agentLocalComponents?.hasTools) {
+    const toolRuntime = await prepareAgentToolRuntime(
+      {
+        agentRoot: placement.agentRoot,
+        projectRoot: placement.projectRoot,
+        components: agentLocalComponents,
+      },
+      env
+    )
+    env = { ...env, ...toolRuntime.env }
+    warnings.push(...toolRuntime.warnings)
   }
 
   // Build display command
@@ -1202,14 +1216,28 @@ async function runPlacementTurnNonInteractive(
     const resolvedBundle = placementContext.resolvedBundle
     const cwd = resolvedBundle.cwd
 
-    // Build correlation env vars and apply env overlay
+    // Build correlation env vars. Apply the env overlay once it also contains
+    // agent tool env and frontend-specific session env.
     const correlationEnv = buildCorrelationEnvVars(placement)
     const harnessEnv: Record<string, string> = { ...correlationEnv, ...(req.env ?? {}) }
 
     const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
     harnessEnv['ASP_HOME'] = aspHome
 
-    const restoreEnv = applyEnvOverlay(harnessEnv)
+    const placementAgentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
+    if (placementAgentLocalComponents?.hasTools) {
+      const toolRuntime = await prepareAgentToolRuntime(
+        {
+          agentRoot: placement.agentRoot,
+          projectRoot: placement.projectRoot,
+          components: placementAgentLocalComponents,
+        },
+        harnessEnv
+      )
+      Object.assign(harnessEnv, toolRuntime.env)
+    }
+
+    let restoreEnv: (() => void) | undefined
 
     try {
       // Unified materialization: use the shared placement context rather than
@@ -1233,7 +1261,6 @@ async function runPlacementTurnNonInteractive(
       }
       const effectiveModel = runtimePlan.model.info.effectiveModel
       const resolvedYolo = runtimePlan.yolo ?? false
-      const placementAgentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
       const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
         agentRoot: placement.agentRoot,
         projectRoot: placement.projectRoot,
@@ -1243,6 +1270,8 @@ async function runPlacementTurnNonInteractive(
       if (frontendDef.frontend === PI_SDK_FRONTEND) {
         harnessEnv['PI_CODING_AGENT_DIR'] = materialized.materialization.outputPath
       }
+
+      restoreEnv = applyEnvOverlay(harnessEnv)
 
       if (frontendDef.frontend === AGENT_SDK_FRONTEND) {
         const plugins = (materialized.materialization.pluginDirs ?? []).map((dir) => ({
@@ -1371,7 +1400,7 @@ async function runPlacementTurnNonInteractive(
       finalOutput = assistantState.lastAssistantText
     } finally {
       inFlightRuns.delete(hostSessionId as string)
-      restoreEnv()
+      restoreEnv?.()
     }
 
     // Detect silent "success with no content" — e.g. when the harness child

@@ -30,6 +30,10 @@ const executionSource = readFileSync(
   join(import.meta.dirname, '..', '..', '..', 'execution', 'src', 'run', 'placement-plan.ts'),
   'utf8'
 )
+const materializationSource = readFileSync(
+  join(import.meta.dirname, '..', 'client-materialization.ts'),
+  'utf8'
+)
 
 // Helper: extract a function body from source by name
 function extractFunction(source: string, name: string): string {
@@ -141,6 +145,29 @@ describe('agent-project placement context feeds harness pipeline (T-00994)', () 
     const fn = extractFunction(clientSource, 'buildPlacementInvocationSpec')
     expect(fn).toMatch(/resolvePlacementContext\(/)
     expect(fn).toMatch(/materializeSpec\(/)
+  })
+
+  test('buildPlacementInvocationSpec merges agent tool env after request env', () => {
+    const fn = extractFunction(clientSource, 'buildPlacementInvocationSpec')
+    expect(fn).toMatch(/detectAgentLocalComponents\(placement\.agentRoot\)/)
+    expect(fn).toMatch(/prepareAgentToolRuntime\(/)
+    expect(fn).toMatch(/\.\.\.\(req\.env \?\? \{\}\)[\s\S]*ASP_HOME:\s*aspHome/)
+    expect(fn).toMatch(/env = \{ \.\.\.env, \.\.\.toolRuntime\.env \}/)
+  })
+
+  test('runPlacementTurnNonInteractive applies scoped env with agent tool env', () => {
+    const fn = extractFunction(clientSource, 'runPlacementTurnNonInteractive')
+    expect(fn).toMatch(/detectAgentLocalComponents\(placement\.agentRoot\)/)
+    expect(fn).toMatch(/prepareAgentToolRuntime\(/)
+    expect(fn).toMatch(/Object\.assign\(harnessEnv, toolRuntime\.env\)/)
+    expect(fn).toMatch(/restoreEnv = applyEnvOverlay\(harnessEnv\)/)
+    expect(fn).toMatch(/restoreEnv\?\.\(\)/)
+  })
+
+  test('materializeSpec target branch forwards agent-local context', () => {
+    const fn = extractFunction(materializationSource, 'materializeSpec')
+    expect(fn).toMatch(/agentPath:\s*options\.agentRoot/)
+    expect(fn).toMatch(/agentLocalComponents:\s*options\.agentLocalComponents/)
   })
 
   test('resolvePlacementContext agent-project uses mergeAgentWithProjectTarget for compose', () => {

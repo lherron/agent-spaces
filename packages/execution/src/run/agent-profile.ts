@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { stat } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 
 import {
   type AgentLocalComponents,
@@ -16,7 +17,13 @@ import {
   resolveAgentPrimingPrompt,
 } from 'spaces-config'
 
-import { pathExists } from './util.js'
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory()
+  } catch {
+    return false
+  }
+}
 
 export interface LoadedAgentProfile {
   agentRoot: string
@@ -28,19 +35,28 @@ export async function detectAgentLocalComponents(
 ): Promise<AgentLocalComponents | undefined> {
   const skillsDir = join(agentRoot, 'skills')
   const commandsDir = join(agentRoot, 'commands')
-  const hasSkills = await pathExists(skillsDir)
-  const hasCommands = await pathExists(commandsDir)
+  const toolsDir = join(agentRoot, 'tools')
+  const toolsBinDir = join(toolsDir, 'bin')
+  const agentVarDir = join(agentRoot, 'var')
+  const hasSkills = await isDirectory(skillsDir)
+  const hasCommands = await isDirectory(commandsDir)
+  const hasTools = await isDirectory(toolsBinDir)
 
-  if (!hasSkills && !hasCommands) {
+  if (!hasSkills && !hasCommands && !hasTools) {
     return undefined
   }
 
   return {
     agentRoot,
+    agentName: basename(agentRoot),
     hasSkills,
     hasCommands,
+    hasTools,
     skillsDir,
     commandsDir,
+    toolsDir,
+    toolsBinDir,
+    agentVarDir,
   }
 }
 

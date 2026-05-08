@@ -85,13 +85,19 @@ function computeSpacesTargetName(spaces: string[]): string {
 export async function resolveSpecToLock(
   spec: ValidatedSpec,
   aspHome: string,
-  registryPathOverride?: string | undefined
+  options?: {
+    registryPathOverride?: string | undefined
+    agentRoot?: string | undefined
+    projectRoot?: string | undefined
+  }
 ): Promise<{ targetName: string; lock: LockFile; registryPath: string }> {
+  const registryPathOverride = options?.registryPathOverride
   if (spec.kind === 'target') {
     const result = await resolveTarget(spec.targetName as string, {
       projectPath: spec.targetDir as string,
       aspHome,
       ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
+      ...(options?.agentRoot ? { agentPath: options.agentRoot } : {}),
     })
     const registryPath = getRegistryPath({
       projectPath: spec.targetDir as string,
@@ -107,10 +113,14 @@ export async function resolveSpecToLock(
   const registryPath = registryPathOverride ?? paths.repo
   const closure = await computeClosure(refs as SpaceRefString[], {
     cwd: registryPath,
+    ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
+    ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
   })
   const lock = await generateLockFileForTarget(targetName, refs as SpaceRefString[], closure, {
     cwd: registryPath,
     registry: { type: 'git', url: registryPath },
+    ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
+    ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
   })
 
   return { targetName, lock, registryPath }
@@ -129,16 +139,20 @@ export async function materializeSpec(
 ): Promise<MaterializedSpec> {
   const registryPathOverride = options?.registryPathOverride
   if (spec.kind === 'target') {
-    const { targetName, lock, registryPath } = await resolveSpecToLock(
-      spec,
-      aspHome,
-      registryPathOverride
-    )
+    const { targetName, lock, registryPath } = await resolveSpecToLock(spec, aspHome, {
+      registryPathOverride,
+      ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
+      ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
+    })
     const materialization = await materializeTarget(targetName, lock, {
       projectPath: spec.targetDir as string,
       aspHome,
       registryPath,
       harness: harnessId,
+      ...(options?.agentRoot ? { agentPath: options.agentRoot } : {}),
+      ...(options?.agentLocalComponents
+        ? { agentLocalComponents: options.agentLocalComponents }
+        : {}),
     })
     const skillMetadata = await discoverSkills(materialization.pluginDirs)
     return {
@@ -163,6 +177,11 @@ export async function materializeSpec(
       aspHome,
       lockPath: paths.globalLock,
       harness: harnessId,
+      ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
+      ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
+      ...(options?.agentLocalComponents
+        ? { agentLocalComponents: options.agentLocalComponents }
+        : {}),
     })
     return {
       targetName,
@@ -208,11 +227,9 @@ export async function collectLintWarnings(
   aspHome: string,
   registryPathOverride?: string | undefined
 ): Promise<LintWarning[]> {
-  const { targetName, lock, registryPath } = await resolveSpecToLock(
-    spec,
-    aspHome,
-    registryPathOverride
-  )
+  const { targetName, lock, registryPath } = await resolveSpecToLock(spec, aspHome, {
+    registryPathOverride,
+  })
   const target = lock.targets[targetName]
   if (!target) {
     const available = Object.keys(lock.targets)
