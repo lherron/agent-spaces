@@ -119,6 +119,7 @@ export interface QueueInFlightInputRequest {
   runId: string
   inputApplicationId?: string | undefined
   idempotencyKey?: string | undefined
+  semantics?: 'append_context' | 'interrupt_and_continue' | undefined
   prompt: string
   attachments?: AgentSpacesAttachmentInput[] | undefined
 }

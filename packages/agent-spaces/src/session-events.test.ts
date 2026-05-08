@@ -37,6 +37,7 @@ function mapEvent(
   event: UnifiedSessionEvent,
   opts?: {
     allowSessionIdUpdate?: boolean
+    assistantMessageEndsTurn?: boolean
     state?: { assistantBuffer: string; lastAssistantText?: string }
   }
 ): { turnEnded: boolean; emitted: EventPayload[]; continuationKeys: string[] } {
@@ -48,7 +49,10 @@ function mapEvent(
     (e) => emitted.push(e),
     (key) => continuationKeys.push(key),
     state,
-    { allowSessionIdUpdate: opts?.allowSessionIdUpdate ?? true }
+    {
+      allowSessionIdUpdate: opts?.allowSessionIdUpdate ?? true,
+      assistantMessageEndsTurn: opts?.assistantMessageEndsTurn,
+    }
   )
   return { ...result, emitted, continuationKeys }
 }
@@ -184,6 +188,34 @@ describe('mapUnifiedEvents adapter contract (T-00942)', () => {
       role: 'assistant',
       content: 'from content',
     })
+  })
+
+  test('message_end (assistant) can complete in-flight SDK turns', () => {
+    const { turnEnded, emitted } = mapEvent(
+      {
+        type: 'message_end',
+        message: { role: 'assistant', content: 'done' },
+      },
+      { assistantMessageEndsTurn: true }
+    )
+    expect(turnEnded).toBe(true)
+    expect(emitted[0]).toMatchObject({
+      type: 'message',
+      role: 'assistant',
+      content: 'done',
+    })
+  })
+
+  test('message_end (assistant) with empty content does not complete in-flight SDK turns', () => {
+    const { turnEnded, emitted } = mapEvent(
+      {
+        type: 'message_end',
+        message: { role: 'assistant', content: [] },
+      },
+      { assistantMessageEndsTurn: true }
+    )
+    expect(turnEnded).toBe(false)
+    expect(emitted).toHaveLength(0)
   })
 
   test('message_end (non-assistant) → no emission', () => {

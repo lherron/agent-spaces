@@ -90,7 +90,7 @@ export function mapUnifiedEvents(
   emit: (event: EventPayload) => void,
   onContinuationKeyObserved: (key: string) => void,
   state: { assistantBuffer: string; lastAssistantText?: string | undefined },
-  options: { allowSessionIdUpdate: boolean }
+  options: { allowSessionIdUpdate: boolean; assistantMessageEndsTurn?: boolean | undefined }
 ): { turnEnded: boolean } {
   switch (event.type) {
     case 'agent_start': {
@@ -149,7 +149,7 @@ export function mapUnifiedEvents(
           payload: event.payload,
         } as EventPayload)
       }
-      return { turnEnded: false }
+      return { turnEnded: options.assistantMessageEndsTurn === true && finalText.length > 0 }
     }
     case 'tool_execution_start':
       emit({

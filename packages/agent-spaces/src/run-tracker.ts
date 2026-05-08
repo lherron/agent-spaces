@@ -28,6 +28,7 @@ export interface InFlightRunContext {
   allowSessionIdUpdate: boolean
   continuationKey?: string | undefined
   outstandingTurns: number
+  sawInFlightInput?: boolean | undefined
   acceptedInputApplicationIds: Set<string>
   started: Promise<void>
   completion:
@@ -125,9 +126,13 @@ export function rejectInFlight(context: InFlightRunContext, error: unknown): voi
 export function enqueueInFlightPrompt(
   context: InFlightRunContext,
   prompt: string,
-  attachments: Array<string | AttachmentRef> | undefined
+  attachments: Array<string | AttachmentRef> | undefined,
+  options: { inFlight?: boolean | undefined } = {}
 ): Promise<void> {
   context.outstandingTurns += 1
+  if (options.inFlight === true) {
+    context.sawInFlightInput = true
+  }
   const attachmentRefs = normalizeAttachmentRefs(attachments)
 
   context.sendChain = context.sendChain.then(async () => {

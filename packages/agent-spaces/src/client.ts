@@ -51,6 +51,7 @@ import {
   type EventPayload,
   buildAutoPermissionHandler,
   createEventEmitter,
+  mapContentToText,
   mapUnifiedEvents,
   runSession,
 } from './session-events.js'
@@ -150,6 +151,30 @@ function toAgentSpacesError(error: unknown, code?: AgentSpacesError['code']): Ag
     ...(errorCode ? { code: errorCode } : {}),
     ...(Object.keys(details).length > 0 ? { details } : {}),
   }
+}
+
+function assistantMessageEndedWithOutput(
+  event: UnifiedSessionEvent,
+  state: { assistantBuffer: string; lastAssistantText?: string | undefined }
+): boolean {
+  if (event.type !== 'message_end' || event.message?.role !== 'assistant') {
+    return false
+  }
+  const content = mapContentToText(event.message.content)
+  const finalText = content ?? state.assistantBuffer
+  return finalText.trim().length > 0
+}
+
+function shouldDrainOutstandingTurn(
+  event: UnifiedSessionEvent,
+  mapped: { turnEnded: boolean },
+  context: InFlightRunContext
+): boolean {
+  return (
+    mapped.turnEnded ||
+    (context.sawInFlightInput === true &&
+      assistantMessageEndedWithOutput(event, context.assistantState))
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -528,7 +553,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
                     { allowSessionIdUpdate: context.allowSessionIdUpdate }
                   )
 
-                  if (!mapped.turnEnded) return
+                  if (!shouldDrainOutstandingTurn(event, mapped, context)) return
 
                   context.outstandingTurns = Math.max(0, context.outstandingTurns - 1)
                   if (context.outstandingTurns !== 0) return
@@ -621,7 +646,13 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
         content: req.prompt,
       } as EventPayload)
 
-      await enqueueInFlightPrompt(context, req.prompt, req.attachments)
+      await enqueueInFlightPrompt(context, req.prompt, req.attachments, { inFlight: true })
+      if (req.semantics === 'interrupt_and_continue') {
+        const interruptable = context.session as { interrupt?: (reason?: string) => Promise<void> }
+        if (typeof interruptable.interrupt === 'function') {
+          await interruptable.interrupt('in-flight user correction')
+        }
+      }
       if (req.inputApplicationId !== undefined) {
         context.acceptedInputApplicationIds.add(req.inputApplicationId)
       }
@@ -1318,7 +1349,7 @@ async function runPlacementTurnNonInteractive(
             { allowSessionIdUpdate: frontendDef.frontend !== PI_SDK_FRONTEND }
           )
 
-          if (result.turnEnded && !turnEnded) {
+          if (shouldDrainOutstandingTurn(event, result, activeContext) && !turnEnded) {
             activeContext.outstandingTurns = Math.max(0, activeContext.outstandingTurns - 1)
             if (activeContext.outstandingTurns !== 0) return
             turnEnded = true
