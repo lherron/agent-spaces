@@ -19,7 +19,7 @@ import {
   type JsonRpcNotification,
   type JsonRpcRequest,
 } from './rpc-client.js'
-import type { CodexSessionConfig, CodexTurnArtifacts } from './types.js'
+import { type CodexSessionConfig, type CodexTurnArtifacts, toCodexSandboxPolicy } from './types.js'
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif'])
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -191,8 +191,19 @@ export class CodexSession implements UnifiedSession {
 
     try {
       const command = this.config.appServerCommand ?? 'codex'
+      const args: string[] = []
+      if (this.config.profile) {
+        args.push('-c', `profile="${this.config.profile}"`)
+      }
+      for (const feature of this.config.featureFlags ?? []) {
+        args.push('--enable', feature)
+      }
+      args.push('app-server')
+      if (this.config.extraArgs) {
+        args.push(...this.config.extraArgs)
+      }
       const env = { ...process.env, CODEX_HOME: this.config.homeDir }
-      this.proc = spawn(command, ['app-server'], {
+      this.proc = spawn(command, args, {
         cwd: this.config.cwd,
         env,
         stdio: 'pipe',
@@ -279,9 +290,9 @@ export class CodexSession implements UnifiedSession {
         input,
         cwd: this.config.cwd ?? null,
         approvalPolicy: this.config.approvalPolicy ?? null,
-        sandboxPolicy: this.config.sandboxMode ?? null,
+        sandboxPolicy: toCodexSandboxPolicy(this.config.sandboxMode),
         model: this.config.model ?? null,
-        effort: null,
+        effort: this.config.modelReasoningEffort ?? null,
         summary: null,
         outputSchema: null,
       })) as TurnStartResponse

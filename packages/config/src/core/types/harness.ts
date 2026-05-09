@@ -423,6 +423,8 @@ export interface HarnessRunOptions {
   settingSources?: string | null | undefined
   /** Additional CLI arguments */
   extraArgs?: string[] | undefined
+  /** Codex feature flags to enable (`--enable <feature>`) */
+  featureFlags?: string[] | undefined
   /** Whether to run in interactive mode */
   interactive?: boolean | undefined
   /** Project directory */

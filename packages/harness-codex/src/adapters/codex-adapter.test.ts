@@ -411,24 +411,24 @@ exit 1
       expect(args).not.toContain('exec')
     })
 
-    test('uses exec mode in non-interactive runs', () => {
+    test('uses app-server mode in non-interactive runs', () => {
       const args = adapter.buildRunArgs(bundle, {
         interactive: false,
         prompt: 'Summarize repository health',
       })
 
-      expect(args.slice(0, 3)).toEqual(['exec', '--enable', 'goals'])
-      expect(args).toContain('Summarize repository health')
+      expect(args).toEqual(['--enable', 'goals', 'app-server'])
+      expect(args).not.toContain('Summarize repository health')
     })
 
-    test('emits model reasoning effort as a config override', () => {
+    test('keeps headless model reasoning effort out of app-server argv', () => {
       const args = adapter.buildRunArgs(bundle, {
         interactive: false,
         modelReasoningEffort: 'high',
       })
 
-      expect(args).toContain('-c')
-      expect(args).toContain('model_reasoning_effort="high"')
+      expect(args).toEqual(['--enable', 'goals', 'app-server'])
+      expect(args).not.toContain('model_reasoning_effort="high"')
     })
 
     test('marks gpt-5.5 as the default supported model', () => {

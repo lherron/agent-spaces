@@ -231,7 +231,7 @@ describe('asp codex harness', () => {
     expect(command).not.toContain(' exec ')
   })
 
-  test('run --harness codex --no-interactive forces exec mode', async () => {
+  test('run --harness codex --no-interactive uses app-server mode', async () => {
     const testEnv = getCodexTestEnv(aspHome)
     const { stdout, exitCode } = await runCli(
       ['run', 'codex-target', 'investigate', '--harness', 'codex', '--dry-run', '--no-interactive'],
@@ -240,8 +240,9 @@ describe('asp codex harness', () => {
 
     expect(exitCode).toBe(0)
     const command = extractDryRunCommand(stdout)
-    expect(command).toContain(' exec ')
-    expect(command).toContain('investigate')
+    expect(command).toContain('--enable goals app-server')
+    expect(command).not.toContain(' exec ')
+    expect(command).not.toContain('investigate')
   })
 
   test('run --harness codex concatenates priming_prompt and user prompt', async () => {

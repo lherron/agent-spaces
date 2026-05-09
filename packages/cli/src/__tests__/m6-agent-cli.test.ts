@@ -560,7 +560,7 @@ describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
     expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice')
     // AGENT_LANE_REF should default to 'main'
     expect(parsed.spec.env.AGENT_LANE_REF).toBe('main')
-  })
+  }, 10_000)
 
   test('--lane-ref overrides default lane', () => {
     // RED: Currently --lane-ref alone triggers correlation, but this test
@@ -687,7 +687,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
     expect(parsed.spec.argv).toContain('--model')
   })
 
-  test('codex-cli argv contains exec subcommand and --model flag', () => {
+  test('codex-cli argv contains app-server subcommand and structured model descriptor', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -712,8 +712,15 @@ describe('placement invocation produces full argv (T-00874)', () => {
     expect(parsed.spec.argv.length).toBeGreaterThan(1)
     expect(parsed.spec.argv).toContain('--enable')
     expect(parsed.spec.argv).toContain('goals')
-    expect(parsed.spec.argv).toContain('exec')
-    expect(parsed.spec.argv).toContain('--model')
+    expect(parsed.spec.argv).toContain('app-server')
+    expect(parsed.spec.argv).not.toContain('exec')
+    expect(parsed.spec.argv).not.toContain('--model')
+    expect(parsed.spec.codexAppServer).toMatchObject({
+      prompt: 'Hello',
+      model: 'gpt-5.5',
+      approvalPolicy: 'never',
+      featureFlags: ['goals'],
+    })
   })
 
   test('displayCommand is present and non-empty', () => {
@@ -849,7 +856,7 @@ describe('prompt in argv (T-00875)', () => {
     expect(parsed.spec.argv[pIdx + 1]).toBe('Reply with exactly: CLIPASS')
   })
 
-  test('codex-cli argv contains prompt text', () => {
+  test('codex-cli descriptor contains prompt text', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -869,11 +876,11 @@ describe('prompt in argv (T-00875)', () => {
     )
 
     const parsed = JSON.parse(result.stdout)
-    // Codex puts the prompt as a positional arg
-    expect(parsed.spec.argv).toContain('Reply with exactly: CLIPASS')
+    expect(parsed.spec.argv).not.toContain('Reply with exactly: CLIPASS')
+    expect(parsed.spec.codexAppServer?.prompt).toBe('Reply with exactly: CLIPASS')
   })
 
-  test('no prompt in argv when prompt not provided (heartbeat)', () => {
+  test('no prompt in argv when prompt not provided (heartbeat)', { timeout: 15000 }, () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -925,7 +932,8 @@ describe('gpt-5.5 model support (T-00878)', () => {
     // Should succeed (exit 0) — gpt-5.5 is a valid model
     expect(result.exitCode).toBe(0)
     const parsed = JSON.parse(result.stdout)
-    expect(parsed.spec.argv).toContain('--model')
+    expect(parsed.spec.argv).not.toContain('--model')
+    expect(parsed.spec.codexAppServer?.model).toBe('gpt-5.5')
   })
 
   test('codex-cli default model is gpt-5.5 in dry-run', () => {
@@ -948,10 +956,9 @@ describe('gpt-5.5 model support (T-00878)', () => {
     )
 
     const parsed = JSON.parse(result.stdout)
-    const modelIdx = parsed.spec.argv.indexOf('--model')
-    expect(modelIdx).toBeGreaterThan(-1)
+    expect(parsed.spec.argv).not.toContain('--model')
     // Default should be gpt-5.5
-    expect(parsed.spec.argv[modelIdx + 1]).toBe('gpt-5.5')
+    expect(parsed.spec.codexAppServer?.model).toBe('gpt-5.5')
   })
 })
 

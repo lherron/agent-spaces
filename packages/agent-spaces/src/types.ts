@@ -57,6 +57,20 @@ export type ProcessInvocationSpec = {
   displayCommand?: string | undefined
   /** Path to the materialized system prompt file (for audit/inspection) */
   systemPromptFile?: string | undefined
+  codexAppServer?:
+    | {
+        prompt?: string | undefined
+        resumeThreadId?: string | undefined
+        model?: string | undefined
+        modelReasoningEffort?: string | undefined
+        approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
+        sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
+        profile?: string | undefined
+        imageAttachments?: string[] | undefined
+        featureFlags?: string[] | undefined
+        extraArgs?: string[] | undefined
+      }
+    | undefined
 }
 
 // ---------------------------------------------------------------------------

@@ -52,7 +52,7 @@ const INSTRUCTIONS_FILES = ['AGENTS.md', 'AGENT.md'] as const
 const DEFAULT_SANDBOX_MODE = 'workspace-write'
 const DEFAULT_APPROVAL_POLICY = 'on-request'
 const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.5'
-const DEFAULT_CODEX_ENABLED_FEATURES = ['goals'] as const
+export const DEFAULT_CODEX_ENABLED_FEATURES = ['goals'] as const
 const MIN_CODEX_VERSION = '0.124.0'
 const CODEX_PATH_ENV = 'ASP_CODEX_PATH'
 const CODEX_SKIP_COMMON_PATHS_ENV = 'ASP_CODEX_SKIP_COMMON_PATHS'
@@ -68,6 +68,43 @@ const SPACE_CODEX_CONFIG_FILE = 'codex.config.json'
 const DEFAULT_TUI_STATUS_LINE = ['model-with-reasoning', 'context-remaining', 'current-dir']
 type CodexOptionsWithStatusLine = ComposeTargetInput['codexOptions'] & {
   status_line?: string[] | undefined
+}
+
+export interface CodexAppServerLaunchDescriptor {
+  prompt?: string | undefined
+  resumeThreadId?: string | undefined
+  model?: string | undefined
+  modelReasoningEffort?: string | undefined
+  approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
+  profile?: string | undefined
+  imageAttachments?: string[] | undefined
+  featureFlags?: string[] | undefined
+  extraArgs?: string[] | undefined
+}
+
+export function buildCodexAppServerLaunchDescriptor(
+  options: HarnessRunOptions
+): CodexAppServerLaunchDescriptor {
+  const sandboxMode = options.yolo ? 'danger-full-access' : options.sandboxMode
+  return {
+    ...(options.prompt !== undefined ? { prompt: options.prompt } : {}),
+    ...(typeof options.continuationKey === 'string'
+      ? { resumeThreadId: options.continuationKey }
+      : {}),
+    ...(options.model !== undefined ? { model: options.model } : {}),
+    ...(options.modelReasoningEffort !== undefined
+      ? { modelReasoningEffort: options.modelReasoningEffort }
+      : {}),
+    approvalPolicy: 'never',
+    ...(sandboxMode !== undefined ? { sandboxMode } : {}),
+    ...(options.profile !== undefined ? { profile: options.profile } : {}),
+    ...(options.imageAttachments !== undefined
+      ? { imageAttachments: options.imageAttachments }
+      : {}),
+    featureFlags: [...(options.featureFlags ?? DEFAULT_CODEX_ENABLED_FEATURES)],
+    ...(options.extraArgs !== undefined ? { extraArgs: options.extraArgs } : {}),
+  }
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -828,34 +865,30 @@ export class CodexAdapter implements HarnessAdapter {
     const approvalPolicy = options.yolo ? 'never' : options.approvalPolicy
     const sandboxMode = options.yolo ? 'danger-full-access' : options.sandboxMode
     const appendDefaultFeatureFlags = () => {
-      for (const feature of DEFAULT_CODEX_ENABLED_FEATURES) {
+      for (const feature of options.featureFlags ?? DEFAULT_CODEX_ENABLED_FEATURES) {
         args.push('--enable', feature)
       }
     }
 
-    // Resume mode: interactive `codex resume [session-id]` or
-    // headless `codex exec resume <session-id> <prompt>`.
-    if (isResumeMode && isExecMode) {
-      args.push('exec', 'resume')
+    if (isExecMode) {
+      if (options.profile) {
+        args.push('-c', `profile="${options.profile}"`)
+      }
       appendDefaultFeatureFlags()
-      if (typeof options.continuationKey === 'string') {
-        args.push(options.continuationKey)
+      args.push('app-server')
+      if (options.extraArgs) {
+        args.push(...options.extraArgs)
       }
-      if (options.prompt) {
-        args.push(options.prompt)
-      }
-    } else if (isResumeMode) {
+      return args
+    }
+
+    // Resume mode: interactive `codex resume [session-id]`.
+    if (isResumeMode) {
       args.push('resume')
       appendDefaultFeatureFlags()
       if (typeof options.continuationKey === 'string') {
         args.push(options.continuationKey)
       }
-      if (options.prompt) {
-        args.push(options.prompt)
-      }
-    } else if (isExecMode) {
-      args.push('exec')
-      appendDefaultFeatureFlags()
       if (options.prompt) {
         args.push(options.prompt)
       }
@@ -873,21 +906,10 @@ export class CodexAdapter implements HarnessAdapter {
       args.push('-c', `model_reasoning_effort="${options.modelReasoningEffort}"`)
     }
     if (approvalPolicy) {
-      // exec mode uses -c config override, interactive mode uses --ask-for-approval
-      if (isExecMode) {
-        args.push('-c', `approval_policy="${approvalPolicy}"`)
-      } else {
-        args.push('--ask-for-approval', approvalPolicy)
-      }
+      args.push('--ask-for-approval', approvalPolicy)
     }
     if (sandboxMode) {
-      // `codex exec resume` doesn't accept --sandbox as a flag — use a config
-      // override which both `codex exec` and `codex exec resume` accept.
-      if (isExecMode && isResumeMode) {
-        args.push('-c', `sandbox_mode="${sandboxMode}"`)
-      } else {
-        args.push('--sandbox', sandboxMode)
-      }
+      args.push('--sandbox', sandboxMode)
     }
     if (options.profile) {
       args.push('--profile', options.profile)

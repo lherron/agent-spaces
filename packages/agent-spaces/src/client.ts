@@ -25,6 +25,7 @@ import {
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
 
+import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
 import { PiSession, loadPiSdkBundle } from 'spaces-harness-pi-sdk/pi-session'
 
 import { buildCorrelationEnvVars } from './placement-api.js'
@@ -370,6 +371,9 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           ioMode: req.ioMode,
           ...(continuation ? { continuation } : {}),
           displayCommand,
+          ...(req.frontend === 'codex-cli' && req.interactionMode === 'headless'
+            ? { codexAppServer: buildCodexAppServerLaunchDescriptor(runOptions) }
+            : {}),
         }
 
         return { spec: invocationSpec, ...(warnings.length > 0 ? { warnings } : {}) }
@@ -1108,6 +1112,9 @@ async function buildPlacementInvocationSpec(
     ...(continuation ? { continuation } : {}),
     displayCommand,
     ...(systemPrompt ? { systemPromptFile: systemPrompt.path } : {}),
+    ...(req.frontend === 'codex-cli' && req.interactionMode === 'headless'
+      ? { codexAppServer: buildCodexAppServerLaunchDescriptor(runOptions) }
+      : {}),
   }
 
   return {

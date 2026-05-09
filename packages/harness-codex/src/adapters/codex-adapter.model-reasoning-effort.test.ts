@@ -5,15 +5,16 @@
  * reasoning effort at runtime. This must be:
  * 1. Written into codex.home/config.toml during target composition
  *    (persisted default from asp-targets.toml)
- * 2. Emitted as a CLI `-c` override in buildRunArgs when provided at runtime
- * 3. CLI override (modelReasoningEffort) must take precedence over any composed default
+ * 2. Emitted as a CLI `-c` override for interactive runs, and carried in the
+ *    app-server descriptor for headless runs
+ * 3. Runtime override (modelReasoningEffort) must take precedence over any composed default
  *
  * PASS CONDITIONS (all tests green when):
  * 1. composeTarget: when `codexOptions.model_reasoning_effort` is set, the generated
  *    config.toml contains `model_reasoning_effort = "<value>"`
- * 2. buildRunArgs: when `options.modelReasoningEffort` is set, args include
- *    `-c` and `model_reasoning_effort="<value>"` (in both interactive and exec modes)
- * 3. Precedence: `modelReasoningEffort` from buildRunArgs options always wins over
+ * 2. Runtime options: when `options.modelReasoningEffort` is set, interactive args include
+ *    `-c model_reasoning_effort="<value>"` and headless descriptors include the value
+ * 3. Precedence: `modelReasoningEffort` from runtime options always wins over
  *    any value that may have been written to config.toml during compose
  *
  * wrkq task: T-00947
@@ -25,7 +26,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import TOML from '@iarna/toml'
 import type { ComposedTargetBundle, SpaceKey } from 'spaces-config'
-import { CodexAdapter } from './codex-adapter.js'
+import { CodexAdapter, buildCodexAppServerLaunchDescriptor } from './codex-adapter.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -65,24 +66,18 @@ describe('CodexAdapter.buildRunArgs: model_reasoning_effort', () => {
     await rm(tmpDir, { recursive: true, force: true })
   })
 
-  test('exec mode: emits -c model_reasoning_effort="high"', () => {
+  test('headless app-server mode: carries modelReasoningEffort in descriptor', () => {
     const bundle = makeBundle(tmpDir)
-    const args = adapter.buildRunArgs(bundle, {
+    const options = {
       interactive: false,
       prompt: 'do the thing',
       modelReasoningEffort: 'high',
-    })
+    } as const
+    const args = adapter.buildRunArgs(bundle, options)
+    const descriptor = buildCodexAppServerLaunchDescriptor(options)
 
-    // Find the -c flag for model_reasoning_effort
-    const cIdx = args.lastIndexOf('-c')
-    expect(cIdx).toBeGreaterThan(-1)
-    const found = args.some(
-      (a, i) => i > 0 && args[i - 1] === '-c' && a.includes('model_reasoning_effort=')
-    )
-    expect(found).toBe(true)
-
-    const mreArg = args[args.indexOf('-c', args.lastIndexOf('exec') + 1) + 1]
-    expect(mreArg).toBe('model_reasoning_effort="high"')
+    expect(args).toEqual(['--enable', 'goals', 'app-server'])
+    expect(descriptor.modelReasoningEffort).toBe('high')
   })
 
   test('interactive mode: emits -c model_reasoning_effort="medium"', () => {
@@ -118,10 +113,13 @@ describe('CodexAdapter.buildRunArgs: model_reasoning_effort', () => {
         prompt: 'test',
         modelReasoningEffort: effort,
       })
-      const found = args.some(
-        (a, i) => i > 0 && args[i - 1] === '-c' && a === `model_reasoning_effort="${effort}"`
-      )
-      expect(found).toBe(true)
+      const descriptor = buildCodexAppServerLaunchDescriptor({
+        interactive: false,
+        prompt: 'test',
+        modelReasoningEffort: effort,
+      })
+      expect(args).toEqual(['--enable', 'goals', 'app-server'])
+      expect(descriptor.modelReasoningEffort).toBe(effort)
     }
   })
 })
@@ -266,11 +264,13 @@ describe('CodexAdapter: model_reasoning_effort precedence', () => {
       // no CLI override — codex will use whatever is in config.toml
     })
 
-    // With CLI override: model_reasoning_effort="high" must appear in args
-    const overridePresent = argsWithOverride.some(
-      (a, i) => i > 0 && argsWithOverride[i - 1] === '-c' && a === 'model_reasoning_effort="high"'
-    )
-    expect(overridePresent).toBe(true)
+    const descriptorWithOverride = buildCodexAppServerLaunchDescriptor({
+      interactive: false,
+      prompt: 'test precedence',
+      modelReasoningEffort: 'high',
+    })
+    expect(argsWithOverride).toEqual(['--enable', 'goals', 'app-server'])
+    expect(descriptorWithOverride.modelReasoningEffort).toBe('high')
 
     // Without CLI override: model_reasoning_effort must NOT appear in args
     // (config.toml handles the default; we don't re-emit it in args)
