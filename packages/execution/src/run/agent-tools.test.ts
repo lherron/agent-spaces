@@ -78,6 +78,20 @@ describe('prepareAgentToolRuntime', () => {
     await expect(stat(join(agentRoot, 'var', 'logs'))).resolves.toMatchObject({})
   })
 
+  test('does not prepend tools bin twice when PATH already starts with it', async () => {
+    const agentRoot = await createTempDir('agent-tools-idempotent-')
+    await writeTool(agentRoot, 'spark-tool')
+    const toolsBinDir = join(agentRoot, 'tools', 'bin')
+
+    const result = await prepareAgentToolRuntime(
+      { agentRoot, components: components(agentRoot) },
+      { PATH: `${toolsBinDir}:/usr/bin` }
+    )
+
+    expect(result.pathPrepend).toEqual([])
+    expect(result.env['PATH']).toBe(`${toolsBinDir}:/usr/bin`)
+  })
+
   test('sets project env and project state directory using project storage id', async () => {
     const agentRoot = await createTempDir('agent-tools-project-')
     const projectRoot = await createTempDir('My Project-')

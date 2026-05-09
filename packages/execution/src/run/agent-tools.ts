@@ -102,11 +102,19 @@ export async function prepareAgentToolRuntime(
   }
 
   const currentPath = baseEnv['PATH'] ?? process.env['PATH'] ?? ''
-  env['PATH'] = currentPath
-    ? `${components.toolsBinDir}${delimiter}${currentPath}`
-    : components.toolsBinDir
+  const pathEntries = currentPath ? currentPath.split(delimiter) : []
+  const shouldPrependToolsBin = pathEntries[0] !== components.toolsBinDir
+  env['PATH'] = shouldPrependToolsBin
+    ? currentPath
+      ? `${components.toolsBinDir}${delimiter}${currentPath}`
+      : components.toolsBinDir
+    : currentPath
 
-  return { env, pathPrepend: [components.toolsBinDir], warnings }
+  return {
+    env,
+    pathPrepend: shouldPrependToolsBin ? [components.toolsBinDir] : [],
+    warnings,
+  }
 }
 
 export async function validateAgentTools(components: AgentLocalComponents): Promise<string[]> {
