@@ -111,7 +111,25 @@ describe('prepareCodexRuntimeHome', () => {
     await mkdir(join(templateHome, 'prompts'), { recursive: true })
     await writeFile(join(templateHome, 'AGENTS.md'), 'fresh agents\n')
     await writeFile(join(templateHome, 'config.toml'), 'model = "gpt-5.5"\n')
-    await writeFile(join(templateHome, 'hooks.json'), '{"hooks":{"Stop":[]}}\n')
+    await writeFile(
+      join(templateHome, 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command:
+                    'if [ -n "${HRC_LAUNCH_HOOK_CLI:-}" ]; then bun "$HRC_LAUNCH_HOOK_CLI"; fi',
+                  statusMessage: 'capturing Codex turn',
+                },
+              ],
+            },
+          ],
+        },
+      })
+    )
     await writeFile(join(templateHome, 'manifest.json'), '{"name":"codex"}\n')
     await writeFile(join(templateHome, 'skills', 'fresh-skill', 'SKILL.md'), 'fresh skill\n')
     await writeFile(join(templateHome, 'prompts', 'review.md'), 'fresh prompt\n')
@@ -143,7 +161,6 @@ describe('prepareCodexRuntimeHome', () => {
 
     expect(resolvedRuntime).toBe(runtimeHome)
     expect(await readFile(join(runtimeHome, 'AGENTS.md'), 'utf-8')).toBe('fresh agents\n')
-    expect(await readFile(join(runtimeHome, 'hooks.json'), 'utf-8')).toBe('{"hooks":{"Stop":[]}}\n')
     expect(await readFile(join(runtimeHome, 'skills', 'fresh-skill', 'SKILL.md'), 'utf-8')).toBe(
       'fresh skill\n'
     )
@@ -155,6 +172,11 @@ describe('prepareCodexRuntimeHome', () => {
     const config = await readFile(join(runtimeHome, 'config.toml'), 'utf-8')
     expect(config).toContain('model = "gpt-5.5"')
     expect(config).toContain(`[projects.${JSON.stringify(projectPath)}]`)
+    const runtimeHookKey = `${join(runtimeHome, 'hooks.json')}:stop:0:0`
+    const templateHookKey = `${join(templateHome, 'hooks.json')}:stop:0:0`
+    expect(config).toContain(`[hooks.state.${JSON.stringify(runtimeHookKey)}]`)
+    expect(config).toContain('trusted_hash = "sha256:')
+    expect(config).not.toContain(templateHookKey)
 
     const metadata = JSON.parse(
       await readFile(join(runtimeHome, '.asp-runtime.json'), 'utf-8')

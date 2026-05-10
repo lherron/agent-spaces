@@ -337,12 +337,19 @@ exit 1
       expect(parsed['model']).toBe('gpt-5.3-codex')
       expect(parsed['model_reasoning_effort']).toBe('medium')
       expect(parsed['profile']).toBe('default')
-      expect((parsed['features'] as Record<string, unknown>)['codex_hooks']).toBe(true)
+      expect((parsed['features'] as Record<string, unknown>)['hooks']).toBe(true)
       expect((parsed['tui'] as Record<string, unknown>)['status_line']).toEqual([
         'model',
         'context-remaining',
         'git-branch',
       ])
+      const hookState = ((parsed['hooks'] as Record<string, unknown>)['state'] ?? {}) as Record<
+        string,
+        Record<string, unknown>
+      >
+      const hookKey = `${join(codexHome, 'hooks.json')}:stop:0:0`
+      expect(Object.keys(hookState)).toContain(hookKey)
+      expect(hookState[hookKey]?.['trusted_hash']).toMatch(/^sha256:[a-f0-9]{64}$/)
 
       const mcpServers = parsed['mcp_servers'] as Record<string, Record<string, unknown>>
       expect(mcpServers['serverA']?.['command']).toBe('override')
@@ -383,7 +390,7 @@ exit 1
       const configRaw = await readFile(join(outputDir, 'codex.home', 'config.toml'), 'utf-8')
       const parsed = TOML.parse(configRaw) as Record<string, unknown>
       expect(parsed['model']).toBe('gpt-5.5')
-      expect((parsed['features'] as Record<string, unknown>)['codex_hooks']).toBe(true)
+      expect((parsed['features'] as Record<string, unknown>)['hooks']).toBe(true)
       expect((parsed['tui'] as Record<string, unknown>)['status_line']).toEqual([
         'model-with-reasoning',
         'context-remaining',

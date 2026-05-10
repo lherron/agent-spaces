@@ -22,7 +22,10 @@ import {
   copyDir,
   getAspHome,
 } from 'spaces-config'
-import { applyPraesidiumContextToCodexHome } from 'spaces-harness-codex'
+import {
+  applyPraesidiumContextToCodexHome,
+  trustCodexHooksInConfigToml,
+} from 'spaces-harness-codex'
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -224,13 +227,20 @@ export async function prepareCodexRuntimeHome(
   })
 
   const configPath = join(runtimeHome, 'config.toml')
+  const hooksPath = join(runtimeHome, 'hooks.json')
   const projectPath = runOptions.cwd ?? runOptions.projectPath
-  if (projectPath && (await pathExists(configPath))) {
-    const configToml = await readFile(configPath, 'utf-8')
-    const trustedConfig = ensureCodexProjectTrust(configToml, projectPath)
-    if (trustedConfig !== configToml) {
-      await writeFile(configPath, trustedConfig)
+  if (await pathExists(configPath)) {
+    let configToml = await readFile(configPath, 'utf-8')
+    if (await pathExists(hooksPath)) {
+      const hooksJson = await readFile(hooksPath, 'utf-8')
+      configToml = trustCodexHooksInConfigToml(configToml, hooksPath, hooksJson, {
+        replaceHooksPaths: [join(templateHome, 'hooks.json')],
+      })
     }
+    if (projectPath) {
+      configToml = ensureCodexProjectTrust(configToml, projectPath)
+    }
+    await writeFile(configPath, configToml)
   }
 
   const metadata: CodexRuntimeMetadata = projectPath
