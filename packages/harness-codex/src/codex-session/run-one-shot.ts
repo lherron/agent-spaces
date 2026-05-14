@@ -280,8 +280,20 @@ export async function runCodexAppServerOneShot(
     await rpc.sendRequest('initialize', { clientInfo: CLIENT_INFO })
     await rpc.sendNotification('initialized', {})
 
+    const threadStartParams = {
+      model: options.model ?? null,
+      modelProvider: null,
+      cwd: options.cwd,
+      approvalPolicy: options.approvalPolicy ?? 'never',
+      sandbox: options.sandboxMode ?? null,
+      config: null,
+      baseInstructions: null,
+      developerInstructions: null,
+      experimentalRawEvents: false,
+    }
+
     if (options.resumeThreadId) {
-      const response = (await rpc.sendRequest('thread/resume', {
+      const threadResumeParams = {
         threadId: options.resumeThreadId,
         history: null,
         path: null,
@@ -293,20 +305,28 @@ export async function runCodexAppServerOneShot(
         config: null,
         baseInstructions: null,
         developerInstructions: null,
-      })) as ThreadResumeResponse
+      }
+      const response = (await rpc
+        .sendRequest('thread/resume', threadResumeParams)
+        .catch(async (error: unknown) => {
+          if (!isNoRolloutFoundResumeError(error)) {
+            throw error
+          }
+
+          await emitEvent({
+            type: 'notice',
+            level: 'warn',
+            message: 'Prior Codex thread was lost; starting a fresh thread.',
+          })
+
+          return rpc.sendRequest('thread/start', threadStartParams)
+        })) as ThreadResumeResponse | ThreadStartResponse
       threadId = response.thread?.id ?? options.resumeThreadId
     } else {
-      const response = (await rpc.sendRequest('thread/start', {
-        model: options.model ?? null,
-        modelProvider: null,
-        cwd: options.cwd,
-        approvalPolicy: options.approvalPolicy ?? 'never',
-        sandbox: options.sandboxMode ?? null,
-        config: null,
-        baseInstructions: null,
-        developerInstructions: null,
-        experimentalRawEvents: false,
-      })) as ThreadStartResponse
+      const response = (await rpc.sendRequest(
+        'thread/start',
+        threadStartParams
+      )) as ThreadStartResponse
       threadId = response.thread?.id
     }
 
@@ -367,6 +387,13 @@ export async function runCodexAppServerOneShot(
 
     throw new Error(`Unhandled Codex app-server request: ${request.method}`)
   }
+}
+
+function isNoRolloutFoundResumeError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  return /^JSON-RPC error -32600:/i.test(error.message) && /no rollout found/i.test(error.message)
 }
 
 function buildUserInputs(
