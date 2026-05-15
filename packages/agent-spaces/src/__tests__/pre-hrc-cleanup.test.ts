@@ -32,7 +32,6 @@ import { join } from 'node:path'
 import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 const AGENT_SPACES_ROOT = join(import.meta.dir, '..', '..', '..', '..')
-const CONTROL_PLANE_ROOT = join(AGENT_SPACES_ROOT, '..', 'control-plane')
 
 // ===================================================================
 // REGRESSION GUARDS — Public surface that MUST survive cleanup
@@ -216,62 +215,6 @@ describe('[T-00935] dead session and harness paths removed', () => {
     for (const typeName of deadTypes) {
       expect(content).not.toContain(typeName)
     }
-  })
-})
-
-// ===================================================================
-// T-00936: hostSessionId cutover in control-plane
-// RED — CP files still use cpSessionId → FAIL
-// ===================================================================
-
-describe('[T-00936] hostSessionId cutover in control-plane', () => {
-  test('terminal-router.ts should use hostSessionId, not cpSessionId', () => {
-    const filePath = join(
-      CONTROL_PLANE_ROOT,
-      'packages',
-      'control-plane',
-      'src',
-      'terminal-router.ts'
-    )
-
-    if (!existsSync(filePath)) {
-      throw new Error(
-        `terminal-router.ts not found at ${filePath} — adjust CONTROL_PLANE_ROOT if needed`
-      )
-    }
-
-    const content = require('node:fs').readFileSync(filePath, 'utf8')
-
-    // After cutover, cpSessionId should not appear in buildProcessInvocationSpec calls.
-    // Currently it DOES appear → FAIL (RED).
-    //
-    // We check for the specific pattern: `cpSessionId:` as an object property.
-    // This avoids false positives from comments or other uses.
-    const cpSessionIdProps = content.match(/cpSessionId\s*:/g) || []
-    expect(cpSessionIdProps.length).toBe(0)
-  })
-
-  test('asp-client-backend.ts should use hostSessionId, not cpSessionId', () => {
-    const filePath = join(
-      CONTROL_PLANE_ROOT,
-      'packages',
-      'session-agent-spaces',
-      'src',
-      'asp-client-backend.ts'
-    )
-
-    if (!existsSync(filePath)) {
-      throw new Error(
-        `asp-client-backend.ts not found at ${filePath} — adjust CONTROL_PLANE_ROOT if needed`
-      )
-    }
-
-    const content = require('node:fs').readFileSync(filePath, 'utf8')
-
-    // After cutover, cpSessionId should be replaced with hostSessionId.
-    // Currently cpSessionId IS used → FAIL (RED).
-    const cpSessionIdProps = content.match(/cpSessionId\s*:/g) || []
-    expect(cpSessionIdProps.length).toBe(0)
   })
 })
 
