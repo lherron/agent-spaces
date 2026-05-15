@@ -11,6 +11,8 @@ import type {
 import { displayPrompts, formatDisplayCommand } from '../prompt-display.js'
 import { prepareRunOptions } from '../run-codex.js'
 
+import type { AgentBrainRuntimeContext } from './agent-brain.js'
+import { prepareAgentBrainRuntime } from './agent-brain.js'
 import type { AgentToolRuntimeContext } from './agent-tools.js'
 import { prepareAgentToolRuntime } from './agent-tools.js'
 import type { RunInvocationResult } from './types.js'
@@ -93,6 +95,7 @@ export async function executeHarnessRun(
     dryRun?: boolean | undefined
     reminderContent?: string | undefined
     pagePrompts?: boolean | undefined
+    agentBrainRuntime?: AgentBrainRuntimeContext | undefined
     agentToolRuntime?: AgentToolRuntimeContext | undefined
   }
 ): Promise<ExecuteHarnessResult> {
@@ -111,6 +114,10 @@ export async function executeHarnessRun(
     ...adapter.getRunEnv(bundle, preparedRunOptions),
   }
   const warnings: string[] = []
+  if (!options.dryRun && options.agentBrainRuntime) {
+    const brainEnv = await prepareAgentBrainRuntime(options.agentBrainRuntime, harnessEnv)
+    harnessEnv = { ...harnessEnv, ...brainEnv }
+  }
   if (options.agentToolRuntime) {
     const toolRuntime = await prepareAgentToolRuntime(options.agentToolRuntime, harnessEnv)
     harnessEnv = { ...harnessEnv, ...toolRuntime.env }

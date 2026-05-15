@@ -21,6 +21,7 @@ import {
   detectAgentLocalComponents,
   harnessRegistry,
   planPlacementRuntime,
+  prepareAgentBrainRuntime,
   prepareAgentToolRuntime,
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
@@ -1080,6 +1081,16 @@ async function buildPlacementInvocationSpec(
     ASP_HOME: aspHome,
   }
 
+  const brainEnv = await prepareAgentBrainRuntime(
+    {
+      agentRoot: placement.agentRoot,
+      agentName: basename(placement.agentRoot),
+      ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
+    },
+    env
+  )
+  env = { ...env, ...brainEnv }
+
   if (agentLocalComponents?.hasTools) {
     const toolRuntime = await prepareAgentToolRuntime(
       {
@@ -1232,6 +1243,16 @@ async function runPlacementTurnNonInteractive(
     harnessEnv['ASP_HOME'] = aspHome
 
     const placementAgentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
+    const brainEnv = await prepareAgentBrainRuntime(
+      {
+        agentRoot: placement.agentRoot,
+        agentName: basename(placement.agentRoot),
+        ...(placementAgentLocalComponents ? { components: placementAgentLocalComponents } : {}),
+      },
+      harnessEnv
+    )
+    Object.assign(harnessEnv, brainEnv)
+
     if (placementAgentLocalComponents?.hasTools) {
       const toolRuntime = await prepareAgentToolRuntime(
         {

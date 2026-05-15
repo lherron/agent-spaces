@@ -67,6 +67,7 @@ export {
   runLocalSpace,
   isSpaceReference,
   detectAgentLocalComponents,
+  prepareAgentBrainRuntime,
   prepareAgentToolRuntime,
   validateAgentTools,
   planPlacementRuntime,
@@ -79,6 +80,9 @@ export {
   type PlanPlacementRuntimeOptions,
   type PlacementRuntimeModelResolution,
   type PlacementRuntimePlan,
+  type AgentBrainEnvResult,
+  type AgentBrainRuntimeContext,
+  type GbrainCommandRunner,
 } from './run.js'
 
 // Terminal pager
