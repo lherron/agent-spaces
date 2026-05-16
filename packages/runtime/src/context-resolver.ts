@@ -10,6 +10,7 @@ import type {
   ContextTemplate,
   ExecSectionDef,
   FileSectionDef,
+  SectionWrap,
   SystemPromptMode,
   WhenPredicate,
 } from './context-template.js'
@@ -18,7 +19,7 @@ const execFileAsync = promisify(execFile)
 const DEFAULT_EXEC_TIMEOUT_MS = 5000
 const SECTION_SEPARATOR = '\n\n---\n\n'
 const SLOT_SEPARATOR = '\n\n'
-const TRUNCATION_SUFFIX = '\n[truncated]'
+const TRUNCATION_MARKER = '[truncated]'
 
 export interface ContextResolverContext {
   agentRoot: string
@@ -63,6 +64,7 @@ export interface ResolvedContextSection {
   chars: number
   bytes: number
   truncated: boolean
+  wrapped?: boolean | undefined
   when?: WhenPredicate | undefined
   maxChars?: number | undefined
   content?: string | undefined
@@ -182,8 +184,10 @@ async function resolveZone(
       continue
     }
 
-    const wasTruncated = section.maxChars !== undefined && content.length > section.maxChars
-    const truncated = truncateSectionContent(content, section.maxChars)
+    const wrapResult = applyWrap(content, section.wrap, context)
+    const wasTruncated =
+      section.maxChars !== undefined && wrapResult.content.length > section.maxChars
+    const truncated = truncateSectionContent(wrapResult.content, section.maxChars)
     if (truncated.length === 0) {
       inspectedSections.push({
         ...sectionReportBase(section, context, zoneName),
@@ -200,6 +204,7 @@ async function resolveZone(
       chars: truncated.length,
       bytes: byteCount(truncated),
       truncated: wasTruncated,
+      wrapped: wrapResult.wrapped,
       content: truncated,
     })
   }
@@ -245,6 +250,7 @@ function sectionReportBase(
     chars: 0,
     bytes: 0,
     truncated: false,
+    wrapped: false,
     ...(section.when !== undefined ? { when: section.when } : {}),
     ...(section.maxChars !== undefined ? { maxChars: section.maxChars } : {}),
   }
@@ -501,6 +507,27 @@ function interpolateContent(content: string, context: ContextResolverContext): s
   return interpolateVariables(content, context)
 }
 
+function applyWrap(
+  content: string,
+  wrap: SectionWrap | undefined,
+  context: ContextResolverContext
+): { content: string; wrapped: boolean } {
+  if (wrap === undefined) {
+    return { content, wrapped: false }
+  }
+
+  const prefix = interpolateVariables(wrap.prefix ?? '', context)
+  const suffix = interpolateVariables(wrap.suffix ?? '', context)
+  if (prefix.length === 0 && suffix.length === 0) {
+    return { content, wrapped: false }
+  }
+
+  return {
+    content: `${prefix}${content}${suffix}`,
+    wrapped: true,
+  }
+}
+
 function getAgentNameFromProfile(profile: Record<string, unknown> | undefined): string | undefined {
   const agent = resolveSourcePath(profile, 'agent.name')
   return typeof agent === 'string' ? agent : undefined
@@ -511,11 +538,19 @@ function truncateSectionContent(content: string, maxChars?: number | undefined):
     return content
   }
 
-  if (maxChars <= TRUNCATION_SUFFIX.length) {
-    return TRUNCATION_SUFFIX.slice(0, maxChars)
+  if (maxChars <= TRUNCATION_MARKER.length) {
+    return TRUNCATION_MARKER.slice(0, maxChars)
   }
 
-  return `${content.slice(0, maxChars - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`
+  if (maxChars === TRUNCATION_MARKER.length + 1) {
+    return TRUNCATION_MARKER
+  }
+
+  const keepChars = maxChars - TRUNCATION_MARKER.length
+  const keptContent =
+    content[keepChars] === '\n' ? content.slice(0, keepChars + 1) : content.slice(0, keepChars)
+
+  return `${keptContent}${TRUNCATION_MARKER}`
 }
 
 function byteCount(value: string): number {

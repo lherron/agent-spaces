@@ -9,11 +9,17 @@ export interface WhenPredicate {
   exists?: string | undefined
 }
 
+export interface SectionWrap {
+  prefix?: string | undefined
+  suffix?: string | undefined
+}
+
 export interface ContextSectionBase {
   name: string
   type: ContextSectionType
   when?: WhenPredicate | undefined
   maxChars?: number | undefined
+  wrap?: SectionWrap | undefined
 }
 
 export interface FileSectionDef extends ContextSectionBase {
@@ -147,6 +153,7 @@ function parseSection(
   const type = parseSectionType(input['type'], `${location}.type`)
   const when = parseWhenPredicate(input['when'], `${location}.when`)
   const maxChars = parseOptionalPositiveInteger(input['max_chars'], `${location}.max_chars`)
+  const wrap = parseSectionWrap(input['wrap'], `${location}.wrap`)
   const sectionLocation = `${location} (${name})`
 
   switch (type) {
@@ -161,6 +168,7 @@ function parseSection(
         ...(when ? { when } : {}),
         ...(required !== undefined ? { required } : {}),
         ...(maxChars !== undefined ? { maxChars } : {}),
+        ...(wrap !== undefined ? { wrap } : {}),
       }
     }
 
@@ -173,6 +181,7 @@ function parseSection(
         content,
         ...(when ? { when } : {}),
         ...(maxChars !== undefined ? { maxChars } : {}),
+        ...(wrap !== undefined ? { wrap } : {}),
       }
     }
 
@@ -187,6 +196,7 @@ function parseSection(
         ...(when ? { when } : {}),
         ...(timeout !== undefined ? { timeout } : {}),
         ...(maxChars !== undefined ? { maxChars } : {}),
+        ...(wrap !== undefined ? { wrap } : {}),
       }
     }
 
@@ -199,6 +209,7 @@ function parseSection(
         source,
         ...(when ? { when } : {}),
         ...(maxChars !== undefined ? { maxChars } : {}),
+        ...(wrap !== undefined ? { wrap } : {}),
       }
     }
   }
@@ -242,6 +253,31 @@ function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | 
   return {
     ...(runMode !== undefined ? { runMode } : {}),
     ...(exists !== undefined ? { exists } : {}),
+  }
+}
+
+function parseSectionWrap(input: unknown, fieldName: string): SectionWrap | undefined {
+  if (input === undefined) {
+    return undefined
+  }
+
+  if (!isRecord(input)) {
+    throw new Error(`${fieldName} must be a TOML table, received ${describeValue(input)}`)
+  }
+
+  const keys = Object.keys(input)
+  for (const key of keys) {
+    if (key !== 'prefix' && key !== 'suffix') {
+      throw new Error(`${fieldName}.${key} is not supported; only prefix and suffix are allowed`)
+    }
+  }
+
+  const prefix = parseOptionalString(input['prefix'], `${fieldName}.prefix`)
+  const suffix = parseOptionalString(input['suffix'], `${fieldName}.suffix`)
+
+  return {
+    ...(prefix !== undefined ? { prefix } : {}),
+    ...(suffix !== undefined ? { suffix } : {}),
   }
 }
 

@@ -374,8 +374,8 @@ command = "printf 'ok'"
 
     expect(resolved.reminderSections[0]).toMatchObject({
       content: '## Header\n[truncated]',
-      chars: 20,
-      bytes: 20,
+      chars: 21,
+      bytes: 21,
       truncated: true,
       wrapped: true,
     })

@@ -8,7 +8,7 @@ export {
   inspectAgentSystemPrompt,
   materializeSystemPrompt,
 } from './system-prompt.js'
-export type { ContextTemplate } from './context-template.js'
+export type { ContextTemplate, SectionWrap } from './context-template.js'
 export type {
   ContextResolverContext,
   ResolvedContextSection,
