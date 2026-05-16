@@ -79,6 +79,7 @@ export type { DistTagsFile } from './dist-tags.js'
 // Agent runtime profile types
 export type {
   AgentIdentity,
+  AgentProfileBrain,
   AgentProfileInstructions,
   AgentProfileSession,
   AgentProfileSpaces,

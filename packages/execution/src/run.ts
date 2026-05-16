@@ -42,8 +42,11 @@ export {
 import { detectAgentLocalComponents, resolveAgentRunDefaults } from './run/agent-profile.js'
 export {
   prepareAgentBrainRuntime,
+  resolveAgentBrainRuntime,
   type AgentBrainEnvResult,
   type AgentBrainRuntimeContext,
+  type BrainRuntimeResolution,
+  type EnabledAgentBrainEnvResult,
   type GbrainCommandRunner,
 } from './run/agent-brain.js'
 export {

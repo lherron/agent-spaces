@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
-import type { AgentLocalComponents } from 'spaces-config'
+import { type AgentLocalComponents, parseAgentProfile } from 'spaces-config'
+import type { AgentProfileBrain, AgentRuntimeProfile } from 'spaces-config'
 
 export type GbrainCommandResult = {
   exitCode: number
@@ -19,11 +20,47 @@ export interface AgentBrainRuntimeContext {
   agentRoot: string
   agentName?: string | undefined
   components?: AgentLocalComponents | undefined
+  profile?: AgentRuntimeProfile | undefined
+  brain?: AgentProfileBrain | undefined
 }
 
-export type AgentBrainEnvResult = {
+export type EnabledAgentBrainEnvResult = {
   GBRAIN_HOME: string
   BRAIN_REPO: string
+}
+
+export type AgentBrainEnvResult = Partial<EnabledAgentBrainEnvResult>
+
+export type BrainRuntimeResolution =
+  | ({
+      kind: 'enabled'
+      env: EnabledAgentBrainEnvResult
+      GBRAIN_HOME: string
+      BRAIN_REPO: string
+      resolver: string
+    } & BrainRuntimeOptionalConfig)
+  | ({
+      kind: 'disabled'
+      env: Record<string, never>
+      reason: 'profile-disabled'
+      resolver: string
+    } & BrainRuntimeOptionalConfig)
+  | ({
+      kind: 'unresolved'
+      env: Record<string, never>
+      reason: 'gbrain-resolution-error'
+      error: string
+      resolver: string
+    } & BrainRuntimeOptionalConfig)
+
+type BrainRuntimeOptionalConfig = {
+  search_mode?: AgentProfileBrain['search_mode'] | undefined
+}
+
+type EffectiveBrainConfig = {
+  enabled: boolean
+  resolver: string
+  search_mode?: AgentProfileBrain['search_mode'] | undefined
 }
 
 export async function prepareAgentBrainRuntime(
@@ -31,11 +68,70 @@ export async function prepareAgentBrainRuntime(
   baseEnv: Record<string, string> = {},
   runner: GbrainCommandRunner = defaultGbrainCommandRunner
 ): Promise<AgentBrainEnvResult> {
+  const resolution = await resolveAgentBrainRuntime(context, baseEnv, runner)
+  if (resolution.kind === 'unresolved') {
+    throw new Error(resolution.error)
+  }
+  return resolution.env
+}
+
+export async function resolveAgentBrainRuntime(
+  context: AgentBrainRuntimeContext,
+  baseEnv: Record<string, string> = {},
+  runner: GbrainCommandRunner = defaultGbrainCommandRunner
+): Promise<BrainRuntimeResolution> {
+  let effectiveBrain: EffectiveBrainConfig
+  try {
+    effectiveBrain = await resolveEffectiveBrainConfig(context)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      kind: 'unresolved',
+      env: {},
+      reason: 'gbrain-resolution-error',
+      error: message,
+      resolver: 'RESOLVER.md',
+    }
+  }
+
+  const optionalConfig = brainRuntimeOptionalConfig(effectiveBrain)
+
+  if (!effectiveBrain.enabled) {
+    return {
+      kind: 'disabled',
+      env: {},
+      reason: 'profile-disabled',
+      resolver: effectiveBrain.resolver,
+      ...optionalConfig,
+    }
+  }
+
+  try {
+    return await prepareEnabledAgentBrainRuntime(context, baseEnv, runner, effectiveBrain)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      kind: 'unresolved',
+      env: {},
+      reason: 'gbrain-resolution-error',
+      error: message,
+      resolver: effectiveBrain.resolver,
+      ...optionalConfig,
+    }
+  }
+}
+
+async function prepareEnabledAgentBrainRuntime(
+  context: AgentBrainRuntimeContext,
+  baseEnv: Record<string, string>,
+  runner: GbrainCommandRunner,
+  brain: EffectiveBrainConfig
+): Promise<BrainRuntimeResolution> {
   const agentName =
     context.agentName ?? context.components?.agentName ?? basename(context.agentRoot)
   const gbrainHome = baseEnv['GBRAIN_HOME'] ?? deriveGbrainHome(context.agentRoot, agentName)
   const brainRepo = baseEnv['BRAIN_REPO'] ?? join(context.agentRoot, 'brain')
-  const env: AgentBrainEnvResult = {
+  const env: EnabledAgentBrainEnvResult = {
     GBRAIN_HOME: gbrainHome,
     BRAIN_REPO: brainRepo,
   }
@@ -56,7 +152,44 @@ export async function prepareAgentBrainRuntime(
     await runGbrainCommand(['sources', 'add', agentName, '--path', brainRepo], env, runner)
   }
 
-  return env
+  return {
+    kind: 'enabled',
+    env,
+    GBRAIN_HOME: gbrainHome,
+    BRAIN_REPO: brainRepo,
+    resolver: brain.resolver,
+    ...brainRuntimeOptionalConfig(brain),
+  }
+}
+
+async function resolveEffectiveBrainConfig(
+  context: AgentBrainRuntimeContext
+): Promise<EffectiveBrainConfig> {
+  const brain = context.brain ?? context.profile?.brain ?? (await loadAgentProfileBrain(context))
+  return {
+    enabled: brain?.enabled ?? true,
+    resolver: brain?.resolver ?? 'RESOLVER.md',
+    ...(brain?.search_mode !== undefined ? { search_mode: brain.search_mode } : {}),
+  }
+}
+
+async function loadAgentProfileBrain(
+  context: AgentBrainRuntimeContext
+): Promise<AgentProfileBrain | undefined> {
+  try {
+    const profilePath = join(context.agentRoot, 'agent-profile.toml')
+    const content = await readFile(profilePath, 'utf8')
+    return parseAgentProfile(content, profilePath).brain
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      return undefined
+    }
+    throw error
+  }
+}
+
+function brainRuntimeOptionalConfig(brain: EffectiveBrainConfig): BrainRuntimeOptionalConfig {
+  return brain.search_mode !== undefined ? { search_mode: brain.search_mode } : {}
 }
 
 function deriveGbrainHome(agentRoot: string, agentName: string): string {
@@ -106,7 +239,7 @@ async function pathExists(path: string): Promise<boolean> {
 
 async function runGbrainCommand(
   argv: string[],
-  env: AgentBrainEnvResult,
+  env: EnabledAgentBrainEnvResult,
   runner: GbrainCommandRunner
 ): Promise<GbrainCommandResult> {
   let result: GbrainCommandResult

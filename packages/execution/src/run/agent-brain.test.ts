@@ -99,20 +99,70 @@ function successfulRunner(sourcesListStdout = ''): {
 
 async function loadPrepareAgentBrainRuntime(): Promise<
   (
-    context: { agentRoot: string; components: AgentLocalComponents },
+    context: {
+      agentRoot: string
+      components: AgentLocalComponents
+      brain?: {
+        enabled: boolean
+        search_mode?: 'conservative' | 'balanced' | 'tokenmax'
+        resolver?: string
+      }
+    },
     baseEnv?: Record<string, string>,
     runner?: GbrainCommandRunner
   ) => Promise<Record<string, string>>
 > {
   const module = (await import(AGENT_BRAIN_MODULE)) as {
     prepareAgentBrainRuntime: (
-      context: { agentRoot: string; components: AgentLocalComponents },
+      context: {
+        agentRoot: string
+        components: AgentLocalComponents
+        brain?: {
+          enabled: boolean
+          search_mode?: 'conservative' | 'balanced' | 'tokenmax'
+          resolver?: string
+        }
+      },
       baseEnv?: Record<string, string>,
       runner?: GbrainCommandRunner
     ) => Promise<Record<string, string>>
   }
 
   return module.prepareAgentBrainRuntime
+}
+
+async function loadResolveAgentBrainRuntime(): Promise<
+  (
+    context: {
+      agentRoot: string
+      components: AgentLocalComponents
+      brain?: {
+        enabled: boolean
+        search_mode?: 'conservative' | 'balanced' | 'tokenmax'
+        resolver?: string
+      }
+    },
+    baseEnv?: Record<string, string>,
+    runner?: GbrainCommandRunner
+  ) => Promise<Record<string, unknown>>
+> {
+  const module = (await import(AGENT_BRAIN_MODULE)) as {
+    resolveAgentBrainRuntime: (
+      context: {
+        agentRoot: string
+        components: AgentLocalComponents
+        brain?: {
+          enabled: boolean
+          search_mode?: 'conservative' | 'balanced' | 'tokenmax'
+          resolver?: string
+        }
+      },
+      baseEnv?: Record<string, string>,
+      runner?: GbrainCommandRunner
+    ) => Promise<Record<string, unknown>>
+  }
+
+  return module.resolveAgentBrainRuntime
 }
 
 async function runPrepareAgentBrainRuntime(
@@ -126,6 +176,128 @@ async function runPrepareAgentBrainRuntime(
 }
 
 describe('prepareAgentBrainRuntime', () => {
+  test('absent brain profile preserves conventional runtime wiring', async () => {
+    const { agentRoot, praesidiumRoot } = await createStandardAgentRoot()
+    const gbrainHome = conventionalGbrainHome(praesidiumRoot)
+    const brainRepo = defaultBrainRepo(agentRoot)
+    const { runner } = successfulRunner()
+    const resolveAgentBrainRuntime = await loadResolveAgentBrainRuntime()
+
+    await expect(
+      resolveAgentBrainRuntime({ agentRoot, components: components(agentRoot) }, {}, runner)
+    ).resolves.toMatchObject({
+      kind: 'enabled',
+      env: { GBRAIN_HOME: gbrainHome, BRAIN_REPO: brainRepo },
+      GBRAIN_HOME: gbrainHome,
+      BRAIN_REPO: brainRepo,
+      resolver: 'RESOLVER.md',
+    })
+  })
+
+  test('enabled brain profile resolves runtime env', async () => {
+    const { agentRoot, praesidiumRoot } = await createStandardAgentRoot()
+    const gbrainHome = conventionalGbrainHome(praesidiumRoot)
+    const brainRepo = defaultBrainRepo(agentRoot)
+    const { runner } = successfulRunner()
+    const resolveAgentBrainRuntime = await loadResolveAgentBrainRuntime()
+
+    await expect(
+      resolveAgentBrainRuntime(
+        { agentRoot, components: components(agentRoot), brain: { enabled: true } },
+        {},
+        runner
+      )
+    ).resolves.toMatchObject({
+      kind: 'enabled',
+      env: { GBRAIN_HOME: gbrainHome, BRAIN_REPO: brainRepo },
+      GBRAIN_HOME: gbrainHome,
+      BRAIN_REPO: brainRepo,
+      resolver: 'RESOLVER.md',
+    })
+  })
+
+  test('disabled brain profile returns disabled result without runtime env', async () => {
+    const { agentRoot } = await createStandardAgentRoot()
+    const { calls, runner } = successfulRunner()
+    const resolveAgentBrainRuntime = await loadResolveAgentBrainRuntime()
+    const prepareAgentBrainRuntime = await loadPrepareAgentBrainRuntime()
+
+    const resolution = await resolveAgentBrainRuntime(
+      { agentRoot, components: components(agentRoot), brain: { enabled: false } },
+      {},
+      runner
+    )
+
+    expect(resolution).toEqual({
+      kind: 'disabled',
+      env: {},
+      reason: 'profile-disabled',
+      resolver: 'RESOLVER.md',
+    })
+    expect(calls).toHaveLength(0)
+    expect('GBRAIN_HOME' in (resolution.env as Record<string, unknown>)).toBe(false)
+    expect('BRAIN_REPO' in (resolution.env as Record<string, unknown>)).toBe(false)
+
+    await expect(
+      prepareAgentBrainRuntime(
+        { agentRoot, components: components(agentRoot), brain: { enabled: false } },
+        {},
+        runner
+      )
+    ).resolves.toEqual({})
+  })
+
+  test('loads disabled brain profile from agent-profile.toml', async () => {
+    const { agentRoot } = await createStandardAgentRoot()
+    await writeFile(
+      join(agentRoot, 'agent-profile.toml'),
+      `
+schemaVersion = 2
+
+[brain]
+enabled = false
+`
+    )
+    const { calls, runner } = successfulRunner()
+    const resolveAgentBrainRuntime = await loadResolveAgentBrainRuntime()
+
+    await expect(
+      resolveAgentBrainRuntime({ agentRoot, components: components(agentRoot) }, {}, runner)
+    ).resolves.toEqual({
+      kind: 'disabled',
+      env: {},
+      reason: 'profile-disabled',
+      resolver: 'RESOLVER.md',
+    })
+    expect(calls).toHaveLength(0)
+  })
+
+  test('brain profile carries search_mode and resolver overrides into admission result', async () => {
+    const { agentRoot } = await createStandardAgentRoot()
+    const { runner } = successfulRunner()
+    const resolveAgentBrainRuntime = await loadResolveAgentBrainRuntime()
+
+    await expect(
+      resolveAgentBrainRuntime(
+        {
+          agentRoot,
+          components: components(agentRoot),
+          brain: {
+            enabled: true,
+            search_mode: 'tokenmax',
+            resolver: 'custom/RESOLVER.md',
+          },
+        },
+        {},
+        runner
+      )
+    ).resolves.toMatchObject({
+      kind: 'enabled',
+      search_mode: 'tokenmax',
+      resolver: 'custom/RESOLVER.md',
+    })
+  })
+
   test('creates missing BRAIN_REPO directory', async () => {
     const { agentRoot } = await createStandardAgentRoot()
     const brainRepo = defaultBrainRepo(agentRoot)

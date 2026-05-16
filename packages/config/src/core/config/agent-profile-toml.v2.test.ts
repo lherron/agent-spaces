@@ -144,6 +144,80 @@ unexpected = "nope"
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 2c. [brain] section
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('parseAgentProfile: brain section', () => {
+  test('leaves brain undefined when [brain] is absent', () => {
+    const toml = `
+schemaVersion = 2
+`
+    const result = parseAgentProfile(toml)
+    expect(result.brain).toBeUndefined()
+  })
+
+  test('parses enabled brain with search_mode and resolver', () => {
+    const toml = `
+schemaVersion = 2
+
+[brain]
+enabled = true
+search_mode = "balanced"
+resolver = "RESOLVER.md"
+`
+    const result = parseAgentProfile(toml)
+    expect(result.brain).toEqual({
+      enabled: true,
+      search_mode: 'balanced',
+      resolver: 'RESOLVER.md',
+    })
+  })
+
+  test('parses disabled brain with optional fields omitted', () => {
+    const toml = `
+schemaVersion = 2
+
+[brain]
+enabled = false
+`
+    const result = parseAgentProfile(toml)
+    expect(result.brain).toEqual({ enabled: false })
+  })
+
+  test('requires enabled when [brain] is present', () => {
+    const toml = `
+schemaVersion = 2
+
+[brain]
+search_mode = "balanced"
+`
+    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
+  })
+
+  test('rejects unsupported brain search_mode', () => {
+    const toml = `
+schemaVersion = 2
+
+[brain]
+enabled = true
+search_mode = "fast"
+`
+    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
+  })
+
+  test('rejects unknown brain keys', () => {
+    const toml = `
+schemaVersion = 2
+
+[brain]
+enabled = true
+global_config = "nope"
+`
+    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 3. priming_prompt and priming_prompt_file
 // ─────────────────────────────────────────────────────────────────────────────
 

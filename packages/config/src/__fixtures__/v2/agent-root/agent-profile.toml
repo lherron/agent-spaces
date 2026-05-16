@@ -3,6 +3,11 @@ schemaVersion = 1
 [instructions]
 additionalBase = ["agent-root:///SOUL.md"]
 
+[brain]
+enabled = true
+search_mode = "balanced"
+resolver = "RESOLVER.md"
+
 [spaces]
 base = ["space:agent:private-ops"]
 

@@ -68,6 +68,7 @@ export {
   isSpaceReference,
   detectAgentLocalComponents,
   prepareAgentBrainRuntime,
+  resolveAgentBrainRuntime,
   prepareAgentToolRuntime,
   validateAgentTools,
   planPlacementRuntime,
@@ -82,6 +83,8 @@ export {
   type PlacementRuntimePlan,
   type AgentBrainEnvResult,
   type AgentBrainRuntimeContext,
+  type BrainRuntimeResolution,
+  type EnabledAgentBrainEnvResult,
   type GbrainCommandRunner,
 } from './run.js'
 
