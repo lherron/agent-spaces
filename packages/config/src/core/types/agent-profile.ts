@@ -41,6 +41,7 @@ export interface AgentProfileSession {
 
 export interface AgentProfileBrain {
   enabled: boolean
+  injection?: boolean | undefined
   search_mode?: 'conservative' | 'balanced' | 'tokenmax' | undefined
   resolver?: string | undefined
 }

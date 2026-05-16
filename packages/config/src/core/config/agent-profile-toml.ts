@@ -277,7 +277,7 @@ function parseBrain(value: unknown, source: string, path: string): AgentProfileB
     fail(source, path, 'must be a table', 'type')
   }
 
-  assertOnlyKeys(value, ['enabled', 'search_mode', 'resolver'], source, path)
+  assertOnlyKeys(value, ['enabled', 'injection', 'search_mode', 'resolver'], source, path)
 
   if (value['enabled'] === undefined) {
     fail(source, `${path}/enabled`, 'is required when [brain] is present', 'required')
@@ -288,6 +288,13 @@ function parseBrain(value: unknown, source: string, path: string): AgentProfileB
 
   const brain: AgentProfileBrain = {
     enabled: value['enabled'],
+  }
+
+  if (value['injection'] !== undefined) {
+    if (typeof value['injection'] !== 'boolean') {
+      fail(source, `${path}/injection`, 'must be a boolean', 'type')
+    }
+    brain.injection = value['injection']
   }
 
   if (value['search_mode'] !== undefined) {

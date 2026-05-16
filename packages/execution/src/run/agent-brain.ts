@@ -54,11 +54,13 @@ export type BrainRuntimeResolution =
     } & BrainRuntimeOptionalConfig)
 
 type BrainRuntimeOptionalConfig = {
+  injection: boolean
   search_mode?: AgentProfileBrain['search_mode'] | undefined
 }
 
 type EffectiveBrainConfig = {
   enabled: boolean
+  injection: boolean
   resolver: string
   search_mode?: AgentProfileBrain['search_mode'] | undefined
 }
@@ -91,6 +93,7 @@ export async function resolveAgentBrainRuntime(
       reason: 'gbrain-resolution-error',
       error: message,
       resolver: 'RESOLVER.md',
+      injection: true,
     }
   }
 
@@ -168,6 +171,7 @@ async function resolveEffectiveBrainConfig(
   const brain = context.brain ?? context.profile?.brain ?? (await loadAgentProfileBrain(context))
   return {
     enabled: brain?.enabled ?? true,
+    injection: brain?.injection ?? true,
     resolver: brain?.resolver ?? 'RESOLVER.md',
     ...(brain?.search_mode !== undefined ? { search_mode: brain.search_mode } : {}),
   }
@@ -189,7 +193,10 @@ async function loadAgentProfileBrain(
 }
 
 function brainRuntimeOptionalConfig(brain: EffectiveBrainConfig): BrainRuntimeOptionalConfig {
-  return brain.search_mode !== undefined ? { search_mode: brain.search_mode } : {}
+  return {
+    injection: brain.injection,
+    ...(brain.search_mode !== undefined ? { search_mode: brain.search_mode } : {}),
+  }
 }
 
 function deriveGbrainHome(agentRoot: string, agentName: string): string {

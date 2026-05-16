@@ -765,7 +765,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
     writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
     writeFileSync(
       join(agentRoot, 'agent-profile.toml'),
-      `[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
+      `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
     )
     // Create spaces with manifests
     for (const id of ['base-space', 'heartbeat-monitor']) {
@@ -821,7 +821,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
     writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
     writeFileSync(
       join(agentRoot, 'agent-profile.toml'),
-      `[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
+      `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
     )
     for (const id of ['base-space', 'heartbeat-monitor']) {
       mkdirSync(join(agentRoot, 'spaces', id, 'claude', 'plugins'), { recursive: true })

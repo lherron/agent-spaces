@@ -233,6 +233,7 @@ describe('prepareAgentBrainRuntime', () => {
       env: {},
       reason: 'profile-disabled',
       resolver: 'RESOLVER.md',
+      injection: true,
     })
     expect(calls).toHaveLength(0)
     expect('GBRAIN_HOME' in (resolution.env as Record<string, unknown>)).toBe(false)
@@ -268,8 +269,41 @@ enabled = false
       env: {},
       reason: 'profile-disabled',
       resolver: 'RESOLVER.md',
+      injection: true,
     })
     expect(calls).toHaveLength(0)
+  })
+
+  test('injection defaults to true when [brain] omits it', async () => {
+    const { agentRoot } = await createStandardAgentRoot()
+    const { runner } = successfulRunner()
+    const resolveAgentBrainRuntime = await loadResolveAgentBrainRuntime()
+
+    await expect(
+      resolveAgentBrainRuntime(
+        { agentRoot, components: components(agentRoot), brain: { enabled: true } },
+        {},
+        runner
+      )
+    ).resolves.toMatchObject({ kind: 'enabled', injection: true })
+  })
+
+  test('injection: false carries through to the admission result without disabling gbrain', async () => {
+    const { agentRoot } = await createStandardAgentRoot()
+    const { runner } = successfulRunner()
+    const resolveAgentBrainRuntime = await loadResolveAgentBrainRuntime()
+
+    await expect(
+      resolveAgentBrainRuntime(
+        {
+          agentRoot,
+          components: components(agentRoot),
+          brain: { enabled: true, injection: false },
+        },
+        {},
+        runner
+      )
+    ).resolves.toMatchObject({ kind: 'enabled', injection: false })
   })
 
   test('brain profile carries search_mode and resolver overrides into admission result', async () => {

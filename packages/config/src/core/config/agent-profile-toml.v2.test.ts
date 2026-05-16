@@ -215,6 +215,52 @@ global_config = "nope"
 `
     expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
   })
+
+  test('parses injection = true explicitly', () => {
+    const toml = `
+schemaVersion = 2
+
+[brain]
+enabled = true
+injection = true
+`
+    const result = parseAgentProfile(toml)
+    expect(result.brain).toEqual({ enabled: true, injection: true })
+  })
+
+  test('parses injection = false to opt out of pre-dispatch enrichment', () => {
+    const toml = `
+schemaVersion = 2
+
+[brain]
+enabled = true
+injection = false
+`
+    const result = parseAgentProfile(toml)
+    expect(result.brain).toEqual({ enabled: true, injection: false })
+  })
+
+  test('leaves injection undefined when omitted (defaults applied at resolver)', () => {
+    const toml = `
+schemaVersion = 2
+
+[brain]
+enabled = true
+`
+    const result = parseAgentProfile(toml)
+    expect(result.brain).toEqual({ enabled: true })
+  })
+
+  test('rejects non-boolean injection', () => {
+    const toml = `
+schemaVersion = 2
+
+[brain]
+enabled = true
+injection = "yes"
+`
+    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
