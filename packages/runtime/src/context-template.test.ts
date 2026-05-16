@@ -311,4 +311,66 @@ when = { exists = "justfile" }
       },
     ])
   })
+
+  test('parses section wrap prefix and suffix tables', () => {
+    const template = parseContextTemplate(`
+schema_version = 2
+
+[[reminder]]
+name = "next-step"
+type = "inline"
+content = "Read the task"
+
+[reminder.wrap]
+prefix = "## {{ agent_name }}\\n\\n"
+suffix = "\\n\\nEnd."
+`)
+
+    expect(template.reminderSections[0]).toEqual({
+      name: 'next-step',
+      type: 'inline',
+      content: 'Read the task',
+      wrap: {
+        prefix: '## {{ agent_name }}\n\n',
+        suffix: '\n\nEnd.',
+      },
+    })
+  })
+
+  test.each(['indent', 'align'])('rejects unsupported wrap key %s', (key) => {
+    expect(() =>
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "bad-wrap"
+type = "inline"
+content = "body"
+
+[prompt.wrap]
+prefix = ">"
+${key} = "left"
+`)
+    ).toThrow(new RegExp(`wrap.*${key}|${key}.*wrap`, 'i'))
+  })
+
+  test.each([
+    ['numeric prefix', 'prefix = 42'],
+    ['array suffix', 'suffix = ["a", "b"]'],
+    ['table prefix', 'prefix = { text = "heading" }'],
+  ])('rejects non-string wrap %s', (_label, wrapLine) => {
+    expect(() =>
+      parseContextTemplate(`
+schema_version = 2
+
+[[reminder]]
+name = "bad-wrap"
+type = "inline"
+content = "body"
+
+[reminder.wrap]
+${wrapLine}
+`)
+    ).toThrow(/wrap.*(prefix|suffix).*string|(prefix|suffix).*wrap.*string/i)
+  })
 })

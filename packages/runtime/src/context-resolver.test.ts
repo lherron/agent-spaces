@@ -14,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { resolveContextTemplateDetailed } from './context-resolver.js'
 import { type ContextTemplate, parseContextTemplate } from './context-template.js'
 
 const SECTION_SEPARATOR = '\n\n---\n\n'
@@ -293,6 +294,272 @@ command = "printf 'ok'"
       reminder: undefined,
     })
   })
+
+  test('wraps resolved section content with interpolated prefix and suffix before zone joining', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      templateWithWrap({
+        promptSections: [
+          {
+            name: 'identity',
+            type: 'inline',
+            content: 'Body',
+            wrap: {
+              prefix: '## {{ agent_name }}\n\n',
+              suffix: '\n\nProject: {{ project_id }}',
+            },
+          },
+          {
+            name: 'tail',
+            type: 'inline',
+            content: 'Tail',
+          },
+        ],
+      }),
+      defaultContext()
+    )
+
+    expect(resolved.prompt?.content).toBe(
+      `## smokey\n\nBody\n\nProject: agent-spaces${SECTION_SEPARATOR}Tail`
+    )
+    expect(resolved.promptSections[0]).toMatchObject({
+      content: '## smokey\n\nBody\n\nProject: agent-spaces',
+      wrapped: true,
+    })
+  })
+
+  test('skips empty raw content before wrap and does not emit orphan headings', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      templateWithWrap({
+        reminderSections: [
+          {
+            name: 'empty-heading',
+            type: 'inline',
+            content: '',
+            wrap: {
+              prefix: '## Heading\n\n',
+              suffix: '\nEnd',
+            },
+          },
+        ],
+      }),
+      defaultContext()
+    )
+
+    expect(resolved.reminder).toBeUndefined()
+    expect(resolved.reminderSections[0]).toMatchObject({
+      included: false,
+      skippedReason: 'empty',
+      wrapped: false,
+    })
+  })
+
+  test('counts wrap text against per-section max_chars while preserving the wrap prefix', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      templateWithWrap({
+        reminderSections: [
+          {
+            name: 'budgeted',
+            type: 'inline',
+            content: 'abcdefghijklmnopqrstuvwxyz',
+            maxChars: 20,
+            wrap: {
+              prefix: '## Header\n',
+              suffix: '',
+            },
+          },
+        ],
+      }),
+      defaultContext()
+    )
+
+    expect(resolved.reminderSections[0]).toMatchObject({
+      content: '## Header\n[truncated]',
+      chars: 20,
+      bytes: 20,
+      truncated: true,
+      wrapped: true,
+    })
+    expect(resolved.reminder).toBe('## Header\n[truncated]')
+  })
+
+  test('computes truncation diagnostics from post-wrap content length', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      templateWithWrap({
+        promptSections: [
+          {
+            name: 'raw-short-wrapped-long',
+            type: 'inline',
+            content: 'short',
+            maxChars: 12,
+            wrap: {
+              prefix: 'prefix-',
+              suffix: '-suffix',
+            },
+          },
+        ],
+      }),
+      defaultContext()
+    )
+
+    expect(resolved.promptSections[0]).toMatchObject({
+      content: '[truncated]',
+      chars: 11,
+      bytes: 11,
+      truncated: true,
+      wrapped: true,
+    })
+  })
+
+  test('sets wrapped false when wrap prefix and suffix interpolate to empty strings', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      templateWithWrap({
+        reminderSections: [
+          {
+            name: 'empty-wrap',
+            type: 'inline',
+            content: 'body',
+            wrap: {
+              prefix: '',
+              suffix: '',
+            },
+          },
+          {
+            name: 'absent-wrap',
+            type: 'inline',
+            content: 'plain',
+          },
+        ],
+      }),
+      defaultContext()
+    )
+
+    expect(resolved.reminderSections.map((section) => section.wrapped)).toEqual([false, false])
+  })
+
+  test('applies wrap to file sections', async () => {
+    await writeFile(join(agentRoot, 'wrapped-file.md'), 'file body')
+
+    const resolved = await resolveContextTemplateDetailed(
+      templateWithWrap({
+        promptSections: [
+          {
+            name: 'file-wrap',
+            type: 'file',
+            path: 'agent-root:///wrapped-file.md',
+            required: true,
+            wrap: {
+              prefix: '<file>',
+              suffix: '</file>',
+            },
+          },
+        ],
+      }),
+      defaultContext()
+    )
+
+    expect(resolved.prompt?.content).toBe('<file>file body</file>')
+  })
+
+  test('applies wrap to inline sections', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      templateWithWrap({
+        promptSections: [
+          {
+            name: 'inline-wrap',
+            type: 'inline',
+            content: 'inline body',
+            wrap: {
+              prefix: '<inline>',
+              suffix: '</inline>',
+            },
+          },
+        ],
+      }),
+      defaultContext()
+    )
+
+    expect(resolved.prompt?.content).toBe('<inline>inline body</inline>')
+  })
+
+  test('applies wrap to exec sections', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      templateWithWrap({
+        reminderSections: [
+          {
+            name: 'exec-wrap',
+            type: 'exec',
+            command: "printf 'exec body'",
+            wrap: {
+              prefix: '<exec>',
+              suffix: '</exec>',
+            },
+          },
+        ],
+      }),
+      defaultContext()
+    )
+
+    expect(resolved.reminder).toBe('<exec>exec body</exec>')
+  })
+
+  test('applies wrap to slot sections', async () => {
+    await writeFile(join(agentRoot, 'slot-body.md'), 'slot body')
+
+    const resolved = await resolveContextTemplateDetailed(
+      templateWithWrap({
+        reminderSections: [
+          {
+            name: 'slot-wrap',
+            type: 'slot',
+            source: 'session.additionalContext',
+            wrap: {
+              prefix: '<slot>',
+              suffix: '</slot>',
+            },
+          },
+        ],
+      }),
+      defaultContext({
+        agentProfile: {
+          session: {
+            additionalContext: ['agent-root:///slot-body.md'],
+          },
+        },
+      })
+    )
+
+    expect(resolved.reminder).toBe('<slot>slot body</slot>')
+  })
+
+  test('applies wrap before SECTION_SEPARATOR joins resolved sections', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      templateWithWrap({
+        reminderSections: [
+          {
+            name: 'first',
+            type: 'inline',
+            content: 'one',
+            wrap: {
+              prefix: '<first>',
+              suffix: '</first>',
+            },
+          },
+          {
+            name: 'second',
+            type: 'inline',
+            content: 'two',
+            wrap: {
+              prefix: '<second>',
+              suffix: '</second>',
+            },
+          },
+        ],
+      }),
+      defaultContext()
+    )
+
+    expect(resolved.reminder).toBe(`<first>one</first>${SECTION_SEPARATOR}<second>two</second>`)
+  })
 })
 
 async function resolve(template: ContextTemplate, overrides?: Record<string, unknown>) {
@@ -329,4 +596,26 @@ async function loadResolver(): Promise<
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`T-01043 red test blocked by missing resolver implementation: ${message}`)
   }
+}
+
+function defaultContext(overrides?: Record<string, unknown>) {
+  return {
+    agentRoot,
+    agentsRoot,
+    projectRoot,
+    projectId: 'agent-spaces',
+    agentName: 'smokey',
+    runMode: 'task',
+    ...overrides,
+  }
+}
+
+function templateWithWrap(overrides: Partial<ContextTemplate>): ContextTemplate {
+  return {
+    schemaVersion: 2,
+    mode: 'replace',
+    promptSections: [],
+    reminderSections: [],
+    ...overrides,
+  } as ContextTemplate
 }
