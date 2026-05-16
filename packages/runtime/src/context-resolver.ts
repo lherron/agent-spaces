@@ -6,10 +6,12 @@ import { promisify } from 'node:util'
 import { resolveRootRelativeRef } from 'spaces-config'
 import type {
   ContextSection,
+  ContextSectionType,
   ContextTemplate,
   ExecSectionDef,
   FileSectionDef,
   SystemPromptMode,
+  WhenPredicate,
 } from './context-template.js'
 
 const execFileAsync = promisify(execFile)
@@ -50,6 +52,23 @@ export interface ResolvedZoneDiagnostics {
   totalChars: number
 }
 
+export type ResolvedContextZoneName = 'prompt' | 'reminder'
+
+export interface ResolvedContextSection {
+  zone: ResolvedContextZoneName
+  name: string
+  type: ContextSectionType
+  source: string
+  included: boolean
+  chars: number
+  bytes: number
+  truncated: boolean
+  when?: WhenPredicate | undefined
+  maxChars?: number | undefined
+  content?: string | undefined
+  skippedReason?: 'when' | 'empty' | undefined
+}
+
 export interface ResolvedContextDiagnostics {
   prompt: ResolvedZoneDiagnostics
   reminder: ResolvedZoneDiagnostics
@@ -65,12 +84,15 @@ export interface ResolveContextTemplateOptions {
 
 export interface ResolvedContextDetailed extends ResolvedContext {
   diagnostics: ResolvedContextDiagnostics
+  promptSections: ResolvedContextSection[]
+  reminderSections: ResolvedContextSection[]
 }
 
 interface ResolvedZone {
   content: string | undefined
   sectionSizes: string[]
   totalChars: number
+  sections: ResolvedContextSection[]
 }
 
 const MAX_CHARS_WARNING_RATIO = 0.9
@@ -128,34 +150,58 @@ export async function resolveContextTemplateDetailed(
         template.maxChars > 0 &&
         totalChars / template.maxChars >= MAX_CHARS_WARNING_RATIO,
     },
+    promptSections: prompt.sections,
+    reminderSections: reminder.sections,
   }
 }
 
 async function resolveZone(
   sections: ContextTemplate['promptSections'],
   context: ContextResolverContext,
-  zoneName: 'prompt' | 'reminder'
+  zoneName: ResolvedContextZoneName
 ): Promise<ResolvedZone> {
   const resolvedSections: string[] = []
   const sectionSizes: string[] = []
+  const inspectedSections: ResolvedContextSection[] = []
 
   for (const section of sections) {
     if (!matchesWhenPredicate(section, context)) {
+      inspectedSections.push({
+        ...sectionReportBase(section, context, zoneName),
+        skippedReason: 'when',
+      })
       continue
     }
 
     const content = await resolveSection(section, context)
     if (content === undefined || content.length === 0) {
+      inspectedSections.push({
+        ...sectionReportBase(section, context, zoneName),
+        skippedReason: 'empty',
+      })
       continue
     }
 
+    const wasTruncated = section.maxChars !== undefined && content.length > section.maxChars
     const truncated = truncateSectionContent(content, section.maxChars)
     if (truncated.length === 0) {
+      inspectedSections.push({
+        ...sectionReportBase(section, context, zoneName),
+        skippedReason: 'empty',
+      })
       continue
     }
 
     resolvedSections.push(truncated)
     sectionSizes.push(`${zoneName}.${section.name}=${truncated.length}`)
+    inspectedSections.push({
+      ...sectionReportBase(section, context, zoneName),
+      included: true,
+      chars: truncated.length,
+      bytes: byteCount(truncated),
+      truncated: wasTruncated,
+      content: truncated,
+    })
   }
 
   if (resolvedSections.length === 0) {
@@ -163,6 +209,7 @@ async function resolveZone(
       content: undefined,
       sectionSizes,
       totalChars: 0,
+      sections: inspectedSections,
     }
   }
 
@@ -171,6 +218,7 @@ async function resolveZone(
     content,
     sectionSizes,
     totalChars: content.length,
+    sections: inspectedSections,
   }
 }
 
@@ -179,6 +227,44 @@ function emptyZone(): ResolvedZone {
     content: undefined,
     sectionSizes: [],
     totalChars: 0,
+    sections: [],
+  }
+}
+
+function sectionReportBase(
+  section: ContextSection,
+  context: ContextResolverContext,
+  zone: ResolvedContextZoneName
+): ResolvedContextSection {
+  return {
+    zone,
+    name: section.name,
+    type: section.type,
+    source: describeSectionSource(section, context),
+    included: false,
+    chars: 0,
+    bytes: 0,
+    truncated: false,
+    ...(section.when !== undefined ? { when: section.when } : {}),
+    ...(section.maxChars !== undefined ? { maxChars: section.maxChars } : {}),
+  }
+}
+
+function describeSectionSource(section: ContextSection, context: ContextResolverContext): string {
+  switch (section.type) {
+    case 'inline':
+      return 'inline content'
+    case 'exec':
+      return `exec: ${section.command}`
+    case 'slot':
+      return section.source === undefined ? `slot: ${section.name}` : `slot: ${section.source}`
+    case 'file': {
+      try {
+        return `${section.path} -> ${resolveTemplateRef(section.path, context)}`
+      } catch {
+        return `file: ${section.path}`
+      }
+    }
   }
 }
 
@@ -430,6 +516,10 @@ function truncateSectionContent(content: string, maxChars?: number | undefined):
   }
 
   return `${content.slice(0, maxChars - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`
+}
+
+function byteCount(value: string): number {
+  return new TextEncoder().encode(value).length
 }
 
 function enforceGlobalMaxChars(template: ContextTemplate, zones: ResolvedZone[]): number {

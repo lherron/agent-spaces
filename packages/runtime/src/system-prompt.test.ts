@@ -61,6 +61,72 @@ describe('materializeSystemPrompt canonical helper', () => {
     expect(typeof runtimeModule.materializeSystemPrompt).toBe('function')
   })
 
+  test('inspects the constructed prompt with context-template section content', async () => {
+    await writeFile(
+      join(agentsRoot, 'context-template.toml'),
+      `
+schema_version = 2
+mode = "append"
+
+[[prompt]]
+name = "alpha"
+type = "inline"
+content = "alpha body"
+
+[[prompt]]
+name = "heartbeat"
+type = "inline"
+content = "heartbeat body"
+when = { runMode = "heartbeat" }
+
+[[reminder]]
+name = "reminder"
+type = "inline"
+content = "remember this"
+`
+    )
+
+    const inspected = await inspectAgentSystemPrompt({
+      agentRoot,
+      agentsRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'query',
+    })
+    const materialized = await materializeSystemPrompt(outputRoot, {
+      agentRoot,
+      agentsRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'query',
+    })
+
+    expect(inspected?.template.kind).toBe('context')
+    expect(inspected?.prompt.mode).toBe('append')
+    expect(inspected?.prompt.content).toBe(materialized?.content)
+    expect(inspected?.prompt.sections.find((section) => section.name === 'alpha')).toEqual(
+      expect.objectContaining({
+        included: true,
+        content: 'alpha body',
+        chars: 'alpha body'.length,
+      })
+    )
+    expect(inspected?.prompt.sections.find((section) => section.name === 'heartbeat')).toEqual(
+      expect.objectContaining({
+        included: false,
+        skippedReason: 'when',
+      })
+    )
+    expect(inspected?.reminder.content).toBe('remember this')
+    expect(inspected?.reminder.sections[0]).toEqual(
+      expect.objectContaining({
+        name: 'reminder',
+        included: true,
+        content: 'remember this',
+      })
+    )
+  })
+
   test('canonical helper returns the structured materialization result shape', async () => {
     // T-01016 red gate: Step 4 migrates callers off the V2 name onto the canonical helper.
     await writeAgentProfile(`
@@ -432,11 +498,16 @@ type MaterializeSystemPromptFn = (
   input: MaterializeSystemPromptTestInput
 ) => Promise<MaterializedSystemPrompt | undefined>
 
+type InspectAgentSystemPromptFn = (
+  input: MaterializeSystemPromptTestInput
+) => Promise<InspectedSystemPrompt | undefined>
+
 interface MaterializeSystemPromptTestInput {
   agentRoot: string
   agentsRoot?: string | undefined
   aspHome?: string | undefined
   projectRoot?: string | undefined
+  projectId?: string | undefined
   runMode: RunMode
   scaffoldPackets?: RunScaffoldPacket[] | undefined
 }
@@ -446,6 +517,29 @@ interface MaterializedSystemPrompt {
   content: string
   mode: 'replace' | 'append'
   reminderContent?: string | undefined
+}
+
+interface InspectedSystemPrompt {
+  template: { kind: string }
+  prompt: {
+    content: string
+    mode: 'replace' | 'append'
+    sections: Array<{
+      name: string
+      included: boolean
+      content?: string | undefined
+      chars: number
+      skippedReason?: string | undefined
+    }>
+  }
+  reminder: {
+    content?: string | undefined
+    sections: Array<{
+      name: string
+      included: boolean
+      content?: string | undefined
+    }>
+  }
 }
 
 async function materializeSystemPrompt(
@@ -458,6 +552,15 @@ async function materializeSystemPrompt(
 
   expect(typeof module.materializeSystemPrompt).toBe('function')
   return module.materializeSystemPrompt!(outputPath, input)
+}
+
+async function inspectAgentSystemPrompt(input: MaterializeSystemPromptTestInput) {
+  const module = (await import('./system-prompt.js')) as {
+    inspectAgentSystemPrompt?: InspectAgentSystemPromptFn
+  }
+
+  expect(typeof module.inspectAgentSystemPrompt).toBe('function')
+  return module.inspectAgentSystemPrompt!(input)
 }
 
 function restoreTaskEnv(snapshot: Partial<Record<string, string | undefined>>): void {

@@ -5,11 +5,14 @@ export { resolveContextTemplate, resolveContextTemplateDetailed } from './contex
 export {
   discoverContextTemplate,
   discoverSystemPromptTemplate,
+  inspectAgentSystemPrompt,
   materializeSystemPrompt,
 } from './system-prompt.js'
 export type { ContextTemplate } from './context-template.js'
 export type {
   ContextResolverContext,
+  ResolvedContextSection,
+  ResolvedContextZoneName,
   ResolvedContext,
   ResolvedContextDetailed,
   ResolvedContextDiagnostics,
@@ -20,6 +23,11 @@ export type {
   DiscoverContextTemplateInput,
   DiscoveredContextTemplate,
   DiscoveredTemplateSource,
+  AgentSystemPromptInspection,
+  InspectedContextTemplateSource,
+  InspectedPromptZone,
+  InspectedSystemPromptZone,
+  InspectAgentSystemPromptInput,
   MaterializeResult,
   MaterializeSystemPromptInput,
   TemplateDiscoveryProfile,

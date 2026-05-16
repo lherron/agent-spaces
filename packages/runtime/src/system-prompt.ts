@@ -2,7 +2,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
 import { type RunMode, type RunScaffoldPacket, getAspHome } from 'spaces-config'
-import { resolveContextTemplate } from './context-resolver.js'
+import {
+  type ResolvedContextDiagnostics,
+  type ResolvedContextSection,
+  resolveContextTemplateDetailed,
+} from './context-resolver.js'
 import { type ContextTemplate, parseContextTemplate } from './context-template.js'
 import type { SystemPromptMode } from './context-template.js'
 
@@ -11,6 +15,7 @@ export interface MaterializeSystemPromptInput {
   agentsRoot?: string | undefined
   aspHome?: string | undefined
   projectRoot?: string | undefined
+  projectId?: string | undefined
   runMode: RunMode
   scaffoldPackets?: RunScaffoldPacket[] | undefined
 }
@@ -47,6 +52,39 @@ export interface DiscoveredContextTemplate {
   templateSource?: DiscoveredTemplateSource | undefined
 }
 
+export interface InspectAgentSystemPromptInput extends MaterializeSystemPromptInput {}
+
+export interface InspectedContextTemplateSource {
+  kind: 'context' | 'built-in'
+  path?: string | undefined
+  mode: SystemPromptMode
+  maxChars?: number | undefined
+}
+
+export interface InspectedPromptZone {
+  content?: string | undefined
+  totalChars: number
+  sections: ResolvedContextSection[]
+}
+
+export interface InspectedSystemPromptZone extends InspectedPromptZone {
+  content: string
+  mode: SystemPromptMode
+}
+
+export interface AgentSystemPromptInspection {
+  agentRoot: string
+  agentsRoot: string
+  agentName: string
+  runMode: RunMode
+  projectRoot?: string | undefined
+  projectId?: string | undefined
+  template: InspectedContextTemplateSource
+  prompt: InspectedSystemPromptZone
+  reminder: InspectedPromptZone
+  diagnostics: ResolvedContextDiagnostics
+}
+
 export function discoverContextTemplate(
   input: DiscoverContextTemplateInput
 ): DiscoveredContextTemplate {
@@ -75,6 +113,29 @@ export async function materializeSystemPrompt(
   outputPath: string,
   input: MaterializeSystemPromptInput
 ): Promise<MaterializeResult | undefined> {
+  const inspected = await inspectAgentSystemPrompt(input)
+  if (inspected === undefined) {
+    return undefined
+  }
+
+  if (inspected.template.kind === 'built-in') {
+    return writeMaterializedPrompt(outputPath, {
+      content: inspected.prompt.content,
+      mode: inspected.prompt.mode,
+    })
+  }
+
+  return writeMaterializedContext(outputPath, {
+    content: inspected.prompt.content,
+    mode: inspected.prompt.mode,
+    reminderContent: inspected.reminder.content,
+    maxChars: inspected.template.maxChars,
+  })
+}
+
+export async function inspectAgentSystemPrompt(
+  input: InspectAgentSystemPromptInput
+): Promise<AgentSystemPromptInspection | undefined> {
   const discovered = discoverContextTemplate({
     agentRoot: input.agentRoot,
     agentsRoot: input.agentsRoot,
@@ -86,62 +147,69 @@ export async function materializeSystemPrompt(
     return undefined
   }
 
-  if (templateSource?.kind === 'context') {
-    const resolved = await resolveContextTemplate(templateSource.template, {
-      agentRoot: input.agentRoot,
-      agentName: basename(input.agentRoot),
-      agentsRoot,
-      projectRoot: input.projectRoot,
-      runMode: input.runMode,
-      scaffoldPackets: input.scaffoldPackets,
-      agentProfile: profile.rawProfile,
-    })
-
-    return writeMaterializedContext(outputPath, {
-      content: appendTaskContextSection(resolved.prompt?.content ?? ''),
-      mode: resolved.prompt?.mode ?? templateSource.template.mode,
-      reminderContent: resolved.reminder,
-      maxChars: templateSource.template.maxChars,
-    })
-  }
-
   const template =
     templateSource?.template ??
     parseContextTemplate(buildDefaultTemplateToml(profile.additionalBase, input.scaffoldPackets))
-  const resolved = await resolveContextTemplate(template, {
+  const resolved = await resolveContextTemplateDetailed(template, {
     agentRoot: input.agentRoot,
     agentName: basename(input.agentRoot),
     agentsRoot,
     projectRoot: input.projectRoot,
+    projectId: input.projectId,
     runMode: input.runMode,
     scaffoldPackets: input.scaffoldPackets,
-    ...(profile.additionalBase
-      ? {
-          agentProfile: {
-            instructions: {
-              additionalBase: profile.additionalBase,
+    ...(templateSource
+      ? { agentProfile: profile.rawProfile }
+      : profile.additionalBase
+        ? {
+            agentProfile: {
+              instructions: {
+                additionalBase: profile.additionalBase,
+              },
             },
-          },
-        }
-      : {}),
+          }
+        : {}),
   })
 
-  if (!resolved.prompt) {
-    if (templateSource || !existsSync(join(input.agentRoot, 'SOUL.md'))) {
-      return undefined
-    }
+  const taskContextSection = buildTaskContextSection(process.env)
+  const basePromptContent = resolved.prompt?.content ?? ''
+  const promptContent =
+    taskContextSection === undefined
+      ? basePromptContent
+      : appendSection(basePromptContent, taskContextSection)
+  const promptSections =
+    taskContextSection === undefined
+      ? resolved.promptSections
+      : [...resolved.promptSections, buildTaskContextReport(taskContextSection)]
 
-    return writeMaterializedPrompt(outputPath, {
-      content: '',
+  return {
+    agentRoot: input.agentRoot,
+    agentsRoot,
+    agentName: basename(input.agentRoot),
+    runMode: input.runMode,
+    ...(input.projectRoot !== undefined ? { projectRoot: input.projectRoot } : {}),
+    ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
+    template: {
+      kind: templateSource?.kind ?? 'built-in',
+      ...(templateSource?.path !== undefined ? { path: templateSource.path } : {}),
       mode: template.mode,
-    })
+      ...(template.maxChars !== undefined ? { maxChars: template.maxChars } : {}),
+    },
+    prompt: {
+      content: promptContent,
+      mode: resolved.prompt?.mode ?? template.mode,
+      totalChars: promptContent.length,
+      sections: promptSections,
+    },
+    reminder: {
+      ...(resolved.reminder !== undefined ? { content: resolved.reminder } : {}),
+      totalChars: resolved.reminder?.length ?? 0,
+      sections: resolved.reminderSections,
+    },
+    diagnostics: resolved.diagnostics,
   }
-
-  return writeMaterializedPrompt(outputPath, {
-    mode: resolved.prompt.mode,
-    content: appendTaskContextSection(resolved.prompt.content),
-  })
 }
+
 function writeMaterializedPrompt(
   outputPath: string,
   prompt: { content: string; mode: SystemPromptMode }
@@ -334,17 +402,26 @@ function quoteTomlString(value: string): string {
   return JSON.stringify(value)
 }
 
-function appendTaskContextSection(content: string): string {
-  const section = buildTaskContextSection(process.env)
-  if (section === undefined) {
-    return content
-  }
-
+function appendSection(content: string, section: string): string {
   if (content.trim().length === 0) {
     return section
   }
 
   return `${content}${SECTION_SEPARATOR}${section}`
+}
+
+function buildTaskContextReport(content: string): ResolvedContextSection {
+  return {
+    zone: 'prompt',
+    name: 'current-task-context',
+    type: 'inline',
+    source: 'environment: HRC_TASK_*',
+    included: true,
+    chars: content.length,
+    bytes: new TextEncoder().encode(content).length,
+    truncated: false,
+    content,
+  }
 }
 
 function buildTaskContextSection(env: NodeJS.ProcessEnv): string | undefined {
