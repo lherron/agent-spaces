@@ -1,5 +1,6 @@
 export * from './harness/index.js'
 export * from './session/index.js'
+export * from './agent-memory/index.js'
 export { parseContextTemplate } from './context-template.js'
 export { resolveContextTemplate, resolveContextTemplateDetailed } from './context-resolver.js'
 export {
