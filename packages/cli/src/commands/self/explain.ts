@@ -35,11 +35,19 @@ interface ExplainFinding {
   message: string
 }
 
+interface ExplainSectionReport {
+  name: string
+  source: string
+  content: string
+  wrapped: boolean
+}
+
 interface ExplainPayload {
   topic: ExplainTopic
   templateSource?: TemplateSourceInfo | undefined
   runModeAssumed?: string | undefined
   findings: ExplainFinding[]
+  sections?: ExplainSectionReport[] | undefined
 }
 
 export function registerSelfExplainCommand(self: Command): void {
@@ -325,11 +333,20 @@ async function explainReminder(
     })
   }
 
+  // Build detailed section reports including empty sections
+  const sections: ExplainSectionReport[] = resolved.reminderSections.map((section) => ({
+    name: section.name,
+    source: extractResolvedPath(section.source),
+    content: section.content ?? '',
+    wrapped: section.wrapped ?? false,
+  }))
+
   return {
     topic: 'reminder',
     templateSource,
     runModeAssumed: templateCtx.runMode,
     findings,
+    sections,
   }
 }
 
@@ -367,6 +384,19 @@ async function explainLaunch(ctx: ReturnType<typeof resolveSelfContext>): Promis
     topic: 'launch',
     findings,
   }
+}
+
+/**
+ * Extract the resolved file path from a section source description.
+ * File sections have the format "<ref> -> <resolved_path>", other types
+ * are returned as-is.
+ */
+function extractResolvedPath(source: string): string {
+  const arrowIdx = source.indexOf(' -> ')
+  if (arrowIdx !== -1) {
+    return source.slice(arrowIdx + 4)
+  }
+  return source
 }
 
 function readOptionalFile(path: string | null): string | null {

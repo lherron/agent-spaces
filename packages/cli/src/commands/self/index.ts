@@ -20,6 +20,7 @@ import type { Command } from 'commander'
 
 import { registerSelfExplainCommand } from './explain.js'
 import { registerSelfInspectCommand } from './inspect.js'
+import { registerSelfMemoryCommand } from './memory/index.js'
 import { registerSelfPathsCommand } from './paths.js'
 import { registerSelfPromptCommand } from './prompt.js'
 
@@ -32,4 +33,5 @@ export function registerSelfCommands(program: Command): void {
   registerSelfPathsCommand(self)
   registerSelfPromptCommand(self)
   registerSelfExplainCommand(self)
+  registerSelfMemoryCommand(self)
 }

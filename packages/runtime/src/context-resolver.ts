@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveRootRelativeRef } from 'spaces-config'
 import type {
@@ -496,9 +496,16 @@ function interpolateVariables(content: string, context: ContextResolverContext):
     project_root: context.projectRoot ?? '',
     project_id: context.projectId ?? '',
     run_mode: context.runMode,
+    // camelCase aliases
+    agentName,
+    agentRoot: context.agentRoot,
+    agentsRoot: context.agentsRoot,
+    projectRoot: context.projectRoot ?? '',
+    projectId: context.projectId ?? '',
+    runMode: context.runMode,
   }
 
-  return content.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (match, variableName: string) =>
+  return content.replace(/\{\{\s*([a-zA-Z_]+)\s*\}\}/g, (match, variableName: string) =>
     variableName in variables ? (variables[variableName] ?? '') : match
   )
 }
@@ -583,7 +590,13 @@ function resolveTemplateRef(ref: string, context: ContextResolverContext): strin
     })
   }
 
-  return join(context.agentsRoot, ref)
+  // Interpolate template variables in file paths (e.g. {{agentRoot}}/memory/MEMORY.md)
+  const interpolated = interpolateVariables(ref, context)
+  if (interpolated !== ref && isAbsolute(interpolated)) {
+    return interpolated
+  }
+
+  return join(context.agentsRoot, interpolated)
 }
 
 async function readOptionalFile(filePath: string): Promise<string | undefined> {
