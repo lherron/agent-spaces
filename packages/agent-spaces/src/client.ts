@@ -1449,12 +1449,11 @@ async function runPlacementTurnNonInteractive(
       await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
       await eventEmitter.emit({ type: 'complete', result } as EventPayload)
 
-      const finalContinuation: HarnessContinuationRef | undefined = continuationKey
-        ? { provider: runtimePlan.provider, key: continuationKey }
-        : undefined
-
+      // Do NOT propagate continuation on failure — a crashed session's
+      // sdkSessionId points to a non-existent or corrupt conversation file.
+      // Returning it here causes a cascade where every subsequent turn tries
+      // to --resume from a dead session and immediately fails with ENOENT.
       return {
-        ...(finalContinuation ? { continuation: finalContinuation } : {}),
         provider: runtimePlan.provider,
         frontend: req.frontend,
         model: runtimePlan.model.info.effectiveModel,

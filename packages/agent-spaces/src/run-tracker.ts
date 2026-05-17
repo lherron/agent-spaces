@@ -71,9 +71,13 @@ export function buildInFlightResponse(
   context: InFlightRunContext,
   result: RunResult
 ): RunTurnNonInteractiveResponse {
-  const continuation: HarnessContinuationRef | undefined = context.continuationKey
-    ? { provider: context.provider, key: context.continuationKey }
-    : undefined
+  // Only propagate continuation on success. A failed session's sdkSessionId
+  // points to a non-existent or corrupt conversation file — returning it causes
+  // a cascade where every subsequent turn tries to --resume and fails with ENOENT.
+  const continuation: HarnessContinuationRef | undefined =
+    result.success && context.continuationKey
+      ? { provider: context.provider, key: context.continuationKey }
+      : undefined
 
   return {
     ...(continuation ? { continuation } : {}),
