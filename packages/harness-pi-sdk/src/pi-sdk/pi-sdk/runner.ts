@@ -513,6 +513,7 @@ async function main(): Promise<void> {
   if (!args.noSkills && manifest.skillsDir) {
     const { skills: discovered } = loadSkills({
       cwd: args.cwd,
+      agentDir: bundleRoot,
       skillPaths: [resolve(bundleRoot, manifest.skillsDir)],
       includeDefaults: false,
     })
@@ -541,7 +542,7 @@ async function main(): Promise<void> {
     }
 
     const authStorage = AuthStorage.create()
-    const modelRegistry = new ModelRegistry(authStorage)
+    const modelRegistry = ModelRegistry.create(authStorage)
     const model = modelRegistry.find(provider, modelId)
 
     if (!model) {
