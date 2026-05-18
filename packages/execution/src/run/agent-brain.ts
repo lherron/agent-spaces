@@ -146,14 +146,7 @@ async function prepareEnabledAgentBrainRuntime(
     await runGbrainCommand(['init', '--pglite'], env, runner)
   }
 
-  const sources = await runGbrainCommand(['sources', 'list'], env, runner)
-  const existingPath = findSourcePath(sources.stdout, agentName)
-  if (existingPath !== undefined && existingPath !== brainRepo) {
-    await runGbrainCommand(['sources', 'remove', agentName], env, runner)
-  }
-  if (existingPath !== brainRepo) {
-    await runGbrainCommand(['sources', 'add', agentName, '--path', brainRepo], env, runner)
-  }
+  await ensureSourceRegistered(agentName, brainRepo, env, runner)
 
   return {
     kind: 'enabled',
@@ -163,6 +156,71 @@ async function prepareEnabledAgentBrainRuntime(
     resolver: brain.resolver,
     ...brainRuntimeOptionalConfig(brain),
   }
+}
+
+async function ensureSourceRegistered(
+  agentName: string,
+  brainRepo: string,
+  env: EnabledAgentBrainEnvResult,
+  runner: GbrainCommandRunner
+): Promise<void> {
+  let existingPath = await findCurrentSourcePath(agentName, env, runner)
+  if (existingPath !== undefined && existingPath !== brainRepo) {
+    try {
+      await runGbrainCommand(['sources', 'remove', agentName], env, runner)
+      existingPath = undefined
+    } catch (error) {
+      existingPath = await findSourcePathAfterOperationFailure(agentName, env, runner)
+      if (existingPath === brainRepo) {
+        return
+      }
+      if (existingPath !== undefined) {
+        throw error
+      }
+    }
+  }
+  if (existingPath === brainRepo) {
+    return
+  }
+
+  try {
+    await runGbrainCommand(['sources', 'add', agentName, '--path', brainRepo], env, runner)
+  } catch (error) {
+    if (await sourceMatchesAfterFailedAdd(agentName, brainRepo, env, runner)) {
+      return
+    }
+    throw error
+  }
+}
+
+async function findCurrentSourcePath(
+  agentName: string,
+  env: EnabledAgentBrainEnvResult,
+  runner: GbrainCommandRunner
+): Promise<string | undefined> {
+  const sources = await runGbrainCommand(['sources', 'list'], env, runner)
+  return findSourcePath(sources.stdout, agentName)
+}
+
+async function findSourcePathAfterOperationFailure(
+  agentName: string,
+  env: EnabledAgentBrainEnvResult,
+  runner: GbrainCommandRunner
+): Promise<string | undefined> {
+  try {
+    return await findCurrentSourcePath(agentName, env, runner)
+  } catch {
+    return undefined
+  }
+}
+
+async function sourceMatchesAfterFailedAdd(
+  agentName: string,
+  brainRepo: string,
+  env: EnabledAgentBrainEnvResult,
+  runner: GbrainCommandRunner
+): Promise<boolean> {
+  return (await findSourcePathAfterOperationFailure(agentName, env, runner)) === brainRepo
 }
 
 async function resolveEffectiveBrainConfig(

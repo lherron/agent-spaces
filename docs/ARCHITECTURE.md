@@ -258,6 +258,7 @@ HRC keeps session continuity separate from individual run outcomes. A run can be
 | Session state | Run state | Terminal | Meaning |
 | --- | --- | --- | --- |
 | active | zombie | Yes | Current session continuity remains active, but a headless run was abandoned by observation timeout. HRC has not seen correlated run events for the configured threshold, so the run is closed with unknown outcome and runtime ownership is cleared. |
+| active | failed | Yes | Current session continuity remains active, but active-run reconciliation proved the owning tmux/sdk runtime cannot still be serving the run. HRC closes the run with a specific runtime lifecycle error code, clears runtime ownership, and emits `turn.reaped`. |
 
 ## Harness Adapters
 
