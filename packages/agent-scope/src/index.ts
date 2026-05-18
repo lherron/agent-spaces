@@ -5,4 +5,10 @@ export { normalizeLaneRef, validateLaneRef } from './lane-ref.js'
 export { formatSessionRef, normalizeSessionRef, parseSessionRef } from './session-ref.js'
 export { parseScopeHandle, formatScopeHandle, validateScopeHandle } from './scope-handle.js'
 export { parseSessionHandle, formatSessionHandle } from './session-handle.js'
-export { resolveScopeInput, type ResolvedScopeInput } from './input.js'
+export {
+  DEFAULT_PRIMARY_TASK_ID,
+  resolveQualifiedScopeInput,
+  resolveScopeInput,
+  type ResolvedScopeInput,
+  type ResolveQualifiedScopeOptions,
+} from './input.js'
