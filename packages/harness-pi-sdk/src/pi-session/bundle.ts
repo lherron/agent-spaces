@@ -347,7 +347,7 @@ export async function loadPiSdkBundle(
   if (!noSkills && manifest.skillsDir) {
     const { skills: discovered } = loadSkills({
       cwd: options.cwd,
-      ...(options.agentDir ? { agentDir: options.agentDir } : {}),
+      agentDir: options.agentDir ?? bundleRoot,
       skillPaths: [resolve(bundleRoot, manifest.skillsDir)],
       includeDefaults: false,
     })

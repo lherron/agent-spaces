@@ -35,7 +35,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.63.1",
+    "@mariozechner/pi-coding-agent": "^0.70.2",
     "spaces-config": "*",
     "spaces-runtime": "*"
   },

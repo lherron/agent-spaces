@@ -86,7 +86,7 @@ export class PiSession implements UnifiedSession {
 
       const authStorage = AuthStorage.create(resolveAuthStoragePath(globalAgentDir))
       const modelsJsonPath = join(globalAgentDir, 'models.json')
-      const modelRegistry = new ModelRegistry(authStorage, modelsJsonPath)
+      const modelRegistry = ModelRegistry.create(authStorage, modelsJsonPath)
 
       let model = undefined
       if (this.config.model && this.config.provider) {
