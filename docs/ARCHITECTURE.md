@@ -251,6 +251,14 @@ High-level flow:
 
 The deterministic parts of steps 1-7 live in `spaces-config`. Step 8 and session lifecycle handling live in `spaces-execution` and the harness packages.
 
+## HRC Run Lifecycle
+
+HRC keeps session continuity separate from individual run outcomes. A run can be closed by observation timeout without closing the current session:
+
+| Session state | Run state | Terminal | Meaning |
+| --- | --- | --- | --- |
+| active | zombie | Yes | Current session continuity remains active, but a headless run was abandoned by observation timeout. HRC has not seen correlated run events for the configured threshold, so the run is closed with unknown outcome and runtime ownership is cleared. |
+
 ## Harness Adapters
 
 Current harness packages:
