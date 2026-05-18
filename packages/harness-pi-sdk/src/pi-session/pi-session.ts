@@ -58,6 +58,7 @@ export class PiSession implements UnifiedSession {
   private unsubscribe: (() => void) | undefined
   private eventCallback?: (event: UnifiedSessionEvent) => void
   private permissionHandler?: PermissionHandler
+  private readonly eventMappingState: PiEventMappingState = createPiEventMappingState()
 
   constructor(private readonly config: PiSessionConfig) {
     this.sessionId = config.sessionId ?? `pi-${config.ownerId}-${Date.now()}`
@@ -228,7 +229,7 @@ export class PiSession implements UnifiedSession {
       if (this.config.onEvent) {
         this.config.onEvent(piEvent, this.currentRunId)
       }
-      const unifiedEvents = mapPiEventToUnified(piEvent, this.sessionId)
+      const unifiedEvents = mapPiEventToUnified(piEvent, this.sessionId, this.eventMappingState)
       for (const unifiedEvent of unifiedEvents) {
         this.eventCallback?.(unifiedEvent)
       }
@@ -317,16 +318,82 @@ interface PiAssistantMessageEvent {
   arguments?: Record<string, unknown>
 }
 
-function mapPiEventToUnified(
+export interface PiEventMappingState {
+  sawAssistantMessageInTurn: boolean
+}
+
+export function createPiEventMappingState(): PiEventMappingState {
+  return { sawAssistantMessageInTurn: false }
+}
+
+function assistantTextFromPiMessage(piMessage: PiMessage | undefined): string | undefined {
+  if (!piMessage || piMessage.role !== 'assistant') return undefined
+  if (typeof piMessage.content === 'string') {
+    return piMessage.content.trim().length > 0 ? piMessage.content : undefined
+  }
+
+  const text = piMessage.content
+    .filter((block): block is { type: 'text'; text: string } => {
+      return block.type === 'text' && typeof block.text === 'string'
+    })
+    .map((block) => block.text)
+    .join('')
+
+  return text.trim().length > 0 ? text : undefined
+}
+
+function latestAssistantMessage(messages: unknown): PiMessage | undefined {
+  if (!Array.isArray(messages)) return undefined
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i] as PiMessage | undefined
+    if (assistantTextFromPiMessage(message) !== undefined) {
+      return message
+    }
+  }
+
+  return undefined
+}
+
+function fallbackAssistantMessageEnd(
+  message: PiMessage | undefined,
+  messageId: string | undefined,
+  state: PiEventMappingState
+): UnifiedSessionEvent[] {
+  if (state.sawAssistantMessageInTurn || assistantTextFromPiMessage(message) === undefined) {
+    return []
+  }
+
+  const mapped = mapPiMessage(message)
+  if (!mapped) return []
+
+  state.sawAssistantMessageInTurn = true
+  return [
+    {
+      type: 'message_end',
+      ...(messageId !== undefined ? { messageId } : {}),
+      message: mapped,
+    },
+  ]
+}
+
+export function mapPiEventToUnified(
   piEvent: PiAgentSessionEvent,
-  sessionId: string
+  sessionId: string,
+  state: PiEventMappingState = createPiEventMappingState()
 ): UnifiedSessionEvent[] {
   switch (piEvent.type) {
     case 'agent_start':
+      state.sawAssistantMessageInTurn = false
       return [{ type: 'agent_start', sessionId }]
     case 'agent_end': {
       const reason = typeof piEvent.reason === 'string' ? piEvent.reason : undefined
       return [
+        ...fallbackAssistantMessageEnd(
+          latestAssistantMessage(piEvent['messages']),
+          undefined,
+          state
+        ),
         {
           type: 'agent_end',
           sessionId,
@@ -336,6 +403,7 @@ function mapPiEventToUnified(
     }
     case 'turn_start': {
       const turnId = typeof piEvent.turnId === 'string' ? piEvent.turnId : undefined
+      state.sawAssistantMessageInTurn = false
       return [
         {
           type: 'turn_start',
@@ -354,6 +422,11 @@ function mapPiEventToUnified(
         }
       })
       return [
+        ...fallbackAssistantMessageEnd(
+          piEvent.message as PiMessage | undefined,
+          typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined,
+          state
+        ),
         {
           type: 'turn_end',
           ...(turnId !== undefined ? { turnId } : {}),
@@ -387,26 +460,20 @@ function mapPiEventToUnified(
           const delta = assistantMessageEvent.delta ?? assistantMessageEvent.text
           if (delta) {
             ;(event as { textDelta?: string }).textDelta = delta
+            state.sawAssistantMessageInTurn = true
           }
-        } else if (assistantMessageEvent.type === 'text_end' && assistantMessageEvent.content) {
-          ;(event as { contentBlocks?: ContentBlock[] }).contentBlocks = [
-            { type: 'text', text: assistantMessageEvent.content },
-          ]
         }
-      }
-
-      const message = piEvent.message as PiMessage | undefined
-      if (message?.content && Array.isArray(message.content)) {
-        ;(event as { contentBlocks?: ContentBlock[] }).contentBlocks = mapContentBlocks(
-          message.content
-        )
       }
 
       return [event as UnifiedSessionEvent]
     }
     case 'message_end': {
-      const message = mapPiMessage(piEvent.message as PiMessage | undefined)
+      const piMessage = piEvent.message as PiMessage | undefined
+      const message = mapPiMessage(piMessage)
       const messageId = typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
+      if (assistantTextFromPiMessage(piMessage) !== undefined) {
+        state.sawAssistantMessageInTurn = true
+      }
       return [
         {
           type: 'message_end',
