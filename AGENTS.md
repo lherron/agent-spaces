@@ -15,87 +15,15 @@ Run these after implementing to get immediate feedback:
 - Tests: `bun run test`
 - Typecheck: `bun run typecheck` (run `bun run build` first if workspace typings are missing)
 - Lint: `bun run lint` (fix with `bun run lint:fix`)
-
-## Discord Gateway Validation
-
-When changing Discord gateway behavior, smoke test with real Discord. Fake Discord clients, mocked channel objects, and in-process Discord substitutes are acceptable for automated tests, but they do not count as manual smoke validation.
-
-For gateway changes, verify the behavior in an actual Discord channel/thread using the installed gateway, real bot credentials, and ACP/HRC services. Report the real Discord smoke result when handing work back. If real Discord validation is blocked, say exactly what blocked it and do not present fake-client output as a successful smoke test.
-
-## ACP Discord Bindings
-
-Bindings map a Discord conversation to an ACP session scope. Manage them under `acp admin interface binding` (note: under `admin interface`, not bare `interface`).
-
-```bash
-acp admin interface binding list --json
-acp admin interface binding set --gateway <id> --conversation-ref channel:<discord-channel-id> \
-  --project <projectId> --scope-ref <scopeRef> --lane-ref main --json
-acp admin interface binding disable --binding <id>
-```
-
-Notes:
-
-- `binding set` upserts on `(gatewayId, conversationRef [, threadRef])`. Re-running `set` with the same channel keeps the same `bindingId` and just updates the scope/lane — that's the supported way to repoint a channel without churning binding IDs.
-- `conversationRef` for a channel is `channel:<id>`; for a thread, add `--thread-ref thread:<id>`. Use the numeric Discord ID, not the `#name`.
-- Discord channel ID lookup: `discord-chat channels list | jq -r '.data[] | select(.name=="<name>") | .id'`.
-- Standard dev gateway is `acp-discord-smoke`; bind `agent:<agent>:project:<project>:task:<task>` for task-scoped routing.
-
-Verifying a binding:
-
-```bash
-# 1. Send via the virtu bot (acts as a real user, not the gateway bot itself)
-CP_CHANNEL_ID=<channel-id> ./scripts/virtu-send.sh "ping"
-
-# 2. Confirm a run was created on the target scope
-acp session resolve --scope-ref <scopeRef> --lane-ref main --json     # -> sessionId
-acp session runs --session <sessionId> --json                         # check metadata.meta.interfaceSource.bindingId
-
-# 3. Read the reply from Discord (acp tail may return [] for headless runs)
-TOKEN=$(consul kv get cfg/dev/_global/discord/master_token)
-curl -sS -H "Authorization: Bot $TOKEN" \
-  "https://discord.com/api/v10/channels/<channel-id>/messages?limit=5" \
-  | jq -r '.[] | {author: .author.username, ts: .timestamp, content}'
-```
-
-The run's `metadata.meta.interfaceSource.bindingId` is the authoritative proof that a specific binding routed the inbound — match it against the binding you just created.
-
-## Ops Dashboard
-
-When the user refers to the "ops dashboard", they mean the ACP ops web dashboard in `packages/acp-ops-web`.
-Always open the ops dashboard in the Codex in-app browser when asked to start, inspect, or verify it.
-
-Run it from `packages/acp-ops-web`:
-
-```bash
-bun run dev -- --host 127.0.0.1
-```
-
-Then open `http://127.0.0.1:5173/` in the in-app browser. If port `5173` is already serving the dashboard, reuse it instead of starting another server.
-
-Operational notes from dashboard work:
-
-- The real snapshot endpoint is `/v1/ops/session-dashboard/snapshot`.
-- A successful real snapshot can contain sessions with `events: 0`; an empty event stream/timeline is not automatically a rendering bug.
-- Dev demo data should only appear when the dashboard snapshot request fails in development, not before a successful real snapshot replaces it.
-- For package-scoped validation after ops dashboard changes, prefer `bun run --filter acp-ops-web typecheck` and `bun run --filter acp-ops-web test`.
-
-## ACP Viewer
-
-When changing pages or UI under `packages/acp-viewer`, open the affected route in the Codex in-app browser and display it for review.
-
-Run it from `packages/acp-viewer`:
-
-```bash
-bun run dev -- --host 127.0.0.1
-```
-
-Then open the relevant `http://127.0.0.1:5174/...` route in the in-app browser. If port `5174` is already serving the viewer, reuse it instead of starting another server.
+- Boundary checks: `bun run check:boundaries`, `bun run check:manifests`
+- Pack smoke: `bun scripts/smoke-pack-cross-repo.ts` (verifies cross-repo published tarballs don't carry `exports.bun → ./src/*.ts`)
 
 ## Project Structure
 
 ```
 packages/
 ├── agent-scope/      # ScopeRef/ScopeHandle/SessionRef/SessionHandle utilities
+├── cli-kit/          # Shared Commander helpers, validators, CLI utilities
 ├── config/           # spaces-config: config-time determinism, resolution, locks, materialization
 ├── runtime/          # spaces-runtime: harness-agnostic runtime/session contracts
 ├── execution/        # spaces-execution: run-time orchestration and harness dispatch
@@ -104,13 +32,26 @@ packages/
 ├── harness-pi/       # Pi CLI adapter
 ├── harness-pi-sdk/   # Pi SDK adapter
 ├── agent-spaces/     # Public host-facing client surface
-└── cli/              # CLI entry point
+└── cli/              # `asp` CLI entry point (@lherron/agent-spaces)
 ```
+
+Integration tests live in `integration-tests/`.
+
+## Repo Boundaries
+
+This repo is the ASP layer of the three-repo split (ASP / HRC / ACP). Boundaries
+enforced by `bun run check:boundaries`:
+
+- ASP source **must not** import any `hrc-*`, `acp-*`, `gateway-*`,
+  `coordination-substrate`, `wrkq-lib`, or `wlearn` package.
+- Cross-repo publishable boundary packages (10 of them — agent-scope, cli-kit,
+  spaces-{config,runtime,execution,harness-*}, agent-spaces) MUST have a
+  `prepack` step that strips `exports.*.bun` from the published manifest so
+  Bun consumers in the HRC/ACP repos resolve `dist/*.js`, not unshipped `src/`.
 
 ## Smoke Testing the CLI
 
 **Always test `asp run` changes with `--dry-run`** to verify the generated Claude command without actually launching Claude.
-**If you update something available via CLI, run the CLI to validate it.**
 
 Run CLI commands with `--dry-run` to verify behavior without launching Claude:
 
@@ -144,6 +85,21 @@ Test fixtures are in `integration-tests/fixtures/`:
 - `sample-registry/spaces/` - Various test spaces (base, frontend, backend, etc.)
 - `sample-project/` - Project with asp-targets.toml
 - `claude-shim/` - Mock claude binary for tests
+
+## Pack Smoke for `@lherron/agent-spaces`
+
+The published CLI bundles its workspace deps. After packaging changes, verify
+both shapes:
+
+```bash
+cd packages/cli
+bun scripts/smoke-test-pack.ts
+```
+
+The smoke runs prepack explicitly (because `~/.npmrc` may have
+`ignore-scripts=true`), packs with `npm pack --ignore-scripts`, installs the
+tarball into a throwaway Bun project, and asserts every published subpath
+entrypoint resolves and exports at least one symbol.
 
 ## Codebase Patterns
 
