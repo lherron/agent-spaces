@@ -106,6 +106,8 @@
     "@anthropic-ai/claude-agent-sdk": "^0.1.72",
     "@iarna/toml": "^2.2.5",
     "@mariozechner/pi-coding-agent": "^0.70.2",
+    "agent-scope": "*",
+    "agent-spaces": "*",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "chalk": "^5.3.0",
@@ -114,14 +116,12 @@
     "figures": "^6.1.0",
     "ora": "^9.0.0",
     "proper-lockfile": "^4.1.2",
-    "semver": "^7.7.2"
-  },
-  "optionalDependencies": {
-    "agent-scope": "*",
-    "agent-spaces": "*",
+    "semver": "^7.7.2",
     "spaces-config": "*",
     "spaces-execution": "*",
-    "spaces-runtime": "*",
+    "spaces-runtime": "*"
+  },
+  "optionalDependencies": {
     "spaces-harness-claude": "*",
     "spaces-harness-codex": "*",
     "spaces-harness-pi": "*",

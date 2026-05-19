@@ -14,9 +14,6 @@
   "dependencies": {
     "@lherron/agent-spaces": "*",
     "agent-spaces": "*",
-    "hrc-core": "*",
-    "hrc-sdk": "*",
-    "hrc-server": "*",
     "spaces-config": "*",
     "spaces-execution": "*"
   }
