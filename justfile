@@ -63,11 +63,6 @@ install:
     bun install
     bun run build
     cd packages/cli && bun link
-    cd packages/hrc-cli && bun link
-    cd packages/hrcchat-cli && bun link
-    cd packages/acp-cli && bun link
-    cd packages/acp-server && bun link
-    cd packages/wlearn && bun link
 
 # Serve the ACP Session Dashboard (acp-ops-web) against the local dev stack
 serve-dashboard:
