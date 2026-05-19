@@ -26,7 +26,7 @@ export function registerSelfPathsCommand(self: Command): void {
     .description('List every path in the agent runtime, classified editable vs derived')
     .option('--json', 'Emit machine-readable JSON')
     .option('--target <name>', 'Override inferred agent slug')
-    .option('--launch-file <path>', 'Override HRC_LAUNCH_FILE')
+    .option('--launch-file <path>', 'Override AGENT_LAUNCH_FILE')
     .option('--kind <kind>', 'Filter by kind: editable | shared-editable | derived | ephemeral')
     .option('--existing', 'Only show paths that currently exist')
     .action(async (options: PathsOptions) => {

@@ -2,7 +2,7 @@
  * Shared helpers for `asp self` commands.
  *
  * WHY: the `self` family reads a live agent's runtime state from environment
- * variables (HRC_LAUNCH_FILE, ASP_PLUGIN_ROOT, AGENTCHAT_ID, etc.) and
+ * variables (AGENT_LAUNCH_FILE, ASP_PLUGIN_ROOT, AGENTCHAT_ID, etc.) and
  * classifies the paths that went into composing the agent. Centralizing that
  * resolution here keeps each subcommand small and gives both clod and cody a
  * stable API surface.
@@ -23,9 +23,8 @@ import {
 } from 'spaces-runtime'
 
 /**
- * Lenient subset of the HRC launch artifact. The real type lives in
- * `hrc-core` but we avoid that dep to keep the CLI lean; we read this
- * read-only so missing fields are tolerated.
+ * Lenient subset of the launch artifact. We read this read-only so missing
+ * fields are tolerated.
  */
 export interface LaunchArtifactLite {
   launchId?: string
@@ -55,14 +54,8 @@ export interface SelfContext {
   /** Agent slug (e.g. "clod"). */
   agentName: string | null
   projectId: string | null
-  sessionRef: string | null
-  scopeRef: string | null
-  laneRef: string | null
-  hostSessionId: string | null
-  runtimeId: string | null
-  runId: string | null
-  launchId: string | null
-  generation: number | null
+  injectedEnv: Record<string, string>
+  lookup: (key: string) => string | null
 
   cwd: string
   agentsRoot: string
@@ -82,7 +75,7 @@ export interface SelfContext {
 }
 
 export interface ResolveSelfContextOptions {
-  /** Override HRC_LAUNCH_FILE. */
+  /** Override AGENT_LAUNCH_FILE. */
   launchFile?: string
   /** Override inferred agent slug. */
   target?: string
@@ -135,7 +128,7 @@ export interface SectionReport {
 
 /**
  * Pull the system prompt out of argv. Claude uses `--append-system-prompt`;
- * other harnesses use `--system-prompt`. Mirrors hrc-server's exec.ts.
+ * other harnesses use `--system-prompt`. Mirrors the launcher argv contract.
  */
 export function extractSystemPrompt(argv: readonly string[]): PromptFragment | null {
   const appendIdx = argv.indexOf('--append-system-prompt')
@@ -174,14 +167,47 @@ export function inferTargetFromBundleRoot(bundleRoot: string | undefined): strin
   return targetName && targetName.length > 0 ? targetName : null
 }
 
-function parseIntOrNull(value: string | undefined): number | null {
-  if (value === undefined) return null
-  const parsed = Number.parseInt(value, 10)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+const SHELL_NOISE_ENV_KEYS = new Set([
+  '_',
+  'COLORTERM',
+  'COMMAND_MODE',
+  'HOME',
+  'LANG',
+  'LOGNAME',
+  'OLDPWD',
+  'PATH',
+  'PWD',
+  'SHELL',
+  'SHLVL',
+  'SSH_AUTH_SOCK',
+  'TEMP',
+  'TERM',
+  'TERM_PROGRAM',
+  'TERM_PROGRAM_VERSION',
+  'TERM_SESSION_ID',
+  'TMP',
+  'TMPDIR',
+  'USER',
+  'XPC_FLAGS',
+  'XPC_SERVICE_NAME',
+])
+
+function isShellNoiseEnvKey(key: string): boolean {
+  return SHELL_NOISE_ENV_KEYS.has(key) || key.startsWith('LC_')
+}
+
+export function filterInjectedEnv(env: Record<string, string> | undefined): Record<string, string> {
+  const entries = Object.entries(env ?? {})
+    .filter(
+      ([key, value]) => key.length > 0 && !isShellNoiseEnvKey(key) && typeof value === 'string'
+    )
+    .sort(([left], [right]) => left.localeCompare(right))
+
+  return Object.fromEntries(entries)
 }
 
 function readAgentProfile(agentRoot: string | null): Record<string, unknown> | null {
@@ -203,9 +229,8 @@ function readAgentProfile(agentRoot: string | null): Record<string, unknown> | n
 }
 
 /**
- * Read a launch artifact with lenient parsing. Unlike hrc-server's
- * `readLaunchArtifact`, this tolerates missing fields so introspection of
- * older or partial artifacts still works.
+ * Read a launch artifact with lenient parsing. This tolerates missing fields
+ * so introspection of older or partial artifacts still works.
  */
 export function readLaunchArtifactLite(path: string): {
   artifact: LaunchArtifactLite | null
@@ -234,12 +259,8 @@ export function readLaunchArtifactLite(path: string): {
 export function resolveSelfContext(options: ResolveSelfContextOptions = {}): SelfContext {
   const env = options.env ?? process.env
   const cwd = options.cwd ?? process.cwd()
-  const aspHome = options.aspHome ?? getAspHome()
-  const agentsRoot = options.agentsRoot ?? getAgentsRoot() ?? aspHome
 
-  const launchFilePath = options.launchFile ?? env['HRC_LAUNCH_FILE'] ?? null
-  const bundleRoot = env['ASP_PLUGIN_ROOT'] ?? null
-  const primingPromptEnv = env['ASP_PRIMING_PROMPT'] ?? null
+  const launchFilePath = options.launchFile ?? env['AGENT_LAUNCH_FILE'] ?? null
 
   const { artifact: launch, error: launchReadError } =
     launchFilePath && existsSync(launchFilePath)
@@ -249,8 +270,15 @@ export function resolveSelfContext(options: ResolveSelfContextOptions = {}): Sel
           error: launchFilePath ? `launch file not found: ${launchFilePath}` : null,
         }
 
+  const injectedEnv = filterInjectedEnv(launch?.env)
+  const lookup = (key: string): string | null => injectedEnv[key] ?? null
+  const aspHome = options.aspHome ?? lookup('ASP_HOME') ?? getAspHome()
+  const agentsRoot = options.agentsRoot ?? lookup('ASP_AGENTS_ROOT') ?? getAgentsRoot() ?? aspHome
+  const bundleRoot = lookup('ASP_PLUGIN_ROOT')
+  const primingPromptEnv = lookup('ASP_PRIMING_PROMPT')
+
   const agentName =
-    options.target ?? env['AGENTCHAT_ID'] ?? inferTargetFromBundleRoot(bundleRoot ?? undefined)
+    options.target ?? lookup('AGENTCHAT_ID') ?? inferTargetFromBundleRoot(bundleRoot ?? undefined)
 
   const agentRoot = agentName ? join(agentsRoot, agentName) : null
 
@@ -261,15 +289,9 @@ export function resolveSelfContext(options: ResolveSelfContextOptions = {}): Sel
 
   return {
     agentName: agentName ?? null,
-    projectId: env['ASP_PROJECT'] ?? null,
-    sessionRef: env['HRC_SESSION_REF'] ?? null,
-    scopeRef: env['AGENT_SCOPE_REF'] ?? null,
-    laneRef: env['AGENT_LANE_REF'] ?? null,
-    hostSessionId: env['HRC_HOST_SESSION_ID'] ?? env['AGENT_HOST_SESSION_ID'] ?? null,
-    runtimeId: env['HRC_RUNTIME_ID'] ?? launch?.runtimeId ?? null,
-    runId: env['HRC_RUN_ID'] ?? launch?.runId ?? null,
-    launchId: env['HRC_LAUNCH_ID'] ?? launch?.launchId ?? null,
-    generation: parseIntOrNull(env['HRC_GENERATION']) ?? launch?.generation ?? null,
+    projectId: lookup('ASP_PROJECT'),
+    injectedEnv,
+    lookup,
 
     cwd,
     agentsRoot,
@@ -558,10 +580,10 @@ export function enumeratePaths(ctx: SelfContext): PathEntry[] {
     add('bundle-plugins', join(ctx.bundleRoot, 'plugins'), 'derived', 'Ordered plugin bundles')
   }
 
-  // Ephemeral: HRC runtime state
+  // Ephemeral: runtime state
   add('launch-file', ctx.launchFilePath, 'ephemeral', 'JSON artifact of this launch (argv, env)')
   if (ctx.launch?.spoolDir) {
-    add('spool-dir', ctx.launch.spoolDir, 'ephemeral', 'Callback spool for offline HRC events')
+    add('spool-dir', ctx.launch.spoolDir, 'ephemeral', 'Callback spool for offline runtime events')
   }
 
   return entries

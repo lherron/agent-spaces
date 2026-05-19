@@ -1,10 +1,9 @@
 /**
  * CLI integration tests for `asp self inspect` and `asp self paths`.
  *
- * These exercise the binary with a faked-up runtime env (HRC_LAUNCH_FILE,
- * ASP_PLUGIN_ROOT, AGENTCHAT_ID, ASP_AGENTS_ROOT, ASP_HOME) and assert on
- * stdout so a future agent can reproduce the red/green behavior without
- * mocking internals.
+ * These exercise the binary with a faked-up runtime env and assert on stdout
+ * so a future agent can reproduce the red/green behavior without mocking
+ * internals.
  */
 
 import { afterEach, describe, expect, test } from 'bun:test'
@@ -15,6 +14,7 @@ import { join } from 'node:path'
 
 const ASP_CLI = join(import.meta.dirname, '..', '..', '..', '..', 'bin', 'asp.js')
 const tempDirs: string[] = []
+const SAMPLE_PREFIX = 'EXAMPLE_'
 
 afterEach(async () => {
   await Promise.all(tempDirs.map((p) => rm(p, { recursive: true, force: true })))
@@ -45,6 +45,24 @@ async function setupFixture(): Promise<{
   await writeFile(join(bundleRoot, 'settings.json'), '{}')
 
   const launchFile = join(dir, 'launch.json')
+  const artifactEnv = {
+    AGENTCHAT_ID: 'clod',
+    AGENT_LAUNCH_FILE: launchFile,
+    AGENT_HOST_SESSION_ID: 'hsid-TEST',
+    AGENT_LANE_REF: 'main',
+    AGENT_SCOPE_REF: 'agent:clod:project:test-proj',
+    ASP_AGENTS_ROOT: agentsRoot,
+    ASP_HOME: dir,
+    ASP_PLUGIN_ROOT: bundleRoot,
+    ASP_PRIMING_PROMPT: 'priming-from-env',
+    ASP_PROJECT: 'test-proj',
+    [`${SAMPLE_PREFIX}GENERATION`]: '1',
+    [`${SAMPLE_PREFIX}LAUNCH_ID`]: 'launch-TEST',
+    [`${SAMPLE_PREFIX}RUNTIME_ID`]: 'rt-TEST',
+    [`${SAMPLE_PREFIX}RUN_ID`]: 'run-TEST',
+    PATH: '/bin:/usr/bin',
+    SHELL: '/bin/zsh',
+  }
   await writeFile(
     launchFile,
     JSON.stringify({
@@ -56,7 +74,7 @@ async function setupFixture(): Promise<{
       harness: 'claude-code',
       provider: 'anthropic',
       argv: ['claude', '--append-system-prompt', 'test-sys-prompt', '--', 'test-priming'],
-      env: { AGENTCHAT_ID: 'clod' },
+      env: artifactEnv,
       cwd: dir,
       callbackSocketPath: '/tmp/sock',
       spoolDir: join(dir, 'spool'),
@@ -66,18 +84,12 @@ async function setupFixture(): Promise<{
 
   const env: Record<string, string> = {
     AGENTCHAT_ID: 'clod',
+    AGENT_LAUNCH_FILE: launchFile,
     ASP_PROJECT: 'test-proj',
     ASP_HOME: dir,
     ASP_AGENTS_ROOT: agentsRoot,
     ASP_PLUGIN_ROOT: bundleRoot,
-    HRC_LAUNCH_FILE: launchFile,
     ASP_PRIMING_PROMPT: 'priming-from-env',
-    HRC_SESSION_REF: 'agent:clod:project:test-proj',
-    HRC_RUNTIME_ID: 'rt-TEST',
-    HRC_RUN_ID: 'run-TEST',
-    HRC_LAUNCH_ID: 'launch-TEST',
-    HRC_GENERATION: '1',
-    HRC_HOST_SESSION_ID: 'hsid-TEST',
   }
 
   return { dir, agentsRoot, bundleRoot, launchFile, env }
@@ -88,12 +100,9 @@ function runAsp(
   env: Record<string, string>
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
-    // Strip the parent process's HRC/ASP env so it can't leak into the fixture
-    const baseEnv = { ...process.env }
-    for (const key of Object.keys(baseEnv)) {
-      if (key.startsWith('HRC_') || key.startsWith('ASP_') || key === 'AGENTCHAT_ID') {
-        delete baseEnv[key]
-      }
+    const baseEnv = {
+      HOME: process.env['HOME'] ?? '/tmp',
+      PATH: process.env['PATH'] ?? '/bin:/usr/bin',
     }
     const stdout = execFileSync('bun', ['run', ASP_CLI, ...args], {
       encoding: 'utf8',
@@ -119,6 +128,10 @@ describe('asp self inspect', () => {
     expect(result.stdout).toContain('asp self inspect — clod')
     expect(result.stdout).toContain('agent:       clod')
     expect(result.stdout).toContain('project:     test-proj')
+    expect(result.stdout).toContain(`${SAMPLE_PREFIX}RUNTIME_ID`)
+    expect(result.stdout).toContain('rt-TEST')
+    expect(result.stdout).not.toContain('PATH')
+    expect(result.stdout).not.toContain('/bin:/usr/bin')
     expect(result.stdout).toContain('harness:     claude-code')
     expect(result.stdout).toContain('mode=append')
     // "test-sys-prompt" is 15 chars
@@ -132,11 +145,14 @@ describe('asp self inspect', () => {
     const parsed = JSON.parse(result.stdout) as {
       agentName: string
       harness: string
+      injectedEnv: Record<string, string>
       systemPrompt: { content: string; mode: string }
       derived: { systemPromptChars: number; primingPromptChars: number }
     }
     expect(parsed.agentName).toBe('clod')
     expect(parsed.harness).toBe('claude-code')
+    expect(parsed.injectedEnv[`${SAMPLE_PREFIX}RUNTIME_ID`]).toBe('rt-TEST')
+    expect(parsed.injectedEnv.PATH).toBeUndefined()
     expect(parsed.systemPrompt.mode).toBe('append')
     expect(parsed.derived.systemPromptChars).toBe('test-sys-prompt'.length)
     expect(parsed.derived.primingPromptChars).toBe('test-priming'.length)

@@ -64,7 +64,7 @@ export function registerSelfPromptCommand(self: Command): void {
       'For reminder, recompute from the current template instead of reading bundle output'
     )
     .option('--target <name>', 'Override inferred agent slug')
-    .option('--launch-file <path>', 'Override HRC_LAUNCH_FILE')
+    .option('--launch-file <path>', 'Override AGENT_LAUNCH_FILE')
     .action(async (which: string | undefined, options: PromptOptions) => {
       try {
         const normalized = normalizeWhich(which)
