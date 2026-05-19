@@ -1,7 +1,6 @@
 {
   "name": "spaces-harness-claude",
   "version": "0.1.0",
-  "private": true,
   "description": "Claude harness adapters and Agent SDK session",
   "type": "module",
   "main": "./dist/index.js",
@@ -23,7 +22,9 @@
       "import": "./dist/agent-sdk/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

@@ -1,7 +1,6 @@
 {
   "name": "agent-scope",
   "version": "0.1.0",
-  "private": true,
   "description": "Canonical upstream package for semantic agent session addressing",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,7 +12,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

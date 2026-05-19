@@ -1,7 +1,6 @@
 {
   "name": "agent-spaces",
   "version": "0.1.0",
-  "private": true,
   "description": "Public client surface for Agent Spaces",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,7 +12,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

@@ -1,7 +1,6 @@
 {
   "name": "spaces-execution",
   "version": "0.1.0",
-  "private": true,
   "description": "Run-time volatility: harness execution, sessions, Claude/Pi invocation",
   "type": "module",
   "main": "./dist/index.js",
@@ -33,7 +32,9 @@
       "import": "./dist/harness/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",

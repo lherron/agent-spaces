@@ -1,7 +1,6 @@
 {
   "name": "spaces-config",
   "version": "0.1.0",
-  "private": true,
   "description": "Config-time determinism: resolution, locks, bundles, materialization",
   "type": "module",
   "main": "./dist/index.js",
@@ -47,7 +46,10 @@
       "import": "./src/core/schemas/*"
     }
   },
-  "files": ["dist", "src/core/schemas"],
+  "files": [
+    "dist",
+    "src/core/schemas"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
