@@ -70,11 +70,9 @@ function runAspWithStdin(
   stdin: string
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
-    const baseEnv = { ...process.env }
-    for (const key of Object.keys(baseEnv)) {
-      if (key.startsWith('HRC_') || key.startsWith('ASP_') || key === 'AGENTCHAT_ID') {
-        delete baseEnv[key]
-      }
+    const baseEnv = {
+      HOME: process.env['HOME'] ?? '/tmp',
+      PATH: process.env['PATH'] ?? '/bin:/usr/bin',
     }
 
     const stdout = execFileSync(

@@ -18,12 +18,14 @@ import {
   enumeratePaths,
   extractPrimingPrompt,
   extractSystemPrompt,
+  filterInjectedEnv,
   inferTargetFromBundleRoot,
   readLaunchArtifactLite,
   resolveSelfContext,
 } from '../lib.js'
 
 const tempDirs: string[] = []
+const SAMPLE_PREFIX = 'EXAMPLE_'
 
 afterEach(async () => {
   await Promise.all(tempDirs.map((p) => rm(p, { recursive: true, force: true })))
@@ -124,7 +126,7 @@ describe('readLaunchArtifactLite', () => {
     expect(result.error).toContain('not an object')
   })
 
-  test('tolerates missing fields (unlike the strict hrc-server reader)', async () => {
+  test('tolerates missing fields', async () => {
     const dir = await makeTempDir('asp-self-launch-')
     const path = join(dir, 'partial.json')
     await writeFile(path, JSON.stringify({ launchId: 'only-id' }))
@@ -135,7 +137,7 @@ describe('readLaunchArtifactLite', () => {
 })
 
 describe('resolveSelfContext', () => {
-  test('falls back to env when no launch file', async () => {
+  test('uses empty injected env when no launch file is available', async () => {
     const dir = await makeTempDir('asp-self-ctx-')
     const agentsDir = join(dir, 'agents')
     await mkdir(agentsDir, { recursive: true })
@@ -144,18 +146,34 @@ describe('resolveSelfContext', () => {
         AGENTCHAT_ID: 'smokey',
         ASP_PROJECT: 'test-proj',
         ASP_PRIMING_PROMPT: 'go',
-        HRC_GENERATION: '3',
       },
       cwd: dir,
       aspHome: dir,
       agentsRoot: agentsDir,
     })
-    expect(ctx.agentName).toBe('smokey')
-    expect(ctx.projectId).toBe('test-proj')
-    expect(ctx.primingPrompt).toBe('go')
-    expect(ctx.generation).toBe(3)
+    expect(ctx.agentName).toBeNull()
+    expect(ctx.projectId).toBeNull()
+    expect(ctx.primingPrompt).toBeNull()
+    expect(ctx.injectedEnv).toEqual({})
+    expect(ctx.lookup('missing')).toBeNull()
     expect(ctx.launch).toBeNull()
-    expect(ctx.agentRoot).toBe(join(agentsDir, 'smokey'))
+    expect(ctx.agentRoot).toBeNull()
+  })
+
+  test('filters injected env with generic shell noise rules', () => {
+    expect(
+      filterInjectedEnv({
+        AGENTCHAT_ID: 'clod',
+        LANG: 'en_US.UTF-8',
+        LC_ALL: 'en_US.UTF-8',
+        PATH: '/bin',
+        SHELL: '/bin/zsh',
+        [`${SAMPLE_PREFIX}RUNTIME_ID`]: 'rt-TEST',
+      })
+    ).toEqual({
+      AGENTCHAT_ID: 'clod',
+      [`${SAMPLE_PREFIX}RUNTIME_ID`]: 'rt-TEST',
+    })
   })
 
   test('extracts prompts from launch artifact argv', async () => {
@@ -170,24 +188,40 @@ describe('resolveSelfContext', () => {
         harness: 'claude-code',
         provider: 'anthropic',
         argv: ['claude', '--append-system-prompt', 'SYS-CONTENT', '--', 'PRIME-CONTENT'],
+        env: {
+          AGENTCHAT_ID: 'agent',
+          ASP_PROJECT: 'test-proj',
+          [`${SAMPLE_PREFIX}LAUNCH_ID`]: 'LX',
+          [`${SAMPLE_PREFIX}RUNTIME_ID`]: 'rt-artifact',
+          PATH: '/bin',
+        },
       })
     )
     const ctx = resolveSelfContext({
-      env: { AGENTCHAT_ID: 'agent', HRC_LAUNCH_FILE: launchPath },
+      env: { AGENT_LAUNCH_FILE: launchPath },
       cwd: dir,
       aspHome: dir,
       agentsRoot: agentsDir,
     })
+    expect(ctx.agentName).toBe('agent')
+    expect(ctx.projectId).toBe('test-proj')
     expect(ctx.systemPrompt).toEqual({ content: 'SYS-CONTENT', mode: 'append' })
     expect(ctx.primingPrompt).toBe('PRIME-CONTENT')
     expect(ctx.harness).toBe('claude-code')
     expect(ctx.provider).toBe('anthropic')
-    expect(ctx.launchId).toBe('LX')
+    expect(ctx.injectedEnv).toEqual({
+      AGENTCHAT_ID: 'agent',
+      ASP_PROJECT: 'test-proj',
+      [`${SAMPLE_PREFIX}LAUNCH_ID`]: 'LX',
+      [`${SAMPLE_PREFIX}RUNTIME_ID`]: 'rt-artifact',
+    })
+    expect(ctx.lookup(`${SAMPLE_PREFIX}RUNTIME_ID`)).toBe('rt-artifact')
+    expect(ctx.lookup('PATH')).toBeNull()
   })
 
   test('reports launch read error without throwing', () => {
     const ctx = resolveSelfContext({
-      env: { HRC_LAUNCH_FILE: '/nonexistent/path/xyz.json' },
+      env: { AGENT_LAUNCH_FILE: '/nonexistent/path/xyz.json' },
       aspHome: '/tmp',
       agentsRoot: '/tmp',
     })
@@ -195,21 +229,37 @@ describe('resolveSelfContext', () => {
     expect(ctx.launchReadError).toContain('not found')
   })
 
-  test('env target overrides bundle inference', () => {
+  test('artifact agent target overrides bundle inference', async () => {
+    const dir = await makeTempDir('asp-self-ctx-')
+    const launchPath = join(dir, 'launch.json')
+    await writeFile(
+      launchPath,
+      JSON.stringify({
+        env: {
+          AGENTCHAT_ID: 'explicit',
+          ASP_PLUGIN_ROOT: '/a/b/projects/p/targets/from-bundle/claude',
+        },
+      })
+    )
     const ctx = resolveSelfContext({
-      env: {
-        AGENTCHAT_ID: 'explicit',
-        ASP_PLUGIN_ROOT: '/a/b/projects/p/targets/from-bundle/claude',
-      },
+      env: { AGENT_LAUNCH_FILE: launchPath },
       aspHome: '/tmp',
       agentsRoot: '/tmp',
     })
     expect(ctx.agentName).toBe('explicit')
   })
 
-  test('infers agent name from bundle root when AGENTCHAT_ID is missing', () => {
+  test('infers agent name from artifact bundle root when AGENTCHAT_ID is missing', async () => {
+    const dir = await makeTempDir('asp-self-ctx-')
+    const launchPath = join(dir, 'launch.json')
+    await writeFile(
+      launchPath,
+      JSON.stringify({
+        env: { ASP_PLUGIN_ROOT: '/a/b/projects/p/targets/inferred/claude' },
+      })
+    )
     const ctx = resolveSelfContext({
-      env: { ASP_PLUGIN_ROOT: '/a/b/projects/p/targets/inferred/claude' },
+      env: { AGENT_LAUNCH_FILE: launchPath },
       aspHome: '/tmp',
       agentsRoot: '/tmp',
     })
@@ -225,6 +275,36 @@ describe('resolveSelfContext', () => {
     })
     expect(ctx.agentName).toBe('override')
   })
+
+  test('controller process env does not affect injected env output', async () => {
+    const dir = await makeTempDir('asp-self-ctx-')
+    const agentsDir = join(dir, 'agents')
+    await mkdir(agentsDir, { recursive: true })
+    const launchPath = join(dir, 'launch.json')
+    await writeFile(
+      launchPath,
+      JSON.stringify({
+        argv: [],
+        env: {
+          AGENTCHAT_ID: 'agent',
+          [`${SAMPLE_PREFIX}RUNTIME_ID`]: 'rt-artifact',
+        },
+      })
+    )
+
+    const ctx = resolveSelfContext({
+      env: {
+        AGENT_LAUNCH_FILE: launchPath,
+        [`${SAMPLE_PREFIX}RUNTIME_ID`]: 'rt-process',
+      },
+      cwd: dir,
+      aspHome: dir,
+      agentsRoot: agentsDir,
+    })
+
+    expect(ctx.injectedEnv[`${SAMPLE_PREFIX}RUNTIME_ID`]).toBe('rt-artifact')
+    expect(Object.values(ctx.injectedEnv)).not.toContain('rt-process')
+  })
 })
 
 describe('enumeratePaths', () => {
@@ -233,12 +313,20 @@ describe('enumeratePaths', () => {
     const agentsDir = join(dir, 'agents')
     await mkdir(join(agentsDir, 'clod'), { recursive: true })
     await writeFile(join(agentsDir, 'clod', 'SOUL.md'), '# clod')
+    const launchPath = join(dir, 'launch.json')
+    await writeFile(
+      launchPath,
+      JSON.stringify({
+        env: {
+          ASP_PLUGIN_ROOT: join(dir, 'bundle'),
+        },
+      })
+    )
 
     const ctx = resolveSelfContext({
       target: 'clod',
       env: {
-        ASP_PLUGIN_ROOT: join(dir, 'bundle'),
-        HRC_LAUNCH_FILE: join(dir, 'missing.json'),
+        AGENT_LAUNCH_FILE: launchPath,
       },
       aspHome: dir,
       agentsRoot: agentsDir,

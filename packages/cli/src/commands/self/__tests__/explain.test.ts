@@ -59,7 +59,7 @@ source = "session.additionalContext"
 
   test('surfaces unreadable launch-file errors', async () => {
     const fixture = await setupSelfFixture()
-    const env = { ...fixture.env, HRC_LAUNCH_FILE: join(fixture.dir, 'missing-launch.json') }
+    const env = { ...fixture.env, AGENT_LAUNCH_FILE: join(fixture.dir, 'missing-launch.json') }
     const result = runAsp(['self', 'explain', 'launch'], env)
 
     expect(result.exitCode).toBe(0)

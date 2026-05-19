@@ -2,7 +2,7 @@
  * `asp self` — introspection and self-modification pointers for a running
  * agent.
  *
- * WHY: a live agent (Claude Code harness) can read HRC_LAUNCH_FILE and
+ * WHY: a live agent can read AGENT_LAUNCH_FILE and
  * ASP_PLUGIN_ROOT directly, but the raw env/files don't explain what goes
  * into composing the prompt, which files are durable edit targets, or which
  * are derived outputs. `asp self` normalizes this surface so agents can

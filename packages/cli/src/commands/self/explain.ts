@@ -56,7 +56,7 @@ export function registerSelfExplainCommand(self: Command): void {
     .description('Diagnose why a prompt, reminder, or launch looks the way it does')
     .option('--json', 'Emit machine-readable JSON')
     .option('--target <name>', 'Override inferred agent slug')
-    .option('--launch-file <path>', 'Override HRC_LAUNCH_FILE')
+    .option('--launch-file <path>', 'Override AGENT_LAUNCH_FILE')
     .action(async (which: string | undefined, options: ExplainOptions) => {
       try {
         const topic = normalizeTopic(which)
@@ -357,7 +357,7 @@ async function explainLaunch(ctx: ReturnType<typeof resolveSelfContext>): Promis
     findings.push({
       level: 'warning',
       message:
-        'No `HRC_LAUNCH_FILE` is available, so launch argv/env/cwd cannot be inspected directly.',
+        'No `AGENT_LAUNCH_FILE` is available, so launch argv/env/cwd cannot be inspected directly.',
     })
   } else if (ctx.launchReadError) {
     findings.push({

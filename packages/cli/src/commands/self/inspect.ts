@@ -1,9 +1,9 @@
 /**
  * `asp self inspect` — zero-arg overview of the current agent's runtime.
  *
- * Reads HRC_LAUNCH_FILE + environment and emits identity, paths, prompt mode,
- * and content sizes. Defaults to a human-readable report; --json emits the
- * full SelfContext plus derived counts.
+ * Reads AGENT_LAUNCH_FILE + the launch artifact and emits injected env, paths,
+ * prompt mode, and content sizes. Defaults to a human-readable report; --json
+ * emits the full SelfContext plus derived counts.
  */
 
 import chalk from 'chalk'
@@ -23,7 +23,7 @@ export function registerSelfInspectCommand(self: Command): void {
     .description("Show a zero-arg overview of this agent's runtime launch")
     .option('--json', 'Emit machine-readable JSON')
     .option('--target <name>', 'Override inferred agent slug')
-    .option('--launch-file <path>', 'Override HRC_LAUNCH_FILE')
+    .option('--launch-file <path>', 'Override AGENT_LAUNCH_FILE')
     .action(async (options: InspectOptions) => {
       try {
         const ctx = resolveSelfContext({
@@ -78,22 +78,23 @@ function renderHuman(ctx: ReturnType<typeof resolveSelfContext>, counts: Derived
   out.push(bold(`asp self inspect — ${ctx.agentName ?? warn('(unknown agent)')}`))
   out.push('')
 
-  out.push(bold('identity'))
+  out.push(bold('injected env'))
   out.push(dim(`  agent:       ${ctx.agentName ?? '(none)'}`))
   out.push(dim(`  project:     ${ctx.projectId ?? '(none)'}`))
-  out.push(dim(`  session-ref: ${ctx.sessionRef ?? '(none)'}`))
-  out.push(dim(`  scope-ref:   ${ctx.scopeRef ?? '(none)'}`))
-  out.push(dim(`  lane:        ${ctx.laneRef ?? '(none)'}`))
+  const injectedEntries = Object.entries(ctx.injectedEnv)
+  if (injectedEntries.length === 0) {
+    out.push(dim('  (none)'))
+  } else {
+    const keyWidth = Math.max(...injectedEntries.map(([key]) => key.length))
+    for (const [key, value] of injectedEntries) {
+      out.push(dim(`  ${key.padEnd(keyWidth)}  ${value}`))
+    }
+  }
   out.push('')
 
   out.push(bold('runtime'))
   out.push(dim(`  harness:     ${ctx.harness ?? '(unknown)'}`))
   out.push(dim(`  provider:    ${ctx.provider ?? '(unknown)'}`))
-  out.push(dim(`  launch:      ${ctx.launchId ?? '(none)'}`))
-  out.push(dim(`  runtime:     ${ctx.runtimeId ?? '(none)'}`))
-  out.push(dim(`  run:         ${ctx.runId ?? '(none)'}`))
-  out.push(dim(`  host:        ${ctx.hostSessionId ?? '(none)'}`))
-  out.push(dim(`  generation:  ${ctx.generation ?? '(none)'}`))
   out.push('')
 
   out.push(bold('paths'))

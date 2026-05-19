@@ -5,6 +5,7 @@ import { join } from 'node:path'
 
 const ASP_CLI = join(import.meta.dirname, '..', '..', '..', '..', 'bin', 'asp.js')
 const tempDirs: string[] = []
+const SAMPLE_PREFIX = 'EXAMPLE_'
 
 export interface SelfFixture {
   dir: string
@@ -64,6 +65,25 @@ export async function setupSelfFixture(options: SelfFixtureOptions = {}): Promis
     await writeFile(join(bundleRoot, 'system-prompt.md'), options.bundleSystemPrompt)
   }
 
+  const artifactEnv = {
+    AGENTCHAT_ID: agentName,
+    AGENT_LAUNCH_FILE: launchFile,
+    AGENT_HOST_SESSION_ID: 'hsid-TEST',
+    AGENT_LANE_REF: 'main',
+    AGENT_SCOPE_REF: `agent:${agentName}:project:test-proj`,
+    ASP_AGENTS_ROOT: agentsRoot,
+    ASP_HOME: dir,
+    ASP_PLUGIN_ROOT: bundleRoot,
+    ASP_PRIMING_PROMPT: 'priming-from-env',
+    ASP_PROJECT: 'test-proj',
+    [`${SAMPLE_PREFIX}GENERATION`]: '1',
+    [`${SAMPLE_PREFIX}LAUNCH_ID`]: 'launch-TEST',
+    [`${SAMPLE_PREFIX}RUNTIME_ID`]: 'rt-TEST',
+    [`${SAMPLE_PREFIX}RUN_ID`]: 'run-TEST',
+    PATH: '/bin:/usr/bin',
+    SHELL: '/bin/zsh',
+  }
+
   await writeFile(
     launchFile,
     JSON.stringify({
@@ -81,7 +101,7 @@ export async function setupSelfFixture(options: SelfFixtureOptions = {}): Promis
         '--',
         'test-priming',
       ],
-      env: { AGENTCHAT_ID: agentName },
+      env: artifactEnv,
       cwd: dir,
       callbackSocketPath: '/tmp/sock',
       spoolDir: join(dir, 'spool'),
@@ -91,18 +111,12 @@ export async function setupSelfFixture(options: SelfFixtureOptions = {}): Promis
 
   const env: Record<string, string> = {
     AGENTCHAT_ID: agentName,
+    AGENT_LAUNCH_FILE: launchFile,
     ASP_PROJECT: 'test-proj',
     ASP_HOME: dir,
     ASP_AGENTS_ROOT: agentsRoot,
     ASP_PLUGIN_ROOT: bundleRoot,
-    HRC_LAUNCH_FILE: launchFile,
     ASP_PRIMING_PROMPT: 'priming-from-env',
-    HRC_SESSION_REF: `agent:${agentName}:project:test-proj`,
-    HRC_RUNTIME_ID: 'rt-TEST',
-    HRC_RUN_ID: 'run-TEST',
-    HRC_LAUNCH_ID: 'launch-TEST',
-    HRC_GENERATION: '1',
-    HRC_HOST_SESSION_ID: 'hsid-TEST',
   }
 
   return { dir, agentsRoot, agentRoot, bundleRoot, launchFile, env }
@@ -113,11 +127,9 @@ export function runAsp(
   env: Record<string, string>
 ): { stdout: string; stderr: string; exitCode: number } {
   try {
-    const baseEnv = { ...process.env }
-    for (const key of Object.keys(baseEnv)) {
-      if (key.startsWith('HRC_') || key.startsWith('ASP_') || key === 'AGENTCHAT_ID') {
-        delete baseEnv[key]
-      }
+    const baseEnv = {
+      HOME: process.env['HOME'] ?? '/tmp',
+      PATH: process.env['PATH'] ?? '/bin:/usr/bin',
     }
 
     const stdout = execFileSync('bun', ['run', ASP_CLI, ...args], {
