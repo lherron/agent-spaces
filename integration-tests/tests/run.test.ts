@@ -8,8 +8,10 @@
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { execFile } from 'node:child_process'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
+import { promisify } from 'node:util'
 
 import { install, run, runWithPrompt } from 'spaces-execution'
 
@@ -24,6 +26,9 @@ import {
   initSampleRegistry,
   readShimOutput,
 } from './setup.js'
+
+const execFileAsync = promisify(execFile)
+const CLI_PATH = path.join(import.meta.dir, '..', '..', 'packages', 'cli', 'bin', 'asp.js')
 
 describe('asp run', () => {
   let aspHome: string
@@ -97,6 +102,26 @@ describe('asp run', () => {
     await fs.mkdir(agentDir, { recursive: true })
     await fs.writeFile(path.join(agentDir, 'agent-profile.toml'), profileToml)
     return agentDir
+  }
+
+  async function runCli(
+    args: string[],
+    env: Record<string, string>
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    try {
+      const { stdout, stderr } = await execFileAsync('bun', [CLI_PATH, ...args], {
+        cwd: projectDir,
+        env: { ...process.env, ...env },
+      })
+      return { stdout, stderr, exitCode: 0 }
+    } catch (error) {
+      const e = error as { stdout?: string; stderr?: string; code?: number }
+      return {
+        stdout: e.stdout ?? '',
+        stderr: e.stderr ?? '',
+        exitCode: e.code ?? 1,
+      }
+    }
   }
 
   test('invokes claude with correct plugin directories', async () => {
@@ -307,6 +332,71 @@ describe('asp run', () => {
     expect(result.command).toContain(
       'Register with agentchat and send READY\n\nInvestigate failing tests'
     )
+  })
+
+  test('expands agent priming_prompt taskId to primary for direct asp run', async () => {
+    const agentsRoot = await createTempAgentsRoot()
+    await writeAgentProfile(
+      agentsRoot,
+      'dev',
+      `
+schemaVersion = 2
+
+priming_prompt = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
+`
+    )
+    process.env['ASP_AGENTS_ROOT'] = agentsRoot
+    process.env['ASP_PROJECT'] = 'test-project'
+
+    const result = await run('dev', {
+      projectPath: projectDir,
+      registryPath: SAMPLE_REGISTRY_DIR,
+      aspHome,
+      dryRun: true,
+    })
+
+    expect(result.command).toBeDefined()
+    expect(result.command).toContain('You are dev in test-project working on primary.')
+  })
+
+  test('CLI accepts scope handle target and passes taskId into asp run prompt expansion', async () => {
+    await cleanupTempProject(projectDir)
+    projectDir = await createTempProject({
+      cody: {
+        description: 'Cody target',
+        compose: ['space:base@stable'],
+      },
+    })
+
+    const agentsRoot = await createTempAgentsRoot()
+    await writeAgentProfile(
+      agentsRoot,
+      'cody',
+      `
+schemaVersion = 2
+
+priming_prompt = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
+`
+    )
+
+    const result = await runCli(
+      [
+        'run',
+        'cody@agent-spaces:prompt-test',
+        '--project',
+        projectDir,
+        '--registry',
+        SAMPLE_REGISTRY_DIR,
+        '--dry-run',
+      ],
+      {
+        ...getTestEnv(aspHome),
+        ASP_AGENTS_ROOT: agentsRoot,
+      }
+    )
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('You are cody in agent-spaces working on prompt-test.')
   })
 
   test('dry-run includes prompt in command when non-interactive', async () => {

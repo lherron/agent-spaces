@@ -23,6 +23,7 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
+    "agent-scope": "*",
     "spaces-config": "*",
     "spaces-execution": "*",
     "spaces-harness-codex": "*",

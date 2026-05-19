@@ -16,6 +16,9 @@ export interface MaterializeSystemPromptInput {
   aspHome?: string | undefined
   projectRoot?: string | undefined
   projectId?: string | undefined
+  agentId?: string | undefined
+  taskId?: string | undefined
+  lane?: string | undefined
   runMode: RunMode
   scaffoldPackets?: RunScaffoldPacket[] | undefined
 }
@@ -153,9 +156,12 @@ export async function inspectAgentSystemPrompt(
   const resolved = await resolveContextTemplateDetailed(template, {
     agentRoot: input.agentRoot,
     agentName: basename(input.agentRoot),
+    agentId: input.agentId ?? basename(input.agentRoot),
     agentsRoot,
     projectRoot: input.projectRoot,
     projectId: input.projectId,
+    taskId: input.taskId,
+    lane: input.lane,
     runMode: input.runMode,
     scaffoldPackets: input.scaffoldPackets,
     ...(templateSource

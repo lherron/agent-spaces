@@ -23,6 +23,8 @@ export interface RunOptions extends ResolveOptions {
   remoteControl?: boolean | undefined
   sessionNamePrefix?: string | undefined
   pagePrompts?: boolean | undefined
+  projectId?: string | undefined
+  taskId?: string | undefined
 }
 
 export interface RunInvocationResult {

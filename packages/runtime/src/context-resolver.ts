@@ -26,7 +26,10 @@ export interface ContextResolverContext {
   agentsRoot: string
   projectRoot?: string | undefined
   projectId?: string | undefined
+  agentId?: string | undefined
   agentName?: string | undefined
+  taskId?: string | undefined
+  lane?: string | undefined
   runMode: string
   scaffoldPackets?:
     | Array<{
@@ -36,6 +39,8 @@ export interface ContextResolverContext {
       }>
     | undefined
   agentProfile?: Record<string, unknown> | undefined
+  now?: Date | undefined
+  env?: Record<string, string | undefined> | undefined
 }
 
 export interface ResolvedContext {
@@ -487,27 +492,99 @@ function normalizeStringEntries(value: unknown): string[] | undefined {
   return entries.length > 0 ? [...entries] : undefined
 }
 
+/**
+ * Expand `{{name}}` references in arbitrary text using the same variable map
+ * the system-prompt resolver uses. Suitable for priming prompts and other
+ * launch-time strings. Unknown variable names are left verbatim.
+ */
+export function expandTemplate(content: string, context: ContextResolverContext): string {
+  return interpolateVariables(content, context)
+}
+
 function interpolateVariables(content: string, context: ContextResolverContext): string {
+  const variables = buildVariableMap(context)
+  const env = context.env ?? process.env
+
+  return content.replace(
+    /\{\{\s*([a-zA-Z_][a-zA-Z_0-9.]*)\s*\}\}/g,
+    (match, variableName: string) => {
+      if (variableName.startsWith('env.')) {
+        const envKey = variableName.slice(4)
+        const envValue = env[envKey]
+        return typeof envValue === 'string' ? envValue : ''
+      }
+      return variableName in variables ? (variables[variableName] ?? '') : match
+    }
+  )
+}
+
+function buildVariableMap(context: ContextResolverContext): Record<string, string> {
   const agentName = context.agentName ?? getAgentNameFromProfile(context.agentProfile) ?? ''
-  const variables: Record<string, string> = {
+  const agentId = context.agentId ?? agentName
+  const projectId = context.projectId ?? ''
+  const taskId = context.taskId ?? ''
+  const lane = context.lane ?? ''
+  const scopeRef = buildScopeRef(agentId, projectId, taskId)
+  const handle = buildHandle(agentId, projectId, taskId, lane)
+  const now = context.now ?? new Date()
+
+  return {
+    // Five top-level identity aliases
+    agentId,
+    projectId,
+    taskId,
+    scopeRef,
+    handle,
+    // Other flat scalars
+    lane,
+    runMode: context.runMode,
+    date: formatLocalDate(now),
+    dateUtc: now.toISOString(),
+    // path.* namespace
+    'path.agentRoot': context.agentRoot,
+    'path.agentsRoot': context.agentsRoot,
+    'path.projectRoot': context.projectRoot ?? '',
+    // Legacy / backwards-compatible names
     agent_name: agentName,
     agent_root: context.agentRoot,
     agents_root: context.agentsRoot,
     project_root: context.projectRoot ?? '',
-    project_id: context.projectId ?? '',
+    project_id: projectId,
     run_mode: context.runMode,
-    // camelCase aliases
     agentName,
     agentRoot: context.agentRoot,
     agentsRoot: context.agentsRoot,
     projectRoot: context.projectRoot ?? '',
-    projectId: context.projectId ?? '',
-    runMode: context.runMode,
   }
+}
 
-  return content.replace(/\{\{\s*([a-zA-Z_]+)\s*\}\}/g, (match, variableName: string) =>
-    variableName in variables ? (variables[variableName] ?? '') : match
-  )
+function buildScopeRef(agentId: string, projectId: string, taskId: string): string {
+  if (agentId.length === 0) {
+    return ''
+  }
+  let ref = agentId
+  if (projectId.length > 0) {
+    ref += `@${projectId}`
+    if (taskId.length > 0) {
+      ref += `:${taskId}`
+    }
+  }
+  return ref
+}
+
+function buildHandle(agentId: string, projectId: string, taskId: string, lane: string): string {
+  const base = buildScopeRef(agentId, projectId, taskId)
+  if (base.length === 0) {
+    return ''
+  }
+  return lane.length > 0 ? `${base}~${lane}` : base
+}
+
+function formatLocalDate(now: Date): string {
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function interpolateContent(content: string, context: ContextResolverContext): string {

@@ -14,6 +14,7 @@
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
+import { parseScopeHandle } from 'agent-scope'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
@@ -65,6 +66,35 @@ interface RunOptions {
   remoteControl?: boolean
   namePrefix?: string
   pagePrompts?: boolean
+}
+
+interface ProjectRunTarget {
+  targetName: string
+  displayTarget: string
+  projectId?: string | undefined
+  taskId?: string | undefined
+}
+
+function resolveProjectRunTarget(target: string): ProjectRunTarget {
+  if (!target.includes('@')) {
+    return { targetName: target, displayTarget: target }
+  }
+
+  try {
+    const parsed = parseScopeHandle(target)
+    if (parsed.projectId === undefined) {
+      return { targetName: target, displayTarget: target }
+    }
+
+    return {
+      targetName: parsed.agentId,
+      displayTarget: target,
+      projectId: parsed.projectId,
+      taskId: parsed.taskId,
+    }
+  } catch {
+    return { targetName: target, displayTarget: target }
+  }
 }
 
 /**
@@ -164,6 +194,7 @@ async function runProjectMode(
   projectPath: string,
   options: RunOptions
 ): Promise<RunResult> {
+  const resolvedTarget = resolveProjectRunTarget(target)
   const settingSources = buildSettingSources(options)
   const runOptions = {
     projectPath,
@@ -186,13 +217,15 @@ async function runProjectMode(
     remoteControl: options.remoteControl,
     sessionNamePrefix: options.namePrefix,
     pagePrompts: options.pagePrompts,
+    projectId: resolvedTarget.projectId,
+    taskId: resolvedTarget.taskId,
   }
 
   if (options.dryRun) {
     if (!options.printCommand) {
       console.log(chalk.yellow('Dry run - building and showing command...'))
     }
-    const result = await run(target, {
+    const result = await run(resolvedTarget.targetName, {
       ...runOptions,
       dryRun: true,
       prompt,
@@ -203,14 +236,14 @@ async function runProjectMode(
 
   const interactive = options.interactive !== false
   if (interactive) {
-    console.log(chalk.blue(`Running target "${target}" interactively...`))
+    console.log(chalk.blue(`Running target "${resolvedTarget.displayTarget}" interactively...`))
     console.log(chalk.gray('Press Ctrl+C to exit'))
   } else {
-    console.log(chalk.blue(`Running target "${target}" non-interactively...`))
+    console.log(chalk.blue(`Running target "${resolvedTarget.displayTarget}" non-interactively...`))
   }
   console.log('')
 
-  const result = await run(target, {
+  const result = await run(resolvedTarget.targetName, {
     ...runOptions,
     prompt,
     interactive,

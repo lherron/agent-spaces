@@ -62,6 +62,7 @@ install:
     bun run clean
     bun install
     bun run build
+    bun scripts/publish-local-verdaccio.ts
     cd packages/cli && bun link
 
 # Serve the ACP Session Dashboard (acp-ops-web) against the local dev stack

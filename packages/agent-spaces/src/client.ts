@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs'
 
-import { basename, extname, isAbsolute, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, resolve } from 'node:path'
 
+import { parseScopeRef } from 'agent-scope'
 import type { AttachmentRef } from 'spaces-runtime'
 
 import {
@@ -41,7 +42,7 @@ import {
   resolveInFlight,
 } from './run-tracker.js'
 
-import { materializeSystemPrompt } from 'spaces-runtime'
+import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
 import {
   applyEnvOverlay,
   piSessionPath,
@@ -104,6 +105,58 @@ import type {
 // ---------------------------------------------------------------------------
 // Frontend definitions (provider-typed harness registry, spec §5.1)
 // ---------------------------------------------------------------------------
+
+interface HandleParts {
+  agentId?: string | undefined
+  projectId?: string | undefined
+  taskId?: string | undefined
+  lane?: string | undefined
+}
+
+function deriveHandleParts(placement: RuntimePlacement): HandleParts {
+  const parts: HandleParts = {}
+  const scopeRef = placement.correlation?.sessionRef?.scopeRef
+  const laneRef = placement.correlation?.sessionRef?.laneRef
+  if (scopeRef) {
+    try {
+      const parsed = parseScopeRef(scopeRef)
+      parts.agentId = parsed.agentId
+      if (parsed.projectId !== undefined) {
+        parts.projectId = parsed.projectId
+      }
+      if (parsed.taskId !== undefined) {
+        parts.taskId = parsed.taskId
+      }
+    } catch {
+      // Best-effort fallback for older callers that sent shorthand handles
+      // instead of canonical ScopeRefs.
+      const atIndex = scopeRef.indexOf('@')
+      if (atIndex === -1) {
+        parts.agentId = scopeRef
+      } else {
+        parts.agentId = scopeRef.slice(0, atIndex)
+        const rest = scopeRef.slice(atIndex + 1)
+        const colonIndex = rest.indexOf(':')
+        if (colonIndex === -1) {
+          parts.projectId = rest
+        } else {
+          parts.projectId = rest.slice(0, colonIndex)
+          parts.taskId = rest.slice(colonIndex + 1)
+        }
+      }
+    }
+  }
+  if (parts.agentId === undefined) {
+    parts.agentId = basename(placement.agentRoot)
+  }
+  if (parts.projectId === undefined && placement.projectRoot) {
+    parts.projectId = basename(resolve(placement.projectRoot))
+  }
+  if (laneRef && laneRef.length > 0 && laneRef !== 'main' && laneRef !== 'lane:main') {
+    parts.lane = laneRef.startsWith('lane:') ? laneRef.slice('lane:'.length) : laneRef
+  }
+  return parts
+}
 
 // ---------------------------------------------------------------------------
 // Helpers: error conversion
@@ -1008,16 +1061,24 @@ async function buildPlacementInvocationSpec(
   // Detect agent-local skills/ and commands/ for materialization
   const agentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
 
+  // Derive handle parts from the placement correlation, when present, so that
+  // priming prompts and system prompt sections can reference {{agentId}},
+  // {{projectId}}, {{taskId}}, {{handle}}, etc.
+  const handleParts = deriveHandleParts(placement)
+
   // Unified materialization: use the shared placement context, then materialize the resolved spec.
   const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
     agentRoot: placement.agentRoot,
     projectRoot: placement.projectRoot,
     agentLocalComponents,
   })
-  const systemPrompt = await materializeSystemPrompt(
-    materialized.materialization.outputPath,
-    placement
-  )
+  const systemPrompt = await materializeSystemPrompt(materialized.materialization.outputPath, {
+    ...placement,
+    ...(handleParts.agentId !== undefined ? { agentId: handleParts.agentId } : {}),
+    ...(handleParts.projectId !== undefined ? { projectId: handleParts.projectId } : {}),
+    ...(handleParts.taskId !== undefined ? { taskId: handleParts.taskId } : {}),
+    ...(handleParts.lane !== undefined ? { lane: handleParts.lane } : {}),
+  })
 
   const bundle = await adapter.loadTargetBundle(
     materialized.materialization.outputPath,
@@ -1026,11 +1087,25 @@ async function buildPlacementInvocationSpec(
 
   const imageAttachmentPaths = extractImageAttachmentPaths(req.attachments)
 
+  const expandedPrompt =
+    runtimePlan.prompt !== undefined
+      ? expandTemplate(runtimePlan.prompt, {
+          agentRoot: placement.agentRoot,
+          agentsRoot: dirname(placement.agentRoot),
+          agentId: handleParts.agentId ?? basename(placement.agentRoot),
+          projectId: handleParts.projectId,
+          taskId: handleParts.taskId,
+          lane: handleParts.lane,
+          ...(placement.projectRoot !== undefined ? { projectRoot: placement.projectRoot } : {}),
+          runMode: placement.runMode,
+        })
+      : undefined
+
   // Build run options for the adapter
   let runOptions: import('spaces-config').HarnessRunOptions = {
     ...runtimePlan.runOptions,
     model: runtimePlan.model.info.model,
-    ...(runtimePlan.prompt !== undefined ? { prompt: runtimePlan.prompt } : {}),
+    ...(expandedPrompt !== undefined ? { prompt: expandedPrompt } : {}),
     ...(runtimePlan.yolo !== undefined ? { yolo: runtimePlan.yolo } : {}),
     ...(imageAttachmentPaths.length > 0 ? { imageAttachments: imageAttachmentPaths } : {}),
     ...(systemPrompt
@@ -1308,9 +1383,16 @@ async function runPlacementTurnNonInteractive(
         }))
 
         // Materialize the instruction layer into a system prompt file and read it
+        const handleParts = deriveHandleParts(placement)
         const systemPrompt = await materializeSystemPrompt(
           materialized.materialization.outputPath,
-          placement
+          {
+            ...placement,
+            ...(handleParts.agentId !== undefined ? { agentId: handleParts.agentId } : {}),
+            ...(handleParts.projectId !== undefined ? { projectId: handleParts.projectId } : {}),
+            ...(handleParts.taskId !== undefined ? { taskId: handleParts.taskId } : {}),
+            ...(handleParts.lane !== undefined ? { lane: handleParts.lane } : {}),
+          }
         )
 
         session = createSession({

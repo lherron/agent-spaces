@@ -8,8 +8,7 @@
  * Helpers and global/dev modes live under ./run/.
  */
 
-import { basename, join } from 'node:path'
-
+import { basename, dirname, join } from 'node:path'
 import {
   type BuildResult,
   type HarnessRunOptions,
@@ -19,6 +18,7 @@ import {
   install as configInstall,
   getAspHome,
   getRegistryPath,
+  inferProjectIdFromCwd,
   isSpaceRefString,
   loadProjectManifest,
   lockFileExists,
@@ -27,6 +27,7 @@ import {
 } from 'spaces-config'
 import {
   discoverContextTemplate,
+  expandTemplate,
   materializeSystemPrompt,
   resolveContextTemplateDetailed,
 } from 'spaces-runtime'
@@ -72,6 +73,8 @@ import {
   pathExists,
   resolveInteractive,
 } from './run/util.js'
+
+const DEFAULT_RUN_TASK_ID = 'primary'
 
 export {
   detectAgentLocalComponents,
@@ -183,7 +186,32 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   debugLog('lock ok')
 
   const bundle = await adapter.loadTargetBundle(harnessOutputPath, targetName)
-  const effectivePrompt = combinePrompts(defaultPrompt, options.prompt)
+  const combinedPrompt = combinePrompts(defaultPrompt, options.prompt)
+  const agentId = agentProfile ? basename(agentProfile.agentRoot) : undefined
+  const projectId =
+    options.projectId ??
+    inferProjectIdFromCwd({
+      cwd: options.projectPath,
+      ...(options.aspHome !== undefined ? { aspHome: options.aspHome } : {}),
+    }) ??
+    basename(options.projectPath)
+  const taskId = options.taskId ?? process.env['ASP_TASK_ID'] ?? DEFAULT_RUN_TASK_ID
+  const expansionContext = agentProfile
+    ? {
+        agentRoot: agentProfile.agentRoot,
+        agentsRoot: dirname(agentProfile.agentRoot),
+        agentId,
+        agentName: agentId,
+        projectRoot: options.projectPath,
+        projectId,
+        taskId,
+        runMode: 'query',
+      }
+    : undefined
+  const effectivePrompt =
+    combinedPrompt !== undefined && expansionContext !== undefined
+      ? expandTemplate(combinedPrompt, expansionContext)
+      : combinedPrompt
   const cliRunOptions: HarnessRunOptions = {
     aspHome,
     model: options.model,
@@ -212,7 +240,10 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   if (agentProfile) {
     const systemPrompt = await materializeSystemPrompt(harnessOutputPath, {
       agentRoot: agentProfile.agentRoot,
+      ...(agentId !== undefined ? { agentId } : {}),
       projectRoot: options.projectPath,
+      projectId,
+      taskId,
       runMode: 'query',
     })
     if (systemPrompt) {
@@ -238,8 +269,11 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         const resolved = await resolveContextTemplateDetailed(discovered.templateSource.template, {
           agentRoot: agentProfile.agentRoot,
           agentName: basename(agentProfile.agentRoot),
+          ...(agentId !== undefined ? { agentId } : {}),
           agentsRoot: discovered.agentsRoot,
           projectRoot: options.projectPath,
+          projectId,
+          taskId,
           runMode: 'query',
           ...(discovered.profile.rawProfile ? { agentProfile: discovered.profile.rawProfile } : {}),
         })
