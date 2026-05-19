@@ -29,7 +29,14 @@ const packDir = await mkdtemp(join(tmpdir(), 'asp-pack-'))
 const consumerDir = await mkdtemp(join(tmpdir(), 'asp-consumer-'))
 
 try {
-  const packResult = await $`npm pack --json --pack-destination=${packDir}`.cwd(CLI_ROOT).text()
+  // ~/.npmrc has ignore-scripts=true as a defensive default, so `npm pack`
+  // skips prepack/postpack. Run them explicitly so the tarball reflects the
+  // published shape (workspace deps demoted to optionalDependencies, etc.).
+  await $`bun scripts/prepack.ts`.cwd(CLI_ROOT)
+  const packResult = await $`npm pack --json --ignore-scripts --pack-destination=${packDir}`
+    .cwd(CLI_ROOT)
+    .text()
+  await $`bun scripts/postpack.ts`.cwd(CLI_ROOT)
   const [packInfo] = JSON.parse(packResult)
   const tarball = join(packDir, packInfo.filename)
   console.log(`packed: ${tarball} (${packInfo.size} bytes, ${packInfo.files.length} files)`)

@@ -109,8 +109,11 @@ async function stripBunExportCondition() {
   // The `bun` export condition points at ./src/*.ts which is not shipped
   // (not in files) and would shadow `import` for Bun consumers. Drop it
   // so published consumers resolve to ./dist/*.js. Postpack reverts via git.
-  // npm pack reads the manifest for the registry before prepack runs, so
-  // dependency shape changes belong in the committed package.json, not here.
+  // Also demote bundled workspace packages from dependencies to
+  // optionalDependencies in the published manifest so Bun consumers
+  // (which do not honor bundleDependencies) soft-fail registry resolution
+  // and pick up the bundled node_modules at import time. Committed manifest
+  // keeps them in dependencies so check-manifest-edges stays green.
   const pkgPath = join(CLI_ROOT, 'package.json')
   const pkg = JSON.parse(await readFile(pkgPath, 'utf8'))
   if (pkg.exports) {
@@ -119,6 +122,16 @@ async function stripBunExportCondition() {
       if (v && typeof v === 'object' && 'bun' in v) {
         const { bun: _, ...rest } = v
         pkg.exports[key] = rest
+      }
+    }
+  }
+  const bundled: string[] = Array.isArray(pkg.bundleDependencies) ? pkg.bundleDependencies : []
+  if (bundled.length > 0 && pkg.dependencies) {
+    pkg.optionalDependencies ||= {}
+    for (const name of bundled) {
+      if (name in pkg.dependencies) {
+        pkg.optionalDependencies[name] = pkg.dependencies[name]
+        delete pkg.dependencies[name]
       }
     }
   }
