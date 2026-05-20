@@ -176,6 +176,34 @@ describe('Codex app-server driver red scenarios', () => {
     await expectGolden('startup-error', events)
   })
 
+  test('encodes sandboxMode as Codex internally tagged sandboxPolicy', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const spec = scenarioSpec('sandbox-policy-encoding', {
+      driver: {
+        kind: 'codex-app-server',
+        sandboxMode: 'workspace-write',
+        resumeFallback: 'start-fresh',
+        permissionPolicy: { mode: 'deny' },
+      },
+    })
+
+    await broker.start({ spec })
+    await expect(
+      broker.input({
+        invocationId: spec.invocationId ?? '',
+        input: userInput,
+        policy: { whenBusy: 'reject' },
+      })
+    ).resolves.toMatchObject({ accepted: true })
+
+    expect(events.map((event) => event.type)).toContain('turn.started')
+  })
+
   test('maps child exit during an active turn to turn.failed and invocation.exited', async () => {
     const events = await runScenario('exit-during-turn')
     await expectGolden('exit-during-turn', events)
