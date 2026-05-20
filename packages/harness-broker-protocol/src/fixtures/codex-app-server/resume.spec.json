@@ -1,0 +1,35 @@
+{
+  "specVersion": "harness-broker.invocation/v1",
+  "harness": {
+    "frontend": "codex",
+    "provider": "openai",
+    "driver": "codex-app-server"
+  },
+  "process": {
+    "command": "codex",
+    "args": ["--enable", "goals", "app-server"],
+    "cwd": "/workspace/project",
+    "env": {
+      "CODEX_HOME": "/workspace/.codex-home"
+    },
+    "harnessTransport": { "kind": "jsonrpc-stdio" }
+  },
+  "continuation": {
+    "provider": "codex",
+    "kind": "thread",
+    "key": "thread_abc"
+  },
+  "interaction": {
+    "mode": "headless",
+    "turnConcurrency": "single",
+    "inputQueue": "none"
+  },
+  "driver": {
+    "kind": "codex-app-server",
+    "resumeThreadId": "thread_abc",
+    "approvalPolicy": "never",
+    "sandboxMode": "workspace-write",
+    "resumeFallback": "fail",
+    "permissionPolicy": { "mode": "deny" }
+  }
+}

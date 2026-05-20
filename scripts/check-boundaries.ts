@@ -23,6 +23,7 @@ const aspPackages = [
   'harness-codex',
   'harness-pi',
   'harness-pi-sdk',
+  'harness-broker-protocol',
   'agent-spaces',
   'cli',
 ]
@@ -40,6 +41,26 @@ const hrcPackages = [
 ]
 
 const layers: Layer[] = [
+  {
+    name: 'Harness Broker Protocol',
+    roots: ['packages/harness-broker-protocol/src'],
+    forbidden: [
+      'agent-scope',
+      'cli-kit',
+      'spaces-config',
+      'spaces-runtime',
+      'spaces-execution',
+      'spaces-harness-',
+      'agent-spaces',
+      '@lherron/agent-spaces',
+      'hrc-',
+      'acp-',
+      'gateway-',
+      'coordination-substrate',
+      'wrkq-lib',
+      'wlearn',
+    ],
+  },
   {
     name: 'ASP',
     roots: [...aspPackages.map((name) => `packages/${name}`), 'integration-tests'],

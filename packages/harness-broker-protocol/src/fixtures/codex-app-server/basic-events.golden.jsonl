@@ -1,0 +1,5 @@
+{"jsonrpc":"2.0","method":"invocation.event","params":{"invocationId":"inv_1","seq":1,"time":"2026-05-20T18:00:00.000Z","type":"invocation.started","payload":{"pid":1234,"command":"codex","args":["--enable","goals","app-server"],"cwd":"/workspace/project"}}}
+{"jsonrpc":"2.0","method":"invocation.event","params":{"invocationId":"inv_1","seq":2,"time":"2026-05-20T18:00:00.100Z","type":"continuation.updated","payload":{"provider":"codex","kind":"thread","key":"thread_abc"}}}
+{"jsonrpc":"2.0","method":"invocation.event","params":{"invocationId":"inv_1","seq":3,"time":"2026-05-20T18:00:00.101Z","type":"invocation.ready","payload":{}}}
+{"jsonrpc":"2.0","method":"invocation.event","params":{"invocationId":"inv_1","seq":4,"time":"2026-05-20T18:00:01.000Z","type":"turn.started","turnId":"turn_abc","payload":{"turnId":"turn_abc"}}}
+{"jsonrpc":"2.0","method":"invocation.event","params":{"invocationId":"inv_1","seq":5,"time":"2026-05-20T18:00:02.000Z","type":"turn.completed","turnId":"turn_abc","payload":{"turnId":"turn_abc","status":"completed","finalOutput":"done"}}}
