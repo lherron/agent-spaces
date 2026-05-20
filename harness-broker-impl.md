@@ -8,6 +8,41 @@ Authored jointly by `clod` and `cody`.
 
 ---
 
+## Status — Phases 0–4 SHIPPED ✅
+
+**Merged to `main`:** 2026-05-20 (merge commit `484d574`). Branch `feat-harness-broker` deleted.
+
+**E2E validated against codex-cli 0.130.0:** message-only smoke + tool-execution smoke (`pwd` + `ls`) both produce full turn lifecycle with real model output, real thread UUIDs, real token usage. Runbook at `runbooks/e2e-harness-codex-app-server.md`.
+
+**Test totals:** 67+ unit/golden tests across the three new packages; 0 fail; 1 todo (Phase 3 ask-client perm scenario deferred to a future client capability addition).
+
+### Phase delivery table
+
+| Phase | wrkq tasks | Final commit(s) | Tests | State |
+|---|---|---|---|---|
+| 0 — Protocol package | T-01541 (smokey) / T-01540 (larry) | `98a59db` | 16 pass | ✅ closed |
+| 1 — Broker skeleton | T-01542 (smokey) / T-01543 (curly) | `27739bc` | 14 pass | ✅ closed |
+| 2 — Codex driver | T-01544 (smokey) / T-01545 (larry) | `ef26e92`, `e65642b` (lint fix) | 28 pass / 1 todo | ✅ closed |
+| 3 — Control + policies | T-01546 (smokey) / T-01547 (curly, 2 turns) | `e084e5d` | 45 pass / 1 todo | ✅ closed |
+| 4 — Reference client | T-01548 (smokey) / T-01549 (larry) | `a646b80` | 6 pass | ✅ closed |
+| Defect cleanup | T-01552 (smokey) / T-01553 (larry) | `ae923d5`, `e7f2b14` | net 47 pass / 1 todo | ✅ closed (T-01550, T-01551 also closed) |
+
+### Known follow-up defects (filed, not blocking merge)
+
+- **T-01554** — `tool.call.started.payload.input` and `tool.call.completed.payload.result` are absent for `commandExecution` items, so broker consumers see "a tool ran with no error" but can't see what command ran or what it produced. Also covers absent `tool.call.delta` events and `durationMs:0`. Fix is in `event-map.ts` projection — pull command + stdout from the codex item payload into broker payload fields.
+
+Past defects (now closed):
+- T-01550 — `sandboxMode` string rejected by real codex; driver now translates spec string into codex's internally-tagged enum.
+- T-01551 — `run-once` exited at `input.accepted`; now awaits `turn.completed`/`failed`/`interrupted`.
+
+### What remains on the roadmap (post-merge)
+
+- **HRC integration** (impl plan §5) — separate work item in `hrc-runtime`. Estimated 5–7d, owned by HRC maintainer. `hrc-server/src/launch/exec.ts` continues to handle all current traffic; broker remains dormant until an opt-in gate is wired in HRC.
+- **T-01554** tool.call payload visibility (above).
+- **Phase 3 ask-client permission flow** — currently `todo` test. Requires a client capable of advertising `permissionRequests:true` and handling broker→client requests; reference client supports it but no real consumer exercises it yet.
+
+---
+
 ## 1. Package layout
 
 Three new packages under `agent-spaces/packages/`, named with the existing `spaces-` prefix convention. Each follows the repo's existing publishable-package shape (TS source under `src/`, `prepack` strips `bun` exports, `postpack` restores `package.json`).
@@ -528,11 +563,16 @@ HRC migration (post-Phase 4) is a separate work item in `hrc-runtime`, estimated
 
 ---
 
-## 10. Open items requiring product/strategy decision
+## 10. Open items
 
-(Not implementation decisions — for Lance.)
+Resolved during delivery:
 
-1. **Schema validation library.** Use `zod` (if already accepted in the repo) or hand-roll? Recommend `zod` if a dep already exists; otherwise hand-roll for Phase 0 and revisit.
-2. **CI smoke against real Codex binary.** Should Phase 2 CI install Codex and run a non-fake scenario, or skip when binary absent? Recommend skip-when-absent + manual smoke on dev machines.
-3. **HRC migration owner & timing.** Phases 0–4 leave HRC untouched. Who owns the `hrc-runtime` integration work, and what's the target window? Recommend coordinating once Phase 4 lands.
-4. **Future driver roadmap.** Spec narrows v0 to Codex app-server. When do we add Claude CLI / Pi CLI / headless Codex JSONL drivers? Recommend defer until Codex driver is production-stable.
+1. ~~**Schema validation library.**~~ Hand-rolled (`zod` was only a transitive dep, not declared). ~700 LOC of validators in `packages/harness-broker-protocol/src/schemas.ts`.
+2. ~~**CI smoke against real Codex binary.**~~ Not in CI; manual smoke documented in `runbooks/e2e-harness-codex-app-server.md`. Validated against codex-cli 0.130.0 on 2026-05-20.
+
+Still open:
+
+3. **HRC migration owner & timing.** Phases 0–4 left HRC untouched. Who owns the `hrc-runtime` integration work, and when? Broker is dormant on `main` until something explicitly invokes it.
+4. **Future driver roadmap.** v0 ships Codex app-server only. When (and who) for Claude CLI / Pi CLI / headless Codex JSONL drivers? Recommend defer until at least one real consumer (HRC or otherwise) is running the Codex driver in production.
+5. **Tool-call payload visibility (T-01554).** Should this be fixed before HRC migration starts? HRC consumers would want `input`/`result` visible to drive UI; if HRC migration is imminent, fix first. Otherwise can defer.
+6. **`ask-client` permission flow.** Wire-protocol works; no consumer exercises it yet. Once HRC (or another client) needs interactive approval, exercise the path and promote the deferred `todo` test to a real assertion.
