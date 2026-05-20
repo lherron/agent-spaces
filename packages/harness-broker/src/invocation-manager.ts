@@ -1,4 +1,5 @@
 import type {
+  ClientCapabilities,
   HarnessInvocationSpec,
   InvocationCapabilities,
   InvocationEventType,
@@ -20,6 +21,7 @@ import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from './errors'
 import type { Driver, DriverContext } from './drivers/driver'
 import type { InvocationEventSequencer } from './events'
+import { buildEnvSecrets, redactPayload, safeStartedPayload } from './security/redaction'
 
 /** Terminal states that allow dispose. */
 const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
@@ -32,11 +34,13 @@ export interface Invocation {
   driver: Driver
   continuation?: ContinuationUpdate | undefined
   terminalEmitted: boolean
+  envSecrets: Set<string>
 }
 
 export interface InvocationManagerOptions {
   sequencer: InvocationEventSequencer
   onEvent: (event: InvocationEventEnvelope) => void
+  getClientCapabilities?: (() => ClientCapabilities) | undefined
 }
 
 export interface InvocationManager {
@@ -56,7 +60,7 @@ export interface InvocationManager {
 export function createInvocationManager(
   options: InvocationManagerOptions
 ): InvocationManager {
-  const { sequencer, onEvent } = options
+  const { sequencer, onEvent, getClientCapabilities = () => ({}) } = options
   const invocations = new Map<string, Invocation>()
 
   function requireInvocation(invocationId: string): Invocation {
@@ -114,7 +118,16 @@ export function createInvocationManager(
       driver?: { kind: string; rawType?: string | undefined } | undefined
     }
   ): InvocationEventEnvelope<TPayload> {
-    const event = sequencer.next(inv.invocationId, type, payload, extra)
+    // Apply redaction before sequencing: constrain invocation.started and scrub secrets.
+    let safePayload: TPayload = payload
+    if (type === 'invocation.started') {
+      safePayload = safeStartedPayload(payload) as TPayload
+    }
+    if (inv.envSecrets.size > 0) {
+      safePayload = redactPayload(safePayload, inv.envSecrets) as TPayload
+    }
+
+    const event = sequencer.next(inv.invocationId, type, safePayload, extra)
     if (inv.spec.correlation !== undefined) {
       event.correlation = inv.spec.correlation
     }
@@ -161,11 +174,13 @@ export function createInvocationManager(
         capabilities: driver.capabilities(),
         driver,
         terminalEmitted: false,
+        envSecrets: buildEnvSecrets(spec.process.env),
       }
       invocations.set(invocationId, inv)
 
       const ctx: DriverContext = {
         invocationId,
+        clientCapabilities: getClientCapabilities(),
         emit<TPayload>(type: InvocationEventType, payload: TPayload, extra?: Parameters<typeof emit>[3]) {
           return emit(inv, type, payload, extra)
         },

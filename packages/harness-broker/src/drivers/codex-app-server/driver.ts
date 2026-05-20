@@ -17,7 +17,7 @@ import { terminateProcess } from '../../runtime/signals'
 import type { Driver, DriverContext, DriverStartResult } from '../driver'
 import { mapCodexNotification, parseCodexError } from './event-map'
 import { buildTurnStartParams } from './input'
-import { handlePermissionRequest } from './permissions'
+import { handlePermissionRequest, type PermissionHandlerContext } from './permissions'
 import { CodexRpcClient, CodexRpcError, type JsonRpcNotification } from './rpc-client'
 
 const bunRuntime = typeof Bun !== 'undefined' ? (Bun as unknown as { execPath?: string }) : undefined
@@ -81,6 +81,7 @@ export function createCodexAppServerDriver(): Driver {
   let starting = false
   let rejectStartup: ((error: Error) => void) | undefined
   let startupFailure: Promise<never> | undefined
+  let turnTimeout: ReturnType<typeof setTimeout> | undefined
 
   function requireCtx(): DriverContext {
     if (!ctx) {
@@ -156,6 +157,11 @@ export function createCodexAppServerDriver(): Driver {
         event.type === 'turn.interrupted'
       ) {
         turnActive = false
+        // Clear turn timeout on any turn termination
+        if (turnTimeout !== undefined) {
+          clearTimeout(turnTimeout)
+          turnTimeout = undefined
+        }
       }
     }
   }
@@ -258,6 +264,8 @@ export function createCodexAppServerDriver(): Driver {
       startupFailure = new Promise<never>((_resolve, reject) => {
         rejectStartup = reject
       })
+      // Prevent unhandled rejection when startupFailure outlives the race
+      startupFailure.catch(() => {})
 
       proc = await spawnHarnessProcess(startSpec.process)
       proc.on('exit', onExit)
@@ -269,7 +277,15 @@ export function createCodexAppServerDriver(): Driver {
 
       rpc = new CodexRpcClient(proc, {
         onNotification,
-        onRequest: async (request) => handlePermissionRequest(request, driverSpec!),
+        onRequest: async (request) => {
+          const permCtx: PermissionHandlerContext = {
+            ctx: requireCtx(),
+            driver: driverSpec!,
+            currentTurnId,
+            currentInputId,
+          }
+          return handlePermissionRequest(request, permCtx)
+        },
         onError: (error) => {
           if (starting) {
             rejectStartup?.(error)
@@ -277,9 +293,40 @@ export function createCodexAppServerDriver(): Driver {
         },
       })
 
-      await withStartupRace(rpc.sendRequest('initialize', { clientInfo: { name: 'harness-broker', version: '0.1.0' } }))
-      await withStartupRace(rpc.sendNotification('initialized', {}))
-      threadId = await withStartupRace(startThread())
+      // Wire startup timeout — timer starts when the first RPC is written,
+      // so process boot time doesn't count against the limit.
+      const startupTimeoutMs = startSpec.process.limits?.startupTimeoutMs
+      let startupTimedOut = false
+      let startupTimer: ReturnType<typeof setTimeout> | undefined
+
+      function armStartupTimer(): void {
+        if (startupTimer !== undefined) clearTimeout(startupTimer)
+        if (startupTimeoutMs === undefined || startupTimeoutMs <= 0) return
+        startupTimer = setTimeout(() => {
+          if (!starting) return
+          startupTimedOut = true
+          emitTerminalFailure('Startup timed out', 'Timeout')
+          rpc?.close(new Error('Startup timed out'))
+          if (proc && proc.exitCode === null) proc.kill('SIGTERM')
+          rejectStartup?.(new BrokerError(BrokerErrorCode.Timeout, 'Startup timed out'))
+        }, startupTimeoutMs)
+      }
+
+      try {
+        armStartupTimer()
+        await withStartupRace(rpc!.sendRequest('initialize', { clientInfo: { name: 'harness-broker', version: '0.1.0' } }))
+        armStartupTimer() // re-arm after successful initialize
+        await withStartupRace(rpc!.sendNotification('initialized', {}))
+        armStartupTimer() // re-arm after initialized notification
+        threadId = await withStartupRace(startThread())
+      } catch (startupErr) {
+        if (startupTimer !== undefined) clearTimeout(startupTimer)
+        if (startupTimedOut) {
+          throw new BrokerError(BrokerErrorCode.Timeout, 'Startup timed out')
+        }
+        throw startupErr
+      }
+      if (startupTimer !== undefined) clearTimeout(startupTimer)
 
       requireCtx().emit('invocation.started', {
         pid: proc.pid,
@@ -323,6 +370,39 @@ export function createCodexAppServerDriver(): Driver {
 
       currentInputId = inputId
       requireCtx().emit('input.accepted', { inputId }, { inputId })
+
+      // Wire turn timeout
+      const turnTimeoutMs = spec.process.limits?.turnTimeoutMs
+      let turnTimedOut = false
+
+      if (turnTimeoutMs !== undefined && turnTimeoutMs > 0) {
+        turnTimeout = setTimeout(() => {
+          // Skip timeout if stopping/exited — the stop path handles turn teardown
+          if (stopping || terminalEmitted) return
+          turnTimedOut = true
+          if (turnActive && currentTurnId) {
+            requireCtx().emit(
+              'turn.failed',
+              {
+                turnId: currentTurnId,
+                status: 'failed',
+                code: 'Timeout',
+              },
+              { turnId: currentTurnId, inputId: currentInputId }
+            )
+            turnActive = false
+          }
+          // Defer the RPC close to the next event-loop turn so a concurrent
+          // stop() (arriving from a same-tick timer) can pre-empt it.
+          // stop() clears turnTimeout, cancelling this deferred close.
+          turnTimeout = setTimeout(() => {
+            if (!stopping && !terminalEmitted) {
+              rpc?.close(new Error('Turn timed out'))
+            }
+          }, 0)
+        }, turnTimeoutMs)
+      }
+
       try {
         await rpc.sendRequest('turn/start', buildTurnStartParams({
           threadId,
@@ -331,7 +411,16 @@ export function createCodexAppServerDriver(): Driver {
           driver: driverSpec,
         }))
       } catch (error) {
-        if (terminalEmitted || turnActive) {
+        if (turnTimeout !== undefined) clearTimeout(turnTimeout)
+        turnTimeout = undefined
+        if (turnTimedOut) {
+          // If stop() preempted the timeout, return success (input was accepted).
+          if (stopping || terminalEmitted) {
+            return { inputId, accepted: true, disposition: 'started', ...(currentTurnId ? { turnId: currentTurnId } : {}) }
+          }
+          throw new BrokerError(BrokerErrorCode.Timeout, 'Turn timed out')
+        }
+        if (terminalEmitted || turnActive || stopping) {
           return { inputId, accepted: true, disposition: 'started', ...(currentTurnId ? { turnId: currentTurnId } : {}) }
         }
         throw new BrokerError(
@@ -339,6 +428,8 @@ export function createCodexAppServerDriver(): Driver {
           error instanceof Error ? error.message : 'Codex turn failed to start'
         )
       }
+      if (turnTimeout !== undefined) clearTimeout(turnTimeout)
+      turnTimeout = undefined
 
       return { inputId, accepted: true, disposition: 'started', ...(currentTurnId ? { turnId: currentTurnId } : {}) }
     },
@@ -356,6 +447,11 @@ export function createCodexAppServerDriver(): Driver {
 
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {
       stopping = true
+      // Clear any pending turn timeout; the stop takes precedence.
+      if (turnTimeout !== undefined) {
+        clearTimeout(turnTimeout)
+        turnTimeout = undefined
+      }
       if (!proc) {
         return { accepted: false, state: 'failed' }
       }
@@ -386,6 +482,8 @@ export function createCodexAppServerDriver(): Driver {
 
   async function withStartupRace<T>(work: Promise<T>): Promise<T> {
     if (!startupFailure) return work
+    // Attach no-op catch to both sides so the loser doesn't trigger unhandled rejection
+    work.catch(() => {})
     return Promise.race([work, startupFailure])
   }
 }

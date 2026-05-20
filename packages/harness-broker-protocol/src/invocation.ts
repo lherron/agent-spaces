@@ -65,6 +65,7 @@ export interface CodexAppServerDriverSpec {
 export interface PermissionPolicy {
   mode: 'deny' | 'allow' | 'ask-client'
   timeoutMs?: number | undefined
+  defaultDecision?: 'allow' | 'deny' | undefined
 }
 
 export interface UnknownDriverSpec {

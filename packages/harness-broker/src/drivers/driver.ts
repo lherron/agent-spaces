@@ -1,4 +1,5 @@
 import type {
+  ClientCapabilities,
   InvocationCapabilities,
   InvocationEventEnvelope,
   InvocationEventType,
@@ -24,6 +25,7 @@ export interface Driver {
 
 export interface DriverContext {
   invocationId: string
+  clientCapabilities: ClientCapabilities
   emit<TPayload>(
     type: InvocationEventType,
     payload: TPayload,
