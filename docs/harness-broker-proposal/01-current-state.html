@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Current State · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="" href="index.html">Recommendation</a><a class="active" href="01-current-state.html">Current State</a><a class="" href="02-boundary-model.html">Boundary Model</a><a class="" href="03-package-placement.html">Package Placement</a><a class="" href="04-protocol.html">Broker Protocol</a><a class="" href="05-event-model.html">Event Model</a><a class="" href="06-process-model.html">Process Model</a><a class="" href="07-compile-schema.html">Compile Schema</a><a class="" href="08-input-control.html">Input + Control</a><a class="" href="09-exec-migration.html">exec.ts Migration</a><a class="" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Current State</h1><div class="subtitle">Source inspection findings and the concrete seams that should be refactored.</div></section>
+<h2>What the source currently does</h2>
+<div class="callout warn"><strong>Summary:</strong> the current implementation already has all three layers, but they are interleaved. Agent Spaces compiles and runs SDK sessions; HRC compiles, launches, persists, and contains harness routing; <span class="inline-code">exec.ts</span> is effectively a prototype one-shot broker with HRC-specific callback wiring.</div>
+
+<h2>Agent Spaces public surface mixes compile and runtime</h2>
+<p><span class="inline-code">agent-spaces/packages/agent-spaces/src/types.ts</span> defines <span class="inline-code">ProcessInvocationSpec</span> with argv/env/cwd/io mode plus Codex app-server fields, and also exposes runtime execution and steering requests: <span class="inline-code">RunTurnNonInteractiveRequest</span>, <span class="inline-code">QueueInFlightInputRequest</span>, and <span class="inline-code">InterruptInFlightTurnRequest</span>. This confirms the public SDK currently spans both compile-time and invocation-time behavior.</p>
+<ul class="source-list">
+<li><span class="inline-code">types.ts:48-66</span> — current process invocation shape.</li>
+<li><span class="inline-code">types.ts:88-153</span> — SDK turn and in-flight request shapes.</li>
+<li><span class="inline-code">types.ts:158-186</span> — compile-time invocation request/response.</li>
+<li><span class="inline-code">types.ts:320-326</span> — one client interface includes runtime and compile methods.</li>
+</ul>
+
+<h3>Compile path inside Agent Spaces</h3>
+<p><span class="inline-code">buildPlacementInvocationSpec</span> resolves placement, plans runtime, detects the adapter, materializes bundles, materializes system prompts, prepares Codex homes, builds argv/env, prepares brain/tool env, and returns <span class="inline-code">ProcessInvocationSpec</span>. This is compiler/materializer work and should stay outside the broker.</p>
+<ul class="source-list">
+<li><span class="inline-code">client.ts:1005-1210</span> — placement compile/materialize path.</li>
+<li><span class="inline-code">client.ts:1119-1130</span> — Codex runtime home preparation.</li>
+<li><span class="inline-code">client.ts:1132-1157</span> — adapter argv/env construction and ASP env.</li>
+<li><span class="inline-code">client.ts:1159-1179</span> — brain/tool runtime env preparation.</li>
+<li><span class="inline-code">client.ts:1190-1204</span> — returns <span class="inline-code">ProcessInvocationSpec</span> and optional Codex app-server descriptor.</li>
+</ul>
+
+<h3>Runtime path inside Agent Spaces</h3>
+<p><span class="inline-code">runPlacementTurnNonInteractive</span> does placement resolution and materialization again, then creates Agent SDK or Pi SDK sessions, tracks in-flight state, maps events, handles continuation, and returns a final result. These are broker/runtime-driver concerns, not compiler concerns.</p>
+<ul class="source-list">
+<li><span class="inline-code">client.ts:1217-1505</span> — placement-aware SDK runtime execution.</li>
+<li><span class="inline-code">session-events.ts:26-67</span> — event emitter adds HRC-like hostSessionId/runId correlation.</li>
+<li><span class="inline-code">session-events.ts:88-182</span> — maps unified SDK session events to Agent Spaces/HRC-ish event names.</li>
+<li><span class="inline-code">run-tracker.ts:19-42</span> — in-flight run context stores session, continuation, outstanding turns, accepted input IDs.</li>
+<li><span class="inline-code">run-tracker.ts:130-150</span> — queued in-flight prompts serialize over a session send chain.</li>
+</ul>
+
+<h2>Harness catalog and adapters are already in Agent Spaces</h2>
+<p><span class="inline-code">spaces-config</span> defines the canonical harness catalog: Claude CLI, Claude Agent SDK, Pi CLI, Pi SDK, and Codex CLI. It also defines the current <span class="inline-code">HarnessAdapter</span> interface for detection, validation, materialization, composition, argv, env, and target bundle loading.</p>
+<ul class="source-list">
+<li><span class="inline-code">packages/config/src/core/types/harness.ts:61-97</span> — canonical harness catalog.</li>
+<li><span class="inline-code">packages/config/src/core/types/harness.ts:468-540</span> — adapter contract.</li>
+<li><span class="inline-code">packages/harness-codex/src/adapters/codex-adapter.ts:91-126</span> — Codex app-server launch descriptor builder.</li>
+</ul>
+
+<h2>HRC imports Agent Spaces runtime APIs and duplicates harness logic</h2>
+<p><span class="inline-code">hrc-server</span> depends directly on <span class="inline-code">agent-spaces</span>, <span class="inline-code">spaces-config</span>, <span class="inline-code">spaces-execution</span>, <span class="inline-code">spaces-harness-codex</span>, and <span class="inline-code">spaces-runtime</span>. Its adapter layer repeats provider/frontend selection, env overlays, invocation mode decisions, brain/tool env prep, event translation, SDK turn routing, and in-flight delivery.</p>
+<ul class="source-list">
+<li><span class="inline-code">hrc-server/package.json</span> — direct dependency on Agent Spaces runtime and harness packages.</li>
+<li><span class="inline-code">agent-spaces-adapter/cli-adapter.ts:41-52</span> — provider/harness to frontend mapping duplicated in HRC.</li>
+<li><span class="inline-code">cli-adapter.ts:173-227</span> — HRC-specific correlation env creation.</li>
+<li><span class="inline-code">cli-adapter.ts:244-264</span> — HRC chooses headless vs interactive modes.</li>
+<li><span class="inline-code">sdk-adapter.ts:114-165</span> — HRC calls <span class="inline-code">queueInFlightInput</span> in Agent Spaces.</li>
+<li><span class="inline-code">sdk-adapter.ts:224-252</span> — HRC duplicates brain/tool env prep.</li>
+<li><span class="inline-code">sdk-adapter.ts:307-377</span> — HRC runs SDK turns through Agent Spaces and maps events into HRC envelopes.</li>
+</ul>
+
+<h2>Current HRC launch artifact is overloaded</h2>
+<p><span class="inline-code">HrcLaunchArtifact</span> combines durable HRC identity and callback configuration with the harness process invocation. That is exactly the split the new design should introduce.</p>
+<ul class="source-list">
+<li><span class="inline-code">hrc-core/src/contracts.ts:183-232</span> — launch artifact contains HRC IDs, callback/spool fields, argv/env/cwd, mode, prompts, hook bridge, Codex app-server, OTEL.</li>
+<li><span class="inline-code">launch/launch-artifact.ts:6-20</span> — validator requires both HRC metadata and harness invocation fields together.</li>
+</ul>
+
+<h2><span class="inline-code">exec.ts</span> is a prototype broker</h2>
+<p><span class="inline-code">hrc-server/src/launch/exec.ts</span> already reads a launch JSON, validates fields, scrubs inherited env, spawns a child, handles Codex headless JSONL and Codex app-server output, posts callbacks, spools callbacks if HRC is unavailable, forwards signals, synthesizes degraded turn completion, and posts exit callbacks. It is highly useful as a seed, but not a clean broker yet because callback endpoints, HRC IDs, AgentChat registration, OTEL auth, and HRC environment variables are embedded.</p>
+<ul class="source-list">
+<li><span class="inline-code">exec.ts:18-29</span> — callback-or-spool sink.</li>
+<li><span class="inline-code">exec.ts:182-201</span> — executable resolution.</li>
+<li><span class="inline-code">exec.ts:227-337</span> — headless Codex JSONL pump.</li>
+<li><span class="inline-code">exec.ts:339-415</span> — degraded/synthesized turn completion.</li>
+<li><span class="inline-code">exec.ts:417-490</span> — Codex app-server one-shot driver integration.</li>
+<li><span class="inline-code">exec.ts:617-640</span> — child spawn, env scrub, HRC env injection, stdio selection.</li>
+<li><span class="inline-code">exec.ts:642-649</span> — signal forwarding.</li>
+<li><span class="inline-code">exec.ts:651-727</span> — child-started, output drain, exit callback.</li>
+</ul>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>

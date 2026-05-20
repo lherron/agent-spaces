@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recommendation · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="active" href="index.html">Recommendation</a><a class="" href="01-current-state.html">Current State</a><a class="" href="02-boundary-model.html">Boundary Model</a><a class="" href="03-package-placement.html">Package Placement</a><a class="" href="04-protocol.html">Broker Protocol</a><a class="" href="05-event-model.html">Event Model</a><a class="" href="06-process-model.html">Process Model</a><a class="" href="07-compile-schema.html">Compile Schema</a><a class="" href="08-input-control.html">Input + Control</a><a class="" href="09-exec-migration.html">exec.ts Migration</a><a class="" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Recommendation</h1><div class="subtitle">A concrete architecture proposal for introducing a harness-broker boundary between Agent Spaces harness normalization and HRC runtime supervision.</div></section>
+<div class="decision">
+  <span class="badge rec">Strong recommendation</span>
+  <h3>Build <span class="inline-code">harness-broker</span> as an Agent-Spaces-owned package first, with a protocol-only package that HRC consumes.</h3>
+  <p>The cleanest near-term boundary is <span class="inline-code">agent-spaces/packages/harness-broker</span> plus <span class="inline-code">agent-spaces/packages/harness-protocol</span>. The broker should depend on existing Agent Spaces harness driver packages, but it must not depend on HRC. HRC should depend only on protocol types and the broker executable/package, not on Agent Spaces runtime methods.</p>
+  <p>A fully standalone monorepo is attractive only after the broker protocol stabilizes and the harness drivers are independently versioned. Doing it now would force premature extraction of Codex/Pi/Claude driver code and likely preserve today’s duplication under a new repo name.</p>
+</div>
+
+<div class="grid four">
+  <div class="card"><div class="kpi">1</div><div class="kpi-label">Broker owner</div><p>Agent Spaces owns harness abstraction and normalization.</p></div>
+  <div class="card"><div class="kpi">2</div><div class="kpi-label">HRC role</div><p>Runtime supervision, durable IDs, fences, persistence, callbacks, zombies.</p></div>
+  <div class="card"><div class="kpi">3</div><div class="kpi-label">Compiler output</div><p>A compiled, provider-selected <span class="inline-code">HarnessInvocationSpec</span>.</p></div>
+  <div class="card"><div class="kpi">4</div><div class="kpi-label">Initial process shape</div><p>One-shot broker per launch; resident broker only where in-flight input requires it.</p></div>
+</div>
+
+<h2>Architecture in one page</h2>
+<div class="flow">
+  <div class="node"><div class="title">ASP compiler/materializer</div><div class="body">Resolve placement, choose harness/frontend, materialize bundle, prepare brain/tool env, produce compiled invocation.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="title">HRC launch envelope</div><div class="body">Adds runtime IDs, generation fence, callback/spool sink, supervision policy. Does not alter harness semantics.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="title">Harness broker</div><div class="body">Spawn/drive/control Codex, Pi, Claude Code, SDK sessions. Normalize events and continuation.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="title">HRC runtime controller</div><div class="body">Persist events, update run/runtime state, reject stale callbacks, expose operator/chat APIs.</div></div>
+</div>
+
+<h2>Key decisions</h2>
+<table>
+<tr><th>Decision</th><th>Status</th><th>Rationale</th><th>Implementation consequence</th></tr>
+<tr><td>Split compiled invocation from HRC launch metadata</td><td><span class="badge made">make this change</span></td><td>The current <span class="inline-code">HrcLaunchArtifact</span> mixes argv/env/cwd with callback socket, spool dir, runtime IDs, generation, prompts, and Codex descriptor.</td><td>Introduce <span class="inline-code">HarnessInvocationSpec</span> + <span class="inline-code">HrcBrokerLaunchEnvelope</span>; keep compatibility adapter during migration.</td></tr>
+<tr><td>Broker owns runtime interaction, not compile</td><td><span class="badge made">hard boundary</span></td><td>The broker should never resolve placement, materialize targets, pick Codex/Pi/Claude, or prepare target bundles.</td><td>No <span class="inline-code">compile</span> or <span class="inline-code">buildProcessInvocationSpec</span> command in the broker protocol.</td></tr>
+<tr><td>Agent Spaces owns harness normalization</td><td><span class="badge made">hard boundary</span></td><td>Agent Spaces already owns the harness catalog and adapter implementations; event mapping should live with those drivers.</td><td>Move SDK run tracker/session event mapping and Codex app-server driver into broker/driver packages.</td></tr>
+<tr><td>HRC owns durability and fences</td><td><span class="badge made">hard boundary</span></td><td>HRC already persists runs, runtime records, launch records, callback replay, stale launch rejection, and zombie handling.</td><td>Broker emits broker events; HRC wraps/persists them and enforces generation/run fences.</td></tr>
+<tr><td>One-shot first, resident only as needed</td><td><span class="badge assume">recommended rollout</span></td><td>Current <span class="inline-code">exec.ts</span> is already a one-shot wrapper, so extraction is low-risk. In-flight SDK input needs resident state.</td><td>Implement <span class="inline-code">broker run --envelope</span>, then add <span class="inline-code">broker serve</span> for managed/resident invocations.</td></tr>
+<tr><td>Standalone monorepo</td><td><span class="badge debate">defer</span></td><td>Useful later for non-ASP consumers, but premature now because drivers and compile artifacts are still inside Agent Spaces.</td><td>Keep package names and protocol pure enough to extract later.</td></tr>
+</table>
+
+<h2>Document map</h2>
+<ul class="toc">
+  <li><a href="01-current-state.html">Current State</a> — concrete leakage and source findings.</li>
+  <li><a href="02-boundary-model.html">Boundary Model</a> — exact ownership and must-not-own rules.</li>
+  <li><a href="03-package-placement.html">Package Placement</a> — dependency graph and repo options.</li>
+  <li><a href="04-protocol.html">Broker Protocol</a> — JSON-RPC/NDJSON commands and schemas.</li>
+  <li><a href="05-event-model.html">Event Model</a> — normalized broker events and HRC correlation split.</li>
+  <li><a href="06-process-model.html">Process Model</a> — one-shot, resident, daemon tradeoffs and state machines.</li>
+  <li><a href="07-compile-schema.html">Compile Schema</a> — <span class="inline-code">HarnessInvocationSpec</span> and envelope sketches.</li>
+  <li><a href="08-input-control.html">Input + Control</a> — user input, steer, append context, interrupt, stop semantics.</li>
+  <li><a href="09-exec-migration.html">exec.ts Migration</a> — what to extract, move, discard.</li>
+  <li><a href="10-risks-and-plan.html">Risks + Plan</a> — risks, open questions, and implementation tasks.</li>
+</ul>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>

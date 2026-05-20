@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relationship to hrc-server launch/exec.ts · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="" href="index.html">Recommendation</a><a class="" href="01-current-state.html">Current State</a><a class="" href="02-boundary-model.html">Boundary Model</a><a class="" href="03-package-placement.html">Package Placement</a><a class="" href="04-protocol.html">Broker Protocol</a><a class="" href="05-event-model.html">Event Model</a><a class="" href="06-process-model.html">Process Model</a><a class="" href="07-compile-schema.html">Compile Schema</a><a class="" href="08-input-control.html">Input + Control</a><a class="active" href="09-exec-migration.html">exec.ts Migration</a><a class="" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Relationship to hrc-server launch/exec.ts</h1><div class="subtitle">What to extract, move, discard, and refactor from the existing one-shot wrapper.</div></section>
+<h2>Verdict</h2>
+<div class="decision"><h3><span class="inline-code">exec.ts</span> is suitable as the basis for the one-shot broker runner, but only after cutting out HRC-specific state and callback assumptions.</h3><p>It has the right mechanics: launch file, env scrub, spawn, stdio selection, signal forwarding, Codex output/app-server handling, callback/spool, degraded completion, and exit callback. The extraction should preserve the mechanics and remove HRC identity semantics.</p></div>
+
+<h2>Extract into generic broker logic</h2>
+<table>
+<tr><th>Current logic</th><th>Broker target</th><th>Notes</th></tr>
+<tr><td>Read/validate launch file</td><td><span class="inline-code">runtime/envelope.ts</span></td><td>Validate <span class="inline-code">HrcBrokerLaunchEnvelope</span> or neutral <span class="inline-code">BrokerRunEnvelope</span>, then normalize to internal invocation.</td></tr>
+<tr><td>Env scrub and child env assembly</td><td><span class="inline-code">runtime/env.ts</span></td><td>Keep default scrub, but make HRC env additions explicit via envelope <span class="inline-code">childEnv</span>.</td></tr>
+<tr><td>Executable resolution and spawn</td><td><span class="inline-code">runtime/process-runner.ts</span></td><td>Support <span class="inline-code">process</span> and special driver spawn modes.</td></tr>
+<tr><td>stdio selection</td><td><span class="inline-code">runtime/stdio.ts</span></td><td>Use spec driver kind and io mode, not <span class="inline-code">artifact.harness === 'codex-cli'</span>.</td></tr>
+<tr><td>Signal forwarding</td><td><span class="inline-code">runtime/signals.ts</span></td><td>Policy-driven; emit events when signals are forwarded.</td></tr>
+<tr><td>Headless Codex JSONL pump</td><td><span class="inline-code">drivers/codex-jsonl.ts</span></td><td>Normalize <span class="inline-code">thread.started</span>, <span class="inline-code">item.completed</span>, <span class="inline-code">turn.completed</span>.</td></tr>
+<tr><td>Codex app-server one-shot driver</td><td><span class="inline-code">drivers/codex-app-server.ts</span></td><td>Move import of <span class="inline-code">spaces-harness-codex/codex-session</span> out of HRC and into broker.</td></tr>
+<tr><td>Degraded turn completion synthesis</td><td><span class="inline-code">events/finality.ts</span></td><td>Generic outcome builder; not Codex-specific except source labels.</td></tr>
+<tr><td>Callback-or-spool</td><td><span class="inline-code">runtime/event-sink.ts</span></td><td>Generic sink abstraction. HRC-specific endpoints configured by envelope.</td></tr>
+</table>
+
+<h2>Move back to HRC</h2>
+<table>
+<tr><th>Current logic</th><th>Why HRC owns it</th></tr>
+<tr><td>Callback endpoint paths such as <span class="inline-code">/v1/internal/launches/:launchId/event</span></td><td>They mutate HRC DB and enforce fences.</td></tr>
+<tr><td><span class="inline-code">launchId</span>, <span class="inline-code">hostSessionId</span>, <span class="inline-code">generation</span>, <span class="inline-code">runtimeId</span> interpretation</td><td>Durable runtime identity and stale callback semantics are HRC-only.</td></tr>
+<tr><td>AgentChat register/deregister</td><td>Operator/UI integration, not harness driving. Make it an HRC pre/post launch hook or separate sidecar.</td></tr>
+<tr><td>OTEL auth header/secret and Codex config mutation</td><td>HRC currently defines the OTEL endpoint and auth. The compiler or HRC should prepare config before broker starts; broker should only use explicit driver config.</td></tr>
+<tr><td>Launch header rendering with HRC IDs</td><td>Operator display. Broker may provide generic display hooks but should not know HRC semantics.</td></tr>
+<tr><td>Spool replay</td><td>Replay must check launch generation and update HRC state. Broker may write spool; HRC replays.</td></tr>
+</table>
+
+<h2>Discard or refactor</h2>
+<table>
+<tr><th>Item</th><th>Change</th></tr>
+<tr><td>Hardcoded continuation provider <span class="inline-code">openai</span></td><td>Use <span class="inline-code">spec.provider</span>.</td></tr>
+<tr><td><span class="inline-code">isHeadlessCodexLaunch</span> based on harness/mode fields</td><td>Use <span class="inline-code">driver.kind</span> and declared event source.</td></tr>
+<tr><td>Parsing system/priming prompt out of argv for display</td><td>Prefer explicit prompt metadata from compiler/HRC display envelope.</td></tr>
+<tr><td>Mixed event names <span class="inline-code">message_end</span>, <span class="inline-code">turn.completed</span>, <span class="inline-code">turn_end</span></td><td>Normalize to broker event model; HRC compatibility adapter can translate during migration.</td></tr>
+<tr><td>Direct import of <span class="inline-code">spaces-execution</span> display helpers in launch wrapper</td><td>Display belongs in HRC UI or a small display utility, not core broker.</td></tr>
+</table>
+
+<h2>Extraction sequence</h2>
+<ol>
+<li>Create protocol package with <span class="inline-code">HarnessInvocationSpec</span>, event types, and a compatibility parser for current <span class="inline-code">HrcLaunchArtifact</span>.</li>
+<li>Copy <span class="inline-code">exec.ts</span> into broker package and change its input to normalized envelope/spec.</li>
+<li>Replace HRC callback endpoints in broker with an <span class="inline-code">EventSink</span> interface.</li>
+<li>Move Codex JSONL and app-server event mapping into broker drivers; normalize events.</li>
+<li>Update HRC to write <span class="inline-code">HrcBrokerLaunchEnvelope</span> and spawn <span class="inline-code">harness-broker run</span> instead of <span class="inline-code">hrc-server/src/launch/exec.ts</span>.</li>
+<li>Delete direct <span class="inline-code">spaces-harness-codex/codex-session</span> import from HRC.</li>
+<li>After SDK broker driver lands, delete HRC <span class="inline-code">sdk-adapter.ts</span> runtime execution path.</li>
+</ol>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>

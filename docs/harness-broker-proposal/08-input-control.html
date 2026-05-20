@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Input / Steering / Interrupt Split · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="" href="index.html">Recommendation</a><a class="" href="01-current-state.html">Current State</a><a class="" href="02-boundary-model.html">Boundary Model</a><a class="" href="03-package-placement.html">Package Placement</a><a class="" href="04-protocol.html">Broker Protocol</a><a class="" href="05-event-model.html">Event Model</a><a class="" href="06-process-model.html">Process Model</a><a class="" href="07-compile-schema.html">Compile Schema</a><a class="active" href="08-input-control.html">Input + Control</a><a class="" href="09-exec-migration.html">exec.ts Migration</a><a class="" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Input / Steering / Interrupt Split</h1><div class="subtitle">Semantic definitions for user input, append context, steer/correction, interrupt, and stop.</div></section>
+<h2>Semantic split</h2>
+<div class="decision"><h3>HRC should request user-level intent; the broker should decide the provider-specific mechanism.</h3><p>HRC should not know whether a steer maps to SDK <span class="inline-code">interrupt()</span>, Codex RPC cancel, Ctrl-C, or rejection. It should submit semantic input/control requests and record the broker’s accepted/rejected/effective-mode events.</p></div>
+
+<table>
+<tr><th>Semantic action</th><th>Meaning</th><th>HRC request</th><th>Broker decision</th></tr>
+<tr><td>User input</td><td>A new user-authored turn/message.</td><td><span class="inline-code">invocation.input(kind:'user')</span> with policy such as idle-only, queue, or any.</td><td>Send SDK prompt, start RPC turn, inject CLI input only if driver explicitly supports semantic CLI input; otherwise reject or rely on tmux user typing outside semantic API.</td></tr>
+<tr><td>Append context</td><td>Additional context that should not necessarily interrupt current reasoning.</td><td><span class="inline-code">invocation.input(kind:'append_context')</span>.</td><td>Native append if SDK supports it; coerce to queued user input only if declared safe; otherwise reject.</td></tr>
+<tr><td>Correction / steer</td><td>A higher-priority message intended to alter an active trajectory.</td><td><span class="inline-code">invocation.input(kind:'steer', policy.conflict:'interrupt_then_send')</span>.</td><td>Use native steer if available; else interrupt current turn and send a user message; else reject with unsupported capability.</td></tr>
+<tr><td>Interrupt</td><td>Ask current turn to stop or yield, without necessarily ending invocation.</td><td><span class="inline-code">invocation.interrupt(mode:'soft'|'cancel-turn'|'ctrl-c')</span>.</td><td>Map to SDK interrupt, RPC cancel, SIGINT, pty Ctrl-C, or reject.</td></tr>
+<tr><td>Stop / cancel</td><td>End the invocation or runtime, possibly after grace period.</td><td><span class="inline-code">invocation.stop(mode:'cancel-turn'|'terminate'|'kill')</span>.</td><td>Attempt graceful SDK stop/RPC shutdown/SIGTERM then SIGKILL according to grace policy.</td></tr>
+</table>
+
+<h2>Capability-driven behavior</h2>
+<p>The compiler should include expected capabilities in the invocation spec. The broker should validate and may refine them at runtime. HRC should use capabilities to decide whether to offer in-flight controls to operators, but it should still handle rejection events because capabilities can be optimistic or version-dependent.</p>
+
+<pre><code>type InputCapability = &#x27;unsupported&#x27; | &#x27;idle-only&#x27; | &#x27;in-flight&#x27; | &#x27;native&#x27; | &#x27;coerced-to-user&#x27; | &#x27;interrupt-then-user&#x27;
+
+interface InvocationCapabilities {
+  input: {
+    user: &#x27;unsupported&#x27; | &#x27;idle-only&#x27; | &#x27;in-flight&#x27;
+    appendContext: &#x27;unsupported&#x27; | &#x27;native&#x27; | &#x27;coerced-to-user&#x27;
+    steer: &#x27;unsupported&#x27; | &#x27;native&#x27; | &#x27;interrupt-then-user&#x27;
+  }
+  interrupt: { soft: boolean; cancelTurn: boolean; signal: boolean }
+  stop: { graceful: boolean; kill: boolean }
+}</code></pre>
+
+<h2>Recommended HRC policies</h2>
+<table>
+<tr><th>Situation</th><th>HRC should request</th><th>Expected broker result</th></tr>
+<tr><td>Idle runtime receives normal chat turn</td><td><span class="inline-code">kind:'user'</span>, <span class="inline-code">policy.when:'idle'</span>.</td><td>Accepted and sent; broker emits <span class="inline-code">turn.started</span>.</td></tr>
+<tr><td>Active Agent SDK turn receives “also consider X”</td><td><span class="inline-code">kind:'append_context'</span>, <span class="inline-code">policy.when:'in_flight'</span>.</td><td>Accepted if SDK driver supports native append; else reject or coerce only if capability says safe.</td></tr>
+<tr><td>Active turn receives “stop, that is wrong; do Y”</td><td><span class="inline-code">kind:'steer'</span>, <span class="inline-code">conflict:'interrupt_then_send'</span>.</td><td>Broker emits <span class="inline-code">input.accepted</span>, <span class="inline-code">interrupted</span>, then new <span class="inline-code">turn.started</span>, or rejects if unsupported.</td></tr>
+<tr><td>Operator presses interrupt</td><td><span class="inline-code">invocation.interrupt</span> with reason.</td><td>Broker emits <span class="inline-code">interrupt.accepted</span> then <span class="inline-code">interrupted</span> or an error/rejection.</td></tr>
+<tr><td>Session/runtime cancellation</td><td><span class="inline-code">invocation.stop(mode:'terminate', graceMs: ...)</span>.</td><td>Broker attempts graceful stop, then terminal <span class="inline-code">invocation.exited</span>.</td></tr>
+</table>
+
+<h2>Provider mapping should be hidden in drivers</h2>
+<table>
+<tr><th>Driver</th><th>User input</th><th>Append context</th><th>Steer</th><th>Interrupt</th></tr>
+<tr><td>Agent SDK</td><td><span class="inline-code">sendPrompt</span>.</td><td>Likely <span class="inline-code">sendPrompt</span> with in-flight metadata; exact native support to verify.</td><td>Current behavior approximates <span class="inline-code">interrupt_and_continue</span>: interrupt then queued prompt.</td><td><span class="inline-code">session.interrupt(reason)</span> if available, else <span class="inline-code">session.stop()</span>.</td></tr>
+<tr><td>Pi SDK</td><td><span class="inline-code">sendPrompt</span> for one-shot; in-flight unknown.</td><td>Reject unless SDK capability is confirmed.</td><td>Reject or stop+new turn only if safe.</td><td>SDK stop/cancel if available.</td></tr>
+<tr><td>Codex app-server</td><td><span class="inline-code">turn/start</span> after thread start/resume.</td><td>Unknown; reject until app-server supports it.</td><td>RPC cancel then new turn if supported; otherwise reject.</td><td>RPC cancel preferred, SIGINT fallback.</td></tr>
+<tr><td>Plain CLI via pty</td><td>Not semantic by default; user types in terminal.</td><td>Unsupported.</td><td>Unsupported unless driver has a robust input protocol.</td><td>PTY Ctrl-C or signal.</td></tr>
+</table>
+
+<h2>Idempotency</h2>
+<p><span class="inline-code">inputId</span> and optional <span class="inline-code">idempotencyKey</span> should be part of every input request. The broker should emit <span class="inline-code">input.accepted</span> with <span class="inline-code">disposition:'duplicate'</span> for repeated accepted inputs, mirroring the current in-flight accepted-input set in <span class="inline-code">run-tracker.ts</span>.</p>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>

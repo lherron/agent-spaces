@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Risks, Open Questions, and Implementation Plan · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="" href="index.html">Recommendation</a><a class="" href="01-current-state.html">Current State</a><a class="" href="02-boundary-model.html">Boundary Model</a><a class="" href="03-package-placement.html">Package Placement</a><a class="" href="04-protocol.html">Broker Protocol</a><a class="" href="05-event-model.html">Event Model</a><a class="" href="06-process-model.html">Process Model</a><a class="" href="07-compile-schema.html">Compile Schema</a><a class="" href="08-input-control.html">Input + Control</a><a class="" href="09-exec-migration.html">exec.ts Migration</a><a class="active" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Risks, Open Questions, and Implementation Plan</h1><div class="subtitle">Risk register, open questions, phased implementation tasks, and definition of done.</div></section>
+<h2>Risks and mitigations</h2>
+<table>
+<tr><th>Risk</th><th>Impact</th><th>Mitigation</th></tr>
+<tr><td>Process startup overhead</td><td>One-shot broker adds a wrapper process and app-server/SDK startup remains expensive.</td><td>Start with one-shot for reliability; add resident per-runtime mode for SDK/app-server where reuse matters. Avoid rematerialization in broker.</td></tr>
+<tr><td>Event ordering and replay</td><td>Callbacks/spool can duplicate or reorder events around process exit.</td><td>Broker emits <span class="inline-code">eventId</span> and monotonic <span class="inline-code">brokerSeq</span>. HRC persists idempotently and applies generation fences.</td></tr>
+<tr><td>Callback/spool reliability</td><td>Broker may exit before events are delivered.</td><td>Use file spool for detached/tmux one-shot; HRC owns replay. For direct headless, prefer stdio sink and synchronous HRC persistence.</td></tr>
+<tr><td>Security/env leakage</td><td>Inherited HRC/Agent/Codex env can leak credentials or stale control paths.</td><td>Default scrub inherited env; allow only explicit invocation env + explicit HRC childEnv. Redact logs. Validate cwd and executable.</td></tr>
+<tr><td>PTY vs pipes</td><td>Semantic events from interactive PTY are lossy.</td><td>Declare event capabilities honestly. Use hooks/OTEL/app-server/SDK for structured events; do not pretend PTY transcript is a normalized event stream.</td></tr>
+<tr><td>Provider continuation state</td><td>Bad continuation after failure can poison later runs.</td><td>Broker reports observed continuation. HRC persists only under success/accepted policy; retain current rule that failed SDK sessions do not propagate continuation.</td></tr>
+<tr><td>In-flight input support</td><td>Only some SDK paths support it today.</td><td>Make in-flight input capability-driven. Use resident broker for Agent SDK. Reject unsupported semantics explicitly for Pi/CLI until proven.</td></tr>
+<tr><td>Codex app-server special cases</td><td>Resume fallback, token usage, item mapping, final output synthesis are easy to duplicate incorrectly.</td><td>Move existing <span class="inline-code">runCodexAppServerOneShot</span> integration into a single broker driver and test against golden event traces.</td></tr>
+<tr><td>Claude/Pi parity</td><td>Codex has richer headless/app-server paths; Claude/Pi may lag.</td><td>Expose precise capabilities per driver. Do not leak provider-specific fallback logic into HRC.</td></tr>
+<tr><td>Package boundary drift</td><td>Broker may start importing compiler or HRC internals.</td><td>Import-boundary tests and package-level dependency constraints.</td></tr>
+</table>
+
+<h2>Open questions</h2>
+<ol>
+<li><strong>Should HRC own tmux PTY forever?</strong> Recommendation: yes for initial broker; add broker-owned PTY only for non-tmux consumers.</li>
+<li><strong>Where should Codex OTEL config injection live?</strong> Recommendation: compile/materializer or HRC prelaunch hook, not broker core. Broker can accept explicit driver env/config but should not know HRC auth.</li>
+<li><strong>Should event sink be callback HTTP or stdout?</strong> Recommendation: support both. Use stdout for direct supervised headless, callback/spool for tmux/detached one-shot.</li>
+<li><strong>Can Codex app-server support true multi-turn resident mode?</strong> Needs capability verification; protocol should support it without assuming it.</li>
+<li><strong>How should HRC compatibility migration handle old event names?</strong> Add an HRC adapter translating broker events to current <span class="inline-code">eventKind</span> until consumers switch.</li>
+<li><strong>Should <span class="inline-code">HarnessInvocationSpec</span> include top-level argv?</strong> Recommendation: no in final shape. Use <span class="inline-code">driver.argv</span>. Accept top-level argv only in compatibility parser.</li>
+</ol>
+
+<h2>Implementation plan</h2>
+<table>
+<tr><th>Phase</th><th>Tasks</th><th>Exit criteria</th></tr>
+<tr><td>0. Protocol</td><td>Create <span class="inline-code">harness-protocol</span>. Define invocation, envelope, command, event schemas. Add JSON schema validation and golden fixtures.</td><td>Typecheck and fixture validation pass; no runtime package deps.</td></tr>
+<tr><td>1. Compiler output</td><td>Add <span class="inline-code">compileHarnessInvocation</span> wrapper around placement compile path. Return <span class="inline-code">HarnessInvocationSpec</span>. Deprecate HRC use of <span class="inline-code">buildProcessInvocationSpec</span> shape.</td><td>Golden specs for Codex app-server/headless, Claude CLI, Pi CLI, Agent SDK, Pi SDK.</td></tr>
+<tr><td>2. One-shot broker</td><td>Extract <span class="inline-code">exec.ts</span> mechanics into <span class="inline-code">harness-broker run</span>. Implement event sink/spool abstraction and normalized events.</td><td>Current headless Codex and interactive tmux launches work through broker envelope.</td></tr>
+<tr><td>3. HRC integration</td><td>Replace <span class="inline-code">HrcLaunchArtifact</span> fields with envelope wrapper in write/read path. Add callback route adapter for broker events. Remove HRC Codex app-server import.</td><td>HRC no longer imports <span class="inline-code">spaces-harness-codex/codex-session</span>; launch/run persistence unchanged from operator perspective.</td></tr>
+<tr><td>4. SDK broker driver</td><td>Move SDK session event mapper and in-flight run tracker into broker. Implement one-shot SDK turn and resident SDK mode.</td><td>HRC no longer calls <span class="inline-code">runTurnNonInteractive</span> or <span class="inline-code">queueInFlightInput</span> from Agent Spaces.</td></tr>
+<tr><td>5. Capability UI/control</td><td>HRC uses broker capabilities to enable/disable append/steer/interrupt controls. Add rejection handling.</td><td>No provider-specific steering logic in HRC.</td></tr>
+<tr><td>6. Cleanup</td><td>Delete HRC adapter duplication. Add import graph tests. Tighten env redaction and spool idempotency tests.</td><td>Dependency graph matches target boundary; old artifact shape only in compatibility tests.</td></tr>
+</table>
+
+<h2>Definition of done</h2>
+<ul>
+<li><span class="inline-code">hrc-server</span> does not import Agent Spaces runtime APIs or harness driver internals.</li>
+<li>All HRC launches use <span class="inline-code">HrcBrokerLaunchEnvelope</span> wrapping <span class="inline-code">HarnessInvocationSpec</span>.</li>
+<li>Broker package imports no HRC packages.</li>
+<li>Codex, Claude, Pi, Agent SDK, and Pi SDK each have declared capability fixtures.</li>
+<li>Event replay is idempotent by <span class="inline-code">eventId</span>/<span class="inline-code">brokerSeq</span>.</li>
+<li>HRC remains authoritative for run/runtime/session state, generation fences, persistence, and zombie handling.</li>
+</ul>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>

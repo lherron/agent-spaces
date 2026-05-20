@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Broker Protocol · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="" href="index.html">Recommendation</a><a class="" href="01-current-state.html">Current State</a><a class="" href="02-boundary-model.html">Boundary Model</a><a class="" href="03-package-placement.html">Package Placement</a><a class="active" href="04-protocol.html">Broker Protocol</a><a class="" href="05-event-model.html">Event Model</a><a class="" href="06-process-model.html">Process Model</a><a class="" href="07-compile-schema.html">Compile Schema</a><a class="" href="08-input-control.html">Input + Control</a><a class="" href="09-exec-migration.html">exec.ts Migration</a><a class="" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Broker Protocol</h1><div class="subtitle">A JSON-RPC/NDJSON command protocol with request/response interface sketches.</div></section>
+<h2>Transport recommendation</h2>
+<div class="decision"><h3>Use JSON-RPC 2.0 messages over NDJSON for control, plus a callback/sink abstraction for events.</h3><p>JSON-RPC over NDJSON is easy to drive from HRC over stdio or a Unix socket, works for resident brokers, and preserves request/response semantics for input/interrupt/stop. One-shot launches can still use an envelope file and event callback sink without requiring a control connection.</p></div>
+
+<h2>Two entrypoints</h2>
+<table>
+<tr><th>Entrypoint</th><th>Use</th><th>Shape</th></tr>
+<tr><td><span class="inline-code">harness-broker run --envelope &lt;file&gt;</span></td><td>One-shot launch replacing <span class="inline-code">exec.ts</span>. Best for tmux interactive, detached headless CLI, and one-shot app-server.</td><td>Reads envelope, starts invocation, emits callbacks/spool/stdout events, exits when child/session exits.</td></tr>
+<tr><td><span class="inline-code">harness-broker serve --stdio</span> or <span class="inline-code">--socket &lt;path&gt;</span></td><td>Resident broker per runtime/invocation when HRC needs control after start: SDK in-flight input, RPC app-server multi-turn, long-lived headless.</td><td>HRC sends JSON-RPC commands; broker emits <span class="inline-code">broker.event</span> notifications or posts to configured sink.</td></tr>
+</table>
+
+<h2>Command list</h2>
+<table>
+<tr><th>Command</th><th>Purpose</th><th>Notes</th></tr>
+<tr><td><span class="inline-code">broker.hello</span></td><td>Protocol/version/capability negotiation.</td><td>First command in resident mode. Not required for one-shot envelope mode.</td></tr>
+<tr><td><span class="inline-code">broker.health</span></td><td>Health and optional invocation summary.</td><td>Used by HRC supervision and diagnostics.</td></tr>
+<tr><td><span class="inline-code">invocation.start</span></td><td>Start a compiled invocation.</td><td>Accepts <span class="inline-code">HarnessInvocationSpec</span>; no placement or compile input.</td></tr>
+<tr><td><span class="inline-code">invocation.input</span></td><td>Submit user input, append context, or steering correction.</td><td>Returns accepted/rejected/queued/coerced result with effective semantics.</td></tr>
+<tr><td><span class="inline-code">invocation.interrupt</span></td><td>Interrupt current turn without necessarily ending invocation.</td><td>Broker maps to SDK interrupt, RPC cancel, SIGINT, pty Ctrl-C, or rejects.</td></tr>
+<tr><td><span class="inline-code">invocation.stop</span></td><td>End the turn/invocation/runtime.</td><td>Graceful cancel/terminate/kill policy.</td></tr>
+<tr><td><span class="inline-code">invocation.status</span></td><td>Snapshot state, continuation, pid, current turn, pending inputs.</td><td>Useful after HRC reconnects to resident broker.</td></tr>
+<tr><td><span class="inline-code">invocation.dispose</span></td><td>Release broker state after terminal invocation.</td><td>Optionally kills still-running process if HRC is abandoning it.</td></tr>
+</table>
+
+<div class="callout bad"><strong>Excluded commands:</strong> no <span class="inline-code">compile</span>, <span class="inline-code">materialize</span>, <span class="inline-code">resolvePlacement</span>, <span class="inline-code">buildProcessInvocationSpec</span>, <span class="inline-code">chooseHarness</span>, or <span class="inline-code">prepareEnv</span> commands. Those are compiler/materializer responsibilities.</div>
+
+<h2>TypeScript command sketch</h2>
+<pre><code>export type JsonRpcId = string | number
+
+export type BrokerCommand =
+  | BrokerHelloRequest
+  | BrokerHealthRequest
+  | InvocationStartRequest
+  | InvocationInputRequest
+  | InvocationInterruptRequest
+  | InvocationStopRequest
+  | InvocationStatusRequest
+  | InvocationDisposeRequest
+
+export interface JsonRpcRequest&lt;TMethod extends string, TParams&gt; {
+  jsonrpc: &#x27;2.0&#x27;
+  id: JsonRpcId
+  method: TMethod
+  params: TParams
+}
+
+export interface JsonRpcResponse&lt;TResult = unknown&gt; {
+  jsonrpc: &#x27;2.0&#x27;
+  id: JsonRpcId
+  result?: TResult
+  error?: { code: string; message: string; data?: unknown }
+}
+
+export type BrokerHelloRequest = JsonRpcRequest&lt;&#x27;broker.hello&#x27;, {
+  client: { name: string; version?: string }
+  protocolVersion: &#x27;2026-05-20&#x27;
+  capabilitiesWanted?: string[]
+}&gt;
+
+export type BrokerHelloResponse = {
+  broker: { name: &#x27;harness-broker&#x27;; version: string }
+  protocolVersion: &#x27;2026-05-20&#x27;
+  capabilities: BrokerCapabilitySet
+}
+
+export type BrokerHealthRequest = JsonRpcRequest&lt;&#x27;broker.health&#x27;, {
+  includeInvocations?: boolean
+}&gt;
+
+export type BrokerHealthResponse = {
+  status: &#x27;ok&#x27; | &#x27;degraded&#x27; | &#x27;draining&#x27;
+  uptimeMs: number
+  invocations?: Array&lt;InvocationStatus&gt;
+  warnings?: Array&lt;{ code: string; message: string }&gt;
+}
+
+export type InvocationStartRequest = JsonRpcRequest&lt;&#x27;invocation.start&#x27;, {
+  invocationId?: string
+  spec: HarnessInvocationSpec
+  launch?: BrokerLaunchOptions
+  correlation?: Record&lt;string, string&gt;
+}&gt;
+
+export type InvocationStartResponse = {
+  invocationId: string
+  state: InvocationState
+  capabilities: InvocationCapabilities
+  pid?: number
+  pty?: { cols: number; rows: number }
+}
+
+export type InvocationInputRequest = JsonRpcRequest&lt;&#x27;invocation.input&#x27;, {
+  invocationId: string
+  inputId: string
+  kind: &#x27;user&#x27; | &#x27;append_context&#x27; | &#x27;steer&#x27;
+  content: BrokerInputContent
+  policy?: {
+    when?: &#x27;idle&#x27; | &#x27;in_flight&#x27; | &#x27;any&#x27;
+    conflict?: &#x27;reject&#x27; | &#x27;queue&#x27; | &#x27;interrupt_then_send&#x27;
+    idempotencyKey?: string
+  }
+}&gt;
+
+export type InvocationInputResponse = {
+  accepted: boolean
+  disposition: &#x27;sent&#x27; | &#x27;queued&#x27; | &#x27;coerced&#x27; | &#x27;rejected&#x27; | &#x27;duplicate&#x27;
+  effectiveKind?: &#x27;user&#x27; | &#x27;append_context&#x27; | &#x27;steer&#x27;
+  pendingInputs?: number
+  reason?: string
+}
+
+export type InvocationInterruptRequest = JsonRpcRequest&lt;&#x27;invocation.interrupt&#x27;, {
+  invocationId: string
+  interruptId?: string
+  mode?: &#x27;soft&#x27; | &#x27;ctrl-c&#x27; | &#x27;cancel-turn&#x27;
+  reason?: string
+}&gt;
+
+export type InvocationInterruptResponse = {
+  accepted: boolean
+  effectiveMode?: &#x27;sdk-interrupt&#x27; | &#x27;rpc-cancel&#x27; | &#x27;sigint&#x27; | &#x27;pty-ctrl-c&#x27; | &#x27;unsupported&#x27;
+  state: InvocationState
+  reason?: string
+}
+
+export type InvocationStopRequest = JsonRpcRequest&lt;&#x27;invocation.stop&#x27;, {
+  invocationId: string
+  stopId?: string
+  mode?: &#x27;cancel-turn&#x27; | &#x27;terminate&#x27; | &#x27;kill&#x27;
+  graceMs?: number
+  reason?: string
+}&gt;
+
+export type InvocationStopResponse = {
+  accepted: boolean
+  effectiveMode: &#x27;cancel-turn&#x27; | &#x27;sigterm&#x27; | &#x27;sigkill&#x27; | &#x27;sdk-stop&#x27; | &#x27;unsupported&#x27;
+  state: InvocationState
+}
+
+export type InvocationStatusRequest = JsonRpcRequest&lt;&#x27;invocation.status&#x27;, {
+  invocationId: string
+}&gt;
+
+export type InvocationStatusResponse = InvocationStatus
+
+export type InvocationDisposeRequest = JsonRpcRequest&lt;&#x27;invocation.dispose&#x27;, {
+  invocationId: string
+  kill?: boolean
+}&gt;
+
+export type InvocationDisposeResponse = { disposed: true }</code></pre>
+
+<h2>Supporting types</h2>
+<pre><code>export type InvocationState =
+  | &#x27;created&#x27;
+  | &#x27;starting&#x27;
+  | &#x27;running&#x27;
+  | &#x27;idle&#x27;
+  | &#x27;turn-running&#x27;
+  | &#x27;interrupting&#x27;
+  | &#x27;stopping&#x27;
+  | &#x27;exited&#x27;
+  | &#x27;failed&#x27;
+  | &#x27;disposed&#x27;
+
+export interface BrokerLaunchOptions {
+  mode: &#x27;oneshot&#x27; | &#x27;resident&#x27;
+  eventSink?:
+    | { kind: &#x27;stdio&#x27; }
+    | { kind: &#x27;unix-http&#x27;; socketPath: string; endpoint: string; authHeader?: { name: string; value: string } }
+    | { kind: &#x27;file-spool&#x27;; dir: string; forward?: { kind: &#x27;unix-http&#x27;; socketPath: string; endpoint: string } }
+  childEnv?: Record&lt;string, string&gt;       // host/runtime-specific env additions; explicit only
+  inheritedEnvPolicy?: &#x27;scrub-default&#x27; | &#x27;empty&#x27; | { allow: string[]; denyPrefix?: string[] }
+  signalPolicy?: { forward: Array&lt;&#x27;SIGHUP&#x27; | &#x27;SIGTERM&#x27; | &#x27;SIGINT&#x27;&gt;; exitAfterForward?: boolean }
+  display?: { printHeader?: boolean; printCommand?: boolean }
+}
+
+export interface InvocationStatus {
+  invocationId: string
+  state: InvocationState
+  provider: string
+  frontend: string
+  driverKind: string
+  pid?: number
+  currentTurnId?: string
+  pendingInputs: number
+  brokerSeq: number
+  startedAt?: string
+  lastActivityAt?: string
+  continuation?: HarnessContinuationRef
+  capabilities: InvocationCapabilities
+  exit?: { exitCode?: number; signal?: string; reason?: string }
+}
+
+export interface BrokerInputContent {
+  text?: string
+  attachments?: Array&lt;{ kind: &#x27;file&#x27; | &#x27;image&#x27;; path: string; mimeType?: string; filename?: string }&gt;
+  metadata?: Record&lt;string, unknown&gt;
+}</code></pre>
+
+<h2>Event delivery modes</h2>
+<table>
+<tr><th>Mode</th><th>When to use</th><th>Reliability model</th></tr>
+<tr><td><span class="inline-code">stdio</span></td><td>Direct headless subprocess where HRC waits and reads broker stdout.</td><td>HRC persists immediately; no extra callback socket. Best for synchronous runs.</td></tr>
+<tr><td><span class="inline-code">unix-http</span></td><td>One-shot launched inside tmux or detached headless where HRC cannot own stdout.</td><td>Broker posts events to HRC; HRC handles fence and persistence.</td></tr>
+<tr><td><span class="inline-code">file-spool + forward</span></td><td>Same as current <span class="inline-code">exec.ts</span> callback/spool reliability.</td><td>Broker writes undelivered events with event IDs/seq. HRC owns replay and stale rejection.</td></tr>
+</table>
+
+<h2>Error response conventions</h2>
+<table>
+<tr><th>Code</th><th>Meaning</th></tr>
+<tr><td><span class="inline-code">invalid_spec</span></td><td>Compiled invocation missing required fields or incompatible driver/mode.</td></tr>
+<tr><td><span class="inline-code">unsupported_capability</span></td><td>Requested input/interrupt/stop semantic cannot be represented by the driver.</td></tr>
+<tr><td><span class="inline-code">invocation_not_found</span></td><td>Control command references unknown or disposed invocation.</td></tr>
+<tr><td><span class="inline-code">invalid_state</span></td><td>Command is valid but not in the current invocation/turn state.</td></tr>
+<tr><td><span class="inline-code">spawn_failed</span></td><td>Executable resolution or child process start failed.</td></tr>
+<tr><td><span class="inline-code">driver_failed</span></td><td>Codex app-server/SDK driver failed after launch.</td></tr>
+<tr><td><span class="inline-code">sink_unavailable</span></td><td>Event sink unavailable and no spool configured.</td></tr>
+</table>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>

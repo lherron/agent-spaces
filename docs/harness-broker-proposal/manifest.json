@@ -1,0 +1,59 @@
+{
+  "title": "Harness Broker Architecture Proposal",
+  "generatedFrom": "/mnt/data/source-repos.zip",
+  "pages": [
+    {
+      "file": "index.html",
+      "label": "Recommendation"
+    },
+    {
+      "file": "01-current-state.html",
+      "label": "Current State"
+    },
+    {
+      "file": "02-boundary-model.html",
+      "label": "Boundary Model"
+    },
+    {
+      "file": "03-package-placement.html",
+      "label": "Package Placement"
+    },
+    {
+      "file": "04-protocol.html",
+      "label": "Broker Protocol"
+    },
+    {
+      "file": "05-event-model.html",
+      "label": "Event Model"
+    },
+    {
+      "file": "06-process-model.html",
+      "label": "Process Model"
+    },
+    {
+      "file": "07-compile-schema.html",
+      "label": "Compile Schema"
+    },
+    {
+      "file": "08-input-control.html",
+      "label": "Input + Control"
+    },
+    {
+      "file": "09-exec-migration.html",
+      "label": "exec.ts Migration"
+    },
+    {
+      "file": "10-risks-and-plan.html",
+      "label": "Risks + Plan"
+    }
+  ],
+  "sourceFindings": [
+    "agent-spaces/packages/agent-spaces/src/types.ts exposes ProcessInvocationSpec and runtime turn/input/interrupt APIs.",
+    "agent-spaces/packages/agent-spaces/src/client.ts contains both placement compile/materialization and SDK runtime execution.",
+    "agent-spaces/packages/agent-spaces/src/session-events.ts maps SDK events and embeds hostSessionId/runId correlation.",
+    "agent-spaces/packages/config/src/core/types/harness.ts defines canonical harness catalog and adapter contract.",
+    "hrc-runtime/packages/hrc-core/src/contracts.ts defines HrcLaunchArtifact mixing HRC metadata with invocation.",
+    "hrc-runtime/packages/hrc-server/src/agent-spaces-adapter/* duplicates provider/frontend routing, env prep, and SDK execution.",
+    "hrc-runtime/packages/hrc-server/src/launch/exec.ts is a prototype one-shot broker with HRC-specific callback/env logic."
+  ]
+}

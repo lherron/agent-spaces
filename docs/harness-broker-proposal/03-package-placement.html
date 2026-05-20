@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Package Placement · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="" href="index.html">Recommendation</a><a class="" href="01-current-state.html">Current State</a><a class="" href="02-boundary-model.html">Boundary Model</a><a class="active" href="03-package-placement.html">Package Placement</a><a class="" href="04-protocol.html">Broker Protocol</a><a class="" href="05-event-model.html">Event Model</a><a class="" href="06-process-model.html">Process Model</a><a class="" href="07-compile-schema.html">Compile Schema</a><a class="" href="08-input-control.html">Input + Control</a><a class="" href="09-exec-migration.html">exec.ts Migration</a><a class="" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Package Placement</h1><div class="subtitle">Where harness-broker should live, what it should depend on, and what should depend on it.</div></section>
+<h2>Recommendation</h2>
+<div class="decision"><h3>Place broker inside Agent Spaces now: <span class="inline-code">agent-spaces/packages/harness-broker</span>. Add <span class="inline-code">agent-spaces/packages/harness-protocol</span> as a pure protocol package.</h3><p>This gives the broker direct access to existing harness driver code without importing the umbrella <span class="inline-code">agent-spaces</span> client. It also makes the ownership signal clear: Agent Spaces owns harness normalization; HRC owns orchestration and durability.</p></div>
+
+<h2>Option evaluation</h2>
+<table>
+<tr><th>Option</th><th>Pros</th><th>Cons</th><th>Verdict</th></tr>
+<tr><td><strong>Inside Agent Spaces monorepo</strong><br><span class="inline-code">packages/harness-broker</span> + <span class="inline-code">packages/harness-protocol</span></td><td>Lowest extraction cost; uses existing Codex/Pi/Claude packages; keeps harness normalization beside adapters; easier CI/golden tests against current compile outputs; no HRC dependency needed.</td><td>Requires discipline to prevent broker from importing compiler/materializer internals; HRC still needs a package boundary to avoid umbrella imports.</td><td><span class="badge made">recommended</span></td></tr>
+<tr><td><strong>Fully standalone monorepo/package now</strong></td><td>Very explicit boundary; could serve non-ASP consumers; independent release cadence.</td><td>Premature driver extraction; Codex app-server and SDK driver code currently depend on Agent Spaces packages; likely causes duplicated adapters and version skew; more integration cost before protocol is proven.</td><td><span class="badge debate">defer</span></td></tr>
+<tr><td><strong>Inside HRC</strong></td><td>Shortest path from <span class="inline-code">exec.ts</span>; no new package initially.</td><td>Wrong ownership: HRC would keep provider-specific driver logic; increases duplication; makes Claude/Pi/Codex normalization an HRC concern.</td><td><span class="badge risk">avoid</span></td></tr>
+</table>
+
+<h2>Package graph</h2>
+<div class="flow">
+  <div class="node"><div class="title">spaces-config</div><div class="body">Harness catalog, adapter contracts, placement/runtime planning.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="title">spaces-compiler API</div><div class="body">Compile/materialize placement into <span class="inline-code">HarnessInvocationSpec</span>.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="title">harness-protocol</div><div class="body">Pure types + JSON schema for invocation, commands, events.</div></div>
+</div>
+<div class="flow">
+  <div class="node"><div class="title">spaces-harness-codex</div><div class="body">Codex CLI materialization and app-server driver.</div></div>
+  <div class="node"><div class="title">spaces-harness-claude</div><div class="body">Claude CLI driver/capability mapping.</div></div>
+  <div class="node"><div class="title">spaces-harness-pi / pi-sdk</div><div class="body">Pi CLI/SDK driver/capability mapping.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="title">harness-broker</div><div class="body">Runtime process/session driver and normalized event emitter.</div></div>
+</div>
+<div class="flow">
+  <div class="node"><div class="title">hrc-server</div><div class="body">Depends on <span class="inline-code">harness-protocol</span> and broker binary. Calls compiler before launch. Owns durable runtime state.</div></div>
+</div>
+
+<h2>Allowed dependencies</h2>
+<table>
+<tr><th>Package</th><th>May depend on</th><th>Must not depend on</th></tr>
+<tr><td><span class="inline-code">harness-protocol</span></td><td>TypeScript/JSON schema helpers only. Ideally zero runtime dependencies.</td><td><span class="inline-code">spaces-config</span>, <span class="inline-code">hrc-core</span>, driver packages.</td></tr>
+<tr><td><span class="inline-code">harness-broker</span></td><td><span class="inline-code">harness-protocol</span>, driver packages, minimal process/pty libraries, optional <span class="inline-code">spaces-execution</span> session abstractions.</td><td><span class="inline-code">hrc-core</span>, <span class="inline-code">hrc-server</span>, HRC store/events, placement resolution APIs, umbrella <span class="inline-code">agent-spaces</span> client.</td></tr>
+<tr><td>ASP compiler/materializer package</td><td><span class="inline-code">spaces-config</span>, <span class="inline-code">spaces-execution</span>, harness adapters, <span class="inline-code">harness-protocol</span> types.</td><td><span class="inline-code">harness-broker</span>, HRC packages, runtime process supervision.</td></tr>
+<tr><td><span class="inline-code">hrc-server</span></td><td>HRC packages, protocol package, compiler API, broker binary/package as executable.</td><td>Agent Spaces SDK runtime APIs, Codex app-server session driver, direct harness-specific event mappers.</td></tr>
+</table>
+
+<h2>Repository layout sketch</h2>
+<pre><code>agent-spaces/
+  packages/
+    harness-protocol/
+      src/
+        invocation.ts
+        commands.ts
+        events.ts
+        envelope.ts        # optional HRC-neutral broker launch envelope types
+        json-schema.ts
+    harness-broker/
+      src/
+        cli.ts             # broker run --envelope / broker serve
+        protocol/
+          json-rpc.ts
+          ndjson.ts
+        runtime/
+          invocation-manager.ts
+          process-runner.ts
+          env.ts
+          callback-sink.ts
+          spool-sink.ts
+        drivers/
+          process-cli.ts
+          codex-jsonl.ts
+          codex-app-server.ts
+          agent-sdk.ts
+          pi-sdk.ts
+        events/
+          normalize.ts
+          sequence.ts
+        __tests__/
+          protocol-golden.test.ts
+          codex-app-server.test.ts
+          sdk-inflight.test.ts
+
+hrc-runtime/
+  packages/hrc-server/src/broker/
+    compile.ts             # calls ASP compiler API, not broker
+    envelope.ts            # HRC-specific launch wrapper
+    callback-routes.ts     # HRC callback persistence/fencing
+    start.ts               # spawns broker one-shot/resident</code></pre>
+
+<h2>Extraction path to standalone later</h2>
+<p>Keep the public package names and schemas extraction-friendly. The later standalone package can be created by moving <span class="inline-code">harness-protocol</span>, <span class="inline-code">harness-broker</span>, and driver packages into a new workspace. Avoid referencing Agent Spaces internal path aliases in broker code. The protocol should remain vendor-neutral enough that HRC and future consumers do not need to know Agent Spaces exists at runtime.</p>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boundary Model · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="" href="index.html">Recommendation</a><a class="" href="01-current-state.html">Current State</a><a class="active" href="02-boundary-model.html">Boundary Model</a><a class="" href="03-package-placement.html">Package Placement</a><a class="" href="04-protocol.html">Broker Protocol</a><a class="" href="05-event-model.html">Event Model</a><a class="" href="06-process-model.html">Process Model</a><a class="" href="07-compile-schema.html">Compile Schema</a><a class="" href="08-input-control.html">Input + Control</a><a class="" href="09-exec-migration.html">exec.ts Migration</a><a class="" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Boundary Model</h1><div class="subtitle">Exact ownership of compile/materialization, broker invocation, and HRC runtime control.</div></section>
+<h2>Boundary rule</h2>
+<div class="decision"><h3>Compile before broker invocation. The broker consumes an already-compiled harness invocation and owns only invocation mechanics.</h3><p>This should be enforced in package dependencies, schema naming, and protocol commands. The broker has no command that accepts a placement, target name, space spec, project root, or harness preference to resolve. It only accepts a concrete invocation spec.</p></div>
+
+<div class="swimlane">
+  <div class="lane"><h3>ASP compiler/materializer</h3>
+    <div class="step">Resolve placement and dry-run placement context.</div>
+    <div class="step">Choose provider, harness ID, frontend, model, interaction/io mode.</div>
+    <div class="step">Detect adapter, validate compatibility, materialize spaces, compose bundle.</div>
+    <div class="step">Prepare Codex home, SDK bundle refs, system/priming prompts, brain/tool env.</div>
+    <div class="step">Build argv/env/cwd/driver metadata and declared capabilities.</div>
+    <div class="step must-not"><strong>Must not:</strong> spawn child processes, persist HRC runs, assign runtime IDs, hold in-flight sessions for HRC.</div>
+  </div>
+  <div class="lane"><h3>Harness broker</h3>
+    <div class="step">Validate <span class="inline-code">HarnessInvocationSpec</span> and optional broker launch options.</div>
+    <div class="step">Scrub inherited env and spawn/attach/drive process, pty, pipes, RPC/app-server, or SDK session.</div>
+    <div class="step">Accept input/steer/append/interrupt/stop requests and map to driver capability.</div>
+    <div class="step">Normalize assistant/tool/input/continuation/exit/error events.</div>
+    <div class="step">Return final continuation/result data; emit degraded outcomes when finality is ambiguous.</div>
+    <div class="step must-not"><strong>Must not:</strong> resolve placement, choose Codex vs Pi vs Claude, materialize bundles, mutate HRC DB, enforce generation fences.</div>
+  </div>
+  <div class="lane"><h3>HRC runtime controller</h3>
+    <div class="step">Own host sessions, runs, runtime records, launch records, durable IDs, generations.</div>
+    <div class="step">Choose runtime transport/lifecycle policy: tmux, headless, SDK/resident, wait/detach.</div>
+    <div class="step">Create broker launch envelope, callback/spool sink, and supervision policy.</div>
+    <div class="step">Persist broker events, derive semantic turn events, update continuation on success policy.</div>
+    <div class="step">Reject stale callbacks, replay spool, reconcile startup state, mark zombies/orphans.</div>
+    <div class="step must-not"><strong>Must not:</strong> contain provider/frontend maps, SDK driver logic, Codex app-server JSON-RPC, brain/tool env prep.</div>
+  </div>
+</div>
+
+<h2>Leakage to remove</h2>
+<table>
+<tr><th>Current leakage</th><th>Where seen</th><th>Remove by</th></tr>
+<tr><td>Agent Spaces public SDK exposes both compile and runtime steering methods.</td><td><span class="inline-code">agent-spaces/src/types.ts</span>, <span class="inline-code">client.ts</span></td><td>Split public surface into compiler API and broker/driver API. HRC only calls compiler API before launch and broker protocol during launch.</td></tr>
+<tr><td>HRC maps provider/harness to frontend.</td><td><span class="inline-code">cli-adapter.ts:41-52</span>, <span class="inline-code">sdk-adapter.ts:181-187</span></td><td>ASP compiler chooses frontend. HRC can express intent/preference but sees compiled spec only after compile.</td></tr>
+<tr><td>HRC prepares brain/tool env.</td><td><span class="inline-code">sdk-adapter.ts:224-252</span></td><td>Compiler/materializer prepares env for all frontends. HRC only overlays runtime/HRC env via envelope.</td></tr>
+<tr><td>HRC directly runs SDK sessions via Agent Spaces.</td><td><span class="inline-code">sdk-adapter.ts:307</span></td><td>Move SDK session creation, run tracker, in-flight queue, event mapping into broker SDK drivers.</td></tr>
+<tr><td>Agent Spaces event emitter embeds HRC-like IDs.</td><td><span class="inline-code">session-events.ts:26-67</span></td><td>Broker events carry broker sequence and invocation ID; HRC IDs are echoed only as opaque correlation or added by HRC persistence layer.</td></tr>
+<tr><td><span class="inline-code">HrcLaunchArtifact</span> mixes invocation and runtime metadata.</td><td><span class="inline-code">contracts.ts:183-232</span></td><td>Introduce <span class="inline-code">HarnessInvocationSpec</span> and <span class="inline-code">HrcBrokerLaunchEnvelope</span>.</td></tr>
+<tr><td><span class="inline-code">exec.ts</span> embeds HRC callbacks/env/AgentChat/OTEL while also driving harnesses.</td><td><span class="inline-code">exec.ts</span></td><td>Extract generic broker runner and callback sink abstraction; leave HRC-specific sink/env/display in HRC adapter.</td></tr>
+</table>
+
+<h2>Recommended boundary diagram</h2>
+<div class="flow">
+  <div class="node"><div class="title">HRC request</div><div class="body">Intent, run ID, host session, generation, prompt.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="title">ASP compile</div><div class="body">Input: placement + harness preferences. Output: compiled invocation only.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="title">HRC wrap</div><div class="body">Adds launch/runtime IDs, callback sink, spool dir, supervision policy.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="title">Broker run</div><div class="body">Start/drive/normalize. Emits broker events.</div></div>
+  <div class="arrow">→</div>
+  <div class="node"><div class="title">HRC persist</div><div class="body">Fence, append event, update status/continuation.</div></div>
+</div>
+
+<h2>Boundary contract invariants</h2>
+<table>
+<tr><th>Invariant</th><th>Testable check</th></tr>
+<tr><td>Broker package imports no <span class="inline-code">hrc-*</span> packages.</td><td>Package-level lint/import test.</td></tr>
+<tr><td>Broker protocol has no placement/materialization/compile command.</td><td>Protocol schema test: command whitelist.</td></tr>
+<tr><td>HRC server no longer imports Agent Spaces runtime execution methods.</td><td>Import graph test: no <span class="inline-code">runTurnNonInteractive</span>, <span class="inline-code">queueInFlightInput</span>, <span class="inline-code">spaces-harness-codex/codex-session</span> in <span class="inline-code">hrc-server</span>.</td></tr>
+<tr><td>Compilation output is deterministic enough to snapshot.</td><td>Golden tests for <span class="inline-code">HarnessInvocationSpec</span> across Codex CLI/app-server, Claude CLI, Pi CLI, Agent SDK, Pi SDK.</td></tr>
+<tr><td>HRC durable state can be reconstructed from persisted broker events and existing launch records.</td><td>Spool/replay and startup reconciliation tests.</td></tr>
+</table>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>

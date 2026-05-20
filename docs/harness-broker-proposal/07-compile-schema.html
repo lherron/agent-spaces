@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compile Output Schema · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="" href="index.html">Recommendation</a><a class="" href="01-current-state.html">Current State</a><a class="" href="02-boundary-model.html">Boundary Model</a><a class="" href="03-package-placement.html">Package Placement</a><a class="" href="04-protocol.html">Broker Protocol</a><a class="" href="05-event-model.html">Event Model</a><a class="" href="06-process-model.html">Process Model</a><a class="active" href="07-compile-schema.html">Compile Schema</a><a class="" href="08-input-control.html">Input + Control</a><a class="" href="09-exec-migration.html">exec.ts Migration</a><a class="" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Compile Output Schema</h1><div class="subtitle">The proposed HarnessInvocationSpec and HRC launch envelope split with examples.</div></section>
+<h2>Verdict on the proposed split</h2>
+<div class="decision"><h3>The split is correct, but make the invocation schema driver-oriented and keep HRC callback/spool/supervision out of it.</h3><p><span class="inline-code">HarnessInvocationSpec</span> should represent what to run and how the harness can be driven. <span class="inline-code">HrcBrokerLaunchEnvelope</span> should represent why HRC is launching it, how HRC wants to supervise it, and where events should go.</p></div>
+
+<h2>What belongs in <span class="inline-code">HarnessInvocationSpec</span></h2>
+<table>
+<tr><th>Belongs</th><th>Reason</th></tr>
+<tr><td>Provider, frontend, cwd, env, io mode, interaction mode</td><td>These are intrinsic to the compiled harness invocation.</td></tr>
+<tr><td>Driver kind and driver-specific launch data</td><td>Broker needs to know whether it is spawning a plain process, driving Codex app-server, or creating an SDK session.</td></tr>
+<tr><td>Continuation input</td><td>Provider-native resume state is part of harness invocation.</td></tr>
+<tr><td>Initial prompt/attachments, if the driver needs them outside argv</td><td>Codex app-server and SDKs need structured input. CLI may already have prompt encoded in argv.</td></tr>
+<tr><td>Capabilities</td><td>Lets HRC know what control semantics are possible without provider-specific branching.</td></tr>
+<tr><td>Display/audit metadata</td><td>Optional, non-authoritative. Useful for logs/UI and debugging.</td></tr>
+</table>
+
+<h2>What does not belong in <span class="inline-code">HarnessInvocationSpec</span></h2>
+<table>
+<tr><th>Does not belong</th><th>Where it belongs</th></tr>
+<tr><td><span class="inline-code">launchId</span>, <span class="inline-code">runtimeId</span>, <span class="inline-code">runId</span>, <span class="inline-code">hostSessionId</span>, <span class="inline-code">generation</span></td><td>HRC envelope and HRC persisted records.</td></tr>
+<tr><td>Callback socket path, spool dir, HRC callback endpoint</td><td>HRC envelope / broker launch options.</td></tr>
+<tr><td>Runtime DB state, fences, zombie/orphan metadata</td><td>HRC runtime controller.</td></tr>
+<tr><td>HRC-specific env like <span class="inline-code">HRC_LAUNCH_ID</span>, <span class="inline-code">HRC_GENERATION</span></td><td>HRC envelope <span class="inline-code">childEnv</span> or callback sink config.</td></tr>
+<tr><td>AgentChat registration targets</td><td>HRC launch/UI integration or a separate optional pre/post launch hook, not core broker spec.</td></tr>
+<tr><td>Compile inputs such as placement, target composition, harness preference</td><td>ASP compiler input only.</td></tr>
+</table>
+
+<h2>Recommended TypeScript shape</h2>
+<pre><code>export type HarnessProvider = &#x27;anthropic&#x27; | &#x27;openai&#x27; | (string &amp; {})
+export type HarnessFrontend =
+  | &#x27;claude-code&#x27;
+  | &#x27;codex-cli&#x27;
+  | &#x27;pi-cli&#x27;
+  | &#x27;agent-sdk&#x27;
+  | &#x27;pi-sdk&#x27;
+  | (string &amp; {})
+
+export type HarnessContinuationRef = {
+  provider: HarnessProvider
+  key?: string
+}
+
+export type HarnessDriverSpec =
+  | { kind: &#x27;process&#x27;; argv: string[] }
+  | {
+      kind: &#x27;codex-app-server&#x27;
+      argv: string[]
+      prompt?: string
+      resumeThreadId?: string
+      model?: string
+      modelReasoningEffort?: string
+      approvalPolicy?: &#x27;untrusted&#x27; | &#x27;on-failure&#x27; | &#x27;on-request&#x27; | &#x27;never&#x27;
+      sandboxMode?: &#x27;read-only&#x27; | &#x27;workspace-write&#x27; | &#x27;danger-full-access&#x27;
+      profile?: string
+      imageAttachments?: string[]
+      featureFlags?: string[]
+      extraArgs?: string[]
+    }
+  | {
+      kind: &#x27;agent-sdk&#x27;
+      sessionId?: string
+      model?: string
+      plugins: Array&lt;{ type: &#x27;local&#x27;; path: string }&gt;
+      systemPrompt?: { content: string; mode: &#x27;append&#x27; | &#x27;replace&#x27;; sourcePath?: string }
+      permissionMode?: &#x27;auto&#x27; | &#x27;prompt&#x27; | &#x27;deny&#x27;
+    }
+  | {
+      kind: &#x27;pi-sdk&#x27;
+      bundlePath: string
+      sessionPath?: string
+      model?: string
+      yolo?: boolean
+    }
+
+export interface HarnessInvocationSpec {
+  schemaVersion: &#x27;harness.invocation.v1&#x27;
+  provider: HarnessProvider
+  frontend: HarnessFrontend
+  cwd: string
+  env: Record&lt;string, string&gt;
+  ioMode: &#x27;pty&#x27; | &#x27;pipes&#x27; | &#x27;inherit&#x27;
+  interactionMode: &#x27;interactive&#x27; | &#x27;headless&#x27;
+  driver: HarnessDriverSpec
+  continuation?: HarnessContinuationRef
+  initialInput?: {
+    prompt?: string
+    attachments?: Array&lt;{ kind: &#x27;file&#x27; | &#x27;image&#x27;; path: string; mimeType?: string; filename?: string }&gt;
+  }
+  capabilities?: InvocationCapabilities
+  metadata?: {
+    displayCommand?: string
+    systemPromptFile?: string
+    materializedBundle?: { path: string; targetName?: string; hash?: string }
+    warnings?: string[]
+    compiler?: { name: string; version?: string }
+  }
+}
+
+export interface InvocationCapabilities {
+  input: {
+    user: &#x27;idle-only&#x27; | &#x27;in-flight&#x27; | &#x27;unsupported&#x27;
+    appendContext: &#x27;native&#x27; | &#x27;coerced-to-user&#x27; | &#x27;unsupported&#x27;
+    steer: &#x27;native&#x27; | &#x27;interrupt-then-user&#x27; | &#x27;unsupported&#x27;
+  }
+  interrupt: {
+    soft: boolean
+    cancelTurn: boolean
+    signal: boolean
+  }
+  stop: {
+    graceful: boolean
+    kill: boolean
+  }
+  events: {
+    assistantDelta: boolean
+    assistantMessage: boolean
+    toolCall: boolean
+    toolResult: boolean
+    usage: boolean
+    continuation: boolean
+  }
+}</code></pre>
+
+<h2>HRC envelope shape</h2>
+<pre><code>export interface HrcBrokerLaunchEnvelope {
+  schemaVersion: &#x27;hrc.broker-launch.v1&#x27;
+  launchId: string
+  runtimeId: string
+  runId?: string
+  hostSessionId: string
+  generation: number
+
+  invocation: HarnessInvocationSpec
+
+  callback?: {
+    kind: &#x27;unix-http&#x27;
+    socketPath: string
+    endpointBase: `/v1/internal/broker/${string}` | string
+    authHeader?: { name: string; value: string }
+  }
+  spool?: { dir: string }
+
+  // HRC IDs echoed by broker only; authoritative interpretation stays in HRC.
+  correlation?: Record&lt;string, string&gt;
+
+  // Explicit host/runtime env additions. These are not part of the compiled harness spec.
+  childEnv?: Record&lt;string, string&gt;
+
+  lifecycleAction?: &#x27;attach&#x27; | &#x27;start&#x27; | &#x27;turn&#x27;
+  supervision?: {
+    processModel: &#x27;oneshot&#x27; | &#x27;resident&#x27;
+    waitForCompletion?: boolean
+    signalForwarding?: Array&lt;&#x27;SIGHUP&#x27; | &#x27;SIGTERM&#x27; | &#x27;SIGINT&#x27;&gt;
+  }
+  display?: {
+    printHeader?: boolean
+    printCommand?: boolean
+    prompts?: {
+      system?: { content: string; mode?: &#x27;append&#x27; | &#x27;replace&#x27;; deliveredVia?: string; sourcePath?: string }
+      priming?: { content: string; deliveredVia?: string }
+    }
+  }
+  hookBridge?: unknown
+  otel?: unknown
+}</code></pre>
+
+<h2>Compatibility with today’s shape</h2>
+<p>The current proposed minimal split in the prompt is a good first migration step:</p>
+<pre><code>type HarnessInvocationSpec = {
+  provider: string
+  frontend: string
+  argv: string[]
+  env: Record&lt;string, string&gt;
+  cwd: string
+  ioMode: &#x27;pty&#x27; | &#x27;pipes&#x27; | &#x27;inherit&#x27;
+  interactionMode?: &#x27;interactive&#x27; | &#x27;headless&#x27;
+  continuation?: { provider: string; key?: string }
+  driver?: { kind: &#x27;codex-app-server&#x27;; /* ... */ }
+}
+
+type HrcBrokerLaunchEnvelope = {
+  launchId: string
+  runtimeId: string
+  runId?: string
+  hostSessionId: string
+  generation: number
+  callbackSocketPath: string
+  spoolDir: string
+  invocation: HarnessInvocationSpec
+}</code></pre>
+<p>For implementation, prefer the richer driver-oriented shape above because it avoids overloading top-level <span class="inline-code">argv</span>. If backward compatibility matters, accept both forms during migration and normalize internally to <span class="inline-code">driver.kind</span>.</p>
+
+<h2>Compile output examples</h2>
+<h3>Codex app-server headless</h3>
+<pre><code>{
+  &quot;schemaVersion&quot;: &quot;harness.invocation.v1&quot;,
+  &quot;provider&quot;: &quot;openai&quot;,
+  &quot;frontend&quot;: &quot;codex-cli&quot;,
+  &quot;cwd&quot;: &quot;/repo&quot;,
+  &quot;env&quot;: { &quot;CODEX_HOME&quot;: &quot;/asp/.../codex.home&quot;, &quot;ASP_HOME&quot;: &quot;/asp&quot; },
+  &quot;ioMode&quot;: &quot;pipes&quot;,
+  &quot;interactionMode&quot;: &quot;headless&quot;,
+  &quot;driver&quot;: {
+    &quot;kind&quot;: &quot;codex-app-server&quot;,
+    &quot;argv&quot;: [&quot;/usr/local/bin/codex&quot;, &quot;app-server&quot;, &quot;--json-rpc&quot;],
+    &quot;prompt&quot;: &quot;implement the feature&quot;,
+    &quot;resumeThreadId&quot;: &quot;thread_123&quot;,
+    &quot;model&quot;: &quot;gpt-5.5&quot;,
+    &quot;approvalPolicy&quot;: &quot;never&quot;,
+    &quot;sandboxMode&quot;: &quot;workspace-write&quot;,
+    &quot;featureFlags&quot;: [&quot;goals&quot;]
+  },
+  &quot;continuation&quot;: { &quot;provider&quot;: &quot;openai&quot;, &quot;key&quot;: &quot;thread_123&quot; },
+  &quot;capabilities&quot;: {
+    &quot;input&quot;: { &quot;user&quot;: &quot;idle-only&quot;, &quot;appendContext&quot;: &quot;unsupported&quot;, &quot;steer&quot;: &quot;unsupported&quot; },
+    &quot;interrupt&quot;: { &quot;soft&quot;: true, &quot;cancelTurn&quot;: true, &quot;signal&quot;: true },
+    &quot;stop&quot;: { &quot;graceful&quot;: true, &quot;kill&quot;: true },
+    &quot;events&quot;: { &quot;assistantDelta&quot;: true, &quot;assistantMessage&quot;: true, &quot;toolCall&quot;: true, &quot;toolResult&quot;: true, &quot;usage&quot;: true, &quot;continuation&quot;: true }
+  }
+}</code></pre>
+
+<h3>Claude Code interactive CLI</h3>
+<pre><code>{
+  &quot;schemaVersion&quot;: &quot;harness.invocation.v1&quot;,
+  &quot;provider&quot;: &quot;anthropic&quot;,
+  &quot;frontend&quot;: &quot;claude-code&quot;,
+  &quot;cwd&quot;: &quot;/repo&quot;,
+  &quot;env&quot;: { &quot;ASP_HOME&quot;: &quot;/asp&quot;, &quot;CLAUDE_CONFIG_DIR&quot;: &quot;/asp/...&quot; },
+  &quot;ioMode&quot;: &quot;inherit&quot;,
+  &quot;interactionMode&quot;: &quot;interactive&quot;,
+  &quot;driver&quot;: { &quot;kind&quot;: &quot;process&quot;, &quot;argv&quot;: [&quot;/opt/bin/claude&quot;, &quot;--append-system-prompt&quot;, &quot;...&quot;] },
+  &quot;capabilities&quot;: {
+    &quot;input&quot;: { &quot;user&quot;: &quot;unsupported&quot;, &quot;appendContext&quot;: &quot;unsupported&quot;, &quot;steer&quot;: &quot;unsupported&quot; },
+    &quot;interrupt&quot;: { &quot;soft&quot;: false, &quot;cancelTurn&quot;: false, &quot;signal&quot;: true },
+    &quot;stop&quot;: { &quot;graceful&quot;: true, &quot;kill&quot;: true },
+    &quot;events&quot;: { &quot;assistantDelta&quot;: false, &quot;assistantMessage&quot;: false, &quot;toolCall&quot;: false, &quot;toolResult&quot;: false, &quot;usage&quot;: false, &quot;continuation&quot;: false }
+  }
+}</code></pre>
+
+<h3>Agent SDK resident</h3>
+<pre><code>{
+  &quot;schemaVersion&quot;: &quot;harness.invocation.v1&quot;,
+  &quot;provider&quot;: &quot;anthropic&quot;,
+  &quot;frontend&quot;: &quot;agent-sdk&quot;,
+  &quot;cwd&quot;: &quot;/repo&quot;,
+  &quot;env&quot;: { &quot;ASP_HOME&quot;: &quot;/asp&quot;, &quot;AGENT_BRAIN_PATH&quot;: &quot;/repo/.agent/brain&quot; },
+  &quot;ioMode&quot;: &quot;pipes&quot;,
+  &quot;interactionMode&quot;: &quot;headless&quot;,
+  &quot;driver&quot;: {
+    &quot;kind&quot;: &quot;agent-sdk&quot;,
+    &quot;sessionId&quot;: &quot;host-session-123&quot;,
+    &quot;model&quot;: &quot;claude-...&quot;,
+    &quot;plugins&quot;: [{ &quot;type&quot;: &quot;local&quot;, &quot;path&quot;: &quot;/asp/.../plugin&quot; }],
+    &quot;systemPrompt&quot;: { &quot;content&quot;: &quot;...&quot;, &quot;mode&quot;: &quot;append&quot;, &quot;sourcePath&quot;: &quot;/asp/.../system.md&quot; },
+    &quot;permissionMode&quot;: &quot;auto&quot;
+  },
+  &quot;initialInput&quot;: { &quot;prompt&quot;: &quot;fix the bug&quot; },
+  &quot;capabilities&quot;: {
+    &quot;input&quot;: { &quot;user&quot;: &quot;in-flight&quot;, &quot;appendContext&quot;: &quot;native&quot;, &quot;steer&quot;: &quot;interrupt-then-user&quot; },
+    &quot;interrupt&quot;: { &quot;soft&quot;: true, &quot;cancelTurn&quot;: true, &quot;signal&quot;: false },
+    &quot;stop&quot;: { &quot;graceful&quot;: true, &quot;kill&quot;: false },
+    &quot;events&quot;: { &quot;assistantDelta&quot;: true, &quot;assistantMessage&quot;: true, &quot;toolCall&quot;: true, &quot;toolResult&quot;: true, &quot;usage&quot;: false, &quot;continuation&quot;: true }
+  }
+}</code></pre>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>

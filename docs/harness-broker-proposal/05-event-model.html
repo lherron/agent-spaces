@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event Model · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="" href="index.html">Recommendation</a><a class="" href="01-current-state.html">Current State</a><a class="" href="02-boundary-model.html">Boundary Model</a><a class="" href="03-package-placement.html">Package Placement</a><a class="" href="04-protocol.html">Broker Protocol</a><a class="active" href="05-event-model.html">Event Model</a><a class="" href="06-process-model.html">Process Model</a><a class="" href="07-compile-schema.html">Compile Schema</a><a class="" href="08-input-control.html">Input + Control</a><a class="" href="09-exec-migration.html">exec.ts Migration</a><a class="" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Event Model</h1><div class="subtitle">Normalized events, correlation ownership, mapping from existing events, and replay rules.</div></section>
+<h2>Event envelope</h2>
+<div class="decision"><h3>Broker events should be correlation-light and sequence-heavy.</h3><p>The broker should own <span class="inline-code">invocationId</span>, <span class="inline-code">brokerSeq</span>, event IDs, timestamps, driver kind, and provider/frontend facts. HRC should own host session IDs, run IDs, runtime IDs, generation, DB sequence, and stale-fence semantics. The broker may echo opaque correlation fields, but it must not interpret them.</p></div>
+
+<h2>Broker-owned vs HRC-owned fields</h2>
+<table>
+<tr><th>Field group</th><th>Broker-owned</th><th>HRC-owned</th></tr>
+<tr><td>Identity</td><td><span class="inline-code">invocationId</span>, <span class="inline-code">eventId</span>, <span class="inline-code">brokerSeq</span>.</td><td><span class="inline-code">launchId</span>, <span class="inline-code">runtimeId</span>, <span class="inline-code">runId</span>, <span class="inline-code">hostSessionId</span>, <span class="inline-code">generation</span>.</td></tr>
+<tr><td>Timing</td><td>Broker event timestamp at emission.</td><td>Persistence timestamp, HRC event stream ordering, replay timestamp if relevant.</td></tr>
+<tr><td>Harness facts</td><td>Provider, frontend, driver kind, child pid, io mode, capabilities, continuation observed from harness.</td><td>Runtime transport, busy/ready/zombie state, launch record state, continuation persistence policy.</td></tr>
+<tr><td>Correlation</td><td>Opaque echo only; useful for callback consumers.</td><td>Authoritative. HRC validates generation/run/runtime fences and stores typed fields.</td></tr>
+<tr><td>Raw provider payload</td><td>Optional, redacted, driver-specific <span class="inline-code">raw</span> data.</td><td>Decides whether to store raw payload, derived semantic event, or both.</td></tr>
+</table>
+
+<h2>Normalized event interfaces</h2>
+<pre><code>export type BrokerEvent =
+  | InvocationStartedEvent
+  | ContinuationUpdatedEvent
+  | TurnStartedEvent
+  | AssistantDeltaEvent
+  | AssistantMessageEvent
+  | ToolCallEvent
+  | ToolDeltaEvent
+  | ToolResultEvent
+  | InputAcceptedEvent
+  | InputRejectedEvent
+  | InterruptAcceptedEvent
+  | InterruptedEvent
+  | TurnCompletedEvent
+  | InvocationExitedEvent
+  | BrokerErrorEvent
+  | BrokerHealthDegradedEvent
+
+export interface BrokerEventEnvelope&lt;TKind extends string, TPayload&gt; {
+  schemaVersion: &#x27;broker.event.v1&#x27;
+  eventId: string
+  invocationId: string
+  brokerSeq: number
+  ts: string
+  kind: TKind
+  payload: TPayload
+  correlation?: Record&lt;string, string&gt;   // echoed, not interpreted
+  raw?: { source: string; value: unknown } // optional, redacted where needed
+}
+
+export type InvocationStartedEvent = BrokerEventEnvelope&lt;&#x27;invocation.started&#x27;, {
+  provider: string
+  frontend: string
+  driverKind: string
+  pid?: number
+  cwd: string
+  ioMode: &#x27;pty&#x27; | &#x27;pipes&#x27; | &#x27;inherit&#x27;
+  interactionMode: &#x27;interactive&#x27; | &#x27;headless&#x27;
+  capabilities: InvocationCapabilities
+}&gt;
+
+export type ContinuationUpdatedEvent = BrokerEventEnvelope&lt;&#x27;continuation.updated&#x27;, {
+  continuation: { provider: string; key?: string }
+  harnessSession?: Record&lt;string, unknown&gt;
+  source: &#x27;sdk&#x27; | &#x27;codex-thread&#x27; | &#x27;driver&#x27;
+}&gt;
+
+export type TurnStartedEvent = BrokerEventEnvelope&lt;&#x27;turn.started&#x27;, {
+  turnId?: string
+  inputId?: string
+  providerTurnId?: string
+}&gt;
+
+export type AssistantDeltaEvent = BrokerEventEnvelope&lt;&#x27;assistant.delta&#x27;, {
+  messageId?: string
+  delta: string
+  contentType: &#x27;text&#x27;
+}&gt;
+
+export type AssistantMessageEvent = BrokerEventEnvelope&lt;&#x27;assistant.message&#x27;, {
+  messageId?: string
+  role: &#x27;assistant&#x27;
+  content: Array&lt;{ type: &#x27;text&#x27;; text: string } | { type: string; [key: string]: unknown }&gt;
+  finalText?: string
+}&gt;
+
+export type ToolCallEvent = BrokerEventEnvelope&lt;&#x27;tool.call&#x27;, {
+  toolCallId: string
+  name: string
+  input?: unknown
+  parentToolCallId?: string
+}&gt;
+
+export type ToolDeltaEvent = BrokerEventEnvelope&lt;&#x27;tool.delta&#x27;, {
+  toolCallId: string
+  delta?: string
+  outputDelta?: string
+  payload?: unknown
+}&gt;
+
+export type ToolResultEvent = BrokerEventEnvelope&lt;&#x27;tool.result&#x27;, {
+  toolCallId: string
+  name?: string
+  output?: unknown
+  isError?: boolean
+}&gt;
+
+export type InputAcceptedEvent = BrokerEventEnvelope&lt;&#x27;input.accepted&#x27;, {
+  inputId: string
+  kind: &#x27;user&#x27; | &#x27;append_context&#x27; | &#x27;steer&#x27;
+  disposition: &#x27;sent&#x27; | &#x27;queued&#x27; | &#x27;coerced&#x27; | &#x27;duplicate&#x27;
+  effectiveKind?: &#x27;user&#x27; | &#x27;append_context&#x27; | &#x27;steer&#x27;
+}&gt;
+
+export type InputRejectedEvent = BrokerEventEnvelope&lt;&#x27;input.rejected&#x27;, {
+  inputId: string
+  kind: &#x27;user&#x27; | &#x27;append_context&#x27; | &#x27;steer&#x27;
+  reason: string
+  capability?: string
+}&gt;
+
+export type InterruptedEvent = BrokerEventEnvelope&lt;&#x27;interrupted&#x27;, {
+  interruptId?: string
+  effectiveMode: &#x27;sdk-interrupt&#x27; | &#x27;rpc-cancel&#x27; | &#x27;sigint&#x27; | &#x27;pty-ctrl-c&#x27;
+  reason?: string
+}&gt;
+
+export type TurnCompletedEvent = BrokerEventEnvelope&lt;&#x27;turn.completed&#x27;, {
+  turnId?: string
+  success: boolean
+  finalOutput?: string
+  usage?: unknown
+  outcome?:
+    | { state: &#x27;ok&#x27; }
+    | { state: &#x27;cancelled&#x27;; reason?: string }
+    | { state: &#x27;degraded&#x27;; reason: &#x27;launch_signalled&#x27; | &#x27;launch_failed&#x27; | &#x27;no_assistant_content&#x27; | &#x27;driver_failed&#x27;; details?: unknown }
+}&gt;
+
+export type InvocationExitedEvent = BrokerEventEnvelope&lt;&#x27;invocation.exited&#x27;, {
+  exitCode?: number
+  signal?: string
+  reason?: &#x27;child_exit&#x27; | &#x27;driver_exit&#x27; | &#x27;stop_requested&#x27; | &#x27;spawn_failed&#x27;
+}&gt;
+
+export type BrokerErrorEvent = BrokerEventEnvelope&lt;&#x27;error&#x27;, {
+  code: string
+  message: string
+  severity: &#x27;warning&#x27; | &#x27;error&#x27; | &#x27;fatal&#x27;
+  degraded?: boolean
+  details?: unknown
+}&gt;</code></pre>
+
+<h2>Mapping from current events</h2>
+<table>
+<tr><th>Current source event</th><th>New broker event</th><th>Notes</th></tr>
+<tr><td><span class="inline-code">message_update</span> / <span class="inline-code">message_delta</span></td><td><span class="inline-code">assistant.delta</span></td><td>Used by SDK event mapper and Codex app-server deltas.</td></tr>
+<tr><td><span class="inline-code">message_end</span> assistant</td><td><span class="inline-code">assistant.message</span></td><td>Content normalized into content blocks plus <span class="inline-code">finalText</span> when available.</td></tr>
+<tr><td><span class="inline-code">tool_execution_start</span></td><td><span class="inline-code">tool.call</span></td><td>Preserve parent tool call when present.</td></tr>
+<tr><td><span class="inline-code">tool_execution_update</span></td><td><span class="inline-code">tool.delta</span></td><td>Codex command/file/MCP output deltas fit here.</td></tr>
+<tr><td><span class="inline-code">tool_execution_end</span></td><td><span class="inline-code">tool.result</span></td><td>Includes <span class="inline-code">isError</span>.</td></tr>
+<tr><td><span class="inline-code">agent_start</span>, <span class="inline-code">sdk_session_id</span>, <span class="inline-code">thread.started</span></td><td><span class="inline-code">continuation.updated</span></td><td>Provider must come from compiled spec, not hardcoded <span class="inline-code">openai</span>.</td></tr>
+<tr><td><span class="inline-code">turn_start</span>, <span class="inline-code">turn/started</span></td><td><span class="inline-code">turn.started</span></td><td>Provider turn IDs can be kept in payload.</td></tr>
+<tr><td><span class="inline-code">turn_end</span>, <span class="inline-code">turn.completed</span></td><td><span class="inline-code">turn.completed</span></td><td>Use degraded outcome when exit is clean but no assistant content is observed.</td></tr>
+<tr><td>Child process exit</td><td><span class="inline-code">invocation.exited</span></td><td>Separate from <span class="inline-code">turn.completed</span>; some modes can exit without a turn event.</td></tr>
+</table>
+
+<h2>Ordering and replay rules</h2>
+<ol>
+<li><strong>Per invocation, brokerSeq is strictly monotonic.</strong> HRC can use <span class="inline-code">eventId</span> and <span class="inline-code">brokerSeq</span> for idempotent replay.</li>
+<li><strong>Sink retries must not reorder a single invocation stream.</strong> Spool files should include seq in file name or record body.</li>
+<li><strong>HRC can reorder only at persistence layer by HRC stream sequence.</strong> Broker sequence is a causal clue, not the global event order.</li>
+<li><strong>Terminal events are explicit.</strong> <span class="inline-code">turn.completed</span> does not imply process exit; <span class="inline-code">invocation.exited</span> does not imply successful turn completion.</li>
+<li><strong>Continuation is provisional until HRC policy accepts it.</strong> Broker reports observed continuation; HRC decides when to persist or clear stale continuation after failure.</li>
+</ol>
+
+<h2>Example broker event</h2>
+<pre><code>{
+  &quot;schemaVersion&quot;: &quot;broker.event.v1&quot;,
+  &quot;eventId&quot;: &quot;evt-01HV...&quot;,
+  &quot;invocationId&quot;: &quot;inv-9df4&quot;,
+  &quot;brokerSeq&quot;: 12,
+  &quot;ts&quot;: &quot;2026-05-20T17:12:03.128Z&quot;,
+  &quot;kind&quot;: &quot;assistant.message&quot;,
+  &quot;payload&quot;: {
+    &quot;role&quot;: &quot;assistant&quot;,
+    &quot;content&quot;: [{ &quot;type&quot;: &quot;text&quot;, &quot;text&quot;: &quot;Done. I updated the file.&quot; }],
+    &quot;finalText&quot;: &quot;Done. I updated the file.&quot;
+  },
+  &quot;correlation&quot;: {
+    &quot;launchId&quot;: &quot;launch-...&quot;,
+    &quot;runId&quot;: &quot;run-...&quot;
+  }
+}</code></pre>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Process Model · Harness Broker Proposal</title><link rel="stylesheet" href="assets/style.css"></head>
+<body><div class="layout"><aside class="sidebar"><div class="brand">Harness Broker Proposal<small>agent-spaces × hrc-runtime</small></div><nav class="nav"><a class="" href="index.html">Recommendation</a><a class="" href="01-current-state.html">Current State</a><a class="" href="02-boundary-model.html">Boundary Model</a><a class="" href="03-package-placement.html">Package Placement</a><a class="" href="04-protocol.html">Broker Protocol</a><a class="" href="05-event-model.html">Event Model</a><a class="active" href="06-process-model.html">Process Model</a><a class="" href="07-compile-schema.html">Compile Schema</a><a class="" href="08-input-control.html">Input + Control</a><a class="" href="09-exec-migration.html">exec.ts Migration</a><a class="" href="10-risks-and-plan.html">Risks + Plan</a></nav><div class="muted" style="font-size:12px">Generated from the uploaded repository snapshot. Source references are relative to <span class="inline-code">source-repos.zip</span>.</div></aside><main class="main"><section class="hero"><h1>Process Model</h1><div class="subtitle">One-shot, resident, and daemon options with state machines and mode-specific behavior.</div></section>
+<h2>Recommendation</h2>
+<div class="decision"><h3>Use a one-shot broker per invocation as the default. Add a resident broker per runtime/invocation only where control after start is required. Do not start with a shared global daemon.</h3><p>This matches the existing <span class="inline-code">exec.ts</span> launch model and HRC durability model while giving a clear path for SDK in-flight input and RPC/app-server harnesses.</p></div>
+
+<h2>Options</h2>
+<table>
+<tr><th>Model</th><th>Best for</th><th>Strengths</th><th>Weaknesses</th><th>Recommendation</th></tr>
+<tr><td>One-shot process per invocation</td><td>Interactive tmux CLI, headless CLI, Codex app-server one-shot, non-interactive SDK turn.</td><td>Simple lifecycle; crash isolation; easy env isolation; aligns with launch records and callback/spool; easiest extraction from <span class="inline-code">exec.ts</span>.</td><td>Cannot receive later commands after process exits; process startup overhead; SDK in-flight input requires keeping process alive until turn completes.</td><td><span class="badge made">default</span></td></tr>
+<tr><td>Resident child process per runtime/invocation</td><td>Agent SDK in-flight input, multi-turn app-server, headless runtime reused across runs.</td><td>Preserves in-memory session state; supports input/interrupt/status; reduces SDK/app-server startup overhead.</td><td>More supervision complexity; HRC must track broker pid/socket; needs reconnect/status protocol.</td><td><span class="badge assume">add after one-shot</span></td></tr>
+<tr><td>Shared daemon across invocations</td><td>Potential future multi-tenant local agent host.</td><td>Lowest amortized startup overhead; centralized health.</td><td>Bad blast radius; harder per-run env isolation; complex pty attach; stale state and security risk; misaligned with HRC generation fences.</td><td><span class="badge risk">avoid initially</span></td></tr>
+</table>
+
+<h2>Interactive mode</h2>
+<p>Preserve HRC/tmux ownership of the user-facing PTY initially. For interactive CLI launches, the broker should run inside the tmux pane and spawn the harness with <span class="inline-code">ioMode: 'inherit'</span> or equivalent. This keeps attach behavior and operator UX unchanged. Broker-owned PTY should be a later feature for non-tmux consumers.</p>
+
+<h2>SDK mode</h2>
+<p>The current Agent Spaces in-flight implementation stores a live <span class="inline-code">UnifiedSession</span> and send chain in memory. That proves true in-flight steering cannot be retrofitted to a completed one-shot process. For SDK-backed harnesses, use one-shot for simple non-interactive turns and resident broker for turns that advertise <span class="inline-code">input.inFlight</span> or need long-lived continuation state.</p>
+
+<h2>RPC/app-server mode</h2>
+<p>Codex app-server can be driven in one-shot mode for a single prompt, as <span class="inline-code">exec.ts</span> does today through <span class="inline-code">runCodexAppServerOneShot</span>. If later requirements include multi-turn RPC sessions, promotion to resident broker is straightforward: keep app-server child alive and accept <span class="inline-code">invocation.input</span>, <span class="inline-code">invocation.interrupt</span>, and <span class="inline-code">invocation.stop</span> commands.</p>
+
+<h2>Invocation state machine</h2>
+<div class="state"><span>created</span><b>→</b><span>starting</span><b>→</b><span>running</span><b>→</b><span>stopping</span><b>→</b><span>exited</span><b>→</b><span>disposed</span></div>
+<div class="state"><span>starting</span><b>→</b><span>failed</span><b>→</b><span>disposed</span></div>
+<div class="state"><span>running</span><b>⇄</b><span>idle</span><b>⇄</b><span>turn-running</span></div>
+
+<h2>Turn state machine</h2>
+<div class="state"><span>idle</span><b>→</b><span>input.accepted</span><b>→</b><span>turn.started</span><b>→</b><span>running</span><b>→</b><span>turn.completed</span><b>→</b><span>idle/exited</span></div>
+<div class="state"><span>running</span><b>→</b><span>interrupting</span><b>→</b><span>interrupted</span><b>→</b><span>turn.completed(cancelled/degraded)</span></div>
+<div class="state"><span>running</span><b>→</b><span>stop requested</span><b>→</b><span>invocation.exited</span></div>
+
+<h2>Mode-specific behavior</h2>
+<table>
+<tr><th>Frontend/mode</th><th>Process model</th><th>Input after start</th><th>Interrupt</th><th>Event fidelity</th></tr>
+<tr><td>Claude Code interactive CLI</td><td>One-shot inside tmux.</td><td>Normal user typing via tmux/pty; semantic <span class="inline-code">invocation.input</span> usually not supported unless driver has hooks.</td><td>PTY Ctrl-C/SIGINT if broker can reach child; otherwise HRC/tmux sends keys.</td><td>Low to medium unless hooks/OTEL produce semantic events.</td></tr>
+<tr><td>Codex CLI interactive</td><td>One-shot inside tmux.</td><td>PTY/tmux input; semantic input limited.</td><td>PTY Ctrl-C/SIGINT.</td><td>Medium with hooks/OTEL; high only in app-server/headless.</td></tr>
+<tr><td>Codex headless JSONL</td><td>One-shot direct or tmux.</td><td>No in-flight input unless promoted to RPC/resident.</td><td>SIGINT/cancel if process supports it.</td><td>Medium; JSONL gives thread and final message but less structure than app-server.</td></tr>
+<tr><td>Codex app-server</td><td>One-shot for current path; resident for future multi-turn.</td><td>Resident mode can start additional turns if driver supports it.</td><td>RPC cancel preferred; SIGINT fallback.</td><td>High.</td></tr>
+<tr><td>Agent SDK</td><td>Resident when in-flight input is enabled; one-shot otherwise.</td><td>High; maps to SDK <span class="inline-code">sendPrompt</span> / interrupt where supported.</td><td>SDK interrupt/stop.</td><td>High.</td></tr>
+<tr><td>Pi SDK</td><td>One-shot initially; resident if SDK adds in-flight support.</td><td>Currently likely limited compared with Agent SDK.</td><td>SDK stop if available.</td><td>High for session events available.</td></tr>
+</table>
+<div class="footer">Proposal package generated for architecture review. All schemas are interface sketches, not drop-in implementations.</div></main></div></body></html>
