@@ -1,0 +1,51 @@
+{
+  "name": "spaces-harness-broker",
+  "version": "0.1.0",
+  "description": "Harness Broker process and JSON-RPC NDJSON server",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "harness-broker": "./bin/harness-broker.js"
+  },
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./protocol-server": {
+      "bun": "./src/protocol-server.ts",
+      "types": "./dist/protocol-server.d.ts",
+      "import": "./dist/protocol-server.js"
+    },
+    "./broker": {
+      "bun": "./src/broker.ts",
+      "types": "./dist/broker.d.ts",
+      "import": "./dist/broker.js"
+    },
+    "./events": {
+      "bun": "./src/events.ts",
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "cd ../.. && bun test packages/harness-broker/test",
+    "prepack": "bun ../../scripts/strip-bun-exports.ts",
+    "postpack": "git checkout HEAD -- package.json"
+  },
+  "dependencies": {
+    "spaces-harness-broker-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

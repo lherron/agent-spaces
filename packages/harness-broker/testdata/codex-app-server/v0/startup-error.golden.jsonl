@@ -1,0 +1,2 @@
+{"invocationId":"inv_startup_error","seq":1,"time":"<time>","type":"diagnostic","payload":{"level":"error","message":"startup exploded","source":"harness","data":{"code":"startup_error"}}}
+{"invocationId":"inv_startup_error","seq":2,"time":"<time>","type":"invocation.failed","payload":{"message":"startup exploded","code":"startup_error"}}
