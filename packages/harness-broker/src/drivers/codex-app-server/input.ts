@@ -11,7 +11,7 @@ export function buildTurnStartParams(options: {
     input: buildCodexInput(options.input, options.driver.defaultImageAttachments),
     cwd: options.cwd,
     approvalPolicy: options.driver.approvalPolicy ?? 'never',
-    sandboxPolicy: options.driver.sandboxMode ?? null,
+    sandboxPolicy: encodeSandboxPolicy(options.driver.sandboxMode),
     model: options.driver.model ?? null,
     effort: options.driver.modelReasoningEffort ?? null,
     summary: null,
@@ -42,4 +42,11 @@ function buildCodexInput(
   }
 
   return items
+}
+
+function encodeSandboxPolicy(
+  sandboxMode: string | undefined
+): { type: string } | null {
+  if (!sandboxMode) return null
+  return { type: sandboxMode }
 }

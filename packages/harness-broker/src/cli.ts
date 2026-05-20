@@ -122,8 +122,20 @@ async function runOnce(args: string[]): Promise<void> {
 
   const spec = (await Bun.file(specPath).json()) as HarnessInvocationSpec
   const input = (await Bun.file(inputPath).json()) as InvocationInput
+  let resolveTurnDone: (() => void) | undefined
+  const turnDone = new Promise<void>((resolve) => {
+    resolveTurnDone = resolve
+  })
+
   const broker = createDefaultBroker((event) => {
     process.stdout.write(`${JSON.stringify(event)}\n`)
+    if (
+      event.type === 'turn.completed' ||
+      event.type === 'turn.failed' ||
+      event.type === 'turn.interrupted'
+    ) {
+      resolveTurnDone?.()
+    }
   })
 
   const start = await broker.start({ spec })
@@ -132,6 +144,7 @@ async function runOnce(args: string[]): Promise<void> {
     input,
     policy: { whenBusy: 'reject' },
   })
+  await turnDone
   await broker.stop({
     invocationId: start.invocationId,
     reason: 'run-once complete',
