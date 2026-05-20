@@ -160,6 +160,74 @@ when = { exists = "missing.file" }
     })
   })
 
+  test('gates sections on when.envSet using the resolver env source', async () => {
+    const resolved = await resolve(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "set"
+type = "inline"
+content = "set body"
+when = { envSet = "ASP_TEST_PRESENT" }
+
+[[prompt]]
+name = "unset"
+type = "inline"
+content = "unset body"
+when = { envSet = "ASP_TEST_MISSING" }
+
+[[prompt]]
+name = "whitespace"
+type = "inline"
+content = "whitespace body"
+when = { envSet = "ASP_TEST_WHITESPACE" }
+`),
+      {
+        env: {
+          ASP_TEST_PRESENT: 'value',
+          ASP_TEST_WHITESPACE: '   ',
+        },
+      }
+    )
+
+    expect(resolved.prompt?.content).toBe('set body')
+  })
+
+  test('gates sections on when.envEquals with exact untrimmed match', async () => {
+    const resolved = await resolve(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "match"
+type = "inline"
+content = "match body"
+when = { envEquals = { name = "ASP_TEST_VAR", value = "yes" } }
+
+[[prompt]]
+name = "miss"
+type = "inline"
+content = "miss body"
+when = { envEquals = { name = "ASP_TEST_VAR", value = "no" } }
+
+[[prompt]]
+name = "untrimmed"
+type = "inline"
+content = "untrimmed body"
+when = { envEquals = { name = "ASP_TEST_PADDED", value = "yes" } }
+`),
+      {
+        env: {
+          ASP_TEST_VAR: 'yes',
+          ASP_TEST_PADDED: ' yes ',
+        },
+      }
+    )
+
+    expect(resolved.prompt?.content).toBe('match body')
+  })
+
   test('resolves open-ended slot dot-paths for file refs and exec arrays', async () => {
     await writeFile(join(agentRoot, 'base-agent.md'), 'Agent base')
     await writeFile(join(projectRoot, 'base-project.md'), 'Project base')

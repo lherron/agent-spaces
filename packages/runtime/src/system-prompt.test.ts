@@ -26,7 +26,6 @@ describe('materializeSystemPrompt canonical helper', () => {
   let aspHome: string
   let projectRoot: string
   let outputRoot: string
-  let originalTaskEnv: Partial<Record<string, string | undefined>>
 
   beforeEach(async () => {
     tempRoot = await mkdtemp(join(process.cwd(), '.tmp-system-prompt-materialize-'))
@@ -40,18 +39,9 @@ describe('materializeSystemPrompt canonical helper', () => {
     await mkdir(agentsRoot, { recursive: true })
     await mkdir(aspHome, { recursive: true })
     await mkdir(projectRoot, { recursive: true })
-
-    originalTaskEnv = {
-      HRC_TASK_ID: process.env.HRC_TASK_ID,
-      HRC_TASK_PHASE: process.env.HRC_TASK_PHASE,
-      HRC_TASK_ROLE: process.env.HRC_TASK_ROLE,
-      HRC_TASK_REQUIRED_EVIDENCE: process.env.HRC_TASK_REQUIRED_EVIDENCE,
-      HRC_TASK_HINTS: process.env.HRC_TASK_HINTS,
-    }
   })
 
   afterEach(async () => {
-    restoreTaskEnv(originalTaskEnv)
     await rm(tempRoot, { recursive: true, force: true })
   })
 
@@ -316,45 +306,6 @@ heartbeat = ["agent-root:///by-mode.md"]
     expect(result?.content).not.toContain('By mode should not appear')
   })
 
-  test('appends the current task context section when HRC_TASK_* env vars are present', async () => {
-    await writeFile(join(agentRoot, 'SOUL.md'), 'Soul')
-    process.env.HRC_TASK_ID = 'T-01139'
-    process.env.HRC_TASK_PHASE = 'green'
-    process.env.HRC_TASK_ROLE = 'tester'
-    process.env.HRC_TASK_REQUIRED_EVIDENCE = 'test_report,qa_signoff'
-    process.env.HRC_TASK_HINTS = ['Phase: green', 'Objective: verify the fix'].join('\n')
-
-    const result = await materializeSystemPrompt(outputRoot, {
-      agentRoot,
-      agentsRoot,
-      aspHome,
-      projectRoot,
-      runMode: 'task',
-    })
-
-    expect(result?.content).toContain('## Current task context')
-    expect(result?.content).toContain('- Task ID: T-01139')
-    expect(result?.content).toContain('- Phase: green')
-    expect(result?.content).toContain('- Role: tester')
-    expect(result?.content).toContain('- Required evidence: test_report,qa_signoff')
-    expect(result?.content).toContain('### Hints')
-    expect(result?.content).toContain('Objective: verify the fix')
-  })
-
-  test('omits the current task context section when HRC_TASK_* env vars are absent', async () => {
-    await writeFile(join(agentRoot, 'SOUL.md'), 'Soul')
-
-    const result = await materializeSystemPrompt(outputRoot, {
-      agentRoot,
-      agentsRoot,
-      aspHome,
-      projectRoot,
-      runMode: 'task',
-    })
-
-    expect(result?.content).not.toContain('## Current task context')
-  })
-
   test('returns undefined when the built-in default fallback cannot find SOUL.md', async () => {
     const result = await materializeSystemPrompt(outputRoot, {
       agentRoot,
@@ -561,22 +512,4 @@ async function inspectAgentSystemPrompt(input: MaterializeSystemPromptTestInput)
 
   expect(typeof module.inspectAgentSystemPrompt).toBe('function')
   return module.inspectAgentSystemPrompt!(input)
-}
-
-function restoreTaskEnv(snapshot: Partial<Record<string, string | undefined>>): void {
-  for (const key of [
-    'HRC_TASK_ID',
-    'HRC_TASK_PHASE',
-    'HRC_TASK_ROLE',
-    'HRC_TASK_REQUIRED_EVIDENCE',
-    'HRC_TASK_HINTS',
-  ] as const) {
-    const value = snapshot[key]
-    if (value === undefined) {
-      delete process.env[key]
-      continue
-    }
-
-    process.env[key] = value
-  }
 }

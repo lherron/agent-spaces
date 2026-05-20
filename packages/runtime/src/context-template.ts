@@ -4,9 +4,16 @@ export type SystemPromptMode = 'replace' | 'append'
 export type ContextTemplateSchemaVersion = 2
 export type ContextSectionType = 'file' | 'inline' | 'exec' | 'slot'
 
+export interface EnvEqualsPredicate {
+  name: string
+  value: string
+}
+
 export interface WhenPredicate {
   runMode?: string | undefined
   exists?: string | undefined
+  envSet?: string | undefined
+  envEquals?: EnvEqualsPredicate | undefined
 }
 
 export interface SectionWrap {
@@ -227,6 +234,8 @@ function parseSectionType(input: unknown, fieldName: string): ContextSectionType
   return input
 }
 
+const SUPPORTED_WHEN_KEYS = ['runMode', 'exists', 'envSet', 'envEquals'] as const
+
 function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | undefined {
   if (input === undefined) {
     return undefined
@@ -238,22 +247,66 @@ function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | 
 
   const keys = Object.keys(input)
   for (const key of keys) {
-    if (key !== 'runMode' && key !== 'exists') {
-      throw new Error(`${fieldName}.${key} is not supported; only runMode and exists are allowed`)
+    if (!SUPPORTED_WHEN_KEYS.includes(key as (typeof SUPPORTED_WHEN_KEYS)[number])) {
+      throw new Error(
+        `${fieldName}.${key} is not supported; allowed keys are ${SUPPORTED_WHEN_KEYS.join(', ')}`
+      )
     }
   }
 
   const runMode = parseOptionalString(input['runMode'], `${fieldName}.runMode`)
   const exists = parseOptionalString(input['exists'], `${fieldName}.exists`)
+  const envSet = parseOptionalString(input['envSet'], `${fieldName}.envSet`)
+  const envEquals = parseEnvEqualsPredicate(input['envEquals'], `${fieldName}.envEquals`)
 
-  if (runMode === undefined && exists === undefined) {
+  if (envSet !== undefined && envSet.length === 0) {
+    throw new Error(`${fieldName}.envSet must be a non-empty env var name`)
+  }
+
+  if (
+    runMode === undefined &&
+    exists === undefined &&
+    envSet === undefined &&
+    envEquals === undefined
+  ) {
     return {}
   }
 
   return {
     ...(runMode !== undefined ? { runMode } : {}),
     ...(exists !== undefined ? { exists } : {}),
+    ...(envSet !== undefined ? { envSet } : {}),
+    ...(envEquals !== undefined ? { envEquals } : {}),
   }
+}
+
+function parseEnvEqualsPredicate(
+  input: unknown,
+  fieldName: string
+): EnvEqualsPredicate | undefined {
+  if (input === undefined) {
+    return undefined
+  }
+
+  if (!isRecord(input)) {
+    throw new Error(
+      `${fieldName} must be a TOML table { name = "FOO", value = "bar" }, received ${describeValue(input)}`
+    )
+  }
+
+  for (const key of Object.keys(input)) {
+    if (key !== 'name' && key !== 'value') {
+      throw new Error(`${fieldName}.${key} is not supported; only name and value are allowed`)
+    }
+  }
+
+  const name = parseRequiredString(input['name'], `${fieldName}.name`)
+  const value = input['value']
+  if (typeof value !== 'string') {
+    throw new Error(`${fieldName}.value must be a string, received ${describeValue(value)}`)
+  }
+
+  return { name, value }
 }
 
 function parseSectionWrap(input: unknown, fieldName: string): SectionWrap | undefined {

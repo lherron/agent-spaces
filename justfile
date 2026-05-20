@@ -62,8 +62,24 @@ install:
     bun run clean
     bun install
     bun run build
-    bun scripts/publish-local-verdaccio.ts
+    just publish-dev
     cd packages/cli && bun link
+
+# Publish timestamped dev package set to local Verdaccio
+publish-dev:
+    bun scripts/publish-local-verdaccio.ts
+
+# Validate timestamped dev package set without publishing
+publish-dev-dry-run:
+    bun scripts/publish-local-verdaccio.ts --dry-run
+
+# Publish exact semver package set to local Verdaccio
+publish-semver version tag="latest" force="":
+    bun scripts/publish-local-verdaccio.ts --version "{{version}}" --tag "{{tag}}" {{force}}
+
+# Validate exact semver package set without publishing
+publish-semver-dry-run version tag="latest":
+    bun scripts/publish-local-verdaccio.ts --version "{{version}}" --tag "{{tag}}" --dry-run
 
 # Serve the ACP Session Dashboard (acp-ops-web) against the local dev stack
 serve-dashboard:

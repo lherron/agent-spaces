@@ -280,12 +280,33 @@ function describeSectionSource(section: ContextSection, context: ContextResolver
 }
 
 function matchesWhenPredicate(section: ContextSection, context: ContextResolverContext): boolean {
-  if (section.when?.runMode !== undefined && section.when.runMode !== context.runMode) {
+  const when = section.when
+  if (when === undefined) {
+    return true
+  }
+
+  if (when.runMode !== undefined && when.runMode !== context.runMode) {
     return false
   }
 
-  if (section.when?.exists !== undefined) {
-    return existsSync(join(process.cwd(), section.when.exists))
+  if (when.exists !== undefined && !existsSync(join(process.cwd(), when.exists))) {
+    return false
+  }
+
+  const env = context.env ?? process.env
+
+  if (when.envSet !== undefined) {
+    const value = env[when.envSet]
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      return false
+    }
+  }
+
+  if (when.envEquals !== undefined) {
+    const value = env[when.envEquals.name]
+    if (value !== when.envEquals.value) {
+      return false
+    }
   }
 
   return true
@@ -494,8 +515,17 @@ function normalizeStringEntries(value: unknown): string[] | undefined {
 
 /**
  * Expand `{{name}}` references in arbitrary text using the same variable map
- * the system-prompt resolver uses. Suitable for priming prompts and other
- * launch-time strings. Unknown variable names are left verbatim.
+ * the system-prompt resolver uses. Public surface — re-exported from the
+ * package root and intended for priming prompts and other launch-time strings.
+ *
+ * Variable rules:
+ * - `{{env.FOO}}` resolves to `context.env?.[FOO] ?? process.env.FOO`.
+ *   Unset or non-string env values render as the empty string. The value is
+ *   not trimmed (`{{env.FOO}}` with `FOO=" "` renders the space verbatim).
+ * - Built-in variables (`agent_name`, `project_id`, `task_id`, `lane`,
+ *   `scope_ref`, `handle`, ...) render from the resolver context.
+ * - Any other `{{name}}` token (unknown non-env variable) is left verbatim
+ *   in the output, so authors can pass through literal mustache-like text.
  */
 export function expandTemplate(content: string, context: ContextResolverContext): string {
   return interpolateVariables(content, context)

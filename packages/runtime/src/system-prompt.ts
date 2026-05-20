@@ -110,8 +110,6 @@ export function discoverContextTemplate(
 
 export const discoverSystemPromptTemplate = discoverContextTemplate
 
-const SECTION_SEPARATOR = '\n\n---\n\n'
-
 export async function materializeSystemPrompt(
   outputPath: string,
   input: MaterializeSystemPromptInput
@@ -177,16 +175,8 @@ export async function inspectAgentSystemPrompt(
         : {}),
   })
 
-  const taskContextSection = buildTaskContextSection(process.env)
-  const basePromptContent = resolved.prompt?.content ?? ''
-  const promptContent =
-    taskContextSection === undefined
-      ? basePromptContent
-      : appendSection(basePromptContent, taskContextSection)
-  const promptSections =
-    taskContextSection === undefined
-      ? resolved.promptSections
-      : [...resolved.promptSections, buildTaskContextReport(taskContextSection)]
+  const promptContent = resolved.prompt?.content ?? ''
+  const promptSections = resolved.promptSections
 
   return {
     agentRoot: input.agentRoot,
@@ -406,78 +396,4 @@ function fileSectionToml(tableName: 'prompt' | 'reminder', name: string, path: s
 
 function quoteTomlString(value: string): string {
   return JSON.stringify(value)
-}
-
-function appendSection(content: string, section: string): string {
-  if (content.trim().length === 0) {
-    return section
-  }
-
-  return `${content}${SECTION_SEPARATOR}${section}`
-}
-
-function buildTaskContextReport(content: string): ResolvedContextSection {
-  return {
-    zone: 'prompt',
-    name: 'current-task-context',
-    type: 'inline',
-    source: 'environment: HRC_TASK_*',
-    included: true,
-    chars: content.length,
-    bytes: new TextEncoder().encode(content).length,
-    truncated: false,
-    content,
-  }
-}
-
-function buildTaskContextSection(env: NodeJS.ProcessEnv): string | undefined {
-  const taskId = readTaskEnv(env, 'HRC_TASK_ID')
-  const phase = readTaskEnv(env, 'HRC_TASK_PHASE')
-  const role = readTaskEnv(env, 'HRC_TASK_ROLE')
-  const requiredEvidence = readTaskEnv(env, 'HRC_TASK_REQUIRED_EVIDENCE')
-  const hints = readTaskEnv(env, 'HRC_TASK_HINTS')
-
-  if (
-    taskId === undefined &&
-    phase === undefined &&
-    role === undefined &&
-    requiredEvidence === undefined &&
-    hints === undefined
-  ) {
-    return undefined
-  }
-
-  const lines = ['## Current task context']
-
-  if (taskId !== undefined) {
-    lines.push(`- Task ID: ${taskId}`)
-  }
-
-  if (phase !== undefined) {
-    lines.push(`- Phase: ${phase}`)
-  }
-
-  if (role !== undefined) {
-    lines.push(`- Role: ${role}`)
-  }
-
-  if (requiredEvidence !== undefined) {
-    lines.push(`- Required evidence: ${requiredEvidence.length > 0 ? requiredEvidence : '(none)'}`)
-  }
-
-  if (hints !== undefined) {
-    lines.push('', '### Hints', hints)
-  }
-
-  return lines.join('\n')
-}
-
-function readTaskEnv(env: NodeJS.ProcessEnv, key: string): string | undefined {
-  const value = env[key]
-  if (typeof value !== 'string') {
-    return undefined
-  }
-
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : ''
 }

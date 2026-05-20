@@ -39,6 +39,7 @@
       "name": "agent-spaces",
       "version": "0.1.0",
       "dependencies": {
+        "agent-scope": "*",
         "spaces-config": "*",
         "spaces-execution": "*",
         "spaces-harness-codex": "*",

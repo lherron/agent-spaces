@@ -24,6 +24,91 @@ type Manifest = {
   version?: string
   private?: boolean
   exports?: unknown
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
+}
+
+let publishVersion = ''
+let internalNames = new Set<string>()
+
+type Options = {
+  dryRun: boolean
+  force: boolean
+  tag?: string
+  version?: string
+}
+
+type RegistryMetadata = {
+  versions?: Record<string, unknown>
+  'dist-tags'?: Record<string, string>
+}
+
+function parseArgs(argv: string[]): Options {
+  const options: Options = { dryRun: false, force: false }
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--dry-run') {
+      options.dryRun = true
+    } else if (arg === '--force') {
+      options.force = true
+    } else if (arg === '--version') {
+      const value = argv[++i]
+      if (!value) throw new Error('--version requires a value')
+      options.version = value
+    } else if (arg.startsWith('--version=')) {
+      options.version = arg.slice('--version='.length)
+    } else if (arg === '--tag') {
+      const value = argv[++i]
+      if (!value) throw new Error('--tag requires a value')
+      options.tag = value
+    } else if (arg.startsWith('--tag=')) {
+      options.tag = arg.slice('--tag='.length)
+    } else if (arg === '--help' || arg === '-h') {
+      printHelp()
+      process.exit(0)
+    } else {
+      throw new Error(`Unknown argument: ${arg}`)
+    }
+  }
+
+  return options
+}
+
+function printHelp(): void {
+  console.log(`Usage:
+  bun scripts/publish-local-verdaccio.ts [--dry-run]
+  bun scripts/publish-local-verdaccio.ts --version <semver> [--tag <tag>] [--force] [--dry-run]
+
+Default mode publishes a timestamped dev set as <base>-dev.YYYYMMDDHHMMSS tagged latest.
+Explicit --version publishes that exact version. Stable versions default to --tag latest.
+Explicit prerelease versions require --tag.`)
+}
+
+function isSemver(version: string): boolean {
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)
+}
+
+function isPrerelease(version: string): boolean {
+  return /^\d+\.\d+\.\d+-/.test(version)
+}
+
+function resolvePublishVersion(baseVersion: string, options: Options): string {
+  const version =
+    options.version ?? process.env.ASP_PUBLISH_VERSION ?? timestampVersion(baseVersion)
+  if (!isSemver(version)) {
+    throw new Error(`Publish version must be valid semver: ${version}`)
+  }
+  if (options.version && isPrerelease(version) && !options.tag) {
+    throw new Error('Explicit prerelease publishes require --tag')
+  }
+  return version
+}
+
+function resolveTag(version: string, options: Options): string {
+  return options.tag ?? 'latest'
 }
 
 function run(cmd: string, args: string[], cwd = ROOT): { status: number; out: string } {
@@ -61,8 +146,66 @@ function findBunConditions(value: unknown, path = 'exports'): string[] {
   return offenders
 }
 
-function isNotPublished(output: string): boolean {
-  return /E404|404 Not Found|not found/i.test(output)
+async function registryMetadata(name: string): Promise<RegistryMetadata | undefined> {
+  const response = await fetch(`${REGISTRY.replace(/\/$/, '')}/${encodeURIComponent(name)}`)
+  if (!response.ok) return undefined
+
+  return (await response.json()) as RegistryMetadata
+}
+
+async function taggedVersion(name: string, tag: string): Promise<string | undefined> {
+  const metadata = await registryMetadata(name)
+  const version = metadata?.['dist-tags']?.[tag]
+  return version && metadata?.versions?.[version] ? version : undefined
+}
+
+async function versionExists(name: string, version: string): Promise<boolean> {
+  const metadata = await registryMetadata(name)
+  return Boolean(metadata?.versions?.[version])
+}
+
+function timestampVersion(baseVersion: string): string {
+  const now = new Date()
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('')
+  return `${baseVersion.split('-')[0]}-dev.${stamp}`
+}
+
+async function packageNames(): Promise<Set<string>> {
+  const names = await Promise.all(
+    PACKAGES.map(async (rel) => {
+      const manifest = (await Bun.file(join(ROOT, rel, 'package.json')).json()) as Manifest
+      if (!manifest.name) throw new Error(`${rel}/package.json must include name`)
+      return manifest.name
+    })
+  )
+  return new Set(names)
+}
+
+function pinInternalDependencies(
+  deps: Record<string, string> | undefined,
+  names: Set<string>,
+  version: string
+): Record<string, string> | undefined {
+  if (!deps) return undefined
+
+  let changed = false
+  const next: Record<string, string> = {}
+  for (const [name, spec] of Object.entries(deps)) {
+    if (names.has(name)) {
+      next[name] = version
+      changed = true
+    } else {
+      next[name] = spec
+    }
+  }
+  return changed ? next : deps
 }
 
 async function packForPublish(rel: string): Promise<{
@@ -86,6 +229,23 @@ async function packForPublish(rel: string): Promise<{
     const { private: _private, ...manifestWithoutPrivate } = manifest
     const publishManifest = {
       ...manifestWithoutPrivate,
+      version: publishVersion,
+      dependencies: pinInternalDependencies(manifest.dependencies, internalNames, publishVersion),
+      devDependencies: pinInternalDependencies(
+        manifest.devDependencies,
+        internalNames,
+        publishVersion
+      ),
+      peerDependencies: pinInternalDependencies(
+        manifest.peerDependencies,
+        internalNames,
+        publishVersion
+      ),
+      optionalDependencies: pinInternalDependencies(
+        manifest.optionalDependencies,
+        internalNames,
+        publishVersion
+      ),
       exports: stripBunConditions(manifest.exports),
     }
 
@@ -123,7 +283,7 @@ async function packForPublish(rel: string): Promise<{
       throw new Error(`${manifest.name} tarball still has private=true`)
     }
 
-    return { name: manifest.name, version: manifest.version, tarballPath, tmp }
+    return { name: manifest.name, version: publishVersion, tarballPath, tmp }
   } catch (error) {
     if (tmp) await rm(tmp, { recursive: true, force: true })
     throw error
@@ -137,9 +297,20 @@ async function publishPackage(rel: string): Promise<void> {
   const id = `${packed.name}@${packed.version}`
 
   try {
-    const unpublish = run('npm', ['unpublish', packed.name, '--force', '--registry', REGISTRY])
-    if (unpublish.status !== 0 && !isNotPublished(unpublish.out)) {
-      throw new Error(`npm unpublish failed for ${packed.name}: ${unpublish.out}`)
+    if ((await versionExists(packed.name, packed.version)) && !options.force) {
+      throw new Error(`${id} already exists in ${REGISTRY}; use --force to replace it`)
+    }
+
+    if (options.dryRun) {
+      console.log(`DRY_RUN  ${id} --tag ${publishTag}`)
+      return
+    }
+
+    if (options.force) {
+      const unpublish = run('npm', ['unpublish', id, '--force', '--registry', REGISTRY])
+      if (unpublish.status !== 0 && !/E404|404 Not Found|not found/i.test(unpublish.out)) {
+        throw new Error(`npm unpublish failed for ${id}: ${unpublish.out}`)
+      }
     }
 
     const publish = run('npm', [
@@ -148,21 +319,26 @@ async function publishPackage(rel: string): Promise<void> {
       '--ignore-scripts',
       '--registry',
       REGISTRY,
+      '--tag',
+      publishTag,
     ])
     if (publish.status !== 0) {
       throw new Error(`npm publish failed for ${id}: ${publish.out}`)
     }
 
-    const view = run('npm', ['view', id, 'version', '--registry', REGISTRY])
-    if (view.status !== 0 || view.out.trim() !== packed.version) {
-      throw new Error(`npm view failed after publishing ${id}: ${view.out}`)
+    const tagged = await taggedVersion(packed.name, publishTag)
+    if (tagged !== packed.version) {
+      throw new Error(`registry ${publishTag} after publishing ${id} is ${tagged ?? '<missing>'}`)
     }
 
-    console.log(`PUBLISHED  ${id}`)
+    console.log(`PUBLISHED  ${id} --tag ${publishTag}`)
   } finally {
     await rm(packed.tmp, { recursive: true, force: true })
   }
 }
+
+const options = parseArgs(process.argv.slice(2))
+let publishTag = 'latest'
 
 async function main() {
   const ping = run('npm', ['ping', '--registry', REGISTRY])
@@ -170,7 +346,18 @@ async function main() {
     throw new Error(`Verdaccio is not reachable at ${REGISTRY}: ${ping.out}`)
   }
 
-  console.log(`Publishing ${PACKAGES.length} ASP package(s) to ${REGISTRY}`)
+  const firstManifest = (await Bun.file(join(ROOT, PACKAGES[0], 'package.json')).json()) as Manifest
+  if (!firstManifest.version) {
+    throw new Error(`${PACKAGES[0]}/package.json must include version`)
+  }
+  publishVersion = resolvePublishVersion(firstManifest.version, options)
+  publishTag = resolveTag(publishVersion, options)
+  internalNames = await packageNames()
+
+  const mode = options.dryRun ? 'Dry-run publishing' : 'Publishing'
+  console.log(
+    `${mode} ${PACKAGES.length} ASP package(s) as ${publishVersion} --tag ${publishTag} to ${REGISTRY}`
+  )
   for (const rel of PACKAGES) {
     await publishPackage(rel)
   }
