@@ -5,6 +5,9 @@ import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
 import { buildProcessEnv } from './env'
 
+const liveChildren = new Set<ChildProcessWithoutNullStreams>()
+let exitHookInstalled = false
+
 export async function spawnHarnessProcess(
   spec: HarnessProcessSpec
 ): Promise<ChildProcessWithoutNullStreams> {
@@ -29,10 +32,29 @@ export async function spawnHarnessProcess(
 
   const command = spec.command ?? process.execPath
 
-  return spawn(command, spec.args, {
+  const proc = spawn(command, spec.args, {
     cwd: spec.cwd,
     env: buildProcessEnv(spec.env),
     shell: false,
     stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  trackChild(proc)
+  return proc
+}
+
+function trackChild(proc: ChildProcessWithoutNullStreams): void {
+  liveChildren.add(proc)
+  proc.once('exit', () => {
+    liveChildren.delete(proc)
+  })
+
+  if (exitHookInstalled) return
+  exitHookInstalled = true
+  process.once('exit', () => {
+    for (const child of liveChildren) {
+      if (child.exitCode === null) {
+        child.kill('SIGTERM')
+      }
+    }
   })
 }

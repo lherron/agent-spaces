@@ -132,6 +132,11 @@ async function runOnce(args: string[]): Promise<void> {
     input,
     policy: { whenBusy: 'reject' },
   })
+  await broker.stop({
+    invocationId: start.invocationId,
+    reason: 'run-once complete',
+    graceMs: spec.process.limits?.stopGraceMs ?? 500,
+  })
 }
 
 function readFlag(args: string[], flag: string): string | undefined {
