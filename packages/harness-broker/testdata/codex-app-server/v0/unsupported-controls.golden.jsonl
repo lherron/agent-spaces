@@ -1,0 +1,5 @@
+{"invocationId":"inv_unsupported_controls","seq":1,"time":"<time>","type":"invocation.started","payload":{"pid":"<pid>","command":"/Users/lherron/.bun/bin/bun","args":["/Users/lherron/praesidium/agent-spaces/packages/harness-broker/test/fixtures/fake-codex/unsupported-controls.ts","--literal","$NO_EXPAND","*.ts"],"cwd":"/Users/lherron/praesidium/agent-spaces"}}
+{"invocationId":"inv_unsupported_controls","seq":2,"time":"<time>","type":"continuation.updated","payload":{"provider":"codex","kind":"thread","key":"thread_unsupported"}}
+{"invocationId":"inv_unsupported_controls","seq":3,"time":"<time>","type":"invocation.ready","payload":{}}
+{"invocationId":"inv_unsupported_controls","seq":4,"time":"<time>","type":"input.rejected","inputId":"steer_1","payload":{"inputId":"steer_1","reason":"UnsupportedCapability: input.steer"}}
+{"invocationId":"inv_unsupported_controls","seq":5,"time":"<time>","type":"input.rejected","inputId":"append_1","payload":{"inputId":"append_1","reason":"UnsupportedCapability: input.appendContext"}}

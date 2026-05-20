@@ -1,0 +1,2 @@
+{"invocationId":"inv_resume_missing_fail","seq":1,"time":"<time>","type":"diagnostic","payload":{"level":"error","message":"Thread not found","source":"harness","data":{"code":"thread_missing"}}}
+{"invocationId":"inv_resume_missing_fail","seq":2,"time":"<time>","type":"invocation.failed","payload":{"message":"Thread not found","code":"thread_missing"}}
