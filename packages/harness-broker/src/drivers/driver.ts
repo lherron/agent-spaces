@@ -1,6 +1,7 @@
 import type {
   InvocationCapabilities,
   InvocationEventEnvelope,
+  InvocationEventType,
   HarnessInvocationSpec,
   InvocationInputRequest,
   InvocationInputResponse,
@@ -23,7 +24,16 @@ export interface Driver {
 
 export interface DriverContext {
   invocationId: string
-  emit(event: InvocationEventEnvelope): void
+  emit<TPayload>(
+    type: InvocationEventType,
+    payload: TPayload,
+    extra?: {
+      turnId?: string | undefined
+      inputId?: string | undefined
+      itemId?: string | undefined
+      driver?: { kind: string; rawType?: string | undefined } | undefined
+    }
+  ): InvocationEventEnvelope<TPayload>
 }
 
 export interface DriverStartResult {

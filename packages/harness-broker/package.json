@@ -37,7 +37,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "bun test",
+    "test": "cd ../.. && bun test packages/harness-broker/test",
     "prepack": "bun ../../scripts/strip-bun-exports.ts",
     "postpack": "git checkout HEAD -- package.json"
   },

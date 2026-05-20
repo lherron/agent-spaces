@@ -5,6 +5,10 @@ import type {
   BrokerHealthResponse,
   InvocationStartRequest,
   InvocationStartResponse,
+  InvocationInputRequest,
+  InvocationInputResponse,
+  InvocationInterruptRequest,
+  InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
   InvocationStatusRequest,
@@ -32,6 +36,8 @@ export interface Broker {
   hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse>
   health(req: BrokerHealthRequest): Promise<BrokerHealthResponse>
   start(req: InvocationStartRequest): Promise<InvocationStartResponse>
+  input(req: InvocationInputRequest): Promise<InvocationInputResponse>
+  interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   status(req: InvocationStatusRequest): Promise<InvocationStatusResponse>
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
@@ -93,6 +99,16 @@ export function createBroker(options: BrokerOptions): Broker {
       }
 
       return manager.start(req.spec, driver)
+    },
+
+    async input(req: InvocationInputRequest): Promise<InvocationInputResponse> {
+      return manager.input(req)
+    },
+
+    async interrupt(
+      req: InvocationInterruptRequest
+    ): Promise<InvocationInterruptResponse> {
+      return manager.interrupt(req)
     },
 
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {

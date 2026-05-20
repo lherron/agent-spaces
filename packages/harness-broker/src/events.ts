@@ -41,13 +41,12 @@ export function createInvocationEventSequencer(
       const seq = current + 1
       counters.set(invocationId, seq)
 
-      const envelope: InvocationEventEnvelope<TPayload> = {
+      const envelope = {
         invocationId,
         seq,
         time: now().toISOString(),
         type,
-        payload,
-      }
+      } as InvocationEventEnvelope<TPayload>
 
       if (extra?.turnId !== undefined) {
         envelope.turnId = extra.turnId
@@ -64,6 +63,7 @@ export function createInvocationEventSequencer(
       if (correlation !== undefined) {
         envelope.correlation = correlation
       }
+      envelope.payload = payload
 
       return envelope
     },

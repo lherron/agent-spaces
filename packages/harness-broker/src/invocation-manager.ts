@@ -1,6 +1,11 @@
 import type {
   HarnessInvocationSpec,
   InvocationCapabilities,
+  InvocationEventType,
+  InvocationInputRequest,
+  InvocationInputResponse,
+  InvocationInterruptRequest,
+  InvocationInterruptResponse,
   InvocationState,
   InvocationStartResponse,
   InvocationStopRequest,
@@ -39,6 +44,8 @@ export interface InvocationManager {
     spec: HarnessInvocationSpec,
     driver: Driver
   ): Promise<InvocationStartResponse>
+  input(req: InvocationInputRequest): Promise<InvocationInputResponse>
+  interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   status(invocationId: string): InvocationStatusResponse
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
@@ -64,12 +71,56 @@ export function createInvocationManager(
     return inv
   }
 
-  function emit(inv: Invocation, type: InvocationEventEnvelope['type'], payload: unknown): void {
-    const event = sequencer.next(inv.invocationId, type, payload)
+  function applyEventState(inv: Invocation, event: InvocationEventEnvelope): void {
+    switch (event.type) {
+      case 'invocation.ready':
+        inv.state = 'ready'
+        return
+      case 'turn.started':
+        inv.state = 'turn_active'
+        return
+      case 'turn.completed':
+      case 'turn.failed':
+      case 'turn.interrupted':
+        if (inv.state !== 'exited' && inv.state !== 'failed' && inv.state !== 'disposed') {
+          inv.state = 'ready'
+        }
+        return
+      case 'invocation.stopping':
+        inv.state = 'stopping'
+        return
+      case 'invocation.exited':
+        inv.state = 'exited'
+        inv.terminalEmitted = true
+        return
+      case 'invocation.failed':
+        inv.state = 'failed'
+        inv.terminalEmitted = true
+        return
+      case 'continuation.updated':
+        inv.continuation = event.payload as ContinuationUpdate
+        return
+    }
+  }
+
+  function emit<TPayload>(
+    inv: Invocation,
+    type: InvocationEventEnvelope['type'],
+    payload: TPayload,
+    extra?: {
+      turnId?: string | undefined
+      inputId?: string | undefined
+      itemId?: string | undefined
+      driver?: { kind: string; rawType?: string | undefined } | undefined
+    }
+  ): InvocationEventEnvelope<TPayload> {
+    const event = sequencer.next(inv.invocationId, type, payload, extra)
     if (inv.spec.correlation !== undefined) {
       event.correlation = inv.spec.correlation
     }
+    applyEventState(inv, event)
     onEvent(event)
+    return event
   }
 
   function emitTerminal(
@@ -115,8 +166,8 @@ export function createInvocationManager(
 
       const ctx: DriverContext = {
         invocationId,
-        emit(event: InvocationEventEnvelope): void {
-          onEvent(event)
+        emit<TPayload>(type: InvocationEventType, payload: TPayload, extra?: Parameters<typeof emit>[3]) {
+          return emit(inv, type, payload, extra)
         },
       }
 
@@ -130,13 +181,18 @@ export function createInvocationManager(
         throw err
       }
 
-      // Emit lifecycle events
-      emit(inv, 'invocation.started', {
-        command: spec.process.command,
-        args: spec.process.args,
-        cwd: spec.process.cwd,
-      })
-      emit(inv, 'invocation.ready', {})
+      if (!inv.terminalEmitted) {
+        if (inv.state === 'starting') {
+          emit(inv, 'invocation.started', {
+            command: spec.process.command,
+            args: spec.process.args,
+            cwd: spec.process.cwd,
+          })
+        }
+        if (inv.state !== 'ready') {
+          emit(inv, 'invocation.ready', {})
+        }
+      }
 
       inv.state = 'ready'
 
@@ -145,6 +201,30 @@ export function createInvocationManager(
         state: inv.state,
         capabilities: inv.capabilities,
       }
+    },
+
+    async input(req: InvocationInputRequest): Promise<InvocationInputResponse> {
+      const inv = requireInvocation(req.invocationId)
+      if (inv.state !== 'ready' && inv.state !== 'turn_active') {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          `Cannot accept input in state: ${inv.state}`,
+          { invocationId: inv.invocationId, state: inv.state }
+        )
+      }
+
+      return inv.driver.input(req)
+    },
+
+    async interrupt(
+      req: InvocationInterruptRequest
+    ): Promise<InvocationInterruptResponse> {
+      const inv = requireInvocation(req.invocationId)
+      if (TERMINAL_STATES.has(inv.state) || inv.state === 'disposed') {
+        return { accepted: false, effect: 'no_active_turn', reason: `Invocation is ${inv.state}` }
+      }
+
+      return inv.driver.interrupt(req)
     },
 
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {
