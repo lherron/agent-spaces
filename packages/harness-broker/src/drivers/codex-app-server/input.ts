@@ -48,5 +48,14 @@ function encodeSandboxPolicy(
   sandboxMode: string | undefined
 ): { type: string } | null {
   if (!sandboxMode) return null
-  return { type: sandboxMode }
+  switch (sandboxMode) {
+    case 'danger-full-access':
+      return { type: 'dangerFullAccess' }
+    case 'read-only':
+      return { type: 'readOnly' }
+    case 'workspace-write':
+      return { type: 'workspaceWrite' }
+    default:
+      return { type: sandboxMode }
+  }
 }

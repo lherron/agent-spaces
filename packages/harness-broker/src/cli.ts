@@ -150,6 +150,7 @@ async function runOnce(args: string[]): Promise<void> {
     reason: 'run-once complete',
     graceMs: spec.process.limits?.stopGraceMs ?? 500,
   })
+  await broker.dispose({ invocationId: start.invocationId })
 }
 
 function readFlag(args: string[], flag: string): string | undefined {

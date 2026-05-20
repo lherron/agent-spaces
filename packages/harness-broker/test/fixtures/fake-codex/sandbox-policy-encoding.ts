@@ -16,7 +16,7 @@ if (
   sandboxPolicy === null ||
   typeof sandboxPolicy !== 'object' ||
   Array.isArray(sandboxPolicy) ||
-  (sandboxPolicy as { type?: unknown }).type !== 'workspace-write'
+  (sandboxPolicy as { type?: unknown }).type !== 'workspaceWrite'
 ) {
   io.reject(
     turn,
