@@ -59,8 +59,8 @@ export interface Invocation {
   envSecrets: Set<string>
   /** Per-invocation FIFO queue of pending inputs. */
   pending: QueuedInput[]
-  /** Whether a queueMicrotask drain is scheduled but not yet executed. */
-  draining: boolean
+  /** Self-clearing drain lock: set while a drain is in flight, cleared in .finally(). */
+  drainPromise?: Promise<void> | undefined
   /** Monotonic counter for broker-assigned inputIds. */
   inputCounter: number
 }
@@ -105,43 +105,35 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   }
 
   // ---------------------------------------------------------------------------
-  // Drain logic — microtask-scheduled, at most one per ready window
+  // Drain logic — promise-guarded, at most one drain in flight per ready window
   // ---------------------------------------------------------------------------
   function scheduleDrain(inv: Invocation): void {
-    if (inv.draining) return
+    if (inv.drainPromise) return
     if (inv.pending.length === 0) return
     if (inv.state !== 'ready') return
-    inv.draining = true
-    queueMicrotask(() => drainOne(inv))
+    inv.drainPromise = doDrain(inv).finally(() => {
+      inv.drainPromise = undefined
+      // Reschedule if invocation is still ready with pending inputs — prevents
+      // stalling when a mid-drain failure leaves items in the queue.
+      if (inv.state === 'ready' && inv.pending.length > 0) {
+        scheduleDrain(inv)
+      }
+    })
   }
 
-  function drainOne(inv: Invocation): void {
-    if (inv.pending.length === 0 || inv.state !== 'ready') {
-      inv.draining = false
-      return
-    }
-    const head = inv.pending.shift()!
-    try {
+  async function doDrain(inv: Invocation): Promise<void> {
+    while (inv.pending.length > 0 && inv.state === 'ready') {
+      const head = inv.pending.shift()!
       const inputWithId: InvocationInput = { ...head.input, inputId: head.inputId }
-      // applyInputNow is async but we fire-and-forget inside the microtask.
-      // On success the driver emits turn.started via ctx.emit which transitions
-      // state to turn_active, preventing further same-window drains.
-      void applyAndEmit(inv, inputWithId, head.inputId).catch((err) => {
-        // Input failed at the driver level — reject this item and attempt
-        // the next item if the invocation is still ready.
-        emit(inv, 'input.rejected', { inputId: head.inputId, reason: String(err?.message ?? err) }, { inputId: head.inputId })
-        if (inv.state === 'ready' && inv.pending.length > 0) {
-          queueMicrotask(() => drainOne(inv))
-        } else {
-          inv.draining = false
-        }
-      })
-    } catch (err) {
-      emit(inv, 'input.rejected', { inputId: head.inputId, reason: String(err instanceof Error ? err.message : err) }, { inputId: head.inputId })
-      if (inv.state === 'ready' && inv.pending.length > 0) {
-        queueMicrotask(() => drainOne(inv))
-      } else {
-        inv.draining = false
+      try {
+        await applyAndEmit(inv, inputWithId, head.inputId)
+      } catch (err) {
+        // Input failed at the driver level — reject this item and continue
+        // draining; the while-loop guard re-checks state before the next item.
+        emit(inv, 'input.rejected', {
+          inputId: head.inputId,
+          reason: String(err instanceof Error ? err.message : err),
+        }, { inputId: head.inputId })
       }
     }
   }
@@ -159,9 +151,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // Broker owns input.accepted emission — before the driver applies the input
     emit(inv, 'input.accepted', { inputId }, { inputId })
     const result = await inv.driver.applyInputNow(input)
-    // After applyInputNow the driver will have emitted turn.started via ctx.emit,
-    // transitioning state to turn_active and preventing further same-window drains.
-    inv.draining = false
     return result
   }
 
@@ -315,7 +304,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         terminalEmitted: false,
         envSecrets: buildEnvSecrets(spec.process.env),
         pending: [],
-        draining: false,
         inputCounter: 0,
       }
       invocations.set(invocationId, inv)
