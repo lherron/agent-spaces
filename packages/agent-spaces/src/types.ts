@@ -227,6 +227,7 @@ export interface BuildHarnessBrokerInvocationRequest {
   correlation?: Record<string, string> | undefined
   permissionPolicy?: PermissionPolicy | undefined
   limits?: ProcessLimits | undefined
+  interaction?: { inputQueue?: 'fifo' | 'none' | undefined } | undefined
   resumeFallback?: 'start-fresh' | 'fail' | undefined
 }
 

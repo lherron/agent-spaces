@@ -471,18 +471,12 @@ async function buildScenarioInvocation(
     invocationId: args.invocationId,
     permissionPolicy: { mode: 'deny' },
     labels: { scenario: `asp-broker-real-codex-smoke:${run.name}` },
+    ...(run.name === 'queue-policy'
+      ? { interaction: { inputQueue: inputQueueOverride ?? 'fifo' } }
+      : {}),
   }
 
   const invocationResponse = await spacesClient.buildHarnessBrokerInvocation(brokerReq)
-  if (run.name === 'queue-policy') {
-    invocationResponse.spec.interaction = {
-      ...invocationResponse.spec.interaction,
-      mode: invocationResponse.spec.interaction?.mode ?? 'headless',
-      turnConcurrency: invocationResponse.spec.interaction?.turnConcurrency ?? 'single',
-      inputQueue: inputQueueOverride ?? 'fifo',
-    }
-    invocationResponse.startRequest.spec = invocationResponse.spec
-  }
 
   const expectedPriming = await expectedExpandedPrimingPrompt(placement)
   assertInitialInputStartsWithPriming(invocationResponse.initialInput, expectedPriming)
