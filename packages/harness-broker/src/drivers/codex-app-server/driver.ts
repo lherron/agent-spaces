@@ -252,7 +252,7 @@ export function createCodexAppServerDriver(): Driver {
   return {
     kind: 'codex-app-server',
     version: '0.1.0',
-    acceptsSequentialUserInputs: false,
+    acceptsSequentialUserInputs: true,
 
     capabilities(): InvocationCapabilities {
       return CODEX_CAPABILITIES

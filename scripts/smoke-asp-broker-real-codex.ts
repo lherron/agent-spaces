@@ -375,6 +375,7 @@ interface CollectedRun {
   collectedEvents: InvocationEventEnvelope[]
   seenTypes: Set<string>
   terminalTurnEvent?: InvocationEventEnvelope | undefined
+  terminalTurnEvents: InvocationEventEnvelope[]
   assistantTexts: string[]
 }
 
@@ -382,6 +383,7 @@ interface ProbeSpec {
   label: string
   inputId: string
   whenBusy: InputPolicy['whenBusy']
+  text?: string | undefined
   expectedReason?: string | undefined
 }
 
@@ -427,7 +429,10 @@ function scenarioArgs(
   }
 }
 
-async function buildScenarioInvocation(run: ScenarioRun) {
+async function buildScenarioInvocation(
+  run: ScenarioRun,
+  inputQueueOverride?: 'fifo' | 'none' | undefined
+) {
   const { args } = run
   const transcriptDir = dirname(args.transcript)
   mkdirSync(transcriptDir, { recursive: true })
@@ -474,7 +479,7 @@ async function buildScenarioInvocation(run: ScenarioRun) {
       ...invocationResponse.spec.interaction,
       mode: invocationResponse.spec.interaction?.mode ?? 'headless',
       turnConcurrency: invocationResponse.spec.interaction?.turnConcurrency ?? 'single',
-      inputQueue: 'fifo',
+      inputQueue: inputQueueOverride ?? 'fifo',
     }
     invocationResponse.startRequest.spec = invocationResponse.spec
   }
@@ -505,14 +510,16 @@ async function collectEventsUntilTerminal(
   run: ScenarioRun,
   events: AsyncIterable<InvocationEventEnvelope>,
   expectedCwd: string,
-  onTurnStarted?: (() => void) | undefined
+  onTurnStarted?: (() => void) | undefined,
+  minTerminalTurnEvents = 1
 ): Promise<CollectedRun> {
   console.log('[smoke] Step 7: Consuming broker events...')
   const collectedEvents: InvocationEventEnvelope[] = []
   const seenTypes = new Set<string>()
   let terminalTurnEvent: InvocationEventEnvelope | undefined
+  const terminalTurnEvents: InvocationEventEnvelope[] = []
   let assistantOutput = ''
-  let assistantFinalOutput = ''
+  const assistantFinalOutputs: string[] = []
   let turnStartedHookCalled = false
 
   writeFileSync(run.args.transcript, '')
@@ -543,12 +550,15 @@ async function collectEventsUntilTerminal(
         }
         if (event.type === 'assistant.message.completed') {
           const content = Array.isArray(payload?.['content']) ? payload?.['content'] : []
-          assistantFinalOutput = content
+          const assistantFinalOutput = content
             .map((part) => {
               const record = asRecord(part)
               return record?.['type'] === 'text' ? String(record['text'] ?? '') : ''
             })
             .join('')
+          if (assistantFinalOutput.length > 0) {
+            assistantFinalOutputs.push(assistantFinalOutput)
+          }
         }
 
         if (event.type === 'invocation.started' && payload?.['cwd']) {
@@ -569,7 +579,10 @@ async function collectEventsUntilTerminal(
 
         if (isTerminalTurnEvent(event.type)) {
           terminalTurnEvent = event
-          break
+          terminalTurnEvents.push(event)
+          if (terminalTurnEvents.length >= minTerminalTurnEvents) {
+            break
+          }
         }
 
         if (
@@ -593,14 +606,16 @@ async function collectEventsUntilTerminal(
 
   console.log()
 
-  const assistantTexts = [assistantFinalOutput, assistantOutput].filter((text) => text.length > 0)
+  const assistantTexts = [...assistantFinalOutputs, assistantOutput].filter(
+    (text) => text.length > 0
+  )
   const assistantText = assistantTexts[0] ?? ''
   if (assistantText) {
     console.log(`[smoke] Assistant output: ${assistantText.trim()}`)
     console.log()
   }
 
-  return { collectedEvents, seenTypes, terminalTurnEvent, assistantTexts }
+  return { collectedEvents, seenTypes, terminalTurnEvent, terminalTurnEvents, assistantTexts }
 }
 
 async function cleanupInvocation(brokerClient: BrokerClient, invocationId: string): Promise<void> {
@@ -818,6 +833,24 @@ function findInputRejectedEvent(
   })
 }
 
+function findInputQueuedEvent(
+  events: InvocationEventEnvelope[],
+  inputId: string
+): InvocationEventEnvelope | undefined {
+  return events.find((event) => {
+    if (event.type !== 'input.queued') return false
+    const payload = asRecord(event.payload)
+    return event.inputId === inputId || payload?.['inputId'] === inputId
+  })
+}
+
+function findEventIndex(
+  events: InvocationEventEnvelope[],
+  predicate: (event: InvocationEventEnvelope) => boolean
+): number {
+  return events.findIndex(predicate)
+}
+
 function errorReason(err: unknown): string {
   const record = asRecord(err)
   if (typeof record?.['message'] === 'string' && record['message'].length > 0) {
@@ -837,7 +870,7 @@ async function sendBusyProbe(
       input: {
         inputId: probe.inputId,
         kind: 'user',
-        content: [{ type: 'text', text: `busy-input smoke probe ${probe.label}` }],
+        content: [{ type: 'text', text: probe.text ?? `busy-input smoke probe ${probe.label}` }],
       },
       policy: { whenBusy: probe.whenBusy },
     })
@@ -856,24 +889,24 @@ async function sendBusyProbe(
   }
 }
 
-function assertQueuePolicyScenario(
+function assertQueuePolicyFifoScenario(
   run: ScenarioRun,
   collected: CollectedRun,
   queueCapability: boolean | undefined,
   probeResults: ProbeResult[] | undefined
 ): number {
-  console.log('[smoke] Step 9: Queue-policy assertions...')
+  console.log('[smoke] Step 9: Queue-policy FIFO assertions...')
   console.log(`[smoke]   Total events collected: ${collected.collectedEvents.length}`)
   console.log(`[smoke]   Unique event types seen: ${[...collected.seenTypes].join(', ')}`)
   console.log(`[smoke]   Transcript: ${run.args.transcript}`)
   console.log()
 
   let failures = 0
-  if (queueCapability === false) {
-    console.log('[smoke]   \u2713 capabilities.input.queue is false')
+  if (queueCapability === true) {
+    console.log('[smoke]   \u2713 capabilities.input.queue is true')
   } else {
     console.error(
-      `[smoke]   \u2717 capabilities.input.queue expected false, got ${JSON.stringify(queueCapability)}`
+      `[smoke]   \u2717 capabilities.input.queue expected true, got ${JSON.stringify(queueCapability)}`
     )
     failures++
   }
@@ -891,7 +924,7 @@ function assertQueuePolicyScenario(
       label: 'B queue',
       inputId: 'queue_policy_probe_queue',
       whenBusy: 'queue',
-      expectedReason: 'queue_not_supported',
+      text: 'Reply with exactly this single token: DRAIN_OK',
     },
     {
       label: 'C interrupt_then_apply',
@@ -907,6 +940,75 @@ function assertQueuePolicyScenario(
     const rejectedEvent = findInputRejectedEvent(collected.collectedEvents, probe.inputId)
     const eventReason = inputRejectedReason(rejectedEvent)
     let probeFailures = 0
+
+    if (probe.inputId === 'queue_policy_probe_queue') {
+      const queuedEvent = findInputQueuedEvent(collected.collectedEvents, probe.inputId)
+      const holderCompletedIndex = findEventIndex(
+        collected.collectedEvents,
+        (event) => event.type === 'turn.completed' && event.inputId !== probe.inputId
+      )
+      const drainedStartedIndex = findEventIndex(
+        collected.collectedEvents,
+        (event) => event.type === 'turn.started' && event.inputId === probe.inputId
+      )
+      const drainedCompletedIndex = findEventIndex(
+        collected.collectedEvents,
+        (event) => event.type === 'turn.completed' && event.inputId === probe.inputId
+      )
+
+      if (!result) {
+        console.error(`[smoke]   \u2717 probe ${probe.label} did not return a result`)
+        probeFailures++
+      } else if (
+        result.response.accepted !== true ||
+        result.response.disposition !== 'queued' ||
+        result.response.inputId !== probe.inputId
+      ) {
+        console.error(
+          `[smoke]   \u2717 probe ${probe.label} response mismatch: ${JSON.stringify(result.response)}`
+        )
+        probeFailures++
+      }
+
+      if (!queuedEvent) {
+        console.error(`[smoke]   \u2717 probe ${probe.label} missing input.queued event`)
+        probeFailures++
+      }
+      if (rejectedEvent) {
+        console.error(`[smoke]   \u2717 probe ${probe.label} unexpectedly emitted input.rejected`)
+        probeFailures++
+      }
+      if (holderCompletedIndex < 0) {
+        console.error('[smoke]   \u2717 holder turn.completed not observed before drain')
+        probeFailures++
+      }
+      if (drainedStartedIndex < 0) {
+        console.error(`[smoke]   \u2717 probe ${probe.label} missing drained turn.started`)
+        probeFailures++
+      } else if (holderCompletedIndex >= 0 && drainedStartedIndex <= holderCompletedIndex) {
+        console.error(
+          `[smoke]   \u2717 probe ${probe.label} drained turn.started did not occur after holder turn.completed`
+        )
+        probeFailures++
+      }
+      if (drainedCompletedIndex < 0) {
+        console.error(`[smoke]   \u2717 probe ${probe.label} missing drained turn.completed`)
+        probeFailures++
+      }
+      if (!collected.assistantTexts.some((text) => text.includes('DRAIN_OK'))) {
+        console.error(`[smoke]   \u2717 probe ${probe.label} reply missing DRAIN_OK`)
+        probeFailures++
+      }
+
+      if (probeFailures === 0) {
+        console.log(
+          `[smoke]   \u2713 probe ${probe.label} queued, emitted input.queued, and drained into a second completed turn`
+        )
+      } else {
+        failures += probeFailures
+      }
+      continue
+    }
 
     if (!result) {
       console.error(`[smoke]   \u2717 probe ${probe.label} did not return a result`)
@@ -954,7 +1056,28 @@ function assertQueuePolicyScenario(
     }
   }
 
-  failures += assertTerminalTurnCompleted(collected.terminalTurnEvent)
+  if (collected.terminalTurnEvents.length >= 2) {
+    console.log('[smoke]   \u2713 observed holder and drained terminal turn events')
+  } else {
+    console.error(
+      `[smoke]   \u2717 expected 2 terminal turn events, saw ${collected.terminalTurnEvents.length}`
+    )
+    failures++
+  }
+
+  for (const [index, terminal] of collected.terminalTurnEvents.entries()) {
+    if (terminal.type === 'turn.completed') {
+      const payload = terminal.payload as Record<string, unknown> | undefined
+      console.log(
+        `[smoke]   \u2713 turn ${index + 1} completed (turnId: ${payload?.['turnId'] ?? 'n/a'})`
+      )
+    } else {
+      console.error(
+        `[smoke]   \u2717 turn ${index + 1} terminal event is ${terminal.type}, expected turn.completed`
+      )
+      failures++
+    }
+  }
 
   const resolvedScope = resolveScopeInput(run.args.scopeRef)
   const sensitiveValues = [
@@ -977,6 +1100,79 @@ function assertQueuePolicyScenario(
       `[smoke]   \u2717 holder reply missing QUEUE_HOLDER_OK or expected runtime scope handle ${expectedScopeHandle}`
     )
     failures++
+  }
+
+  console.log()
+  return failures
+}
+
+function assertQueuePolicyNoneScenario(
+  run: ScenarioRun,
+  collected: CollectedRun,
+  queueCapability: boolean | undefined,
+  probeResults: ProbeResult[] | undefined
+): number {
+  console.log('[smoke] Step 10: Queue-policy none assertions...')
+  console.log(`[smoke]   Total events collected: ${collected.collectedEvents.length}`)
+  console.log(`[smoke]   Unique event types seen: ${[...collected.seenTypes].join(', ')}`)
+  console.log(`[smoke]   Transcript: ${run.args.transcript}`)
+  console.log()
+
+  let failures = 0
+  if (queueCapability === false) {
+    console.log('[smoke]   \u2713 capabilities.input.queue is false')
+  } else {
+    console.error(
+      `[smoke]   \u2717 capabilities.input.queue expected false, got ${JSON.stringify(queueCapability)}`
+    )
+    failures++
+  }
+
+  const probe: ProbeSpec = {
+    label: 'B2 queue none',
+    inputId: 'queue_policy_probe_queue_none',
+    whenBusy: 'queue',
+    expectedReason: 'queue_not_supported',
+  }
+  const result = probeResults?.find((candidate) => candidate.probe.inputId === probe.inputId)
+  const rejectedEvent = findInputRejectedEvent(collected.collectedEvents, probe.inputId)
+  const eventReason = inputRejectedReason(rejectedEvent)
+
+  if (!result) {
+    console.error(`[smoke]   \u2717 probe ${probe.label} did not return a result`)
+    failures++
+  } else {
+    if (result.response.accepted !== false || result.response.disposition !== 'rejected') {
+      console.error(
+        `[smoke]   \u2717 probe ${probe.label} response mismatch: ${JSON.stringify(result.response)}`
+      )
+      failures++
+    }
+    if (result.response.reason !== probe.expectedReason) {
+      console.error(
+        `[smoke]   \u2717 probe ${probe.label} reason mismatch: expected ${probe.expectedReason}, got ${JSON.stringify(result.response.reason)}`
+      )
+      failures++
+    }
+  }
+
+  if (!rejectedEvent) {
+    console.error(`[smoke]   \u2717 probe ${probe.label} missing input.rejected event`)
+    failures++
+  } else if (eventReason !== probe.expectedReason) {
+    console.error(
+      `[smoke]   \u2717 probe ${probe.label} event reason mismatch: expected ${probe.expectedReason}, got ${JSON.stringify(eventReason)}`
+    )
+    failures++
+  }
+
+  failures += assertTerminalTurnCompleted(collected.terminalTurnEvent)
+
+  if (failures === 0) {
+    const transport = result?.rpcRejected ? 'rpc rejection' : 'response'
+    console.log(
+      `[smoke]   \u2713 probe ${probe.label} rejected via ${transport} with queue_not_supported and input.rejected event`
+    )
   }
 
   console.log()
@@ -1010,8 +1206,18 @@ async function runQueuePolicyScenario(
   brokerClient: BrokerClient,
   run: ScenarioRun
 ): Promise<number> {
-  const { invocationResponse } = await buildScenarioInvocation(run)
-  console.log('[smoke] Step 6: Starting invocation (with initialInput)...')
+  const fifoRun: ScenarioRun = {
+    ...run,
+    args: {
+      ...run.args,
+      invocationId: `${run.args.invocationId}-fifo`,
+      transcript: run.args.transcript.endsWith('.jsonl')
+        ? run.args.transcript.replace(/\.jsonl$/, '-fifo.jsonl')
+        : `${run.args.transcript}-fifo`,
+    },
+  }
+  const { invocationResponse } = await buildScenarioInvocation(fifoRun, 'fifo')
+  console.log('[smoke] Step 6: Starting FIFO invocation (with initialInput)...')
   const { invocationId, events } = await brokerClient.startInvocation(
     invocationResponse.startRequest.spec,
     invocationResponse.startRequest.initialInput
@@ -1027,7 +1233,7 @@ async function runQueuePolicyScenario(
       label: 'B queue',
       inputId: 'queue_policy_probe_queue',
       whenBusy: 'queue',
-      expectedReason: 'queue_not_supported',
+      text: 'Reply with exactly this single token: DRAIN_OK',
     },
     {
       label: 'C interrupt_then_apply',
@@ -1047,10 +1253,11 @@ async function runQueuePolicyScenario(
   let collected: CollectedRun | undefined
   try {
     collected = await collectEventsUntilTerminal(
-      run,
+      fifoRun,
       events,
       invocationResponse.spec.process.cwd,
-      fireProbes
+      fireProbes,
+      2
     )
   } finally {
     await cleanupInvocation(brokerClient, invocationId)
@@ -1060,7 +1267,71 @@ async function runQueuePolicyScenario(
   }
 
   const probeResults = probePromise ? await probePromise : undefined
-  return assertQueuePolicyScenario(run, collected, status.capabilities.input.queue, probeResults)
+  let failures = assertQueuePolicyFifoScenario(
+    fifoRun,
+    collected,
+    status.capabilities.input.queue,
+    probeResults
+  )
+
+  const noneRun: ScenarioRun = {
+    ...run,
+    args: {
+      ...run.args,
+      invocationId: `${run.args.invocationId}-none`,
+      transcript: run.args.transcript.endsWith('.jsonl')
+        ? run.args.transcript.replace(/\.jsonl$/, '-none.jsonl')
+        : `${run.args.transcript}-none`,
+    },
+  }
+  const noneInvocation = await buildScenarioInvocation(noneRun, 'none')
+  console.log('[smoke] Step 6b: Starting inputQueue=none invocation (with initialInput)...')
+  const noneStarted = await brokerClient.startInvocation(
+    noneInvocation.invocationResponse.startRequest.spec,
+    noneInvocation.invocationResponse.startRequest.initialInput
+  )
+  const noneStatus = await brokerClient.status({ invocationId: noneStarted.invocationId })
+  console.log(`[smoke]   invocationId: ${noneStarted.invocationId}`)
+  console.log(`[smoke]   capabilities.input.queue: ${noneStatus.capabilities.input.queue}`)
+  console.log()
+
+  const noneProbe: ProbeSpec = {
+    label: 'B2 queue none',
+    inputId: 'queue_policy_probe_queue_none',
+    whenBusy: 'queue',
+    expectedReason: 'queue_not_supported',
+  }
+  let noneProbePromise: Promise<ProbeResult[]> | undefined
+  const fireNoneProbe = () => {
+    console.log('[smoke]   turn.started observed; firing inputQueue=none busy-input probe...')
+    noneProbePromise = Promise.all([
+      sendBusyProbe(brokerClient, noneStarted.invocationId, noneProbe),
+    ])
+  }
+
+  let noneCollected: CollectedRun | undefined
+  try {
+    noneCollected = await collectEventsUntilTerminal(
+      noneRun,
+      noneStarted.events,
+      noneInvocation.invocationResponse.spec.process.cwd,
+      fireNoneProbe
+    )
+  } finally {
+    await cleanupInvocation(brokerClient, noneStarted.invocationId)
+  }
+  if (!noneCollected) {
+    throw new Error('Queue-policy inputQueue=none scenario did not collect events')
+  }
+
+  const noneProbeResults = noneProbePromise ? await noneProbePromise : undefined
+  failures += assertQueuePolicyNoneScenario(
+    noneRun,
+    noneCollected,
+    noneStatus.capabilities.input.queue,
+    noneProbeResults
+  )
+  return failures
 }
 
 // ---------------------------------------------------------------------------
@@ -1149,6 +1420,8 @@ function formatEventBrief(event: InvocationEventEnvelope): string {
     case 'continuation.updated':
       return ` (provider: ${p['provider'] ?? '?'}, key: ${String(p['key'] ?? '?').slice(0, 20)})`
     case 'input.accepted':
+      return ` (inputId: ${p['inputId'] ?? '?'})`
+    case 'input.queued':
       return ` (inputId: ${p['inputId'] ?? '?'})`
     case 'input.rejected':
       return ` (inputId: ${p['inputId'] ?? '?'}, reason: ${p['reason'] ?? '?'})`

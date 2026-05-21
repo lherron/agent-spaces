@@ -968,7 +968,7 @@ The broker uses the following well-known reason strings in `input.rejected` even
 | `invocation_terminated` | Queued input rejected because the invocation reached a terminal state (`exited` or `failed`). |
 | `invocation_stopping` | Queued input rejected because the invocation entered the `stopping` state. |
 
-For Codex app-server v0: no queue, no steer, no append-context. Single active turn only.
+For Codex app-server v0: broker FIFO queue IS supported when `interaction.inputQueue: 'fifo'`. Codex still does not support `steer`, `append_context`, or turn interrupt, and remains single-active-turn (broker drains one queued input at a time after each `turn.completed | turn.failed | turn.interrupted`).
 
 ## 12. Error model
 
