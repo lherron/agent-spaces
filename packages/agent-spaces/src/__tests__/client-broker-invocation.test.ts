@@ -2,7 +2,10 @@
  * P2 enables this suite by changing describe.skip to describe after
  * buildHarnessBrokerInvocation is implemented.
  */
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import type {
   HarnessInvocationSpec,
@@ -40,34 +43,99 @@ type BrokerClient = AgentSpacesClient & {
   ): Promise<BuildHarnessBrokerInvocationResponse>
 }
 
-const placement: BuildHarnessBrokerInvocationRequest['placement'] = {
-  agentRoot: '/tmp/asp-broker-agent',
-  projectRoot: '/tmp/asp-broker-project',
-  cwd: '/tmp/asp-broker-project',
-  runMode: 'task',
-  bundle: { kind: 'agent-project', agentName: 'cody', projectRoot: '/tmp/asp-broker-project' },
-  correlation: {
-    sessionRef: {
-      scopeRef: 'agent:cody:project:agent-spaces:task:T-01558',
-      laneRef: 'main',
+function createCodexShim(dir: string): string {
+  const shimPath = join(dir, 'codex')
+  writeFileSync(
+    shimPath,
+    `#!/usr/bin/env bash
+if [[ "$1" == "--version" ]]; then
+  echo "codex 999.0.0"
+  exit 0
+fi
+if [[ "$1" == "app-server" && "$2" == "--help" ]]; then
+  echo "app-server"
+  exit 0
+fi
+echo "codex shim"
+`,
+    'utf8'
+  )
+  chmodSync(shimPath, 0o755)
+  return shimPath
+}
+
+function createFixture(): {
+  agentRoot: string
+  projectRoot: string
+  aspHome: string
+  imagePath: string
+  cleanup: () => void
+} {
+  const base = mkdtempSync(join(tmpdir(), 'asp-broker-invocation-'))
+  const agentRoot = join(base, 'agents', 'cody')
+  const projectRoot = join(base, 'agent-spaces')
+  const aspHome = join(base, 'asp-home')
+  const imagePath = join(base, 'diagram.png')
+  mkdirSync(agentRoot, { recursive: true })
+  mkdirSync(projectRoot, { recursive: true })
+  mkdirSync(aspHome, { recursive: true })
+  writeFileSync(imagePath, 'not-really-a-png', 'utf8')
+  writeFileSync(
+    join(agentRoot, 'agent-profile.toml'),
+    `schemaVersion = 2
+
+[spaces]
+base = []
+
+[brain]
+enabled = false
+`,
+    'utf8'
+  )
+  createCodexShim(aspHome)
+  return {
+    agentRoot,
+    projectRoot,
+    aspHome,
+    imagePath,
+    cleanup: () => rmSync(base, { recursive: true, force: true }),
+  }
+}
+
+let fixture: ReturnType<typeof createFixture>
+const originalCodexPath = process.env['ASP_CODEX_PATH']
+const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
+
+function placement(): BuildHarnessBrokerInvocationRequest['placement'] {
+  return {
+    agentRoot: fixture.agentRoot,
+    projectRoot: fixture.projectRoot,
+    cwd: fixture.projectRoot,
+    runMode: 'task',
+    bundle: { kind: 'agent-project', agentName: 'cody', projectRoot: fixture.projectRoot },
+    correlation: {
+      sessionRef: {
+        scopeRef: 'agent:cody:project:agent-spaces:task:T-01558',
+        laneRef: 'main',
+      },
+      hostSessionId: 'host-01558',
     },
-    hostSessionId: 'host-01558',
-  },
+  }
 }
 
 function createClient(): BrokerClient {
-  return createAgentSpacesClient({ aspHome: '/tmp/asp-broker-home' }) as BrokerClient
+  return createAgentSpacesClient({ aspHome: fixture.aspHome }) as BrokerClient
 }
 
 function baseRequest(): BuildHarnessBrokerInvocationRequest {
   return {
-    placement,
+    placement: placement(),
     provider: 'openai',
     frontend: 'codex-cli',
     interactionMode: 'headless',
     continuation: { provider: 'openai', key: 'thread_01558' },
     prompt: 'hello broker',
-    attachments: [{ kind: 'file', path: '/tmp/diagram.png', contentType: 'image/png' }],
+    attachments: [{ kind: 'file', path: fixture.imagePath, contentType: 'image/png' }],
     env: { EXTRA_FLAG: '1' },
     invocationId: 'inv_01558',
     labels: { task: 'T-01558' },
@@ -77,7 +145,27 @@ function baseRequest(): BuildHarnessBrokerInvocationRequest {
   }
 }
 
-describe.skip('buildHarnessBrokerInvocation broker contract', () => {
+describe('buildHarnessBrokerInvocation broker contract', () => {
+  beforeAll(() => {
+    fixture = createFixture()
+    process.env['ASP_CODEX_PATH'] = join(fixture.aspHome, 'codex')
+    process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+  })
+
+  afterAll(() => {
+    if (originalCodexPath === undefined) {
+      process.env['ASP_CODEX_PATH'] = undefined
+    } else {
+      process.env['ASP_CODEX_PATH'] = originalCodexPath
+    }
+    if (originalSkipCommon === undefined) {
+      process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = undefined
+    } else {
+      process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = originalSkipCommon
+    }
+    fixture.cleanup()
+  })
+
   test('happy path returns a validating InvocationStartRequest', async () => {
     const response = await createClient().buildHarnessBrokerInvocation(baseRequest())
 
@@ -118,7 +206,7 @@ describe.skip('buildHarnessBrokerInvocation broker contract', () => {
 
     expect(spec.process.command).toBeTruthy()
     expect(spec.process.args).toContain('app-server')
-    expect(spec.process.cwd).toBe('/tmp/asp-broker-project')
+    expect(spec.process.cwd).toBe(fixture.projectRoot)
     expect(spec.process.env).toEqual(expect.objectContaining({ EXTRA_FLAG: '1' }))
     expect(spec.process.harnessTransport).toEqual({ kind: 'jsonrpc-stdio' })
     expect(spec.process.limits).toEqual({ startupTimeoutMs: 10_000, turnTimeoutMs: 20_000 })
@@ -227,7 +315,7 @@ describe.skip('buildHarnessBrokerInvocation broker contract', () => {
     await expect(
       createClient().buildHarnessBrokerInvocation({
         ...baseRequest(),
-        placement: { ...placement, agentRoot: '/path/that/must/not/be/materialized' },
+        placement: { ...placement(), agentRoot: '/path/that/must/not/be/materialized' },
         ...override,
       } as BuildHarnessBrokerInvocationRequest)
     ).rejects.toThrow(/unsupported|provider|frontend|headless/i)

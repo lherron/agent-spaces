@@ -1,4 +1,5 @@
 import type { BrokerCommand, BrokerMethod } from './commands'
+import type { InvocationInput, InvocationStartRequest } from './commands'
 import type { InvocationEventEnvelope, InvocationEventType } from './events'
 import type { HarnessInvocationSpec } from './invocation'
 import { isJsonRpcRequest } from './jsonrpc'
@@ -16,6 +17,28 @@ export class InvocationSpecValidationError extends Error {
   constructor(issues: ValidationIssue[]) {
     super('Invalid harness invocation spec')
     this.name = 'InvocationSpecValidationError'
+    this.issues = issues
+  }
+}
+
+export class InvocationInputValidationError extends Error {
+  readonly code = 'INVALID_INVOCATION_INPUT'
+  readonly issues: ValidationIssue[]
+
+  constructor(issues: ValidationIssue[]) {
+    super('Invalid invocation input')
+    this.name = 'InvocationInputValidationError'
+    this.issues = issues
+  }
+}
+
+export class InvocationStartRequestValidationError extends Error {
+  readonly code = 'INVALID_INVOCATION_START_REQUEST'
+  readonly issues: ValidationIssue[]
+
+  constructor(issues: ValidationIssue[]) {
+    super('Invalid invocation start request')
+    this.name = 'InvocationStartRequestValidationError'
     this.issues = issues
   }
 }
@@ -153,6 +176,32 @@ export function validateInvocationSpec(value: unknown): HarnessInvocationSpec {
     throw new InvocationSpecValidationError(issues)
   }
   return value as HarnessInvocationSpec
+}
+
+export function validateInvocationInput(value: unknown): InvocationInput {
+  const issues: ValidationIssue[] = []
+  validateInvocationInputShape(value, '', issues)
+  if (issues.length > 0) {
+    throw new InvocationInputValidationError(issues)
+  }
+  return value as InvocationInput
+}
+
+export function validateInvocationStartRequest(value: unknown): InvocationStartRequest {
+  const issues: ValidationIssue[] = []
+  const request = asRecord(value)
+  if (!request) {
+    issues.push(issue('', 'invalid_type', 'Invocation start request must be an object'))
+  } else {
+    validateSpec(request.spec, issues, 'spec')
+    if (request.initialInput !== undefined) {
+      validateInvocationInputShape(request.initialInput, 'initialInput', issues)
+    }
+  }
+  if (issues.length > 0) {
+    throw new InvocationStartRequestValidationError(issues)
+  }
+  return value as InvocationStartRequest
 }
 
 export function validateCommand(value: unknown): BrokerCommand {
@@ -297,12 +346,12 @@ function validateCommandParams(
     case 'invocation.start':
       validateSpec(commandParams.spec, issues, 'params.spec')
       if (commandParams.initialInput !== undefined) {
-        validateInvocationInput(commandParams.initialInput, 'params.initialInput', issues)
+        validateInvocationInputShape(commandParams.initialInput, 'params.initialInput', issues)
       }
       return
     case 'invocation.input':
       requireString(commandParams.invocationId, 'params.invocationId', issues)
-      validateInvocationInput(commandParams.input, 'params.input', issues)
+      validateInvocationInputShape(commandParams.input, 'params.input', issues)
       validateInputPolicy(commandParams.policy, 'params.policy', issues)
       return
     case 'invocation.interrupt':
@@ -349,7 +398,7 @@ function validateBrokerHelloParams(params: SchemaRecord, issues: ValidationIssue
   }
 }
 
-function validateInvocationInput(
+function validateInvocationInputShape(
   value: unknown,
   basePath: string,
   issues: ValidationIssue[]

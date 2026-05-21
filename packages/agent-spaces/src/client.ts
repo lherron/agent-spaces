@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 
+import { randomUUID } from 'node:crypto'
 import { basename, dirname, extname, isAbsolute, resolve } from 'node:path'
 
 import { parseScopeRef } from 'agent-scope'
@@ -7,30 +8,39 @@ import type { AttachmentRef } from 'spaces-runtime'
 
 import {
   HARNESS_PROVIDERS,
+  type HarnessDetection,
+  type HarnessRunOptions,
+  type ResolvedPlacementContext,
   ensureDir,
   getAspHome,
   getHarnessFrontendsForProvider,
   normalizeAgentSdkModel,
-  type HarnessDetection,
-  type HarnessRunOptions,
-  type ResolvedPlacementContext,
 } from 'spaces-config'
 
 import { type RuntimePlacement, resolvePlacementContext } from 'spaces-config'
 
 import {
+  type PlacementRuntimePlan,
   type UnifiedSession,
   type UnifiedSessionEvent,
   createSession,
   detectAgentLocalComponents,
   harnessRegistry,
   planPlacementRuntime,
-  type PlacementRuntimePlan,
   prepareAgentBrainRuntime,
   prepareAgentToolRuntime,
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
 
+import {
+  type CodexAppServerDriverSpec,
+  type HarnessInvocationSpec,
+  type InputContent,
+  type InvocationInput,
+  type InvocationStartRequest,
+  validateInvocationInput,
+  validateInvocationSpec,
+} from 'spaces-harness-broker-protocol'
 import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
 import { PiSession, loadPiSdkBundle } from 'spaces-harness-pi-sdk/pi-session'
 
@@ -46,7 +56,7 @@ import {
   resolveInFlight,
 } from './run-tracker.js'
 
-import { expandTemplate, materializeSystemPrompt, type MaterializeResult } from 'spaces-runtime'
+import { type MaterializeResult, expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
 import {
   applyEnvOverlay,
   piSessionPath,
@@ -88,6 +98,8 @@ import {
 import type {
   AgentSpacesClient,
   AgentSpacesError,
+  BuildHarnessBrokerInvocationRequest,
+  BuildHarnessBrokerInvocationResponse,
   BuildProcessInvocationSpecRequest,
   BuildProcessInvocationSpecResponse,
   DescribeRequest,
@@ -95,6 +107,7 @@ import type {
   HarnessCapabilities,
   HarnessContinuationRef,
   HarnessFrontend,
+  InteractionMode,
   InterruptInFlightTurnRequest,
   ProcessInvocationSpec,
   QueueInFlightInputRequest,
@@ -438,6 +451,14 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
 
         return { spec: invocationSpec, ...(warnings.length > 0 ? { warnings } : {}) }
       })
+    },
+
+    async buildHarnessBrokerInvocation(
+      req: BuildHarnessBrokerInvocationRequest
+    ): Promise<BuildHarnessBrokerInvocationResponse> {
+      validateBrokerInvocationRequest(req)
+      const prepared = await preparePlacementCliRuntime(req, clientAspHome)
+      return toHarnessBrokerStartRequest(prepared, req)
     },
 
     async runTurnInFlight(req: RunTurnInFlightRequest): Promise<RunTurnNonInteractiveResponse> {
@@ -1025,11 +1046,31 @@ interface PreparedPlacementCliRuntime {
   warnings: string[]
 }
 
+interface PreparePlacementCliRuntimeRequest {
+  aspHome?: string | undefined
+  provider: HarnessContinuationRef['provider']
+  frontend: HarnessFrontend
+  interactionMode: InteractionMode
+  model?: string | undefined
+  yolo?: boolean | undefined
+  continuation?: HarnessContinuationRef | undefined
+  prompt?: string | undefined
+  attachments?: AttachmentRef[] | undefined
+  env?: Record<string, string> | undefined
+  placement?: RuntimePlacement | undefined
+}
+
+const DEFAULT_BROKER_PROCESS_LIMITS: NonNullable<HarnessInvocationSpec['process']['limits']> = {
+  startupTimeoutMs: 20_000,
+  turnTimeoutMs: 900_000,
+  stopGraceMs: 5_000,
+}
+
 /**
  * Prepare placement-based CLI runtime state without choosing an output protocol.
  */
 async function preparePlacementCliRuntime(
-  req: BuildProcessInvocationSpecRequest,
+  req: PreparePlacementCliRuntimeRequest,
   defaultAspHome?: string
 ): Promise<PreparedPlacementCliRuntime> {
   const placement = req.placement as RuntimePlacement
@@ -1266,17 +1307,152 @@ function toProcessInvocationSpec(
   }
 }
 
-/**
- * Handle placement-based buildProcessInvocationSpec request.
- * Resolves placement, materializes spaces, and builds full CLI invocation
- * through the harness adapter (matching the legacy path).
- */
-async function buildPlacementInvocationSpec(
-  req: BuildProcessInvocationSpecRequest,
-  defaultAspHome?: string
-): Promise<BuildProcessInvocationSpecResponse> {
-  const prepared = await preparePlacementCliRuntime(req, defaultAspHome)
-  return toProcessInvocationSpec(prepared, req)
+function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocationRequest): void {
+  if (req.provider !== 'openai') {
+    throw new CodedError(
+      `Harness broker invocation only supports provider "openai"; got "${req.provider}"`,
+      'provider_mismatch'
+    )
+  }
+  if (req.frontend !== CODEX_CLI_FRONTEND) {
+    throw new CodedError(
+      `Harness broker invocation only supports frontend "${CODEX_CLI_FRONTEND}"; got "${req.frontend}"`,
+      'unsupported_frontend'
+    )
+  }
+  if (req.interactionMode !== 'headless') {
+    throw new CodedError(
+      `Harness broker invocation only supports headless interaction mode; got "${req.interactionMode}"`,
+      'unsupported_frontend'
+    )
+  }
+}
+
+function brokerCorrelationFromPlacement(placement: RuntimePlacement): Record<string, string> {
+  const correlation: Record<string, string> = {
+    agentRoot: placement.agentRoot,
+  }
+  if (placement.projectRoot !== undefined) {
+    correlation['projectRoot'] = placement.projectRoot
+  }
+  if (placement.cwd !== undefined) {
+    correlation['cwd'] = placement.cwd
+  }
+  if (placement.runMode !== undefined) {
+    correlation['runMode'] = placement.runMode
+  }
+
+  const sessionRef = placement.correlation?.sessionRef
+  if (sessionRef?.scopeRef !== undefined) {
+    correlation['scopeRef'] = sessionRef.scopeRef
+  }
+  if (sessionRef?.laneRef !== undefined) {
+    correlation['laneRef'] = sessionRef.laneRef
+  }
+  if (placement.correlation?.hostSessionId !== undefined) {
+    correlation['hostSessionId'] = placement.correlation.hostSessionId
+  }
+
+  const handleParts = deriveHandleParts(placement)
+  if (handleParts.agentId !== undefined) {
+    correlation['agentId'] = handleParts.agentId
+  }
+  if (handleParts.projectId !== undefined) {
+    correlation['projectId'] = handleParts.projectId
+  }
+  if (handleParts.taskId !== undefined) {
+    correlation['taskId'] = handleParts.taskId
+  }
+  if (handleParts.lane !== undefined) {
+    correlation['lane'] = handleParts.lane
+  }
+
+  return correlation
+}
+
+function buildInitialInput(prepared: PreparedPlacementCliRuntime): InvocationInput | undefined {
+  const content: InputContent[] = []
+  if (prepared.expandedPrompt !== undefined && prepared.expandedPrompt.length > 0) {
+    content.push({ type: 'text', text: prepared.expandedPrompt })
+  }
+  for (const imagePath of prepared.imageAttachmentPaths) {
+    content.push({ type: 'local_image', path: imagePath })
+  }
+  if (content.length === 0) {
+    return undefined
+  }
+  return {
+    inputId: `input_${randomUUID()}`,
+    kind: 'user',
+    content,
+  }
+}
+
+function toHarnessBrokerStartRequest(
+  prepared: PreparedPlacementCliRuntime,
+  req: BuildHarnessBrokerInvocationRequest
+): BuildHarnessBrokerInvocationResponse {
+  const codexDescriptor = buildCodexAppServerLaunchDescriptor(prepared.runOptions)
+  const driver: CodexAppServerDriverSpec = {
+    kind: 'codex-app-server',
+    ...(req.continuation?.key !== undefined ? { resumeThreadId: req.continuation.key } : {}),
+    ...(codexDescriptor.model !== undefined ? { model: codexDescriptor.model } : {}),
+    ...(codexDescriptor.modelReasoningEffort !== undefined
+      ? { modelReasoningEffort: codexDescriptor.modelReasoningEffort }
+      : {}),
+    approvalPolicy: codexDescriptor.approvalPolicy ?? 'never',
+    ...(codexDescriptor.sandboxMode !== undefined
+      ? { sandboxMode: codexDescriptor.sandboxMode }
+      : {}),
+    ...(codexDescriptor.profile !== undefined ? { profile: codexDescriptor.profile } : {}),
+    permissionPolicy: req.permissionPolicy ?? { mode: 'deny' },
+    resumeFallback: req.resumeFallback ?? 'start-fresh',
+  }
+
+  const spec: HarnessInvocationSpec = {
+    specVersion: 'harness-broker.invocation/v1',
+    ...(req.invocationId !== undefined ? { invocationId: req.invocationId } : {}),
+    ...(req.labels !== undefined ? { labels: req.labels } : {}),
+    harness: {
+      frontend: 'codex',
+      provider: 'openai',
+      driver: 'codex-app-server',
+    },
+    process: {
+      command: prepared.commandPath,
+      args: prepared.args,
+      cwd: prepared.cwd,
+      env: prepared.env,
+      harnessTransport: { kind: 'jsonrpc-stdio' },
+      limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
+    },
+    interaction: {
+      mode: 'headless',
+      turnConcurrency: 'single',
+      inputQueue: 'none',
+    },
+    ...(req.continuation?.key !== undefined
+      ? { continuation: { provider: 'codex', kind: 'thread', key: req.continuation.key } }
+      : {}),
+    driver,
+    correlation: req.correlation ?? brokerCorrelationFromPlacement(req.placement),
+  }
+  const initialInput = buildInitialInput(prepared)
+  const startRequest: InvocationStartRequest =
+    initialInput === undefined ? { spec } : { spec, initialInput }
+
+  validateInvocationSpec(startRequest.spec)
+  if (startRequest.initialInput !== undefined) {
+    validateInvocationInput(startRequest.initialInput)
+  }
+
+  return {
+    startRequest,
+    spec,
+    ...(initialInput !== undefined ? { initialInput } : {}),
+    resolvedBundle: prepared.resolvedBundle,
+    ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
+  }
 }
 
 /**

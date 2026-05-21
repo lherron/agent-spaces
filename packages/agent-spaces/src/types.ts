@@ -4,6 +4,13 @@ import type {
   ResolvedRuntimeBundle,
   RuntimePlacement,
 } from 'spaces-config'
+import type {
+  HarnessInvocationSpec,
+  InvocationInput,
+  InvocationStartRequest,
+  PermissionPolicy,
+  ProcessLimits,
+} from 'spaces-harness-broker-protocol'
 import type { AttachmentRef } from 'spaces-runtime'
 
 /** Re-export HostCorrelation from config for placement consumers */
@@ -186,6 +193,34 @@ export interface BuildProcessInvocationSpecResponse {
   warnings?: string[] | undefined
 }
 
+export interface BuildHarnessBrokerInvocationRequest {
+  placement: RuntimePlacement
+  provider: 'openai'
+  frontend: 'codex-cli'
+  interactionMode: 'headless'
+  aspHome?: string | undefined
+  model?: string | undefined
+  yolo?: boolean | undefined
+  continuation?: HarnessContinuationRef | undefined
+  prompt?: string | undefined
+  attachments?: AttachmentRef[] | undefined
+  env?: Record<string, string> | undefined
+  invocationId?: string | undefined
+  labels?: Record<string, string> | undefined
+  correlation?: Record<string, string> | undefined
+  permissionPolicy?: PermissionPolicy | undefined
+  limits?: ProcessLimits | undefined
+  resumeFallback?: 'start-fresh' | 'fail' | undefined
+}
+
+export interface BuildHarnessBrokerInvocationResponse {
+  startRequest: InvocationStartRequest
+  spec: HarnessInvocationSpec
+  initialInput?: InvocationInput | undefined
+  resolvedBundle?: ResolvedRuntimeBundle | undefined
+  warnings?: string[] | undefined
+}
+
 // ---------------------------------------------------------------------------
 // Resolve / Describe (minor updates)
 // ---------------------------------------------------------------------------
@@ -324,6 +359,9 @@ export interface AgentSpacesClient {
   buildProcessInvocationSpec(
     req: BuildProcessInvocationSpecRequest
   ): Promise<BuildProcessInvocationSpecResponse>
+  buildHarnessBrokerInvocation(
+    req: BuildHarnessBrokerInvocationRequest
+  ): Promise<BuildHarnessBrokerInvocationResponse>
   resolve(req: ResolveRequest): Promise<ResolveResponse>
   describe(req: DescribeRequest): Promise<DescribeResponse>
   getHarnessCapabilities(): Promise<HarnessCapabilities>

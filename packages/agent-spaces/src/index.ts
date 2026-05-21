@@ -3,6 +3,8 @@ export type {
   AgentSpacesClient,
   AgentSpacesError,
   BaseEvent,
+  BuildHarnessBrokerInvocationRequest,
+  BuildHarnessBrokerInvocationResponse,
   BuildProcessInvocationSpecRequest,
   BuildProcessInvocationSpecResponse,
   DescribeRequest,
