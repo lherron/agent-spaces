@@ -2,9 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { basename, dirname, resolve } from 'node:path'
 
 import { parseScopeRef } from 'agent-scope'
-import type { HarnessDetection, HarnessRunOptions, ResolvedPlacementContext } from 'spaces-config'
 import type { RuntimePlacement } from 'spaces-config'
-import type { PlacementRuntimePlan } from 'spaces-execution'
 import type {
   CodexAppServerDriverSpec,
   HarnessInvocationSpec,
@@ -14,17 +12,14 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { validateInvocationInput, validateInvocationSpec } from 'spaces-harness-broker-protocol'
 import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
-import type { ContextResolverContext, MaterializeResult } from 'spaces-runtime'
+import type { ContextResolverContext } from 'spaces-runtime'
 import { expandTemplate } from 'spaces-runtime'
 
-import type { MaterializedSpec } from './client-materialization.js'
 import { CodedError, CODEX_CLI_FRONTEND } from './client-support.js'
+import type { PreparedPlacementCliRuntime } from './prepare-cli-runtime.js'
 import type {
   BuildHarnessBrokerInvocationRequest,
   BuildHarnessBrokerInvocationResponse,
-  BuildProcessInvocationSpecResponse,
-  HarnessContinuationRef,
-  ProcessInvocationSpec,
 } from './types.js'
 
 interface HandleParts {
@@ -32,28 +27,6 @@ interface HandleParts {
   projectId?: string | undefined
   taskId?: string | undefined
   lane?: string | undefined
-}
-
-export interface PreparedPlacementCliRuntime {
-  placement: RuntimePlacement
-  placementContext: ResolvedPlacementContext
-  resolvedBundle: BuildProcessInvocationSpecResponse['resolvedBundle']
-  runtimePlan: PlacementRuntimePlan
-  materialized: MaterializedSpec
-  systemPrompt?: MaterializeResult | undefined
-  expandedPrompt?: string | undefined
-  imageAttachmentPaths: string[]
-  runOptions: HarnessRunOptions
-  detection: HarnessDetection
-  commandPath: string
-  args: string[]
-  argv: string[]
-  env: Record<string, string>
-  cwd: string
-  displayCommand: string
-  continuation?: HarnessContinuationRef | undefined
-  codexAppServer?: ProcessInvocationSpec['codexAppServer'] | undefined
-  warnings: string[]
 }
 
 const DEFAULT_BROKER_PROCESS_LIMITS: NonNullable<HarnessInvocationSpec['process']['limits']> = {

@@ -540,9 +540,15 @@ describe('unified placement materialization (T-00876)', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
     const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+    const prepareSource = readFileSync(
+      join(import.meta.dirname, '..', 'prepare-cli-runtime.ts'),
+      'utf8'
+    )
 
     // Extract the two placement functions
-    const buildFn = source.match(/async function preparePlacementCliRuntime[\s\S]*?^}/m)?.[0]
+    const buildFn = prepareSource.match(
+      /async function preparePlacementCliRuntime[\s\S]*?^}/m
+    )?.[0]
     const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
 
     expect(buildFn).toBeDefined()
@@ -559,6 +565,8 @@ describe('unified placement materialization (T-00876)', () => {
     // The planner cutover should remove client-local placement planning helpers.
     expect(source).not.toMatch(/async function resolvePlacementDefaultRunOptions/)
     expect(source).not.toMatch(/function resolvePlacementModel\(/)
+    expect(prepareSource).not.toMatch(/async function resolvePlacementDefaultRunOptions/)
+    expect(prepareSource).not.toMatch(/function resolvePlacementModel\(/)
   })
 })
 

@@ -22,6 +22,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const clientSource = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+const prepareCliRuntimeSource = readFileSync(
+  join(import.meta.dirname, '..', 'prepare-cli-runtime.ts'),
+  'utf8'
+)
 const placementResolverSource = readFileSync(
   join(import.meta.dirname, '..', '..', '..', 'config', 'src', 'resolver', 'placement-resolver.ts'),
   'utf8'
@@ -93,7 +97,7 @@ describe('resolvePlacementContext returns effectiveConfig for agent-project (T-0
 // ===================================================================
 describe('buildPlacementInvocationSpec threads effectiveConfig defaults (T-00994)', () => {
   test('priming_prompt default: uses effectiveConfig.priming_prompt when req.prompt is unset', () => {
-    const fn = extractFunction(clientSource, 'preparePlacementCliRuntime')
+    const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
 
     // Placement defaults should come from the shared runtime planner.
     expect(fn).toMatch(/planPlacementRuntime\(/)
@@ -101,20 +105,20 @@ describe('buildPlacementInvocationSpec threads effectiveConfig defaults (T-00994
   })
 
   test('yolo default: uses effectiveConfig.yolo when req.yolo is unset', () => {
-    const fn = extractFunction(clientSource, 'preparePlacementCliRuntime')
+    const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
 
     expect(fn).toMatch(/runtimePlan\.runOptions/)
     expect(fn).toMatch(/runtimePlan\.yolo/)
   })
 
   test('model default: uses effectiveConfig.model when req.model is unset', () => {
-    const fn = extractFunction(clientSource, 'preparePlacementCliRuntime')
+    const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
 
     expect(fn).toMatch(/runtimePlan\.model/)
   })
 
   test('CLI req.yolo=true overrides effectiveConfig.yolo=false', () => {
-    const clientFn = extractFunction(clientSource, 'preparePlacementCliRuntime')
+    const clientFn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
     const plannerFn = extractFunction(executionSource, 'planPlacementRuntime')
 
     expect(clientFn).toMatch(/yolo:\s*req\.yolo/)
@@ -142,13 +146,13 @@ describe('agent-project placement context feeds harness pipeline (T-00994)', () 
   })
 
   test('buildPlacementInvocationSpec passes resolvePlacementContext spec to materializeSpec', () => {
-    const fn = extractFunction(clientSource, 'preparePlacementCliRuntime')
+    const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
     expect(fn).toMatch(/resolvePlacementContext\(/)
     expect(fn).toMatch(/materializeSpec\(/)
   })
 
   test('buildPlacementInvocationSpec merges agent tool env after request env', () => {
-    const fn = extractFunction(clientSource, 'preparePlacementCliRuntime')
+    const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
     expect(fn).toMatch(/detectAgentLocalComponents\(placement\.agentRoot\)/)
     expect(fn).toMatch(/prepareAgentToolRuntime\(/)
     expect(fn).toMatch(/\.\.\.\(req\.env \?\? \{\}\)[\s\S]*ASP_HOME:\s*aspHome/)
