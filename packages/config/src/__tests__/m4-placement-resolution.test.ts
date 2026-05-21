@@ -110,13 +110,11 @@ describe('placement types (T-00856)', () => {
 describe('placement resolver (T-00857)', () => {
   let tempDir: string
   let agentRoot: string
-  let projectRoot: string
 
   beforeEach(() => {
     const roots = createTempFixtureRoots()
     tempDir = roots.tempDir
     agentRoot = roots.agentRoot
-    projectRoot = roots.projectRoot
   })
 
   afterEach(() => {
@@ -435,7 +433,10 @@ describe('SOUL.md enforcement (T-00889)', () => {
     noSoulDir = mkdtempSync(join(tmpdir(), 'no-soul-'))
     const agentRoot = join(noSoulDir, 'agent-root')
     mkdirSync(agentRoot, { recursive: true })
-    writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n\n[spaces]\nbase = []\n')
+    writeFileSync(
+      join(agentRoot, 'agent-profile.toml'),
+      'schemaVersion = 2\n\n[spaces]\nbase = []\n'
+    )
   })
 
   afterEach(() => {

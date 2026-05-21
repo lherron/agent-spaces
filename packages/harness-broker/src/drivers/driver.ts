@@ -1,9 +1,9 @@
 import type {
   ClientCapabilities,
+  HarnessInvocationSpec,
   InvocationCapabilities,
   InvocationEventEnvelope,
   InvocationEventType,
-  HarnessInvocationSpec,
   InvocationInputRequest,
   InvocationInputResponse,
   InvocationInterruptRequest,

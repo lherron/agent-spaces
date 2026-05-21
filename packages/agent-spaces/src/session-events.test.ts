@@ -1,19 +1,8 @@
 /**
- * RED/GREEN TDD contract tests for session-events.ts (T-00942)
+ * Unit tests for session-events.ts.
  *
- * Pin the HRC-dependent seams:
- *   A. mapUnifiedEvents adapter contract — UnifiedSessionEvent → AgentEvent mapping
- *   B. createEventEmitter lifecycle — seq, continuation, idle
- *   C. mapContentToText — text extraction from various content shapes
- *
- * RED CONDITIONS (must fail before implementation):
- *   These tests pin the current behavior. They should be RED only if the
- *   source functions are missing or have different signatures. Since these
- *   test existing code, they should go GREEN immediately — the "red" phase
- *   validates that the tests are wired correctly and exercising real code.
- *
- * GREEN CONDITIONS:
- *   All assertions pass against the current session-events.ts implementation.
+ * Covers generic ASP event mapping, event emitter lifecycle, and text
+ * extraction behavior.
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -61,7 +50,7 @@ function mapEvent(
 // A. mapUnifiedEvents adapter contract
 // ===================================================================
 
-describe('mapUnifiedEvents adapter contract (T-00942)', () => {
+describe('mapUnifiedEvents adapter contract', () => {
   test('agent_start with sdkSessionId → calls onContinuationKeyObserved', () => {
     const { turnEnded, continuationKeys } = mapEvent({
       type: 'agent_start',
@@ -320,7 +309,7 @@ describe('mapUnifiedEvents adapter contract (T-00942)', () => {
 // B. createEventEmitter lifecycle
 // ===================================================================
 
-describe('createEventEmitter lifecycle (T-00942)', () => {
+describe('createEventEmitter lifecycle', () => {
   test('seq starts at 1 and increments', async () => {
     const events: AgentEvent[] = []
     const emitter = createEventEmitter(
@@ -432,7 +421,7 @@ describe('createEventEmitter lifecycle (T-00942)', () => {
 // C. mapContentToText
 // ===================================================================
 
-describe('mapContentToText (T-00942)', () => {
+describe('mapContentToText', () => {
   test('string passthrough: returns the string', () => {
     expect(mapContentToText('hello')).toBe('hello')
   })

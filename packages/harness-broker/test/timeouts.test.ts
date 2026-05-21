@@ -82,7 +82,16 @@ describe('Harness Broker timeout handling', () => {
       onEvent: (event) => events.push(event),
       now,
     })
-    const spec = scenarioSpec('slow-turn')
+    const spec = scenarioSpec('slow-turn', {
+      process: {
+        ...scenarioSpec('slow-turn').process,
+        limits: {
+          startupTimeoutMs: 500,
+          turnTimeoutMs: 25,
+          stopGraceMs: 25,
+        },
+      },
+    })
     await broker.start({ spec })
 
     const input = broker.input({ invocationId: spec.invocationId!, input: userInput })
@@ -105,7 +114,16 @@ describe('Harness Broker timeout handling', () => {
       onEvent: (event) => events.push(event),
       now,
     })
-    const spec = scenarioSpec('stubborn-stop')
+    const spec = scenarioSpec('stubborn-stop', {
+      process: {
+        ...scenarioSpec('stubborn-stop').process,
+        limits: {
+          startupTimeoutMs: 500,
+          turnTimeoutMs: 25,
+          stopGraceMs: 25,
+        },
+      },
+    })
     await broker.start({ spec })
     const input = broker.input({ invocationId: spec.invocationId!, input: userInput })
     await sleep(25)

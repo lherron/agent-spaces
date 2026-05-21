@@ -573,5 +573,6 @@ Resolved during delivery:
 Still open:
 
 3. **HRC migration owner & timing.** Phases 0–4 left HRC untouched. Who owns the `hrc-runtime` integration work, and when? Broker is dormant on `main` until something explicitly invokes it.
-4. **Future driver roadmap.** v0 ships Codex app-server only. When (and who) for Claude CLI / Pi CLI / headless Codex JSONL drivers? Recommend defer until at least one real consumer (HRC or otherwise) is running the Codex driver in production.
-5. **`ask-client` permission flow.** Wire-protocol works; no consumer exercises it yet. Once HRC (or another client) needs interactive approval, exercise the path and promote the deferred `todo` test to a real assertion.
+4. **Broker-owned FIFO input queue.** The protocol has `interaction.inputQueue`, `policy.whenBusy: "queue"`, queued dispositions, and `input.queued` events, but the current manager delegates `invocation.input` directly to `driver.input`. Before HRC migrates busy-session dispatch to the broker, implement the queue in `InvocationManager`: admit busy inputs into a per-invocation FIFO queue, emit `input.queued`, drain one input after each terminal turn event, and keep the behavior client-agnostic so HRC, ACP, CLIs, tests, and future clients all share the same semantics. See wrkq T-01574.
+5. **Future driver roadmap.** v0 ships Codex app-server only. When (and who) for Claude CLI / Pi CLI / headless Codex JSONL drivers? Recommend defer until at least one real consumer (HRC or otherwise) is running the Codex driver in production.
+6. **`ask-client` permission flow.** Wire-protocol works; no consumer exercises it yet. Once HRC (or another client) needs interactive approval, exercise the path and promote the deferred `todo` test to a real assertion.

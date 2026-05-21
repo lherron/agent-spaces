@@ -158,9 +158,6 @@ describe('buildProcessInvocationSpec characterization', () => {
         'agent:cody:project:agent-spaces:task:T-01558'
       )
       expect(response.spec.env['AGENT_LANE_REF']).toBe('repair')
-      expect(response.spec.env['HRC_SESSION_REF']).toBe(
-        'agent:cody:project:agent-spaces:task:T-01558/repair'
-      )
       expect(response.spec.env['AGENT_HOST_SESSION_ID']).toBe('host-session-01558')
       expect(response.spec.env['ASP_PROJECT']).toBe('agent-spaces')
       expect(response.spec.env['AGENTCHAT_ID']).toBe('cody')

@@ -170,7 +170,9 @@ export class CodexRpcClient {
     this.pending.delete(message.id)
 
     if (message.error) {
-      pending.reject(new CodexRpcError(message.error.code, message.error.message, message.error.data))
+      pending.reject(
+        new CodexRpcError(message.error.code, message.error.message, message.error.data)
+      )
       return
     }
 

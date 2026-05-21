@@ -128,7 +128,10 @@ describe('initialInput on InvocationStartRequest', () => {
     })
 
     const spec1 = scenarioSpec('start-fresh-turn')
-    await broker1.start({ spec: { ...spec1, invocationId: 'inv_with_initial' }, initialInput: userInput })
+    await broker1.start({
+      spec: { ...spec1, invocationId: 'inv_with_initial' },
+      initialInput: userInput,
+    })
 
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
     for (let i = 0; i < 50 && !eventsWithInitial.some((e) => e.type === 'turn.completed'); i++) {

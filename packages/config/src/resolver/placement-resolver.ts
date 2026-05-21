@@ -379,15 +379,6 @@ function loadAgentProfile(agentRoot: string): AgentRuntimeProfile {
   return parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
 }
 
-function loadProjectManifest(projectRoot: string): ProjectManifest {
-  const targetsPath = join(projectRoot, 'asp-targets.toml')
-  if (!existsSync(targetsPath)) {
-    throw new Error(`Project target manifest not found: ${targetsPath}`)
-  }
-
-  return parseTargetsToml(readFileSync(targetsPath, 'utf8'), targetsPath)
-}
-
 function loadProjectTargetOptional(
   projectRoot: string | undefined,
   targetName: string

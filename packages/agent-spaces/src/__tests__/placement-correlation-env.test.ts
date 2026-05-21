@@ -1,9 +1,8 @@
 /**
- * Regression tests for buildCorrelationEnvVars (T-01212)
+ * Regression tests for buildCorrelationEnvVars.
  *
- * Ensures placement-based SDK/headless runs propagate HRC_SESSION_REF so that
- * hrcchat tool subprocesses can resolve caller identity instead of falling back
- * to entity:human.
+ * Ensures placement-based SDK/headless runs propagate generic ASP
+ * correlation identifiers for child processes and host integrations.
  */
 import { describe, expect, it } from 'bun:test'
 
@@ -24,7 +23,7 @@ function makePlacement(correlation?: RuntimePlacement['correlation']): RuntimePl
 }
 
 describe('buildCorrelationEnvVars', () => {
-  it('emits HRC_SESSION_REF alongside AGENT_SCOPE_REF and AGENT_LANE_REF', () => {
+  it('emits generic session and host correlation env vars', () => {
     const placement = makePlacement({
       sessionRef: {
         scopeRef: 'agent:smokey:project:media-ingest',
@@ -37,11 +36,10 @@ describe('buildCorrelationEnvVars', () => {
 
     expect(env['AGENT_SCOPE_REF']).toBe('agent:smokey:project:media-ingest')
     expect(env['AGENT_LANE_REF']).toBe('lane:main')
-    expect(env['HRC_SESSION_REF']).toBe('agent:smokey:project:media-ingest/lane:main')
     expect(env['AGENT_HOST_SESSION_ID']).toBe('hsid-test')
   })
 
-  it('formats HRC_SESSION_REF as scopeRef/laneRef matching cli-adapter convention', () => {
+  it('preserves scopeRef and laneRef values exactly', () => {
     const placement = makePlacement({
       sessionRef: {
         scopeRef: 'agent:rex:project:agent-spaces:task:T-01104',
@@ -51,7 +49,8 @@ describe('buildCorrelationEnvVars', () => {
 
     const env = buildCorrelationEnvVars(placement)
 
-    expect(env['HRC_SESSION_REF']).toBe('agent:rex:project:agent-spaces:task:T-01104/lane:repair')
+    expect(env['AGENT_SCOPE_REF']).toBe('agent:rex:project:agent-spaces:task:T-01104')
+    expect(env['AGENT_LANE_REF']).toBe('lane:repair')
   })
 
   it('omits all correlation vars when correlation is absent', () => {
@@ -61,7 +60,6 @@ describe('buildCorrelationEnvVars', () => {
 
     expect(env['AGENT_SCOPE_REF']).toBeUndefined()
     expect(env['AGENT_LANE_REF']).toBeUndefined()
-    expect(env['HRC_SESSION_REF']).toBeUndefined()
     expect(env['AGENT_HOST_SESSION_ID']).toBeUndefined()
   })
 
@@ -74,7 +72,6 @@ describe('buildCorrelationEnvVars', () => {
 
     expect(env['AGENT_SCOPE_REF']).toBeUndefined()
     expect(env['AGENT_LANE_REF']).toBeUndefined()
-    expect(env['HRC_SESSION_REF']).toBeUndefined()
     expect(env['AGENT_HOST_SESSION_ID']).toBe('hsid-only')
   })
 })

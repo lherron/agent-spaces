@@ -17,10 +17,11 @@ import { terminateProcess } from '../../runtime/signals'
 import type { Driver, DriverContext, DriverStartResult } from '../driver'
 import { mapCodexNotification, parseCodexError } from './event-map'
 import { buildTurnStartParams } from './input'
-import { handlePermissionRequest, type PermissionHandlerContext } from './permissions'
+import { type PermissionHandlerContext, handlePermissionRequest } from './permissions'
 import { CodexRpcClient, CodexRpcError, type JsonRpcNotification } from './rpc-client'
 
-const bunRuntime = typeof Bun !== 'undefined' ? (Bun as unknown as { execPath?: string }) : undefined
+const bunRuntime =
+  typeof Bun !== 'undefined' ? (Bun as unknown as { execPath?: string }) : undefined
 if (bunRuntime !== undefined && bunRuntime.execPath === undefined) {
   Object.defineProperty(Bun, 'execPath', {
     value: process.execPath,
@@ -90,7 +91,11 @@ export function createCodexAppServerDriver(): Driver {
     return ctx
   }
 
-  function emitDiagnostic(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown): void {
+  function emitDiagnostic(
+    level: 'debug' | 'info' | 'warn' | 'error',
+    message: string,
+    data?: unknown
+  ): void {
     requireCtx().emit('diagnostic', {
       level,
       message,
@@ -112,7 +117,11 @@ export function createCodexAppServerDriver(): Driver {
   function onNotification(notification: JsonRpcNotification): void {
     if (notification.method === 'error') {
       const error = parseCodexError(notification.params)
-      emitDiagnostic('error', error.message, error.code !== undefined ? { code: error.code } : error.data)
+      emitDiagnostic(
+        'error',
+        error.message,
+        error.code !== undefined ? { code: error.code } : error.data
+      )
       if (turnActive && currentTurnId) {
         requireCtx().emit(
           'turn.failed',
@@ -249,7 +258,10 @@ export function createCodexAppServerDriver(): Driver {
       return CODEX_CAPABILITIES
     },
 
-    async start(startSpec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
+    async start(
+      startSpec: HarnessInvocationSpec,
+      driverCtx: DriverContext
+    ): Promise<DriverStartResult> {
       if (startSpec.driver.kind !== 'codex-app-server') {
         throw new BrokerError(BrokerErrorCode.DriverUnavailable, 'Invalid Codex driver spec')
       }
@@ -257,6 +269,7 @@ export function createCodexAppServerDriver(): Driver {
       ctx = driverCtx
       spec = startSpec
       driverSpec = startSpec.driver as CodexAppServerDriverSpec
+      const activeDriverSpec = driverSpec
       terminalEmitted = false
       startedEmitted = false
       stopping = false
@@ -275,12 +288,12 @@ export function createCodexAppServerDriver(): Driver {
         }
       })
 
-      rpc = new CodexRpcClient(proc, {
+      const rpcClient = new CodexRpcClient(proc, {
         onNotification,
         onRequest: async (request) => {
           const permCtx: PermissionHandlerContext = {
             ctx: requireCtx(),
-            driver: driverSpec!,
+            driver: activeDriverSpec,
             currentTurnId,
             currentInputId,
           }
@@ -292,6 +305,7 @@ export function createCodexAppServerDriver(): Driver {
           }
         },
       })
+      rpc = rpcClient
 
       // Wire startup timeout — timer starts when the first RPC is written,
       // so process boot time doesn't count against the limit.
@@ -314,9 +328,13 @@ export function createCodexAppServerDriver(): Driver {
 
       try {
         armStartupTimer()
-        await withStartupRace(rpc!.sendRequest('initialize', { clientInfo: { name: 'harness-broker', version: '0.1.0' } }))
+        await withStartupRace(
+          rpcClient.sendRequest('initialize', {
+            clientInfo: { name: 'harness-broker', version: '0.1.0' },
+          })
+        )
         armStartupTimer() // re-arm after successful initialize
-        await withStartupRace(rpc!.sendNotification('initialized', {}))
+        await withStartupRace(rpcClient.sendNotification('initialized', {}))
         armStartupTimer() // re-arm after initialized notification
         threadId = await withStartupRace(startThread())
       } catch (startupErr) {
@@ -404,24 +422,37 @@ export function createCodexAppServerDriver(): Driver {
       }
 
       try {
-        await rpc.sendRequest('turn/start', buildTurnStartParams({
-          threadId,
-          cwd: spec.process.cwd,
-          input: req.input,
-          driver: driverSpec,
-        }))
+        await rpc.sendRequest(
+          'turn/start',
+          buildTurnStartParams({
+            threadId,
+            cwd: spec.process.cwd,
+            input: req.input,
+            driver: driverSpec,
+          })
+        )
       } catch (error) {
         if (turnTimeout !== undefined) clearTimeout(turnTimeout)
         turnTimeout = undefined
         if (turnTimedOut) {
           // If stop() preempted the timeout, return success (input was accepted).
           if (stopping || terminalEmitted) {
-            return { inputId, accepted: true, disposition: 'started', ...(currentTurnId ? { turnId: currentTurnId } : {}) }
+            return {
+              inputId,
+              accepted: true,
+              disposition: 'started',
+              ...(currentTurnId ? { turnId: currentTurnId } : {}),
+            }
           }
           throw new BrokerError(BrokerErrorCode.Timeout, 'Turn timed out')
         }
         if (terminalEmitted || turnActive || stopping) {
-          return { inputId, accepted: true, disposition: 'started', ...(currentTurnId ? { turnId: currentTurnId } : {}) }
+          return {
+            inputId,
+            accepted: true,
+            disposition: 'started',
+            ...(currentTurnId ? { turnId: currentTurnId } : {}),
+          }
         }
         throw new BrokerError(
           BrokerErrorCode.HarnessError,
@@ -431,7 +462,12 @@ export function createCodexAppServerDriver(): Driver {
       if (turnTimeout !== undefined) clearTimeout(turnTimeout)
       turnTimeout = undefined
 
-      return { inputId, accepted: true, disposition: 'started', ...(currentTurnId ? { turnId: currentTurnId } : {}) }
+      return {
+        inputId,
+        accepted: true,
+        disposition: 'started',
+        ...(currentTurnId ? { turnId: currentTurnId } : {}),
+      }
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
@@ -442,7 +478,11 @@ export function createCodexAppServerDriver(): Driver {
           reason: 'Codex app-server v0 does not support turn interrupt',
         }
       }
-      return { accepted: false, effect: 'unsupported', reason: 'Codex app-server v0 interrupt unsupported' }
+      return {
+        accepted: false,
+        effect: 'unsupported',
+        reason: 'Codex app-server v0 interrupt unsupported',
+      }
     },
 
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {

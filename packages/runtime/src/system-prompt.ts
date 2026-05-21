@@ -29,6 +29,10 @@ export interface MaterializeResult {
   mode: SystemPromptMode
   reminderContent?: string | undefined
   maxChars?: number | undefined
+  promptSectionSizes?: string[] | undefined
+  reminderSectionSizes?: string[] | undefined
+  totalContextChars?: number | undefined
+  nearMaxChars?: boolean | undefined
 }
 
 export interface TemplateDiscoveryProfile {
@@ -119,19 +123,35 @@ export async function materializeSystemPrompt(
     return undefined
   }
 
+  const diagnostics =
+    inspected.template.kind === 'context'
+      ? {
+          promptSectionSizes: inspected.diagnostics.prompt.sectionSizes,
+          reminderSectionSizes: inspected.diagnostics.reminder.sectionSizes,
+          totalContextChars: inspected.diagnostics.totalChars,
+          nearMaxChars: inspected.diagnostics.nearMaxChars,
+        }
+      : {}
+
   if (inspected.template.kind === 'built-in') {
-    return writeMaterializedPrompt(outputPath, {
-      content: inspected.prompt.content,
-      mode: inspected.prompt.mode,
-    })
+    return {
+      ...writeMaterializedPrompt(outputPath, {
+        content: inspected.prompt.content,
+        mode: inspected.prompt.mode,
+      }),
+      ...diagnostics,
+    }
   }
 
-  return writeMaterializedContext(outputPath, {
-    content: inspected.prompt.content,
-    mode: inspected.prompt.mode,
-    reminderContent: inspected.reminder.content,
-    maxChars: inspected.template.maxChars,
-  })
+  return {
+    ...writeMaterializedContext(outputPath, {
+      content: inspected.prompt.content,
+      mode: inspected.prompt.mode,
+      reminderContent: inspected.reminder.content,
+      maxChars: inspected.template.maxChars,
+    }),
+    ...diagnostics,
+  }
 }
 
 export async function inspectAgentSystemPrompt(

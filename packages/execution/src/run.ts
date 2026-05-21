@@ -25,12 +25,7 @@ import {
   materializeFromRefs,
   readLockJson,
 } from 'spaces-config'
-import {
-  discoverContextTemplate,
-  expandTemplate,
-  materializeSystemPrompt,
-  resolveContextTemplateDetailed,
-} from 'spaces-runtime'
+import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
 
 import { migrateLegacyProjectCodexRuntimeHome } from './run-codex.js'
 export {
@@ -93,12 +88,19 @@ export {
 
 export async function run(targetName: string, options: RunOptions): Promise<RunResult> {
   const debug = process.env['ASP_DEBUG_RUN'] === '1'
+  const runStart = performance.now()
+  let lastMark = runStart
   const debugLog = (...args: unknown[]) => {
     if (debug) {
-      console.error('[asp run]', ...args)
+      const now = performance.now()
+      const total = (now - runStart).toFixed(1)
+      const delta = (now - lastMark).toFixed(1)
+      lastMark = now
+      console.error(`[asp run +${total}ms Δ${delta}ms]`, ...args)
     }
   }
 
+  debugLog('start')
   const aspHome = options.aspHome ?? getAspHome()
   debugLog('load manifest')
   const manifest = await loadProjectManifest(options.projectPath, aspHome)
@@ -108,6 +110,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     aspHome,
     harness: options.harness,
   })
+  debugLog('plan ok')
   const {
     agentProfile,
     harnessId,
@@ -119,6 +122,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const agentLocalComponents = agentProfile
     ? await detectAgentLocalComponents(agentProfile.agentRoot)
     : undefined
+  debugLog('detectAgentLocalComponents ok')
 
   debugLog('detect harness', harnessId)
   const detection = await adapter.detect()
@@ -160,6 +164,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         projectPath: options.projectPath,
         harness: harnessId,
         adapter,
+        fetchRegistry: false,
         ...(options.aspHome !== undefined ? { aspHome: options.aspHome } : {}),
         ...(options.refresh !== undefined ? { refresh: options.refresh } : {}),
         ...(options.inheritProject !== undefined ? { inheritProject: options.inheritProject } : {}),
@@ -174,6 +179,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         harness: harnessId,
         targets: [targetName],
         adapter,
+        fetchRegistry: false,
         ...(agentProfile ? { agentPath: agentProfile.agentRoot } : {}),
         ...(agentLocalComponents ? { agentLocalComponents } : {}),
       })
@@ -186,6 +192,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   debugLog('lock ok')
 
   const bundle = await adapter.loadTargetBundle(harnessOutputPath, targetName)
+  debugLog('loadTargetBundle ok')
   const combinedPrompt = combinePrompts(defaultPrompt, options.prompt)
   const agentId = agentProfile ? basename(agentProfile.agentRoot) : undefined
   const projectId =
@@ -238,6 +245,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   let totalContextChars: number | undefined
   let nearMaxChars: boolean | undefined
   if (agentProfile) {
+    debugLog('materializeSystemPrompt start')
     const systemPrompt = await materializeSystemPrompt(harnessOutputPath, {
       agentRoot: agentProfile.agentRoot,
       ...(agentId !== undefined ? { agentId } : {}),
@@ -246,42 +254,21 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
       taskId,
       runMode: 'query',
     })
+    debugLog('materializeSystemPrompt ok')
     if (systemPrompt) {
       const materializedPrompt = systemPrompt as MaterializedPromptResult
       reminderContent = materializedPrompt.reminderContent
       maxChars = materializedPrompt.maxChars
+      promptSectionSizes = materializedPrompt.promptSectionSizes
+      reminderSectionSizes = materializedPrompt.reminderSectionSizes
+      totalContextChars = materializedPrompt.totalContextChars
+      nearMaxChars = materializedPrompt.nearMaxChars
       if (materializedPrompt.content.length > 0) {
         cliRunOptions.systemPrompt = materializedPrompt.content
         cliRunOptions.systemPromptMode = materializedPrompt.mode
       }
       if (reminderContent) {
         cliRunOptions.reminderContent = reminderContent
-      }
-    }
-
-    if (options.dryRun) {
-      const discovered = discoverContextTemplate({
-        agentRoot: agentProfile.agentRoot,
-        aspHome: options.aspHome,
-      })
-
-      if (discovered.templateSource?.kind === 'context') {
-        const resolved = await resolveContextTemplateDetailed(discovered.templateSource.template, {
-          agentRoot: agentProfile.agentRoot,
-          agentName: basename(agentProfile.agentRoot),
-          ...(agentId !== undefined ? { agentId } : {}),
-          agentsRoot: discovered.agentsRoot,
-          projectRoot: options.projectPath,
-          projectId,
-          taskId,
-          runMode: 'query',
-          ...(discovered.profile.rawProfile ? { agentProfile: discovered.profile.rawProfile } : {}),
-        })
-
-        promptSectionSizes = resolved.diagnostics.prompt.sectionSizes
-        reminderSectionSizes = resolved.diagnostics.reminder.sectionSizes
-        totalContextChars = resolved.diagnostics.totalChars
-        nearMaxChars = resolved.diagnostics.nearMaxChars
       }
     }
   }
@@ -300,6 +287,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     dryRun: options.dryRun,
   })
 
+  debugLog('executeHarnessRun start')
   const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
     env: options.env,
     dryRun: options.dryRun,
@@ -324,6 +312,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         }
       : {}),
   })
+  debugLog('executeHarnessRun ok')
 
   const buildResult: BuildResult = {
     pluginDirs: bundle.pluginDirs ?? [],

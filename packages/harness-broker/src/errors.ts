@@ -1,4 +1,4 @@
-import { BrokerErrorCode, createJsonRpcError } from 'spaces-harness-broker-protocol'
+import { type BrokerErrorCode, createJsonRpcError } from 'spaces-harness-broker-protocol'
 import type { JsonRpcError } from 'spaces-harness-broker-protocol'
 
 export class BrokerError extends Error {

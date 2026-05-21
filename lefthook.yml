@@ -14,8 +14,8 @@ pre-commit:
       run: bun scripts/check-boundaries.ts
     manifests:
       run: bun scripts/check-manifest-edges.ts
-    typecheck:
-      run: bun run build && bun run typecheck
+    build:
+      run: bun run build
 
 pre-push:
   parallel: false

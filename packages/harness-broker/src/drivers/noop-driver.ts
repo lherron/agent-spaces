@@ -1,4 +1,5 @@
 import type {
+  HarnessInvocationSpec,
   InvocationCapabilities,
   InvocationInputRequest,
   InvocationInputResponse,
@@ -6,11 +7,10 @@ import type {
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
-  HarnessInvocationSpec,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
-import type { Driver, DriverContext, DriverStartResult } from './driver'
 import { BrokerError } from '../errors'
+import type { Driver, DriverContext, DriverStartResult } from './driver'
 
 export interface NoopDriverOptions {
   /** Which terminal state to enter on stop: 'exited' or 'failed'. */
@@ -57,7 +57,10 @@ export function createNoopDriver(options: NoopDriverOptions = {}): Driver {
       return NOOP_CAPABILITIES
     },
 
-    async start(_spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
+    async start(
+      _spec: HarnessInvocationSpec,
+      driverCtx: DriverContext
+    ): Promise<DriverStartResult> {
       ctx = driverCtx
       return { ok: true }
     },

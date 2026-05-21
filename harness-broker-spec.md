@@ -34,7 +34,8 @@ Harness Process
 3. **One structured protocol channel.** Commands, responses, and async broker events share one broker protocol transport. Raw harness stdout/stderr/pty traffic never shares the broker protocol stream.
 4. **No durable state in broker.** Broker state is in-memory and scoped to a running broker process. Clients own persistence, replay, operator state, and recovery policy.
 5. **Capability-first semantics.** The broker reports what the active driver supports. If an input/control operation is unsupported, the broker rejects it with a normalized error rather than leaking provider-specific behavior.
-6. **Safe by default.** The broker spawns exact argv without a shell, treats env and attachment paths as sensitive, and avoids echoing secrets in events.
+6. **Broker-owned input admission.** Busy-turn admission, FIFO queuing, and queued-input draining are broker responsibilities. Drivers apply one input now; they do not each invent client-visible queue semantics.
+7. **Safe by default.** The broker spawns exact argv without a shell, treats env and attachment paths as sensitive, and avoids echoing secrets in events.
 
 ## 2. Definitions
 
@@ -472,6 +473,9 @@ export interface InvocationInputResponse {
 Rules:
 
 - `user` starts a new turn if the invocation is ready.
+- If the invocation is busy and `policy.whenBusy === 'reject'`, the broker rejects the input and emits `input.rejected`.
+- If the invocation is busy and `policy.whenBusy === 'queue'`, and `interaction.inputQueue === 'fifo'` is supported for the invocation, the broker appends the input to its per-invocation FIFO queue, emits `input.queued`, and starts the input after the active turn reaches a terminal turn event.
+- Queued input is in-memory broker state. Clients that need durable recovery must persist their own input/message state and reconcile it against broker events.
 - `steer` attempts to affect the active turn. If unsupported, the broker rejects it unless `whenBusy` permits queuing as a future user turn.
 - `append_context` attempts to add context without necessarily changing the user-visible prompt. If unsupported, reject or queue according to policy.
 - For Codex app-server v0, only `user` input is supported. Images are supported as local image paths when passed as turn input. `steer` and `append_context` are rejected unless explicitly configured to queue as a later `user` turn.
@@ -941,6 +945,10 @@ turn_active + user/queue  -> input.queued, starts after active turn if queue sup
 turn_active + steer       -> apply if supported, else reject
 turn_active + append      -> apply if supported, else reject or queue by policy
 ```
+
+Queue support is provider-neutral and client-agnostic. HRC, ACP, CLI tools, tests, and future clients all use the same `invocation.input` policy fields and observe the same `input.queued` / `input.rejected` events. A client must not start a second broker invocation merely because the current invocation has an active turn; queue or reject through this protocol instead.
+
+For `turns.concurrency: 'single'`, the broker drains at most one queued input at a time after `turn.completed`, `turn.failed`, or `turn.interrupted`, preserving FIFO order. If the invocation exits, fails, stops, or is disposed before a queued input starts, the broker rejects or fails the remaining queued inputs with normalized events.
 
 For Codex app-server v0: no queue, no steer, no append-context. Single active turn only.
 

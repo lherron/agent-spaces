@@ -5,10 +5,7 @@ export interface TerminateProcessOptions {
   graceMs: number
 }
 
-export async function terminateProcess({
-  proc,
-  graceMs,
-}: TerminateProcessOptions): Promise<void> {
+export async function terminateProcess({ proc, graceMs }: TerminateProcessOptions): Promise<void> {
   if (proc.exitCode !== null || proc.killed) {
     return
   }

@@ -163,33 +163,6 @@ async function queryVersion(claudePath: string): Promise<string> {
 }
 
 /**
- * Check if a specific flag is supported by running `claude --help`.
- *
- * @param claudePath - Path to the claude binary
- * @param flag - Flag to check (e.g., "--plugin-dir")
- * @returns True if flag is mentioned in help output
- */
-async function supportsFlag(claudePath: string, flag: string): Promise<boolean> {
-  try {
-    const proc = Bun.spawn([claudePath, '--help'], {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-
-    // We don't care about exit code for --help
-    await proc.exited
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-
-    const helpText = stdout + stderr
-    return helpText.includes(flag)
-  } catch {
-    // If --help fails, assume flags are supported (conservative)
-    return true
-  }
-}
-
-/**
  * Detect Claude installation and query capabilities.
  *
  * @param forceRefresh - If true, ignore cached info and re-detect
@@ -214,17 +187,11 @@ export async function detectClaude(forceRefresh = false): Promise<ClaudeInfo> {
   const path = await findClaudeBinary()
   const version = await queryVersion(path)
 
-  // Check supported flags in parallel
-  const [supportsPluginDir, supportsMcpConfig] = await Promise.all([
-    supportsFlag(path, '--plugin-dir'),
-    supportsFlag(path, '--mcp-config'),
-  ])
-
   cachedInfo = {
     path,
     version,
-    supportsPluginDir,
-    supportsMcpConfig,
+    supportsPluginDir: true,
+    supportsMcpConfig: true,
   }
 
   return cachedInfo

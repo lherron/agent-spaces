@@ -64,6 +64,23 @@ export type ProcessInvocationSpec = {
   displayCommand?: string | undefined
   /** Path to the materialized system prompt file (for audit/inspection) */
   systemPromptFile?: string | undefined
+  /**
+   * Structured prompt material carried into the launch artifact. Lets the
+   * launch wrapper (exec.ts) print the rendered system/priming prompt for
+   * harnesses that don't pass it through argv (e.g. codex-cli, which writes
+   * to AGENTS.md). Shape mirrors hrc-core's HrcLaunchPromptMaterial.
+   */
+  prompts?:
+    | {
+        system?:
+          | {
+              content: string
+              mode?: 'append' | 'replace' | undefined
+              sourcePath?: string | undefined
+            }
+          | undefined
+      }
+    | undefined
   codexAppServer?:
     | {
         prompt?: string | undefined

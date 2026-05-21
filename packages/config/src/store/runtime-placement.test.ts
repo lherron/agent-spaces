@@ -38,15 +38,13 @@ describe('runtime placement helpers', () => {
 
   test('buildRuntimeBundleRef throws when agentRoot has no agent-profile.toml', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-noprofile-'))
-    expect(() =>
-      buildRuntimeBundleRef({ agentName: 'foo', agentRoot: tmp })
-    ).toThrow(/agent-profile\.toml not found/)
+    expect(() => buildRuntimeBundleRef({ agentName: 'foo', agentRoot: tmp })).toThrow(
+      /agent-profile\.toml not found/
+    )
   })
 
   test('buildRuntimeBundleRef throws when no selectors are provided', () => {
-    expect(() => buildRuntimeBundleRef({})).toThrow(
-      /no identifying selector provided/
-    )
+    expect(() => buildRuntimeBundleRef({})).toThrow(/no identifying selector provided/)
   })
 
   test('resolveAgentPlacementPaths finds projectRoot via asp-targets.toml marker walk-up', () => {

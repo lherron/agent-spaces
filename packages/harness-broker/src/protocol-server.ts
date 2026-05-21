@@ -1,15 +1,11 @@
 import type { Readable, Writable } from 'node:stream'
 import {
   NdjsonDecoder,
+  createJsonRpcErrorResponse,
   encodeNdjsonFrame,
   isJsonRpcRequest,
-  createJsonRpcErrorResponse,
 } from 'spaces-harness-broker-protocol'
-import type {
-  JsonRpcMessage,
-  JsonRpcNotification,
-  JsonRpcId,
-} from 'spaces-harness-broker-protocol'
+import type { JsonRpcId, JsonRpcMessage, JsonRpcNotification } from 'spaces-harness-broker-protocol'
 import { toJsonRpcError } from './errors'
 
 export type RequestHandler = (request: {
@@ -32,7 +28,7 @@ export interface ProtocolServer {
 }
 
 export function createProtocolServer(options: ProtocolServerOptions): ProtocolServer {
-  const { stdin, stdout, stderr } = options
+  const { stdin, stdout } = options
   const handlers = new Map<string, RequestHandler>()
   const decoder = new NdjsonDecoder()
   let closed = false

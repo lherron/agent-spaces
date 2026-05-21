@@ -44,9 +44,7 @@ function buildCodexInput(
   return items
 }
 
-function encodeSandboxPolicy(
-  sandboxMode: string | undefined
-): { type: string } | null {
+function encodeSandboxPolicy(sandboxMode: string | undefined): { type: string } | null {
   if (!sandboxMode) return null
   switch (sandboxMode) {
     case 'danger-full-access':

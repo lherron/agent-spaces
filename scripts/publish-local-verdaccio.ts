@@ -107,7 +107,7 @@ function resolvePublishVersion(baseVersion: string, options: Options): string {
   return version
 }
 
-function resolveTag(version: string, options: Options): string {
+function resolveTag(options: Options): string {
   return options.tag ?? 'latest'
 }
 
@@ -351,7 +351,7 @@ async function main() {
     throw new Error(`${PACKAGES[0]}/package.json must include version`)
   }
   publishVersion = resolvePublishVersion(firstManifest.version, options)
-  publishTag = resolveTag(publishVersion, options)
+  publishTag = resolveTag(options)
   internalNames = await packageNames()
 
   const mode = options.dryRun ? 'Dry-run publishing' : 'Publishing'

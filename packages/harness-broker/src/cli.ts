@@ -1,12 +1,12 @@
-import { createBroker } from './broker'
-import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
-import { createProtocolServer } from './protocol-server'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
   InvocationInput,
   JsonRpcNotification,
 } from 'spaces-harness-broker-protocol'
+import { createBroker } from './broker'
+import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
+import { createProtocolServer } from './protocol-server'
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
@@ -116,7 +116,9 @@ async function runOnce(args: string[]): Promise<void> {
   const specPath = readFlag(args, '--spec')
   const inputPath = readFlag(args, '--input')
   if (!specPath || !inputPath) {
-    process.stderr.write('Usage: harness-broker run-once --spec invocation.json --input input.json\n')
+    process.stderr.write(
+      'Usage: harness-broker run-once --spec invocation.json --input input.json\n'
+    )
     process.exit(1)
   }
 

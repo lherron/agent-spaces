@@ -33,6 +33,10 @@ export interface MaterializedPromptResult {
   mode: 'replace' | 'append'
   reminderContent?: string | undefined
   maxChars?: number | undefined
+  promptSectionSizes?: string[] | undefined
+  reminderSectionSizes?: string[] | undefined
+  totalContextChars?: number | undefined
+  nearMaxChars?: boolean | undefined
 }
 
 async function executeHarnessCommand(

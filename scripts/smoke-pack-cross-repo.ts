@@ -1,4 +1,4 @@
-// WHY: Verify that prepack + postpack on the 17 cross-repo boundary packages
+// WHY: Verify that prepack + postpack on the ASP cross-repo boundary packages
 // actually produce tarballs with no `bun` export condition. `bun pm pack` does
 // not auto-invoke prepack/postpack lifecycle hooks for private workspace
 // packages, so this script explicitly runs `bun run prepack` (strips bun keys),
@@ -25,13 +25,6 @@ const PACKAGES = [
   'packages/harness-pi',
   'packages/harness-pi-sdk',
   'packages/agent-spaces',
-  'packages/agent-action-render',
-  'packages/hrc-core',
-  'packages/hrc-sdk',
-  'packages/hrc-frame-render',
-  'packages/hrc-server',
-  'packages/hrc-events',
-  'packages/hrc-store-sqlite',
 ] as const
 
 type CheckOutcome =

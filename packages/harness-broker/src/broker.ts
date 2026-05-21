@@ -1,28 +1,28 @@
 import type {
-  BrokerHelloRequest,
-  BrokerHelloResponse,
   BrokerHealthRequest,
   BrokerHealthResponse,
+  BrokerHelloRequest,
+  BrokerHelloResponse,
   ClientCapabilities,
-  InvocationStartRequest,
-  InvocationStartResponse,
+  InvocationDisposeRequest,
+  InvocationDisposeResponse,
+  InvocationEventEnvelope,
   InvocationInputRequest,
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
-  InvocationStopRequest,
-  InvocationStopResponse,
+  InvocationStartRequest,
+  InvocationStartResponse,
   InvocationStatusRequest,
   InvocationStatusResponse,
-  InvocationDisposeRequest,
-  InvocationDisposeResponse,
-  InvocationEventEnvelope,
+  InvocationStopRequest,
+  InvocationStopResponse,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
-import { BrokerError } from './errors'
-import { createInvocationEventSequencer } from './events'
 import type { Driver } from './drivers/driver'
 import { createDriverRegistry } from './drivers/registry'
+import { BrokerError } from './errors'
+import { createInvocationEventSequencer } from './events'
 import { createInvocationManager } from './invocation-manager'
 
 const BROKER_VERSION = '0.1.0'
@@ -63,11 +63,21 @@ export function createBroker(options: BrokerOptions): Broker {
       if (!req || typeof req !== 'object') {
         throw new BrokerError(-32602 as BrokerErrorCode, 'Invalid params: expected object')
       }
-      if (!req.clientInfo || typeof req.clientInfo !== 'object' || typeof req.clientInfo.name !== 'string') {
-        throw new BrokerError(-32602 as BrokerErrorCode, 'Invalid params: clientInfo.name is required')
+      if (
+        !req.clientInfo ||
+        typeof req.clientInfo !== 'object' ||
+        typeof req.clientInfo.name !== 'string'
+      ) {
+        throw new BrokerError(
+          -32602 as BrokerErrorCode,
+          'Invalid params: clientInfo.name is required'
+        )
       }
       if (!Array.isArray(req.protocolVersions) || req.protocolVersions.length === 0) {
-        throw new BrokerError(-32602 as BrokerErrorCode, 'Invalid params: protocolVersions must be a non-empty array')
+        throw new BrokerError(
+          -32602 as BrokerErrorCode,
+          'Invalid params: protocolVersions must be a non-empty array'
+        )
       }
 
       const supported = req.protocolVersions.includes('harness-broker/0.1')
@@ -134,9 +144,7 @@ export function createBroker(options: BrokerOptions): Broker {
       return result
     },
 
-    async interrupt(
-      req: InvocationInterruptRequest
-    ): Promise<InvocationInterruptResponse> {
+    async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
       return manager.interrupt(req)
     },
 

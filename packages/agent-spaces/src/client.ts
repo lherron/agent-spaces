@@ -1306,7 +1306,18 @@ function toProcessInvocationSpec(
     ioMode: req.ioMode,
     ...(prepared.continuation ? { continuation: prepared.continuation } : {}),
     displayCommand: prepared.displayCommand,
-    ...(prepared.systemPrompt ? { systemPromptFile: prepared.systemPrompt.path } : {}),
+    ...(prepared.systemPrompt
+      ? {
+          systemPromptFile: prepared.systemPrompt.path,
+          prompts: {
+            system: {
+              content: prepared.systemPrompt.content,
+              mode: prepared.systemPrompt.mode,
+              sourcePath: prepared.systemPrompt.path,
+            },
+          },
+        }
+      : {}),
     ...(prepared.codexAppServer ? { codexAppServer: prepared.codexAppServer } : {}),
   }
 

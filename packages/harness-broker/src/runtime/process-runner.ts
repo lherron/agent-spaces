@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { stat } from 'node:fs/promises'
 import type { HarnessProcessSpec } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'

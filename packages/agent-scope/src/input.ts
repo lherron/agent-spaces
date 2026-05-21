@@ -100,10 +100,7 @@ function parseScopeInput(input: string, defaultLaneId?: string): ResolvedScopeIn
  * task to.
  */
 export function resolveScopeInput(input: string, defaultLaneId?: string): ResolvedScopeInput {
-  return resolveQualifiedScopeInput(
-    input,
-    defaultLaneId !== undefined ? { defaultLaneId } : {}
-  )
+  return resolveQualifiedScopeInput(input, defaultLaneId !== undefined ? { defaultLaneId } : {})
 }
 
 /**

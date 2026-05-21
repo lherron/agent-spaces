@@ -1,26 +1,26 @@
 import type {
   ClientCapabilities,
+  ContinuationUpdate,
   HarnessInvocationSpec,
   InvocationCapabilities,
+  InvocationDisposeRequest,
+  InvocationDisposeResponse,
+  InvocationEventEnvelope,
   InvocationEventType,
   InvocationInput,
   InvocationInputRequest,
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
-  InvocationState,
   InvocationStartResponse,
+  InvocationState,
+  InvocationStatusResponse,
   InvocationStopRequest,
   InvocationStopResponse,
-  InvocationStatusResponse,
-  InvocationDisposeRequest,
-  InvocationDisposeResponse,
-  InvocationEventEnvelope,
-  ContinuationUpdate,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
-import { BrokerError } from './errors'
 import type { Driver, DriverContext } from './drivers/driver'
+import { BrokerError } from './errors'
 import type { InvocationEventSequencer } from './events'
 import { buildEnvSecrets, redactPayload, safeStartedPayload } from './security/redaction'
 
@@ -59,9 +59,7 @@ export interface InvocationManager {
   activeCount(): number
 }
 
-export function createInvocationManager(
-  options: InvocationManagerOptions
-): InvocationManager {
+export function createInvocationManager(options: InvocationManagerOptions): InvocationManager {
   const { sequencer, onEvent, getClientCapabilities = () => ({}) } = options
   const invocations = new Map<string, Invocation>()
 
@@ -168,7 +166,8 @@ export function createInvocationManager(
       }
 
       const invocationId =
-        spec.invocationId ?? `inv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+        spec.invocationId ??
+        `inv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
       const inv: Invocation = {
         invocationId,
@@ -184,7 +183,11 @@ export function createInvocationManager(
       const ctx: DriverContext = {
         invocationId,
         clientCapabilities: getClientCapabilities(),
-        emit<TPayload>(type: InvocationEventType, payload: TPayload, extra?: Parameters<typeof emit>[3]) {
+        emit<TPayload>(
+          type: InvocationEventType,
+          payload: TPayload,
+          extra?: Parameters<typeof emit>[3]
+        ) {
           return emit(inv, type, payload, extra)
         },
       }
@@ -243,9 +246,7 @@ export function createInvocationManager(
       return inv.driver.input(req)
     },
 
-    async interrupt(
-      req: InvocationInterruptRequest
-    ): Promise<InvocationInterruptResponse> {
+    async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
       const inv = requireInvocation(req.invocationId)
       if (TERMINAL_STATES.has(inv.state) || inv.state === 'disposed') {
         return { accepted: false, effect: 'no_active_turn', reason: `Invocation is ${inv.state}` }

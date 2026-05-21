@@ -86,6 +86,28 @@ Test fixtures are in `integration-tests/fixtures/`:
 - `sample-project/` - Project with asp-targets.toml
 - `claude-shim/` - Mock claude binary for tests
 
+## Harness Broker Smoke
+
+For any harness-broker change, always run the real Codex broker smoke before
+declaring the work completed:
+
+```bash
+bun scripts/smoke-asp-broker-real-codex.ts \
+  --scope-ref cody@agent-spaces \
+  --agent-root /Users/lherron/praesidium/var/agents/cody \
+  --project-root /Users/lherron/praesidium/agent-spaces \
+  --cwd /Users/lherron/praesidium/agent-spaces \
+  --asp-home /Users/lherron/praesidium/var/spaces-repo \
+  --timeout 120
+```
+
+This script lives in `scripts/smoke-asp-broker-real-codex.ts`. It uses the
+Agent Spaces SDK to build a broker invocation, then executes
+`packages/harness-broker/bin/harness-broker.js run --transport stdio` against a
+real `codex app-server`. Do not report a harness-broker change as complete
+unless this smoke has passed, or you have clearly reported the blocker that
+prevented running it.
+
 ## Pack Smoke for `@lherron/agent-spaces`
 
 The published CLI bundles its workspace deps. After packaging changes, verify

@@ -146,7 +146,7 @@ content = "append me"
       runMode: 'task',
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       path: join(outputRoot, 'system-prompt.md'),
       content: 'append me',
       mode: 'append',
@@ -171,7 +171,7 @@ template = "agent-template.toml"
       runMode: 'task',
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       path: join(outputRoot, 'system-prompt.md'),
       content: 'agent override',
       mode: 'replace',
@@ -190,7 +190,7 @@ template = "agent-template.toml"
       runMode: 'task',
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       path: join(outputRoot, 'system-prompt.md'),
       content: 'agents root',
       mode: 'replace',
@@ -233,7 +233,7 @@ content = "context template wins"
       runMode: 'task',
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       path: join(outputRoot, 'system-prompt.md'),
       content: 'context template wins',
       mode: 'replace',
@@ -253,7 +253,7 @@ content = "context template wins"
       runMode: 'task',
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       path: join(outputRoot, 'system-prompt.md'),
       content: 'asp home',
       mode: 'replace',
@@ -297,7 +297,7 @@ heartbeat = ["agent-root:///by-mode.md"]
       '\n\n---\n\n'
     )
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       path: join(outputRoot, 'system-prompt.md'),
       content: expectedContent,
       mode: 'replace',
@@ -347,7 +347,7 @@ content = "append me"
       runMode: 'task',
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       path: join(outputRoot, 'system-prompt.md'),
       content: 'append me',
       mode: 'append',
@@ -382,7 +382,7 @@ content = "reminder body"
       runMode: 'task',
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       path: join(outputRoot, 'system-prompt.md'),
       content: 'prompt body',
       mode: 'append',

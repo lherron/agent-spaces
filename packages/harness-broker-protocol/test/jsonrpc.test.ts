@@ -1,94 +1,94 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from 'bun:test'
 import {
   isJsonRpcNotification,
   isJsonRpcRequest,
   isJsonRpcResponse,
   parseJsonRpcMessage,
-} from "../src/jsonrpc";
+} from '../src/jsonrpc'
 
-describe("JSON-RPC 2.0 message parsing and discrimination", () => {
-  test("parses and discriminates requests", () => {
+describe('JSON-RPC 2.0 message parsing and discrimination', () => {
+  test('parses and discriminates requests', () => {
     const message = parseJsonRpcMessage(
-      '{"jsonrpc":"2.0","id":"1","method":"broker.hello","params":{"clientInfo":{"name":"example-client"},"protocolVersions":["harness-broker/0.1"]}}',
-    );
+      '{"jsonrpc":"2.0","id":"1","method":"broker.hello","params":{"clientInfo":{"name":"example-client"},"protocolVersions":["harness-broker/0.1"]}}'
+    )
 
-    expect(isJsonRpcRequest(message)).toBe(true);
-    expect(isJsonRpcNotification(message)).toBe(false);
-    expect(isJsonRpcResponse(message)).toBe(false);
+    expect(isJsonRpcRequest(message)).toBe(true)
+    expect(isJsonRpcNotification(message)).toBe(false)
+    expect(isJsonRpcResponse(message)).toBe(false)
     expect(message).toMatchObject({
-      jsonrpc: "2.0",
-      id: "1",
-      method: "broker.hello",
-    });
-  });
+      jsonrpc: '2.0',
+      id: '1',
+      method: 'broker.hello',
+    })
+  })
 
-  test("parses and discriminates notifications", () => {
+  test('parses and discriminates notifications', () => {
     const message = parseJsonRpcMessage(
-      '{"jsonrpc":"2.0","method":"invocation.event","params":{"invocationId":"inv_1","seq":1,"time":"2026-05-20T18:00:00.000Z","type":"invocation.ready","payload":{}}}',
-    );
+      '{"jsonrpc":"2.0","method":"invocation.event","params":{"invocationId":"inv_1","seq":1,"time":"2026-05-20T18:00:00.000Z","type":"invocation.ready","payload":{}}}'
+    )
 
-    expect(isJsonRpcNotification(message)).toBe(true);
-    expect(isJsonRpcRequest(message)).toBe(false);
-    expect(isJsonRpcResponse(message)).toBe(false);
+    expect(isJsonRpcNotification(message)).toBe(true)
+    expect(isJsonRpcRequest(message)).toBe(false)
+    expect(isJsonRpcResponse(message)).toBe(false)
     expect(message).toMatchObject({
-      jsonrpc: "2.0",
-      method: "invocation.event",
-    });
-  });
+      jsonrpc: '2.0',
+      method: 'invocation.event',
+    })
+  })
 
-  test("parses and discriminates result responses", () => {
+  test('parses and discriminates result responses', () => {
     const message = parseJsonRpcMessage(
-      '{"jsonrpc":"2.0","id":"2","result":{"invocationId":"inv_1","status":"starting"}}',
-    );
+      '{"jsonrpc":"2.0","id":"2","result":{"invocationId":"inv_1","status":"starting"}}'
+    )
 
-    expect(isJsonRpcResponse(message)).toBe(true);
-    expect(isJsonRpcRequest(message)).toBe(false);
-    expect(isJsonRpcNotification(message)).toBe(false);
+    expect(isJsonRpcResponse(message)).toBe(true)
+    expect(isJsonRpcRequest(message)).toBe(false)
+    expect(isJsonRpcNotification(message)).toBe(false)
     expect(message).toMatchObject({
-      jsonrpc: "2.0",
-      id: "2",
-      result: { invocationId: "inv_1" },
-    });
-  });
+      jsonrpc: '2.0',
+      id: '2',
+      result: { invocationId: 'inv_1' },
+    })
+  })
 
-  test("parses and discriminates error responses", () => {
+  test('parses and discriminates error responses', () => {
     const message = parseJsonRpcMessage(
-      '{"jsonrpc":"2.0","id":"req_7","error":{"code":-32003,"message":"unsupported input","data":{"capability":"input.steer"}}}',
-    );
+      '{"jsonrpc":"2.0","id":"req_7","error":{"code":-32003,"message":"unsupported input","data":{"capability":"input.steer"}}}'
+    )
 
-    expect(isJsonRpcResponse(message)).toBe(true);
-    expect(isJsonRpcRequest(message)).toBe(false);
-    expect(isJsonRpcNotification(message)).toBe(false);
+    expect(isJsonRpcResponse(message)).toBe(true)
+    expect(isJsonRpcRequest(message)).toBe(false)
+    expect(isJsonRpcNotification(message)).toBe(false)
     expect(message).toMatchObject({
-      jsonrpc: "2.0",
-      id: "req_7",
+      jsonrpc: '2.0',
+      id: 'req_7',
       error: {
         code: -32003,
-        message: "unsupported input",
+        message: 'unsupported input',
       },
-    });
-  });
+    })
+  })
 
-  test("supports responses interleaved with event notifications", () => {
+  test('supports responses interleaved with event notifications', () => {
     const messages = [
       parseJsonRpcMessage('{"jsonrpc":"2.0","id":"1","result":{"ok":true}}'),
       parseJsonRpcMessage(
-        '{"jsonrpc":"2.0","method":"invocation.event","params":{"invocationId":"inv_1","seq":1,"time":"2026-05-20T18:00:00.000Z","type":"invocation.started","payload":{}}}',
+        '{"jsonrpc":"2.0","method":"invocation.event","params":{"invocationId":"inv_1","seq":1,"time":"2026-05-20T18:00:00.000Z","type":"invocation.started","payload":{}}}'
       ),
       parseJsonRpcMessage('{"jsonrpc":"2.0","id":"2","result":{"ok":true}}'),
-    ];
+    ]
 
-    expect(messages.map(isJsonRpcResponse)).toEqual([true, false, true]);
-    expect(messages.map(isJsonRpcNotification)).toEqual([false, true, false]);
-  });
+    expect(messages.map(isJsonRpcResponse)).toEqual([true, false, true])
+    expect(messages.map(isJsonRpcNotification)).toEqual([false, true, false])
+  })
 
-  test("rejects malformed shapes with a stable parse code", () => {
-    expect(() =>
-      parseJsonRpcMessage('{"id":"1","method":"broker.hello"}'),
-    ).toThrow(expect.objectContaining({ code: "INVALID_JSON_RPC" }));
+  test('rejects malformed shapes with a stable parse code', () => {
+    expect(() => parseJsonRpcMessage('{"id":"1","method":"broker.hello"}')).toThrow(
+      expect.objectContaining({ code: 'INVALID_JSON_RPC' })
+    )
 
     expect(() => parseJsonRpcMessage('{"jsonrpc":"2.0","id":"1"}')).toThrow(
-      expect.objectContaining({ code: "INVALID_JSON_RPC" }),
-    );
-  });
-});
+      expect.objectContaining({ code: 'INVALID_JSON_RPC' })
+    )
+  })
+})

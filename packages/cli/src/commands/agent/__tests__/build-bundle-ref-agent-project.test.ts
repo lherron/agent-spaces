@@ -88,9 +88,7 @@ describe('buildBundleRef: compose takes precedence over agentName (T-00993)', ()
 // ===================================================================
 describe('buildBundleRef: loud errors (T-01564)', () => {
   test('no agentName and no selectors → throws', () => {
-    expect(() => buildBundleRef({})).toThrow(
-      /no identifying selector provided/
-    )
+    expect(() => buildBundleRef({})).toThrow(/no identifying selector provided/)
   })
 
   test('empty agentName treated as absent → throws', () => {

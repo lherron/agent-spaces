@@ -5,9 +5,9 @@
  * Drives the COMPLETE broker flow against a real installed Codex app-server:
  *   ScopeRef → RuntimePlacement → buildHarnessBrokerInvocation → BrokerClient → turn lifecycle
  *
- * Default prompt is a no-tool single-line reply that runs safely under
- * permissionPolicy { mode: 'deny' }. A separate scenario (e.g. --prompt-mode tool-use --yolo)
- * can exercise tool calls later; that is not included in the default invocation.
+ * Default prompt exercises both real shell execution and priming introspection:
+ * it asks Codex to run `pwd`, then reply with a marker and the runtime scope
+ * handle from its priming context.
  *
  * Usage:
  *   bun scripts/smoke-asp-broker-real-codex.ts \
@@ -20,10 +20,10 @@
  *   1  Assertion failure — required event missing or turn failed/interrupted
  *   2  Broker/Codex startup failure
  */
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
-import { resolveScopeInput } from '../packages/agent-scope/src/index.ts'
+import { formatScopeHandle, resolveScopeInput } from '../packages/agent-scope/src/index.ts'
 import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.ts'
 import type { BuildHarnessBrokerInvocationRequest } from '../packages/agent-spaces/src/index.ts'
 import type { RuntimePlacement } from '../packages/config/src/core/types/placement.ts'
@@ -42,9 +42,8 @@ import { expandTemplate } from '../packages/runtime/src/index.ts'
 // CLI argument parsing
 // ---------------------------------------------------------------------------
 
-const DEFAULT_PROMPT = 'Reply exactly ASP_BROKER_REAL_CODEX_OK and do not run tools.'
-const INTROSPECT_PROMPT =
-  'Reply with exactly two tokens separated by a space: ASP_BROKER_OK and the agent name your priming gives you. Do not run tools.'
+const DEFAULT_PROMPT =
+  'Execute the shell command `pwd`. Do not execute any other shell commands. After it completes, reply with exactly two tokens separated by a space: ASP_BROKER_OK and the full runtime scope handle from your priming context. Use the shorthand handle form such as <agent>@<project>:<task>; do not use the colon-separated scopeRef form such as agent:<agent>:project:<project>:task:<task>.'
 const DEFAULT_TIMEOUT_S = 120
 
 interface ParsedArgs {
@@ -57,8 +56,6 @@ interface ParsedArgs {
   timeout: number // seconds
   transcript: string
   prompt: string
-  introspect: boolean
-  expectAgent?: string | undefined
   help: boolean
 }
 
@@ -78,8 +75,6 @@ function printUsage(): void {
       `  --timeout <seconds>     Overall timeout in seconds (default: ${DEFAULT_TIMEOUT_S})`,
       '  --transcript <path>     JSONL transcript output path (default: <asp-home>/transcript-<ts>.jsonl)',
       `  --prompt <text>         Prompt text (default: "${DEFAULT_PROMPT}")`,
-      '  --introspect            Ask Codex to prove broker priming reached the model',
-      '  --expect-agent <name>   Expected agent name for --introspect (default: scope agent id)',
       '  --help                  Show this message',
       '',
       'Exit codes:',
@@ -104,10 +99,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     timeout: DEFAULT_TIMEOUT_S,
     transcript: '', // filled after aspHome is known
     prompt: DEFAULT_PROMPT,
-    introspect: false,
     help: false,
   }
-  let promptSpecified = false
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
@@ -154,22 +147,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       case '--prompt':
         args.prompt = argv[++i] ?? ''
         if (!args.prompt) throw new Error('Missing value for --prompt')
-        promptSpecified = true
-        break
-      case '--introspect':
-        args.introspect = true
-        break
-      case '--expect-agent':
-        args.expectAgent = argv[++i] ?? ''
-        if (!args.expectAgent) throw new Error('Missing value for --expect-agent')
         break
       default:
         throw new Error(`Unknown argument: ${arg}`)
     }
-  }
-
-  if (args.introspect && !promptSpecified) {
-    args.prompt = INTROSPECT_PROMPT
   }
 
   // Default transcript path
@@ -233,11 +214,71 @@ const REQUIRED_EVENTS = [
   'turn.started',
 ] as const
 
+const REQUIRED_TOOL_EVENTS = ['tool.call.started', 'tool.call.completed'] as const
+
 const TERMINAL_TURN_EVENTS = ['turn.completed', 'turn.failed', 'turn.interrupted'] as const
 type TerminalTurnEvent = (typeof TERMINAL_TURN_EVENTS)[number]
 
 function isTerminalTurnEvent(type: string): type is TerminalTurnEvent {
   return (TERMINAL_TURN_EVENTS as readonly string[]).includes(type)
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function normalizeExistingPath(path: string): string {
+  try {
+    return realpathSync(path)
+  } catch {
+    return path
+  }
+}
+
+function redactForComparison(value: string, sensitiveValues: readonly string[]): string {
+  return sensitiveValues.reduce((current, sensitive) => {
+    if (!sensitive) return current
+    return current.replaceAll(sensitive, '[REDACTED]')
+  }, value)
+}
+
+function matchesRawOrRedacted(
+  actual: unknown,
+  expected: string,
+  sensitiveValues: readonly string[]
+): boolean {
+  if (typeof actual !== 'string') return false
+  return actual === expected || actual === redactForComparison(expected, sensitiveValues)
+}
+
+function pathOutputMatches(
+  output: string,
+  expectedPath: string,
+  sensitiveValues: readonly string[]
+): boolean {
+  const trimmedOutput = output.trim()
+  const normalizedExpected = normalizeExistingPath(expectedPath)
+  const normalizedOutput = normalizeExistingPath(trimmedOutput)
+  const redactedExpected = redactForComparison(expectedPath, sensitiveValues)
+  const redactedNormalizedExpected = redactForComparison(normalizedExpected, sensitiveValues)
+  return (
+    trimmedOutput === expectedPath ||
+    trimmedOutput.includes(expectedPath) ||
+    normalizedOutput === normalizedExpected ||
+    trimmedOutput.includes(normalizedExpected) ||
+    trimmedOutput === redactedExpected ||
+    trimmedOutput.includes(redactedExpected) ||
+    trimmedOutput === redactedNormalizedExpected ||
+    trimmedOutput.includes(redactedNormalizedExpected)
+  )
+}
+
+function commandLooksLikePwdOnly(command: unknown): boolean {
+  if (typeof command !== 'string') return false
+  if (!/\bpwd\b/.test(command)) return false
+  return !/(\bls\b|&&|;|\|\|?)/.test(command)
 }
 
 function buildPromptExpansionContext(placement: RuntimePlacement): {
@@ -322,10 +363,6 @@ async function main(): Promise<void> {
   console.log(`[smoke] timeout:        ${args.timeout}s`)
   console.log(`[smoke] transcript:     ${args.transcript}`)
   console.log(`[smoke] prompt:         ${args.prompt}`)
-  console.log(`[smoke] introspect:     ${args.introspect ? 'yes' : 'no'}`)
-  if (args.expectAgent !== undefined) {
-    console.log(`[smoke] expect-agent:   ${args.expectAgent}`)
-  }
   console.log()
 
   // Ensure asp-home exists
@@ -434,14 +471,19 @@ async function main(): Promise<void> {
   const seenTypes = new Set<string>()
   let terminalTurnEvent: InvocationEventEnvelope | undefined
   let assistantOutput = ''
+  let assistantFinalOutput = ''
 
   // Initialize empty transcript file
   writeFileSync(args.transcript, '')
 
   // Set up overall timeout
   const timeoutMs = args.timeout * 1000
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
-    setTimeout(() => reject(new Error(`Overall timeout of ${args.timeout}s exceeded`)), timeoutMs)
+    timeoutHandle = setTimeout(
+      () => reject(new Error(`Overall timeout of ${args.timeout}s exceeded`)),
+      timeoutMs
+    )
   })
 
   try {
@@ -462,6 +504,15 @@ async function main(): Promise<void> {
         // Accumulate assistant text for output
         if (event.type === 'assistant.message.delta' && payload?.['text']) {
           assistantOutput += payload['text'] as string
+        }
+        if (event.type === 'assistant.message.completed') {
+          const content = Array.isArray(payload?.['content']) ? payload?.['content'] : []
+          assistantFinalOutput = content
+            .map((part) => {
+              const record = asRecord(part)
+              return record?.['type'] === 'text' ? String(record['text'] ?? '') : ''
+            })
+            .join('')
         }
 
         // Verify cwd from invocation.started payload
@@ -498,13 +549,19 @@ async function main(): Promise<void> {
   } catch (err) {
     console.error(`\n[smoke] Event consumption error: ${err}`)
     // Still attempt cleanup
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle)
+    }
   }
 
   console.log()
 
   // Print assistant output
-  if (assistantOutput) {
-    console.log(`[smoke] Assistant output: ${assistantOutput.trim()}`)
+  const assistantTexts = [assistantFinalOutput, assistantOutput].filter((text) => text.length > 0)
+  const assistantText = assistantTexts[0] ?? ''
+  if (assistantText) {
+    console.log(`[smoke] Assistant output: ${assistantText.trim()}`)
     console.log()
   }
 
@@ -549,6 +606,121 @@ async function main(): Promise<void> {
     }
   }
 
+  // Check tool execution events and payloads
+  for (const required of REQUIRED_TOOL_EVENTS) {
+    if (seenTypes.has(required)) {
+      console.log(`[smoke]   \u2713 ${required}`)
+    } else {
+      console.error(`[smoke]   \u2717 MISSING: ${required}`)
+      failures++
+    }
+  }
+
+  const resolvedScope = resolveScopeInput(args.scopeRef)
+  const sensitiveValues = [
+    resolvedScope.parsed.agentId,
+    resolvedScope.parsed.projectId,
+    resolvedScope.parsed.taskId,
+    resolvedScope.parsed.roleName,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+  const expectedCwd = invocationResponse.spec.process.cwd
+  const commandStarted = collectedEvents.find((event) => {
+    if (event.type !== 'tool.call.started') return false
+    const payload = asRecord(event.payload)
+    return payload?.['name'] === 'command'
+  })
+  const commandStartedPayload = asRecord(commandStarted?.payload)
+  const commandInput = asRecord(commandStartedPayload?.['input'])
+  const toolCallId = commandStartedPayload?.['toolCallId']
+
+  if (!commandStarted || !commandStartedPayload || !commandInput) {
+    console.error('[smoke]   \u2717 missing command tool.call.started payload')
+    failures++
+  } else {
+    let commandFailures = 0
+    if (typeof toolCallId !== 'string' || toolCallId.length === 0) {
+      console.error('[smoke]   \u2717 command tool.call.started missing toolCallId')
+      commandFailures++
+    }
+    if (!commandLooksLikePwdOnly(commandInput['command'])) {
+      console.error(
+        `[smoke]   \u2717 command input mismatch: expected a pwd-only command, got ${JSON.stringify(commandInput['command'])}`
+      )
+      commandFailures++
+    }
+    if (!matchesRawOrRedacted(commandInput['cwd'], expectedCwd, sensitiveValues)) {
+      console.error(
+        `[smoke]   \u2717 command cwd mismatch: expected "${expectedCwd}", got ${JSON.stringify(commandInput['cwd'])}`
+      )
+      commandFailures++
+    }
+    if (typeof commandStarted.turnId !== 'string' || commandStarted.turnId.length === 0) {
+      console.error('[smoke]   \u2717 command tool.call.started missing turnId')
+      commandFailures++
+    }
+    if (typeof commandStarted.itemId !== 'string' || commandStarted.itemId.length === 0) {
+      console.error('[smoke]   \u2717 command tool.call.started missing itemId')
+      commandFailures++
+    }
+
+    if (commandFailures === 0) {
+      console.log('[smoke]   \u2713 command tool.call.started payload')
+    } else {
+      failures += commandFailures
+    }
+  }
+
+  const commandCompleted =
+    typeof toolCallId === 'string'
+      ? collectedEvents.find((event) => {
+          if (event.type !== 'tool.call.completed') return false
+          const payload = asRecord(event.payload)
+          return payload?.['toolCallId'] === toolCallId
+        })
+      : undefined
+  const commandCompletedPayload = asRecord(commandCompleted?.payload)
+  const commandResult = asRecord(commandCompletedPayload?.['result'])
+
+  if (!commandCompleted || !commandCompletedPayload || !commandResult) {
+    console.error('[smoke]   \u2717 missing matching command tool.call.completed payload')
+    failures++
+  } else {
+    let commandFailures = 0
+    if (commandCompletedPayload['name'] !== 'command') {
+      console.error(
+        `[smoke]   \u2717 command completion name mismatch: ${JSON.stringify(commandCompletedPayload['name'])}`
+      )
+      commandFailures++
+    }
+    if (commandCompletedPayload['isError'] !== false) {
+      console.error(
+        `[smoke]   \u2717 command completion isError mismatch: ${JSON.stringify(commandCompletedPayload['isError'])}`
+      )
+      commandFailures++
+    }
+    if (commandResult['exitCode'] !== 0) {
+      console.error(
+        `[smoke]   \u2717 command exitCode mismatch: ${JSON.stringify(commandResult['exitCode'])}`
+      )
+      commandFailures++
+    }
+    if (typeof commandResult['output'] !== 'string') {
+      console.error('[smoke]   \u2717 command result.output is not a string')
+      commandFailures++
+    } else if (!pathOutputMatches(commandResult['output'], expectedCwd, sensitiveValues)) {
+      console.error(
+        `[smoke]   \u2717 command output does not match cwd: output=${JSON.stringify(commandResult['output'])}, expected=${JSON.stringify(expectedCwd)}`
+      )
+      commandFailures++
+    }
+
+    if (commandFailures === 0) {
+      console.log('[smoke]   \u2713 command tool.call.completed payload')
+    } else {
+      failures += commandFailures
+    }
+  }
+
   // Check terminal turn event
   if (terminalTurnEvent) {
     const payload = terminalTurnEvent.payload as Record<string, unknown> | undefined
@@ -570,16 +742,22 @@ async function main(): Promise<void> {
     failures++
   }
 
-  if (args.introspect) {
-    const expectedAgent = args.expectAgent ?? resolveScopeInput(args.scopeRef).parsed.agentId
-    if (assistantOutput.includes('ASP_BROKER_OK') && assistantOutput.includes(expectedAgent)) {
-      console.log(`[smoke]   \u2713 introspect reply contains ASP_BROKER_OK and ${expectedAgent}`)
-    } else {
-      console.error(
-        `[smoke]   \u2717 introspect reply missing ASP_BROKER_OK or expected agent ${expectedAgent}`
-      )
-      failures++
-    }
+  const expectedScopeHandle = formatScopeHandle(resolvedScope.parsed)
+  const redactedExpectedScopeHandle = redactForComparison(expectedScopeHandle, sensitiveValues)
+  const hasExpectedIntrospection = assistantTexts.some(
+    (text) =>
+      text.includes('ASP_BROKER_OK') &&
+      (text.includes(expectedScopeHandle) || text.includes(redactedExpectedScopeHandle))
+  )
+  if (hasExpectedIntrospection) {
+    console.log(
+      `[smoke]   \u2713 introspect reply contains ASP_BROKER_OK and ${expectedScopeHandle}`
+    )
+  } else {
+    console.error(
+      `[smoke]   \u2717 introspect reply missing ASP_BROKER_OK or expected runtime scope handle ${expectedScopeHandle}`
+    )
+    failures++
   }
 
   console.log()
@@ -611,6 +789,14 @@ function formatEventBrief(event: InvocationEventEnvelope): string {
       return ` (message: ${p['message'] ?? '?'})`
     case 'assistant.message.delta':
       return ` (${String(p['text'] ?? '').slice(0, 40)}${String(p['text'] ?? '').length > 40 ? '...' : ''})`
+    case 'tool.call.started': {
+      const input = asRecord(p['input'])
+      return ` (${p['name'] ?? '?'}: ${String(input?.['command'] ?? input?.['path'] ?? '?').slice(0, 60)})`
+    }
+    case 'tool.call.completed': {
+      const result = asRecord(p['result'])
+      return ` (${p['name'] ?? '?'}: exit ${result?.['exitCode'] ?? '?'})`
+    }
     case 'diagnostic':
       return ` (${p['level']}: ${String(p['message'] ?? '').slice(0, 60)})`
     default:

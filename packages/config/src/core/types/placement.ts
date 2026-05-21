@@ -49,10 +49,7 @@ export interface RuntimePlacement {
 // ============================================================================
 
 const VALID_RUN_MODES = new Set(['query', 'heartbeat', 'task', 'maintenance'])
-const VALID_BUNDLE_KINDS = new Set([
-  'agent-project',
-  'compose',
-])
+const VALID_BUNDLE_KINDS = new Set(['agent-project', 'compose'])
 
 /** Check if a string is a valid RunMode */
 export function isValidRunMode(value: string): boolean {

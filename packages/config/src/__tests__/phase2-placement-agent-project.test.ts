@@ -264,4 +264,3 @@ base = ["space:defaults@dev"]
     expect(result.cwd).toBe(projectRoot)
   })
 })
-
