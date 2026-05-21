@@ -21,9 +21,6 @@ export interface RunScaffoldPacket {
 
 /** Bundle selector — determines which spaces compose the runtime */
 export type RuntimeBundleRef =
-  | { kind: 'agent-default' }
-  | { kind: 'agent-target'; target: string }
-  | { kind: 'project-target'; projectRoot: string; target: string }
   | { kind: 'agent-project'; agentName: string; projectRoot?: string | undefined }
   | { kind: 'compose'; compose: SpaceRefString[] }
 
@@ -53,9 +50,6 @@ export interface RuntimePlacement {
 
 const VALID_RUN_MODES = new Set(['query', 'heartbeat', 'task', 'maintenance'])
 const VALID_BUNDLE_KINDS = new Set([
-  'agent-default',
-  'agent-target',
-  'project-target',
   'agent-project',
   'compose',
 ])

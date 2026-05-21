@@ -17,7 +17,7 @@ function makePlacement(correlation?: RuntimePlacement['correlation']): RuntimePl
     projectRoot: '/tmp/project',
     cwd: '/tmp/project',
     runMode: 'task',
-    bundle: { kind: 'agent-default' },
+    bundle: { kind: 'agent-project', agentName: 'alice' },
     dryRun: true,
     correlation,
   } as RuntimePlacement

@@ -9,9 +9,6 @@ import { getAgentsRoot } from './asp-config.js'
 export interface RuntimeBundleRefOptions {
   agentName?: string | undefined
   agentRoot?: string | undefined
-  bundle?: string | undefined
-  agentTarget?: string | undefined
-  projectTarget?: string | undefined
   projectRoot?: string | undefined
   compose?: string[] | undefined
 }
@@ -121,33 +118,35 @@ function findGitRoot(startDir: string): string | undefined {
 }
 
 export function buildRuntimeBundleRef(options: RuntimeBundleRefOptions): RuntimeBundleRef {
-  if (options.agentTarget) {
-    return { kind: 'agent-target', target: options.agentTarget }
-  }
-  if (options.projectTarget) {
-    if (!options.projectRoot) {
-      throw new Error('--project-root is required with --project-target')
-    }
-    return {
-      kind: 'project-target',
-      projectRoot: options.projectRoot,
-      target: options.projectTarget,
-    }
-  }
+  // 1. compose (explicit space list)
   if (options.compose && options.compose.length > 0) {
     return { kind: 'compose', compose: options.compose as SpaceRefString[] }
   }
-  if (options.agentName && options.agentRoot) {
+
+  // 2–4. agentName paths
+  if (options.agentName) {
+    if (!options.agentRoot) {
+      throw new Error(
+        'buildRuntimeBundleRef: agentRoot is required when agentName is provided. Use resolveAgentPlacementPaths to derive it from agentId + ASP_AGENTS_ROOT.'
+      )
+    }
     const profilePath = join(options.agentRoot, 'agent-profile.toml')
-    if (existsSync(profilePath)) {
-      return {
-        kind: 'agent-project',
-        agentName: options.agentName,
-        ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
-      }
+    if (!existsSync(profilePath)) {
+      throw new Error(
+        `buildRuntimeBundleRef: agent-profile.toml not found at ${profilePath} — agent install incomplete`
+      )
+    }
+    return {
+      kind: 'agent-project',
+      agentName: options.agentName,
+      ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
     }
   }
-  return { kind: 'agent-default' }
+
+  // 5. No identifying selector
+  throw new Error(
+    'buildRuntimeBundleRef: no identifying selector provided; supply agentName+agentRoot or compose'
+  )
 }
 
 export function resolveAgentPlacementPaths(

@@ -11,7 +11,7 @@ import {
 } from './runtime-placement.js'
 
 describe('runtime placement helpers', () => {
-  test('buildRuntimeBundleRef prefers explicit selectors and detects agent-project bundles', () => {
+  test('buildRuntimeBundleRef detects agent-project bundles', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-'))
     const agentRoot = join(tmp, 'agents', 'larry')
     mkdirSync(agentRoot, { recursive: true })
@@ -28,25 +28,25 @@ describe('runtime placement helpers', () => {
       agentName: 'larry',
       projectRoot: '/tmp/project',
     })
+  })
 
-    expect(
-      buildRuntimeBundleRef({
-        agentTarget: 'reviewer',
-        agentName: 'larry',
-        agentRoot,
-      })
-    ).toEqual({ kind: 'agent-target', target: 'reviewer' })
+  test('buildRuntimeBundleRef throws when agentName provided without agentRoot', () => {
+    expect(() => buildRuntimeBundleRef({ agentName: 'foo' })).toThrow(
+      /agentRoot is required when agentName is provided/
+    )
+  })
 
-    expect(
-      buildRuntimeBundleRef({
-        projectTarget: 'smokey',
-        projectRoot: '/tmp/project',
-      })
-    ).toEqual({
-      kind: 'project-target',
-      projectRoot: '/tmp/project',
-      target: 'smokey',
-    })
+  test('buildRuntimeBundleRef throws when agentRoot has no agent-profile.toml', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-noprofile-'))
+    expect(() =>
+      buildRuntimeBundleRef({ agentName: 'foo', agentRoot: tmp })
+    ).toThrow(/agent-profile\.toml not found/)
+  })
+
+  test('buildRuntimeBundleRef throws when no selectors are provided', () => {
+    expect(() => buildRuntimeBundleRef({})).toThrow(
+      /no identifying selector provided/
+    )
   })
 
   test('resolveAgentPlacementPaths finds projectRoot via asp-targets.toml marker walk-up', () => {

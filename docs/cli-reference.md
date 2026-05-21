@@ -63,7 +63,7 @@ Key inputs:
 - `--host-session-id <id>` and `--run-id <id>`: host correlation
 - `--continue-provider <provider>` and `--continue-key <key>`: explicit continuation input
 - `--agent-root`, `--project-root`, `--cwd`: placement and execution roots
-- `--compose`, `--agent-target`, `--project-target`, `--bundle`: bundle selection
+- `--compose`: explicit bundle selection (space refs); `agent-project` is implicit from scope-ref agentId
 - `--dry-run`, `--print-command`, `--json`: inspection and machine-readable output
 
 ## `asp repo`

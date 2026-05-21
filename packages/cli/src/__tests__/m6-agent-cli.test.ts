@@ -293,107 +293,6 @@ describe('existing CLI compatibility (T-00867)', () => {
 // T-00868: Bundle selection flags
 // ===================================================================
 describe('bundle selection flags (T-00868)', () => {
-  test('--bundle agent-default is accepted', () => {
-    const agentRoot = resolveAgentRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'agent:alice',
-        'query',
-        'Hello',
-        '--agent-root',
-        agentRoot,
-        '--harness',
-        'claude-code',
-        '--bundle',
-        'agent-default',
-        '--dry-run',
-      ],
-      { expectError: true }
-    )
-
-    const output = result.stdout + result.stderr
-    // Should recognize --bundle flag
-    expect(output).not.toMatch(/unknown.*option.*bundle/i)
-  })
-
-  test('--agent-target selects named agent target', () => {
-    const agentRoot = resolveAgentRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'agent:alice',
-        'query',
-        'Hello',
-        '--agent-root',
-        agentRoot,
-        '--harness',
-        'claude-code',
-        '--agent-target',
-        'review',
-        '--dry-run',
-      ],
-      { expectError: true }
-    )
-
-    const output = result.stdout + result.stderr
-    expect(output).not.toMatch(/unknown.*option.*agent-target/i)
-  })
-
-  test('--project-target requires --project-root', () => {
-    const agentRoot = resolveAgentRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'agent:alice',
-        'query',
-        'Hello',
-        '--agent-root',
-        agentRoot,
-        '--harness',
-        'claude-code',
-        '--project-target',
-        'default',
-        '--dry-run',
-      ],
-      { expectError: true }
-    )
-
-    const output = result.stdout + result.stderr
-    // Should fail because --project-root is missing
-    expect(output).toMatch(/project.?root.*required|missing.*project.?root/i)
-  })
-
-  test('--project-target with --project-root is accepted', () => {
-    const agentRoot = resolveAgentRoot()
-    const projectRoot = resolveProjectRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'agent:alice:project:demo',
-        'query',
-        'Hello',
-        '--agent-root',
-        agentRoot,
-        '--project-root',
-        projectRoot,
-        '--project-target',
-        'default',
-        '--harness',
-        'claude-code',
-        '--dry-run',
-      ],
-      { expectError: true }
-    )
-
-    const output = result.stdout + result.stderr
-    expect(output).not.toMatch(/unknown.*option.*project-target/i)
-  })
-
   test('--compose accepts repeated space refs', () => {
     const agentRoot = resolveAgentRoot()
 
@@ -420,28 +319,6 @@ describe('bundle selection flags (T-00868)', () => {
     expect(output).not.toMatch(/unknown.*option.*compose/i)
   })
 
-  test('defaults to agent-default when no bundle selector provided', () => {
-    const agentRoot = resolveAgentRoot()
-
-    const result = runAsp(
-      [
-        'agent',
-        'agent:alice',
-        'query',
-        'Hello',
-        '--agent-root',
-        agentRoot,
-        '--harness',
-        'claude-code',
-        '--dry-run',
-      ],
-      { expectError: true }
-    )
-
-    const output = result.stdout + result.stderr
-    // Should work without any bundle selector (defaults to agent-default)
-    expect(output).toMatch(/dry.?run|invocation|agent-default|resolve/i)
-  })
 })
 
 // ===================================================================

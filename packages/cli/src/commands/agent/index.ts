@@ -102,13 +102,6 @@ function resolveHarnessOption(
     return 'claude-code'
   }
 
-  if (bundle.kind === 'project-target') {
-    return (
-      normalizeConfiguredHarness(loadProjectTarget(bundle.projectRoot, bundle.target)?.harness) ??
-      'claude-code'
-    )
-  }
-
   const profile = loadAgentProfile(options.agentRoot)
   if (!profile) {
     return 'claude-code'
@@ -152,9 +145,6 @@ interface AgentCommandOptions {
   printCommand?: boolean
   yolo?: boolean
   json?: boolean
-  bundle?: string
-  agentTarget?: string
-  projectTarget?: string
   compose?: string[]
 }
 
@@ -193,9 +183,6 @@ export function registerAgentCommands(program: Command): void {
     .option('--yolo', 'Skip all permission prompts (--dangerously-skip-permissions)')
     .option('--print-command', 'Print the command that would be run')
     .option('--json', 'Output as JSON')
-    .option('--bundle <kind>', 'Bundle kind: agent-default')
-    .option('--agent-target <name>', 'Named target from agent-profile.toml')
-    .option('--project-target <name>', 'Named target from asp-targets.toml')
     .option('--compose <ref>', 'Space ref for composition (repeatable)', collect, [])
     .action(
       async (

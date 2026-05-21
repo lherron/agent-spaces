@@ -134,53 +134,6 @@ function resolvePlacementMaterialization(
   const { bundle } = placement
 
   switch (bundle.kind) {
-    case 'agent-default': {
-      const spaces = loadAgentDefaultSpaces(placement.agentRoot, placement.runMode)
-      return {
-        bundleSpaces: spaces,
-        materialization: {
-          spec: { kind: 'spaces', spaces },
-        },
-      }
-    }
-    case 'agent-target': {
-      // Load target from agent-profile.toml
-      const profile = loadProfileTargets(placement.agentRoot)
-      const target = profile?.[bundle.target]
-      if (!target) {
-        throw new Error(`Agent target "${bundle.target}" not found in agent-profile.toml`)
-      }
-      const spaces = target.compose ?? []
-      return {
-        bundleSpaces: spaces,
-        materialization: {
-          spec: { kind: 'spaces', spaces },
-        },
-      }
-    }
-    case 'project-target': {
-      if (!bundle.target) {
-        throw new Error('Empty target: project-target requires a target name')
-      }
-      const manifest = loadProjectManifest(bundle.projectRoot)
-      const target = manifest.targets[bundle.target]
-      if (!target) {
-        throw new Error(
-          `Project target "${bundle.target}" not found in ${join(bundle.projectRoot, 'asp-targets.toml')}`
-        )
-      }
-      return {
-        bundleSpaces: target.compose ?? [],
-        materialization: {
-          spec: {
-            kind: 'target',
-            targetName: bundle.target,
-            targetDir: bundle.projectRoot,
-          },
-          manifest,
-        },
-      }
-    }
     case 'agent-project': {
       const profile = loadAgentProfile(placement.agentRoot)
       const projectTarget = loadProjectTargetOptional(bundle.projectRoot, bundle.agentName)
@@ -226,11 +179,7 @@ function resolveEffectiveCwd(placement: RuntimePlacement): string {
     return placement.cwd
   }
 
-  // 2. project-target defaults to projectRoot
-  if (placement.bundle.kind === 'project-target') {
-    return placement.bundle.projectRoot
-  }
-
+  // 2. agent-project defaults to projectRoot
   if (placement.bundle.kind === 'agent-project' && placement.bundle.projectRoot) {
     return placement.bundle.projectRoot
   }
@@ -308,15 +257,6 @@ function computeBundleIdentity(placement: RuntimePlacement): string {
   const { bundle } = placement
 
   switch (bundle.kind) {
-    case 'agent-default':
-      parts.push('agent-default')
-      break
-    case 'agent-target':
-      parts.push(`agent-target:${bundle.target}`)
-      break
-    case 'project-target':
-      parts.push(`project-target:${bundle.projectRoot}:${bundle.target}`)
-      break
     case 'compose':
       parts.push(`compose:${bundle.compose.join(',')}`)
       break
@@ -429,64 +369,6 @@ function resolveInstructionRef(ref: string, placement: RuntimePlacement): string
   } catch {
     return undefined
   }
-}
-
-/**
- * Load target definitions from agent-profile.toml.
- */
-function loadProfileTargets(
-  agentRoot: string
-): Record<string, { compose: SpaceRefString[] }> | undefined {
-  const profilePath = join(agentRoot, 'agent-profile.toml')
-  if (!existsSync(profilePath)) return undefined
-
-  const { parse } = require('@iarna/toml') as { parse: (s: string) => Record<string, unknown> }
-  const content = readFileSync(profilePath, 'utf8')
-  const parsed = parse(content) as Record<string, unknown>
-  const targets = parsed['targets'] as Record<string, Record<string, unknown>> | undefined
-  if (!targets) return undefined
-
-  const result: Record<string, { compose: SpaceRefString[] }> = {}
-  for (const [name, def] of Object.entries(targets)) {
-    result[name] = { compose: (def['compose'] as SpaceRefString[] | undefined) ?? [] }
-  }
-  return result
-}
-
-function loadAgentDefaultSpaces(
-  agentRoot: string,
-  runMode: RuntimePlacement['runMode']
-): SpaceRefString[] {
-  const profilePath = join(agentRoot, 'agent-profile.toml')
-  if (!existsSync(profilePath)) {
-    return []
-  }
-
-  const content = readFileSync(profilePath, 'utf8')
-  const parsed = parseToml(content) as Record<string, unknown>
-  const spacesConfig = parsed['spaces'] as Record<string, unknown> | undefined
-  if (!spacesConfig) {
-    return []
-  }
-
-  const spaces: SpaceRefString[] = []
-  const base = spacesConfig['base']
-  if (Array.isArray(base)) {
-    spaces.push(...(base as SpaceRefString[]))
-  }
-
-  const byMode = spacesConfig['byMode'] as Record<string, Record<string, unknown>> | undefined
-  const modeConfig = byMode?.[runMode]
-  const modeBase = modeConfig?.['base']
-  if (Array.isArray(modeBase)) {
-    for (const ref of modeBase as SpaceRefString[]) {
-      if (!spaces.includes(ref)) {
-        spaces.push(ref)
-      }
-    }
-  }
-
-  return spaces
 }
 
 function loadAgentProfile(agentRoot: string): AgentRuntimeProfile {

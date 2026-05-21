@@ -45,7 +45,7 @@ describe('placement-based request types (T-00860)', () => {
       placement: {
         agentRoot: '/srv/agents/alice',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
       },
       frontend: 'agent-sdk',
       prompt: 'Hello',
@@ -86,7 +86,7 @@ describe('placement-based request types (T-00860)', () => {
       placement: {
         agentRoot: '/srv/agents/alice',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
       },
       provider: 'anthropic',
       frontend: 'claude-code',
@@ -153,7 +153,7 @@ describe('hostSessionId rename (T-00861)', () => {
       placement: {
         agentRoot: '/a',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
         correlation: {
           hostSessionId: 'hs-abc',
           sessionRef: {
@@ -200,7 +200,7 @@ describe('resolvedBundle from APIs (T-00862)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-m5/agent-root',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
       },
       provider: 'anthropic',
       frontend: 'claude-code',
@@ -225,7 +225,7 @@ describe('resolvedBundle from APIs (T-00862)', () => {
         placement: {
           agentRoot: '/tmp/asp-test-m5/agent-root',
           runMode: 'query',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'agent-project', agentName: 'alice' },
         },
         provider: 'openai',
         frontend: 'codex-cli',
@@ -250,7 +250,7 @@ describe('resolvedBundle from APIs (T-00862)', () => {
         placement: {
           agentRoot: '/tmp/asp-test-m5/agent-root',
           runMode: 'query',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'agent-project', agentName: 'alice' },
         },
         provider: 'anthropic',
         frontend: 'claude-code',
@@ -327,7 +327,7 @@ describe('correlation env vars (T-00864)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-m5/agent-root',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
         correlation: {
           sessionRef: {
             scopeRef: 'agent:alice:project:demo',
@@ -353,7 +353,7 @@ describe('correlation env vars (T-00864)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-m5/agent-root',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
         correlation: {
           hostSessionId: 'hs-correlation-test',
         },
@@ -375,7 +375,7 @@ describe('correlation env vars (T-00864)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-m5/agent-root',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
       },
       provider: 'anthropic',
       frontend: 'claude-code',
@@ -396,7 +396,7 @@ describe('correlation env vars (T-00864)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-m5/agent-root',
         runMode: 'task',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
         correlation: {
           hostSessionId: 'hs-123',
           sessionRef: {
@@ -435,7 +435,7 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-m5/agent-root',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
       },
       frontend: 'agent-sdk',
       model: 'api/not-a-model',
@@ -467,7 +467,7 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-m5/agent-root',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
       },
       frontend: 'agent-sdk',
       model: 'api/not-a-model',
@@ -497,7 +497,7 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-m5/agent-root',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
       },
       frontend: 'agent-sdk',
       // agent-sdk is anthropic, but continuation says openai
@@ -616,7 +616,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-t891/agent-root',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
         correlation: {
           hostSessionId: 'hs-from-correlation',
           runId: 'run-from-correlation',
@@ -650,7 +650,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-t891b/agent-root',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
         correlation: {
           hostSessionId: 'hs-t891b',
           runId: 'run-only-in-correlation',
@@ -683,7 +683,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
       placement: {
         agentRoot: '/tmp/asp-test-t891c/agent-root',
         runMode: 'query',
-        bundle: { kind: 'agent-default' },
+        bundle: { kind: 'agent-project', agentName: 'alice' },
       },
       frontend: 'agent-sdk',
       model: 'api/not-a-model',
@@ -709,7 +709,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
 // T-00890: Audit bundle must include byMode space overlays
 //
 // Defect: the materialization planning path must include spaces.byMode[runMode]
-// overlays for agent-default bundles, or resolvedBundle.spaces will diverge
+// overlays for agent-project bundles, or resolvedBundle.spaces will diverge
 // from what's actually materialized.
 //
 // PASS CONDITIONS:
@@ -719,7 +719,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
 // 2. Same profile with runMode 'query' does NOT include heartbeat overlay.
 // ===================================================================
 describe('audit bundle includes byMode space overlays (T-00890)', () => {
-  test('resolvePlacementContext reads spaces.byMode[runMode] overlays (static)', () => {
+  test('placement-resolver.ts handles byMode instruction overlays (static)', () => {
     const { readFileSync } = require('node:fs')
     const source = readFileSync(
       join(
@@ -735,37 +735,9 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
       'utf8'
     )
 
-    const fnStart = source.indexOf('function loadAgentDefaultSpaces')
-    expect(fnStart).toBeGreaterThan(-1)
-    const nextFn = source.indexOf('\nfunction ', fnStart + 1)
-    const fn = source.slice(fnStart, nextFn > -1 ? nextFn : undefined)
-    expect(fn).toBeDefined()
-
-    expect(fn).toMatch(/byMode/)
-  })
-
-  test('resolvePlacementContext agent-default case delegates to shared byMode-aware compose helper (static)', () => {
-    const { readFileSync } = require('node:fs')
-    const source = readFileSync(
-      join(
-        import.meta.dirname,
-        '..',
-        '..',
-        '..',
-        'config',
-        'src',
-        'resolver',
-        'placement-resolver.ts'
-      ),
-      'utf8'
-    )
-
-    const fnStart = source.indexOf('function resolvePlacementMaterialization')
-    expect(fnStart).toBeGreaterThan(-1)
-    const agentDefaultStart = source.indexOf("case 'agent-default'", fnStart)
-    expect(agentDefaultStart).toBeGreaterThan(-1)
-    const snippet = source.slice(agentDefaultStart, agentDefaultStart + 800)
-    expect(snippet).toMatch(/loadAgentDefaultSpaces/)
+    // After T-01564 the byMode logic lives in resolveInstructions, not
+    // the deleted loadAgentDefaultSpaces helper.
+    expect(source).toMatch(/byMode/)
   })
 
   test('heartbeat byMode spaces are materialized (integration)', async () => {
@@ -794,7 +766,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
         placement: {
           agentRoot,
           runMode: 'heartbeat',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'agent-project', agentName: 'alice' },
         },
         provider: 'anthropic',
         frontend: 'claude-code',
@@ -849,7 +821,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
         placement: {
           agentRoot,
           runMode: 'query',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'agent-project', agentName: 'alice' },
         },
         provider: 'anthropic',
         frontend: 'claude-code',

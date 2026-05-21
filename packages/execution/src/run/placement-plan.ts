@@ -209,16 +209,7 @@ export async function planPlacementRuntime(
           placementContext.materialization.manifest,
           placement.bundle.agentName
         )
-      : placement.bundle.kind === 'project-target'
-        ? planProjectTargetRuntime(
-            placementContext.materialization.manifest,
-            placement.bundle.target,
-            {
-              aspHome,
-              harness: frontendEntry.id,
-            }
-          ).defaultRunOptions
-        : {}
+      : {}
   const model = resolvePlacementRuntimeModel(
     adapter,
     options.model,

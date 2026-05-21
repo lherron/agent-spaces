@@ -1,20 +1,10 @@
 /**
- * RED tests: Phase 3 — buildBundleRef emits agent-project bundle (T-00993)
+ * Tests: buildBundleRef emission rules (T-00993, updated T-01564)
  *
- * WHY: When no explicit bundle selection flags (--agent-target, --project-target,
- * --compose) are provided, but agentName IS available AND agent-profile.toml
- * exists at agentRoot, buildBundleRef should emit
- * { kind: 'agent-project', agentName, projectRoot } instead of { kind: 'agent-default' }.
- * This enables the placement resolver to use agent-profile.toml + project overrides.
+ * After T-01564 the union is collapsed to {agent-project, compose}.
+ * buildRuntimeBundleRef throws loudly when identity is incomplete.
  *
- * PASS CONDITIONS (all tests green when):
- * 1. BundleRefOptions interface includes optional agentName and agentRoot fields
- * 2. buildBundleRef with agentName + agentRoot (with agent-profile.toml) returns agent-project
- * 3. buildBundleRef with agentName but no agentRoot falls back to agent-default
- * 4. Explicit selectors still take precedence over agentName
- * 5. No agentName and no selectors → kind: 'agent-default' (backward compat)
- *
- * wrkq task: T-00993
+ * wrkq tasks: T-00993, T-01564
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
@@ -60,17 +50,19 @@ describe('buildBundleRef: agent-project emission (T-00993)', () => {
     expect((result as any).projectRoot).toBe('/srv/projects/myproject')
   })
 
-  test('agentName without agentRoot → agent-default (no profile to check)', () => {
-    const result = buildBundleRef({ agentName: 'smokey' } as any)
-    expect(result.kind).toBe('agent-default')
+  test('agentName without agentRoot → throws on missing agentRoot', () => {
+    expect(() => buildBundleRef({ agentName: 'smokey' })).toThrow(
+      /agentRoot is required when agentName is provided/
+    )
   })
 
-  test('agentName + agentRoot without profile → agent-default', () => {
+  test('agentName + agentRoot without profile → throws on missing profile', () => {
     const emptyRoot = join(tmpdir(), `asp-test-empty-${Date.now()}`)
     mkdirSync(emptyRoot, { recursive: true })
     try {
-      const result = buildBundleRef({ agentName: 'smokey', agentRoot: emptyRoot })
-      expect(result.kind).toBe('agent-default')
+      expect(() => buildBundleRef({ agentName: 'smokey', agentRoot: emptyRoot })).toThrow(
+        /agent-profile\.toml not found/
+      )
     } finally {
       rmSync(emptyRoot, { recursive: true, force: true })
     }
@@ -78,28 +70,9 @@ describe('buildBundleRef: agent-project emission (T-00993)', () => {
 })
 
 // ===================================================================
-// T-00993 Phase 3.1: explicit selectors still take precedence
+// T-00993 Phase 3.1: compose still takes precedence
 // ===================================================================
-describe('buildBundleRef: explicit selectors override agentName (T-00993)', () => {
-  test('agentTarget takes precedence over agentName', () => {
-    const result = buildBundleRef({
-      agentName: 'larry',
-      agentRoot: testAgentRoot,
-      agentTarget: 'review',
-    })
-    expect(result.kind).toBe('agent-target')
-  })
-
-  test('projectTarget takes precedence over agentName', () => {
-    const result = buildBundleRef({
-      agentName: 'larry',
-      agentRoot: testAgentRoot,
-      projectTarget: 'dev',
-      projectRoot: '/p',
-    })
-    expect(result.kind).toBe('project-target')
-  })
-
+describe('buildBundleRef: compose takes precedence over agentName (T-00993)', () => {
   test('compose takes precedence over agentName', () => {
     const result = buildBundleRef({
       agentName: 'larry',
@@ -111,17 +84,18 @@ describe('buildBundleRef: explicit selectors override agentName (T-00993)', () =
 })
 
 // ===================================================================
-// T-00993 Phase 3.1: backward compatibility
+// T-01564: loud errors when identity is incomplete
 // ===================================================================
-describe('buildBundleRef: backward compat (T-00993)', () => {
-  test('no agentName and no selectors → agent-default', () => {
-    const result = buildBundleRef({})
-    expect(result.kind).toBe('agent-default')
+describe('buildBundleRef: loud errors (T-01564)', () => {
+  test('no agentName and no selectors → throws', () => {
+    expect(() => buildBundleRef({})).toThrow(
+      /no identifying selector provided/
+    )
   })
 
-  test('empty agentName treated as absent → agent-default', () => {
-    const result = buildBundleRef({ agentName: '', agentRoot: testAgentRoot })
-    // Empty string agentName should fall through to agent-default
-    expect(result.kind).toBe('agent-default')
+  test('empty agentName treated as absent → throws', () => {
+    expect(() => buildBundleRef({ agentName: '', agentRoot: testAgentRoot })).toThrow(
+      /no identifying selector provided/
+    )
   })
 })

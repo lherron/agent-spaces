@@ -77,7 +77,7 @@ describe('system prompt materialization (T-00900)', () => {
         placement: {
           agentRoot,
           runMode: 'query',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'agent-project', agentName: 'alice' },
         },
         provider: 'anthropic',
         frontend: 'claude-code',
@@ -115,7 +115,7 @@ describe('HEARTBEAT.md in heartbeat mode (T-00900)', () => {
         placement: {
           agentRoot,
           runMode: 'heartbeat',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'agent-project', agentName: 'alice' },
         },
         provider: 'anthropic',
         frontend: 'claude-code',
@@ -151,7 +151,7 @@ describe('no HEARTBEAT.md in query mode (T-00900)', () => {
         placement: {
           agentRoot,
           runMode: 'query',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'agent-project', agentName: 'alice' },
         },
         provider: 'anthropic',
         frontend: 'claude-code',
@@ -186,7 +186,7 @@ describe('empty SOUL.md edge case (T-00900)', () => {
         placement: {
           agentRoot,
           runMode: 'query',
-          bundle: { kind: 'agent-default' },
+          bundle: { kind: 'agent-project', agentName: 'alice' },
         },
         provider: 'anthropic',
         frontend: 'claude-code',
