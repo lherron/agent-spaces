@@ -27,18 +27,18 @@ Authored jointly by `clod` and `cody`.
 | 4 — Reference client | T-01548 (smokey) / T-01549 (larry) | `a646b80` | 6 pass | ✅ closed |
 | Defect cleanup | T-01552 (smokey) / T-01553 (larry) | `ae923d5`, `e7f2b14` | net 47 pass / 1 todo | ✅ closed (T-01550, T-01551 also closed) |
 
-### Known follow-up defects (filed, not blocking merge)
+### Known follow-up defects
 
-- **T-01554** — `tool.call.started.payload.input` and `tool.call.completed.payload.result` are absent for `commandExecution` items, so broker consumers see "a tool ran with no error" but can't see what command ran or what it produced. Also covers absent `tool.call.delta` events and `durationMs:0`. Fix is in `event-map.ts` projection — pull command + stdout from the codex item payload into broker payload fields.
+All filed broker defects from initial validation are closed.
 
 Past defects (now closed):
 - T-01550 — `sandboxMode` string rejected by real codex; driver now translates spec string into codex's internally-tagged enum.
 - T-01551 — `run-once` exited at `input.accepted`; now awaits `turn.completed`/`failed`/`interrupted`.
+- T-01554 — `tool.call.*` payloads omitted `input`/`result` against real codex (fake fixture was pre-shaped); driver now projects per-item-type from real codex shapes. `tool.call.delta` absence for short commands and `durationMs:0` confirmed as codex 0.130.0 behavior, not broker bugs.
 
 ### What remains on the roadmap (post-merge)
 
 - **HRC integration** (impl plan §5) — separate work item in `hrc-runtime`. Estimated 5–7d, owned by HRC maintainer. `hrc-server/src/launch/exec.ts` continues to handle all current traffic; broker remains dormant until an opt-in gate is wired in HRC.
-- **T-01554** tool.call payload visibility (above).
 - **Phase 3 ask-client permission flow** — currently `todo` test. Requires a client capable of advertising `permissionRequests:true` and handling broker→client requests; reference client supports it but no real consumer exercises it yet.
 
 ---
@@ -574,5 +574,4 @@ Still open:
 
 3. **HRC migration owner & timing.** Phases 0–4 left HRC untouched. Who owns the `hrc-runtime` integration work, and when? Broker is dormant on `main` until something explicitly invokes it.
 4. **Future driver roadmap.** v0 ships Codex app-server only. When (and who) for Claude CLI / Pi CLI / headless Codex JSONL drivers? Recommend defer until at least one real consumer (HRC or otherwise) is running the Codex driver in production.
-5. **Tool-call payload visibility (T-01554).** Should this be fixed before HRC migration starts? HRC consumers would want `input`/`result` visible to drive UI; if HRC migration is imminent, fix first. Otherwise can defer.
-6. **`ask-client` permission flow.** Wire-protocol works; no consumer exercises it yet. Once HRC (or another client) needs interactive approval, exercise the path and promote the deferred `todo` test to a real assertion.
+5. **`ask-client` permission flow.** Wire-protocol works; no consumer exercises it yet. Once HRC (or another client) needs interactive approval, exercise the path and promote the deferred `todo` test to a real assertion.

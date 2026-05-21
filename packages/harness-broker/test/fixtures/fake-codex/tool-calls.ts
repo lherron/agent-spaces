@@ -10,49 +10,106 @@ io.respond(thread, { threadId: 'thread_tools' })
 const turn = await expectMethod(io, 'turn/start')
 
 const tools = [
-  { id: 'cmd_1', type: 'commandExecution', name: 'command', input: { command: 'pwd' } },
-  { id: 'file_1', type: 'fileChange', name: 'file_change', input: { path: 'src/a.ts' } },
-  { id: 'mcp_1', type: 'mcpToolCall', name: 'mcp_tool', input: { server: 'fs', tool: 'read' } },
-  { id: 'web_1', type: 'webSearch', name: 'web_search', input: { query: 'codex' } },
-  { id: 'img_1', type: 'imageView', name: 'image_view', input: { path: '/tmp/image.png' } },
+  {
+    started: {
+      type: 'commandExecution',
+      id: 'cmd_1',
+      command: 'pwd',
+      cwd: process.cwd(),
+      aggregatedOutput: null,
+      exitCode: null,
+      durationMs: null,
+      status: 'inProgress',
+    },
+    completed: {
+      type: 'commandExecution',
+      id: 'cmd_1',
+      command: 'pwd',
+      cwd: process.cwd(),
+      aggregatedOutput: 'output',
+      exitCode: 0,
+      durationMs: 12,
+      status: 'completed',
+    },
+  },
+  {
+    started: {
+      type: 'fileChange',
+      id: 'file_1',
+      changes: [{ path: 'src/a.ts' }],
+      status: 'inProgress',
+    },
+    completed: {
+      type: 'fileChange',
+      id: 'file_1',
+      changes: [{ path: 'src/a.ts', status: 'changed' }],
+      status: 'completed',
+    },
+  },
+  {
+    started: {
+      type: 'mcpToolCall',
+      id: 'mcp_1',
+      server: 'fs',
+      tool: 'read',
+      arguments: { path: 'README.md' },
+      result: null,
+      error: null,
+      durationMs: null,
+      status: 'inProgress',
+    },
+    completed: {
+      type: 'mcpToolCall',
+      id: 'mcp_1',
+      server: 'fs',
+      tool: 'read',
+      arguments: { path: 'README.md' },
+      result: { ok: true },
+      error: null,
+      durationMs: 12,
+      status: 'completed',
+    },
+  },
+  {
+    started: { type: 'webSearch', id: 'web_1', query: 'codex' },
+    completed: { type: 'webSearch', id: 'web_1', query: 'codex' },
+  },
+  {
+    started: { type: 'imageView', id: 'img_1', path: '/tmp/image.png' },
+    completed: { type: 'imageView', id: 'img_1', path: '/tmp/image.png' },
+  },
 ]
 
 io.notify('turn/started', { turnId: 'turn_1' })
 for (const tool of tools) {
   io.notify('item/started', {
     turnId: 'turn_1',
-    item: { type: tool.type, id: tool.id, input: tool.input },
+    item: tool.started,
   })
-  if (tool.type === 'commandExecution') {
+  if (tool.started.type === 'commandExecution') {
     io.notify('item/commandExecution/outputDelta', {
       turnId: 'turn_1',
-      id: tool.id,
-      text: 'output',
+      itemId: tool.started.id,
+      delta: 'output',
     })
   }
-  if (tool.type === 'fileChange') {
+  if (tool.started.type === 'fileChange') {
     io.notify('item/fileChange/outputDelta', {
       turnId: 'turn_1',
-      id: tool.id,
-      text: 'changed',
+      itemId: tool.started.id,
+      delta: 'changed',
     })
   }
-  if (tool.type === 'mcpToolCall') {
+  if (tool.started.type === 'mcpToolCall') {
     io.notify('item/mcpToolCall/progress', {
       turnId: 'turn_1',
-      id: tool.id,
+      itemId: tool.started.id,
       data: { progress: 1 },
     })
   }
   io.notify('item/completed', {
     turnId: 'turn_1',
-    item: {
-      type: tool.type,
-      id: tool.id,
-      name: tool.name,
-      result: { ok: true },
-      durationMs: 12,
-    },
+    item: tool.completed,
   })
 }
 io.notify('turn/completed', {

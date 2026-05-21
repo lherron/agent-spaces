@@ -2,7 +2,7 @@
 
 End-to-end verification that `spaces-harness-broker` drives a real `codex app-server` process through full turn lifecycle, including tool execution.
 
-**Last validated:** 2026-05-20 against codex-cli 0.130.0.
+**Last validated:** 2026-05-21 against codex-cli 0.130.0 (post T-01554 fix).
 
 ---
 
@@ -127,10 +127,10 @@ Total elapsed: ~4–6 seconds.
 ```
 seq  1-5   invocation.started → continuation.updated → invocation.ready → input.accepted → turn.started
 seq  6     usage.updated         (early model planning tokens)
-seq  7     tool.call.started     (name:"command")         ← pwd
-seq  8     tool.call.completed   (isError:false)
-seq  9     tool.call.started     (name:"command")         ← ls
-seq 10     tool.call.completed   (isError:false)
+seq  7     tool.call.started     (name:"command", input:{command, cwd})            ← pwd
+seq  8     tool.call.completed   (result:{output, exitCode:0}, isError:false)
+seq  9     tool.call.started     (name:"command", input:{command, cwd})            ← ls
+seq 10     tool.call.completed   (result:{output, exitCode:0}, isError:false)
 seq 11     assistant.message.started
 seq 12-N   assistant.message.delta (token-by-token streaming of the answer)
 seq N+1    assistant.message.completed
@@ -180,8 +180,8 @@ Pass: `turn_status == "completed"`, `exit_code == 0`, `env_in_started == false`,
 | Stream stops at `invocation.failed` during startup with no `continuation.updated` | Codex auth missing or stale | Run `codex login`, retry. |
 | `Cannot find module '../src/drivers/codex-app-server/driver'` when running `bun test` | Phase 2 impl missing on this branch | `git checkout feat-harness-broker` or whatever branch holds Phase 0–4 commits. |
 | Driver shows `available: false` in `drivers --json` | Broker built without Phase 2 driver registration | Pull the latest `feat-harness-broker` HEAD. |
-| Tool calls emit `tool.call.started` + `tool.call.completed` but no `tool.call.delta` for short commands | Known limitation against codex 0.130.0 — codex does not emit `outputDelta` items for short commands. Not a defect. | Consumers needing delta visibility should test against a long-running command (e.g., `find /usr -type f`). |
-| `tool.call.completed.payload.durationMs == 0` | Broker doesn't compute tool duration; codex doesn't expose start→end timestamps. Cosmetic. | Open a follow-up if duration matters; otherwise ignore. |
+| Tool calls emit no `tool.call.delta` events even for longer commands (e.g. `find ... \| head -10`) | codex 0.130.0 does not emit `item/commandExecution/outputDelta` notifications in headless app-server mode — broker mapping is in place, codex simply doesn't surface them. Not a broker defect. | None — when codex emits deltas, the broker will surface them. |
+| `tool.call.completed.payload.durationMs == 0` | codex 0.130.0 emits `durationMs: 0` for short shell commands; broker passes through whatever codex provides. Cosmetic. | None — broker correctly surfaces codex's value. |
 
 ## Cleanup
 
@@ -193,4 +193,4 @@ rm -rf /tmp/clod-broker-smoke
 
 - Spec: `harness-broker-spec.md` §10, §10.4 (Codex event mapping), §10.5 (resume fallback), §16.3 (driver scenarios)
 - Implementation plan: `harness-broker-impl.md` § Phase 2, § Phase 5 (HRC migration)
-- Defects fixed during initial validation: T-01550 (sandboxMode), T-01551 (run-once lifecycle)
+- Defects fixed during initial validation: T-01550 (sandboxMode), T-01551 (run-once lifecycle), T-01554 (tool.call payload projection)

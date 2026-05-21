@@ -67,13 +67,14 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
       }
 
       if (TOOL_TYPES.has(itemType)) {
+        const input = normalizeToolInput(itemType, item)
         return [
           {
             type: 'tool.call.started',
             payload: {
               toolCallId: itemId,
               name: TOOL_NAMES[itemType] ?? itemType,
-              ...(item['input'] !== undefined ? { input: item['input'] } : {}),
+              ...(input !== undefined ? { input } : {}),
             },
             extra: { turnId, itemId },
           },
@@ -149,16 +150,18 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
       }
 
       if (TOOL_TYPES.has(itemType)) {
-        const isError = item['isError'] === true || item['status'] === 'failed' || item['error'] !== undefined
+        const result = normalizeToolResult(itemType, item)
+        const durationMs = numberValue(item['durationMs'])
+        const isError = isToolError(itemType, item)
         return [
           {
             type: isError ? 'tool.call.failed' : 'tool.call.completed',
             payload: {
               toolCallId: itemId,
               name: stringValue(item['name']) ?? TOOL_NAMES[itemType] ?? itemType,
-              ...(item['result'] !== undefined ? { result: item['result'] } : {}),
+              ...(result !== undefined ? { result } : {}),
               isError,
-              ...(typeof item['durationMs'] === 'number' ? { durationMs: item['durationMs'] } : {}),
+              ...(durationMs !== undefined ? { durationMs } : {}),
             },
             extra: { turnId, itemId },
           },
@@ -174,7 +177,11 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
       if (!turnId) return []
       const rawStatus = stringValue(params['status']) ?? stringValue(turn['status'])
       const status =
-        rawStatus === 'failed' ? 'failed' : rawStatus === 'interrupted' ? 'interrupted' : 'completed'
+        rawStatus === 'failed'
+          ? 'failed'
+          : rawStatus === 'interrupted'
+            ? 'interrupted'
+            : 'completed'
       return [
         {
           type:
@@ -212,21 +219,129 @@ export function parseCodexError(params: unknown): CodexErrorInfo {
     stringValue(nested['code']) ??
     stringValue(asRecord(nested['codexErrorInfo'])['code'])
   const data = Object.keys(root).length > 0 ? root : undefined
-  return { message, ...(code !== undefined ? { code } : {}), ...(data !== undefined ? { data } : {}) }
+  return {
+    message,
+    ...(code !== undefined ? { code } : {}),
+    ...(data !== undefined ? { data } : {}),
+  }
 }
 
-function normalizeMessageContent(item: Record<string, unknown>): Array<{ type: 'text'; text: string }> {
+function normalizeMessageContent(
+  item: Record<string, unknown>
+): Array<{ type: 'text'; text: string }> {
   const content = item['content']
   if (Array.isArray(content)) {
     return content.flatMap((part) => {
       const record = asRecord(part)
       const text = stringValue(record['text'])
-      return record['type'] === 'text' && text !== undefined ? [{ type: 'text' as const, text }] : []
+      return record['type'] === 'text' && text !== undefined
+        ? [{ type: 'text' as const, text }]
+        : []
     })
   }
 
   const text = stringValue(item['text']) ?? ''
   return [{ type: 'text', text }]
+}
+
+function normalizeToolInput(itemType: string, item: Record<string, unknown>): unknown {
+  const explicitInput = item['input']
+
+  switch (itemType) {
+    case 'commandExecution':
+      return (
+        objectWithDefined({
+          command: stringValue(item['command']),
+          cwd: stringValue(item['cwd']),
+        }) ?? explicitInput
+      )
+    case 'fileChange':
+      return item['changes'] !== undefined ? { changes: item['changes'] } : explicitInput
+    case 'mcpToolCall':
+      return (
+        objectWithDefined({
+          server: stringValue(item['server']),
+          tool: stringValue(item['tool']),
+          arguments: item['arguments'],
+        }) ?? explicitInput
+      )
+    case 'webSearch':
+      return objectWithDefined({ query: stringValue(item['query']) }) ?? explicitInput
+    case 'imageView':
+      return objectWithDefined({ path: stringValue(item['path']) }) ?? explicitInput
+    default:
+      return undefined
+  }
+}
+
+function normalizeToolResult(itemType: string, item: Record<string, unknown>): unknown {
+  const explicitResult = item['result']
+
+  switch (itemType) {
+    case 'commandExecution':
+      return (
+        objectWithDefined({
+          output: stringValue(item['aggregatedOutput']),
+          exitCode: numberValue(item['exitCode']),
+        }) ?? explicitResult
+      )
+    case 'fileChange':
+      return item['changes'] !== undefined ? { changes: item['changes'] } : explicitResult
+    case 'mcpToolCall': {
+      const error = item['error']
+      if (error !== undefined && error !== null) {
+        return {
+          error,
+          ...(explicitResult !== null && explicitResult !== undefined
+            ? { result: explicitResult }
+            : {}),
+        }
+      }
+      return explicitResult !== null && explicitResult !== undefined ? explicitResult : undefined
+    }
+    case 'webSearch': {
+      const query = stringValue(item['query'])
+      return query !== undefined ? { query } : explicitResult
+    }
+    case 'imageView': {
+      const path = stringValue(item['path'])
+      return path !== undefined ? { path } : explicitResult
+    }
+    default:
+      return undefined
+  }
+}
+
+function isToolError(itemType: string, item: Record<string, unknown>): boolean {
+  const status = stringValue(item['status'])
+  if (status !== undefined && status !== 'completed') return true
+
+  switch (itemType) {
+    case 'commandExecution': {
+      const exitCode = numberValue(item['exitCode'])
+      return exitCode !== undefined && exitCode !== 0
+    }
+    case 'mcpToolCall': {
+      const error = item['error']
+      return error !== undefined && error !== null
+    }
+    case 'fileChange':
+    case 'webSearch':
+    case 'imageView':
+      return false
+    default:
+      return false
+  }
+}
+
+function objectWithDefined(values: Record<string, unknown>): Record<string, unknown> | undefined {
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined) {
+      result[key] = value
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -235,4 +350,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined
 }

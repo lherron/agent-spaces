@@ -10,12 +10,15 @@ io.respond(thread, { threadId: 'thread_attachment_echo' })
 const turn = await expectMethod(io, 'turn/start')
 
 io.notify('turn/started', { turnId: 'turn_attachment' })
+const turnParams = (turn.params ?? {}) as { input?: Array<Record<string, unknown>> }
+const localImage = (turnParams.input ?? []).find((item) => item['type'] === 'localImage')
+const attachmentPath = typeof localImage?.['path'] === 'string' ? localImage['path'] : ''
 io.notify('item/started', {
   turnId: 'turn_attachment',
   item: {
     type: 'imageView',
     id: 'img_attachment',
-    input: { observedInput: turn.params },
+    path: attachmentPath,
   },
 })
 io.notify('item/completed', {
@@ -23,8 +26,7 @@ io.notify('item/completed', {
   item: {
     type: 'imageView',
     id: 'img_attachment',
-    name: 'image_view',
-    result: { observedInput: turn.params },
+    path: attachmentPath,
   },
 })
 io.notify('turn/completed', {
