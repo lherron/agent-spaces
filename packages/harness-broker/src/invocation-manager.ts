@@ -3,6 +3,7 @@ import type {
   HarnessInvocationSpec,
   InvocationCapabilities,
   InvocationEventType,
+  InvocationInput,
   InvocationInputRequest,
   InvocationInputResponse,
   InvocationInterruptRequest,
@@ -46,7 +47,8 @@ export interface InvocationManagerOptions {
 export interface InvocationManager {
   start(
     spec: HarnessInvocationSpec,
-    driver: Driver
+    driver: Driver,
+    initialInput?: InvocationInput | undefined
   ): Promise<InvocationStartResponse>
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
@@ -151,7 +153,8 @@ export function createInvocationManager(
   return {
     async start(
       spec: HarnessInvocationSpec,
-      driver: Driver
+      driver: Driver,
+      initialInput?: InvocationInput | undefined
     ): Promise<InvocationStartResponse> {
       // Check if there's already an active invocation
       for (const existing of invocations.values()) {
@@ -210,6 +213,15 @@ export function createInvocationManager(
       }
 
       inv.state = 'ready'
+
+      // Apply initialInput after ready, routing through the same code path as client.input()
+      if (initialInput !== undefined && !inv.terminalEmitted) {
+        const inputId = initialInput.inputId ?? `input_initial_${invocationId}`
+        await driver.input({
+          invocationId,
+          input: { ...initialInput, inputId },
+        })
+      }
 
       return {
         invocationId,
