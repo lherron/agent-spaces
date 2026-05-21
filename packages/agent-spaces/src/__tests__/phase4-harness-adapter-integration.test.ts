@@ -26,6 +26,10 @@ const prepareCliRuntimeSource = readFileSync(
   join(import.meta.dirname, '..', 'prepare-cli-runtime.ts'),
   'utf8'
 )
+const runPlacementTurnSource = readFileSync(
+  join(import.meta.dirname, '..', 'run-placement-turn.ts'),
+  'utf8'
+)
 const placementResolverSource = readFileSync(
   join(import.meta.dirname, '..', '..', '..', 'config', 'src', 'resolver', 'placement-resolver.ts'),
   'utf8'
@@ -160,7 +164,7 @@ describe('agent-project placement context feeds harness pipeline (T-00994)', () 
   })
 
   test('runPlacementTurnNonInteractive applies scoped env with agent tool env', () => {
-    const fn = extractFunction(clientSource, 'runPlacementTurnNonInteractive')
+    const fn = extractFunction(runPlacementTurnSource, 'runPlacementTurnNonInteractive')
     expect(fn).toMatch(/detectAgentLocalComponents\(placement\.agentRoot\)/)
     expect(fn).toMatch(/prepareAgentToolRuntime\(/)
     expect(fn).toMatch(/Object\.assign\(harnessEnv, toolRuntime\.env\)/)

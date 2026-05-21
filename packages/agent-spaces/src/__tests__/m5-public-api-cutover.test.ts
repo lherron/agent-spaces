@@ -544,12 +544,13 @@ describe('unified placement materialization (T-00876)', () => {
       join(import.meta.dirname, '..', 'prepare-cli-runtime.ts'),
       'utf8'
     )
+    const runSource = readFileSync(join(import.meta.dirname, '..', 'run-placement-turn.ts'), 'utf8')
 
     // Extract the two placement functions
     const buildFn = prepareSource.match(
       /async function preparePlacementCliRuntime[\s\S]*?^}/m
     )?.[0]
-    const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
+    const runFn = runSource.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
 
     expect(buildFn).toBeDefined()
     expect(runFn).toBeDefined()
@@ -577,7 +578,7 @@ describe('non-interactive placement defaults (T-01092)', () => {
   test('runPlacementTurnNonInteractive consumes the shared placement runtime plan', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
-    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+    const source = readFileSync(join(import.meta.dirname, '..', 'run-placement-turn.ts'), 'utf8')
     const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
 
     expect(runFn).toBeDefined()
@@ -590,7 +591,7 @@ describe('non-interactive placement defaults (T-01092)', () => {
   test('pi-sdk path does not hardcode yolo true', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
-    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+    const source = readFileSync(join(import.meta.dirname, '..', 'run-placement-turn.ts'), 'utf8')
     const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
 
     expect(runFn).toBeDefined()

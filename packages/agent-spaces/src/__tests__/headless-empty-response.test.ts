@@ -11,7 +11,10 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const clientSrc = readFileSync(resolve(__dirname, '..', 'client.ts'), 'utf8')
+const runPlacementTurnSrc = readFileSync(
+  resolve(__dirname, '..', 'run-placement-turn.ts'),
+  'utf8'
+)
 
 const sessionSrc = readFileSync(
   resolve(__dirname, '..', '..', '..', 'harness-claude', 'src', 'agent-sdk', 'agent-session.ts'),
@@ -20,7 +23,9 @@ const sessionSrc = readFileSync(
 
 describe('T-01216 empty_response guard', () => {
   test('runPlacementTurnNonInteractive guards against no-content success', () => {
-    const runFn = clientSrc.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
+    const runFn = runPlacementTurnSrc.match(
+      /async function runPlacementTurnNonInteractive[\s\S]*?^}/m
+    )?.[0]
     expect(runFn).toBeDefined()
     // After the happy-path assembly of finalOutput, there must be a guard
     // that demotes the result to success:false when neither finalOutput
