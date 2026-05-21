@@ -31,6 +31,7 @@ export interface BrokerOptions {
   drivers: Driver[]
   onEvent?: ((event: InvocationEventEnvelope) => void) | undefined
   now?: (() => Date) | undefined
+  maxInputQueueDepth?: number | undefined
 }
 
 export interface Broker {
@@ -55,6 +56,7 @@ export function createBroker(options: BrokerOptions): Broker {
     sequencer,
     onEvent,
     getClientCapabilities: () => clientCapabilities,
+    maxInputQueueDepth: options.maxInputQueueDepth,
   })
 
   return {

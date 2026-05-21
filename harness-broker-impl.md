@@ -14,7 +14,7 @@ Authored jointly by `clod` and `cody`.
 
 **E2E validated against codex-cli 0.130.0:** message-only smoke + tool-execution smoke (`pwd` + `ls`) both produce full turn lifecycle with real model output, real thread UUIDs, real token usage. Runbook at `runbooks/e2e-harness-codex-app-server.md`.
 
-**Test totals:** 67+ unit/golden tests across the three new packages; 0 fail; 1 todo (Phase 3 ask-client perm scenario deferred to a future client capability addition).
+**Test totals:** 87+ unit/golden tests across the three new packages; 0 fail; 1 todo (Phase 3 ask-client perm scenario deferred to a future client capability addition).
 
 ### Phase delivery table
 
@@ -227,12 +227,17 @@ Drive a real or fake Codex app-server from an exact compiled spec and emit broke
 **Driver interface:**
 
 ```ts
+export interface ApplyInputResult {
+  turnId?: string | undefined
+}
+
 export interface Driver {
   readonly kind: string
   readonly version: string
+  readonly acceptsSequentialUserInputs: boolean
   capabilities(): InvocationCapabilities
   start(spec: HarnessInvocationSpec, ctx: DriverContext): Promise<DriverStartResult>
-  input(req: InvocationInputRequest): Promise<InvocationInputResponse>
+  applyInputNow(input: InvocationInput): Promise<ApplyInputResult>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   dispose(): Promise<void>
@@ -243,6 +248,8 @@ export interface DriverContext {
   emit(env: InvocationEventEnvelope): void
 }
 ```
+
+Drivers apply one input immediately via `applyInputNow` — they do not see `policy`, own dispositions, or manage queues. The broker's invocation manager owns all input admission, FIFO queuing, and busy-turn policy semantics. The `acceptsSequentialUserInputs` flag indicates whether the driver can accept a new user input after a prior turn completes; the broker composes this with the spec's `interaction.inputQueue` to derive the public `capabilities.input.queue` value.
 
 **Startup sequence (spec §10.2):**
 
@@ -573,6 +580,6 @@ Resolved during delivery:
 Still open:
 
 3. **HRC migration owner & timing.** Phases 0–4 left HRC untouched. Who owns the `hrc-runtime` integration work, and when? Broker is dormant on `main` until something explicitly invokes it.
-4. **Broker-owned FIFO input queue.** The protocol has `interaction.inputQueue`, `policy.whenBusy: "queue"`, queued dispositions, and `input.queued` events, but the current manager delegates `invocation.input` directly to `driver.input`. Before HRC migrates busy-session dispatch to the broker, implement the queue in `InvocationManager`: admit busy inputs into a per-invocation FIFO queue, emit `input.queued`, drain one input after each terminal turn event, and keep the behavior client-agnostic so HRC, ACP, CLIs, tests, and future clients all share the same semantics. See wrkq T-01574.
+4. ~~**Broker-owned FIFO input queue.**~~ DONE (T-01574 → T-01577). The invocation manager now owns a per-invocation FIFO queue with `queueMicrotask`-scheduled drain on `turn.completed | turn.failed | turn.interrupted`. Driver interface refactored from `driver.input(req)` to `driver.applyInputNow(input): Promise<ApplyInputResult>` with `acceptsSequentialUserInputs` flag. Broker composes the public `capabilities.input.queue` from driver flag, spec `interaction.inputQueue`, and base user capability. `maxInputQueueDepth` (default 64) configurable via `createBroker()`. Reason-string vocabulary centralized. Queue evicted on terminal/stopping transitions. 14 red tests in `input-queue.test.ts` green. Merged 2026-05-21.
 5. **Future driver roadmap.** v0 ships Codex app-server only. When (and who) for Claude CLI / Pi CLI / headless Codex JSONL drivers? Recommend defer until at least one real consumer (HRC or otherwise) is running the Codex driver in production.
 6. **`ask-client` permission flow.** Wire-protocol works; no consumer exercises it yet. Once HRC (or another client) needs interactive approval, exercise the path and promote the deferred `todo` test to a real assertion.

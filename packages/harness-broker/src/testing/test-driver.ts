@@ -2,15 +2,13 @@ import type {
   HarnessInvocationSpec,
   InvocationCapabilities,
   InvocationInput,
-  InvocationInputRequest,
-  InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
-import type { Driver, DriverContext, DriverStartResult } from '../drivers/driver'
+import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../drivers/driver'
 import { BrokerError } from '../errors'
 
 export interface TestDriverController {
@@ -131,6 +129,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
   const driver: Driver = {
     kind: 'test-driver',
     version: '0.1.0',
+    acceptsSequentialUserInputs: true,
 
     capabilities(): InvocationCapabilities {
       return TEST_CAPABILITIES
@@ -144,38 +143,23 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
       return { ok: true }
     },
 
-    async input(req: InvocationInputRequest): Promise<InvocationInputResponse> {
-      const inputId = req.input.inputId ?? `input_test_${inputs.length + 1}`
-      const input = { ...req.input, inputId }
+    async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
+      const inputId = input.inputId ?? `input_test_${inputs.length + 1}`
+      const resolved = { ...input, inputId }
 
       if (failInputIds.has(inputId)) {
         throw new BrokerError(BrokerErrorCode.InputRejected, `test-driver failed input ${inputId}`)
       }
 
-      if (input.kind !== 'user') {
-        const reason =
-          input.kind === 'steer'
-            ? 'UnsupportedCapability: input.steer'
-            : 'UnsupportedCapability: input.appendContext'
-        requireCtx().emit('input.rejected', { inputId, reason }, { inputId })
-        throw new BrokerError(BrokerErrorCode.UnsupportedCapability, reason)
-      }
-
-      if (activeTurnId !== undefined) {
-        const reason = 'InputRejected: turn already active'
-        requireCtx().emit('input.rejected', { inputId, reason }, { inputId })
-        throw new BrokerError(BrokerErrorCode.InputRejected, reason)
-      }
-
-      inputs.push(input)
-      activeInput = input
+      inputs.push(resolved)
+      activeInput = resolved
       turnCounter += 1
       activeTurnId = `turn_test_${turnCounter}`
 
-      requireCtx().emit('input.accepted', { inputId }, { inputId })
+      // Driver emits turn.started — broker owns input.accepted separately
       requireCtx().emit('turn.started', { turnId: activeTurnId }, { turnId: activeTurnId, inputId })
 
-      return { inputId, accepted: true, disposition: 'started', turnId: activeTurnId }
+      return { turnId: activeTurnId }
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {

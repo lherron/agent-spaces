@@ -3,8 +3,7 @@ import type {
   CodexAppServerDriverSpec,
   HarnessInvocationSpec,
   InvocationCapabilities,
-  InvocationInputRequest,
-  InvocationInputResponse,
+  InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
@@ -14,7 +13,7 @@ import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import { spawnHarnessProcess } from '../../runtime/process-runner'
 import { terminateProcess } from '../../runtime/signals'
-import type { Driver, DriverContext, DriverStartResult } from '../driver'
+import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import { mapCodexNotification, parseCodexError } from './event-map'
 import { buildTurnStartParams } from './input'
 import { type PermissionHandlerContext, handlePermissionRequest } from './permissions'
@@ -253,6 +252,7 @@ export function createCodexAppServerDriver(): Driver {
   return {
     kind: 'codex-app-server',
     version: '0.1.0',
+    acceptsSequentialUserInputs: false,
 
     capabilities(): InvocationCapabilities {
       return CODEX_CAPABILITIES
@@ -366,28 +366,15 @@ export function createCodexAppServerDriver(): Driver {
       return { ok: true }
     },
 
-    async input(req: InvocationInputRequest): Promise<InvocationInputResponse> {
+    // Driver applies the input immediately — broker manager owns all policy,
+    // disposition, and queue semantics. No policy or busy checks here.
+    async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
       if (!rpc || !spec || !driverSpec || !threadId) {
         throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Invocation is not ready')
       }
 
-      const inputId = req.input.inputId ?? `input_${Date.now().toString(36)}`
-      if (req.input.kind !== 'user') {
-        const reason =
-          req.input.kind === 'steer'
-            ? 'UnsupportedCapability: input.steer'
-            : 'UnsupportedCapability: input.appendContext'
-        requireCtx().emit('input.rejected', { inputId, reason }, { inputId })
-        throw new BrokerError(BrokerErrorCode.UnsupportedCapability, reason)
-      }
-      if (turnActive) {
-        const reason = 'InputRejected: turn already active'
-        requireCtx().emit('input.rejected', { inputId, reason }, { inputId })
-        throw new BrokerError(BrokerErrorCode.InputRejected, reason)
-      }
-
+      const inputId = input.inputId ?? `input_${Date.now().toString(36)}`
       currentInputId = inputId
-      requireCtx().emit('input.accepted', { inputId }, { inputId })
 
       // Wire turn timeout
       const turnTimeoutMs = spec.process.limits?.turnTimeoutMs
@@ -427,7 +414,7 @@ export function createCodexAppServerDriver(): Driver {
           buildTurnStartParams({
             threadId,
             cwd: spec.process.cwd,
-            input: req.input,
+            input,
             driver: driverSpec,
           })
         )
@@ -435,24 +422,13 @@ export function createCodexAppServerDriver(): Driver {
         if (turnTimeout !== undefined) clearTimeout(turnTimeout)
         turnTimeout = undefined
         if (turnTimedOut) {
-          // If stop() preempted the timeout, return success (input was accepted).
           if (stopping || terminalEmitted) {
-            return {
-              inputId,
-              accepted: true,
-              disposition: 'started',
-              ...(currentTurnId ? { turnId: currentTurnId } : {}),
-            }
+            return { ...(currentTurnId ? { turnId: currentTurnId } : {}) }
           }
           throw new BrokerError(BrokerErrorCode.Timeout, 'Turn timed out')
         }
         if (terminalEmitted || turnActive || stopping) {
-          return {
-            inputId,
-            accepted: true,
-            disposition: 'started',
-            ...(currentTurnId ? { turnId: currentTurnId } : {}),
-          }
+          return { ...(currentTurnId ? { turnId: currentTurnId } : {}) }
         }
         throw new BrokerError(
           BrokerErrorCode.HarnessError,
@@ -462,12 +438,7 @@ export function createCodexAppServerDriver(): Driver {
       if (turnTimeout !== undefined) clearTimeout(turnTimeout)
       turnTimeout = undefined
 
-      return {
-        inputId,
-        accepted: true,
-        disposition: 'started',
-        ...(currentTurnId ? { turnId: currentTurnId } : {}),
-      }
+      return { ...(currentTurnId ? { turnId: currentTurnId } : {}) }
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {

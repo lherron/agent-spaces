@@ -1,8 +1,7 @@
 import type {
   HarnessInvocationSpec,
   InvocationCapabilities,
-  InvocationInputRequest,
-  InvocationInputResponse,
+  InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
@@ -10,7 +9,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
-import type { Driver, DriverContext, DriverStartResult } from './driver'
+import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from './driver'
 
 export interface NoopDriverOptions {
   /** Which terminal state to enter on stop: 'exited' or 'failed'. */
@@ -52,6 +51,7 @@ export function createNoopDriver(options: NoopDriverOptions = {}): Driver {
   return {
     kind: 'noop-driver',
     version: '0.1.0',
+    acceptsSequentialUserInputs: false,
 
     capabilities(): InvocationCapabilities {
       return NOOP_CAPABILITIES
@@ -65,7 +65,7 @@ export function createNoopDriver(options: NoopDriverOptions = {}): Driver {
       return { ok: true }
     },
 
-    async input(_req: InvocationInputRequest): Promise<InvocationInputResponse> {
+    async applyInputNow(_input: InvocationInput): Promise<ApplyInputResult> {
       throw new BrokerError(
         BrokerErrorCode.UnsupportedCapability,
         'noop-driver does not support input'

@@ -948,7 +948,25 @@ turn_active + append      -> apply if supported, else reject or queue by policy
 
 Queue support is provider-neutral and client-agnostic. HRC, ACP, CLI tools, tests, and future clients all use the same `invocation.input` policy fields and observe the same `input.queued` / `input.rejected` events. A client must not start a second broker invocation merely because the current invocation has an active turn; queue or reject through this protocol instead.
 
-For `turns.concurrency: 'single'`, the broker drains at most one queued input at a time after `turn.completed`, `turn.failed`, or `turn.interrupted`, preserving FIFO order. If the invocation exits, fails, stops, or is disposed before a queued input starts, the broker rejects or fails the remaining queued inputs with normalized events.
+For `turns.concurrency: 'single'`, the broker drains at most one queued input at a time after `turn.completed`, `turn.failed`, or `turn.interrupted`, preserving FIFO order. Drain is `queueMicrotask`-scheduled, not synchronous inside the event emission. If the invocation exits, fails, stops, or is disposed before a queued input starts, the broker rejects the remaining queued inputs with normalized events.
+
+The per-invocation FIFO queue has a configurable depth cap controlled by `maxInputQueueDepth` (default 64), surfaced via `createBroker({ maxInputQueueDepth })`. When the queue is full, the broker rejects the input with reason `queue_full`.
+
+`whenBusy: 'interrupt_then_apply'` is reserved for future orchestration. In v1, the broker centrally rejects it with reason `unsupported_busy_policy`. No driver-side interrupt-and-apply flow is implemented.
+
+#### Reason-string vocabulary
+
+The broker uses the following well-known reason strings in `input.rejected` events and `InvocationInputResponse.reason`:
+
+| Reason | Meaning |
+|---|---|
+| `busy_rejected` | Input rejected because a turn is active and `whenBusy: 'reject'` was specified. |
+| `queue_full` | Per-invocation queue depth cap exceeded. |
+| `queue_not_supported` | Queuing requested but the composed queue capability is false (driver or spec does not support FIFO queue). |
+| `unsupported_input_kind_for_queue` | Only `user` inputs can be queued; `steer` and `append_context` are rejected when `whenBusy: 'queue'`. |
+| `unsupported_busy_policy` | `whenBusy: 'interrupt_then_apply'` is not implemented in v1. |
+| `invocation_terminated` | Queued input rejected because the invocation reached a terminal state (`exited` or `failed`). |
+| `invocation_stopping` | Queued input rejected because the invocation entered the `stopping` state. |
 
 For Codex app-server v0: no queue, no steer, no append-context. Single active turn only.
 
