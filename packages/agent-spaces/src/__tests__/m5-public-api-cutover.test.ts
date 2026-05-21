@@ -16,10 +16,20 @@
  * 6. AGENT_SCOPE_REF, AGENT_LANE_REF, AGENT_HOST_SESSION_ID emitted in env vars.
  */
 
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+beforeAll(() => {
+  const agentRoot = '/tmp/asp-test-m5/agent-root'
+  mkdirSync(agentRoot, { recursive: true })
+  writeFileSync(
+    join(agentRoot, 'agent-profile.toml'),
+    'schemaVersion = 2\n\n[spaces]\nbase = []\n\n[brain]\nenabled = false\n',
+    'utf8'
+  )
+})
 
 // ===================================================================
 // T-00860: Placement-based request/response types
@@ -532,7 +542,7 @@ describe('unified placement materialization (T-00876)', () => {
     const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
 
     // Extract the two placement functions
-    const buildFn = source.match(/async function buildPlacementInvocationSpec[\s\S]*?^}/m)?.[0]
+    const buildFn = source.match(/async function preparePlacementCliRuntime[\s\S]*?^}/m)?.[0]
     const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
 
     expect(buildFn).toBeDefined()
@@ -765,7 +775,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
     writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
     writeFileSync(
       join(agentRoot, 'agent-profile.toml'),
-      `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
+      `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n\n[brain]\nenabled = false\n`
     )
     // Create spaces with manifests
     for (const id of ['base-space', 'heartbeat-monitor']) {
@@ -821,7 +831,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
     writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
     writeFileSync(
       join(agentRoot, 'agent-profile.toml'),
-      `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
+      `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n\n[brain]\nenabled = false\n`
     )
     for (const id of ['base-space', 'heartbeat-monitor']) {
       mkdirSync(join(agentRoot, 'spaces', id, 'claude', 'plugins'), { recursive: true })

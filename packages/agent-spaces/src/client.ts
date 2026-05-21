@@ -11,6 +11,9 @@ import {
   getAspHome,
   getHarnessFrontendsForProvider,
   normalizeAgentSdkModel,
+  type HarnessDetection,
+  type HarnessRunOptions,
+  type ResolvedPlacementContext,
 } from 'spaces-config'
 
 import { type RuntimePlacement, resolvePlacementContext } from 'spaces-config'
@@ -22,6 +25,7 @@ import {
   detectAgentLocalComponents,
   harnessRegistry,
   planPlacementRuntime,
+  type PlacementRuntimePlan,
   prepareAgentBrainRuntime,
   prepareAgentToolRuntime,
   prepareCodexRuntimeHome,
@@ -42,7 +46,7 @@ import {
   resolveInFlight,
 } from './run-tracker.js'
 
-import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
+import { expandTemplate, materializeSystemPrompt, type MaterializeResult } from 'spaces-runtime'
 import {
   applyEnvOverlay,
   piSessionPath,
@@ -61,6 +65,7 @@ import {
 } from './session-events.js'
 
 import {
+  type MaterializedSpec,
   type ValidatedSpec,
   collectHooks,
   collectLintWarnings,
@@ -332,7 +337,8 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
     ): Promise<BuildProcessInvocationSpecResponse> {
       // Placement-based path (v2)
       if (req.placement) {
-        return buildPlacementInvocationSpec(req, clientAspHome)
+        const prepared = await preparePlacementCliRuntime(req, clientAspHome)
+        return toProcessInvocationSpec(prepared, req)
       }
 
       return withAspHome(req.aspHome, async () => {
@@ -997,15 +1003,35 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
   }
 }
 
+interface PreparedPlacementCliRuntime {
+  placement: RuntimePlacement
+  placementContext: ResolvedPlacementContext
+  resolvedBundle: BuildProcessInvocationSpecResponse['resolvedBundle']
+  runtimePlan: PlacementRuntimePlan
+  materialized: MaterializedSpec
+  systemPrompt?: MaterializeResult | undefined
+  expandedPrompt?: string | undefined
+  imageAttachmentPaths: string[]
+  runOptions: HarnessRunOptions
+  detection: HarnessDetection
+  commandPath: string
+  args: string[]
+  argv: string[]
+  env: Record<string, string>
+  cwd: string
+  displayCommand: string
+  continuation?: HarnessContinuationRef | undefined
+  codexAppServer?: ProcessInvocationSpec['codexAppServer'] | undefined
+  warnings: string[]
+}
+
 /**
- * Handle placement-based buildProcessInvocationSpec request.
- * Resolves placement, materializes spaces, and builds full CLI invocation
- * through the harness adapter (matching the legacy path).
+ * Prepare placement-based CLI runtime state without choosing an output protocol.
  */
-async function buildPlacementInvocationSpec(
+async function preparePlacementCliRuntime(
   req: BuildProcessInvocationSpecRequest,
   defaultAspHome?: string
-): Promise<BuildProcessInvocationSpecResponse> {
+): Promise<PreparedPlacementCliRuntime> {
   const placement = req.placement as RuntimePlacement
   const warnings: string[] = []
 
@@ -1102,7 +1128,7 @@ async function buildPlacementInvocationSpec(
       : undefined
 
   // Build run options for the adapter
-  let runOptions: import('spaces-config').HarnessRunOptions = {
+  let runOptions: HarnessRunOptions = {
     ...runtimePlan.runOptions,
     model: runtimePlan.model.info.model,
     ...(expandedPrompt !== undefined ? { prompt: expandedPrompt } : {}),
@@ -1187,27 +1213,70 @@ async function buildPlacementInvocationSpec(
     ? { provider: runtimePlan.provider, key: req.continuation.key }
     : undefined
 
-  const invocationSpec: ProcessInvocationSpec = {
-    provider: runtimePlan.provider,
-    frontend: req.frontend,
+  const codexAppServer =
+    req.frontend === 'codex-cli' && req.interactionMode === 'headless'
+      ? buildCodexAppServerLaunchDescriptor(runOptions)
+      : undefined
+
+  return {
+    placement,
+    placementContext,
+    resolvedBundle,
+    runtimePlan,
+    materialized,
+    ...(systemPrompt ? { systemPrompt } : {}),
+    ...(expandedPrompt !== undefined ? { expandedPrompt } : {}),
+    imageAttachmentPaths,
+    runOptions,
+    detection,
+    commandPath,
+    args,
     argv,
     cwd,
     env,
-    interactionMode: req.interactionMode,
-    ioMode: req.ioMode,
     ...(continuation ? { continuation } : {}),
     displayCommand,
-    ...(systemPrompt ? { systemPromptFile: systemPrompt.path } : {}),
-    ...(req.frontend === 'codex-cli' && req.interactionMode === 'headless'
-      ? { codexAppServer: buildCodexAppServerLaunchDescriptor(runOptions) }
-      : {}),
+    ...(codexAppServer ? { codexAppServer } : {}),
+    warnings,
+  }
+}
+
+function toProcessInvocationSpec(
+  prepared: PreparedPlacementCliRuntime,
+  req: BuildProcessInvocationSpecRequest
+): BuildProcessInvocationSpecResponse {
+  const invocationSpec: ProcessInvocationSpec = {
+    provider: prepared.runtimePlan.provider,
+    frontend: req.frontend,
+    argv: prepared.argv,
+    cwd: prepared.cwd,
+    env: prepared.env,
+    interactionMode: req.interactionMode,
+    ioMode: req.ioMode,
+    ...(prepared.continuation ? { continuation: prepared.continuation } : {}),
+    displayCommand: prepared.displayCommand,
+    ...(prepared.systemPrompt ? { systemPromptFile: prepared.systemPrompt.path } : {}),
+    ...(prepared.codexAppServer ? { codexAppServer: prepared.codexAppServer } : {}),
   }
 
   return {
     spec: invocationSpec,
-    resolvedBundle,
-    ...(warnings.length > 0 ? { warnings } : {}),
+    resolvedBundle: prepared.resolvedBundle,
+    ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
   }
+}
+
+/**
+ * Handle placement-based buildProcessInvocationSpec request.
+ * Resolves placement, materializes spaces, and builds full CLI invocation
+ * through the harness adapter (matching the legacy path).
+ */
+async function buildPlacementInvocationSpec(
+  req: BuildProcessInvocationSpecRequest,
+  defaultAspHome?: string
+): Promise<BuildProcessInvocationSpecResponse> {
+  const prepared = await preparePlacementCliRuntime(req, defaultAspHome)
+  return toProcessInvocationSpec(prepared, req)
 }
 
 /**
