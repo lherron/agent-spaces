@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { connect as netConnect } from 'node:net'
 import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveRootRelativeRef } from 'spaces-config'
@@ -11,12 +12,15 @@ import type {
   ExecSectionDef,
   FileSectionDef,
   SectionWrap,
+  ServiceProbeSectionDef,
+  ServiceProbeSpec,
   SystemPromptMode,
   WhenPredicate,
 } from './context-template.js'
 
 const execFileAsync = promisify(execFile)
 const DEFAULT_EXEC_TIMEOUT_MS = 5000
+const DEFAULT_SERVICE_PROBE_TIMEOUT_MS = 250
 const SECTION_SEPARATOR = '\n\n---\n\n'
 const SLOT_SEPARATOR = '\n\n'
 const TRUNCATION_MARKER = '[truncated]'
@@ -269,6 +273,8 @@ function describeSectionSource(section: ContextSection, context: ContextResolver
       return `exec: ${section.command}`
     case 'slot':
       return section.source === undefined ? `slot: ${section.name}` : `slot: ${section.source}`
+    case 'service-probe':
+      return `service-probe: ${section.services.map((s) => s.name).join(', ')}`
     case 'file': {
       try {
         return `${section.path} -> ${resolveTemplateRef(section.path, context)}`
@@ -327,6 +333,8 @@ async function resolveSection(
       return resolveExecSection(section, context)
     case 'slot':
       return resolveSlotSection(section, context)
+    case 'service-probe':
+      return resolveServiceProbeSection(section, context)
   }
 }
 
@@ -369,6 +377,99 @@ async function resolveExecSection(
   } catch {
     return undefined
   }
+}
+
+async function resolveServiceProbeSection(
+  section: ServiceProbeSectionDef,
+  context: ContextResolverContext
+): Promise<string | undefined> {
+  const timeout = section.timeout ?? DEFAULT_SERVICE_PROBE_TIMEOUT_MS
+  const services = section.services.map((spec) => ({
+    name: spec.name,
+    endpoint: interpolateVariables(spec.endpoint, context),
+  }))
+  if (services.length === 0) {
+    return undefined
+  }
+
+  const results = await Promise.all(
+    services.map(async (spec) => ({
+      spec,
+      up: await probeServiceEndpoint(spec.endpoint, timeout),
+    }))
+  )
+
+  const nameWidth = services.reduce((max, spec) => Math.max(max, spec.name.length), 0)
+  const lines: string[] = []
+  if (section.header !== undefined && section.header.length > 0) {
+    lines.push(interpolateVariables(section.header, context))
+  }
+  for (const { spec, up } of results) {
+    const mark = up ? '✅' : '❌'
+    const display = spec.endpoint.startsWith('unix://')
+      ? spec.endpoint.slice('unix://'.length)
+      : spec.endpoint
+    lines.push(`  ${mark} ${spec.name.padEnd(nameWidth)}  ${display}`)
+  }
+  return lines.join('\n')
+}
+
+interface ParsedEndpoint {
+  kind: 'tcp' | 'unix'
+  host?: string
+  port?: number
+  path?: string
+}
+
+function parseServiceEndpoint(endpoint: string): ParsedEndpoint | undefined {
+  if (endpoint.startsWith('unix://')) {
+    return { kind: 'unix', path: endpoint.slice('unix://'.length) }
+  }
+  if (endpoint.startsWith('/')) {
+    return { kind: 'unix', path: endpoint }
+  }
+  try {
+    const url = new URL(endpoint)
+    if (
+      url.protocol === 'tcp:' ||
+      url.protocol === 'http:' ||
+      url.protocol === 'https:' ||
+      url.protocol === 'ws:' ||
+      url.protocol === 'wss:'
+    ) {
+      const port = url.port
+        ? Number(url.port)
+        : url.protocol === 'https:' || url.protocol === 'wss:'
+          ? 443
+          : 80
+      return { kind: 'tcp', host: url.hostname, port }
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+function probeServiceEndpoint(endpoint: string, timeoutMs: number): Promise<boolean> {
+  const parsed = parseServiceEndpoint(endpoint)
+  if (!parsed) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    const sock =
+      parsed.kind === 'unix'
+        ? netConnect(parsed.path as string)
+        : netConnect({ host: parsed.host, port: parsed.port as number })
+    let settled = false
+    const finish = (up: boolean) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      sock.destroy()
+      resolve(up)
+    }
+    const timer = setTimeout(() => finish(false), timeoutMs)
+    sock.once('connect', () => finish(true))
+    sock.once('error', () => finish(false))
+  })
 }
 
 async function resolveSlotSection(

@@ -11,7 +11,7 @@ import { CliUsageError, exitWithError } from 'cli-kit'
 
 import { PathResolver, getAspHome, isAspError } from 'spaces-config'
 
-import { findProjectRoot } from './index.js'
+import { findProjectRoot } from './lib.js'
 
 /**
  * Common CLI options that most commands accept.

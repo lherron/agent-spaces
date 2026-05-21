@@ -2,7 +2,7 @@ import { parse as parseToml } from '@iarna/toml'
 
 export type SystemPromptMode = 'replace' | 'append'
 export type ContextTemplateSchemaVersion = 2
-export type ContextSectionType = 'file' | 'inline' | 'exec' | 'slot'
+export type ContextSectionType = 'file' | 'inline' | 'exec' | 'slot' | 'service-probe'
 
 export interface EnvEqualsPredicate {
   name: string
@@ -51,7 +51,24 @@ export interface SlotSectionDef extends ContextSectionBase {
   source?: string | undefined
 }
 
-export type ContextSection = FileSectionDef | InlineSectionDef | ExecSectionDef | SlotSectionDef
+export interface ServiceProbeSpec {
+  name: string
+  endpoint: string
+}
+
+export interface ServiceProbeSectionDef extends ContextSectionBase {
+  type: 'service-probe'
+  services: ServiceProbeSpec[]
+  header?: string | undefined
+  timeout?: number | undefined
+}
+
+export type ContextSection =
+  | FileSectionDef
+  | InlineSectionDef
+  | ExecSectionDef
+  | SlotSectionDef
+  | ServiceProbeSectionDef
 
 export interface ContextTemplate {
   schemaVersion: ContextTemplateSchemaVersion
@@ -61,7 +78,7 @@ export interface ContextTemplate {
   maxChars?: number | undefined
 }
 
-const CONTEXT_SECTION_TYPES = ['file', 'inline', 'exec', 'slot'] as const
+const CONTEXT_SECTION_TYPES = ['file', 'inline', 'exec', 'slot', 'service-probe'] as const
 const SYSTEM_PROMPT_MODES = ['replace', 'append'] as const
 
 export function parseContextTemplate(tomlContent: string): ContextTemplate {
@@ -219,13 +236,49 @@ function parseSection(
         ...(wrap !== undefined ? { wrap } : {}),
       }
     }
+
+    case 'service-probe': {
+      const services = parseServiceProbeServices(
+        input['services'],
+        `${sectionLocation}.services`
+      )
+      const header = parseOptionalString(input['header'], `${sectionLocation}.header`)
+      const timeout = parseOptionalNumber(input['timeout'], `${sectionLocation}.timeout`)
+
+      return {
+        name,
+        type,
+        services,
+        ...(when ? { when } : {}),
+        ...(header !== undefined ? { header } : {}),
+        ...(timeout !== undefined ? { timeout } : {}),
+        ...(maxChars !== undefined ? { maxChars } : {}),
+        ...(wrap !== undefined ? { wrap } : {}),
+      }
+    }
   }
+}
+
+function parseServiceProbeServices(input: unknown, fieldName: string): ServiceProbeSpec[] {
+  if (!Array.isArray(input)) {
+    throw new Error(`${fieldName} must be an array of {name, endpoint} tables`)
+  }
+  return input.map((entry, index) => {
+    const where = `${fieldName}[${index}]`
+    if (!isRecord(entry)) {
+      throw new Error(`${where} must be a TOML table`)
+    }
+    return {
+      name: parseRequiredString(entry['name'], `${where}.name`),
+      endpoint: parseRequiredString(entry['endpoint'], `${where}.endpoint`),
+    }
+  })
 }
 
 function parseSectionType(input: unknown, fieldName: string): ContextSectionType {
   if (!isOneOf(input, CONTEXT_SECTION_TYPES)) {
     throw new Error(
-      `${fieldName} must be one of "file", "inline", "exec", or "slot", received ${describeValue(
+      `${fieldName} must be one of "file", "inline", "exec", "slot", or "service-probe", received ${describeValue(
         input
       )}`
     )

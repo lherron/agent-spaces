@@ -12,7 +12,7 @@ import { PathResolver, ensureAspHome, getAspHome, gitExec, listRemotes } from 's
 import { detectClaude } from 'spaces-execution'
 
 import { formatCheckResults, outputDoctorSummary } from '../helpers.js'
-import { findProjectRoot } from '../index.js'
+import { findProjectRoot } from '../lib.js'
 
 interface CheckResult {
   name: string

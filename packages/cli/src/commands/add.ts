@@ -16,7 +16,7 @@ import {
 } from 'spaces-config'
 import { install } from 'spaces-execution'
 
-import { findProjectRoot } from '../index.js'
+import { findProjectRoot } from '../lib.js'
 
 /**
  * Register the add command.

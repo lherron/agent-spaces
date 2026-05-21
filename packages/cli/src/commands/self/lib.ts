@@ -383,6 +383,8 @@ export function describeTemplateSectionSource(
       return `exec: ${section.command}`
     case 'slot':
       return `slot: ${section.source}`
+    case 'service-probe':
+      return `service-probe: ${section.services.map((s) => s.name).join(', ')}`
     case 'file': {
       try {
         const resolved =

@@ -10,7 +10,7 @@ import type { Command } from 'commander'
 
 import { type GCOptions, PathResolver, getAspHome, readLockJson, runGC } from 'spaces-config'
 
-import { findProjectRoot } from '../index.js'
+import { findProjectRoot } from '../lib.js'
 
 /**
  * Register the gc command.

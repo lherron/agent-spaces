@@ -31,7 +31,7 @@ import {
 } from 'spaces-execution'
 
 import { exitWithAspError, logInvocationOutput } from '../helpers.js'
-import { findProjectRoot } from '../index.js'
+import { findProjectRoot } from '../lib.js'
 import { displayPrompts } from '../prompt-display.js'
 
 /**

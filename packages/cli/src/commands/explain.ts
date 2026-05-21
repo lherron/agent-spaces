@@ -12,7 +12,7 @@ import type { Command } from 'commander'
 import { explain, formatExplainJson, formatExplainText } from 'spaces-config'
 import { type HarnessId, harnessRegistry, isHarnessId } from 'spaces-execution'
 
-import { findProjectRoot } from '../index.js'
+import { findProjectRoot } from '../lib.js'
 
 /**
  * Validate harness option and return the harness ID.
