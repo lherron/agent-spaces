@@ -21,26 +21,30 @@
  *   2  Broker/Codex startup failure
  */
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 import { resolveScopeInput } from '../packages/agent-scope/src/index.ts'
+import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.ts'
+import type { BuildHarnessBrokerInvocationRequest } from '../packages/agent-spaces/src/index.ts'
+import type { RuntimePlacement } from '../packages/config/src/core/types/placement.ts'
+import { resolvePlacementContext } from '../packages/config/src/index.ts'
 import {
   buildRuntimeBundleRef,
   resolveAgentPlacementPaths,
 } from '../packages/config/src/store/runtime-placement.ts'
-import type { RuntimePlacement } from '../packages/config/src/core/types/placement.ts'
-import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.ts'
-import type { BuildHarnessBrokerInvocationRequest } from '../packages/agent-spaces/src/index.ts'
 import { BrokerClient } from '../packages/harness-broker-client/src/index.ts'
-import { validateInvocationStartRequest } from '../packages/harness-broker-protocol/src/schemas.ts'
+import type { InvocationInput } from '../packages/harness-broker-protocol/src/commands.ts'
 import type { InvocationEventEnvelope } from '../packages/harness-broker-protocol/src/events.ts'
+import { validateInvocationStartRequest } from '../packages/harness-broker-protocol/src/schemas.ts'
+import { expandTemplate } from '../packages/runtime/src/index.ts'
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
 // ---------------------------------------------------------------------------
 
 const DEFAULT_PROMPT = 'Reply exactly ASP_BROKER_REAL_CODEX_OK and do not run tools.'
+const INTROSPECT_PROMPT =
+  'Reply with exactly two tokens separated by a space: ASP_BROKER_OK and the agent name your priming gives you. Do not run tools.'
 const DEFAULT_TIMEOUT_S = 120
 
 interface ParsedArgs {
@@ -53,6 +57,8 @@ interface ParsedArgs {
   timeout: number // seconds
   transcript: string
   prompt: string
+  introspect: boolean
+  expectAgent?: string | undefined
   help: boolean
 }
 
@@ -72,6 +78,8 @@ function printUsage(): void {
       `  --timeout <seconds>     Overall timeout in seconds (default: ${DEFAULT_TIMEOUT_S})`,
       '  --transcript <path>     JSONL transcript output path (default: <asp-home>/transcript-<ts>.jsonl)',
       `  --prompt <text>         Prompt text (default: "${DEFAULT_PROMPT}")`,
+      '  --introspect            Ask Codex to prove broker priming reached the model',
+      '  --expect-agent <name>   Expected agent name for --introspect (default: scope agent id)',
       '  --help                  Show this message',
       '',
       'Exit codes:',
@@ -96,8 +104,10 @@ function parseArgs(argv: string[]): ParsedArgs {
     timeout: DEFAULT_TIMEOUT_S,
     transcript: '', // filled after aspHome is known
     prompt: DEFAULT_PROMPT,
+    introspect: false,
     help: false,
   }
+  let promptSpecified = false
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
@@ -144,10 +154,22 @@ function parseArgs(argv: string[]): ParsedArgs {
       case '--prompt':
         args.prompt = argv[++i] ?? ''
         if (!args.prompt) throw new Error('Missing value for --prompt')
+        promptSpecified = true
+        break
+      case '--introspect':
+        args.introspect = true
+        break
+      case '--expect-agent':
+        args.expectAgent = argv[++i] ?? ''
+        if (!args.expectAgent) throw new Error('Missing value for --expect-agent')
         break
       default:
         throw new Error(`Unknown argument: ${arg}`)
     }
+  }
+
+  if (args.introspect && !promptSpecified) {
+    args.prompt = INTROSPECT_PROMPT
   }
 
   // Default transcript path
@@ -176,8 +198,7 @@ function buildPlacement(args: ParsedArgs): RuntimePlacement {
 
   if (!paths.agentRoot) {
     throw new Error(
-      `Could not resolve agentRoot for "${args.scopeRef}". ` +
-        'Provide --agent-root or ensure ASP_AGENTS_ROOT is set.'
+      `Could not resolve agentRoot for "${args.scopeRef}". Provide --agent-root or ensure ASP_AGENTS_ROOT is set.`
     )
   }
 
@@ -219,6 +240,67 @@ function isTerminalTurnEvent(type: string): type is TerminalTurnEvent {
   return (TERMINAL_TURN_EVENTS as readonly string[]).includes(type)
 }
 
+function buildPromptExpansionContext(placement: RuntimePlacement): {
+  agentRoot: string
+  agentsRoot: string
+  projectRoot?: string | undefined
+  projectId?: string | undefined
+  agentId?: string | undefined
+  agentName?: string | undefined
+  taskId?: string | undefined
+  lane?: string | undefined
+  runMode: string
+} {
+  const sessionRef = placement.correlation?.sessionRef
+  const parsed = sessionRef?.scopeRef ? resolveScopeInput(sessionRef.scopeRef).parsed : undefined
+  const lane =
+    sessionRef?.laneRef === undefined
+      ? undefined
+      : sessionRef.laneRef === 'main'
+        ? 'main'
+        : sessionRef.laneRef.slice(5)
+  const agentId = parsed?.agentId ?? basename(placement.agentRoot)
+  return {
+    agentRoot: placement.agentRoot,
+    agentsRoot: dirname(placement.agentRoot),
+    agentId,
+    agentName: agentId,
+    projectId: parsed?.projectId,
+    taskId: parsed?.taskId,
+    lane,
+    ...(placement.projectRoot !== undefined ? { projectRoot: placement.projectRoot } : {}),
+    runMode: placement.runMode,
+  }
+}
+
+async function expectedExpandedPrimingPrompt(
+  placement: RuntimePlacement
+): Promise<string | undefined> {
+  const placementContext = await resolvePlacementContext({ ...placement, dryRun: true })
+  const primingPrompt = placementContext.materialization.effectiveConfig?.priming_prompt
+  return primingPrompt === undefined
+    ? undefined
+    : expandTemplate(primingPrompt, buildPromptExpansionContext(placement))
+}
+
+function assertInitialInputStartsWithPriming(
+  initialInput: InvocationInput | undefined,
+  expectedPriming: string | undefined
+): void {
+  if (expectedPriming === undefined) {
+    console.log('[smoke]   No priming prompt found in effective config; skipping prefix assertion.')
+    return
+  }
+  const firstContent = initialInput?.content[0]
+  if (firstContent?.type !== 'text') {
+    throw new Error('Expected initialInput.content[0] to be text with expanded priming prompt')
+  }
+  if (!firstContent.text.startsWith(expectedPriming)) {
+    throw new Error('initialInput.content[0].text does not start with expanded priming prompt')
+  }
+  console.log('[smoke]   Verified: initialInput starts with expanded priming prompt.')
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -231,7 +313,7 @@ async function main(): Promise<void> {
   }
 
   // Ensure transcript directory exists
-  const transcriptDir = join(args.transcript, '..')
+  const transcriptDir = dirname(args.transcript)
   mkdirSync(transcriptDir, { recursive: true })
 
   console.log(`[smoke] scope-ref:      ${args.scopeRef}`)
@@ -240,6 +322,10 @@ async function main(): Promise<void> {
   console.log(`[smoke] timeout:        ${args.timeout}s`)
   console.log(`[smoke] transcript:     ${args.transcript}`)
   console.log(`[smoke] prompt:         ${args.prompt}`)
+  console.log(`[smoke] introspect:     ${args.introspect ? 'yes' : 'no'}`)
+  if (args.expectAgent !== undefined) {
+    console.log(`[smoke] expect-agent:   ${args.expectAgent}`)
+  }
   console.log()
 
   // Ensure asp-home exists
@@ -252,6 +338,12 @@ async function main(): Promise<void> {
   console.log(`[smoke]   projectRoot: ${placement.projectRoot ?? '(none)'}`)
   console.log(`[smoke]   cwd:         ${placement.cwd ?? '(none)'}`)
   console.log(`[smoke]   bundle:      ${JSON.stringify(placement.bundle)}`)
+  if (placement.bundle.kind !== 'agent-project') {
+    throw new Error(
+      `Expected placement.bundle.kind to be "agent-project"; got "${placement.bundle.kind}"`
+    )
+  }
+  console.log('[smoke]   Verified: placement bundle kind is agent-project.')
   console.log()
 
   // Step 2: Build broker invocation via ASP SDK
@@ -270,6 +362,8 @@ async function main(): Promise<void> {
   }
 
   const invocationResponse = await spacesClient.buildHarnessBrokerInvocation(brokerReq)
+  const expectedPriming = await expectedExpandedPrimingPrompt(placement)
+  assertInitialInputStartsWithPriming(invocationResponse.initialInput, expectedPriming)
   console.log(`[smoke]   spec.invocationId: ${invocationResponse.spec.invocationId ?? '(auto)'}`)
   console.log(`[smoke]   spec.process.command: ${invocationResponse.spec.process.command}`)
   console.log(`[smoke]   spec.process.cwd: ${invocationResponse.spec.process.cwd}`)
@@ -357,7 +451,7 @@ async function main(): Promise<void> {
         seenTypes.add(event.type)
 
         // Write to JSONL transcript
-        const line = JSON.stringify(event) + '\n'
+        const line = `${JSON.stringify(event)}\n`
         appendFileSync(args.transcript, line)
 
         // Log event
@@ -459,7 +553,9 @@ async function main(): Promise<void> {
   if (terminalTurnEvent) {
     const payload = terminalTurnEvent.payload as Record<string, unknown> | undefined
     if (terminalTurnEvent.type === 'turn.completed') {
-      console.log(`[smoke]   \u2713 ${terminalTurnEvent.type} (turnId: ${payload?.['turnId'] ?? 'n/a'})`)
+      console.log(
+        `[smoke]   \u2713 ${terminalTurnEvent.type} (turnId: ${payload?.['turnId'] ?? 'n/a'})`
+      )
     } else {
       console.error(
         `[smoke]   \u2717 Terminal event is ${terminalTurnEvent.type}, expected turn.completed`
@@ -468,8 +564,22 @@ async function main(): Promise<void> {
       failures++
     }
   } else {
-    console.error('[smoke]   \u2717 MISSING: terminal turn event (turn.completed/failed/interrupted)')
+    console.error(
+      '[smoke]   \u2717 MISSING: terminal turn event (turn.completed/failed/interrupted)'
+    )
     failures++
+  }
+
+  if (args.introspect) {
+    const expectedAgent = args.expectAgent ?? resolveScopeInput(args.scopeRef).parsed.agentId
+    if (assistantOutput.includes('ASP_BROKER_OK') && assistantOutput.includes(expectedAgent)) {
+      console.log(`[smoke]   \u2713 introspect reply contains ASP_BROKER_OK and ${expectedAgent}`)
+    } else {
+      console.error(
+        `[smoke]   \u2717 introspect reply missing ASP_BROKER_OK or expected agent ${expectedAgent}`
+      )
+      failures++
+    }
   }
 
   console.log()

@@ -56,7 +56,12 @@ import {
   resolveInFlight,
 } from './run-tracker.js'
 
-import { type MaterializeResult, expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
+import {
+  type ContextResolverContext,
+  type MaterializeResult,
+  expandTemplate,
+  materializeSystemPrompt,
+} from 'spaces-runtime'
 import {
   applyEnvOverlay,
   piSessionPath,
@@ -1066,6 +1071,20 @@ const DEFAULT_BROKER_PROCESS_LIMITS: NonNullable<HarnessInvocationSpec['process'
   stopGraceMs: 5_000,
 }
 
+function buildPromptExpansionContext(placement: RuntimePlacement): ContextResolverContext {
+  const handleParts = deriveHandleParts(placement)
+  return {
+    agentRoot: placement.agentRoot,
+    agentsRoot: dirname(placement.agentRoot),
+    agentId: handleParts.agentId ?? basename(placement.agentRoot),
+    projectId: handleParts.projectId,
+    taskId: handleParts.taskId,
+    lane: handleParts.lane,
+    ...(placement.projectRoot !== undefined ? { projectRoot: placement.projectRoot } : {}),
+    runMode: placement.runMode,
+  }
+}
+
 /**
  * Prepare placement-based CLI runtime state without choosing an output protocol.
  */
@@ -1156,16 +1175,7 @@ async function preparePlacementCliRuntime(
 
   const expandedPrompt =
     runtimePlan.prompt !== undefined
-      ? expandTemplate(runtimePlan.prompt, {
-          agentRoot: placement.agentRoot,
-          agentsRoot: dirname(placement.agentRoot),
-          agentId: handleParts.agentId ?? basename(placement.agentRoot),
-          projectId: handleParts.projectId,
-          taskId: handleParts.taskId,
-          lane: handleParts.lane,
-          ...(placement.projectRoot !== undefined ? { projectRoot: placement.projectRoot } : {}),
-          runMode: placement.runMode,
-        })
+      ? expandTemplate(runtimePlan.prompt, buildPromptExpansionContext(placement))
       : undefined
 
   // Build run options for the adapter
@@ -1370,10 +1380,44 @@ function brokerCorrelationFromPlacement(placement: RuntimePlacement): Record<str
   return correlation
 }
 
-function buildInitialInput(prepared: PreparedPlacementCliRuntime): InvocationInput | undefined {
+function combineBrokerPrompts(
+  primingPrompt: string | undefined,
+  callerPrompt: string | undefined
+): string | undefined {
+  if (primingPrompt !== undefined && callerPrompt !== undefined) {
+    return `${primingPrompt}\n\n${callerPrompt}`
+  }
+  return primingPrompt ?? callerPrompt
+}
+
+function buildBrokerInitialText(
+  prepared: PreparedPlacementCliRuntime,
+  req: BuildHarnessBrokerInvocationRequest
+): string | undefined {
+  if (req.prompt === '') {
+    return undefined
+  }
+
+  const expansionContext = buildPromptExpansionContext(prepared.placement)
+  const defaultPrompt =
+    prepared.runtimePlan.defaultRunOptions.prompt ??
+    prepared.placementContext.materialization.effectiveConfig?.priming_prompt
+  const primingPrompt =
+    defaultPrompt !== undefined ? expandTemplate(defaultPrompt, expansionContext) : undefined
+  const callerPrompt =
+    req.prompt !== undefined ? expandTemplate(req.prompt, expansionContext) : undefined
+
+  return combineBrokerPrompts(primingPrompt, callerPrompt)
+}
+
+function buildInitialInput(
+  prepared: PreparedPlacementCliRuntime,
+  req: BuildHarnessBrokerInvocationRequest
+): InvocationInput | undefined {
   const content: InputContent[] = []
-  if (prepared.expandedPrompt !== undefined && prepared.expandedPrompt.length > 0) {
-    content.push({ type: 'text', text: prepared.expandedPrompt })
+  const initialText = buildBrokerInitialText(prepared, req)
+  if (initialText !== undefined && initialText.length > 0) {
+    content.push({ type: 'text', text: initialText })
   }
   for (const imagePath of prepared.imageAttachmentPaths) {
     content.push({ type: 'local_image', path: imagePath })
@@ -1437,7 +1481,7 @@ function toHarnessBrokerStartRequest(
     driver,
     correlation: req.correlation ?? brokerCorrelationFromPlacement(req.placement),
   }
-  const initialInput = buildInitialInput(prepared)
+  const initialInput = buildInitialInput(prepared, req)
   const startRequest: InvocationStartRequest =
     initialInput === undefined ? { spec } : { spec, initialInput }
 
