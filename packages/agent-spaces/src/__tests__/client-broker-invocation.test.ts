@@ -26,6 +26,7 @@ type BuildHarnessBrokerInvocationRequest = Omit<
   correlation?: Record<string, string> | undefined
   permissionPolicy?: { mode: 'deny' | 'allow' | 'ask-client' } | undefined
   limits?: HarnessInvocationSpec['process']['limits'] | undefined
+  interaction?: { inputQueue?: 'fifo' | 'none' | undefined } | undefined
   resumeFallback?: 'start-fresh' | 'fail' | undefined
 }
 
@@ -210,6 +211,15 @@ describe('buildHarnessBrokerInvocation broker contract', () => {
     expect(spec.process.env).toEqual(expect.objectContaining({ EXTRA_FLAG: '1' }))
     expect(spec.process.harnessTransport).toEqual({ kind: 'jsonrpc-stdio' })
     expect(spec.process.limits).toEqual({ startupTimeoutMs: 10_000, turnTimeoutMs: 20_000 })
+  })
+
+  test('forwards requested fifo input queue into the broker invocation spec', async () => {
+    const { spec } = await createClient().buildHarnessBrokerInvocation({
+      ...baseRequest(),
+      interaction: { inputQueue: 'fifo' },
+    })
+
+    expect(spec.interaction.inputQueue).toBe('fifo')
   })
 
   test('maps Codex app-server driver fields from the prepared launch descriptor', async () => {
