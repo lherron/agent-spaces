@@ -18,7 +18,6 @@ export interface ApplyInputResult {
 export interface Driver {
   readonly kind: string
   readonly version: string
-  readonly acceptsSequentialUserInputs: boolean
   capabilities(): InvocationCapabilities
   start(spec: HarnessInvocationSpec, ctx: DriverContext): Promise<DriverStartResult>
   applyInputNow(input: InvocationInput): Promise<ApplyInputResult>

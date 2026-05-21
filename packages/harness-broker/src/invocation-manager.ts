@@ -278,13 +278,13 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         spec.invocationId ??
         `inv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 
-      // Capability composition: broker composes the public queue capability
-      // from the driver flag, spec interaction config, and base user capability.
       const driverCaps = driver.capabilities()
       const composedQueue =
-        driver.acceptsSequentialUserInputs &&
-        spec.interaction?.inputQueue === 'fifo' &&
-        driverCaps.input.user === true
+        driverCaps.input.queue === true &&
+        // input.user is a capability-dependency check (queueing requires user-input capability),
+        // NOT a second queue flag.
+        driverCaps.input.user === true &&
+        spec.interaction?.inputQueue === 'fifo'
       const capabilities: InvocationCapabilities = {
         ...driverCaps,
         input: {

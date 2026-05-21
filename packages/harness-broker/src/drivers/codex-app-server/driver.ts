@@ -35,7 +35,7 @@ const CODEX_CAPABILITIES: InvocationCapabilities = {
     appendContext: false,
     localImages: true,
     fileRefs: false,
-    queue: false,
+    queue: true,
   },
   turns: {
     concurrency: 'single',
@@ -252,7 +252,6 @@ export function createCodexAppServerDriver(): Driver {
   return {
     kind: 'codex-app-server',
     version: '0.1.0',
-    acceptsSequentialUserInputs: true,
 
     capabilities(): InvocationCapabilities {
       return CODEX_CAPABILITIES

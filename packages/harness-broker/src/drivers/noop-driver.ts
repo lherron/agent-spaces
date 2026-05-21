@@ -51,7 +51,6 @@ export function createNoopDriver(options: NoopDriverOptions = {}): Driver {
   return {
     kind: 'noop-driver',
     version: '0.1.0',
-    acceptsSequentialUserInputs: false,
 
     capabilities(): InvocationCapabilities {
       return NOOP_CAPABILITIES

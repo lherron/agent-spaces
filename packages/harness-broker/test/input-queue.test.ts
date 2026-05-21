@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type {
   HarnessInvocationSpec,
+  InvocationCapabilities,
   InvocationEventEnvelope,
   InvocationInput,
 } from 'spaces-harness-broker-protocol'
@@ -63,12 +64,16 @@ const setup = async (
   options: {
     invocationId?: string | undefined
     inputQueue?: 'fifo' | 'none' | undefined
+    inputCapabilities?: Partial<InvocationCapabilities['input']> | undefined
     maxInputQueueDepth?: number | undefined
     failInputIds?: string[] | undefined
   } = {}
 ) => {
   const events: InvocationEventEnvelope[] = []
-  const { driver, controller } = createTestDriver({ failInputIds: options.failInputIds })
+  const { driver, controller } = createTestDriver({
+    failInputIds: options.failInputIds,
+    inputCapabilities: options.inputCapabilities,
+  })
   const brokerOptions: Parameters<typeof createBroker>[0] & {
     maxInputQueueDepth?: number | undefined
   } = {
@@ -89,12 +94,37 @@ const setup = async (
     }
   )
 
-  await broker.start({ spec })
+  const startResponse = await broker.start({ spec })
 
-  return { broker, controller, events, invocationId: spec.invocationId! }
+  return { broker, controller, driver, events, invocationId: spec.invocationId!, startResponse }
 }
 
 describe('broker-owned FIFO input queue', () => {
+  test('start and status compose queue capability from driver capability and FIFO spec', async () => {
+    const { broker, driver, invocationId, startResponse } = await setup({
+      invocationId: 'inv_queue_capability_composed',
+    })
+
+    expect(driver.capabilities().input.queue).toBe(true)
+    expect(startResponse.capabilities.input.queue).toBe(true)
+    await expect(broker.status({ invocationId })).resolves.toMatchObject({
+      capabilities: { input: { queue: true } },
+    })
+  })
+
+  test('queue composition keeps user input as a capability dependency', async () => {
+    const { driver, startResponse } = await setup({
+      invocationId: 'inv_queue_requires_user_capability',
+      inputCapabilities: {
+        user: false,
+        queue: true,
+      },
+    })
+
+    expect(driver.capabilities().input).toMatchObject({ user: false, queue: true })
+    expect(startResponse.capabilities.input.queue).toBe(false)
+  })
+
   test('ready user input starts immediately without input.queued', async () => {
     const { broker, events, invocationId } = await setup({ invocationId: 'inv_queue_ready_user' })
 

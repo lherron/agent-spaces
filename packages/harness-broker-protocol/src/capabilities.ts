@@ -5,6 +5,11 @@ export interface InvocationCapabilities {
     appendContext: boolean
     localImages: boolean
     fileRefs: boolean
+    /**
+     * Broker-composed in invocation status/start responses: reflects
+     * driverCaps.input.queue && spec.interaction.inputQueue === 'fifo' && driverCaps.input.user.
+     * Drivers should set their raw queue-readiness; clients read the composed value.
+     */
     queue: boolean
   }
   turns: {

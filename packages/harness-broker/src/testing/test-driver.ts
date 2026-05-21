@@ -22,6 +22,7 @@ export interface TestDriverController {
 
 export interface TestDriverOptions {
   failInputIds?: Iterable<string> | undefined
+  inputCapabilities?: Partial<InvocationCapabilities['input']> | undefined
 }
 
 export interface TestDriverHandle {
@@ -36,7 +37,7 @@ const TEST_CAPABILITIES: InvocationCapabilities = {
     appendContext: false,
     localImages: false,
     fileRefs: false,
-    queue: false,
+    queue: true,
   },
   turns: {
     concurrency: 'single',
@@ -59,6 +60,13 @@ const TEST_CAPABILITIES: InvocationCapabilities = {
 
 export function createTestDriver(options: TestDriverOptions = {}): TestDriverHandle {
   const failInputIds = new Set(options.failInputIds ?? [])
+  const capabilities: InvocationCapabilities = {
+    ...TEST_CAPABILITIES,
+    input: {
+      ...TEST_CAPABILITIES.input,
+      ...options.inputCapabilities,
+    },
+  }
   const inputs: InvocationInput[] = []
   let ctx: DriverContext | undefined
   let activeInput: InvocationInput | undefined
@@ -129,10 +137,9 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
   const driver: Driver = {
     kind: 'test-driver',
     version: '0.1.0',
-    acceptsSequentialUserInputs: true,
 
     capabilities(): InvocationCapabilities {
-      return TEST_CAPABILITIES
+      return capabilities
     },
 
     async start(
