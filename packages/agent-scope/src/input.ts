@@ -45,7 +45,13 @@ function toLaneRef(defaultLaneId?: string): LaneRef {
   )
 }
 
-export function resolveScopeInput(input: string, defaultLaneId?: string): ResolvedScopeInput {
+/**
+ * Internal parser that returns the input's parsed form as-is — no canonical
+ * task-qualification. Used by both `resolveScopeInput` and
+ * `resolveQualifiedScopeInput` so the latter can run without recursing through
+ * the exported, qualifying entrypoint.
+ */
+function parseScopeInput(input: string, defaultLaneId?: string): ResolvedScopeInput {
   if (input.includes('~')) {
     const session = parseSessionHandle(input)
     return {
@@ -85,6 +91,22 @@ export function resolveScopeInput(input: string, defaultLaneId?: string): Resolv
 }
 
 /**
+ * Resolve a scope input to a fully qualified ScopeRef.
+ *
+ * When the input includes a project, the result is always
+ * agent+project+task-qualified — missing `taskId` is filled with `"primary"`
+ * (see `resolveQualifiedScopeInput`). Bare agent inputs (`"cody"`,
+ * `"agent:cody"`) remain `agent:<id>` because there is no project to attach a
+ * task to.
+ */
+export function resolveScopeInput(input: string, defaultLaneId?: string): ResolvedScopeInput {
+  return resolveQualifiedScopeInput(
+    input,
+    defaultLaneId !== undefined ? { defaultLaneId } : {}
+  )
+}
+
+/**
  * User-facing resolver that canonicalizes shorthand to an agent+project+task
  * qualified ScopeRef.
  *
@@ -107,7 +129,7 @@ export function resolveQualifiedScopeInput(
   input: string,
   opts: ResolveQualifiedScopeOptions = {}
 ): ResolvedScopeInput {
-  const base = resolveScopeInput(input, opts.defaultLaneId)
+  const base = parseScopeInput(input, opts.defaultLaneId)
   const { agentId, roleName } = base.parsed
   let projectId = base.parsed.projectId
   let taskId = base.parsed.taskId

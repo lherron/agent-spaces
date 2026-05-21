@@ -21,6 +21,8 @@ import { cp, lstat, mkdir, mkdtemp, readlink, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+type TestFn = () => unknown | Promise<unknown>
+
 // Resolve fixture roots directly — CLI tests can't use workspace package subpath imports
 const FIXTURES_DIR = join(
   import.meta.dirname,
@@ -40,6 +42,29 @@ function resolveProjectRoot(): string {
 }
 
 const ASP_CLI = join(import.meta.dirname, '..', '..', 'bin', 'asp.js')
+const CLI_TEST_TIMEOUT_MS = 15000
+
+function cliTest(name: string, fn: TestFn): void
+function cliTest(name: string, fn: TestFn, timeout: number): void
+function cliTest(name: string, options: { timeout?: number }, fn: TestFn): void
+function cliTest(
+  name: string,
+  optionsOrFn: { timeout?: number } | TestFn,
+  maybeFnOrTimeout?: TestFn | number
+): void {
+  if (typeof optionsOrFn === 'function') {
+    const timeout = typeof maybeFnOrTimeout === 'number' ? maybeFnOrTimeout : CLI_TEST_TIMEOUT_MS
+    test(name, { timeout }, optionsOrFn)
+    return
+  }
+
+  if (typeof maybeFnOrTimeout === 'function') {
+    test(name, { timeout: CLI_TEST_TIMEOUT_MS, ...optionsOrFn }, maybeFnOrTimeout)
+    return
+  }
+
+  throw new TypeError(`Invalid cliTest arguments for ${name}`)
+}
 
 /**
  * Run the asp CLI with args and return stdout/stderr/exitCode.
@@ -77,7 +102,7 @@ function runAsp(
 // T-00865: asp agent <scope-ref> <mode>
 // ===================================================================
 describe('asp agent <scope-ref> <mode> (T-00865)', () => {
-  test('asp agent --help shows agent subcommand', () => {
+  cliTest('asp agent --help shows agent subcommand', () => {
     const result = runAsp(['agent', '--help'], { expectError: true })
     const output = result.stdout + result.stderr
 
@@ -87,7 +112,7 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
     expect(output).toMatch(/scope|agent:/i)
   })
 
-  test('asp agent "agent:alice" query --dry-run shows invocation', () => {
+  cliTest('asp agent "agent:alice" query --dry-run shows invocation', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -110,7 +135,7 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
     expect(output).toMatch(/dry.?run|invocation|command|resolve/i)
   })
 
-  test(
+  cliTest(
     'asp agent "agent:alice" heartbeat --dry-run works without prompt',
     { timeout: 15000 },
     () => {
@@ -136,7 +161,7 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
     }
   )
 
-  test('asp agent "agent:alice" query requires a prompt', () => {
+  cliTest('asp agent "agent:alice" query requires a prompt', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -158,7 +183,7 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
     expect(output).toMatch(/prompt.*required|missing.*prompt/i)
   })
 
-  test('--print-command shows shell command', () => {
+  cliTest('--print-command shows shell command', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -186,24 +211,27 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
 // T-01092: pi-sdk provider mapping
 // ===================================================================
 describe('pi-sdk provider mapping (T-01092)', () => {
-  test('normalizeHarness delegates provider/frontend resolution to shared catalog helpers', () => {
-    const source = readFileSync(
-      join(import.meta.dirname, '..', 'commands', 'agent', 'index.ts'),
-      'utf8'
-    )
-    const fn = source.match(/function normalizeHarness[\s\S]*?^}/m)?.[0]
+  cliTest(
+    'normalizeHarness delegates provider/frontend resolution to shared catalog helpers',
+    () => {
+      const source = readFileSync(
+        join(import.meta.dirname, '..', 'commands', 'agent', 'index.ts'),
+        'utf8'
+      )
+      const fn = source.match(/function normalizeHarness[\s\S]*?^}/m)?.[0]
 
-    expect(fn).toBeDefined()
-    expect(fn).toMatch(/const frontend = resolveHarnessFrontendName\(input\)/)
-    expect(fn).toMatch(/const provider = resolveHarnessProvider\(input\)/)
-  })
+      expect(fn).toBeDefined()
+      expect(fn).toMatch(/const frontend = resolveHarnessFrontendName\(input\)/)
+      expect(fn).toMatch(/const provider = resolveHarnessProvider\(input\)/)
+    }
+  )
 })
 
 // ===================================================================
 // T-00866: asp agent resolve <scope-ref>
 // ===================================================================
 describe('asp agent resolve (T-00866)', () => {
-  test('asp agent resolve shows resolved bundle', () => {
+  cliTest('asp agent resolve shows resolved bundle', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(['agent', 'agent:alice', 'resolve', '--agent-root', agentRoot], {
@@ -215,7 +243,7 @@ describe('asp agent resolve (T-00866)', () => {
     expect(output).toMatch(/resolve|bundle|placement|instructions|spaces/i)
   })
 
-  test('asp agent resolve --json outputs JSON', () => {
+  cliTest('asp agent resolve --json outputs JSON', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -228,7 +256,7 @@ describe('asp agent resolve (T-00866)', () => {
     expect(output).toMatch(/\{|json|resolve/i)
   })
 
-  test('asp agent resolve with project context', () => {
+  cliTest('asp agent resolve with project context', () => {
     const agentRoot = resolveAgentRoot()
     const projectRoot = resolveProjectRoot()
 
@@ -254,7 +282,7 @@ describe('asp agent resolve (T-00866)', () => {
 // T-00867: Existing CLI compatibility
 // ===================================================================
 describe('existing CLI compatibility (T-00867)', () => {
-  test('asp --help still lists existing commands', () => {
+  cliTest('asp --help still lists existing commands', () => {
     const result = runAsp(['--help'])
     const output = result.stdout + result.stderr
 
@@ -265,7 +293,7 @@ describe('existing CLI compatibility (T-00867)', () => {
     expect(output).toMatch(/explain/)
   })
 
-  test('asp run --help still works', () => {
+  cliTest('asp run --help still works', () => {
     const result = runAsp(['run', '--help'], { expectError: true })
     const output = result.stdout + result.stderr
 
@@ -273,14 +301,14 @@ describe('existing CLI compatibility (T-00867)', () => {
     expect(output).toMatch(/run|target|space/i)
   })
 
-  test('asp install --help still works', () => {
+  cliTest('asp install --help still works', () => {
     const result = runAsp(['install', '--help'], { expectError: true })
     const output = result.stdout + result.stderr
 
     expect(output).toMatch(/install/i)
   })
 
-  test('asp --help includes new agent subcommand', () => {
+  cliTest('asp --help includes new agent subcommand', () => {
     const result = runAsp(['--help'])
     const output = result.stdout + result.stderr
 
@@ -293,7 +321,7 @@ describe('existing CLI compatibility (T-00867)', () => {
 // T-00868: Bundle selection flags
 // ===================================================================
 describe('bundle selection flags (T-00868)', () => {
-  test('--compose accepts repeated space refs', () => {
+  cliTest('--compose accepts repeated space refs', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -318,7 +346,6 @@ describe('bundle selection flags (T-00868)', () => {
     const output = result.stdout + result.stderr
     expect(output).not.toMatch(/unknown.*option.*compose/i)
   })
-
 })
 
 // ===================================================================
@@ -328,7 +355,7 @@ describe('bundle selection flags (T-00868)', () => {
 // buildProcessInvocationSpec and runTurnNonInteractive.
 // ===================================================================
 describe('hostSessionId regression (T-00872)', () => {
-  test('--host-session-id propagates as AGENT_HOST_SESSION_ID in env', () => {
+  cliTest('--host-session-id propagates as AGENT_HOST_SESSION_ID in env', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -354,7 +381,7 @@ describe('hostSessionId regression (T-00872)', () => {
     expect(parsed.spec.env.AGENT_HOST_SESSION_ID).toBe('regression-hsid-42')
   })
 
-  test('no AGENT_HOST_SESSION_ID when --host-session-id omitted (no correlation)', () => {
+  cliTest('no AGENT_HOST_SESSION_ID when --host-session-id omitted (no correlation)', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -378,7 +405,7 @@ describe('hostSessionId regression (T-00872)', () => {
     expect(parsed.spec.env.AGENT_HOST_SESSION_ID).toBeUndefined()
   })
 
-  test('source code has no cpSessionId in agent command handler', () => {
+  cliTest('source code has no cpSessionId in agent command handler', () => {
     // Static regression: ensure the defect pattern never returns.
     // The agent command handler must use hostSessionId, not cpSessionId.
     const source = readFileSync(
@@ -409,37 +436,41 @@ describe('hostSessionId regression (T-00872)', () => {
 // 3. --host-session-id is propagated into AGENT_HOST_SESSION_ID.
 // ===================================================================
 describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
-  test('baseline dry-run auto-populates AGENT_SCOPE_REF and AGENT_LANE_REF', () => {
-    // RED: Currently buildPlacement skips correlation entirely when
-    // --host-session-id and --lane-ref are both absent (lines 284-291).
-    // scopeRef "agent:alice" is parsed but not used for correlation baseline.
-    const agentRoot = resolveAgentRoot()
+  cliTest(
+    'baseline dry-run auto-populates AGENT_SCOPE_REF and AGENT_LANE_REF',
+    () => {
+      // RED: Currently buildPlacement skips correlation entirely when
+      // --host-session-id and --lane-ref are both absent (lines 284-291).
+      // scopeRef "agent:alice" is parsed but not used for correlation baseline.
+      const agentRoot = resolveAgentRoot()
 
-    const result = runAsp(
-      [
-        'agent',
-        'agent:alice',
-        'query',
-        'Hello',
-        '--agent-root',
-        agentRoot,
-        '--harness',
-        'claude-code',
-        '--dry-run',
-        '--json',
-      ],
-      { expectError: true }
-    )
+      const result = runAsp(
+        [
+          'agent',
+          'agent:alice',
+          'query',
+          'Hello',
+          '--agent-root',
+          agentRoot,
+          '--harness',
+          'claude-code',
+          '--dry-run',
+          '--json',
+        ],
+        { expectError: true }
+      )
 
-    expect(result.exitCode).toBe(0)
-    const parsed = JSON.parse(result.stdout)
-    // AGENT_SCOPE_REF should be the positional scopeRef
-    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice')
-    // AGENT_LANE_REF should default to 'main'
-    expect(parsed.spec.env.AGENT_LANE_REF).toBe('main')
-  }, 10_000)
+      expect(result.exitCode).toBe(0)
+      const parsed = JSON.parse(result.stdout)
+      // AGENT_SCOPE_REF should be the positional scopeRef
+      expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice')
+      // AGENT_LANE_REF should default to 'main'
+      expect(parsed.spec.env.AGENT_LANE_REF).toBe('main')
+    },
+    10_000
+  )
 
-  test('--lane-ref overrides default lane', () => {
+  cliTest('--lane-ref overrides default lane', () => {
     // RED: Currently --lane-ref alone triggers correlation, but this test
     // verifies the override path works correctly with the new baseline.
     const agentRoot = resolveAgentRoot()
@@ -468,7 +499,7 @@ describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
     expect(parsed.spec.env.AGENT_LANE_REF).toBe('deploy')
   })
 
-  test('--host-session-id sets AGENT_HOST_SESSION_ID alongside scope/lane', () => {
+  cliTest('--host-session-id sets AGENT_HOST_SESSION_ID alongside scope/lane', () => {
     // GREEN: --host-session-id triggers correlation in current code, so
     // scope/lane already get set. This is the backward compat baseline.
     const agentRoot = resolveAgentRoot()
@@ -498,7 +529,7 @@ describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
     expect(parsed.spec.env.AGENT_LANE_REF).toBe('main')
   })
 
-  test('compound ScopeRef propagates full ref', () => {
+  cliTest('compound ScopeRef propagates full ref', () => {
     // RED: Same defect — no correlation without explicit flags.
     const agentRoot = resolveAgentRoot()
     const projectRoot = resolveProjectRoot()
@@ -523,7 +554,7 @@ describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
 
     expect(result.exitCode).toBe(0)
     const parsed = JSON.parse(result.stdout)
-    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo')
+    expect(parsed.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo:task:primary')
     expect(parsed.spec.env.AGENT_LANE_REF).toBe('main')
   })
 })
@@ -534,7 +565,7 @@ describe('CLI default correlation from positional ScopeRef (T-00892)', () => {
 // Now uses harness adapter for full binary path, model, args, env.
 // ===================================================================
 describe('placement invocation produces full argv (T-00874)', () => {
-  test('claude-code argv contains real binary path and --model flag', () => {
+  cliTest('claude-code argv contains real binary path and --model flag', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -564,7 +595,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
     expect(parsed.spec.argv).toContain('--model')
   })
 
-  test('codex-cli argv contains app-server subcommand and structured model descriptor', () => {
+  cliTest('codex-cli argv contains app-server subcommand and structured model descriptor', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -600,7 +631,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
     })
   })
 
-  test('displayCommand is present and non-empty', () => {
+  cliTest('displayCommand is present and non-empty', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -625,7 +656,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
     expect(parsed.spec.displayCommand.length).toBeGreaterThan(0)
   })
 
-  test('ASP_HOME is in env', () => {
+  cliTest('ASP_HOME is in env', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -649,7 +680,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
     expect(typeof parsed.spec.env.ASP_HOME).toBe('string')
   })
 
-  test('adapter env vars present (ASP_PLUGIN_ROOT for claude-code)', () => {
+  cliTest('adapter env vars present (ASP_PLUGIN_ROOT for claude-code)', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -673,7 +704,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
     expect(parsed.spec.env.ASP_PLUGIN_ROOT).toBeDefined()
   })
 
-  test('unsupported model throws via placement path', () => {
+  cliTest('unsupported model throws via placement path', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -707,7 +738,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
 // Fix plumbs prompt through adapter.buildRunArgs() runOptions.
 // ===================================================================
 describe('prompt in argv (T-00875)', () => {
-  test('claude-code argv contains -p flag with prompt text', () => {
+  cliTest('claude-code argv contains -p flag with prompt text', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -733,7 +764,7 @@ describe('prompt in argv (T-00875)', () => {
     expect(parsed.spec.argv[pIdx + 1]).toBe('Reply with exactly: CLIPASS')
   })
 
-  test('codex-cli descriptor contains prompt text', () => {
+  cliTest('codex-cli descriptor contains prompt text', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -757,7 +788,7 @@ describe('prompt in argv (T-00875)', () => {
     expect(parsed.spec.codexAppServer?.prompt).toBe('Reply with exactly: CLIPASS')
   })
 
-  test('no prompt in argv when prompt not provided (heartbeat)', { timeout: 15000 }, () => {
+  cliTest('no prompt in argv when prompt not provided (heartbeat)', { timeout: 15000 }, () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -785,7 +816,7 @@ describe('prompt in argv (T-00875)', () => {
 // T-00878: gpt-5.5 model support
 // ===================================================================
 describe('gpt-5.5 model support (T-00878)', () => {
-  test('codex-cli accepts gpt-5.5 model', () => {
+  cliTest('codex-cli accepts gpt-5.5 model', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -813,7 +844,7 @@ describe('gpt-5.5 model support (T-00878)', () => {
     expect(parsed.spec.codexAppServer?.model).toBe('gpt-5.5')
   })
 
-  test('codex-cli default model is gpt-5.5 in dry-run', () => {
+  cliTest('codex-cli default model is gpt-5.5 in dry-run', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -843,7 +874,7 @@ describe('gpt-5.5 model support (T-00878)', () => {
 // T-00879: pi-sdk placement path uses unified materialization
 // ===================================================================
 describe('pi-sdk placement path (T-00879)', () => {
-  test('runPlacementTurnNonInteractive uses unified materializeSpec pipeline', () => {
+  cliTest('runPlacementTurnNonInteractive uses unified materializeSpec pipeline', () => {
     const source = readFileSync(
       join(import.meta.dirname, '..', '..', '..', 'agent-spaces', 'src', 'client.ts'),
       'utf8'
@@ -864,7 +895,7 @@ describe('pi-sdk placement path (T-00879)', () => {
 // Defect: placement path skipped composeTarget(), so CODEX_HOME lacked auth.json.
 // ===================================================================
 describe('codex-cli placement auth propagation (T-00882)', () => {
-  test('dry-run links ~/.codex/auth.json into CODEX_HOME', async () => {
+  cliTest('dry-run links ~/.codex/auth.json into CODEX_HOME', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'asp-codex-auth-'))
     const agentRoot = join(tempDir, 'agent-root')
     const fakeHome = join(tempDir, 'home')

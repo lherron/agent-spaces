@@ -17,16 +17,31 @@ describe('resolveScopeInput', () => {
     })
   })
 
-  test('preserves session-handle lanes', () => {
+  test('preserves session-handle lanes and fills primary task', () => {
     expect(resolveScopeInput('larry@agent-spaces~repair')).toEqual({
       parsed: expect.objectContaining({
         agentId: 'larry',
         projectId: 'agent-spaces',
-        scopeRef: 'agent:larry:project:agent-spaces',
+        taskId: 'primary',
+        scopeRef: 'agent:larry:project:agent-spaces:task:primary',
       }),
-      scopeRef: 'agent:larry:project:agent-spaces',
+      scopeRef: 'agent:larry:project:agent-spaces:task:primary',
       laneId: 'repair',
       laneRef: 'lane:repair',
+    })
+  })
+
+  test('canonical project-only ScopeRef is qualified to task:primary', () => {
+    expect(resolveScopeInput('agent:cody:project:agent-spaces')).toMatchObject({
+      scopeRef: 'agent:cody:project:agent-spaces:task:primary',
+      laneRef: 'main',
+      laneId: 'main',
+    })
+  })
+
+  test('bare agent handle remains agent-only with no project to qualify', () => {
+    expect(resolveScopeInput('cody')).toMatchObject({
+      scopeRef: 'agent:cody',
     })
   })
 
