@@ -45,8 +45,10 @@ const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
 // ---------------------------------------------------------------------------
 interface QueuedInput {
   inputId: string
-  input: InvocationInput
+  input: InvocationInputWithId
 }
+
+type InvocationInputWithId = InvocationInput & { inputId: string }
 
 export interface Invocation {
   readonly invocationId: string
@@ -124,9 +126,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   async function doDrain(inv: Invocation): Promise<void> {
     while (inv.pending.length > 0 && inv.state === 'ready') {
       const head = inv.pending.shift()!
-      const inputWithId: InvocationInput = { ...head.input, inputId: head.inputId }
       try {
-        await applyAndEmit(inv, inputWithId, head.inputId)
+        await applyAndEmit(inv, head.input)
       } catch (err) {
         // Input failed at the driver level — reject this item and continue
         // draining; the while-loop guard re-checks state before the next item.
@@ -145,13 +146,27 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
    */
   async function applyAndEmit(
     inv: Invocation,
-    input: InvocationInput,
-    inputId: string
+    input: InvocationInputWithId
   ): Promise<{ turnId?: string | undefined }> {
     // Broker owns input.accepted emission — before the driver applies the input
+    const { inputId } = input
     emit(inv, 'input.accepted', { inputId }, { inputId })
     const result = await inv.driver.applyInputNow(input)
     return result
+  }
+
+  function rejectQueueInput(
+    inv: Invocation,
+    inputId: string,
+    reason: string
+  ): InvocationInputResponse {
+    emit(inv, 'input.rejected', { inputId, reason }, { inputId })
+    return {
+      inputId,
+      accepted: false,
+      disposition: 'rejected',
+      reason,
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -348,8 +363,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       // Apply initialInput through the same broker-owned path as client.input()
       if (initialInput !== undefined && !inv.terminalEmitted) {
         const inputId = resolveInputId(inv, initialInput)
-        const inputWithId: InvocationInput = { ...initialInput, inputId }
-        await applyAndEmit(inv, inputWithId, inputId)
+        const inputWithId: InvocationInputWithId = { ...initialInput, inputId }
+        await applyAndEmit(inv, inputWithId)
       }
 
       return {
@@ -363,8 +378,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const inv = requireInvocation(req.invocationId)
 
       // Resolve inputId upfront — stable across all paths
-      const inputId = resolveInputId(inv, req.input)
-      const input: InvocationInput = { ...req.input, inputId }
+      const rawInput = req.input
+      const inputId = resolveInputId(inv, rawInput)
+      const input: InvocationInputWithId = { ...rawInput, inputId }
 
       // Invalid state rejection
       if (
@@ -378,19 +394,18 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         )
       }
 
+      if (input.kind === 'steer' && !inv.capabilities.input.steer) {
+        emit(inv, 'input.rejected', { inputId, reason: 'UnsupportedCapability: input.steer' }, { inputId })
+        throw new BrokerError(BrokerErrorCode.UnsupportedCapability, 'UnsupportedCapability: input.steer')
+      }
+      if (input.kind === 'append_context' && !inv.capabilities.input.appendContext) {
+        emit(inv, 'input.rejected', { inputId, reason: 'UnsupportedCapability: input.appendContext' }, { inputId })
+        throw new BrokerError(BrokerErrorCode.UnsupportedCapability, 'UnsupportedCapability: input.appendContext')
+      }
+
       // --- State: ready → apply immediately ---
       if (inv.state === 'ready') {
-        // Capability gate — reject unsupported input kinds before applying
-        if (input.kind === 'steer' && !inv.capabilities.input.steer) {
-          emit(inv, 'input.rejected', { inputId, reason: 'UnsupportedCapability: input.steer' }, { inputId })
-          throw new BrokerError(BrokerErrorCode.UnsupportedCapability, 'UnsupportedCapability: input.steer')
-        }
-        if (input.kind === 'append_context' && !inv.capabilities.input.appendContext) {
-          emit(inv, 'input.rejected', { inputId, reason: 'UnsupportedCapability: input.appendContext' }, { inputId })
-          throw new BrokerError(BrokerErrorCode.UnsupportedCapability, 'UnsupportedCapability: input.appendContext')
-        }
-
-        const result = await applyAndEmit(inv, input, inputId)
+        const result = await applyAndEmit(inv, input)
         return {
           inputId,
           accepted: true,
@@ -423,50 +438,26 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
       // whenBusy: 'interrupt_then_apply' — centrally rejected in v1
       if (policy.whenBusy === 'interrupt_then_apply') {
-        emit(inv, 'input.rejected', { inputId, reason: REASON_UNSUPPORTED_BUSY_POLICY }, { inputId })
-        return {
-          inputId,
-          accepted: false,
-          disposition: 'rejected',
-          reason: REASON_UNSUPPORTED_BUSY_POLICY,
-        }
+        return rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_BUSY_POLICY)
       }
 
       // whenBusy: 'queue'
       if (policy.whenBusy === 'queue') {
         // Only 'user' kind can be queued
         if (input.kind !== 'user') {
-          emit(inv, 'input.rejected', { inputId, reason: REASON_UNSUPPORTED_INPUT_KIND }, { inputId })
-          return {
-            inputId,
-            accepted: false,
-            disposition: 'rejected',
-            reason: REASON_UNSUPPORTED_INPUT_KIND,
-          }
+          return rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_INPUT_KIND)
         }
 
         // Check composed queue capability
         const queueEnabled =
           inv.spec.interaction?.inputQueue === 'fifo' && inv.capabilities.input.queue === true
         if (!queueEnabled) {
-          emit(inv, 'input.rejected', { inputId, reason: REASON_QUEUE_NOT_SUPPORTED }, { inputId })
-          return {
-            inputId,
-            accepted: false,
-            disposition: 'rejected',
-            reason: REASON_QUEUE_NOT_SUPPORTED,
-          }
+          return rejectQueueInput(inv, inputId, REASON_QUEUE_NOT_SUPPORTED)
         }
 
         // Check depth cap
         if (inv.pending.length >= maxQueueDepth) {
-          emit(inv, 'input.rejected', { inputId, reason: REASON_QUEUE_FULL }, { inputId })
-          return {
-            inputId,
-            accepted: false,
-            disposition: 'rejected',
-            reason: REASON_QUEUE_FULL,
-          }
+          return rejectQueueInput(inv, inputId, REASON_QUEUE_FULL)
         }
 
         // Enqueue

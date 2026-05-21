@@ -378,10 +378,14 @@ describe('broker-owned FIFO input queue', () => {
   })
 
   test.each(['steer', 'append_context'] as const)(
-    'queue policy rejects unsupported queued input kind %s centrally',
+    'queue policy rejects non-user queued input kind %s centrally',
     async (kind) => {
       const { broker, invocationId } = await setup({
         invocationId: `inv_queue_unsupported_${kind}`,
+        inputCapabilities: {
+          steer: true,
+          appendContext: true,
+        },
       })
       await broker.input({ invocationId, input: userInput('input_active', 'active') })
 
