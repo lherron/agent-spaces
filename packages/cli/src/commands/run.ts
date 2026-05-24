@@ -15,17 +15,12 @@ import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { parseScopeHandle } from 'agent-scope'
-import {
-  type RuntimeCompileRequest,
-  type RuntimeCompileResponse,
-  createAgentSpacesClient,
-} from 'agent-spaces'
+import { type RuntimeCompileRequest, createAgentSpacesClient } from 'agent-spaces'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 import {
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
   type RuntimeIdentityAllocation,
-  redactArtifact,
 } from 'spaces-runtime-contracts'
 
 import { getAgentsRoot, parseSpaceRef } from 'spaces-config'
@@ -248,83 +243,17 @@ function buildCompilerDebugRequest(context: RunCompilerDebugContext): RuntimeCom
   }
 }
 
-function requestEnv(req: RuntimeCompileRequest): Record<string, string | undefined> | undefined {
-  const env = (req.placement as { env?: Record<string, string | undefined> }).env
-  return env
-}
-
-function printableCompileResponse(
-  response: RuntimeCompileResponse,
-  env: Record<string, string | undefined> | undefined
-): unknown {
-  if (!response.ok) {
-    return response
-  }
-
-  return {
-    schemaVersion: response.schemaVersion,
-    ok: true,
-    diagnostics: response.diagnostics,
-    plan: {
-      schemaVersion: response.plan.schemaVersion,
-      compiler: response.plan.compiler,
-      compileId: response.plan.compileId,
-      planHash: response.plan.planHash,
-      redactedPlanHash: response.plan.redactedPlanHash,
-      createdAt: response.plan.createdAt,
-      identity: response.plan.identity,
-      placement: redactArtifact(response.plan.placement, { env }).value,
-      resolvedBundle: response.plan.resolvedBundle,
-      harness: response.plan.harness,
-      model: response.plan.model,
-      executionProfiles: response.plan.executionProfiles.map((profile) => ({
-        schemaVersion: profile.schemaVersion,
-        profileId: profile.profileId,
-        profileHash: profile.profileHash,
-        compatibilityHash: profile.compatibilityHash,
-        kind: profile.kind,
-        interactionMode: profile.interactionMode,
-        expectedCapabilities: profile.expectedCapabilities,
-        redactedProfile: profile.redactedProfile,
-        ...(profile.kind === 'harness-broker'
-          ? {
-              brokerProtocol: profile.brokerProtocol,
-              brokerDriver: profile.brokerDriver,
-              brokerOwnership: profile.brokerOwnership,
-              harnessInvocation: {
-                specHash: profile.harnessInvocation.specHash,
-                redactedSpecHash: profile.harnessInvocation.redactedSpecHash,
-                startRequestHash: profile.harnessInvocation.startRequestHash,
-                redactedStartRequestHash: profile.harnessInvocation.redactedStartRequestHash,
-                initialInputHash: profile.harnessInvocation.initialInputHash,
-                redactedSpec: profile.harnessInvocation.redactedSpec,
-                redactedStartRequest: profile.harnessInvocation.redactedStartRequest,
-              },
-              policy: profile.policy,
-              continuation: redactArtifact(profile.continuation, { env }).value,
-              observability: profile.observability,
-            }
-          : {}),
-      })),
-      artifacts: response.plan.artifacts,
-      secrets: response.plan.secrets,
-      diagnostics: response.plan.diagnostics,
-    },
-  }
-}
-
 async function printCompilerDebugDump(context: RunCompilerDebugContext): Promise<void> {
   const req = buildCompilerDebugRequest(context)
-  const env = requestEnv(req)
   const client = createAgentSpacesClient({ aspHome: context.aspHome })
   const response = await client.compileRuntimePlan(req)
 
   console.log('')
-  console.log(chalk.cyan('RuntimeCompileRequest (redacted)'))
-  console.log(JSON.stringify(redactArtifact(req, { env }).value, null, 2))
+  console.log(chalk.cyan('RuntimeCompileRequest'))
+  console.log(JSON.stringify(req, null, 2))
   console.log('')
-  console.log(chalk.cyan('RuntimeCompileResponse (redacted)'))
-  console.log(JSON.stringify(printableCompileResponse(response, env), null, 2))
+  console.log(chalk.cyan('RuntimeCompileResponse'))
+  console.log(JSON.stringify(response, null, 2))
 }
 
 /**

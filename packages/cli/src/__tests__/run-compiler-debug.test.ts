@@ -16,6 +16,58 @@ const CODEX_SHIM_DIR = join(
   'codex-shim'
 )
 const SECRET_VALUE = 'super-secret-compiler-debug-token'
+const AMBIENT_OR_CREDENTIAL_KEYS = [
+  'ASP_FAKE_SECRET_TOKEN',
+  'PATH',
+  'HOME',
+  'USER',
+  'SHELL',
+  'SSH_AUTH_SOCK',
+  'GITHUB_TOKEN',
+  'AGENT_SCOPE_REF',
+  'AGENT_LANE_REF',
+  'AGENT_HOST_SESSION_ID',
+]
+
+function jsonAfterHeading(stdout: string, heading: string): any {
+  const headingIndex = stdout.indexOf(heading)
+  if (headingIndex === -1) {
+    throw new Error(`Missing debug heading: ${heading}`)
+  }
+  const jsonStart = stdout.indexOf('{', headingIndex)
+  if (jsonStart === -1) {
+    throw new Error(`Missing JSON after heading: ${heading}`)
+  }
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = jsonStart; index < stdout.length; index += 1) {
+    const char = stdout[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+    if (char === '{') depth += 1
+    if (char === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return JSON.parse(stdout.slice(jsonStart, index + 1))
+      }
+    }
+  }
+
+  throw new Error(`Unterminated JSON after heading: ${heading}`)
+}
 
 function runAsp(
   args: string[],
@@ -84,7 +136,7 @@ sandbox_mode = "workspace-write"
 }
 
 describe('asp run --dry-run --debug compiler dump', () => {
-  test('prints redacted compiler request and response for headless Codex', async () => {
+  test('prints compiler request and response for headless Codex without ambient env in the spec', async () => {
     const fixture = await setupProject()
     try {
       const result = runAsp(
@@ -112,12 +164,23 @@ describe('asp run --dry-run --debug compiler dump', () => {
       )
 
       expect(result.exitCode).toBe(0)
-      expect(result.stdout).toContain('RuntimeCompileRequest (redacted)')
-      expect(result.stdout).toContain('RuntimeCompileResponse (redacted)')
+      expect(result.stdout).toContain('RuntimeCompileRequest')
+      expect(result.stdout).toContain('RuntimeCompileResponse')
       expect(result.stdout).toContain('"ok": true')
       expect(result.stdout).toContain('"kind": "harness-broker"')
-      expect(result.stdout).toContain('"redactedStartRequest"')
-      expect(result.stdout).not.toContain(SECRET_VALUE)
+
+      const response = jsonAfterHeading(result.stdout, 'RuntimeCompileResponse')
+      const profile = response.plan.executionProfiles.find(
+        (candidate: { kind?: string }) => candidate.kind === 'harness-broker'
+      )
+      const lockedEnv = profile.harnessInvocation.startRequest.spec.process.lockedEnv
+
+      expect(response.plan.lockedEnv.lockedEnvKeys.length).toBeGreaterThan(0)
+      expect(lockedEnv).toEqual(expect.objectContaining({ ASP_HOME: fixture.aspHome }))
+      for (const key of AMBIENT_OR_CREDENTIAL_KEYS) {
+        expect(lockedEnv).not.toHaveProperty(key)
+      }
+      expect(Object.values(lockedEnv)).not.toContain(SECRET_VALUE)
     } finally {
       await rm(fixture.root, { recursive: true, force: true })
     }

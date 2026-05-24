@@ -110,13 +110,6 @@ function compileInteractionMode(
   return interactive === false ? 'headless' : 'interactive'
 }
 
-function compilerPlacementEnv(
-  extraEnv?: Record<string, string> | undefined
-): Record<string, string | undefined> {
-  const { BRAIN_REPO: _brainRepo, GBRAIN_HOME: _gbrainHome, ...baseEnv } = process.env
-  return { ...baseEnv, ...(extraEnv ?? {}) }
-}
-
 export {
   detectAgentLocalComponents,
   resolveAgentRunDefaults,
@@ -391,7 +384,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
               projectRoot: options.projectPath,
             },
             dryRun: true,
-            env: compilerPlacementEnv(options.env),
+            ...(options.env !== undefined ? { env: options.env } : {}),
           }
         : {
             agentRoot: placementAgentRoot,
@@ -400,7 +393,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
             runMode: 'query',
             bundle: { kind: 'compose', compose: lock.targets[targetName]?.compose ?? [] },
             dryRun: true,
-            env: compilerPlacementEnv(options.env),
+            ...(options.env !== undefined ? { env: options.env } : {}),
           }
     const scopeRef = `${targetName}@${projectId}${taskId ? `:${taskId}` : ''}`
     compilerDebugContext = {
