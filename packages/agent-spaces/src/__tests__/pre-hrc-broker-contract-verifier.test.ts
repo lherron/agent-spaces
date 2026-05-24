@@ -43,7 +43,12 @@ const fakeCodexStartFreshTurn = new URL(
   import.meta.url
 ).pathname
 
-function createCodexShim(dir: string): string {
+const fakeCodexPermissionRequest = new URL(
+  '../../../harness-broker/test/fixtures/fake-codex/permission-request.ts',
+  import.meta.url
+).pathname
+
+function createCodexShim(dir: string, fixturePath: string = fakeCodexStartFreshTurn): string {
   const shimPath = join(dir, 'codex')
   writeFileSync(
     shimPath,
@@ -57,7 +62,7 @@ if [[ "$*" == *"app-server"* && "$*" == *"--help"* ]]; then
   exit 0
 fi
 if [[ "$*" == *"app-server"* ]]; then
-  exec bun "${fakeCodexStartFreshTurn}"
+  exec bun "${fixturePath}"
 fi
 echo "codex shim"
 `,
@@ -544,6 +549,30 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
     expect(codes).not.toContain('broker_start_not_implemented')
   })
 
+  test('reports a contract failure BEFORE broker start when initialInput.content is mutated', async () => {
+    const result = await runPreHrcBrokerContractHarness({
+      compileRequest: baseCompileRequest(),
+      aspHome: fixture.aspHome,
+      dryRunCompile: false,
+      timeoutMs: 3000,
+      mutateProfileForTest: (profile) => {
+        const initialInput = profile.harnessInvocation.startRequest.initialInput
+        if (initialInput === undefined) throw new Error('expected compiled initialInput')
+        initialInput.content.push({ type: 'text', text: 'smuggled steering instruction' })
+      },
+    })
+    expect(result.ok).toBe(false)
+    const codes = result.assertionReport.failures.map((f) => f.code)
+    // The start request drifted; spec is untouched so only the start-request hash moves.
+    expect(codes).toContain('start_request_hash_mismatch')
+    expect(codes).not.toContain('spec_hash_mismatch')
+    // Broker start must not have been attempted; the closure gate fired first.
+    expect(result.brokerStart).toEqual({
+      attempted: false,
+      reason: 'contract-verification-failed',
+    })
+  })
+
   test('broker-start passes the compiled start request unchanged through BrokerClient', async () => {
     const artifactDir = mkdtempSync(join(tmpdir(), 'asp-prehrc-broker-art-'))
     try {
@@ -595,5 +624,52 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       'broker_capability_missing'
     )
     expect(result.brokerStart).toEqual({ attempted: false, reason: 'capability-missing' })
+  })
+
+  test('default permission mode is deny and the policy denial is audited in the event stream', async () => {
+    // Repoint the fake Codex shim at a fixture that issues a command-approval
+    // request mid-turn, so the broker's permission policy is actually exercised.
+    const permDir = mkdtempSync(join(tmpdir(), 'asp-prehrc-perm-'))
+    const artifactDir = mkdtempSync(join(tmpdir(), 'asp-prehrc-perm-art-'))
+    const previousCodexPath = process.env['ASP_CODEX_PATH']
+    process.env['ASP_CODEX_PATH'] = createCodexShim(permDir, fakeCodexPermissionRequest)
+    try {
+      const result = await runPreHrcBrokerContractHarness({
+        compileRequest: baseCompileRequest(),
+        aspHome: fixture.aspHome,
+        artifactDir,
+        dryRunCompile: false,
+        timeoutMs: 5000,
+      })
+
+      expect(result.ok).toBe(true)
+      // The compiled product policy defaults to deny + audited.
+      expect(result.selectedProfile?.policy.permissionPolicy).toEqual({
+        mode: 'deny',
+        audit: true,
+      })
+      expect(result.routeDecision?.productPolicy.permissionPolicy).toEqual({
+        mode: 'deny',
+        audit: true,
+      })
+
+      if (result.brokerStart?.attempted !== true) {
+        throw new Error('expected broker start to be attempted')
+      }
+      // The denial is audited as normalized permission events (decided by policy,
+      // not forwarded to the client) and the turn still reaches a terminal state.
+      const requested = result.brokerStart.events.find((e) => e.type === 'permission.requested')
+      const resolved = result.brokerStart.events.find((e) => e.type === 'permission.resolved')
+      expect(requested).toBeDefined()
+      expect(resolved).toBeDefined()
+      const resolution = resolved!.payload as { decision?: string; decidedBy?: string }
+      expect(resolution.decision).toBe('deny')
+      expect(resolution.decidedBy).toBe('policy')
+      expect(result.brokerStart.eventTypes).toContain('turn.completed')
+    } finally {
+      process.env['ASP_CODEX_PATH'] = previousCodexPath
+      rmSync(artifactDir, { recursive: true, force: true })
+      rmSync(permDir, { recursive: true, force: true })
+    }
   })
 })
