@@ -1,0 +1,128 @@
+import type {
+  InvocationEventEnvelope,
+  InvocationStartResponse,
+} from 'spaces-harness-broker-protocol'
+import type {
+  AgentchatExposurePolicy,
+  BrokerExecutionProfile,
+  BrokerInputPolicy,
+  BrokerPermissionPolicy,
+  CompatibilityHash,
+  CompileDiagnostic,
+  CompileId,
+  CompiledRuntimePlan,
+  PlanHash,
+  ProfileHash,
+  ProfileId,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
+  RuntimeIdentityAllocation,
+  RuntimeOperationId,
+  RuntimeResourceLimits,
+} from 'spaces-runtime-contracts'
+
+export type PreHrcRouteDecision = {
+  schemaVersion: 'pre-hrc-route-decision/v1'
+  routeId: string
+  operationId: RuntimeOperationId
+  compileId: CompileId
+  planHash: PlanHash
+
+  selectedProfileId: ProfileId
+  selectedProfileHash: ProfileHash
+  selectedProfileKind: 'harness-broker'
+  controller: 'harness-broker'
+  startupMethod: 'create-broker-invocation'
+  turnDelivery: 'broker-input'
+
+  identity: RuntimeIdentityAllocation
+  admission: { decision: 'admit' } | { decision: 'reject'; reason: string; code: string }
+  reuse: {
+    policy: 'always-new'
+    compatibilityHash: CompatibilityHash
+    staleGeneration: 'rotate'
+  }
+  productPolicy: {
+    permissionPolicy: BrokerPermissionPolicy
+    inputPolicy: BrokerInputPolicy
+    exposurePolicy: AgentchatExposurePolicy
+    resourceLimits?: RuntimeResourceLimits | undefined
+  }
+  diagnostics?:
+    | Array<{ level: 'info' | 'warning' | 'error'; code: string; message: string }>
+    | undefined
+}
+
+export type ContractHarnessFailureCode =
+  | 'compile_failed'
+  | 'compiled_plan_missing'
+  | 'broker_profile_missing'
+  | 'broker_profile_ambiguous'
+  | 'broker_profile_invalid'
+  | 'broker_protocol_invalid'
+  | 'broker_driver_missing'
+  | 'start_request_missing'
+  | 'start_request_identity_mismatch'
+  | 'start_request_reference_changed'
+  | 'route_decision_invalid'
+  | 'artifact_dir_required'
+  | 'raw_start_request_requires_temp_dir'
+  | 'artifact_write_failed'
+  | 'broker_start_not_implemented'
+
+export type ContractHarnessFailure = {
+  code: ContractHarnessFailureCode
+  message: string
+  path?: string | undefined
+  redactedDetails?: unknown
+}
+
+export type PreHrcBrokerContractHarnessInput = {
+  schemaVersion?: 'pre-hrc-broker-contract-harness-input/v1' | undefined
+  compileRequest: RuntimeCompileRequest
+  aspHome?: string | undefined
+  artifactDir?: string | undefined
+  dryRunCompile?: boolean | undefined
+  writeRawStartRequest?: boolean | undefined
+  timeoutMs?: number | undefined
+  now?: string | undefined
+}
+
+export type PreHrcBrokerContractArtifactManifest = {
+  schemaVersion: 'pre-hrc-broker-contract-artifacts/v1'
+  artifactDir: string
+  files: Record<string, string>
+  redactedByDefault: true
+  rawStartRequestWritten: boolean
+  warnings: string[]
+}
+
+export type PreHrcBrokerContractAssertionReport = {
+  schemaVersion: 'pre-hrc-broker-contract-assertion-report/v1'
+  ok: boolean
+  failures: ContractHarnessFailure[]
+  diagnostics: CompileDiagnostic[]
+}
+
+export type PreHrcBrokerContractHarnessResult = {
+  schemaVersion: 'pre-hrc-broker-contract-harness-result/v1'
+  ok: boolean
+  mode: 'dry-run-compile' | 'broker-start'
+  compileResponse: RuntimeCompileResponse
+  compiledPlan?: CompiledRuntimePlan | undefined
+  selectedProfile?: BrokerExecutionProfile | undefined
+  routeDecision?: PreHrcRouteDecision | undefined
+  artifacts?: PreHrcBrokerContractArtifactManifest | undefined
+  assertionReport: PreHrcBrokerContractAssertionReport
+  brokerStart?:
+    | {
+        attempted: false
+        reason: 'dry-run-compile' | 'not-implemented'
+      }
+    | {
+        attempted: true
+        response: InvocationStartResponse
+        events: InvocationEventEnvelope[]
+      }
+    | undefined
+}
