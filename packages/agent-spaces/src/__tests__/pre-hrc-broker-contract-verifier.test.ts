@@ -12,7 +12,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
+import type { InputId, InvocationEventEnvelope, InvocationId } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
   CompiledRuntimePlan,
@@ -23,10 +23,11 @@ import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
 import { createAgentSpacesClient } from '../index.js'
 import { runPreHrcBrokerContractHarness } from '../testing/pre-hrc-broker-contract-harness.js'
+import { PreHrcBrokerEventLedger } from '../testing/pre-hrc-broker-event-ledger.js'
 import {
+  ContractHarnessFailureError,
   allocatePreHrcRuntimeIdentity,
   buildPlacementFromScopeRef,
-  ContractHarnessFailureError,
   selectBrokerProfile,
   verifyBrokerStartContract,
 } from '../testing/pre-hrc-broker-helpers.js'
@@ -37,18 +38,26 @@ type CompileClient = ReturnType<typeof createAgentSpacesClient> & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
 }
 
+const fakeCodexStartFreshTurn = new URL(
+  '../../../harness-broker/test/fixtures/fake-codex/start-fresh-turn.ts',
+  import.meta.url
+).pathname
+
 function createCodexShim(dir: string): string {
   const shimPath = join(dir, 'codex')
   writeFileSync(
     shimPath,
     `#!/usr/bin/env bash
-if [[ "$1" == "--version" ]]; then
+if [[ "$*" == *"--version"* ]]; then
   echo "codex 999.0.0"
   exit 0
 fi
-if [[ "$1" == "app-server" && "$2" == "--help" ]]; then
+if [[ "$*" == *"app-server"* && "$*" == *"--help"* ]]; then
   echo "app-server"
   exit 0
+fi
+if [[ "$*" == *"app-server"* ]]; then
+  exec bun "${fakeCodexStartFreshTurn}"
 fi
 echo "codex shim"
 `,
@@ -194,6 +203,17 @@ function clone<T>(value: T): T {
   return structuredClone(value)
 }
 
+function event(overrides: Partial<InvocationEventEnvelope> = {}): InvocationEventEnvelope {
+  return {
+    invocationId: 'inv_ledger',
+    seq: 1,
+    time: '2026-05-24T00:00:00.000Z',
+    type: 'invocation.started',
+    payload: { command: 'codex', args: ['app-server'], cwd: '/tmp' },
+    ...overrides,
+  } as InvocationEventEnvelope
+}
+
 function fakeBrokerProfile(
   overrides: Partial<BrokerExecutionProfile> = {}
 ): BrokerExecutionProfile {
@@ -229,7 +249,11 @@ function fakeBrokerProfile(
       redactedSpecHash: 'rspec_fake',
       startRequestHash: 'sr_fake',
       redactedStartRequestHash: 'rsr_fake',
-      redactedSpec: { specVersion: 'harness-broker.invocation/v1', redactionState: 'redacted', value: {} },
+      redactedSpec: {
+        specVersion: 'harness-broker.invocation/v1',
+        redactionState: 'redacted',
+        value: {},
+      },
       redactedStartRequest: { redactionState: 'redacted', value: {} },
     },
     policy: {
@@ -416,11 +440,50 @@ describe('verifyBrokerStartContract', () => {
   test('FAILS when spec.driver was mutated after compile', async () => {
     const plan = await compilePlan()
     const profile = clone(selectBrokerProfile(plan))
-    ;(profile.harnessInvocation.startRequest.spec.driver as Record<string, unknown>)['sandboxMode'] =
-      'danger-full-access'
+    ;(profile.harnessInvocation.startRequest.spec.driver as Record<string, unknown>)[
+      'sandboxMode'
+    ] = 'danger-full-access'
     const verification = verifyBrokerStartContract(profile)
     expect(verification.ok).toBe(false)
     expect(verification.failures.map((f) => f.code)).toContain('spec_hash_mismatch')
+  })
+})
+
+describe('PreHrcBrokerEventLedger', () => {
+  test('accepts identical duplicate seq idempotently and reports conflicting duplicates', () => {
+    const ledger = new PreHrcBrokerEventLedger()
+    const first = event()
+    ledger.append(first)
+    ledger.append(structuredClone(first))
+    ledger.append(
+      event({
+        payload: { command: 'other-codex', args: ['app-server'], cwd: '/tmp' },
+      })
+    )
+
+    expect(ledger.events()).toHaveLength(1)
+    expect(ledger.requireNoDuplicates().map((failure) => failure.code)).toEqual([
+      'broker_event_duplicate_conflict',
+    ])
+  })
+
+  test('requires per-invocation seq monotonicity and normalized event types', () => {
+    const ledger = new PreHrcBrokerEventLedger()
+    ledger.append(event({ seq: 1 }))
+    ledger.append(
+      event({
+        seq: 3,
+        type: 'turn/started' as never,
+        driver: { kind: 'codex', rawType: 'turn/started' },
+      })
+    )
+
+    expect(ledger.requireMonotonicSeq().map((failure) => failure.code)).toEqual([
+      'broker_event_seq_non_monotonic',
+    ])
+    expect(ledger.requireOnlyNormalizedEventTypes().map((failure) => failure.code)).toEqual([
+      'broker_event_type_not_normalized',
+    ])
   })
 })
 
@@ -479,5 +542,58 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
     })
     // The generic "not implemented" stub must NOT fire once the gate fails.
     expect(codes).not.toContain('broker_start_not_implemented')
+  })
+
+  test('broker-start passes the compiled start request unchanged through BrokerClient', async () => {
+    const artifactDir = mkdtempSync(join(tmpdir(), 'asp-prehrc-broker-art-'))
+    try {
+      const result = await runPreHrcBrokerContractHarness({
+        compileRequest: baseCompileRequest(),
+        aspHome: fixture.aspHome,
+        artifactDir,
+        dryRunCompile: false,
+        timeoutMs: 3000,
+      })
+
+      expect(result.ok).toBe(true)
+      expect(result.assertionReport.failures).toHaveLength(0)
+      expect(result.brokerStart?.attempted).toBe(true)
+      if (result.brokerStart?.attempted !== true) {
+        throw new Error('expected broker start to be attempted')
+      }
+      expect(result.brokerStart.response.invocationId).toBe('inv_T01621')
+      expect(result.brokerStart.eventTypes).toContain('invocation.started')
+      expect(result.brokerStart.eventTypes).toContain('turn.completed')
+      expect(result.brokerStart.eventTypes).not.toContain('turn/started')
+      expect(
+        result.brokerStart.events.some(
+          (brokerEvent) => brokerEvent.driver?.rawType === 'turn/started'
+        )
+      ).toBe(true)
+
+      const eventJsonl = readFileSync(join(artifactDir, 'broker-events.jsonl'), 'utf8')
+      expect(eventJsonl).toContain('"type":"turn.completed"')
+      expect(eventJsonl).not.toContain('"type":"turn/started"')
+    } finally {
+      rmSync(artifactDir, { recursive: true, force: true })
+    }
+  })
+
+  test('broker-start fails before scenario success when a required capability is missing', async () => {
+    const result = await runPreHrcBrokerContractHarness({
+      compileRequest: baseCompileRequest(),
+      aspHome: fixture.aspHome,
+      dryRunCompile: false,
+      timeoutMs: 3000,
+      mutateProfileForTest: (profile) => {
+        profile.expectedCapabilities.turns.concurrency = 'multiple'
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.assertionReport.failures.map((failure) => failure.code)).toContain(
+      'broker_capability_missing'
+    )
+    expect(result.brokerStart).toEqual({ attempted: false, reason: 'capability-missing' })
   })
 })

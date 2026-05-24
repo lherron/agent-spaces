@@ -73,6 +73,13 @@ export type ContractHarnessFailureCode =
   | 'raw_start_request_requires_temp_dir'
   | 'artifact_write_failed'
   | 'broker_start_not_implemented'
+  | 'broker_start_failed'
+  | 'broker_event_timeout'
+  | 'broker_event_seq_non_monotonic'
+  | 'broker_event_duplicate_conflict'
+  | 'broker_event_type_not_normalized'
+  | 'broker_terminal_turn_missing'
+  | 'broker_capability_missing'
 
 export type ContractHarnessFailure = {
   code: ContractHarnessFailureCode
@@ -129,12 +136,19 @@ export type PreHrcBrokerContractHarnessResult = {
   brokerStart?:
     | {
         attempted: false
-        reason: 'dry-run-compile' | 'not-implemented' | 'contract-verification-failed'
+        reason:
+          | 'dry-run-compile'
+          | 'not-implemented'
+          | 'contract-verification-failed'
+          | 'capability-missing'
+          | 'broker-start-failed'
       }
     | {
         attempted: true
         response: InvocationStartResponse
         events: InvocationEventEnvelope[]
+        eventTypes: string[]
+        permissionAudit: Array<{ permissionRequestId: string; kind: string; decision: 'deny' }>
       }
     | undefined
 }

@@ -59,7 +59,7 @@ function printUsage(): void {
       '  --json                           Print result JSON',
       '  --help                           Show this message',
       '',
-      'Broker start is intentionally not wired in this P1 skeleton. Use --dry-run-compile.',
+      'Omit --dry-run-compile to start the broker and consume normalized events.',
     ].join('\n')
   )
 }
@@ -278,11 +278,6 @@ async function main(): Promise<void> {
   if (args.help) {
     printUsage()
     return
-  }
-  if (!args.dryRunCompile) {
-    throw new Error(
-      'P1 skeleton only supports --dry-run-compile; broker start lands in a later stream.'
-    )
   }
 
   mkdirSync(args.aspHome, { recursive: true })
