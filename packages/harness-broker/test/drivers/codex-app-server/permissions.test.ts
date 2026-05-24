@@ -9,6 +9,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import {
   type PermissionHandlerContext,
+  buildSubjectDisplay,
   handlePermissionRequest,
 } from '../../../src/drivers/codex-app-server/permissions'
 import type { JsonRpcRequest } from '../../../src/drivers/codex-app-server/rpc-client'
@@ -56,6 +57,7 @@ async function runPermissionScenario(options: {
   permissionPolicy: PermissionPolicy
   clientCapabilities?: ClientCapabilities | undefined
   requestPermission?: RequestPermissionHandler | undefined
+  request?: JsonRpcRequest | undefined
 }): Promise<PermissionScenarioResult> {
   const events: InvocationEventEnvelope[] = []
   const permissionRequests: PermissionRequestParams[] = []
@@ -90,7 +92,7 @@ async function runPermissionScenario(options: {
     permissionPolicy: options.permissionPolicy,
   }
 
-  const response = await handlePermissionRequest(codexPermissionRequest, {
+  const response = await handlePermissionRequest(options.request ?? codexPermissionRequest, {
     ctx,
     driver,
     currentTurnId: turnId,
@@ -318,5 +320,68 @@ describe('Codex app-server permission policies', () => {
       cwd: displayCwd,
     })
     expect(JSON.stringify(permissionRequests[0])).not.toContain(rawSecret)
+  })
+
+  // Regression: malformed native payloads (non-object / array) must NOT leak the
+  // raw value into subjectDisplay. The positive allowlist is the only path to
+  // the display subject, so a payload with no allowed fields yields {} — never
+  // an echo of the native value. (Q3 / CONTRACTS §7.9)
+  test('buildSubjectDisplay returns an empty bounded object for non-object params and leaks no payload', () => {
+    for (const malformed of ['sk-live-raw-string-payload', 42, true]) {
+      const display = buildSubjectDisplay('command', malformed)
+      expect(display).toEqual({})
+      expect(JSON.stringify(display)).not.toContain(String(malformed))
+    }
+  })
+
+  test('buildSubjectDisplay returns an empty bounded object for array params and leaks no payload', () => {
+    const arrayPayload = ['sk-live-array-secret', { command: 'rm -rf /' }]
+    const display = buildSubjectDisplay('command', arrayPayload)
+    expect(display).toEqual({})
+    expect(JSON.stringify(display)).not.toContain('sk-live-array-secret')
+    expect(JSON.stringify(display)).not.toContain('rm -rf /')
+  })
+
+  test('permission.requested emits an empty subjectDisplay for a non-object native payload', async () => {
+    const rawStringSecret = 'sk-live-nonobject-emitted-secret'
+    const { events, permissionRequests } = await runPermissionScenario({
+      permissionPolicy: { mode: 'ask-client', timeoutMs: 1000 },
+      clientCapabilities: { permissionRequests: true },
+      requestPermission: async () => ({ decision: 'allow' }),
+      request: {
+        jsonrpc: '2.0',
+        id: 'perm_nonobject',
+        method: 'item/commandExecution/requestApproval',
+        params: rawStringSecret as unknown as JsonRpcRequest['params'],
+      },
+    })
+
+    const requested = permissionEvents(events, 'permission.requested')[0]
+    const payload = requested?.payload as { subjectDisplay?: unknown }
+    expect(payload.subjectDisplay).toEqual({})
+    // No raw payload value persisted for audit nor forwarded to the client.
+    expect(JSON.stringify(requested?.payload)).not.toContain(rawStringSecret)
+    expect(JSON.stringify(permissionRequests[0])).not.toContain(rawStringSecret)
+  })
+
+  test('permission.requested emits an empty subjectDisplay for an array native payload', async () => {
+    const rawArraySecret = 'sk-live-array-emitted-secret'
+    const { events, permissionRequests } = await runPermissionScenario({
+      permissionPolicy: { mode: 'ask-client', timeoutMs: 1000 },
+      clientCapabilities: { permissionRequests: true },
+      requestPermission: async () => ({ decision: 'allow' }),
+      request: {
+        jsonrpc: '2.0',
+        id: 'perm_array',
+        method: 'item/commandExecution/requestApproval',
+        params: [rawArraySecret, { command: 'rm -rf /' }] as unknown as JsonRpcRequest['params'],
+      },
+    })
+
+    const requested = permissionEvents(events, 'permission.requested')[0]
+    const payload = requested?.payload as { subjectDisplay?: unknown }
+    expect(payload.subjectDisplay).toEqual({})
+    expect(JSON.stringify(requested?.payload)).not.toContain(rawArraySecret)
+    expect(JSON.stringify(permissionRequests[0])).not.toContain(rawArraySecret)
   })
 })

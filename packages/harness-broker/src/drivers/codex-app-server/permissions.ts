@@ -73,9 +73,13 @@ function boundDisplayValue(value: unknown): unknown {
  * payload is not persisted; only this bounded summary is emitted as
  * `subjectDisplay` and forwarded to the client as the request `subject`.
  */
-export function buildSubjectDisplay(kind: string, params: unknown): unknown {
+export function buildSubjectDisplay(kind: string, params: unknown): Record<string, unknown> {
+  // Malformed/non-object native payloads (string, number, array, null, …) have
+  // no named fields to project. Return an empty bounded display object rather
+  // than echoing the raw value — the positive allowlist is the ONLY way a value
+  // reaches the display subject, so a payload with no allowed fields yields {}.
   if (params === null || typeof params !== 'object' || Array.isArray(params)) {
-    return boundDisplayValue(params)
+    return {}
   }
   const record = params as Record<string, unknown>
   const fields = SUBJECT_DISPLAY_FIELDS[kind] ?? DEFAULT_SUBJECT_FIELDS
