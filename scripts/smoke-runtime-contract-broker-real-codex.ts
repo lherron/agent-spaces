@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 
 import type { BrokerPermissionPolicy, RuntimeCompileRequest } from 'spaces-runtime-contracts'
-import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
+import { DEFAULT_CODEX_BROKER_INPUT_POLICY, project } from 'spaces-runtime-contracts'
 
 import { runPreHrcBrokerContractHarness } from '../packages/agent-spaces/src/testing/pre-hrc-broker-contract-harness.js'
 import {
@@ -33,7 +33,8 @@ type CliArgs = {
   help: boolean
 }
 
-const DEFAULT_PROMPT = 'Execute `pwd`, then reply ASP_BROKER_OK <scope>.'
+const DEFAULT_PROMPT =
+  'Execute `printf "PATH_HEAD=%s\\n" "${PATH%%:*}"; command -v sparky-spark || true; pwd`, then reply ASP_BROKER_OK <scope>.'
 const DEFAULT_EXPECTED_MARKER = 'ASP_BROKER_OK'
 
 function printUsage(): void {
@@ -225,12 +226,19 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-function redactionCompareValuesForScopeRef(scopeRef: string): string[] {
-  const [agentPart, projectTaskPart] = scopeRef.split('@')
-  const [projectPart, taskPart] = (projectTaskPart ?? '').split(':')
-  return [process.env['HOME'], agentPart, projectPart, taskPart].filter(
-    (value): value is string => typeof value === 'string' && value.length > 0
-  )
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  const record = asRecord(value)
+  if (record === undefined) throw new Error(`${label} was not an object.`)
+  return record
+}
+
+function asStringMap(value: unknown): Record<string, string> {
+  const record = requireRecord(value, 'env')
+  const result: Record<string, string> = {}
+  for (const [key, envValue] of Object.entries(record)) {
+    if (typeof envValue === 'string') result[key] = envValue
+  }
+  return result
 }
 
 function summarizeBrokerEvents(
@@ -241,6 +249,7 @@ function summarizeBrokerEvents(
   terminal: string
   command: string
   assistantMarker: string
+  commandOutput: string
 } {
   const events = result.brokerStart?.attempted === true ? result.brokerStart.events : []
   const continuation = events.find((event) => event.type === 'continuation.updated')
@@ -263,6 +272,7 @@ function summarizeBrokerEvents(
       : undefined
   const completedPayload = asRecord(completed?.payload)
   const completedResult = asRecord(completedPayload?.['result'])
+  const completedOutput = String(completedResult?.['output'] ?? '')
   const assistantText = events
     .map((event) => {
       const payload = asRecord(event.payload)
@@ -295,7 +305,162 @@ function summarizeBrokerEvents(
         ? '(missing)'
         : `${String(startedInput?.['command'] ?? '?')} cwd=${String(startedInput?.['cwd'] ?? '?')} exit=${String(completedResult?.['exitCode'] ?? '?')} toolCallId=${String(toolCallId ?? '?')}`,
     assistantMarker: assistantText.includes(expectedMarker) ? expectedMarker : '(missing)',
+    commandOutput: completedOutput.replaceAll('\n', '\\n').slice(0, 500) || '(missing)',
   }
+}
+
+function collectCommandOutputs(
+  result: Awaited<ReturnType<typeof runPreHrcBrokerContractHarness>>
+): string[] {
+  const events = result.brokerStart?.attempted === true ? result.brokerStart.events : []
+  return events
+    .filter((event) => event.type === 'tool.call.completed')
+    .map((event) => {
+      const payload = asRecord(event.payload)
+      const resultPayload = asRecord(payload?.['result'])
+      return String(resultPayload?.['output'] ?? '')
+    })
+    .filter((output) => output.length > 0)
+}
+
+function assertRealCodexEnvEvidence(
+  result: Awaited<ReturnType<typeof runPreHrcBrokerContractHarness>>,
+  args: CliArgs
+): string[] {
+  if (result.selectedProfile === undefined) {
+    throw new Error('No selected broker profile was produced.')
+  }
+  if (!result.compileResponse.ok) {
+    throw new Error('Compile did not produce a plan.')
+  }
+
+  const failures: string[] = []
+  const startRequest = result.selectedProfile.harnessInvocation.startRequest
+  const processSpec = startRequest.spec.process
+  const lockedEnv = processSpec.lockedEnv ?? {}
+  const pathPrepend = processSpec.pathPrepend ?? []
+  const startRequestProjection = project(startRequest, 'start-request')
+  const specProjection = project(startRequest.spec, 'spec')
+  const startProjectionJson = JSON.stringify(startRequestProjection)
+  const specProjectionJson = JSON.stringify(specProjection)
+  const events = result.brokerStart?.attempted === true ? result.brokerStart.events : []
+  const summary = summarizeBrokerEvents(result, args.expectedMarker)
+
+  if (processSpec.command !== 'codex' && !processSpec.command.endsWith('/codex')) {
+    failures.push(`expected codex command, got ${processSpec.command}`)
+  }
+  if (!processSpec.args.includes('app-server')) {
+    failures.push(`expected app-server arg, got ${processSpec.args.join(' ')}`)
+  }
+
+  const codexHome = lockedEnv['CODEX_HOME']
+  if (codexHome === undefined) {
+    failures.push('CODEX_HOME was not present in spec.process.lockedEnv')
+  } else if (!existsSync(join(codexHome, 'auth.json'))) {
+    failures.push(`CODEX_HOME/auth.json was not available at ${join(codexHome, 'auth.json')}`)
+  }
+  if (JSON.stringify(lockedEnv).includes('dispatch-hash-probe')) {
+    failures.push('dispatch hash probe leaked into lockedEnv')
+  }
+  if (
+    startProjectionJson.includes('dispatch-hash-probe') ||
+    specProjectionJson.includes('dispatch-hash-probe')
+  ) {
+    failures.push('dispatchEnv hash probe leaked into hash projection')
+  }
+
+  if (!events.some((event) => event.type === 'invocation.started')) {
+    failures.push('broker events did not include invocation.started')
+  }
+  if (!events.some((event) => event.type === 'turn.completed')) {
+    failures.push('broker events did not include turn.completed')
+  }
+  if (summary.assistantMarker !== args.expectedMarker) {
+    failures.push(`assistant marker ${args.expectedMarker} was missing`)
+  }
+  if (summary.command === '(missing)' || !summary.command.includes('exit=0')) {
+    failures.push('command tool did not complete with exit=0')
+  }
+
+  const lockedMutatedValue = {
+    ...startRequest.spec,
+    process: {
+      ...processSpec,
+      lockedEnv: { ...lockedEnv, CODEX_HOME: `${codexHome ?? args.aspHome}/hash-check` },
+    },
+  }
+  if (project(lockedMutatedValue, 'spec').specHash === specProjection.specHash) {
+    failures.push('changing a lockedEnv value did not change the spec hash')
+  }
+  const lockedMutatedKey = {
+    ...startRequest.spec,
+    process: {
+      ...processSpec,
+      lockedEnv: { ...lockedEnv, ASP_PHASE5_HASH_KEY_PROBE: '1' },
+    },
+  }
+  if (project(lockedMutatedKey, 'spec').specHash === specProjection.specHash) {
+    failures.push('adding a lockedEnv key did not change the spec hash')
+  }
+
+  const expectedToolBin = join(resolve(args.agentRoot ?? ''), 'tools', 'bin')
+  if (pathPrepend.length === 0) {
+    failures.push('process.pathPrepend was empty; tool-bin PATH prepend was not exercised')
+  } else if (pathPrepend[0] !== expectedToolBin) {
+    failures.push(`expected pathPrepend[0] ${expectedToolBin}, got ${pathPrepend[0]}`)
+  }
+
+  const commandOutput = collectCommandOutputs(result).join('\n')
+  if (pathPrepend[0] !== undefined && !commandOutput.includes(pathPrepend[0])) {
+    failures.push('command output did not prove the tool-bin path was visible in spawned PATH')
+  }
+
+  return failures
+}
+
+async function assertDispatchEnvHashOmitted(args: CliArgs): Promise<string[]> {
+  const baseline = await runPreHrcBrokerContractHarness({
+    schemaVersion: 'pre-hrc-broker-contract-harness-input/v1',
+    compileRequest: compileRequest(args),
+    aspHome: args.aspHome,
+    dryRunCompile: true,
+    timeoutMs: args.timeout * 1000,
+  })
+  const variant = await runPreHrcBrokerContractHarness({
+    schemaVersion: 'pre-hrc-broker-contract-harness-input/v1',
+    compileRequest: compileRequest(args, {
+      dispatchEnv: { ASP_DISPATCH_HASH_PROBE: 'dispatch-hash-probe' },
+    }),
+    aspHome: args.aspHome,
+    dryRunCompile: true,
+    timeoutMs: args.timeout * 1000,
+  })
+
+  const failures: string[] = []
+  if (!baseline.ok) failures.push('baseline dry compile for dispatch hash check failed')
+  if (!variant.ok) failures.push('variant dry compile for dispatch hash check failed')
+  const baselineProfile = baseline.selectedProfile
+  const variantProfile = variant.selectedProfile
+  if (baseline.compileResponse.ok && variant.compileResponse.ok) {
+    if (baseline.compileResponse.plan.planHash !== variant.compileResponse.plan.planHash) {
+      failures.push('dispatchEnv changed planHash')
+    }
+  }
+  if (baselineProfile !== undefined && variantProfile !== undefined) {
+    if (baselineProfile.profileHash !== variantProfile.profileHash) {
+      failures.push('dispatchEnv changed profileHash')
+    }
+    if (baselineProfile.harnessInvocation.specHash !== variantProfile.harnessInvocation.specHash) {
+      failures.push('dispatchEnv changed specHash')
+    }
+    if (
+      baselineProfile.harnessInvocation.startRequestHash !==
+      variantProfile.harnessInvocation.startRequestHash
+    ) {
+      failures.push('dispatchEnv changed startRequestHash')
+    }
+  }
+  return failures
 }
 
 function permissionPolicy(args: CliArgs): BrokerPermissionPolicy {
@@ -322,7 +487,10 @@ function permissionPolicy(args: CliArgs): BrokerPermissionPolicy {
   return { mode: 'deny', audit: true }
 }
 
-function compileRequest(args: CliArgs): RuntimeCompileRequest {
+function compileRequest(
+  args: CliArgs,
+  overrides: { dispatchEnv?: Record<string, string> | undefined } = {}
+): RuntimeCompileRequest {
   const timeoutMs = args.timeout * 1000
   const identity = allocatePreHrcRuntimeIdentity({
     namespace: 'prehrc_contract',
@@ -335,8 +503,8 @@ function compileRequest(args: CliArgs): RuntimeCompileRequest {
     agentRoot: args.agentRoot,
     projectRoot: args.projectRoot,
     cwd: args.cwd,
-    env: process.env,
     hostSessionId: identity.hostSessionId,
+    ...(overrides.dispatchEnv !== undefined ? { dispatchEnv: overrides.dispatchEnv } : {}),
   })
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
@@ -414,15 +582,16 @@ async function main(): Promise<void> {
               expectInitialInputAccepted: true,
               expectedTerminalType: 'turn.completed',
             },
-            realCodexHappyPath: {
-              expectedAssistantMarker: args.expectedMarker,
-              redactedCompareValues: redactionCompareValuesForScopeRef(args.scopeRef),
-            },
           },
   })
+  const realEvidenceFailures =
+    args.dryRunCompile === true ? [] : assertRealCodexEnvEvidence(result, args)
+  const dispatchHashFailures =
+    args.dryRunCompile === true ? [] : await assertDispatchEnvHashOmitted(args)
+  const evidenceFailures = [...realEvidenceFailures, ...dispatchHashFailures]
 
   if (args.json) {
-    console.log(JSON.stringify(result, null, 2))
+    console.log(JSON.stringify({ ...result, evidenceFailures }, null, 2))
   } else {
     console.log(`pre-HRC broker contract: ${result.ok ? 'ok' : 'failed'}`)
     console.log(`mode: ${result.mode}`)
@@ -443,16 +612,45 @@ async function main(): Promise<void> {
       `brokerEvents: ${result.artifacts?.files['broker-events.jsonl'] ?? '(not written)'}`
     )
     const summary = summarizeBrokerEvents(result, args.expectedMarker)
+    const profile = result.selectedProfile
+    const processSpec = profile?.harnessInvocation.startRequest.spec.process
+    const lockedEnv = asStringMap(processSpec?.lockedEnv ?? {})
+    const pathPrepend = processSpec?.pathPrepend ?? []
     console.log(`continuation: ${summary.continuation}`)
     console.log(`terminalTurn: ${summary.terminal}`)
     console.log(`commandTool: ${summary.command}`)
+    console.log(`commandOutput: ${summary.commandOutput}`)
     console.log(`assistantMarker: ${summary.assistantMarker}`)
+    console.log(`processCommand: ${processSpec?.command ?? '(missing)'}`)
+    console.log(`processArgs: ${processSpec?.args.join(' ') ?? '(missing)'}`)
+    console.log(`lockedEnvKeys: ${Object.keys(lockedEnv).sort().join(',')}`)
+    console.log(`codexHome: ${lockedEnv['CODEX_HOME'] ?? '(missing)'}`)
+    console.log(
+      `codexAuth: ${
+        lockedEnv['CODEX_HOME'] !== undefined &&
+        existsSync(join(lockedEnv['CODEX_HOME'], 'auth.json'))
+          ? join(lockedEnv['CODEX_HOME'], 'auth.json')
+          : '(missing)'
+      }`
+    )
+    console.log(`pathPrepend: ${pathPrepend.join(delimiter) || '(empty)'}`)
+    console.log(
+      `dispatchEnvHashCheck: ${
+        dispatchHashFailures.length === 0 ? 'omitted-from-plan-profile-spec-start-hashes' : 'failed'
+      }`
+    )
+    console.log(
+      `lockedEnvHashCheck: ${realEvidenceFailures.length === 0 ? 'keys-and-values-in-spec-hash' : 'failed'}`
+    )
     for (const failure of result.assertionReport.failures) {
       console.error(`${failure.code}: ${failure.message}`)
     }
+    for (const failure of evidenceFailures) {
+      console.error(`phase5_evidence_failed: ${failure}`)
+    }
   }
 
-  if (!result.ok) process.exitCode = 1
+  if (!result.ok || evidenceFailures.length > 0) process.exitCode = 1
 }
 
 try {
