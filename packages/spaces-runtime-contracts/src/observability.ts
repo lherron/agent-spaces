@@ -23,7 +23,5 @@ export type BrokerObservabilityContract = {
     invocationId: InvocationId
     traceId?: TraceId | undefined
   }
-  env: Record<string, string>
   driverConfig?: Record<string, unknown> | undefined
-  redaction: 'broker-redaction-required'
 }

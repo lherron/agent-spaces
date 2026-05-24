@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   validateCommand,
   validateEventEnvelope,
+  validateInvocationDispatchRequest,
   validateInvocationInput,
   validateInvocationSpec,
   validateInvocationStartRequest,
@@ -19,7 +20,7 @@ const specSection62Example = {
     command: 'codex',
     args: ['--enable', 'goals', 'app-server'],
     cwd: '/workspace/project',
-    env: {
+    lockedEnv: {
       CODEX_HOME: '/workspace/.codex-home',
     },
     harnessTransport: { kind: 'jsonrpc-stdio' },
@@ -55,7 +56,7 @@ const specSection19InvocationStartSpec = {
     command: 'codex',
     args: ['--enable', 'goals', 'app-server'],
     cwd: '/workspace/project',
-    env: {
+    lockedEnv: {
       CODEX_HOME: '/workspace/.codex-home',
     },
     harnessTransport: { kind: 'jsonrpc-stdio' },
@@ -99,6 +100,18 @@ const expectInvalidStartRequest = (
   expect(() => validateInvocationStartRequest(value)).toThrow(
     expect.objectContaining({
       code: 'INVALID_INVOCATION_START_REQUEST',
+      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
+    })
+  )
+}
+
+const expectInvalidDispatchRequest = (
+  value: unknown,
+  expectedIssue: { path: string; code: string }
+) => {
+  expect(() => validateInvocationDispatchRequest(value)).toThrow(
+    expect.objectContaining({
+      code: 'INVALID_INVOCATION_DISPATCH_REQUEST',
       issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
     })
   )
@@ -161,17 +174,40 @@ describe('validateInvocationSpec', () => {
 
   test('rejects env keys that cannot be passed to spawn safely', () => {
     const invalidWithEquals = structuredClone(specSection62Example)
-    invalidWithEquals.process.env['BAD=KEY'] = 'value'
+    invalidWithEquals.process.lockedEnv['BAD=KEY'] = 'value'
     expectInvalidSpec(invalidWithEquals, {
-      path: 'process.env.BAD=KEY',
+      path: 'process.lockedEnv.BAD=KEY',
       code: 'invalid_env_key',
     })
 
     const invalidWithNull = structuredClone(specSection62Example)
-    invalidWithNull.process.env['BAD\u0000KEY'] = 'value'
+    invalidWithNull.process.lockedEnv['BAD\u0000KEY'] = 'value'
     expectInvalidSpec(invalidWithNull, {
-      path: 'process.env.BAD\u0000KEY',
+      path: 'process.lockedEnv.BAD\u0000KEY',
       code: 'invalid_env_key',
+    })
+  })
+
+  test('rejects lockedEnv keys from ambient, credential, and reserved classes', () => {
+    const ambient = structuredClone(specSection62Example)
+    ambient.process.lockedEnv.HOME = '/Users/lherron'
+    expectInvalidSpec(ambient, {
+      path: 'process.lockedEnv.HOME',
+      code: 'ambient_env_key',
+    })
+
+    const credential = structuredClone(specSection62Example)
+    credential.process.lockedEnv.OPENAI_API_KEY = 'sk-test'
+    expectInvalidSpec(credential, {
+      path: 'process.lockedEnv.OPENAI_API_KEY',
+      code: 'credential_env_key',
+    })
+
+    const reserved = structuredClone(specSection62Example)
+    reserved.process.lockedEnv.NODE_OPTIONS = '--inspect'
+    expectInvalidSpec(reserved, {
+      path: 'process.lockedEnv.NODE_OPTIONS',
+      code: 'reserved_env_key',
     })
   })
 
@@ -257,7 +293,113 @@ describe('validateInvocationStartRequest', () => {
   })
 })
 
+describe('validateInvocationDispatchRequest', () => {
+  test('accepts a dispatch envelope with a verbatim start request and dispatchEnv', () => {
+    const request = {
+      startRequest: {
+        spec: specSection19InvocationStartSpec,
+        initialInput: {
+          inputId: 'input_1',
+          kind: 'user',
+          content: [{ type: 'text', text: 'hello' }],
+        },
+      },
+      dispatchEnv: {
+        WRKQ_HANDOFF_ID: 'handoff_1',
+      },
+    }
+
+    expect(validateInvocationDispatchRequest(request)).toEqual(request)
+  })
+
+  test('rejects dispatchEnv that shadows lockedEnv', () => {
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: specSection19InvocationStartSpec },
+        dispatchEnv: { CODEX_HOME: '/tmp/other' },
+      },
+      {
+        path: 'dispatchEnv.CODEX_HOME',
+        code: 'dispatch_env_shadow',
+      }
+    )
+  })
+
+  test('rejects dispatchEnv from ambient, credential, and reserved classes', () => {
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: specSection19InvocationStartSpec },
+        dispatchEnv: { HOME: '/tmp' },
+      },
+      {
+        path: 'dispatchEnv.HOME',
+        code: 'ambient_env_key',
+      }
+    )
+
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: specSection19InvocationStartSpec },
+        dispatchEnv: { GITHUB_TOKEN: 'secret' },
+      },
+      {
+        path: 'dispatchEnv.GITHUB_TOKEN',
+        code: 'credential_env_key',
+      }
+    )
+
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: specSection19InvocationStartSpec },
+        dispatchEnv: { SSH_AUTH_SOCK: '/tmp/socket' },
+      },
+      {
+        path: 'dispatchEnv.SSH_AUTH_SOCK',
+        code: 'reserved_env_key',
+      }
+    )
+  })
+})
+
 describe('validateCommand', () => {
+  test('validates invocation.start as a dispatch envelope', () => {
+    const command = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'invocation.start',
+      params: {
+        startRequest: {
+          spec: specSection19InvocationStartSpec,
+        },
+        dispatchEnv: {
+          WRKQ_HANDOFF_ID: 'handoff_1',
+        },
+      },
+    }
+
+    expect(validateCommand(command)).toEqual(command)
+  })
+
+  test('rejects bare start request params for invocation.start', () => {
+    expect(() =>
+      validateCommand({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'invocation.start',
+        params: {
+          spec: specSection19InvocationStartSpec,
+        },
+      })
+    ).toThrow(
+      expect.objectContaining({
+        code: 'INVALID_COMMAND',
+        issues: expect.arrayContaining([
+          expect.objectContaining({ path: 'params.startRequest', code: 'required' }),
+        ]),
+      })
+    )
+  })
+
   test('keeps v1 command validation notification-based', () => {
     expect(() =>
       validateCommand({
@@ -308,7 +450,7 @@ describe('validatePermissionRequestParams', () => {
     )
   })
 
-  test('requires the subject field even when redaction yields null', () => {
+  test('requires the subject field even when display subject is absent', () => {
     expectInvalidPermissionRequestParams(
       {
         invocationId: 'inv_1',
@@ -368,7 +510,7 @@ describe('validateEventEnvelope', () => {
     'permission.requested': {
       permissionRequestId: 'perm_1',
       kind: 'command',
-      subjectRedacted: { argv: ['ls'] },
+      subjectDisplay: { argv: ['ls'] },
       defaultDecision: 'deny',
       deadlineMs: 1000,
     },
@@ -409,7 +551,7 @@ describe('validateEventEnvelope', () => {
       envelope('permission.requested', {
         permissionRequestId: 'perm_1',
         kind: 'command',
-        subjectRedacted: { argv: ['ls'] },
+        subjectDisplay: { argv: ['ls'] },
         defaultDecision: 'prompt',
       }),
       {

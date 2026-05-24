@@ -1,5 +1,4 @@
 import type { InvocationId } from './ids'
-import type { RedactedValue } from './redaction'
 
 export interface HarnessInvocationSpec {
   specVersion: 'harness-broker.invocation/v1'
@@ -13,12 +12,6 @@ export interface HarnessInvocationSpec {
   correlation?: Record<string, string> | undefined
 }
 
-export interface RedactedHarnessInvocationSpec {
-  specVersion: 'harness-broker.invocation/v1'
-  redactionState: 'redacted' | 'contains-secret-digests'
-  value: RedactedValue
-}
-
 export interface HarnessDescriptor {
   frontend: string
   provider?: string | undefined
@@ -29,7 +22,7 @@ export interface HarnessProcessSpec {
   command: string
   args: string[]
   cwd: string
-  env?: Record<string, string> | undefined
+  lockedEnv?: Record<string, string> | undefined
   harnessTransport: HarnessTransportSpec
   limits?: ProcessLimits | undefined
 }

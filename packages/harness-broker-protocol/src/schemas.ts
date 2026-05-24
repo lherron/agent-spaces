@@ -1,5 +1,10 @@
 import type { BrokerCommand, BrokerMethod, BrokerMethodV1 } from './commands'
-import type { InvocationInput, InvocationStartRequest, PermissionRequestParams } from './commands'
+import type {
+  InvocationDispatchRequest,
+  InvocationInput,
+  InvocationStartRequest,
+  PermissionRequestParams,
+} from './commands'
 import type { InvocationEventEnvelope, InvocationEventType } from './events'
 import type { HarnessInvocationSpec } from './invocation'
 import { isJsonRpcRequest } from './jsonrpc'
@@ -39,6 +44,17 @@ export class InvocationStartRequestValidationError extends Error {
   constructor(issues: ValidationIssue[]) {
     super('Invalid invocation start request')
     this.name = 'InvocationStartRequestValidationError'
+    this.issues = issues
+  }
+}
+
+export class InvocationDispatchRequestValidationError extends Error {
+  readonly code = 'INVALID_INVOCATION_DISPATCH_REQUEST'
+  readonly issues: ValidationIssue[]
+
+  constructor(issues: ValidationIssue[]) {
+    super('Invalid invocation dispatch request')
+    this.name = 'InvocationDispatchRequestValidationError'
     this.issues = issues
   }
 }
@@ -90,6 +106,7 @@ type SchemaRecord = Record<string, unknown> & {
   defaultImageAttachments?: unknown
   driver?: unknown
   env?: unknown
+  dispatchEnv?: unknown
   frontend?: unknown
   harness?: unknown
   harnessTransport?: unknown
@@ -102,6 +119,7 @@ type SchemaRecord = Record<string, unknown> & {
   kind?: unknown
   labels?: unknown
   limits?: unknown
+  lockedEnv?: unknown
   maxEventBytes?: unknown
   metadata?: unknown
   mimeType?: unknown
@@ -139,7 +157,57 @@ type SchemaRecord = Record<string, unknown> & {
   eventAcks?: unknown
   graceMs?: unknown
   initialInput?: unknown
+  startRequest?: unknown
   scope?: unknown
+}
+
+export const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+export const AMBIENT_ENV_KEYS = new Set([
+  'HOME',
+  'PATH',
+  'SHELL',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'USER',
+  'USERNAME',
+  'TERM',
+  'LANG',
+  'TZ',
+])
+export const CREDENTIAL_ENV_KEYS = new Set([
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+  'GITHUB_TOKEN',
+])
+export const RESERVED_ENV_KEY_PREFIXES = ['NODE_', 'npm_', 'NPM_', 'XDG_']
+export const RESERVED_ENV_KEYS = new Set([
+  'SSH_AUTH_SOCK',
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+  'no_proxy',
+])
+
+export function isAmbientEnvKey(key: string): boolean {
+  return AMBIENT_ENV_KEYS.has(key) || key.startsWith('LC_')
+}
+
+export function isCredentialEnvKey(key: string): boolean {
+  return CREDENTIAL_ENV_KEYS.has(key) || key.endsWith('_TOKEN') || key.endsWith('_PASSWORD')
+}
+
+export function isReservedEnvKey(key: string): boolean {
+  return (
+    RESERVED_ENV_KEYS.has(key) || RESERVED_ENV_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
+  )
 }
 
 const brokerMethods = new Set<BrokerMethodV1>([
@@ -215,6 +283,15 @@ export function validateInvocationStartRequest(value: unknown): InvocationStartR
     throw new InvocationStartRequestValidationError(issues)
   }
   return value as InvocationStartRequest
+}
+
+export function validateInvocationDispatchRequest(value: unknown): InvocationDispatchRequest {
+  const issues: ValidationIssue[] = []
+  validateInvocationDispatchRequestShape(value, '', issues)
+  if (issues.length > 0) {
+    throw new InvocationDispatchRequestValidationError(issues)
+  }
+  return value as InvocationDispatchRequest
 }
 
 export function validatePermissionRequestParams(value: unknown): PermissionRequestParams {
@@ -304,7 +381,7 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
     requireString(process.command, path(prefix, 'process.command'), issues)
     requireStringArray(process.args, path(prefix, 'process.args'), issues)
     requireString(process.cwd, path(prefix, 'process.cwd'), issues)
-    validateEnv(process.env, path(prefix, 'process.env'), issues)
+    validateEnv(process.lockedEnv, path(prefix, 'process.lockedEnv'), issues, 'lockedEnv')
     validateHarnessTransport(
       process.harnessTransport,
       path(prefix, 'process.harnessTransport'),
@@ -368,10 +445,7 @@ function validateCommandParams(
       validateBrokerHelloParams(commandParams, issues)
       return
     case 'invocation.start':
-      validateSpec(commandParams.spec, issues, 'params.spec')
-      if (commandParams.initialInput !== undefined) {
-        validateInvocationInputShape(commandParams.initialInput, 'params.initialInput', issues)
-      }
+      validateInvocationDispatchRequestShape(commandParams, 'params', issues)
       return
     case 'invocation.input':
       requireString(commandParams.invocationId, 'params.invocationId', issues)
@@ -424,6 +498,39 @@ function validatePermissionRequestParamsShape(
   optionalNumber(params['deadlineMs'], path(basePath, 'deadlineMs'), issues)
 }
 
+function validateInvocationDispatchRequestShape(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  const request = asRecord(value)
+  if (!request) {
+    issues.push(issue(basePath, 'invalid_type', 'Invocation dispatch request must be an object'))
+    return
+  }
+
+  const startRequest = asRecord(request.startRequest)
+  if (!startRequest) {
+    issues.push(issue(path(basePath, 'startRequest'), 'required', 'startRequest is required'))
+  } else {
+    const startPath = path(basePath, 'startRequest')
+    validateSpec(startRequest.spec, issues, path(startPath, 'spec'))
+    if (startRequest.initialInput !== undefined) {
+      validateInvocationInputShape(
+        startRequest.initialInput,
+        path(startPath, 'initialInput'),
+        issues
+      )
+    }
+  }
+
+  const lockedEnv =
+    asRecord(startRequest?.spec)?.process !== undefined
+      ? asRecord(asRecord(startRequest?.spec)?.process)?.lockedEnv
+      : undefined
+  validateEnv(request.dispatchEnv, path(basePath, 'dispatchEnv'), issues, 'dispatchEnv', lockedEnv)
+}
+
 function validateEventPayload(
   eventType: InvocationEventType,
   value: unknown,
@@ -447,8 +554,8 @@ function validateEventPayload(
       if (!payload) return
       requireString(payload['permissionRequestId'], 'payload.permissionRequestId', issues)
       requireString(payload.kind, 'payload.kind', issues)
-      if (!Object.hasOwn(payload, 'subjectRedacted')) {
-        issues.push(issue('payload.subjectRedacted', 'required', 'subjectRedacted is required'))
+      if (!Object.hasOwn(payload, 'subjectDisplay')) {
+        issues.push(issue('payload.subjectDisplay', 'required', 'subjectDisplay is required'))
       }
       optionalEnum(
         payload['defaultDecision'],
@@ -579,22 +686,49 @@ function validateInputPolicy(value: unknown, basePath: string, issues: Validatio
   optionalNumber(policy.timeoutMs, path(basePath, 'timeoutMs'), issues)
 }
 
-function validateEnv(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+type EnvChannel = 'lockedEnv' | 'dispatchEnv'
+
+function validateEnv(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[],
+  channel: EnvChannel,
+  lockedEnv?: unknown
+): void {
   if (value === undefined) {
     return
   }
   const record = asRecord(value)
   if (!record) {
-    issues.push(issue(basePath, 'invalid_type', 'env must be an object'))
+    issues.push(issue(basePath, 'invalid_type', `${channel} must be an object`))
     return
   }
+  const lockedEnvKeys = new Set(
+    asRecord(lockedEnv) ? Object.keys(asRecord(lockedEnv) as SchemaRecord) : []
+  )
   for (const [key, envValue] of Object.entries(record)) {
     const envPath = path(basePath, key)
-    if (key.length === 0 || key.includes('=') || key.includes('\u0000')) {
-      issues.push(issue(envPath, 'invalid_env_key', 'env key cannot be empty or contain = or NUL'))
+    if (!ENV_KEY_PATTERN.test(key)) {
+      issues.push(
+        issue(envPath, 'invalid_env_key', `${channel} key must match ${String(ENV_KEY_PATTERN)}`)
+      )
+    }
+    if (isAmbientEnvKey(key)) {
+      issues.push(issue(envPath, 'ambient_env_key', `${channel} key conflicts with ambient env`))
+    }
+    if (isCredentialEnvKey(key)) {
+      issues.push(
+        issue(envPath, 'credential_env_key', `${channel} key conflicts with credential env`)
+      )
+    }
+    if (isReservedEnvKey(key)) {
+      issues.push(issue(envPath, 'reserved_env_key', `${channel} key is reserved`))
+    }
+    if (channel === 'dispatchEnv' && lockedEnvKeys.has(key)) {
+      issues.push(issue(envPath, 'dispatch_env_shadow', 'dispatchEnv must not shadow lockedEnv'))
     }
     if (typeof envValue !== 'string') {
-      issues.push(issue(envPath, 'invalid_type', 'env value must be a string'))
+      issues.push(issue(envPath, 'invalid_type', `${channel} value must be a string`))
     }
   }
 }
@@ -784,10 +918,7 @@ function requireTrue(value: unknown, basePath: string, issues: ValidationIssue[]
   }
 }
 
-function requirePayloadRecord(
-  value: unknown,
-  issues: ValidationIssue[]
-): SchemaRecord | undefined {
+function requirePayloadRecord(value: unknown, issues: ValidationIssue[]): SchemaRecord | undefined {
   const payload = asRecord(value)
   if (!payload) {
     issues.push(issue('payload', 'invalid_type', 'payload must be an object'))

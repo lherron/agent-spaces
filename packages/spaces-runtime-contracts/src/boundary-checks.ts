@@ -28,7 +28,7 @@ export const REQUIRED_BOUNDARY_CHECKS: BoundaryCheck[] = [
     id: 'no-hrc-broker-spec-synthesis',
     description: 'HRC broker paths must not synthesize or mutate broker execution mechanics.',
     command:
-      'rg "InvocationStartRequest\\s*=|HarnessInvocationSpec\\s*=|spec\\.driver|spec\\.process|process\\.args|process\\.env|process\\.cwd|driver:" packages/hrc-' +
+      'rg "InvocationStartRequest\\s*=|HarnessInvocationSpec\\s*=|spec\\.driver|spec\\.process|process\\.args|process\\.lockedEnv|process\\.cwd|driver:" packages/hrc-' +
       "server/src -g '!**/runtime-controllers/legacy-exec/**' -g '!**/__tests__/**'",
     severity: 'error',
   },

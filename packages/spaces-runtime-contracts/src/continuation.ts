@@ -4,14 +4,14 @@ import type { IsoTimestamp } from './primitives'
 
 export type HrcContinuationRef = {
   provider: ProviderDomain
-  keyHash: string
+  continuationId: string
   key?: string | undefined
 }
 
 export type BrokerContinuationRef = {
   provider: string
   kind?: 'thread' | 'session' | 'conversation' | string | undefined
-  keyHash: string
+  continuationId: string
   key?: string | undefined
 }
 

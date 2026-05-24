@@ -1,25 +1,14 @@
 export type HashAlgorithm = 'sha256-canonical-json/v1'
+export type RuntimeContractHashProjection = 'runtime-contract-semantic/v2'
 
 export type CanonicalHash = {
   algorithm: HashAlgorithm
   value: string
 }
 
-export type SecretDigest = {
-  algorithm: 'hmac-sha256-secret-digest/v1' | 'compiler-scoped-secret-digest/v1'
-  value: string
-  scope?: string | undefined
-}
-
-export type SecretRef = {
-  key: string
-  classification: 'secret'
-  digest: SecretDigest
-}
-
 export type HashMaterialPolicy = {
-  omitFields: string[]
-  secretMode: 'digest' | 'redacted-placeholder'
+  hashProjection: RuntimeContractHashProjection
+  omitPaths: string[]
   timestampMode: 'omit-ephemeral' | 'include-semantic'
 }
 
@@ -32,13 +21,15 @@ export interface CanonicalHasher {
 // Implementation (sha256-canonical-json/v1)
 // ---------------------------------------------------------------------------
 
-import { createHash, createHmac } from 'node:crypto'
+import { createHash } from 'node:crypto'
+import type { JsonValue } from './primitives'
 
 const CANONICAL_ALGORITHM: HashAlgorithm = 'sha256-canonical-json/v1'
+export const DEFAULT_HASH_PROJECTION: RuntimeContractHashProjection = 'runtime-contract-semantic/v2'
 
 const DEFAULT_POLICY: HashMaterialPolicy = {
-  omitFields: [],
-  secretMode: 'digest',
+  hashProjection: DEFAULT_HASH_PROJECTION,
+  omitPaths: [],
   timestampMode: 'include-semantic',
 }
 
@@ -54,23 +45,17 @@ function isEphemeralTimestampField(key: string): boolean {
 }
 
 function resolvePolicy(policy?: Partial<HashMaterialPolicy>): HashMaterialPolicy {
+  const omitPaths = policy?.omitPaths ?? DEFAULT_POLICY.omitPaths
+  for (const omitPath of omitPaths) {
+    if (omitsLockedEnv(omitPath)) {
+      throw new Error('Hash omitPaths must not omit process.lockedEnv')
+    }
+  }
   return {
-    omitFields: policy?.omitFields ?? DEFAULT_POLICY.omitFields,
-    secretMode: policy?.secretMode ?? DEFAULT_POLICY.secretMode,
+    hashProjection: policy?.hashProjection ?? DEFAULT_POLICY.hashProjection,
+    omitPaths,
     timestampMode: policy?.timestampMode ?? DEFAULT_POLICY.timestampMode,
   }
-}
-
-function isSecretRef(value: unknown): value is SecretRef {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    (value as { classification?: unknown }).classification === 'secret' &&
-    typeof (value as { digest?: unknown }).digest === 'object' &&
-    (value as { digest?: { value?: unknown } }).digest !== null &&
-    typeof (value as { digest: { value?: unknown } }).digest.value === 'string'
-  )
 }
 
 function serializeNumber(value: number): string {
@@ -80,7 +65,8 @@ function serializeNumber(value: number): string {
   return JSON.stringify(value)
 }
 
-function serialize(value: unknown, policy: HashMaterialPolicy): string {
+function serialize(value: unknown, policy: HashMaterialPolicy, pointer = ''): string {
+  if (policy.omitPaths.includes(pointer)) return ''
   if (value === null) return 'null'
 
   const type = typeof value
@@ -94,25 +80,10 @@ function serialize(value: unknown, policy: HashMaterialPolicy): string {
     return 'null'
   }
 
-  // Secrets are represented exclusively by their digest — never any raw value.
-  if (isSecretRef(value)) {
-    if (policy.secretMode === 'redacted-placeholder') {
-      return JSON.stringify('[REDACTED:secret]')
-    }
-    return serialize(
-      {
-        classification: value.classification,
-        key: value.key,
-        secretDigest: value.digest.value,
-        secretDigestAlgorithm: value.digest.algorithm,
-        secretDigestScope: value.digest.scope,
-      },
-      policy
-    )
-  }
-
   if (Array.isArray(value)) {
-    const items = value.map((item) => (item === undefined ? 'null' : serialize(item, policy)))
+    const items = value.map((item, index) =>
+      item === undefined ? 'null' : serialize(item, policy, `${pointer}/${index}`)
+    )
     return `[${items.join(',')}]`
   }
 
@@ -120,13 +91,14 @@ function serialize(value: unknown, policy: HashMaterialPolicy): string {
   const keys = Object.keys(record).sort()
   const parts: string[] = []
   for (const key of keys) {
-    if (policy.omitFields.includes(key)) continue
+    const childPointer = `${pointer}/${escapeJsonPointerToken(key)}`
+    if (policy.omitPaths.includes(childPointer)) continue
     if (policy.timestampMode === 'omit-ephemeral' && isEphemeralTimestampField(key)) {
       continue
     }
     const child = record[key]
     if (child === undefined) continue // omit undefined; null is preserved
-    parts.push(`${JSON.stringify(key)}:${serialize(child, policy)}`)
+    parts.push(`${JSON.stringify(key)}:${serialize(child, policy, childPointer)}`)
   }
   return `{${parts.join(',')}}`
 }
@@ -144,25 +116,78 @@ export function createCanonicalHasher(): CanonicalHasher {
   }
 }
 
-/**
- * Scope-keyed HMAC-SHA256 secret digest. The scope is folded into the HMAC key
- * so the same raw secret yields a different digest across compiler scopes /
- * installs, and persisted hashes are never reusable secret fingerprints. The
- * raw secret is never echoed in the result.
- */
-export function secretDigest(
-  secret: string,
-  options?: { scope?: string | undefined }
-): SecretDigest {
-  const scope = options?.scope
-  if (scope !== undefined) {
-    const value = createHmac('sha256', `compiler-scoped-secret-digest/v1:${scope}`)
-      .update(secret, 'utf8')
-      .digest('hex')
-    return { algorithm: 'compiler-scoped-secret-digest/v1', value, scope }
+function escapeJsonPointerToken(token: string): string {
+  return token.replaceAll('~', '~0').replaceAll('/', '~1')
+}
+
+function omitsLockedEnv(omitPath: string): boolean {
+  return (
+    omitPath === '/process/lockedEnv' ||
+    omitPath.endsWith('/process/lockedEnv') ||
+    omitPath.includes('/process/lockedEnv/')
+  )
+}
+
+export type RuntimeContractProjectionKind = 'plan' | 'profile' | 'spec' | 'start-request'
+
+export type RuntimeContractProjection =
+  | {
+      hashProjection: RuntimeContractHashProjection
+      planHash: string
+      value: JsonValue
+    }
+  | {
+      hashProjection: RuntimeContractHashProjection
+      profileHash: string
+      value: JsonValue
+    }
+  | {
+      hashProjection: RuntimeContractHashProjection
+      specHash: string
+      value: JsonValue
+    }
+  | {
+      hashProjection: RuntimeContractHashProjection
+      startRequestHash: string
+      value: JsonValue
+    }
+
+export function project(
+  source: unknown,
+  kind: RuntimeContractProjectionKind
+): RuntimeContractProjection {
+  const policy = resolvePolicy({
+    hashProjection: DEFAULT_HASH_PROJECTION,
+    omitPaths: projectionOmitPaths(kind),
+    timestampMode: 'omit-ephemeral',
+  })
+  const canonical = serialize(source, policy)
+  const value = JSON.parse(canonical) as JsonValue
+  const hashValue = createHash('sha256').update(canonical, 'utf8').digest('hex')
+  const base = {
+    hashProjection: policy.hashProjection,
+    value,
   }
-  const value = createHmac('sha256', 'hmac-sha256-secret-digest/v1')
-    .update(secret, 'utf8')
-    .digest('hex')
-  return { algorithm: 'hmac-sha256-secret-digest/v1', value, scope: undefined }
+  switch (kind) {
+    case 'plan':
+      return { ...base, planHash: hashValue }
+    case 'profile':
+      return { ...base, profileHash: hashValue }
+    case 'spec':
+      return { ...base, specHash: hashValue }
+    case 'start-request':
+      return { ...base, startRequestHash: hashValue }
+  }
+}
+
+function projectionOmitPaths(kind: RuntimeContractProjectionKind): string[] {
+  switch (kind) {
+    case 'plan':
+      return ['/planHash']
+    case 'profile':
+      return ['/profileHash', '/compatibilityHash']
+    case 'spec':
+    case 'start-request':
+      return []
+  }
 }

@@ -13,16 +13,13 @@ export type {
 export type RequestId = Id<'request'>
 export type CompileId = Id<'compile'>
 export type PlanHash = string
-export type RedactedPlanHash = string
 export type ProfileId = Id<'profile'>
 export type ProfileHash = string
 export type CompatibilityHash = string
 export type SpecHash = string
-export type RedactedSpecHash = string
 export type StartRequestHash = string
-export type RedactedStartRequestHash = string
 export type ArtifactId = Id<'artifact'>
-export type ArtifactHash = string
+export type ContentHash = string
 
 export type HostSessionId = Id<'hostSession'>
 export type RuntimeId = Id<'runtime'>

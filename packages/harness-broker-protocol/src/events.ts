@@ -207,7 +207,7 @@ export interface DriverNoticePayload {
 export interface PermissionRequestedPayload {
   permissionRequestId: PermissionRequestId
   kind: 'command' | 'file_change' | 'tool' | string
-  subjectRedacted: unknown
+  subjectDisplay: unknown
   defaultDecision: 'allow' | 'deny'
   deadlineMs?: number | undefined
 }

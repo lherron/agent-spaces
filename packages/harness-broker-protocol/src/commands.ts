@@ -8,7 +8,6 @@ import type { ContinuationUpdate } from './events'
 import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
 import type { HarnessInvocationSpec } from './invocation'
 import type { JsonRpcRequest } from './jsonrpc'
-import type { RedactedValue } from './redaction'
 
 export type BrokerMethodV1 =
   | 'broker.hello'
@@ -37,7 +36,7 @@ export type BrokerNotificationMethod = 'invocation.event'
 export type BrokerCommand =
   | JsonRpcRequest<'broker.hello', BrokerHelloRequest>
   | JsonRpcRequest<'broker.health', BrokerHealthRequest>
-  | JsonRpcRequest<'invocation.start', InvocationStartRequest>
+  | JsonRpcRequest<'invocation.start', InvocationDispatchRequest>
   | JsonRpcRequest<'invocation.input', InvocationInputRequest>
   | JsonRpcRequest<'invocation.interrupt', InvocationInterruptRequest>
   | JsonRpcRequest<'invocation.stop', InvocationStopRequest>
@@ -78,9 +77,9 @@ export interface InvocationStartRequest {
   initialInput?: InvocationInput | undefined
 }
 
-export interface RedactedInvocationStartRequest {
-  redactionState: 'redacted' | 'contains-secret-digests'
-  value: RedactedValue
+export interface InvocationDispatchRequest {
+  startRequest: InvocationStartRequest
+  dispatchEnv?: Record<string, string> | undefined
 }
 
 export interface InvocationStartResponse {

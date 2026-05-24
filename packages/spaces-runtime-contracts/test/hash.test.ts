@@ -1,27 +1,25 @@
 import { describe, expect, test } from 'bun:test'
 import * as contracts from '../src/index'
-import type { HashMaterialPolicy, SecretRef } from '../src/index'
+import type { HashMaterialPolicy } from '../src/index'
 
 const createCanonicalHasher = (contracts as any).createCanonicalHasher as
   | (() => contracts.CanonicalHasher)
   | undefined
-const secretDigest = (contracts as any).secretDigest as
-  | ((secret: string, options?: { scope?: string }) => contracts.SecretDigest)
+const project = (contracts as any).project as
+  | ((
+      source: unknown,
+      kind: contracts.RuntimeContractProjectionKind
+    ) => contracts.RuntimeContractProjection)
   | undefined
 
 const defaultPolicy = {
-  secretMode: 'digest',
+  hashProjection: 'runtime-contract-semantic/v2',
   timestampMode: 'include-semantic',
 } satisfies Partial<HashMaterialPolicy>
 
 function hasher(): contracts.CanonicalHasher {
   expect(createCanonicalHasher, 'createCanonicalHasher must be exported').toBeFunction()
   return createCanonicalHasher()
-}
-
-function digest(secret: string, scope = 'test-scope'): contracts.SecretDigest {
-  expect(secretDigest, 'secretDigest must be exported').toBeFunction()
-  return secretDigest(secret, { scope })
 }
 
 describe('canonical JSON hasher', () => {
@@ -40,9 +38,7 @@ describe('canonical JSON hasher', () => {
   test('undefined fields are omitted but null is preserved', () => {
     const h = hasher()
 
-    expect(h.hash({ a: undefined, b: 1 }, defaultPolicy)).toEqual(
-      h.hash({ b: 1 }, defaultPolicy),
-    )
+    expect(h.hash({ a: undefined, b: 1 }, defaultPolicy)).toEqual(h.hash({ b: 1 }, defaultPolicy))
     expect(h.hash({ a: null }, defaultPolicy).value).not.toBe(h.hash({}, defaultPolicy).value)
   })
 
@@ -57,42 +53,9 @@ describe('canonical JSON hasher', () => {
   test('arrays are preserved in order', () => {
     const h = hasher()
 
-    expect(h.hash(['model', 'driver', 'env'], defaultPolicy).value).not.toBe(
-      h.hash(['env', 'driver', 'model'], defaultPolicy).value,
+    expect(h.hash(['model', 'driver', 'lockedEnv'], defaultPolicy).value).not.toBe(
+      h.hash(['lockedEnv', 'driver', 'model'], defaultPolicy).value
     )
-  })
-
-  test('secret values never appear in canonical preimage and are represented by digest', () => {
-    const h = hasher()
-    const rawSecret = 'sk-live-super-secret-value'
-    const secretRef: SecretRef = {
-      key: 'OPENAI_API_KEY',
-      classification: 'secret',
-      digest: digest(rawSecret, 'compiler-a'),
-    }
-
-    const canonical = h.canonicalize(
-      {
-        env: {
-          OPENAI_API_KEY: secretRef,
-        },
-      },
-      defaultPolicy,
-    )
-
-    expect(canonical).not.toContain(rawSecret)
-    expect(canonical).toContain(secretRef.digest.value)
-    expect(canonical).toContain('OPENAI_API_KEY')
-  })
-
-  test('secret digest scope changes digest value', () => {
-    const secret = 'same raw secret'
-
-    expect(digest(secret, 'compiler-a')).toMatchObject({
-      algorithm: 'compiler-scoped-secret-digest/v1',
-      scope: 'compiler-a',
-    })
-    expect(digest(secret, 'compiler-a').value).not.toBe(digest(secret, 'compiler-b').value)
   })
 
   test('omit-ephemeral timestamp mode ignores timestamp fields', () => {
@@ -116,79 +79,94 @@ describe('canonical JSON hasher', () => {
     expect(h.hash(first, policy)).toEqual(h.hash(second, policy))
   })
 
-  test('compatibility policy omits excluded request fields but keeps runtime-affecting fields', () => {
+  test('omitPaths exclude exact JSON pointer paths only', () => {
     const h = hasher()
     const policy = {
       ...defaultPolicy,
-      timestampMode: 'omit-ephemeral',
-      omitFields: [
-        'requestId',
-        'operationId',
-        'runId',
-        'invocationId',
-        'correlationId',
-        'initialPrompt',
-        'initialInput',
-      ],
+      omitPaths: ['/requestId', '/nested/ephemeral'],
     } satisfies Partial<HashMaterialPolicy>
 
+    const base = { requestId: 'req-a', nested: { ephemeral: 'a', semantic: 'same' } }
+    const changed = { requestId: 'req-b', nested: { ephemeral: 'b', semantic: 'same' } }
+
+    expect(h.hash(base, policy)).toEqual(h.hash(changed, policy))
+    expect(h.hash(base, policy).value).not.toBe(
+      h.hash({ ...changed, nested: { ephemeral: 'b', semantic: 'different' } }, policy).value
+    )
+  })
+
+  test('lockedEnv keys and values are included in hash material', () => {
+    const h = hasher()
     const base = {
-      requestId: 'req-a',
-      operationId: 'op-a',
-      runId: 'run-a',
-      invocationId: 'inv-a',
-      correlationId: 'corr-a',
-      createdAt: '2026-05-24T06:00:00.000Z',
-      initialPrompt: 'do the first thing',
-      model: 'gpt-5.3-codex',
-      reasoning: 'medium',
-      command: 'codex',
-      args: ['app-server'],
-      cwd: '/Users/lherron/praesidium/agent-spaces',
-      env: {
-        OPENAI_API_KEY: {
-          key: 'OPENAI_API_KEY',
-          classification: 'secret',
-          digest: digest('secret-a', 'compiler-a'),
+      process: {
+        command: 'codex',
+        args: ['app-server'],
+        cwd: '/workspace',
+        lockedEnv: {
+          CODEX_HOME: '/workspace/.codex-home-a',
         },
       },
-      driverConfig: { transport: 'stdio', timeoutMs: 120_000 },
-      permissions: { filesystem: 'workspace-write' },
     }
 
     expect(
-      h.hash(
-        {
-          ...base,
-          requestId: 'req-b',
-          operationId: 'op-b',
-          runId: 'run-b',
-          invocationId: 'inv-b',
-          correlationId: 'corr-b',
-          createdAt: '2026-05-24T07:00:00.000Z',
-          initialPrompt: 'do a different thing',
+      h.hash({
+        ...base,
+        process: {
+          ...base.process,
+          lockedEnv: { CODEX_HOME: '/workspace/.codex-home-b' },
         },
-        policy,
-      ),
-    ).toEqual(h.hash(base, policy))
+      }).value
+    ).not.toBe(h.hash(base).value)
 
-    expect(h.hash({ ...base, model: 'gpt-5.4' }, policy).value).not.toBe(
-      h.hash(base, policy).value,
-    )
     expect(
-      h.hash(
-        {
-          ...base,
-          env: {
-            OPENAI_API_KEY: {
-              key: 'OPENAI_API_KEY',
-              classification: 'secret',
-              digest: digest('secret-b', 'compiler-a'),
-            },
-          },
+      h.hash({
+        ...base,
+        process: {
+          ...base.process,
+          lockedEnv: { OTHER_HOME: '/workspace/.codex-home-a' },
         },
-        policy,
-      ).value,
-    ).not.toBe(h.hash(base, policy).value)
+      }).value
+    ).not.toBe(h.hash(base).value)
+  })
+
+  test('lockedEnv cannot be omitted by hash policy', () => {
+    const h = hasher()
+
+    expect(() =>
+      h.hash(
+        { process: { lockedEnv: { CODEX_HOME: '/workspace/.codex-home' } } },
+        { omitPaths: ['/process/lockedEnv'] }
+      )
+    ).toThrow('Hash omitPaths must not omit process.lockedEnv')
+
+    expect(() =>
+      h.hash(
+        { spec: { process: { lockedEnv: { CODEX_HOME: '/workspace/.codex-home' } } } },
+        { omitPaths: ['/spec/process/lockedEnv'] }
+      )
+    ).toThrow('Hash omitPaths must not omit process.lockedEnv')
+  })
+})
+
+describe('canonical projection helper', () => {
+  test('projects to the named runtime contract hash projection', () => {
+    expect(project, 'project must be exported').toBeFunction()
+
+    expect(
+      project(
+        {
+          planHash: 'plan_a',
+          createdAt: '2026-05-24T06:00:00.000Z',
+          process: { lockedEnv: { CODEX_HOME: '/workspace/.codex-home' } },
+        },
+        'plan'
+      )
+    ).toEqual({
+      hashProjection: 'runtime-contract-semantic/v2',
+      planHash: expect.any(String),
+      value: {
+        process: { lockedEnv: { CODEX_HOME: '/workspace/.codex-home' } },
+      },
+    })
   })
 })

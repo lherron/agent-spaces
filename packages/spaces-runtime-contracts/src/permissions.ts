@@ -52,7 +52,7 @@ export type BrokerPermissionDecisionRecord = {
   runtimeId: RuntimeId
   runId?: RunId | undefined
   kind: BrokerPermissionRequestKind
-  subjectRedactedJson: string
+  subjectDisplayJson: string
   defaultDecision: 'allow' | 'deny'
   decision: 'allow' | 'deny'
   decidedBy: 'policy' | 'user' | 'api' | 'timeout'

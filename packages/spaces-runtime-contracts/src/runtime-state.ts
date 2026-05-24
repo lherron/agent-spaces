@@ -12,8 +12,6 @@ import type {
   PlanHash,
   ProfileHash,
   ProfileId,
-  RedactedSpecHash,
-  RedactedStartRequestHash,
   RuntimeId,
   ServerInstanceId,
   SpecHash,
@@ -80,9 +78,7 @@ export type BrokerRuntimeState = RuntimeStateBase & {
     selectedProfileId: ProfileId
     selectedProfileHash: ProfileHash
     specHash: SpecHash
-    redactedSpecHash?: RedactedSpecHash | undefined
     startRequestHash: StartRequestHash
-    redactedStartRequestHash?: RedactedStartRequestHash | undefined
   }
 
   broker: {

@@ -3,17 +3,15 @@ import type {
   InvocationId,
   InvocationState,
 } from 'spaces-harness-broker-protocol'
+import type { RuntimeContractHashProjection } from './hash'
 import type {
-  ArtifactHash,
   ArtifactId,
   CompileId,
+  ContentHash,
   HostSessionId,
   PlanHash,
   ProfileHash,
   ProfileId,
-  RedactedPlanHash,
-  RedactedSpecHash,
-  RedactedStartRequestHash,
   RunId,
   RuntimeId,
   RuntimeOperationId,
@@ -22,9 +20,8 @@ import type {
   StartRequestHash,
 } from './ids'
 import type { RuntimeOperationKind, RuntimeOperationStatus } from './operations'
-import type { RuntimeControllerKind } from './primitives'
+import type { JsonValue, RuntimeControllerKind } from './primitives'
 import type { IsoTimestamp } from './primitives'
-import type { RedactionState } from './redaction'
 
 export type CompiledRuntimePlanRecord = {
   planHash: PlanHash
@@ -32,8 +29,7 @@ export type CompiledRuntimePlanRecord = {
   schemaVersion: 'agent-runtime-plan/v1'
   compilerName: 'agent-spaces'
   compilerVersion: string
-  redactedPlanHash: RedactedPlanHash
-  redactedPlanJson: string
+  planProjectionJson: string
   diagnosticsJson?: string | undefined
   createdAt: IsoTimestamp
 }
@@ -77,12 +73,10 @@ export type BrokerInvocationRecord = {
   continuationJson?: string | undefined
   brokerContinuationJson?: string | undefined
   specHash: SpecHash
-  redactedSpecHash?: RedactedSpecHash | undefined
   startRequestHash: StartRequestHash
-  redactedStartRequestHash?: RedactedStartRequestHash | undefined
   selectedProfileHash: ProfileHash
-  redactedSpecJson?: string | undefined
-  redactedStartRequestJson?: string | undefined
+  specProjectionJson?: string | undefined
+  startRequestProjectionJson?: string | undefined
   lastEventSeq?: number | undefined
   ownerServerInstanceId?: ServerInstanceId | undefined
   createdAt: IsoTimestamp
@@ -116,9 +110,32 @@ export type RuntimeArtifactRecord = {
     | string
   mediaType: 'application/json' | 'text/plain' | string
   storageKind: 'inline-json' | 'file-path'
-  contentHash: ArtifactHash
-  redactionState: RedactionState
+  contentHash: ContentHash
   artifactJson?: string | undefined
   artifactPath?: string | undefined
   createdAt: IsoTimestamp
+}
+
+export type CompiledRuntimePlanProjection = {
+  hashProjection: RuntimeContractHashProjection
+  planHash: PlanHash
+  value: JsonValue
+}
+
+export type RuntimeExecutionProfileProjection = {
+  hashProjection: RuntimeContractHashProjection
+  profileHash: ProfileHash
+  value: JsonValue
+}
+
+export type HarnessInvocationSpecProjection = {
+  hashProjection: RuntimeContractHashProjection
+  specHash: SpecHash
+  value: JsonValue
+}
+
+export type InvocationStartRequestProjection = {
+  hashProjection: RuntimeContractHashProjection
+  startRequestHash: StartRequestHash
+  value: JsonValue
 }

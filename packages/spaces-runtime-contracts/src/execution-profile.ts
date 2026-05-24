@@ -1,21 +1,9 @@
-import type {
-  InvocationStartRequest,
-  RedactedHarnessInvocationSpec,
-  RedactedInvocationStartRequest,
-} from 'spaces-harness-broker-protocol'
+import type { InvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type { CapabilityRequirements } from './capabilities'
 import type { CompileDiagnostic } from './compiler-plan'
 import type { BrokerContinuationRef, RuntimeContinuationRef } from './continuation'
 import type { AgentchatExposurePolicy } from './exposure'
-import type {
-  CompatibilityHash,
-  ProfileHash,
-  ProfileId,
-  RedactedSpecHash,
-  RedactedStartRequestHash,
-  SpecHash,
-  StartRequestHash,
-} from './ids'
+import type { CompatibilityHash, ProfileHash, ProfileId, SpecHash, StartRequestHash } from './ids'
 import type { BrokerInputPolicy } from './input'
 import type { BrokerObservabilityContract } from './observability'
 import type { BrokerPermissionPolicy } from './permissions'
@@ -24,10 +12,9 @@ import type { RuntimeResourceLimits } from './resources'
 
 export type {
   HarnessInvocationSpec,
+  InvocationDispatchRequest,
   InvocationInput,
   InvocationStartRequest,
-  RedactedHarnessInvocationSpec,
-  RedactedInvocationStartRequest,
 } from 'spaces-harness-broker-protocol'
 
 export type RuntimeExecutionProfile =
@@ -45,7 +32,6 @@ export type RuntimeExecutionProfileBase = {
   kind: RuntimeExecutionProfileKind
   interactionMode: InteractionMode
   expectedCapabilities: CapabilityRequirements
-  redactedProfile: unknown
   diagnostics?: CompileDiagnostic[] | undefined
 }
 
@@ -61,7 +47,7 @@ export type TerminalExecutionProfile = RuntimeExecutionProfileBase & {
     command: string
     args: string[]
     cwd: string
-    env: Record<string, string>
+    lockedEnv: Record<string, string>
     io: { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
   }
   policy: {
@@ -82,7 +68,7 @@ export type EmbeddedSdkExecutionProfile = RuntimeExecutionProfileBase & {
     provider: ProviderDomain
     modelId: string
     cwd: string
-    env: Record<string, string>
+    lockedEnv: Record<string, string>
   }
   policy: {
     inputPolicy?: BrokerInputPolicy | undefined
@@ -102,11 +88,7 @@ export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   harnessInvocation: {
     startRequest: InvocationStartRequest
     specHash: SpecHash
-    redactedSpecHash: RedactedSpecHash
     startRequestHash: StartRequestHash
-    redactedStartRequestHash: RedactedStartRequestHash
-    redactedSpec: RedactedHarnessInvocationSpec
-    redactedStartRequest: RedactedInvocationStartRequest
     initialInputHash?: string | undefined
   }
 
@@ -135,7 +117,7 @@ export type CommandExecutionProfile = RuntimeExecutionProfileBase & {
     turnDelivery: 'process-stdin' | 'none'
     argv: string[]
     cwd: string
-    env: Record<string, string>
+    lockedEnv: Record<string, string>
     shell?:
       | {
           executable?: string | undefined

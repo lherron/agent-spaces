@@ -8,12 +8,10 @@ import type {
   ResolvedRuntimeBundle,
   RuntimePlacement,
 } from './external'
-import type { SecretDigest } from './hash'
 import type {
   CompileId,
   PlanHash,
   ProfileId,
-  RedactedPlanHash,
   RuntimeCorrelation,
   RuntimeIdentityAllocation,
 } from './ids'
@@ -85,7 +83,6 @@ export type CompiledRuntimePlan = {
   }
   compileId: CompileId
   planHash: PlanHash
-  redactedPlanHash: RedactedPlanHash
   createdAt: IsoTimestamp
 
   identity: RuntimeIdentityAllocation
@@ -115,10 +112,8 @@ export type CompiledRuntimePlan = {
     bundleIdentity: string
   }
 
-  secrets: {
-    envKeys: string[]
-    secretEnvKeys: string[]
-    secretDigests?: Record<string, SecretDigest> | undefined
+  lockedEnv: {
+    lockedEnvKeys: string[]
   }
 
   diagnostics: CompileDiagnostic[]
@@ -130,5 +125,5 @@ export type CompileDiagnostic = {
   message: string
   plane: 'asp-compiler'
   profileId?: ProfileId | undefined
-  redactedDetails?: unknown
+  details?: unknown
 }
