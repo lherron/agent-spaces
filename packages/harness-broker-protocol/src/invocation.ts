@@ -1,6 +1,9 @@
+import type { InvocationId } from './ids'
+import type { RedactedValue } from './redaction'
+
 export interface HarnessInvocationSpec {
   specVersion: 'harness-broker.invocation/v1'
-  invocationId?: string | undefined
+  invocationId?: InvocationId | undefined
   labels?: Record<string, string> | undefined
   harness: HarnessDescriptor
   process: HarnessProcessSpec
@@ -8,6 +11,12 @@ export interface HarnessInvocationSpec {
   continuation?: ContinuationSpec | undefined
   driver: CodexAppServerDriverSpec | UnknownDriverSpec
   correlation?: Record<string, string> | undefined
+}
+
+export interface RedactedHarnessInvocationSpec {
+  specVersion: 'harness-broker.invocation/v1'
+  redactionState: 'redacted' | 'contains-secret-digests'
+  value: RedactedValue
 }
 
 export interface HarnessDescriptor {
@@ -58,15 +67,17 @@ export interface CodexAppServerDriverSpec {
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined
   profile?: string | undefined
   defaultImageAttachments?: string[] | undefined
-  permissionPolicy?: PermissionPolicy | undefined
+  permissionPolicy?: DriverPermissionPolicy | undefined
   resumeFallback?: 'start-fresh' | 'fail' | undefined
 }
 
-export interface PermissionPolicy {
+export interface DriverPermissionPolicy {
   mode: 'deny' | 'allow' | 'ask-client'
   timeoutMs?: number | undefined
   defaultDecision?: 'allow' | 'deny' | undefined
 }
+
+export type PermissionPolicy = DriverPermissionPolicy
 
 export interface UnknownDriverSpec {
   kind: string

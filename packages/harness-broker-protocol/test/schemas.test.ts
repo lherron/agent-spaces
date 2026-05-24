@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  validateCommand,
+  validateEventEnvelope,
   validateInvocationInput,
   validateInvocationSpec,
   validateInvocationStartRequest,
+  validatePermissionRequestParams,
 } from '../src/schemas'
 
 const specSection62Example = {
@@ -101,6 +104,30 @@ const expectInvalidStartRequest = (
   )
 }
 
+const expectInvalidEventEnvelope = (
+  value: unknown,
+  expectedIssue: { path: string; code: string }
+) => {
+  expect(() => validateEventEnvelope(value)).toThrow(
+    expect.objectContaining({
+      code: 'INVALID_EVENT_ENVELOPE',
+      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
+    })
+  )
+}
+
+const expectInvalidPermissionRequestParams = (
+  value: unknown,
+  expectedIssue: { path: string; code: string }
+) => {
+  expect(() => validatePermissionRequestParams(value)).toThrow(
+    expect.objectContaining({
+      code: 'INVALID_PERMISSION_REQUEST_PARAMS',
+      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
+    })
+  )
+}
+
 describe('validateInvocationSpec', () => {
   test('accepts the Codex app-server example from spec section 6.2', () => {
     expect(validateInvocationSpec(specSection62Example)).toEqual(specSection62Example)
@@ -154,6 +181,19 @@ describe('validateInvocationSpec', () => {
 
     expectInvalidSpec(invalid, {
       path: 'specVersion',
+      code: 'invalid_literal',
+    })
+  })
+
+  test('rejects unsupported driver permission default decisions', () => {
+    const invalid = structuredClone(specSection62Example)
+    invalid.driver.permissionPolicy = {
+      mode: 'ask-client',
+      defaultDecision: 'prompt',
+    }
+
+    expectInvalidSpec(invalid, {
+      path: 'driver.permissionPolicy.defaultDecision',
       code: 'invalid_literal',
     })
   })
@@ -212,6 +252,180 @@ describe('validateInvocationStartRequest', () => {
       {
         path: 'spec.process.command',
         code: 'required',
+      }
+    )
+  })
+})
+
+describe('validateCommand', () => {
+  test('keeps v1 command validation notification-based', () => {
+    expect(() =>
+      validateCommand({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'invocation.events',
+        params: { invocationId: 'inv_1' },
+      })
+    ).toThrow(
+      expect.objectContaining({
+        code: 'INVALID_COMMAND',
+        issues: expect.arrayContaining([
+          expect.objectContaining({ path: 'method', code: 'unknown_method' }),
+        ]),
+      })
+    )
+  })
+})
+
+describe('validatePermissionRequestParams', () => {
+  test('accepts broker-to-client permission request params', () => {
+    const params = {
+      invocationId: 'inv_1',
+      turnId: 'turn_1',
+      permissionRequestId: 'perm_1',
+      kind: 'command',
+      subject: { argv: ['ls'] },
+      defaultDecision: 'deny',
+      deadlineMs: 1000,
+    }
+
+    expect(validatePermissionRequestParams(params)).toEqual(params)
+  })
+
+  test('rejects unsupported default decisions', () => {
+    expectInvalidPermissionRequestParams(
+      {
+        invocationId: 'inv_1',
+        permissionRequestId: 'perm_1',
+        kind: 'command',
+        subject: { argv: ['ls'] },
+        defaultDecision: 'prompt',
+      },
+      {
+        path: 'defaultDecision',
+        code: 'invalid_literal',
+      }
+    )
+  })
+
+  test('requires the subject field even when redaction yields null', () => {
+    expectInvalidPermissionRequestParams(
+      {
+        invocationId: 'inv_1',
+        permissionRequestId: 'perm_1',
+        kind: 'command',
+        defaultDecision: 'deny',
+      },
+      {
+        path: 'subject',
+        code: 'required',
+      }
+    )
+  })
+})
+
+describe('validateEventEnvelope', () => {
+  const envelope = (type: string, payload: unknown) => ({
+    invocationId: 'inv_1',
+    seq: 1,
+    time: '2026-05-24T00:00:00.000Z',
+    type,
+    payload,
+  })
+
+  const eventPayloads: Record<string, unknown> = {
+    'invocation.started': {
+      command: 'codex',
+      args: ['app-server'],
+      cwd: '/workspace',
+    },
+    'invocation.ready': { state: 'ready' },
+    'invocation.stopping': { reason: 'requested' },
+    'invocation.exited': { exitCode: 0, signal: null },
+    'invocation.failed': { message: 'failed' },
+    'invocation.disposed': { disposed: true },
+    'continuation.updated': { provider: 'openai', key: 'thread_1' },
+    'input.accepted': { inputId: 'input_1' },
+    'input.rejected': { inputId: 'input_1', reason: 'busy' },
+    'input.queued': { inputId: 'input_1' },
+    'turn.started': { turnId: 'turn_1' },
+    'turn.completed': { turnId: 'turn_1', status: 'completed' },
+    'turn.failed': { turnId: 'turn_1', message: 'failed' },
+    'turn.interrupted': { turnId: 'turn_1', reason: 'requested' },
+    'assistant.message.started': { messageId: 'msg_1' },
+    'assistant.message.delta': { messageId: 'msg_1', text: 'hello' },
+    'assistant.message.completed': {
+      messageId: 'msg_1',
+      content: [{ type: 'text', text: 'hello' }],
+    },
+    'tool.call.started': { toolCallId: 'tool_1', name: 'read' },
+    'tool.call.delta': { toolCallId: 'tool_1', text: 'chunk' },
+    'tool.call.completed': { toolCallId: 'tool_1', name: 'read' },
+    'tool.call.failed': { toolCallId: 'tool_1', name: 'read', message: 'failed' },
+    'usage.updated': { usage: { inputTokens: 1 } },
+    diagnostic: { level: 'info', message: 'notice' },
+    'driver.notice': { message: 'notice' },
+    'permission.requested': {
+      permissionRequestId: 'perm_1',
+      kind: 'command',
+      subjectRedacted: { argv: ['ls'] },
+      defaultDecision: 'deny',
+      deadlineMs: 1000,
+    },
+    'permission.resolved': {
+      permissionRequestId: 'perm_1',
+      decision: 'deny',
+      decidedBy: 'policy',
+      message: 'blocked',
+    },
+  }
+
+  test('accepts every final v1 invocation event type', () => {
+    for (const [type, payload] of Object.entries(eventPayloads)) {
+      expect(validateEventEnvelope(envelope(type, payload))).toEqual(envelope(type, payload))
+    }
+  })
+
+  test('rejects unsupported event types', () => {
+    expectInvalidEventEnvelope(envelope('invocation.permission.request', {}), {
+      path: 'type',
+      code: 'invalid_event_type',
+    })
+  })
+
+  test('validates invocation.ready and invocation.disposed payloads', () => {
+    expectInvalidEventEnvelope(envelope('invocation.ready', {}), {
+      path: 'payload.state',
+      code: 'required',
+    })
+    expectInvalidEventEnvelope(envelope('invocation.disposed', {}), {
+      path: 'payload.disposed',
+      code: 'required',
+    })
+  })
+
+  test('validates permission event payloads', () => {
+    expectInvalidEventEnvelope(
+      envelope('permission.requested', {
+        permissionRequestId: 'perm_1',
+        kind: 'command',
+        subjectRedacted: { argv: ['ls'] },
+        defaultDecision: 'prompt',
+      }),
+      {
+        path: 'payload.defaultDecision',
+        code: 'invalid_literal',
+      }
+    )
+    expectInvalidEventEnvelope(
+      envelope('permission.resolved', {
+        permissionRequestId: 'perm_1',
+        decision: 'deny',
+        decidedBy: 'client',
+      }),
+      {
+        path: 'payload.decidedBy',
+        code: 'invalid_literal',
       }
     )
   })

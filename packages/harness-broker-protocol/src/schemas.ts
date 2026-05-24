@@ -1,5 +1,5 @@
-import type { BrokerCommand, BrokerMethod } from './commands'
-import type { InvocationInput, InvocationStartRequest } from './commands'
+import type { BrokerCommand, BrokerMethod, BrokerMethodV1 } from './commands'
+import type { InvocationInput, InvocationStartRequest, PermissionRequestParams } from './commands'
 import type { InvocationEventEnvelope, InvocationEventType } from './events'
 import type { HarnessInvocationSpec } from './invocation'
 import { isJsonRpcRequest } from './jsonrpc'
@@ -39,6 +39,17 @@ export class InvocationStartRequestValidationError extends Error {
   constructor(issues: ValidationIssue[]) {
     super('Invalid invocation start request')
     this.name = 'InvocationStartRequestValidationError'
+    this.issues = issues
+  }
+}
+
+export class PermissionRequestParamsValidationError extends Error {
+  readonly code = 'INVALID_PERMISSION_REQUEST_PARAMS'
+  readonly issues: ValidationIssue[]
+
+  constructor(issues: ValidationIssue[]) {
+    super('Invalid permission request params')
+    this.name = 'PermissionRequestParamsValidationError'
     this.issues = issues
   }
 }
@@ -131,7 +142,7 @@ type SchemaRecord = Record<string, unknown> & {
   scope?: unknown
 }
 
-const brokerMethods = new Set<BrokerMethod>([
+const brokerMethods = new Set<BrokerMethodV1>([
   'broker.hello',
   'broker.health',
   'invocation.start',
@@ -167,6 +178,8 @@ const eventTypes = new Set<InvocationEventType>([
   'usage.updated',
   'diagnostic',
   'driver.notice',
+  'permission.requested',
+  'permission.resolved',
 ])
 
 export function validateInvocationSpec(value: unknown): HarnessInvocationSpec {
@@ -204,6 +217,15 @@ export function validateInvocationStartRequest(value: unknown): InvocationStartR
   return value as InvocationStartRequest
 }
 
+export function validatePermissionRequestParams(value: unknown): PermissionRequestParams {
+  const issues: ValidationIssue[] = []
+  validatePermissionRequestParamsShape(value, '', issues)
+  if (issues.length > 0) {
+    throw new PermissionRequestParamsValidationError(issues)
+  }
+  return value as PermissionRequestParams
+}
+
 export function validateCommand(value: unknown): BrokerCommand {
   const issues: ValidationIssue[] = []
   if (!isJsonRpcRequest(value)) {
@@ -237,6 +259,8 @@ export function validateEventEnvelope(value: unknown): InvocationEventEnvelope {
     }
     if (!Object.hasOwn(envelope, 'payload')) {
       issues.push(issue('payload', 'required', 'payload is required'))
+    } else if (typeof envelope.type === 'string') {
+      validateEventPayload(envelope.type as InvocationEventType, envelope['payload'], issues)
     }
   }
 
@@ -368,6 +392,90 @@ function validateCommandParams(
     case 'invocation.status':
     case 'invocation.dispose':
       requireString(commandParams.invocationId, 'params.invocationId', issues)
+      return
+  }
+}
+
+function validatePermissionRequestParamsShape(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  const params = asRecord(value)
+  if (!params) {
+    issues.push(issue(basePath, 'invalid_type', 'Permission request params must be an object'))
+    return
+  }
+
+  requireString(params.invocationId, path(basePath, 'invocationId'), issues)
+  optionalString(params['turnId'], path(basePath, 'turnId'), issues)
+  requireString(params['permissionRequestId'], path(basePath, 'permissionRequestId'), issues)
+  requireString(params.kind, path(basePath, 'kind'), issues)
+  if (!Object.hasOwn(params, 'subject')) {
+    issues.push(issue(path(basePath, 'subject'), 'required', 'subject is required'))
+  }
+  optionalEnum(
+    params['defaultDecision'],
+    ['allow', 'deny'],
+    path(basePath, 'defaultDecision'),
+    issues,
+    true
+  )
+  optionalNumber(params['deadlineMs'], path(basePath, 'deadlineMs'), issues)
+}
+
+function validateEventPayload(
+  eventType: InvocationEventType,
+  value: unknown,
+  issues: ValidationIssue[]
+): void {
+  switch (eventType) {
+    case 'invocation.ready': {
+      const payload = requirePayloadRecord(value, issues)
+      if (!payload) return
+      optionalEnum(payload['state'], ['ready'], 'payload.state', issues, true)
+      return
+    }
+    case 'invocation.disposed': {
+      const payload = requirePayloadRecord(value, issues)
+      if (!payload) return
+      requireTrue(payload['disposed'], 'payload.disposed', issues)
+      return
+    }
+    case 'permission.requested': {
+      const payload = requirePayloadRecord(value, issues)
+      if (!payload) return
+      requireString(payload['permissionRequestId'], 'payload.permissionRequestId', issues)
+      requireString(payload.kind, 'payload.kind', issues)
+      if (!Object.hasOwn(payload, 'subjectRedacted')) {
+        issues.push(issue('payload.subjectRedacted', 'required', 'subjectRedacted is required'))
+      }
+      optionalEnum(
+        payload['defaultDecision'],
+        ['allow', 'deny'],
+        'payload.defaultDecision',
+        issues,
+        true
+      )
+      optionalNumber(payload['deadlineMs'], 'payload.deadlineMs', issues)
+      return
+    }
+    case 'permission.resolved': {
+      const payload = requirePayloadRecord(value, issues)
+      if (!payload) return
+      requireString(payload['permissionRequestId'], 'payload.permissionRequestId', issues)
+      optionalEnum(payload['decision'], ['allow', 'deny'], 'payload.decision', issues, true)
+      optionalEnum(
+        payload['decidedBy'],
+        ['policy', 'user', 'api', 'timeout'],
+        'payload.decidedBy',
+        issues,
+        true
+      )
+      optionalString(payload['message'], 'payload.message', issues)
+      return
+    }
+    default:
       return
   }
 }
@@ -618,6 +726,12 @@ function validateCodexDriver(
         true
       )
       optionalNumber(policy.timeoutMs, path(basePath, 'permissionPolicy.timeoutMs'), issues)
+      optionalEnum(
+        policy['defaultDecision'],
+        ['allow', 'deny'],
+        path(basePath, 'permissionPolicy.defaultDecision'),
+        issues
+      )
     }
   }
 }
@@ -660,6 +774,26 @@ function requireNumber(value: unknown, basePath: string, issues: ValidationIssue
   } else if (typeof value !== 'number' || !Number.isFinite(value)) {
     issues.push(issue(basePath, 'invalid_type', `${basePath} must be a finite number`))
   }
+}
+
+function requireTrue(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+  if (value === undefined) {
+    issues.push(issue(basePath, 'required', `${basePath} is required`))
+  } else if (value !== true) {
+    issues.push(issue(basePath, 'invalid_literal', `${basePath} must be true`))
+  }
+}
+
+function requirePayloadRecord(
+  value: unknown,
+  issues: ValidationIssue[]
+): SchemaRecord | undefined {
+  const payload = asRecord(value)
+  if (!payload) {
+    issues.push(issue('payload', 'invalid_type', 'payload must be an object'))
+    return undefined
+  }
+  return payload
 }
 
 function requireStringArray(value: unknown, basePath: string, issues: ValidationIssue[]): void {

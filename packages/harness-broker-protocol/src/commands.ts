@@ -5,10 +5,12 @@ import type {
   InvocationCapabilities,
 } from './capabilities'
 import type { ContinuationUpdate } from './events'
+import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
 import type { HarnessInvocationSpec } from './invocation'
 import type { JsonRpcRequest } from './jsonrpc'
+import type { RedactedValue } from './redaction'
 
-export type BrokerMethod =
+export type BrokerMethodV1 =
   | 'broker.hello'
   | 'broker.health'
   | 'invocation.start'
@@ -17,6 +19,20 @@ export type BrokerMethod =
   | 'invocation.stop'
   | 'invocation.status'
   | 'invocation.dispose'
+
+export type BrokerMethodV2 =
+  | BrokerMethodV1
+  | 'broker.attach'
+  | 'broker.listInvocations'
+  | 'invocation.eventsSince'
+  | 'invocation.ackEvents'
+  | 'invocation.snapshot'
+  | 'invocation.permission.respond'
+
+export type BrokerMethod = BrokerMethodV1
+
+export type BrokerToClientRequestMethod = 'invocation.permission.request'
+export type BrokerNotificationMethod = 'invocation.event'
 
 export type BrokerCommand =
   | JsonRpcRequest<'broker.hello', BrokerHelloRequest>
@@ -62,8 +78,13 @@ export interface InvocationStartRequest {
   initialInput?: InvocationInput | undefined
 }
 
+export interface RedactedInvocationStartRequest {
+  redactionState: 'redacted' | 'contains-secret-digests'
+  value: RedactedValue
+}
+
 export interface InvocationStartResponse {
-  invocationId: string
+  invocationId: InvocationId
   state: InvocationState
   capabilities: InvocationCapabilities
 }
@@ -78,13 +99,13 @@ export type InvocationState =
   | 'disposed'
 
 export interface InvocationInputRequest {
-  invocationId: string
+  invocationId: InvocationId
   input: InvocationInput
   policy?: InputPolicy | undefined
 }
 
 export interface InvocationInput {
-  inputId?: string | undefined
+  inputId?: InputId | undefined
   kind: 'user' | 'steer' | 'append_context'
   content: InputContent[]
   metadata?: Record<string, string> | undefined
@@ -101,15 +122,15 @@ export interface InputPolicy {
 }
 
 export interface InvocationInputResponse {
-  inputId: string
+  inputId: InputId
   accepted: boolean
   disposition: 'started' | 'queued' | 'rejected'
   reason?: string | undefined
-  turnId?: string | undefined
+  turnId?: TurnId | undefined
 }
 
 export interface InvocationInterruptRequest {
-  invocationId: string
+  invocationId: InvocationId
   scope: 'turn' | 'invocation'
   reason?: string | undefined
   graceMs?: number | undefined
@@ -122,7 +143,7 @@ export interface InvocationInterruptResponse {
 }
 
 export interface InvocationStopRequest {
-  invocationId: string
+  invocationId: InvocationId
   reason?: string | undefined
   graceMs?: number | undefined
 }
@@ -133,13 +154,13 @@ export interface InvocationStopResponse {
 }
 
 export interface InvocationStatusRequest {
-  invocationId: string
+  invocationId: InvocationId
 }
 
 export interface InvocationStatusResponse {
-  invocationId: string
+  invocationId: InvocationId
   state: InvocationState
-  currentTurnId?: string | undefined
+  currentTurnId?: TurnId | undefined
   continuation?: ContinuationUpdate | undefined
   capabilities: InvocationCapabilities
   process?:
@@ -152,7 +173,7 @@ export interface InvocationStatusResponse {
 }
 
 export interface InvocationDisposeRequest {
-  invocationId: string
+  invocationId: InvocationId
 }
 
 export interface InvocationDisposeResponse {
@@ -160,9 +181,9 @@ export interface InvocationDisposeResponse {
 }
 
 export interface PermissionRequestParams {
-  invocationId: string
-  turnId?: string | undefined
-  permissionRequestId: string
+  invocationId: InvocationId
+  turnId?: TurnId | undefined
+  permissionRequestId: PermissionRequestId
   kind: 'command' | 'file_change' | 'tool' | string
   subject: unknown
   defaultDecision: 'allow' | 'deny'
