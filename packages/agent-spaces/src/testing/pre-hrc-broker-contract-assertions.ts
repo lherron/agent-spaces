@@ -1,9 +1,100 @@
+import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import type { BrokerExecutionProfile, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 
 import type {
   ContractHarnessFailure,
+  PreHrcBrokerContractHarnessInput,
   PreHrcRouteDecision,
 } from './pre-hrc-broker-contract-types.js'
+
+type BrokerStartAssertions = NonNullable<PreHrcBrokerContractHarnessInput['brokerStartAssertions']>
+type TerminalTurnType = NonNullable<
+  NonNullable<BrokerStartAssertions['baseline']>['expectedTerminalType']
+>
+
+const TERMINAL_TURN_EVENT_TYPES = new Set<TerminalTurnType>([
+  'turn.completed',
+  'turn.failed',
+  'turn.interrupted',
+])
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function redactForComparison(value: string, sensitiveValues: readonly string[]): string {
+  return sensitiveValues.reduce((current, sensitive) => {
+    if (!sensitive) return current
+    return current.replaceAll(sensitive, '[REDACTED]')
+  }, value)
+}
+
+function matchesRawOrRedacted(
+  actual: unknown,
+  expected: string,
+  sensitiveValues: readonly string[]
+): boolean {
+  if (typeof actual !== 'string') return false
+  return actual === expected || actual === redactForComparison(expected, sensitiveValues)
+}
+
+function commandIsPwdOnly(command: unknown): boolean {
+  if (typeof command !== 'string') return false
+  const trimmed = command.trim()
+  if (/[;&|]/.test(trimmed)) return false
+
+  const shellWrapped = trimmed.match(/^(?:\S+|\[REDACTED\])\s+-lc\s+(.+)$/)
+  const candidate = (shellWrapped?.[1] ?? trimmed).trim().replace(/^['"]|['"]$/g, '')
+  return /^(?:\/bin\/)?pwd$/.test(candidate)
+}
+
+function normalizedPathOutput(output: string): string {
+  return output.trim().replace(/\r\n/g, '\n')
+}
+
+function outputMatchesExpectedCwd(
+  output: unknown,
+  expectedCwd: string,
+  sensitiveValues: readonly string[]
+): boolean {
+  if (typeof output !== 'string') return false
+  const trimmed = normalizedPathOutput(output)
+  const redacted = redactForComparison(expectedCwd, sensitiveValues)
+  return (
+    trimmed === expectedCwd ||
+    trimmed.includes(expectedCwd) ||
+    trimmed === redacted ||
+    trimmed.includes(redacted)
+  )
+}
+
+function assistantTexts(events: readonly InvocationEventEnvelope[]): string[] {
+  const texts: string[] = []
+  let deltaText = ''
+  for (const event of events) {
+    const payload = asRecord(event.payload)
+    if (event.type === 'assistant.message.delta' && typeof payload?.['text'] === 'string') {
+      deltaText += payload['text']
+    }
+    if (event.type === 'assistant.message.completed') {
+      const content = Array.isArray(payload?.['content']) ? payload['content'] : []
+      const text = content
+        .map((part) => {
+          const record = asRecord(part)
+          return record?.['type'] === 'text' ? String(record['text'] ?? '') : ''
+        })
+        .join('')
+      if (text.length > 0) texts.push(text)
+    }
+    if (event.type === 'turn.completed' && typeof payload?.['finalOutput'] === 'string') {
+      texts.push(payload['finalOutput'])
+    }
+  }
+  if (deltaText.length > 0) texts.push(deltaText)
+  return texts
+}
 
 export function selectBrokerExecutionProfile(compileResponse: RuntimeCompileResponse): {
   profile?: BrokerExecutionProfile | undefined
@@ -178,5 +269,201 @@ export function assertPreHrcRouteDecision(
   for (const [ok, path, message] of checks) {
     if (!ok) failures.push({ code: 'route_decision_invalid', message, path })
   }
+  return failures
+}
+
+export function assertBrokerStartBaselineEvents(
+  events: readonly InvocationEventEnvelope[],
+  options: NonNullable<BrokerStartAssertions['baseline']> = {}
+): ContractHarnessFailure[] {
+  const failures: ContractHarnessFailure[] = []
+  const eventTypes = new Set(events.map((event) => event.type))
+  const requiredTypes = [
+    'invocation.started',
+    'invocation.ready',
+    ...(options.expectInitialInputAccepted === true ? ['input.accepted' as const] : []),
+    'turn.started',
+  ] as const
+
+  for (const type of requiredTypes) {
+    if (!eventTypes.has(type)) {
+      failures.push({
+        code: 'broker_event_baseline_missing',
+        message: `Broker event stream did not include required baseline event: ${type}.`,
+        path: 'brokerEvents',
+        redactedDetails: { requiredType: type, observedTypes: [...eventTypes] },
+      })
+    }
+  }
+
+  const terminalTurns = events.filter((event): event is InvocationEventEnvelope => {
+    return TERMINAL_TURN_EVENT_TYPES.has(event.type as TerminalTurnType)
+  })
+  if (terminalTurns.length !== 1) {
+    failures.push({
+      code: 'broker_terminal_turn_count_invalid',
+      message: 'Broker event stream must contain exactly one terminal turn event.',
+      path: 'brokerEvents',
+      redactedDetails: {
+        count: terminalTurns.length,
+        terminalTypes: terminalTurns.map((event) => event.type),
+      },
+    })
+  }
+
+  const expectedTerminalType = options.expectedTerminalType
+  const terminalTurn = terminalTurns[0]
+  if (expectedTerminalType !== undefined && terminalTurn !== undefined) {
+    const payload = asRecord(terminalTurn.payload)
+    const status = payload?.['status']
+    if (terminalTurn.type !== expectedTerminalType) {
+      failures.push({
+        code: 'broker_terminal_turn_count_invalid',
+        message: `Broker terminal turn event must be ${expectedTerminalType}.`,
+        path: `brokerEvents.${terminalTurn.invocationId}.${terminalTurn.seq}.type`,
+        redactedDetails: { expectedTerminalType, actualType: terminalTurn.type, status },
+      })
+    }
+  }
+
+  return failures
+}
+
+export function assertRealCodexHappyPath(
+  events: readonly InvocationEventEnvelope[],
+  options: NonNullable<BrokerStartAssertions['realCodexHappyPath']>
+): ContractHarnessFailure[] {
+  const failures: ContractHarnessFailure[] = []
+  const expectedCwd = options.expectedCwd
+  const redactedCompareValues = options.redactedCompareValues ?? []
+
+  const commandStarted = events.find((event) => {
+    if (event.type !== 'tool.call.started') return false
+    const payload = asRecord(event.payload)
+    return payload?.['name'] === 'command'
+  })
+  const startedPayload = asRecord(commandStarted?.payload)
+  const commandInput = asRecord(startedPayload?.['input'])
+  const toolCallId = startedPayload?.['toolCallId']
+
+  if (commandStarted === undefined || startedPayload === undefined || commandInput === undefined) {
+    failures.push({
+      code: 'real_codex_tool_call_missing',
+      message: 'Real-Codex scenario did not emit a command tool.call.started payload.',
+      path: 'brokerEvents',
+    })
+    return failures
+  }
+
+  if (typeof toolCallId !== 'string' || toolCallId.length === 0) {
+    failures.push({
+      code: 'real_codex_tool_call_invalid',
+      message: 'Real-Codex command tool.call.started payload is missing toolCallId.',
+      path: `brokerEvents.${commandStarted.invocationId}.${commandStarted.seq}.payload.toolCallId`,
+    })
+  }
+  if (!commandIsPwdOnly(commandInput['command'])) {
+    failures.push({
+      code: 'real_codex_tool_call_invalid',
+      message: 'Real-Codex command tool call must execute pwd only.',
+      path: `brokerEvents.${commandStarted.invocationId}.${commandStarted.seq}.payload.input.command`,
+      redactedDetails: { command: commandInput['command'] },
+    })
+  }
+  if (
+    expectedCwd !== undefined &&
+    !matchesRawOrRedacted(commandInput['cwd'], expectedCwd, redactedCompareValues)
+  ) {
+    failures.push({
+      code: 'real_codex_tool_call_invalid',
+      message: 'Real-Codex command tool call cwd must match the compiled broker process cwd.',
+      path: `brokerEvents.${commandStarted.invocationId}.${commandStarted.seq}.payload.input.cwd`,
+      redactedDetails: { expectedCwd, actualCwd: commandInput['cwd'] },
+    })
+  }
+  if (typeof commandStarted.turnId !== 'string' || commandStarted.turnId.length === 0) {
+    failures.push({
+      code: 'real_codex_tool_call_invalid',
+      message: 'Real-Codex command tool.call.started event is missing turnId.',
+      path: `brokerEvents.${commandStarted.invocationId}.${commandStarted.seq}.turnId`,
+    })
+  }
+  if (typeof commandStarted.itemId !== 'string' || commandStarted.itemId.length === 0) {
+    failures.push({
+      code: 'real_codex_tool_call_invalid',
+      message: 'Real-Codex command tool.call.started event is missing itemId.',
+      path: `brokerEvents.${commandStarted.invocationId}.${commandStarted.seq}.itemId`,
+    })
+  }
+
+  const commandCompleted =
+    typeof toolCallId === 'string'
+      ? events.find((event) => {
+          if (event.type !== 'tool.call.completed') return false
+          const payload = asRecord(event.payload)
+          return payload?.['toolCallId'] === toolCallId
+        })
+      : undefined
+  const completedPayload = asRecord(commandCompleted?.payload)
+  const commandResult = asRecord(completedPayload?.['result'])
+
+  if (
+    commandCompleted === undefined ||
+    completedPayload === undefined ||
+    commandResult === undefined
+  ) {
+    failures.push({
+      code: 'real_codex_tool_call_missing',
+      message: 'Real-Codex scenario did not emit matching command tool.call.completed payload.',
+      path: 'brokerEvents',
+      redactedDetails: { toolCallId },
+    })
+    return failures
+  }
+
+  if (completedPayload['name'] !== 'command') {
+    failures.push({
+      code: 'real_codex_tool_call_invalid',
+      message: 'Real-Codex command completion name must be command.',
+      path: `brokerEvents.${commandCompleted.invocationId}.${commandCompleted.seq}.payload.name`,
+      redactedDetails: { name: completedPayload['name'] },
+    })
+  }
+  if (completedPayload['isError'] === true) {
+    failures.push({
+      code: 'real_codex_tool_call_invalid',
+      message: 'Real-Codex command completion must not be an error.',
+      path: `brokerEvents.${commandCompleted.invocationId}.${commandCompleted.seq}.payload.isError`,
+    })
+  }
+  if (commandResult['exitCode'] !== 0) {
+    failures.push({
+      code: 'real_codex_tool_call_invalid',
+      message: 'Real-Codex pwd command must exit with code 0.',
+      path: `brokerEvents.${commandCompleted.invocationId}.${commandCompleted.seq}.payload.result.exitCode`,
+      redactedDetails: { exitCode: commandResult['exitCode'] },
+    })
+  }
+  if (
+    expectedCwd !== undefined &&
+    !outputMatchesExpectedCwd(commandResult['output'], expectedCwd, redactedCompareValues)
+  ) {
+    failures.push({
+      code: 'real_codex_tool_call_invalid',
+      message: 'Real-Codex pwd command output must match the compiled broker process cwd.',
+      path: `brokerEvents.${commandCompleted.invocationId}.${commandCompleted.seq}.payload.result.output`,
+      redactedDetails: { expectedCwd },
+    })
+  }
+
+  if (!assistantTexts(events).some((text) => text.includes(options.expectedAssistantMarker))) {
+    failures.push({
+      code: 'real_codex_assistant_marker_missing',
+      message: `Real-Codex assistant output did not include marker ${options.expectedAssistantMarker}.`,
+      path: 'brokerEvents',
+      redactedDetails: { expectedAssistantMarker: options.expectedAssistantMarker },
+    })
+  }
+
   return failures
 }

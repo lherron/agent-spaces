@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, symlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 import type { BrokerPermissionPolicy, RuntimeCompileRequest } from 'spaces-runtime-contracts'
@@ -23,6 +23,7 @@ type CliArgs = {
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | undefined
   permissionMode: 'deny' | 'allow' | 'ask-client'
   timeout: number
+  expectedMarker: string
   invocationId: string
   initialInputId: string
   dryRunCompile: boolean
@@ -31,8 +32,8 @@ type CliArgs = {
   help: boolean
 }
 
-const DEFAULT_PROMPT =
-  'Execute the shell command `pwd`. Do not execute any other shell commands. Then reply with ASP_RUNTIME_CONTRACT_OK.'
+const DEFAULT_PROMPT = 'Execute `pwd`, then reply ASP_BROKER_OK <scope>.'
+const DEFAULT_EXPECTED_MARKER = 'ASP_BROKER_OK'
 
 function printUsage(): void {
   console.log(
@@ -52,6 +53,7 @@ function printUsage(): void {
       '  --reasoning-effort <level>       low, medium, high, or xhigh',
       '  --permission-mode <mode>         deny, allow, or ask-client (default: deny)',
       '  --timeout <seconds>              Startup/turn timeout seconds (default: 120)',
+      '  --expected-marker <text>         Assistant marker asserted in broker events (default: ASP_BROKER_OK)',
       '  --invocation-id <id>             Broker invocation id',
       '  --initial-input-id <id>          Initial broker input id',
       '  --dry-run-compile                Compile, select broker profile, assert contract, and write artifacts',
@@ -83,6 +85,7 @@ function parseArgs(argv: string[]): CliArgs {
     prompt: DEFAULT_PROMPT,
     permissionMode: 'deny',
     timeout: 120,
+    expectedMarker: DEFAULT_EXPECTED_MARKER,
     invocationId: `inv_prehrc_${now}`,
     initialInputId: `input_prehrc_${now}`,
     dryRunCompile: false,
@@ -158,6 +161,10 @@ function parseArgs(argv: string[]): CliArgs {
         }
         i += 1
         break
+      case '--expected-marker':
+        args.expectedMarker = readValue(argv, i, arg)
+        i += 1
+        break
       case '--invocation-id':
         args.invocationId = readValue(argv, i, arg)
         i += 1
@@ -181,6 +188,108 @@ function parseArgs(argv: string[]): CliArgs {
   }
 
   return args
+}
+
+function localRegistryRepo(projectRoot: string): string | undefined {
+  const candidates = [
+    process.env['ASP_REGISTRY'],
+    process.env['ASP_HOME'] !== undefined ? join(process.env['ASP_HOME'], 'repo') : undefined,
+    join(resolve(projectRoot, '..'), 'var', 'spaces-repo', 'repo'),
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+
+  return candidates.find((candidate) =>
+    existsSync(join(candidate, 'spaces', 'defaults', 'space.toml'))
+  )
+}
+
+function ensureAspHomeRegistry(args: CliArgs): void {
+  const repoPath = join(args.aspHome, 'repo')
+  if (existsSync(join(repoPath, 'spaces', 'defaults', 'space.toml'))) return
+  if (existsSync(repoPath)) return
+
+  const sourceRepo = localRegistryRepo(args.projectRoot)
+  if (sourceRepo === undefined) return
+
+  symlinkSync(sourceRepo, repoPath, 'dir')
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function redactionCompareValuesForScopeRef(scopeRef: string): string[] {
+  const [agentPart, projectTaskPart] = scopeRef.split('@')
+  const [projectPart, taskPart] = (projectTaskPart ?? '').split(':')
+  return [process.env['HOME'], agentPart, projectPart, taskPart].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0
+  )
+}
+
+function summarizeBrokerEvents(
+  result: Awaited<ReturnType<typeof runPreHrcBrokerContractHarness>>,
+  expectedMarker: string
+): {
+  continuation: string
+  terminal: string
+  command: string
+  assistantMarker: string
+} {
+  const events = result.brokerStart?.attempted === true ? result.brokerStart.events : []
+  const continuation = events.find((event) => event.type === 'continuation.updated')
+  const terminal = events.find((event) =>
+    ['turn.completed', 'turn.failed', 'turn.interrupted'].includes(event.type)
+  )
+  const started = events.find((event) => {
+    const payload = asRecord(event.payload)
+    return event.type === 'tool.call.started' && payload?.['name'] === 'command'
+  })
+  const startedPayload = asRecord(started?.payload)
+  const startedInput = asRecord(startedPayload?.['input'])
+  const toolCallId = startedPayload?.['toolCallId']
+  const completed =
+    typeof toolCallId === 'string'
+      ? events.find((event) => {
+          const payload = asRecord(event.payload)
+          return event.type === 'tool.call.completed' && payload?.['toolCallId'] === toolCallId
+        })
+      : undefined
+  const completedPayload = asRecord(completed?.payload)
+  const completedResult = asRecord(completedPayload?.['result'])
+  const assistantText = events
+    .map((event) => {
+      const payload = asRecord(event.payload)
+      if (event.type === 'assistant.message.delta') return String(payload?.['text'] ?? '')
+      if (event.type === 'turn.completed') return String(payload?.['finalOutput'] ?? '')
+      if (event.type !== 'assistant.message.completed') return ''
+      const content = Array.isArray(payload?.['content']) ? payload['content'] : []
+      return content
+        .map((part) => {
+          const record = asRecord(part)
+          return record?.['type'] === 'text' ? String(record['text'] ?? '') : ''
+        })
+        .join('')
+    })
+    .join('')
+
+  const continuationPayload = asRecord(continuation?.payload)
+  const terminalPayload = asRecord(terminal?.payload)
+  return {
+    continuation:
+      continuation === undefined
+        ? '(missing)'
+        : `${String(continuationPayload?.['provider'] ?? '?')}:${String(continuationPayload?.['key'] ?? '?')}`,
+    terminal:
+      terminal === undefined
+        ? '(missing)'
+        : `${terminal.type} status=${String(terminalPayload?.['status'] ?? terminal.type)}`,
+    command:
+      started === undefined
+        ? '(missing)'
+        : `${String(startedInput?.['command'] ?? '?')} cwd=${String(startedInput?.['cwd'] ?? '?')} exit=${String(completedResult?.['exitCode'] ?? '?')} toolCallId=${String(toolCallId ?? '?')}`,
+    assistantMarker: assistantText.includes(expectedMarker) ? expectedMarker : '(missing)',
+  }
 }
 
 function permissionPolicy(args: CliArgs): BrokerPermissionPolicy {
@@ -281,6 +390,7 @@ async function main(): Promise<void> {
   }
 
   mkdirSync(args.aspHome, { recursive: true })
+  ensureAspHomeRegistry(args)
   const result = await runPreHrcBrokerContractHarness({
     schemaVersion: 'pre-hrc-broker-contract-harness-input/v1',
     compileRequest: compileRequest(args),
@@ -288,6 +398,20 @@ async function main(): Promise<void> {
     artifactDir: args.artifactDir,
     dryRunCompile: args.dryRunCompile,
     writeRawStartRequest: args.writeRawStartRequest,
+    timeoutMs: args.timeout * 1000,
+    brokerStartAssertions:
+      args.dryRunCompile === true
+        ? undefined
+        : {
+            baseline: {
+              expectInitialInputAccepted: true,
+              expectedTerminalType: 'turn.completed',
+            },
+            realCodexHappyPath: {
+              expectedAssistantMarker: args.expectedMarker,
+              redactedCompareValues: redactionCompareValuesForScopeRef(args.scopeRef),
+            },
+          },
   })
 
   if (args.json) {
@@ -296,6 +420,26 @@ async function main(): Promise<void> {
     console.log(`pre-HRC broker contract: ${result.ok ? 'ok' : 'failed'}`)
     console.log(`mode: ${result.mode}`)
     console.log(`artifactDir: ${result.artifacts?.artifactDir ?? '(not written)'}`)
+    console.log(
+      `compileId: ${result.artifacts?.contractFields?.compileId ?? result.compiledPlan?.compileId ?? '(none)'}`
+    )
+    console.log(
+      `planHash: ${result.artifacts?.contractFields?.planHash ?? result.compiledPlan?.planHash ?? '(none)'}`
+    )
+    console.log(
+      `selectedProfileHash: ${result.artifacts?.contractFields?.selectedProfileHash ?? result.selectedProfile?.profileHash ?? '(none)'}`
+    )
+    console.log(
+      `startRequestHash: ${result.artifacts?.contractFields?.startRequestHash ?? result.selectedProfile?.harnessInvocation.startRequestHash ?? '(none)'}`
+    )
+    console.log(
+      `brokerEvents: ${result.artifacts?.files['broker-events.jsonl'] ?? '(not written)'}`
+    )
+    const summary = summarizeBrokerEvents(result, args.expectedMarker)
+    console.log(`continuation: ${summary.continuation}`)
+    console.log(`terminalTurn: ${summary.terminal}`)
+    console.log(`commandTool: ${summary.command}`)
+    console.log(`assistantMarker: ${summary.assistantMarker}`)
     for (const failure of result.assertionReport.failures) {
       console.error(`${failure.code}: ${failure.message}`)
     }

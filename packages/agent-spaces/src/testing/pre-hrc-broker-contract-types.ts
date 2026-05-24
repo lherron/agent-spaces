@@ -78,6 +78,11 @@ export type ContractHarnessFailureCode =
   | 'broker_event_seq_non_monotonic'
   | 'broker_event_duplicate_conflict'
   | 'broker_event_type_not_normalized'
+  | 'broker_event_baseline_missing'
+  | 'broker_terminal_turn_count_invalid'
+  | 'real_codex_tool_call_missing'
+  | 'real_codex_tool_call_invalid'
+  | 'real_codex_assistant_marker_missing'
   | 'broker_terminal_turn_missing'
   | 'broker_capability_missing'
 
@@ -99,6 +104,27 @@ export type PreHrcBrokerContractHarnessInput = {
   now?: string | undefined
   /** Narrow profile selection by id/hash (forwarded to selectBrokerProfile). */
   profileSelector?: { profileId?: string | undefined; profileHash?: string | undefined } | undefined
+  brokerStartAssertions?:
+    | {
+        baseline?:
+          | {
+              expectInitialInputAccepted?: boolean | undefined
+              expectedTerminalType?:
+                | 'turn.completed'
+                | 'turn.failed'
+                | 'turn.interrupted'
+                | undefined
+            }
+          | undefined
+        realCodexHappyPath?:
+          | {
+              expectedCwd?: string | undefined
+              expectedAssistantMarker: string
+              redactedCompareValues?: string[] | undefined
+            }
+          | undefined
+      }
+    | undefined
   /**
    * TEST-ONLY seam: mutate the selected profile after selection and before the
    * compiler-closure verifier runs, to exercise the pre-broker-start contract
@@ -111,6 +137,14 @@ export type PreHrcBrokerContractArtifactManifest = {
   schemaVersion: 'pre-hrc-broker-contract-artifacts/v1'
   artifactDir: string
   files: Record<string, string>
+  contractFields?:
+    | {
+        compileId?: CompileId | undefined
+        planHash?: PlanHash | undefined
+        selectedProfileHash?: ProfileHash | undefined
+        startRequestHash?: string | undefined
+      }
+    | undefined
   redactedByDefault: true
   rawStartRequestWritten: boolean
   warnings: string[]

@@ -17,7 +17,9 @@ import { compileRuntimePlan } from '../compile-runtime-plan.js'
 import { writePreHrcBrokerContractArtifacts } from './pre-hrc-broker-contract-artifacts.js'
 import {
   assertBrokerProfileClosure,
+  assertBrokerStartBaselineEvents,
   assertPreHrcRouteDecision,
+  assertRealCodexHappyPath,
 } from './pre-hrc-broker-contract-assertions.js'
 import type {
   ContractHarnessFailure,
@@ -478,6 +480,26 @@ export async function runPreHrcBrokerContractHarness(
     brokerEvents =
       brokerResult.brokerStart.attempted === true ? brokerResult.brokerStart.events : []
     failures.push(...brokerResult.failures)
+    if (brokerResult.brokerStart.attempted === true) {
+      if (input.brokerStartAssertions?.baseline !== undefined) {
+        failures.push(
+          ...assertBrokerStartBaselineEvents(
+            brokerResult.brokerStart.events,
+            input.brokerStartAssertions.baseline
+          )
+        )
+      }
+      if (input.brokerStartAssertions?.realCodexHappyPath !== undefined) {
+        failures.push(
+          ...assertRealCodexHappyPath(brokerResult.brokerStart.events, {
+            ...input.brokerStartAssertions.realCodexHappyPath,
+            expectedCwd:
+              input.brokerStartAssertions.realCodexHappyPath.expectedCwd ??
+              selectedProfile.harnessInvocation.startRequest.spec.process.cwd,
+          })
+        )
+      }
+    }
   }
 
   const assertionReport: PreHrcBrokerContractAssertionReport = {

@@ -2,7 +2,11 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 
-import type { BrokerExecutionProfile, RuntimeCompileRequest } from 'spaces-runtime-contracts'
+import type {
+  BrokerExecutionProfile,
+  CompiledRuntimePlan,
+  RuntimeCompileRequest,
+} from 'spaces-runtime-contracts'
 import { redactArtifact } from 'spaces-runtime-contracts'
 
 import type {
@@ -15,7 +19,7 @@ import type {
 export type PreHrcBrokerContractArtifactInput = {
   artifactDir: string
   compileRequest: RuntimeCompileRequest
-  compiledPlan?: unknown | undefined
+  compiledPlan?: CompiledRuntimePlan | undefined
   selectedProfile?: BrokerExecutionProfile | undefined
   routeDecision?: PreHrcRouteDecision | undefined
   brokerEvents?: unknown[] | undefined
@@ -74,6 +78,20 @@ export async function writePreHrcBrokerContractArtifacts(
   const env = envForRedaction(input.selectedProfile)
   const startRequest = input.selectedProfile?.harnessInvocation.startRequest
   const brokerSpec = startRequest?.spec
+  const contractFields = {
+    ...(input.compiledPlan?.compileId !== undefined
+      ? { compileId: input.compiledPlan.compileId }
+      : {}),
+    ...(input.compiledPlan?.planHash !== undefined
+      ? { planHash: input.compiledPlan.planHash }
+      : {}),
+    ...(input.selectedProfile?.profileHash !== undefined
+      ? { selectedProfileHash: input.selectedProfile.profileHash }
+      : {}),
+    ...(input.selectedProfile?.harnessInvocation.startRequestHash !== undefined
+      ? { startRequestHash: input.selectedProfile.harnessInvocation.startRequestHash }
+      : {}),
+  }
   const files: Record<string, string> = {}
   const warnings: string[] = []
 
@@ -86,6 +104,7 @@ export async function writePreHrcBrokerContractArtifacts(
       ['broker-spec.redacted.json', redactArtifact(brokerSpec ?? null, { env })],
       ['invocation-start-request.redacted.json', redactArtifact(startRequest ?? null, { env })],
       ['route-decision.pre-hrc.json', input.routeDecision ?? null],
+      ['contract-fields.json', contractFields],
       ['assertion-report.json', input.assertionReport],
     ]
 
@@ -120,6 +139,10 @@ export async function writePreHrcBrokerContractArtifacts(
       `ok: ${input.assertionReport.ok}`,
       'redacted-by-default: true',
       `raw-start-request-written: ${rawStartRequestWritten}`,
+      `compileId: ${contractFields.compileId ?? '(none)'}`,
+      `planHash: ${contractFields.planHash ?? '(none)'}`,
+      `selectedProfileHash: ${contractFields.selectedProfileHash ?? '(none)'}`,
+      `startRequestHash: ${contractFields.startRequestHash ?? '(none)'}`,
       `failures: ${input.assertionReport.failures.length}`,
       ...input.assertionReport.failures.map((failure) => `- ${failure.code}: ${failure.message}`),
       ...warnings.map((warning) => `WARNING: ${warning}`),
@@ -134,6 +157,7 @@ export async function writePreHrcBrokerContractArtifacts(
         schemaVersion: 'pre-hrc-broker-contract-artifacts/v1',
         artifactDir,
         files,
+        contractFields,
         redactedByDefault: true,
         rawStartRequestWritten,
         warnings,
