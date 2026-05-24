@@ -178,6 +178,9 @@ export type RuntimePlacement = {
   root?: string | undefined
   targetName?: string | undefined
   targetDir?: string | undefined
+  // NOTE: placement MUST NOT carry env in the compiled plan. ASP resolves only declared
+  // lockedEnv (projected onto the execution profiles); operator/ambient env is never projected
+  // into placement.
   [key: string]: unknown
 }
 
@@ -233,18 +236,16 @@ export type CanonicalHash = {
 // Hashing rule (replaces the secret-digest model): hashes are closure/dedup/route/reuse/test
 // tools, NOT confidentiality controls. Hash material is a named canonical projection selected
 // by explicit PATH omission — never key-name matching, never value scanning.
-//   - specHash         = HarnessInvocationSpec with /process/env omitted
-//   - startRequestHash = InvocationStartRequest with /spec/process/env omitted (initialInput included)
-//   - profileHash      = RuntimeExecutionProfile minus self-hash fields + ephemeral timestamps;
-//                        omit the variant env path: terminal /process/env, embedded-sdk /session/env,
-//                        command /command/env, broker /harnessInvocation/startRequest/spec/process/env
-//   - planHash         = CompiledRuntimePlan minus self-hash fields + ephemeral timestamps; omit /placement/env
-//                        and every /executionProfiles/* variant env path (.../process/env, .../session/env,
-//                        .../command/env, .../harnessInvocation/startRequest/spec/process/env)
-//   (omit paths are enumerated per source DTO — never key-name/suffix matching; no projection carries live/raw env material at any path)
+//   - specHash         = HarnessInvocationSpec (lockedEnv included)
+//   - startRequestHash = InvocationStartRequest (initialInput included; lockedEnv included)
+//   - profileHash      = RuntimeExecutionProfile minus self-hash fields + ephemeral timestamps
+//   - planHash         = CompiledRuntimePlan minus self-hash fields + ephemeral timestamps
 //   - compatibilityHash = command, args, cwd, transport, driver config/model/reasoning, bundle
 //     identity/lock, policy, resource limits, continuation provider/kind/non-secret identity,
-//     + the sorted env KEY SET only (names, never values)
+//     + the canonical lockedEnv object (keys and values)
+// lockedEnv is a non-secret declared config object and is INCLUDED in
+// specHash/startRequestHash/profileHash/planHash/compatibilityHash as the canonical lockedEnv
+// object. dispatchEnv is in NONE of them and is never in the compiled projection.
 // Hard rule: secrets must NEVER be placed in argv, cwd, driver config, initial input, labels,
 // or correlation if those are hashed/persisted/displayed. Secret launch material arrives only
 // via process env, runtime env injection, or an external secret store/reference outside this
@@ -643,8 +644,8 @@ export type CompiledRuntimePlan = {
     bundleIdentity: string
   }
 
-  env: {
-    envKeys: string[]
+  lockedEnv: {
+    lockedEnvKeys: string[]
   }
 
   diagnostics: CompileDiagnostic[]
@@ -697,7 +698,9 @@ export type TerminalExecutionProfile = RuntimeExecutionProfileBase & {
     command: string
     args: string[]
     cwd: string
-    env: Record<string, string>
+    // ASP-declared environment required for the harness to function. Hash-covered;
+    // HRC MUST NOT modify it. Declared config only — never ambient/operator env, never credentials.
+    lockedEnv: Record<string, string>
     io: { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
   }
   policy: {
@@ -718,7 +721,9 @@ export type EmbeddedSdkExecutionProfile = RuntimeExecutionProfileBase & {
     provider: ProviderDomain
     modelId: string
     cwd: string
-    env: Record<string, string>
+    // ASP-declared environment required for the harness to function. Hash-covered;
+    // HRC MUST NOT modify it. Declared config only — never ambient/operator env, never credentials.
+    lockedEnv: Record<string, string>
   }
   policy: {
     inputPolicy?: BrokerInputPolicy | undefined
@@ -767,7 +772,9 @@ export type CommandExecutionProfile = RuntimeExecutionProfileBase & {
     turnDelivery: 'process-stdin' | 'none'
     argv: string[]
     cwd: string
-    env: Record<string, string>
+    // ASP-declared environment required for the harness to function. Hash-covered;
+    // HRC MUST NOT modify it. Declared config only — never ambient/operator env, never credentials.
+    lockedEnv: Record<string, string>
     shell?:
       | {
           executable?: string | undefined
@@ -864,7 +871,10 @@ export interface HarnessProcessSpec {
   command: string
   args: string[]
   cwd: string
-  env?: Record<string, string> | undefined
+  // ASP-declared environment required for the harness to function. Hash-covered; HRC MUST NOT
+  // modify it. Contains only declared config resolved from space/agent/target configuration —
+  // never the operator/ambient environment, never credentials.
+  lockedEnv?: Record<string, string> | undefined
   harnessTransport: HarnessTransportSpec
   limits?: ProcessLimits | undefined
 }
@@ -1050,6 +1060,16 @@ export interface BrokerHealthResponse {
 export interface InvocationStartRequest {
   spec: HarnessInvocationSpec
   initialInput?: InvocationInput | undefined
+}
+
+// Outer dispatch envelope. HRC constructs it and MAY populate dispatchEnv (per-invocation,
+// non-identity context — handles/correlation, e.g. a wrkq handoff id). `startRequest` is
+// forwarded byte/semantically unchanged and is the only hashed payload. `dispatchEnv` is
+// validated at dispatch by the broker, never hashed, never persisted in the contract projection
+// plane, and is NOT a recompile trigger.
+export interface InvocationDispatchRequest {
+  startRequest: InvocationStartRequest
+  dispatchEnv?: Record<string, string>
 }
 
 export interface InvocationStartResponse {
@@ -1899,17 +1919,19 @@ export type HrcEventEnvelope = {
 ## 17. Broker invocation persistence records
 
 Projection DTOs are **persist/display-boundary** types computed where artifacts are persisted
-or displayed. They are the named canonical projections (live-execution fields, e.g.
-`/process/env`, omitted by path) selected by `RuntimeContractHashProjection`. They are **NOT**
-embedded in the live `BrokerExecutionProfile` — the live profile carries the raw
-`startRequest` plus `specHash`/`startRequestHash` only (HRC needs the raw request to launch).
+or displayed. They are the named canonical projections selected by `RuntimeContractHashProjection`.
+The projection DTOs MAY carry `lockedEnv` (declared, non-secret config); ambient, credential, and
+dispatch env are never present. They are **NOT** embedded in the live `BrokerExecutionProfile` —
+the live profile carries the raw `startRequest` plus `specHash`/`startRequestHash` only (HRC needs
+the raw request to launch).
 
 ```ts
 // spaces-runtime-contracts/src/persistence.ts
 
-// Persist/display-boundary projections. Each is the source DTO with live-execution fields
-// omitted by explicit path (never key-name matching, never value scanning) under
-// hashProjection = 'runtime-contract-semantic/v2'. NOT embedded in the live profile.
+// Persist/display-boundary projections. Each is the source DTO canonicalized under
+// hashProjection = 'runtime-contract-semantic/v2'. Projections MAY carry lockedEnv (declared
+// non-secret config); ambient/credential/dispatch env are never present. NOT embedded in the
+// live profile.
 export type CompiledRuntimePlanProjection = {
   hashProjection: RuntimeContractHashProjection
   planHash: PlanHash
