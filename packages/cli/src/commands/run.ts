@@ -15,12 +15,23 @@ import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { parseScopeHandle } from 'agent-scope'
+import {
+  type RuntimeCompileRequest,
+  type RuntimeCompileResponse,
+  createAgentSpacesClient,
+} from 'agent-spaces'
 import chalk from 'chalk'
 import type { Command } from 'commander'
+import {
+  DEFAULT_CODEX_BROKER_INPUT_POLICY,
+  type RuntimeIdentityAllocation,
+  redactArtifact,
+} from 'spaces-runtime-contracts'
 
 import { getAgentsRoot, parseSpaceRef } from 'spaces-config'
 import {
   type HarnessId,
+  type RunCompilerDebugContext,
   type RunResult,
   harnessRegistry,
   isHarnessId,
@@ -123,6 +134,197 @@ function buildSettingSources(options: RunOptions): string | null | undefined {
 
   // Default: isolated mode (undefined means "use default" which is isolated)
   return undefined
+}
+
+function compilerDebugId(prefix: string, seed: string): string {
+  const sanitized = seed.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'asp_run'
+  return `${prefix}_asp_run_debug_${sanitized}`
+}
+
+function allocateCompilerDebugIdentity(
+  context: RunCompilerDebugContext
+): RuntimeIdentityAllocation {
+  const seed = `${context.correlation.appSessionKey}:${context.requested.preferredHarnessRuntime ?? 'runtime'}`
+  return {
+    requestId: compilerDebugId('request', seed) as RuntimeIdentityAllocation['requestId'],
+    operationId: compilerDebugId(
+      'runtimeOperation',
+      seed
+    ) as RuntimeIdentityAllocation['operationId'],
+    hostSessionId: compilerDebugId(
+      'hostSession',
+      seed
+    ) as RuntimeIdentityAllocation['hostSessionId'],
+    generation: 1,
+    runtimeId: compilerDebugId('runtime', seed) as RuntimeIdentityAllocation['runtimeId'],
+    invocationId: compilerDebugId('inv', seed) as RuntimeIdentityAllocation['invocationId'],
+    initialInputId: compilerDebugId('input', seed) as RuntimeIdentityAllocation['initialInputId'],
+    runId: compilerDebugId('run', seed) as RuntimeIdentityAllocation['runId'],
+    traceId: compilerDebugId('trace', seed) as RuntimeIdentityAllocation['traceId'],
+    idempotencyKey: `asp-run-debug:${seed}`,
+  }
+}
+
+function normalizeReasoningEffort(
+  value: string | undefined
+): RuntimeCompileRequest['requested']['reasoningEffort'] {
+  if (value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') {
+    return value
+  }
+  return undefined
+}
+
+function buildCompilerDebugRequest(context: RunCompilerDebugContext): RuntimeCompileRequest {
+  const identity = allocateCompilerDebugIdentity(context)
+  const now = new Date().toISOString()
+  const placement = {
+    ...context.placement,
+    correlation: {
+      ...(typeof context.placement['correlation'] === 'object' &&
+      context.placement['correlation'] !== null
+        ? (context.placement['correlation'] as Record<string, unknown>)
+        : {}),
+      sessionRef: {
+        scopeRef: context.correlation.scopeRef ?? context.correlation.appSessionKey,
+        laneRef: context.correlation.laneRef ?? 'main',
+      },
+      hostSessionId: identity.hostSessionId,
+    },
+  }
+
+  return {
+    schemaVersion: 'agent-runtime-compile-request/v1',
+    identity,
+    placement,
+    requested: {
+      modelProvider: context.requested.modelProvider,
+      model: context.requested.model,
+      reasoningEffort: normalizeReasoningEffort(context.requested.reasoningEffort),
+      harnessFamily: context.requested.harnessFamily,
+      preferredHarnessRuntime: context.requested.preferredHarnessRuntime,
+      interactionMode: context.requested.interactionMode,
+    },
+    materialization: {
+      initialPrompt: context.materialization.initialPrompt,
+      resolvedBundleHint: context.materialization
+        .resolvedBundleHint as RuntimeCompileRequest['materialization']['resolvedBundleHint'],
+    },
+    hrcPolicy: {
+      permissionPolicy:
+        context.hrcPolicy.yolo === true
+          ? {
+              mode: 'allow',
+              audit: true,
+              provenance: {
+                source: 'operator-config',
+                requestId: identity.requestId,
+                createdAt: now,
+              },
+            }
+          : { mode: 'deny', audit: true },
+      inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
+      exposurePolicy: { mode: 'none' },
+      resourceLimits: { startupTimeoutMs: 120_000, turnTimeoutMs: 120_000 },
+      observability: { traceId: identity.traceId },
+      capabilityPolicy: {
+        allowDegrade: false,
+        requireBrokerDefaultForCodexHeadless: true,
+      },
+    },
+    correlation: {
+      requestId: identity.requestId,
+      operationId: identity.operationId,
+      hostSessionId: identity.hostSessionId,
+      generation: identity.generation,
+      runtimeId: identity.runtimeId,
+      runId: identity.runId,
+      invocationId: identity.invocationId,
+      traceId: identity.traceId,
+      appId: 'agent-spaces',
+      appSessionKey: context.correlation.appSessionKey,
+      scopeRef: context.correlation.scopeRef,
+      laneRef: context.correlation.laneRef ?? 'main',
+    },
+  }
+}
+
+function requestEnv(req: RuntimeCompileRequest): Record<string, string | undefined> | undefined {
+  const env = (req.placement as { env?: Record<string, string | undefined> }).env
+  return env
+}
+
+function printableCompileResponse(
+  response: RuntimeCompileResponse,
+  env: Record<string, string | undefined> | undefined
+): unknown {
+  if (!response.ok) {
+    return response
+  }
+
+  return {
+    schemaVersion: response.schemaVersion,
+    ok: true,
+    diagnostics: response.diagnostics,
+    plan: {
+      schemaVersion: response.plan.schemaVersion,
+      compiler: response.plan.compiler,
+      compileId: response.plan.compileId,
+      planHash: response.plan.planHash,
+      redactedPlanHash: response.plan.redactedPlanHash,
+      createdAt: response.plan.createdAt,
+      identity: response.plan.identity,
+      placement: redactArtifact(response.plan.placement, { env }).value,
+      resolvedBundle: response.plan.resolvedBundle,
+      harness: response.plan.harness,
+      model: response.plan.model,
+      executionProfiles: response.plan.executionProfiles.map((profile) => ({
+        schemaVersion: profile.schemaVersion,
+        profileId: profile.profileId,
+        profileHash: profile.profileHash,
+        compatibilityHash: profile.compatibilityHash,
+        kind: profile.kind,
+        interactionMode: profile.interactionMode,
+        expectedCapabilities: profile.expectedCapabilities,
+        redactedProfile: profile.redactedProfile,
+        ...(profile.kind === 'harness-broker'
+          ? {
+              brokerProtocol: profile.brokerProtocol,
+              brokerDriver: profile.brokerDriver,
+              brokerOwnership: profile.brokerOwnership,
+              harnessInvocation: {
+                specHash: profile.harnessInvocation.specHash,
+                redactedSpecHash: profile.harnessInvocation.redactedSpecHash,
+                startRequestHash: profile.harnessInvocation.startRequestHash,
+                redactedStartRequestHash: profile.harnessInvocation.redactedStartRequestHash,
+                initialInputHash: profile.harnessInvocation.initialInputHash,
+                redactedSpec: profile.harnessInvocation.redactedSpec,
+                redactedStartRequest: profile.harnessInvocation.redactedStartRequest,
+              },
+              policy: profile.policy,
+              continuation: redactArtifact(profile.continuation, { env }).value,
+              observability: profile.observability,
+            }
+          : {}),
+      })),
+      artifacts: response.plan.artifacts,
+      secrets: response.plan.secrets,
+      diagnostics: response.plan.diagnostics,
+    },
+  }
+}
+
+async function printCompilerDebugDump(context: RunCompilerDebugContext): Promise<void> {
+  const req = buildCompilerDebugRequest(context)
+  const env = requestEnv(req)
+  const client = createAgentSpacesClient({ aspHome: context.aspHome })
+  const response = await client.compileRuntimePlan(req)
+
+  console.log('')
+  console.log(chalk.cyan('RuntimeCompileRequest (redacted)'))
+  console.log(JSON.stringify(redactArtifact(req, { env }).value, null, 2))
+  console.log('')
+  console.log(chalk.cyan('RuntimeCompileResponse (redacted)'))
+  console.log(JSON.stringify(printableCompileResponse(response, env), null, 2))
 }
 
 /**
@@ -496,6 +698,9 @@ export function registerRunCommand(program: Command): void {
             showCommand: true,
             pagePrompts: options.pagePrompts,
           })
+          if (options.debug && result.compilerDebugContext) {
+            await printCompilerDebugDump(result.compilerDebugContext)
+          }
         }
 
         process.exit(result.exitCode)

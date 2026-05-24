@@ -16,7 +16,9 @@ import {
   PathResolver,
   type SpaceRefString,
   install as configInstall,
+  getAgentsRoot,
   getAspHome,
+  getHarnessCatalogEntry,
   getRegistryPath,
   inferProjectIdFromCwd,
   isSpaceRefString,
@@ -60,7 +62,13 @@ import {
   planProjectTargetRuntime,
 } from './run/placement-plan.js'
 import { runGlobalSpace, runLocalSpace } from './run/space-launch.js'
-import type { GlobalRunOptions, RunInvocationResult, RunOptions, RunResult } from './run/types.js'
+import type {
+  GlobalRunOptions,
+  RunCompilerDebugContext,
+  RunInvocationResult,
+  RunOptions,
+  RunResult,
+} from './run/types.js'
 import {
   combinePrompts,
   composeArraysMatch,
@@ -70,6 +78,44 @@ import {
 } from './run/util.js'
 
 const DEFAULT_RUN_TASK_ID = 'primary'
+
+function harnessFamilyForHarness(
+  harnessId: string
+): RunCompilerDebugContext['requested']['harnessFamily'] {
+  if (harnessId === 'codex') return 'codex'
+  if (harnessId === 'pi' || harnessId === 'pi-sdk') return 'pi'
+  return 'claude-code'
+}
+
+function harnessRuntimeForHarness(
+  harnessId: string
+): RunCompilerDebugContext['requested']['preferredHarnessRuntime'] {
+  switch (harnessId) {
+    case 'claude-agent-sdk':
+      return 'claude-agent-sdk'
+    case 'codex':
+      return 'codex-cli'
+    case 'pi':
+      return 'pi-cli'
+    case 'pi-sdk':
+      return 'pi-sdk'
+    default:
+      return 'claude-code-cli'
+  }
+}
+
+function compileInteractionMode(
+  interactive: boolean | undefined
+): RunCompilerDebugContext['requested']['interactionMode'] {
+  return interactive === false ? 'headless' : 'interactive'
+}
+
+function compilerPlacementEnv(
+  extraEnv?: Record<string, string> | undefined
+): Record<string, string | undefined> {
+  const { BRAIN_REPO: _brainRepo, GBRAIN_HOME: _gbrainHome, ...baseEnv } = process.env
+  return { ...baseEnv, ...(extraEnv ?? {}) }
+}
 
 export {
   detectAgentLocalComponents,
@@ -81,6 +127,7 @@ export {
   type PlacementRuntimeModelResolution,
   type PlacementRuntimePlan,
   type PlanPlacementRuntimeOptions,
+  type RunCompilerDebugContext,
   type RunInvocationResult,
   type RunOptions,
   type RunResult,
@@ -325,6 +372,68 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     })),
     lock,
   }
+  let compilerDebugContext: RunCompilerDebugContext | undefined
+  if (options.dryRun && options.debug) {
+    const harnessCatalog = getHarnessCatalogEntry(harnessId)
+    const placementAgentRoot =
+      agentProfile?.agentRoot ??
+      join(getAgentsRoot({ aspHome }) ?? dirname(options.projectPath), targetName)
+    const placement =
+      agentProfile !== undefined
+        ? {
+            agentRoot: placementAgentRoot,
+            projectRoot: options.projectPath,
+            cwd: runOptions.cwd ?? options.cwd ?? options.projectPath,
+            runMode: 'query',
+            bundle: {
+              kind: 'agent-project',
+              agentName: targetName,
+              projectRoot: options.projectPath,
+            },
+            dryRun: true,
+            env: compilerPlacementEnv(options.env),
+          }
+        : {
+            agentRoot: placementAgentRoot,
+            projectRoot: options.projectPath,
+            cwd: runOptions.cwd ?? options.cwd ?? options.projectPath,
+            runMode: 'query',
+            bundle: { kind: 'compose', compose: lock.targets[targetName]?.compose ?? [] },
+            dryRun: true,
+            env: compilerPlacementEnv(options.env),
+          }
+    const scopeRef = `${targetName}@${projectId}${taskId ? `:${taskId}` : ''}`
+    compilerDebugContext = {
+      aspHome,
+      placement,
+      requested: {
+        modelProvider: harnessCatalog.provider,
+        model: runOptions.model,
+        reasoningEffort: runOptions.modelReasoningEffort,
+        harnessFamily: harnessFamilyForHarness(harnessId),
+        preferredHarnessRuntime: harnessRuntimeForHarness(harnessId),
+        interactionMode: compileInteractionMode(runOptions.interactive),
+      },
+      materialization: {
+        initialPrompt: effectivePrompt,
+        resolvedBundleHint: {
+          bundleIdentity: `legacy-dry-run:${options.projectPath}:${targetName}:${harnessId}`,
+          root: bundle.rootDir,
+          targetName,
+          targetDir: harnessOutputPath,
+          lockHash: lock.targets[targetName]?.envHash,
+        },
+      },
+      hrcPolicy: {
+        yolo: runOptions.yolo,
+      },
+      correlation: {
+        appSessionKey: `${projectId}:${taskId}`,
+        scopeRef,
+        laneRef: 'main',
+      },
+    }
+  }
 
   return {
     build: buildResult,
@@ -341,6 +450,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     totalContextChars,
     nearMaxChars,
     primingPrompt: effectivePrompt,
+    ...(compilerDebugContext ? { compilerDebugContext } : {}),
   }
 }
 

@@ -1,5 +1,36 @@
 import type { BuildResult, HarnessId, ResolveOptions } from 'spaces-config'
 
+export interface RunCompilerDebugContext {
+  aspHome: string
+  placement: Record<string, unknown>
+  requested: {
+    modelProvider?: 'anthropic' | 'openai' | undefined
+    model?: string | undefined
+    reasoningEffort?: string | undefined
+    harnessFamily?: 'claude-code' | 'codex' | 'pi' | undefined
+    preferredHarnessRuntime?:
+      | 'claude-code-cli'
+      | 'claude-agent-sdk'
+      | 'codex-cli'
+      | 'pi-cli'
+      | 'pi-sdk'
+      | undefined
+    interactionMode?: 'interactive' | 'headless' | 'nonInteractive' | undefined
+  }
+  materialization: {
+    initialPrompt?: string | undefined
+    resolvedBundleHint?: Record<string, unknown> | undefined
+  }
+  hrcPolicy: {
+    yolo?: boolean | undefined
+  }
+  correlation: {
+    appSessionKey: string
+    scopeRef?: string | undefined
+    laneRef?: string | undefined
+  }
+}
+
 export interface RunOptions extends ResolveOptions {
   harness?: HarnessId | undefined
   cwd?: string | undefined
@@ -48,6 +79,7 @@ export interface RunResult {
   totalContextChars?: number | undefined
   nearMaxChars?: boolean | undefined
   primingPrompt?: string | undefined
+  compilerDebugContext?: RunCompilerDebugContext | undefined
 }
 
 export interface GlobalRunOptions {

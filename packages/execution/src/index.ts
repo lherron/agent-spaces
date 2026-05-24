@@ -77,6 +77,7 @@ export {
   type AgentToolRuntimeContext,
   type RunOptions,
   type RunResult,
+  type RunCompilerDebugContext,
   type GlobalRunOptions,
   type PlanPlacementRuntimeOptions,
   type PlacementRuntimeModelResolution,

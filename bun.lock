@@ -78,6 +78,7 @@
         "spaces-config": "*",
         "spaces-execution": "*",
         "spaces-runtime": "*",
+        "spaces-runtime-contracts": "*",
       },
       "devDependencies": {
         "@types/bun": "latest",
