@@ -289,7 +289,13 @@ export function createCodexAppServerDriver(): Driver {
       // Prevent unhandled rejection when startupFailure outlives the race
       startupFailure.catch(() => {})
 
-      proc = await spawnHarnessProcess(startSpec.process)
+      // Codex credentials live on disk (auth.json via CODEX_HOME, a lockedEnv
+      // path) — the credentials channel is empty. Only the per-invocation
+      // dispatchEnv rides alongside the lockedEnv from the spec.
+      proc = await spawnHarnessProcess(startSpec.process, {
+        credentials: {},
+        ...(driverCtx.dispatchEnv !== undefined ? { dispatchEnv: driverCtx.dispatchEnv } : {}),
+      })
       proc.on('exit', onExit)
       createInterface({ input: proc.stderr }).on('line', (line) => {
         if (line.trim().length > 0) {

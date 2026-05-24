@@ -86,7 +86,7 @@ rl.on('line', (line) => {
         return
       }
 
-      const invocationId = message.params.spec.invocationId
+      const invocationId = message.params.startRequest.spec.invocationId
       notify(invocationId, 'invocation.started', { command: 'fake', args: [], cwd: process.cwd() })
       notify(invocationId, 'invocation.ready', { state: 'ready' })
       response(message.id, startResponse(invocationId))
@@ -94,7 +94,7 @@ rl.on('line', (line) => {
     }
 
     if (mode === 'early-started') {
-      const invocationId = message.params.spec.invocationId
+      const invocationId = message.params.startRequest.spec.invocationId
       notify(invocationId, 'invocation.started', { command: 'fake', args: [], cwd: process.cwd() })
       setTimeout(() => {
         notify(invocationId, 'invocation.ready', { state: 'ready' })
@@ -104,8 +104,8 @@ rl.on('line', (line) => {
     }
 
     if (mode === 'legacy-equivalence') {
-      const invocationId = message.params.spec.invocationId
-      if (message.params.initialInput?.inputId !== 'input_legacy_delegate') {
+      const invocationId = message.params.startRequest.spec.invocationId
+      if (message.params.startRequest.initialInput?.inputId !== 'input_legacy_delegate') {
         error(message.id, -32000, 'legacy startInvocation did not forward initialInput')
         return
       }
@@ -136,7 +136,7 @@ const initialInput: InvocationInput = {
 }
 
 describe('BrokerClient startInvocationFromRequest', () => {
-  test('sends the InvocationStartRequest unchanged as invocation.start params', async () => {
+  test('sends the InvocationDispatchRequest envelope wrapping a verbatim startRequest', async () => {
     const request: InvocationStartRequest = {
       spec: codexSpec('start-fresh-turn', {
         invocationId: 'inv_client_start_request_exact_params',
@@ -148,9 +148,10 @@ describe('BrokerClient startInvocationFromRequest', () => {
       }),
       initialInput,
     }
+    // With no dispatchEnv, the wire payload is exactly { startRequest }.
     const client = await BrokerClient.start({
       command: process.execPath,
-      args: fakeBrokerArgs('exact-request', request),
+      args: fakeBrokerArgs('exact-request', { startRequest: request }),
       cwd: repoRoot,
     })
 
@@ -165,6 +166,33 @@ describe('BrokerClient startInvocationFromRequest', () => {
         'invocation.started',
         'invocation.ready',
       ])
+    } finally {
+      await client.close()
+    }
+  })
+
+  test('threads dispatchEnv into the InvocationDispatchRequest envelope alongside the verbatim startRequest', async () => {
+    const request: InvocationStartRequest = {
+      spec: codexSpec('start-fresh-turn', {
+        invocationId: 'inv_client_start_request_dispatch_env',
+      }),
+      initialInput,
+    }
+    const dispatchEnv = { AGENT_SCOPE_REF: 'agent:curly:project:p:task:t' }
+    const client = await BrokerClient.start({
+      command: process.execPath,
+      args: fakeBrokerArgs('exact-request', { startRequest: request, dispatchEnv }),
+      cwd: repoRoot,
+    })
+
+    try {
+      await client.hello(helloRequest())
+      const { invocationId, response } = await client.startInvocationFromRequest(
+        request,
+        dispatchEnv
+      )
+      expect(invocationId).toBe(request.spec.invocationId)
+      expect(response).toMatchObject({ invocationId, state: 'ready' })
     } finally {
       await client.close()
     }

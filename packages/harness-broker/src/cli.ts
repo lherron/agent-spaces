@@ -1,5 +1,6 @@
 import type {
   HarnessInvocationSpec,
+  InvocationDispatchRequest,
   InvocationEventEnvelope,
   InvocationInput,
   InvocationStartRequest,
@@ -99,8 +100,11 @@ function runStdio(): void {
   })
 
   server.register('invocation.start', async ({ id, method, params }) => {
+    // validateCommand validates the full InvocationDispatchRequest envelope
+    // (including dispatchEnv key-class + lockedEnv-shadow rules) before dispatch.
     validateParams(method, id, params)
-    return broker.start(params as Parameters<typeof broker.start>[0])
+    const dispatch = params as InvocationDispatchRequest
+    return broker.start(dispatch.startRequest, dispatch.dispatchEnv)
   })
 
   server.register('invocation.input', async ({ id, method, params }) => {

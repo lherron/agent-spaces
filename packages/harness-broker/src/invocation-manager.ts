@@ -27,7 +27,7 @@ import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import type { Driver, DriverContext } from './drivers/driver'
 import { BrokerError } from './errors'
 import type { InvocationEventSequencer } from './events'
-import { buildEnvSecrets, finalizeEventPayload } from './security/redaction'
+import { normalizeEventPayload } from './runtime/event-normalize'
 
 // ---------------------------------------------------------------------------
 // Reason-string vocabulary (centralized for spec traceability)
@@ -65,7 +65,6 @@ export interface Invocation {
   terminalEmitted: boolean
   /** True once invocation.disposed has been emitted — keeps it idempotent. */
   disposedEmitted: boolean
-  envSecrets: Set<string>
   /** Manager-owned public status projection, driven by applyEventState. */
   currentTurnId?: TurnId | undefined
   currentInputId?: InputId | undefined
@@ -100,7 +99,8 @@ export interface InvocationManager {
   start(
     spec: HarnessInvocationSpec,
     driver: Driver,
-    initialInput?: InvocationInput | undefined
+    initialInput?: InvocationInput | undefined,
+    dispatchEnv?: Record<string, string> | undefined
   ): Promise<InvocationStartResponse>
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
@@ -298,12 +298,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     }
   ): InvocationEventEnvelope<TPayload> {
     // Single central event-safety path before sequencing: constrain/normalize
-    // well-known payloads, scrub secrets, redact permission subjects, and
-    // truncate oversized payloads against maxEventBytes.
-    const { payload: safePayload, diagnostics } = finalizeEventPayload({
+    // well-known payloads and truncate oversized payloads against maxEventBytes.
+    const { payload: safePayload, diagnostics } = normalizeEventPayload({
       type,
       payload,
-      envSecrets: inv.envSecrets,
       maxEventBytes: inv.spec.process.limits?.maxEventBytes,
     })
 
@@ -350,7 +348,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     async start(
       spec: HarnessInvocationSpec,
       driver: Driver,
-      initialInput?: InvocationInput | undefined
+      initialInput?: InvocationInput | undefined,
+      dispatchEnv?: Record<string, string> | undefined
     ): Promise<InvocationStartResponse> {
       // Check if there's already an active invocation
       for (const existing of invocations.values()) {
@@ -392,7 +391,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         driver,
         terminalEmitted: false,
         disposedEmitted: false,
-        envSecrets: buildEnvSecrets(spec.process.env),
         pending: [],
         inputCounter: 0,
       }
@@ -401,6 +399,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const ctx: DriverContext = {
         invocationId,
         clientCapabilities: getClientCapabilities(),
+        ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
         emit<TPayload>(
           type: InvocationEventType,
           payload: TPayload,

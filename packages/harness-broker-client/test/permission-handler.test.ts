@@ -110,7 +110,7 @@ rl.on('line', (line) => {
     notify('permission.requested', {
       permissionRequestId: 'perm_client_contract',
       kind: 'command',
-      subjectRedacted: { command: 'printf [REDACTED]' },
+      subjectDisplay: { command: 'printf red-test' },
       defaultDecision: mode === 'event-only' ? 'deny' : 'allow',
       deadlineMs: 1000,
     })

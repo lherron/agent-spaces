@@ -7,25 +7,30 @@ import type {
   PermissionPolicy,
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
-import type { DriverContext } from '../../../src/drivers/driver'
 import {
-  handlePermissionRequest,
   type PermissionHandlerContext,
+  handlePermissionRequest,
 } from '../../../src/drivers/codex-app-server/permissions'
 import type { JsonRpcRequest } from '../../../src/drivers/codex-app-server/rpc-client'
+import type { DriverContext } from '../../../src/drivers/driver'
 
 const invocationId = 'inv_permission_contract'
 const turnId = 'turn_permission_contract'
 const inputId = 'input_permission_contract'
+// Lives only in the request's `env` block — must NEVER appear in the bounded
+// display subject, because `env` is not a projected field.
 const rawSecret = 'sk-live-final-contract-secret'
+// command/cwd ARE safe display fields and are positively projected.
+const displayCommand = 'printf hello-from-contract'
+const displayCwd = '/tmp/final-permission-contract'
 
 const codexPermissionRequest: JsonRpcRequest = {
   jsonrpc: '2.0',
   id: 'perm_1',
   method: 'item/commandExecution/requestApproval',
   params: {
-    command: `printf ${rawSecret}`,
-    cwd: '/tmp/final-permission-contract',
+    command: displayCommand,
+    cwd: displayCwd,
     env: {
       OPENAI_API_KEY: rawSecret,
     },
@@ -40,7 +45,10 @@ interface PermissionScenarioResult {
   permissionRequests: PermissionRequestParams[]
 }
 
-function permissionEvents(events: InvocationEventEnvelope[], type: InvocationEventEnvelope['type']) {
+function permissionEvents(
+  events: InvocationEventEnvelope[],
+  type: InvocationEventEnvelope['type']
+) {
   return events.filter((event) => event.type === type)
 }
 
@@ -198,9 +206,9 @@ describe('Codex app-server permission policies', () => {
         decision: scenario.clientDecision,
         decidedBy: 'user',
       })
-      expect(events.some((event) => event.type === ('invocation.permission.request' as never))).toBe(
-        false
-      )
+      expect(
+        events.some((event) => event.type === ('invocation.permission.request' as never))
+      ).toBe(false)
     })
   }
 
@@ -279,13 +287,36 @@ describe('Codex app-server permission policies', () => {
     })
   })
 
-  test('permission.requested emits subjectRedacted and never leaks raw secrets', async () => {
+  test('permission.requested emits a bounded subjectDisplay that projects safe fields and omits env', async () => {
     const { events } = await runPermissionScenario({
       permissionPolicy: { mode: 'allow' },
     })
 
     const requested = permissionEvents(events, 'permission.requested')[0]
-    expect(requested?.payload).toHaveProperty('subjectRedacted')
+    const payload = requested?.payload as { subjectDisplay?: Record<string, unknown> }
+    expect(payload).toHaveProperty('subjectDisplay')
+    // Positive projection: the safe command/cwd fields are present...
+    expect(payload.subjectDisplay).toEqual({
+      command: displayCommand,
+      cwd: displayCwd,
+    })
+    // ...and the `env` block is omitted entirely, so no env-derived secret leaks.
+    expect(payload.subjectDisplay).not.toHaveProperty('env')
     expect(JSON.stringify(requested?.payload)).not.toContain(rawSecret)
+  })
+
+  test('subjectDisplay forwarded to the client matches the audited bounded subject', async () => {
+    const { permissionRequests } = await runPermissionScenario({
+      permissionPolicy: { mode: 'ask-client', timeoutMs: 1000 },
+      clientCapabilities: { permissionRequests: true },
+      requestPermission: async () => ({ decision: 'allow' }),
+    })
+
+    expect(permissionRequests).toHaveLength(1)
+    expect(permissionRequests[0]?.subject).toEqual({
+      command: displayCommand,
+      cwd: displayCwd,
+    })
+    expect(JSON.stringify(permissionRequests[0])).not.toContain(rawSecret)
   })
 })

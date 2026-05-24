@@ -4,6 +4,7 @@ import type {
   BrokerHelloRequest,
   BrokerHelloResponse,
   HarnessInvocationSpec,
+  InvocationDispatchRequest,
   InvocationDisposeRequest,
   InvocationEventEnvelope,
   InvocationInput,
@@ -22,7 +23,11 @@ import type {
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import { EventIterator } from './event-iterator'
-import { StdioTransport, type CloseHandler, type StdioTransportStartOptions } from './stdio-transport'
+import {
+  type CloseHandler,
+  StdioTransport,
+  type StdioTransportStartOptions,
+} from './stdio-transport'
 
 export type PermissionRequestHandler = (
   request: PermissionRequestParams
@@ -81,15 +86,23 @@ export class BrokerClient {
     )
   }
 
-  async startInvocationFromRequest(request: InvocationStartRequest): Promise<InvocationStartResult> {
+  async startInvocationFromRequest(
+    request: InvocationStartRequest,
+    dispatchEnv?: Record<string, string>
+  ): Promise<InvocationStartResult> {
     const expectedInvocationId = request.spec.invocationId
     const expectedEvents =
       expectedInvocationId !== undefined ? this.#eventStream(expectedInvocationId) : undefined
 
+    // invocation.start now carries the InvocationDispatchRequest envelope:
+    // a verbatim startRequest plus the optional per-invocation dispatchEnv.
+    const dispatch: InvocationDispatchRequest =
+      dispatchEnv === undefined ? { startRequest: request } : { startRequest: request, dispatchEnv }
+
     try {
       const response = await this.#transport.request<InvocationStartResponse>(
         'invocation.start',
-        structuredClone(request)
+        structuredClone(dispatch)
       )
       const events = expectedEvents ?? this.#eventStream(response.invocationId)
       return {

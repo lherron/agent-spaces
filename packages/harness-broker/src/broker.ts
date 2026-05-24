@@ -51,7 +51,10 @@ export interface BrokerOptions {
 export interface Broker {
   hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse>
   health(req: BrokerHealthRequest): Promise<BrokerHealthResponse>
-  start(req: InvocationStartRequest): Promise<InvocationStartResponse>
+  start(
+    req: InvocationStartRequest,
+    dispatchEnv?: Record<string, string> | undefined
+  ): Promise<InvocationStartResponse>
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
@@ -115,7 +118,10 @@ export function createBroker(options: BrokerOptions): Broker {
       }
     },
 
-    start(req: InvocationStartRequest): Promise<InvocationStartResponse> {
+    start(
+      req: InvocationStartRequest,
+      dispatchEnv?: Record<string, string> | undefined
+    ): Promise<InvocationStartResponse> {
       try {
         validateInvocationStartRequest(req)
       } catch (err) {
@@ -137,7 +143,7 @@ export function createBroker(options: BrokerOptions): Broker {
       // Non-async wrapper: the returned promise has a no-op catch pre-attached
       // so that bun's test runner doesn't flag it as an unhandled rejection when
       // the startup timeout fires before the caller awaits.
-      const result = manager.start(req.spec, driver, req.initialInput)
+      const result = manager.start(req.spec, driver, req.initialInput, dispatchEnv)
       result.catch(() => {})
       return result
     },

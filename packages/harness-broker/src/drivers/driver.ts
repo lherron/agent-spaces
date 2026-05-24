@@ -34,6 +34,12 @@ export interface Driver {
 export interface DriverContext {
   invocationId: InvocationId
   clientCapabilities: ClientCapabilities
+  /**
+   * Per-invocation env from the `InvocationDispatchRequest` envelope (HRC-supplied,
+   * not part of the hashed spec). The driver threads this into the spawn-env
+   * composition (`spawnHarnessProcess`). Absent when no dispatchEnv was supplied.
+   */
+  dispatchEnv?: Record<string, string> | undefined
   emit<TPayload>(
     type: InvocationEventType,
     payload: TPayload,

@@ -1,13 +1,11 @@
 import type {
   CodexAppServerDriverSpec,
   InputId,
-  PermissionDecision,
   PermissionPolicy,
   PermissionRequestId,
   PermissionRequestParams,
   TurnId,
 } from 'spaces-harness-broker-protocol'
-import { redactPermissionSubject } from '../../security/redaction'
 import type { DriverContext } from '../driver'
 import type { JsonRpcRequest } from './rpc-client'
 
@@ -25,6 +23,69 @@ function permissionKind(method: string): string {
   if (method.includes('commandExecution')) return 'command'
   if (method.includes('fileChange')) return 'file_change'
   return 'tool'
+}
+
+// Bounds for the display-subject projection (CONTRACTS §7.9). The display
+// subject is a small, human-readable summary persisted for audit — not the
+// raw native payload.
+const MAX_DISPLAY_STRING = 1024
+const MAX_DISPLAY_ARRAY = 32
+
+// Positive allowlist of safe subject fields per permission kind. Only these
+// keys are projected into the display subject — everything else (e.g. an `env`
+// map) is dropped by omission. This is a POSITIVE projection, not a scrub.
+const SUBJECT_DISPLAY_FIELDS: Record<string, readonly string[]> = {
+  command: ['command', 'cwd', 'reason'],
+  file_change: ['path', 'paths', 'changes', 'reason'],
+  tool: ['name', 'tool', 'toolName', 'reason'],
+}
+const DEFAULT_SUBJECT_FIELDS: readonly string[] = ['command', 'cwd', 'path', 'name', 'reason']
+
+/** Bound a single value for display: truncate long strings, cap array length. */
+function boundDisplayValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.length > MAX_DISPLAY_STRING ? `${value.slice(0, MAX_DISPLAY_STRING)}…` : value
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, MAX_DISPLAY_ARRAY).map((item) => boundDisplayValue(item))
+  }
+  if (typeof value === 'object') {
+    // Shallow, bounded projection of nested objects (e.g. a file-change entry):
+    // keep primitive/string leaves only, never re-expand into arbitrary depth.
+    const out: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof child === 'string' || typeof child === 'number' || typeof child === 'boolean') {
+        out[key] = boundDisplayValue(child)
+      }
+    }
+    return out
+  }
+  return undefined
+}
+
+/**
+ * Build a BOUNDED display subject from a native Codex permission request
+ * (CONTRACTS §7.9). This is a positive projection of known-safe fields for the
+ * given permission kind — never a copy-everything-then-scrub. The raw native
+ * payload is not persisted; only this bounded summary is emitted as
+ * `subjectDisplay` and forwarded to the client as the request `subject`.
+ */
+export function buildSubjectDisplay(kind: string, params: unknown): unknown {
+  if (params === null || typeof params !== 'object' || Array.isArray(params)) {
+    return boundDisplayValue(params)
+  }
+  const record = params as Record<string, unknown>
+  const fields = SUBJECT_DISPLAY_FIELDS[kind] ?? DEFAULT_SUBJECT_FIELDS
+  const display: Record<string, unknown> = {}
+  for (const field of fields) {
+    if (Object.hasOwn(record, field) && record[field] !== undefined) {
+      display[field] = boundDisplayValue(record[field])
+    }
+  }
+  return display
 }
 
 let permissionRequestCounter = 0
@@ -105,7 +166,7 @@ export async function handlePermissionRequest(
 
   const kind = permissionKind(request.method)
   const permissionRequestId = nextPermissionRequestId(ctx.invocationId)
-  const subjectRedacted = redactPermissionSubject(request.params)
+  const subjectDisplay = buildSubjectDisplay(kind, request.params)
   const deadlineMs = policy.timeoutMs
 
   // Audit: a permission decision was requested.
@@ -114,7 +175,7 @@ export async function handlePermissionRequest(
     {
       permissionRequestId,
       kind,
-      subjectRedacted,
+      subjectDisplay,
       defaultDecision,
       ...(deadlineMs !== undefined ? { deadlineMs } : {}),
     },
@@ -160,8 +221,9 @@ export async function handlePermissionRequest(
     ...(handlerCtx.currentTurnId !== undefined ? { turnId: handlerCtx.currentTurnId } : {}),
     permissionRequestId,
     kind,
-    // Never carry env secrets across the broker→client request boundary.
-    subject: subjectRedacted,
+    // The bounded display subject — the same positive projection persisted for
+    // audit. The raw native payload never crosses the broker→client boundary.
+    subject: subjectDisplay,
     defaultDecision,
     ...(deadlineMs !== undefined ? { deadlineMs } : {}),
   }

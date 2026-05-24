@@ -8,8 +8,16 @@ import { buildProcessEnv } from './env'
 const liveChildren = new Set<ChildProcessWithoutNullStreams>()
 let exitHookInstalled = false
 
+export interface SpawnEnvChannels {
+  /** Driver-provided credential env. Empty for the codex driver (auth on disk). */
+  credentials?: Record<string, string> | undefined
+  /** Per-invocation env from the InvocationDispatchRequest envelope. */
+  dispatchEnv?: Record<string, string> | undefined
+}
+
 export async function spawnHarnessProcess(
-  spec: HarnessProcessSpec
+  spec: HarnessProcessSpec,
+  channels: SpawnEnvChannels = {}
 ): Promise<ChildProcessWithoutNullStreams> {
   if (spec.harnessTransport.kind !== 'jsonrpc-stdio') {
     throw new BrokerError(
@@ -34,7 +42,11 @@ export async function spawnHarnessProcess(
 
   const proc = spawn(command, spec.args, {
     cwd: spec.cwd,
-    env: buildProcessEnv(spec.env),
+    env: buildProcessEnv({
+      lockedEnv: spec.lockedEnv,
+      credentials: channels.credentials,
+      dispatchEnv: channels.dispatchEnv,
+    }),
     shell: false,
     stdio: ['pipe', 'pipe', 'pipe'],
   })

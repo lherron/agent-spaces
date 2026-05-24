@@ -31,9 +31,9 @@ const scenarioSpec = (
     command: Bun.execPath,
     args: [join(fixtureDir, `${scenario}.ts`), '--literal', '$NO_EXPAND', '*.ts'],
     cwd: process.cwd(),
-    env: {
+    lockedEnv: {
       CODEX_HOME: '/tmp/harness-broker-codex-home',
-      SECRET_TOKEN: 'red-test-secret-value',
+      ASP_RED_TEST_VALUE: 'red-test-secret-value',
     },
     harnessTransport: { kind: 'jsonrpc-stdio' },
     limits: {
