@@ -2,11 +2,12 @@ import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
   InvocationInput,
+  InvocationStartRequest,
   JsonRpcNotification,
   PermissionDecision,
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
-import { validateCommand } from 'spaces-harness-broker-protocol'
+import { validateCommand, validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import { createBroker } from './broker'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
 import { createProtocolServer } from './protocol-server'
@@ -41,6 +42,8 @@ async function main(): Promise<void> {
     }
   } else if (command === 'run-once') {
     await runOnce(args.slice(1))
+  } else if (command === 'validate-start-request') {
+    await validateStartRequestCommand(args.slice(1))
   } else {
     process.stderr.write(
       `Unknown command: ${command ?? '(none)'}\nUsage: harness-broker run --transport stdio\n`
@@ -135,17 +138,14 @@ function runStdio(): void {
 }
 
 async function runOnce(args: string[]): Promise<void> {
-  const specPath = readFlag(args, '--spec')
-  const inputPath = readFlag(args, '--input')
-  if (!specPath || !inputPath) {
-    process.stderr.write(
-      'Usage: harness-broker run-once --spec invocation.json --input input.json\n'
-    )
+  let request: InvocationStartRequest
+  try {
+    request = await loadStartRequest(args)
+  } catch (err) {
+    process.stderr.write(`${formatError(err)}\n`)
     process.exit(1)
   }
 
-  const spec = (await Bun.file(specPath).json()) as HarnessInvocationSpec
-  const input = (await Bun.file(inputPath).json()) as InvocationInput
   let resolveTurnDone: (() => void) | undefined
   const turnDone = new Promise<void>((resolve) => {
     resolveTurnDone = resolve
@@ -162,19 +162,68 @@ async function runOnce(args: string[]): Promise<void> {
     }
   })
 
-  const start = await broker.start({ spec })
-  await broker.input({
-    invocationId: start.invocationId,
-    input,
-    policy: { whenBusy: 'reject' },
-  })
+  // Same path the BrokerClient drives: a single InvocationStartRequest with its
+  // initialInput carries the first turn — no separate invocation.input call.
+  const start = await broker.start(request)
   await turnDone
   await broker.stop({
     invocationId: start.invocationId,
     reason: 'run-once complete',
-    graceMs: spec.process.limits?.stopGraceMs ?? 500,
+    graceMs: request.spec.process.limits?.stopGraceMs ?? 500,
   })
   await broker.dispose({ invocationId: start.invocationId })
+}
+
+/**
+ * Resolve a single InvocationStartRequest from CLI flags. `--start-request`
+ * (the ASP compiler's output shape) is preferred; `--spec`/`--input` is kept
+ * for backward compatibility and folded into the same request shape. The
+ * request is validated before it reaches the broker.
+ */
+async function loadStartRequest(args: string[]): Promise<InvocationStartRequest> {
+  const startRequestPath = readFlag(args, '--start-request')
+  if (startRequestPath) {
+    const raw = (await Bun.file(startRequestPath).json()) as unknown
+    return validateInvocationStartRequest(raw)
+  }
+
+  const specPath = readFlag(args, '--spec')
+  const inputPath = readFlag(args, '--input')
+  if (specPath && inputPath) {
+    const spec = (await Bun.file(specPath).json()) as HarnessInvocationSpec
+    const initialInput = (await Bun.file(inputPath).json()) as InvocationInput
+    return validateInvocationStartRequest({ spec, initialInput })
+  }
+
+  throw new Error(
+    'Usage: harness-broker run-once (--start-request start-request.json | --spec invocation.json --input input.json)'
+  )
+}
+
+async function validateStartRequestCommand(args: string[]): Promise<void> {
+  const filePath = readFlag(args, '--file')
+  if (!filePath) {
+    process.stderr.write('Usage: harness-broker validate-start-request --file start-request.json\n')
+    process.exit(1)
+  }
+
+  try {
+    const raw = (await Bun.file(filePath).json()) as unknown
+    validateInvocationStartRequest(raw)
+  } catch (err) {
+    process.stderr.write(`${formatError(err)}\n`)
+    process.exit(1)
+  }
+
+  process.stdout.write('valid\n')
+}
+
+function formatError(err: unknown): string {
+  if (err && typeof err === 'object' && 'issues' in err) {
+    const message = err instanceof Error ? err.message : 'Validation failed'
+    return `${message}\n${JSON.stringify((err as { issues: unknown }).issues, null, 2)}`
+  }
+  return err instanceof Error ? err.message : String(err)
 }
 
 function readFlag(args: string[], flag: string): string | undefined {

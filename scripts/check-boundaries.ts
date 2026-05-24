@@ -51,6 +51,9 @@ const layers: Layer[] = [
       'cli-kit',
       'spaces-config',
       'spaces-runtime',
+      // protocol is the lowest layer: runtime-contracts depends on it, so it
+      // must never import back into runtime-contracts (would create a cycle).
+      'spaces-runtime-contracts',
       'spaces-execution',
       'spaces-harness-',
       'agent-spaces',
