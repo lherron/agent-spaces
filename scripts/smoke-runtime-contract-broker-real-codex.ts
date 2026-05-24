@@ -2,11 +2,14 @@
 import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
-import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import type { BrokerPermissionPolicy, RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
 import { runPreHrcBrokerContractHarness } from '../packages/agent-spaces/src/testing/pre-hrc-broker-contract-harness.js'
+import {
+  allocatePreHrcRuntimeIdentity,
+  buildPlacementFromScopeRef,
+} from '../packages/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
 
 type CliArgs = {
   scopeRef: string
@@ -180,11 +183,6 @@ function parseArgs(argv: string[]): CliArgs {
   return args
 }
 
-function agentNameFromScopeRef(scopeRef: string): string {
-  const at = scopeRef.indexOf('@')
-  return at > 0 ? scopeRef.slice(0, at) : 'cody'
-}
-
 function permissionPolicy(args: CliArgs): BrokerPermissionPolicy {
   if (args.permissionMode === 'allow') {
     return {
@@ -210,35 +208,25 @@ function permissionPolicy(args: CliArgs): BrokerPermissionPolicy {
 }
 
 function compileRequest(args: CliArgs): RuntimeCompileRequest {
-  const agentName = agentNameFromScopeRef(args.scopeRef)
-  const agentRoot = args.agentRoot ?? resolve(args.projectRoot, '..', 'var', 'agents', agentName)
   const timeoutMs = args.timeout * 1000
+  const identity = allocatePreHrcRuntimeIdentity({
+    namespace: 'prehrc_contract',
+    invocationId: args.invocationId,
+    initialInputId: args.initialInputId,
+    idempotencyKey: 'pre-hrc-broker-contract',
+  })
+  const placement = buildPlacementFromScopeRef({
+    scopeRef: args.scopeRef,
+    agentRoot: args.agentRoot,
+    projectRoot: args.projectRoot,
+    cwd: args.cwd,
+    env: process.env,
+    hostSessionId: identity.hostSessionId,
+  })
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
-    identity: {
-      requestId: 'request_prehrc_contract',
-      operationId: 'runtimeOperation_prehrc_contract',
-      hostSessionId: 'hostSession_prehrc_contract',
-      generation: 1,
-      runtimeId: 'runtime_prehrc_contract',
-      invocationId: args.invocationId as InvocationId,
-      initialInputId: args.initialInputId as InputId,
-      runId: 'run_prehrc_contract',
-      traceId: 'trace_prehrc_contract',
-      idempotencyKey: 'pre-hrc-broker-contract',
-    },
-    placement: {
-      agentRoot,
-      projectRoot: args.projectRoot,
-      cwd: args.cwd,
-      runMode: 'task',
-      bundle: { kind: 'agent-project', agentName, projectRoot: args.projectRoot },
-      env: process.env,
-      correlation: {
-        sessionRef: { scopeRef: args.scopeRef, laneRef: 'main' },
-        hostSessionId: 'hostSession_prehrc_contract',
-      },
-    },
+    identity,
+    placement,
     requested: {
       modelProvider: 'openai',
       model: args.model,
@@ -262,21 +250,21 @@ function compileRequest(args: CliArgs): RuntimeCompileRequest {
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
       exposurePolicy: { mode: 'none' },
       resourceLimits: { startupTimeoutMs: timeoutMs, turnTimeoutMs: timeoutMs },
-      observability: { traceId: 'trace_prehrc_contract' },
+      observability: { traceId: identity.traceId },
       capabilityPolicy: {
         allowDegrade: false,
         requireBrokerDefaultForCodexHeadless: true,
       },
     },
     correlation: {
-      requestId: 'request_prehrc_contract',
-      operationId: 'runtimeOperation_prehrc_contract',
-      hostSessionId: 'hostSession_prehrc_contract',
-      generation: 1,
-      runtimeId: 'runtime_prehrc_contract',
-      runId: 'run_prehrc_contract',
-      invocationId: args.invocationId as InvocationId,
-      traceId: 'trace_prehrc_contract',
+      requestId: identity.requestId,
+      operationId: identity.operationId,
+      hostSessionId: identity.hostSessionId,
+      generation: identity.generation,
+      runtimeId: identity.runtimeId,
+      runId: identity.runId,
+      invocationId: identity.invocationId,
+      traceId: identity.traceId,
       appId: 'agent-spaces',
       appSessionKey: 'pre-hrc-broker-contract',
       scopeRef: args.scopeRef,

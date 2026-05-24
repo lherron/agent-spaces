@@ -64,6 +64,10 @@ export type ContractHarnessFailureCode =
   | 'start_request_missing'
   | 'start_request_identity_mismatch'
   | 'start_request_reference_changed'
+  | 'initial_input_identity_mismatch'
+  | 'spec_hash_mismatch'
+  | 'start_request_hash_mismatch'
+  | 'broker_start_contract_unverifiable'
   | 'route_decision_invalid'
   | 'artifact_dir_required'
   | 'raw_start_request_requires_temp_dir'
@@ -86,6 +90,14 @@ export type PreHrcBrokerContractHarnessInput = {
   writeRawStartRequest?: boolean | undefined
   timeoutMs?: number | undefined
   now?: string | undefined
+  /** Narrow profile selection by id/hash (forwarded to selectBrokerProfile). */
+  profileSelector?: { profileId?: string | undefined; profileHash?: string | undefined } | undefined
+  /**
+   * TEST-ONLY seam: mutate the selected profile after selection and before the
+   * compiler-closure verifier runs, to exercise the pre-broker-start contract
+   * gate. Production callers never set this.
+   */
+  mutateProfileForTest?: ((profile: BrokerExecutionProfile) => void) | undefined
 }
 
 export type PreHrcBrokerContractArtifactManifest = {
@@ -117,7 +129,7 @@ export type PreHrcBrokerContractHarnessResult = {
   brokerStart?:
     | {
         attempted: false
-        reason: 'dry-run-compile' | 'not-implemented'
+        reason: 'dry-run-compile' | 'not-implemented' | 'contract-verification-failed'
       }
     | {
         attempted: true

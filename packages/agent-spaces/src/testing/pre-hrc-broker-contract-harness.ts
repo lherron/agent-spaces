@@ -5,8 +5,13 @@ import { writePreHrcBrokerContractArtifacts } from './pre-hrc-broker-contract-ar
 import {
   assertBrokerProfileClosure,
   assertPreHrcRouteDecision,
-  selectBrokerExecutionProfile,
 } from './pre-hrc-broker-contract-assertions.js'
+import {
+  ContractHarnessFailureError,
+  selectBrokerProfile,
+  verifyBrokerStartContract,
+} from './pre-hrc-broker-helpers.js'
+import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
 import type {
   ContractHarnessFailure,
   PreHrcBrokerContractAssertionReport,
@@ -66,25 +71,61 @@ export async function runPreHrcBrokerContractHarness(
   const compileResponse = await compileRuntimePlan(input.compileRequest, {
     clientAspHome: input.aspHome,
   })
-  const selection = selectBrokerExecutionProfile(compileResponse)
-  const selectedProfile = selection.profile
   const compiledPlan = compileResponse.ok ? compileResponse.plan : undefined
+
+  // Select the harness-broker profile via the shared named helper (P2). Failure
+  // to find a compatible profile is surfaced as a structured failure rather than
+  // an unhandled throw so the assertion report stays complete.
+  const selectionFailures: ContractHarnessFailure[] = []
+  let selectedProfile: BrokerExecutionProfile | undefined
+  if (!compileResponse.ok) {
+    selectionFailures.push({
+      code: 'compile_failed',
+      message: 'compileRuntimePlan returned diagnostics instead of a compiled plan.',
+      redactedDetails: { diagnostics: compileResponse.diagnostics },
+    })
+  } else {
+    try {
+      selectedProfile = selectBrokerProfile(compileResponse.plan, input.profileSelector)
+    } catch (error) {
+      if (error instanceof ContractHarnessFailureError) {
+        selectionFailures.push(error.failure)
+      } else {
+        throw error
+      }
+    }
+  }
+
+  // TEST-ONLY seam: simulate local code mutating the start request between
+  // compile and broker start so the closure verifier below can be exercised.
+  if (selectedProfile !== undefined && input.mutateProfileForTest !== undefined) {
+    input.mutateProfileForTest(selectedProfile)
+  }
+
+  // Compiler-closure verification (P3): recompute spec/start-request hashes and
+  // assert immutability BEFORE any broker start. Deep-freezes the start request
+  // on success.
+  const verification =
+    selectedProfile !== undefined ? verifyBrokerStartContract(selectedProfile) : undefined
+
   const routeDecision =
     compiledPlan !== undefined && selectedProfile !== undefined
       ? createPreHrcRouteDecision(compiledPlan, selectedProfile)
       : undefined
 
   const failures: ContractHarnessFailure[] = [
-    ...selection.failures,
+    ...selectionFailures,
     ...assertBrokerProfileClosure(compileResponse, selectedProfile),
+    ...(verification?.failures ?? []),
     ...assertPreHrcRouteDecision(routeDecision, selectedProfile, compileResponse),
   ]
 
-  if (mode === 'broker-start') {
+  const contractVerificationFailed = verification !== undefined && !verification.ok
+  if (mode === 'broker-start' && !contractVerificationFailed) {
     failures.push({
       code: 'broker_start_not_implemented',
       message:
-        'Broker start is intentionally not implemented in the P1 pre-HRC harness skeleton; rerun with --dry-run-compile.',
+        'Broker start is intentionally not implemented in the pre-HRC harness skeleton; rerun with --dry-run-compile.',
     })
   }
 
@@ -132,6 +173,8 @@ export async function runPreHrcBrokerContractHarness(
     brokerStart:
       mode === 'dry-run-compile'
         ? { attempted: false, reason: 'dry-run-compile' }
-        : { attempted: false, reason: 'not-implemented' },
+        : contractVerificationFailed
+          ? { attempted: false, reason: 'contract-verification-failed' }
+          : { attempted: false, reason: 'not-implemented' },
   }
 }
