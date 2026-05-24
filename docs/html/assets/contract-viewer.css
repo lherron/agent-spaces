@@ -1,0 +1,242 @@
+.contract-object {
+        --contract-accent: rgb(0, 114, 116);
+        --contract-accent-rgb: 0, 114, 116;
+        --contract-definition-comment: #7e2d28;
+        --contract-definition-rule: rgba(177, 40, 30, 0.72);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: 0 8px 22px rgba(27, 31, 33, 0.055);
+        margin-top: 28px;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .contract-object.request {
+        --contract-accent: var(--control);
+        --contract-accent-rgb: 0, 114, 116;
+        border-top: 10px solid var(--contract-accent);
+      }
+
+      .contract-object.response {
+        --contract-accent: var(--compiler);
+        --contract-accent-rgb: 177, 40, 30;
+        border-top: 10px solid var(--contract-accent);
+      }
+
+      .contract-object-head {
+        align-items: start;
+        background:
+          linear-gradient(90deg, rgba(var(--contract-accent-rgb), 0.055), transparent 38%),
+          linear-gradient(180deg, #ffffff 0%, #fbfcfa 100%);
+        display: grid;
+        gap: 28px;
+        grid-template-columns: minmax(0, 0.72fr) minmax(190px, 0.28fr);
+        min-height: 134px;
+        padding: 30px 28px 28px;
+      }
+
+      .contract-object-head > div:first-child {
+        max-width: 720px;
+      }
+
+      .contract-object-head .badge {
+        margin-bottom: 14px;
+      }
+
+      .contract-object-head h3 {
+        margin-bottom: 14px;
+      }
+
+      .contract-object-head p {
+        color: var(--muted);
+        line-height: 1.55;
+        margin: 0;
+        max-width: 680px;
+      }
+
+      .contract-object .code-panel {
+        background:
+          linear-gradient(90deg, rgba(var(--contract-accent-rgb), 0.075) 0 54px, transparent 54px),
+          linear-gradient(180deg, #fffdf7 0%, #f8fbfa 100%);
+        border-top: 1px solid var(--line);
+        border-radius: 0;
+        color: #18201f;
+        padding: 0;
+      }
+
+      .contract-object .code-panel pre {
+        font-size: 13px;
+        line-height: 1.52;
+      }
+
+      .schema-line {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: 42px minmax(0, 1fr);
+        min-width: 0;
+        padding: 1px 18px 1px 0;
+      }
+
+      .schema-line:hover {
+        background: rgba(177, 40, 30, 0.06);
+      }
+
+      .schema-line-no {
+        color: #8c9a98;
+        font-family: var(--mono);
+        font-size: 11px;
+        padding-top: 1px;
+        text-align: right;
+        user-select: none;
+      }
+
+      .schema-code {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: minmax(330px, 0.92fr) minmax(260px, 1.08fr);
+        min-width: 0;
+      }
+
+      .schema-code.no-comment {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .schema-code-text {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+
+      .schema-comment {
+        border-left: 2px solid rgba(0, 114, 116, 0.18);
+        color: #5f6d68;
+        font-family: var(--sans);
+        font-size: 13px;
+        font-style: italic;
+        line-height: 1.45;
+        min-width: 0;
+        padding-left: 12px;
+        white-space: normal;
+      }
+
+      .schema-comment.block-comment {
+        border-left-color: var(--contract-definition-rule);
+        color: var(--contract-definition-comment);
+        font-style: normal;
+        font-weight: 400;
+      }
+
+      .comment-marker {
+        color: #9bacaa;
+        font-family: var(--mono);
+        font-style: normal;
+        font-weight: 800;
+        margin-right: 8px;
+      }
+
+      .syntax-field {
+        color: var(--control);
+        font-weight: 800;
+      }
+
+      .syntax-comment {
+        color: #6b746f;
+        font-style: italic;
+      }
+
+      .syntax-comment::before {
+        color: #91a29e;
+      }
+
+      .syntax-keyword {
+        color: var(--compiler);
+        font-weight: 800;
+      }
+
+      .syntax-string {
+        color: #8b5d00;
+        font-weight: 700;
+      }
+
+      .contract-legend {
+        align-items: center;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        padding: 12px 18px;
+      }
+
+      .legend-item {
+        align-items: center;
+        display: inline-flex;
+        font-family: var(--mono);
+        font-size: 11px;
+        gap: 6px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .legend-swatch {
+        border-radius: 999px;
+        display: inline-block;
+        height: 9px;
+        width: 9px;
+      }
+
+      .legend-swatch.field {
+        background: var(--control);
+      }
+
+      .legend-swatch.comment {
+        background: #7f918d;
+      }
+
+      .legend-swatch.type {
+        background: var(--compiler);
+      }
+
+      .legend-swatch.literal {
+        background: var(--broker);
+      }
+
+      .object-chip-row {
+        align-content: start;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+        padding-top: 2px;
+      }
+
+      @media (max-width: 760px) {
+        .contract-object-head {
+          grid-template-columns: 1fr;
+          gap: 18px;
+          min-height: 0;
+          padding: 22px 18px 20px;
+        }
+
+        .schema-line {
+          gap: 9px;
+          grid-template-columns: 32px minmax(0, 1fr);
+          padding-right: 12px;
+        }
+
+        .schema-code {
+          gap: 5px;
+          grid-template-columns: 1fr;
+        }
+
+        .schema-comment {
+          border-left: 2px solid rgba(0, 114, 116, 0.2);
+          margin-left: 1.5ch;
+          padding-left: 10px;
+        }
+
+        .object-chip-row {
+          justify-content: flex-start;
+        }
+      }

@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Compiler Rewrite - Runtime Contract Proposal</title>
+    <link rel="stylesheet" href="assets/proposal-shell.css" />
+    <link rel="stylesheet" href="assets/contract-viewer.css" />
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar" aria-label="Compiler rewrite navigation">
+        <div class="brand">
+          <div class="brand-kicker">Runtime refactor</div>
+          <div class="brand-title">Compiler Rewrite</div>
+          <div class="brand-subtitle">First pass visual brief from <span class="inline-code">./refactor</span></div>
+        </div>
+        <nav class="nav" aria-label="Page sections">
+          <a href="#thesis">Thesis</a>
+          <a href="#semantic-shifts">Semantic Shifts</a>
+          <a href="#planes">Contract Planes</a>
+          <a href="#flow">Control Flow</a>
+          <a href="#datatypes">Datatypes</a>
+          <a href="#compile-objects">Objects</a>
+          <a href="#rules">Rules</a>
+          <a href="#gates">Gates</a>
+          <a href="#review">Review</a>
+        </nav>
+        <div class="sidebar-note">
+          Scope: compiler rewrite only, including supporting contracts and datatypes. HRC UI/UX and the remaining refactor docs are intentionally deferred.
+        </div>
+      </aside>
+
+      <main>
+        <div class="content">
+          <section class="hero" id="thesis" aria-labelledby="page-title">
+            <div class="hero-copy">
+              <div class="eyebrow">ASP compiler plane -> HRC control plane -> Harness Broker execution plane</div>
+              <h1 id="page-title">Close the runtime plan before HRC touches it.</h1>
+              <p class="lead">
+                The rewrite turns Agent Spaces into a real compiler for runtime execution. It emits immutable, hashable runtime plans; HRC admits and controls a selected profile; the broker executes the ASP-emitted start request unchanged.
+              </p>
+            </div>
+
+            <div class="hero-board" aria-label="Contract sequence summary">
+              <div class="route-card compiler">
+                <div class="route-label">Compile</div>
+                <div class="route-title">ASP resolves runtime construction</div>
+                <div class="route-copy">Placement, bundle, harness runtime, model, prompt materialization, env, process argv, driver spec, continuation, hashes.</div>
+              </div>
+              <div class="route-card control">
+                <div class="route-label">Select</div>
+                <div class="route-title">HRC routes over profiles</div>
+                <div class="route-copy">Route decisions select one profile by <span class="inline-code">profileId</span> and <span class="inline-code">profileHash</span>; they do not derive hidden execution profiles.</div>
+              </div>
+              <div class="route-card broker">
+                <div class="route-label">Execute</div>
+                <div class="route-title">Broker owns harness protocols</div>
+                <div class="route-copy">The broker consumes <span class="inline-code">InvocationStartRequest</span>, drives native harnesses, and emits normalized ordered events.</div>
+              </div>
+            </div>
+
+            <div class="callout">
+              <div class="caption">Load-bearing invariant</div>
+              <blockquote>
+                After ASP emits a <span class="inline-code">CompiledRuntimePlan</span>, HRC must not reconstruct, mutate, patch, infer, or synthesize broker execution mechanics.
+              </blockquote>
+            </div>
+          </section>
+
+          <section id="semantic-shifts" aria-labelledby="semantic-shifts-title">
+            <h2 id="semantic-shifts-title"><span class="section-num">01</span> Semantic Shifts</h2>
+            <p class="section-intro">
+              The meaningful change is not only new names. It moves responsibility for execution facts out of HRC and makes runtime selection a typed, audited decision over compiler products.
+            </p>
+            <div class="grid four">
+              <article class="panel shift-card">
+                <span class="badge compiler">ASP</span>
+                <div class="big">From helper API to compiler plane</div>
+                <p class="minor">ASP owns reproducible runtime construction and emits the single immutable product: <span class="inline-code">CompiledRuntimePlan</span>.</p>
+              </article>
+              <article class="panel shift-card">
+                <span class="badge control">HRC</span>
+                <div class="big">From branch mesh to profile selection</div>
+                <p class="minor">HRC chooses a profile, validates policy and capabilities, persists evidence, then delegates mechanics to a controller.</p>
+              </article>
+              <article class="panel shift-card">
+                <span class="badge broker">Broker</span>
+                <div class="big">From wrapper process to execution plane</div>
+                <p class="minor">Harness Broker owns native driver protocols, input disposition, permission requests, and normalized event streams.</p>
+              </article>
+              <article class="panel shift-card">
+                <span class="badge legacy">Legacy</span>
+                <div class="big"><span class="inline-code">exec.ts</span> stops being a boundary</div>
+                <p class="minor">Legacy launch wrappers can exist only as feature-gated migration machinery, not as a place for new harness semantics.</p>
+              </article>
+            </div>
+
+            <div class="compare-row">
+              <div class="compare-card as-is">
+                <span class="badge legacy">As-is</span>
+                <h3>Execution facts are assembled late</h3>
+                <p>HRC launch artifacts, <span class="inline-code">exec.ts</span>, Codex launch detection, spool/callback paths, and native event parsing are entangled in the control plane.</p>
+              </div>
+              <div class="compare-action">replace with</div>
+              <div class="compare-card to-be">
+                <span class="badge compiler">To-be</span>
+                <h3>Execution facts are compiled once</h3>
+                <p>ASP emits complete execution profiles. HRC persists redacted artifacts and sends the selected broker start request unchanged.</p>
+              </div>
+            </div>
+          </section>
+
+          <section id="planes" aria-labelledby="planes-title">
+            <h2 id="planes-title"><span class="section-num">02</span> Contract Planes</h2>
+            <p class="section-intro">
+              The architecture reads as a triangle of ownership, not a wrapper stack. Each plane has an explicit product and forbidden knowledge.
+            </p>
+            <div class="plane-map">
+              <article class="plane compiler">
+                <span class="badge compiler">ASP compiler plane</span>
+                <h3>Owns construction</h3>
+                <ul>
+                  <li>Placement, bundle resolution, target materialization</li>
+                  <li>Harness family/runtime and model resolution</li>
+                  <li>Process command, args, cwd, env</li>
+                  <li>Driver spec, transport descriptor, continuation encoding</li>
+                  <li>Redacted artifacts and semantic hashes</li>
+                </ul>
+              </article>
+              <div class="connector" aria-hidden="true">-&gt;</div>
+              <article class="plane control">
+                <span class="badge control">HRC control plane</span>
+                <h3>Owns admission and lifecycle</h3>
+                <ul>
+                  <li>Identity allocation and operation records</li>
+                  <li>Route admission and selected profile</li>
+                  <li>Reuse, policy, persistence, public API views</li>
+                  <li>Runtime state, reconciliation, stop, dispose</li>
+                  <li>Permission mediation and event projection</li>
+                </ul>
+              </article>
+              <div class="connector" aria-hidden="true">-&gt;</div>
+              <article class="plane broker">
+                <span class="badge broker">Broker execution plane</span>
+                <h3>Owns harness execution</h3>
+                <ul>
+                  <li>Broker process and driver registry</li>
+                  <li>Native harness protocol parsing</li>
+                  <li>Invocation start, input, interrupt, stop, status</li>
+                  <li>Permission requests and normalized event stream</li>
+                  <li>Driver continuation reports and redaction</li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section id="flow" aria-labelledby="flow-title">
+            <h2 id="flow-title"><span class="section-num">03</span> Control Flow</h2>
+            <p class="section-intro">
+              The first concrete target is Codex headless through the broker. This flow is the executable reading of the compiler closure invariant.
+            </p>
+            <div class="timeline">
+              <article class="timeline-step">
+                <div>
+                  <h3>HRC allocates identities before compilation</h3>
+                  <p>Request, operation, runtime, invocation, input, run, and trace IDs enter the compile request so hashes and diagnostics can be correlated end to end.</p>
+                </div>
+              </article>
+              <article class="timeline-step">
+                <div>
+                  <h3>HRC calls <span class="inline-code">compileRuntimePlan(req)</span></h3>
+                  <p>The compile input is the only place HRC can influence broker execution mechanics. Later policy changes require rejection or recompilation.</p>
+                </div>
+              </article>
+              <article class="timeline-step">
+                <div>
+                  <h3>ASP emits a closed plan</h3>
+                  <p><span class="inline-code">CompiledRuntimePlan</span> contains one or more complete <span class="inline-code">RuntimeExecutionProfile</span> values, including a broker profile for admissible Codex headless routes.</p>
+                </div>
+              </article>
+              <article class="timeline-step">
+                <div>
+                  <h3>HRC selects and validates one profile</h3>
+                  <p><span class="inline-code">RuntimeRouteDecision</span> references <span class="inline-code">compileId</span>, <span class="inline-code">planHash</span>, <span class="inline-code">selectedProfileId</span>, and <span class="inline-code">selectedProfileHash</span>.</p>
+                </div>
+              </article>
+              <article class="timeline-step">
+                <div>
+                  <h3>Broker controller passes start request unchanged</h3>
+                  <p><span class="inline-code">HarnessBrokerController</span> starts and supervises the broker process, validates hello/status, then sends ASP's <span class="inline-code">InvocationStartRequest</span>.</p>
+                </div>
+              </article>
+              <article class="timeline-step">
+                <div>
+                  <h3>Events become HRC state through one mapper</h3>
+                  <p>Broker events are persisted by <span class="inline-code">(invocationId, seq)</span> and projected idempotently into runtime, run, message, tool, usage, continuation, and permission records.</p>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="datatypes" aria-labelledby="datatypes-title">
+            <h2 id="datatypes-title"><span class="section-num">04</span> Datatype Surface</h2>
+            <p class="section-intro">
+              The supporting datatype rewrite creates a shared DTO package and names the contract records that carry compiler closure across package boundaries.
+            </p>
+            <div class="grid two">
+              <article class="panel strong">
+                <span class="badge compiler">Package</span>
+                <h3><span class="inline-code">packages/spaces-runtime-contracts</span></h3>
+                <p>Shared IDs, compiler plan, execution profiles, capabilities, route decisions, runtime state, operations, policy, continuation, redaction, hashes, public views, and persistence DTOs.</p>
+                <p class="minor">It must not import HRC server code, broker driver code, or concrete harness implementation packages.</p>
+              </article>
+              <article class="panel strong">
+                <span class="badge compiler">API</span>
+                <h3><span class="inline-code">compileRuntimePlan(req)</span></h3>
+                <p>Agent Spaces owns the compiler API and returns either a complete plan or structured redacted diagnostics. HRC broker-capable routes call this API instead of building broker invocations directly.</p>
+              </article>
+            </div>
+            <div class="record-grid" aria-label="Core contract records">
+              <article class="record">
+                <div class="record-name">RuntimeCompileRequest</div>
+                <div class="record-meta">HRC -> ASP</div>
+                <p>Identity allocation, placement, requested model/harness/runtime, materialization inputs, HRC policy overlays, continuation, and correlation.</p>
+              </article>
+              <article class="record">
+                <div class="record-name">CompiledRuntimePlan</div>
+                <div class="record-meta">ASP product</div>
+                <p>Compiler metadata, plan hashes, identity, placement, resolved bundle, harness/model resolution, profiles, artifacts, secrets, diagnostics.</p>
+              </article>
+              <article class="record">
+                <div class="record-name">RuntimeExecutionProfile</div>
+                <div class="record-meta">Closed strategy</div>
+                <p>Union of terminal, embedded SDK, harness broker, command process, and legacy execution profiles. Each profile is complete or invalid.</p>
+              </article>
+              <article class="record">
+                <div class="record-name">BrokerExecutionProfile</div>
+                <div class="record-meta">Codex headless target</div>
+                <p>Broker protocol, driver, ownership, invocation start request, spec/start hashes, redacted artifacts, policy, continuation, and observability.</p>
+              </article>
+              <article class="record">
+                <div class="record-name">RuntimeRouteDecision</div>
+                <div class="record-meta">HRC route product</div>
+                <p>Selects one compiled profile by ID/hash, names controller, records admission, reuse, product policy, capability resolution, and legacy alias.</p>
+              </article>
+              <article class="record">
+                <div class="record-name">RuntimeState</div>
+                <div class="record-meta">Controller-discriminated</div>
+                <p>Typed runtime metadata replaces mismatched optional blobs. Broker state carries compile, profile, spec, invocation, capability, continuation, permission, and input state.</p>
+              </article>
+            </div>
+            <div class="code-panel" aria-label="Compiler API sketch">
+              <pre><code>compileRuntimePlan(req: RuntimeCompileRequest): Promise&lt;RuntimeCompileResponse&gt;
+
+RuntimeCompileResponse =
+  | { ok: true, plan: CompiledRuntimePlan, diagnostics: CompileDiagnostic[] }
+  | { ok: false, diagnostics: CompileDiagnostic[] }
+
+CompiledRuntimePlan.executionProfiles: RuntimeExecutionProfile[]
+
+RuntimeExecutionProfile =
+  | TerminalExecutionProfile
+  | EmbeddedSdkExecutionProfile
+  | BrokerExecutionProfile
+  | CommandExecutionProfile
+  | LegacyExecutionProfile</code></pre>
+            </div>
+          </section>
+
+          <section id="compile-objects" aria-labelledby="compile-objects-title">
+            <h2 id="compile-objects-title"><span class="section-num">05</span> Compile Objects</h2>
+            <p class="section-intro">
+              These are the full request and response shapes for the compiler boundary. The comments are intentionally inline so reviewers can scan each attribute without cross-referencing the prose sections.
+            </p>
+
+            <article class="contract-object request">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge control">HRC -> ASP</span>
+                  <h3><span class="inline-code">RuntimeCompileRequest</span></h3>
+                  <p>Everything HRC is allowed to say before broker execution mechanics become immutable.</p>
+                </div>
+                <div class="object-chip-row" aria-label="Request concerns">
+                  <span class="badge control">identity</span>
+                  <span class="badge compiler">intent</span>
+                  <span class="badge broker">policy</span>
+                </div>
+              </div>
+              <div class="code-panel" aria-label="RuntimeCompileRequest detail">
+                <pre><code>type RuntimeCompileRequest = {
+  schemaVersion: 'agent-runtime-compile-request/v1' // Selects the compile request wire contract.
+
+  identity: { // HRC-allocated IDs that make the compiled plan auditable and replayable.
+    requestId: RequestId // Correlates this compiler call with the original HRC request.
+    operationId: RuntimeOperationId // Names the HRC control-plane operation being compiled.
+    hostSessionId: HostSessionId // Identifies the user-visible session or conversation continuity.
+    generation: number // Guards against stale runtime/session callbacks after rotation.
+    runtimeId: RuntimeId // Names the reusable runtime HRC will control if admitted.
+    invocationId?: InvocationId // Preallocates broker invocation identity for broker profiles.
+    initialInputId?: InputId // Preallocates the first input ID when an initial prompt exists.
+    runId?: RunId // Preallocates the user-visible run or turn identity.
+    traceId?: TraceId // Carries distributed trace correlation across planes.
+    idempotencyKey?: string // Lets HRC retry compilation without creating a different semantic request.
+  }
+
+  placement: { // Requested workspace/target placement; ASP resolves the bundle from here.
+    kind?: string // Placement strategy or shape identifier from the ASP request/registry.
+    root?: string // Filesystem or workspace root used to resolve the runtime target.
+    targetName?: string // Logical target name when placement points at an ASP target.
+    targetDir?: string // Concrete target directory when already resolved or explicitly supplied.
+    [key: string]: unknown // Extension fields preserved for placement implementations outside this DTO.
+  }
+
+  requested: { // User or route preference before ASP resolves concrete runtime facts.
+    modelProvider?: ProviderDomain // Preferred model provider family, such as anthropic or openai.
+    model?: string // Requested model alias or provider model ID before compiler normalization.
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' // Requested reasoning tier when supported.
+    harnessFamily?: HarnessFamily // Requested harness family, such as claude-code, codex, or pi.
+    preferredHarnessRuntime?: HarnessRuntime // Preferred materialized runtime, such as codex-cli or pi-sdk.
+    interactionMode?: InteractionMode // Requested interaction shape: interactive, headless, or nonInteractive.
+  }
+
+  materialization: { // Inputs ASP may turn into files, env, prompt material, or broker input.
+    initialPrompt?: string // Initial user prompt or launch input to compile into the selected profile.
+    attachments?: AttachmentRef[] // Local files/images/opaque refs ASP validates and materializes.
+    taskContext?: HrcTaskContext // Task metadata, role, evidence requirements, and hints from HRC.
+    resolvedBundleHint?: ResolvedRuntimeBundle // Optional prior bundle resolution to reuse or validate.
+  }
+
+  hrcPolicy: { // HRC product/security overlays that ASP compiles into explicit profile policy.
+    permissionPolicy?: BrokerPermissionPolicy // Permission posture: deny, allow with provenance, or ask-client.
+    inputPolicy?: BrokerInputPolicy // Runtime input behavior such as ready input and busy handling.
+    exposurePolicy?: AgentchatExposurePolicy // Whether the runtime is exposed to Agentchat targets.
+    resourceLimits?: RuntimeResourceLimits // Startup, turn, stop, queue, event, and age limits.
+    observability?: RuntimeObservabilityInput // Trace and telemetry inputs that may affect env/driver config.
+    capabilityPolicy?: HrcCapabilityPolicy // Whether degradation is allowed and which capabilities are required.
+  }
+
+  continuation?: { // Existing HRC/broker continuation key to encode into the new profile.
+    schemaVersion: 'runtime-continuation/v1' // Selects the continuation reference contract.
+    hrc: { // HRC-owned continuation identity used for product/API compatibility.
+      provider: ProviderDomain // Provider that owns the continuation key, such as anthropic or openai.
+      keyHash: string // Stable redacted hash for persistence, matching, and diagnostics.
+      key?: string // Raw key only while needed in memory; persisted artifacts use hashes/digests.
+    }
+    broker?: { // Broker/native continuation identity when the execution plane has its own key.
+      provider: string // Broker or driver provider name that produced the continuation.
+      kind?: 'thread' | 'session' | 'conversation' | string // Native continuation category.
+      keyHash: string // Stable redacted broker continuation hash.
+      key?: string // Raw broker key only while needed to resume or dispatch.
+    }
+    source: 'embedded-sdk' | 'harness-broker' | 'legacy-exec' | 'terminal-hook' // Where the continuation was observed.
+    sourceEvent?: { // Event evidence tying the continuation back to a broker/controller fact.
+      invocationId?: InvocationId // Broker invocation that reported the continuation.
+      eventSeq?: number // Ordered broker event sequence where the continuation was seen.
+      eventType?: string // Event type that carried the continuation payload.
+    }
+    observedAt: IsoTimestamp // When HRC observed or persisted this continuation reference.
+  }
+
+  correlation: { // Non-authoritative correlation copied into diagnostics, artifacts, and broker observability.
+    requestId: RequestId // Repeats request correlation for consumers that do not inspect identity.
+    operationId?: RuntimeOperationId // Optional operation correlation for follow-up inputs or inspections.
+    hostSessionId: HostSessionId // Session continuity for logs, public views, and artifacts.
+    generation: number // Generation correlation used during stale callback/reconcile checks.
+    runtimeId?: RuntimeId // Runtime correlation when the target runtime already exists.
+    runId?: RunId // Run correlation when this compile belongs to a user-visible turn.
+    invocationId?: InvocationId // Broker invocation correlation when one is already allocated.
+    traceId?: TraceId // Distributed trace ID for observability backends.
+    appId?: string // Optional application/client identifier for public API consumers.
+    appSessionKey?: string // Optional app-specific session key for client-side grouping.
+    scopeRef?: string // Optional agent scope reference, such as cody@agent-spaces.
+    laneRef?: string // Optional parallel lane identifier within the scope.
+  }
+}</code></pre>
+              </div>
+              <div class="contract-legend" aria-label="Schema color legend">
+                <span class="legend-item"><span class="legend-swatch field"></span>fields</span>
+                <span class="legend-item"><span class="legend-swatch type"></span>types</span>
+                <span class="legend-item"><span class="legend-swatch literal"></span>literals</span>
+                <span class="legend-item"><span class="legend-swatch comment"></span>comments</span>
+              </div>
+            </article>
+
+            <article class="contract-object response">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge compiler">ASP -> HRC</span>
+                  <h3><span class="inline-code">RuntimeCompileResponse</span></h3>
+                  <p>The immutable compiler product HRC may select, persist, reject, or send unchanged to the broker.</p>
+                </div>
+                <div class="object-chip-row" aria-label="Response concerns">
+                  <span class="badge compiler">plan</span>
+                  <span class="badge control">profiles</span>
+                  <span class="badge broker">hashes</span>
+                </div>
+              </div>
+              <div class="code-panel" aria-label="RuntimeCompileResponse detail">
+                <pre><code>type RuntimeCompileResponse =
+  | {
+      schemaVersion: 'agent-runtime-compile-response/v1' // Selects the compile response wire contract.
+      ok: true // Means ASP produced a complete plan HRC may route over.
+      plan: CompiledRuntimePlan // The closed compiler product; HRC must not fill in missing mechanics.
+      diagnostics: CompileDiagnostic[] // Redacted warnings/info that remain useful even when compilation succeeds.
+    }
+  | {
+      schemaVersion: 'agent-runtime-compile-response/v1' // Same response schema for failed compilation.
+      ok: false // Means HRC must reject or recompile; it cannot patch missing mechanics.
+      diagnostics: CompileDiagnostic[] // Redacted errors/warnings explaining why no usable plan was emitted.
+    }
+
+type CompiledRuntimePlan = {
+  schemaVersion: 'agent-runtime-plan/v1' // Selects the immutable runtime plan schema.
+  compiler: { // Identifies the compiler implementation that produced the plan.
+    name: 'agent-spaces' // Compiler owner; keeps the plan attributable to ASP.
+    version: string // Compiler version used for diagnostics, hashing, and migration checks.
+  }
+  compileId: CompileId // Unique compiler attempt ID for artifacts, route decisions, and operations.
+  planHash: PlanHash // Semantic hash of the complete plan with raw secrets removed or digested.
+  redactedPlanHash: RedactedPlanHash // Hash of the exact redacted artifact HRC may persist.
+  createdAt: IsoTimestamp // Compile timestamp; audit evidence excluded from semantic hashes.
+
+  identity: RuntimeIdentityAllocation // Echoes HRC-allocated IDs embedded into profiles and start requests.
+  placement: { // Placement request ASP compiled from.
+    kind?: string // Placement strategy or shape identifier from the ASP request/registry.
+    root?: string // Filesystem or workspace root used to resolve the runtime target.
+    targetName?: string // Logical target name when placement points at an ASP target.
+    targetDir?: string // Concrete target directory when already resolved or explicitly supplied.
+    [key: string]: unknown // Extension fields preserved for placement implementations outside this DTO.
+  }
+  resolvedBundle: ResolvedRuntimeBundle // Concrete bundle/materialization result ASP selected.
+
+  harness: { // Resolved harness identity after ASP catalog and placement decisions.
+    family: HarnessFamily // Harness family, such as codex, pi, or claude-code.
+    runtime: HarnessRuntime // Concrete runtime implementation, such as codex-cli or claude-agent-sdk.
+    provider: ProviderDomain // Model provider domain for credentials and continuation compatibility.
+  }
+
+  model: { // Resolved model selection that the selected runtime will use.
+    provider: ProviderDomain // Provider domain after normalization.
+    modelId: string // Authoritative provider model ID emitted by ASP.
+    requestedModel?: string // Original user/API model value when it differs from modelId.
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' // Resolved reasoning tier when present.
+  }
+
+  executionProfiles: RuntimeExecutionProfile[] // Complete strategies HRC can select; HRC may not complete them.
+
+  artifacts: { // File/bundle artifacts that let HRC persist evidence without owning construction.
+    materializedBundleRoot?: string // Filesystem root of the resolved runtime bundle.
+    systemPromptFile?: string // Materialized system prompt path when ASP writes one.
+    userPromptFile?: string // Materialized user prompt path when ASP writes one.
+    lockHash?: string // Bundle lock hash used to reason about reproducibility.
+    bundleIdentity: string // Stable identity of the resolved bundle.
+  }
+
+  secrets: { // Secret classification evidence without exposing raw secret values.
+    envKeys: string[] // Environment keys present in the executable request.
+    secretEnvKeys: string[] // Environment keys classified as secrets and excluded from persisted artifacts.
+    secretDigests?: Record&lt;string, SecretDigest&gt; // Stable scoped digests for secret-aware hashes.
+  }
+
+  diagnostics: CompileDiagnostic[] // Plan-scoped compiler facts, warnings, or errors.
+}
+
+type CompileDiagnostic = {
+  level: 'info' | 'warning' | 'error' // Severity HRC uses for admission and public warnings.
+  code: string // Stable machine-readable diagnostic code.
+  message: string // Human-readable redacted explanation for logs and review.
+  plane: 'asp-compiler' // Names the source plane; compiler diagnostics are not runtime events.
+  profileId?: ProfileId // Optional profile-specific target for the diagnostic.
+  redactedDetails?: unknown // Structured details with secrets removed or replaced by digests.
+}</code></pre>
+              </div>
+              <div class="contract-legend" aria-label="Schema color legend">
+                <span class="legend-item"><span class="legend-swatch field"></span>fields</span>
+                <span class="legend-item"><span class="legend-swatch type"></span>types</span>
+                <span class="legend-item"><span class="legend-swatch literal"></span>literals</span>
+                <span class="legend-item"><span class="legend-swatch comment"></span>comments</span>
+              </div>
+            </article>
+          </section>
+
+          <section id="rules" aria-labelledby="rules-title">
+            <h2 id="rules-title"><span class="section-num">06</span> Rules That Matter</h2>
+            <p class="section-intro">
+              These are the review rules that should be visible in any implementation plan. They are where the compiler rewrite prevents the old architecture from reappearing under new names.
+            </p>
+            <div class="rule-grid">
+              <article class="rule must">
+                <h3>HRC may select</h3>
+                <p>HRC can select one profile already present in the compiled plan, reject it, persist redacted artifacts, validate capabilities, and ask ASP to recompile.</p>
+              </article>
+              <article class="rule must-not">
+                <h3>HRC must not complete</h3>
+                <p>HRC cannot create or mutate <span class="inline-code">HarnessInvocationSpec</span>, <span class="inline-code">InvocationStartRequest</span>, driver config, process argv/env/cwd, or prompt materialization.</p>
+              </article>
+              <article class="rule watch">
+                <h3>Policy changes recompile</h3>
+                <p>If placement, model, harness, continuation, permissions, prompt materialization, environment, or driver requirements change, the answer is recompile, not patch.</p>
+              </article>
+            </div>
+            <div class="compare-row">
+              <div class="compare-card as-is">
+                <span class="badge legacy">Forbidden for broker routes</span>
+                <h3>HRC invoking <span class="inline-code">launch/exec.ts</span></h3>
+                <p>No broker-capable path may shell through a launch artifact, rely on callback/spool delivery as the event bus, or parse native harness output.</p>
+              </div>
+              <div class="compare-action">enforce via</div>
+              <div class="compare-card to-be">
+                <span class="badge control">Boundary checks</span>
+                <h3>Static checks plus route tests</h3>
+                <p>CI should reject concrete harness driver imports, broker spec construction/mutation in HRC paths, and any Codex broker route that spawns legacy execution.</p>
+              </div>
+            </div>
+          </section>
+
+          <section id="gates" aria-labelledby="gates-title">
+            <h2 id="gates-title"><span class="section-num">07</span> Review Gates</h2>
+            <p class="section-intro">
+              This first pass treats these as acceptance gates for the compiler rewrite slice, not for the entire runtime-control refactor.
+            </p>
+            <div class="gate-grid">
+              <article class="gate">
+                <strong>Plan completeness</strong>
+                <span>ASP emits versioned, hashable, redacted <span class="inline-code">CompiledRuntimePlan</span> artifacts for supported runtime shapes.</span>
+              </article>
+              <article class="gate">
+                <strong>Broker profile completeness</strong>
+                <span>Codex headless emits a complete <span class="inline-code">BrokerExecutionProfile</span> with start request, hashes, policy, capabilities, continuation, and observability.</span>
+              </article>
+              <article class="gate">
+                <strong>Compiler determinism</strong>
+                <span>Plan, profile, compatibility, spec, and start-request hashes are stable and change when process or driver mechanics change.</span>
+              </article>
+              <article class="gate">
+                <strong>Secret discipline</strong>
+                <span>Redacted plans/specs/start requests contain no raw secrets; persisted secret evidence uses scoped digests or secret refs.</span>
+              </article>
+              <article class="gate">
+                <strong>Route selection</strong>
+                <span>HRC route decisions select execution profiles from compiled plans and derive legacy <span class="inline-code">transport</span> aliases only for public compatibility.</span>
+              </article>
+              <article class="gate">
+                <strong>Boundary proof</strong>
+                <span>HRC broker paths do not import driver internals, parse native harness events, spawn <span class="inline-code">exec.ts</span>, or assign broker spec/process fields.</span>
+              </article>
+            </div>
+          </section>
+
+          <section id="review" aria-labelledby="review-title">
+            <h2 id="review-title"><span class="section-num">08</span> Review Pressure Points</h2>
+            <p class="section-intro">
+              These are the architectural questions that stand out from the first pass and should be resolved before the UI/UX or remaining refactor pages are pulled in.
+            </p>
+            <div class="question">
+              <h3>Does HRC need any non-mechanical overlay after compilation?</h3>
+              <p>The contracts allow explicit HRC overlays only when they do not mutate process or driver mechanics. That boundary should be concrete in code and tests.</p>
+            </div>
+            <div class="question">
+              <h3>Is <span class="inline-code">RuntimeExecutionProfileKind = RuntimeControllerKind</span> intentional long-term?</h3>
+              <p>The final datatypes make profile kind and controller kind share values such as <span class="inline-code">terminal</span> and <span class="inline-code">harness-broker</span>. That is tidy, but it may constrain future cases where one controller can execute multiple profile families.</p>
+            </div>
+            <div class="question">
+              <h3>Where does the final permission event vocabulary freeze?</h3>
+              <p>The contract notes that <span class="inline-code">invocation.permission.request</span> should be normalized or explicitly versioned as a broker-to-client request method. This should settle before protocol freeze.</p>
+            </div>
+            <div class="question">
+              <h3>How hard is the legacy deletion line?</h3>
+              <p>The deletion criterion is strong: no broker-capable harness execution path in HRC may depend on <span class="inline-code">exec.ts</span>, launch artifacts, callback/spool delivery, native protocol parsing, or HRC reconstruction.</p>
+            </div>
+
+            <h2><span class="section-num">Sources</span> Markdown Inputs</h2>
+            <ul class="source-list">
+              <li><span class="inline-code">refactor/AGENT_RUNTIME_CONTRACT_PLANE_SPEC.md</span> - primary architecture and invariant language</li>
+              <li><span class="inline-code">refactor/FINAL_CONTRACTS.md</span> - normative contract surface and gates</li>
+              <li><span class="inline-code">refactor/FINAL_DATATYPES.md</span> - canonical DTO and record shapes</li>
+              <li><span class="inline-code">refactor/REFACTOR_PLAN.md</span> - vocabulary and migration framing</li>
+            </ul>
+          </section>
+
+          <footer>
+            Generated from local markdown specs in <span class="inline-code">./refactor</span>. Artifact: compiler rewrite with supporting datatypes/contracts. Remaining refactor proposal pages are deferred for later passes.
+          </footer>
+        </div>
+      </main>
+    </div>
+    <script src="assets/contract-viewer.js" defer></script>
+  </body>
+</html>

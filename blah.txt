@@ -1,0 +1,353 @@
+HRC runtime architecture
+Separate runtime intent from runtime control.
+The codebase already treats provisioning and runtime control as different decisions. The improvement path is to make that separation a first-class model instead of a set of predicates and stringly runtime rows spread across the server.
+
+Recommendations
+Type Evolution
+Re-imagined Model
+Provisioning Contract
+What agent harness should exist, where it should run, and which model provider it uses.
+
+HrcRuntimeIntent
+RuntimePlacement
+modelProvider
+agentHarness
+harnessRuntime
+Daemon Routing Policy
+The server interprets the intent, reuses or creates runtime rows, and selects a lane.
+
+RuntimeRouteDecision
+interactionMode
+startupMethod
+turnDelivery
+reusePolicy
+Runtime Control
+How HRC controls, observes, and delivers input after the runtime has been selected.
+
+runtimeController
+tmux
+ghostty
+embedded-sdk
+managed-child-process
+Context
+The separation exists, but it is implicit.
+Requests describe placement, model provider, and desired harness. Runtime records, run records, lifecycle events, and responses report HRC's selected runtime controller. The split is visible in contracts, adapters, persistence, and transport managers.
+
+Provisioning
+HrcRuntimeIntent carries placement, model provider, harness preference, interaction preference, launch env, prompt material, attachments, and task context.
+
+No HRC runtime-controller field on the intent.
+Agent Spaces resolves bundle, cwd, prompt, env, model, and harness runtime details.
+Routing
+hrc-server decides whether the intent becomes an attachable terminal runtime, an embedded SDK turn, or a managed child process.
+
+Policy predicates are concentrated near the bottom of index.ts.
+Call paths are still interleaved inside the server monolith.
+Runtime Control
+Runtime controllers know control mechanics, not placement, model, or bundle semantics.
+
+TmuxManager: panes, send keys, capture, attach, terminate.
+GhostmuxManager: surfaces, send keys, capture, attach, terminate.
+Type Evolution
+As-is and to-be, split by type.
+The current vocabulary mixes product intent, invocation mechanics, runtime lanes, and state payloads. The proposed model renames provider intent to modelProvider, splits requested harness from materialized harness runtime, tightens runtime control into an HRC-owned controller, and keeps runtimeState as the missing type that makes invalid combinations unrepresentable.
+
+Agent Spaces contract
+HRC contract/internal
+cross-repo migration
+provider
+shared
+As-is
+Model vendor family
+Provider names the model family and continuation owner. The name is too generic once harnesses, model APIs, and continuation providers appear in the same contract.
+
+'anthropic'
+'openai'
+keep
+Keep the noun; sharpen ownership.
+
+modelProvider
+ASP
+HRC mirror
+To-be
+Model and continuation owner
+Rename the cross-repo field to modelProvider. It owns credentials, model options, and continuation compatibility; HRC should mirror the term at its boundary.
+
+anthropic
+openai
+future providers
+harness
+shared
+As-is
+Requested harness plus runtime label
+HrcHarness carries requested agent behavior, CLI frontend names, SDK frontend names, and runtime labels in one union.
+
+'claude-code'
+'codex-cli'
+'agent-sdk'
+'pi-sdk'
+split
+Separate requested experience from execution form.
+
+agentHarness
+ASP
+HRC mirror
+To-be
+Requested agent harness
+Replace overloaded harness intent with agentHarness: the product family the caller wants before CLI, SDK, app-server, or HRC runtime controller is selected. Prefer this over harnessProvider; provider is reserved for modelProvider. Do not use surface; that word belongs to terminal/visual control.
+
+claude-code
+codex
+pi
+future harnesses
+frontend
+ASP
+As-is
+Adapter-inferred runtime selector
+Agent Spaces already exposes HarnessFrontend for CLI and SDK choices. The name sounds UI-oriented even though the value selects a runtime implementation.
+
+cli-adapter
+sdk-adapter
+ProcessInvocationSpec
+clarify
+Name the runtime after provisioning resolves.
+
+harnessRuntime
+ASP
+HRC mirror
+To-be
+Materialized harness runtime
+Recommended replacement for frontend. It covers CLI executables, SDK runners, and app-server-backed harnesses. Use claude-code-cli for the CLI runtime and claude-agent-sdk for the Anthropic SDK runtime, so the names do not collide with model or generic SDK vocabulary.
+
+claude-code-cli
+codex-cli
+pi-cli
+claude-agent-sdk
+pi-sdk
+transport
+HRC
+As-is
+HRC control lane, loosely typed
+Transport is stored on runtimes, runs, and events, but some core records still expose it as string. The values mix control carriers with execution and interaction concepts.
+
+'tmux'
+'ghostty'
+'sdk'
+'headless'
+tighten
+Turn the lane into a strict control-plane discriminant.
+
+runtimeController
+HRC
+To-be
+Strict runtime controller
+Rename the HRC-owned field and restrict it to the controller that owns lifecycle, input, observation, reuse, and teardown for a runtime. headless becomes an interaction mode; sdk becomes a harness runtime or turn delivery path.
+
+tmux
+ghostty
+embedded-sdk
+managed-child-process
+turnDelivery
+HRC
+As-is
+Does not exist
+The distinction is implicit in call paths. The old executionBackend proposal duplicated harnessRuntime; the missing HRC concept is how a turn is delivered to that runtime.
+
+hidden in routing branches
+add
+Net-new type: add the turn delivery mechanism.
+
+turnDelivery
+HRC internal
+To-be
+Dispatch mechanism
+Names how HRC delivers a start, prompt, or follow-up turn after Agent Spaces has selected the harness runtime. This is routing state, not another runtime identity.
+
+launch-input
+literal-input
+sdk-turn
+inflight-queue
+broker-input
+runtimeState
+HRC
+As-is
+Does not exist as a discriminant
+Runtime metadata is a set of optional opaque JSON fields: tmuxJson, surfaceJson, and harnessSessionJson.
+
+optional records
+runtime checks
+impossible states
+add
+Net-new type: add runtime-controller-bound state variants.
+
+runtimeState
+HRC
+To-be
+Controller-specific metadata
+A typed state payload tied to runtimeController. A tmux runtime has pane state; a Ghostty runtime has surface state; embedded SDK and managed child-process runtimes get their own state shapes.
+
+tmux pane state
+ghostty surface state
+embedded SDK session state
+managed child-process state
+subtractions
+shared
+As-is
+Accidental responsibilities
+Some names carry too much: HrcHarness doubles as runtime vocabulary, frontend sounds like UI, transport accepts arbitrary strings, and runtime records allow metadata that does not match the selected runtime controller.
+
+mixed harness union
+frontend naming
+transport: string
+optional state mismatch
+remove
+Remove overloads instead of wrapping them.
+
+subtractions
+migration
+To-be
+Removed from the model
+The cleanest new type is sometimes the absence of an old responsibility.
+
+no agentSurface term
+no frontend field name
+no sdk/headless transport
+no duplicate executionBackend
+no mismatched runtimeState
+Decision: sdk and headless are not controllers
+Today, sdk means HRC is running an Agent Spaces SDK turn in process, while headless means the runtime is not attachable and may be backed by either SDK or CLI execution. In the proposed vocabulary, SDK is expressed by harnessRuntime, startupMethod, or turnDelivery; headless is expressed by interactionMode.
+
+Recommendations
+Make the existing boundary executable.
+The goal is not a large rewrite. The path is to name the hidden decision points, type the impossible states out of existence, and let server modules reflect the architecture already present in the contracts.
+
+1
+Extract a RuntimeRouteDecision module.
+Centralize the current predicates into a pure routing function that returns an explicit decision: model provider, agent harness, harness runtime, runtime controller, interaction mode, startup method, turn delivery, reuse strategy, and whether provisioning must normalize the harness to interactive.
+
+Most important because drift here affects runtime identity, reuse, attach behavior, and whether a turn goes through literal terminal input, SDK execution, a broker invocation, or a managed CLI launch.
+2
+Rename transport to runtimeController.
+Keep the HRC-owned field for runtime lifecycle/control semantics only. Remove sdk and headless from controller values; model them as harnessRuntime, interactionMode, and turnDelivery.
+
+This answers the current ambiguity directly: SDK is how a harness runs; headless is how it interacts with the host.
+3
+Use discriminated runtime state.
+Replace opaque optional tmuxJson and surfaceJson checks with runtime-controller-specific runtime variants. Make it impossible to represent runtimeController: 'tmux' without tmux pane metadata.
+
+This reduces defensive runtime checks and makes attach/capture/literal-send capabilities a property of the type, not repeated conditionals.
+4
+Rename the Agent Spaces contract nouns.
+Move provider toward modelProvider and frontend toward harnessRuntime in Agent Spaces first, then mirror the aliases in HRC during migration.
+
+Agent Spaces owns placement, harness catalog, model resolution, and invocation specs; HRC should consume those names rather than re-invent them.
+5
+Split the server file around actual responsibilities.
+Extract small modules for routing, interactive runtime provisioning, SDK dispatch, managed child-process execution, launch artifact building, startup, turn delivery, and controller operations.
+
+The system is conceptually modular already; file boundaries should make that clear.
+Re-imagined
+Runtime controller names HRC control.
+A small vocabulary shift would remove the biggest ambiguity. Agent Spaces owns the requested harness and materialized harness runtime. HRC owns runtime controller, runtime state, reuse, and turn delivery.
+
+type AgentRuntimeIntent = {
+  placement: RuntimePlacement
+  modelProvider: 'anthropic' | 'openai'
+  agentHarness?: 'claude-code' | 'codex' | 'pi'
+  preferredHarnessRuntime?: HarnessRuntime
+  interactionMode?: 'interactive' | 'headless' | 'nonInteractive'
+}
+Cross-repo target: Agent Spaces owns these request nouns; HRC mirrors them in intent.
+
+type RuntimeRouteDecision =
+  | {
+      runtimeController: 'tmux' | 'ghostty'
+      harnessRuntime: 'claude-code-cli' | 'codex-cli' | 'pi-cli'
+      interactionMode: 'interactive'
+      startupMethod: 'reuse-existing' | 'launch-artifact' | 'adopt-existing'
+      turnDelivery: 'launch-input' | 'literal-input'
+      attachable: true
+      capture: true
+    }
+  | {
+      runtimeController: 'embedded-sdk'
+      harnessRuntime: 'claude-agent-sdk' | 'pi-sdk'
+      interactionMode: 'nonInteractive'
+      startupMethod: 'reuse-existing' | 'sdk-session'
+      turnDelivery: 'sdk-turn' | 'inflight-queue'
+      attachable: false
+      capture: false
+    }
+  | {
+      runtimeController: 'managed-child-process'
+      harnessRuntime: 'codex-cli'
+      interactionMode: 'headless'
+      startupMethod: 'launch-artifact' | 'broker-invocation'
+      turnDelivery: 'launch-input' | 'broker-input'
+      attachable: false
+      capture: false
+    }
+Proposed: one HRC decision explains control, runtime, interaction, delivery, and capability implications without a duplicate execution-backend noun.
+
+Routing table
+Provider	Harness	Runtime	Controller	Mode	Startup	Turn delivery	Attach	Capture
+anthropic	claude-code	claude-code-cli	tmux	interactive	launch-artifact, reuse-existing, adopt-existing	launch-input, literal-input	yes	yes
+anthropic	claude-code	claude-code-cli	ghostty	interactive	launch-artifact, reuse-existing, adopt-existing	launch-input, literal-input	yes	yes
+openai	codex	codex-cli	tmux	interactive	launch-artifact, reuse-existing, adopt-existing	launch-input, literal-input	yes	yes
+openai	pi	pi-cli	tmux	interactive	launch-artifact, reuse-existing, adopt-existing	launch-input, literal-input	yes	yes
+anthropic	claude-code	claude-agent-sdk	embedded-sdk	nonInteractive	sdk-session	sdk-turn	no	no
+anthropic	claude-code	claude-agent-sdk	embedded-sdk	nonInteractive	reuse-existing	inflight-queue	no	no
+openai	pi	pi-sdk	embedded-sdk	nonInteractive	sdk-session	sdk-turn	no	no
+openai	pi	pi-sdk	embedded-sdk	nonInteractive	reuse-existing	inflight-queue	no	no
+openai	codex	codex-cli	managed-child-process	headless	launch-artifact	launch-input	no	no
+openai	codex	codex-cli	managed-child-process	headless	broker-invocation	broker-input	no	no
+Use this catalog for partial input validation, candidate search during route resolution, and exact validation of the resolved RuntimeRouteDecision. External callers provide intent; HRC chooses one legal route.
+
+Runtime state shape
+type RuntimeSnapshot =
+  | {
+      runtimeController: 'tmux'
+      runtimeState: { kind: 'tmux'; pane: TmuxPaneState }
+      capabilities: { attach: true; capture: true; literalInput: true }
+    }
+  | {
+      runtimeController: 'ghostty'
+      runtimeState: { kind: 'ghostty'; surface: GhosttySurfaceState }
+      capabilities: { attach: true; capture: true; literalInput: true }
+    }
+  | {
+      runtimeController: 'embedded-sdk'
+      runtimeState: { kind: 'embedded-sdk'; harnessSession?: HarnessSessionState }
+      capabilities: { attach: false; capture: false; inflightInput: boolean }
+    }
+  | {
+      runtimeController: 'managed-child-process'
+      runtimeState: {
+        kind: 'managed-child-process'
+        continuation?: HrcContinuationRef
+        childPid?: number
+        brokerInvocationId?: string
+      }
+      capabilities: { attach: false; capture: false; inflightInput: false }
+    }
+Code Anchors
+Where this comes from.
+These are the local code anchors that show the current design and the pressure points behind the recommendations.
+
+Visual cue discipline
+Red is reserved for the top three changes because those are the highest leverage architectural fixes. Neutral panels carry context. Ownership chips mark whether a term is part of the Agent Spaces contract, HRC contract/internal model, or a cross-repo migration. Teal and rust still mark the two sides of the central boundary: runtime control and provisioning.
+
+packages/hrc-core/src/contracts.ts: intent, transport, runtime, run, launch types.
+packages/hrc-core/src/http-contracts.ts: request intent versus response transport.
+packages/hrc-core/src/hrcchat-contracts.ts: selector dispatch and target runtime views.
+packages/hrc-store-sqlite/src/migrations.ts: session intent storage versus runtime/run transport storage.
+packages/hrc-server/src/agent-spaces-adapter/cli-adapter.ts: provisioning to process invocation.
+packages/hrc-server/src/agent-spaces-adapter/sdk-adapter.ts: provisioning to SDK turn.
+packages/hrc-server/src/index.ts: routing, dispatch, start, ensure, headless, SDK, and interactive paths.
+packages/hrc-server/src/tmux.ts: tmux transport mechanics.
+packages/hrc-server/src/ghostmux.ts: Ghostty transport mechanics.
+../agent-spaces/packages/config/src/core/types/harness.ts: current HarnessProvider, HarnessFrontend, and HarnessTransport catalog.
+../agent-spaces/packages/agent-spaces/src/types.ts: current Agent Spaces invocation and non-interactive turn contracts.
+../agent-spaces/packages/harness-broker-protocol/src/invocation.ts: harness descriptor, process transport, and interaction mode vocabulary.
+Generated as a local architecture explainer for hrc-runtime. The document is intentionally static so it can be opened directly or checked into repo docs without a build step.
+
