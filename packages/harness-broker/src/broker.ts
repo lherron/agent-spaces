@@ -20,10 +20,14 @@ import type {
   PermissionDecision,
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import {
+  BrokerErrorCode,
+  validateCommand,
+  validateInvocationStartRequest,
+} from 'spaces-harness-broker-protocol'
 import type { Driver } from './drivers/driver'
 import { createDriverRegistry } from './drivers/registry'
-import { BrokerError } from './errors'
+import { BrokerError, toInvalidParamsBrokerError } from './errors'
 import { createInvocationEventSequencer } from './events'
 import { createInvocationManager } from './invocation-manager'
 
@@ -72,26 +76,7 @@ export function createBroker(options: BrokerOptions): Broker {
 
   return {
     async hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse> {
-      // Validate required params (Phase 3 carry-over: broker.hello param validation gap)
-      if (!req || typeof req !== 'object') {
-        throw new BrokerError(-32602 as BrokerErrorCode, 'Invalid params: expected object')
-      }
-      if (
-        !req.clientInfo ||
-        typeof req.clientInfo !== 'object' ||
-        typeof req.clientInfo.name !== 'string'
-      ) {
-        throw new BrokerError(
-          -32602 as BrokerErrorCode,
-          'Invalid params: clientInfo.name is required'
-        )
-      }
-      if (!Array.isArray(req.protocolVersions) || req.protocolVersions.length === 0) {
-        throw new BrokerError(
-          -32602 as BrokerErrorCode,
-          'Invalid params: protocolVersions must be a non-empty array'
-        )
-      }
+      validateBrokerParams('broker.hello', req)
 
       const supported = req.protocolVersions.includes('harness-broker/0.1')
       if (!supported) {
@@ -122,7 +107,8 @@ export function createBroker(options: BrokerOptions): Broker {
       }
     },
 
-    async health(_req: BrokerHealthRequest): Promise<BrokerHealthResponse> {
+    async health(req: BrokerHealthRequest): Promise<BrokerHealthResponse> {
+      validateBrokerParams('broker.health', req)
       return {
         status: 'ok',
         activeInvocations: manager.activeCount(),
@@ -130,6 +116,12 @@ export function createBroker(options: BrokerOptions): Broker {
     },
 
     start(req: InvocationStartRequest): Promise<InvocationStartResponse> {
+      try {
+        validateInvocationStartRequest(req)
+      } catch (err) {
+        return Promise.reject(toInvalidParamsBrokerError(err) ?? err)
+      }
+
       const driverKind = req.spec.harness.driver
       const driver = registry.get(driverKind)
       if (!driver) {
@@ -151,6 +143,12 @@ export function createBroker(options: BrokerOptions): Broker {
     },
 
     input(req: InvocationInputRequest): Promise<InvocationInputResponse> {
+      try {
+        validateBrokerParams('invocation.input', req)
+      } catch (err) {
+        return Promise.reject(toInvalidParamsBrokerError(err) ?? err)
+      }
+
       // Non-async: suppress unhandled rejection for turn timeout scenarios
       const result = manager.input(req)
       result.catch(() => {})
@@ -158,19 +156,31 @@ export function createBroker(options: BrokerOptions): Broker {
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
+      validateBrokerParams('invocation.interrupt', req)
       return manager.interrupt(req)
     },
 
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {
+      validateBrokerParams('invocation.stop', req)
       return manager.stop(req)
     },
 
     async status(req: InvocationStatusRequest): Promise<InvocationStatusResponse> {
+      validateBrokerParams('invocation.status', req)
       return manager.status(req.invocationId)
     },
 
     async dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse> {
+      validateBrokerParams('invocation.dispose', req)
       return manager.dispose(req)
     },
+  }
+}
+
+function validateBrokerParams(method: string, params: unknown): void {
+  try {
+    validateCommand({ jsonrpc: '2.0', id: 'broker_facade_validation', method, params })
+  } catch (err) {
+    throw toInvalidParamsBrokerError(err) ?? err
   }
 }

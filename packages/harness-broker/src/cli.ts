@@ -6,6 +6,7 @@ import type {
   PermissionDecision,
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
+import { validateCommand } from 'spaces-harness-broker-protocol'
 import { createBroker } from './broker'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
 import { createProtocolServer } from './protocol-server'
@@ -80,35 +81,47 @@ function runStdio(): void {
     server.request<PermissionDecision>('invocation.permission.request', params)
   )
 
-  server.register('broker.hello', async ({ params }) => {
+  function validateParams(method: string, id: string | number | null, params: unknown): void {
+    validateCommand({ jsonrpc: '2.0', id, method, params })
+  }
+
+  server.register('broker.hello', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.hello(params as Parameters<typeof broker.hello>[0])
   })
 
-  server.register('broker.health', async ({ params }) => {
+  server.register('broker.health', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.health((params ?? {}) as Parameters<typeof broker.health>[0])
   })
 
-  server.register('invocation.start', async ({ params }) => {
+  server.register('invocation.start', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.start(params as Parameters<typeof broker.start>[0])
   })
 
-  server.register('invocation.input', async ({ params }) => {
+  server.register('invocation.input', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.input(params as Parameters<typeof broker.input>[0])
   })
 
-  server.register('invocation.interrupt', async ({ params }) => {
+  server.register('invocation.interrupt', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.interrupt(params as Parameters<typeof broker.interrupt>[0])
   })
 
-  server.register('invocation.stop', async ({ params }) => {
+  server.register('invocation.stop', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.stop(params as Parameters<typeof broker.stop>[0])
   })
 
-  server.register('invocation.status', async ({ params }) => {
+  server.register('invocation.status', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.status(params as Parameters<typeof broker.status>[0])
   })
 
-  server.register('invocation.dispose', async ({ params }) => {
+  server.register('invocation.dispose', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.dispose(params as Parameters<typeof broker.dispose>[0])
   })
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
+import type { Driver } from '../src/drivers/driver'
 import { createNoopDriver } from '../src/drivers/noop-driver'
 import { noopCapabilities, noopSpec } from './helpers'
 
@@ -78,6 +79,35 @@ describe('broker lifecycle', () => {
     ).rejects.toMatchObject({
       code: BrokerErrorCode.InvalidInvocationState,
     })
+  })
+
+  test('invocation.start validates the request before invoking a driver', async () => {
+    let startCalls = 0
+    const driver: Driver = {
+      kind: 'noop-driver',
+      version: 'test',
+      capabilities: () => noopCapabilities,
+      start: async () => {
+        startCalls += 1
+        return { ok: true }
+      },
+      applyInputNow: async () => ({}),
+      interrupt: async () => ({ accepted: false, effect: 'unsupported' }),
+      stop: async () => ({ accepted: true, state: 'exited' }),
+      dispose: async () => {},
+    }
+    const broker = createBroker({ drivers: [driver] })
+
+    await expect(
+      broker.start({
+        spec: noopSpec(),
+        initialInput: { kind: 'bogus', content: [{ type: 'text', text: 'hello' }] } as never,
+      })
+    ).rejects.toMatchObject({
+      code: -32602,
+      data: { issues: expect.any(Array) },
+    })
+    expect(startCalls).toBe(0)
   })
 
   test('invocation.dispose succeeds after terminal state', async () => {
