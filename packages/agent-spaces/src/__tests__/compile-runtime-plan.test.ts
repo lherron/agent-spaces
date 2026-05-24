@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 
 import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
@@ -312,6 +312,37 @@ describe('compileRuntimePlan broker profile contract', () => {
       firstProfile.harnessInvocation.startRequestHash
     )
     expect(modelChangedProfile.compatibilityHash).not.toBe(firstProfile.compatibilityHash)
+  })
+
+  test('changes compatibilityHash when process.pathPrepend changes', async () => {
+    const toolsBinDir = join(fixture.agentRoot, 'tools', 'bin')
+    const originalPath = process.env['PATH']
+    mkdirSync(toolsBinDir, { recursive: true })
+
+    try {
+      process.env['PATH'] = originalPath
+      const withPathPrepend = await createClient().compileRuntimePlan(baseCompileRequest())
+
+      process.env['PATH'] =
+        originalPath === undefined ? toolsBinDir : `${toolsBinDir}${delimiter}${originalPath}`
+      const withoutPathPrepend = await createClient().compileRuntimePlan(baseCompileRequest())
+
+      const withProfile = brokerProfile(withPathPrepend)
+      const withoutProfile = brokerProfile(withoutPathPrepend)
+
+      expect(withProfile.harnessInvocation.startRequest.spec.process.pathPrepend).toEqual([
+        toolsBinDir,
+      ])
+      expect(withoutProfile.harnessInvocation.startRequest.spec.process.pathPrepend).toBeUndefined()
+      expect(withoutProfile.compatibilityHash).not.toBe(withProfile.compatibilityHash)
+    } finally {
+      if (originalPath === undefined) {
+        process.env['PATH'] = undefined
+      } else {
+        process.env['PATH'] = originalPath
+      }
+      rmSync(join(fixture.agentRoot, 'tools'), { recursive: true, force: true })
+    }
   })
 
   test('leaves compatibilityHash unchanged when only ids, correlation, or initial prompt text changes', async () => {

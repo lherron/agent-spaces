@@ -259,6 +259,7 @@ function buildCompatibilityMaterial(
       args: startRequest.spec.process.args,
       cwd: startRequest.spec.process.cwd,
       lockedEnv,
+      pathPrepend: startRequest.spec.process.pathPrepend,
       harnessTransport: startRequest.spec.process.harnessTransport,
       limits: startRequest.spec.process.limits,
     },
