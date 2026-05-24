@@ -490,6 +490,41 @@ describe('PreHrcBrokerEventLedger', () => {
       'broker_event_type_not_normalized',
     ])
   })
+
+  test('rejects the legacy permission event by default and tolerates it only with the transition flag', () => {
+    const ledger = new PreHrcBrokerEventLedger()
+    ledger.append(event({ seq: 1 }))
+    ledger.append(
+      event({
+        seq: 2,
+        type: 'invocation.permission.request' as never,
+        driver: { kind: 'codex', rawType: 'invocation.permission.request' },
+      })
+    )
+
+    expect(ledger.requireOnlyNormalizedEventTypes().map((failure) => failure.code)).toEqual([
+      'broker_event_legacy_permission',
+    ])
+    expect(ledger.requireOnlyNormalizedEventTypes({ allowLegacyPermissionEvent: true })).toEqual([])
+  })
+
+  test('native Codex event names always fail even with the legacy permission flag set', () => {
+    const ledger = new PreHrcBrokerEventLedger()
+    ledger.append(event({ seq: 1 }))
+    ledger.append(
+      event({
+        seq: 2,
+        type: 'codex/event/agent_message' as never,
+        driver: { kind: 'codex', rawType: 'codex/event/agent_message' },
+      })
+    )
+
+    expect(
+      ledger
+        .requireOnlyNormalizedEventTypes({ allowLegacyPermissionEvent: true })
+        .map((failure) => failure.code)
+    ).toEqual(['broker_event_type_not_normalized'])
+  })
 })
 
 describe('runPreHrcBrokerContractHarness contract gate', () => {

@@ -44,6 +44,7 @@ typecheck:
 # Run repo-split boundary + manifest edge checks
 check:
     bun scripts/check-boundaries.ts
+    bun scripts/check-runtime-contract-harness-boundaries.ts
     bun scripts/check-manifest-edges.ts
 
 # Run all verification (check + lint + typecheck + test)

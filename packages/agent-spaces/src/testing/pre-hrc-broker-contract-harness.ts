@@ -316,7 +316,8 @@ async function collectEventsUntilTerminalTurn(
 async function startBrokerInvocation(
   profile: BrokerExecutionProfile,
   hrcPolicy: HrcCapabilityPolicy | undefined,
-  timeoutMs: number
+  timeoutMs: number,
+  allowLegacyPermissionEvent: boolean
 ): Promise<{
   brokerStart: NonNullable<PreHrcBrokerContractHarnessResult['brokerStart']>
   failures: ContractHarnessFailure[]
@@ -370,7 +371,7 @@ async function startBrokerInvocation(
     const ledgerFailures = [
       ...ledger.requireMonotonicSeq(),
       ...ledger.requireNoDuplicates(),
-      ...ledger.requireOnlyNormalizedEventTypes(),
+      ...ledger.requireOnlyNormalizedEventTypes({ allowLegacyPermissionEvent }),
     ]
     const terminalFailures =
       ledger.terminalTurnEvent() === undefined
@@ -474,7 +475,8 @@ export async function runPreHrcBrokerContractHarness(
     const brokerResult = await startBrokerInvocation(
       selectedProfile,
       input.compileRequest.hrcPolicy.capabilityPolicy,
-      input.timeoutMs ?? selectedProfile.policy.resourceLimits?.turnTimeoutMs ?? 10_000
+      input.timeoutMs ?? selectedProfile.policy.resourceLimits?.turnTimeoutMs ?? 10_000,
+      input.allowLegacyPermissionEvent === true
     )
     brokerStart = brokerResult.brokerStart
     brokerEvents =
@@ -491,7 +493,7 @@ export async function runPreHrcBrokerContractHarness(
       }
       if (input.brokerStartAssertions?.realCodexHappyPath !== undefined) {
         const processEnvSecrets = Object.values(
-          selectedProfile.harnessInvocation.startRequest.spec.process.env
+          selectedProfile.harnessInvocation.startRequest.spec.process.env ?? {}
         ).filter((value): value is string => value.length > 0)
         failures.push(
           ...assertRealCodexHappyPath(brokerResult.brokerStart.events, {

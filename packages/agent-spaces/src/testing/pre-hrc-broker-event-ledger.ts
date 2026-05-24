@@ -38,6 +38,23 @@ const TERMINAL_TURN_EVENT_TYPES = new Set<InvocationEventType>([
   'turn.interrupted',
 ])
 
+/**
+ * Legacy untyped permission event name from before the broker protocol was
+ * normalized to typed `permission.requested` / `permission.resolved` events plus
+ * a broker-to-client request. Strict mode rejects it by default; the harness can
+ * opt into a temporary transition allowance (see `allowLegacyPermissionEvent`).
+ */
+const LEGACY_PERMISSION_EVENT_TYPE = 'invocation.permission.request'
+
+export type NormalizedEventTypeOptions = {
+  /**
+   * When true, the legacy `invocation.permission.request` event name is tolerated
+   * during the broker protocol transition. Defaults to false (strict): the legacy
+   * name fails the run. Native Codex event names always fail regardless.
+   */
+  allowLegacyPermissionEvent?: boolean | undefined
+}
+
 type DuplicateConflict = {
   invocationId: string
   seq: number
@@ -122,14 +139,24 @@ export class PreHrcBrokerEventLedger {
     }))
   }
 
-  requireOnlyNormalizedEventTypes(): ContractHarnessFailure[] {
+  requireOnlyNormalizedEventTypes(
+    options: NormalizedEventTypeOptions = {}
+  ): ContractHarnessFailure[] {
+    const allowLegacyPermissionEvent = options.allowLegacyPermissionEvent === true
     const failures: ContractHarnessFailure[] = []
     for (const event of this.#events) {
-      if (!NORMALIZED_EVENT_TYPES.has(event.type)) {
+      if (NORMALIZED_EVENT_TYPES.has(event.type)) continue
+
+      // The legacy untyped permission event gets a distinct failure code so the
+      // transition guard is unambiguous. Strict mode (default) rejects it; the
+      // explicit transition flag tolerates it. Native Codex names never get the
+      // allowance below.
+      if ((event.type as string) === LEGACY_PERMISSION_EVENT_TYPE) {
+        if (allowLegacyPermissionEvent) continue
         failures.push({
-          code: 'broker_event_type_not_normalized',
+          code: 'broker_event_legacy_permission',
           message:
-            'Broker event type must be a normalized invocation event type; native driver names belong only in event.driver.rawType.',
+            'Broker emitted the legacy untyped permission event; strict mode requires typed permission.requested / permission.resolved events. Pass --allow-legacy-permission-event only during the broker protocol transition.',
           path: `brokerEvents.${event.invocationId}.${event.seq}.type`,
           redactedDetails: {
             invocationId: event.invocationId,
@@ -138,7 +165,21 @@ export class PreHrcBrokerEventLedger {
             driverRawType: event.driver?.rawType,
           },
         })
+        continue
       }
+
+      failures.push({
+        code: 'broker_event_type_not_normalized',
+        message:
+          'Broker event type must be a normalized invocation event type; native driver names belong only in event.driver.rawType.',
+        path: `brokerEvents.${event.invocationId}.${event.seq}.type`,
+        redactedDetails: {
+          invocationId: event.invocationId,
+          seq: event.seq,
+          type: event.type,
+          driverRawType: event.driver?.rawType,
+        },
+      })
     }
     return failures
   }

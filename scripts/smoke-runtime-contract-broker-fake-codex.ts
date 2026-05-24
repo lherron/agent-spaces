@@ -26,7 +26,12 @@ import {
   buildPlacementFromScopeRef,
 } from '../packages/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
 
-type CliArgs = { json: boolean; keepArtifacts: boolean; help: boolean }
+type CliArgs = {
+  json: boolean
+  keepArtifacts: boolean
+  allowLegacyPermissionEvent: boolean
+  help: boolean
+}
 
 const SCOPE_REF = 'cody@agent-spaces'
 const PROMPT = 'pre-HRC fake-broker CI smoke; reply ASP_RUNTIME_CONTRACT_OK.'
@@ -40,7 +45,12 @@ const fakeCodexFixture = new URL(
 ).pathname
 
 function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { json: false, keepArtifacts: false, help: false }
+  const args: CliArgs = {
+    json: false,
+    keepArtifacts: false,
+    allowLegacyPermissionEvent: false,
+    help: false,
+  }
   for (const arg of argv) {
     switch (arg) {
       case '--json':
@@ -48,6 +58,9 @@ function parseArgs(argv: string[]): CliArgs {
         break
       case '--keep-artifacts':
         args.keepArtifacts = true
+        break
+      case '--allow-legacy-permission-event':
+        args.allowLegacyPermissionEvent = true
         break
       case '--help':
         args.help = true
@@ -71,6 +84,7 @@ function printUsage(): void {
       'Options:',
       '  --json              Print the harness result as JSON',
       '  --keep-artifacts    Do not delete the temp fixture/artifact dir on exit',
+      '  --allow-legacy-permission-event  TEMPORARY: tolerate the legacy invocation.permission.request event',
       '  --help              Show this message',
     ].join('\n')
   )
@@ -222,6 +236,7 @@ async function main(): Promise<number> {
       aspHome: fixture.aspHome,
       artifactDir: fixture.artifactDir,
       dryRunCompile: false,
+      allowLegacyPermissionEvent: args.allowLegacyPermissionEvent,
       timeoutMs: 10_000,
     })
 

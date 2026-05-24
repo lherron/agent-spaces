@@ -88,25 +88,39 @@ Test fixtures are in `integration-tests/fixtures/`:
 
 ## Harness Broker Smoke
 
-For any harness-broker change, always run the real Codex broker smoke before
-declaring the work completed:
+For any harness-broker change, always run the runtime-contract broker smoke
+before declaring the work completed. This harness compiles a `CompiledRuntimePlan`,
+selects the `BrokerExecutionProfile`, verifies plan/profile/spec/start-request
+hashes, and starts the broker via `BrokerClient.startInvocationFromRequest(...)`
+— it never uses the legacy direct-builder path. (The old
+`scripts/smoke-asp-broker-real-codex.ts` was retired in favor of this harness.)
+
+Real Codex (requires installed `codex app-server` + auth):
 
 ```bash
-bun scripts/smoke-asp-broker-real-codex.ts \
+bun run smoke:broker-contract:real-codex -- \
   --scope-ref cody@agent-spaces \
   --agent-root /Users/lherron/praesidium/var/agents/cody \
   --project-root /Users/lherron/praesidium/agent-spaces \
   --cwd /Users/lherron/praesidium/agent-spaces \
   --asp-home /Users/lherron/praesidium/var/spaces-repo \
   --timeout 120
+# (equivalently: bun scripts/smoke-runtime-contract-broker-real-codex.ts ...)
 ```
 
-This script lives in `scripts/smoke-asp-broker-real-codex.ts`. It uses the
-Agent Spaces SDK to build a broker invocation, then executes
-`packages/harness-broker/bin/harness-broker.js run --transport stdio` against a
-real `codex app-server`. Do not report a harness-broker change as complete
-unless this smoke has passed, or you have clearly reported the blocker that
-prevented running it.
+Deterministic CI variant (fake Codex app-server; no auth/network):
+
+```bash
+bun run smoke:broker-contract:fake
+```
+
+These scripts live in `scripts/smoke-runtime-contract-broker-{real,fake}-codex.ts`
+and exercise `packages/harness-broker/bin/harness-broker.js run --transport stdio`.
+Strict mode is on by default: native Codex event names fail the run, and the
+legacy `invocation.permission.request` event is rejected unless the temporary
+`--allow-legacy-permission-event` flag is passed. Do not report a harness-broker
+change as complete unless this smoke has passed, or you have clearly reported the
+blocker that prevented running it.
 
 ## Pack Smoke for `@lherron/agent-spaces`
 

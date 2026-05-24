@@ -28,6 +28,7 @@ type CliArgs = {
   initialInputId: string
   dryRunCompile: boolean
   writeRawStartRequest: boolean
+  allowLegacyPermissionEvent: boolean
   json: boolean
   help: boolean
 }
@@ -58,6 +59,7 @@ function printUsage(): void {
       '  --initial-input-id <id>          Initial broker input id',
       '  --dry-run-compile                Compile, select broker profile, assert contract, and write artifacts',
       '  --write-raw-start-request        Loud unsafe debug artifact; only allowed under OS temp dir',
+      '  --allow-legacy-permission-event  TEMPORARY: tolerate the legacy invocation.permission.request event',
       '  --json                           Print result JSON',
       '  --help                           Show this message',
       '',
@@ -90,6 +92,7 @@ function parseArgs(argv: string[]): CliArgs {
     initialInputId: `input_prehrc_${now}`,
     dryRunCompile: false,
     writeRawStartRequest: false,
+    allowLegacyPermissionEvent: false,
     json: false,
     help: false,
   }
@@ -178,6 +181,9 @@ function parseArgs(argv: string[]): CliArgs {
         break
       case '--write-raw-start-request':
         args.writeRawStartRequest = true
+        break
+      case '--allow-legacy-permission-event':
+        args.allowLegacyPermissionEvent = true
         break
       case '--json':
         args.json = true
@@ -398,6 +404,7 @@ async function main(): Promise<void> {
     artifactDir: args.artifactDir,
     dryRunCompile: args.dryRunCompile,
     writeRawStartRequest: args.writeRawStartRequest,
+    allowLegacyPermissionEvent: args.allowLegacyPermissionEvent,
     timeoutMs: args.timeout * 1000,
     brokerStartAssertions:
       args.dryRunCompile === true

@@ -78,6 +78,7 @@ export type ContractHarnessFailureCode =
   | 'broker_event_seq_non_monotonic'
   | 'broker_event_duplicate_conflict'
   | 'broker_event_type_not_normalized'
+  | 'broker_event_legacy_permission'
   | 'broker_event_baseline_missing'
   | 'broker_terminal_turn_count_invalid'
   | 'real_codex_tool_call_missing'
@@ -102,6 +103,13 @@ export type PreHrcBrokerContractHarnessInput = {
   writeRawStartRequest?: boolean | undefined
   timeoutMs?: number | undefined
   now?: string | undefined
+  /**
+   * STRICT MODE (default): the broker event stream must use only normalized
+   * invocation event types. Native Codex event names always fail the run. The
+   * legacy untyped permission event (`invocation.permission.request`) is also
+   * rejected unless this temporary transition flag is explicitly set to true.
+   */
+  allowLegacyPermissionEvent?: boolean | undefined
   /** Narrow profile selection by id/hash (forwarded to selectBrokerProfile). */
   profileSelector?: { profileId?: string | undefined; profileHash?: string | undefined } | undefined
   brokerStartAssertions?:
