@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { PassThrough } from 'node:stream'
+import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createProtocolServer } from '../src/protocol-server'
 import { expectError, expectResult, parseFrames, request } from './helpers'
 
@@ -29,6 +30,12 @@ const withProtocolServer = async (
     await server.close()
   }
 }
+
+const response = (id: string | number, result: unknown) =>
+  `${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`
+
+const errorResponse = (id: string | number, code: number, message: string) =>
+  `${JSON.stringify({ jsonrpc: '2.0', id, error: { code, message } })}\n`
 
 describe('protocol server routing', () => {
   test('routes a registered request handler and responds with the same id', async () => {
@@ -92,6 +99,96 @@ describe('protocol server routing', () => {
       for (const line of lines) {
         expect(JSON.parse(line)).toMatchObject({ jsonrpc: '2.0' })
       }
+    })
+  })
+
+  test('broker-initiated request resolves from matching inbound response', async () => {
+    await withProtocolServer(async ({ input, outputText, server }) => {
+      await server.start()
+
+      const pending = server.request<{ allowed: boolean }>('broker.permission.request', {
+        command: 'ls',
+      })
+      await flush()
+
+      const [outbound] = parseFrames(outputText())
+      expect(outbound).toMatchObject({
+        jsonrpc: '2.0',
+        id: 'broker_req_1',
+        method: 'broker.permission.request',
+        params: { command: 'ls' },
+      })
+
+      input.write(response('broker_req_1', { allowed: true }))
+
+      await expect(pending).resolves.toEqual({ allowed: true })
+    })
+  })
+
+  test('broker-initiated request rejects on timeout', async () => {
+    await withProtocolServer(async ({ server }) => {
+      await server.start()
+
+      const pending = server.request('broker.permission.request', {}, { timeoutMs: 5 })
+
+      await expect(pending).rejects.toMatchObject({
+        code: BrokerErrorCode.Timeout,
+      })
+    })
+  })
+
+  test('broker-initiated request rejects from matching inbound error response', async () => {
+    await withProtocolServer(async ({ input, server }) => {
+      await server.start()
+
+      const pending = server.request('broker.permission.request', {})
+
+      input.write(errorResponse('broker_req_1', BrokerErrorCode.InputRejected, 'Denied'))
+
+      await expect(pending).rejects.toMatchObject({
+        code: BrokerErrorCode.InputRejected,
+        message: 'Denied',
+      })
+    })
+  })
+
+  test('close rejects all pending broker-initiated requests', async () => {
+    await withProtocolServer(async ({ server }) => {
+      await server.start()
+
+      const first = server.request('broker.first', {})
+      const second = server.request('broker.second', {})
+
+      await server.close()
+
+      await expect(first).rejects.toMatchObject({
+        code: BrokerErrorCode.ShutdownInProgress,
+      })
+      await expect(second).rejects.toMatchObject({
+        code: BrokerErrorCode.ShutdownInProgress,
+      })
+    })
+  })
+
+  test('broker-initiated requests preserve inbound request routing and notifications', async () => {
+    await withProtocolServer(async ({ input, outputText, server }) => {
+      server.register('test.echo', async ({ params }) => ({ echoed: params }))
+      await server.start()
+
+      server.notify({ jsonrpc: '2.0', method: 'test.notice', params: { ok: true } })
+      input.write(request('req-regression', 'test.echo', { value: 7 }))
+      await flush()
+
+      const frames = parseFrames(outputText())
+      expect(frames[0]).toEqual({
+        jsonrpc: '2.0',
+        method: 'test.notice',
+        params: { ok: true },
+      })
+      expectResult(frames[1], 'req-regression')
+      expect(frames[1]).toMatchObject({
+        result: { echoed: { value: 7 } },
+      })
     })
   })
 })
