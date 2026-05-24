@@ -1,6 +1,6 @@
 {
   "name": "agent-scope",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Canonical upstream package for semantic agent session addressing",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "spaces-harness-pi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pi CLI harness adapter",
   "type": "module",
   "main": "./dist/index.js",

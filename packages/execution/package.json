@@ -1,6 +1,6 @@
 {
   "name": "spaces-execution",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run-time volatility: harness execution, sessions, Claude/Pi invocation",
   "type": "module",
   "main": "./dist/index.js",

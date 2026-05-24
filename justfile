@@ -58,37 +58,17 @@ rebuild:
     bun run rebuild
 
 # Install dependencies
-# Pass no-sync=1 to skip syncing downstream consumer repos (hrc-runtime, agent-control-plane).
-# After `bun install`, the dependency graph forks:
-#   build ─┬─→ publish-dev ─→ (hrc sync ∥ acp sync)
-#          └─→ bun link
-# bun link runs alongside publish+sync; the two downstream syncs run in parallel.
-install no-sync="":
+# Downstream sync to hrc-runtime/agent-control-plane is disabled — they are pinned
+# to a stable ASP semver (currently 0.1.1) and stay there until explicitly bumped.
+# To push a new version to them, run `just publish-semver X.Y.Z` then update their
+# manifests by hand (or run `just sync-downstream`).
+install:
     #!/usr/bin/env bash
     set -euo pipefail
     bun run clean
     bun install
     bun run build
-
-    # Fire bun link in the background — only depends on build, not publish.
-    ( cd packages/cli && bun link 2>&1 | sed 's/^/[bun-link] /' ) &
-    link_pid=$!
-
-    # Publish must complete before downstream sync.
-    just publish-dev
-
-    if [ -z "{{ no-sync }}" ]; then
-      ( cd ../hrc-runtime && bun run sync:asp 2>&1 | sed 's/^/[hrc-sync] /' ) &
-      hrc_pid=$!
-      ( cd ../agent-control-plane && bun run sync:asp 2>&1 | sed 's/^/[acp-sync] /' ) &
-      acp_pid=$!
-      wait $hrc_pid
-      wait $acp_pid
-    else
-      echo "[install] skipping downstream sync (no-sync=1)"
-    fi
-
-    wait $link_pid
+    ( cd packages/cli && bun link 2>&1 | sed 's/^/[bun-link] /' )
 
 # Sync downstream consumer repos in parallel (hrc-runtime ∥ agent-control-plane).
 # This is the only place ASP knows where its consumers live; it never appears in source.

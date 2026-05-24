@@ -1,6 +1,6 @@
 {
   "name": "spaces-harness-broker-protocol",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Harness Broker protocol types, schemas, and JSON-RPC NDJSON framing",
   "type": "module",
   "main": "./dist/index.js",

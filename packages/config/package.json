@@ -1,6 +1,6 @@
 {
   "name": "spaces-config",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Config-time determinism: resolution, locks, bundles, materialization",
   "type": "module",
   "main": "./dist/index.js",

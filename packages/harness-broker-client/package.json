@@ -1,6 +1,6 @@
 {
   "name": "spaces-harness-broker-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed client for the Harness Broker JSON-RPC NDJSON protocol",
   "type": "module",
   "main": "./dist/index.js",
