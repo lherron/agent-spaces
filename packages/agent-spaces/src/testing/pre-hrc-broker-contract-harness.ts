@@ -490,12 +490,19 @@ export async function runPreHrcBrokerContractHarness(
         )
       }
       if (input.brokerStartAssertions?.realCodexHappyPath !== undefined) {
+        const processEnvSecrets = Object.values(
+          selectedProfile.harnessInvocation.startRequest.spec.process.env
+        ).filter((value): value is string => value.length > 0)
         failures.push(
           ...assertRealCodexHappyPath(brokerResult.brokerStart.events, {
             ...input.brokerStartAssertions.realCodexHappyPath,
             expectedCwd:
               input.brokerStartAssertions.realCodexHappyPath.expectedCwd ??
               selectedProfile.harnessInvocation.startRequest.spec.process.cwd,
+            redactedCompareValues: [
+              ...processEnvSecrets,
+              ...(input.brokerStartAssertions.realCodexHappyPath.redactedCompareValues ?? []),
+            ],
           })
         )
       }
