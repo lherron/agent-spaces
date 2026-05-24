@@ -126,8 +126,11 @@ export class BrokerClient {
       return
     }
 
+    // Permission decisions arrive ONLY as inbound 'invocation.permission.request'
+    // JSON-RPC requests (handled in #handlePermissionRequest via onRequest).
+    // permission.requested / permission.resolved are audit events surfaced
+    // through the normal observable event stream below.
     const event = notification.params as InvocationEventEnvelope
-    this.#handlePermissionEvent(event)
 
     const stream = this.#events.get(event.invocationId)
     if (stream) {
@@ -158,19 +161,6 @@ export class BrokerClient {
     return stream
   }
 
-  #handlePermissionEvent(event: InvocationEventEnvelope): void {
-    if (event.type !== ('invocation.permission.request' as InvocationEventEnvelope['type'])) {
-      return
-    }
-
-    void this.#handlePermissionRequest({
-      ...(event.payload as Record<string, unknown>),
-      invocationId: event.invocationId,
-      turnId: event.turnId,
-      permissionRequestId: this.#permissionRequestId(event),
-    })
-  }
-
   async #handlePermissionRequest(params: unknown): Promise<PermissionDecision> {
     const request = params as PermissionRequestParams
     if (!this.#permissionHandler) {
@@ -190,14 +180,6 @@ export class BrokerClient {
       )
       return { decision: request.defaultDecision ?? 'deny' }
     }
-  }
-
-  #permissionRequestId(event: InvocationEventEnvelope): string {
-    const payload = event.payload as { permissionRequestId?: unknown }
-    if (typeof payload.permissionRequestId === 'string') {
-      return payload.permissionRequestId
-    }
-    return `${event.invocationId}:${event.seq}`
   }
 
   #closeEventStreams(): void {

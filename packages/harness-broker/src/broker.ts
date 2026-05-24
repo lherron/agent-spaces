@@ -17,6 +17,8 @@ import type {
   InvocationStatusResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  PermissionDecision,
+  PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import type { Driver } from './drivers/driver'
@@ -31,6 +33,14 @@ export interface BrokerOptions {
   drivers: Driver[]
   onEvent?: ((event: InvocationEventEnvelope) => void) | undefined
   now?: (() => Date) | undefined
+  /**
+   * Broker→client permission request transport (e.g. wired to
+   * `ProtocolServer.request('invocation.permission.request', ...)`). When
+   * present, ask-client permission policies can reach the connected client.
+   */
+  onPermissionRequest?:
+    | ((params: PermissionRequestParams) => Promise<PermissionDecision>)
+    | undefined
   maxInputQueueDepth?: number | undefined
 }
 
@@ -56,6 +66,7 @@ export function createBroker(options: BrokerOptions): Broker {
     sequencer,
     onEvent,
     getClientCapabilities: () => clientCapabilities,
+    onPermissionRequest: options.onPermissionRequest,
     maxInputQueueDepth: options.maxInputQueueDepth,
   })
 

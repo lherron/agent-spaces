@@ -3,6 +3,8 @@ import type {
   InvocationEventEnvelope,
   InvocationInput,
   JsonRpcNotification,
+  PermissionDecision,
+  PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from './broker'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
@@ -46,10 +48,14 @@ async function main(): Promise<void> {
   }
 }
 
-function createDefaultBroker(onEvent?: (event: InvocationEventEnvelope) => void) {
+function createDefaultBroker(
+  onEvent?: (event: InvocationEventEnvelope) => void,
+  onPermissionRequest?: (params: PermissionRequestParams) => Promise<PermissionDecision>
+) {
   return createBroker({
     drivers: [createCodexAppServerDriver()],
     ...(onEvent !== undefined ? { onEvent } : {}),
+    ...(onPermissionRequest !== undefined ? { onPermissionRequest } : {}),
   })
 }
 
@@ -69,7 +75,10 @@ function runStdio(): void {
     server.notify(notification)
   }
 
-  const broker = createDefaultBroker(emitEvent)
+  // Wire ask-client permission decisions to the broker→client request transport.
+  const broker = createDefaultBroker(emitEvent, (params) =>
+    server.request<PermissionDecision>('invocation.permission.request', params)
+  )
 
   server.register('broker.hello', async ({ params }) => {
     return broker.hello(params as Parameters<typeof broker.hello>[0])

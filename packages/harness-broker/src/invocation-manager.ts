@@ -19,6 +19,8 @@ import type {
   InvocationStatusResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  PermissionDecision,
+  PermissionRequestParams,
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
@@ -74,6 +76,15 @@ export interface InvocationManagerOptions {
   sequencer: InvocationEventSequencer
   onEvent: (event: InvocationEventEnvelope) => void
   getClientCapabilities?: (() => ClientCapabilities) | undefined
+  /**
+   * Broker→client permission request transport. When provided, drivers can ask
+   * the connected client to decide a permission request via
+   * `DriverContext.requestPermission`. Absent when no outbound request
+   * transport is available.
+   */
+  onPermissionRequest?:
+    | ((params: PermissionRequestParams) => Promise<PermissionDecision>)
+    | undefined
   maxInputQueueDepth?: number | undefined
 }
 
@@ -93,7 +104,7 @@ export interface InvocationManager {
 }
 
 export function createInvocationManager(options: InvocationManagerOptions): InvocationManager {
-  const { sequencer, onEvent, getClientCapabilities = () => ({}) } = options
+  const { sequencer, onEvent, getClientCapabilities = () => ({}), onPermissionRequest } = options
   const maxQueueDepth = options.maxInputQueueDepth ?? DEFAULT_MAX_INPUT_QUEUE_DEPTH
   const invocations = new Map<string, Invocation>()
 
@@ -341,6 +352,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         ) {
           return emit(inv, type, payload, extra)
         },
+        ...(onPermissionRequest !== undefined
+          ? { requestPermission: (params) => onPermissionRequest(params) }
+          : {}),
       }
 
       try {

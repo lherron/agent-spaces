@@ -61,6 +61,45 @@ export function redactPayload(value: unknown, secrets: Set<string>): unknown {
 }
 
 /**
+ * Produce a redaction-safe view of a permission request subject.
+ *
+ * The subject originates from the harness process (e.g. a Codex command
+ * approval request) and may carry env secrets — both as an `env` map and
+ * inlined into other fields (e.g. a command line). This is used for BOTH the
+ * `permission.requested` audit event (`subjectRedacted`) and the broker→client
+ * `invocation.permission.request` payload, so neither path can leak secrets.
+ *
+ * Rules:
+ * 1. Any value found in the subject's own `env` map is treated as a secret and
+ *    scrubbed from every string in the subject.
+ * 2. Provided `envSecrets` (the invocation's process env) are also scrubbed.
+ * 3. The `env` block itself is never exposed; it is replaced with `[REDACTED]`.
+ */
+export function redactPermissionSubject(subject: unknown, envSecrets?: Set<string>): unknown {
+  const secrets = new Set<string>(envSecrets ?? [])
+  if (subject !== null && typeof subject === 'object' && !Array.isArray(subject)) {
+    const env = (subject as Record<string, unknown>)['env']
+    if (env !== null && typeof env === 'object') {
+      for (const value of Object.values(env as Record<string, unknown>)) {
+        if (typeof value === 'string' && value.length > 0) {
+          secrets.add(value)
+        }
+      }
+    }
+  }
+
+  const scrubbed = redactPayload(subject, secrets)
+
+  if (scrubbed !== null && typeof scrubbed === 'object' && !Array.isArray(scrubbed)) {
+    const record = scrubbed as Record<string, unknown>
+    if ('env' in record) {
+      return { ...record, env: REDACTED }
+    }
+  }
+  return scrubbed
+}
+
+/**
  * Constrain `invocation.started` payloads to only contain safe fields:
  * pid, command, args, cwd.
  */

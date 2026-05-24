@@ -11,6 +11,8 @@ import type {
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  PermissionDecision,
+  PermissionRequestParams,
   TurnId,
 } from 'spaces-harness-broker-protocol'
 
@@ -42,6 +44,14 @@ export interface DriverContext {
       driver?: { kind: string; rawType?: string | undefined } | undefined
     }
   ): InvocationEventEnvelope<TPayload>
+  /**
+   * Ask the connected client to decide a permission request via the
+   * broker→client JSON-RPC request transport. Provided only when the broker
+   * has a transport that supports outbound requests (and, in production, when
+   * the client negotiated `permissionRequests`). Absent for in-process callers
+   * that have no client to ask.
+   */
+  requestPermission?(params: PermissionRequestParams): Promise<PermissionDecision>
 }
 
 export interface DriverStartResult {
