@@ -211,12 +211,14 @@ export type HrcTaskContext = {
 
 ## 4. Hashing and canonicalization types
 
-> **Confidentiality posture (pointer; canonical home: PLANE_SPEC §3.1).** The contract
+> **Confidentiality posture (pointer; canonical home: PLANE_SPEC §3.2; spawn-env + credential
+> sources: §7.5.1).** The contract
 > plane may hold raw execution material in memory because HRC must launch the harness. It
 > defines **no** generic secret classification, redaction transforms, or digest-substituted
 > values. Durable/storage/display planes persist only explicit projections that omit fields
 > designated as live execution material. Confidentiality is enforced by not storing/displaying
-> those fields — or via runtime env injection / an external secret store — **not** by
+> those fields — or via runtime env injection, an external secret store, or an on-disk file
+> credential outside the compiled DTO (see PLANE_SPEC §7.5.1) — **not** by
 > contract-DTO redaction.
 
 ```ts
@@ -248,8 +250,8 @@ export type CanonicalHash = {
 // object. dispatchEnv is in NONE of them and is never in the compiled projection.
 // Hard rule: secrets must NEVER be placed in argv, cwd, driver config, initial input, labels,
 // or correlation if those are hashed/persisted/displayed. Secret launch material arrives only
-// via process env, runtime env injection, or an external secret store/reference outside this
-// contract plane.
+// via process env, runtime env injection, an external secret store/reference, or an on-disk
+// file credential — all outside this contract plane (see PLANE_SPEC §7.5.1).
 export type HashMaterialPolicy = {
   hashProjection: RuntimeContractHashProjection
   omitPaths: string[]

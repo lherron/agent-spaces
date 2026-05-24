@@ -34,7 +34,7 @@ For broker-capable routes this includes `HarnessInvocationSpec`, `InvocationStar
 
 If HRC needs a different broker request, process argv/env/cwd, driver config, continuation shape, prompt materialization, model, placement, permission policy, or input policy, HRC MUST ask ASP to recompile.
 
-**Confidentiality posture.** The compiled spec is credential-free and ambient-free by contract: it carries declared non-secret `lockedEnv` (hashed) but never credential or ambient material. It defines **no** generic secret classification, redaction transforms, or digest-substituted values. Credential material reaches the harness only through a broker/driver-owned credential source (broker launch environment or external secret store), and the broker composes the spawn env as a validated disjoint union of ambient allowlist + credentials + `lockedEnv` + `dispatchEnv`. Confidentiality is enforced by keeping credentials out of the compiled spec — **not** by contract-DTO redaction. (The canonical statement of this principle lives in the PLANE_SPEC architecture section; this is a pointer.)
+**Confidentiality posture.** The compiled spec is credential-free and ambient-free by contract: it carries declared non-secret `lockedEnv` (hashed) but never credential or ambient material. It defines **no** generic secret classification, redaction transforms, or digest-substituted values. Credential material reaches the harness only through a broker/driver-owned credential source (broker launch environment, external secret store, or an on-disk file credential materialized outside the compiled DTO; see PLANE_SPEC §7.5.1), and the broker composes the spawn env as a validated disjoint union of ambient allowlist + credentials + `lockedEnv` + `dispatchEnv`. Confidentiality is enforced by keeping credentials out of the compiled spec — **not** by contract-DTO redaction. (The canonical statement of this principle lives in the PLANE_SPEC architecture section; this is a pointer.)
 
 ---
 
@@ -208,9 +208,9 @@ HRC MAY verify that the selected profile’s immutable values still hash to the 
 
 ### 5.3 Confidentiality and the spawn-env model
 
-There is no generic secret classification, redaction transform, or digest-substituted value in the contract plane. The compiled spec carries `lockedEnv` (declared non-secret config) directly; durable, storage, and display planes persist explicit **projections** that MAY carry `lockedEnv` (non-secret). Confidentiality is enforced by keeping credential material out of the compiled spec entirely — credentials reach the harness only through a broker/driver-owned credential source — **not** by contract-DTO redaction.
+There is no generic secret classification, redaction transform, or digest-substituted value in the contract plane. The compiled spec carries `lockedEnv` (declared non-secret config) directly; durable, storage, and display planes persist explicit **projections** that MAY carry `lockedEnv` (non-secret). Confidentiality is enforced by keeping credential material out of the compiled spec entirely — credentials reach the harness only through a broker/driver-owned credential source (env value, external store, or an on-disk file credential materialized outside the DTO; see PLANE_SPEC §7.5.1) — **not** by contract-DTO redaction.
 
-**Hard secret rule:** Secrets MUST NEVER appear in the compiled spec — including `spec.process.lockedEnv`, argv, cwd, driver config, initial input, labels, or correlation. Credential material reaches the harness only through a broker/driver-owned credential source (broker launch environment or external secret store). The compiled spec is credential-free and ambient-free by contract.
+**Hard secret rule:** Secrets MUST NEVER appear in the compiled spec — including `spec.process.lockedEnv`, argv, cwd, driver config, initial input, labels, or correlation. Credential material reaches the harness only through a broker/driver-owned credential source (broker launch environment, external secret store, or an on-disk file credential materialized outside the compiled DTO; see PLANE_SPEC §7.5.1). The compiled spec is credential-free and ambient-free by contract.
 
 **Spawn-env composition.** (The canonical statement lives in PLANE_SPEC; this is the compact version.) The broker composes the harness spawn environment as a **validated disjoint union** across four channels:
 
@@ -223,7 +223,7 @@ Key collisions across channels are **validation errors, never precedence**. `loc
 The four channels are:
 
 - **ambient allowlist** — broker-inherited, not in spec, not hashed;
-- **credentials** — broker/driver/external, never in spec, not hashed; missing → typed pre-start error;
+- **credentials** — broker/driver/external (env-value source) **or on-disk file credential** materialized outside the DTO, never in spec, not hashed; missing env-value creds → typed pre-start error, while on-disk file creds MAY surface as the native harness startup failure (Codex v1: empty credentials map, `auth.json` under `CODEX_HOME`, materialized by runtime-home prep as today) — see PLANE_SPEC §7.5.1;
 - **lockedEnv** — ASP-declared, in spec, HASHED, HRC-immutable;
 - **dispatchEnv** — HRC-supplied per-invocation, NOT in spec, NOT hashed, NOT a recompile trigger.
 
