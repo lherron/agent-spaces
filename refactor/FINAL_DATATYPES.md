@@ -12,7 +12,7 @@ This file defines the canonical to-be datatypes. Implementations may split these
 ```text
 packages/spaces-runtime-contracts
   Owns: shared IDs, compiler plan, execution profiles, capability resolution, route decisions,
-        runtime state, operations, policy, continuation, redaction/hash helpers, public views.
+        runtime state, operations, policy, continuation, hash helpers, public views.
 
 packages/agent-spaces
   Owns: compileRuntimePlan(req) -> RuntimeCompileResponse.
@@ -114,16 +114,13 @@ export type Id<Name extends string> = string & { readonly __id: Name }
 export type RequestId = Id<'request'>
 export type CompileId = Id<'compile'>
 export type PlanHash = string
-export type RedactedPlanHash = string
 export type ProfileId = Id<'profile'>
 export type ProfileHash = string
 export type CompatibilityHash = string
 export type SpecHash = string
-export type RedactedSpecHash = string
 export type StartRequestHash = string
-export type RedactedStartRequestHash = string
 export type ArtifactId = Id<'artifact'>
-export type ArtifactHash = string
+export type ContentHash = string
 
 export type HostSessionId = Id<'hostSession'>
 export type RuntimeId = Id<'runtime'>
@@ -209,59 +206,58 @@ export type HrcTaskContext = {
 
 ---
 
-## 4. Hashing and redaction types
+## 4. Hashing and canonicalization types
+
+> **Confidentiality posture (pointer; canonical home: PLANE_SPEC §3.1).** The contract
+> plane may hold raw execution material in memory because HRC must launch the harness. It
+> defines **no** generic secret classification, redaction transforms, or digest-substituted
+> values. Durable/storage/display planes persist only explicit projections that omit fields
+> designated as live execution material. Confidentiality is enforced by not storing/displaying
+> those fields — or via runtime env injection / an external secret store — **not** by
+> contract-DTO redaction.
 
 ```ts
 // spaces-runtime-contracts/src/hash.ts
 
 export type HashAlgorithm = 'sha256-canonical-json/v1'
 
+// The canonicalization ALGORITHM (HashAlgorithm) is orthogonal to the projection POLICY
+// (RuntimeContractHashProjection). Keep the two version strings separate.
+export type RuntimeContractHashProjection = 'runtime-contract-semantic/v2'
+
 export type CanonicalHash = {
   algorithm: HashAlgorithm
   value: string
 }
 
-export type SecretDigest = {
-  algorithm: 'hmac-sha256-secret-digest/v1' | 'compiler-scoped-secret-digest/v1'
-  value: string
-  scope?: string | undefined
-}
-
-export type SecretRef = {
-  key: string
-  classification: 'secret'
-  digest: SecretDigest
-}
-
+// Hashing rule (replaces the secret-digest model): hashes are closure/dedup/route/reuse/test
+// tools, NOT confidentiality controls. Hash material is a named canonical projection selected
+// by explicit PATH omission — never key-name matching, never value scanning.
+//   - specHash         = HarnessInvocationSpec with /process/env omitted
+//   - startRequestHash = InvocationStartRequest with /spec/process/env omitted (initialInput included)
+//   - profileHash      = RuntimeExecutionProfile minus self-hash fields + ephemeral timestamps;
+//                        omit the variant env path: terminal /process/env, embedded-sdk /session/env,
+//                        command /command/env, broker /harnessInvocation/startRequest/spec/process/env
+//   - planHash         = CompiledRuntimePlan minus self-hash fields + ephemeral timestamps; omit /placement/env
+//                        and every /executionProfiles/* variant env path (.../process/env, .../session/env,
+//                        .../command/env, .../harnessInvocation/startRequest/spec/process/env)
+//   (omit paths are enumerated per source DTO — never key-name/suffix matching; no projection carries live/raw env material at any path)
+//   - compatibilityHash = command, args, cwd, transport, driver config/model/reasoning, bundle
+//     identity/lock, policy, resource limits, continuation provider/kind/non-secret identity,
+//     + the sorted env KEY SET only (names, never values)
+// Hard rule: secrets must NEVER be placed in argv, cwd, driver config, initial input, labels,
+// or correlation if those are hashed/persisted/displayed. Secret launch material arrives only
+// via process env, runtime env injection, or an external secret store/reference outside this
+// contract plane.
 export type HashMaterialPolicy = {
-  omitFields: string[]
-  secretMode: 'digest' | 'redacted-placeholder'
+  hashProjection: RuntimeContractHashProjection
+  omitPaths: string[]
   timestampMode: 'omit-ephemeral' | 'include-semantic'
 }
 
 export interface CanonicalHasher {
   canonicalize(value: unknown, policy?: Partial<HashMaterialPolicy>): string
   hash(value: unknown, policy?: Partial<HashMaterialPolicy>): CanonicalHash
-}
-
-// spaces-runtime-contracts/src/redaction.ts
-
-export type RedactionState = 'none' | 'redacted' | 'contains-secret-digests'
-
-export type RedactedValue =
-  | { redacted: true; reason: 'secret' | 'token' | 'path' | 'policy'; digest?: SecretDigest | undefined }
-  | string
-  | number
-  | boolean
-  | null
-  | RedactedValue[]
-  | { [key: string]: RedactedValue }
-
-export type RedactedArtifact<T = unknown> = {
-  schemaVersion: string
-  redactionState: RedactionState
-  hash: string
-  value: T
 }
 ```
 
@@ -424,7 +420,7 @@ export type BrokerPermissionDecisionRecord = {
   runtimeId: RuntimeId
   runId?: RunId | undefined
   kind: BrokerPermissionRequestKind
-  subjectRedactedJson: string
+  subjectDisplayJson: string
   defaultDecision: 'allow' | 'deny'
   decision: 'allow' | 'deny'
   decidedBy: 'policy' | 'user' | 'api' | 'timeout'
@@ -515,9 +511,7 @@ export type BrokerObservabilityContract = {
     invocationId: InvocationId
     traceId?: TraceId | undefined
   }
-  env: Record<string, string>
   driverConfig?: Record<string, unknown> | undefined
-  redaction: 'broker-redaction-required'
 }
 ```
 
@@ -530,14 +524,14 @@ export type BrokerObservabilityContract = {
 
 export type HrcContinuationRef = {
   provider: ProviderDomain
-  keyHash: string
+  continuationId: string
   key?: string | undefined
 }
 
 export type BrokerContinuationRef = {
   provider: string
   kind?: 'thread' | 'session' | 'conversation' | string | undefined
-  keyHash: string
+  continuationId: string
   key?: string | undefined
 }
 
@@ -620,7 +614,6 @@ export type CompiledRuntimePlan = {
   }
   compileId: CompileId
   planHash: PlanHash
-  redactedPlanHash: RedactedPlanHash
   createdAt: IsoTimestamp
 
   identity: RuntimeIdentityAllocation
@@ -650,10 +643,8 @@ export type CompiledRuntimePlan = {
     bundleIdentity: string
   }
 
-  secrets: {
+  env: {
     envKeys: string[]
-    secretEnvKeys: string[]
-    secretDigests?: Record<string, SecretDigest> | undefined
   }
 
   diagnostics: CompileDiagnostic[]
@@ -665,7 +656,7 @@ export type CompileDiagnostic = {
   message: string
   plane: 'asp-compiler'
   profileId?: ProfileId | undefined
-  redactedDetails?: unknown
+  details?: unknown
 }
 ```
 
@@ -691,7 +682,6 @@ export type RuntimeExecutionProfileBase = {
   kind: RuntimeExecutionProfileKind
   interactionMode: InteractionMode
   expectedCapabilities: CapabilityRequirements
-  redactedProfile: unknown
   diagnostics?: CompileDiagnostic[] | undefined
 }
 
@@ -748,11 +738,7 @@ export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   harnessInvocation: {
     startRequest: InvocationStartRequest
     specHash: SpecHash
-    redactedSpecHash: RedactedSpecHash
     startRequestHash: StartRequestHash
-    redactedStartRequestHash: RedactedStartRequestHash
-    redactedSpec: RedactedHarnessInvocationSpec
-    redactedStartRequest: RedactedInvocationStartRequest
     initialInputHash?: string | undefined
   }
 
@@ -866,12 +852,6 @@ export interface HarnessInvocationSpec {
   continuation?: ContinuationSpec | undefined
   driver: CodexAppServerDriverSpec | UnknownDriverSpec
   correlation?: Record<string, string> | undefined
-}
-
-export interface RedactedHarnessInvocationSpec {
-  specVersion: 'harness-broker.invocation/v1'
-  redactionState: 'redacted' | 'contains-secret-digests'
-  value: RedactedValue
 }
 
 export interface HarnessDescriptor {
@@ -1070,11 +1050,6 @@ export interface BrokerHealthResponse {
 export interface InvocationStartRequest {
   spec: HarnessInvocationSpec
   initialInput?: InvocationInput | undefined
-}
-
-export interface RedactedInvocationStartRequest {
-  redactionState: 'redacted' | 'contains-secret-digests'
-  value: RedactedValue
 }
 
 export interface InvocationStartResponse {
@@ -1396,7 +1371,7 @@ export interface DriverNoticePayload {
 export interface PermissionRequestedPayload {
   permissionRequestId: PermissionRequestId
   kind: 'command' | 'file_change' | 'tool' | string
-  subjectRedacted: unknown
+  subjectDisplay: unknown
   defaultDecision: 'allow' | 'deny'
   deadlineMs?: number | undefined
 }
@@ -1736,9 +1711,7 @@ export type BrokerRuntimeState = RuntimeStateBase & {
     selectedProfileId: ProfileId
     selectedProfileHash: ProfileHash
     specHash: SpecHash
-    redactedSpecHash?: RedactedSpecHash | undefined
     startRequestHash: StartRequestHash
-    redactedStartRequestHash?: RedactedStartRequestHash | undefined
   }
 
   broker: {
@@ -1925,8 +1898,41 @@ export type HrcEventEnvelope = {
 
 ## 17. Broker invocation persistence records
 
+Projection DTOs are **persist/display-boundary** types computed where artifacts are persisted
+or displayed. They are the named canonical projections (live-execution fields, e.g.
+`/process/env`, omitted by path) selected by `RuntimeContractHashProjection`. They are **NOT**
+embedded in the live `BrokerExecutionProfile` — the live profile carries the raw
+`startRequest` plus `specHash`/`startRequestHash` only (HRC needs the raw request to launch).
+
 ```ts
 // spaces-runtime-contracts/src/persistence.ts
+
+// Persist/display-boundary projections. Each is the source DTO with live-execution fields
+// omitted by explicit path (never key-name matching, never value scanning) under
+// hashProjection = 'runtime-contract-semantic/v2'. NOT embedded in the live profile.
+export type CompiledRuntimePlanProjection = {
+  hashProjection: RuntimeContractHashProjection
+  planHash: PlanHash
+  value: JsonValue
+}
+
+export type RuntimeExecutionProfileProjection = {
+  hashProjection: RuntimeContractHashProjection
+  profileHash: ProfileHash
+  value: JsonValue
+}
+
+export type HarnessInvocationSpecProjection = {
+  hashProjection: RuntimeContractHashProjection
+  specHash: SpecHash
+  value: JsonValue
+}
+
+export type InvocationStartRequestProjection = {
+  hashProjection: RuntimeContractHashProjection
+  startRequestHash: StartRequestHash
+  value: JsonValue
+}
 
 export type CompiledRuntimePlanRecord = {
   planHash: PlanHash
@@ -1934,8 +1940,7 @@ export type CompiledRuntimePlanRecord = {
   schemaVersion: 'agent-runtime-plan/v1'
   compilerName: 'agent-spaces'
   compilerVersion: string
-  redactedPlanHash: RedactedPlanHash
-  redactedPlanJson: string
+  planProjectionJson: string
   diagnosticsJson?: string | undefined
   createdAt: IsoTimestamp
 }
@@ -1979,12 +1984,10 @@ export type BrokerInvocationRecord = {
   continuationJson?: string | undefined
   brokerContinuationJson?: string | undefined
   specHash: SpecHash
-  redactedSpecHash?: RedactedSpecHash | undefined
   startRequestHash: StartRequestHash
-  redactedStartRequestHash?: RedactedStartRequestHash | undefined
   selectedProfileHash: ProfileHash
-  redactedSpecJson?: string | undefined
-  redactedStartRequestJson?: string | undefined
+  specProjectionJson?: string | undefined
+  startRequestProjectionJson?: string | undefined
   lastEventSeq?: number | undefined
   ownerServerInstanceId?: ServerInstanceId | undefined
   createdAt: IsoTimestamp
@@ -2018,8 +2021,7 @@ export type RuntimeArtifactRecord = {
     | string
   mediaType: 'application/json' | 'text/plain' | string
   storageKind: 'inline-json' | 'file-path'
-  contentHash: ArtifactHash
-  redactionState: RedactionState
+  contentHash: ContentHash
   artifactJson?: string | undefined
   artifactPath?: string | undefined
   createdAt: IsoTimestamp

@@ -34,6 +34,8 @@ For broker-capable routes this includes `HarnessInvocationSpec`, `InvocationStar
 
 If HRC needs a different broker request, process argv/env/cwd, driver config, continuation shape, prompt materialization, model, placement, permission policy, or input policy, HRC MUST ask ASP to recompile.
 
+**Confidentiality posture.** The contract plane may hold raw execution material in memory because HRC must launch the harness. It defines **no** generic secret classification, redaction transforms, or digest-substituted values. Durable/storage/display planes persist only explicit projections that omit fields designated as live execution material. Confidentiality is enforced by not storing/displaying those fields — or via runtime env injection / an external secret store — **not** by contract-DTO redaction. (The canonical statement of this principle lives in the PLANE_SPEC architecture section; this is a pointer.)
+
 ---
 
 ## 1. Normative language
@@ -55,7 +57,7 @@ A **compiled execution profile** is one element of `CompiledRuntimePlan.executio
 | User/API request normalization | Receives normalized compile input | Owns | No |
 | Operation/runtime/invocation identity allocation | Receives required IDs; may validate | Owns | Uses provided IDs; may generate only for standalone CLI/testing |
 | Placement resolution | Owns | Requests/rejects | No |
-| Bundle resolution/materialization | Owns | References/persists redacted artifacts | No |
+| Bundle resolution/materialization | Owns | References/persists projection artifacts | No |
 | Prompt/context materialization | Owns | Supplies input/policy; references only | Uses compiled paths/content only through spec |
 | Harness family/runtime selection | Emits valid profiles | Selects one profile | Reports observed driver/runtime |
 | Model resolution | Owns | Enforces admission/policy | No |
@@ -67,10 +69,10 @@ A **compiled execution profile** is one element of `CompiledRuntimePlan.executio
 | Input policy | Emits requested profile policy | Admits against capability intersection | Enforces/disposes/queues |
 | Turn lifecycle projection | No | Owns HRC projection | Emits normalized facts |
 | Runtime reuse/adoption | No | Owns | Reports status/capabilities |
-| Persistence | Emits redacted/hashable artifacts | Owns durable state | No durable HRC state |
+| Persistence | Emits projection/hashable artifacts | Owns durable state | No durable HRC state |
 | Restart/reconcile | No | Owns | Supports status; v2 supports attach/replay |
 | Public API compatibility | No | Owns | No |
-| Redaction/hashing of compiled artifacts | Owns canonical redacted/hash forms | Persists/verifies | Emits redacted events/status |
+| Projection/hashing of compiled artifacts | Owns canonical projection/hash forms | Persists/verifies | Emits normalized events/status (no redaction) |
 
 ---
 
@@ -94,14 +96,13 @@ packages/spaces-runtime-contracts/
   src/permissions.ts
   src/input.ts
   src/observability.ts
-  src/redaction.ts
   src/hash.ts
   src/public-api.ts
   src/persistence.ts
   src/errors.ts
 ```
 
-This package MUST contain DTOs, schema identifiers, canonicalization helpers, redaction helpers, hash helpers, and error-code constants. It MUST NOT import HRC server code, broker driver code, or concrete harness implementation packages.
+This package MUST contain DTOs, schema identifiers, canonicalization helpers, hash helpers, projection DTOs/helpers, and error-code constants. It MUST NOT import HRC server code, broker driver code, or concrete harness implementation packages.
 
 ### 3.2 Allowed dependencies
 
@@ -150,7 +151,7 @@ rg "new HarnessInvocationSpec|InvocationStartRequest\s*=|spec\.driver|spec\.proc
   -g '!**/__tests__/**'
 ```
 
-The third check needs allowlists for validation, hash comparison, redacted persistence, and type-only usage. It MUST fail on construction or mutation sites.
+The third check needs allowlists for validation, hash comparison, projection persistence, and type-only usage. It MUST fail on construction or mutation sites.
 
 ---
 
@@ -174,7 +175,7 @@ This identity rule is required for stable hashes, replayable diagnostics, idempo
 
 ---
 
-## 5. Hashing, redaction, and canonicalization contract
+## 5. Hashing, projection, and canonicalization contract
 
 ### 5.1 Canonical JSON
 
@@ -186,28 +187,30 @@ All cross-plane hashes MUST use a single canonical JSON encoder with these rules
 4. `null` preserved.
 5. Numbers serialized in normal JSON form; non-finite numbers forbidden.
 6. Timestamps omitted from semantic hashes unless explicitly listed as semantic.
-7. Secret values represented by compiler-controlled secret digests or secret refs, never raw secrets.
-8. Redacted artifacts use stable redaction placeholders.
+7. Hash material is a **named canonical projection** selected by **explicit PATH omission** (never key-name matching, never value scanning), versioned `hashProjection: 'runtime-contract-semantic/v2'`. This projection policy is orthogonal to the canonicalization algorithm `HashAlgorithm = 'sha256-canonical-json/v1'`; the two version strings are kept separate.
 
 ### 5.2 Hash vocabulary
 
+All hashes are **closure/dedup/route/reuse/test** tools, **not** confidentiality controls. Each hash is computed over a named canonical projection of its source object, selected by explicit path omission per §5.1 rule 7.
+
 | Hash | Owner | Meaning |
 | --- | --- | --- |
-| `planHash` | ASP | Semantic hash of the complete compiled plan, with raw secrets replaced by stable secret digests. |
-| `redactedPlanHash` | ASP | Hash of the exact redacted plan persisted by HRC. |
-| `profileHash` | ASP | Semantic hash of one execution profile. |
-| `compatibilityHash` | ASP | Hash of fields that determine runtime reuse compatibility. |
-| `specHash` | ASP | Semantic hash of broker `HarnessInvocationSpec`. |
-| `redactedSpecHash` | ASP | Hash of redacted broker spec persisted by HRC. |
-| `startRequestHash` | ASP | Semantic hash of broker `InvocationStartRequest`, including initial input metadata and secret digests. |
-| `redactedStartRequestHash` | ASP | Hash of redacted start request persisted by HRC. |
-| `artifactHash` | ASP/HRC | Content hash of persisted artifact JSON/file. |
+| `planHash` | ASP | Semantic hash of the compiled plan projection (minus self-hash fields, ephemeral timestamps; omit `/placement/env` and every `/executionProfiles/*` env path per variant: `.../process/env`, `.../session/env`, `.../command/env`, `.../harnessInvocation/startRequest/spec/process/env`). |
+| `profileHash` | ASP | Semantic hash of one execution profile projection (minus self-hash fields, ephemeral timestamps; omit the variant's env path — terminal `/process/env`, embedded-sdk `/session/env`, command `/command/env`, broker `/harnessInvocation/startRequest/spec/process/env`). |
+| `compatibilityHash` | ASP | Hash of fields that determine runtime reuse compatibility: command, args, cwd, transport, driver config/model/reasoning, bundle identity/lock, policy, resource limits, continuation provider/kind/non-secret identity, **plus the sorted env KEY SET only** (names, never values). |
+| `specHash` | ASP | Semantic hash of broker `HarnessInvocationSpec` with `/process/env` omitted. |
+| `startRequestHash` | ASP | Semantic hash of broker `InvocationStartRequest` with `/spec/process/env` omitted (initial input **included**). |
+| `contentHash` | ASP/HRC | Content hash of persisted artifact JSON/file bytes. |
 
 HRC MAY verify that the selected profile’s immutable values still hash to the ASP-supplied hashes immediately before sending them to the broker. HRC MUST NOT use hashes to reconstruct missing execution mechanics.
 
-### 5.3 Secret handling
+### 5.3 Confidentiality by projection
 
-ASP MUST classify environment keys as `public`, `secret`, or `redacted`. Raw secret values MUST NOT be persisted by HRC in plan/profile/spec/start-request artifacts. A full executable request may exist in memory long enough to send to the broker, but persisted artifacts use redacted forms plus secret digests. Secret digests SHOULD be keyed or compiler-scoped so persisted hashes do not become reusable secret fingerprints across installations.
+There is no generic secret classification, redaction transform, or digest-substituted value in the contract plane. A full executable request (including raw `/process/env`) may exist in HRC memory long enough to launch the harness. Durable, storage, and display planes persist only explicit **projections** that omit fields designated as live execution material (`/process/env`, `/spec/process/env`). Confidentiality is enforced by not storing/displaying those fields — or via runtime env injection / an external secret store — **not** by contract-DTO redaction.
+
+**Hard rule:** secrets MUST NEVER be placed in argv, cwd, driver config, initial input, labels, or correlation if those are hashed, persisted, or displayed. Secret launch material arrives only via process env, runtime env injection, or an external secret store/reference outside this contract plane.
+
+There is **no** reuse-soundness / `environmentRevision` rule. Real key management has the harness/broker read keys directly, not via env passthrough; pure-passthrough env vars are simply absent from `compatibilityHash`, so there is no reuse-invalidation language. Guardrail: if a future route uses an env *value* as non-secret runtime *mechanics*, that value MUST be elevated into explicit driver config/policy, or the route opts out of reuse — this guards against hiding mechanics in env, not an `environmentRevision` subsystem.
 
 ---
 
@@ -263,7 +266,6 @@ ASP MUST own and emit:
 - permission/input/exposure policy compilation;
 - resource limits;
 - observability/correlation embedding;
-- redacted artifacts;
 - all semantic hashes;
 - compiler diagnostics.
 
@@ -289,7 +291,7 @@ CompiledRuntimePlan
 
 The plan contains one or more `RuntimeExecutionProfile` objects. Each profile is a complete execution strategy. For Codex headless v1, ASP MUST emit a `BrokerExecutionProfile` when the requested route is admissible at compile time.
 
-A broker profile MUST include a complete `InvocationStartRequest`, including `spec` and optional `initialInput`. It MUST include `specHash`, `startRequestHash`, `redactedSpec`, `redactedStartRequest`, policy, continuation refs, expected capabilities, compatibility hash, and observability contract.
+A broker profile MUST include a complete `InvocationStartRequest`, including `spec` and optional `initialInput`. It MUST include `specHash`, `startRequestHash`, policy, continuation refs, expected capabilities, `compatibilityHash`, and observability contract. The live profile carries the raw `startRequest` plus these hashes only; it does **not** embed projection DTOs. HRC persists projections (`spec`/`start-request`/`plan`/`profile`) separately at the persistence/display boundary.
 
 ### 6.6 Execution profile rule
 
@@ -305,7 +307,8 @@ HRC MUST recompile when any of these change after plan creation:
 - harness family/runtime;
 - interaction mode;
 - prompt/context/attachments;
-- process env/path/cwd/args;
+- the env **key set** or explicit env mechanics (a different raw env needed for launch triggers recompile; env *values* remain outside semantic hashes and are not a reuse key);
+- process path/cwd/args;
 - driver config;
 - permission/input/exposure policy if encoded into profile;
 - resource limits;
@@ -315,7 +318,7 @@ HRC MUST recompile when any of these change after plan creation:
 
 ### 6.8 Diagnostics
 
-Diagnostics MUST be structured and redacted. An error diagnostic means HRC may not use the affected profile. A warning diagnostic may still be route-admissible if HRC policy allows it.
+Diagnostics MUST be structured and MUST omit live-execution fields (`/process/env`, secret material). An error diagnostic means HRC may not use the affected profile. A warning diagnostic may still be route-admissible if HRC policy allows it.
 
 Diagnostics are compiler facts, not runtime events. HRC persists them as artifacts and may project them as public warnings.
 
@@ -394,7 +397,7 @@ For broker-capable Codex headless start:
 2. HRC calls ASP compileRuntimePlan(req).
 3. HRC route engine selects exactly one compiled profile by profileId/profileHash.
 4. HRC validates product policy and capability requirements.
-5. HRC persists redacted plan/profile diagnostics.
+5. HRC persists plan/profile projections and diagnostics.
 6. HRC creates RuntimeOperation(kind='broker_invocation').
 7. HRC starts one broker process for the runtime.
 8. HRC sends broker.hello.
@@ -493,7 +496,7 @@ Rules:
 - missing explicit default means deny;
 - timeout uses explicit default decision;
 - `yolo` compiles to explicit allow policy with provenance and audit;
-- permission subject is redacted before persistence;
+- broker/driver emits a bounded display subject (`subject_display_json`); raw native payloads are not persisted by default;
 - `ask-client` is enabled only if broker hello advertises broker-to-client requests and selected profile requires/permits it.
 
 ### 7.10 Event projection contract
@@ -552,7 +555,7 @@ At minimum, broker routes must persist:
 - `selectedProfileHash`;
 - `specHash`;
 - `startRequestHash`;
-- redacted plan/profile/spec/start request artifacts;
+- plan/profile/spec/start-request projections (live-execution fields omitted);
 - capability resolution;
 - route decision JSON;
 - broker event ledger with `(invocationId, seq)`;
@@ -621,7 +624,6 @@ Harness Broker owns:
 - ordered normalized event stream;
 - invocation status;
 - driver-level continuation reporting;
-- redaction of event/status payloads;
 - stop/interrupt/dispose mechanics.
 
 ### 8.2 Broker forbidden actions
@@ -814,8 +816,7 @@ Each driver implements:
 - `status()`;
 - `dispose()`;
 - native event parser;
-- continuation extractor;
-- redaction for native payloads.
+- continuation extractor.
 
 Driver code is the only place where native harness protocol semantics live. HRC never imports or parses driver internals.
 
@@ -894,8 +895,7 @@ CREATE TABLE IF NOT EXISTS compiled_runtime_plans (
   schema_version TEXT NOT NULL,
   compiler_name TEXT NOT NULL,
   compiler_version TEXT NOT NULL,
-  redacted_plan_hash TEXT NOT NULL,
-  redacted_plan_json TEXT NOT NULL,
+  plan_projection_json TEXT NOT NULL,
   diagnostics_json TEXT,
   created_at TEXT NOT NULL
 );
@@ -939,12 +939,10 @@ CREATE TABLE IF NOT EXISTS broker_invocations (
   continuation_json TEXT,
   broker_continuation_json TEXT,
   spec_hash TEXT NOT NULL,
-  redacted_spec_hash TEXT,
   start_request_hash TEXT NOT NULL,
-  redacted_start_request_hash TEXT,
   selected_profile_hash TEXT NOT NULL,
-  redacted_spec_json TEXT,
-  redacted_start_request_json TEXT,
+  spec_projection_json TEXT,
+  start_request_projection_json TEXT,
   last_event_seq INTEGER,
   owner_server_instance_id TEXT,
   created_at TEXT NOT NULL,
@@ -961,6 +959,7 @@ CREATE TABLE IF NOT EXISTS broker_invocation_events (
   broker_event_json TEXT NOT NULL,
   hrc_event_seq INTEGER,
   projection_status TEXT NOT NULL DEFAULT 'pending',
+  projection_error TEXT,
   created_at TEXT NOT NULL,
   PRIMARY KEY (invocation_id, seq)
 );
@@ -972,7 +971,6 @@ CREATE TABLE IF NOT EXISTS runtime_artifacts (
   media_type TEXT NOT NULL,
   storage_kind TEXT NOT NULL,
   content_hash TEXT NOT NULL,
-  redaction_state TEXT NOT NULL,
   artifact_json TEXT,
   artifact_path TEXT,
   created_at TEXT NOT NULL
@@ -984,7 +982,7 @@ CREATE TABLE IF NOT EXISTS permission_decisions (
   runtime_id TEXT NOT NULL,
   run_id TEXT,
   kind TEXT NOT NULL,
-  subject_redacted_json TEXT NOT NULL,
+  subject_display_json TEXT NOT NULL,
   default_decision TEXT NOT NULL,
   decision TEXT NOT NULL,
   decided_by TEXT NOT NULL,
@@ -1063,7 +1061,7 @@ Client -> HRC /v1/runtimes/start or /v1/turns
 HRC allocates request/operation/runtime/invocation/input/run IDs
 HRC -> ASP compileRuntimePlan
 ASP -> HRC CompiledRuntimePlan with BrokerExecutionProfile
-HRC persists redacted plan and creates RuntimeOperation
+HRC persists plan projection and creates RuntimeOperation
 HRC selects profile and validates capabilities/policy
 HRC starts broker process
 HRC -> Broker broker.hello
@@ -1133,8 +1131,9 @@ No live reattach claim unless v2 attach/replay exists
 - ASP emits `CompiledRuntimePlan` for supported runtime shapes.
 - Codex headless emits complete `BrokerExecutionProfile`.
 - Plan/profile/spec/start-request hashes are stable.
-- Redacted plan/spec/start-request contain no raw secrets.
-- Changing process/driver mechanics changes semantic hashes.
+- Projection-hash determinism: the same source object yields the same hash, and hashes are computed over the named canonical projection with the source DTO's enumerated env omit paths applied.
+- Plan/profile/spec/start-request projections omit live/raw env material at every enumerated path by path, never by key-name matching or value scanning.
+- Changing process/driver mechanics changes semantic hashes; changing only env *values* does not change per-object hashes (env is carried only as the sorted key set in `compatibilityHash`).
 - Missing broker profile produces diagnostics, not HRC-side patching.
 - Mutation attempts violate compiler closure tests.
 
@@ -1176,7 +1175,7 @@ No live reattach claim unless v2 attach/replay exists
 - Ask-client without negotiated capability denies.
 - Ask-client timeout uses explicit default.
 - Missing default denies.
-- Permission subject is redacted.
+- Permission subject persisted as a bounded display subject (`subject_display_json`); raw native payloads are not persisted.
 
 ### 14.6 Input tests
 
@@ -1200,7 +1199,7 @@ No live reattach claim unless v2 attach/replay exists
 
 The to-be contract surface is accepted only when all are true:
 
-1. ASP emits versioned, hashable, redacted `CompiledRuntimePlan` artifacts.
+1. ASP emits versioned, hashable `CompiledRuntimePlan` artifacts; persisted/displayed forms are explicit projections that omit live-execution fields.
 2. HRC route decisions select profiles from compiled plans.
 3. Codex headless selects `controller: 'harness-broker'` by default.
 4. HRC never reconstructs, mutates, patches, infers, or synthesizes broker execution mechanics after ASP compilation.
@@ -1209,12 +1208,13 @@ The to-be contract surface is accepted only when all are true:
 7. HRC broker paths do not parse native harness events.
 8. Broker invocation identity, plan hash, selected profile hash, spec hash, start-request hash, capabilities, continuation, state, and event sequence are persisted.
 9. Broker events are mapped through one idempotent `BrokerEventMapper`.
-10. Permission decisions are explicit, audited, redacted, and default-deny.
+10. Permission decisions are explicit, audited, default-deny, and persist only a bounded display subject.
 11. Busy-input behavior is explicit and tested against actual broker capabilities.
 12. HRC restart behavior is conservative in v1 and live-reattachable only after broker attach/replay support exists.
 13. Public APIs expose controller/profile/capability fields and derive old `transport` aliases.
 14. Legacy `exec.ts` is feature-gated, isolated, and deleted after Codex broker cutover.
 15. Cross-repo boundary checks enforce dependency direction.
+16. Persisted/displayed artifacts are named canonical projections selected by explicit path omission; secrets never appear in argv, cwd, driver config, initial input, labels, or correlation, and there is no secret classification, redaction transform, or digest-substituted value anywhere in the contract plane.
 
 Final deletion criterion:
 
