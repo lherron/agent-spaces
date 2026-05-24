@@ -1,12 +1,17 @@
-import type { CodexAppServerDriverSpec, PermissionPolicy } from 'spaces-harness-broker-protocol'
+import type {
+  CodexAppServerDriverSpec,
+  InputId,
+  PermissionPolicy,
+  TurnId,
+} from 'spaces-harness-broker-protocol'
 import type { DriverContext } from '../driver'
 import type { JsonRpcRequest } from './rpc-client'
 
 export interface PermissionHandlerContext {
   ctx: DriverContext
   driver: CodexAppServerDriverSpec
-  currentTurnId: string | undefined
-  currentInputId: string | undefined
+  currentTurnId: TurnId | undefined
+  currentInputId: InputId | undefined
 }
 
 /**

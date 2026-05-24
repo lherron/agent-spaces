@@ -7,6 +7,7 @@ import type {
   CodexAppServerDriverSpec,
   HarnessInvocationSpec,
   InputContent,
+  InputId,
   InvocationInput,
   InvocationStartRequest,
 } from 'spaces-harness-broker-protocol'
@@ -15,7 +16,7 @@ import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
 import type { ContextResolverContext } from 'spaces-runtime'
 import { expandTemplate } from 'spaces-runtime'
 
-import { CodedError, CODEX_CLI_FRONTEND } from './client-support.js'
+import { CODEX_CLI_FRONTEND, CodedError } from './client-support.js'
 import type { PreparedPlacementCliRuntime } from './prepare-cli-runtime.js'
 import type {
   BuildHarnessBrokerInvocationRequest,
@@ -80,9 +81,7 @@ export function deriveHandleParts(placement: RuntimePlacement): HandleParts {
   return parts
 }
 
-export function buildPromptExpansionContext(
-  placement: RuntimePlacement
-): ContextResolverContext {
+export function buildPromptExpansionContext(placement: RuntimePlacement): ContextResolverContext {
   const handleParts = deriveHandleParts(placement)
   return {
     agentRoot: placement.agentRoot,
@@ -96,9 +95,7 @@ export function buildPromptExpansionContext(
   }
 }
 
-export function validateBrokerInvocationRequest(
-  req: BuildHarnessBrokerInvocationRequest
-): void {
+export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocationRequest): void {
   if (req.provider !== 'openai') {
     throw new CodedError(
       `Harness broker invocation only supports provider "openai"; got "${req.provider}"`,
@@ -207,7 +204,7 @@ function buildInitialInput(
     return undefined
   }
   return {
-    inputId: `input_${randomUUID()}`,
+    inputId: req.initialInputId ?? (`input_${randomUUID()}` as InputId),
     kind: 'user',
     content,
   }

@@ -1,4 +1,10 @@
-import type { InvocationEventEnvelope, InvocationEventType } from 'spaces-harness-broker-protocol'
+import type {
+  InputId,
+  InvocationEventEnvelope,
+  InvocationEventType,
+  InvocationId,
+  TurnId,
+} from 'spaces-harness-broker-protocol'
 
 export interface EventSequencerOptions {
   now: () => Date
@@ -7,12 +13,12 @@ export interface EventSequencerOptions {
 
 export interface InvocationEventSequencer {
   next<TPayload>(
-    invocationId: string,
+    invocationId: InvocationId,
     type: InvocationEventType,
     payload: TPayload,
     extra?: {
-      turnId?: string | undefined
-      inputId?: string | undefined
+      turnId?: TurnId | undefined
+      inputId?: InputId | undefined
       itemId?: string | undefined
       driver?: { kind: string; rawType?: string | undefined } | undefined
     }
@@ -27,12 +33,12 @@ export function createInvocationEventSequencer(
 
   return {
     next<TPayload>(
-      invocationId: string,
+      invocationId: InvocationId,
       type: InvocationEventType,
       payload: TPayload,
       extra?: {
-        turnId?: string | undefined
-        inputId?: string | undefined
+        turnId?: TurnId | undefined
+        inputId?: InputId | undefined
         itemId?: string | undefined
         driver?: { kind: string; rawType?: string | undefined } | undefined
       }

@@ -1,11 +1,13 @@
 import type {
   HarnessInvocationSpec,
+  InputId,
   InvocationCapabilities,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  TurnId,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../drivers/driver'
@@ -14,7 +16,7 @@ import { BrokerError } from '../errors'
 export interface TestDriverController {
   readonly inputs: InvocationInput[]
   readonly activeInput: InvocationInput | undefined
-  readonly activeTurnId: string | undefined
+  readonly activeTurnId: TurnId | undefined
   completeActiveTurn(finalOutput?: string): void
   failActiveTurn(message?: string): void
   interruptActiveTurn(reason?: string): void
@@ -70,7 +72,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
   const inputs: InvocationInput[] = []
   let ctx: DriverContext | undefined
   let activeInput: InvocationInput | undefined
-  let activeTurnId: string | undefined
+  let activeTurnId: TurnId | undefined
   let turnCounter = 0
 
   const requireCtx = (): DriverContext => {
@@ -80,7 +82,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     return ctx
   }
 
-  const requireActiveTurn = (): { input: InvocationInput; turnId: string } => {
+  const requireActiveTurn = (): { input: InvocationInput; turnId: TurnId } => {
     if (activeInput === undefined || activeTurnId === undefined) {
       throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'No active test turn')
     }
@@ -99,7 +101,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
       return activeInput
     },
 
-    get activeTurnId(): string | undefined {
+    get activeTurnId(): TurnId | undefined {
       return activeTurnId
     },
 
@@ -151,7 +153,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     },
 
     async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
-      const inputId = input.inputId ?? `input_test_${inputs.length + 1}`
+      const inputId = input.inputId ?? (`input_test_${inputs.length + 1}` as InputId)
       const resolved = { ...input, inputId }
 
       if (failInputIds.has(inputId)) {
@@ -161,7 +163,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
       inputs.push(resolved)
       activeInput = resolved
       turnCounter += 1
-      activeTurnId = `turn_test_${turnCounter}`
+      activeTurnId = `turn_test_${turnCounter}` as TurnId
 
       // Driver emits turn.started — broker owns input.accepted separately
       requireCtx().emit('turn.started', { turnId: activeTurnId }, { turnId: activeTurnId, inputId })

@@ -1,12 +1,12 @@
-import type { InvocationEventType } from 'spaces-harness-broker-protocol'
+import type { InputId, InvocationEventType, TurnId } from 'spaces-harness-broker-protocol'
 import type { JsonRpcNotification } from './rpc-client'
 
 export interface MappedEvent {
   type: InvocationEventType
   payload: unknown
   extra?: {
-    turnId?: string | undefined
-    inputId?: string | undefined
+    turnId?: TurnId | undefined
+    inputId?: InputId | undefined
     itemId?: string | undefined
     driver?: { kind: string; rawType?: string | undefined } | undefined
   }
@@ -28,6 +28,10 @@ const TOOL_NAMES: Record<string, string> = {
 
 const TOOL_TYPES = new Set(Object.keys(TOOL_NAMES))
 
+function asTurnId(value: string): TurnId {
+  return value as TurnId
+}
+
 export function mapCodexNotification(notification: JsonRpcNotification): MappedEvent[] {
   const params = asRecord(notification.params)
 
@@ -39,7 +43,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
         {
           type: 'turn.started',
           payload: { turnId },
-          extra: { turnId },
+          extra: { turnId: asTurnId(turnId) },
         },
       ]
     }
@@ -61,7 +65,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
           {
             type: 'assistant.message.started',
             payload: { messageId: itemId },
-            extra: { turnId, itemId },
+            extra: { turnId: asTurnId(turnId), itemId },
           },
         ]
       }
@@ -76,7 +80,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
               name: TOOL_NAMES[itemType] ?? itemType,
               ...(input !== undefined ? { input } : {}),
             },
-            extra: { turnId, itemId },
+            extra: { turnId: asTurnId(turnId), itemId },
           },
         ]
       }
@@ -92,7 +96,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
         {
           type: 'assistant.message.delta',
           payload: { messageId: itemId, text },
-          extra: { turnId, itemId },
+          extra: { turnId: asTurnId(turnId), itemId },
         },
       ]
     }
@@ -107,7 +111,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
         {
           type: 'tool.call.delta',
           payload: { toolCallId: itemId, text },
-          extra: { turnId, itemId },
+          extra: { turnId: asTurnId(turnId), itemId },
         },
       ]
     }
@@ -123,7 +127,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
             toolCallId: itemId,
             ...(params['data'] !== undefined ? { data: params['data'] } : { data: params }),
           },
-          extra: { turnId, itemId },
+          extra: { turnId: asTurnId(turnId), itemId },
         },
       ]
     }
@@ -144,7 +148,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
               content: normalizeMessageContent(item),
               final: true,
             },
-            extra: { turnId, itemId },
+            extra: { turnId: asTurnId(turnId), itemId },
           },
         ]
       }
@@ -163,7 +167,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
               isError,
               ...(durationMs !== undefined ? { durationMs } : {}),
             },
-            extra: { turnId, itemId },
+            extra: { turnId: asTurnId(turnId), itemId },
           },
         ]
       }
@@ -199,7 +203,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
                 ? { finalOutput: turn['finalOutput'] }
                 : {}),
           },
-          extra: { turnId },
+          extra: { turnId: asTurnId(turnId) },
         },
       ]
     }

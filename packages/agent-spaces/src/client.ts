@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 
-import { isAbsolute, resolve } from 'node:path'
+import { isAbsolute } from 'node:path'
 
 import {
   HARNESS_PROVIDERS,
@@ -9,8 +9,6 @@ import {
   normalizeAgentSdkModel,
 } from 'spaces-config'
 
-import { resolvePlacementContext } from 'spaces-config'
-
 import {
   type UnifiedSession,
   type UnifiedSessionEvent,
@@ -18,12 +16,13 @@ import {
   harnessRegistry,
 } from 'spaces-execution'
 
+import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
+import { PiSession, loadPiSdkBundle } from 'spaces-harness-pi-sdk/pi-session'
 import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
 } from './broker-invocation.js'
-import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
-import { PiSession, loadPiSdkBundle } from 'spaces-harness-pi-sdk/pi-session'
+import { compileRuntimePlan } from './compile-runtime-plan.js'
 
 import {
   type InFlightRunContext,
@@ -35,12 +34,7 @@ import {
   resolveInFlight,
 } from './run-tracker.js'
 
-import {
-  applyEnvOverlay,
-  piSessionPath,
-  resolveHostSessionId,
-  withAspHome,
-} from './runtime-env.js'
+import { applyEnvOverlay, piSessionPath, resolveHostSessionId, withAspHome } from './runtime-env.js'
 
 import {
   type EventPayload,
@@ -51,7 +45,6 @@ import {
 } from './session-events.js'
 
 import {
-  type MaterializedSpec,
   type ValidatedSpec,
   collectHooks,
   collectLintWarnings,
@@ -115,6 +108,10 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
   const inFlightRuns = createInFlightRunMap()
 
   return {
+    async compileRuntimePlan(req) {
+      return compileRuntimePlan(req, { clientAspHome })
+    },
+
     async resolve(req: ResolveRequest): Promise<ResolveResponse> {
       return withAspHome(req.aspHome, async () => {
         try {

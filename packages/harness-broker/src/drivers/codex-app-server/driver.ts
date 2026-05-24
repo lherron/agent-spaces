@@ -2,12 +2,14 @@ import { createInterface } from 'node:readline'
 import type {
   CodexAppServerDriverSpec,
   HarnessInvocationSpec,
+  InputId,
   InvocationCapabilities,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  TurnId,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
@@ -72,8 +74,8 @@ export function createCodexAppServerDriver(): Driver {
   let proc: ChildProcess | undefined
   let rpc: CodexRpcClient | undefined
   let threadId: string | undefined
-  let currentInputId: string | undefined
-  let currentTurnId: string | undefined
+  let currentInputId: InputId | undefined
+  let currentTurnId: TurnId | undefined
   let turnActive = false
   let startedEmitted = false
   let terminalEmitted = false
@@ -372,7 +374,7 @@ export function createCodexAppServerDriver(): Driver {
         throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Invocation is not ready')
       }
 
-      const inputId = input.inputId ?? `input_${Date.now().toString(36)}`
+      const inputId = input.inputId ?? (`input_${Date.now().toString(36)}` as InputId)
       currentInputId = inputId
 
       // Wire turn timeout

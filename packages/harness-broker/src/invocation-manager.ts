@@ -2,11 +2,13 @@ import type {
   ClientCapabilities,
   ContinuationUpdate,
   HarnessInvocationSpec,
+  InputId,
   InvocationCapabilities,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
   InvocationEventEnvelope,
   InvocationEventType,
+  InvocationId,
   InvocationInput,
   InvocationInputRequest,
   InvocationInputResponse,
@@ -17,6 +19,7 @@ import type {
   InvocationStatusResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  TurnId,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import type { Driver, DriverContext } from './drivers/driver'
@@ -44,14 +47,14 @@ const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
 // Queue types
 // ---------------------------------------------------------------------------
 interface QueuedInput {
-  inputId: string
+  inputId: InputId
   input: InvocationInputWithId
 }
 
-type InvocationInputWithId = InvocationInput & { inputId: string }
+type InvocationInputWithId = InvocationInput & { inputId: InputId }
 
 export interface Invocation {
-  readonly invocationId: string
+  readonly invocationId: InvocationId
   readonly spec: HarnessInvocationSpec
   state: InvocationState
   capabilities: InvocationCapabilities
@@ -83,9 +86,9 @@ export interface InvocationManager {
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
-  status(invocationId: string): InvocationStatusResponse
+  status(invocationId: InvocationId): InvocationStatusResponse
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
-  get(invocationId: string): Invocation | undefined
+  get(invocationId: InvocationId): Invocation | undefined
   activeCount(): number
 }
 
@@ -94,7 +97,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   const maxQueueDepth = options.maxInputQueueDepth ?? DEFAULT_MAX_INPUT_QUEUE_DEPTH
   const invocations = new Map<string, Invocation>()
 
-  function requireInvocation(invocationId: string): Invocation {
+  function requireInvocation(invocationId: InvocationId): Invocation {
     const inv = invocations.get(invocationId)
     if (!inv) {
       throw new BrokerError(
@@ -131,10 +134,15 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       } catch (err) {
         // Input failed at the driver level — reject this item and continue
         // draining; the while-loop guard re-checks state before the next item.
-        emit(inv, 'input.rejected', {
-          inputId: head.inputId,
-          reason: String(err instanceof Error ? err.message : err),
-        }, { inputId: head.inputId })
+        emit(
+          inv,
+          'input.rejected',
+          {
+            inputId: head.inputId,
+            reason: String(err instanceof Error ? err.message : err),
+          },
+          { inputId: head.inputId }
+        )
       }
     }
   }
@@ -147,7 +155,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   async function applyAndEmit(
     inv: Invocation,
     input: InvocationInputWithId
-  ): Promise<{ turnId?: string | undefined }> {
+  ): Promise<{ turnId?: TurnId | undefined }> {
     // Broker owns input.accepted emission — before the driver applies the input
     const { inputId } = input
     emit(inv, 'input.accepted', { inputId }, { inputId })
@@ -157,7 +165,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
   function rejectQueueInput(
     inv: Invocation,
-    inputId: string,
+    inputId: InputId,
     reason: string
   ): InvocationInputResponse {
     emit(inv, 'input.rejected', { inputId, reason }, { inputId })
@@ -227,8 +235,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     type: InvocationEventEnvelope['type'],
     payload: TPayload,
     extra?: {
-      turnId?: string | undefined
-      inputId?: string | undefined
+      turnId?: TurnId | undefined
+      inputId?: InputId | undefined
       itemId?: string | undefined
       driver?: { kind: string; rawType?: string | undefined } | undefined
     }
@@ -246,8 +254,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     if (inv.spec.correlation !== undefined) {
       event.correlation = inv.spec.correlation
     }
-    applyEventState(inv, event)
-    onEvent(event)
+    applyEventState(inv, event as InvocationEventEnvelope)
+    onEvent(event as InvocationEventEnvelope)
     return event
   }
 
@@ -266,10 +274,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   // ---------------------------------------------------------------------------
   // InputId resolution
   // ---------------------------------------------------------------------------
-  function resolveInputId(inv: Invocation, input: InvocationInput): string {
+  function resolveInputId(inv: Invocation, input: InvocationInput): InputId {
     if (input.inputId) return input.inputId
     inv.inputCounter += 1
-    return `input_${inv.invocationId}_${inv.inputCounter}`
+    return `input_${inv.invocationId}_${inv.inputCounter}` as InputId
   }
 
   return {
@@ -291,7 +299,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
       const invocationId =
         spec.invocationId ??
-        `inv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+        (`inv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}` as InvocationId)
 
       const driverCaps = driver.capabilities()
       const composedQueue =
@@ -383,10 +391,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const input: InvocationInputWithId = { ...rawInput, inputId }
 
       // Invalid state rejection
-      if (
-        inv.state !== 'ready' &&
-        inv.state !== 'turn_active'
-      ) {
+      if (inv.state !== 'ready' && inv.state !== 'turn_active') {
         throw new BrokerError(
           BrokerErrorCode.InvalidInvocationState,
           `Cannot accept input in state: ${inv.state}`,
@@ -395,12 +400,28 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       }
 
       if (input.kind === 'steer' && !inv.capabilities.input.steer) {
-        emit(inv, 'input.rejected', { inputId, reason: 'UnsupportedCapability: input.steer' }, { inputId })
-        throw new BrokerError(BrokerErrorCode.UnsupportedCapability, 'UnsupportedCapability: input.steer')
+        emit(
+          inv,
+          'input.rejected',
+          { inputId, reason: 'UnsupportedCapability: input.steer' },
+          { inputId }
+        )
+        throw new BrokerError(
+          BrokerErrorCode.UnsupportedCapability,
+          'UnsupportedCapability: input.steer'
+        )
       }
       if (input.kind === 'append_context' && !inv.capabilities.input.appendContext) {
-        emit(inv, 'input.rejected', { inputId, reason: 'UnsupportedCapability: input.appendContext' }, { inputId })
-        throw new BrokerError(BrokerErrorCode.UnsupportedCapability, 'UnsupportedCapability: input.appendContext')
+        emit(
+          inv,
+          'input.rejected',
+          { inputId, reason: 'UnsupportedCapability: input.appendContext' },
+          { inputId }
+        )
+        throw new BrokerError(
+          BrokerErrorCode.UnsupportedCapability,
+          'UnsupportedCapability: input.appendContext'
+        )
       }
 
       // --- State: ready → apply immediately ---
@@ -429,11 +450,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       // whenBusy: 'reject'
       if (policy.whenBusy === 'reject') {
         emit(inv, 'input.rejected', { inputId, reason: REASON_BUSY_REJECTED }, { inputId })
-        throw new BrokerError(
-          BrokerErrorCode.InputRejected,
-          REASON_BUSY_REJECTED,
-          { invocationId: inv.invocationId }
-        )
+        throw new BrokerError(BrokerErrorCode.InputRejected, REASON_BUSY_REJECTED, {
+          invocationId: inv.invocationId,
+        })
       }
 
       // whenBusy: 'interrupt_then_apply' — centrally rejected in v1
@@ -514,7 +533,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       return { accepted: true, state: inv.state }
     },
 
-    status(invocationId: string): InvocationStatusResponse {
+    status(invocationId: InvocationId): InvocationStatusResponse {
       const inv = requireInvocation(invocationId)
       return {
         invocationId: inv.invocationId,
@@ -541,7 +560,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       return { disposed: true }
     },
 
-    get(invocationId: string): Invocation | undefined {
+    get(invocationId: InvocationId): Invocation | undefined {
       return invocations.get(invocationId)
     },
 

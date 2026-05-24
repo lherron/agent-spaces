@@ -6,12 +6,15 @@ import type {
 } from 'spaces-config'
 import type {
   HarnessInvocationSpec,
+  InputId,
+  InvocationId,
   InvocationInput,
   InvocationStartRequest,
   PermissionPolicy,
   ProcessLimits,
 } from 'spaces-harness-broker-protocol'
 import type { AttachmentRef } from 'spaces-runtime'
+import type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 
 /** Re-export HostCorrelation from config for placement consumers */
 export type HostCorrelation = HostCorrelationType
@@ -222,7 +225,8 @@ export interface BuildHarnessBrokerInvocationRequest {
   prompt?: string | undefined
   attachments?: AttachmentRef[] | undefined
   env?: Record<string, string> | undefined
-  invocationId?: string | undefined
+  invocationId?: InvocationId | undefined
+  initialInputId?: InputId | undefined
   labels?: Record<string, string> | undefined
   correlation?: Record<string, string> | undefined
   permissionPolicy?: PermissionPolicy | undefined
@@ -370,6 +374,7 @@ export type AgentEvent =
 // ---------------------------------------------------------------------------
 
 export interface AgentSpacesClient {
+  compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
   runTurnNonInteractive(req: RunTurnNonInteractiveRequest): Promise<RunTurnNonInteractiveResponse>
   runTurnInFlight(req: RunTurnInFlightRequest): Promise<RunTurnNonInteractiveResponse>
   queueInFlightInput(req: QueueInFlightInputRequest): Promise<QueueInFlightInputResponse>

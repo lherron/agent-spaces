@@ -1,18 +1,21 @@
 import type {
   ClientCapabilities,
   HarnessInvocationSpec,
+  InputId,
   InvocationCapabilities,
   InvocationEventEnvelope,
   InvocationEventType,
+  InvocationId,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  TurnId,
 } from 'spaces-harness-broker-protocol'
 
 export interface ApplyInputResult {
-  turnId?: string | undefined
+  turnId?: TurnId | undefined
 }
 
 export interface Driver {
@@ -27,14 +30,14 @@ export interface Driver {
 }
 
 export interface DriverContext {
-  invocationId: string
+  invocationId: InvocationId
   clientCapabilities: ClientCapabilities
   emit<TPayload>(
     type: InvocationEventType,
     payload: TPayload,
     extra?: {
-      turnId?: string | undefined
-      inputId?: string | undefined
+      turnId?: TurnId | undefined
+      inputId?: InputId | undefined
       itemId?: string | undefined
       driver?: { kind: string; rawType?: string | undefined } | undefined
     }

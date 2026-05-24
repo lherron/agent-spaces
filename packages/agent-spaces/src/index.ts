@@ -32,6 +32,8 @@ export type {
   SpaceSpec,
 } from './types.js'
 
+export type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
+
 export type {
   AgentSpacesClientOptions,
   PlacementBuildInvocationRequest,

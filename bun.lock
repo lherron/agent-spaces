@@ -46,6 +46,7 @@
         "spaces-harness-codex": "*",
         "spaces-harness-pi-sdk": "*",
         "spaces-runtime": "*",
+        "spaces-runtime-contracts": "*",
       },
       "devDependencies": {
         "@types/bun": "latest",
