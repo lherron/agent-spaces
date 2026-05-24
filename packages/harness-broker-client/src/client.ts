@@ -11,6 +11,7 @@ import type {
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationStartRequest,
   InvocationStartResponse,
   InvocationStatusRequest,
   InvocationStatusResponse,
@@ -21,17 +22,24 @@ import type {
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import { EventIterator } from './event-iterator'
-import { StdioTransport, type StdioTransportStartOptions } from './stdio-transport'
+import { StdioTransport, type CloseHandler, type StdioTransportStartOptions } from './stdio-transport'
 
 export type PermissionRequestHandler = (
   request: PermissionRequestParams
 ) => Promise<PermissionDecision>
+
+export interface InvocationStartResult {
+  invocationId: string
+  response: InvocationStartResponse
+  events: AsyncIterable<InvocationEventEnvelope>
+}
 
 export class BrokerClient {
   #transport: StdioTransport
   #events = new Map<string, EventIterator<InvocationEventEnvelope>>()
   #pendingEvents = new Map<string, InvocationEventEnvelope[]>()
   #permissionHandler: PermissionRequestHandler | undefined
+  #closeHandlers = new Set<CloseHandler>()
 
   private constructor(transport: StdioTransport) {
     this.#transport = transport
@@ -44,8 +52,11 @@ export class BrokerClient {
       }
       throw new Error(`Unsupported broker-to-client request: ${request.method}`)
     })
-    this.#transport.onClose(() => {
+    this.#transport.onClose((error) => {
       this.#closeEventStreams()
+      for (const handler of this.#closeHandlers) {
+        handler(error)
+      }
     })
   }
 
@@ -64,20 +75,26 @@ export class BrokerClient {
   async startInvocation(
     spec: HarnessInvocationSpec,
     initialInput?: InvocationInput
-  ): Promise<{ invocationId: string; events: AsyncIterable<InvocationEventEnvelope> }> {
-    const expectedInvocationId = spec.invocationId
+  ): Promise<InvocationStartResult> {
+    return this.startInvocationFromRequest(
+      initialInput === undefined ? { spec } : { spec, initialInput }
+    )
+  }
+
+  async startInvocationFromRequest(request: InvocationStartRequest): Promise<InvocationStartResult> {
+    const expectedInvocationId = request.spec.invocationId
     const expectedEvents =
       expectedInvocationId !== undefined ? this.#eventStream(expectedInvocationId) : undefined
 
     try {
-      const params = initialInput === undefined ? { spec } : { spec, initialInput }
       const response = await this.#transport.request<InvocationStartResponse>(
         'invocation.start',
-        params
+        structuredClone(request)
       )
       const events = expectedEvents ?? this.#eventStream(response.invocationId)
       return {
         invocationId: response.invocationId,
+        response,
         events,
       }
     } catch (error) {
@@ -114,6 +131,10 @@ export class BrokerClient {
 
   onPermissionRequest(handler: PermissionRequestHandler): void {
     this.#permissionHandler = handler
+  }
+
+  onClose(handler: CloseHandler): void {
+    this.#closeHandlers.add(handler)
   }
 
   async close(): Promise<void> {
