@@ -1,10 +1,33 @@
 import { describe, expect, test } from 'bun:test'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
-import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import type { Driver } from '../src/drivers/driver'
 import { createNoopDriver } from '../src/drivers/noop-driver'
+import { createTestDriver } from '../src/testing/test-driver'
 import { noopCapabilities, noopSpec } from './helpers'
+
+const now = () => new Date('2026-05-20T18:00:00.000Z')
+
+const testDriverSpec = (invocationId: string): HarnessInvocationSpec => ({
+  specVersion: 'harness-broker.invocation/v1',
+  invocationId,
+  harness: { frontend: 'test', provider: 'test', driver: 'test-driver' },
+  process: {
+    command: 'test-driver',
+    args: [],
+    cwd: process.cwd(),
+    harnessTransport: { kind: 'pipes' },
+  },
+  interaction: { mode: 'headless', turnConcurrency: 'single', inputQueue: 'fifo' },
+  driver: { kind: 'test-driver' },
+})
+
+const userInput = (inputId: string) => ({
+  inputId,
+  kind: 'user' as const,
+  content: [{ type: 'text' as const, text: 'go' }],
+})
 
 const createTestBroker = () =>
   createBroker({
@@ -143,5 +166,89 @@ describe('broker lifecycle', () => {
       invocationId: 'inv_terminal',
       type: 'invocation.failed',
     })
+  })
+
+  test('invocation.ready event payload is { state: "ready" }', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createNoopDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    await broker.start({ spec: noopSpec({ invocationId: 'inv_ready_payload' }) })
+
+    const ready = events.find((event) => event.type === 'invocation.ready')
+    expect(ready?.payload).toEqual({ state: 'ready' })
+  })
+
+  test('dispose emits invocation.disposed exactly once and is idempotent', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createNoopDriver({ terminal: 'exited' })],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    await broker.start({ spec: noopSpec({ invocationId: 'inv_disposed_once' }) })
+    await broker.stop({ invocationId: 'inv_disposed_once' })
+
+    await expect(broker.dispose({ invocationId: 'inv_disposed_once' })).resolves.toEqual({
+      disposed: true,
+    })
+    await expect(broker.dispose({ invocationId: 'inv_disposed_once' })).resolves.toEqual({
+      disposed: true,
+    })
+
+    const disposed = events.filter((event) => event.type === 'invocation.disposed')
+    expect(disposed).toHaveLength(1)
+    expect(disposed[0]?.payload).toEqual({ disposed: true })
+  })
+
+  test('status reflects currentTurnId during an active turn and clears it after completion', async () => {
+    const { driver, controller } = createTestDriver()
+    const broker = createBroker({ drivers: [driver], now })
+    await broker.start({ spec: testDriverSpec('inv_status_turn') })
+    await broker.input({ invocationId: 'inv_status_turn', input: userInput('in_1') })
+
+    const active = await broker.status({ invocationId: 'inv_status_turn' })
+    expect(active.state).toBe('turn_active')
+    expect(active.currentTurnId).toBe(controller.activeTurnId!)
+
+    controller.completeActiveTurn()
+
+    const idle = await broker.status({ invocationId: 'inv_status_turn' })
+    expect(idle.state).toBe('ready')
+    expect(idle.currentTurnId).toBeUndefined()
+  })
+
+  test('status exposes child process pid reported via invocation.started', async () => {
+    const driver: Driver = {
+      kind: 'pid-driver',
+      version: 'test',
+      capabilities: () => noopCapabilities,
+      start: async (_spec, ctx) => {
+        ctx.emit('invocation.started', {
+          pid: 4242,
+          command: 'pid-driver',
+          args: [],
+          cwd: '/work',
+        })
+        ctx.emit('invocation.ready', { state: 'ready' })
+        return { ok: true }
+      },
+      applyInputNow: async () => ({}),
+      interrupt: async () => ({ accepted: false, effect: 'unsupported' }),
+      stop: async () => ({ accepted: true, state: 'exited' }),
+      dispose: async () => {},
+    }
+    const broker = createBroker({ drivers: [driver], now })
+    const spec: HarnessInvocationSpec = {
+      ...testDriverSpec('inv_pid'),
+      harness: { frontend: 'pid', provider: 'pid', driver: 'pid-driver' },
+      driver: { kind: 'pid-driver' },
+    }
+    await broker.start({ spec })
+
+    const status = await broker.status({ invocationId: 'inv_pid' })
+    expect(status.process).toMatchObject({ pid: 4242 })
   })
 })

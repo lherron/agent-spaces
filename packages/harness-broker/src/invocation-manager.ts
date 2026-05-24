@@ -27,7 +27,7 @@ import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import type { Driver, DriverContext } from './drivers/driver'
 import { BrokerError } from './errors'
 import type { InvocationEventSequencer } from './events'
-import { buildEnvSecrets, redactPayload, safeStartedPayload } from './security/redaction'
+import { buildEnvSecrets, finalizeEventPayload } from './security/redaction'
 
 // ---------------------------------------------------------------------------
 // Reason-string vocabulary (centralized for spec traceability)
@@ -63,7 +63,15 @@ export interface Invocation {
   driver: Driver
   continuation?: ContinuationUpdate | undefined
   terminalEmitted: boolean
+  /** True once invocation.disposed has been emitted — keeps it idempotent. */
+  disposedEmitted: boolean
   envSecrets: Set<string>
+  /** Manager-owned public status projection, driven by applyEventState. */
+  currentTurnId?: TurnId | undefined
+  currentInputId?: InputId | undefined
+  childPid?: number | undefined
+  exitCode?: number | null | undefined
+  signal?: string | null | undefined
   /** Per-invocation FIFO queue of pending inputs. */
   pending: QueuedInput[]
   /** Self-clearing drain lock: set while a drain is in flight, cleared in .finally(). */
@@ -203,15 +211,34 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   // ---------------------------------------------------------------------------
   function applyEventState(inv: Invocation, event: InvocationEventEnvelope): void {
     switch (event.type) {
+      case 'invocation.started': {
+        // Capture the child pid for the manager-owned status projection.
+        const pid = (event.payload as { pid?: unknown } | undefined)?.pid
+        if (typeof pid === 'number') {
+          inv.childPid = pid
+        }
+        return
+      }
       case 'invocation.ready':
         inv.state = 'ready'
         return
+      case 'input.accepted':
+        // The input that drives the next turn — cleared when the turn ends.
+        if (event.inputId !== undefined) {
+          inv.currentInputId = event.inputId
+        }
+        return
       case 'turn.started':
         inv.state = 'turn_active'
+        if (event.turnId !== undefined) {
+          inv.currentTurnId = event.turnId
+        }
         return
       case 'turn.completed':
       case 'turn.failed':
       case 'turn.interrupted':
+        inv.currentTurnId = undefined
+        inv.currentInputId = undefined
         if (inv.state !== 'exited' && inv.state !== 'failed' && inv.state !== 'disposed') {
           inv.state = 'ready'
         }
@@ -222,15 +249,33 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         inv.state = 'stopping'
         evictQueue(inv, REASON_INVOCATION_STOPPING)
         return
-      case 'invocation.exited':
+      case 'invocation.exited': {
         inv.state = 'exited'
         inv.terminalEmitted = true
+        inv.currentTurnId = undefined
+        inv.currentInputId = undefined
+        const payload = event.payload as { exitCode?: unknown; signal?: unknown } | undefined
+        if (payload && 'exitCode' in payload) {
+          inv.exitCode = payload.exitCode as number | null | undefined
+        }
+        if (payload && 'signal' in payload) {
+          inv.signal = payload.signal as string | null | undefined
+        }
         evictQueue(inv, REASON_INVOCATION_TERMINATED)
         return
+      }
       case 'invocation.failed':
         inv.state = 'failed'
         inv.terminalEmitted = true
+        inv.currentTurnId = undefined
+        inv.currentInputId = undefined
         evictQueue(inv, REASON_INVOCATION_TERMINATED)
+        return
+      case 'invocation.disposed':
+        inv.state = 'disposed'
+        inv.disposedEmitted = true
+        inv.currentTurnId = undefined
+        inv.currentInputId = undefined
         return
       case 'continuation.updated':
         inv.continuation = event.payload as ContinuationUpdate
@@ -252,14 +297,15 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       driver?: { kind: string; rawType?: string | undefined } | undefined
     }
   ): InvocationEventEnvelope<TPayload> {
-    // Apply redaction before sequencing: constrain invocation.started and scrub secrets.
-    let safePayload: TPayload = payload
-    if (type === 'invocation.started') {
-      safePayload = safeStartedPayload(payload) as TPayload
-    }
-    if (inv.envSecrets.size > 0) {
-      safePayload = redactPayload(safePayload, inv.envSecrets) as TPayload
-    }
+    // Single central event-safety path before sequencing: constrain/normalize
+    // well-known payloads, scrub secrets, redact permission subjects, and
+    // truncate oversized payloads against maxEventBytes.
+    const { payload: safePayload, diagnostics } = finalizeEventPayload({
+      type,
+      payload,
+      envSecrets: inv.envSecrets,
+      maxEventBytes: inv.spec.process.limits?.maxEventBytes,
+    })
 
     const event = sequencer.next(inv.invocationId, type, safePayload, extra)
     if (inv.spec.correlation !== undefined) {
@@ -267,7 +313,16 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     }
     applyEventState(inv, event as InvocationEventEnvelope)
     onEvent(event as InvocationEventEnvelope)
-    return event
+
+    // Follow-on diagnostics (e.g. truncation notices) are emitted as their own
+    // events. Their payloads are small, so they never re-trigger truncation.
+    if (diagnostics) {
+      for (const diagnostic of diagnostics) {
+        emit(inv, 'diagnostic', diagnostic, extra)
+      }
+    }
+
+    return event as InvocationEventEnvelope<TPayload>
   }
 
   function emitTerminal(
@@ -336,6 +391,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         capabilities,
         driver,
         terminalEmitted: false,
+        disposedEmitted: false,
         envSecrets: buildEnvSecrets(spec.process.env),
         pending: [],
         inputCounter: 0,
@@ -376,7 +432,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           })
         }
         if (inv.state !== 'ready') {
-          emit(inv, 'invocation.ready', {})
+          emit(inv, 'invocation.ready', { state: 'ready' })
         }
       }
 
@@ -549,18 +605,35 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
     status(invocationId: InvocationId): InvocationStatusResponse {
       const inv = requireInvocation(invocationId)
-      return {
+      const response: InvocationStatusResponse = {
         invocationId: inv.invocationId,
         state: inv.state,
         capabilities: inv.capabilities,
         continuation: inv.continuation,
       }
+      if (inv.currentTurnId !== undefined) {
+        response.currentTurnId = inv.currentTurnId
+      }
+      // Project child-process info when any of pid/exitCode/signal is known.
+      if (inv.childPid !== undefined || inv.exitCode !== undefined || inv.signal !== undefined) {
+        response.process = {
+          ...(inv.childPid !== undefined ? { pid: inv.childPid } : {}),
+          ...(inv.exitCode !== undefined ? { exitCode: inv.exitCode } : {}),
+          ...(inv.signal !== undefined ? { signal: inv.signal } : {}),
+        }
+      }
+      return response
     },
 
     async dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse> {
       const inv = requireInvocation(req.invocationId)
 
-      if (!TERMINAL_STATES.has(inv.state) && inv.state !== 'disposed') {
+      // Idempotent: a second dispose neither re-runs the driver nor re-emits.
+      if (inv.state === 'disposed' || inv.disposedEmitted) {
+        return { disposed: true }
+      }
+
+      if (!TERMINAL_STATES.has(inv.state)) {
         throw new BrokerError(
           BrokerErrorCode.InvalidInvocationState,
           `Cannot dispose invocation in state: ${inv.state}`,
@@ -569,7 +642,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       }
 
       await inv.driver.dispose()
-      inv.state = 'disposed'
+
+      // emit() → applyEventState sets state = 'disposed' and disposedEmitted.
+      emit(inv, 'invocation.disposed', { disposed: true })
 
       return { disposed: true }
     },
