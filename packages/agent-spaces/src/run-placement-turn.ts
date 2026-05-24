@@ -1,10 +1,10 @@
 import { basename } from 'node:path'
 
 import {
+  type RuntimePlacement,
   ensureDir,
   getAspHome,
   normalizeAgentSdkModel,
-  type RuntimePlacement,
   resolvePlacementContext,
 } from 'spaces-config'
 import {
@@ -30,6 +30,7 @@ import {
 import { buildCorrelationEnvVars } from './placement-api.js'
 import type { InFlightRunContext } from './run-tracker.js'
 import { enqueueInFlightPrompt } from './run-tracker.js'
+import { shouldDrainOutstandingTurn, toAgentSpacesError } from './run-turn-helpers.js'
 import {
   applyEnvOverlay,
   piSessionPath,
@@ -42,7 +43,6 @@ import {
   createEventEmitter,
   mapUnifiedEvents,
 } from './session-events.js'
-import { shouldDrainOutstandingTurn, toAgentSpacesError } from './run-turn-helpers.js'
 import type {
   HarnessContinuationRef,
   RunResult,
@@ -149,12 +149,21 @@ export async function runPlacementTurnNonInteractive(
     const resolvedBundle = placementContext.resolvedBundle
     const cwd = resolvedBundle.cwd
 
-    // Build correlation env vars. Apply the env overlay once it also contains
-    // agent tool env and frontend-specific session env.
+    // Apply the env overlay once it contains the disjoint locked and dispatch
+    // env channels plus frontend-specific session env.
     const correlationEnv = buildCorrelationEnvVars(placement)
-    const harnessEnv: Record<string, string> = { ...correlationEnv, ...(req.env ?? {}) }
+    const lockedEnv: Record<string, string> = {
+      ...(req.env ?? {}),
+      ...(req.lockedEnv ?? {}),
+    }
+    const dispatchEnv: Record<string, string> = {
+      ...correlationEnv,
+      ...(req.dispatchEnv ?? {}),
+    }
+    const harnessEnv: Record<string, string> = { ...lockedEnv, ...dispatchEnv }
 
     const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
+    lockedEnv['ASP_HOME'] = aspHome
     harnessEnv['ASP_HOME'] = aspHome
 
     const placementAgentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
@@ -166,6 +175,7 @@ export async function runPlacementTurnNonInteractive(
       },
       harnessEnv
     )
+    Object.assign(lockedEnv, brainEnv)
     Object.assign(harnessEnv, brainEnv)
 
     if (placementAgentLocalComponents?.hasTools) {
@@ -177,6 +187,9 @@ export async function runPlacementTurnNonInteractive(
         },
         harnessEnv
       )
+      const { PATH: toolPath, ...toolLockedEnv } = toolRuntime.env
+      void toolPath
+      Object.assign(lockedEnv, toolLockedEnv)
       Object.assign(harnessEnv, toolRuntime.env)
     }
 

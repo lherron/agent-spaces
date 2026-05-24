@@ -14,6 +14,7 @@ import type {
   HrcCapabilityPolicy,
 } from 'spaces-runtime-contracts'
 import { compileRuntimePlan } from '../compile-runtime-plan.js'
+import { buildCorrelationEnvVars } from '../placement-api.js'
 import { writePreHrcBrokerContractArtifacts } from './pre-hrc-broker-contract-artifacts.js'
 import {
   assertBrokerProfileClosure,
@@ -315,6 +316,7 @@ async function collectEventsUntilTerminalTurn(
 
 async function startBrokerInvocation(
   profile: BrokerExecutionProfile,
+  dispatchEnv: Record<string, string> | undefined,
   hrcPolicy: HrcCapabilityPolicy | undefined,
   timeoutMs: number,
   allowLegacyPermissionEvent: boolean
@@ -355,7 +357,8 @@ async function startBrokerInvocation(
     })
 
     const startResult = await brokerClient.startInvocationFromRequest(
-      profile.harnessInvocation.startRequest
+      profile.harnessInvocation.startRequest,
+      dispatchEnv
     )
     const invocationFailures = assertInvocationCapabilities(
       profile.expectedCapabilities,
@@ -472,8 +475,18 @@ export async function runPreHrcBrokerContractHarness(
   let brokerStart: PreHrcBrokerContractHarnessResult['brokerStart']
   let brokerEvents: InvocationEventEnvelope[] = []
   if (mode === 'broker-start' && !contractVerificationFailed && selectedProfile !== undefined) {
+    const placementDispatchEnv =
+      (input.compileRequest.placement as { dispatchEnv?: Record<string, string> | undefined })
+        .dispatchEnv ?? {}
+    const dispatchEnv = {
+      ...buildCorrelationEnvVars(
+        input.compileRequest.placement as unknown as Parameters<typeof buildCorrelationEnvVars>[0]
+      ),
+      ...placementDispatchEnv,
+    }
     const brokerResult = await startBrokerInvocation(
       selectedProfile,
+      dispatchEnv,
       input.compileRequest.hrcPolicy.capabilityPolicy,
       input.timeoutMs ?? selectedProfile.policy.resourceLimits?.turnTimeoutMs ?? 10_000,
       input.allowLegacyPermissionEvent === true
@@ -492,19 +505,12 @@ export async function runPreHrcBrokerContractHarness(
         )
       }
       if (input.brokerStartAssertions?.realCodexHappyPath !== undefined) {
-        const processEnvSecrets = Object.values(
-          selectedProfile.harnessInvocation.startRequest.spec.process.env ?? {}
-        ).filter((value): value is string => value.length > 0)
         failures.push(
           ...assertRealCodexHappyPath(brokerResult.brokerStart.events, {
             ...input.brokerStartAssertions.realCodexHappyPath,
             expectedCwd:
               input.brokerStartAssertions.realCodexHappyPath.expectedCwd ??
               selectedProfile.harnessInvocation.startRequest.spec.process.cwd,
-            redactedCompareValues: [
-              ...processEnvSecrets,
-              ...(input.brokerStartAssertions.realCodexHappyPath.redactedCompareValues ?? []),
-            ],
           })
         )
       }

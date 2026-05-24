@@ -128,7 +128,6 @@ export type PreHrcBrokerContractHarnessInput = {
           | {
               expectedCwd?: string | undefined
               expectedAssistantMarker: string
-              redactedCompareValues?: string[] | undefined
             }
           | undefined
       }
@@ -153,7 +152,7 @@ export type PreHrcBrokerContractArtifactManifest = {
         startRequestHash?: string | undefined
       }
     | undefined
-  redactedByDefault: true
+  projectionArtifacts: true
   rawStartRequestWritten: boolean
   warnings: string[]
 }

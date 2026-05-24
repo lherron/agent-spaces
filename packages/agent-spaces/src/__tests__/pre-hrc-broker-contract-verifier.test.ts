@@ -32,8 +32,6 @@ import {
   verifyBrokerStartContract,
 } from '../testing/pre-hrc-broker-helpers.js'
 
-const SECRET_VALUE = 'sk-FAKE-SECRET-01621'
-
 type CompileClient = ReturnType<typeof createAgentSpacesClient> & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
 }
@@ -134,7 +132,7 @@ function baseCompileRequest(): RuntimeCompileRequest {
     agentRoot: fixture.agentRoot,
     projectRoot: fixture.projectRoot,
     cwd: fixture.projectRoot,
-    env: { OPENAI_API_KEY: SECRET_VALUE, EXTRA_FLAG: '1' },
+    lockedEnv: { EXTRA_FLAG: '1' },
     hostSessionId: identity.hostSessionId,
   })
   return {
@@ -230,7 +228,6 @@ function fakeBrokerProfile(
     kind: 'harness-broker',
     interactionMode: 'headless',
     expectedCapabilities: {},
-    redactedProfile: null,
     brokerProtocol: 'harness-broker/0.1',
     brokerDriver: 'codex-app-server',
     brokerOwnership: 'hrc-owned-process',
@@ -244,22 +241,14 @@ function fakeBrokerProfile(
             command: '/bin/codex',
             args: ['app-server'],
             cwd: '/tmp',
-            env: {},
+            lockedEnv: {},
             harnessTransport: { kind: 'jsonrpc-stdio' },
           },
           driver: { kind: 'codex-app-server' },
         },
       },
       specHash: 'spec_fake',
-      redactedSpecHash: 'rspec_fake',
       startRequestHash: 'sr_fake',
-      redactedStartRequestHash: 'rsr_fake',
-      redactedSpec: {
-        specVersion: 'harness-broker.invocation/v1',
-        redactionState: 'redacted',
-        value: {},
-      },
-      redactedStartRequest: { redactionState: 'redacted', value: {} },
     },
     policy: {
       permissionPolicy: { mode: 'deny', audit: true },
@@ -414,11 +403,11 @@ describe('verifyBrokerStartContract', () => {
     expect(Object.isFrozen(profile.harnessInvocation.startRequest.spec.process)).toBe(true)
   })
 
-  test('FAILS when process.env was mutated after compile', async () => {
+  test('FAILS when process.lockedEnv was mutated after compile', async () => {
     const plan = await compilePlan()
     const profile = clone(selectBrokerProfile(plan))
-    profile.harnessInvocation.startRequest.spec.process.env = {
-      ...profile.harnessInvocation.startRequest.spec.process.env,
+    profile.harnessInvocation.startRequest.spec.process.lockedEnv = {
+      ...profile.harnessInvocation.startRequest.spec.process.lockedEnv,
       INJECTED_AFTER_COMPILE: 'tampered',
     }
     const verification = verifyBrokerStartContract(profile)
@@ -528,7 +517,7 @@ describe('PreHrcBrokerEventLedger', () => {
 })
 
 describe('runPreHrcBrokerContractHarness contract gate', () => {
-  test('dry-run-compile passes the contract verifier and writes redacted artifacts', async () => {
+  test('dry-run-compile passes the contract verifier and writes projection artifacts', async () => {
     const artifactDir = mkdtempSync(join(tmpdir(), 'asp-prehrc-art-'))
     try {
       const result = await runPreHrcBrokerContractHarness({
@@ -540,14 +529,13 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       expect(result.ok).toBe(true)
       expect(result.assertionReport.failures).toHaveLength(0)
 
-      // Redacted artifacts must not contain the raw secret env value.
-      const redacted = readFileSync(
-        join(artifactDir, 'invocation-start-request.redacted.json'),
+      const startProjection = readFileSync(
+        join(artifactDir, 'invocation-start-request.projection.json'),
         'utf8'
       )
-      expect(redacted).not.toContain(SECRET_VALUE)
-      const plan = readFileSync(join(artifactDir, 'compiled-plan.redacted.json'), 'utf8')
-      expect(plan).not.toContain(SECRET_VALUE)
+      expect(startProjection).toContain('startRequestHash')
+      const plan = readFileSync(join(artifactDir, 'compiled-plan.projection.json'), 'utf8')
+      expect(plan).toContain('planHash')
 
       // RAW start request must NOT be written unless explicitly requested.
       expect(result.artifacts?.rawStartRequestWritten).toBe(false)
@@ -565,8 +553,8 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       aspHome: fixture.aspHome,
       dryRunCompile: false,
       mutateProfileForTest: (profile) => {
-        profile.harnessInvocation.startRequest.spec.process.env = {
-          ...profile.harnessInvocation.startRequest.spec.process.env,
+        profile.harnessInvocation.startRequest.spec.process.lockedEnv = {
+          ...profile.harnessInvocation.startRequest.spec.process.lockedEnv,
           INJECTED_AFTER_COMPILE: 'tampered',
         }
       },

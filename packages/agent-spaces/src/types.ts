@@ -129,6 +129,9 @@ export interface RunTurnNonInteractiveRequest {
   yolo?: boolean | undefined
   continuation?: HarnessContinuationRef | undefined
   cwd: string
+  lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string> | undefined
   prompt: string
   attachments?: AgentSpacesAttachmentInput[] | undefined
@@ -195,6 +198,9 @@ export interface BuildProcessInvocationSpecRequest {
   ioMode: 'pty' | 'inherit' | 'pipes'
   continuation?: HarnessContinuationRef | undefined
   cwd: string
+  lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string> | undefined
   artifactDir?: string | undefined
   /** Prompt text to include in the invocation argv */
@@ -224,6 +230,9 @@ export interface BuildHarnessBrokerInvocationRequest {
   continuation?: HarnessContinuationRef | undefined
   prompt?: string | undefined
   attachments?: AttachmentRef[] | undefined
+  lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string> | undefined
   invocationId?: InvocationId | undefined
   initialInputId?: InputId | undefined

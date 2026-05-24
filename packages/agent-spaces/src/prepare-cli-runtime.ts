@@ -1,12 +1,7 @@
 import { basename, extname, resolve } from 'node:path'
 
-import type { AttachmentRef } from 'spaces-runtime'
-import type {
-  HarnessDetection,
-  HarnessRunOptions,
-  ResolvedPlacementContext,
-} from 'spaces-config'
-import { getAspHome, type RuntimePlacement, resolvePlacementContext } from 'spaces-config'
+import type { HarnessDetection, HarnessRunOptions, ResolvedPlacementContext } from 'spaces-config'
+import { type RuntimePlacement, getAspHome, resolvePlacementContext } from 'spaces-config'
 import type { PlacementRuntimePlan } from 'spaces-execution'
 import {
   detectAgentLocalComponents,
@@ -17,17 +12,12 @@ import {
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
 import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
+import type { AttachmentRef } from 'spaces-runtime'
 import type { MaterializeResult } from 'spaces-runtime'
 import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
 
-import {
-  buildPromptExpansionContext,
-  deriveHandleParts,
-} from './broker-invocation.js'
-import {
-  type MaterializedSpec,
-  materializeSpec,
-} from './client-materialization.js'
+import { buildPromptExpansionContext, deriveHandleParts } from './broker-invocation.js'
+import { type MaterializedSpec, materializeSpec } from './client-materialization.js'
 import {
   CODEX_CLI_FRONTEND,
   CodedError,
@@ -59,6 +49,8 @@ export interface PreparedPlacementCliRuntime {
   commandPath: string
   args: string[]
   argv: string[]
+  lockedEnv: Record<string, string>
+  dispatchEnv: Record<string, string>
   env: Record<string, string>
   cwd: string
   displayCommand: string
@@ -77,6 +69,9 @@ interface PreparePlacementCliRuntimeRequest {
   continuation?: HarnessContinuationRef | undefined
   prompt?: string | undefined
   attachments?: AttachmentRef[] | undefined
+  lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string> | undefined
   placement?: RuntimePlacement | undefined
 }
@@ -253,13 +248,20 @@ export async function preparePlacementCliRuntime(
     agentchatEnv['ASP_PROJECT'] = basename(resolve(placement.projectRoot))
   }
 
-  // Merge env: adapter env + correlation + agentchat + request env delta + ASP_HOME
-  let env: Record<string, string> = {
+  let lockedEnv: Record<string, string> = {
     ...adapterEnv,
-    ...correlationEnv,
     ...agentchatEnv,
     ...(req.env ?? {}),
+    ...(req.lockedEnv ?? {}),
     ASP_HOME: aspHome,
+  }
+  const dispatchEnv: Record<string, string> = {
+    ...correlationEnv,
+    ...(req.dispatchEnv ?? {}),
+  }
+  let env: Record<string, string> = {
+    ...lockedEnv,
+    ...dispatchEnv,
   }
 
   const brainEnv = await prepareAgentBrainRuntime(
@@ -270,6 +272,7 @@ export async function preparePlacementCliRuntime(
     },
     env
   )
+  lockedEnv = { ...lockedEnv, ...brainEnv }
   env = { ...env, ...brainEnv }
 
   if (agentLocalComponents?.hasTools) {
@@ -281,6 +284,12 @@ export async function preparePlacementCliRuntime(
       },
       env
     )
+    const { PATH: toolPath, ...toolLockedEnv } = toolRuntime.env
+    void toolPath
+    // TODO(pathPrepend, T-01633 follow-up): tool-bin PATH-prepend pending typed
+    // HarnessProcessSpec.pathPrepend field (cross-package: protocol+broker).
+    // Do not route PATH through lockedEnv.
+    lockedEnv = { ...lockedEnv, ...toolLockedEnv }
     env = { ...env, ...toolRuntime.env }
     warnings.push(...toolRuntime.warnings)
   }
@@ -313,6 +322,8 @@ export async function preparePlacementCliRuntime(
     args,
     argv,
     cwd,
+    lockedEnv,
+    dispatchEnv,
     env,
     ...(continuation ? { continuation } : {}),
     displayCommand,

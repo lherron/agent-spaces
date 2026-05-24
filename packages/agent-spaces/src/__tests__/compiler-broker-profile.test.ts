@@ -31,8 +31,6 @@ import type {
   BuildHarnessBrokerInvocationResponse,
 } from '../types.js'
 
-const SECRET_VALUE = 'sk-FAKE-SECRET-01610'
-
 type CompileClient = AgentSpacesClient & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
 }
@@ -121,7 +119,7 @@ function placement(overrides: Record<string, unknown> = {}): RuntimeCompileReque
     cwd: fixture.projectRoot,
     runMode: 'task',
     bundle: { kind: 'agent-project', agentName: 'cody', projectRoot: fixture.projectRoot },
-    env: { OPENAI_API_KEY: SECRET_VALUE, EXTRA_FLAG: '1' },
+    lockedEnv: { EXTRA_FLAG: '1' },
     correlation: {
       sessionRef: {
         scopeRef: 'agent:cody:project:agent-spaces:task:T-01610',
@@ -236,7 +234,7 @@ function legacyBrokerRequest(
     continuation: { provider: 'openai', key: req.continuation?.hrc.key },
     prompt: req.materialization.initialPrompt,
     attachments: [{ kind: 'file', path: fixture.imagePath, contentType: 'image/png' }],
-    env: { OPENAI_API_KEY: SECRET_VALUE, EXTRA_FLAG: '1' },
+    lockedEnv: { EXTRA_FLAG: '1' },
     invocationId: req.identity.invocationId,
     initialInputId: req.identity.initialInputId,
     labels: { task: 'T-01610' },
@@ -317,7 +315,7 @@ describe('compiled broker profile field mapping', () => {
     expect(spec.process.command).toBeTruthy()
     expect(spec.process.args).toContain('app-server')
     expect(spec.process.cwd).toBe(fixture.projectRoot)
-    expect(spec.process.env).toEqual(expect.objectContaining({ EXTRA_FLAG: '1' }))
+    expect(spec.process.lockedEnv).toEqual(expect.objectContaining({ EXTRA_FLAG: '1' }))
     expect(spec.process.harnessTransport).toEqual({ kind: 'jsonrpc-stdio' })
     expect(spec.process.limits).toEqual({ startupTimeoutMs: 10_000, turnTimeoutMs: 20_000 })
   })
@@ -407,12 +405,15 @@ describe('compiled broker profile field mapping', () => {
     )
   })
 
-  test('keeps raw env secrets out of the redacted broker artifacts', async () => {
+  test('keeps dispatch correlation out of locked broker env', async () => {
     const profile = brokerProfile(await createClient().compileRuntimePlan(baseCompileRequest()))
 
-    expect(JSON.stringify(profile.harnessInvocation.redactedSpec)).not.toContain(SECRET_VALUE)
-    expect(JSON.stringify(profile.harnessInvocation.redactedStartRequest)).not.toContain(
-      SECRET_VALUE
+    expect(profile.harnessInvocation.startRequest.spec.process.lockedEnv).not.toEqual(
+      expect.objectContaining({
+        AGENT_SCOPE_REF: expect.any(String),
+        AGENT_LANE_REF: expect.any(String),
+        AGENT_HOST_SESSION_ID: expect.any(String),
+      })
     )
   })
 

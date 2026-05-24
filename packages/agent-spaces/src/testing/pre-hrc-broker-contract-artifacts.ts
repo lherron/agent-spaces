@@ -7,7 +7,7 @@ import type {
   CompiledRuntimePlan,
   RuntimeCompileRequest,
 } from 'spaces-runtime-contracts'
-import { redactArtifact } from 'spaces-runtime-contracts'
+import { project } from 'spaces-runtime-contracts'
 
 import type {
   ContractHarnessFailure,
@@ -25,12 +25,6 @@ export type PreHrcBrokerContractArtifactInput = {
   brokerEvents?: unknown[] | undefined
   assertionReport: PreHrcBrokerContractAssertionReport
   writeRawStartRequest?: boolean | undefined
-}
-
-function envForRedaction(
-  profile: BrokerExecutionProfile | undefined
-): Record<string, string> | undefined {
-  return profile?.harnessInvocation.startRequest.spec.process.env
 }
 
 function tempDirContains(path: string): boolean {
@@ -75,7 +69,6 @@ export async function writePreHrcBrokerContractArtifacts(
   }
 
   const artifactDir = isAbsolute(input.artifactDir) ? input.artifactDir : resolve(input.artifactDir)
-  const env = envForRedaction(input.selectedProfile)
   const startRequest = input.selectedProfile?.harnessInvocation.startRequest
   const brokerSpec = startRequest?.spec
   const contractFields = {
@@ -98,11 +91,23 @@ export async function writePreHrcBrokerContractArtifacts(
   try {
     await mkdir(artifactDir, { recursive: true })
     const artifacts: Array<[string, unknown]> = [
-      ['compile-request.redacted.json', redactArtifact(input.compileRequest, { env })],
-      ['compiled-plan.redacted.json', redactArtifact(input.compiledPlan ?? null, { env })],
-      ['selected-profile.redacted.json', redactArtifact(input.selectedProfile ?? null, { env })],
-      ['broker-spec.redacted.json', redactArtifact(brokerSpec ?? null, { env })],
-      ['invocation-start-request.redacted.json', redactArtifact(startRequest ?? null, { env })],
+      ['compile-request.json', input.compileRequest],
+      [
+        'compiled-plan.projection.json',
+        input.compiledPlan !== undefined ? project(input.compiledPlan, 'plan') : null,
+      ],
+      [
+        'selected-profile.projection.json',
+        input.selectedProfile !== undefined ? project(input.selectedProfile, 'profile') : null,
+      ],
+      [
+        'broker-spec.projection.json',
+        brokerSpec !== undefined ? project(brokerSpec, 'spec') : null,
+      ],
+      [
+        'invocation-start-request.projection.json',
+        startRequest !== undefined ? project(startRequest, 'start-request') : null,
+      ],
       ['route-decision.pre-hrc.json', input.routeDecision ?? null],
       ['contract-fields.json', contractFields],
       ['assertion-report.json', input.assertionReport],
@@ -137,7 +142,7 @@ export async function writePreHrcBrokerContractArtifacts(
     const summary = [
       'pre-HRC broker contract harness',
       `ok: ${input.assertionReport.ok}`,
-      'redacted-by-default: true',
+      'projection-artifacts: true',
       `raw-start-request-written: ${rawStartRequestWritten}`,
       `compileId: ${contractFields.compileId ?? '(none)'}`,
       `planHash: ${contractFields.planHash ?? '(none)'}`,
@@ -158,7 +163,7 @@ export async function writePreHrcBrokerContractArtifacts(
         artifactDir,
         files,
         contractFields,
-        redactedByDefault: true,
+        projectionArtifacts: true,
         rawStartRequestWritten,
         warnings,
       },

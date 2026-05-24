@@ -163,7 +163,7 @@ function compileRequest(fixture: ReturnType<typeof createFixture>): RuntimeCompi
     agentRoot: fixture.agentRoot,
     projectRoot: fixture.projectRoot,
     cwd: fixture.projectRoot,
-    env: { OPENAI_API_KEY: 'sk-FAKE-CI-NOT-A-SECRET', PATH: process.env['PATH'] ?? '' },
+    lockedEnv: { EXTRA_FLAG: 'fake-smoke' },
     hostSessionId: identity.hostSessionId,
   })
   return {

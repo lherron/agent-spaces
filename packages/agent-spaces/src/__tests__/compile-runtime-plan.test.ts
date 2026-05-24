@@ -19,8 +19,6 @@ import type {
   BuildHarnessBrokerInvocationResponse,
 } from '../types.js'
 
-const SECRET_VALUE = 'sk-FAKE-SECRET-123'
-
 type CompileClient = AgentSpacesClient & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
 }
@@ -109,7 +107,7 @@ function placement(overrides: Record<string, unknown> = {}): RuntimeCompileReque
     cwd: fixture.projectRoot,
     runMode: 'task',
     bundle: { kind: 'agent-project', agentName: 'cody', projectRoot: fixture.projectRoot },
-    env: { OPENAI_API_KEY: SECRET_VALUE, EXTRA_FLAG: '1' },
+    lockedEnv: { EXTRA_FLAG: '1' },
     correlation: {
       sessionRef: {
         scopeRef: 'agent:cody:project:agent-spaces:task:T-01609',
@@ -204,14 +202,6 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
   return profiles[0]
 }
 
-function redactedArtifacts(profile: BrokerExecutionProfile): unknown {
-  return {
-    redactedProfile: profile.redactedProfile,
-    redactedSpec: profile.harnessInvocation.redactedSpec,
-    redactedStartRequest: profile.harnessInvocation.redactedStartRequest,
-  }
-}
-
 function legacyBrokerRequest(
   req: RuntimeCompileRequest
 ): BuildHarnessBrokerInvocationRequest & { initialInputId?: InputId | undefined } {
@@ -224,7 +214,7 @@ function legacyBrokerRequest(
     continuation: { provider: 'openai', key: req.continuation?.hrc.key },
     prompt: req.materialization.initialPrompt,
     attachments: [{ kind: 'file', path: fixture.imagePath, contentType: 'image/png' }],
-    env: { OPENAI_API_KEY: SECRET_VALUE, EXTRA_FLAG: '1' },
+    lockedEnv: { EXTRA_FLAG: '1' },
     invocationId: req.identity.invocationId,
     initialInputId: req.identity.initialInputId,
     labels: { task: 'T-01609' },
@@ -290,13 +280,10 @@ describe('compileRuntimePlan broker profile contract', () => {
 
     for (const hash of [
       response.plan.planHash,
-      response.plan.redactedPlanHash,
       profile.profileHash,
       profile.compatibilityHash,
       profile.harnessInvocation.specHash,
-      profile.harnessInvocation.redactedSpecHash,
       profile.harnessInvocation.startRequestHash,
-      profile.harnessInvocation.redactedStartRequestHash,
     ]) {
       expect(hash).toEqual(expect.any(String))
       expect(hash.length).toBeGreaterThan(0)
@@ -360,11 +347,34 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(changedProfile.compatibilityHash).toBe(firstProfile.compatibilityHash)
   })
 
-  test('redacted artifacts do not contain raw env secrets', async () => {
+  test('summarizes locked env keys and keeps placement correlation out of the spec env', async () => {
+    const req = baseCompileRequest()
     const response = await createClient().compileRuntimePlan(baseCompileRequest())
     const profile = brokerProfile(response)
+    if (!response.ok) throw new Error('unreachable')
 
-    expect(JSON.stringify(redactedArtifacts(profile))).not.toContain(SECRET_VALUE)
+    expect(response.plan.lockedEnv.lockedEnvKeys).toEqual(
+      expect.arrayContaining(['ASP_HOME', 'CODEX_HOME', 'EXTRA_FLAG'])
+    )
+    expect(profile.harnessInvocation.startRequest.spec.process.lockedEnv).toEqual(
+      expect.objectContaining({ EXTRA_FLAG: '1' })
+    )
+    expect(profile.harnessInvocation.startRequest.spec.process.lockedEnv).not.toHaveProperty(
+      'AGENT_SCOPE_REF'
+    )
+    expect(profile.harnessInvocation.startRequest.spec.process.lockedEnv).not.toHaveProperty(
+      'AGENT_LANE_REF'
+    )
+    expect(profile.harnessInvocation.startRequest.spec.process.lockedEnv).not.toHaveProperty(
+      'AGENT_HOST_SESSION_ID'
+    )
+    expect(req.placement).toEqual(
+      expect.objectContaining({
+        correlation: expect.objectContaining({
+          sessionRef: expect.objectContaining({ scopeRef: expect.any(String) }),
+        }),
+      })
+    )
   })
 
   test('returns diagnostics instead of a profile for unsupported provider, harness, and mode routes', async () => {

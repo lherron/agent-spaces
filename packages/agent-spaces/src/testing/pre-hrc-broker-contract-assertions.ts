@@ -24,22 +24,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-function redactForComparison(value: string, sensitiveValues: readonly string[]): string {
-  return sensitiveValues.reduce((current, sensitive) => {
-    if (!sensitive) return current
-    return current.replaceAll(sensitive, '[REDACTED]')
-  }, value)
-}
-
-function matchesRawOrRedacted(
-  actual: unknown,
-  expected: string,
-  sensitiveValues: readonly string[]
-): boolean {
-  if (typeof actual !== 'string') return false
-  return actual === expected || actual === redactForComparison(expected, sensitiveValues)
-}
-
 function commandIsPwdOnly(command: unknown): boolean {
   if (typeof command !== 'string') return false
   const trimmed = command.trim()
@@ -54,20 +38,10 @@ function normalizedPathOutput(output: string): string {
   return output.trim().replace(/\r\n/g, '\n')
 }
 
-function outputMatchesExpectedCwd(
-  output: unknown,
-  expectedCwd: string,
-  sensitiveValues: readonly string[]
-): boolean {
+function outputMatchesExpectedCwd(output: unknown, expectedCwd: string): boolean {
   if (typeof output !== 'string') return false
   const trimmed = normalizedPathOutput(output)
-  const redacted = redactForComparison(expectedCwd, sensitiveValues)
-  return (
-    trimmed === expectedCwd ||
-    trimmed.includes(expectedCwd) ||
-    trimmed === redacted ||
-    trimmed.includes(redacted)
-  )
+  return trimmed === expectedCwd || trimmed.includes(expectedCwd)
 }
 
 function assistantTexts(events: readonly InvocationEventEnvelope[]): string[] {
@@ -335,7 +309,6 @@ export function assertRealCodexHappyPath(
 ): ContractHarnessFailure[] {
   const failures: ContractHarnessFailure[] = []
   const expectedCwd = options.expectedCwd
-  const redactedCompareValues = options.redactedCompareValues ?? []
 
   const commandStarted = events.find((event) => {
     if (event.type !== 'tool.call.started') return false
@@ -370,10 +343,7 @@ export function assertRealCodexHappyPath(
       redactedDetails: { command: commandInput['command'] },
     })
   }
-  if (
-    expectedCwd !== undefined &&
-    !matchesRawOrRedacted(commandInput['cwd'], expectedCwd, redactedCompareValues)
-  ) {
+  if (expectedCwd !== undefined && commandInput['cwd'] !== expectedCwd) {
     failures.push({
       code: 'real_codex_tool_call_invalid',
       message: 'Real-Codex command tool call cwd must match the compiled broker process cwd.',
@@ -446,7 +416,7 @@ export function assertRealCodexHappyPath(
   }
   if (
     expectedCwd !== undefined &&
-    !outputMatchesExpectedCwd(commandResult['output'], expectedCwd, redactedCompareValues)
+    !outputMatchesExpectedCwd(commandResult['output'], expectedCwd)
   ) {
     failures.push({
       code: 'real_codex_tool_call_invalid',

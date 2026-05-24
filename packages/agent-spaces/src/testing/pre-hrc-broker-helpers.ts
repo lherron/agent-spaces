@@ -102,6 +102,9 @@ export type BuildPlacementFromScopeRefInput = {
   /** Explicit agent root; defaults to `<projectRoot>/../var/agents/<agentName>`. */
   agentRoot?: string | undefined
   cwd?: string | undefined
+  lockedEnv?: Record<string, string | undefined> | undefined
+  dispatchEnv?: Record<string, string | undefined> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string | undefined> | undefined
   laneRef?: string | undefined
   runMode?: string | undefined
@@ -119,15 +122,17 @@ export function buildPlacementFromScopeRef(
   input: BuildPlacementFromScopeRefInput
 ): RuntimePlacement {
   const agentName = input.agentName ?? resolveScopeInput(input.scopeRef).parsed.agentId
-  const agentRoot =
-    input.agentRoot ?? resolve(input.projectRoot, '..', 'var', 'agents', agentName)
+  const agentRoot = input.agentRoot ?? resolve(input.projectRoot, '..', 'var', 'agents', agentName)
   return {
     agentRoot,
     projectRoot: input.projectRoot,
     cwd: input.cwd ?? input.projectRoot,
     runMode: input.runMode ?? 'task',
     bundle: { kind: 'agent-project', agentName, projectRoot: input.projectRoot },
-    env: input.env ?? process.env,
+    ...(input.env !== undefined || input.lockedEnv !== undefined
+      ? { lockedEnv: { ...(input.env ?? {}), ...(input.lockedEnv ?? {}) } }
+      : {}),
+    ...(input.dispatchEnv !== undefined ? { dispatchEnv: input.dispatchEnv } : {}),
     correlation: {
       sessionRef: { scopeRef: input.scopeRef, laneRef: input.laneRef ?? 'main' },
       hostSessionId: input.hostSessionId,

@@ -15,9 +15,9 @@ import {
   type ProfileId,
   type RuntimeCompileRequest,
   type RuntimeCompileResponse,
+  type RuntimeContractProjection,
   createCanonicalHasher,
-  redactArtifact,
-  secretDigest,
+  project,
 } from 'spaces-runtime-contracts'
 
 import {
@@ -28,7 +28,6 @@ import { preparePlacementCliRuntime } from './prepare-cli-runtime.js'
 import type { BuildHarnessBrokerInvocationRequest } from './types.js'
 
 const COMPILER_VERSION = '0.1.1'
-const SECRET_ENV_KEY = /(token|key|secret|password|passwd|credential|bearer)/i
 
 type CompileRuntimePlanOptions = {
   clientAspHome?: string | undefined
@@ -44,13 +43,26 @@ function stableId(prefix: 'compile' | 'profile', value: unknown): string {
   return `${prefix}_${hashValue(value).slice(0, 32)}`
 }
 
-function compileError(code: string, message: string, redactedDetails?: unknown): CompileDiagnostic {
+function projectionHash<K extends 'plan' | 'profile' | 'spec' | 'start-request'>(
+  value: unknown,
+  kind: K
+): Extract<
+  RuntimeContractProjection,
+  Record<K extends 'start-request' ? 'startRequestHash' : `${K}Hash`, string>
+> {
+  return project(value, kind) as Extract<
+    RuntimeContractProjection,
+    Record<K extends 'start-request' ? 'startRequestHash' : `${K}Hash`, string>
+  >
+}
+
+function compileError(code: string, message: string, details?: unknown): CompileDiagnostic {
   return {
     level: 'error',
     code,
     message,
     plane: 'asp-compiler',
-    ...(redactedDetails !== undefined ? { redactedDetails } : {}),
+    ...(details !== undefined ? { details } : {}),
   }
 }
 
@@ -169,11 +181,9 @@ function brokerObservability(
       invocationId,
       ...(req.identity.traceId !== undefined ? { traceId: req.identity.traceId } : {}),
     },
-    env: {},
     ...(req.hrcPolicy.observability !== undefined
       ? { driverConfig: { observability: req.hrcPolicy.observability } }
       : {}),
-    redaction: 'broker-redaction-required',
   }
 }
 
@@ -208,40 +218,12 @@ function expectedCapabilities(policy: BrokerPermissionPolicy): CapabilityRequire
   }
 }
 
-function isSecretEnvKey(key: string): boolean {
-  return SECRET_ENV_KEY.test(key)
-}
-
-function digestEnv(env: Record<string, string> | undefined): {
-  envKeys: string[]
-  secretEnvKeys: string[]
-  secretDigests: Record<string, ReturnType<typeof secretDigest>>
-  hashEnv: Record<string, unknown>
-} {
-  const envKeys = Object.keys(env ?? {}).sort()
-  const secretEnvKeys = envKeys.filter(isSecretEnvKey)
-  const secretDigests: Record<string, ReturnType<typeof secretDigest>> = {}
-  const hashEnv: Record<string, unknown> = {}
-  for (const key of envKeys) {
-    const value = env?.[key]
-    if (value === undefined) continue
-    if (isSecretEnvKey(key)) {
-      const digest = secretDigest(value, { scope: 'agent-spaces-runtime-compiler' })
-      secretDigests[key] = digest
-      hashEnv[key] = { key, classification: 'secret', digest }
-    } else {
-      hashEnv[key] = value
-    }
-  }
-  return { envKeys, secretEnvKeys, secretDigests, hashEnv }
-}
-
 function buildCompatibilityMaterial(
   req: RuntimeCompileRequest,
   startRequest: BrokerExecutionProfile['harnessInvocation']['startRequest'],
   bundleIdentity: string,
   lockHash: string | undefined,
-  hashEnv: Record<string, unknown>
+  lockedEnv: Record<string, string>
 ): unknown {
   const driver = startRequest.spec.driver
   const driverMaterial =
@@ -269,7 +251,7 @@ function buildCompatibilityMaterial(
       command: startRequest.spec.process.command,
       args: startRequest.spec.process.args,
       cwd: startRequest.spec.process.cwd,
-      env: hashEnv,
+      lockedEnv,
       harnessTransport: startRequest.spec.process.harnessTransport,
       limits: startRequest.spec.process.limits,
     },
@@ -277,13 +259,16 @@ function buildCompatibilityMaterial(
     continuation:
       req.continuation !== undefined
         ? {
-            hrc: { provider: req.continuation.hrc.provider, keyHash: req.continuation.hrc.keyHash },
+            hrc: {
+              provider: req.continuation.hrc.provider,
+              continuationId: req.continuation.hrc.continuationId,
+            },
             broker:
               req.continuation.broker !== undefined
                 ? {
                     provider: req.continuation.broker.provider,
                     kind: req.continuation.broker.kind,
-                    keyHash: req.continuation.broker.keyHash,
+                    continuationId: req.continuation.broker.continuationId,
                   }
                 : undefined,
             source: req.continuation.source,
@@ -317,6 +302,11 @@ export async function compileRuntimePlan(
   const exposurePolicy: AgentchatExposurePolicy = req.hrcPolicy.exposurePolicy ?? { mode: 'none' }
   const attachments = toBrokerAttachments(req.materialization.attachments)
   const taskId = req.materialization.taskContext?.taskId
+  const placementEnv = req.placement as {
+    env?: Record<string, string> | undefined
+    lockedEnv?: Record<string, string> | undefined
+    dispatchEnv?: Record<string, string> | undefined
+  }
   const brokerReq: BuildHarnessBrokerInvocationRequest = {
     placement: req.placement as unknown as RuntimePlacement,
     provider: 'openai',
@@ -329,7 +319,9 @@ export async function compileRuntimePlan(
         : undefined,
     prompt: req.materialization.initialPrompt,
     ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
-    env: (req.placement as { env?: Record<string, string> | undefined }).env,
+    ...(placementEnv.env !== undefined ? { env: placementEnv.env } : {}),
+    ...(placementEnv.lockedEnv !== undefined ? { lockedEnv: placementEnv.lockedEnv } : {}),
+    ...(placementEnv.dispatchEnv !== undefined ? { dispatchEnv: placementEnv.dispatchEnv } : {}),
     ...(req.identity.invocationId !== undefined ? { invocationId: req.identity.invocationId } : {}),
     ...(req.identity.initialInputId !== undefined
       ? { initialInputId: req.identity.initialInputId }
@@ -346,26 +338,8 @@ export async function compileRuntimePlan(
   const brokerInvocation = toHarnessBrokerStartRequest(prepared, brokerReq)
   const startRequest = brokerInvocation.startRequest
   const spec = brokerInvocation.spec
-  const env = spec.process.env ?? {}
-  const { envKeys, secretEnvKeys, secretDigests, hashEnv } = digestEnv(env)
-
-  const redactedSpecArtifact = redactArtifact(spec, { env })
-  const redactedStartRequestArtifact = redactArtifact(startRequest, { env })
-  const redactedSpec = {
-    specVersion: 'harness-broker.invocation/v1' as const,
-    redactionState:
-      redactedSpecArtifact.redactionState === 'none'
-        ? ('contains-secret-digests' as const)
-        : ('redacted' as const),
-    value: redactedSpecArtifact.value,
-  }
-  const redactedStartRequest = {
-    redactionState:
-      redactedStartRequestArtifact.redactionState === 'none'
-        ? ('contains-secret-digests' as const)
-        : ('redacted' as const),
-    value: redactedStartRequestArtifact.value,
-  }
+  const lockedEnv = spec.process.lockedEnv ?? {}
+  const lockedEnvKeys = Object.keys(lockedEnv).sort()
 
   const bundleIdentity = brokerInvocation.resolvedBundle?.bundleIdentity ?? 'unknown'
   const lockHash = (
@@ -377,10 +351,12 @@ export async function compileRuntimePlan(
     startRequest,
   }) as ProfileId
   const compatibilityHash = hashValue(
-    buildCompatibilityMaterial(req, startRequest, bundleIdentity, lockHash, hashEnv)
+    buildCompatibilityMaterial(req, startRequest, bundleIdentity, lockHash, lockedEnv)
   )
-  const specHash = hashValue(spec)
-  const startRequestHash = hashValue(startRequest)
+  const specProjection = projectionHash(spec, 'spec')
+  const specHash = specProjection.specHash
+  const startRequestProjection = projectionHash(startRequest, 'start-request')
+  const startRequestHash = startRequestProjection.startRequestHash
   const initialInputHash =
     startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
 
@@ -396,11 +372,7 @@ export async function compileRuntimePlan(
     harnessInvocation: {
       startRequest,
       specHash,
-      redactedSpecHash: redactedSpecArtifact.hash,
       startRequestHash,
-      redactedStartRequestHash: redactedStartRequestArtifact.hash,
-      redactedSpec,
-      redactedStartRequest,
       ...(initialInputHash !== undefined ? { initialInputHash } : {}),
     },
     policy: {
@@ -421,17 +393,15 @@ export async function compileRuntimePlan(
         (profileId as unknown as InvocationId)
     ),
   }
-  const profileHash = hashValue(profileMaterial)
-  const redactedProfile = redactArtifact(
-    { ...profileMaterial, profileHash, compatibilityHash },
-    { env }
-  ).value
+  const profileHash = projectionHash(
+    { ...profileMaterial, compatibilityHash },
+    'profile'
+  ).profileHash
 
   const profile: BrokerExecutionProfile = {
     ...profileMaterial,
     profileHash,
     compatibilityHash,
-    redactedProfile,
   }
 
   const diagnostics: CompileDiagnostic[] = (brokerInvocation.warnings ?? []).map((warning) => ({
@@ -484,19 +454,15 @@ export async function compileRuntimePlan(
       ...(lockHash !== undefined ? { lockHash } : {}),
       bundleIdentity,
     },
-    secrets: {
-      envKeys,
-      secretEnvKeys,
-      ...(Object.keys(secretDigests).length > 0 ? { secretDigests } : {}),
+    lockedEnv: {
+      lockedEnvKeys,
     },
     diagnostics,
   }
-  const planHash = hashValue(planMaterial)
-  const redactedPlanHash = redactArtifact(planMaterial, { env }).hash
+  const planHash = projectionHash(planMaterial, 'plan').planHash
   const plan: CompiledRuntimePlan = {
     ...planMaterial,
     planHash,
-    redactedPlanHash,
   }
 
   return {
