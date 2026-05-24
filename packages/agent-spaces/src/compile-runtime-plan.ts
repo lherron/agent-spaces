@@ -56,6 +56,13 @@ function projectionHash<K extends 'plan' | 'profile' | 'spec' | 'start-request'>
   >
 }
 
+function toCompiledPlacement(
+  placement: RuntimeCompileRequest['placement']
+): RuntimeCompileRequest['placement'] {
+  const { dispatchEnv: _dispatchEnv, ...compiledPlacement } = placement as Record<string, unknown>
+  return compiledPlacement as RuntimeCompileRequest['placement']
+}
+
 function compileError(code: string, message: string, details?: unknown): CompileDiagnostic {
   return {
     level: 'error',
@@ -421,13 +428,14 @@ export async function compileRuntimePlan(
   const resolvedBundle = (brokerInvocation.resolvedBundle ?? {
     bundleIdentity,
   }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  const compiledPlacement = toCompiledPlacement(req.placement)
   const planMaterial = {
     schemaVersion: 'agent-runtime-plan/v1' as const,
     compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
     compileId,
     createdAt,
     identity: req.identity,
-    placement: req.placement,
+    placement: compiledPlacement,
     resolvedBundle,
     harness: {
       family: 'codex' as const,

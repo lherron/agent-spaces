@@ -10,7 +10,7 @@ import type {
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
-import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
+import { DEFAULT_CODEX_BROKER_INPUT_POLICY, project } from 'spaces-runtime-contracts'
 
 import { createAgentSpacesClient } from '../index.js'
 import type {
@@ -375,6 +375,61 @@ describe('compileRuntimePlan broker profile contract', () => {
         }),
       })
     )
+  })
+
+  test('keeps dispatchEnv out of compiled projections and hash material', async () => {
+    const client = createClient()
+    const withDispatchA = baseCompileRequest({
+      placement: placement({
+        dispatchEnv: { AGENT_HOST_SESSION_ID: 'dispatch-host-a', AGENT_LANE_REF: 'main' },
+      }),
+    })
+    const withDispatchB = baseCompileRequest({
+      placement: placement({
+        dispatchEnv: { AGENT_HOST_SESSION_ID: 'dispatch-host-b', AGENT_LANE_REF: 'repair' },
+      }),
+    })
+
+    const first = await client.compileRuntimePlan(withDispatchA)
+    const second = await client.compileRuntimePlan(withDispatchB)
+    const firstProfile = brokerProfile(first)
+    const secondProfile = brokerProfile(second)
+    if (!first.ok || !second.ok) throw new Error('unreachable')
+
+    expect(second.plan.planHash).toBe(first.plan.planHash)
+    expect(second.plan.compileId).toBe(first.plan.compileId)
+    expect(secondProfile.profileHash).toBe(firstProfile.profileHash)
+    expect(secondProfile.compatibilityHash).toBe(firstProfile.compatibilityHash)
+    expect(secondProfile.harnessInvocation.specHash).toBe(firstProfile.harnessInvocation.specHash)
+    expect(secondProfile.harnessInvocation.startRequestHash).toBe(
+      firstProfile.harnessInvocation.startRequestHash
+    )
+    expect(secondProfile.harnessInvocation.initialInputHash).toBe(
+      firstProfile.harnessInvocation.initialInputHash
+    )
+
+    const projectionPairs = [
+      [project(first.plan, 'plan'), project(second.plan, 'plan')],
+      [project(firstProfile, 'profile'), project(secondProfile, 'profile')],
+      [
+        project(firstProfile.harnessInvocation.startRequest.spec, 'spec'),
+        project(secondProfile.harnessInvocation.startRequest.spec, 'spec'),
+      ],
+      [
+        project(firstProfile.harnessInvocation.startRequest, 'start-request'),
+        project(secondProfile.harnessInvocation.startRequest, 'start-request'),
+      ],
+    ] as const
+
+    for (const [firstProjection, secondProjection] of projectionPairs) {
+      const serialized = JSON.stringify(firstProjection)
+      expect(JSON.stringify(secondProjection)).toBe(serialized)
+      expect(serialized).not.toContain('dispatchEnv')
+      expect(serialized).not.toContain('dispatch-host-a')
+      expect(serialized).not.toContain('dispatch-host-b')
+    }
+    expect(JSON.stringify(first.plan)).not.toContain('dispatchEnv')
+    expect(JSON.stringify(second.plan)).not.toContain('dispatchEnv')
   })
 
   test('returns diagnostics instead of a profile for unsupported provider, harness, and mode routes', async () => {

@@ -70,6 +70,39 @@ echo "codex shim"
   return shimPath
 }
 
+function createEnvCaptureCodexFixture(dir: string): string {
+  const fixturePath = join(dir, 'env-capture.ts')
+  const helperPath = new URL(
+    '../../../harness-broker/src/testing/fake-codex-app-server.ts',
+    import.meta.url
+  ).pathname
+  writeFileSync(
+    fixturePath,
+    `import {
+  completeSimpleTurn,
+  expectMethod,
+  framed,
+  initializeAndReadThreadRequest,
+} from ${JSON.stringify(helperPath)}
+
+const io = framed()
+const thread = await initializeAndReadThreadRequest(io, 'thread/start')
+io.respond(thread, { threadId: 'thread_env_capture' })
+const turn = await expectMethod(io, 'turn/start')
+const envCapture = {
+  EXTRA_FLAG: process.env['EXTRA_FLAG'] ?? null,
+  AGENT_SCOPE_REF: process.env['AGENT_SCOPE_REF'] ?? null,
+  AGENT_LANE_REF: process.env['AGENT_LANE_REF'] ?? null,
+  AGENT_HOST_SESSION_ID: process.env['AGENT_HOST_SESSION_ID'] ?? null,
+}
+completeSimpleTurn(io, 'ENV_CAPTURE:' + JSON.stringify(envCapture))
+io.respond(turn, { ok: true })
+`,
+    'utf8'
+  )
+  return fixturePath
+}
+
 function createFixture(): {
   agentRoot: string
   projectRoot: string
@@ -628,6 +661,59 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       expect(eventJsonl).not.toContain('"type":"turn/started"')
     } finally {
       rmSync(artifactDir, { recursive: true, force: true })
+    }
+  })
+
+  test('broker-start spawns lockedEnv and dispatchEnv as a disjoint union', async () => {
+    const envDir = mkdtempSync(join(tmpdir(), 'asp-prehrc-env-'))
+    const previousCodexPath = process.env['ASP_CODEX_PATH']
+    process.env['ASP_CODEX_PATH'] = createCodexShim(envDir, createEnvCaptureCodexFixture(envDir))
+    try {
+      const result = await runPreHrcBrokerContractHarness({
+        compileRequest: baseCompileRequest(),
+        aspHome: fixture.aspHome,
+        dryRunCompile: false,
+        timeoutMs: 3000,
+      })
+
+      expect(result.ok).toBe(true)
+      expect(result.selectedProfile?.harnessInvocation.startRequest.spec.process.lockedEnv).toEqual(
+        expect.objectContaining({ EXTRA_FLAG: '1' })
+      )
+      expect(
+        result.selectedProfile?.harnessInvocation.startRequest.spec.process.lockedEnv
+      ).not.toEqual(
+        expect.objectContaining({
+          AGENT_SCOPE_REF: expect.any(String),
+          AGENT_LANE_REF: expect.any(String),
+          AGENT_HOST_SESSION_ID: expect.any(String),
+        })
+      )
+
+      if (result.brokerStart?.attempted !== true) {
+        throw new Error('expected broker start to be attempted')
+      }
+      const terminalTurn = result.brokerStart.events.find(
+        (event) => event.type === 'turn.completed'
+      )
+      const finalOutput = (terminalTurn?.payload as { finalOutput?: string } | undefined)
+        ?.finalOutput
+      expect(finalOutput?.startsWith('ENV_CAPTURE:')).toBe(true)
+      const envCapture = JSON.parse(finalOutput?.slice('ENV_CAPTURE:'.length) ?? '{}') as Record<
+        string,
+        string | null
+      >
+      expect(envCapture).toEqual({
+        EXTRA_FLAG: '1',
+        AGENT_SCOPE_REF: 'cody@agent-spaces',
+        AGENT_LANE_REF: 'main',
+        AGENT_HOST_SESSION_ID: result.compileResponse.ok
+          ? result.compileResponse.plan.identity.hostSessionId
+          : null,
+      })
+    } finally {
+      process.env['ASP_CODEX_PATH'] = previousCodexPath
+      rmSync(envDir, { recursive: true, force: true })
     }
   })
 
