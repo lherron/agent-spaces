@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { mapCodexNotification } from '../../../src/drivers/codex-app-server/event-map'
+import {
+  CODEX_DRIVER_KIND,
+  mapCodexNotification,
+} from '../../../src/drivers/codex-app-server/event-map'
 
 function note(method: string, params: unknown) {
   return { jsonrpc: '2.0' as const, method, params }
@@ -351,6 +354,62 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         name: 'image_view',
         result: { path: '/tmp/image.png' },
         isError: false,
+      })
+    })
+  })
+
+  describe('driver annotation (H6)', () => {
+    test('every mapped event carries extra.driver={kind,rawType:method}', () => {
+      const cases: Array<[string, unknown]> = [
+        ['turn/started', { turnId: 'turn_1' }],
+        ['thread/tokenUsage/updated', { usage: { totalTokens: 1 } }],
+        ['item/started', { turnId: 'turn_1', item: { type: 'agentMessage', id: 'msg_1' } }],
+        ['item/agentMessage/delta', { turnId: 'turn_1', id: 'msg_1', text: 'hi' }],
+        [
+          'item/completed',
+          { turnId: 'turn_1', item: { type: 'commandExecution', id: 'cmd_1', exitCode: 0 } },
+        ],
+        ['turn/completed', { turnId: 'turn_1', status: 'completed' }],
+      ]
+      for (const [method, params] of cases) {
+        const events = mapCodexNotification(note(method, params))
+        expect(events.length).toBeGreaterThan(0)
+        for (const event of events) {
+          expect(event.extra?.driver).toEqual({ kind: CODEX_DRIVER_KIND, rawType: method })
+        }
+      }
+    })
+
+    test('turn/completed failed → turn.failed and interrupted → turn.interrupted', () => {
+      const failed = mapCodexNotification(
+        note('turn/completed', { turnId: 'turn_1', status: 'failed', finalOutput: 'boom' })
+      )
+      expect(failed[0]?.type).toBe('turn.failed')
+      expect(failed[0]?.extra?.driver).toEqual({
+        kind: CODEX_DRIVER_KIND,
+        rawType: 'turn/completed',
+      })
+
+      const interrupted = mapCodexNotification(
+        note('turn/completed', { turnId: 'turn_1', status: 'interrupted' })
+      )
+      expect(interrupted[0]?.type).toBe('turn.interrupted')
+    })
+  })
+
+  describe('unknown native notification (H6)', () => {
+    test('unknown method → trace diagnostic, never leaks native type as normalized type', () => {
+      const events = mapCodexNotification(note('thread/somethingNew', { foo: 1 }))
+      expect(events).toHaveLength(1)
+      expect(events[0]?.type).toBe('diagnostic')
+      expect(events[0]?.payload).toEqual({
+        level: 'debug',
+        message: 'Unhandled Codex notification: thread/somethingNew',
+        source: 'driver',
+      })
+      expect(events[0]?.extra?.driver).toEqual({
+        kind: CODEX_DRIVER_KIND,
+        rawType: 'thread/somethingNew',
       })
     })
   })

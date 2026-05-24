@@ -18,6 +18,9 @@ export interface CodexErrorInfo {
   data?: unknown
 }
 
+/** Stable driver identity stamped onto every event derived from a native notification. */
+export const CODEX_DRIVER_KIND = 'codex-app-server'
+
 const TOOL_NAMES: Record<string, string> = {
   commandExecution: 'command',
   fileChange: 'file_change',
@@ -32,7 +35,22 @@ function asTurnId(value: string): TurnId {
   return value as TurnId
 }
 
+/**
+ * Map a native Codex app-server notification to zero or more normalized broker
+ * events. Every emitted event is stamped with `extra.driver` so consumers can
+ * trace it back to the native method without that native type ever leaking into
+ * the normalized `type`. Unknown native methods become a trace-level diagnostic
+ * (again carrying `rawType`) rather than being silently dropped.
+ */
 export function mapCodexNotification(notification: JsonRpcNotification): MappedEvent[] {
+  const driver = { kind: CODEX_DRIVER_KIND, rawType: notification.method }
+  return mapCodexNotificationInner(notification).map((event) => ({
+    ...event,
+    extra: { ...event.extra, driver },
+  }))
+}
+
+function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEvent[] {
   const params = asRecord(notification.params)
 
   switch (notification.method) {
@@ -209,7 +227,19 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
     }
 
     default:
-      return []
+      // Unknown native notification: surface as a trace-level diagnostic so it
+      // is observable but never leaks the native method name as a normalized
+      // event `type`. The native method is preserved in `extra.driver.rawType`.
+      return [
+        {
+          type: 'diagnostic',
+          payload: {
+            level: 'debug',
+            message: `Unhandled Codex notification: ${notification.method}`,
+            source: 'driver',
+          },
+        },
+      ]
   }
 }
 

@@ -2,6 +2,6 @@
 {"invocationId":"inv_exit_during_turn","seq":2,"time":"<time>","type":"continuation.updated","payload":{"provider":"codex","kind":"thread","key":"thread_exit"}}
 {"invocationId":"inv_exit_during_turn","seq":3,"time":"<time>","type":"invocation.ready","payload":{"state":"ready"}}
 {"invocationId":"inv_exit_during_turn","seq":4,"time":"<time>","type":"input.accepted","inputId":"input_1","payload":{"inputId":"input_1"}}
-{"invocationId":"inv_exit_during_turn","seq":5,"time":"<time>","type":"turn.started","turnId":"turn_1","inputId":"input_1","payload":{"turnId":"turn_1"}}
+{"invocationId":"inv_exit_during_turn","seq":5,"time":"<time>","type":"turn.started","turnId":"turn_1","inputId":"input_1","driver":{"kind":"codex-app-server","rawType":"turn/started"},"payload":{"turnId":"turn_1"}}
 {"invocationId":"inv_exit_during_turn","seq":6,"time":"<time>","type":"turn.failed","turnId":"turn_1","inputId":"input_1","payload":{"turnId":"turn_1","status":"failed","finalOutput":"Harness process exited during active turn"}}
 {"invocationId":"inv_exit_during_turn","seq":7,"time":"<time>","type":"invocation.exited","payload":{"exitCode":42,"signal":null}}
