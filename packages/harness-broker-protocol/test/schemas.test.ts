@@ -211,6 +211,36 @@ describe('validateInvocationSpec', () => {
     })
   })
 
+  test('accepts process.pathPrepend as an array of strings', () => {
+    const valid = structuredClone(specSection62Example) as typeof specSection62Example & {
+      process: { pathPrepend?: string[] }
+    }
+    valid.process.pathPrepend = ['/agent/tools/bin', '/opt/bin']
+    expect(validateInvocationSpec(valid)).toEqual(valid)
+  })
+
+  test('rejects process.pathPrepend that is not an array', () => {
+    const invalid = structuredClone(specSection62Example) as typeof specSection62Example & {
+      process: { pathPrepend?: unknown }
+    }
+    invalid.process.pathPrepend = '/agent/tools/bin'
+    expectInvalidSpec(invalid, {
+      path: 'process.pathPrepend',
+      code: 'invalid_type',
+    })
+  })
+
+  test('rejects process.pathPrepend entries that are not strings', () => {
+    const invalid = structuredClone(specSection62Example) as typeof specSection62Example & {
+      process: { pathPrepend?: unknown[] }
+    }
+    invalid.process.pathPrepend = ['/agent/tools/bin', 42]
+    expectInvalidSpec(invalid, {
+      path: 'process.pathPrepend.1',
+      code: 'invalid_type',
+    })
+  })
+
   test('rejects unsupported specVersion literals', () => {
     const invalid = structuredClone(specSection62Example)
     invalid.specVersion = 'harness-broker.invocation/v2'

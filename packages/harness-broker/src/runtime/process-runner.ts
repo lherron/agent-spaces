@@ -46,6 +46,7 @@ export async function spawnHarnessProcess(
       lockedEnv: spec.lockedEnv,
       credentials: channels.credentials,
       dispatchEnv: channels.dispatchEnv,
+      pathPrepend: spec.pathPrepend,
     }),
     shell: false,
     stdio: ['pipe', 'pipe', 'pipe'],

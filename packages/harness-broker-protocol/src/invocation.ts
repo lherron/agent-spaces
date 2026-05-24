@@ -23,6 +23,14 @@ export interface HarnessProcessSpec {
   args: string[]
   cwd: string
   lockedEnv?: Record<string, string> | undefined
+  /**
+   * Ordered directory list prepended to the FINAL composed PATH, in array
+   * order, using the platform delimiter. Applied AFTER the four-channel
+   * disjoint-union env compose. PATH stays ambient/reserved and is forbidden in
+   * lockedEnv/dispatchEnv; pathPrepend is the controlled reserved-key mutation.
+   * Part of launch shape — included in all process-launch hash material.
+   */
+  pathPrepend?: string[] | undefined
   harnessTransport: HarnessTransportSpec
   limits?: ProcessLimits | undefined
 }

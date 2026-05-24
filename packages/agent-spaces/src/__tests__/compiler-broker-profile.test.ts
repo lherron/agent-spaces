@@ -451,6 +451,30 @@ describe('compiled broker profile field mapping', () => {
     }
   )
 
+  test('emits tool-bin pathPrepend as a typed PATH mutation and keeps PATH out of lockedEnv', async () => {
+    // Agent-local tools surface a tools/bin directory; its PATH-prepend must be
+    // emitted as the typed HarnessProcessSpec.pathPrepend, never via lockedEnv.
+    const toolsBinDir = join(fixture.agentRoot, 'tools', 'bin')
+    mkdirSync(toolsBinDir, { recursive: true })
+    try {
+      const spec = compiledSpec(
+        brokerProfile(await createClient().compileRuntimePlan(baseCompileRequest()))
+      )
+      expect(spec.process.pathPrepend).toEqual([toolsBinDir])
+      expect(spec.process.lockedEnv).not.toHaveProperty('PATH')
+    } finally {
+      rmSync(join(fixture.agentRoot, 'tools'), { recursive: true, force: true })
+    }
+  })
+
+  test('omits pathPrepend from the broker spec when the agent has no tools', async () => {
+    const spec = compiledSpec(
+      brokerProfile(await createClient().compileRuntimePlan(baseCompileRequest()))
+    )
+    expect(spec.process.pathPrepend).toBeUndefined()
+    expect(spec.process.lockedEnv).not.toHaveProperty('PATH')
+  })
+
   test('legacy buildHarnessBrokerInvocation delegates to the compiled broker start request', async () => {
     const req = baseCompileRequest()
     const profile = brokerProfile(await createClient().compileRuntimePlan(req))

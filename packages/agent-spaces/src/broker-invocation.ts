@@ -245,6 +245,7 @@ export function toHarnessBrokerStartRequest(
       args: prepared.args,
       cwd: prepared.cwd,
       lockedEnv: prepared.lockedEnv,
+      ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
       harnessTransport: { kind: 'jsonrpc-stdio' },
       limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
     },

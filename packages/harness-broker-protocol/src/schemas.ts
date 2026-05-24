@@ -128,6 +128,7 @@ type SchemaRecord = Record<string, unknown> & {
   modelReasoningEffort?: unknown
   name?: unknown
   path?: unknown
+  pathPrepend?: unknown
   permissionRequests?: unknown
   permissionPolicy?: unknown
   policy?: unknown
@@ -382,6 +383,7 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
     requireStringArray(process.args, path(prefix, 'process.args'), issues)
     requireString(process.cwd, path(prefix, 'process.cwd'), issues)
     validateEnv(process.lockedEnv, path(prefix, 'process.lockedEnv'), issues, 'lockedEnv')
+    optionalStringArray(process.pathPrepend, path(prefix, 'process.pathPrepend'), issues)
     validateHarnessTransport(
       process.harnessTransport,
       path(prefix, 'process.harnessTransport'),

@@ -48,6 +48,12 @@ export type TerminalExecutionProfile = RuntimeExecutionProfileBase & {
     args: string[]
     cwd: string
     lockedEnv: Record<string, string>
+    /**
+     * Ordered directories prepended to the FINAL composed PATH (platform
+     * delimiter, array order). Mutates the reserved PATH key; PATH stays out of
+     * lockedEnv. Part of launch shape — included in profile hash material.
+     */
+    pathPrepend?: string[] | undefined
     io: { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
   }
   policy: {
@@ -69,6 +75,13 @@ export type EmbeddedSdkExecutionProfile = RuntimeExecutionProfileBase & {
     modelId: string
     cwd: string
     lockedEnv: Record<string, string>
+    /**
+     * Ordered directories prepended to the FINAL composed PATH (platform
+     * delimiter, array order). Mirrored for parity: an SDK session consumes
+     * env the same way a launched harness process does. PATH stays out of
+     * lockedEnv. Part of launch shape — included in profile hash material.
+     */
+    pathPrepend?: string[] | undefined
   }
   policy: {
     inputPolicy?: BrokerInputPolicy | undefined
@@ -118,6 +131,12 @@ export type CommandExecutionProfile = RuntimeExecutionProfileBase & {
     argv: string[]
     cwd: string
     lockedEnv: Record<string, string>
+    /**
+     * Ordered directories prepended to the FINAL composed PATH (platform
+     * delimiter, array order). Mutates the reserved PATH key; PATH stays out of
+     * lockedEnv. Part of launch shape — included in profile hash material.
+     */
+    pathPrepend?: string[] | undefined
     shell?:
       | {
           executable?: string | undefined

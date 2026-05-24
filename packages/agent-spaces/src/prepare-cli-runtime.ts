@@ -52,6 +52,8 @@ export interface PreparedPlacementCliRuntime {
   lockedEnv: Record<string, string>
   dispatchEnv: Record<string, string>
   env: Record<string, string>
+  /** Ordered dirs to prepend to the launched process PATH (typed PATH mutation, NOT lockedEnv). */
+  pathPrepend: string[]
   cwd: string
   displayCommand: string
   continuation?: HarnessContinuationRef | undefined
@@ -275,6 +277,7 @@ export async function preparePlacementCliRuntime(
   lockedEnv = { ...lockedEnv, ...brainEnv }
   env = { ...env, ...brainEnv }
 
+  let pathPrepend: string[] = []
   if (agentLocalComponents?.hasTools) {
     const toolRuntime = await prepareAgentToolRuntime(
       {
@@ -286,9 +289,10 @@ export async function preparePlacementCliRuntime(
     )
     const { PATH: toolPath, ...toolLockedEnv } = toolRuntime.env
     void toolPath
-    // TODO(pathPrepend, T-01633 follow-up): tool-bin PATH-prepend pending typed
-    // HarnessProcessSpec.pathPrepend field (cross-package: protocol+broker).
-    // Do not route PATH through lockedEnv.
+    // PATH is never routed through lockedEnv. The tool-bin dirs are emitted as
+    // the typed HarnessProcessSpec.pathPrepend field (consumed by the broker
+    // env compose) so the controlled PATH mutation is part of the launch shape.
+    pathPrepend = toolRuntime.pathPrepend
     lockedEnv = { ...lockedEnv, ...toolLockedEnv }
     env = { ...env, ...toolRuntime.env }
     warnings.push(...toolRuntime.warnings)
@@ -325,6 +329,7 @@ export async function preparePlacementCliRuntime(
     lockedEnv,
     dispatchEnv,
     env,
+    pathPrepend,
     ...(continuation ? { continuation } : {}),
     displayCommand,
     ...(codexAppServer ? { codexAppServer } : {}),

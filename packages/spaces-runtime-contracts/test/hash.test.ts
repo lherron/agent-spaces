@@ -129,6 +129,46 @@ describe('canonical JSON hasher', () => {
     ).not.toBe(h.hash(base).value)
   })
 
+  test('process.pathPrepend is included in hash material', () => {
+    const h = hasher()
+    const base = {
+      process: {
+        command: 'codex',
+        args: ['app-server'],
+        cwd: '/workspace',
+        lockedEnv: { CODEX_HOME: '/workspace/.codex-home' },
+      },
+    }
+
+    // Adding pathPrepend changes the hash.
+    expect(
+      h.hash({ ...base, process: { ...base.process, pathPrepend: ['/agent/tools/bin'] } }).value
+    ).not.toBe(h.hash(base).value)
+
+    // Reordering pathPrepend entries changes the hash (order is semantic).
+    expect(
+      h.hash({ ...base, process: { ...base.process, pathPrepend: ['/a/bin', '/b/bin'] } }).value
+    ).not.toBe(
+      h.hash({ ...base, process: { ...base.process, pathPrepend: ['/b/bin', '/a/bin'] } }).value
+    )
+  })
+
+  test('project carries process.pathPrepend into the spec hash', () => {
+    expect(project, 'project must be exported').toBeFunction()
+    const source = (pathPrepend: string[]) => ({
+      specVersion: 'harness-broker.invocation/v1',
+      process: { command: 'codex', args: ['app-server'], cwd: '/workspace', pathPrepend },
+    })
+    const a = project(source(['/a/bin']), 'spec')
+    const b = project(source(['/b/bin']), 'spec')
+    expect(a).toHaveProperty('specHash')
+    expect((a as { specHash: string }).specHash).not.toBe((b as { specHash: string }).specHash)
+    // pathPrepend survives into the projected value (not omitted).
+    expect((a.value as { process: { pathPrepend: string[] } }).process.pathPrepend).toEqual([
+      '/a/bin',
+    ])
+  })
+
   test('lockedEnv cannot be omitted by hash policy', () => {
     const h = hasher()
 
