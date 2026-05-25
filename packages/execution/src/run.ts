@@ -18,7 +18,6 @@ import {
   install as configInstall,
   getAgentsRoot,
   getAspHome,
-  getHarnessCatalogEntry,
   getRegistryPath,
   inferProjectIdFromCwd,
   isSpaceRefString,
@@ -53,6 +52,7 @@ export {
   type AgentToolEnvResult,
   type AgentToolRuntimeContext,
 } from './run/agent-tools.js'
+import { buildCompilerDebugContext } from './run/compiler-debug.js'
 import { type MaterializedPromptResult, executeHarnessRun } from './run/execute.js'
 import {
   type PlacementRuntimeModelResolution,
@@ -78,37 +78,6 @@ import {
 } from './run/util.js'
 
 const DEFAULT_RUN_TASK_ID = 'primary'
-
-function harnessFamilyForHarness(
-  harnessId: string
-): RunCompilerDebugContext['requested']['harnessFamily'] {
-  if (harnessId === 'codex') return 'codex'
-  if (harnessId === 'pi' || harnessId === 'pi-sdk') return 'pi'
-  return 'claude-code'
-}
-
-function harnessRuntimeForHarness(
-  harnessId: string
-): RunCompilerDebugContext['requested']['preferredHarnessRuntime'] {
-  switch (harnessId) {
-    case 'claude-agent-sdk':
-      return 'claude-agent-sdk'
-    case 'codex':
-      return 'codex-cli'
-    case 'pi':
-      return 'pi-cli'
-    case 'pi-sdk':
-      return 'pi-sdk'
-    default:
-      return 'claude-code-cli'
-  }
-}
-
-function compileInteractionMode(
-  interactive: boolean | undefined
-): RunCompilerDebugContext['requested']['interactionMode'] {
-  return interactive === false ? 'headless' : 'interactive'
-}
 
 export {
   detectAgentLocalComponents,
@@ -367,7 +336,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   }
   let compilerDebugContext: RunCompilerDebugContext | undefined
   if (options.dryRun && options.debug) {
-    const harnessCatalog = getHarnessCatalogEntry(harnessId)
     const placementAgentRoot =
       agentProfile?.agentRoot ??
       join(getAgentsRoot({ aspHome }) ?? dirname(options.projectPath), targetName)
@@ -396,36 +364,28 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
             ...(options.env !== undefined ? { env: options.env } : {}),
           }
     const scopeRef = `${targetName}@${projectId}${taskId ? `:${taskId}` : ''}`
-    compilerDebugContext = {
+    compilerDebugContext = buildCompilerDebugContext({
       aspHome,
+      harnessId,
+      model: runOptions.model,
+      reasoningEffort: runOptions.modelReasoningEffort,
+      interactive: runOptions.interactive,
+      yolo: runOptions.yolo,
       placement,
-      requested: {
-        modelProvider: harnessCatalog.provider,
-        model: runOptions.model,
-        reasoningEffort: runOptions.modelReasoningEffort,
-        harnessFamily: harnessFamilyForHarness(harnessId),
-        preferredHarnessRuntime: harnessRuntimeForHarness(harnessId),
-        interactionMode: compileInteractionMode(runOptions.interactive),
-      },
-      materialization: {
-        initialPrompt: effectivePrompt,
-        resolvedBundleHint: {
-          bundleIdentity: `legacy-dry-run:${options.projectPath}:${targetName}:${harnessId}`,
-          root: bundle.rootDir,
-          targetName,
-          targetDir: harnessOutputPath,
-          lockHash: lock.targets[targetName]?.envHash,
-        },
-      },
-      hrcPolicy: {
-        yolo: runOptions.yolo,
+      initialPrompt: effectivePrompt,
+      resolvedBundleHint: {
+        bundleIdentity: `legacy-dry-run:${options.projectPath}:${targetName}:${harnessId}`,
+        root: bundle.rootDir,
+        targetName,
+        targetDir: harnessOutputPath,
+        lockHash: lock.targets[targetName]?.envHash,
       },
       correlation: {
         appSessionKey: `${projectId}:${taskId}`,
         scopeRef,
         laneRef: 'main',
       },
-    }
+    })
   }
 
   return {

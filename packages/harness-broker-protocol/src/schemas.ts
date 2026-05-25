@@ -9,6 +9,31 @@ import type { InvocationEventEnvelope, InvocationEventType } from './events'
 import type { HarnessInvocationSpec } from './invocation'
 import { isJsonRpcRequest } from './jsonrpc'
 
+// Env-key classification policy lives in ./env-keys; re-export to preserve the
+// public package surface (ENV_KEY_PATTERN / isAmbientEnvKey / etc.).
+export * from './env-keys.js'
+import {
+  ENV_KEY_PATTERN,
+  isAmbientEnvKey,
+  isCredentialEnvKey,
+  isReservedEnvKey,
+} from './env-keys.js'
+import {
+  path,
+  asRecord,
+  issue,
+  optionalBoolean,
+  optionalEnum,
+  optionalNumber,
+  optionalString,
+  optionalStringArray,
+  requireNumber,
+  requirePayloadRecord,
+  requireString,
+  requireStringArray,
+  requireTrue,
+} from './validation-primitives.js'
+
 export interface ValidationIssue {
   path: string
   code: string
@@ -92,7 +117,7 @@ export class EventEnvelopeValidationError extends Error {
   }
 }
 
-type SchemaRecord = Record<string, unknown> & {
+export type SchemaRecord = Record<string, unknown> & {
   approvalPolicy?: unknown
   args?: unknown
   capabilities?: unknown
@@ -160,55 +185,6 @@ type SchemaRecord = Record<string, unknown> & {
   initialInput?: unknown
   startRequest?: unknown
   scope?: unknown
-}
-
-export const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
-export const AMBIENT_ENV_KEYS = new Set([
-  'HOME',
-  'PATH',
-  'SHELL',
-  'TMPDIR',
-  'TEMP',
-  'TMP',
-  'USER',
-  'USERNAME',
-  'TERM',
-  'LANG',
-  'TZ',
-])
-export const CREDENTIAL_ENV_KEYS = new Set([
-  'OPENAI_API_KEY',
-  'ANTHROPIC_API_KEY',
-  'AWS_ACCESS_KEY_ID',
-  'AWS_SECRET_ACCESS_KEY',
-  'AWS_SESSION_TOKEN',
-  'GITHUB_TOKEN',
-])
-export const RESERVED_ENV_KEY_PREFIXES = ['NODE_', 'npm_', 'NPM_', 'XDG_']
-export const RESERVED_ENV_KEYS = new Set([
-  'SSH_AUTH_SOCK',
-  'HTTP_PROXY',
-  'HTTPS_PROXY',
-  'ALL_PROXY',
-  'NO_PROXY',
-  'http_proxy',
-  'https_proxy',
-  'all_proxy',
-  'no_proxy',
-])
-
-export function isAmbientEnvKey(key: string): boolean {
-  return AMBIENT_ENV_KEYS.has(key) || key.startsWith('LC_')
-}
-
-export function isCredentialEnvKey(key: string): boolean {
-  return CREDENTIAL_ENV_KEYS.has(key) || key.endsWith('_TOKEN') || key.endsWith('_PASSWORD')
-}
-
-export function isReservedEnvKey(key: string): boolean {
-  return (
-    RESERVED_ENV_KEYS.has(key) || RESERVED_ENV_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))
-  )
 }
 
 const brokerMethods = new Set<BrokerMethodV1>([
@@ -894,124 +870,4 @@ function validateStringRecord(
       issues.push(issue(path(basePath, key), 'invalid_type', 'value must be a string'))
     }
   }
-}
-
-function requireString(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value === undefined) {
-    issues.push(issue(basePath, 'required', `${basePath} is required`))
-  } else if (typeof value !== 'string') {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a string`))
-  }
-}
-
-function requireNumber(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value === undefined) {
-    issues.push(issue(basePath, 'required', `${basePath} is required`))
-  } else if (typeof value !== 'number' || !Number.isFinite(value)) {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a finite number`))
-  }
-}
-
-function requireTrue(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value === undefined) {
-    issues.push(issue(basePath, 'required', `${basePath} is required`))
-  } else if (value !== true) {
-    issues.push(issue(basePath, 'invalid_literal', `${basePath} must be true`))
-  }
-}
-
-function requirePayloadRecord(value: unknown, issues: ValidationIssue[]): SchemaRecord | undefined {
-  const payload = asRecord(value)
-  if (!payload) {
-    issues.push(issue('payload', 'invalid_type', 'payload must be an object'))
-    return undefined
-  }
-  return payload
-}
-
-function requireStringArray(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (!Array.isArray(value)) {
-    issues.push(
-      issue(
-        basePath,
-        value === undefined ? 'required' : 'invalid_type',
-        `${basePath} must be an array`
-      )
-    )
-    return
-  }
-  value.forEach((item, index) => {
-    if (typeof item !== 'string') {
-      issues.push(
-        issue(path(basePath, String(index)), 'invalid_type', 'array item must be a string')
-      )
-    }
-  })
-}
-
-function optionalString(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value !== undefined && typeof value !== 'string') {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a string`))
-  }
-}
-
-function optionalNumber(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a finite number`))
-  }
-}
-
-function optionalBoolean(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value !== undefined && typeof value !== 'boolean') {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a boolean`))
-  }
-}
-
-function optionalStringArray(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value === undefined) {
-    return
-  }
-  if (!Array.isArray(value)) {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be an array`))
-    return
-  }
-  value.forEach((item, index) => {
-    if (typeof item !== 'string') {
-      issues.push(
-        issue(path(basePath, String(index)), 'invalid_type', 'array item must be a string')
-      )
-    }
-  })
-}
-
-function optionalEnum(
-  value: unknown,
-  allowed: string[],
-  basePath: string,
-  issues: ValidationIssue[],
-  required = false
-): void {
-  if (value === undefined) {
-    if (required) {
-      issues.push(issue(basePath, 'required', `${basePath} is required`))
-    }
-    return
-  }
-  if (typeof value !== 'string' || !allowed.includes(value)) {
-    issues.push(issue(basePath, 'invalid_literal', `${basePath} has an unsupported value`))
-  }
-}
-
-function asRecord(value: unknown): SchemaRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as SchemaRecord)
-    : undefined
-}
-
-function path(prefix: string, suffix: string): string {
-  return prefix.length === 0 ? suffix : `${prefix}.${suffix}`
-}
-
-function issue(pathValue: string, code: string, message: string): ValidationIssue {
-  return { path: pathValue, code, message }
 }

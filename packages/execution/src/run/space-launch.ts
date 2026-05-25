@@ -19,7 +19,6 @@ import {
   ensureDir,
   generateLockFileForTarget,
   getAspHome,
-  getHarnessCatalogEntry,
   isHarnessSupported,
   lockFileExists,
   parseSpaceRef,
@@ -31,40 +30,10 @@ import {
 
 import { harnessRegistry } from '../harness/index.js'
 
+import { buildCompilerDebugContext } from './compiler-debug.js'
 import { executeHarnessRun } from './execute.js'
 import type { GlobalRunOptions, RunCompilerDebugContext, RunResult } from './types.js'
 import { cleanupTempDir, createTempDir, mergeDefined, resolveInteractive } from './util.js'
-
-function harnessFamilyForHarness(
-  harnessId: string
-): RunCompilerDebugContext['requested']['harnessFamily'] {
-  if (harnessId === 'codex') return 'codex'
-  if (harnessId === 'pi' || harnessId === 'pi-sdk') return 'pi'
-  return 'claude-code'
-}
-
-function harnessRuntimeForHarness(
-  harnessId: string
-): RunCompilerDebugContext['requested']['preferredHarnessRuntime'] {
-  switch (harnessId) {
-    case 'claude-agent-sdk':
-      return 'claude-agent-sdk'
-    case 'codex':
-      return 'codex-cli'
-    case 'pi':
-      return 'pi-cli'
-    case 'pi-sdk':
-      return 'pi-sdk'
-    default:
-      return 'claude-code-cli'
-  }
-}
-
-function compileInteractionMode(
-  interactive: boolean | undefined
-): RunCompilerDebugContext['requested']['interactionMode'] {
-  return interactive === false ? 'headless' : 'interactive'
-}
 
 async function persistGlobalLock(newLock: LockFile, globalLockPath: string): Promise<void> {
   let existingLock: LockFile | undefined
@@ -149,10 +118,14 @@ async function executeSpaceRun({
   }
   let compilerDebugContext: RunCompilerDebugContext | undefined
   if (options.dryRun && options.debug) {
-    const harnessCatalog = getHarnessCatalogEntry(adapter.id)
     const cwd = runOptions.cwd ?? runOptions.projectPath ?? defaultCwd
-    compilerDebugContext = {
+    compilerDebugContext = buildCompilerDebugContext({
       aspHome,
+      harnessId: adapter.id,
+      model: runOptions.model,
+      reasoningEffort: runOptions.modelReasoningEffort,
+      interactive: runOptions.interactive,
+      yolo: runOptions.yolo,
       placement: {
         agentRoot: cwd,
         projectRoot: cwd,
@@ -162,31 +135,18 @@ async function executeSpaceRun({
         dryRun: true,
         ...(options.env !== undefined ? { env: options.env } : {}),
       },
-      requested: {
-        modelProvider: harnessCatalog.provider,
-        model: runOptions.model,
-        reasoningEffort: runOptions.modelReasoningEffort,
-        harnessFamily: harnessFamilyForHarness(adapter.id),
-        preferredHarnessRuntime: harnessRuntimeForHarness(adapter.id),
-        interactionMode: compileInteractionMode(runOptions.interactive),
-      },
-      materialization: {
-        initialPrompt: runOptions.prompt,
-        resolvedBundleHint: {
-          bundleIdentity: `legacy-dry-run:${bundle.rootDir}:${bundle.targetName}:${adapter.id}`,
-          root: bundle.rootDir,
-          targetName: bundle.targetName,
-        },
-      },
-      hrcPolicy: {
-        yolo: runOptions.yolo,
+      initialPrompt: runOptions.prompt,
+      resolvedBundleHint: {
+        bundleIdentity: `legacy-dry-run:${bundle.rootDir}:${bundle.targetName}:${adapter.id}`,
+        root: bundle.rootDir,
+        targetName: bundle.targetName,
       },
       correlation: {
         appSessionKey: bundle.targetName,
         scopeRef: bundle.targetName,
         laneRef: 'main',
       },
-    }
+    })
   }
 
   return {
