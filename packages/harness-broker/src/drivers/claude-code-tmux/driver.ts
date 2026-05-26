@@ -63,12 +63,24 @@ export type HookEnvelopeHandler = (envelope: ClaudeCodeHookEnvelope) => Promise<
 
 export interface ClaudeCodeTmuxDriverOptions {
   tmux: {
+    /**
+     * Default tmux server socket. RETAINED for the default driver only; the
+     * live socket is ALWAYS the dispatch-time runtime allocation supplied on
+     * the start request (`ctx.runtime.tmux.socketPath`). The driver never falls
+     * back to this value (spec §3.3 T2).
+     */
     socketPath: string
     tmuxBin?: string | undefined
     exec?: TmuxExec | undefined
   }
   hooks: {
     listen: (handler: HookEnvelopeHandler) => Promise<HookListenerHandle>
+    /**
+     * Executable that the in-pane Claude hook settings overlay invokes to POST
+     * each hook payload to the broker callback socket. Broker-owned (H3); no
+     * hrc-runtime dependency. Defaults to the broker's `claude-hook` subcommand.
+     */
+    bridgeCommand?: string | undefined
   }
   now?: (() => Date) | undefined
 }
@@ -90,11 +102,21 @@ interface SurfaceState {
  */
 export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions): Driver {
   const now = options.now ?? (() => new Date())
-  const tmux = new TmuxManager(options.tmux.socketPath, options.tmux.tmuxBin, options.tmux.exec)
 
   let ctx: DriverContext | undefined
   let surface: SurfaceState | undefined
   let hookListener: HookListenerHandle | undefined
+  // The tmux server socket is a DISPATCH-TIME runtime allocation (spec §3.3),
+  // supplied on the broker start request by HRC / the pre-HRC harness — NOT a
+  // compiled/profile value and NOT a driver default. The manager constructs the
+  // TmuxManager lazily in start() against that runtime socket so the driver
+  // only ever ATTACHES to a server it does not own.
+  let tmux: TmuxManager | undefined
+  // Active broker turn id (cody's Phase 3 seam, H2). Set by applyInputNow so
+  // raw hook envelopes that carry neither an envelope turn id nor a raw
+  // `turn_id` still attribute turn.started/turn.completed to the live turn.
+  let activeTurnId: string | undefined
+  let turnCounter = 0
 
   function requireCtx(): DriverContext {
     if (ctx === undefined) {
@@ -110,6 +132,13 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     return surface
   }
 
+  function requireTmux(): TmuxManager {
+    if (tmux === undefined) {
+      throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'tmux surface not established')
+    }
+    return tmux
+  }
+
   return {
     kind: CLAUDE_CODE_TMUX_DRIVER_KIND,
     version: CLAUDE_CODE_TMUX_DRIVER_VERSION,
@@ -119,17 +148,40 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     },
 
     async start(spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
+      // T2/T3: the tmux server socket is a runtime allocation supplied on the
+      // start request, NOT a compiled/profile value or a driver default. Reject
+      // before touching tmux at all if the runtime did not pre-allocate one.
+      const runtimeSocket = driverCtx.runtime?.tmux?.socketPath
+      if (runtimeSocket === undefined || runtimeSocket.length === 0) {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          'claude-code-tmux start requires a runtime tmux socket (runtime.tmux.socketPath); ' +
+            'HRC / the pre-HRC harness owns the tmux server and must supply its socket'
+        )
+      }
+
       ctx = driverCtx
-      await tmux.initialize()
+      // Attach to the runtime-owned server socket. The driver MUST NOT start or
+      // initialize the server (no -V / start-server / set-environment), and MUST
+      // NOT rm() the socket: it only creates/uses/kills its own session/pane.
+      tmux = new TmuxManager(runtimeSocket, options.tmux.tmuxBin, options.tmux.exec)
 
       // Wire the hook ingestion callback socket → normalize via the ENVELOPE
-      // turn id seam → re-emit as broker events through ctx.emit.
+      // turn id seam → re-emit as broker events through ctx.emit. The shared
+      // stateful normalizer preserves activeTurnId / completed-turn dedup.
       const normalizer: ClaudeCodeHookEventNormalizer = createClaudeCodeHookEventNormalizer({
         invocationId: driverCtx.invocationId,
         now,
       })
       hookListener = await options.hooks.listen(async (envelope) => {
-        for (const event of normalizeHookEnvelope(envelope, { normalizer })) {
+        // H2: when neither the envelope nor the raw hook carries a turn id, fall
+        // back to the driver-tracked active broker turn id so turn lifecycle
+        // events still resolve to the live turn.
+        const effectiveEnvelope =
+          envelope.turnId === undefined && activeTurnId !== undefined
+            ? { ...envelope, turnId: activeTurnId }
+            : envelope
+        for (const event of normalizeHookEnvelope(effectiveEnvelope, { normalizer })) {
           driverCtx.emit(event.type, event.payload, {
             ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
             ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
@@ -138,8 +190,10 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         }
       })
 
-      // Create / reuse the attachable tmux session. Session/pane ids are
-      // RUNTIME-REPORTED by tmux (guardrail #6), not pre-allocated.
+      // Create the attachable tmux session on the runtime-owned server. This is
+      // `new-session` only (Lance: "fine to create a tmux session, not fine to
+      // create a tmux server"). Session/pane ids are RUNTIME-REPORTED by tmux
+      // (guardrail #6), not pre-allocated.
       const hostSessionId =
         spec.correlation?.['hostSessionId'] ?? spec.invocationId ?? driverCtx.invocationId
       const pane = await tmux.ensurePane(hostSessionId, 'reuse_pty')
@@ -149,6 +203,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         paneId: pane.paneId,
       }
 
+      // T4: report the OBSERVED runtime socket/session/pane.
       driverCtx.emit(
         'terminal.surface.reported',
         {
@@ -161,10 +216,14 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       )
 
       // Launch Claude inside the pane (stdio inherits the pty — attachable).
-      // Hooks arrive OUT-OF-BAND via the callback socket, not via stdout.
+      // H1: the launch installs a broker-owned Claude hook settings overlay so
+      // the REAL runtime posts UserPromptSubmit/PreToolUse/PostToolUse/Stop… to
+      // the broker callback socket OUT-OF-BAND (not via stdout). Env vars alone
+      // do not make Claude invoke hooks.
       const launchCommand = buildLaunchCommandLine(spec, {
         invocationId: driverCtx.invocationId,
         callbackSocket: hookListener.socketPath,
+        bridgeCommand: options.hooks.bridgeCommand,
       })
       await tmux.sendKeys(pane.paneId, launchCommand)
 
@@ -175,16 +234,22 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       requireCtx()
       const { paneId } = requireSurface()
       const text = extractText(input)
+      // H2: open a broker-tracked turn so out-of-band hook envelopes that omit a
+      // turn id are attributed to this turn. Returned to the caller as the
+      // authoritative turn id for this input.
+      turnCounter += 1
+      const turnId = `turn_${requireCtx().invocationId}_${turnCounter}`
+      activeTurnId = turnId
       // terminal-literal-input turn delivery: literal text then Enter so shell
       // expansion / key interpretation never mangles the prompt.
-      await tmux.sendLiteral(paneId, text)
-      await tmux.sendEnter(paneId)
-      return {}
+      await requireTmux().sendLiteral(paneId, text)
+      await requireTmux().sendEnter(paneId)
+      return { turnId: turnId as ApplyInputResult['turnId'] }
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
       const current = surface
-      if (current === undefined) {
+      if (current === undefined || tmux === undefined) {
         return { accepted: false, effect: 'no_active_turn' }
       }
       await tmux.interrupt(current.paneId)
@@ -192,19 +257,30 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     },
 
     async stop(_req: InvocationStopRequest): Promise<InvocationStopResponse> {
-      const current = surface
-      if (current !== undefined) {
-        await tmux.terminate(current.sessionName)
-      }
+      await terminateSession()
       await closeHookListener()
       return { accepted: true, state: 'exited' }
     },
 
     async dispose(): Promise<void> {
+      // T3: dispose terminates ONLY the driver-owned session, never the server.
+      await terminateSession()
       await closeHookListener()
       ctx = undefined
       surface = undefined
+      tmux = undefined
+      activeTurnId = undefined
     },
+  }
+
+  // Kill only the driver-owned session on the runtime-owned socket (T3). Never
+  // kill-server / start-server: the tmux server lifecycle belongs to the
+  // runtime control plane (HRC) / pre-HRC harness, not the broker driver.
+  async function terminateSession(): Promise<void> {
+    const current = surface
+    if (current !== undefined && tmux !== undefined) {
+      await tmux.terminate(current.sessionName)
+    }
   }
 
   async function closeHookListener(): Promise<void> {
@@ -223,16 +299,61 @@ function extractText(input: InvocationInput): string {
     .join('')
 }
 
+/** Claude Code hook events the broker overlay subscribes to. */
+const HOOK_EVENT_NAMES = [
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PostToolUse',
+  'Stop',
+  'Notification',
+  'SubagentStop',
+  'SessionEnd',
+] as const
+
+const DEFAULT_HOOK_BRIDGE_COMMAND = 'harness-broker claude-hook'
+
+/**
+ * Build the Claude Code `--settings` overlay (H1). Env vars alone do NOT make
+ * Claude invoke hooks; the runtime needs an actual `hooks` settings block whose
+ * commands POST each hook payload to the broker callback socket. The bridge
+ * command reads the hook JSON on stdin and the `HARNESS_BROKER_*` env to build
+ * the envelope, then writes it to the callback socket (broker-owned, H3).
+ */
+export function buildClaudeHookSettingsOverlay(options: {
+  callbackSocket: string
+  bridgeCommand?: string | undefined
+}): { hooks: Record<string, unknown> } {
+  const bridge = options.bridgeCommand ?? DEFAULT_HOOK_BRIDGE_COMMAND
+  const command = `${bridge} --socket ${shellQuote(options.callbackSocket)}`
+  const matchAll = ['PreToolUse', 'PostToolUse']
+  const hooks: Record<string, unknown> = {}
+  for (const event of HOOK_EVENT_NAMES) {
+    const entry: Record<string, unknown> = { hooks: [{ type: 'command', command }] }
+    if (matchAll.includes(event)) {
+      entry['matcher'] = '*'
+    }
+    hooks[event] = [entry]
+  }
+  return { hooks }
+}
+
 function buildLaunchCommandLine(
   spec: HarnessInvocationSpec,
-  hookEnv: { invocationId: string; callbackSocket: string }
+  hookEnv: { invocationId: string; callbackSocket: string; bridgeCommand?: string | undefined }
 ): string {
   const assignments: string[] = [
     `HARNESS_BROKER_INVOCATION_ID=${shellQuote(hookEnv.invocationId)}`,
     `HARNESS_BROKER_CALLBACK_SOCKET=${shellQuote(hookEnv.callbackSocket)}`,
     'HARNESS_BROKER_HOOK_GENERATION=1',
   ]
+  const settings = buildClaudeHookSettingsOverlay({
+    callbackSocket: hookEnv.callbackSocket,
+    bridgeCommand: hookEnv.bridgeCommand,
+  })
   const argv = [spec.process.command, ...spec.process.args].map(shellQuote)
+  // `--settings <json>` installs the broker-owned hook overlay in the REAL
+  // launch so Claude posts hooks to the callback socket out-of-band.
+  argv.push('--settings', shellQuote(JSON.stringify(settings)))
   return [...assignments, ...argv].join(' ')
 }
 

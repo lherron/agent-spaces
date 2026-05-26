@@ -14,6 +14,7 @@ import type {
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationRuntimeContext,
   InvocationStartResponse,
   InvocationState,
   InvocationStatusResponse,
@@ -100,7 +101,8 @@ export interface InvocationManager {
     spec: HarnessInvocationSpec,
     driver: Driver,
     initialInput?: InvocationInput | undefined,
-    dispatchEnv?: Record<string, string> | undefined
+    dispatchEnv?: Record<string, string> | undefined,
+    runtime?: InvocationRuntimeContext | undefined
   ): Promise<InvocationStartResponse>
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
@@ -349,7 +351,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       spec: HarnessInvocationSpec,
       driver: Driver,
       initialInput?: InvocationInput | undefined,
-      dispatchEnv?: Record<string, string> | undefined
+      dispatchEnv?: Record<string, string> | undefined,
+      runtime?: InvocationRuntimeContext | undefined
     ): Promise<InvocationStartResponse> {
       // Check if there's already an active invocation
       for (const existing of invocations.values()) {
@@ -400,6 +403,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         invocationId,
         clientCapabilities: getClientCapabilities(),
         ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
+        ...(runtime !== undefined ? { runtime } : {}),
         emit<TPayload>(
           type: InvocationEventType,
           payload: TPayload,

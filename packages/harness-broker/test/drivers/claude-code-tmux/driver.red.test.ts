@@ -169,7 +169,10 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       now,
     })
 
-    await driver.start(claudeTmuxSpec(), createCtx(events))
+    await driver.start(
+      claudeTmuxSpec(),
+      createCtx(events, { tmux: { socketPath: '/tmp/harness-broker/claude-tmux.sock' } })
+    )
 
     expect(hookHandler).toBeDefined()
     expect(events).toContainEqual(
@@ -205,7 +208,10 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       now,
     })
     const events: InvocationEventEnvelope[] = []
-    await driver.start(claudeTmuxSpec(), createCtx(events))
+    await driver.start(
+      claudeTmuxSpec(),
+      createCtx(events, { tmux: { socketPath: '/tmp/harness-broker/claude-tmux.sock' } })
+    )
 
     await driver.applyInputNow({
       inputId: 'input_apply_1',
@@ -256,7 +262,10 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       },
       now,
     })
-    await driver.start(claudeTmuxSpec(), createCtx(events))
+    await driver.start(
+      claudeTmuxSpec(),
+      createCtx(events, { tmux: { socketPath: '/tmp/harness-broker/claude-tmux.sock' } })
+    )
 
     await hookHandler?.({
       invocationId: 'inv_claude_tmux_1',
@@ -311,7 +320,10 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       now,
     })
 
-    await driver.start(claudeTmuxSpec(), createCtx([]))
+    await driver.start(
+      claudeTmuxSpec(),
+      createCtx([], { tmux: { socketPath: '/tmp/harness-broker/claude-tmux.sock' } })
+    )
 
     const launchCommand = sentLiteralTexts(tmuxCalls).find((text) =>
       text.includes('/opt/bin/claude')
@@ -351,7 +363,10 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       },
       now,
     })
-    await driver.start(claudeTmuxSpec(), createCtx(events))
+    await driver.start(
+      claudeTmuxSpec(),
+      createCtx(events, { tmux: { socketPath: '/tmp/harness-broker/claude-tmux.sock' } })
+    )
 
     const applied = await driver.applyInputNow({
       inputId: 'input_active_turn_1',

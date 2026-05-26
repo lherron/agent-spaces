@@ -40,6 +40,22 @@ export interface DriverContext {
    * composition (`spawnHarnessProcess`). Absent when no dispatchEnv was supplied.
    */
   dispatchEnv?: Record<string, string> | undefined
+  /**
+   * Dispatch-time runtime overlay (spec §3.3) supplied by the HRC runtime
+   * control plane — or the pre-HRC harness stand-in — AFTER profile selection.
+   * Carries pre-allocated runtime resource handles (e.g. the tmux server socket
+   * a terminal-host driver attaches to). NOT part of the hashed spec. Absent
+   * when the route needs no runtime handles.
+   */
+  runtime?:
+    | {
+        tmux?:
+          | {
+              socketPath: string
+            }
+          | undefined
+      }
+    | undefined
   emit<TPayload>(
     type: InvocationEventType,
     payload: TPayload,

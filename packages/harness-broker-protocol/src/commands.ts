@@ -72,9 +72,31 @@ export interface BrokerHealthResponse {
   drivers?: DriverSummary[] | undefined
 }
 
+/**
+ * Dispatch-time runtime overlay (spec §3.3). Carries per-operation runtime
+ * allocations and handles supplied AFTER profile selection by the HRC runtime
+ * control plane (or the pre-HRC harness stand-in). This is NOT part of the
+ * compiled/hashed spec: the compiled profile carries launch INTENT only
+ * (`brokerTerminal.host: 'tmux'`), never a concrete tmux server socket.
+ */
+export interface InvocationRuntimeContext {
+  /** Pre-allocated tmux server socket owned by the runtime control plane. */
+  tmux?:
+    | {
+        socketPath: string
+      }
+    | undefined
+}
+
 export interface InvocationStartRequest {
   spec: HarnessInvocationSpec
   initialInput?: InvocationInput | undefined
+  /**
+   * Dispatch-time runtime overlay. REQUIRED for `claude-code-tmux` dispatch
+   * (the driver attaches to this runtime-owned tmux socket; it must not own the
+   * tmux server). Absent for routes that need no runtime resource handles.
+   */
+  runtime?: InvocationRuntimeContext | undefined
 }
 
 export interface InvocationDispatchRequest {

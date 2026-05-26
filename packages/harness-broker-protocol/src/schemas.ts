@@ -504,6 +504,7 @@ function validateInvocationDispatchRequestShape(
         issues
       )
     }
+    validateDispatchRuntime(startRequest, startPath, issues)
   }
 
   const lockedEnv =
@@ -511,6 +512,36 @@ function validateInvocationDispatchRequestShape(
       ? asRecord(asRecord(startRequest?.spec)?.process)?.lockedEnv
       : undefined
   validateEnv(request.dispatchEnv, path(basePath, 'dispatchEnv'), issues, 'dispatchEnv', lockedEnv)
+}
+
+/**
+ * Spec §3.3 dispatch-time contract: a `claude-code-tmux` dispatch MUST carry a
+ * runtime-owned tmux socket (`startRequest.runtime.tmux.socketPath`). The
+ * compiled profile emits launch INTENT only — the concrete tmux server socket
+ * is a runtime allocation supplied by HRC (or the pre-HRC harness stand-in) at
+ * dispatch time. The driver attaches to this socket; it never owns the server.
+ */
+function validateDispatchRuntime(
+  startRequest: Record<string, unknown>,
+  startPath: string,
+  issues: ValidationIssue[]
+): void {
+  const driverKind = asRecord(asRecord(startRequest['spec'])?.['harness'])?.['driver']
+  if (driverKind !== 'claude-code-tmux') {
+    return
+  }
+
+  const runtime = asRecord(startRequest['runtime'])
+  const tmux = runtime ? asRecord(runtime['tmux']) : undefined
+  if (!tmux || typeof tmux['socketPath'] !== 'string' || tmux['socketPath'].length === 0) {
+    issues.push(
+      issue(
+        path(startPath, 'runtime.tmux.socketPath'),
+        'required',
+        'claude-code-tmux dispatch requires a runtime tmux socket'
+      )
+    )
+  }
 }
 
 function validateEventPayload(

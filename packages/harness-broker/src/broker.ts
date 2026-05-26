@@ -143,7 +143,7 @@ export function createBroker(options: BrokerOptions): Broker {
       // Non-async wrapper: the returned promise has a no-op catch pre-attached
       // so that bun's test runner doesn't flag it as an unhandled rejection when
       // the startup timeout fires before the caller awaits.
-      const result = manager.start(req.spec, driver, req.initialInput, dispatchEnv)
+      const result = manager.start(req.spec, driver, req.initialInput, dispatchEnv, req.runtime)
       result.catch(() => {})
       return result
     },

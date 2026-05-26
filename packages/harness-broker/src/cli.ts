@@ -11,6 +11,7 @@ import type {
 import { validateCommand, validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import { createBroker } from './broker'
 import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
+import { runClaudeHookBridgeCli } from './drivers/claude-code-tmux/hook-bridge'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
 import { createProtocolServer } from './protocol-server'
 
@@ -42,6 +43,8 @@ async function main(): Promise<void> {
         process.stdout.write(`${driver.kind}\t${driver.available ? 'available' : 'unavailable'}\n`)
       }
     }
+  } else if (command === 'claude-hook') {
+    await runClaudeHookBridgeCli(args.slice(1))
   } else if (command === 'run-once') {
     await runOnce(args.slice(1))
   } else if (command === 'validate-start-request') {
