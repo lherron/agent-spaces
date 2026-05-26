@@ -9,6 +9,7 @@ import type {
   BrokerExecutionProfile,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
+  TerminalExecutionProfile,
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY, project } from 'spaces-runtime-contracts'
 
@@ -202,6 +203,40 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
   return profiles[0]
 }
 
+function terminalProfile(response: RuntimeCompileResponse): TerminalExecutionProfile {
+  if (!response.ok) {
+    throw new Error(
+      `compileRuntimePlan failed: ${response.diagnostics.map((diagnostic) => diagnostic.code).join(', ')}`
+    )
+  }
+  const profiles = response.plan.executionProfiles.filter(
+    (profile): profile is TerminalExecutionProfile => profile.kind === 'terminal'
+  )
+  expect(profiles).toHaveLength(1)
+  return profiles[0]
+}
+
+function interactiveCompileRequest(
+  requested: RuntimeCompileRequest['requested']
+): RuntimeCompileRequest {
+  return baseCompileRequest({
+    requested,
+    materialization: {
+      ...baseCompileRequest().materialization,
+      initialPrompt: 'hello foreground terminal',
+      attachments: [],
+      taskContext: {
+        taskId: 'T-01651',
+        phase: 'red',
+        role: 'smokey',
+        requiredEvidenceKinds: ['red-test'],
+        hintsText: 'compileRuntimePlan should emit a foreground terminal profile',
+      },
+    },
+    continuation: undefined,
+  })
+}
+
 function legacyBrokerRequest(
   req: RuntimeCompileRequest
 ): BuildHarnessBrokerInvocationRequest & { initialInputId?: InputId | undefined } {
@@ -271,6 +306,60 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.harnessInvocation.startRequest.initialInput?.inputId).toBe(
       req.identity.initialInputId
     )
+  })
+
+  test('keeps headless codex on the harness-broker execution profile path', async () => {
+    const response = await createClient().compileRuntimePlan(baseCompileRequest())
+    const profile = brokerProfile(response)
+
+    expect(profile.kind).toBe('harness-broker')
+    expect(profile.interactionMode).toBe('headless')
+    expect(profile.brokerDriver).toBe('codex-app-server')
+  })
+
+  test('compiles claude-code interactive requests to a foreground terminal profile', async () => {
+    const response = await createClient().compileRuntimePlan(
+      interactiveCompileRequest({
+        modelProvider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        harnessFamily: 'claude-code',
+        preferredHarnessRuntime: 'claude-code-cli',
+        interactionMode: 'interactive',
+      })
+    )
+    const profile = terminalProfile(response)
+
+    expect(response.ok).toBe(true)
+    expect(profile.kind).toBe('terminal')
+    expect(profile.interactionMode).toBe('interactive')
+    expect(profile.terminal.host).toBe('foreground')
+    expect(profile.terminal.startupMethod).toBe('inherit-current-terminal')
+    expect(profile.terminal.turnDelivery).toBe('terminal-launch-input')
+    expect(profile.process.io.kind).toBe('inherit')
+    expect(profile.policy.exposurePolicy.mode).toBe('none')
+  })
+
+  test('compiles codex-cli interactive requests to a foreground terminal profile', async () => {
+    const response = await createClient().compileRuntimePlan(
+      interactiveCompileRequest({
+        modelProvider: 'openai',
+        model: 'gpt-5.5',
+        reasoningEffort: 'medium',
+        harnessFamily: 'codex',
+        preferredHarnessRuntime: 'codex-cli',
+        interactionMode: 'interactive',
+      })
+    )
+    const profile = terminalProfile(response)
+
+    expect(response.ok).toBe(true)
+    expect(profile.kind).toBe('terminal')
+    expect(profile.interactionMode).toBe('interactive')
+    expect(profile.terminal.host).toBe('foreground')
+    expect(profile.terminal.startupMethod).toBe('inherit-current-terminal')
+    expect(profile.terminal.turnDelivery).toBe('terminal-launch-input')
+    expect(profile.process.io.kind).toBe('inherit')
+    expect(profile.policy.exposurePolicy.mode).toBe('none')
   })
 
   test('emits all required plan, profile, spec, and start request hashes', async () => {
@@ -463,15 +552,15 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(JSON.stringify(second.plan)).not.toContain('dispatchEnv')
   })
 
-  test('returns diagnostics instead of a profile for unsupported provider, harness, and mode routes', async () => {
+  test('returns diagnostics instead of a profile for unsupported provider/runtime pairings', async () => {
     const response = await createClient().compileRuntimePlan(
       baseCompileRequest({
         requested: {
           modelProvider: 'anthropic',
-          model: 'claude-sonnet-4-5',
-          harnessFamily: 'claude-code',
-          preferredHarnessRuntime: 'claude-code-cli',
-          interactionMode: 'interactive',
+          model: 'gpt-5.5',
+          harnessFamily: 'codex',
+          preferredHarnessRuntime: 'codex-cli',
+          interactionMode: 'headless',
         },
       })
     )
