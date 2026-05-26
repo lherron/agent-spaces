@@ -10,6 +10,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { validateCommand, validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import { createBroker } from './broker'
+import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
 import { createProtocolServer } from './protocol-server'
 
@@ -58,7 +59,7 @@ function createDefaultBroker(
   onPermissionRequest?: (params: PermissionRequestParams) => Promise<PermissionDecision>
 ) {
   return createBroker({
-    drivers: [createCodexAppServerDriver()],
+    drivers: [createCodexAppServerDriver(), createDefaultClaudeCodeTmuxDriver()],
     ...(onEvent !== undefined ? { onEvent } : {}),
     ...(onPermissionRequest !== undefined ? { onPermissionRequest } : {}),
   })

@@ -16,7 +16,7 @@ import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
 import type { ContextResolverContext } from 'spaces-runtime'
 import { expandTemplate } from 'spaces-runtime'
 
-import { CODEX_CLI_FRONTEND, CodedError } from './client-support.js'
+import { CLAUDE_CODE_FRONTEND, CODEX_CLI_FRONTEND, CodedError } from './client-support.js'
 import type { PreparedPlacementCliRuntime } from './prepare-cli-runtime.js'
 import type {
   BuildHarnessBrokerInvocationRequest,
@@ -96,6 +96,43 @@ export function buildPromptExpansionContext(placement: RuntimePlacement): Contex
 }
 
 export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocationRequest): void {
+  // The public request type narrows provider/frontend/interactionMode to the
+  // codex headless literals and omits the broker-profile fields (brokerDriver /
+  // harnessTransport). Read the route discriminants through a widened view.
+  const broker = req as {
+    provider?: string | undefined
+    frontend?: string | undefined
+    interactionMode?: string | undefined
+    brokerDriver?: string | undefined
+    harnessTransport?: { kind?: string | undefined } | undefined
+  }
+  const transportKind = broker.harnessTransport?.kind
+
+  // Phase 3 route: OPERATOR-ATTACHABLE interactive Claude Code in tmux. This is
+  // the ONLY broker route allowed to be interactive (guardrails #1/#2), and it
+  // REUSES the pty transport (guardrail #3) — tmux is the terminal host, pty is
+  // the process transport.
+  if (
+    broker.provider === 'anthropic' &&
+    broker.frontend === CLAUDE_CODE_FRONTEND &&
+    broker.brokerDriver === 'claude-code-tmux'
+  ) {
+    if (broker.interactionMode !== 'interactive') {
+      throw new CodedError(
+        `claude-code-tmux broker route requires interactive interaction mode; got "${broker.interactionMode}"`,
+        'unsupported_frontend'
+      )
+    }
+    if (transportKind !== undefined && transportKind !== 'pty') {
+      throw new CodedError(
+        `claude-code-tmux broker route requires "pty" harness transport; got "${transportKind}"`,
+        'unsupported_frontend'
+      )
+    }
+    return
+  }
+
+  // Codex headless route: the original invariant is preserved unchanged.
   if (req.provider !== 'openai') {
     throw new CodedError(
       `Harness broker invocation only supports provider "openai"; got "${req.provider}"`,
@@ -111,6 +148,14 @@ export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocatio
   if (req.interactionMode !== 'headless') {
     throw new CodedError(
       `Harness broker invocation only supports headless interaction mode; got "${req.interactionMode}"`,
+      'unsupported_frontend'
+    )
+  }
+  // codex-app-server stays jsonrpc-stdio (guardrail #1). pty is rejected here
+  // and ALSO at the process runner (process-runner.ts).
+  if (transportKind !== undefined && transportKind !== 'jsonrpc-stdio') {
+    throw new CodedError(
+      `codex-app-server broker route requires "jsonrpc-stdio" transport; got "${transportKind}"`,
       'unsupported_frontend'
     )
   }

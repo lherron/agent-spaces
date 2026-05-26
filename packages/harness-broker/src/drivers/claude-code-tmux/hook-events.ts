@@ -28,6 +28,64 @@ export type ClaudeCodeHookEventNormalizerOptions = {
   now: () => Date
 }
 
+/**
+ * Hook envelope as delivered by the broker hook-ingestion callback socket
+ * (`buildHookEnvelope`). The real Claude turn id lives at the ENVELOPE/env
+ * level (`HARNESS_BROKER_TURN_ID`), NOT inside the raw hook JSON — Claude does
+ * not emit `turn_id` in its hook payloads. `normalizeHookEnvelope` threads the
+ * envelope turn id into normalization so turn lifecycle events carry it.
+ */
+export type ClaudeCodeHookEnvelope = {
+  invocationId: string
+  generation: number
+  callbackSocket: string
+  runtimeId?: string | undefined
+  turnId?: string | undefined
+  hookData: unknown
+}
+
+export type NormalizeHookEnvelopeOptions = {
+  /**
+   * Reuse a stateful normalizer across envelopes (preserves activeTurnId /
+   * completed-turn dedup / monotonic sequence). When omitted a fresh one-shot
+   * normalizer is created per call (sufficient because the envelope always
+   * supplies the turn id).
+   */
+  normalizer?: ClaudeCodeHookEventNormalizer | undefined
+  now?: (() => Date) | undefined
+}
+
+/**
+ * Normalize a single hook envelope into broker events, using the ENVELOPE turn
+ * id (cody's Phase 3 seam) when the raw hook payload omits `turn_id`.
+ */
+export function normalizeHookEnvelope(
+  envelope: ClaudeCodeHookEnvelope,
+  options: NormalizeHookEnvelopeOptions = {}
+): InvocationEventEnvelope[] {
+  const normalizer =
+    options.normalizer ??
+    createClaudeCodeHookEventNormalizer({
+      invocationId: envelope.invocationId,
+      now: options.now ?? (() => new Date()),
+    })
+
+  const hook = asHookRecord(envelope.hookData)
+  const merged =
+    envelope.turnId !== undefined && getString(hook, 'turn_id') === undefined
+      ? { ...hook, turn_id: envelope.turnId }
+      : hook
+
+  return normalizer.normalizeHook(merged)
+}
+
+function asHookRecord(value: unknown): Record<string, unknown> {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return {}
+}
+
 type MappedHookEvent = {
   type: InvocationEventType
   payload: unknown
