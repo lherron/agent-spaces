@@ -1,5 +1,5 @@
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationCapabilities,
@@ -220,7 +220,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // the REAL runtime posts UserPromptSubmit/PreToolUse/PostToolUse/Stop… to
       // the broker callback socket OUT-OF-BAND (not via stdout). Env vars alone
       // do not make Claude invoke hooks.
-      const launchCommand = buildLaunchCommandLine(spec, {
+      const launchCommand = await buildLaunchCommandLine(spec, {
         invocationId: driverCtx.invocationId,
         callbackSocket: hookListener.socketPath,
         bridgeCommand: options.hooks.bridgeCommand,
@@ -337,24 +337,72 @@ export function buildClaudeHookSettingsOverlay(options: {
   return { hooks }
 }
 
-function buildLaunchCommandLine(
+async function buildLaunchCommandLine(
   spec: HarnessInvocationSpec,
   hookEnv: { invocationId: string; callbackSocket: string; bridgeCommand?: string | undefined }
-): string {
+): Promise<string> {
   const assignments: string[] = [
     `HARNESS_BROKER_INVOCATION_ID=${shellQuote(hookEnv.invocationId)}`,
     `HARNESS_BROKER_CALLBACK_SOCKET=${shellQuote(hookEnv.callbackSocket)}`,
+    `HARNESS_BROKER_HOOK_EVENTS=${shellQuote(HOOK_EVENT_NAMES.join(','))}`,
     'HARNESS_BROKER_HOOK_GENERATION=1',
   ]
-  const settings = buildClaudeHookSettingsOverlay({
-    callbackSocket: hookEnv.callbackSocket,
-    bridgeCommand: hookEnv.bridgeCommand,
-  })
-  const argv = [spec.process.command, ...spec.process.args].map(shellQuote)
-  // `--settings <json>` installs the broker-owned hook overlay in the REAL
-  // launch so Claude posts hooks to the callback socket out-of-band.
-  argv.push('--settings', shellQuote(JSON.stringify(settings)))
+  const launchArgs = await buildArgsWithMergedSettings(spec.process.args, hookEnv)
+  const argv = [spec.process.command, ...launchArgs].map(shellQuote)
   return [...assignments, ...argv].join(' ')
+}
+
+async function buildArgsWithMergedSettings(
+  args: string[],
+  hookEnv: { callbackSocket: string; bridgeCommand?: string | undefined }
+): Promise<string[]> {
+  const separatorIndex = args.indexOf('--')
+  const preSeparatorArgs = separatorIndex === -1 ? args : args.slice(0, separatorIndex)
+  const postSeparatorArgs = separatorIndex === -1 ? [] : args.slice(separatorIndex)
+  const durableSettingsPaths: string[] = []
+  const cleanedPreSeparatorArgs: string[] = []
+
+  for (let i = 0; i < preSeparatorArgs.length; i += 1) {
+    const arg = preSeparatorArgs[i]
+    if (arg === undefined) continue
+    if (arg === '--settings') {
+      const settingsPath = preSeparatorArgs[i + 1]
+      if (settingsPath !== undefined) {
+        durableSettingsPaths.push(settingsPath)
+        i += 1
+      }
+      continue
+    }
+    cleanedPreSeparatorArgs.push(arg)
+  }
+
+  const mergedSettingsPath = await writeMergedSettingsFile(durableSettingsPaths, hookEnv)
+  return [...cleanedPreSeparatorArgs, '--settings', mergedSettingsPath, ...postSeparatorArgs]
+}
+
+async function writeMergedSettingsFile(
+  durableSettingsPaths: string[],
+  hookEnv: { callbackSocket: string; bridgeCommand?: string | undefined }
+): Promise<string> {
+  const { mkdir, readFile, writeFile } = await import('node:fs/promises')
+  const mergedSettings: Record<string, unknown> = {}
+  for (const settingsPath of durableSettingsPaths) {
+    const raw = await readFile(settingsPath, 'utf8')
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    Object.assign(mergedSettings, parsed)
+  }
+  Object.assign(
+    mergedSettings,
+    buildClaudeHookSettingsOverlay({
+      callbackSocket: hookEnv.callbackSocket,
+      bridgeCommand: hookEnv.bridgeCommand,
+    })
+  )
+
+  const settingsPath = `${hookEnv.callbackSocket}.settings.json`
+  await mkdir(dirname(settingsPath), { recursive: true })
+  await writeFile(settingsPath, JSON.stringify(mergedSettings, null, 2), 'utf8')
+  return settingsPath
 }
 
 function shellQuote(value: string): string {

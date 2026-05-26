@@ -505,7 +505,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     const launchCommand = tmuxArgv
       .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
       .map((argv) => argv.at(-1) ?? '')
-      .find((text) => text.includes(fixture.claudePath))
+      .find((text) => text.includes(brokerProcess.command))
     if (launchCommand === undefined) throw new Error('tmux launch command was not sent')
 
     const promptSeparator = ` -- ${prompt}`

@@ -1,12 +1,15 @@
 import type { RuntimePlacement } from 'spaces-config'
 import type {
   HarnessInvocationSpec,
+  InputContent,
+  InputId,
   InvocationId,
+  InvocationInput,
   InvocationStartRequest,
   PermissionPolicy,
   ProcessLimits,
 } from 'spaces-harness-broker-protocol'
-import { validateInvocationSpec } from 'spaces-harness-broker-protocol'
+import { validateInvocationInput, validateInvocationSpec } from 'spaces-harness-broker-protocol'
 import type { AttachmentRef } from 'spaces-runtime'
 import {
   type AgentchatExposurePolicy,
@@ -334,6 +337,32 @@ function toProcessLimits(
     ...(limits.turnTimeoutMs !== undefined ? { turnTimeoutMs: limits.turnTimeoutMs } : {}),
     ...(limits.stopGraceMs !== undefined ? { stopGraceMs: limits.stopGraceMs } : {}),
     ...(limits.maxEventBytes !== undefined ? { maxEventBytes: limits.maxEventBytes } : {}),
+  }
+}
+
+function withoutInteractiveLaunchPrompt(args: string[], prompt: string | undefined): string[] {
+  if (prompt === undefined || prompt.length === 0) return args
+  if (args.length >= 2 && args[args.length - 2] === '--' && args[args.length - 1] === prompt) {
+    return args.slice(0, -2)
+  }
+  return args
+}
+
+function buildClaudeTmuxInitialInput(
+  req: RuntimeCompileRequest,
+  initialText: string | undefined
+): InvocationInput | undefined {
+  const content: InputContent[] = []
+  if (initialText !== undefined && initialText.length > 0) {
+    content.push({ type: 'text', text: initialText })
+  }
+  if (content.length === 0) return undefined
+  return {
+    inputId:
+      req.identity.initialInputId ??
+      (`input_${hashValue({ route: 'claude-code-tmux', content }).slice(0, 32)}` as InputId),
+    kind: 'user',
+    content,
   }
 }
 
@@ -965,6 +994,7 @@ async function compileClaudeTmuxBrokerPlan(
   const bundleIdentity = prepared.resolvedBundle?.bundleIdentity ?? 'unknown'
   const lockHash = (prepared.resolvedBundle as { lockHash?: string | undefined } | undefined)
     ?.lockHash
+  const processArgs = withoutInteractiveLaunchPrompt(prepared.args, prepared.expandedPrompt)
 
   // pty is the PROCESS TRANSPORT; tmux is the broker terminal surface/host. The
   // claude-code-tmux driver carries terminalHost so the validator can assert the
@@ -980,7 +1010,7 @@ async function compileClaudeTmuxBrokerPlan(
     },
     process: {
       command: prepared.commandPath,
-      args: prepared.args,
+      args: processArgs,
       cwd: prepared.cwd,
       lockedEnv,
       ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
@@ -1005,7 +1035,12 @@ async function compileClaudeTmuxBrokerPlan(
     correlation: brokerCorrelation(req),
   }
   validateInvocationSpec(spec)
-  const startRequest: InvocationStartRequest = { spec }
+  const initialInput = buildClaudeTmuxInitialInput(req, prepared.expandedPrompt)
+  if (initialInput !== undefined) {
+    validateInvocationInput(initialInput)
+  }
+  const startRequest: InvocationStartRequest =
+    initialInput === undefined ? { spec } : { spec, initialInput }
 
   const profileId = stableId('profile', {
     kind: 'harness-broker',
@@ -1017,6 +1052,8 @@ async function compileClaudeTmuxBrokerPlan(
   )
   const specHash = projectionHash(spec, 'spec').specHash
   const startRequestHash = projectionHash(startRequest, 'start-request').startRequestHash
+  const initialInputHash =
+    startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
 
   const profileMaterial = {
     schemaVersion: 'agent-runtime-profile/v1' as const,
@@ -1032,6 +1069,7 @@ async function compileClaudeTmuxBrokerPlan(
       startRequest,
       specHash,
       startRequestHash,
+      ...(initialInputHash !== undefined ? { initialInputHash } : {}),
     },
     policy: {
       permissionPolicy,
