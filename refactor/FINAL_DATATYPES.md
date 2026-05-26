@@ -692,8 +692,8 @@ export type TerminalExecutionProfile = RuntimeExecutionProfileBase & {
   kind: 'terminal'
   interactionMode: 'interactive'
   terminal: {
-    host: 'tmux' | 'ghostty'
-    startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal'
+    host: 'foreground' | 'tmux' | 'ghostty'
+    startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal' | 'inherit-current-terminal'
     turnDelivery: 'terminal-launch-input' | 'terminal-literal-input'
   }
   process: {
@@ -703,7 +703,9 @@ export type TerminalExecutionProfile = RuntimeExecutionProfileBase & {
     // ASP-declared environment required for the harness to function. Hash-covered;
     // HRC MUST NOT modify it. Declared config only — never ambient/operator env, never credentials.
     lockedEnv: Record<string, string>
-    io: { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
+    io:
+      | { kind: 'inherit' }
+      | { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
   }
   policy: {
     exposurePolicy: AgentchatExposurePolicy
@@ -2327,7 +2329,7 @@ export enum BrokerErrorCode {
 
 export type RuntimeRouteCatalogEntry = {
   controller: RuntimeControllerKind
-  terminalHost?: 'tmux' | 'ghostty' | undefined
+  terminalHost?: 'foreground' | 'tmux' | 'ghostty' | undefined
   migrationOnly?: boolean | undefined
   modelProvider: ProviderDomain
   harnessFamily: HarnessFamily
@@ -2353,7 +2355,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     harnessFamily: 'claude-code',
     harnessRuntime: 'claude-code-cli',
     interactionMode: 'interactive',
-    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal'],
+    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal', 'inherit-current-terminal'],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
   },
   {
@@ -2363,7 +2365,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     harnessFamily: 'codex',
     harnessRuntime: 'codex-cli',
     interactionMode: 'interactive',
-    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal'],
+    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal', 'inherit-current-terminal'],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
   },
   {

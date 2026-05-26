@@ -518,6 +518,41 @@ export type RuntimeExecutionProfileBase = {
 }
 ```
 
+### 7.3.1 Terminal execution profile
+
+Terminal profiles model interactive harness processes. The host determines who owns the terminal lifetime and whether the controller has a writable input channel.
+
+```ts
+export type TerminalExecutionProfile = RuntimeExecutionProfileBase & {
+  kind: 'terminal'
+  interactionMode: 'interactive'
+  terminal: {
+    host: 'foreground' | 'tmux' | 'ghostty'
+    startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal' | 'inherit-current-terminal'
+    turnDelivery: 'terminal-launch-input' | 'terminal-literal-input'
+  }
+  process: {
+    command: string
+    args: string[]
+    cwd: string
+    lockedEnv: Record<string, string>
+    io:
+      | { kind: 'inherit' }
+      | { kind: 'pty'; cols?: number; rows?: number }
+  }
+  policy: {
+    exposurePolicy: AgentchatExposurePolicy
+    resourceLimits?: RuntimeResourceLimits
+  }
+}
+```
+
+Foreground terminal profiles are the Path-1 `asp run` shape: stdio is inherited from the caller, process lifetime is caller-owned, `terminal.startupMethod` is `inherit-current-terminal`, `process.io` is `{ kind: 'inherit' }`, and `policy.exposurePolicy` is `{ mode: 'none' }`. HRC does not register a foreground target and does not keep a pane, pipe, or controller-mediated input channel for later turns.
+
+Controller-owned terminal hosts (`tmux` and `ghostty`) use a pty, have HRC/controller-owned lifetime, and may support attach, remote-control, and controller-mediated input. For these hosts, `process.io.kind` is `pty`; the tmux host registers its target with `exposurePolicy: 'hrc-registers-target'`.
+
+`turnDelivery` keeps the existing union. Validators MUST enforce that `terminal.host: 'foreground'` permits only `terminal-launch-input`; `terminal-literal-input` is forbidden because it requires a controller-owned pane such as the tmux send-keys path. Foreground delivers at most one launch turn, with the initial prompt baked into process argv. Subsequent interaction is operator typing into the inherited TTY and is not modeled as controller delivery. A blank REPL launch is an empty launch-input turn, not a separate delivery mode.
+
 ### 7.4 Broker execution profile
 
 This is the critical profile for Codex headless and future broker-capable harnesses.
@@ -1376,6 +1411,8 @@ The third check needs allowlists for type-only references, validation, and hashi
 
 The route catalog describes valid combinations. HRC route decisions select from compiled profiles and validate against this catalog.
 
+Terminal route hosts include `foreground`, `tmux`, and `ghostty`. Interactive route startup methods include `inherit-current-terminal` for foreground `asp run`; validators narrow host-specific combinations so foreground uses inherited stdio and launch input only, while controller-owned terminal hosts use pty semantics.
+
 ```ts
 export const RUNTIME_ROUTE_CATALOG = [
   {
@@ -1385,7 +1422,7 @@ export const RUNTIME_ROUTE_CATALOG = [
     harnessFamily: 'claude-code',
     harnessRuntime: 'claude-code-cli',
     interactionMode: 'interactive',
-    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal'],
+    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal', 'inherit-current-terminal'],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
   },
   {
@@ -1395,7 +1432,7 @@ export const RUNTIME_ROUTE_CATALOG = [
     harnessFamily: 'codex',
     harnessRuntime: 'codex-cli',
     interactionMode: 'interactive',
-    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal'],
+    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal', 'inherit-current-terminal'],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
   },
   {
