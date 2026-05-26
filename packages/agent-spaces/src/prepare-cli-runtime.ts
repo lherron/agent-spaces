@@ -281,16 +281,24 @@ export async function preparePlacementCliRuntime(
     ...dispatchEnv,
   }
 
-  const brainEnv = await prepareAgentBrainRuntime(
-    {
-      agentRoot: placement.agentRoot,
-      agentName: basename(placement.agentRoot),
-      ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
-    },
-    env
-  )
-  lockedEnv = { ...lockedEnv, ...brainEnv }
-  env = { ...env, ...brainEnv }
+  // Brain env (GBRAIN_HOME/BRAIN_REPO) is deferred to the real (non-dry) spawn —
+  // exactly as the legacy adapter path does (execute.ts gates the same call on
+  // `!options.dryRun`). prepareAgentBrainRuntime is NOT a pure compose: it
+  // ensureDirectory()s, may `gbrain init`, and registers sources. A dry-run /
+  // --print-command MUST NOT mutate and MUST NOT advertise brain env, so the
+  // compiled launch shape only carries GBRAIN_HOME/BRAIN_REPO for a real launch.
+  if (placement.dryRun !== true) {
+    const brainEnv = await prepareAgentBrainRuntime(
+      {
+        agentRoot: placement.agentRoot,
+        agentName: basename(placement.agentRoot),
+        ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
+      },
+      env
+    )
+    lockedEnv = { ...lockedEnv, ...brainEnv }
+    env = { ...env, ...brainEnv }
+  }
 
   let pathPrepend: string[] = []
   if (agentLocalComponents?.hasTools) {
