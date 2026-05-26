@@ -181,6 +181,22 @@ Interactive broker runtimes with a broker-owned tmux surface are an explicit con
 
 > The contract plane defines **no** generic secret classification, redaction transforms, or digest-substituted values. It achieves confidentiality structurally: the compiled spec is **credential-free and ambient-free by contract**. ASP-declared, non-secret configuration the harness requires lives in `spec.process.lockedEnv` and is hash-covered like any other compiled mechanic. Credential material never enters the compiled spec; it reaches the harness only through a broker/driver-owned credential source (the broker launch environment, an external secret store, or an on-disk file credential materialized outside the compiled DTO; see §7.5.1). The ambient baseline is supplied by the broker's own launch environment through a fixed allowlist and is likewise absent from the spec. Confidentiality is therefore enforced by *what the spec is allowed to contain*, **not** by contract-DTO redaction.
 
+### 3.3 Timing boundaries: compile-time, dispatch-time, runtime
+
+The broker route has three distinct timing surfaces. They are intentionally separate:
+
+| Surface | Producer | Consumer | Contains | Must not contain |
+| --- | --- | --- | --- | --- |
+| Compile-time contract | ASP compiler | HRC, then broker | Reproducible launch mechanics: selected profile, `HarnessInvocationSpec`, `InvocationStartRequest`, driver kind/config, process command/args/cwd/`lockedEnv`, transport requirements, interaction intent, policies, projections, hashes | Runtime allocations, tmux socket/session/pane ids, callback sockets, run database ids, HRC operation ids, ambient or credential material |
+| Dispatch-time contract | HRC runtime control plane | Broker process/driver | Per-operation runtime allocations and handles supplied after profile selection: operation identity, validated `dispatchEnv`, pre-allocated external resources, credential source handles, and other typed overlays explicitly defined as outside compiled hash material | Mutations to compiled process/driver mechanics, inferred driver config, replacement argv/env/cwd, untyped hidden defaults |
+| Runtime-reported facts | Harness Broker and driver | HRC event projection/API views | Observed facts emitted after start: broker invocation status, normalized events, terminal surface reports, driver continuation reports, process status | New compile decisions, reconstructed profile material, client persistence semantics |
+
+The compile-time contract answers “what kind of runtime is required and how must the harness be launched?” The dispatch-time contract answers “which already-admitted runtime resources will this operation use?” Runtime-reported facts answer “what actually happened after the driver started?”
+
+Concrete example: an interactive `claude-code-tmux` profile may compile with `brokerTerminal.host: 'tmux'`, `terminalHost: 'tmux'`, `harnessTransport.kind: 'pty'`, and broker exposure policy. It MUST NOT compile a concrete tmux server socket, session name, or pane id. HRC supplies the pre-allocated tmux server socket at dispatch time; the broker driver uses that socket, manages only its invocation-scoped session/pane, and reports the observed socket/session/pane with `terminal.surface.reported`.
+
+Dispatch-time overlays are not a loophole in compiler closure. If a value changes the deterministic launch mechanics selected by ASP, it belongs in compile input and requires recompilation. If a value selects or references an already-admitted runtime resource owned by HRC, it belongs at dispatch time and must be explicit, typed, and validated at the broker boundary.
+
 ---
 
 ## 4. System invariants
