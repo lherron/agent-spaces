@@ -86,6 +86,13 @@ export type ContractHarnessFailureCode =
   | 'real_codex_assistant_marker_missing'
   | 'broker_terminal_turn_missing'
   | 'broker_capability_missing'
+  | 'interactive_tmux_mode_invalid'
+  | 'interactive_tmux_runtime_socket_missing'
+  | 'interactive_tmux_surface_invalid'
+  | 'interactive_tmux_turn_correlation_invalid'
+  | 'interactive_tmux_event_sequence_invalid'
+  | 'interactive_tmux_tool_mapping_invalid'
+  | 'interactive_tmux_clean_exit_invalid'
 
 export type ContractHarnessFailure = {
   code: ContractHarnessFailureCode
@@ -99,6 +106,7 @@ export type PreHrcBrokerContractHarnessInput = {
   compileRequest: RuntimeCompileRequest
   aspHome?: string | undefined
   artifactDir?: string | undefined
+  mode?: 'dry-run-compile' | 'broker-start' | 'interactive-tmux' | undefined
   dryRunCompile?: boolean | undefined
   writeRawStartRequest?: boolean | undefined
   timeoutMs?: number | undefined
@@ -130,6 +138,14 @@ export type PreHrcBrokerContractHarnessInput = {
               expectedAssistantMarker: string
             }
           | undefined
+      }
+    | undefined
+  interactiveTmux?:
+    | {
+        socketPath?: string | undefined
+        tmuxBin?: string | undefined
+        userInputText?: string | undefined
+        includePermissionEvents?: boolean | undefined
       }
     | undefined
   /**
@@ -167,7 +183,7 @@ export type PreHrcBrokerContractAssertionReport = {
 export type PreHrcBrokerContractHarnessResult = {
   schemaVersion: 'pre-hrc-broker-contract-harness-result/v1'
   ok: boolean
-  mode: 'dry-run-compile' | 'broker-start'
+  mode: 'dry-run-compile' | 'broker-start' | 'interactive-tmux'
   compileResponse: RuntimeCompileResponse
   compiledPlan?: CompiledRuntimePlan | undefined
   selectedProfile?: BrokerExecutionProfile | undefined
@@ -190,6 +206,31 @@ export type PreHrcBrokerContractHarnessResult = {
         events: InvocationEventEnvelope[]
         eventTypes: string[]
         permissionAudit: Array<{ permissionRequestId: string; kind: string; decision: 'deny' }>
+      }
+    | undefined
+  interactiveTmux?:
+    | {
+        attempted: true
+        socketPath: string
+        tmuxServerEvents: Array<{
+          owner: 'harness'
+          action: 'start-server' | 'kill-server'
+          socketPath: string
+        }>
+        driverTmuxArgv: string[][]
+        hookListenerClosed: boolean
+        driverDisposed: boolean
+        queuedInputLeft: boolean
+        inputTurnId: string
+        surface?: { socketPath: string; sessionName: string; paneId: string } | undefined
+      }
+    | {
+        attempted: false
+        reason:
+          | 'not-interactive-tmux'
+          | 'contract-verification-failed'
+          | 'capability-missing'
+          | 'interactive-tmux-failed'
       }
     | undefined
 }

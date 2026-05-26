@@ -6,6 +6,8 @@ import type {
   BrokerHelloResponse,
   InvocationCapabilities,
   InvocationEventEnvelope,
+  InvocationStartRequest,
+  InvocationStartResponse,
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import type {
@@ -78,6 +80,13 @@ function createPreHrcRouteDecision(
     },
     diagnostics: plan.diagnostics.map(({ level, code, message }) => ({ level, code, message })),
   }
+}
+
+function harnessMode(
+  input: PreHrcBrokerContractHarnessInput
+): PreHrcBrokerContractHarnessResult['mode'] {
+  if (input.mode !== undefined) return input.mode
+  return input.dryRunCompile === false ? 'broker-start' : 'dry-run-compile'
 }
 
 function repoRoot(): string {
@@ -272,6 +281,247 @@ function assertBrokerHelloCapabilities(
   ]
 }
 
+function selectInteractiveTmuxProfile(
+  plan: NonNullable<PreHrcBrokerContractHarnessResult['compiledPlan']>,
+  selector: PreHrcBrokerContractHarnessInput['profileSelector']
+): BrokerExecutionProfile {
+  const profiles = plan.executionProfiles.filter(
+    (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
+  )
+  let candidates = profiles
+  if (selector?.profileId !== undefined) {
+    candidates = candidates.filter((profile) => profile.profileId === selector.profileId)
+  }
+  if (selector?.profileHash !== undefined) {
+    candidates = candidates.filter((profile) => profile.profileHash === selector.profileHash)
+  }
+  const selected = candidates.find(
+    (profile) =>
+      profile.interactionMode === 'interactive' && profile.brokerDriver === 'claude-code-tmux'
+  )
+  if (selected === undefined) {
+    throw new ContractHarnessFailureError({
+      code: 'interactive_tmux_mode_invalid',
+      message: 'interactive-tmux mode requires an interactive claude-code-tmux broker profile.',
+      path: 'plan.executionProfiles',
+      redactedDetails: {
+        selector,
+        candidates: candidates.map((profile) => ({
+          profileId: profile.profileId,
+          interactionMode: profile.interactionMode,
+          brokerDriver: profile.brokerDriver,
+        })),
+      },
+    })
+  }
+  return selected
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+type InteractiveTmuxResult = NonNullable<PreHrcBrokerContractHarnessResult['interactiveTmux']>
+type DynamicFactory<TArgs extends unknown[], TResult> = (...args: TArgs) => TResult
+type InProcessInvocationManager = {
+  start: (
+    spec: InvocationStartRequest['spec'],
+    driver: unknown,
+    initialInput: undefined,
+    dispatchEnv: Record<string, string> | undefined,
+    runtime: { tmux: { socketPath: string } }
+  ) => Promise<InvocationStartResponse>
+  input: (request: {
+    invocationId: string
+    input: {
+      inputId?: string | undefined
+      kind: 'user'
+      content: Array<{ type: 'text'; text: string }>
+    }
+    policy: { whenBusy: 'reject' }
+  }) => Promise<{ inputId: string; accepted: boolean; disposition: string; turnId?: string }>
+  stop: (request: { invocationId: string; reason: string }) => Promise<unknown>
+  dispose: (request: { invocationId: string }) => Promise<unknown>
+  status: (invocationId: string) => { state: string }
+}
+
+function assertInteractiveTmuxEvents(input: {
+  events: InvocationEventEnvelope[]
+  socketPath: string
+  inputTurnId: string
+  driverDisposed: boolean
+  hookListenerClosed: boolean
+  queuedInputLeft: boolean
+  tmuxServerEvents: Array<{
+    owner: 'harness'
+    action: 'start-server' | 'kill-server'
+    socketPath: string
+  }>
+  driverTmuxArgv: string[][]
+}): ContractHarnessFailure[] {
+  const failures: ContractHarnessFailure[] = []
+  const { events, socketPath, inputTurnId } = input
+  const eventTypes = events.map((event) => event.type)
+  const surfaceIndex = eventTypes.indexOf('terminal.surface.reported' as never)
+  const turnStarted = events.find(
+    (event) => event.type === 'turn.started' && event.turnId === inputTurnId
+  )
+  const terminalTurns = events.filter(
+    (event) =>
+      event.type === 'turn.completed' ||
+      event.type === 'turn.failed' ||
+      event.type === 'turn.interrupted'
+  )
+
+  if (surfaceIndex === -1) {
+    failures.push({
+      code: 'interactive_tmux_surface_invalid',
+      message: 'interactive-tmux ledger must report the terminal surface before turns.',
+      path: 'brokerEvents',
+    })
+  } else {
+    const surface = events[surfaceIndex]
+    const payload = asRecord(surface?.payload)
+    if (
+      payload?.['socketPath'] !== socketPath ||
+      typeof payload?.['sessionName'] !== 'string' ||
+      typeof payload?.['paneId'] !== 'string'
+    ) {
+      failures.push({
+        code: 'interactive_tmux_surface_invalid',
+        message:
+          'terminal.surface.reported must carry the runtime tmux socket plus observed session/pane ids.',
+        path: `brokerEvents.${surface?.invocationId}.${surface?.seq}.payload`,
+        redactedDetails: { expectedSocketPath: socketPath, payload },
+      })
+    }
+  }
+
+  if (turnStarted === undefined) {
+    failures.push({
+      code: 'interactive_tmux_turn_correlation_invalid',
+      message: 'turn.started must correlate to the broker turn id returned by applyInputNow/input.',
+      path: 'brokerEvents',
+      redactedDetails: { inputTurnId },
+    })
+  } else if (surfaceIndex !== -1 && events.indexOf(turnStarted) < surfaceIndex) {
+    failures.push({
+      code: 'interactive_tmux_event_sequence_invalid',
+      message: 'terminal.surface.reported must appear before turn.started.',
+      path: `brokerEvents.${turnStarted.invocationId}.${turnStarted.seq}`,
+    })
+  }
+
+  const matchingTerminalTurns = terminalTurns.filter((event) => event.turnId === inputTurnId)
+  if (matchingTerminalTurns.length !== 1) {
+    failures.push({
+      code: 'broker_terminal_turn_count_invalid',
+      message:
+        'interactive-tmux ledger must contain exactly one terminal turn event for the applied input.',
+      path: 'brokerEvents',
+      redactedDetails: {
+        inputTurnId,
+        count: matchingTerminalTurns.length,
+        terminalTypes: matchingTerminalTurns.map((event) => event.type),
+      },
+    })
+  }
+
+  const hasStopClassInvocationExit = events.some(
+    (event) =>
+      event.type === 'invocation.exited' &&
+      ['Stop', 'SessionEnd', 'SubagentStop'].includes(event.driver?.rawType ?? '')
+  )
+  if (hasStopClassInvocationExit) {
+    failures.push({
+      code: 'interactive_tmux_event_sequence_invalid',
+      message: 'Stop-class Claude hooks must not normalize to invocation.exited.',
+      path: 'brokerEvents',
+    })
+  }
+
+  for (const event of events) {
+    if (event.type !== 'tool.call.completed') continue
+    const payload = asRecord(event.payload)
+    const rawType = event.driver?.rawType
+    if (
+      rawType === 'PostToolUse' &&
+      payload?.['isError'] === true &&
+      asRecord(payload['result']) === undefined
+    ) {
+      failures.push({
+        code: 'interactive_tmux_tool_mapping_invalid',
+        message:
+          'PostToolUse errors/nonzero results must remain tool.call.completed with result/error detail.',
+        path: `brokerEvents.${event.invocationId}.${event.seq}.payload`,
+      })
+    }
+  }
+  if (
+    events.some(
+      (event) => event.type === 'tool.call.failed' && event.driver?.rawType === 'PostToolUse'
+    )
+  ) {
+    failures.push({
+      code: 'interactive_tmux_tool_mapping_invalid',
+      message: 'PostToolUse must not normalize to tool.call.failed.',
+      path: 'brokerEvents',
+    })
+  }
+
+  const permissionEvents = events.filter(
+    (event) => event.type === 'permission.requested' || event.type === 'permission.resolved'
+  )
+  if (permissionEvents.length === 1 || permissionEvents.length > 2) {
+    failures.push({
+      code: 'interactive_tmux_event_sequence_invalid',
+      message: 'Permission events, when actionable, must be requested/resolved pairs.',
+      path: 'brokerEvents',
+      redactedDetails: { permissionEventTypes: permissionEvents.map((event) => event.type) },
+    })
+  }
+
+  const driverCommands = input.driverTmuxArgv.flat()
+  if (driverCommands.includes('start-server') || driverCommands.includes('kill-server')) {
+    failures.push({
+      code: 'interactive_tmux_runtime_socket_missing',
+      message: 'interactive-tmux driver must not start or kill the tmux server.',
+      path: 'interactiveTmux.driverTmuxArgv',
+    })
+  }
+  if (
+    input.tmuxServerEvents[0]?.action !== 'start-server' ||
+    input.tmuxServerEvents.at(-1)?.action !== 'kill-server' ||
+    input.tmuxServerEvents.some(
+      (event) => event.owner !== 'harness' || event.socketPath !== socketPath
+    )
+  ) {
+    failures.push({
+      code: 'interactive_tmux_runtime_socket_missing',
+      message: 'interactive-tmux mode must start and tear down the tmux server as the harness.',
+      path: 'interactiveTmux.tmuxServerEvents',
+      redactedDetails: input.tmuxServerEvents,
+    })
+  }
+  if (!input.driverDisposed || !input.hookListenerClosed || input.queuedInputLeft) {
+    failures.push({
+      code: 'interactive_tmux_clean_exit_invalid',
+      message:
+        'interactive-tmux clean exit requires no queued input, closed hook listener, disposed driver, and harness-owned tmux teardown.',
+      path: 'interactiveTmux',
+      redactedDetails: {
+        driverDisposed: input.driverDisposed,
+        hookListenerClosed: input.hookListenerClosed,
+        queuedInputLeft: input.queuedInputLeft,
+      },
+    })
+  }
+
+  return failures
+}
+
 async function nextBrokerEvent(
   iterator: AsyncIterator<InvocationEventEnvelope>,
   timeoutMs: number
@@ -415,10 +665,294 @@ async function startBrokerInvocation(
   }
 }
 
+async function runInteractiveTmuxInvocation(
+  profile: BrokerExecutionProfile,
+  runtimeOptions: PreHrcBrokerContractHarnessInput['interactiveTmux'],
+  dispatchEnv: Record<string, string> | undefined,
+  allowLegacyPermissionEvent: boolean
+): Promise<{
+  brokerStart: NonNullable<PreHrcBrokerContractHarnessResult['brokerStart']>
+  interactiveTmux: InteractiveTmuxResult
+  failures: ContractHarnessFailure[]
+}> {
+  const socketPath =
+    runtimeOptions?.socketPath ??
+    `/tmp/prehrc-interactive-tmux-${profile.harnessInvocation.startRequest.spec.invocationId ?? 'inv'}.sock`
+  const tmuxBin = runtimeOptions?.tmuxBin ?? '/opt/bin/tmux'
+  const tmuxServerEvents: Array<{
+    owner: 'harness'
+    action: 'start-server' | 'kill-server'
+    socketPath: string
+  }> = []
+  const driverTmuxArgv: string[][] = []
+  let hookHandler:
+    | ((envelope: {
+        invocationId: string
+        generation: number
+        callbackSocket: string
+        runtimeId?: string | undefined
+        turnId?: string | undefined
+        hookData: unknown
+      }) => Promise<void>)
+    | undefined
+  let hookListenerClosed = false
+  let driverDisposed = false
+  let tmuxServerTornDown = false
+
+  const events: InvocationEventEnvelope[] = []
+  const ledger = new PreHrcBrokerEventLedger()
+  const startRequest = profile.harnessInvocation.startRequest as InvocationStartRequest
+  const invocationId = startRequest.spec.invocationId ?? 'inv_prehrc_interactive'
+
+  try {
+    tmuxServerEvents.push({ owner: 'harness', action: 'start-server', socketPath })
+
+    const importSibling = new Function('specifier', 'return import(specifier)') as (
+      specifier: string
+    ) => Promise<Record<string, unknown>>
+    const { createInvocationManager } = await importSibling(
+      '../../../harness-broker/src/invocation-manager'
+    )
+    const { createInvocationEventSequencer } = await importSibling(
+      '../../../harness-broker/src/events'
+    )
+    const driverSpecifier = [
+      '../../../harness-broker/src',
+      'drivers',
+      'claude-code-tmux',
+      'driver',
+    ].join('/')
+    const { createClaudeCodeTmuxDriver } = await importSibling(driverSpecifier)
+
+    const createManager = createInvocationManager as DynamicFactory<
+      [unknown],
+      InProcessInvocationManager
+    >
+    const createSequencer = createInvocationEventSequencer as DynamicFactory<[unknown], unknown>
+    const createTmuxDriver = createClaudeCodeTmuxDriver as DynamicFactory<[unknown], unknown>
+
+    const manager = createManager({
+      sequencer: createSequencer({
+        now: () => new Date('2026-05-26T12:00:00.000Z'),
+      }),
+      onEvent: (event: InvocationEventEnvelope) => {
+        events.push(event)
+        ledger.append(event)
+      },
+    })
+    const driver = createTmuxDriver({
+      tmux: {
+        socketPath,
+        tmuxBin,
+        exec: async (argv: string[]) => {
+          driverTmuxArgv.push([...argv])
+          if (argv.includes('start-server') || argv.includes('kill-server')) {
+            throw new Error('driver attempted to own tmux server')
+          }
+          if (argv.includes('list-panes')) {
+            throw new Error("can't find session: hostSession")
+          }
+          if (argv.includes('new-session')) {
+            return { stdout: '$1\t@1\t%7\thrc-host-sessio\n', stderr: '' }
+          }
+          return { stdout: '', stderr: '' }
+        },
+      },
+      hooks: {
+        listen: async (handler: typeof hookHandler) => {
+          hookHandler = handler
+          return {
+            socketPath: `${socketPath}.hooks`,
+            close: async () => {
+              hookListenerClosed = true
+            },
+          }
+        },
+      },
+      now: () => new Date('2026-05-26T12:00:00.000Z'),
+    })
+
+    const response = await manager.start(startRequest.spec, driver, undefined, dispatchEnv, {
+      tmux: { socketPath },
+    })
+    if (hookHandler === undefined) {
+      throw new Error('interactive-tmux driver did not install a hook listener')
+    }
+
+    const inputResponse = await manager.input({
+      invocationId: response.invocationId,
+      input: {
+        inputId: startRequest.initialInput?.inputId,
+        kind: 'user',
+        content: [
+          {
+            type: 'text',
+            text: runtimeOptions?.userInputText ?? 'drive deterministic interactive tmux turn',
+          },
+        ],
+      },
+      policy: { whenBusy: 'reject' },
+    })
+    if (inputResponse.turnId === undefined) {
+      throw new Error('interactive-tmux input did not return a turn id')
+    }
+
+    await hookHandler({
+      invocationId: response.invocationId,
+      generation: 1,
+      callbackSocket: `${socketPath}.hooks`,
+      hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'deterministic input' },
+    })
+    await hookHandler({
+      invocationId: response.invocationId,
+      generation: 1,
+      callbackSocket: `${socketPath}.hooks`,
+      hookData: {
+        hook_event_name: 'PreToolUse',
+        tool_use_id: 'toolu_prehrc_1',
+        tool_name: 'Bash',
+        tool_input: { command: 'false' },
+      },
+    })
+    await hookHandler({
+      invocationId: response.invocationId,
+      generation: 1,
+      callbackSocket: `${socketPath}.hooks`,
+      hookData: {
+        hook_event_name: 'PostToolUse',
+        tool_use_id: 'toolu_prehrc_1',
+        tool_name: 'Bash',
+        tool_input: { command: 'false' },
+        is_error: true,
+        tool_response: { exit_code: 1, stderr: 'failed deterministically' },
+      },
+    })
+    if (runtimeOptions?.includePermissionEvents === true) {
+      await hookHandler({
+        invocationId: response.invocationId,
+        generation: 1,
+        callbackSocket: `${socketPath}.hooks`,
+        hookData: {
+          hook_event_name: 'PermissionRequest',
+          permission_request_id: 'perm_prehrc_1',
+          kind: 'command',
+          subject_display: 'Bash false',
+          default_decision: 'deny',
+        },
+      })
+      await hookHandler({
+        invocationId: response.invocationId,
+        generation: 1,
+        callbackSocket: `${socketPath}.hooks`,
+        hookData: {
+          hook_event_name: 'PermissionResolved',
+          permission_request_id: 'perm_prehrc_1',
+          decision: 'deny',
+          decided_by: 'policy',
+        },
+      })
+    }
+    await hookHandler({
+      invocationId: response.invocationId,
+      generation: 1,
+      callbackSocket: `${socketPath}.hooks`,
+      hookData: { hook_event_name: 'Stop' },
+    })
+    await hookHandler({
+      invocationId: response.invocationId,
+      generation: 1,
+      callbackSocket: `${socketPath}.hooks`,
+      hookData: { hook_event_name: 'SessionEnd' },
+    })
+    await hookHandler({
+      invocationId: response.invocationId,
+      generation: 1,
+      callbackSocket: `${socketPath}.hooks`,
+      hookData: { hook_event_name: 'SubagentStop' },
+    })
+
+    await manager.stop({ invocationId: response.invocationId, reason: 'prehrc clean exit' })
+    await manager.dispose({ invocationId: response.invocationId })
+    driverDisposed = true
+    tmuxServerEvents.push({ owner: 'harness', action: 'kill-server', socketPath })
+    tmuxServerTornDown = true
+
+    const surfaceEvent = events.find((event) => event.type === 'terminal.surface.reported')
+    const surfacePayload = asRecord(surfaceEvent?.payload)
+    const surface =
+      surfacePayload !== undefined &&
+      typeof surfacePayload['socketPath'] === 'string' &&
+      typeof surfacePayload['sessionName'] === 'string' &&
+      typeof surfacePayload['paneId'] === 'string'
+        ? {
+            socketPath: surfacePayload['socketPath'],
+            sessionName: surfacePayload['sessionName'],
+            paneId: surfacePayload['paneId'],
+          }
+        : undefined
+
+    const interactiveTmux: InteractiveTmuxResult = {
+      attempted: true,
+      socketPath,
+      tmuxServerEvents,
+      driverTmuxArgv,
+      hookListenerClosed,
+      driverDisposed,
+      queuedInputLeft: manager.status(response.invocationId).state !== 'disposed',
+      inputTurnId: inputResponse.turnId,
+      surface,
+    }
+
+    const ledgerFailures = [
+      ...ledger.requireMonotonicSeq(),
+      ...ledger.requireNoDuplicates(),
+      ...ledger.requireOnlyNormalizedEventTypes({ allowLegacyPermissionEvent }),
+      ...assertInteractiveTmuxEvents({
+        events,
+        socketPath,
+        inputTurnId: inputResponse.turnId,
+        driverDisposed,
+        hookListenerClosed,
+        queuedInputLeft: false,
+        tmuxServerEvents,
+        driverTmuxArgv,
+      }),
+    ]
+
+    return {
+      brokerStart: {
+        attempted: true,
+        response,
+        events,
+        eventTypes: events.map((event) => event.type),
+        permissionAudit: [],
+      },
+      interactiveTmux,
+      failures: ledgerFailures,
+    }
+  } catch (error) {
+    return {
+      brokerStart: { attempted: false, reason: 'broker-start-failed' },
+      interactiveTmux: { attempted: false, reason: 'interactive-tmux-failed' },
+      failures: [
+        {
+          code: 'broker_start_failed',
+          message: error instanceof Error ? error.message : String(error),
+          redactedDetails: { invocationId },
+        },
+      ],
+    }
+  } finally {
+    if (!tmuxServerTornDown) {
+      tmuxServerEvents.push({ owner: 'harness', action: 'kill-server', socketPath })
+    }
+  }
+}
+
 export async function runPreHrcBrokerContractHarness(
   input: PreHrcBrokerContractHarnessInput
 ): Promise<PreHrcBrokerContractHarnessResult> {
-  const mode = input.dryRunCompile === false ? 'broker-start' : 'dry-run-compile'
+  const mode = harnessMode(input)
   const compileResponse = await compileRuntimePlan(input.compileRequest, {
     clientAspHome: input.aspHome,
   })
@@ -437,7 +971,10 @@ export async function runPreHrcBrokerContractHarness(
     })
   } else {
     try {
-      selectedProfile = selectBrokerProfile(compileResponse.plan, input.profileSelector)
+      selectedProfile =
+        mode === 'interactive-tmux'
+          ? selectInteractiveTmuxProfile(compileResponse.plan, input.profileSelector)
+          : selectBrokerProfile(compileResponse.plan, input.profileSelector)
     } catch (error) {
       if (error instanceof ContractHarnessFailureError) {
         selectionFailures.push(error.failure)
@@ -473,6 +1010,7 @@ export async function runPreHrcBrokerContractHarness(
 
   const contractVerificationFailed = verification !== undefined && !verification.ok
   let brokerStart: PreHrcBrokerContractHarnessResult['brokerStart']
+  let interactiveTmux: PreHrcBrokerContractHarnessResult['interactiveTmux']
   let brokerEvents: InvocationEventEnvelope[] = []
   if (mode === 'broker-start' && !contractVerificationFailed && selectedProfile !== undefined) {
     const placementDispatchEnv =
@@ -515,6 +1053,28 @@ export async function runPreHrcBrokerContractHarness(
         )
       }
     }
+  }
+  if (mode === 'interactive-tmux' && !contractVerificationFailed && selectedProfile !== undefined) {
+    const placementDispatchEnv =
+      (input.compileRequest.placement as { dispatchEnv?: Record<string, string> | undefined })
+        .dispatchEnv ?? {}
+    const dispatchEnv = {
+      ...buildCorrelationEnvVars(
+        input.compileRequest.placement as unknown as Parameters<typeof buildCorrelationEnvVars>[0]
+      ),
+      ...placementDispatchEnv,
+    }
+    const interactiveResult = await runInteractiveTmuxInvocation(
+      selectedProfile,
+      input.interactiveTmux,
+      dispatchEnv,
+      input.allowLegacyPermissionEvent === true
+    )
+    brokerStart = interactiveResult.brokerStart
+    interactiveTmux = interactiveResult.interactiveTmux
+    brokerEvents =
+      interactiveResult.brokerStart.attempted === true ? interactiveResult.brokerStart.events : []
+    failures.push(...interactiveResult.failures)
   }
 
   const assertionReport: PreHrcBrokerContractAssertionReport = {
@@ -563,5 +1123,10 @@ export async function runPreHrcBrokerContractHarness(
       (mode === 'dry-run-compile'
         ? { attempted: false, reason: 'dry-run-compile' }
         : { attempted: false, reason: 'contract-verification-failed' }),
+    interactiveTmux:
+      interactiveTmux ??
+      (mode === 'interactive-tmux'
+        ? { attempted: false, reason: 'contract-verification-failed' }
+        : { attempted: false, reason: 'not-interactive-tmux' }),
   }
 }

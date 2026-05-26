@@ -28,6 +28,7 @@ const NORMALIZED_EVENT_TYPES = new Set<InvocationEventType>([
   'usage.updated',
   'diagnostic',
   'driver.notice',
+  'terminal.surface.reported',
   'permission.requested',
   'permission.resolved',
 ])

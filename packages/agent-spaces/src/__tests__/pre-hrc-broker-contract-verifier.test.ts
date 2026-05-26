@@ -218,6 +218,37 @@ function baseCompileRequest(): RuntimeCompileRequest {
   }
 }
 
+function interactiveTmuxCompileRequest(): RuntimeCompileRequest {
+  const base = baseCompileRequest()
+  return {
+    ...base,
+    requested: {
+      modelProvider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      harnessFamily: 'claude-code',
+      preferredHarnessRuntime: 'claude-code-cli',
+      interactionMode: 'interactive',
+    },
+    materialization: {
+      ...base.materialization,
+      initialPrompt: 'hello deterministic interactive tmux harness',
+      attachments: [],
+      taskContext: {
+        taskId: 'T-01662',
+        phase: 'red',
+        role: 'smokey',
+        requiredEvidenceKinds: ['red-test', 'green-test'],
+        hintsText: 'pre-HRC interactive-tmux mode must own tmux and validate hook ledgers',
+      },
+    },
+    hrcPolicy: {
+      ...base.hrcPolicy,
+      exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' },
+    },
+    continuation: undefined,
+  }
+}
+
 async function compilePlan(): Promise<CompiledRuntimePlan> {
   const client = createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
   const response = await client.compileRuntimePlan(baseCompileRequest())
@@ -780,5 +811,105 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       rmSync(artifactDir, { recursive: true, force: true })
       rmSync(permDir, { recursive: true, force: true })
     }
+  })
+
+  test('interactive-tmux is a distinct mode and does not bend broker-start headless selection', async () => {
+    const result = await runPreHrcBrokerContractHarness({
+      compileRequest: interactiveTmuxCompileRequest(),
+      aspHome: fixture.aspHome,
+      mode: 'interactive-tmux',
+      interactiveTmux: {
+        socketPath: '/tmp/prehrc-interactive-tmux-mode.sock',
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.mode).toBe('interactive-tmux')
+    expect(result.selectedProfile?.interactionMode).toBe('interactive')
+    expect(result.selectedProfile?.brokerDriver).toBe('claude-code-tmux')
+    expect(result.brokerStart?.attempted).toBe(true)
+    expect(result.interactiveTmux?.attempted).toBe(true)
+  })
+
+  test('interactive-tmux owns tmux server lifecycle and supplies the runtime socket overlay', async () => {
+    const socketPath = '/tmp/prehrc-interactive-tmux-owned.sock'
+    const result = await runPreHrcBrokerContractHarness({
+      compileRequest: interactiveTmuxCompileRequest(),
+      aspHome: fixture.aspHome,
+      mode: 'interactive-tmux',
+      interactiveTmux: { socketPath },
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.interactiveTmux?.attempted !== true) {
+      throw new Error('expected interactive-tmux to be attempted')
+    }
+    expect(result.interactiveTmux.socketPath).toBe(socketPath)
+    expect(result.interactiveTmux.tmuxServerEvents).toEqual([
+      { owner: 'harness', action: 'start-server', socketPath },
+      { owner: 'harness', action: 'kill-server', socketPath },
+    ])
+    expect(result.interactiveTmux.surface).toEqual({
+      socketPath,
+      sessionName: 'hrc-host-sessio',
+      paneId: '%7',
+    })
+
+    const driverCommands = result.interactiveTmux.driverTmuxArgv.flat()
+    expect(driverCommands).not.toContain('start-server')
+    expect(driverCommands).not.toContain('kill-server')
+    expect(result.interactiveTmux.driverTmuxArgv).toContainEqual(
+      expect.arrayContaining(['-S', socketPath, 'new-session'])
+    )
+  })
+
+  test('interactive-tmux validates deterministic hook ledger ordering and clean exit', async () => {
+    const result = await runPreHrcBrokerContractHarness({
+      compileRequest: interactiveTmuxCompileRequest(),
+      aspHome: fixture.aspHome,
+      mode: 'interactive-tmux',
+      interactiveTmux: {
+        socketPath: '/tmp/prehrc-interactive-tmux-ledger.sock',
+        includePermissionEvents: true,
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.assertionReport.failures).toHaveLength(0)
+    if (result.brokerStart?.attempted !== true || result.interactiveTmux?.attempted !== true) {
+      throw new Error('expected interactive-tmux broker start')
+    }
+
+    const events = result.brokerStart.events
+    const eventTypes = result.brokerStart.eventTypes
+    const surfaceIndex = eventTypes.indexOf('terminal.surface.reported' as never)
+    const inputTurnId = result.interactiveTmux.inputTurnId
+    const turnStartedIndex = events.findIndex(
+      (event) => event.type === 'turn.started' && event.turnId === inputTurnId
+    )
+    const terminalTurns = events.filter(
+      (event) =>
+        event.turnId === inputTurnId &&
+        ['turn.completed', 'turn.failed', 'turn.interrupted'].includes(event.type)
+    )
+
+    expect(surfaceIndex).toBeGreaterThanOrEqual(0)
+    expect(turnStartedIndex).toBeGreaterThan(surfaceIndex)
+    expect(events[turnStartedIndex]?.payload).toEqual({ turnId: inputTurnId })
+    expect(terminalTurns).toHaveLength(1)
+    expect(terminalTurns[0]?.type).toBe('turn.completed')
+    expect(eventTypes).not.toContain('invocation.permission.request' as never)
+    expect(eventTypes).not.toContain('UserPromptSubmit' as never)
+    expect(eventTypes).not.toContain('Stop' as never)
+
+    const toolCompleted = events.find((event) => event.type === 'tool.call.completed')
+    expect(toolCompleted?.driver?.rawType).toBe('PostToolUse')
+    expect((toolCompleted?.payload as { isError?: boolean } | undefined)?.isError).toBe(true)
+    expect(eventTypes).not.toContain('tool.call.failed')
+    expect(eventTypes).toContain('permission.requested')
+    expect(eventTypes).toContain('permission.resolved')
+    expect(result.interactiveTmux.hookListenerClosed).toBe(true)
+    expect(result.interactiveTmux.driverDisposed).toBe(true)
+    expect(result.interactiveTmux.queuedInputLeft).toBe(false)
   })
 })
