@@ -145,6 +145,7 @@ export type PreHrcBrokerContractHarnessInput = {
         socketPath?: string | undefined
         tmuxBin?: string | undefined
         userInputText?: string | undefined
+        secondUserInputText?: string | undefined
         includePermissionEvents?: boolean | undefined
         simulateQueuedInputLeftForTest?: boolean | undefined
       }
@@ -223,6 +224,7 @@ export type PreHrcBrokerContractHarnessResult = {
         driverDisposed: boolean
         queuedInputLeft: boolean
         inputTurnId: string
+        inputTurnIds?: string[] | undefined
         surface?: { socketPath: string; sessionName: string; paneId: string } | undefined
       }
     | {

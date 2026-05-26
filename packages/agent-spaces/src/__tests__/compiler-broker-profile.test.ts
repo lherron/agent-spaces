@@ -272,6 +272,13 @@ function compiledSpec(profile: BrokerExecutionProfile): HarnessInvocationSpec {
   return profile.harnessInvocation.startRequest.spec
 }
 
+function textFromInitialInput(profile: BrokerExecutionProfile): string | undefined {
+  const textPart = profile.harnessInvocation.startRequest.initialInput?.content.find(
+    (part) => part.type === 'text'
+  )
+  return textPart?.type === 'text' ? textPart.text : undefined
+}
+
 /**
  * Mirrors the brokerReq the compiler derives internally so the legacy
  * delegate's start request can be deep-compared against the compiled one.
@@ -437,6 +444,17 @@ describe('compiled broker profile field mapping', () => {
     )
     expect(spec.process.harnessTransport).toEqual({ kind: 'pty' })
     expect(validateBrokerExecutionProfile(profile)).toEqual([])
+  })
+
+  test('keeps the interactive claude-code-tmux prompt out of process argv', async () => {
+    const req = claudeTmuxCompileRequest()
+    const profile = brokerProfile(await createClient().compileRuntimePlan(req))
+    const spec = compiledSpec(profile)
+
+    const separatorIndex = spec.process.args.indexOf('--')
+    expect(separatorIndex).toBe(-1)
+    expect(spec.process.args).not.toContain('hello interactive claude tmux broker')
+    expect(textFromInitialInput(profile)).toBe('hello interactive claude tmux broker')
   })
 
   test('translates the OpenAI continuation into a broker Codex thread continuation', async () => {

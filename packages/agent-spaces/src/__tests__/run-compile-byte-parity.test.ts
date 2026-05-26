@@ -10,7 +10,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -253,6 +253,20 @@ function normalizeEnv(env: Record<string, string>): Record<string, string> {
   return out
 }
 
+function settingPathBeforeSeparator(args: string[]): string {
+  const separatorIndex = args.indexOf('--')
+  const effectiveArgs = separatorIndex === -1 ? args : args.slice(0, separatorIndex)
+  const settingsIndex = effectiveArgs.indexOf('--settings')
+  expect(settingsIndex).toBeGreaterThanOrEqual(0)
+  const value = effectiveArgs[settingsIndex + 1]
+  if (value === undefined) throw new Error('missing --settings value')
+  return value
+}
+
+function readSettings(path: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+}
+
 /** Capture the exact startup render displayPrompts emits for a run result. */
 async function renderStartup(result: RunResult): Promise<string> {
   const chunks: string[] = []
@@ -421,24 +435,13 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     })
   }
 
-  test('claude: tmux broker process launch shape byte-matches foreground claude launch', async () => {
+  test('claude: tmux broker preserves durable settings while hooks load pre-separator without a positional prompt', async () => {
     const testCase = CASES.find((candidate) => candidate.harness === 'claude')
     if (testCase === undefined) throw new Error('missing claude parity case')
-
-    const legacy = await run(AGENT_NAME, {
-      projectPath: fixture.projectRoot,
-      aspHome: fixture.aspHome,
-      harness: 'claude',
-      ...(testCase.model !== undefined ? { model: testCase.model } : {}),
-      interactive: true,
-      dryRun: true,
-    })
-    expect(legacy.launch).toBeDefined()
-    const legacyLaunch = legacy.launch!
-
-    const foregroundResponse = await createClient().compileRuntimePlan(
-      compileRequest(testCase, 'foreground-terminal')
-    )
+    const prompt = 'hello-tmux-invariant'
+    const foregroundReq = compileRequest(testCase, 'foreground-terminal')
+    foregroundReq.materialization = { initialPrompt: prompt }
+    const foregroundResponse = await createClient().compileRuntimePlan(foregroundReq)
     const foreground = foregroundLaunchFromResponse(foregroundResponse)
     if (!foreground) {
       throw new Error(
@@ -450,29 +453,75 @@ describe('asp run <-> compiler foreground byte-parity', () => {
       )
     }
 
-    const broker = brokerProfile(await createClient().compileRuntimePlan(compileRequest(testCase)))
+    const brokerReq = compileRequest(testCase)
+    brokerReq.materialization = { initialPrompt: prompt }
+    const broker = brokerProfile(await createClient().compileRuntimePlan(brokerReq))
     const brokerProcess = broker.harnessInvocation.startRequest.spec.process
+    const brokerSettingsPath = settingPathBeforeSeparator(brokerProcess.args)
+    const foregroundSettings = readSettings(settingPathBeforeSeparator(foreground.args))
+    const durableBrokerSettings = readSettings(brokerSettingsPath)
 
     expect(broker.interactionMode).toBe('interactive')
     expect(broker.brokerDriver).toBe('claude-code-tmux')
     expect(brokerProcess.harnessTransport).toEqual({ kind: 'pty' })
-    expect(normalizeArgv([brokerProcess.command, ...brokerProcess.args])).toEqual(
-      normalizeArgv([foreground.command, ...foreground.args])
-    )
-    expect(normalizeArgv([brokerProcess.command, ...brokerProcess.args])).toEqual(
-      normalizeArgv([legacyLaunch.command, ...legacyLaunch.args])
-    )
+    expect(durableBrokerSettings['statusLine']).toEqual(foregroundSettings['statusLine'])
     expect(brokerProcess.cwd).toBe(foreground.cwd)
-    expect(brokerProcess.cwd).toBe(legacyLaunch.cwd)
     expect(normalizeEnv(brokerProcess.lockedEnv ?? {})).toEqual(normalizeEnv(foreground.env))
-    const brokerEnv = normalizeEnv(brokerProcess.lockedEnv ?? {})
-    const legacyEnv = normalizeEnv(legacyLaunch.env)
-    const extraKeys = Object.keys(brokerEnv).filter((key) => !(key in legacyEnv))
-    expect(extraKeys.sort()).toEqual(['ASP_HOME'])
-    expect(brokerEnv['ASP_HOME']).toBe(fixture.aspHome)
-    for (const [key, value] of Object.entries(legacyEnv)) {
-      expect(brokerEnv[key]).toBe(value)
-    }
     expect(brokerProcess.pathPrepend ?? []).toEqual([])
+
+    const { createClaudeCodeTmuxDriver } = await import(
+      '../../../harness-broker/src/drivers/claude-code-tmux/driver'
+    )
+    const tmuxArgv: string[][] = []
+    const driver = createClaudeCodeTmuxDriver({
+      tmux: {
+        socketPath: '/tmp/preallocated/run-compile-byte-parity.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: async (argv) => {
+          tmuxArgv.push([...argv])
+          if (argv.includes('list-panes')) throw new Error("can't find session: hostSession")
+          if (argv.includes('new-session')) {
+            return { stdout: '$1\t@1\t%7\thrc-host-sessio\n', stderr: '' }
+          }
+          return { stdout: '', stderr: '' }
+        },
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/preallocated/run-compile-byte-parity.hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now: () => new Date('2026-05-26T18:00:00.000Z'),
+    })
+
+    await driver.start(broker.harnessInvocation.startRequest.spec, {
+      invocationId: 'inv_parity',
+      clientCapabilities: {},
+      runtime: { tmux: { socketPath: '/tmp/preallocated/run-compile-byte-parity.sock' } },
+      emit: () => undefined,
+    } as never)
+
+    const launchCommand = tmuxArgv
+      .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
+      .map((argv) => argv.at(-1) ?? '')
+      .find((text) => text.includes(fixture.claudePath))
+    if (launchCommand === undefined) throw new Error('tmux launch command was not sent')
+
+    const promptSeparator = ` -- ${prompt}`
+    const preSeparatorLaunch = launchCommand.includes(promptSeparator)
+      ? launchCommand.slice(0, launchCommand.indexOf(promptSeparator))
+      : launchCommand
+    const launchSettingsPaths = [...preSeparatorLaunch.matchAll(/--settings ([^ ]+)/g)].map(
+      (match) => match[1]
+    )
+    expect(launchSettingsPaths).toHaveLength(1)
+    const effectiveSettings = readSettings(launchSettingsPaths[0] ?? '')
+    expect(effectiveSettings['statusLine']).toEqual(foregroundSettings['statusLine'])
+    expect(effectiveSettings['hooks']).toBeDefined()
+    expect(JSON.stringify(effectiveSettings['hooks'])).toContain(
+      'harness-broker claude-hook --socket /tmp/preallocated/run-compile-byte-parity.hooks.sock'
+    )
+    expect(launchCommand).not.toContain(promptSeparator)
   })
 })

@@ -913,6 +913,48 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
     expect(result.interactiveTmux.queuedInputLeft).toBe(false)
   })
 
+  test('interactive-tmux drives turns 1 and 2 through broker input without a launch-prompt turn', async () => {
+    const firstInput = 'drive deterministic interactive tmux turn 1'
+    const secondInput = 'drive deterministic interactive tmux turn 2'
+    const result = await runPreHrcBrokerContractHarness({
+      compileRequest: interactiveTmuxCompileRequest(),
+      aspHome: fixture.aspHome,
+      mode: 'interactive-tmux',
+      interactiveTmux: {
+        socketPath: '/tmp/prehrc-interactive-tmux-two-turns.sock',
+        userInputText: firstInput,
+        secondUserInputText: secondInput,
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.brokerStart?.attempted !== true || result.interactiveTmux?.attempted !== true) {
+      throw new Error('expected interactive-tmux broker start')
+    }
+
+    const turnIds = result.interactiveTmux.inputTurnIds ?? [result.interactiveTmux.inputTurnId]
+    expect(turnIds).toHaveLength(2)
+    for (const turnId of turnIds) {
+      expect(result.brokerStart.events).toContainEqual(
+        expect.objectContaining({ type: 'turn.started', turnId })
+      )
+      expect(result.brokerStart.events).toContainEqual(
+        expect.objectContaining({ type: 'turn.completed', turnId })
+      )
+    }
+    expect(result.brokerStart.events.filter((event) => event.type === 'turn.started')).toHaveLength(
+      2
+    )
+
+    const literalTmuxInputs = result.interactiveTmux.driverTmuxArgv
+      .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
+      .map((argv) => argv.at(-1) ?? '')
+    expect(literalTmuxInputs).toEqual(expect.arrayContaining([firstInput, secondInput]))
+    const launchCommand = literalTmuxInputs.find((text) => text.includes('claude'))
+    expect(launchCommand).toBeDefined()
+    expect(launchCommand).not.toContain('hello deterministic interactive tmux harness')
+  })
+
   test('interactive-tmux fails clean-exit assertions when queued input is left dirty', async () => {
     const result = await runPreHrcBrokerContractHarness({
       compileRequest: interactiveTmuxCompileRequest(),

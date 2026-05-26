@@ -783,32 +783,38 @@ async function runInteractiveTmuxInvocation(
     if (hookHandler === undefined) {
       throw new Error('interactive-tmux driver did not install a hook listener')
     }
+    const deliverHook = hookHandler
 
-    const inputResponse = await manager.input({
-      invocationId: response.invocationId,
-      input: {
-        inputId: startRequest.initialInput?.inputId,
-        kind: 'user',
-        content: [
-          {
-            type: 'text',
-            text: runtimeOptions?.userInputText ?? 'drive deterministic interactive tmux turn',
-          },
-        ],
-      },
-      policy: { whenBusy: 'reject' },
-    })
-    if (inputResponse.turnId === undefined) {
-      throw new Error('interactive-tmux input did not return a turn id')
+    const inputTurnIds: string[] = []
+    const applyInteractiveInput = async (inputId: string | undefined, text: string) => {
+      const inputResponse = await manager.input({
+        invocationId: response.invocationId,
+        input: {
+          inputId,
+          kind: 'user',
+          content: [{ type: 'text', text }],
+        },
+        policy: { whenBusy: 'reject' },
+      })
+      if (inputResponse.turnId === undefined) {
+        throw new Error('interactive-tmux input did not return a turn id')
+      }
+      const turnId = inputResponse.turnId
+      inputTurnIds.push(turnId)
+      await deliverHook({
+        invocationId: response.invocationId,
+        generation: 1,
+        callbackSocket: `${socketPath}.hooks`,
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: text },
+      })
+      return { ...inputResponse, turnId }
     }
 
-    await hookHandler({
-      invocationId: response.invocationId,
-      generation: 1,
-      callbackSocket: `${socketPath}.hooks`,
-      hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'deterministic input' },
-    })
-    await hookHandler({
+    const inputResponse = await applyInteractiveInput(
+      startRequest.initialInput?.inputId,
+      runtimeOptions?.userInputText ?? 'drive deterministic interactive tmux turn'
+    )
+    await deliverHook({
       invocationId: response.invocationId,
       generation: 1,
       callbackSocket: `${socketPath}.hooks`,
@@ -819,7 +825,7 @@ async function runInteractiveTmuxInvocation(
         tool_input: { command: 'false' },
       },
     })
-    await hookHandler({
+    await deliverHook({
       invocationId: response.invocationId,
       generation: 1,
       callbackSocket: `${socketPath}.hooks`,
@@ -833,7 +839,7 @@ async function runInteractiveTmuxInvocation(
       },
     })
     if (runtimeOptions?.includePermissionEvents === true) {
-      await hookHandler({
+      await deliverHook({
         invocationId: response.invocationId,
         generation: 1,
         callbackSocket: `${socketPath}.hooks`,
@@ -845,7 +851,7 @@ async function runInteractiveTmuxInvocation(
           default_decision: 'deny',
         },
       })
-      await hookHandler({
+      await deliverHook({
         invocationId: response.invocationId,
         generation: 1,
         callbackSocket: `${socketPath}.hooks`,
@@ -857,19 +863,31 @@ async function runInteractiveTmuxInvocation(
         },
       })
     }
-    await hookHandler({
+    await deliverHook({
       invocationId: response.invocationId,
       generation: 1,
       callbackSocket: `${socketPath}.hooks`,
       hookData: { hook_event_name: 'Stop' },
     })
-    await hookHandler({
+    if (runtimeOptions?.secondUserInputText !== undefined) {
+      await applyInteractiveInput(
+        'input_prehrc_interactive_tmux_2',
+        runtimeOptions.secondUserInputText
+      )
+      await deliverHook({
+        invocationId: response.invocationId,
+        generation: 1,
+        callbackSocket: `${socketPath}.hooks`,
+        hookData: { hook_event_name: 'Stop' },
+      })
+    }
+    await deliverHook({
       invocationId: response.invocationId,
       generation: 1,
       callbackSocket: `${socketPath}.hooks`,
       hookData: { hook_event_name: 'SessionEnd' },
     })
-    await hookHandler({
+    await deliverHook({
       invocationId: response.invocationId,
       generation: 1,
       callbackSocket: `${socketPath}.hooks`,
@@ -908,6 +926,7 @@ async function runInteractiveTmuxInvocation(
       driverDisposed,
       queuedInputLeft,
       inputTurnId: inputResponse.turnId,
+      inputTurnIds,
       surface,
     }
 

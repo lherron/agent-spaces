@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
@@ -143,6 +146,12 @@ function sentLiteralTexts(calls: TmuxExecCall[]): string[] {
 
 function tmuxArgv(calls: TmuxExecCall[]): string[][] {
   return calls.map((call) => call.argv)
+}
+
+function launchCommand(calls: TmuxExecCall[]): string {
+  const command = sentLiteralTexts(calls).find((text) => text.includes('/opt/bin/claude'))
+  if (command === undefined) throw new Error('tmux launch command was not sent')
+  return command
 }
 
 describe('claude-code-tmux driver RED lifecycle', () => {
@@ -338,6 +347,79 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expect(launchCommand).toContain('hook')
     for (const hookName of ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']) {
       expect(launchCommand).toContain(hookName)
+    }
+  })
+
+  test('merges broker hooks into the effective pre-separator Claude settings file', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'claude-tmux-driver-settings-'))
+    try {
+      const durableSettingsPath = join(tmp, 'settings.json')
+      const durableStatusLine = {
+        type: 'command',
+        command: 'bash /tmp/statusline.sh',
+      }
+      writeFileSync(
+        durableSettingsPath,
+        JSON.stringify({ statusLine: durableStatusLine }, null, 2),
+        'utf8'
+      )
+
+      const createDriver = await loadFactory()
+      const tmuxCalls: TmuxExecCall[] = []
+      const driver = createDriver({
+        tmux: {
+          socketPath: '/tmp/harness-broker/claude-tmux.sock',
+          tmuxBin: '/opt/bin/tmux',
+          exec: createRecordingExec(tmuxCalls),
+        },
+        hooks: {
+          listen: async () => ({
+            socketPath: '/tmp/harness-broker/claude-hooks.sock',
+            close: async () => undefined,
+          }),
+        },
+        now,
+      })
+      const spec = claudeTmuxSpec()
+      spec.process.args = [
+        '--model',
+        'sonnet',
+        '--settings',
+        durableSettingsPath,
+        '--',
+        'launch-prompt',
+      ]
+
+      await driver.start(
+        spec,
+        createCtx([], { tmux: { socketPath: '/tmp/harness-broker/claude-tmux.sock' } })
+      )
+
+      const command = launchCommand(tmuxCalls)
+      const separator = command.indexOf(' -- launch-prompt')
+      expect(separator).toBeGreaterThan(0)
+
+      const beforeSeparator = command.slice(0, separator)
+      const afterSeparator = command.slice(separator + ' -- launch-prompt'.length)
+      const preSettings = [...beforeSeparator.matchAll(/--settings ([^ ]+)/g)].map(
+        (match) => match[1]
+      )
+      expect(preSettings).toHaveLength(1)
+      expect(afterSeparator).not.toContain('--settings')
+
+      const effectiveSettings = JSON.parse(readFileSync(preSettings[0] ?? '', 'utf8')) as {
+        statusLine?: unknown
+        hooks?: Record<string, unknown>
+      }
+      expect(effectiveSettings.statusLine).toEqual(durableStatusLine)
+      expect(effectiveSettings.hooks).toBeDefined()
+      for (const hookName of ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']) {
+        expect(JSON.stringify(effectiveSettings.hooks?.[hookName])).toContain(
+          'harness-broker claude-hook --socket /tmp/harness-broker/claude-hooks.sock'
+        )
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
     }
   })
 
