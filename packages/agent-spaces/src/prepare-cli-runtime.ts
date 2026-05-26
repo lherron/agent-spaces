@@ -192,9 +192,19 @@ export async function preparePlacementCliRuntime(
     ...(handleParts.lane !== undefined ? { lane: handleParts.lane } : {}),
   })
 
+  // Bundle label = the LOGICAL target name (legacy `asp run` labels the bundle
+  // with the agent/target name). For agent-project placements the materialization
+  // cache dir is a synthesized name (e.g. `placement-empty` for empty compose),
+  // but that is a path-only artifact (the documented bundle-root follow-up) and
+  // must NOT leak into launch-shape VALUES like the claude remote-control session
+  // name (`<targetName>-<project>`). loadTargetBundle derives all paths from
+  // outputPath; targetName is purely the logical label, so threading the agent
+  // name here restores launch-shape parity without touching any materialized path.
+  const bundleLabel =
+    placement.bundle.kind === 'agent-project' ? placement.bundle.agentName : materialized.targetName
   const bundle = await adapter.loadTargetBundle(
     materialized.materialization.outputPath,
-    materialized.targetName
+    bundleLabel
   )
 
   const imageAttachmentPaths = extractImageAttachmentPaths(req.attachments)
@@ -207,7 +217,12 @@ export async function preparePlacementCliRuntime(
   // Build run options for the adapter
   let runOptions: HarnessRunOptions = {
     ...runtimePlan.runOptions,
-    model: runtimePlan.model.info.model,
+    // Only push --model onto argv when the model came from an explicit source
+    // (requested CLI/model, a default run-option model, or a supported
+    // effective-config model). Falling back to the adapter default for plan
+    // metadata must NOT inject --model — legacy `asp run` omits it (e.g. codex,
+    // governed by CODEX_HOME/config.toml).
+    ...(runtimePlan.model.info.explicit ? { model: runtimePlan.model.info.model } : {}),
     ...(expandedPrompt !== undefined ? { prompt: expandedPrompt } : {}),
     ...(runtimePlan.yolo !== undefined ? { yolo: runtimePlan.yolo } : {}),
     ...(imageAttachmentPaths.length > 0 ? { imageAttachments: imageAttachmentPaths } : {}),
@@ -306,9 +321,14 @@ export async function preparePlacementCliRuntime(
     ? { provider: runtimePlan.provider, key: req.continuation.key }
     : undefined
 
+  // The headless codex app-server conveys the model via its descriptor (config),
+  // NOT via CLI argv. Plan metadata records the RESOLVED model (including the
+  // adapter default) even when it is not pushed onto a foreground argv — so the
+  // descriptor must always receive the resolved model, independent of the
+  // source-aware `runOptions.model` (which only carries an explicit model).
   const codexAppServer =
     req.frontend === 'codex-cli' && req.interactionMode === 'headless'
-      ? buildCodexAppServerLaunchDescriptor(runOptions)
+      ? buildCodexAppServerLaunchDescriptor({ ...runOptions, model: runtimePlan.model.info.model })
       : undefined
 
   return {

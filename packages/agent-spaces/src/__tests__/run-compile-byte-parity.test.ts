@@ -331,10 +331,20 @@ describe('asp run <-> compiler foreground byte-parity', () => {
       const legacyArgv = [legacyLaunch.command, ...legacyLaunch.args]
 
       if (testCase.harness === 'claude') {
+        // Regression guard (T-01652): the compiler MUST re-emit the remote-control
+        // launch flags the legacy adapter produces from target.remote_control.
         expect(compiledArgv).toContain('--remote-control')
         expect(compiledArgv).toContain('--remote-control-session-name-prefix')
         expect(compiledArgv).toContain('--name')
-        expect(compiledArgv).toEqual(expect.arrayContaining(legacyArgv))
+        // The session-name VALUE (`<targetName>-<project>`) is a launch-shape value
+        // and must match legacy exactly (NOT the materialized cache-dir name).
+        expect(compiledArgv).toContain('parityagent-project')
+        // Every legacy argv element is present, modulo the materialized bundle-root
+        // path segment (the accepted, separately-tracked convergence follow-up that
+        // line 341 also normalizes) — same normalization the byte-parity diff uses.
+        expect(normalizeArgv(compiledArgv)).toEqual(
+          expect.arrayContaining(normalizeArgv(legacyArgv))
+        )
       }
 
       // argv: byte-identical modulo the materialized-bundle-root segment.
