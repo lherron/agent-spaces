@@ -84,6 +84,7 @@ enabled = false
 
 [targets.${AGENT_NAME}]
 compose = []
+remote_control = true
 `,
     'utf8'
   )
@@ -138,7 +139,7 @@ interface HarnessCase {
   provider: ProviderDomain
   family: HarnessFamily
   runtime: HarnessRuntime
-  model: string
+  model?: string | undefined
 }
 
 const CASES: HarnessCase[] = [
@@ -154,7 +155,6 @@ const CASES: HarnessCase[] = [
     provider: 'openai',
     family: 'codex',
     runtime: 'codex-cli',
-    model: 'gpt-5.5',
   },
 ]
 
@@ -182,7 +182,7 @@ function compileRequest(testCase: HarnessCase): RuntimeCompileRequest {
     },
     requested: {
       modelProvider: testCase.provider,
-      model: testCase.model,
+      ...(testCase.model !== undefined ? { model: testCase.model } : {}),
       harnessFamily: testCase.family,
       preferredHarnessRuntime: testCase.runtime,
       interactionMode: 'interactive',
@@ -307,7 +307,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
         projectPath: fixture.projectRoot,
         aspHome: fixture.aspHome,
         harness: testCase.harness,
-        model: testCase.model,
+        ...(testCase.model !== undefined ? { model: testCase.model } : {}),
         interactive: true,
         dryRun: true,
       })
@@ -329,6 +329,13 @@ describe('asp run <-> compiler foreground byte-parity', () => {
 
       const compiledArgv = [foreground.command, ...foreground.args]
       const legacyArgv = [legacyLaunch.command, ...legacyLaunch.args]
+
+      if (testCase.harness === 'claude') {
+        expect(compiledArgv).toContain('--remote-control')
+        expect(compiledArgv).toContain('--remote-control-session-name-prefix')
+        expect(compiledArgv).toContain('--name')
+        expect(compiledArgv).toEqual(expect.arrayContaining(legacyArgv))
+      }
 
       // argv: byte-identical modulo the materialized-bundle-root segment.
       expect(normalizeArgv(compiledArgv)).toEqual(normalizeArgv(legacyArgv))
@@ -353,7 +360,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
           projectPath: fixture.projectRoot,
           aspHome: fixture.aspHome,
           harness: testCase.harness,
-          model: testCase.model,
+          ...(testCase.model !== undefined ? { model: testCase.model } : {}),
           interactive: true,
           dryRun: true,
           prompt,
