@@ -69,6 +69,10 @@ function validateBrokerExecutionProfile(profile: BrokerExecutionProfile): Compil
   return validator(profile)
 }
 
+const noneExposurePolicy = {
+  mode: 'none',
+}
+
 const tmuxExposurePolicy = {
   mode: 'broker-reports-target',
   targetKind: 'tmux-session',
@@ -144,7 +148,10 @@ const baseBrokerProfile = {
   },
 } as unknown as BrokerExecutionProfile
 
-function brokerProfile(overrides: Record<string, unknown> = {}): BrokerExecutionProfile {
+function brokerProfileFrom(
+  base: BrokerExecutionProfile,
+  overrides: Record<string, unknown> = {}
+): BrokerExecutionProfile {
   const harnessInvocationOverride = overrides.harnessInvocation as Record<string, unknown> | undefined
   const startRequestOverride = harnessInvocationOverride?.startRequest as
     | Record<string, unknown>
@@ -152,33 +159,78 @@ function brokerProfile(overrides: Record<string, unknown> = {}): BrokerExecution
   const specOverride = startRequestOverride?.spec as Record<string, unknown> | undefined
 
   return {
-    ...baseBrokerProfile,
+    ...base,
     ...overrides,
     harnessInvocation: {
-      ...baseBrokerProfile.harnessInvocation,
+      ...base.harnessInvocation,
       ...(harnessInvocationOverride ?? {}),
       startRequest: {
-        ...baseBrokerProfile.harnessInvocation.startRequest,
+        ...base.harnessInvocation.startRequest,
         ...(startRequestOverride ?? {}),
         spec: {
-          ...baseBrokerProfile.harnessInvocation.startRequest.spec,
+          ...base.harnessInvocation.startRequest.spec,
           ...(specOverride ?? {}),
           harness: {
-            ...baseBrokerProfile.harnessInvocation.startRequest.spec.harness,
+            ...base.harnessInvocation.startRequest.spec.harness,
             ...((specOverride?.harness as Record<string, unknown> | undefined) ?? {}),
           },
           process: {
-            ...baseBrokerProfile.harnessInvocation.startRequest.spec.process,
+            ...base.harnessInvocation.startRequest.spec.process,
             ...((specOverride?.process as Record<string, unknown> | undefined) ?? {}),
           },
           driver: {
-            ...baseBrokerProfile.harnessInvocation.startRequest.spec.driver,
+            ...base.harnessInvocation.startRequest.spec.driver,
             ...((specOverride?.driver as Record<string, unknown> | undefined) ?? {}),
           },
         },
       },
     },
   } as unknown as BrokerExecutionProfile
+}
+
+function brokerProfile(overrides: Record<string, unknown> = {}): BrokerExecutionProfile {
+  return brokerProfileFrom(baseBrokerProfile, overrides)
+}
+
+const baseHeadlessCodexProfile = brokerProfile({
+  profileId: 'profile:test-codex-broker',
+  interactionMode: 'headless',
+  brokerDriver: 'codex-app-server',
+  brokerTerminal: undefined,
+  harnessInvocation: {
+    startRequest: {
+      spec: {
+        harness: {
+          frontend: 'codex',
+          provider: 'openai',
+          driver: 'codex-app-server',
+        },
+        process: {
+          command: 'codex',
+          args: ['app-server'],
+          cwd: '/tmp',
+          lockedEnv: {},
+          harnessTransport: { kind: 'jsonrpc-stdio' },
+        },
+        interaction: {
+          mode: 'headless',
+          turnConcurrency: 'single',
+          inputQueue: 'fifo',
+        },
+        driver: {
+          kind: 'codex-app-server',
+        },
+      },
+    },
+  },
+  policy: {
+    ...baseBrokerProfile.policy,
+    exposurePolicy: noneExposurePolicy,
+  },
+})
+
+function codexBrokerProfile(overrides: Record<string, unknown> = {}): BrokerExecutionProfile {
+  return brokerProfileFrom(baseHeadlessCodexProfile, overrides)
 }
 
 describe('validateTerminalExecutionProfile', () => {
@@ -260,6 +312,10 @@ describe('validateBrokerExecutionProfile', () => {
     expect(validateBrokerExecutionProfile(brokerProfile())).toEqual([])
   })
 
+  test('allows a valid codex-app-server headless broker profile', () => {
+    expect(validateBrokerExecutionProfile(codexBrokerProfile())).toEqual([])
+  })
+
   test('rejects claude-code-tmux profiles without pty process transport', () => {
     const diagnostics = validateBrokerExecutionProfile(
       brokerProfile({
@@ -311,6 +367,103 @@ describe('validateBrokerExecutionProfile', () => {
     )
 
     expect(diagnosticCodes(diagnostics)).toContain('codex_app_server_requires_headless')
+  })
+
+  test('rejects codex-app-server profiles without jsonrpc stdio process transport', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      codexBrokerProfile({
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              process: {
+                harnessTransport: { kind: 'pipes' },
+              },
+            },
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('codex_app_server_requires_jsonrpc_stdio')
+  })
+
+  test('rejects codex-app-server profiles that carry a tmux brokerTerminal', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      codexBrokerProfile({
+        brokerTerminal: baseBrokerProfile.brokerTerminal,
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('codex_app_server_forbids_tmux_terminal')
+  })
+
+  test('rejects headless broker profiles that expose an agentchat target', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      codexBrokerProfile({
+        policy: {
+          ...baseHeadlessCodexProfile.policy,
+          exposurePolicy: tmuxExposurePolicy,
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('headless_requires_none_exposure')
+  })
+
+  test('rejects claude-code-tmux profiles without the hashed driver kind', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      brokerProfile({
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              driver: {
+                kind: 'claude-code',
+              },
+            },
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('claude_code_tmux_requires_driver_kind')
+  })
+
+  test('rejects claude-code-tmux profiles without the hashed tmux terminal host', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      brokerProfile({
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              driver: {
+                terminalHost: 'ghostty',
+              },
+            },
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('claude_code_tmux_requires_terminal_host')
+  })
+
+  test('rejects interactive broker profiles without an interactive startRequest spec', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      brokerProfile({
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              interaction: {
+                mode: 'headless',
+                turnConcurrency: 'single',
+                inputQueue: 'fifo',
+              },
+            },
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('interactive_profile_requires_interactive_spec')
   })
 
   test('rejects brokerTerminal exposure policy mismatches', () => {
