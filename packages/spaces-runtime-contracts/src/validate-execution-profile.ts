@@ -100,6 +100,10 @@ function exposurePoliciesMatch(
   )
 }
 
+function isNoneExposurePolicy(policy: AgentchatExposurePolicy): boolean {
+  return policy.mode === 'none'
+}
+
 export function validateBrokerExecutionProfile(
   profile: BrokerExecutionProfile
 ): CompileDiagnostic[] {
@@ -108,10 +112,12 @@ export function validateBrokerExecutionProfile(
   const specDriverKind = spec.driver.kind
   const transportKind = spec.process.harnessTransport.kind
   const specInteractionMode = spec.interaction?.mode
+  const specDriverTerminalHost =
+    'terminalHost' in spec.driver ? spec.driver['terminalHost'] : undefined
   const isCodexAppServer =
     profile.brokerDriver === 'codex-app-server' || specDriverKind === 'codex-app-server'
-  const isClaudeCodeTmux =
-    profile.brokerDriver === 'claude-code-tmux' || specDriverKind === 'claude-code-tmux'
+  const profileClaimsClaudeCodeTmux = profile.brokerDriver === 'claude-code-tmux'
+  const isClaudeCodeTmux = profileClaimsClaudeCodeTmux || specDriverKind === 'claude-code-tmux'
 
   if (
     isCodexAppServer &&
@@ -127,12 +133,75 @@ export function validateBrokerExecutionProfile(
     )
   }
 
+  if (isCodexAppServer && transportKind !== 'jsonrpc-stdio') {
+    diagnostics.push(
+      executionProfileDiagnostic(
+        profile,
+        'codex_app_server_requires_jsonrpc_stdio',
+        'codex-app-server broker profiles must use jsonrpc stdio process transport.'
+      )
+    )
+  }
+
+  if (isCodexAppServer && profile.brokerTerminal !== undefined) {
+    diagnostics.push(
+      executionProfileDiagnostic(
+        profile,
+        'codex_app_server_forbids_tmux_terminal',
+        'codex-app-server broker profiles must not declare a brokerTerminal.'
+      )
+    )
+  }
+
+  if (
+    profile.interactionMode === 'headless' &&
+    !isNoneExposurePolicy(profile.policy.exposurePolicy)
+  ) {
+    diagnostics.push(
+      executionProfileDiagnostic(
+        profile,
+        'headless_requires_none_exposure',
+        'Headless broker profiles must use exposurePolicy mode none.'
+      )
+    )
+  }
+
+  if (profileClaimsClaudeCodeTmux && specDriverKind !== 'claude-code-tmux') {
+    diagnostics.push(
+      executionProfileDiagnostic(
+        profile,
+        'claude_code_tmux_requires_driver_kind',
+        'claude-code-tmux broker profiles must use claude-code-tmux in the hashed driver spec.'
+      )
+    )
+  }
+
+  if (specDriverKind === 'claude-code-tmux' && specDriverTerminalHost !== 'tmux') {
+    diagnostics.push(
+      executionProfileDiagnostic(
+        profile,
+        'claude_code_tmux_requires_terminal_host',
+        'claude-code-tmux broker profiles must declare terminalHost tmux in the hashed driver spec.'
+      )
+    )
+  }
+
   if (isClaudeCodeTmux && transportKind !== 'pty') {
     diagnostics.push(
       executionProfileDiagnostic(
         profile,
         'claude_code_tmux_requires_pty_transport',
         'claude-code-tmux broker profiles must use pty process transport.'
+      )
+    )
+  }
+
+  if (profile.interactionMode === 'interactive' && specInteractionMode !== 'interactive') {
+    diagnostics.push(
+      executionProfileDiagnostic(
+        profile,
+        'interactive_profile_requires_interactive_spec',
+        'Interactive broker profiles must use interaction mode interactive in the hashed spec.'
       )
     )
   }
