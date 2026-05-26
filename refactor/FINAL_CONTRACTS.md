@@ -199,7 +199,7 @@ All hashes are **closure/dedup/route/reuse/test** tools, **not** confidentiality
 | --- | --- | --- |
 | `planHash` | ASP | Semantic hash of the compiled plan projection (minus self-hash fields, ephemeral timestamps; includes the canonical `lockedEnv` object). |
 | `profileHash` | ASP | Semantic hash of one execution profile projection (minus self-hash fields, ephemeral timestamps; includes the canonical `lockedEnv` object). |
-| `compatibilityHash` | ASP | Hash of fields that determine runtime reuse compatibility: command, args, cwd, transport, driver config/model/reasoning, bundle identity/lock, policy, resource limits, continuation provider/kind/non-secret identity, **plus the canonical `lockedEnv` object** (declared non-secret config; keys and values are hashed). |
+| `compatibilityHash` | ASP | Hash of fields that determine runtime reuse compatibility: command, args, cwd, pathPrepend, transport, driver config/model/reasoning, bundle identity/lock, policy, resource limits, continuation provider/kind/non-secret identity, **plus the canonical `lockedEnv` object** (declared non-secret config; keys and values are hashed). |
 | `specHash` | ASP | Semantic hash of broker `HarnessInvocationSpec`; includes the canonical `lockedEnv` object. |
 | `startRequestHash` | ASP | Semantic hash of broker `InvocationStartRequest`; includes the canonical `lockedEnv` object (initial input **included**). |
 | `contentHash` | ASP/HRC | Content hash of persisted artifact JSON/file bytes. |
@@ -622,11 +622,12 @@ Public responses MUST expose modern fields:
 Public responses MAY also expose legacy `transport: 'tmux' | 'headless' | 'sdk'`, but it must be derived:
 
 ```text
-terminal        -> tmux
-embedded-sdk    -> sdk
-harness-broker  -> headless
-command-process -> headless
-legacy-exec     -> headless
+terminal                              -> tmux
+embedded-sdk                          -> sdk
+harness-broker headless               -> headless
+harness-broker interactive tmux       -> tmux
+command-process                       -> headless
+legacy-exec                           -> headless
 ```
 
 New internal routing MUST NOT branch on legacy `transport`.
@@ -809,9 +810,12 @@ invocation.failed
 invocation.disposed
 diagnostic
 driver.notice
+terminal.surface.reported
 permission.requested
 permission.resolved
 ```
+
+`terminal.surface.reported` is the broker-owned attach surface event for interactive broker routes. The `claude-code-tmux` driver reports `{ kind: 'tmux-session', socketPath, sessionName, paneId? }`; this is not a broker attach/replay command and not a generic driver notice.
 
 The current protocol name `invocation.permission.request` MUST be normalized before final freeze to `permission.requested` or explicitly versioned as broker-to-client request method only. The event union must include permission events if they are emitted as events.
 
@@ -899,7 +903,7 @@ Broker headless defaults to:
 { mode: 'none' }
 ```
 
-It MUST NOT inherit terminal Agentchat behavior. Explicit broker Agentchat exposure requires a concrete target contract.
+It MUST NOT inherit terminal Agentchat behavior. Explicit broker Agentchat exposure requires a concrete target contract. The interactive `claude-code-tmux` broker route is such a contract: it reports a broker-owned tmux surface and uses `{ mode: 'broker-reports-target', targetKind: 'tmux-session' }`. `brokerTerminal.exposurePolicy` and `policy.exposurePolicy` MUST match exactly.
 
 ### 10.4 Resource policy
 
@@ -1057,12 +1061,13 @@ The route catalog is a validation catalog, not a compiler substitute. HRC route 
 Required route families:
 
 ```text
-anthropic + claude-code + interactive      -> terminal controller
-openai    + codex-cli   + interactive      -> terminal controller
-anthropic + agent-sdk   + nonInteractive   -> embedded-sdk controller
-openai    + pi-sdk      + nonInteractive   -> embedded-sdk controller
-openai    + codex-cli   + headless         -> harness-broker controller, codex-app-server driver
-openai    + codex-cli   + headless legacy  -> legacy-exec only under explicit opt-in
+anthropic + claude-code + interactive terminal-requested -> terminal controller
+anthropic + claude-code + interactive pre-HRC broker     -> harness-broker controller, claude-code-tmux driver, tmux surface
+openai    + codex-cli   + interactive                    -> terminal controller
+anthropic + agent-sdk   + nonInteractive                 -> embedded-sdk controller
+openai    + pi-sdk      + nonInteractive                 -> embedded-sdk controller
+openai    + codex-cli   + headless                       -> harness-broker controller, codex-app-server driver
+openai    + codex-cli   + headless legacy                -> legacy-exec only under explicit opt-in
 ```
 
 Hard exclusions:
@@ -1074,6 +1079,9 @@ No SDK runtime under terminal controller.
 No broker input outside harness-broker controller.
 No legacy-exec for new harness behavior.
 No broker-capable Codex headless through command-process.
+No codex-app-server broker profile with interactionMode interactive.
+No interactive broker profile without brokerTerminal.host tmux.
+No claude-code-tmux broker profile whose spec.process.harnessTransport.kind is not pty.
 No route requiring HRC to construct broker specs after compilation.
 ```
 
@@ -1173,7 +1181,7 @@ No live reattach claim unless v2 attach/replay exists
 - Codex broker dispatch does not spawn `launch/exec.ts`.
 - HRC broker path does not import concrete Codex/Claude/Pi driver packages.
 - HRC broker path does not parse native harness events.
-- HRC broker path does not assign `spec.driver`, `spec.process.args`, `spec.process.lockedEnv`, or `spec.process.cwd`.
+- HRC broker path does not assign `spec.driver`, `spec.process.command`, `spec.process.args`, `spec.process.cwd`, `spec.process.lockedEnv`, `spec.process.pathPrepend`, or `spec.process.harnessTransport`.
 - A `dispatchEnv` key that collides with a `lockedEnv`/reserved/credential/ambient key is rejected at dispatch.
 - Legacy path requires explicit opt-in.
 
@@ -1181,7 +1189,9 @@ No live reattach claim unless v2 attach/replay exists
 
 - `openai + codex + headless` resolves to `harness-broker` by default.
 - `openai + codex + interactive` resolves to terminal.
+- pre-HRC `anthropic + claude-code + interactive` resolves to `harness-broker` with `claude-code-tmux`, not terminal.
 - `anthropic + claude-code + nonInteractive` resolves to embedded SDK unless a real broker profile exists.
+- `claude-code-tmux` rejects non-pty harness transports, broker interactive without tmux surface rejects, and `codex-app-server + interactive` rejects.
 - Old `transport` aliases are derived.
 - Missing required capability rejects before broker start.
 - Degradation requires explicit policy.

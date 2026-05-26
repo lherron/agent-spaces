@@ -114,6 +114,8 @@ No explicit allow means deny. No negotiated permission request channel means den
 
 Broker headless runtimes SHOULD use `AgentchatExposurePolicy: { mode: 'none' }` until a concrete broker target contract exists. They MUST NOT inherit terminal Agentchat behavior accidentally from legacy `exec.ts`.
 
+Interactive broker runtimes with a broker-owned tmux surface are an explicit concrete target contract, not inherited terminal-controller behavior. They MUST declare `brokerTerminal.host: 'tmux'`, `brokerTerminal.operatorAttach: true`, and `AgentchatExposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' }`. `brokerTerminal.exposurePolicy` and `policy.exposurePolicy` MUST be identical.
+
 ---
 
 ## 3. Contract triangle
@@ -555,16 +557,25 @@ Controller-owned terminal hosts (`tmux` and `ghostty`) use a pty, have HRC/contr
 
 ### 7.4 Broker execution profile
 
-This is the critical profile for Codex headless and future broker-capable harnesses.
+This is the critical profile for Codex headless and broker-capable harnesses. Broker interactive is supported only for the explicit Claude Code tmux driver shape described here.
 
 ```ts
+export type BrokerTerminalSurface = {
+  host: 'tmux'
+  startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal'
+  turnDelivery: 'terminal-literal-input'
+  operatorAttach: true
+  exposurePolicy: { mode: 'broker-reports-target'; targetKind: 'tmux-session' }
+}
+
 export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   kind: 'harness-broker'
-  interactionMode: 'headless'
+  interactionMode: 'headless' | 'interactive'
 
   brokerProtocol: 'harness-broker/0.1'
-  brokerDriver: 'codex-app-server' | string
+  brokerDriver: 'codex-app-server' | 'claude-code-tmux' | string
   brokerOwnership: 'hrc-owned-process'
+  brokerTerminal?: BrokerTerminalSurface
 
   harnessInvocation: {
     startRequest: InvocationStartRequest
@@ -587,6 +598,17 @@ export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   observability: BrokerObservabilityContract
 }
 ```
+
+The immutable launch truth for a broker profile remains `harnessInvocation.startRequest.spec`, especially `spec.process.command`, `spec.process.args`, `spec.process.cwd`, `spec.process.lockedEnv`, `spec.process.pathPrepend`, `spec.process.harnessTransport`, and `spec.driver`. `brokerTerminal` is selection/exposure metadata only. It MUST validate against the start request; it MUST NOT duplicate or override process launch mechanics.
+
+Validator gates:
+
+- `brokerDriver: 'codex-app-server'` requires `interactionMode: 'headless'`, no `brokerTerminal`, `spec.interaction.mode: 'headless'`, and `spec.process.harnessTransport.kind: 'jsonrpc-stdio'`.
+- `brokerDriver: 'claude-code-tmux'` requires `interactionMode: 'interactive'`, `brokerTerminal.host: 'tmux'`, `brokerTerminal.turnDelivery: 'terminal-literal-input'`, `brokerTerminal.operatorAttach: true`, `brokerTerminal.exposurePolicy` identical to `policy.exposurePolicy`, `policy.exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' }`, `spec.driver.kind: 'claude-code-tmux'`, `spec.driver.terminalHost: 'tmux'`, `spec.interaction.mode: 'interactive'`, and `spec.process.harnessTransport.kind: 'pty'`.
+- A `claude-code-tmux` broker profile whose `harnessTransport.kind` is not `pty` MUST reject.
+- A broker profile with `interactionMode: 'interactive'` and no `brokerTerminal.host: 'tmux'` MUST reject.
+- A `codex-app-server` profile with `interactionMode: 'interactive'` MUST reject.
+- The pre-HRC interactive Claude Code tmux path MUST compile/select `kind: 'harness-broker'`; the older `TerminalExecutionProfile` route remains valid only when terminal-controller behavior is explicitly requested.
 
 ### 7.5 Compiler determinism and hashing
 
@@ -612,7 +634,7 @@ ASP MUST compute:
 - `startRequestHash`: `InvocationStartRequest` (initialInput **included**; lockedEnv **included**).
 - `profileHash`: `RuntimeExecutionProfile` minus self-hash fields and ephemeral timestamps (lockedEnv **included**).
 - `planHash`: `CompiledRuntimePlan` minus self-hash fields and ephemeral timestamps (lockedEnv **included**).
-- `compatibilityHash`: command, args, cwd, transport, driver config/model/reasoning, bundle identity/lock, policy, resource limits, continuation provider/kind/non-secret identity, **plus the canonical `lockedEnv` object (keys and values)**.
+- `compatibilityHash`: command, args, cwd, pathPrepend, transport, driver config/model/reasoning, bundle identity/lock, policy, resource limits, continuation provider/kind/non-secret identity, **plus the canonical `lockedEnv` object (keys and values)**.
 
 `lockedEnv` is declared **non-secret** config and is **INCLUDED** as the canonical `lockedEnv` object in `specHash`, `startRequestHash`, `profileHash`, `planHash`, and `compatibilityHash`. `dispatchEnv` is included in **NONE** of these and is never part of the compiled projection. Hashes remain **closure/dedup/reuse/test** tools, **not** confidentiality controls.
 
@@ -890,6 +912,14 @@ export type BrokerRuntimeState = {
     capabilities: InvocationCapabilities
   }
 
+  terminalSurface?: {
+    kind: 'tmux-session'
+    socketPath: string
+    sessionName: string
+    paneId?: string
+    reportedAt: string
+  }
+
   continuation?: RuntimeContinuationRef
   brokerContinuation?: BrokerContinuationRef
   permission: BrokerPermissionRuntimeState
@@ -978,9 +1008,12 @@ invocation.failed
 invocation.disposed
 diagnostic
 driver.notice
+terminal.surface.reported
 permission.requested
 permission.resolved
 ```
+
+`terminal.surface.reported` is the canonical v1 event for a broker-owned attachable terminal surface. For `claude-code-tmux`, the payload MUST be `{ kind: 'tmux-session', socketPath, sessionName, paneId? }`. This event is not `driver.notice`, not a launch callback, and not `broker.attach`; it only reports the tmux attach surface for operators and HRC projection.
 
 ### 10.4 Broker event mapper
 
@@ -1316,7 +1349,12 @@ export type RuntimeExecutionView = {
   controller:
     | { kind: 'terminal'; terminalHost: 'tmux' | 'ghostty' }
     | { kind: 'embedded-sdk' }
-    | { kind: 'harness-broker'; brokerDriver: string; brokerProtocol: string }
+    | {
+        kind: 'harness-broker'
+        brokerDriver: string
+        brokerProtocol: string
+        brokerTerminal?: BrokerTerminalSurface
+      }
     | { kind: 'command-process' }
     | { kind: 'legacy-exec'; migrationOnly: true }
 
@@ -1352,7 +1390,8 @@ export function legacyTransportAlias(view: RuntimeExecutionView): 'tmux' | 'head
   switch (view.controller.kind) {
     case 'terminal': return 'tmux'
     case 'embedded-sdk': return 'sdk'
-    case 'harness-broker': return 'headless'
+    case 'harness-broker':
+      return view.controller.brokerTerminal?.host === 'tmux' ? 'tmux' : 'headless'
     case 'command-process': return 'headless'
     case 'legacy-exec': return 'headless'
   }
@@ -1413,6 +1452,8 @@ The route catalog describes valid combinations. HRC route decisions select from 
 
 Terminal route hosts include `foreground`, `tmux`, and `ghostty`. Interactive route startup methods include `inherit-current-terminal` for foreground `asp run`; validators narrow host-specific combinations so foreground uses inherited stdio and launch input only, while controller-owned terminal hosts use pty semantics.
 
+The pre-HRC interactive Claude Code tmux route is broker-owned, not terminal-controller owned. It remains attachable through a tmux surface reported by the broker driver, while normalized events come from the broker event stream.
+
 ```ts
 export const RUNTIME_ROUTE_CATALOG = [
   {
@@ -1455,6 +1496,21 @@ export const RUNTIME_ROUTE_CATALOG = [
   },
   {
     controller: 'harness-broker',
+    terminalHost: 'tmux',
+    modelProvider: 'anthropic',
+    harnessFamily: 'claude-code',
+    harnessRuntime: 'claude-code-cli',
+    interactionMode: 'interactive',
+    startupMethods: ['create-broker-invocation', 'reuse-existing'],
+    turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    broker: {
+      protocolVersion: 'harness-broker/0.1',
+      driver: 'claude-code-tmux',
+      processTransport: 'pty',
+    },
+  },
+  {
+    controller: 'harness-broker',
     modelProvider: 'openai',
     harnessFamily: 'codex',
     harnessRuntime: 'codex-cli',
@@ -1489,6 +1545,9 @@ Hard exclusions:
 - No broker input outside `harness-broker`.
 - No `legacy-exec` for new harness behavior.
 - No broker-capable Codex headless path through `command-process`.
+- No `codex-app-server` broker profile with `interactionMode: 'interactive'`.
+- No interactive broker profile without `brokerTerminal.host: 'tmux'`.
+- No `claude-code-tmux` broker profile whose `spec.process.harnessTransport.kind` is not `pty`.
 - No route that requires HRC to construct a broker spec after ASP compilation.
 
 ---

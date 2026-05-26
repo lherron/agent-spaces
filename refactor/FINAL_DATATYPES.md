@@ -242,8 +242,8 @@ export type CanonicalHash = {
 //   - startRequestHash = InvocationStartRequest (initialInput included; lockedEnv included)
 //   - profileHash      = RuntimeExecutionProfile minus self-hash fields + ephemeral timestamps
 //   - planHash         = CompiledRuntimePlan minus self-hash fields + ephemeral timestamps
-//   - compatibilityHash = command, args, cwd, transport, driver config/model/reasoning, bundle
-//     identity/lock, policy, resource limits, continuation provider/kind/non-secret identity,
+//   - compatibilityHash = command, args, cwd, pathPrepend, transport, driver config/model/reasoning,
+//     bundle identity/lock, policy, resource limits, continuation provider/kind/non-secret identity,
 //     + the canonical lockedEnv object (keys and values)
 // lockedEnv is a non-secret declared config object and is INCLUDED in
 // specHash/startRequestHash/profileHash/planHash/compatibilityHash as the canonical lockedEnv
@@ -478,6 +478,22 @@ export type AgentchatExposurePolicy =
   | { mode: 'none' }
   | { mode: 'hrc-registers-target'; targetKind: 'broker-runtime' }
   | { mode: 'broker-reports-target'; targetKind: string }
+
+export type BrokerTerminalSurface = {
+  host: 'tmux'
+  startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal'
+  turnDelivery: 'terminal-literal-input'
+  operatorAttach: true
+  // Must match BrokerExecutionProfile.policy.exposurePolicy exactly.
+  exposurePolicy: { mode: 'broker-reports-target'; targetKind: 'tmux-session' }
+}
+
+export type BrokerTerminalSurfaceReport = {
+  kind: 'tmux-session'
+  socketPath: string
+  sessionName: string
+  paneId?: string | undefined
+}
 
 // spaces-runtime-contracts/src/resources.ts
 
@@ -738,11 +754,14 @@ export type EmbeddedSdkExecutionProfile = RuntimeExecutionProfileBase & {
 
 export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   kind: 'harness-broker'
-  interactionMode: 'headless'
+  interactionMode: 'headless' | 'interactive'
 
   brokerProtocol: 'harness-broker/0.1'
-  brokerDriver: 'codex-app-server' | string
+  brokerDriver: 'codex-app-server' | 'claude-code-tmux' | string
   brokerOwnership: 'hrc-owned-process'
+  // Selection/exposure metadata for broker-owned interactive terminal surfaces.
+  // The launch truth remains harnessInvocation.startRequest.spec.
+  brokerTerminal?: BrokerTerminalSurface | undefined
 
   harnessInvocation: {
     startRequest: InvocationStartRequest
@@ -861,14 +880,14 @@ export interface HarnessInvocationSpec {
   process: HarnessProcessSpec
   interaction?: InteractionSpec | undefined
   continuation?: ContinuationSpec | undefined
-  driver: CodexAppServerDriverSpec | UnknownDriverSpec
+  driver: CodexAppServerDriverSpec | ClaudeCodeTmuxDriverSpec | UnknownDriverSpec
   correlation?: Record<string, string> | undefined
 }
 
 export interface HarnessDescriptor {
   frontend: string
   provider?: string | undefined
-  driver: 'codex-app-server' | string
+  driver: 'codex-app-server' | 'claude-code-tmux' | string
 }
 
 export interface HarnessProcessSpec {
@@ -879,6 +898,9 @@ export interface HarnessProcessSpec {
   // modify it. Contains only declared config resolved from space/agent/target configuration —
   // never the operator/ambient environment, never credentials.
   lockedEnv?: Record<string, string> | undefined
+  // Ordered directories prepended to the final composed PATH. Hash-covered.
+  // PATH itself stays reserved and outside lockedEnv.
+  pathPrepend?: string[] | undefined
   harnessTransport: HarnessTransportSpec
   limits?: ProcessLimits | undefined
 }
@@ -918,6 +940,13 @@ export interface CodexAppServerDriverSpec {
   defaultImageAttachments?: string[] | undefined
   permissionPolicy?: DriverPermissionPolicy | undefined
   resumeFallback?: 'start-fresh' | 'fail' | undefined
+}
+
+export interface ClaudeCodeTmuxDriverSpec {
+  kind: 'claude-code-tmux'
+  terminalHost: 'tmux'
+  hookBridge: 'claude-code-hooks/v1'
+  eventSource: 'terminal-hook'
 }
 
 export interface DriverPermissionPolicy {
@@ -1239,6 +1268,8 @@ export type InvocationEventType =
   | 'usage.updated'
   | 'diagnostic'
   | 'driver.notice'
+  // Broker-owned terminal attach surface report. Not broker.attach/replay.
+  | 'terminal.surface.reported'
   | 'permission.requested'
   | 'permission.resolved'
 
@@ -1265,6 +1296,7 @@ export type InvocationEventPayload =
   | UsageUpdatedPayload
   | DiagnosticPayload
   | DriverNoticePayload
+  | TerminalSurfaceReportedPayload
   | PermissionRequestedPayload
   | PermissionResolvedPayload
 
@@ -1390,6 +1422,13 @@ export interface DriverNoticePayload {
   message: string
   code?: string | undefined
   data?: unknown
+}
+
+export interface TerminalSurfaceReportedPayload {
+  kind: 'tmux-session'
+  socketPath: string
+  sessionName: string
+  paneId?: string | undefined
 }
 
 export interface PermissionRequestedPayload {
@@ -1757,6 +1796,11 @@ export type BrokerRuntimeState = RuntimeStateBase & {
     lastEventSeq?: number | undefined
     capabilities: InvocationCapabilities
   }
+  terminalSurface?:
+    | (BrokerTerminalSurfaceReport & {
+        reportedAt: IsoTimestamp
+      })
+    | undefined
 
   continuation?: RuntimeContinuationRef | undefined
   brokerContinuation?: BrokerContinuationRef | undefined
@@ -2113,7 +2157,12 @@ export type RuntimeExecutionView = {
   controller:
     | { kind: 'terminal'; terminalHost: 'tmux' | 'ghostty' }
     | { kind: 'embedded-sdk' }
-    | { kind: 'harness-broker'; brokerDriver: string; brokerProtocol: 'harness-broker/0.1' }
+    | {
+        kind: 'harness-broker'
+        brokerDriver: string
+        brokerProtocol: 'harness-broker/0.1'
+        brokerTerminal?: BrokerTerminalSurface | undefined
+      }
     | { kind: 'command-process' }
     | { kind: 'legacy-exec'; migrationOnly: true }
 
@@ -2147,6 +2196,7 @@ export function legacyTransportAlias(view: RuntimeExecutionView): LegacyTranspor
     case 'embedded-sdk':
       return 'sdk'
     case 'harness-broker':
+      return view.controller.brokerTerminal?.host === 'tmux' ? 'tmux' : 'headless'
     case 'command-process':
     case 'legacy-exec':
       return 'headless'
@@ -2340,8 +2390,8 @@ export type RuntimeRouteCatalogEntry = {
   broker?:
     | {
         protocolVersion: 'harness-broker/0.1'
-        driver: 'codex-app-server' | string
-        processTransport: 'jsonrpc-stdio'
+        driver: 'codex-app-server' | 'claude-code-tmux' | string
+        processTransport: 'jsonrpc-stdio' | 'pty'
       }
     | undefined
   removalGate?: string | undefined
@@ -2385,6 +2435,21 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     interactionMode: 'nonInteractive',
     startupMethods: ['create-sdk-session', 'reuse-existing'],
     turnDeliveries: ['sdk-turn', 'sdk-inflight-input'],
+  },
+  {
+    controller: 'harness-broker',
+    terminalHost: 'tmux',
+    modelProvider: 'anthropic',
+    harnessFamily: 'claude-code',
+    harnessRuntime: 'claude-code-cli',
+    interactionMode: 'interactive',
+    startupMethods: ['create-broker-invocation', 'reuse-existing'],
+    turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    broker: {
+      protocolVersion: 'harness-broker/0.1',
+      driver: 'claude-code-tmux',
+      processTransport: 'pty',
+    },
   },
   {
     controller: 'harness-broker',
