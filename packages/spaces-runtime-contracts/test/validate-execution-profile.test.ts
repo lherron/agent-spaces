@@ -256,6 +256,10 @@ describe('validateTerminalExecutionProfile', () => {
 })
 
 describe('validateBrokerExecutionProfile', () => {
+  test('allows a valid claude-code-tmux interactive broker profile', () => {
+    expect(validateBrokerExecutionProfile(brokerProfile())).toEqual([])
+  })
+
   test('rejects claude-code-tmux profiles without pty process transport', () => {
     const diagnostics = validateBrokerExecutionProfile(
       brokerProfile({
@@ -307,6 +311,21 @@ describe('validateBrokerExecutionProfile', () => {
     )
 
     expect(diagnosticCodes(diagnostics)).toContain('codex_app_server_requires_headless')
+  })
+
+  test('rejects brokerTerminal exposure policy mismatches', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      brokerProfile({
+        brokerTerminal: {
+          ...baseBrokerProfile.brokerTerminal,
+          exposurePolicy: {
+            mode: 'none',
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('broker_exposure_policy_mismatch')
   })
 })
 
