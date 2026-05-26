@@ -157,6 +157,7 @@ export type SchemaRecord = Record<string, unknown> & {
   permissionRequests?: unknown
   permissionPolicy?: unknown
   policy?: unknown
+  paneId?: unknown
   probeDrivers?: unknown
   process?: unknown
   profile?: unknown
@@ -168,8 +169,10 @@ export type SchemaRecord = Record<string, unknown> & {
   rows?: unknown
   sandboxMode?: unknown
   seq?: unknown
+  sessionName?: unknown
   spec?: unknown
   specVersion?: unknown
+  socketPath?: unknown
   startupTimeoutMs?: unknown
   stopGraceMs?: unknown
   text?: unknown
@@ -223,6 +226,7 @@ const eventTypes = new Set<InvocationEventType>([
   'usage.updated',
   'diagnostic',
   'driver.notice',
+  'terminal.surface.reported',
   'permission.requested',
   'permission.resolved',
 ])
@@ -543,6 +547,15 @@ function validateEventPayload(
         true
       )
       optionalNumber(payload['deadlineMs'], 'payload.deadlineMs', issues)
+      return
+    }
+    case 'terminal.surface.reported': {
+      const payload = requirePayloadRecord(value, issues)
+      if (!payload) return
+      optionalEnum(payload.kind, ['tmux-session'], 'payload.kind', issues, true)
+      requireString(payload['socketPath'], 'payload.socketPath', issues)
+      requireString(payload['sessionName'], 'payload.sessionName', issues)
+      optionalString(payload['paneId'], 'payload.paneId', issues)
       return
     }
     case 'permission.resolved': {

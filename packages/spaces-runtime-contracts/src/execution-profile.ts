@@ -2,7 +2,7 @@ import type { InvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type { CapabilityRequirements } from './capabilities'
 import type { CompileDiagnostic } from './compiler-plan'
 import type { BrokerContinuationRef, RuntimeContinuationRef } from './continuation'
-import type { AgentchatExposurePolicy } from './exposure'
+import type { AgentchatExposurePolicy, BrokerTerminalSurface } from './exposure'
 import type { CompatibilityHash, ProfileHash, ProfileId, SpecHash, StartRequestHash } from './ids'
 import type { BrokerInputPolicy } from './input'
 import type { BrokerObservabilityContract } from './observability'
@@ -102,11 +102,12 @@ export type EmbeddedSdkExecutionProfile = RuntimeExecutionProfileBase & {
 
 export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   kind: 'harness-broker'
-  interactionMode: 'headless'
+  interactionMode: 'headless' | 'interactive'
 
   brokerProtocol: 'harness-broker/0.1'
-  brokerDriver: 'codex-app-server' | string
+  brokerDriver: 'codex-app-server' | 'claude-code-tmux' | string
   brokerOwnership: 'hrc-owned-process'
+  brokerTerminal?: BrokerTerminalSurface | undefined
 
   harnessInvocation: {
     startRequest: InvocationStartRequest

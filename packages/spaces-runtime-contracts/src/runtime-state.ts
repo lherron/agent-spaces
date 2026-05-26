@@ -7,6 +7,7 @@ import type {
 import type { RuntimeCapabilities } from './capabilities'
 import type { BrokerContinuationRef, RuntimeContinuationRef } from './continuation'
 import type { ControllerOwnedTerminalHost } from './execution-profile'
+import type { BrokerTerminalSurfaceReport } from './exposure'
 import type {
   CompileId,
   HostSessionId,
@@ -101,6 +102,12 @@ export type BrokerRuntimeState = RuntimeStateBase & {
     lastEventSeq?: number | undefined
     capabilities: InvocationCapabilities
   }
+
+  terminalSurface?:
+    | (BrokerTerminalSurfaceReport & {
+        reportedAt: IsoTimestamp
+      })
+    | undefined
 
   continuation?: RuntimeContinuationRef | undefined
   brokerContinuation?: BrokerContinuationRef | undefined

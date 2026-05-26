@@ -45,7 +45,12 @@ export type RuntimeExecutionView = {
   controller:
     | { kind: 'terminal'; terminalHost: ControllerOwnedTerminalHost }
     | { kind: 'embedded-sdk' }
-    | { kind: 'harness-broker'; brokerDriver: string; brokerProtocol: 'harness-broker/0.1' }
+    | {
+        kind: 'harness-broker'
+        brokerDriver: string
+        brokerProtocol: 'harness-broker/0.1'
+        brokerTerminal?: { host: 'tmux' } | undefined
+      }
     | { kind: 'command-process' }
     | { kind: 'legacy-exec'; migrationOnly: true }
 
@@ -79,6 +84,7 @@ export function legacyTransportAlias(view: RuntimeExecutionView): LegacyTranspor
     case 'embedded-sdk':
       return 'sdk'
     case 'harness-broker':
+      return view.controller.brokerTerminal?.host === 'tmux' ? 'tmux' : 'headless'
     case 'command-process':
     case 'legacy-exec':
       return 'headless'

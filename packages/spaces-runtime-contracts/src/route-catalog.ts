@@ -21,13 +21,27 @@ export type RuntimeRouteCatalogEntry = {
     | {
         protocolVersion: 'harness-broker/0.1'
         driver: 'codex-app-server' | string
-        processTransport: 'jsonrpc-stdio'
+        processTransport: 'jsonrpc-stdio' | 'pty'
       }
     | undefined
   removalGate?: string | undefined
 }
 
 export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
+  {
+    controller: 'harness-broker',
+    modelProvider: 'anthropic',
+    harnessFamily: 'claude-code',
+    harnessRuntime: 'claude-code-cli',
+    interactionMode: 'interactive',
+    startupMethods: ['create-broker-invocation', 'reuse-existing'],
+    turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    broker: {
+      protocolVersion: 'harness-broker/0.1',
+      driver: 'claude-code-tmux',
+      processTransport: 'pty',
+    },
+  },
   {
     controller: 'terminal',
     terminalHost: 'tmux',

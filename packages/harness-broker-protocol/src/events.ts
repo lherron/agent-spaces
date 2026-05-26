@@ -51,6 +51,7 @@ export type InvocationEventType =
   | 'usage.updated'
   | 'diagnostic'
   | 'driver.notice'
+  | 'terminal.surface.reported'
   | 'permission.requested'
   | 'permission.resolved'
 
@@ -77,6 +78,7 @@ export type InvocationEventPayload =
   | UsageUpdatedPayload
   | DiagnosticPayload
   | DriverNoticePayload
+  | TerminalSurfaceReportedPayload
   | PermissionRequestedPayload
   | PermissionResolvedPayload
 
@@ -202,6 +204,13 @@ export interface DriverNoticePayload {
   message: string
   code?: string | undefined
   data?: unknown
+}
+
+export interface TerminalSurfaceReportedPayload {
+  kind: 'tmux-session'
+  socketPath: string
+  sessionName: string
+  paneId?: string | undefined
 }
 
 export interface PermissionRequestedPayload {

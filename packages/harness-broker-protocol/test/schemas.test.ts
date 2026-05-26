@@ -537,6 +537,12 @@ describe('validateEventEnvelope', () => {
     'usage.updated': { usage: { inputTokens: 1 } },
     diagnostic: { level: 'info', message: 'notice' },
     'driver.notice': { message: 'notice' },
+    'terminal.surface.reported': {
+      kind: 'tmux-session',
+      socketPath: '/tmp/tmux-501/default',
+      sessionName: 'asp-claude',
+      paneId: '%1',
+    },
     'permission.requested': {
       permissionRequestId: 'perm_1',
       kind: 'command',
