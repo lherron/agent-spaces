@@ -15,7 +15,7 @@ import type { AgentBrainRuntimeContext } from './agent-brain.js'
 import { prepareAgentBrainRuntime } from './agent-brain.js'
 import type { AgentToolRuntimeContext } from './agent-tools.js'
 import { prepareAgentToolRuntime } from './agent-tools.js'
-import type { RunInvocationResult } from './types.js'
+import type { LaunchShape, RunInvocationResult } from './types.js'
 import { formatCommand, formatEnvPrefix } from './util.js'
 
 export interface ExecuteHarnessResult {
@@ -26,6 +26,7 @@ export interface ExecuteHarnessResult {
   warnings: string[]
   systemPrompt?: string | undefined
   systemPromptMode?: 'replace' | 'append' | undefined
+  launch: LaunchShape
 }
 
 export interface MaterializedPromptResult {
@@ -101,36 +102,68 @@ export async function executeHarnessRun(
     pagePrompts?: boolean | undefined
     agentBrainRuntime?: AgentBrainRuntimeContext | undefined
     agentToolRuntime?: AgentToolRuntimeContext | undefined
+    /**
+     * Pre-compiled foreground launch shape (argv + composed env + cwd) sourced
+     * from the compiler's foreground TerminalExecutionProfile. When present, the
+     * launch shape is taken verbatim from the compiled plan instead of being
+     * derived from the adapter (buildRunArgs/getRunEnv) and the brain/tool
+     * runtimes — those already ran inside the compiler. ONE code path: this
+     * function still renders the same displayPrompts sections and inherit-spawns.
+     */
+    compiledLaunch?: LaunchShape | undefined
   }
 ): Promise<ExecuteHarnessResult> {
-  const preparedRunOptions = await prepareRunOptions(adapter, bundle, runOptions)
-  const args = adapter.buildRunArgs(bundle, preparedRunOptions)
-  const projectEnv: Record<string, string> = {}
-  const projectPath = preparedRunOptions.projectPath ?? runOptions.projectPath
-  if (projectPath) {
-    projectEnv['ASP_PROJECT'] = basename(resolve(projectPath))
-  }
-  projectEnv['AGENTCHAT_ID'] = bundle.targetName
-
-  let harnessEnv: Record<string, string> = {
-    ...projectEnv,
-    ...(options.env ?? {}),
-    ...adapter.getRunEnv(bundle, preparedRunOptions),
-  }
+  const compiled = options.compiledLaunch
+  const preparedRunOptions = compiled
+    ? runOptions
+    : await prepareRunOptions(adapter, bundle, runOptions)
   const warnings: string[] = []
-  if (!options.dryRun && options.agentBrainRuntime) {
-    const brainEnv = await prepareAgentBrainRuntime(options.agentBrainRuntime, harnessEnv)
-    harnessEnv = { ...harnessEnv, ...brainEnv }
-  }
-  if (options.agentToolRuntime) {
-    const toolRuntime = await prepareAgentToolRuntime(options.agentToolRuntime, harnessEnv)
-    harnessEnv = { ...harnessEnv, ...toolRuntime.env }
-    warnings.push(...toolRuntime.warnings)
+
+  let commandPath: string
+  let args: string[]
+  let harnessEnv: Record<string, string>
+  let launchCwd: string | undefined
+
+  if (compiled) {
+    commandPath = compiled.command
+    args = compiled.args
+    harnessEnv = compiled.env
+    launchCwd = compiled.cwd ?? preparedRunOptions.cwd ?? preparedRunOptions.projectPath
+  } else {
+    args = adapter.buildRunArgs(bundle, preparedRunOptions)
+    const projectEnv: Record<string, string> = {}
+    const projectPath = preparedRunOptions.projectPath ?? runOptions.projectPath
+    if (projectPath) {
+      projectEnv['ASP_PROJECT'] = basename(resolve(projectPath))
+    }
+    projectEnv['AGENTCHAT_ID'] = bundle.targetName
+
+    harnessEnv = {
+      ...projectEnv,
+      ...(options.env ?? {}),
+      ...adapter.getRunEnv(bundle, preparedRunOptions),
+    }
+    if (!options.dryRun && options.agentBrainRuntime) {
+      const brainEnv = await prepareAgentBrainRuntime(options.agentBrainRuntime, harnessEnv)
+      harnessEnv = { ...harnessEnv, ...brainEnv }
+    }
+    if (options.agentToolRuntime) {
+      const toolRuntime = await prepareAgentToolRuntime(options.agentToolRuntime, harnessEnv)
+      harnessEnv = { ...harnessEnv, ...toolRuntime.env }
+      warnings.push(...toolRuntime.warnings)
+    }
+    commandPath = detection.path ?? adapter.id
+    launchCwd = preparedRunOptions.cwd ?? preparedRunOptions.projectPath
   }
 
-  const commandPath = detection.path ?? adapter.id
   const envPrefix = formatEnvPrefix(harnessEnv)
   const command = envPrefix + formatCommand(commandPath, args)
+  const launch: LaunchShape = {
+    command: commandPath,
+    args,
+    ...(launchCwd !== undefined ? { cwd: launchCwd } : {}),
+    env: harnessEnv,
+  }
 
   if (options.dryRun) {
     return {
@@ -140,6 +173,7 @@ export async function executeHarnessRun(
       warnings,
       systemPrompt: preparedRunOptions.systemPrompt,
       systemPromptMode: preparedRunOptions.systemPromptMode,
+      launch,
     }
   }
 
@@ -155,7 +189,7 @@ export async function executeHarnessRun(
 
   const { exitCode, stdout, stderr } = await executeHarnessCommand(commandPath, args, {
     interactive: preparedRunOptions.interactive,
-    cwd: preparedRunOptions.cwd ?? preparedRunOptions.projectPath,
+    cwd: launchCwd,
     env: harnessEnv,
   })
 
@@ -171,6 +205,7 @@ export async function executeHarnessRun(
     command,
     displayCommand: envPrefix + formatDisplayCommand(commandPath, args),
     warnings,
+    launch,
     invocation:
       preparedRunOptions.interactive === false
         ? {

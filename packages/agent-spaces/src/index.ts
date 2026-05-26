@@ -49,3 +49,11 @@ export {
 } from './placement-api.js'
 
 export { createAgentSpacesClient } from './client.js'
+
+export {
+  composeForegroundEnv,
+  foregroundLaunchFromResponse,
+  type ForegroundLaunch,
+} from './foreground-launch.js'
+
+export { createCompileRuntimeFn } from './run-compile.js'

@@ -32,7 +32,7 @@ import { harnessRegistry } from '../harness/index.js'
 
 import { buildCompilerDebugContext } from './compiler-debug.js'
 import { executeHarnessRun } from './execute.js'
-import type { GlobalRunOptions, RunCompilerDebugContext, RunResult } from './types.js'
+import type { GlobalRunOptions, RunCompileOutcome, RunResult } from './types.js'
 import { cleanupTempDir, createTempDir, mergeDefined, resolveInteractive } from './util.js'
 
 async function persistGlobalLock(newLock: LockFile, globalLockPath: string): Promise<void> {
@@ -106,20 +106,15 @@ async function executeSpaceRun({
     throw new Error('Non-interactive mode requires a prompt')
   }
 
-  const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
-    env: options.env,
-    dryRun: options.dryRun,
-    pagePrompts: options.pagePrompts,
-  })
-
-  const shouldCleanup = options.dryRun ? false : (options.cleanup ?? !options.interactive)
-  if (shouldCleanup) {
-    await cleanupTempDir(tempDir)
-  }
-  let compilerDebugContext: RunCompilerDebugContext | undefined
-  if (options.dryRun && options.debug) {
+  // Compile through the injected compiler when needed (real `--debug` dump and,
+  // behind the ASP_RUN_VIA_COMPILER gate, a foreground inherit-spawn).
+  const viaCompiler =
+    process.env['ASP_RUN_VIA_COMPILER'] === '1' || process.env['ASP_RUN_VIA_COMPILER'] === 'true'
+  const wantDebugDump = options.dryRun === true && options.debug === true
+  let compileOutcome: RunCompileOutcome | undefined
+  if (options.compileRuntime && (viaCompiler || wantDebugDump)) {
     const cwd = runOptions.cwd ?? runOptions.projectPath ?? defaultCwd
-    compilerDebugContext = buildCompilerDebugContext({
+    const compilerContext = buildCompilerDebugContext({
       aspHome,
       harnessId: adapter.id,
       model: runOptions.model,
@@ -132,12 +127,12 @@ async function executeSpaceRun({
         cwd,
         runMode: 'query',
         bundle: { kind: 'compose', compose: lock.targets[bundle.targetName]?.compose ?? [] },
-        dryRun: true,
+        dryRun: options.dryRun === true,
         ...(options.env !== undefined ? { env: options.env } : {}),
       },
       initialPrompt: runOptions.prompt,
       resolvedBundleHint: {
-        bundleIdentity: `legacy-dry-run:${bundle.rootDir}:${bundle.targetName}:${adapter.id}`,
+        bundleIdentity: `asp-run:${bundle.rootDir}:${bundle.targetName}:${adapter.id}`,
         root: bundle.rootDir,
         targetName: bundle.targetName,
       },
@@ -147,6 +142,22 @@ async function executeSpaceRun({
         laneRef: 'main',
       },
     })
+    compileOutcome = await options.compileRuntime(compilerContext)
+  }
+
+  const compiledLaunch =
+    viaCompiler && compileOutcome?.foreground ? compileOutcome.foreground : undefined
+
+  const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
+    env: options.env,
+    dryRun: options.dryRun,
+    pagePrompts: options.pagePrompts,
+    ...(compiledLaunch ? { compiledLaunch } : {}),
+  })
+
+  const shouldCleanup = options.dryRun ? false : (options.cleanup ?? !options.interactive)
+  if (shouldCleanup) {
+    await cleanupTempDir(tempDir)
   }
 
   return {
@@ -162,7 +173,9 @@ async function executeSpaceRun({
     command: execution.command,
     displayCommand: execution.displayCommand,
     primingPrompt: runOptions.prompt,
-    ...(compilerDebugContext ? { compilerDebugContext } : {}),
+    ...(compileOutcome
+      ? { runtimeCompile: { request: compileOutcome.request, response: compileOutcome.response } }
+      : {}),
   }
 }
 

@@ -15,18 +15,13 @@ import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { parseScopeHandle } from 'agent-scope'
-import { type RuntimeCompileRequest, createAgentSpacesClient } from 'agent-spaces'
+import { createCompileRuntimeFn } from 'agent-spaces'
 import chalk from 'chalk'
 import type { Command } from 'commander'
-import {
-  DEFAULT_CODEX_BROKER_INPUT_POLICY,
-  type RuntimeIdentityAllocation,
-} from 'spaces-runtime-contracts'
 
 import { getAgentsRoot, parseSpaceRef } from 'spaces-config'
 import {
   type HarnessId,
-  type RunCompilerDebugContext,
   type RunResult,
   harnessRegistry,
   isHarnessId,
@@ -131,129 +126,19 @@ function buildSettingSources(options: RunOptions): string | null | undefined {
   return undefined
 }
 
-function compilerDebugId(prefix: string, seed: string): string {
-  const sanitized = seed.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80) || 'asp_run'
-  return `${prefix}_asp_run_debug_${sanitized}`
-}
-
-function allocateCompilerDebugIdentity(
-  context: RunCompilerDebugContext
-): RuntimeIdentityAllocation {
-  const seed = `${context.correlation.appSessionKey}:${context.requested.preferredHarnessRuntime ?? 'runtime'}`
-  return {
-    requestId: compilerDebugId('request', seed) as RuntimeIdentityAllocation['requestId'],
-    operationId: compilerDebugId(
-      'runtimeOperation',
-      seed
-    ) as RuntimeIdentityAllocation['operationId'],
-    hostSessionId: compilerDebugId(
-      'hostSession',
-      seed
-    ) as RuntimeIdentityAllocation['hostSessionId'],
-    generation: 1,
-    runtimeId: compilerDebugId('runtime', seed) as RuntimeIdentityAllocation['runtimeId'],
-    invocationId: compilerDebugId('inv', seed) as RuntimeIdentityAllocation['invocationId'],
-    initialInputId: compilerDebugId('input', seed) as RuntimeIdentityAllocation['initialInputId'],
-    runId: compilerDebugId('run', seed) as RuntimeIdentityAllocation['runId'],
-    traceId: compilerDebugId('trace', seed) as RuntimeIdentityAllocation['traceId'],
-    idempotencyKey: `asp-run-debug:${seed}`,
-  }
-}
-
-function normalizeReasoningEffort(
-  value: string | undefined
-): RuntimeCompileRequest['requested']['reasoningEffort'] {
-  if (value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') {
-    return value
-  }
-  return undefined
-}
-
-function buildCompilerDebugRequest(context: RunCompilerDebugContext): RuntimeCompileRequest {
-  const identity = allocateCompilerDebugIdentity(context)
-  const now = new Date().toISOString()
-  const placement = {
-    ...context.placement,
-    correlation: {
-      ...(typeof context.placement['correlation'] === 'object' &&
-      context.placement['correlation'] !== null
-        ? (context.placement['correlation'] as Record<string, unknown>)
-        : {}),
-      sessionRef: {
-        scopeRef: context.correlation.scopeRef ?? context.correlation.appSessionKey,
-        laneRef: context.correlation.laneRef ?? 'main',
-      },
-      hostSessionId: identity.hostSessionId,
-    },
-  }
-
-  return {
-    schemaVersion: 'agent-runtime-compile-request/v1',
-    identity,
-    placement,
-    requested: {
-      modelProvider: context.requested.modelProvider,
-      model: context.requested.model,
-      reasoningEffort: normalizeReasoningEffort(context.requested.reasoningEffort),
-      harnessFamily: context.requested.harnessFamily,
-      preferredHarnessRuntime: context.requested.preferredHarnessRuntime,
-      interactionMode: context.requested.interactionMode,
-    },
-    materialization: {
-      initialPrompt: context.materialization.initialPrompt,
-      resolvedBundleHint: context.materialization
-        .resolvedBundleHint as RuntimeCompileRequest['materialization']['resolvedBundleHint'],
-    },
-    hrcPolicy: {
-      permissionPolicy:
-        context.hrcPolicy.yolo === true
-          ? {
-              mode: 'allow',
-              audit: true,
-              provenance: {
-                source: 'operator-config',
-                requestId: identity.requestId,
-                createdAt: now,
-              },
-            }
-          : { mode: 'deny', audit: true },
-      inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
-      exposurePolicy: { mode: 'none' },
-      resourceLimits: { startupTimeoutMs: 120_000, turnTimeoutMs: 120_000 },
-      observability: { traceId: identity.traceId },
-      capabilityPolicy: {
-        allowDegrade: false,
-        requireBrokerDefaultForCodexHeadless: true,
-      },
-    },
-    correlation: {
-      requestId: identity.requestId,
-      operationId: identity.operationId,
-      hostSessionId: identity.hostSessionId,
-      generation: identity.generation,
-      runtimeId: identity.runtimeId,
-      runId: identity.runId,
-      invocationId: identity.invocationId,
-      traceId: identity.traceId,
-      appId: 'agent-spaces',
-      appSessionKey: context.correlation.appSessionKey,
-      scopeRef: context.correlation.scopeRef,
-      laneRef: context.correlation.laneRef ?? 'main',
-    },
-  }
-}
-
-async function printCompilerDebugDump(context: RunCompilerDebugContext): Promise<void> {
-  const req = buildCompilerDebugRequest(context)
-  const client = createAgentSpacesClient({ aspHome: context.aspHome })
-  const response = await client.compileRuntimePlan(req)
-
+/**
+ * Print the REAL RuntimeCompileRequest/Response the run compiled.
+ *
+ * No re-compile, no synthetic identities — these are the exact request/response
+ * `run()` already produced for this invocation.
+ */
+function printCompilerDebugDump(runtimeCompile: { request: unknown; response: unknown }): void {
   console.log('')
   console.log(chalk.cyan('RuntimeCompileRequest'))
-  console.log(JSON.stringify(req, null, 2))
+  console.log(JSON.stringify(runtimeCompile.request, null, 2))
   console.log('')
   console.log(chalk.cyan('RuntimeCompileResponse'))
-  console.log(JSON.stringify(response, null, 2))
+  console.log(JSON.stringify(runtimeCompile.response, null, 2))
 }
 
 /**
@@ -350,6 +235,7 @@ async function runProjectMode(
     pagePrompts: options.pagePrompts,
     projectId: resolvedTarget.projectId,
     taskId: resolvedTarget.taskId,
+    compileRuntime: createCompileRuntimeFn(options.aspHome),
   }
 
   if (options.dryRun) {
@@ -441,6 +327,7 @@ async function runGlobalMode(
     remoteControl: options.remoteControl,
     sessionNamePrefix: options.namePrefix,
     pagePrompts: options.pagePrompts,
+    compileRuntime: createCompileRuntimeFn(options.aspHome),
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -491,6 +378,7 @@ async function runDevMode(
     remoteControl: options.remoteControl,
     sessionNamePrefix: options.namePrefix,
     pagePrompts: options.pagePrompts,
+    compileRuntime: createCompileRuntimeFn(options.aspHome),
   }
 
   const result = await runLocalSpace(targetPath, devOptions)
@@ -627,8 +515,8 @@ export function registerRunCommand(program: Command): void {
             showCommand: true,
             pagePrompts: options.pagePrompts,
           })
-          if (options.debug && result.compilerDebugContext) {
-            await printCompilerDebugDump(result.compilerDebugContext)
+          if (options.debug && result.runtimeCompile) {
+            printCompilerDebugDump(result.runtimeCompile)
           }
         }
 
