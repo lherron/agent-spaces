@@ -347,7 +347,12 @@ type InProcessInvocationManager = {
   status: (invocationId: string) => { state: string }
 }
 
-function assertInteractiveTmuxEvents(input: {
+// Exported so the Phase 5 real-target e2e runner (scripts/phase5-real-claude-
+// tmux-e2e.ts) can re-run the SIGNED Phase 4 interactive-tmux ledger assertions
+// verbatim on a REAL Claude tmux session ledger. The deterministic Phase 4
+// harness path keeps calling it in-module; exporting adds no new imports and
+// does not change its behavior.
+export function assertInteractiveTmuxEvents(input: {
   events: InvocationEventEnvelope[]
   socketPath: string
   inputTurnId: string

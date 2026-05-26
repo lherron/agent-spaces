@@ -13,6 +13,7 @@
     "check:precommit": "bun run lint && bun scripts/check-boundaries.ts && bun scripts/check-runtime-contract-harness-boundaries.ts && bun scripts/check-manifest-edges.ts && bun run build",
     "smoke:broker-contract:fake": "bun scripts/smoke-runtime-contract-broker-fake-codex.ts",
     "smoke:broker-contract:real-codex": "bun scripts/smoke-runtime-contract-broker-real-codex.ts",
+    "smoke:phase5:real-claude-tmux": "bun scripts/phase5-real-claude-tmux-e2e.ts",
     "test:broker-contract": "bun test packages/agent-spaces/src/__tests__/pre-hrc-broker-contract-verifier.test.ts",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "biome check .",
