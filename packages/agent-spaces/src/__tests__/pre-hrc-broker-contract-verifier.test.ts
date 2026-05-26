@@ -912,4 +912,21 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
     expect(result.interactiveTmux.driverDisposed).toBe(true)
     expect(result.interactiveTmux.queuedInputLeft).toBe(false)
   })
+
+  test('interactive-tmux fails clean-exit assertions when queued input is left dirty', async () => {
+    const result = await runPreHrcBrokerContractHarness({
+      compileRequest: interactiveTmuxCompileRequest(),
+      aspHome: fixture.aspHome,
+      mode: 'interactive-tmux',
+      interactiveTmux: {
+        socketPath: '/tmp/prehrc-interactive-tmux-dirty-queue.sock',
+        simulateQueuedInputLeftForTest: true,
+      },
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.assertionReport.failures.map((failure) => failure.code)).toContain(
+      'interactive_tmux_clean_exit_invalid'
+    )
+  })
 })

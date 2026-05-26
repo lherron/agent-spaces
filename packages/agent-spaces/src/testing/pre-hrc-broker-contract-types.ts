@@ -146,6 +146,7 @@ export type PreHrcBrokerContractHarnessInput = {
         tmuxBin?: string | undefined
         userInputText?: string | undefined
         includePermissionEvents?: boolean | undefined
+        simulateQueuedInputLeftForTest?: boolean | undefined
       }
     | undefined
   /**
