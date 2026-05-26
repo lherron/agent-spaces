@@ -6,6 +6,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import type { RuntimeCapabilities } from './capabilities'
 import type { BrokerContinuationRef, RuntimeContinuationRef } from './continuation'
+import type { ControllerOwnedTerminalHost } from './execution-profile'
 import type {
   CompileId,
   HostSessionId,
@@ -50,7 +51,7 @@ import type { RunId } from './ids'
 export type TerminalRuntimeState = RuntimeStateBase & {
   kind: 'terminal'
   terminal: {
-    host: 'tmux' | 'ghostty'
+    host: ControllerOwnedTerminalHost
     sessionId?: string | undefined
     windowId?: string | undefined
     paneId?: string | undefined

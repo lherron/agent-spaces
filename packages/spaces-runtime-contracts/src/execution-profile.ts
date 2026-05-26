@@ -24,6 +24,12 @@ export type RuntimeExecutionProfile =
   | CommandExecutionProfile
   | LegacyExecutionProfile
 
+export type ForegroundTerminalHost = 'foreground'
+export type TmuxTerminalHost = 'tmux'
+export type GhosttyTerminalHost = 'ghostty'
+export type TerminalHost = ForegroundTerminalHost | TmuxTerminalHost | GhosttyTerminalHost
+export type ControllerOwnedTerminalHost = TmuxTerminalHost | GhosttyTerminalHost
+
 export type RuntimeExecutionProfileBase = {
   schemaVersion: 'agent-runtime-profile/v1'
   profileId: ProfileId
@@ -39,8 +45,12 @@ export type TerminalExecutionProfile = RuntimeExecutionProfileBase & {
   kind: 'terminal'
   interactionMode: 'interactive'
   terminal: {
-    host: 'tmux' | 'ghostty'
-    startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal'
+    host: TerminalHost
+    startupMethod:
+      | 'create-terminal'
+      | 'reuse-existing'
+      | 'adopt-terminal'
+      | 'inherit-current-terminal'
     turnDelivery: 'terminal-launch-input' | 'terminal-literal-input'
   }
   process: {
@@ -54,7 +64,7 @@ export type TerminalExecutionProfile = RuntimeExecutionProfileBase & {
      * lockedEnv. Part of launch shape — included in profile hash material.
      */
     pathPrepend?: string[] | undefined
-    io: { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
+    io: { kind: 'inherit' } | { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
   }
   policy: {
     exposurePolicy: AgentchatExposurePolicy

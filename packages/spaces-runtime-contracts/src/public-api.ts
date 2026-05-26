@@ -7,6 +7,7 @@ import type {
   RuntimeReconcileResult,
   RuntimeStopResult,
 } from './controller'
+import type { ControllerOwnedTerminalHost } from './execution-profile'
 import type { AttachmentRef } from './external'
 import type {
   CompileId,
@@ -42,7 +43,7 @@ export type RuntimeExecutionView = {
   status: RuntimeStatus
 
   controller:
-    | { kind: 'terminal'; terminalHost: 'tmux' | 'ghostty' }
+    | { kind: 'terminal'; terminalHost: ControllerOwnedTerminalHost }
     | { kind: 'embedded-sdk' }
     | { kind: 'harness-broker'; brokerDriver: string; brokerProtocol: 'harness-broker/0.1' }
     | { kind: 'command-process' }

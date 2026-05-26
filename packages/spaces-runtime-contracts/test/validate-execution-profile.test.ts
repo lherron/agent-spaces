@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  validateTerminalExecutionProfile,
   type CompileDiagnostic,
   type TerminalExecutionProfile,
+  validateTerminalExecutionProfile,
 } from '../src/index'
 
 const baseProfile = {
@@ -114,5 +114,17 @@ describe('validateTerminalExecutionProfile', () => {
     )
 
     expect(diagnosticCodes(diagnostics)).toContain('inherit_method_requires_foreground')
+  })
+
+  test('rejects adopt-terminal startup for foreground host', () => {
+    const diagnostics = validateTerminalExecutionProfile(
+      profile({
+        terminal: {
+          startupMethod: 'adopt-terminal',
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('adopt_method_requires_pty_host')
   })
 })

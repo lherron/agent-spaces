@@ -1,3 +1,4 @@
+import type { TerminalHost } from './execution-profile'
 import type {
   HarnessFamily,
   HarnessRuntime,
@@ -8,7 +9,7 @@ import type {
 
 export type RuntimeRouteCatalogEntry = {
   controller: RuntimeControllerKind
-  terminalHost?: 'tmux' | 'ghostty' | undefined
+  terminalHost?: TerminalHost | undefined
   migrationOnly?: boolean | undefined
   modelProvider: ProviderDomain
   harnessFamily: HarnessFamily
@@ -34,7 +35,12 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     harnessFamily: 'claude-code',
     harnessRuntime: 'claude-code-cli',
     interactionMode: 'interactive',
-    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal'],
+    startupMethods: [
+      'create-terminal',
+      'reuse-existing',
+      'adopt-terminal',
+      'inherit-current-terminal',
+    ],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
   },
   {
@@ -44,7 +50,12 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     harnessFamily: 'codex',
     harnessRuntime: 'codex-cli',
     interactionMode: 'interactive',
-    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal'],
+    startupMethods: [
+      'create-terminal',
+      'reuse-existing',
+      'adopt-terminal',
+      'inherit-current-terminal',
+    ],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
   },
   {
