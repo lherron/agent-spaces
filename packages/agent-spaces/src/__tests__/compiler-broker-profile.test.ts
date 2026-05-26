@@ -22,7 +22,10 @@ import type {
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
-import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
+import {
+  DEFAULT_CODEX_BROKER_INPUT_POLICY,
+  validateBrokerExecutionProfile,
+} from 'spaces-runtime-contracts'
 
 import { createAgentSpacesClient } from '../index.js'
 import type {
@@ -62,6 +65,23 @@ echo "codex shim"
   return shimPath
 }
 
+function createClaudeShim(dir: string): string {
+  const shimPath = join(dir, 'claude')
+  writeFileSync(
+    shimPath,
+    `#!/usr/bin/env bash
+if [[ "$1" == "--version" ]]; then
+  echo "claude 1.0.0"
+  exit 0
+fi
+echo "claude shim"
+`,
+    'utf8'
+  )
+  chmodSync(shimPath, 0o755)
+  return shimPath
+}
+
 function createFixture(): {
   agentRoot: string
   projectRoot: string
@@ -90,6 +110,7 @@ enabled = false
 `,
     'utf8'
   )
+  createClaudeShim(aspHome)
   createCodexShim(aspHome)
   return {
     agentRoot,
@@ -103,6 +124,7 @@ enabled = false
 let fixture: ReturnType<typeof createFixture>
 const originalCodexPath = process.env['ASP_CODEX_PATH']
 const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
+const originalClaudePath = process.env['ASP_CLAUDE_PATH']
 
 function createClient(): CompileClient {
   return createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
@@ -202,6 +224,38 @@ function baseCompileRequest(overrides: Partial<RuntimeCompileRequest> = {}): Run
   }
 }
 
+function claudeTmuxCompileRequest(
+  overrides: Partial<RuntimeCompileRequest> = {}
+): RuntimeCompileRequest {
+  return baseCompileRequest({
+    requested: {
+      modelProvider: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      harnessFamily: 'claude-code',
+      preferredHarnessRuntime: 'claude-code-cli',
+      interactionMode: 'interactive',
+    },
+    materialization: {
+      ...baseCompileRequest().materialization,
+      initialPrompt: 'hello interactive claude tmux broker',
+      attachments: [],
+      taskContext: {
+        taskId: 'T-01658',
+        phase: 'red',
+        role: 'smokey',
+        requiredEvidenceKinds: ['red-test'],
+        hintsText: 'compileRuntimePlan must emit the interactive claude-code-tmux broker profile',
+      },
+    },
+    hrcPolicy: {
+      ...baseCompileRequest().hrcPolicy,
+      exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' },
+    },
+    continuation: undefined,
+    ...overrides,
+  })
+}
+
 function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile {
   expect(response.ok).toBe(true)
   if (!response.ok) {
@@ -257,11 +311,17 @@ function legacyBrokerRequest(
 describe('compiled broker profile field mapping', () => {
   beforeAll(() => {
     fixture = createFixture()
+    process.env['ASP_CLAUDE_PATH'] = join(fixture.aspHome, 'claude')
     process.env['ASP_CODEX_PATH'] = join(fixture.aspHome, 'codex')
     process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
   })
 
   afterAll(() => {
+    if (originalClaudePath === undefined) {
+      process.env['ASP_CLAUDE_PATH'] = undefined
+    } else {
+      process.env['ASP_CLAUDE_PATH'] = originalClaudePath
+    }
     if (originalCodexPath === undefined) {
       process.env['ASP_CODEX_PATH'] = undefined
     } else {
@@ -339,6 +399,44 @@ describe('compiled broker profile field mapping', () => {
         resumeFallback: 'fail',
       })
     )
+  })
+
+  test('emits a validating interactive claude-code-tmux harness-broker profile', async () => {
+    const req = claudeTmuxCompileRequest()
+    const profile = brokerProfile(await createClient().compileRuntimePlan(req))
+    const spec = compiledSpec(profile)
+
+    expect(profile.kind).toBe('harness-broker')
+    expect(profile.interactionMode).toBe('interactive')
+    expect(profile.brokerDriver).toBe('claude-code-tmux')
+    expect(profile.brokerProtocol).toBe('harness-broker/0.1')
+    expect(profile.brokerTerminal).toEqual({
+      host: 'tmux',
+      startupMethod: 'create-terminal',
+      turnDelivery: 'terminal-literal-input',
+      operatorAttach: true,
+      exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' },
+    })
+    expect(profile.policy.exposurePolicy).toEqual(profile.brokerTerminal?.exposurePolicy)
+    expect(spec.harness).toEqual({
+      frontend: 'claude-code',
+      provider: 'anthropic',
+      driver: 'claude-code-tmux',
+    })
+    expect(spec.interaction).toEqual(
+      expect.objectContaining({
+        mode: 'interactive',
+        turnConcurrency: 'single',
+      })
+    )
+    expect(spec.driver).toEqual(
+      expect.objectContaining({
+        kind: 'claude-code-tmux',
+        terminalHost: 'tmux',
+      })
+    )
+    expect(spec.process.harnessTransport).toEqual({ kind: 'pty' })
+    expect(validateBrokerExecutionProfile(profile)).toEqual([])
   })
 
   test('translates the OpenAI continuation into a broker Codex thread continuation', async () => {

@@ -51,6 +51,23 @@ echo "codex shim"
   return shimPath
 }
 
+function createClaudeShim(dir: string): string {
+  const shimPath = join(dir, 'claude')
+  writeFileSync(
+    shimPath,
+    `#!/usr/bin/env bash
+if [[ "$1" == "--version" ]]; then
+  echo "claude 1.0.0"
+  exit 0
+fi
+echo "claude shim"
+`,
+    'utf8'
+  )
+  chmodSync(shimPath, 0o755)
+  return shimPath
+}
+
 function createFixture(): {
   agentRoot: string
   projectRoot: string
@@ -79,6 +96,7 @@ enabled = false
 `,
     'utf8'
   )
+  createClaudeShim(aspHome)
   createCodexShim(aspHome)
   return {
     agentRoot,
@@ -92,6 +110,7 @@ enabled = false
 let fixture: ReturnType<typeof createFixture>
 const originalCodexPath = process.env['ASP_CODEX_PATH']
 const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
+const originalClaudePath = process.env['ASP_CLAUDE_PATH']
 
 function createClient(): CompileClient {
   return createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
@@ -237,6 +256,17 @@ function interactiveCompileRequest(
   })
 }
 
+function explicitTerminalCompileRequest(
+  requested: RuntimeCompileRequest['requested']
+): RuntimeCompileRequest {
+  return interactiveCompileRequest({
+    ...requested,
+    // Target Phase 1 discriminator API: the pre-HRC default selects the broker;
+    // foreground terminal remains available only when compiler intent says so.
+    controllerIntent: 'foreground-terminal',
+  } as unknown as RuntimeCompileRequest['requested'])
+}
+
 function legacyBrokerRequest(
   req: RuntimeCompileRequest
 ): BuildHarnessBrokerInvocationRequest & { initialInputId?: InputId | undefined } {
@@ -272,11 +302,17 @@ function legacyBrokerRequest(
 describe('compileRuntimePlan broker profile contract', () => {
   beforeAll(() => {
     fixture = createFixture()
+    process.env['ASP_CLAUDE_PATH'] = join(fixture.aspHome, 'claude')
     process.env['ASP_CODEX_PATH'] = join(fixture.aspHome, 'codex')
     process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
   })
 
   afterAll(() => {
+    if (originalClaudePath === undefined) {
+      process.env['ASP_CLAUDE_PATH'] = undefined
+    } else {
+      process.env['ASP_CLAUDE_PATH'] = originalClaudePath
+    }
     if (originalCodexPath === undefined) {
       process.env['ASP_CODEX_PATH'] = undefined
     } else {
@@ -317,9 +353,29 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.brokerDriver).toBe('codex-app-server')
   })
 
-  test('compiles claude-code interactive requests to a foreground terminal profile', async () => {
+  test('selects the claude-code-tmux harness-broker for the pre-HRC interactive default', async () => {
     const response = await createClient().compileRuntimePlan(
       interactiveCompileRequest({
+        modelProvider: 'anthropic',
+        model: 'claude-sonnet-4-5',
+        harnessFamily: 'claude-code',
+        preferredHarnessRuntime: 'claude-code-cli',
+        interactionMode: 'interactive',
+      })
+    )
+    const profile = brokerProfile(response)
+
+    expect(response.ok).toBe(true)
+    expect(profile.kind).toBe('harness-broker')
+    expect(profile.interactionMode).toBe('interactive')
+    expect(profile.brokerDriver).toBe('claude-code-tmux')
+    expect(profile.brokerTerminal?.host).toBe('tmux')
+    expect(profile.harnessInvocation.startRequest.spec.driver.kind).toBe('claude-code-tmux')
+  })
+
+  test('selects the foreground terminal only when compiler intent explicitly requests it', async () => {
+    const response = await createClient().compileRuntimePlan(
+      explicitTerminalCompileRequest({
         modelProvider: 'anthropic',
         model: 'claude-sonnet-4-5',
         harnessFamily: 'claude-code',
@@ -337,6 +393,56 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.terminal.turnDelivery).toBe('terminal-launch-input')
     expect(profile.process.io.kind).toBe('inherit')
     expect(profile.policy.exposurePolicy.mode).toBe('none')
+  })
+
+  test('dry compile of claude-code-tmux creates no tmux session and emits no synthetic terminal ids', async () => {
+    const marker = join(fixture.aspHome, 'tmux-was-invoked')
+    const tmuxShim = join(fixture.aspHome, 'tmux')
+    writeFileSync(
+      tmuxShim,
+      `#!/usr/bin/env bash
+echo "$@" >> ${JSON.stringify(marker)}
+exit 0
+`,
+      'utf8'
+    )
+    chmodSync(tmuxShim, 0o755)
+
+    const originalPath = process.env['PATH']
+    process.env['PATH'] =
+      originalPath === undefined ? fixture.aspHome : `${fixture.aspHome}${delimiter}${originalPath}`
+    try {
+      const response = await createClient().compileRuntimePlan(
+        interactiveCompileRequest({
+          modelProvider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          harnessFamily: 'claude-code',
+          preferredHarnessRuntime: 'claude-code-cli',
+          interactionMode: 'interactive',
+        })
+      )
+      const profile = brokerProfile(response)
+      const serializedTerminal = JSON.stringify(profile.brokerTerminal ?? {})
+
+      expect(response.ok).toBe(true)
+      expect(profile.brokerTerminal).toEqual(
+        expect.not.objectContaining({
+          socketPath: expect.any(String),
+          sessionName: expect.any(String),
+          paneId: expect.any(String),
+        })
+      )
+      expect(serializedTerminal).not.toMatch(/synthetic|placeholder|fake|todo/i)
+      await expect(Bun.file(marker).exists()).resolves.toBe(false)
+    } finally {
+      if (originalPath === undefined) {
+        process.env['PATH'] = undefined
+      } else {
+        process.env['PATH'] = originalPath
+      }
+      rmSync(tmuxShim, { force: true })
+      rmSync(marker, { force: true })
+    }
   })
 
   test('compiles codex-cli interactive requests to a foreground terminal profile', async () => {

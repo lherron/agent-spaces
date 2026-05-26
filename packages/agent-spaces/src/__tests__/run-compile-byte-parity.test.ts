@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { type RunResult, displayPrompts, run } from 'spaces-execution'
 import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import type {
+  BrokerExecutionProfile,
   HarnessFamily,
   HarnessRuntime,
   ProviderDomain,
@@ -158,7 +159,10 @@ const CASES: HarnessCase[] = [
   },
 ]
 
-function compileRequest(testCase: HarnessCase): RuntimeCompileRequest {
+function compileRequest(
+  testCase: HarnessCase,
+  controllerIntent?: 'foreground-terminal'
+): RuntimeCompileRequest {
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
     identity: {
@@ -186,7 +190,8 @@ function compileRequest(testCase: HarnessCase): RuntimeCompileRequest {
       harnessFamily: testCase.family,
       preferredHarnessRuntime: testCase.runtime,
       interactionMode: 'interactive',
-    },
+      ...(controllerIntent !== undefined ? { controllerIntent } : {}),
+    } as unknown as RuntimeCompileRequest['requested'],
     materialization: {},
     hrcPolicy: {
       permissionPolicy: { mode: 'deny', audit: true },
@@ -206,6 +211,20 @@ function compileRequest(testCase: HarnessCase): RuntimeCompileRequest {
       appSessionKey: 'run-compile-byte-parity',
     },
   }
+}
+
+function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile {
+  expect(response.ok).toBe(true)
+  if (!response.ok) {
+    throw new Error(
+      `compileRuntimePlan failed: ${response.diagnostics.map((diagnostic) => diagnostic.code).join(', ')}`
+    )
+  }
+  const profiles = response.plan.executionProfiles.filter(
+    (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
+  )
+  expect(profiles).toHaveLength(1)
+  return profiles[0]
 }
 
 /**
@@ -315,7 +334,9 @@ describe('asp run <-> compiler foreground byte-parity', () => {
       const legacyLaunch = legacy.launch!
 
       // Compiler foreground path.
-      const response = await createClient().compileRuntimePlan(compileRequest(testCase))
+      const response = await createClient().compileRuntimePlan(
+        compileRequest(testCase, 'foreground-terminal')
+      )
       const foreground = foregroundLaunchFromResponse(response)
       if (!foreground) {
         throw new Error(
@@ -399,4 +420,59 @@ describe('asp run <-> compiler foreground byte-parity', () => {
       expect(canonicalCommandTokens(compiledRender)).toEqual(canonicalCommandTokens(legacyRender))
     })
   }
+
+  test('claude: tmux broker process launch shape byte-matches foreground claude launch', async () => {
+    const testCase = CASES.find((candidate) => candidate.harness === 'claude')
+    if (testCase === undefined) throw new Error('missing claude parity case')
+
+    const legacy = await run(AGENT_NAME, {
+      projectPath: fixture.projectRoot,
+      aspHome: fixture.aspHome,
+      harness: 'claude',
+      ...(testCase.model !== undefined ? { model: testCase.model } : {}),
+      interactive: true,
+      dryRun: true,
+    })
+    expect(legacy.launch).toBeDefined()
+    const legacyLaunch = legacy.launch!
+
+    const foregroundResponse = await createClient().compileRuntimePlan(
+      compileRequest(testCase, 'foreground-terminal')
+    )
+    const foreground = foregroundLaunchFromResponse(foregroundResponse)
+    if (!foreground) {
+      throw new Error(
+        `compileRuntimePlan produced no foreground launch: ${
+          foregroundResponse.ok
+            ? 'ok but no terminal profile'
+            : foregroundResponse.diagnostics.map((d) => d.code).join(', ')
+        }`
+      )
+    }
+
+    const broker = brokerProfile(await createClient().compileRuntimePlan(compileRequest(testCase)))
+    const brokerProcess = broker.harnessInvocation.startRequest.spec.process
+
+    expect(broker.interactionMode).toBe('interactive')
+    expect(broker.brokerDriver).toBe('claude-code-tmux')
+    expect(brokerProcess.harnessTransport).toEqual({ kind: 'pty' })
+    expect(normalizeArgv([brokerProcess.command, ...brokerProcess.args])).toEqual(
+      normalizeArgv([foreground.command, ...foreground.args])
+    )
+    expect(normalizeArgv([brokerProcess.command, ...brokerProcess.args])).toEqual(
+      normalizeArgv([legacyLaunch.command, ...legacyLaunch.args])
+    )
+    expect(brokerProcess.cwd).toBe(foreground.cwd)
+    expect(brokerProcess.cwd).toBe(legacyLaunch.cwd)
+    expect(normalizeEnv(brokerProcess.lockedEnv ?? {})).toEqual(normalizeEnv(foreground.env))
+    const brokerEnv = normalizeEnv(brokerProcess.lockedEnv ?? {})
+    const legacyEnv = normalizeEnv(legacyLaunch.env)
+    const extraKeys = Object.keys(brokerEnv).filter((key) => !(key in legacyEnv))
+    expect(extraKeys.sort()).toEqual(['ASP_HOME'])
+    expect(brokerEnv['ASP_HOME']).toBe(fixture.aspHome)
+    for (const [key, value] of Object.entries(legacyEnv)) {
+      expect(brokerEnv[key]).toBe(value)
+    }
+    expect(brokerProcess.pathPrepend ?? []).toEqual([])
+  })
 })
