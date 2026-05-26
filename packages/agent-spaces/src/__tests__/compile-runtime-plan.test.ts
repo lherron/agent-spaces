@@ -423,6 +423,7 @@ exit 0
       )
       const profile = brokerProfile(response)
       const serializedTerminal = JSON.stringify(profile.brokerTerminal ?? {})
+      const serializedStartRequest = JSON.stringify(profile.harnessInvocation.startRequest)
 
       expect(response.ok).toBe(true)
       expect(profile.brokerTerminal).toEqual(
@@ -432,6 +433,7 @@ exit 0
           paneId: expect.any(String),
         })
       )
+      expect(serializedStartRequest).not.toMatch(/socketPath|sessionName|paneId/)
       expect(serializedTerminal).not.toMatch(/synthetic|placeholder|fake|todo/i)
       await expect(Bun.file(marker).exists()).resolves.toBe(false)
     } finally {

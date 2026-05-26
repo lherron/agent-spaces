@@ -20,6 +20,12 @@ type HookEnvelope = {
   hookData: unknown
 }
 
+type BrokerRuntimeContext = {
+  tmux?: {
+    socketPath?: string | undefined
+  }
+}
+
 type ClaudeCodeTmuxDriverFactory = (options: {
   tmux: {
     socketPath: string
@@ -105,10 +111,14 @@ function createRecordingExec(calls: TmuxExecCall[]) {
   }
 }
 
-function createCtx(events: InvocationEventEnvelope[]): DriverContext {
+function createCtx(
+  events: InvocationEventEnvelope[],
+  runtime?: BrokerRuntimeContext | undefined
+): DriverContext {
   return {
     invocationId: 'inv_claude_tmux_1',
     clientCapabilities: {},
+    ...(runtime !== undefined ? { runtime } : {}),
     emit(type, payload, extra) {
       const event = {
         invocationId: 'inv_claude_tmux_1',
@@ -121,7 +131,7 @@ function createCtx(events: InvocationEventEnvelope[]): DriverContext {
       events.push(event)
       return event
     },
-  }
+  } as DriverContext
 }
 
 function sentLiteralTexts(calls: TmuxExecCall[]): string[] {
@@ -129,6 +139,10 @@ function sentLiteralTexts(calls: TmuxExecCall[]): string[] {
     .map((call) => call.argv)
     .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
     .map((argv) => argv.at(-1) ?? '')
+}
+
+function tmuxArgv(calls: TmuxExecCall[]): string[][] {
+  return calls.map((call) => call.argv)
 }
 
 describe('claude-code-tmux driver RED lifecycle', () => {
@@ -274,11 +288,9 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expect(events.map((event) => event.type)).toEqual(
       expect.arrayContaining(['turn.started', 'tool.call.started', 'turn.completed'])
     )
-    expect(events.filter((event) => event.turnId === 'turn_driver_envelope_1').map((event) => event.type)).toEqual([
-      'turn.started',
-      'tool.call.started',
-      'turn.completed',
-    ])
+    expect(
+      events.filter((event) => event.turnId === 'turn_driver_envelope_1').map((event) => event.type)
+    ).toEqual(['turn.started', 'tool.call.started', 'turn.completed'])
   })
 
   test('start installs a real Claude hook bridge in the tmux launch, not only broker env vars', async () => {
@@ -376,5 +388,136 @@ describe('claude-code-tmux driver RED lifecycle', () => {
         payload: { turnId: activeTurnId, status: 'completed' },
       })
     )
+  })
+
+  test('uses the runtime-supplied tmux socket in argv and terminal.surface.reported', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const events: InvocationEventEnvelope[] = []
+    const suppliedSocket = '/tmp/preallocated/hrc-owned-tmux.sock'
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: createRecordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/claude-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    await driver.start(
+      claudeTmuxSpec(),
+      createCtx(events, { tmux: { socketPath: suppliedSocket } })
+    )
+
+    expect(
+      tmuxArgv(tmuxCalls).every(
+        (argv) => !argv.includes('/tmp/harness-broker/hidden-default-should-not-be-used.sock')
+      )
+    ).toBe(true)
+    expect(tmuxArgv(tmuxCalls)).toContainEqual(
+      expect.arrayContaining(['-S', suppliedSocket, 'new-session'])
+    )
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'terminal.surface.reported',
+        payload: expect.objectContaining({
+          kind: 'tmux-session',
+          socketPath: suppliedSocket,
+          sessionName: 'hrc-host-sessio',
+          paneId: '%7',
+        }),
+      })
+    )
+  })
+
+  test('rejects start when no runtime tmux socket is supplied', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: createRecordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/claude-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    await expect(driver.start(claudeTmuxSpec(), createCtx([]))).rejects.toThrow(
+      /runtime.*tmux.*socket/i
+    )
+    expect(tmuxCalls).toEqual([])
+  })
+
+  test('does not start or initialize the tmux server when creating its session', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const suppliedSocket = '/tmp/preallocated/hrc-owned-tmux.sock'
+    const driver = createDriver({
+      tmux: {
+        socketPath: suppliedSocket,
+        tmuxBin: '/opt/bin/tmux',
+        exec: createRecordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/claude-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    await driver.start(claudeTmuxSpec(), createCtx([], { tmux: { socketPath: suppliedSocket } }))
+
+    const commands = tmuxArgv(tmuxCalls).flat()
+    expect(commands).not.toContain('-V')
+    expect(commands).not.toContain('start-server')
+    expect(commands).not.toContain('set-environment')
+    expect(commands).not.toContain('kill-server')
+    expect(tmuxArgv(tmuxCalls)).toContainEqual(
+      expect.arrayContaining(['-S', suppliedSocket, 'new-session'])
+    )
+  })
+
+  test('dispose terminates only the driver-owned tmux session, not the tmux server', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const suppliedSocket = '/tmp/preallocated/hrc-owned-tmux.sock'
+    const driver = createDriver({
+      tmux: {
+        socketPath: suppliedSocket,
+        tmuxBin: '/opt/bin/tmux',
+        exec: createRecordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/claude-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+    await driver.start(claudeTmuxSpec(), createCtx([], { tmux: { socketPath: suppliedSocket } }))
+
+    await driver.dispose()
+
+    expect(tmuxArgv(tmuxCalls)).toContainEqual(
+      expect.arrayContaining(['-S', suppliedSocket, 'kill-session', '-t', '=hrc-host-sessio'])
+    )
+    const commands = tmuxArgv(tmuxCalls).flat()
+    expect(commands).not.toContain('kill-server')
+    expect(commands).not.toContain('start-server')
   })
 })

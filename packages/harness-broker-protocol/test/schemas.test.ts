@@ -75,6 +75,30 @@ const specSection19InvocationStartSpec = {
   },
 }
 
+const claudeCodeTmuxSpec = {
+  specVersion: 'harness-broker.invocation/v1',
+  harness: {
+    frontend: 'claude-code',
+    provider: 'anthropic',
+    driver: 'claude-code-tmux',
+  },
+  process: {
+    command: 'claude',
+    args: ['--model', 'sonnet'],
+    cwd: '/workspace/project',
+    harnessTransport: { kind: 'pty' },
+  },
+  interaction: {
+    mode: 'interactive',
+    turnConcurrency: 'single',
+    inputQueue: 'fifo',
+  },
+  driver: {
+    kind: 'claude-code-tmux',
+    terminalHost: 'tmux',
+  },
+}
+
 const expectInvalidSpec = (value: unknown, expectedIssue: { path: string; code: string }) => {
   expect(() => validateInvocationSpec(value)).toThrow(
     expect.objectContaining({
@@ -388,6 +412,33 @@ describe('validateInvocationDispatchRequest', () => {
         code: 'reserved_env_key',
       }
     )
+  })
+
+  test('requires a runtime tmux socket for claude-code-tmux dispatch requests', () => {
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: claudeCodeTmuxSpec },
+      },
+      {
+        path: 'startRequest.runtime.tmux.socketPath',
+        code: 'required',
+      }
+    )
+  })
+
+  test('accepts a runtime tmux socket for claude-code-tmux dispatch requests', () => {
+    const request = {
+      startRequest: {
+        spec: claudeCodeTmuxSpec,
+        runtime: {
+          tmux: {
+            socketPath: '/tmp/preallocated/hrc-owned-tmux.sock',
+          },
+        },
+      },
+    }
+
+    expect(validateInvocationDispatchRequest(request)).toEqual(request)
   })
 })
 
