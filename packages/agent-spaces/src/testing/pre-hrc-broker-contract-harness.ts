@@ -872,10 +872,13 @@ async function runInteractiveTmuxInvocation(
     })
 
     await manager.stop({ invocationId: response.invocationId, reason: 'prehrc clean exit' })
-    await manager.dispose({ invocationId: response.invocationId })
-    driverDisposed = true
+    if (runtimeOptions?.simulateQueuedInputLeftForTest !== true) {
+      await manager.dispose({ invocationId: response.invocationId })
+      driverDisposed = true
+    }
     tmuxServerEvents.push({ owner: 'harness', action: 'kill-server', socketPath })
     tmuxServerTornDown = true
+    const queuedInputLeft = manager.status(response.invocationId).state !== 'disposed'
 
     const surfaceEvent = events.find((event) => event.type === 'terminal.surface.reported')
     const surfacePayload = asRecord(surfaceEvent?.payload)
@@ -898,7 +901,7 @@ async function runInteractiveTmuxInvocation(
       driverTmuxArgv,
       hookListenerClosed,
       driverDisposed,
-      queuedInputLeft: manager.status(response.invocationId).state !== 'disposed',
+      queuedInputLeft,
       inputTurnId: inputResponse.turnId,
       surface,
     }
@@ -913,7 +916,7 @@ async function runInteractiveTmuxInvocation(
         inputTurnId: inputResponse.turnId,
         driverDisposed,
         hookListenerClosed,
-        queuedInputLeft: false,
+        queuedInputLeft,
         tmuxServerEvents,
         driverTmuxArgv,
       }),
