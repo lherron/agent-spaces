@@ -82,6 +82,13 @@ function buildRunCompileRequest(context: RunCompilerDebugContext): RuntimeCompil
       harnessFamily: context.requested.harnessFamily,
       preferredHarnessRuntime: context.requested.preferredHarnessRuntime,
       interactionMode: context.requested.interactionMode,
+      // `asp run` (this gated ASP_RUN_VIA_COMPILER bridge) is the FOREGROUND
+      // inherit-spawn path (Path 1, T-01638): it consumes the foreground launch
+      // shape. The pre-HRC default for interactive claude-code now selects the
+      // claude-code-tmux broker, so this path must explicitly request the
+      // foreground terminal to preserve Path 1 behavior. The broker route stays
+      // reachable for non-foreground callers (HRC/Phase 3+).
+      controllerIntent: 'foreground-terminal',
     },
     materialization: {
       initialPrompt: context.materialization.initialPrompt,

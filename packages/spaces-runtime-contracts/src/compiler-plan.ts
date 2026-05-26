@@ -40,6 +40,14 @@ export type RuntimeCompileRequest = {
     harnessFamily?: HarnessFamily | undefined
     preferredHarnessRuntime?: HarnessRuntime | undefined
     interactionMode?: InteractionMode | undefined
+    /**
+     * Explicit controller selection for interactive routes. The compiler
+     * discriminates terminal-vs-broker selection by this intent, NOT by catalog
+     * array order. When set to 'foreground-terminal', the compiler selects the
+     * foreground TerminalExecutionProfile. When omitted, the pre-HRC default
+     * selects the harness-broker (claude-code-tmux for the claude-code family).
+     */
+    controllerIntent?: 'foreground-terminal' | undefined
   }
 
   materialization: {

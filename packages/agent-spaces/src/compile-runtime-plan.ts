@@ -1,5 +1,12 @@
 import type { RuntimePlacement } from 'spaces-config'
-import type { InvocationId, PermissionPolicy, ProcessLimits } from 'spaces-harness-broker-protocol'
+import type {
+  HarnessInvocationSpec,
+  InvocationId,
+  InvocationStartRequest,
+  PermissionPolicy,
+  ProcessLimits,
+} from 'spaces-harness-broker-protocol'
+import { validateInvocationSpec } from 'spaces-harness-broker-protocol'
 import type { AttachmentRef } from 'spaces-runtime'
 import {
   type AgentchatExposurePolicy,
@@ -7,6 +14,7 @@ import {
   type BrokerInputPolicy,
   type BrokerObservabilityContract,
   type BrokerPermissionPolicy,
+  type BrokerTerminalSurface,
   type CapabilityRequirements,
   type CompileDiagnostic,
   type CompileId,
@@ -22,6 +30,7 @@ import {
   type TerminalExecutionProfile,
   createCanonicalHasher,
   project,
+  validateBrokerExecutionProfile,
   validateTerminalExecutionProfile,
 } from 'spaces-runtime-contracts'
 
@@ -465,12 +474,33 @@ function buildCompatibilityMaterial(
   }
 }
 
+/**
+ * Discriminate the interactive controller route by EXPLICIT compiler intent,
+ * never by descriptive catalog array order (cody 0B mandate).
+ *
+ * The pre-HRC default for interactive claude-code is the operator-attachable
+ * harness-broker (claude-code-tmux). The foreground TerminalExecutionProfile is
+ * selectable ONLY when the request carries controllerIntent 'foreground-terminal'.
+ * Non-claude families keep the foreground terminal as their interactive default.
+ */
+function selectsInteractiveClaudeTmuxBroker(req: RuntimeCompileRequest): boolean {
+  if (req.requested.controllerIntent === 'foreground-terminal') return false
+  const requestedRuntime = req.requested.preferredHarnessRuntime
+  const family =
+    req.requested.harnessFamily ??
+    (requestedRuntime !== undefined ? RUNTIME_TO_FAMILY[requestedRuntime] : undefined)
+  return family === 'claude-code'
+}
+
 export async function compileRuntimePlan(
   req: RuntimeCompileRequest,
   options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
   const placement = req.placement as CompilePlacement
   if (req.requested.interactionMode === 'interactive') {
+    if (selectsInteractiveClaudeTmuxBroker(req)) {
+      return compileClaudeTmuxBrokerPlan(req, placement, options)
+    }
     return compileForegroundPlan(req, placement, options)
   }
   return compileBrokerPlan(req, placement, options)
@@ -769,6 +799,269 @@ async function compileForegroundPlan(
   }
 
   const validationDiagnostics = validateTerminalExecutionProfile(profile)
+  if (validationDiagnostics.length > 0) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: validationDiagnostics,
+    }
+  }
+
+  const diagnostics: CompileDiagnostic[] = (prepared.warnings ?? []).map((warning) => ({
+    level: 'warning',
+    code: 'prepare_runtime_warning',
+    message: warning,
+    plane: 'asp-compiler',
+    profileId,
+  }))
+  const compileId = stableId('compile', {
+    requestId: req.identity.requestId,
+    operationId: req.identity.operationId,
+    generation: req.identity.generation,
+    profileHash,
+  }) as CompileId
+  const createdAt = new Date().toISOString()
+  const resolvedBundle = (prepared.resolvedBundle ?? {
+    bundleIdentity,
+  }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  const compiledPlacement = toCompiledPlacement(placement)
+
+  const planMaterial = {
+    schemaVersion: 'agent-runtime-plan/v1' as const,
+    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
+    compileId,
+    createdAt,
+    identity: req.identity,
+    placement: compiledPlacement,
+    resolvedBundle,
+    harness: {
+      family: route.family,
+      runtime: route.runtime,
+      provider: route.provider,
+    },
+    model: {
+      provider: route.provider,
+      modelId:
+        prepared.runtimePlan.model.ok === true
+          ? prepared.runtimePlan.model.info.model
+          : (req.requested.model ?? 'unknown'),
+      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
+      ...(req.requested.reasoningEffort !== undefined
+        ? { reasoningEffort: req.requested.reasoningEffort }
+        : {}),
+    },
+    executionProfiles: [profile],
+    artifacts: {
+      materializedBundleRoot: prepared.materialized.materialization.outputPath,
+      ...(prepared.systemPrompt?.path !== undefined
+        ? { systemPromptFile: prepared.systemPrompt.path }
+        : {}),
+      ...(lockHash !== undefined ? { lockHash } : {}),
+      bundleIdentity,
+    },
+    lockedEnv: {
+      lockedEnvKeys,
+    },
+    diagnostics,
+  }
+  const planHash = projectionHash(planMaterial, 'plan').planHash
+  const plan: CompiledRuntimePlan = {
+    ...planMaterial,
+    planHash,
+  }
+
+  return {
+    schemaVersion: 'agent-runtime-compile-response/v1',
+    ok: true,
+    plan,
+    diagnostics,
+  }
+}
+
+/**
+ * The pre-HRC interactive claude-code surface is an operator-attachable tmux
+ * session, exposed via the broker-reports-target policy (PLANE_SPEC AD-010).
+ * Both policy.exposurePolicy and brokerTerminal.exposurePolicy carry this exact
+ * literal; the broker validator asserts they are identical.
+ */
+const TMUX_BROKER_EXPOSURE_POLICY = {
+  mode: 'broker-reports-target',
+  targetKind: 'tmux-session',
+} as const
+
+/**
+ * The fixed broker-owned tmux surface descriptor for the interactive claude
+ * route. This is selection/exposure metadata ONLY — the socket/session/pane are
+ * RUNTIME-REPORTED by the driver (Phase 3), never synthesized at compile time,
+ * so a dry compile creates no tmux session and emits no synthetic ids.
+ */
+const CLAUDE_TMUX_BROKER_TERMINAL: BrokerTerminalSurface = {
+  host: 'tmux',
+  startupMethod: 'create-terminal',
+  turnDelivery: 'terminal-literal-input',
+  operatorAttach: true,
+  exposurePolicy: TMUX_BROKER_EXPOSURE_POLICY,
+}
+
+/**
+ * Compile an interactive claude-code request to an operator-attachable
+ * claude-code-tmux BrokerExecutionProfile (Path 2, pre-HRC default).
+ *
+ * The launch shape (command/args/cwd/lockedEnv/pathPrepend) is sourced from the
+ * SAME preparePlacementCliRuntime path the foreground branch uses — so the
+ * hashed process launch byte-matches the known-good foreground/legacy claude
+ * launch. The process transport is the existing pty HarnessTransportSpec (tmux
+ * is the terminal surface/host, NOT a transport). No tmux session is allocated
+ * here; surface allocation is deferred to the driver runtime (Phase 3).
+ */
+async function compileClaudeTmuxBrokerPlan(
+  req: RuntimeCompileRequest,
+  placement: CompilePlacement,
+  options?: CompileRuntimePlanOptions
+): Promise<RuntimeCompileResponse> {
+  const routed = resolveForegroundRoute(req)
+  if (!('route' in routed)) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: routed.diagnostics,
+    }
+  }
+  const route = routed.route
+  // Resolve the frontend up front so an unknown frontend surfaces as a thrown
+  // CodedError before the heavier prepare path runs.
+  resolveFrontend(route.frontend)
+
+  const attachments = toBrokerAttachments(req.materialization.attachments)
+  const prepared = await preparePlacementCliRuntime(
+    {
+      provider: route.provider,
+      frontend: route.frontend,
+      interactionMode: 'interactive',
+      ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
+      ...(req.continuation?.hrc.key !== undefined
+        ? { continuation: { provider: route.provider, key: req.continuation.hrc.key } }
+        : {}),
+      ...(req.materialization.initialPrompt !== undefined
+        ? { prompt: req.materialization.initialPrompt }
+        : {}),
+      ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
+      ...(placement.env !== undefined ? { env: placement.env } : {}),
+      ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
+      ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
+      placement,
+    },
+    options?.clientAspHome
+  )
+
+  const permissionPolicy = req.hrcPolicy.permissionPolicy ?? { mode: 'deny', audit: true }
+  const inputPolicy: BrokerInputPolicy =
+    req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
+  const limits = toProcessLimits(req.hrcPolicy.resourceLimits)
+  const taskId = req.materialization.taskContext?.taskId
+
+  const lockedEnv = prepared.lockedEnv
+  const lockedEnvKeys = Object.keys(lockedEnv).sort()
+  const bundleIdentity = prepared.resolvedBundle?.bundleIdentity ?? 'unknown'
+  const lockHash = (prepared.resolvedBundle as { lockHash?: string | undefined } | undefined)
+    ?.lockHash
+
+  // pty is the PROCESS TRANSPORT; tmux is the broker terminal surface/host. The
+  // claude-code-tmux driver carries terminalHost so the validator can assert the
+  // surface contract without duplicating launch mechanics outside the spec.
+  const spec: HarnessInvocationSpec = {
+    specVersion: 'harness-broker.invocation/v1',
+    ...(req.identity.invocationId !== undefined ? { invocationId: req.identity.invocationId } : {}),
+    ...(taskId !== undefined ? { labels: { task: taskId } } : {}),
+    harness: {
+      frontend: route.frontend,
+      provider: route.provider,
+      driver: 'claude-code-tmux',
+    },
+    process: {
+      command: prepared.commandPath,
+      args: prepared.args,
+      cwd: prepared.cwd,
+      lockedEnv,
+      ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
+      harnessTransport: { kind: 'pty' },
+      ...(limits !== undefined ? { limits } : {}),
+    },
+    interaction: {
+      mode: 'interactive',
+      turnConcurrency: 'single',
+      inputQueue: 'none',
+    },
+    ...(req.continuation?.hrc.key !== undefined
+      ? {
+          continuation: {
+            provider: route.provider,
+            key: req.continuation.hrc.key,
+            kind: 'session',
+          },
+        }
+      : {}),
+    driver: { kind: 'claude-code-tmux', terminalHost: 'tmux' },
+    correlation: brokerCorrelation(req),
+  }
+  validateInvocationSpec(spec)
+  const startRequest: InvocationStartRequest = { spec }
+
+  const profileId = stableId('profile', {
+    kind: 'harness-broker',
+    brokerDriver: 'claude-code-tmux',
+    startRequest,
+  }) as ProfileId
+  const compatibilityHash = hashValue(
+    buildCompatibilityMaterial(req, startRequest, bundleIdentity, lockHash, lockedEnv)
+  )
+  const specHash = projectionHash(spec, 'spec').specHash
+  const startRequestHash = projectionHash(startRequest, 'start-request').startRequestHash
+
+  const profileMaterial = {
+    schemaVersion: 'agent-runtime-profile/v1' as const,
+    profileId,
+    kind: 'harness-broker' as const,
+    interactionMode: 'interactive' as const,
+    expectedCapabilities: expectedCapabilities(permissionPolicy),
+    brokerProtocol: 'harness-broker/0.1' as const,
+    brokerDriver: 'claude-code-tmux' as const,
+    brokerOwnership: 'hrc-owned-process' as const,
+    brokerTerminal: CLAUDE_TMUX_BROKER_TERMINAL,
+    harnessInvocation: {
+      startRequest,
+      specHash,
+      startRequestHash,
+    },
+    policy: {
+      permissionPolicy,
+      inputPolicy,
+      exposurePolicy: TMUX_BROKER_EXPOSURE_POLICY,
+      ...(req.hrcPolicy.resourceLimits !== undefined
+        ? { resourceLimits: req.hrcPolicy.resourceLimits }
+        : {}),
+    },
+    ...(req.continuation !== undefined
+      ? { continuation: { hrc: req.continuation, broker: req.continuation.broker } }
+      : {}),
+    observability: brokerObservability(
+      req,
+      startRequest.spec.invocationId ??
+        req.identity.invocationId ??
+        (profileId as unknown as InvocationId)
+    ),
+  }
+  const profileHash = projectionHash(
+    { ...profileMaterial, compatibilityHash },
+    'profile'
+  ).profileHash
+  const profile: BrokerExecutionProfile = {
+    ...profileMaterial,
+    profileHash,
+    compatibilityHash,
+  }
+
+  const validationDiagnostics = validateBrokerExecutionProfile(profile)
   if (validationDiagnostics.length > 0) {
     return {
       schemaVersion: 'agent-runtime-compile-response/v1',

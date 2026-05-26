@@ -171,6 +171,11 @@ function compileRequest(dryRun: boolean): RuntimeCompileRequest {
       harnessFamily: 'claude-code',
       preferredHarnessRuntime: 'claude-code-cli',
       interactionMode: 'interactive',
+      // Foreground brain-env parity: the pre-HRC default for interactive
+      // claude-code now selects the claude-code-tmux broker, so the foreground
+      // terminal launch this test compares against legacy is selectable only
+      // via explicit compiler intent (mirrors run-compile-byte-parity).
+      controllerIntent: 'foreground-terminal',
     },
     materialization: {},
     hrcPolicy: {
