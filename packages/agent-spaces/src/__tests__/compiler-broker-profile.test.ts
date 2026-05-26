@@ -417,15 +417,14 @@ describe('compiled broker profile field mapping', () => {
     )
   })
 
+  // The headless broker route still hard-rejects non-codex / non-headless
+  // pairings before any materialization. Note: interactionMode 'interactive' is
+  // NO LONGER an unsupported route — it compiles to a foreground terminal
+  // profile (T-01638 Phase 2), so it is intentionally absent from this table.
   test.each([
     ['provider', { modelProvider: 'anthropic' as const }, 'unsupported_provider'],
     ['harness family', { harnessFamily: 'claude-code' as const }, 'unsupported_harness'],
     ['runtime', { preferredHarnessRuntime: 'claude-code-cli' as const }, 'unsupported_runtime'],
-    [
-      'interactive mode',
-      { interactionMode: 'interactive' as const },
-      'unsupported_interaction_mode',
-    ],
     [
       'non-headless mode',
       { interactionMode: 'nonInteractive' as const },

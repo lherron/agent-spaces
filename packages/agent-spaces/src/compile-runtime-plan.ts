@@ -12,20 +12,43 @@ import {
   type CompileId,
   type CompiledRuntimePlan,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
+  type HarnessFamily,
+  type HarnessRuntime,
   type ProfileId,
+  type ProviderDomain,
   type RuntimeCompileRequest,
   type RuntimeCompileResponse,
   type RuntimeContractProjection,
+  type TerminalExecutionProfile,
   createCanonicalHasher,
   project,
+  validateTerminalExecutionProfile,
 } from 'spaces-runtime-contracts'
 
 import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
 } from './broker-invocation.js'
+import { resolveFrontend } from './client-support.js'
 import { preparePlacementCliRuntime } from './prepare-cli-runtime.js'
-import type { BuildHarnessBrokerInvocationRequest } from './types.js'
+import type { BuildHarnessBrokerInvocationRequest, HarnessFrontend } from './types.js'
+
+/**
+ * The compile request placement, narrowed to the spaces-config RuntimePlacement
+ * shape it actually carries plus the typed env channels the compiler reads.
+ *
+ * Intersecting the contract placement with the spaces-config RuntimePlacement
+ * makes this an honest refinement of `RuntimeCompileRequest['placement']`: it is
+ * a valid downcast (no `as unknown as RuntimePlacement` bridge) and is directly
+ * assignable to the strict RuntimePlacement that prepare-cli-runtime expects.
+ * Replaces the former scattered cast cluster.
+ */
+type CompilePlacement = RuntimeCompileRequest['placement'] &
+  RuntimePlacement & {
+    env?: Record<string, string> | undefined
+    lockedEnv?: Record<string, string> | undefined
+    dispatchEnv?: Record<string, string> | undefined
+  }
 
 const COMPILER_VERSION = '0.1.1'
 
@@ -56,11 +79,9 @@ function projectionHash<K extends 'plan' | 'profile' | 'spec' | 'start-request'>
   >
 }
 
-function toCompiledPlacement(
-  placement: RuntimeCompileRequest['placement']
-): RuntimeCompileRequest['placement'] {
-  const { dispatchEnv: _dispatchEnv, ...compiledPlacement } = placement as Record<string, unknown>
-  return compiledPlacement as RuntimeCompileRequest['placement']
+function toCompiledPlacement(placement: CompilePlacement): CompiledRuntimePlan['placement'] {
+  const { dispatchEnv: _dispatchEnv, ...compiledPlacement } = placement
+  return compiledPlacement
 }
 
 function compileError(code: string, message: string, details?: unknown): CompileDiagnostic {
@@ -73,7 +94,11 @@ function compileError(code: string, message: string, details?: unknown): Compile
   }
 }
 
-function validateSupportedRoute(req: RuntimeCompileRequest): CompileDiagnostic[] {
+/**
+ * Validate the headless broker route (openai / codex / codex-cli / headless).
+ * The foreground branch has its own route resolver (resolveForegroundRoute).
+ */
+function validateBrokerRoute(req: RuntimeCompileRequest): CompileDiagnostic[] {
   const diagnostics: CompileDiagnostic[] = []
   if (req.requested.modelProvider !== undefined && req.requested.modelProvider !== 'openai') {
     diagnostics.push(
@@ -111,6 +136,155 @@ function validateSupportedRoute(req: RuntimeCompileRequest): CompileDiagnostic[]
     )
   }
   return diagnostics
+}
+
+/** Canonical foreground (interactive) route per harness family. */
+type ForegroundRoute = {
+  frontend: HarnessFrontend
+  family: HarnessFamily
+  runtime: HarnessRuntime
+  provider: ProviderDomain
+}
+
+const FOREGROUND_ROUTES: Record<HarnessFamily, ForegroundRoute> = {
+  'claude-code': {
+    frontend: 'claude-code',
+    family: 'claude-code',
+    runtime: 'claude-code-cli',
+    provider: 'anthropic',
+  },
+  codex: { frontend: 'codex-cli', family: 'codex', runtime: 'codex-cli', provider: 'openai' },
+  pi: { frontend: 'pi-cli', family: 'pi', runtime: 'pi-cli', provider: 'openai' },
+}
+
+const RUNTIME_TO_FAMILY: Partial<Record<HarnessRuntime, HarnessFamily>> = {
+  'claude-code-cli': 'claude-code',
+  'codex-cli': 'codex',
+  'pi-cli': 'pi',
+}
+
+/**
+ * Resolve a foreground (interactive) route from the requested harness fields.
+ * Emits diagnostics for genuinely unsupported pairings (sdk runtimes, provider
+ * mismatch, inconsistent family/runtime) so the compiler returns errors rather
+ * than throwing deep in the prepare path.
+ */
+function resolveForegroundRoute(
+  req: RuntimeCompileRequest
+): { route: ForegroundRoute; diagnostics: CompileDiagnostic[] } | { diagnostics: CompileDiagnostic[] } {
+  const diagnostics: CompileDiagnostic[] = []
+  const requestedRuntime = req.requested.preferredHarnessRuntime
+  const family =
+    req.requested.harnessFamily ??
+    (requestedRuntime !== undefined ? RUNTIME_TO_FAMILY[requestedRuntime] : undefined)
+
+  if (family === undefined) {
+    diagnostics.push(
+      compileError(
+        'unsupported_harness',
+        'interactive compile requires a foreground-capable harness family (claude-code, codex, or pi)',
+        { requested: req.requested }
+      )
+    )
+    return { diagnostics }
+  }
+
+  const route = FOREGROUND_ROUTES[family]
+
+  if (req.requested.modelProvider !== undefined && req.requested.modelProvider !== route.provider) {
+    diagnostics.push(
+      compileError(
+        'unsupported_provider',
+        `interactive ${route.frontend} requires provider ${route.provider}`,
+        { requested: req.requested.modelProvider, frontend: route.frontend }
+      )
+    )
+  }
+  if (requestedRuntime !== undefined && requestedRuntime !== route.runtime) {
+    diagnostics.push(
+      compileError(
+        'unsupported_runtime',
+        `interactive ${route.family} requires the ${route.runtime} runtime`,
+        { requested: requestedRuntime, frontend: route.frontend }
+      )
+    )
+  }
+
+  if (diagnostics.length > 0) return { diagnostics }
+  return { route, diagnostics }
+}
+
+/** Capability requirements for a foreground, operator-driven terminal session. */
+function foregroundCapabilities(): CapabilityRequirements {
+  return {
+    input: {
+      user: 'required',
+      steer: 'forbidden',
+      appendContext: 'forbidden',
+      localImages: 'optional',
+      fileRefs: 'optional',
+      queue: 'forbidden',
+    },
+    turns: {
+      concurrency: 'single',
+      interrupt: 'optional',
+    },
+    continuation: 'optional',
+    permissions: 'none',
+    events: {
+      assistantDeltas: 'optional',
+      toolCalls: 'optional',
+      usage: 'optional',
+      diagnostics: 'optional',
+    },
+    control: {
+      stop: 'optional',
+      dispose: 'optional',
+      reconcile: 'forbidden',
+      attachReplay: 'forbidden',
+    },
+  }
+}
+
+function buildForegroundCompatibilityMaterial(
+  req: RuntimeCompileRequest,
+  process: TerminalExecutionProfile['process'],
+  route: ForegroundRoute,
+  bundleIdentity: string,
+  lockHash: string | undefined
+): unknown {
+  return {
+    bundle: { bundleIdentity, ...(lockHash !== undefined ? { lockHash } : {}) },
+    model: {
+      provider: route.provider,
+      requestedModel: req.requested.model,
+      reasoningEffort: req.requested.reasoningEffort,
+    },
+    process: {
+      command: process.command,
+      args: process.args,
+      cwd: process.cwd,
+      lockedEnv: process.lockedEnv,
+      pathPrepend: process.pathPrepend,
+      io: process.io,
+    },
+    terminal: {
+      host: 'foreground',
+      startupMethod: 'inherit-current-terminal',
+      turnDelivery: 'terminal-launch-input',
+    },
+    continuation:
+      req.continuation !== undefined
+        ? {
+            hrc: {
+              provider: req.continuation.hrc.provider,
+              continuationId: req.continuation.hrc.continuationId,
+            },
+            source: req.continuation.source,
+          }
+        : undefined,
+    policy: { exposurePolicy: { mode: 'none' } },
+  }
 }
 
 function toBrokerAttachments(
@@ -295,7 +469,19 @@ export async function compileRuntimePlan(
   req: RuntimeCompileRequest,
   options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
-  const routeDiagnostics = validateSupportedRoute(req)
+  const placement = req.placement as CompilePlacement
+  if (req.requested.interactionMode === 'interactive') {
+    return compileForegroundPlan(req, placement, options)
+  }
+  return compileBrokerPlan(req, placement, options)
+}
+
+async function compileBrokerPlan(
+  req: RuntimeCompileRequest,
+  placement: CompilePlacement,
+  options?: CompileRuntimePlanOptions
+): Promise<RuntimeCompileResponse> {
+  const routeDiagnostics = validateBrokerRoute(req)
   if (routeDiagnostics.length > 0) {
     return {
       schemaVersion: 'agent-runtime-compile-response/v1',
@@ -310,13 +496,8 @@ export async function compileRuntimePlan(
   const exposurePolicy: AgentchatExposurePolicy = req.hrcPolicy.exposurePolicy ?? { mode: 'none' }
   const attachments = toBrokerAttachments(req.materialization.attachments)
   const taskId = req.materialization.taskContext?.taskId
-  const placementEnv = req.placement as {
-    env?: Record<string, string> | undefined
-    lockedEnv?: Record<string, string> | undefined
-    dispatchEnv?: Record<string, string> | undefined
-  }
   const brokerReq: BuildHarnessBrokerInvocationRequest = {
-    placement: req.placement as unknown as RuntimePlacement,
+    placement,
     provider: 'openai',
     frontend: 'codex-cli',
     interactionMode: 'headless',
@@ -327,9 +508,9 @@ export async function compileRuntimePlan(
         : undefined,
     prompt: req.materialization.initialPrompt,
     ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
-    ...(placementEnv.env !== undefined ? { env: placementEnv.env } : {}),
-    ...(placementEnv.lockedEnv !== undefined ? { lockedEnv: placementEnv.lockedEnv } : {}),
-    ...(placementEnv.dispatchEnv !== undefined ? { dispatchEnv: placementEnv.dispatchEnv } : {}),
+    ...(placement.env !== undefined ? { env: placement.env } : {}),
+    ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
+    ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
     ...(req.identity.invocationId !== undefined ? { invocationId: req.identity.invocationId } : {}),
     ...(req.identity.initialInputId !== undefined
       ? { initialInputId: req.identity.initialInputId }
@@ -429,7 +610,7 @@ export async function compileRuntimePlan(
   const resolvedBundle = (brokerInvocation.resolvedBundle ?? {
     bundleIdentity,
   }) as unknown as CompiledRuntimePlan['resolvedBundle']
-  const compiledPlacement = toCompiledPlacement(req.placement)
+  const compiledPlacement = toCompiledPlacement(placement)
   const planMaterial = {
     schemaVersion: 'agent-runtime-plan/v1' as const,
     compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
@@ -445,6 +626,191 @@ export async function compileRuntimePlan(
     },
     model: {
       provider: 'openai' as const,
+      modelId:
+        prepared.runtimePlan.model.ok === true
+          ? prepared.runtimePlan.model.info.model
+          : (req.requested.model ?? 'unknown'),
+      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
+      ...(req.requested.reasoningEffort !== undefined
+        ? { reasoningEffort: req.requested.reasoningEffort }
+        : {}),
+    },
+    executionProfiles: [profile],
+    artifacts: {
+      materializedBundleRoot: prepared.materialized.materialization.outputPath,
+      ...(prepared.systemPrompt?.path !== undefined
+        ? { systemPromptFile: prepared.systemPrompt.path }
+        : {}),
+      ...(lockHash !== undefined ? { lockHash } : {}),
+      bundleIdentity,
+    },
+    lockedEnv: {
+      lockedEnvKeys,
+    },
+    diagnostics,
+  }
+  const planHash = projectionHash(planMaterial, 'plan').planHash
+  const plan: CompiledRuntimePlan = {
+    ...planMaterial,
+    planHash,
+  }
+
+  return {
+    schemaVersion: 'agent-runtime-compile-response/v1',
+    ok: true,
+    plan,
+    diagnostics,
+  }
+}
+
+/**
+ * Compile an interactive request to a foreground TerminalExecutionProfile.
+ *
+ * The launch shape (command/args/cwd/lockedEnv/pathPrepend) is sourced from the
+ * SAME prepare-cli-runtime path the broker branch uses — which itself calls the
+ * harness adapters' buildRunArgs — so the compiler is the single source of truth
+ * for argv. Foreground is caller-owned (exposurePolicy {mode:'none'}), inherits
+ * the operator's TTY (io {kind:'inherit'}), and delivers at most one launch turn
+ * (turnDelivery 'terminal-launch-input').
+ */
+async function compileForegroundPlan(
+  req: RuntimeCompileRequest,
+  placement: CompilePlacement,
+  options?: CompileRuntimePlanOptions
+): Promise<RuntimeCompileResponse> {
+  const routed = resolveForegroundRoute(req)
+  if (!('route' in routed)) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: routed.diagnostics,
+    }
+  }
+  const route = routed.route
+  // Resolve the frontend up front so an unknown frontend surfaces as a thrown
+  // CodedError before the heavier prepare path runs.
+  resolveFrontend(route.frontend)
+
+  const attachments = toBrokerAttachments(req.materialization.attachments)
+  const prepared = await preparePlacementCliRuntime(
+    {
+      provider: route.provider,
+      frontend: route.frontend,
+      interactionMode: 'interactive',
+      ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
+      ...(req.continuation?.hrc.key !== undefined
+        ? { continuation: { provider: route.provider, key: req.continuation.hrc.key } }
+        : {}),
+      ...(req.materialization.initialPrompt !== undefined
+        ? { prompt: req.materialization.initialPrompt }
+        : {}),
+      ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
+      ...(placement.env !== undefined ? { env: placement.env } : {}),
+      ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
+      ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
+      placement,
+    },
+    options?.clientAspHome
+  )
+
+  const lockedEnv = prepared.lockedEnv
+  const lockedEnvKeys = Object.keys(lockedEnv).sort()
+  const bundleIdentity = prepared.resolvedBundle?.bundleIdentity ?? 'unknown'
+  const lockHash = (prepared.resolvedBundle as { lockHash?: string | undefined } | undefined)
+    ?.lockHash
+
+  const processSpec: TerminalExecutionProfile['process'] = {
+    command: prepared.commandPath,
+    args: prepared.args,
+    cwd: prepared.cwd,
+    lockedEnv,
+    ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
+    io: { kind: 'inherit' },
+  }
+
+  const compatibilityHash = hashValue(
+    buildForegroundCompatibilityMaterial(req, processSpec, route, bundleIdentity, lockHash)
+  )
+  const profileId = stableId('profile', {
+    kind: 'terminal',
+    host: 'foreground',
+    command: processSpec.command,
+    args: processSpec.args,
+    cwd: processSpec.cwd,
+  }) as ProfileId
+
+  const profileMaterial = {
+    schemaVersion: 'agent-runtime-profile/v1' as const,
+    profileId,
+    kind: 'terminal' as const,
+    interactionMode: 'interactive' as const,
+    expectedCapabilities: foregroundCapabilities(),
+    terminal: {
+      host: 'foreground' as const,
+      startupMethod: 'inherit-current-terminal' as const,
+      turnDelivery: 'terminal-launch-input' as const,
+    },
+    process: processSpec,
+    policy: {
+      exposurePolicy: { mode: 'none' as const },
+      ...(req.hrcPolicy.resourceLimits !== undefined
+        ? { resourceLimits: req.hrcPolicy.resourceLimits }
+        : {}),
+    },
+  }
+  const profileHash = projectionHash(
+    { ...profileMaterial, compatibilityHash },
+    'profile'
+  ).profileHash
+  const profile: TerminalExecutionProfile = {
+    ...profileMaterial,
+    profileHash,
+    compatibilityHash,
+  }
+
+  const validationDiagnostics = validateTerminalExecutionProfile(profile)
+  if (validationDiagnostics.length > 0) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: validationDiagnostics,
+    }
+  }
+
+  const diagnostics: CompileDiagnostic[] = (prepared.warnings ?? []).map((warning) => ({
+    level: 'warning',
+    code: 'prepare_runtime_warning',
+    message: warning,
+    plane: 'asp-compiler',
+    profileId,
+  }))
+  const compileId = stableId('compile', {
+    requestId: req.identity.requestId,
+    operationId: req.identity.operationId,
+    generation: req.identity.generation,
+    profileHash,
+  }) as CompileId
+  const createdAt = new Date().toISOString()
+  const resolvedBundle = (prepared.resolvedBundle ?? {
+    bundleIdentity,
+  }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  const compiledPlacement = toCompiledPlacement(placement)
+
+  const planMaterial = {
+    schemaVersion: 'agent-runtime-plan/v1' as const,
+    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
+    compileId,
+    createdAt,
+    identity: req.identity,
+    placement: compiledPlacement,
+    resolvedBundle,
+    harness: {
+      family: route.family,
+      runtime: route.runtime,
+      provider: route.provider,
+    },
+    model: {
+      provider: route.provider,
       modelId:
         prepared.runtimePlan.model.ok === true
           ? prepared.runtimePlan.model.info.model
