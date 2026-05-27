@@ -123,26 +123,12 @@ describe('codex-cli-tmux hook event normalization', () => {
     })
   })
 
-  test('Stop emits assistant.message.completed, turn.completed, and continuation.updated from session_id', async () => {
+  test('Stop emits turn.completed and continuation.updated from session_id', async () => {
     const hook = await readPayload('Stop-mpo5x77d3i2.json')
     const events = (await createNormalizer()).normalizeHook(hook)
 
-    expect(eventTypes(events)).toEqual([
-      'assistant.message.completed',
-      'turn.completed',
-      'continuation.updated',
-    ])
+    expect(eventTypes(events)).toEqual(['turn.completed', 'continuation.updated'])
     expect(events[0]).toMatchObject({
-      turnId: hook.turn_id,
-      type: 'assistant.message.completed',
-      driver: { kind: 'codex-cli-tmux', rawType: 'Stop' },
-      payload: {
-        messageId: expect.any(String),
-        content: [{ type: 'text', text: hook.last_assistant_message }],
-        final: true,
-      },
-    })
-    expect(events[1]).toMatchObject({
       turnId: hook.turn_id,
       type: 'turn.completed',
       payload: {
@@ -152,7 +138,7 @@ describe('codex-cli-tmux hook event normalization', () => {
         producedContent: true,
       },
     })
-    expect(events[2]).toMatchObject({
+    expect(events[1]).toMatchObject({
       type: 'continuation.updated',
       payload: {
         provider: 'openai',
@@ -160,5 +146,6 @@ describe('codex-cli-tmux hook event normalization', () => {
         key: hook.session_id,
       },
     })
+    expect(eventTypes(events)).not.toContain('assistant.message.completed')
   })
 })

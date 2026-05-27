@@ -214,6 +214,7 @@ const HRC_CODEX_HOOK_COMMAND =
  * completion), which stays the default so existing materialization is unchanged.
  */
 export const CODEX_INTERACTIVE_HOOK_EVENTS = [
+  'SessionStart',
   'UserPromptSubmit',
   'PreToolUse',
   'PermissionRequest',

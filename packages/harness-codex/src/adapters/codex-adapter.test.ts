@@ -16,7 +16,13 @@ import type {
   ResolvedSpaceManifest,
   SpaceKey,
 } from 'spaces-config'
-import { CodexAdapter, applyPraesidiumContextToCodexHome } from './codex-adapter.js'
+import {
+  CODEX_INTERACTIVE_HOOK_EVENTS,
+  CodexAdapter,
+  applyPraesidiumContextToCodexHome,
+  buildCodexHookTrustState,
+  buildHrcCodexHooksConfig,
+} from './codex-adapter.js'
 
 function createTestManifest(overrides: Partial<ResolvedSpaceManifest> = {}): ResolvedSpaceManifest {
   return {
@@ -48,6 +54,29 @@ describe('CodexAdapter', () => {
 
   beforeEach(() => {
     adapter = new CodexAdapter()
+  })
+
+  test('interactive hook materialization includes SessionStart and trust state', () => {
+    const hooksConfig = buildHrcCodexHooksConfig(CODEX_INTERACTIVE_HOOK_EVENTS)
+    const hookNames = Object.keys(hooksConfig['hooks'] as Record<string, unknown>)
+
+    expect(hookNames).toEqual([
+      'SessionStart',
+      'UserPromptSubmit',
+      'PreToolUse',
+      'PermissionRequest',
+      'PostToolUse',
+      'Stop',
+    ])
+    expect(Object.keys(buildHrcCodexHooksConfig()['hooks'] as Record<string, unknown>)).toEqual([
+      'Stop',
+    ])
+
+    const trustState = buildCodexHookTrustState('/tmp/codex-home/hooks.json', hooksConfig)
+    expect(Object.keys(trustState)).toContain('/tmp/codex-home/hooks.json:session_start:0:0')
+    expect(trustState['/tmp/codex-home/hooks.json:session_start:0:0']?.trusted_hash).toMatch(
+      /^sha256:[a-f0-9]{64}$/
+    )
   })
 
   describe('detect', () => {

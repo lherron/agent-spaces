@@ -20,6 +20,7 @@ import {
   createCodexCliTmuxHookEventNormalizer,
   normalizeCodexHookEnvelope,
 } from './hook-events'
+import { type CodexTranscriptTailer, createCodexTranscriptTailer } from './transcript-tail'
 
 const CODEX_CLI_TMUX_DRIVER_VERSION = '0.1.0'
 
@@ -88,6 +89,9 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
   let ctx: DriverContext | undefined
   let surface: SurfaceState | undefined
   let hookListener: CodexHookListenerHandle | undefined
+  let transcriptTailer: CodexTranscriptTailer | undefined
+  let transcriptTailerStarted = false
+  let currentTurnId: string | undefined
   let tmux: TmuxManager | undefined
 
   function requireCtx(): DriverContext {
@@ -135,7 +139,39 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         invocationId: driverCtx.invocationId,
         now,
       })
+      transcriptTailerStarted = false
+      currentTurnId = undefined
+      transcriptTailer = createCodexTranscriptTailer({
+        invocationId: driverCtx.invocationId,
+        now,
+        getCurrentTurnId: () => currentTurnId,
+        emit: (event) => {
+          driverCtx.emit(event.type, event.payload, {
+            ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+            ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
+            ...(event.driver !== undefined ? { driver: event.driver } : {}),
+          })
+        },
+      })
       hookListener = await options.hooks.listen(async (envelope) => {
+        const hook = extractHookRecord(envelope)
+        const envelopeTurnId = getHookString(hook, 'turn_id') ?? envelope.turnId
+        if (envelopeTurnId !== undefined) {
+          currentTurnId = envelopeTurnId
+        }
+        if (getHookString(hook, 'hook_event_name') === 'SessionStart') {
+          const transcriptPath = getHookString(hook, 'transcript_path')
+          if (transcriptPath !== undefined && transcriptPath.length > 0) {
+            try {
+              transcriptTailer?.start(transcriptPath)
+              transcriptTailerStarted = true
+            } catch (error) {
+              emitTranscriptDiagnostic(driverCtx, transcriptPath, error)
+            }
+          } else if (!transcriptTailerStarted) {
+            emitTranscriptDiagnostic(driverCtx, transcriptPath, undefined)
+          }
+        }
         for (const event of normalizeCodexHookEnvelope(envelope, { normalizer })) {
           driverCtx.emit(event.type, event.payload, {
             ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
@@ -200,15 +236,18 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
 
     async stop(_req: InvocationStopRequest): Promise<InvocationStopResponse> {
       await terminateSession()
+      stopTranscriptTailer()
       await closeHookListener()
       return { accepted: true, state: 'exited' }
     },
 
     async dispose(): Promise<void> {
       await terminateSession()
+      stopTranscriptTailer()
       await closeHookListener()
       ctx = undefined
       surface = undefined
+      currentTurnId = undefined
       tmux = undefined
     },
   }
@@ -227,6 +266,53 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
       await handle.close()
     }
   }
+
+  function stopTranscriptTailer(): void {
+    transcriptTailer?.stop()
+    transcriptTailer = undefined
+    transcriptTailerStarted = false
+  }
+}
+
+function emitTranscriptDiagnostic(
+  ctx: DriverContext,
+  transcriptPath: string | undefined,
+  error: unknown
+): void {
+  ctx.emit(
+    'diagnostic',
+    {
+      level: 'warn',
+      source: 'driver',
+      message:
+        'Codex SessionStart did not provide a usable transcript_path; relying on Stop finalOutput',
+      data: {
+        ...(transcriptPath !== undefined ? { transcriptPath } : {}),
+        ...(error !== undefined
+          ? { error: error instanceof Error ? error.message : String(error) }
+          : {}),
+      },
+    },
+    { driver: { kind: CODEX_CLI_TMUX_DRIVER_KIND, rawType: 'SessionStart' } }
+  )
+}
+
+function extractHookRecord(envelope: CodexCliTmuxHookEnvelope): Record<string, unknown> {
+  const hook = asRecord(envelope.hookData ?? envelope.hookEvent ?? envelope.payload ?? envelope)
+  const nested = asRecord(hook['hookEvent'])
+  return nested['hook_event_name'] !== undefined ? nested : hook
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return {}
+}
+
+function getHookString(obj: Record<string, unknown>, key: string): string | undefined {
+  const value = obj[key]
+  return typeof value === 'string' ? value : undefined
 }
 
 function buildLaunchCommandLine(

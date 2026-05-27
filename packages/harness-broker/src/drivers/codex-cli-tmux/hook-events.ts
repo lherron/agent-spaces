@@ -3,7 +3,6 @@ import type {
   InvocationEventPayload,
   InvocationEventType,
   InvocationId,
-  MessageId,
   PermissionRequestId,
   ToolCallId,
   TurnId,
@@ -77,7 +76,6 @@ export function createCodexCliTmuxHookEventNormalizer(
   const sequencer = createInvocationEventSequencer({ now: options.now })
   const activeToolsByTurnAndCommand = new Map<string, ActiveTool>()
   let permissionCounter = 0
-  let messageCounter = 0
 
   const emit = (rawType: string, event: MappedHookEvent): InvocationEventEnvelope => {
     const envelope = sequencer.next(
@@ -205,19 +203,7 @@ export function createCodexCliTmuxHookEventNormalizer(
       if (rawType === 'Stop') {
         if (turnIdText === undefined || turnId === undefined) return []
         const finalOutput = getString(unwrapped, 'last_assistant_message') ?? ''
-        messageCounter += 1
-        const messageId = `msg_${options.invocationId}_${messageCounter}` as MessageId
         const events: InvocationEventEnvelope[] = [
-          emit(rawType, {
-            type: 'assistant.message.completed',
-            payload: {
-              messageId,
-              content: [{ type: 'text', text: finalOutput }],
-              final: true,
-            },
-            turnId,
-            itemId: messageId,
-          }),
           emit(rawType, {
             type: 'turn.completed',
             payload: {
