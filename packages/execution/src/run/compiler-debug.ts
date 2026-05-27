@@ -41,9 +41,17 @@ export function harnessRuntimeForHarness(
 }
 
 export function compileInteractionMode(
-  interactive: boolean | undefined
+  interactive: boolean | undefined,
+  harnessId?: string
 ): RunCompilerDebugContext['requested']['interactionMode'] {
-  return interactive === false ? 'headless' : 'interactive'
+  if (interactive !== false) return 'interactive'
+  // Embedded-SDK runtimes (pi-sdk, claude-agent-sdk) run their turns IN-PROCESS,
+  // so a `--no-interactive` run compiles to the nonInteractive interaction mode
+  // that routes to the embedded-sdk controller — NOT the headless broker mode
+  // used by the spawned codex app-server. Without this distinction the real
+  // `asp run` pi-sdk path would never reach the embedded branch.
+  if (harnessId === 'pi-sdk' || harnessId === 'claude-agent-sdk') return 'nonInteractive'
+  return 'headless'
 }
 
 export interface BuildCompilerDebugContextArgs {
@@ -72,7 +80,7 @@ export function buildCompilerDebugContext(
       reasoningEffort: args.reasoningEffort,
       harnessFamily: harnessFamilyForHarness(args.harnessId),
       preferredHarnessRuntime: harnessRuntimeForHarness(args.harnessId),
-      interactionMode: compileInteractionMode(args.interactive),
+      interactionMode: compileInteractionMode(args.interactive, args.harnessId),
     },
     materialization: {
       initialPrompt: args.initialPrompt,

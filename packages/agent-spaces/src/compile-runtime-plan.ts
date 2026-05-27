@@ -23,6 +23,7 @@ import {
   type CompileId,
   type CompiledRuntimePlan,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
+  type EmbeddedSdkExecutionProfile,
   type HarnessFamily,
   type HarnessRuntime,
   type ProfileId,
@@ -34,6 +35,7 @@ import {
   createCanonicalHasher,
   project,
   validateBrokerExecutionProfile,
+  validateEmbeddedSdkExecutionProfile,
   validateTerminalExecutionProfile,
 } from 'spaces-runtime-contracts'
 
@@ -41,8 +43,11 @@ import {
   toHarnessBrokerStartRequest,
   validateBrokerInvocationRequest,
 } from './broker-invocation.js'
-import { resolveFrontend } from './client-support.js'
-import { preparePlacementCliRuntime } from './prepare-cli-runtime.js'
+import { PI_SDK_FRONTEND, resolveFrontend } from './client-support.js'
+import {
+  type PreparedPlacementCliRuntime,
+  preparePlacementCliRuntime,
+} from './prepare-cli-runtime.js'
 import type { BuildHarnessBrokerInvocationRequest, HarnessFrontend } from './types.js'
 
 /**
@@ -532,6 +537,13 @@ export async function compileRuntimePlan(
     }
     return compileForegroundPlan(req, placement, options)
   }
+  // nonInteractive + pi-sdk routes to the IN-PROCESS embedded-sdk controller.
+  // claude-agent-sdk stays UNEMITTED (impl deferred per Lance) — it falls through
+  // to the broker route, which rejects it. Any other nonInteractive/headless
+  // request stays on the codex headless broker path.
+  if (req.requested.preferredHarnessRuntime === 'pi-sdk') {
+    return compileEmbeddedSdkPlan(req, placement, options)
+  }
   return compileBrokerPlan(req, placement, options)
 }
 
@@ -874,6 +886,282 @@ async function compileForegroundPlan(
         prepared.runtimePlan.model.ok === true
           ? prepared.runtimePlan.model.info.model
           : (req.requested.model ?? 'unknown'),
+      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
+      ...(req.requested.reasoningEffort !== undefined
+        ? { reasoningEffort: req.requested.reasoningEffort }
+        : {}),
+    },
+    executionProfiles: [profile],
+    artifacts: {
+      materializedBundleRoot: prepared.materialized.materialization.outputPath,
+      ...(prepared.systemPrompt?.path !== undefined
+        ? { systemPromptFile: prepared.systemPrompt.path }
+        : {}),
+      ...(lockHash !== undefined ? { lockHash } : {}),
+      bundleIdentity,
+    },
+    lockedEnv: {
+      lockedEnvKeys,
+    },
+    diagnostics,
+  }
+  const planHash = projectionHash(planMaterial, 'plan').planHash
+  const plan: CompiledRuntimePlan = {
+    ...planMaterial,
+    planHash,
+  }
+
+  return {
+    schemaVersion: 'agent-runtime-compile-response/v1',
+    ok: true,
+    plan,
+    diagnostics,
+  }
+}
+
+/** Capability requirements for an in-process, nonInteractive embedded-sdk session. */
+function embeddedSdkCapabilities(): CapabilityRequirements {
+  return {
+    input: {
+      user: 'required',
+      steer: 'optional',
+      appendContext: 'optional',
+      localImages: 'optional',
+      fileRefs: 'optional',
+      queue: 'optional',
+    },
+    turns: {
+      concurrency: 'single',
+      interrupt: 'optional',
+    },
+    continuation: 'optional',
+    permissions: 'none',
+    events: {
+      assistantDeltas: 'optional',
+      toolCalls: 'optional',
+      usage: 'optional',
+      diagnostics: 'optional',
+    },
+    control: {
+      stop: 'optional',
+      dispose: 'optional',
+      reconcile: 'optional',
+      attachReplay: 'forbidden',
+    },
+  }
+}
+
+function buildEmbeddedSdkCompatibilityMaterial(
+  req: RuntimeCompileRequest,
+  session: EmbeddedSdkExecutionProfile['session'],
+  sdk: EmbeddedSdkExecutionProfile['sdk'],
+  bundleIdentity: string,
+  lockHash: string | undefined
+): unknown {
+  return {
+    bundle: { bundleIdentity, ...(lockHash !== undefined ? { lockHash } : {}) },
+    model: {
+      provider: session.provider,
+      requestedModel: req.requested.model,
+      reasoningEffort: req.requested.reasoningEffort,
+      modelId: session.modelId,
+    },
+    sdk,
+    session: {
+      provider: session.provider,
+      modelId: session.modelId,
+      cwd: session.cwd,
+      lockedEnv: session.lockedEnv,
+      pathPrepend: session.pathPrepend,
+    },
+    continuation:
+      req.continuation !== undefined
+        ? {
+            hrc: {
+              provider: req.continuation.hrc.provider,
+              continuationId: req.continuation.hrc.continuationId,
+            },
+            source: req.continuation.source,
+          }
+        : undefined,
+  }
+}
+
+/**
+ * Prepare the pi-sdk session launch shape (cwd/lockedEnv/pathPrepend/model) from
+ * the SAME preparePlacementCliRuntime path the foreground/broker branches use, so
+ * the embedded session composes env exactly like a launched harness process. The
+ * pi-sdk model catalog is namespaced (`openai-codex/<model>`); a bare requested
+ * model (e.g. `gpt-5.5`) that the adapter does not recognize falls back to the
+ * pi-sdk default rather than failing the compile — honoring an explicit pi-sdk
+ * model id when one is given.
+ */
+async function prepareEmbeddedSdkSession(
+  req: RuntimeCompileRequest,
+  placement: CompilePlacement,
+  options?: CompileRuntimePlanOptions
+): Promise<PreparedPlacementCliRuntime> {
+  const attachments = toBrokerAttachments(req.materialization.attachments)
+  const baseReq = {
+    provider: 'openai' as ProviderDomain,
+    frontend: PI_SDK_FRONTEND,
+    interactionMode: 'nonInteractive' as const,
+    ...(req.continuation?.hrc.key !== undefined
+      ? { continuation: { provider: 'openai' as ProviderDomain, key: req.continuation.hrc.key } }
+      : {}),
+    ...(req.materialization.initialPrompt !== undefined
+      ? { prompt: req.materialization.initialPrompt }
+      : {}),
+    ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
+    ...(placement.env !== undefined ? { env: placement.env } : {}),
+    ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
+    ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
+    placement,
+  }
+  try {
+    return await preparePlacementCliRuntime(
+      { ...baseReq, ...(req.requested.model !== undefined ? { model: req.requested.model } : {}) },
+      options?.clientAspHome
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (req.requested.model !== undefined && /Model not supported/.test(message)) {
+      return await preparePlacementCliRuntime(baseReq, options?.clientAspHome)
+    }
+    throw error
+  }
+}
+
+/**
+ * Compile a nonInteractive pi-sdk request to an in-process EmbeddedSdkExecutionProfile
+ * (controller 'embedded-sdk'), per ARCPS §7.3.2 / FINAL_CONTRACTS §7.8. The profile
+ * carries NO broker/process/transport/terminal launch fields — the SDK session runs
+ * in-process inside hrc-server. PATH is emitted as the typed session.pathPrepend
+ * channel; session.lockedEnv never carries PATH. claude-agent-sdk is intentionally
+ * NOT emitted (impl deferred); only pi-sdk reaches this branch.
+ */
+async function compileEmbeddedSdkPlan(
+  req: RuntimeCompileRequest,
+  placement: CompilePlacement,
+  options?: CompileRuntimePlanOptions
+): Promise<RuntimeCompileResponse> {
+  if (req.requested.modelProvider !== undefined && req.requested.modelProvider !== 'openai') {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: [
+        compileError('unsupported_provider', 'pi-sdk embedded compile requires the openai provider', {
+          requested: req.requested.modelProvider,
+        }),
+      ],
+    }
+  }
+
+  const prepared = await prepareEmbeddedSdkSession(req, placement, options)
+
+  const lockedEnv = prepared.lockedEnv
+  const lockedEnvKeys = Object.keys(lockedEnv).sort()
+  const bundleIdentity = prepared.resolvedBundle?.bundleIdentity ?? 'unknown'
+  const lockHash = (prepared.resolvedBundle as { lockHash?: string | undefined } | undefined)
+    ?.lockHash
+  const modelId =
+    prepared.runtimePlan.model.ok === true
+      ? prepared.runtimePlan.model.info.model
+      : (req.requested.model ?? 'unknown')
+
+  const sdk: EmbeddedSdkExecutionProfile['sdk'] = {
+    runtime: 'pi-sdk',
+    startupMethod: 'create-sdk-session',
+    turnDelivery: 'sdk-turn',
+  }
+  const session: EmbeddedSdkExecutionProfile['session'] = {
+    provider: 'openai',
+    modelId,
+    cwd: prepared.cwd,
+    lockedEnv,
+    ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
+  }
+
+  const compatibilityHash = hashValue(
+    buildEmbeddedSdkCompatibilityMaterial(req, session, sdk, bundleIdentity, lockHash)
+  )
+  const profileId = stableId('profile', {
+    kind: 'embedded-sdk',
+    runtime: sdk.runtime,
+    cwd: session.cwd,
+    modelId: session.modelId,
+  }) as ProfileId
+
+  const profileMaterial = {
+    schemaVersion: 'agent-runtime-profile/v1' as const,
+    profileId,
+    kind: 'embedded-sdk' as const,
+    interactionMode: 'nonInteractive' as const,
+    expectedCapabilities: embeddedSdkCapabilities(),
+    sdk,
+    session,
+    policy: {
+      inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
+      ...(req.hrcPolicy.resourceLimits !== undefined
+        ? { resourceLimits: req.hrcPolicy.resourceLimits }
+        : {}),
+    },
+    ...(req.continuation !== undefined ? { continuation: req.continuation } : {}),
+  }
+  const profileHash = projectionHash(
+    { ...profileMaterial, compatibilityHash },
+    'profile'
+  ).profileHash
+  const profile: EmbeddedSdkExecutionProfile = {
+    ...profileMaterial,
+    profileHash,
+    compatibilityHash,
+  }
+
+  const validationDiagnostics = validateEmbeddedSdkExecutionProfile(profile)
+  if (validationDiagnostics.length > 0) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: validationDiagnostics,
+    }
+  }
+
+  const diagnostics: CompileDiagnostic[] = (prepared.warnings ?? []).map((warning) => ({
+    level: 'warning',
+    code: 'prepare_runtime_warning',
+    message: warning,
+    plane: 'asp-compiler',
+    profileId,
+  }))
+  const compileId = stableId('compile', {
+    requestId: req.identity.requestId,
+    operationId: req.identity.operationId,
+    generation: req.identity.generation,
+    profileHash,
+  }) as CompileId
+  const createdAt = new Date().toISOString()
+  const resolvedBundle = (prepared.resolvedBundle ?? {
+    bundleIdentity,
+  }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  const compiledPlacement = toCompiledPlacement(placement)
+
+  const planMaterial = {
+    schemaVersion: 'agent-runtime-plan/v1' as const,
+    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
+    compileId,
+    createdAt,
+    identity: req.identity,
+    placement: compiledPlacement,
+    resolvedBundle,
+    harness: {
+      family: 'pi' as const,
+      runtime: 'pi-sdk' as const,
+      provider: 'openai' as const,
+    },
+    model: {
+      provider: 'openai' as const,
+      modelId,
       ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
       ...(req.requested.reasoningEffort !== undefined
         ? { reasoningEffort: req.requested.reasoningEffort }
