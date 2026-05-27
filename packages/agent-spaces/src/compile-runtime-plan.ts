@@ -1045,15 +1045,47 @@ async function compileEmbeddedSdkPlan(
   placement: CompilePlacement,
   options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
+  // ARCPS §7.3.2 legality gate: an embedded-sdk pi-sdk profile is legal ONLY for
+  // openai + harnessFamily pi + interactionMode nonInteractive EXACTLY. Reject
+  // headless, an omitted interactionMode, and a non-pi family rather than
+  // silently rewriting interactionMode to nonInteractive.
+  const legalityDiagnostics: CompileDiagnostic[] = []
   if (req.requested.modelProvider !== undefined && req.requested.modelProvider !== 'openai') {
+    legalityDiagnostics.push(
+      compileError('unsupported_provider', 'pi-sdk embedded compile requires the openai provider', {
+        requested: req.requested.modelProvider,
+      })
+    )
+  }
+  if (req.requested.interactionMode === undefined) {
+    legalityDiagnostics.push(
+      compileError(
+        'unsupported_interaction_mode',
+        'pi-sdk embedded compile requires an explicit nonInteractive interactionMode',
+        { requested: null }
+      )
+    )
+  } else if (req.requested.interactionMode !== 'nonInteractive') {
+    legalityDiagnostics.push(
+      compileError(
+        'unsupported_interaction_mode',
+        'pi-sdk embedded compile requires interactionMode nonInteractive (not headless)',
+        { requested: req.requested.interactionMode }
+      )
+    )
+  }
+  if (req.requested.harnessFamily !== undefined && req.requested.harnessFamily !== 'pi') {
+    legalityDiagnostics.push(
+      compileError('unsupported_harness', 'pi-sdk embedded compile requires harnessFamily pi', {
+        requested: req.requested.harnessFamily,
+      })
+    )
+  }
+  if (legalityDiagnostics.length > 0) {
     return {
       schemaVersion: 'agent-runtime-compile-response/v1',
       ok: false,
-      diagnostics: [
-        compileError('unsupported_provider', 'pi-sdk embedded compile requires the openai provider', {
-          requested: req.requested.modelProvider,
-        }),
-      ],
+      diagnostics: legalityDiagnostics,
     }
   }
 
