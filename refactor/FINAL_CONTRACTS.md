@@ -868,7 +868,9 @@ permission.requested
 permission.resolved
 ```
 
-`terminal.surface.reported` is the broker-owned attach surface event for interactive broker routes. The `claude-code-tmux` driver reports `{ kind: 'tmux-session', socketPath, sessionName, paneId? }`; this is not a broker attach/replay command and not a generic driver notice.
+`terminal.surface.reported` is the broker-owned attach surface event for interactive broker routes. The `claude-code-tmux` and `codex-cli-tmux` drivers report `{ kind: 'tmux-session', socketPath, sessionName, paneId? }`; this is not a broker attach/replay command and not a generic driver notice.
+
+Interactive tmux broker drivers emit this same normalized event union and ledger semantics, but they are not required to have identical native-event richness. `codex-cli-tmux` maps Codex lifecycle hooks into the normalized vocabulary: `UserPromptSubmit` starts a turn from `{ turn_id, session_id, prompt, cwd, model }`; `PreToolUse` starts a tool call from `{ tool_use_id, tool_name, tool_input, turn_id }`; `PermissionRequest` emits `permission.requested` from `{ tool_name, tool_input.command, tool_input.description, turn_id }` and has no `tool_use_id`; `PostToolUse` completes a tool call from `{ tool_use_id, tool_response, tool_name, tool_input }`; `Stop` emits completed assistant text plus `turn.completed` from `{ last_assistant_message, stop_hook_active }`. Permission correlation is `(turn_id, tool_input.command)`. Codex hook evidence does not provide assistant/tool deltas in v1, so `assistant.message.delta` and `tool.call.delta` are optional for this driver.
 
 The current protocol name `invocation.permission.request` MUST be normalized before final freeze to `permission.requested` or explicitly versioned as broker-to-client request method only. The event union must include permission events if they are emitted as events.
 
@@ -956,7 +958,7 @@ Broker headless defaults to:
 { mode: 'none' }
 ```
 
-It MUST NOT inherit terminal Agentchat behavior. Explicit broker Agentchat exposure requires a concrete target contract. The interactive `claude-code-tmux` broker route is such a contract: it reports a broker-owned tmux surface and uses `{ mode: 'broker-reports-target', targetKind: 'tmux-session' }`. `brokerTerminal.exposurePolicy` and `policy.exposurePolicy` MUST match exactly.
+It MUST NOT inherit terminal Agentchat behavior. Explicit broker Agentchat exposure requires a concrete target contract. The interactive `claude-code-tmux` and `codex-cli-tmux` broker routes are such contracts: they report a broker-owned tmux surface and use `{ mode: 'broker-reports-target', targetKind: 'tmux-session' }`. `brokerTerminal.exposurePolicy` and `policy.exposurePolicy` MUST match exactly.
 
 ### 10.4 Resource policy
 
@@ -1116,7 +1118,8 @@ Required route families:
 ```text
 anthropic + claude-code + interactive terminal-requested -> terminal controller
 anthropic + claude-code + interactive pre-HRC broker     -> harness-broker controller, claude-code-tmux driver, tmux surface
-openai    + codex-cli   + interactive                    -> terminal controller
+openai    + codex-cli   + interactive terminal-requested -> terminal controller
+openai    + codex-cli   + interactive pre-HRC broker     -> harness-broker controller, codex-cli-tmux driver, tmux surface
 anthropic + agent-sdk   + nonInteractive                 -> embedded-sdk controller
 openai    + pi-sdk      + nonInteractive                 -> embedded-sdk controller
 openai    + codex-cli   + headless                       -> harness-broker controller, codex-app-server driver
@@ -1134,7 +1137,7 @@ No legacy-exec for new harness behavior.
 No broker-capable Codex headless through command-process.
 No codex-app-server broker profile with interactionMode interactive.
 No interactive broker profile without brokerTerminal.host tmux.
-No claude-code-tmux broker profile whose spec.process.harnessTransport.kind is not pty.
+No claude-code-tmux or codex-cli-tmux broker profile whose spec.process.harnessTransport.kind is not pty.
 No route requiring HRC to construct broker specs after compilation.
 ```
 
@@ -1233,7 +1236,7 @@ No live reattach claim unless v2 attach/replay exists
 - Codex broker start does not spawn `launch/exec.ts`.
 - Codex broker dispatch does not spawn `launch/exec.ts`.
 - HRC broker path does not import concrete Codex/Claude/Pi driver packages.
-- HRC broker path does not parse native harness events.
+- HRC broker path does not parse Codex JSONL, hook, OTEL, app-server, or other native harness events.
 - HRC broker path does not assign `spec.driver`, `spec.process.command`, `spec.process.args`, `spec.process.cwd`, `spec.process.lockedEnv`, `spec.process.pathPrepend`, or `spec.process.harnessTransport`.
 - A `dispatchEnv` key that collides with a `lockedEnv`/reserved/credential/ambient key is rejected at dispatch.
 - Legacy path requires explicit opt-in.
@@ -1241,10 +1244,11 @@ No live reattach claim unless v2 attach/replay exists
 ### 14.3 Route/capability tests
 
 - `openai + codex + headless` resolves to `harness-broker` by default.
-- `openai + codex + interactive` resolves to terminal.
+- `openai + codex + interactive` with terminal-controller behavior explicitly requested resolves to terminal.
+- pre-HRC `openai + codex + interactive` resolves to `harness-broker` with `codex-cli-tmux`, not terminal.
 - pre-HRC `anthropic + claude-code + interactive` resolves to `harness-broker` with `claude-code-tmux`, not terminal.
 - `anthropic + claude-code + nonInteractive` resolves to embedded SDK unless a real broker profile exists.
-- `claude-code-tmux` rejects non-pty harness transports, broker interactive without tmux surface rejects, and `codex-app-server + interactive` rejects.
+- `claude-code-tmux` and `codex-cli-tmux` reject non-pty harness transports, broker interactive without tmux surface rejects, and `codex-app-server + interactive` rejects.
 - Old `transport` aliases are derived.
 - Missing required capability rejects before broker start.
 - Degradation requires explicit policy.

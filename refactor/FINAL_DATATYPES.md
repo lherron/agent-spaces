@@ -761,7 +761,7 @@ export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   interactionMode: 'headless' | 'interactive'
 
   brokerProtocol: 'harness-broker/0.1'
-  brokerDriver: 'codex-app-server' | 'claude-code-tmux' | string
+  brokerDriver: 'codex-app-server' | 'claude-code-tmux' | 'codex-cli-tmux' | string
   brokerOwnership: 'hrc-owned-process'
   // Selection/exposure metadata for broker-owned interactive terminal surfaces.
   // The launch truth remains harnessInvocation.startRequest.spec.
@@ -884,14 +884,14 @@ export interface HarnessInvocationSpec {
   process: HarnessProcessSpec
   interaction?: InteractionSpec | undefined
   continuation?: ContinuationSpec | undefined
-  driver: CodexAppServerDriverSpec | ClaudeCodeTmuxDriverSpec | UnknownDriverSpec
+  driver: CodexAppServerDriverSpec | ClaudeCodeTmuxDriverSpec | CodexCliTmuxDriverSpec | UnknownDriverSpec
   correlation?: Record<string, string> | undefined
 }
 
 export interface HarnessDescriptor {
   frontend: string
   provider?: string | undefined
-  driver: 'codex-app-server' | 'claude-code-tmux' | string
+  driver: 'codex-app-server' | 'claude-code-tmux' | 'codex-cli-tmux' | string
 }
 
 export interface HarnessProcessSpec {
@@ -952,6 +952,92 @@ export interface ClaudeCodeTmuxDriverSpec {
   hookBridge: 'claude-code-hooks/v1'
   eventSource: 'terminal-hook'
 }
+
+export interface CodexCliTmuxDriverSpec {
+  kind: 'codex-cli-tmux'
+  terminalHost: 'tmux'
+  hookBridge: 'codex-hooks/v1'
+  eventSource: 'codex-lifecycle-hooks'
+  hooks: {
+    requiredEvents: [
+      'UserPromptSubmit',
+      'PreToolUse',
+      'PermissionRequest',
+      'PostToolUse',
+      'Stop',
+    ]
+    commandEnvVar: 'HRC_LAUNCH_HOOK_CLI'
+    trustStatePathMode: 'canonical-realpath'
+  }
+  normalization: {
+    continuationSource: 'session_id'
+    turnIdSource: 'turn_id'
+    permissionCorrelation: 'turn_id+tool_input.command'
+    assistantMessageSource: 'last_assistant_message'
+    deltas: 'not-emitted'
+  }
+}
+
+export type CodexLifecycleHookEventName =
+  | 'UserPromptSubmit'
+  | 'PreToolUse'
+  | 'PermissionRequest'
+  | 'PostToolUse'
+  | 'Stop'
+
+export interface CodexLifecycleHookPayloadBase {
+  session_id: string
+  turn_id: string
+  transcript_path: string
+  cwd: string
+  hook_event_name: CodexLifecycleHookEventName
+  model: string
+  permission_mode: string
+}
+
+export type CodexUserPromptSubmitHookPayload = CodexLifecycleHookPayloadBase & {
+  hook_event_name: 'UserPromptSubmit'
+  prompt: string
+}
+
+export type CodexPreToolUseHookPayload = CodexLifecycleHookPayloadBase & {
+  hook_event_name: 'PreToolUse'
+  tool_name: string
+  tool_input: Record<string, unknown>
+  tool_use_id: string
+}
+
+export type CodexPermissionRequestHookPayload = CodexLifecycleHookPayloadBase & {
+  hook_event_name: 'PermissionRequest'
+  tool_name: string
+  tool_input: {
+    command: string
+    description?: string | undefined
+    [key: string]: unknown
+  }
+  // Codex PermissionRequest hook payloads do not include tool_use_id in v1.
+}
+
+export type CodexPostToolUseHookPayload = CodexLifecycleHookPayloadBase & {
+  hook_event_name: 'PostToolUse'
+  tool_name: string
+  tool_input: Record<string, unknown>
+  tool_response: unknown
+  tool_use_id: string
+}
+
+export type CodexStopHookPayload = CodexLifecycleHookPayloadBase & {
+  hook_event_name: 'Stop'
+  stop_hook_active: boolean
+  last_assistant_message: string
+}
+
+export type CodexCliTmuxHookPayload =
+  | CodexUserPromptSubmitHookPayload
+  | CodexPreToolUseHookPayload
+  | CodexPermissionRequestHookPayload
+  | CodexPostToolUseHookPayload
+  | CodexStopHookPayload
 
 export interface DriverPermissionPolicy {
   mode: 'deny' | 'allow' | 'ask-client'
@@ -2423,7 +2509,7 @@ export type RuntimeRouteCatalogEntry = {
   broker?:
     | {
         protocolVersion: 'harness-broker/0.1'
-        driver: 'codex-app-server' | 'claude-code-tmux' | string
+        driver: 'codex-app-server' | 'claude-code-tmux' | 'codex-cli-tmux' | string
         processTransport: 'jsonrpc-stdio' | 'pty'
       }
     | undefined
@@ -2481,6 +2567,21 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     broker: {
       protocolVersion: 'harness-broker/0.1',
       driver: 'claude-code-tmux',
+      processTransport: 'pty',
+    },
+  },
+  {
+    controller: 'harness-broker',
+    terminalHost: 'tmux',
+    modelProvider: 'openai',
+    harnessFamily: 'codex',
+    harnessRuntime: 'codex-cli',
+    interactionMode: 'interactive',
+    startupMethods: ['create-broker-invocation', 'reuse-existing'],
+    turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    broker: {
+      protocolVersion: 'harness-broker/0.1',
+      driver: 'codex-cli-tmux',
       processTransport: 'pty',
     },
   },
