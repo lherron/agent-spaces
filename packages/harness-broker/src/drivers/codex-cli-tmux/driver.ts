@@ -169,7 +169,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         callbackSocket: hookListener.socketPath,
         bridgeCommand: options.hooks.bridgeCommand,
       })
-      await sleep(500)
+      await sleep(1_500)
       await tmux.sendPastedLine(
         pane.paneId,
         buildLaunchCommandLine(spec, driverCtx, {
