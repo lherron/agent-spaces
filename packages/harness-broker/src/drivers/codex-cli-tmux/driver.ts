@@ -1,5 +1,5 @@
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationCapabilities,
@@ -67,6 +67,11 @@ export interface CodexCliTmuxDriverOptions {
   }
   hooks: {
     listen: (handler: CodexHookEnvelopeHandler) => Promise<CodexHookListenerHandle>
+    /**
+     * Broker-owned receiver command invoked by the generated HRC_LAUNCH_HOOK_CLI
+     * wrapper. Defaults to the installed `harness-broker codex-hook` CLI.
+     */
+    bridgeCommand?: string | undefined
   }
   now?: (() => Date) | undefined
 }
@@ -160,7 +165,18 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         { driver: { kind: CODEX_CLI_TMUX_DRIVER_KIND, rawType: 'tmux.surface' } }
       )
 
-      await tmux.sendKeys(pane.paneId, buildLaunchCommandLine(spec, driverCtx))
+      const hookCliPath = await writeCodexHookBridgeWrapper({
+        callbackSocket: hookListener.socketPath,
+        bridgeCommand: options.hooks.bridgeCommand,
+      })
+      await sleep(500)
+      await tmux.sendPastedLine(
+        pane.paneId,
+        buildLaunchCommandLine(spec, driverCtx, {
+          callbackSocket: hookListener.socketPath,
+          hookCliPath,
+        })
+      )
       return { ok: true }
     },
 
@@ -168,6 +184,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
       requireCtx()
       const { paneId } = requireSurface()
       await requireTmux().sendLiteral(paneId, extractText(input))
+      await sleep(1_000)
       await requireTmux().sendEnter(paneId)
       return {}
     },
@@ -212,13 +229,60 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
   }
 }
 
-function buildLaunchCommandLine(spec: HarnessInvocationSpec, ctx: DriverContext): string {
-  const env = { ...spec.process.lockedEnv, ...(ctx.dispatchEnv ?? {}) }
+function buildLaunchCommandLine(
+  spec: HarnessInvocationSpec,
+  ctx: DriverContext,
+  hookEnv: { callbackSocket: string; hookCliPath: string }
+): string {
+  const env = {
+    ...spec.process.lockedEnv,
+    ...(ctx.dispatchEnv ?? {}),
+    HRC_LAUNCH_HOOK_CLI: hookEnv.hookCliPath,
+    HARNESS_BROKER_INVOCATION_ID: ctx.invocationId,
+    HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
+    HARNESS_BROKER_HOOK_GENERATION: '1',
+  }
   const assignments = Object.entries(env)
     .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
     .map(([key, value]) => `${key}=${shellQuote(value)}`)
   const argv = [spec.process.command, ...spec.process.args].map(shellQuote)
   return [...assignments, ...argv].join(' ')
+}
+
+const DEFAULT_HOOK_BRIDGE_COMMAND = 'harness-broker codex-hook'
+
+async function writeCodexHookBridgeWrapper(options: {
+  callbackSocket: string
+  bridgeCommand?: string | undefined
+}): Promise<string> {
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const bridge = options.bridgeCommand ?? DEFAULT_HOOK_BRIDGE_COMMAND
+  const wrapperPath = `${options.callbackSocket}.codex-hook.ts`
+  const shellCommand = `${bridge} --socket ${shellQuote(options.callbackSocket)}`
+  await mkdir(dirname(wrapperPath), { recursive: true })
+  await writeFile(
+    wrapperPath,
+    [
+      '#!/usr/bin/env bun',
+      "import { spawn } from 'node:child_process'",
+      '',
+      `const child = spawn('/bin/sh', ['-lc', ${JSON.stringify(`exec ${shellCommand}`)}], {`,
+      "  stdio: 'inherit',",
+      '  env: process.env,',
+      '})',
+      "child.on('error', (error) => {",
+      '  process.stderr.write(`codex-hook wrapper failed: ${error instanceof Error ? error.message : String(error)}\\n`)',
+      '  process.exit(0)',
+      '})',
+      "child.on('exit', (code, signal) => {",
+      '  if (signal) process.kill(process.pid, signal)',
+      '  else process.exit(code ?? 0)',
+      '})',
+      '',
+    ].join('\n'),
+    'utf8'
+  )
+  return wrapperPath
 }
 
 function extractText(input: InvocationInput): string {
@@ -233,6 +297,10 @@ function shellQuote(value: string): string {
     return value
   }
   return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export function createDefaultCodexCliTmuxDriver(): Driver {

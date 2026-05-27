@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { spawn } from 'node:child_process'
 /**
  * Pre-HRC broker MATRIX e2e runner (T-01667, Lance directive 2026-05-26).
  *
@@ -53,6 +54,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -63,6 +65,7 @@ import type {
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import type {
+  BrokerExecutionProfile,
   BrokerPermissionPolicy,
   EmbeddedSdkExecutionProfile,
   RuntimeCompileRequest,
@@ -75,6 +78,7 @@ import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.js'
 import { piSessionPath } from '../packages/agent-spaces/src/runtime-env.js'
 
 import { createClaudeCodeTmuxDriver } from '../packages/harness-broker/src/drivers/claude-code-tmux/driver'
+import { createCodexCliTmuxDriver } from '../packages/harness-broker/src/drivers/codex-cli-tmux/driver'
 import { createInvocationEventSequencer } from '../packages/harness-broker/src/events'
 import { createInvocationManager } from '../packages/harness-broker/src/invocation-manager'
 
@@ -86,6 +90,7 @@ import { PreHrcBrokerEventLedger } from '../packages/agent-spaces/src/testing/pr
 import {
   allocatePreHrcRuntimeIdentity,
   buildPlacementFromScopeRef,
+  verifyBrokerStartContract,
 } from '../packages/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
 import {
   capturePane,
@@ -93,6 +98,7 @@ import {
   ghostmux,
   ghostmuxAvailable,
   pollUntil,
+  sleep,
   waitForClaudePrompt,
 } from '../packages/agent-spaces/src/testing/pre-hrc-ghostmux-operator.js'
 import type { InteractiveTmuxRunnerDeps } from '../packages/agent-spaces/src/testing/pre-hrc-interactive-tmux-runner.js'
@@ -105,12 +111,16 @@ import { runInteractiveClaudeTmuxSession } from '../packages/agent-spaces/src/te
 type RowName =
   | 'fake-codex'
   | 'real-codex'
+  | 'real-codex-tmux'
+  | 'codex-tmux-ghostmux'
   | 'real-claude-tmux'
   | 'claude-tmux-ghostmux'
   | 'real-pi-sdk-embedded'
 const ALL_ROWS: RowName[] = [
   'fake-codex',
   'real-codex',
+  'real-codex-tmux',
+  'codex-tmux-ghostmux',
   'real-claude-tmux',
   'claude-tmux-ghostmux',
   'real-pi-sdk-embedded',
@@ -798,6 +808,548 @@ async function runCodexRow(
   return result
 }
 
+function codexInteractiveCompileRequest(input: {
+  scopeRef: string
+  agentRoot?: string | undefined
+  projectRoot: string
+  cwd: string
+  prompt: string
+  marker: string
+  timeoutMs: number
+  model?: string | undefined
+}): RuntimeCompileRequest {
+  const identity = allocatePreHrcRuntimeIdentity({
+    namespace: 'prehrc_matrix_codex_tmux',
+    invocationId: `inv_matrix_codex_tmux_${input.marker}`,
+    initialInputId: `input_matrix_codex_tmux_${input.marker}`,
+    idempotencyKey: `pre-hrc-matrix-codex-tmux-${input.marker}`,
+  })
+  const placement = buildPlacementFromScopeRef({
+    scopeRef: input.scopeRef,
+    agentRoot: input.agentRoot,
+    projectRoot: input.projectRoot,
+    cwd: input.cwd,
+    hostSessionId: identity.hostSessionId,
+  })
+  return {
+    schemaVersion: 'agent-runtime-compile-request/v1',
+    identity,
+    placement,
+    requested: {
+      modelProvider: 'openai',
+      model: input.model,
+      reasoningEffort: 'medium',
+      harnessFamily: 'codex',
+      preferredHarnessRuntime: 'codex-cli',
+      interactionMode: 'interactive',
+    },
+    materialization: {
+      initialPrompt: input.prompt,
+      taskContext: {
+        taskId: 'T-01673',
+        phase: 'matrix',
+        role: 'smoke',
+        requiredEvidenceKinds: ['contract-artifacts'],
+        hintsText: 'pre-HRC broker matrix codex-cli-tmux row',
+      },
+    },
+    hrcPolicy: {
+      permissionPolicy: allowPermissionPolicy(),
+      inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
+      exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' },
+      resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
+      observability: { traceId: identity.traceId },
+      capabilityPolicy: { allowDegrade: false, requireBrokerDefaultForCodexHeadless: true },
+    },
+    correlation: {
+      requestId: identity.requestId,
+      operationId: identity.operationId,
+      hostSessionId: identity.hostSessionId,
+      generation: identity.generation,
+      runtimeId: identity.runtimeId,
+      runId: identity.runId,
+      invocationId: identity.invocationId,
+      traceId: identity.traceId,
+      appId: 'agent-spaces',
+      appSessionKey: `pre-hrc-matrix-codex-tmux-${input.marker}`,
+      scopeRef: input.scopeRef,
+      laneRef: 'main',
+    },
+  }
+}
+
+type MatrixTmuxExecResult = { stdout: string; stderr: string }
+
+function runMatrixTmux(
+  tmuxBin: string,
+  argv: string[],
+  env: Record<string, string | undefined> = process.env
+): Promise<MatrixTmuxExecResult> {
+  return new Promise((resolvePromise, reject) => {
+    const cleanEnv: Record<string, string> = {}
+    for (const [key, value] of Object.entries(env)) {
+      if (value !== undefined) cleanEnv[key] = value
+    }
+    const proc = spawn(tmuxBin, argv, { env: cleanEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    proc.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+    })
+    proc.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8')
+    })
+    proc.on('error', reject)
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || stdout.trim() || `tmux exited with ${code}`))
+        return
+      }
+      resolvePromise({ stdout, stderr })
+    })
+  })
+}
+
+function makeCodexHookListener(
+  socketPath: string
+): (
+  handler: (envelope: unknown) => void | Promise<void>
+) => Promise<{ socketPath: string; close: () => Promise<void> }> {
+  return async (handler) => {
+    const { mkdir, rm } = await import('node:fs/promises')
+    const { dirname } = await import('node:path')
+    await mkdir(dirname(socketPath), { recursive: true }).catch(() => undefined)
+    await rm(socketPath, { force: true }).catch(() => undefined)
+
+    const server = createServer((conn) => {
+      const chunks: Buffer[] = []
+      conn.on('data', (chunk: Buffer) => chunks.push(chunk))
+      conn.on('end', () => {
+        void (async () => {
+          try {
+            const body = Buffer.concat(chunks).toString('utf8').trim()
+            if (body.length > 0) await handler(JSON.parse(body))
+            conn.end('ok')
+          } catch {
+            conn.end('err')
+          }
+        })()
+      })
+    })
+
+    await new Promise<void>((resolvePromise, reject) => {
+      server.once('error', reject)
+      server.listen(socketPath, () => {
+        server.removeListener('error', reject)
+        resolvePromise()
+      })
+    })
+
+    return {
+      socketPath,
+      close: () =>
+        new Promise<void>((resolvePromise) => {
+          server.close(() => resolvePromise())
+        }),
+    }
+  }
+}
+
+function terminalTurnCount(events: InvocationEventEnvelope[]): number {
+  return events.filter(
+    (event) =>
+      event.type === 'turn.completed' ||
+      event.type === 'turn.failed' ||
+      event.type === 'turn.interrupted'
+  ).length
+}
+
+async function waitForAdditionalTerminalTurn(
+  events: InvocationEventEnvelope[],
+  baseline: number,
+  timeoutMs: number
+): Promise<boolean> {
+  return pollUntil(() => terminalTurnCount(events) > baseline, timeoutMs, 1_500)
+}
+
+async function captureTmuxPane(
+  tmuxBin: string,
+  socketPath: string,
+  paneId: string
+): Promise<string> {
+  const result = await runMatrixTmux(tmuxBin, [
+    '-S',
+    socketPath,
+    'capture-pane',
+    '-t',
+    paneId,
+    '-p',
+    '-S',
+    '-200',
+  ])
+  return result.stdout
+}
+
+async function waitForTmuxPaneReady(
+  tmuxBin: string,
+  socketPath: string,
+  paneId: string,
+  timeoutMs: number
+): Promise<{ ready: boolean; pane: string; dismissedUpdatePrompt: boolean }> {
+  let latest = ''
+  let dismissedUpdatePrompt = false
+  const ready = await pollUntil(
+    async () => {
+      latest = await captureTmuxPane(tmuxBin, socketPath, paneId).catch((error) =>
+        error instanceof Error ? error.message : String(error)
+      )
+      if (
+        !dismissedUpdatePrompt &&
+        latest.includes('Update available') &&
+        latest.includes('Skip until next version')
+      ) {
+        dismissedUpdatePrompt = true
+        await runMatrixTmux(tmuxBin, ['-S', socketPath, 'send-keys', '-l', '-t', paneId, '3'])
+        await runMatrixTmux(tmuxBin, ['-S', socketPath, 'send-keys', '-t', paneId, 'Enter'])
+        return false
+      }
+      return latest.includes('OpenAI Codex') && latest.includes('Context') && latest.includes('›')
+    },
+    timeoutMs,
+    1_000
+  )
+  return { ready, pane: latest, dismissedUpdatePrompt }
+}
+
+async function waitForCodexPaneReady(
+  ghostmuxBin: string,
+  surfaceId: string,
+  timeoutMs: number
+): Promise<boolean> {
+  let previous = ''
+  let stable = 0
+  return pollUntil(
+    async () => {
+      const pane = await capturePane(ghostmuxBin, surfaceId)
+      if (pane.length > 40 && pane === previous) stable += 1
+      else stable = 0
+      previous = pane
+      return stable >= 2
+    },
+    timeoutMs,
+    1_000
+  )
+}
+
+async function runCodexTmuxRow(
+  ctx: RowContext,
+  options: { ghostmuxOperator: boolean }
+): Promise<RowResult> {
+  const codex = resolveRealCodexBin()
+  if (codex === undefined) throw new Error('real codex binary disappeared after probe')
+
+  const rowName: RowName = options.ghostmuxOperator ? 'codex-tmux-ghostmux' : 'real-codex-tmux'
+  const operatorMarker = `${ctx.marker}_OP`
+  const commandMarker = options.ghostmuxOperator ? operatorMarker : ctx.marker
+  const prompts = [
+    `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
+    `Run the Bash command: printf '${ctx.marker}_T2' — then reply with exactly ${ctx.marker}_T2 and nothing else.`,
+  ]
+  const operatorPrompt = `Run the Bash command: printf '${operatorMarker}' — then reply with exactly ${operatorMarker} and nothing else.`
+  const result: RowResult = {
+    name: rowName,
+    status: 'FAIL',
+    marker: commandMarker,
+    prompt: options.ghostmuxOperator ? operatorPrompt : prompts[0],
+    observedTurnIds: [],
+    compile: {},
+    floorFailures: [],
+    contractFailures: [],
+    extraFailures: [],
+    notes: {},
+  }
+
+  const savedCodexPath = process.env['ASP_CODEX_PATH']
+  const savedSkip = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
+  process.env['ASP_CODEX_PATH'] = codex
+  process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+
+  const aspHome = mkdtempSync(join(tmpdir(), `asp-matrix-${rowName}-`))
+  const socketPath = join(tmpdir(), `matrix-${rowName}-${process.pid}.sock`)
+  const hookSocketPath = `${socketPath}.hooks`
+  const projectRoot = ctx.repoRoot
+  const scopeRef = 'sparky@agent-spaces'
+  const agentRoot = resolve(projectRoot, '..', 'var', 'agents', 'sparky')
+  const events: InvocationEventEnvelope[] = []
+  const ledger = new PreHrcBrokerEventLedger()
+  const tmuxArgv: string[][] = []
+  let surface: { socketPath: string; sessionName: string; paneId: string } | undefined
+  let surfaceId: string | undefined
+
+  try {
+    ensureAspHomeRegistry(aspHome, projectRoot)
+    const client = createAgentSpacesClient({ aspHome }) as ReturnType<
+      typeof createAgentSpacesClient
+    > & { compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse> }
+    const response = await client.compileRuntimePlan(
+      codexInteractiveCompileRequest({
+        scopeRef,
+        agentRoot,
+        projectRoot,
+        cwd: projectRoot,
+        prompt: prompts[0],
+        marker: ctx.marker,
+        timeoutMs: ctx.turnTimeoutMs,
+      })
+    )
+    if (!response.ok) {
+      result.contractFailures.push({
+        code: 'codex_tmux_compile_failed',
+        message: `compileRuntimePlan returned diagnostics: ${JSON.stringify(response.diagnostics)}`,
+      })
+      return result
+    }
+
+    const profile = response.plan.executionProfiles.find(
+      (candidate): candidate is BrokerExecutionProfile =>
+        candidate.kind === 'harness-broker' && candidate.brokerDriver === 'codex-cli-tmux'
+    )
+    if (profile === undefined) {
+      result.contractFailures.push({
+        code: 'codex_tmux_profile_missing',
+        message: 'compileRuntimePlan did not emit codex-cli-tmux broker profile',
+      })
+      return result
+    }
+
+    const verification = verifyBrokerStartContract(profile)
+    result.contractFailures.push(...verification.failures.map(toFailure))
+    result.compile = {
+      compileId: response.plan.compileId,
+      planHash: response.plan.planHash,
+      selectedProfileHash: profile.profileHash,
+      startRequestHash: profile.harnessInvocation.startRequestHash,
+    }
+    result.notes['brokerDriver'] = profile.brokerDriver
+
+    await runMatrixTmux(ctx.tmuxBin, ['-S', socketPath, 'start-server'])
+    const bridgeCommand = `bun ${join(ctx.repoRoot, 'packages/harness-broker/bin/harness-broker.js')} codex-hook`
+    const driver = createCodexCliTmuxDriver({
+      tmux: {
+        socketPath,
+        tmuxBin: ctx.tmuxBin,
+        exec: async (argv, execOptions) => {
+          tmuxArgv.push([...argv])
+          return runMatrixTmux(ctx.tmuxBin, argv.slice(1), execOptions?.env ?? process.env)
+        },
+      },
+      hooks: {
+        listen: makeCodexHookListener(hookSocketPath),
+        bridgeCommand,
+      },
+    })
+    const manager = createInvocationManager({
+      sequencer: createInvocationEventSequencer({ now: () => new Date() }),
+      onEvent: (event) => {
+        events.push(event)
+        ledger.append(event)
+      },
+    })
+
+    const spec = profile.harnessInvocation.startRequest.spec
+    const invocationId = (spec.invocationId ??
+      `inv_matrix_codex_tmux_${ctx.marker}`) as InvocationId
+    await manager.start(spec, driver, undefined, undefined, { tmux: { socketPath } })
+
+    const surfaceEvent = events.find((event) => event.type === 'terminal.surface.reported')
+    const sp = surfaceEvent?.payload as
+      | { socketPath?: string; sessionName?: string; paneId?: string }
+      | undefined
+    if (
+      sp !== undefined &&
+      typeof sp.socketPath === 'string' &&
+      typeof sp.sessionName === 'string' &&
+      typeof sp.paneId === 'string'
+    ) {
+      surface = { socketPath: sp.socketPath, sessionName: sp.sessionName, paneId: sp.paneId }
+      result.notes['surface'] = surface
+    }
+
+    if (ctx.bootWaitMs > 0) await sleep(ctx.bootWaitMs)
+    if (surface !== undefined) {
+      const paneReady = await waitForTmuxPaneReady(
+        ctx.tmuxBin,
+        surface.socketPath,
+        surface.paneId,
+        60_000
+      )
+      result.notes['preTurnPane'] = paneReady.pane
+      if (paneReady.dismissedUpdatePrompt) {
+        result.notes['codexUpdatePromptDismissed'] = true
+      }
+      if (!paneReady.ready) {
+        result.extraFailures.push({
+          code: 'codex_tmux_pane_not_ready',
+          message: 'Codex tmux pane did not become stable before scripted turns',
+        })
+      }
+    }
+
+    const scriptedTurns: Array<{ prompt: string; terminalTurnObserved: boolean }> = []
+    for (const prompt of prompts) {
+      const baseline = terminalTurnCount(events)
+      await manager.input({
+        invocationId,
+        input: { kind: 'user', content: [{ type: 'text', text: prompt }] },
+        policy: { whenBusy: 'reject' },
+      })
+      const terminalTurnObserved = await waitForAdditionalTerminalTurn(
+        events,
+        baseline,
+        ctx.turnTimeoutMs
+      )
+      scriptedTurns.push({ prompt, terminalTurnObserved })
+      await sleep(2_000)
+    }
+    result.notes['scriptedTurns'] = scriptedTurns
+
+    if (options.ghostmuxOperator) {
+      const ghostmuxBin = 'ghostmux'
+      const attachCommand =
+        surface !== undefined
+          ? `${ctx.tmuxBin} -S ${surface.socketPath} attach-session -t ${surface.sessionName}`
+          : `${ctx.tmuxBin} -S ${socketPath} attach-session`
+      const newOut = await ghostmux(ghostmuxBin, [
+        'new',
+        '--command',
+        attachCommand,
+        '--title',
+        'matrix-codex-ghostmux-attach',
+        '--json',
+      ])
+      if (newOut.code !== 0) {
+        result.extraFailures.push({
+          code: 'ghostmux_new_failed',
+          message: `ghostmux new failed: ${newOut.stderr.trim() || newOut.stdout.trim()}`,
+        })
+      } else {
+        surfaceId = (JSON.parse(newOut.stdout) as { id?: string }).id
+        result.notes['surfaceId'] = surfaceId ?? null
+        if (surfaceId === undefined) {
+          result.extraFailures.push({
+            code: 'ghostmux_surface_missing',
+            message: `ghostmux new returned no surface id: ${newOut.stdout.trim()}`,
+          })
+        } else {
+          const ready = await waitForCodexPaneReady('ghostmux', surfaceId, 30_000)
+          if (!ready) {
+            result.extraFailures.push({
+              code: 'attach_prompt_not_visible',
+              message:
+                'Codex pane did not become stable in the attached Ghostty pane within 30000ms',
+            })
+          } else {
+            const baseline = terminalTurnCount(events)
+            await driveOperatorTurn('ghostmux', surfaceId, operatorPrompt, 250)
+            const recorded = await waitForAdditionalTerminalTurn(
+              events,
+              baseline,
+              ctx.turnTimeoutMs
+            )
+            if (!recorded) {
+              result.extraFailures.push({
+                code: 'operator_turn_not_recorded',
+                message: 'operator keystrokes did not produce a new hook-originated Codex turn',
+              })
+            }
+            const pane = await capturePane('ghostmux', surfaceId)
+            result.notes['tokenRenderedInPane'] = pane.includes(operatorMarker)
+            if (!pane.includes(operatorMarker)) {
+              result.extraFailures.push({
+                code: 'operator_token_not_rendered',
+                message: `Codex did not render the operator token ${operatorMarker} in the attached pane`,
+              })
+            }
+          }
+        }
+      }
+    }
+
+    result.observedTurnIds = observedTurnIds(events)
+    result.notes['ledgerEventTypes'] = [...new Set(events.map((event) => event.type))]
+    result.notes['tmuxArgv'] = tmuxArgv
+    result.notes['eventCount'] = events.length
+    if (surface !== undefined) {
+      result.notes['postTurnPane'] = await captureTmuxPane(
+        ctx.tmuxBin,
+        surface.socketPath,
+        surface.paneId
+      ).catch((error) => (error instanceof Error ? error.message : String(error)))
+    }
+
+    const commandTurnId =
+      findTurnWithToolCommandMarker(events, commandMarker) ?? deriveCommandTurnId(events)
+    result.commandTurnId = commandTurnId
+    result.floorFailures = runSharedFloor(
+      events,
+      commandMarker,
+      commandTurnId,
+      ctx.allowLegacyPermissionEvent,
+      CLAUDE_MARKER_SOURCES
+    )
+    result.notes['markerSatisfiedBy'] = markerSatisfiedBy(
+      events,
+      commandTurnId,
+      commandMarker,
+      CLAUDE_MARKER_SOURCES
+    )
+
+    result.extraFailures.push(...assertCodexContinuation(events))
+    if (observedTurnIds(events).length < 2) {
+      result.extraFailures.push({
+        code: 'codex_tmux_turn_count',
+        message: `expected >=2 hook-originated turns, got ${observedTurnIds(events).length}`,
+      })
+    }
+    for (const required of [
+      'assistant.message.completed',
+      'turn.completed',
+      'tool.call.started',
+      'tool.call.completed',
+      'continuation.updated',
+    ] as const) {
+      if (!events.some((event) => event.type === required)) {
+        result.extraFailures.push({
+          code: 'codex_tmux_event_missing',
+          message: `codex-cli-tmux row did not emit ${required}`,
+        })
+      }
+    }
+    if (!scriptedTurns.every((turn) => turn.terminalTurnObserved)) {
+      result.extraFailures.push({
+        code: 'codex_tmux_turn_terminal',
+        message: 'not every scripted Codex turn reached a terminal turn',
+      })
+    }
+
+    await manager.stop({ invocationId, reason: 'matrix complete' })
+    await manager.dispose({ invocationId })
+  } finally {
+    if (surfaceId !== undefined) {
+      await ghostmux('ghostmux', ['kill-surface', '-t', surfaceId]).catch(() => undefined)
+    }
+    await runMatrixTmux(ctx.tmuxBin, ['-S', socketPath, 'kill-server']).catch(() => undefined)
+    if (!ctx.keepArtifacts) rmSync(aspHome, { recursive: true, force: true })
+    process.env['ASP_CODEX_PATH'] = savedCodexPath
+    process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = savedSkip
+  }
+
+  const allFailed =
+    result.floorFailures.length + result.contractFailures.length + result.extraFailures.length
+  result.status = allFailed === 0 ? 'OK' : 'FAIL'
+  return result
+}
+
 /** Build a fake-codex shim that execs `bun <fixture>` for `app-server`. */
 function createFakeCodexFixture(repoRoot: string): {
   agentRoot: string
@@ -1254,6 +1806,49 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         if (!ctx.keepArtifacts) rmSync(aspHome, { recursive: true, force: true })
       }
     },
+  },
+  {
+    name: 'real-codex-tmux',
+    description: 'codex-cli-tmux interactive-tmux against the REAL codex binary',
+    probe: async () => {
+      const codex = resolveRealCodexBin()
+      if (codex === undefined) {
+        return {
+          available: false,
+          reason:
+            'real codex binary not found (set ASP_CODEX_PATH or install codex; shell aliases do not count)',
+        }
+      }
+      if (!existsSync(join(process.env['HOME'] ?? '', '.codex', 'auth.json'))) {
+        return { available: false, reason: 'codex auth (~/.codex/auth.json) not present' }
+      }
+      if (!existsSync(resolveTmuxBin()) && resolveTmuxBin() === 'tmux') {
+        return { available: false, reason: 'tmux not found' }
+      }
+      return { available: true, reason: `real codex at ${codex}` }
+    },
+    run: async (ctx) => runCodexTmuxRow(ctx, { ghostmuxOperator: false }),
+  },
+  {
+    name: 'codex-tmux-ghostmux',
+    description: 'codex-cli-tmux + REAL ghostmux operator-attach (operator-typed turn)',
+    probe: async () => {
+      const codex = resolveRealCodexBin()
+      if (codex === undefined) {
+        return {
+          available: false,
+          reason:
+            'real codex binary not found (set ASP_CODEX_PATH or install codex; shell aliases do not count)',
+        }
+      }
+      if (!existsSync(join(process.env['HOME'] ?? '', '.codex', 'auth.json'))) {
+        return { available: false, reason: 'codex auth (~/.codex/auth.json) not present' }
+      }
+      const gmux = await ghostmuxAvailable('ghostmux')
+      if (!gmux.available) return gmux
+      return { available: true, reason: `${gmux.reason}; real codex at ${codex}` }
+    },
+    run: async (ctx) => runCodexTmuxRow(ctx, { ghostmuxOperator: true }),
   },
   {
     name: 'real-claude-tmux',

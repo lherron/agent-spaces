@@ -162,6 +162,7 @@ export function createCodexCliTmuxHookEventNormalizer(
               name,
               isError: false,
               result: {
+                output: output ?? '',
                 content: [{ type: 'text', text: output ?? '' }],
                 ...(details !== undefined ? { details } : {}),
               },
