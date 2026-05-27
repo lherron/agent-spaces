@@ -150,6 +150,12 @@ export interface TurnCompletedPayload {
   turnId: TurnId
   status: 'completed' | 'failed' | 'interrupted'
   finalOutput?: string | undefined
+  /**
+   * Whether the turn produced observable content (assistant text OR tool
+   * activity). A tool-only turn sets this true even with an empty finalOutput;
+   * an empty finalOutput alone is NOT an empty_response (T-01522).
+   */
+  producedContent?: boolean | undefined
   usage?: unknown
 }
 

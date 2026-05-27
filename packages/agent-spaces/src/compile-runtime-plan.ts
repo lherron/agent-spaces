@@ -1064,9 +1064,14 @@ async function compileEmbeddedSdkPlan(
   const bundleIdentity = prepared.resolvedBundle?.bundleIdentity ?? 'unknown'
   const lockHash = (prepared.resolvedBundle as { lockHash?: string | undefined } | undefined)
     ?.lockHash
+  // Emit the registry-qualified effectiveModel (e.g. `openai-codex/gpt-5.5`), not
+  // the de-namespaced `info.model` — the pi model registry is keyed by the
+  // namespaced provider, so the in-process executor must be able to recover
+  // (registryProvider, registryModel) to drive PiSession to legacy parity. The
+  // coarse session.provider stays the ProviderDomain ('openai') for validation.
   const modelId =
     prepared.runtimePlan.model.ok === true
-      ? prepared.runtimePlan.model.info.model
+      ? prepared.runtimePlan.model.info.effectiveModel
       : (req.requested.model ?? 'unknown')
 
   const sdk: EmbeddedSdkExecutionProfile['sdk'] = {
