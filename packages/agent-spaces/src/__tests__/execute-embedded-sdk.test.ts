@@ -339,6 +339,131 @@ describe('executeEmbeddedSdkTurn', () => {
     )
   })
 
+  test('uses explicit SessionManager sessionPath as pi-sdk continuation when no SDK session id event is emitted', async () => {
+    const sessionPath = '/tmp/asp-home/sessions/pi/host-session-123'
+    const input = baseInput(
+      {
+        onPrompt(session) {
+          session.emit({ type: 'agent_start', sessionId: 'pi-session-no-sdk-session-event' })
+          session.emit({ type: 'turn_start', turnId: 'turn_embedded_red' })
+          session.emit({ type: 'message_update', messageId: 'msg_1', textDelta: 'continued' })
+          session.emit({ type: 'turn_end', turnId: 'turn_embedded_red' })
+          session.emit({ type: 'agent_end', sessionId: 'pi-session-no-sdk-session-event' })
+        },
+      },
+      { sessionPath }
+    )
+
+    const result = await executeEmbeddedSdkTurn(input)
+    const sessions = (input as { testObserver: { sessions: FakePiSession[] } }).testObserver.sessions
+
+    expect(input.sessionPath).toBe(sessionPath)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].config).toEqual(
+      expect.objectContaining({
+        sessionPath,
+      })
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.sessionKey).toBe(sessionPath)
+    expect(result.continuation).toEqual({
+      provider: 'openai',
+      key: sessionPath,
+      kind: 'session',
+    })
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        type: 'continuation.updated',
+        payload: {
+          provider: 'openai',
+          key: sessionPath,
+          kind: 'session',
+        },
+      })
+    )
+  })
+
+  test('passes reuse-existing continuation key as pi-sdk sessionPath and re-emits it after success without SDK session id', async () => {
+    const existingSessionPath = '/tmp/asp-home/sessions/pi/existing-host-session'
+    const input = baseInput(
+      {
+        onPrompt(session) {
+          session.emit({ type: 'agent_start', sessionId: 'pi-session-reuse-existing' })
+          session.emit({ type: 'turn_start', turnId: 'turn_embedded_red' })
+          session.emit({ type: 'message_update', messageId: 'msg_1', textDelta: 'reused' })
+          session.emit({ type: 'turn_end', turnId: 'turn_embedded_red' })
+          session.emit({ type: 'agent_end', sessionId: 'pi-session-reuse-existing' })
+        },
+      },
+      {
+        profile: profile({
+          sdk: {
+            runtime: 'pi-sdk',
+            startupMethod: 'reuse-existing',
+            turnDelivery: 'sdk-turn',
+          },
+          continuation: {
+            hrc: {
+              provider: 'openai',
+              key: existingSessionPath,
+              continuationId: existingSessionPath,
+              kind: 'session',
+            },
+          },
+        } as Partial<EmbeddedSdkExecutionProfile>),
+      }
+    )
+
+    const result = await executeEmbeddedSdkTurn(input)
+    const sessions = (input as { testObserver: { sessions: FakePiSession[] } }).testObserver.sessions
+
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].config).toEqual(
+      expect.objectContaining({
+        sessionPath: existingSessionPath,
+      })
+    )
+    expect(result.success).toBe(true)
+    expect(result.sessionKey).toBe(existingSessionPath)
+    expect(result.continuation).toEqual({
+      provider: 'openai',
+      key: existingSessionPath,
+      kind: 'session',
+    })
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        type: 'continuation.updated',
+        payload: {
+          provider: 'openai',
+          key: existingSessionPath,
+          kind: 'session',
+        },
+      })
+    )
+  })
+
+  test('does not advance explicit SessionManager sessionPath when a no-sdk-session-id turn fails', async () => {
+    const sessionPath = '/tmp/asp-home/sessions/pi/failed-host-session'
+    const result = await executeEmbeddedSdkTurn(
+      baseInput(
+        {
+          onPrompt(session) {
+            session.emit({ type: 'agent_start', sessionId: 'pi-session-failed-no-sdk-id' })
+            session.emit({ type: 'turn_start', turnId: 'turn_embedded_red' })
+            throw new Error('pi turn crashed before continuation proof')
+          },
+        },
+        { sessionPath }
+      )
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.sessionKey).toBeUndefined()
+    expect(result.continuation).toBeUndefined()
+    expect(result.events.some((event) => event.type === 'continuation.updated')).toBe(false)
+  })
+
   test('rejects reuse-existing when the compiled profile has no validated continuation key', async () => {
     const input = baseInput(
       { onPrompt: () => {} },

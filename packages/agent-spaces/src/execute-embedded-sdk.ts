@@ -76,6 +76,8 @@ export interface ExecuteEmbeddedSdkTurnInput {
   inputId?: InputId | undefined
   turnId?: TurnId | undefined
   runId?: string | undefined
+  /** Explicit Pi session/continuation path supplied by the SessionManager. */
+  sessionPath?: string | undefined
   /** Root of the materialized pi-sdk bundle (the agentDir). */
   bundleRoot: string
   /** HRC-mutable dispatch env channel (ARCPS §7.5.1). */
