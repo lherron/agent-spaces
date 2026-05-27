@@ -58,6 +58,74 @@ io.notify('item/completed', {
 
 io.notify('item/started', {
   turnId: 'turn_1',
+  item: { type: 'agentMessage', id: 'msg_note_1' },
+})
+io.notify('item/agentMessage/delta', {
+  turnId: 'turn_1',
+  id: 'msg_note_1',
+  text: 'Marker command completed.',
+})
+io.notify('item/completed', {
+  turnId: 'turn_1',
+  item: {
+    type: 'agentMessage',
+    id: 'msg_note_1',
+    content: [{ type: 'text', text: 'Marker command completed.' }],
+  },
+})
+
+io.notify('item/started', {
+  turnId: 'turn_1',
+  item: {
+    type: 'commandExecution',
+    id: 'cmd_pwd',
+    command: 'pwd',
+    cwd: process.cwd(),
+    aggregatedOutput: null,
+    exitCode: null,
+    durationMs: null,
+    status: 'inProgress',
+  },
+})
+io.notify('item/commandExecution/outputDelta', {
+  turnId: 'turn_1',
+  itemId: 'cmd_pwd',
+  delta: process.cwd(),
+})
+io.notify('item/completed', {
+  turnId: 'turn_1',
+  item: {
+    type: 'commandExecution',
+    id: 'cmd_pwd',
+    command: 'pwd',
+    cwd: process.cwd(),
+    aggregatedOutput: process.cwd(),
+    exitCode: 0,
+    durationMs: 3,
+    status: 'completed',
+  },
+})
+
+io.notify('item/started', {
+  turnId: 'turn_1',
+  item: { type: 'agentMessage', id: 'msg_note_2' },
+})
+io.notify('item/agentMessage/delta', {
+  turnId: 'turn_1',
+  id: 'msg_note_2',
+  text: 'Working directory checked.',
+})
+io.notify('item/completed', {
+  turnId: 'turn_1',
+  item: {
+    type: 'agentMessage',
+    id: 'msg_note_2',
+    content: [{ type: 'text', text: 'Working directory checked.' }],
+  },
+})
+
+io.notify('item/started', {
+  turnId: 'turn_1',
   item: { type: 'agentMessage', id: 'msg_marker' },
 })
 io.notify('item/agentMessage/delta', {

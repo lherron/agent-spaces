@@ -31,6 +31,10 @@ const TOOL_NAMES: Record<string, string> = {
 
 const TOOL_TYPES = new Set(Object.keys(TOOL_NAMES))
 
+type HeldAssistantCompletions = Map<string, MappedEvent>
+
+const defaultHeldAssistantCompletions: HeldAssistantCompletions = new Map()
+
 function asTurnId(value: string): TurnId {
   return value as TurnId
 }
@@ -43,20 +47,38 @@ function asTurnId(value: string): TurnId {
  * (again carrying `rawType`) rather than being silently dropped.
  */
 export function mapCodexNotification(notification: JsonRpcNotification): MappedEvent[] {
+  return mapCodexNotificationWithState(notification, defaultHeldAssistantCompletions)
+}
+
+export function createCodexNotificationMapper(): (
+  notification: JsonRpcNotification
+) => MappedEvent[] {
+  const heldAssistantCompletions: HeldAssistantCompletions = new Map()
+  return (notification) => mapCodexNotificationWithState(notification, heldAssistantCompletions)
+}
+
+function mapCodexNotificationWithState(
+  notification: JsonRpcNotification,
+  heldAssistantCompletions: HeldAssistantCompletions
+): MappedEvent[] {
   const driver = { kind: CODEX_DRIVER_KIND, rawType: notification.method }
-  return mapCodexNotificationInner(notification).map((event) => ({
+  return mapCodexNotificationInner(notification, heldAssistantCompletions).map((event) => ({
     ...event,
-    extra: { ...event.extra, driver },
+    extra: { ...event.extra, driver: event.extra?.driver ?? driver },
   }))
 }
 
-function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEvent[] {
+function mapCodexNotificationInner(
+  notification: JsonRpcNotification,
+  heldAssistantCompletions: HeldAssistantCompletions
+): MappedEvent[] {
   const params = asRecord(notification.params)
 
   switch (notification.method) {
     case 'turn/started': {
       const turnId = stringValue(params['turnId']) ?? stringValue(asRecord(params['turn'])['id'])
       if (!turnId) return []
+      heldAssistantCompletions.delete(turnId)
       return [
         {
           type: 'turn.started',
@@ -80,6 +102,7 @@ function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEve
 
       if (itemType === 'agentMessage') {
         return [
+          ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
           {
             type: 'assistant.message.started',
             payload: { messageId: itemId },
@@ -91,6 +114,7 @@ function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEve
       if (TOOL_TYPES.has(itemType)) {
         const input = normalizeToolInput(itemType, item)
         return [
+          ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
           {
             type: 'tool.call.started',
             payload: {
@@ -111,6 +135,7 @@ function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEve
       const text = stringValue(params['text']) ?? stringValue(params['delta'])
       if (!turnId || !itemId || text === undefined) return []
       return [
+        ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
         {
           type: 'assistant.message.delta',
           payload: { messageId: itemId, text },
@@ -126,6 +151,7 @@ function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEve
       const text = stringValue(params['text']) ?? stringValue(params['delta'])
       if (!turnId || !itemId || text === undefined) return []
       return [
+        ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
         {
           type: 'tool.call.delta',
           payload: { toolCallId: itemId, text },
@@ -139,6 +165,7 @@ function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEve
       const itemId = stringValue(params['id']) ?? stringValue(params['itemId'])
       if (!turnId || !itemId) return []
       return [
+        ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
         {
           type: 'tool.call.delta',
           payload: {
@@ -158,17 +185,12 @@ function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEve
       if (!turnId || !itemType || !itemId) return []
 
       if (itemType === 'agentMessage') {
-        return [
-          {
-            type: 'assistant.message.completed',
-            payload: {
-              messageId: itemId,
-              content: normalizeMessageContent(item),
-              final: true,
-            },
-            extra: { turnId: asTurnId(turnId), itemId },
-          },
-        ]
+        const previous = flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false)
+        heldAssistantCompletions.set(
+          turnId,
+          assistantCompletionEvent(turnId, itemId, normalizeMessageContent(item), true)
+        )
+        return previous
       }
 
       if (TOOL_TYPES.has(itemType)) {
@@ -176,6 +198,7 @@ function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEve
         const durationMs = numberValue(item['durationMs'])
         const isError = isToolError(itemType, item)
         return [
+          ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
           {
             type: isError ? 'tool.call.failed' : 'tool.call.completed',
             payload: {
@@ -205,6 +228,7 @@ function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEve
             ? 'interrupted'
             : 'completed'
       return [
+        ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, true),
         {
           type:
             status === 'failed'
@@ -241,6 +265,43 @@ function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEve
         },
       ]
   }
+}
+
+function assistantCompletionEvent(
+  turnId: string,
+  itemId: string,
+  content: Array<{ type: 'text'; text: string }>,
+  final: boolean
+): MappedEvent {
+  return {
+    type: 'assistant.message.completed',
+    payload: {
+      messageId: itemId,
+      content,
+      final,
+    },
+    extra: {
+      turnId: asTurnId(turnId),
+      itemId,
+      driver: { kind: CODEX_DRIVER_KIND, rawType: 'item/completed' },
+    },
+  }
+}
+
+function flushHeldAssistantCompletion(
+  heldAssistantCompletions: HeldAssistantCompletions,
+  turnId: string,
+  final: boolean
+): MappedEvent[] {
+  const held = heldAssistantCompletions.get(turnId)
+  if (held === undefined) return []
+  heldAssistantCompletions.delete(turnId)
+  return [
+    {
+      ...held,
+      payload: { ...(asRecord(held.payload) as Record<string, unknown>), final },
+    },
+  ]
 }
 
 export function parseCodexError(params: unknown): CodexErrorInfo {
