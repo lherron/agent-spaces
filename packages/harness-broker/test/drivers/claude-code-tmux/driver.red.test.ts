@@ -345,7 +345,13 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     // posts these events back to the broker callback socket.
     expect(launchCommand).toContain('--settings')
     expect(launchCommand).toContain('hook')
-    for (const hookName of ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']) {
+    for (const hookName of [
+      'UserPromptSubmit',
+      'MessageDisplay',
+      'PreToolUse',
+      'PostToolUse',
+      'Stop',
+    ]) {
       expect(launchCommand).toContain(hookName)
     }
   })
@@ -413,7 +419,13 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       }
       expect(effectiveSettings.statusLine).toEqual(durableStatusLine)
       expect(effectiveSettings.hooks).toBeDefined()
-      for (const hookName of ['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']) {
+      for (const hookName of [
+        'UserPromptSubmit',
+        'MessageDisplay',
+        'PreToolUse',
+        'PostToolUse',
+        'Stop',
+      ]) {
         expect(JSON.stringify(effectiveSettings.hooks?.[hookName])).toContain(
           'harness-broker claude-hook --socket /tmp/harness-broker/claude-hooks.sock'
         )

@@ -16,6 +16,17 @@ type ClaudeCodeHookEventNormalizer = {
   }) => InvocationEventEnvelope
 }
 
+type NormalizeHookEnvelope = (
+  envelope: {
+    invocationId: string
+    generation: number
+    callbackSocket: string
+    turnId?: string | undefined
+    hookData: unknown
+  },
+  options: { normalizer: ClaudeCodeHookEventNormalizer }
+) => InvocationEventEnvelope[]
+
 const createNormalizer = async (): Promise<ClaudeCodeHookEventNormalizer> => {
   const target = (await import('../../../src/drivers/claude-code-tmux/hook-events')) as {
     createClaudeCodeHookEventNormalizer: (options: {
@@ -28,6 +39,13 @@ const createNormalizer = async (): Promise<ClaudeCodeHookEventNormalizer> => {
     invocationId,
     now: () => new Date('2026-05-26T15:00:00.000Z'),
   })
+}
+
+const loadNormalizeHookEnvelope = async (): Promise<NormalizeHookEnvelope> => {
+  const target = (await import('../../../src/drivers/claude-code-tmux/hook-events')) as {
+    normalizeHookEnvelope: NormalizeHookEnvelope
+  }
+  return target.normalizeHookEnvelope
 }
 
 const single = async (hook: Record<string, unknown>) => {
@@ -218,6 +236,173 @@ describe('claude-code-tmux hook event normalization', () => {
         data: { rawHook: { hook_event_name: 'Notification', turn_id: turnId } },
       },
     })
+  })
+
+  test('MessageDisplay emits a held interim assistant message before the next tool event', async () => {
+    const normalizer = await createNormalizer()
+
+    expect(
+      normalizer.normalizeHook({
+        hook_event_name: 'MessageDisplay',
+        turn_id: turnId,
+        message_id: 'msg_intro',
+        index: 0,
+        final: true,
+        delta: "I'll inspect the directory first.",
+      })
+    ).toEqual([])
+
+    const events = normalizer.normalizeHook({
+      hook_event_name: 'PreToolUse',
+      turn_id: turnId,
+      tool_use_id: 'toolu_ls_1',
+      tool_name: 'Bash',
+      tool_input: { command: 'ls' },
+    })
+
+    expect(eventTypes(events)).toEqual(['assistant.message.completed', 'tool.call.started'])
+    expect(events[0]).toMatchObject({
+      type: 'assistant.message.completed',
+      turnId,
+      itemId: 'msg_intro',
+      driver: { kind: 'claude-code-tmux', rawType: 'MessageDisplay' },
+      payload: {
+        messageId: 'msg_intro',
+        content: [{ type: 'text', text: "I'll inspect the directory first." }],
+        final: false,
+      },
+    })
+    expect(events[1]).toMatchObject({
+      type: 'tool.call.started',
+      payload: { toolCallId: 'toolu_ls_1', name: 'Bash' },
+    })
+  })
+
+  test('MessageDisplay chunks with the same message_id emit one terminal assistant message on Stop', async () => {
+    const normalizer = await createNormalizer()
+
+    expect(
+      normalizer.normalizeHook({
+        hook_event_name: 'MessageDisplay',
+        turn_id: turnId,
+        message_id: 'msg_summary',
+        index: 0,
+        final: false,
+        delta: 'Count: 33 entries.\n\n',
+      })
+    ).toEqual([])
+    expect(
+      normalizer.normalizeHook({
+        hook_event_name: 'MessageDisplay',
+        turn_id: turnId,
+        message_id: 'msg_summary',
+        index: 1,
+        final: false,
+        delta: '| # | Command |\n',
+      })
+    ).toEqual([])
+    expect(
+      normalizer.normalizeHook({
+        hook_event_name: 'MessageDisplay',
+        turn_id: turnId,
+        message_id: 'msg_summary',
+        index: 2,
+        final: true,
+        delta: '| 1 | ls |\n',
+      })
+    ).toEqual([])
+
+    const events = normalizer.normalizeHook({ hook_event_name: 'Stop', turn_id: turnId })
+
+    expect(eventTypes(events)).toEqual(['assistant.message.completed', 'turn.completed'])
+    expect(events[0]).toMatchObject({
+      type: 'assistant.message.completed',
+      turnId,
+      itemId: 'msg_summary',
+      payload: {
+        messageId: 'msg_summary',
+        content: [{ type: 'text', text: 'Count: 33 entries.\n\n| # | Command |\n| 1 | ls |\n' }],
+        final: true,
+      },
+    })
+    expect(events[1]).toMatchObject({
+      type: 'turn.completed',
+      payload: { turnId, status: 'completed' },
+    })
+  })
+
+  test('MessageDisplay envelope turn id overrides Claude raw turn_id', async () => {
+    const normalizer = await createNormalizer()
+    const normalizeHookEnvelope = await loadNormalizeHookEnvelope()
+
+    expect(
+      normalizeHookEnvelope(
+        {
+          invocationId,
+          generation: 1,
+          callbackSocket: '/tmp/claude-hooks.sock',
+          turnId,
+          hookData: {
+            hook_event_name: 'MessageDisplay',
+            turn_id: 'claude-code-turn-id',
+            message_id: 'msg_env',
+            index: 0,
+            final: true,
+            delta: 'broker turn id wins',
+          },
+        },
+        { normalizer }
+      )
+    ).toEqual([])
+
+    const events = normalizeHookEnvelope(
+      {
+        invocationId,
+        generation: 1,
+        callbackSocket: '/tmp/claude-hooks.sock',
+        turnId,
+        hookData: {
+          hook_event_name: 'Stop',
+          turn_id: 'claude-code-turn-id',
+        },
+      },
+      { normalizer }
+    )
+
+    expect(events[0]).toMatchObject({
+      type: 'assistant.message.completed',
+      turnId,
+      payload: { messageId: 'msg_env', final: true },
+    })
+    expect(events[1]).toMatchObject({
+      type: 'turn.completed',
+      turnId,
+      payload: { turnId, status: 'completed' },
+    })
+  })
+
+  test('MessageDisplay without an envelope broker turn id does not use Claude raw turn_id', async () => {
+    const normalizer = await createNormalizer()
+    const normalizeHookEnvelope = await loadNormalizeHookEnvelope()
+
+    const events = normalizeHookEnvelope(
+      {
+        invocationId,
+        generation: 1,
+        callbackSocket: '/tmp/claude-hooks.sock',
+        hookData: {
+          hook_event_name: 'MessageDisplay',
+          turn_id: 'claude-code-turn-id',
+          message_id: 'msg_unmapped',
+          index: 0,
+          final: true,
+          delta: 'late unmapped display',
+        },
+      },
+      { normalizer }
+    )
+
+    expect(events).toEqual([])
   })
 
   test.each(['Stop', 'SessionEnd', 'SubagentStop'])(

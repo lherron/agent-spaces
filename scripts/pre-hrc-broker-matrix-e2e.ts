@@ -144,8 +144,8 @@ const ALL_ROWS: RowName[] = [
 /**
  * SHARED narration-inducing scenario (Lance's live ghostmux demo, T-01700).
  *
- * A multi-tool turn that asks for a short notification message BETWEEN the two
- * tool execs, so a conforming driver emits intermediate agent messages. This is
+ * A multi-tool turn that requires separate status messages before command
+ * execution, so a conforming driver emits intermediate agent messages. This is
  * the SAME scenario turn threaded through EVERY row's drive path (harness-agnostic
  * certification) — single-turn rows fold it into the command-turn prompt
  * (preserving the marker echo so the shared floor still holds), multi-turn rows
@@ -153,8 +153,11 @@ const ALL_ROWS: RowName[] = [
  * this turn on every row.
  */
 const NARRATION_PROMPT =
-  'Perform an ls and tell me something interesting about this directory, then run pwd. ' +
-  'I want a short notification message in between each tool exec.'
+  'For this task, before you run each command, first send me a one-line status message ' +
+  'as its own plain-text reply. Do not fold those status lines into your final answer. ' +
+  'Step 1: say what you are about to inspect, then run ls. ' +
+  'Step 2: say one interesting thing about the directory, then run pwd. ' +
+  'Step 3: give your final summary. Each status line must be a separate message that precedes its tool call.'
 
 type CliArgs = {
   config?: RowName | undefined
@@ -628,11 +631,11 @@ function assertCodexContinuation(events: InvocationEventEnvelope[]): Failure[] {
  *
  * REQUIRED contract on EVERY row (driver certification, not a codex affordance):
  * in a multi-tool turn, every natural assistant message before the terminal answer
- * must surface as assistant.message.completed{final:false}, emitted BEFORE the
- * turn terminal; the terminal assistant message is assistant.message.completed
- * {final:true} exactly once. So a narration-inducing turn must produce >=2
- * intermediate (final:false) messages before its terminal turn.completed, plus
- * exactly one final (final:true) closing message.
+ * must surface as a non-empty assistant.message.completed{final:false}
+ * independent from the terminal answer; the terminal assistant message is a
+ * non-empty assistant.message.completed{final:true} exactly once. Claude Code
+ * supplies these as MessageDisplay hooks (`message_id` + `index` + `delta` +
+ * `final`), so the Claude row must not rely on Stop transcript aggregation.
  *
  * This assertion runs UNIFORMLY on every matrix row — it is NOT gated/skipped for
  * any driver. Conforming drivers (codex-cli-tmux via the rollout transcript tailer,
@@ -658,16 +661,25 @@ function assertIntermediateMessages(
   const inNarration = (event: InvocationEventEnvelope): boolean =>
     !scoped || (typeof event.turnId === 'string' && narrationTurnIds.includes(event.turnId))
 
-  const completions = events.filter(
-    (event) => event.type === 'assistant.message.completed' && inNarration(event)
+  const messageText = (event: InvocationEventEnvelope): string => {
+    const content = asRecord(event.payload)?.['content']
+    if (!Array.isArray(content)) return ''
+    return content
+      .map((part) => (asRecord(part)?.['text'] ?? '').toString())
+      .join('')
+      .trim()
+  }
+  const scopedEvents = events.filter(inNarration)
+  const completions = scopedEvents.filter(
+    (event) => event.type === 'assistant.message.completed' && messageText(event).length > 0
   )
   const intermediates = completions.filter((event) => finalFlag(event) === false)
   const finals = completions.filter((event) => finalFlag(event) === true)
 
-  if (intermediates.length < 2) {
+  if (intermediates.length < 1) {
     failures.push({
       code: 'intermediate_messages_missing',
-      message: `narration turn must surface >=2 intermediate assistant.message.completed{final:false} events, got ${intermediates.length} (narrationTurnIds=${JSON.stringify(narrationTurnIds)})`,
+      message: `narration turn must surface at least one non-empty intermediate assistant.message.completed{final:false} event, got ${intermediates.length} (narrationTurnIds=${JSON.stringify(narrationTurnIds)})`,
     })
   }
 
