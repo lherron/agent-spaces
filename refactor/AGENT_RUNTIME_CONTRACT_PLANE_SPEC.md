@@ -678,8 +678,7 @@ Validator gates:
 - `PreToolUse` carries `tool_use_id`, `tool_name`, `tool_input`, and `turn_id`; it maps to `tool.call.started`.
 - `PermissionRequest` carries `tool_name`, `tool_input.command`, optional `tool_input.description`, and `turn_id`, but no `tool_use_id`; the driver correlates it to a pending tool call by `(turn_id, tool_input.command)`.
 - `PostToolUse` carries `tool_use_id`, `tool_name`, `tool_input`, `tool_response`, and `turn_id`; it maps to `tool.call.completed`, preserving command errors/results in the result payload rather than normalizing command failure to `tool.call.failed`.
-- Codex rollout transcript tail assistant-message entries map to complete intermediate `assistant.message.completed` events with `{ final: false }`.
-- Codex rollout `task_complete` flushes the final assistant message as `assistant.message.completed` with `{ final: true }`.
+- The Codex rollout transcript tail is the first conforming implementation source for the generic held-latest assistant-message contract: completed assistant-message entries are held as the possible terminal answer, previously held natural assistant messages are emitted as `assistant.message.completed` with `{ final: false }`, and rollout `task_complete` flushes the held terminal assistant message as `assistant.message.completed` with `{ final: true }`.
 - `Stop` carries `stop_hook_active`, `turn_id`, and `session_id`; it is only the turn-completion/continuation hook and maps to `turn.completed` plus `continuation.updated`.
 
 Codex hooks are discrete lifecycle events and the rollout transcript tail currently provides complete assistant messages, not token deltas. `codex-cli-tmux` MUST set `capabilities.events.assistantDeltas` to `false`; `assistant.message.delta` and `tool.call.delta` are unavailable unless a future native source provides them. `session_id` is the Codex v1 continuation key; `turn_id` is per-turn; `transcript_path` is driver-private assistant-message evidence and MUST NOT be required by HRC to project continuation.
@@ -1139,6 +1138,10 @@ terminal.surface.reported
 permission.requested
 permission.resolved
 ```
+
+Assistant message completion is a required harness-agnostic contract. Every natural assistant message before the terminal answer for a turn MUST be emitted as `assistant.message.completed` with `{ final: false }` before the turn terminal. The terminal assistant message for the turn MUST be emitted as `assistant.message.completed` with `{ final: true }` exactly once, before the turn terminal event.
+
+`final` means "terminal assistant message for the turn"; it does not mean "this message item is internally complete." Drivers that learn message completion before turn completion MUST use a held-latest pattern: hold the newest completed natural assistant message as the possible terminal answer, emit the previously held message with `final: false` when another natural assistant message arrives, and flush the held message with `final: true` only when the turn terminal is known. `assistant.message.delta` remains optional streaming evidence; `capabilities.events.assistantDeltas` MUST NOT be overloaded to waive the completed-message requirement.
 
 `terminal.surface.reported` is the canonical v1 event for a broker-owned attachable terminal surface. For `claude-code-tmux` and `codex-cli-tmux`, the payload MUST be `{ kind: 'tmux-session', socketPath, sessionName, paneId? }`. This event is not `driver.notice`, not a launch callback, and not `broker.attach`; it only reports the tmux attach surface for operators and HRC projection.
 

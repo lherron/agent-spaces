@@ -366,6 +366,8 @@ export type CapabilityResolution = {
 }
 ```
 
+`assistantDeltas` describes only availability of streaming `assistant.message.delta` events. It does not make complete assistant messages optional and MUST NOT be used to opt out of the required `assistant.message.completed` contract. `events.assistantDeltas: false` means the runtime cannot stream token/text deltas; it still MUST emit completed natural assistant messages, including intermediate messages with `final: false` and exactly one terminal assistant message with `final: true` per turn.
+
 ---
 
 ## 6. Permission, input, exposure, resource, observability policies
@@ -1493,7 +1495,10 @@ export interface AssistantMessageDeltaPayload {
 export interface AssistantMessageCompletedPayload {
   messageId: MessageId
   content: Array<{ type: 'text'; text: string }>
-  final?: boolean | undefined
+  // Required turn-terminal marker. `false` means this completed natural
+  // assistant message is not the terminal answer for the turn; `true` marks the
+  // terminal assistant message for the turn and MUST appear exactly once.
+  final: boolean
 }
 
 export interface ToolCallStartedPayload {
@@ -1563,6 +1568,8 @@ export interface PermissionResolvedPayload {
   message?: string | undefined
 }
 ```
+
+`AssistantMessageCompletedPayload.final` means "terminal assistant message for the turn", not "this message item is internally complete." Drivers that receive completed assistant messages before they know turn completion MUST use a held-latest pattern: retain the newest completed natural assistant message as the possible terminal answer, emit the previously held message with `final: false` when a later natural assistant message appears, and flush the held message with `final: true` when the turn terminal is known. `assistant.message.delta` remains optional streaming evidence and is governed only by `events.assistantDeltas`.
 
 ---
 
