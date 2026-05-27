@@ -271,6 +271,14 @@ export class TmuxManager {
     await this.sendEnter(paneId)
   }
 
+  async sendPastedLine(paneId: string, text: string): Promise<void> {
+    const bufferName = `harness-broker-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    await this.exec(['set-buffer', '-b', bufferName, text])
+    await this.exec(['paste-buffer', '-d', '-b', bufferName, '-t', paneId])
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    await this.sendEnter(paneId)
+  }
+
   async inspectSession(sessionName: string): Promise<TmuxPaneState | null> {
     try {
       const result = await this.exec([

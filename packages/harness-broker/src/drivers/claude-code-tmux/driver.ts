@@ -106,6 +106,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let ctx: DriverContext | undefined
   let surface: SurfaceState | undefined
   let hookListener: HookListenerHandle | undefined
+  let hookDrain: Promise<void> = Promise.resolve()
   // The tmux server socket is a DISPATCH-TIME runtime allocation (spec §3.3),
   // supplied on the broker start request by HRC / the pre-HRC harness — NOT a
   // compiled/profile value and NOT a driver default. The manager constructs the
@@ -183,7 +184,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         now,
         allocateTurnId,
       })
-      hookListener = await options.hooks.listen(async (envelope) => {
+      hookDrain = Promise.resolve()
+      const handleHookEnvelope = async (envelope: ClaudeCodeHookEnvelope): Promise<void> => {
         // H2: when neither the envelope nor the raw hook carries a turn id, fall
         // back to the driver-tracked active broker turn id so turn lifecycle
         // events still resolve to the live turn. The fallback is only injected
@@ -207,10 +209,19 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           // after a terminal, clear it so the next turn-id-less prompt mints.
           if (event.type === 'turn.started' && event.turnId !== undefined) {
             activeTurnId = event.turnId
-          } else if (event.type === 'turn.completed' && activeTurnId === event.turnId) {
-            activeTurnId = undefined
+          } else if (event.type === 'turn.completed') {
+            if (activeTurnId === event.turnId) {
+              activeTurnId = undefined
+            }
           }
         }
+      }
+      hookListener = await options.hooks.listen((envelope) => {
+        hookDrain = hookDrain.then(
+          () => handleHookEnvelope(envelope),
+          () => handleHookEnvelope(envelope)
+        )
+        return hookDrain
       })
 
       // Create the attachable tmux session on the runtime-owned server. This is
@@ -307,6 +318,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   }
 
   async function closeHookListener(): Promise<void> {
+    await hookDrain.catch(() => undefined)
     if (hookListener !== undefined) {
       const handle = hookListener
       hookListener = undefined
@@ -324,7 +336,9 @@ function extractText(input: InvocationInput): string {
 
 /** Claude Code hook events the broker overlay subscribes to. */
 const HOOK_EVENT_NAMES = [
+  'SessionStart',
   'UserPromptSubmit',
+  'MessageDisplay',
   'PreToolUse',
   'PostToolUse',
   'Stop',

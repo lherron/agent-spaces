@@ -4,7 +4,7 @@ import { buildHookEnvelopeFromEnv } from './hook-ingestion'
 /**
  * Broker-owned Claude hook bridge (H3). The `claude-code-tmux` driver installs
  * a `--settings` hook overlay whose commands invoke this bridge for each Claude
- * hook event (`UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`Stop`/…). The
+ * hook event (`UserPromptSubmit`/`MessageDisplay`/`PreToolUse`/`Stop`/…). The
  * bridge reads the raw hook JSON on stdin, wraps it in a hook ENVELOPE built
  * from the `HARNESS_BROKER_*` launch env (the real turn id lives at the env
  * level, not in the raw hook JSON — cody's Phase 3 seam), and writes the

@@ -13,6 +13,8 @@ import { createBroker } from './broker'
 import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
 import { runClaudeHookBridgeCli } from './drivers/claude-code-tmux/hook-bridge'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
+import { createDefaultCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
+import { runCodexHookBridgeCli } from './drivers/codex-cli-tmux/hook-bridge'
 import { createProtocolServer } from './protocol-server'
 
 async function main(): Promise<void> {
@@ -45,6 +47,8 @@ async function main(): Promise<void> {
     }
   } else if (command === 'claude-hook') {
     await runClaudeHookBridgeCli(args.slice(1))
+  } else if (command === 'codex-hook') {
+    await runCodexHookBridgeCli(args.slice(1))
   } else if (command === 'run-once') {
     await runOnce(args.slice(1))
   } else if (command === 'validate-start-request') {
@@ -62,7 +66,11 @@ function createDefaultBroker(
   onPermissionRequest?: (params: PermissionRequestParams) => Promise<PermissionDecision>
 ) {
   return createBroker({
-    drivers: [createCodexAppServerDriver(), createDefaultClaudeCodeTmuxDriver()],
+    drivers: [
+      createCodexAppServerDriver(),
+      createDefaultClaudeCodeTmuxDriver(),
+      createDefaultCodexCliTmuxDriver(),
+    ],
     ...(onEvent !== undefined ? { onEvent } : {}),
     ...(onPermissionRequest !== undefined ? { onPermissionRequest } : {}),
   })

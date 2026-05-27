@@ -5,7 +5,7 @@
  * and verifies core reference parsing behavior relied on by CLI callers.
  */
 
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
@@ -172,8 +172,8 @@ describe('prepareCodexRuntimeHome', () => {
     const config = await readFile(join(runtimeHome, 'config.toml'), 'utf-8')
     expect(config).toContain('model = "gpt-5.5"')
     expect(config).toContain(`[projects.${JSON.stringify(projectPath)}]`)
-    const runtimeHookKey = `${join(runtimeHome, 'hooks.json')}:stop:0:0`
-    const templateHookKey = `${join(templateHome, 'hooks.json')}:stop:0:0`
+    const runtimeHookKey = `${await realpath(join(runtimeHome, 'hooks.json'))}:stop:0:0`
+    const templateHookKey = `${await realpath(join(templateHome, 'hooks.json'))}:stop:0:0`
     expect(config).toContain(`[hooks.state.${JSON.stringify(runtimeHookKey)}]`)
     expect(config).toContain('trusted_hash = "sha256:')
     expect(config).not.toContain(templateHookKey)

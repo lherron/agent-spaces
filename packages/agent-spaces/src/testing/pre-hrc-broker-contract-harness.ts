@@ -1,4 +1,3 @@
-// @ts-expect-error Test-only sibling import keeps agent-spaces package deps unchanged.
 import { BrokerClient } from 'spaces-harness-broker-client'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
@@ -6,6 +5,7 @@ import type {
   BrokerHelloResponse,
   InvocationCapabilities,
   InvocationEventEnvelope,
+  InvocationId,
   InvocationStartRequest,
   InvocationStartResponse,
   PermissionRequestParams,
@@ -642,7 +642,9 @@ async function startBrokerInvocation(
         : []
 
     if (startResult.response.capabilities.control.dispose === true) {
-      await brokerClient.dispose({ invocationId: startResult.invocationId }).catch(() => undefined)
+      await brokerClient
+        .dispose({ invocationId: startResult.invocationId as InvocationId })
+        .catch(() => undefined)
     }
 
     return {

@@ -366,6 +366,8 @@ export type CapabilityResolution = {
 }
 ```
 
+`assistantDeltas` describes only availability of streaming `assistant.message.delta` events. It does not make complete assistant messages optional and MUST NOT be used to opt out of the required `assistant.message.completed` contract. `events.assistantDeltas: false` means the runtime cannot stream token/text deltas; it still MUST emit completed natural assistant messages, including intermediate messages with `final: false` and exactly one terminal assistant message with `final: true` per turn.
+
 ---
 
 ## 6. Permission, input, exposure, resource, observability policies
@@ -761,7 +763,7 @@ export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   interactionMode: 'headless' | 'interactive'
 
   brokerProtocol: 'harness-broker/0.1'
-  brokerDriver: 'codex-app-server' | 'claude-code-tmux' | string
+  brokerDriver: 'codex-app-server' | 'claude-code-tmux' | 'codex-cli-tmux' | string
   brokerOwnership: 'hrc-owned-process'
   // Selection/exposure metadata for broker-owned interactive terminal surfaces.
   // The launch truth remains harnessInvocation.startRequest.spec.
@@ -884,14 +886,14 @@ export interface HarnessInvocationSpec {
   process: HarnessProcessSpec
   interaction?: InteractionSpec | undefined
   continuation?: ContinuationSpec | undefined
-  driver: CodexAppServerDriverSpec | ClaudeCodeTmuxDriverSpec | UnknownDriverSpec
+  driver: CodexAppServerDriverSpec | ClaudeCodeTmuxDriverSpec | CodexCliTmuxDriverSpec | UnknownDriverSpec
   correlation?: Record<string, string> | undefined
 }
 
 export interface HarnessDescriptor {
   frontend: string
   provider?: string | undefined
-  driver: 'codex-app-server' | 'claude-code-tmux' | string
+  driver: 'codex-app-server' | 'claude-code-tmux' | 'codex-cli-tmux' | string
 }
 
 export interface HarnessProcessSpec {
@@ -952,6 +954,106 @@ export interface ClaudeCodeTmuxDriverSpec {
   hookBridge: 'claude-code-hooks/v1'
   eventSource: 'terminal-hook'
 }
+
+export interface CodexCliTmuxDriverSpec {
+  kind: 'codex-cli-tmux'
+  terminalHost: 'tmux'
+  hookBridge: 'codex-hooks/v1'
+  eventSource: 'codex-lifecycle-hooks+rollout-transcript-tail'
+  hooks: {
+    requiredEvents: [
+      'SessionStart',
+      'UserPromptSubmit',
+      'PreToolUse',
+      'PermissionRequest',
+      'PostToolUse',
+      'Stop',
+    ]
+    commandEnvVar: 'HRC_LAUNCH_HOOK_CLI'
+    trustStatePathMode: 'canonical-realpath'
+  }
+  normalization: {
+    continuationSource: 'session_id'
+    turnIdSource: 'turn_id'
+    permissionCorrelation: 'turn_id+tool_input.command'
+    transcriptPathSource: 'SessionStart.transcript_path'
+    intermediateAssistantMessageSource: 'rollout-transcript-tail'
+    finalAssistantMessageSource: 'rollout-task_complete'
+    deltas: 'not-emitted'
+  }
+}
+
+export type CodexTurnLifecycleHookEventName =
+  | 'UserPromptSubmit'
+  | 'PreToolUse'
+  | 'PermissionRequest'
+  | 'PostToolUse'
+  | 'Stop'
+
+export type CodexLifecycleHookEventName = 'SessionStart' | CodexTurnLifecycleHookEventName
+
+export interface CodexSessionStartHookPayload {
+  session_id: string
+  transcript_path: string
+  cwd: string
+  hook_event_name: 'SessionStart'
+  model?: string | undefined
+  permission_mode?: string | undefined
+}
+
+export interface CodexLifecycleHookPayloadBase {
+  session_id: string
+  turn_id: string
+  transcript_path: string
+  cwd: string
+  hook_event_name: CodexTurnLifecycleHookEventName
+  model: string
+  permission_mode: string
+}
+
+export type CodexUserPromptSubmitHookPayload = CodexLifecycleHookPayloadBase & {
+  hook_event_name: 'UserPromptSubmit'
+  prompt: string
+}
+
+export type CodexPreToolUseHookPayload = CodexLifecycleHookPayloadBase & {
+  hook_event_name: 'PreToolUse'
+  tool_name: string
+  tool_input: Record<string, unknown>
+  tool_use_id: string
+}
+
+export type CodexPermissionRequestHookPayload = CodexLifecycleHookPayloadBase & {
+  hook_event_name: 'PermissionRequest'
+  tool_name: string
+  tool_input: {
+    command: string
+    description?: string | undefined
+    [key: string]: unknown
+  }
+  // Codex PermissionRequest hook payloads do not include tool_use_id in v1.
+}
+
+export type CodexPostToolUseHookPayload = CodexLifecycleHookPayloadBase & {
+  hook_event_name: 'PostToolUse'
+  tool_name: string
+  tool_input: Record<string, unknown>
+  tool_response: unknown
+  tool_use_id: string
+}
+
+export type CodexStopHookPayload = CodexLifecycleHookPayloadBase & {
+  hook_event_name: 'Stop'
+  stop_hook_active: boolean
+}
+
+export type CodexCliTmuxHookPayload =
+  | CodexSessionStartHookPayload
+  | CodexUserPromptSubmitHookPayload
+  | CodexPreToolUseHookPayload
+  | CodexPermissionRequestHookPayload
+  | CodexPostToolUseHookPayload
+  | CodexStopHookPayload
 
 export interface DriverPermissionPolicy {
   mode: 'deny' | 'allow' | 'ask-client'
@@ -1393,7 +1495,10 @@ export interface AssistantMessageDeltaPayload {
 export interface AssistantMessageCompletedPayload {
   messageId: MessageId
   content: Array<{ type: 'text'; text: string }>
-  final?: boolean | undefined
+  // Required turn-terminal marker. `false` means this completed natural
+  // assistant message is not the terminal answer for the turn; `true` marks the
+  // terminal assistant message for the turn and MUST appear exactly once.
+  final: boolean
 }
 
 export interface ToolCallStartedPayload {
@@ -1463,6 +1568,8 @@ export interface PermissionResolvedPayload {
   message?: string | undefined
 }
 ```
+
+`AssistantMessageCompletedPayload.final` means "terminal assistant message for the turn", not "this message item is internally complete." Drivers that receive completed assistant messages before they know turn completion MUST use a held-latest pattern: retain the newest completed natural assistant message as the possible terminal answer, emit the previously held message with `final: false` when a later natural assistant message appears, and flush the held message with `final: true` when the turn terminal is known. `assistant.message.delta` remains optional streaming evidence and is governed only by `events.assistantDeltas`.
 
 ---
 
@@ -2423,7 +2530,7 @@ export type RuntimeRouteCatalogEntry = {
   broker?:
     | {
         protocolVersion: 'harness-broker/0.1'
-        driver: 'codex-app-server' | 'claude-code-tmux' | string
+        driver: 'codex-app-server' | 'claude-code-tmux' | 'codex-cli-tmux' | string
         processTransport: 'jsonrpc-stdio' | 'pty'
       }
     | undefined
@@ -2481,6 +2588,21 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     broker: {
       protocolVersion: 'harness-broker/0.1',
       driver: 'claude-code-tmux',
+      processTransport: 'pty',
+    },
+  },
+  {
+    controller: 'harness-broker',
+    terminalHost: 'tmux',
+    modelProvider: 'openai',
+    harnessFamily: 'codex',
+    harnessRuntime: 'codex-cli',
+    interactionMode: 'interactive',
+    startupMethods: ['create-broker-invocation', 'reuse-existing'],
+    turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    broker: {
+      protocolVersion: 'harness-broker/0.1',
+      driver: 'codex-cli-tmux',
       processTransport: 'pty',
     },
   },

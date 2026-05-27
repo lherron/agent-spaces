@@ -16,7 +16,7 @@ import { BrokerError } from '../../errors'
 import { spawnHarnessProcess } from '../../runtime/process-runner'
 import { terminateProcess } from '../../runtime/signals'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
-import { mapCodexNotification, parseCodexError } from './event-map'
+import { createCodexNotificationMapper, parseCodexError } from './event-map'
 import { buildTurnStartParams } from './input'
 import { type PermissionHandlerContext, handlePermissionRequest } from './permissions'
 import { CodexRpcClient, CodexRpcError, type JsonRpcNotification } from './rpc-client'
@@ -84,6 +84,7 @@ export function createCodexAppServerDriver(): Driver {
   let rejectStartup: ((error: Error) => void) | undefined
   let startupFailure: Promise<never> | undefined
   let turnTimeout: ReturnType<typeof setTimeout> | undefined
+  const mapCodexNotification = createCodexNotificationMapper()
 
   function requireCtx(): DriverContext {
     if (!ctx) {

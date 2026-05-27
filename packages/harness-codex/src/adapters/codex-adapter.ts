@@ -9,7 +9,7 @@
 
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import {
   constants,
   access,
@@ -204,22 +204,47 @@ function ensureHooksFeature(config: Record<string, unknown>): Record<string, unk
   }
 }
 
-function buildHrcCodexHooksConfig(): Record<string, unknown> {
-  return {
-    hooks: {
-      Stop: [
-        {
-          hooks: [
-            {
-              type: 'command',
-              command: 'if [ -n "${HRC_LAUNCH_HOOK_CLI:-}" ]; then bun "$HRC_LAUNCH_HOOK_CLI"; fi',
-              statusMessage: 'capturing Codex turn',
-            },
-          ],
-        },
-      ],
-    },
+/** Shared HRC capture command: invokes the launch hook CLI when HRC wires one in. */
+const HRC_CODEX_HOOK_COMMAND =
+  'if [ -n "${HRC_LAUNCH_HOOK_CLI:-}" ]; then bun "$HRC_LAUNCH_HOOK_CLI"; fi'
+
+/**
+ * Lifecycle events the interactive (codex-cli-tmux) broker driver needs to
+ * normalize a turn. The headless codex-app-server path only needs `Stop` (turn
+ * completion), which stays the default so existing materialization is unchanged.
+ */
+export const CODEX_INTERACTIVE_HOOK_EVENTS = [
+  'SessionStart',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PermissionRequest',
+  'PostToolUse',
+  'Stop',
+] as const
+
+function buildCodexHookGroup(eventName: string): Record<string, unknown> {
+  const statusMessage =
+    eventName === 'Stop' ? 'capturing Codex turn' : `capturing Codex ${eventName}`
+  const handler = { type: 'command', command: HRC_CODEX_HOOK_COMMAND, statusMessage }
+  // Matcher-bearing events take a group-level matcher; "" = match all tools.
+  return CODEX_HOOK_EVENTS_WITH_MATCHERS.has(eventName)
+    ? { matcher: '', hooks: [handler] }
+    : { hooks: [handler] }
+}
+
+/**
+ * Build the HRC codex hooks.json. Defaults to `Stop`-only (headless turn capture,
+ * unchanged behavior); pass the full lifecycle event list to capture every event
+ * the interactive broker driver normalizes.
+ */
+export function buildHrcCodexHooksConfig(
+  events: readonly string[] = ['Stop']
+): Record<string, unknown> {
+  const hooks: Record<string, unknown> = {}
+  for (const eventName of events) {
+    hooks[eventName] = [buildCodexHookGroup(eventName)]
   }
+  return { hooks }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -274,7 +299,7 @@ export function buildCodexHookTrustState(
 ): Record<string, { trusted_hash: string }> {
   const root = isRecord(hooksConfig['hooks']) ? hooksConfig['hooks'] : {}
   const trustedState: Record<string, { trusted_hash: string }> = {}
-  const keySource = resolve(hooksPath)
+  const keySource = canonicalHookTrustPath(hooksPath)
 
   for (const [eventName, eventLabel] of Object.entries(CODEX_HOOK_EVENT_KEY_LABELS)) {
     const groups = root[eventName]
@@ -329,9 +354,9 @@ export function addCodexHookTrustState(
 
   const hooks = isRecord(config['hooks']) ? { ...config['hooks'] } : {}
   const state = isRecord(hooks['state']) ? { ...hooks['state'] } : {}
-  const keySource = resolve(hooksPath)
+  const keySource = canonicalHookTrustPath(hooksPath)
   for (const staleHooksPath of options.replaceHooksPaths ?? []) {
-    const staleKeySource = resolve(staleHooksPath)
+    const staleKeySource = canonicalHookTrustPath(staleHooksPath)
     for (const key of Object.keys(trustState)) {
       const suffix = key.slice(keySource.length)
       delete state[`${staleKeySource}${suffix}`]
@@ -349,6 +374,15 @@ export function addCodexHookTrustState(
       ...hooks,
       state,
     },
+  }
+}
+
+function canonicalHookTrustPath(hooksPath: string): string {
+  const resolved = resolve(hooksPath)
+  try {
+    return realpathSync(resolved)
+  } catch {
+    return resolved
   }
 }
 

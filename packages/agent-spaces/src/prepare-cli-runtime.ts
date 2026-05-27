@@ -243,6 +243,7 @@ export async function preparePlacementCliRuntime(
     const codexHomeDir = await prepareCodexRuntimeHome(bundle, {
       ...runOptions,
       aspHome,
+      interactive: req.interactionMode === 'interactive',
     })
     runOptions = { ...runOptions, codexHomeDir }
   }

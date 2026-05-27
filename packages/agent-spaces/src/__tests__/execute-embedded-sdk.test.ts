@@ -491,6 +491,92 @@ describe('executeEmbeddedSdkTurn', () => {
     expect(sessions).toHaveLength(0)
   })
 
+  test('collapses multi-round Pi turns into ONE broker turn and propagates held-latest final flags', async () => {
+    const completed = (
+      messageId: string,
+      text: string,
+      final: boolean
+    ): UnifiedSessionEvent => ({
+      type: 'message_end',
+      messageId,
+      message: { role: 'assistant', content: [{ type: 'text', text }] },
+      payload: { final },
+    })
+
+    const result = await executeEmbeddedSdkTurn(
+      baseInput({
+        onPrompt(session) {
+          session.emit({ type: 'agent_start', sessionId: 'pi-session-multi' })
+          // Round 1
+          session.emit({ type: 'turn_start', turnId: 'pi-native-1' })
+          session.emit({
+            type: 'tool_execution_start',
+            toolUseId: 'tool_1',
+            toolName: 'spark',
+            input: { command: 'true' },
+          })
+          session.emit({
+            type: 'tool_execution_end',
+            toolUseId: 'tool_1',
+            toolName: 'spark',
+            result: { content: [{ type: 'text', text: 'ok' }] },
+          })
+          session.emit(completed('msg_1', 'first note', false))
+          session.emit({ type: 'turn_end', turnId: 'pi-native-1' })
+          // Round 2
+          session.emit({ type: 'turn_start', turnId: 'pi-native-2' })
+          session.emit(completed('msg_2', 'second note', false))
+          session.emit({ type: 'turn_end', turnId: 'pi-native-2' })
+          // Round 3 (terminal)
+          session.emit({ type: 'turn_start', turnId: 'pi-native-3' })
+          session.emit(completed('msg_3', 'final note', true))
+          session.emit({ type: 'turn_end', turnId: 'pi-native-3' })
+          session.emit({ type: 'agent_end', sessionId: 'pi-session-multi' })
+        },
+      })
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.finalOutput).toBe('final note')
+
+    // Exactly ONE broker turn.started + ONE turn.completed for the whole prompt.
+    const starts = result.events.filter((event) => event.type === 'turn.started')
+    const completes = result.events.filter((event) => event.type === 'turn.completed')
+    expect(starts).toHaveLength(1)
+    expect(completes).toHaveLength(1)
+
+    // No synthetic -t2/-t3 ids: every turn-scoped envelope carries the broker id.
+    const brokerTurnId = 'turn_embedded_red'
+    const turnScoped = result.events.filter((event) =>
+      [
+        'turn.started',
+        'turn.completed',
+        'assistant.message.completed',
+        'tool.call.started',
+        'tool.call.completed',
+      ].includes(event.type)
+    )
+    for (const event of turnScoped) {
+      expect(event.turnId).toBe(brokerTurnId)
+    }
+
+    // Held-latest final flags propagate verbatim: N-1 final:false + 1 final:true.
+    const finals = result.events
+      .filter((event) => event.type === 'assistant.message.completed')
+      .map((event) => payload<{ final: boolean }>(event).final)
+    expect(finals).toEqual([false, false, true])
+
+    // The terminal final:true precedes the single broker turn.completed.
+    const terminalIdx = result.events.findIndex(
+      (event) =>
+        event.type === 'assistant.message.completed' &&
+        payload<{ final: boolean }>(event).final === true
+    )
+    const completedIdx = result.events.findIndex((event) => event.type === 'turn.completed')
+    expect(terminalIdx).toBeGreaterThanOrEqual(0)
+    expect(terminalIdx).toBeLessThan(completedIdx)
+  })
+
   test('does not advance continuation when the turn fails after an SDK session id is observed', async () => {
     const result = await executeEmbeddedSdkTurn(
       baseInput({

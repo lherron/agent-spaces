@@ -23,7 +23,9 @@ import {
   getAspHome,
 } from 'spaces-config'
 import {
+  CODEX_INTERACTIVE_HOOK_EVENTS,
   applyPraesidiumContextToCodexHome,
+  buildHrcCodexHooksConfig,
   trustCodexHooksInConfigToml,
 } from 'spaces-harness-codex'
 
@@ -229,6 +231,12 @@ export async function prepareCodexRuntimeHome(
   const configPath = join(runtimeHome, 'config.toml')
   const hooksPath = join(runtimeHome, 'hooks.json')
   const projectPath = runOptions.cwd ?? runOptions.projectPath
+  if (runOptions.interactive === true) {
+    await writeFile(
+      hooksPath,
+      `${JSON.stringify(buildHrcCodexHooksConfig(CODEX_INTERACTIVE_HOOK_EVENTS), null, 2)}\n`
+    )
+  }
   if (await pathExists(configPath)) {
     let configToml = await readFile(configPath, 'utf-8')
     if (await pathExists(hooksPath)) {

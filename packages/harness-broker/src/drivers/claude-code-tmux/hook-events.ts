@@ -80,9 +80,11 @@ export function normalizeHookEnvelope(
 
   const hook = asHookRecord(envelope.hookData)
   const merged =
-    envelope.turnId !== undefined && getString(hook, 'turn_id') === undefined
+    envelope.turnId !== undefined
       ? { ...hook, turn_id: envelope.turnId }
-      : hook
+      : getString(hook, 'hook_event_name') === 'MessageDisplay'
+        ? { ...hook, turn_id: undefined }
+        : hook
 
   return normalizer.normalizeHook(merged)
 }
@@ -112,6 +114,13 @@ export function createClaudeCodeHookEventNormalizer(
   const sequencer = createInvocationEventSequencer({ now: options.now })
   const completedTurns = new Set<string>()
   let activeTurnId: string | undefined
+  const messageDisplays = new Map<
+    string,
+    { messageId: string; turnId?: TurnId | undefined; chunks: Map<number, string> }
+  >()
+  let heldAssistantMessage:
+    | { messageId: string; turnId?: TurnId | undefined; content: string }
+    | undefined
   // Fallback allocator when the shared one is not wired (one-shot envelope path
   // always carries a turn id, so it never actually mints). Mirrors the driver's
   // `turn_${invocationId}_${n}` namespace so any minted id stays consistent.
@@ -131,7 +140,73 @@ export function createClaudeCodeHookEventNormalizer(
     })
   }
 
+  const flushHeldAssistantMessage = (
+    final: boolean,
+    fallbackTurnId?: TurnId | undefined
+  ): InvocationEventEnvelope[] => {
+    if (heldAssistantMessage === undefined) return []
+    const message = heldAssistantMessage
+    heldAssistantMessage = undefined
+    return [
+      emit('MessageDisplay', {
+        type: 'assistant.message.completed',
+        payload: {
+          messageId: message.messageId,
+          content: [{ type: 'text', text: message.content }],
+          final,
+        },
+        turnId: message.turnId ?? fallbackTurnId,
+        itemId: message.messageId,
+      }),
+    ]
+  }
+
+  const normalizeMessageDisplay = (
+    unwrapped: Record<string, unknown>,
+    turnId?: TurnId | undefined
+  ): InvocationEventEnvelope[] => {
+    const messageId = getString(unwrapped, 'message_id')
+    const delta = getString(unwrapped, 'delta')
+    const index = getNumber(unwrapped, 'index')
+    if (turnId === undefined) return []
+    if (messageId === undefined || delta === undefined || index === undefined) return []
+
+    const events: InvocationEventEnvelope[] = []
+    if (heldAssistantMessage !== undefined && heldAssistantMessage.messageId !== messageId) {
+      events.push(...flushHeldAssistantMessage(false, turnId))
+    }
+
+    const display = messageDisplays.get(messageId) ?? {
+      messageId,
+      turnId,
+      chunks: new Map<number, string>(),
+    }
+    if (display.turnId === undefined) {
+      display.turnId = turnId
+    }
+    display.chunks.set(index, delta)
+    messageDisplays.set(messageId, display)
+
+    if (unwrapped['final'] === true) {
+      const content = [...display.chunks.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([, text]) => text)
+        .join('')
+      messageDisplays.delete(messageId)
+      if (content.length > 0) {
+        heldAssistantMessage = {
+          messageId,
+          turnId: display.turnId,
+          content,
+        }
+      }
+    }
+
+    return events
+  }
+
   return {
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: this is the stateful dispatch table for Claude's hook vocabulary.
     normalizeHook(hook: Record<string, unknown>): InvocationEventEnvelope[] {
       const unwrapped = unwrapHookPayload(hook)
       const rawType = getString(unwrapped, 'hook_event_name') ?? 'unknown'
@@ -164,9 +239,10 @@ export function createClaudeCodeHookEventNormalizer(
       }
 
       if (rawType === 'PreToolUse') {
+        const events = flushHeldAssistantMessage(false, turnId)
         const toolCallId = getString(unwrapped, 'tool_use_id')
-        if (turnId === undefined || toolCallId === undefined) return []
-        return [
+        if (turnId === undefined || toolCallId === undefined) return events
+        events.push(
           emit(rawType, {
             type: 'tool.call.started',
             payload: {
@@ -176,13 +252,15 @@ export function createClaudeCodeHookEventNormalizer(
             },
             turnId,
             itemId: toolCallId,
-          }),
-        ]
+          })
+        )
+        return events
       }
 
       if (rawType === 'PostToolUse') {
+        const events = flushHeldAssistantMessage(false, turnId)
         const toolCallId = getString(unwrapped, 'tool_use_id')
-        if (turnId === undefined || toolCallId === undefined) return []
+        if (turnId === undefined || toolCallId === undefined) return events
         const name = getString(unwrapped, 'tool_name') ?? 'tool'
         const isError = unwrapped['is_error'] === true
         const { output, responseObject } = formatToolOutput({
@@ -191,7 +269,7 @@ export function createClaudeCodeHookEventNormalizer(
           toolResponse: unwrapped['tool_response'],
           isError,
         })
-        return [
+        events.push(
           emit(rawType, {
             type: 'tool.call.completed',
             payload: {
@@ -205,8 +283,13 @@ export function createClaudeCodeHookEventNormalizer(
             },
             turnId,
             itemId: toolCallId,
-          }),
-        ]
+          })
+        )
+        return events
+      }
+
+      if (rawType === 'MessageDisplay') {
+        return normalizeMessageDisplay(unwrapped, turnId)
       }
 
       if (rawType === 'Notification') {
@@ -240,8 +323,9 @@ export function createClaudeCodeHookEventNormalizer(
       }
 
       if (rawType === 'Stop' || rawType === 'SessionEnd' || rawType === 'SubagentStop') {
+        const events = flushHeldAssistantMessage(true, turnId)
         if (turnIdText === undefined || turnId === undefined || completedTurns.has(turnIdText)) {
-          return []
+          return events
         }
         // Emit exactly one terminal for this turn, mark it terminal for dedupe,
         // and clear the active turn when it matches so the NEXT turn-id-less
@@ -251,13 +335,14 @@ export function createClaudeCodeHookEventNormalizer(
         if (activeTurnId === turnIdText) {
           activeTurnId = undefined
         }
-        return [
+        events.push(
           emit(rawType, {
             type: 'turn.completed',
             payload: { turnId: turnIdText, status: 'completed' },
             turnId,
-          }),
-        ]
+          })
+        )
+        return events
       }
 
       if (rawType === 'PreCompact') {
@@ -505,6 +590,11 @@ function asRecordOrUndefined(value: unknown): Record<string, unknown> | undefine
 function getString(obj: Record<string, unknown>, key: string): string | undefined {
   const value = obj[key]
   return typeof value === 'string' ? value : undefined
+}
+
+function getNumber(obj: Record<string, unknown>, key: string): number | undefined {
+  const value = obj[key]
+  return typeof value === 'number' && Number.isInteger(value) ? value : undefined
 }
 
 function asTurnId(value: string): TurnId {

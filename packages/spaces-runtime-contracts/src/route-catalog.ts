@@ -58,6 +58,20 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
   },
   {
+    controller: 'harness-broker',
+    modelProvider: 'openai',
+    harnessFamily: 'codex',
+    harnessRuntime: 'codex-cli',
+    interactionMode: 'interactive',
+    startupMethods: ['create-broker-invocation', 'reuse-existing'],
+    turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    broker: {
+      protocolVersion: 'harness-broker/0.1',
+      driver: 'codex-cli-tmux',
+      processTransport: 'pty',
+    },
+  },
+  {
     controller: 'terminal',
     terminalHost: 'tmux',
     modelProvider: 'openai',
