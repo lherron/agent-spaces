@@ -52,9 +52,23 @@ import {
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
-import type { BrokerPermissionPolicy, RuntimeCompileRequest } from 'spaces-runtime-contracts'
+import type {
+  InputId,
+  InvocationEventEnvelope,
+  InvocationId,
+  TurnId,
+} from 'spaces-harness-broker-protocol'
+import type {
+  BrokerPermissionPolicy,
+  EmbeddedSdkExecutionProfile,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
+} from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY, project } from 'spaces-runtime-contracts'
+
+import { executeEmbeddedSdkTurn } from '../packages/agent-spaces/src/execute-embedded-sdk.js'
+import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.js'
+import { piSessionPath } from '../packages/agent-spaces/src/runtime-env.js'
 
 import { createClaudeCodeTmuxDriver } from '../packages/harness-broker/src/drivers/claude-code-tmux/driver'
 import { createInvocationEventSequencer } from '../packages/harness-broker/src/events'
@@ -84,8 +98,19 @@ import { runInteractiveClaudeTmuxSession } from '../packages/agent-spaces/src/te
 // CLI
 // ---------------------------------------------------------------------------
 
-type RowName = 'fake-codex' | 'real-codex' | 'real-claude-tmux' | 'claude-tmux-ghostmux'
-const ALL_ROWS: RowName[] = ['fake-codex', 'real-codex', 'real-claude-tmux', 'claude-tmux-ghostmux']
+type RowName =
+  | 'fake-codex'
+  | 'real-codex'
+  | 'real-claude-tmux'
+  | 'claude-tmux-ghostmux'
+  | 'real-pi-sdk-embedded'
+const ALL_ROWS: RowName[] = [
+  'fake-codex',
+  'real-codex',
+  'real-claude-tmux',
+  'claude-tmux-ghostmux',
+  'real-pi-sdk-embedded',
+]
 
 type CliArgs = {
   config?: RowName | undefined
@@ -836,6 +861,299 @@ function allowPermissionPolicy(): BrokerPermissionPolicy {
 }
 
 // ---------------------------------------------------------------------------
+// Real pi-sdk embedded-sdk row (in-process executor; NOT the broker harness)
+// ---------------------------------------------------------------------------
+
+// pi-sdk surfaces the marker via the Bash tool command + output (and the
+// assistant reply); reuse the harness-agnostic shared floor with all three
+// marker sources, like the claude rows.
+const EMBEDDED_MARKER_SOURCES: readonly SharedCommandTurnMarkerSource[] = [
+  'tool-output',
+  'tool-command',
+  'assistant',
+]
+
+function createPiSdkFixture(): {
+  agentRoot: string
+  projectRoot: string
+  aspHome: string
+  cleanup: () => void
+} {
+  const base = mkdtempSync(join(tmpdir(), 'asp-matrix-pi-embedded-'))
+  const agentRoot = join(base, 'agents', 'curly')
+  const projectRoot = join(base, 'project')
+  const aspHome = join(base, 'asp-home')
+  mkdirSync(agentRoot, { recursive: true })
+  mkdirSync(projectRoot, { recursive: true })
+  mkdirSync(aspHome, { recursive: true })
+  writeFileSync(
+    join(agentRoot, 'agent-profile.toml'),
+    'schemaVersion = 2\n\n[spaces]\nbase = []\n\n[brain]\nenabled = false\n',
+    'utf8'
+  )
+  // pi-sdk frontend may probe a codex binary; provide a harmless version shim.
+  const codex = join(aspHome, 'codex')
+  writeFileSync(codex, '#!/usr/bin/env bash\necho "codex 999.0.0"\n', 'utf8')
+  chmodSync(codex, 0o755)
+  return {
+    agentRoot,
+    projectRoot,
+    aspHome,
+    cleanup: () => rmSync(base, { recursive: true, force: true }),
+  }
+}
+
+function embeddedCompileRequest(input: {
+  agentRoot: string
+  projectRoot: string
+  hostSessionId: string
+  prompt: string
+  marker: string
+  timeoutMs: number
+}): RuntimeCompileRequest {
+  const ids = {
+    requestId: `request_pi_${input.marker}`,
+    operationId: `op_pi_${input.marker}`,
+    hostSessionId: input.hostSessionId,
+    generation: 1 as const,
+    runtimeId: `runtime_pi_${input.marker}`,
+    runId: `run_pi_${input.marker}`,
+    invocationId: `inv_pi_${input.marker}` as InvocationId,
+    traceId: `trace_pi_${input.marker}`,
+  }
+  return {
+    schemaVersion: 'agent-runtime-compile-request/v1',
+    identity: {
+      ...ids,
+      initialInputId: `input_pi_${input.marker}` as InputId,
+      idempotencyKey: `pre-hrc-matrix-pi-${input.marker}`,
+    },
+    placement: {
+      agentRoot: input.agentRoot,
+      projectRoot: input.projectRoot,
+      cwd: input.projectRoot,
+      runMode: 'task',
+      bundle: { kind: 'agent-project', agentName: 'curly', projectRoot: input.projectRoot },
+      correlation: {
+        sessionRef: {
+          scopeRef: 'agent:curly:project:agent-spaces:task:T-01669',
+          laneRef: 'main',
+        },
+        hostSessionId: input.hostSessionId,
+      },
+    } as RuntimeCompileRequest['placement'],
+    requested: {
+      modelProvider: 'openai',
+      model: 'openai-codex/gpt-5.5',
+      reasoningEffort: 'low',
+      harnessFamily: 'pi',
+      preferredHarnessRuntime: 'pi-sdk',
+      interactionMode: 'nonInteractive',
+    },
+    materialization: {
+      initialPrompt: input.prompt,
+      taskContext: {
+        taskId: 'T-01669',
+        phase: 'matrix',
+        role: 'smoke',
+        requiredEvidenceKinds: ['contract-artifacts'],
+        hintsText: 'pre-HRC matrix pi-sdk embedded row',
+      },
+    },
+    hrcPolicy: {
+      resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
+      observability: { traceId: ids.traceId },
+    },
+    correlation: {
+      ...ids,
+      appId: 'agent-spaces',
+      appSessionKey: `pre-hrc-matrix-pi-${input.marker}`,
+      scopeRef: 'agent:curly:project:agent-spaces:task:T-01669',
+      laneRef: 'main',
+    },
+  } as RuntimeCompileRequest
+}
+
+/** Embedded-specific extras: profile shape + producedContent + continuation. */
+function assertEmbeddedExtras(
+  profile: EmbeddedSdkExecutionProfile,
+  result: Awaited<ReturnType<typeof executeEmbeddedSdkTurn>>,
+  commandTurnId: string | undefined,
+  events: InvocationEventEnvelope[]
+): Failure[] {
+  const failures: Failure[] = []
+  const fields = profile as unknown as Record<string, unknown>
+  if (profile.kind !== 'embedded-sdk')
+    failures.push({
+      code: 'pi_profile_kind',
+      message: `expected embedded-sdk, got ${profile.kind}`,
+    })
+  if (profile.interactionMode !== 'nonInteractive')
+    failures.push({
+      code: 'pi_profile_mode',
+      message: `expected nonInteractive, got ${profile.interactionMode}`,
+    })
+  if (profile.sdk?.runtime !== 'pi-sdk')
+    failures.push({
+      code: 'pi_profile_runtime',
+      message: `expected pi-sdk, got ${String(profile.sdk?.runtime)}`,
+    })
+  if (profile.session?.provider !== 'openai')
+    failures.push({
+      code: 'pi_profile_provider',
+      message: `expected openai, got ${String(profile.session?.provider)}`,
+    })
+  for (const forbidden of [
+    'brokerProtocol',
+    'brokerDriver',
+    'brokerTerminal',
+    'process',
+    'transport',
+    'terminal',
+  ] as const) {
+    if (forbidden in fields)
+      failures.push({
+        code: 'pi_profile_forbidden_field',
+        message: `embedded profile must not declare ${forbidden}`,
+      })
+  }
+  const commandTurnCompleted = events.find(
+    (e) => e.type === 'turn.completed' && e.turnId === commandTurnId
+  )
+  const producedContent = (commandTurnCompleted?.payload as { producedContent?: boolean })
+    ?.producedContent
+  if (producedContent !== true)
+    failures.push({
+      code: 'pi_command_turn_no_content',
+      message: `command turn producedContent !== true (${String(producedContent)})`,
+    })
+  const continuation = events.find((e) => e.type === 'continuation.updated')
+  const cpayload = continuation?.payload as { kind?: string; key?: string } | undefined
+  if (continuation === undefined)
+    failures.push({
+      code: 'pi_continuation_missing',
+      message: 'no continuation.updated event emitted',
+    })
+  else if (cpayload?.kind !== 'session')
+    failures.push({
+      code: 'pi_continuation_kind',
+      message: `continuation kind !== session (${String(cpayload?.kind)})`,
+    })
+  if (typeof result.sessionKey !== 'string' || result.sessionKey.length === 0)
+    failures.push({
+      code: 'pi_session_key_missing',
+      message: 'result.sessionKey is empty on the real path',
+    })
+  return failures
+}
+
+async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
+  const prompt = [
+    'Run this exact Bash command and nothing else:',
+    `printf '${ctx.marker}\\n'`,
+    `Then reply with exactly ${ctx.marker} and nothing else.`,
+  ].join('\n')
+  const result: RowResult = {
+    name: 'real-pi-sdk-embedded',
+    status: 'FAIL',
+    marker: ctx.marker,
+    prompt,
+    observedTurnIds: [],
+    compile: {},
+    floorFailures: [],
+    contractFailures: [],
+    extraFailures: [],
+    notes: {},
+  }
+  const fx = createPiSdkFixture()
+  const hostSessionId = `host_pi_${ctx.marker}`
+  try {
+    const client = createAgentSpacesClient({ aspHome: fx.aspHome }) as ReturnType<
+      typeof createAgentSpacesClient
+    > & { compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse> }
+    const response = await client.compileRuntimePlan(
+      embeddedCompileRequest({
+        agentRoot: fx.agentRoot,
+        projectRoot: fx.projectRoot,
+        hostSessionId,
+        prompt,
+        marker: ctx.marker,
+        timeoutMs: ctx.turnTimeoutMs,
+      })
+    )
+    if (!response.ok) {
+      result.contractFailures.push({
+        code: 'pi_compile_failed',
+        message: `compileRuntimePlan returned diagnostics: ${JSON.stringify(response.diagnostics)}`,
+      })
+      return result
+    }
+    const profile = response.plan.executionProfiles[0] as EmbeddedSdkExecutionProfile
+    const bundleRoot = response.plan.artifacts.materializedBundleRoot as string
+    result.compile = {
+      compileId: response.plan.compileId,
+      planHash: response.plan.planHash,
+      selectedProfileHash: profile.profileHash,
+    }
+    // pi-sdk continuation IS the SessionManager session-file path; the CALLER
+    // derives it via the legacy piSessionPath shape and passes it explicitly.
+    const sessionPath = piSessionPath(fx.aspHome, hostSessionId)
+    mkdirSync(sessionPath, { recursive: true })
+
+    const events: InvocationEventEnvelope[] = []
+    const turnResult = await executeEmbeddedSdkTurn({
+      profile,
+      prompt,
+      invocationId: `inv_pi_${ctx.marker}` as InvocationId,
+      inputId: `input_pi_${ctx.marker}` as InputId,
+      turnId: `turn_pi_${ctx.marker}` as TurnId,
+      runId: `run_pi_${ctx.marker}`,
+      bundleRoot,
+      sessionPath,
+      dispatchEnv: { AGENT_HOST_SESSION_ID: hostSessionId },
+      onEvent: (event) => events.push(event),
+    })
+
+    const commandTurnId = deriveCommandTurnId(events)
+    result.commandTurnId = commandTurnId
+    result.observedTurnIds = observedTurnIds(events)
+    result.notes['eventCount'] = events.length
+    result.notes['finalOutput'] = turnResult.finalOutput ?? null
+    result.notes['sessionKey'] = turnResult.sessionKey ?? null
+    result.notes['producedContent'] = turnResult.producedContent
+
+    if (!turnResult.success) {
+      result.contractFailures.push({
+        code: 'pi_turn_failed',
+        message: `executeEmbeddedSdkTurn failed: ${JSON.stringify(turnResult.error)}`,
+      })
+    }
+
+    result.floorFailures = runSharedFloor(
+      events,
+      ctx.marker,
+      commandTurnId,
+      ctx.allowLegacyPermissionEvent,
+      EMBEDDED_MARKER_SOURCES
+    )
+    result.notes['markerSatisfiedBy'] = markerSatisfiedBy(
+      events,
+      commandTurnId,
+      ctx.marker,
+      EMBEDDED_MARKER_SOURCES
+    )
+    result.extraFailures.push(...assertEmbeddedExtras(profile, turnResult, commandTurnId, events))
+  } finally {
+    if (!ctx.keepArtifacts) fx.cleanup()
+  }
+
+  const allFailed =
+    result.floorFailures.length + result.contractFailures.length + result.extraFailures.length
+  result.status = allFailed === 0 ? 'OK' : 'FAIL'
+  return result
+}
+
+// ---------------------------------------------------------------------------
 // HARNESS_CONFIGS
 // ---------------------------------------------------------------------------
 
@@ -1288,6 +1606,18 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       result.status = allFailed === 0 ? 'OK' : 'FAIL'
       return result
     },
+  },
+  {
+    name: 'real-pi-sdk-embedded',
+    description: 'pi-sdk embedded-sdk in-process executor against the REAL pi-sdk path',
+    probe: async () => {
+      const authPath = join(process.env['HOME'] ?? '', '.pi', 'agent', 'auth.json')
+      if (!existsSync(authPath)) {
+        return { available: false, reason: `pi auth (${authPath}) not present` }
+      }
+      return { available: true, reason: `pi auth at ${authPath}` }
+    },
+    run: async (ctx) => runEmbeddedPiSdkRow(ctx),
   },
 ]
 

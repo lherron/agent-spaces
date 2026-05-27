@@ -16,8 +16,8 @@ import type {
   MessageId,
   ToolCallCompletedPayload,
   ToolCallDeltaPayload,
-  ToolCallStartedPayload,
   ToolCallId,
+  ToolCallStartedPayload,
   TurnCompletedPayload,
   TurnId,
   TurnStartedPayload,
@@ -125,9 +125,7 @@ function composeEnv(
   const pathPrepend = profile.session.pathPrepend ?? []
   if (pathPrepend.length > 0) {
     const basePath = composed['PATH'] ?? process.env['PATH'] ?? ''
-    composed['PATH'] = [...pathPrepend, basePath]
-      .filter((part) => part.length > 0)
-      .join(delimiter)
+    composed['PATH'] = [...pathPrepend, basePath].filter((part) => part.length > 0).join(delimiter)
   }
 
   return composed
@@ -185,8 +183,23 @@ export async function executeEmbeddedSdkTurn(
   let lastAssistantText: string | undefined
   let toolActivity = false
   let observedSessionKey: string | undefined
-  const resolveTurnId = (raw: string | undefined): TurnId | undefined =>
-    (raw ?? (input.turnId as string | undefined)) as TurnId | undefined
+  // The active turn id stamped on every turn-scoped envelope (turn/assistant/
+  // tool events) so downstream turn-id correlation (e.g. assertSharedCommandTurn)
+  // can group them. Lifecycle events (invocation.*, input.*, continuation.*) are
+  // intentionally NOT turn-scoped.
+  let currentTurnId: TurnId | undefined = input.turnId as string | undefined as TurnId | undefined
+  // Allocate a stable, UNIQUE turn id per turn: prefer the SDK's native turn id;
+  // otherwise the first turn adopts input.turnId and subsequent turns get a
+  // suffixed synthetic id so each turn correlates to exactly one terminal event
+  // (a single nonInteractive prompt can drive a tool turn then a reply turn).
+  let turnCounter = 0
+  const allocateTurnId = (raw: string | undefined): TurnId | undefined => {
+    turnCounter += 1
+    if (raw !== undefined && raw.length > 0) return raw as TurnId
+    const baseId = (input.turnId as string | undefined) ?? (invocationId as string)
+    if (turnCounter === 1) return baseId as TurnId
+    return `${baseId}-t${turnCounter}` as TurnId
+  }
 
   const computeProducedContent = (): boolean =>
     Boolean(lastAssistantText) || assistantBuffer.length > 0 || toolActivity
@@ -203,7 +216,8 @@ export async function executeEmbeddedSdkTurn(
         return
       }
       case 'turn_start': {
-        const turnId = resolveTurnId(event.turnId)
+        const turnId = allocateTurnId(event.turnId)
+        currentTurnId = turnId
         const payload: TurnStartedPayload = { turnId: turnId as TurnId }
         emit('turn.started', payload, { turnId })
         return
@@ -214,7 +228,7 @@ export async function executeEmbeddedSdkTurn(
         const payload: AssistantMessageStartedPayload = {
           messageId: (event.messageId ?? 'message') as MessageId,
         }
-        emit('assistant.message.started', payload)
+        emit('assistant.message.started', payload, { turnId: currentTurnId })
         return
       }
       case 'message_update': {
@@ -228,7 +242,7 @@ export async function executeEmbeddedSdkTurn(
           messageId: (event.messageId ?? 'message') as MessageId,
           text,
         }
-        emit('assistant.message.delta', payload)
+        emit('assistant.message.delta', payload, { turnId: currentTurnId })
         return
       }
       case 'message_end': {
@@ -241,7 +255,7 @@ export async function executeEmbeddedSdkTurn(
           content: [{ type: 'text', text: finalText }],
           final: true,
         }
-        emit('assistant.message.completed', payload)
+        emit('assistant.message.completed', payload, { turnId: currentTurnId })
         return
       }
       case 'tool_execution_start': {
@@ -251,7 +265,7 @@ export async function executeEmbeddedSdkTurn(
           name: event.toolName,
           input: event.input,
         }
-        emit('tool.call.started', payload)
+        emit('tool.call.started', payload, { turnId: currentTurnId })
         return
       }
       case 'tool_execution_update': {
@@ -259,7 +273,7 @@ export async function executeEmbeddedSdkTurn(
           toolCallId: event.toolUseId as ToolCallId,
           ...(event.partialOutput !== undefined ? { text: event.partialOutput } : {}),
         }
-        emit('tool.call.delta', payload)
+        emit('tool.call.delta', payload, { turnId: currentTurnId })
         return
       }
       case 'tool_execution_end': {
@@ -271,11 +285,14 @@ export async function executeEmbeddedSdkTurn(
           ...(event.isError !== undefined ? { isError: event.isError } : {}),
           ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
         }
-        emit('tool.call.completed', payload)
+        emit('tool.call.completed', payload, { turnId: currentTurnId })
         return
       }
       case 'turn_end': {
-        const turnId = resolveTurnId(event.turnId)
+        // Use the active (allocated) turn id so the terminal event correlates to
+        // the same turn its turn.started/tool/assistant events carried.
+        const turnId =
+          currentTurnId ?? (event.turnId as TurnId | undefined) ?? (input.turnId as TurnId)
         const producedContent = computeProducedContent()
         const payload: TurnCompletedPayload = {
           turnId: turnId as TurnId,
@@ -302,8 +319,13 @@ export async function executeEmbeddedSdkTurn(
   let restoreEnv: (() => void) | undefined
 
   try {
+    // pi-sdk continuation IS the SessionManager session-file path: an explicit
+    // input.sessionPath (caller derives it via the legacy piSessionPath shape)
+    // wins; reuse-existing falls back to the validated compiled continuation key.
+    // The executor never derives/guesses it (ARCPS §13; run-placement-turn.ts:295).
     const continuationKey =
       profile.continuation?.hrc?.continuationId ?? profile.continuation?.hrc?.key
+    const sessionPath = input.sessionPath ?? continuationKey
 
     const bundle = await loadBundle(input.bundleRoot, {
       cwd: profile.session.cwd,
@@ -333,7 +355,7 @@ export async function executeEmbeddedSdkTurn(
       extensions: bundle.extensions,
       skills: bundle.skills,
       contextFiles: bundle.contextFiles,
-      ...(continuationKey ? { sessionPath: continuationKey } : {}),
+      ...(sessionPath ? { sessionPath } : {}),
     }
 
     session = createPiSession(sessionConfig)
@@ -357,12 +379,15 @@ export async function executeEmbeddedSdkTurn(
     const finalOutput =
       lastAssistantText ?? (assistantBuffer.length > 0 ? assistantBuffer : undefined)
 
-    // ARCPS §13: only a successful turn advances continuation.
+    // ARCPS §13: only a successful turn advances continuation. An observed
+    // sdk_session_id event wins (override/future-proof seam); pi-sdk does NOT
+    // depend on it — it falls back to the explicit SessionManager sessionPath.
+    const sessionKey = observedSessionKey ?? sessionPath
     let continuation: ContinuationUpdate | undefined
-    if (observedSessionKey) {
+    if (sessionKey) {
       continuation = {
         provider: profile.session.provider,
-        key: observedSessionKey,
+        key: sessionKey,
         kind: 'session',
       }
       emit('continuation.updated', continuation)
@@ -376,7 +401,7 @@ export async function executeEmbeddedSdkTurn(
       producedContent,
       ...(finalOutput !== undefined ? { finalOutput } : {}),
       ...(continuation ? { continuation } : {}),
-      ...(observedSessionKey ? { sessionKey: observedSessionKey } : {}),
+      ...(sessionKey ? { sessionKey } : {}),
     }
   } catch (error) {
     if (session) {
