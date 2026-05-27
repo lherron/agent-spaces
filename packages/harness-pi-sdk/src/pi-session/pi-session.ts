@@ -332,6 +332,17 @@ export interface PiEventMappingState {
    * tool/assistant work (final:false).
    */
   held?: HeldAssistantMessage | undefined
+  /**
+   * True between agent_start and agent_end. The pi SDK's turn_start/turn_end are
+   * native MODEL-ROUND boundaries, NOT operator-turn boundaries: a single prompt
+   * drives multiple native turns. While the agent lifecycle is active, a native
+   * turn_end is INTERNAL — the held message is not yet known to be terminal, so
+   * it carries across rounds (a later message_end supersedes it as final:false)
+   * and only agent_end (the operator terminal) finalizes the last held message as
+   * final:true. With NO agent lifecycle (bare/legacy callers), a standalone
+   * turn_end remains the terminal boundary and finalizes final:true.
+   */
+  agentActive?: boolean | undefined
 }
 
 export function createPiEventMappingState(): PiEventMappingState {
@@ -421,12 +432,21 @@ export function mapPiEventToUnified(
 ): UnifiedSessionEvent[] {
   switch (piEvent.type) {
     case 'agent_start':
+      state.agentActive = true
       state.held = undefined
       return [{ type: 'agent_start', sessionId }]
     case 'agent_end': {
       const reason = typeof piEvent.reason === 'string' ? piEvent.reason : undefined
+      // Operator terminal: finalize the last held assistant message as
+      // final:true (falling back to the latest assistant message in the
+      // agent_end payload when nothing is held).
+      const flush = flushTerminal(
+        state,
+        heldFromPiMessage(latestAssistantMessage(piEvent['messages']), undefined)
+      )
+      state.agentActive = false
       return [
-        ...flushTerminal(state, heldFromPiMessage(latestAssistantMessage(piEvent['messages']), undefined)),
+        ...flush,
         {
           type: 'agent_end',
           sessionId,
@@ -453,14 +473,22 @@ export function mapPiEventToUnified(
           result: mapToolResultContent(result.result),
         }
       })
-      return [
-        ...flushTerminal(
-          state,
-          heldFromPiMessage(
-            piEvent.message as PiMessage | undefined,
-            typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
+      // Inside an agent lifecycle, a native turn_end is an INTERNAL model-round
+      // boundary: the held message carries forward (a later message_end
+      // supersedes it as final:false; agent_end finalizes the last as
+      // final:true). A BARE turn_end (no agent lifecycle) is itself the terminal
+      // boundary and finalizes the held/inline assistant message as final:true.
+      const flush = state.agentActive
+        ? []
+        : flushTerminal(
+            state,
+            heldFromPiMessage(
+              piEvent.message as PiMessage | undefined,
+              typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
+            )
           )
-        ),
+      return [
+        ...flush,
         {
           type: 'turn_end',
           ...(turnId !== undefined ? { turnId } : {}),
@@ -513,8 +541,15 @@ export function mapPiEventToUnified(
         state.held = newHeld
         return flushed
       }
-      // Non-assistant (or empty) message_end: surface immediately, untouched by
-      // the held-latest assistant flow.
+      // An assistant message with no natural-language text (e.g. a tool-call-only
+      // message) is NOT a natural assistant message: do not surface it as a
+      // completion — its tool calls surface via tool_execution events, and
+      // surfacing it would emit a stray assistant.message.completed with no
+      // held-latest `final` flag. Non-assistant message_end (user/toolResult)
+      // passes through unchanged.
+      if (piMessage?.role === 'assistant') {
+        return []
+      }
       const message = mapPiMessage(piMessage)
       return [
         {

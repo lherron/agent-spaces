@@ -188,10 +188,21 @@ export async function executeEmbeddedSdkTurn(
   // can group them. Lifecycle events (invocation.*, input.*, continuation.*) are
   // intentionally NOT turn-scoped.
   let currentTurnId: TurnId | undefined = input.turnId as string | undefined as TurnId | undefined
-  // Allocate a stable, UNIQUE turn id per turn: prefer the SDK's native turn id;
-  // otherwise the first turn adopts input.turnId and subsequent turns get a
-  // suffixed synthetic id so each turn correlates to exactly one terminal event
-  // (a single nonInteractive prompt can drive a tool turn then a reply turn).
+  // Pi SDK turn_start/turn_end are native MODEL-ROUND boundaries, NOT operator
+  // turn boundaries: one prompt drives multiple native turns. Inside an agent
+  // lifecycle we COLLAPSE those rounds into ONE broker turn (the input/broker
+  // turn id): a single turn.started on the first native turn_start, intermediate
+  // assistant messages as final:false, and exactly one turn.completed at
+  // agent_end. The held-latest `final` flag is derived upstream in pi-session and
+  // propagated here verbatim — never re-stamped.
+  let agentLifecycleActive = false
+  let brokerTurnStarted = false
+  let brokerTurnCompleted = false
+  const brokerTurnId = (): TurnId =>
+    (input.turnId as TurnId | undefined) ?? (invocationId as string as TurnId)
+  // Bare/legacy mode (no agent lifecycle): allocate a stable, UNIQUE turn id per
+  // native turn — first adopts input.turnId, subsequent get a suffixed synthetic
+  // id so each correlates to exactly one terminal event.
   let turnCounter = 0
   const allocateTurnId = (raw: string | undefined): TurnId | undefined => {
     turnCounter += 1
@@ -199,6 +210,19 @@ export async function executeEmbeddedSdkTurn(
     const baseId = (input.turnId as string | undefined) ?? (invocationId as string)
     if (turnCounter === 1) return baseId as TurnId
     return `${baseId}-t${turnCounter}` as TurnId
+  }
+
+  const emitBrokerTurnCompleted = (): void => {
+    if (!brokerTurnStarted || brokerTurnCompleted) return
+    brokerTurnCompleted = true
+    const turnId = brokerTurnId()
+    const payload: TurnCompletedPayload = {
+      turnId,
+      status: 'completed',
+      producedContent: computeProducedContent(),
+      ...(lastAssistantText !== undefined ? { finalOutput: lastAssistantText } : {}),
+    }
+    emit('turn.completed', payload, { turnId })
   }
 
   const computeProducedContent = (): boolean =>
@@ -209,6 +233,17 @@ export async function executeEmbeddedSdkTurn(
       case 'agent_start': {
         const sdkSid = (event as { sdkSessionId?: string }).sdkSessionId
         if (sdkSid) observedSessionKey = sdkSid
+        agentLifecycleActive = true
+        brokerTurnStarted = false
+        brokerTurnCompleted = false
+        return
+      }
+      case 'agent_end': {
+        // Operator terminal for the collapsed broker turn: emit exactly one
+        // turn.completed for the broker turn id (the held final:true assistant
+        // message was already surfaced by pi-session just before this event).
+        emitBrokerTurnCompleted()
+        agentLifecycleActive = false
         return
       }
       case 'sdk_session_id': {
@@ -216,6 +251,18 @@ export async function executeEmbeddedSdkTurn(
         return
       }
       case 'turn_start': {
+        if (agentLifecycleActive) {
+          // Collapse native model-rounds into one broker turn: stamp all
+          // turn-scoped events with the broker turn id and emit turn.started only
+          // on the FIRST native round.
+          currentTurnId = brokerTurnId()
+          if (!brokerTurnStarted) {
+            brokerTurnStarted = true
+            const payload: TurnStartedPayload = { turnId: currentTurnId }
+            emit('turn.started', payload, { turnId: currentTurnId })
+          }
+          return
+        }
         const turnId = allocateTurnId(event.turnId)
         currentTurnId = turnId
         const payload: TurnStartedPayload = { turnId: turnId as TurnId }
@@ -250,10 +297,16 @@ export async function executeEmbeddedSdkTurn(
         const content = mapContentToText(event.message.content)
         const finalText = content ?? assistantBuffer
         if (finalText.length > 0) lastAssistantText = finalText
+        // `final` is the held-latest terminal-for-turn flag derived by pi-session
+        // (final:false for intermediate assistant messages, final:true for the
+        // operator-terminal one). Propagate it verbatim; only default to terminal
+        // when a producer emits a raw message_end with no held-latest payload.
+        const eventFinal = (event as { payload?: { final?: unknown } }).payload?.final
+        const final = typeof eventFinal === 'boolean' ? eventFinal : true
         const payload: AssistantMessageCompletedPayload = {
           messageId: (event.messageId ?? 'message') as MessageId,
           content: [{ type: 'text', text: finalText }],
-          final: true,
+          final,
         }
         emit('assistant.message.completed', payload, { turnId: currentTurnId })
         return
@@ -289,8 +342,14 @@ export async function executeEmbeddedSdkTurn(
         return
       }
       case 'turn_end': {
-        // Use the active (allocated) turn id so the terminal event correlates to
-        // the same turn its turn.started/tool/assistant events carried.
+        if (agentLifecycleActive) {
+          // Internal native model-round boundary: the single broker turn.completed
+          // is emitted once at agent_end, not per native round.
+          return
+        }
+        // Bare/legacy mode: the native turn_end is the terminal boundary. Use the
+        // active (allocated) turn id so the terminal event correlates to the same
+        // turn its turn.started/tool/assistant events carried.
         const turnId =
           currentTurnId ?? (event.turnId as TurnId | undefined) ?? (input.turnId as TurnId)
         const producedContent = computeProducedContent()

@@ -27,6 +27,21 @@ function turnEnd(messageId: string, text: string): PiAgentSessionEvent {
   }
 }
 
+function turnEndBare(): PiAgentSessionEvent {
+  return { type: 'turn_end' }
+}
+
+function toolOnlyAssistantMessageEnd(messageId: string): PiAgentSessionEvent {
+  return {
+    type: 'message_end',
+    messageId,
+    message: {
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: 'call-1', name: 'spark', arguments: {} }],
+    },
+  }
+}
+
 function messageEndEvents(
   events: UnifiedSessionEvent[]
 ): Extract<UnifiedSessionEvent, { type: 'message_end' }>[] {
@@ -34,6 +49,13 @@ function messageEndEvents(
     (event): event is Extract<UnifiedSessionEvent, { type: 'message_end' }> =>
       event.type === 'message_end'
   )
+}
+
+/** final flags for every assistant-bearing message_end, in emission order. */
+function assistantFinalFlags(events: UnifiedSessionEvent[]): unknown[] {
+  return messageEndEvents(events)
+    .filter((event) => event.message?.role === 'assistant')
+    .map((event) => (event.payload as { final?: unknown } | undefined)?.final)
 }
 
 describe('pi session event mapping', () => {
@@ -234,5 +256,91 @@ describe('pi session event mapping', () => {
         payload: { final: true },
       },
     ])
+  })
+
+  test('agent lifecycle: native turn_ends are internal; only agent_end finalizes (N-1 final:false + 1 final:true)', () => {
+    const state = createPiEventMappingState()
+    const all: UnifiedSessionEvent[] = []
+    const push = (event: PiAgentSessionEvent): void => {
+      all.push(...mapPiEventToUnified(event, 'session-1', state))
+    }
+
+    push({ type: 'agent_start' })
+    // Three native model-rounds inside ONE operator turn. Each round closes with
+    // a native turn_end that must NOT finalize the held assistant message.
+    push({ type: 'turn_start' })
+    push(assistantMessageEnd('pi-msg-1', 'first note'))
+    push(turnEndBare())
+    push({ type: 'turn_start' })
+    push(assistantMessageEnd('pi-msg-2', 'second note'))
+    push(turnEndBare())
+    push({ type: 'turn_start' })
+    push(assistantMessageEnd('pi-msg-3', 'final note'))
+    push(turnEndBare())
+    push({ type: 'agent_end' })
+
+    // >=2 intermediate final:false BEFORE the terminal, then exactly one final:true.
+    expect(assistantFinalFlags(all)).toEqual([false, false, true])
+
+    const assistantEnds = messageEndEvents(all).filter(
+      (event) => event.message?.role === 'assistant'
+    )
+    expect(assistantEnds).toEqual([
+      {
+        type: 'message_end',
+        messageId: 'pi-msg-1',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'first note' }] },
+        payload: { final: false },
+      },
+      {
+        type: 'message_end',
+        messageId: 'pi-msg-2',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'second note' }] },
+        payload: { final: false },
+      },
+      {
+        type: 'message_end',
+        messageId: 'pi-msg-3',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'final note' }] },
+        payload: { final: true },
+      },
+    ])
+
+    // The terminal final:true is the LAST event before agent_end, never after it.
+    const terminalIdx = all.findIndex(
+      (event) =>
+        event.type === 'message_end' &&
+        (event.payload as { final?: unknown } | undefined)?.final === true
+    )
+    const agentEndIdx = all.findIndex((event) => event.type === 'agent_end')
+    expect(terminalIdx).toBeGreaterThanOrEqual(0)
+    expect(terminalIdx).toBeLessThan(agentEndIdx)
+  })
+
+  test('agent lifecycle: tool-only assistant message_end surfaces no completion', () => {
+    const state = createPiEventMappingState()
+
+    expect(mapPiEventToUnified({ type: 'agent_start' }, 'session-1', state)).toEqual([
+      { type: 'agent_start', sessionId: 'session-1' },
+    ])
+    expect(mapPiEventToUnified({ type: 'turn_start' }, 'session-1', state)).toEqual([
+      { type: 'turn_start' },
+    ])
+    // A tool-call-only assistant message is not a natural assistant message: it
+    // must NOT surface as a completion (its tool call surfaces via tool_execution).
+    expect(
+      mapPiEventToUnified(toolOnlyAssistantMessageEnd('pi-msg-tool'), 'session-1', state)
+    ).toEqual([])
+
+    // The text reply for the round is the held terminal, finalized at agent_end.
+    expect(mapPiEventToUnified(assistantMessageEnd('pi-msg-1', 'done'), 'session-1', state)).toEqual(
+      []
+    )
+    const end = mapPiEventToUnified({ type: 'agent_end' }, 'session-1', state)
+    expect(assistantFinalFlags(end)).toEqual([true])
+    expect(messageEndEvents(end)[0]?.message).toEqual({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'done' }],
+    })
   })
 })
