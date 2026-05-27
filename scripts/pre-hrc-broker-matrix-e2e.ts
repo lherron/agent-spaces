@@ -3,6 +3,19 @@ import { spawn } from 'node:child_process'
 /**
  * Pre-HRC broker MATRIX e2e runner (T-01667, Lance directive 2026-05-26).
  *
+ * SUITE PURPOSE — DRIVER CERTIFICATION (Lance directive 2026-05-27, T-01700):
+ *   pre-hrc is our driver validation suite to confirm every harness combination
+ *   is fully certified to work with hrc and should exercise all events for every
+ *   runtime; it is harness/runtime-agnostic; every scenario and event check
+ *   executes against every row; a missing event is a driver gap to close, not a
+ *   row to exempt. Concretely: the narration-inducing multi-tool scenario and the
+ *   intermediate-agent-message assertion (assertIntermediateMessages) run against
+ *   EVERY row — no row is gated or skipped. Conforming drivers (codex-cli-tmux,
+ *   via its rollout transcript tailer) stay green; non-conforming drivers go RED
+ *   with intermediate_messages_missing / final_message_count, and those reds are
+ *   the worklist (claude tail = T-01706, codex-app-server held-latest = T-01707,
+ *   pi-sdk held-latest = T-01708) — NOT a signal to weaken the assertion.
+ *
  * ONE parameterized runner that iterates ALL implemented harness configurations,
  * drives the SAME canonical command turn through each, and validates the SAME
  * normalized broker event vocabulary fired — reusing existing coverage instead
@@ -25,11 +38,13 @@ import { spawn } from 'node:child_process'
  *   - assertSharedCommandTurn on the command turn (SEMANTIC, harness-agnostic).
  *
  * Per-row extras:
+ *   - EVERY row       -> assertIntermediateMessages (harness-agnostic intermediate
+ *                        agent-message contract) scoped to the shared narration turn.
  *   - codex rows      -> continuation.updated; real-codex additionally runs the
  *                        app-server/env evidence checks.
  *   - claude-tmux row -> assertInteractiveTmuxEvents VERBATIM per turn (inside the
  *                        shared interactive runner lib) + >=2 broker-applied turns
- *                        (turn1 = Bash marker command turn, turn2 = plain token turn).
+ *                        (turn1 = Bash marker command turn, turn2 = narration turn).
  *   - ghostmux row    -> operator-typed turn.started/.completed + tool.call.* +
  *                        pane/token visual beyond the scripted baseline, with the
  *                        FULL signed clean-exit assertion run across the operator
@@ -125,6 +140,21 @@ const ALL_ROWS: RowName[] = [
   'claude-tmux-ghostmux',
   'real-pi-sdk-embedded',
 ]
+
+/**
+ * SHARED narration-inducing scenario (Lance's live ghostmux demo, T-01700).
+ *
+ * A multi-tool turn that asks for a short notification message BETWEEN the two
+ * tool execs, so a conforming driver emits intermediate agent messages. This is
+ * the SAME scenario turn threaded through EVERY row's drive path (harness-agnostic
+ * certification) — single-turn rows fold it into the command-turn prompt
+ * (preserving the marker echo so the shared floor still holds), multi-turn rows
+ * run it as an isolated scripted turn. assertIntermediateMessages is scoped to
+ * this turn on every row.
+ */
+const NARRATION_PROMPT =
+  'Perform an ls and tell me something interesting about this directory, then run pwd. ' +
+  'I want a short notification message in between each tool exec.'
 
 type CliArgs = {
   config?: RowName | undefined
@@ -594,22 +624,28 @@ function assertCodexContinuation(events: InvocationEventEnvelope[]): Failure[] {
 }
 
 /**
- * Codex transcript-tail intermediate agent-message proof (T-01700 / cody #6).
+ * HARNESS-AGNOSTIC intermediate agent-message contract (T-01700, cody #3807 Q1).
  *
- * The codex-cli-tmux transcript tailer (243e2bb) surfaces every intermediate
- * agent message as assistant.message.completed{final:false} (held-latest
- * emission) and the rollout task_complete as exactly one {final:true}. A
- * narration-inducing turn must therefore produce >=2 intermediate (final:false)
- * messages BEFORE its terminal turn.completed, plus exactly one final (final:true)
- * closing message.
+ * REQUIRED contract on EVERY row (driver certification, not a codex affordance):
+ * in a multi-tool turn, every natural assistant message before the terminal answer
+ * must surface as assistant.message.completed{final:false}, emitted BEFORE the
+ * turn terminal; the terminal assistant message is assistant.message.completed
+ * {final:true} exactly once. So a narration-inducing turn must produce >=2
+ * intermediate (final:false) messages before its terminal turn.completed, plus
+ * exactly one final (final:true) closing message.
  *
- * CODEX-SPECIFIC: claude rows have no transcript tail and never set `final`, so
- * this only runs on the codex-cli-tmux rows and never touches the claude rows.
- * Scoped to the narration turn's hook-originated turn id(s) so unrelated marker /
- * operator turns (each typically a single final assistant message) do not skew the
- * counts; falls back to the whole ledger only if the turn id could not be captured.
+ * This assertion runs UNIFORMLY on every matrix row — it is NOT gated/skipped for
+ * any driver. Conforming drivers (codex-cli-tmux via the rollout transcript tailer,
+ * 243e2bb) pass; non-conforming drivers (claude tail T-01706, codex-app-server
+ * held-latest T-01707, pi-sdk held-latest T-01708) go RED on these codes, and that
+ * red is the intended worklist signal — closing those gaps is the fix, not
+ * exempting the row or weakening this check.
+ *
+ * Scoped to the narration turn's id(s) so unrelated marker / operator turns (each
+ * typically a single final assistant message) do not skew the counts; falls back
+ * to the whole ledger only if the turn id could not be captured.
  */
-function assertCodexIntermediateMessages(
+function assertIntermediateMessages(
   events: InvocationEventEnvelope[],
   narrationTurnIds: string[]
 ): Failure[] {
@@ -630,7 +666,7 @@ function assertCodexIntermediateMessages(
 
   if (intermediates.length < 2) {
     failures.push({
-      code: 'codex_intermediate_messages_missing',
+      code: 'intermediate_messages_missing',
       message: `narration turn must surface >=2 intermediate assistant.message.completed{final:false} events, got ${intermediates.length} (narrationTurnIds=${JSON.stringify(narrationTurnIds)})`,
     })
   }
@@ -647,17 +683,17 @@ function assertCodexIntermediateMessages(
       )
       if (trailing.length > 0) {
         failures.push({
-          code: 'codex_intermediate_after_terminal',
+          code: 'intermediate_after_terminal',
           message: `${trailing.length} intermediate assistant.message.completed{final:false} event(s) appeared AFTER the narration turn.completed; intermediates must be emitted mid-turn`,
         })
       }
     }
   }
 
-  // The rollout finalizes the held-latest message exactly once per turn.
+  // The turn finalizes the terminal assistant message exactly once.
   if (finals.length !== 1) {
     failures.push({
-      code: 'codex_final_message_count',
+      code: 'final_message_count',
       message: `narration turn must surface exactly one final assistant.message.completed{final:true}, got ${finals.length}`,
     })
   }
@@ -780,15 +816,29 @@ async function runCodexRow(
   // to prove the tools bin is visible on the spawned PATH. (Codex executes through
   // `/bin/zsh -lc`, whose rc may re-prepend other dirs, so PATH_HEAD is NOT asserted
   // to equal pathPrepend[0]; the contract is visibility + resolution, not position.)
-  // The fake row keeps the minimal marker prompt (its deterministic fixture has no
-  // tools/bin and runs no PATH-visibility assertion).
+  //
+  // Both rows fold the SHARED narration scenario (NARRATION_PROMPT, T-01700) into
+  // the single command-turn prompt: the PATH-probe command (real) / printf marker
+  // (fake) stays verbatim so the shared floor + assertRealCodexEnvEvidence hold,
+  // and the narration ("notification message in between each tool exec") drives the
+  // intermediate-message contract on this same turn. The codex-app-server mapper
+  // currently marks every agentMessage item as final:true (no held-latest), so
+  // assertIntermediateMessages goes RED here with intermediate_messages_missing —
+  // the intended T-01707 worklist signal. (The fake fixture is deterministic and
+  // ignores the prompt; it likewise emits a single final:true message → same red.)
   const prompt = options.real
     ? [
-        'Run this exact Bash command and nothing else:',
+        'Run this exact Bash command first:',
         `printf 'PATH_HEAD=%s\\n' "\${PATH%%:*}"; command -v sparky-spark || true`,
+        'Tell me something interesting about the result, then run pwd.',
+        'I want a short notification message in between each tool exec.',
         `Then reply with exactly ${ctx.marker} and nothing else.`,
       ].join('\n')
-    : `Run \`printf '${ctx.marker}'\` then reply with exactly ${ctx.marker} and nothing else.`
+    : [
+        `Run the Bash command printf '${ctx.marker}', tell me something interesting,`,
+        'then run pwd. I want a short notification message in between each tool exec.',
+        `Then reply with exactly ${ctx.marker} and nothing else.`,
+      ].join('\n')
   const name: RowName = options.real ? 'real-codex' : 'fake-codex'
   const result: RowResult = {
     name,
@@ -868,6 +918,13 @@ async function runCodexRow(
         ...assertRealCodexEnvEvidence(harnessResult, options.agentRoot, ctx.marker)
       )
     }
+    // Uniform intermediate-message contract, scoped to the single command turn
+    // (the narration scenario rides on it). The headless app-server marks every
+    // agentMessage final:true, so this row goes RED with intermediate_messages_missing
+    // until codex-app-server held-latest lands (T-01707).
+    const narrationTurnIds = commandTurnId !== undefined ? [commandTurnId] : []
+    result.notes['narrationTurnIds'] = narrationTurnIds
+    result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
 
     const allFailed =
       result.floorFailures.length + result.contractFailures.length + result.extraFailures.length
@@ -1122,16 +1179,14 @@ async function runCodexTmuxRow(
   const rowName: RowName = options.ghostmuxOperator ? 'codex-tmux-ghostmux' : 'real-codex-tmux'
   const operatorMarker = `${ctx.marker}_OP`
   const commandMarker = options.ghostmuxOperator ? operatorMarker : ctx.marker
-  // Narration-inducing turn (Lance's live ghostmux demo, T-01700): codex emits
-  // intermediate agent messages BETWEEN the two tool execs. The transcript tailer
-  // (243e2bb) surfaces each as assistant.message.completed{final:false} and the
-  // rollout task_complete as {final:true}; assertCodexIntermediateMessages proves it.
-  const narrationPrompt =
-    'Perform an ls and tell me something interesting about this directory, then run pwd. ' +
-    'I want a short notification message in between each tool exec.'
+  // Shared narration-inducing turn (NARRATION_PROMPT, Lance's live ghostmux demo,
+  // T-01700): codex emits intermediate agent messages BETWEEN the two tool execs.
+  // The transcript tailer (243e2bb) surfaces each as
+  // assistant.message.completed{final:false} and the rollout task_complete as
+  // {final:true}; assertIntermediateMessages proves it (scoped to this turn).
   const prompts = [
     `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
-    narrationPrompt,
+    NARRATION_PROMPT,
   ]
   const operatorPrompt = `Run the Bash command: printf '${operatorMarker}' — then reply with exactly ${operatorMarker} and nothing else.`
   const result: RowResult = {
@@ -1290,7 +1345,7 @@ async function runCodexTmuxRow(
       )
       scriptedTurns.push({ prompt, terminalTurnObserved })
       await sleep(2_000)
-      if (prompt === narrationPrompt) {
+      if (prompt === NARRATION_PROMPT) {
         // The hook-originated turn(s) that appeared during the narration prompt;
         // the transcript-tail assistant.message.completed events carry these ids.
         narrationTurnIds = observedTurnIds(events).filter((id) => !turnIdsBefore.has(id))
@@ -1391,7 +1446,7 @@ async function runCodexTmuxRow(
     )
 
     result.extraFailures.push(...assertCodexContinuation(events))
-    result.extraFailures.push(...assertCodexIntermediateMessages(events, narrationTurnIds))
+    result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
     if (observedTurnIds(events).length < 2) {
       result.extraFailures.push({
         code: 'codex_tmux_turn_count',
@@ -1714,9 +1769,17 @@ function assertEmbeddedExtras(
 }
 
 async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
+  // Folds the SHARED narration scenario (NARRATION_PROMPT, T-01700) into the single
+  // command-turn prompt: the printf marker stays verbatim so the shared floor holds,
+  // and the narration drives the intermediate-message contract on this turn. The
+  // pi-sdk surfaces a complete message as final:true too early (no held-latest), so
+  // assertIntermediateMessages goes RED with intermediate_messages_missing — the
+  // intended T-01708 worklist signal.
   const prompt = [
-    'Run this exact Bash command and nothing else:',
+    'Run the Bash command first:',
     `printf '${ctx.marker}\\n'`,
+    'Tell me something interesting about this directory, then run pwd.',
+    'I want a short notification message in between each tool exec.',
     `Then reply with exactly ${ctx.marker} and nothing else.`,
   ].join('\n')
   const result: RowResult = {
@@ -1809,6 +1872,10 @@ async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
       EMBEDDED_MARKER_SOURCES
     )
     result.extraFailures.push(...assertEmbeddedExtras(profile, turnResult, commandTurnId, events))
+    // Uniform intermediate-message contract, scoped to the single command turn.
+    const narrationTurnIds = commandTurnId !== undefined ? [commandTurnId] : []
+    result.notes['narrationTurnIds'] = narrationTurnIds
+    result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
   } finally {
     if (!ctx.keepArtifacts) fx.cleanup()
   }
@@ -1954,9 +2021,14 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       const aspHome = mkdtempSync(join(tmpdir(), 'asp-matrix-claude-tmux-'))
       const artifactDir = join(aspHome, 'matrix-claude-tmux-artifacts')
       const socketPath = join(tmpdir(), `matrix-claude-tmux-${process.pid}.sock`)
+      // turn1 = Bash marker command turn (shared floor); turn2 = the SHARED
+      // narration scenario (NARRATION_PROMPT, T-01700) so assertIntermediateMessages
+      // runs on this row too. claude-code-tmux has no transcript tail yet, so it
+      // never sets `final` → this row goes RED with intermediate_messages_missing /
+      // final_message_count (the intended T-01706 worklist signal).
       const prompts = [
         `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
-        `Reply with exactly the token ${ctx.marker}_T2 and nothing else.`,
+        NARRATION_PROMPT,
       ]
       const result: RowResult = {
         name: 'real-claude-tmux',
@@ -2052,7 +2124,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         CLAUDE_MARKER_SOURCES
       )
 
-      // Per-row extra: >=2 broker-applied turns (turn1=command, turn2=plain token).
+      // Per-row extra: >=2 broker-applied turns (turn1=command, turn2=narration).
       if (run.turns.length < 2) {
         result.extraFailures.push({
           code: 'claude_tmux_turn_count',
@@ -2065,6 +2137,13 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
           message: 'not every scripted turn reached a terminal turn',
         })
       }
+
+      // Uniform intermediate-message contract, scoped to the narration turn.
+      const narrationTurnIds = run.turns
+        .filter((t) => t.prompt === NARRATION_PROMPT)
+        .map((t) => t.turnId)
+      result.notes['narrationTurnIds'] = narrationTurnIds
+      result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
 
       if (!ctx.keepArtifacts) rmSync(aspHome, { recursive: true, force: true })
 
@@ -2094,9 +2173,13 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       const enterDelayMs = 250
       const operatorPrompt = `Run the Bash command: printf '${ctx.marker}_OP' — then reply with exactly ${ctx.marker}_OP and nothing else.`
       const operatorMarker = `${ctx.marker}_OP`
+      // turn1 = Bash marker command turn; turn2 = the SHARED narration scenario
+      // (NARRATION_PROMPT, T-01700) so assertIntermediateMessages runs here too.
+      // claude-code-tmux has no transcript tail yet → RED with
+      // intermediate_messages_missing / final_message_count (intended, T-01706).
       const prompts = [
         `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
-        `Reply with exactly the token ${ctx.marker}_T2 and nothing else.`,
+        NARRATION_PROMPT,
       ]
 
       const result: RowResult = {
@@ -2241,6 +2324,14 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
           turnId: t.turnId,
           terminalTurnObserved: t.terminalTurnObserved,
         }))
+
+        // Uniform intermediate-message contract, scoped to the scripted narration turn.
+        const narrationTurnIds = run.turns
+          .filter((t) => t.prompt === NARRATION_PROMPT)
+          .map((t) => t.turnId)
+        result.notes['narrationTurnIds'] = narrationTurnIds
+        result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
+
         const operatorSubmits = events.filter(
           (e) => e.type === 'turn.started' && e.driver?.rawType === 'UserPromptSubmit'
         ).length
