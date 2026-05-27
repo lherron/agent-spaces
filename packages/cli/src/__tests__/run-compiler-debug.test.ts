@@ -185,4 +185,83 @@ describe('asp run --dry-run --debug compiler dump', () => {
       await rm(fixture.root, { recursive: true, force: true })
     }
   })
+
+  test('maps pi-sdk --no-interactive to nonInteractive while codex stays headless', async () => {
+    const fixture = await setupProject()
+    try {
+      const piSdkResult = runAsp(
+        [
+          'run',
+          'alice@debug-project',
+          'hi',
+          '--dry-run',
+          '--debug',
+          '--no-interactive',
+          '--no-refresh',
+          '--harness',
+          'pi-sdk',
+          '--project',
+          fixture.projectDir,
+          '--asp-home',
+          fixture.aspHome,
+        ],
+        {
+          cwd: fixture.projectDir,
+          env: {
+            ASP_AGENTS_ROOT: fixture.agentsRoot,
+            PATH: `${CODEX_SHIM_DIR}:${process.env.PATH ?? ''}`,
+          },
+        }
+      )
+      const codexResult = runAsp(
+        [
+          'run',
+          'alice@debug-project',
+          'hi',
+          '--dry-run',
+          '--debug',
+          '--no-interactive',
+          '--no-refresh',
+          '--harness',
+          'codex',
+          '--project',
+          fixture.projectDir,
+          '--asp-home',
+          fixture.aspHome,
+        ],
+        {
+          cwd: fixture.projectDir,
+          env: {
+            ASP_AGENTS_ROOT: fixture.agentsRoot,
+            PATH: `${CODEX_SHIM_DIR}:${process.env.PATH ?? ''}`,
+          },
+        }
+      )
+
+      expect(piSdkResult.exitCode).toBe(0)
+      expect(codexResult.exitCode).toBe(0)
+
+      const piSdkRequest = jsonAfterHeading(piSdkResult.stdout, 'RuntimeCompileRequest')
+      const codexRequest = jsonAfterHeading(codexResult.stdout, 'RuntimeCompileRequest')
+
+      expect(piSdkRequest.requested).toEqual(
+        expect.objectContaining({
+          modelProvider: 'openai',
+          harnessFamily: 'pi',
+          preferredHarnessRuntime: 'pi-sdk',
+          interactionMode: 'nonInteractive',
+        })
+      )
+      expect(codexRequest.requested).toEqual(
+        expect.objectContaining({
+          modelProvider: 'openai',
+          harnessFamily: 'codex',
+          preferredHarnessRuntime: 'codex-cli',
+          interactionMode: 'headless',
+        })
+      )
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true })
+    }
+  })
 })

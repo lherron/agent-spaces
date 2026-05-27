@@ -7,11 +7,17 @@ import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
+  EmbeddedSdkExecutionProfile,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
   TerminalExecutionProfile,
 } from 'spaces-runtime-contracts'
-import { DEFAULT_CODEX_BROKER_INPUT_POLICY, project } from 'spaces-runtime-contracts'
+import {
+  DEFAULT_CODEX_BROKER_INPUT_POLICY,
+  type CompileDiagnostic,
+  project,
+} from 'spaces-runtime-contracts'
+import * as RuntimeContracts from 'spaces-runtime-contracts'
 
 import { createAgentSpacesClient } from '../index.js'
 import type {
@@ -222,6 +228,35 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
   return profiles[0]
 }
 
+type EmbeddedSdkProfileValidator = (profile: EmbeddedSdkExecutionProfile) => CompileDiagnostic[]
+
+function validateEmbeddedSdkExecutionProfile(
+  profile: EmbeddedSdkExecutionProfile
+): CompileDiagnostic[] {
+  const validator = (RuntimeContracts as typeof RuntimeContracts & {
+    validateEmbeddedSdkExecutionProfile?: EmbeddedSdkProfileValidator | undefined
+  }).validateEmbeddedSdkExecutionProfile
+
+  expect(validator).toBeFunction()
+  return validator(profile)
+}
+
+function embeddedSdkProfile(response: RuntimeCompileResponse): EmbeddedSdkExecutionProfile {
+  expect(response.ok).toBe(true)
+  if (!response.ok) {
+    throw new Error(
+      `compileRuntimePlan returned diagnostics instead of an embedded-sdk plan: ${response.diagnostics
+        .map((diagnostic) => diagnostic.code)
+        .join(', ')}`
+    )
+  }
+  const profiles = response.plan.executionProfiles.filter(
+    (profile): profile is EmbeddedSdkExecutionProfile => profile.kind === 'embedded-sdk'
+  )
+  expect(profiles).toHaveLength(1)
+  return profiles[0]
+}
+
 function terminalProfile(response: RuntimeCompileResponse): TerminalExecutionProfile {
   if (!response.ok) {
     throw new Error(
@@ -351,6 +386,53 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.kind).toBe('harness-broker')
     expect(profile.interactionMode).toBe('headless')
     expect(profile.brokerDriver).toBe('codex-app-server')
+  })
+
+  test('compiles openai pi-sdk nonInteractive to a validator-legal embedded-sdk profile', async () => {
+    const response = await createClient().compileRuntimePlan(
+      baseCompileRequest({
+        requested: {
+          modelProvider: 'openai',
+          model: 'gpt-5.5',
+          reasoningEffort: 'medium',
+          harnessFamily: 'pi',
+          preferredHarnessRuntime: 'pi-sdk',
+          interactionMode: 'nonInteractive',
+        },
+        materialization: {
+          ...baseCompileRequest().materialization,
+          attachments: [],
+          taskContext: {
+            taskId: 'T-01670',
+            phase: 'red',
+            role: 'smokey',
+            requiredEvidenceKinds: ['red-test'],
+            hintsText: 'pi-sdk nonInteractive must compile to embedded-sdk',
+          },
+        },
+        continuation: undefined,
+      })
+    )
+    const profile = embeddedSdkProfile(response)
+
+    expect(profile).toEqual(
+      expect.objectContaining({
+        kind: 'embedded-sdk',
+        interactionMode: 'nonInteractive',
+        sdk: expect.objectContaining({
+          runtime: 'pi-sdk',
+          startupMethod: 'create-sdk-session',
+          turnDelivery: 'sdk-turn',
+        }),
+        session: expect.objectContaining({
+          provider: 'openai',
+          modelId: expect.any(String),
+          cwd: fixture.projectRoot,
+          lockedEnv: expect.not.objectContaining({ PATH: expect.any(String) }),
+        }),
+      })
+    )
+    expect(validateEmbeddedSdkExecutionProfile(profile)).toEqual([])
   })
 
   test('selects the claude-code-tmux harness-broker for the pre-HRC interactive default', async () => {
@@ -678,6 +760,93 @@ exit 0
       expect.objectContaining({ level: 'error', plane: 'asp-compiler' })
     )
     expect('plan' in response).toBe(false)
+  })
+
+  test('does not emit claude-agent-sdk embedded profiles while implementation is deferred', async () => {
+    const response = await createClient().compileRuntimePlan(
+      baseCompileRequest({
+        requested: {
+          modelProvider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          harnessFamily: 'claude-code',
+          preferredHarnessRuntime: 'claude-agent-sdk',
+          interactionMode: 'nonInteractive',
+        },
+        materialization: {
+          ...baseCompileRequest().materialization,
+          attachments: [],
+        },
+        continuation: undefined,
+      })
+    )
+
+    expect(response.ok).toBe(false)
+    expect(response.diagnostics).toContainEqual(
+      expect.objectContaining({
+        level: 'error',
+        plane: 'asp-compiler',
+      })
+    )
+    expect(JSON.stringify(response)).not.toContain('"runtime":"claude-agent-sdk"')
+    expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
+  })
+
+  test('rejects pi-sdk embedded compile requests for non-openai providers', async () => {
+    const response = await createClient().compileRuntimePlan(
+      baseCompileRequest({
+        requested: {
+          modelProvider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          harnessFamily: 'pi',
+          preferredHarnessRuntime: 'pi-sdk',
+          interactionMode: 'nonInteractive',
+        },
+        materialization: {
+          ...baseCompileRequest().materialization,
+          attachments: [],
+        },
+        continuation: undefined,
+      })
+    )
+
+    expect(response.ok).toBe(false)
+    expect(response.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'unsupported_provider',
+        level: 'error',
+        plane: 'asp-compiler',
+      })
+    )
+    expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
+  })
+
+  test('rejects pi-sdk interactive requests instead of routing them to embedded-sdk', async () => {
+    const response = await createClient().compileRuntimePlan(
+      baseCompileRequest({
+        requested: {
+          modelProvider: 'openai',
+          model: 'gpt-5.5',
+          harnessFamily: 'pi',
+          preferredHarnessRuntime: 'pi-sdk',
+          interactionMode: 'interactive',
+        },
+        materialization: {
+          ...baseCompileRequest().materialization,
+          attachments: [],
+        },
+        continuation: undefined,
+      })
+    )
+
+    expect(response.ok).toBe(false)
+    expect(response.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'unsupported_runtime',
+        level: 'error',
+        plane: 'asp-compiler',
+      })
+    )
+    expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
   })
 
   test('legacy buildHarnessBrokerInvocation delegates to the same compiled broker start request', async () => {
