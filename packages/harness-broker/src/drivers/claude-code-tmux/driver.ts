@@ -20,6 +20,7 @@ import {
   createClaudeCodeHookEventNormalizer,
   normalizeHookEnvelope,
 } from './hook-events'
+import { type ClaudeTranscriptTailer, createClaudeTranscriptTailer } from './transcript-tail'
 
 const CLAUDE_CODE_TMUX_DRIVER_VERSION = '0.1.0'
 
@@ -106,6 +107,9 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let ctx: DriverContext | undefined
   let surface: SurfaceState | undefined
   let hookListener: HookListenerHandle | undefined
+  let transcriptTailer: ClaudeTranscriptTailer | undefined
+  let transcriptTailerStarted = false
+  let currentTurnId: string | undefined
   // The tmux server socket is a DISPATCH-TIME runtime allocation (spec §3.3),
   // supplied on the broker start request by HRC / the pre-HRC harness — NOT a
   // compiled/profile value and NOT a driver default. The manager constructs the
@@ -183,7 +187,46 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         now,
         allocateTurnId,
       })
+      transcriptTailerStarted = false
+      currentTurnId = undefined
+      transcriptTailer = createClaudeTranscriptTailer({
+        invocationId: driverCtx.invocationId,
+        now,
+        getCurrentTurnId: () => currentTurnId ?? activeTurnId,
+        emit: (event) => {
+          driverCtx.emit(event.type, event.payload, {
+            ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+            ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
+            ...(event.driver !== undefined ? { driver: event.driver } : {}),
+          })
+        },
+      })
       hookListener = await options.hooks.listen(async (envelope) => {
+        const hook = extractHookRecord(envelope)
+        const hookEventName = getHookString(hook, 'hook_event_name')
+        const hookTurnId = getHookString(hook, 'turn_id') ?? envelope.turnId
+        if (hookTurnId !== undefined) {
+          currentTurnId = hookTurnId
+        }
+        if (hookEventName === 'SessionStart') {
+          const transcriptPath = getHookString(hook, 'transcript_path')
+          if (transcriptPath !== undefined && transcriptPath.length > 0) {
+            try {
+              transcriptTailer?.start(transcriptPath)
+              transcriptTailerStarted = true
+            } catch (error) {
+              emitTranscriptDiagnostic(driverCtx, transcriptPath, error)
+            }
+          } else if (!transcriptTailerStarted) {
+            emitTranscriptDiagnostic(driverCtx, transcriptPath, undefined)
+          }
+        } else if (isTerminalHookEvent(hookEventName)) {
+          await sleep(250)
+          transcriptTailer?.handleHook(hook)
+        } else {
+          transcriptTailer?.handleHook(hook)
+        }
+
         // H2: when neither the envelope nor the raw hook carries a turn id, fall
         // back to the driver-tracked active broker turn id so turn lifecycle
         // events still resolve to the live turn. The fallback is only injected
@@ -207,8 +250,11 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           // after a terminal, clear it so the next turn-id-less prompt mints.
           if (event.type === 'turn.started' && event.turnId !== undefined) {
             activeTurnId = event.turnId
-          } else if (event.type === 'turn.completed' && activeTurnId === event.turnId) {
-            activeTurnId = undefined
+            currentTurnId = event.turnId
+          } else if (event.type === 'turn.completed') {
+            if (activeTurnId === event.turnId) {
+              activeTurnId = undefined
+            }
           }
         }
       })
@@ -263,6 +309,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // authoritative turn id for this input.
       const turnId = allocateTurnId()
       activeTurnId = turnId
+      currentTurnId = turnId
       // terminal-literal-input turn delivery: literal text then Enter so shell
       // expansion / key interpretation never mangles the prompt.
       await requireTmux().sendLiteral(paneId, text)
@@ -281,6 +328,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
 
     async stop(_req: InvocationStopRequest): Promise<InvocationStopResponse> {
       await terminateSession()
+      stopTranscriptTailer()
       await closeHookListener()
       return { accepted: true, state: 'exited' }
     },
@@ -288,11 +336,13 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     async dispose(): Promise<void> {
       // T3: dispose terminates ONLY the driver-owned session, never the server.
       await terminateSession()
+      stopTranscriptTailer()
       await closeHookListener()
       ctx = undefined
       surface = undefined
       tmux = undefined
       activeTurnId = undefined
+      currentTurnId = undefined
     },
   }
 
@@ -313,6 +363,61 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       await handle.close()
     }
   }
+
+  function stopTranscriptTailer(): void {
+    transcriptTailer?.flushTerminal()
+    transcriptTailer?.stop()
+    transcriptTailer = undefined
+    transcriptTailerStarted = false
+    currentTurnId = undefined
+  }
+}
+
+function emitTranscriptDiagnostic(
+  ctx: DriverContext,
+  transcriptPath: string | undefined,
+  error: unknown
+): void {
+  ctx.emit(
+    'diagnostic',
+    {
+      level: 'warn',
+      source: 'driver',
+      message:
+        'Claude SessionStart did not provide a usable transcript_path; intermediate assistant messages unavailable',
+      data: {
+        ...(transcriptPath !== undefined ? { transcriptPath } : {}),
+        ...(error !== undefined
+          ? { error: error instanceof Error ? error.message : String(error) }
+          : {}),
+      },
+    },
+    { driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'SessionStart' } }
+  )
+}
+
+function extractHookRecord(envelope: ClaudeCodeHookEnvelope): Record<string, unknown> {
+  const hook = asRecord(envelope.hookData)
+  const nested = asRecord(hook['hookEvent'])
+  return nested['hook_event_name'] !== undefined ? nested : hook
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return {}
+}
+
+function getHookString(obj: Record<string, unknown>, key: string): string | undefined {
+  const value = obj[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+function isTerminalHookEvent(hookEventName: string | undefined): boolean {
+  return (
+    hookEventName === 'Stop' || hookEventName === 'SessionEnd' || hookEventName === 'SubagentStop'
+  )
 }
 
 function extractText(input: InvocationInput): string {
@@ -324,6 +429,7 @@ function extractText(input: InvocationInput): string {
 
 /** Claude Code hook events the broker overlay subscribes to. */
 const HOOK_EVENT_NAMES = [
+  'SessionStart',
   'UserPromptSubmit',
   'PreToolUse',
   'PostToolUse',
@@ -433,6 +539,10 @@ function shellQuote(value: string): string {
     return value
   }
   return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /**
