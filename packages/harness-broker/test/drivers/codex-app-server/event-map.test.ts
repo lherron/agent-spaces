@@ -8,7 +8,133 @@ function note(method: string, params: unknown) {
   return { jsonrpc: '2.0' as const, method, params }
 }
 
+function mapSequence(notes: Array<ReturnType<typeof note>>) {
+  return notes.flatMap((notification) => mapCodexNotification(notification))
+}
+
+function agentMessageCompleted(
+  id: string,
+  text: string,
+  extra: Record<string, unknown> = {}
+) {
+  return note('item/completed', {
+    turnId: 'turn_1',
+    item: {
+      type: 'agentMessage',
+      id,
+      text,
+      ...extra,
+    },
+  })
+}
+
 describe('mapCodexNotification — tool item projection (T-01554)', () => {
+  describe('agentMessage held-latest finality (T-01707)', () => {
+    test('multi-message turn emits N-1 intermediate completions and exactly one final completion at turn terminal', () => {
+      const events = mapSequence([
+        note('turn/started', { turnId: 'turn_1' }),
+        agentMessageCompleted('msg_1', 'First answer.'),
+        note('item/started', {
+          turnId: 'turn_1',
+          item: { type: 'commandExecution', id: 'cmd_1', command: 'pwd' },
+        }),
+        note('item/completed', {
+          turnId: 'turn_1',
+          item: {
+            type: 'commandExecution',
+            id: 'cmd_1',
+            command: 'pwd',
+            aggregatedOutput: '/tmp/work\n',
+            exitCode: 0,
+          },
+        }),
+        agentMessageCompleted('msg_2', 'Final answer.'),
+        note('turn/completed', { turnId: 'turn_1', status: 'completed' }),
+      ])
+
+      const assistantCompleted = events.filter(
+        (event) => event.type === 'assistant.message.completed'
+      )
+      expect(assistantCompleted).toHaveLength(2)
+      expect(assistantCompleted.map((event) => event.payload)).toEqual([
+        {
+          messageId: 'msg_1',
+          content: [{ type: 'text', text: 'First answer.' }],
+          final: false,
+        },
+        {
+          messageId: 'msg_2',
+          content: [{ type: 'text', text: 'Final answer.' }],
+          final: true,
+        },
+      ])
+      expect(events.map((event) => event.type)).toEqual([
+        'turn.started',
+        'assistant.message.completed',
+        'tool.call.started',
+        'tool.call.completed',
+        'assistant.message.completed',
+        'turn.completed',
+      ])
+    })
+
+    test('single-message turn emits no intermediate completion and flushes the only message as final at turn terminal', () => {
+      const beforeTerminal = mapSequence([
+        note('turn/started', { turnId: 'turn_1' }),
+        agentMessageCompleted('msg_1', 'Only answer.'),
+      ])
+      expect(beforeTerminal.map((event) => event.type)).toEqual(['turn.started'])
+
+      const terminalEvents = mapCodexNotification(
+        note('turn/completed', { turnId: 'turn_1', status: 'completed' })
+      )
+      expect(terminalEvents.map((event) => event.type)).toEqual([
+        'assistant.message.completed',
+        'turn.completed',
+      ])
+      expect(terminalEvents[0]?.payload).toEqual({
+        messageId: 'msg_1',
+        content: [{ type: 'text', text: 'Only answer.' }],
+        final: true,
+      })
+    })
+
+    test('assistant started and delta events are preserved while completed finality is held until turn terminal', () => {
+      const beforeTerminal = mapSequence([
+        note('turn/started', { turnId: 'turn_1' }),
+        note('item/started', { turnId: 'turn_1', item: { type: 'agentMessage', id: 'msg_1' } }),
+        note('item/agentMessage/delta', { turnId: 'turn_1', id: 'msg_1', text: 'Hel' }),
+        note('item/agentMessage/delta', { turnId: 'turn_1', id: 'msg_1', text: 'lo' }),
+        agentMessageCompleted('msg_1', 'Hello'),
+      ])
+      expect(beforeTerminal.map((event) => event.type)).toEqual([
+        'turn.started',
+        'assistant.message.started',
+        'assistant.message.delta',
+        'assistant.message.delta',
+      ])
+      expect(beforeTerminal.slice(1).map((event) => event.payload)).toEqual([
+        { messageId: 'msg_1' },
+        { messageId: 'msg_1', text: 'Hel' },
+        { messageId: 'msg_1', text: 'lo' },
+      ])
+
+      const terminalEvents = mapCodexNotification(
+        note('turn/completed', { turnId: 'turn_1', status: 'completed' })
+      )
+
+      expect(terminalEvents.map((event) => event.type)).toEqual([
+        'assistant.message.completed',
+        'turn.completed',
+      ])
+      expect(terminalEvents[0]?.payload).toEqual({
+        messageId: 'msg_1',
+        content: [{ type: 'text', text: 'Hello' }],
+        final: true,
+      })
+    })
+  })
+
   describe('commandExecution', () => {
     test('item/started projects { command, cwd } into payload.input', () => {
       const events = mapCodexNotification(
