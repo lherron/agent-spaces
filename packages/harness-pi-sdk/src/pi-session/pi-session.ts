@@ -318,12 +318,24 @@ interface PiAssistantMessageEvent {
   arguments?: Record<string, unknown>
 }
 
+interface HeldAssistantMessage {
+  message: Message
+  messageId?: string
+}
+
 export interface PiEventMappingState {
-  sawAssistantMessageInTurn: boolean
+  /**
+   * Latest assistant message observed via an SDK message_end callback that has
+   * NOT yet been surfaced. Held-latest: the pi SDK reports message completion
+   * before turn completion, so we hold the message and only emit it once we
+   * know whether it is terminal-for-turn (final:true) or superseded by more
+   * tool/assistant work (final:false).
+   */
+  held?: HeldAssistantMessage | undefined
 }
 
 export function createPiEventMappingState(): PiEventMappingState {
-  return { sawAssistantMessageInTurn: false }
+  return {}
 }
 
 function assistantTextFromPiMessage(piMessage: PiMessage | undefined): string | undefined {
@@ -355,26 +367,51 @@ function latestAssistantMessage(messages: unknown): PiMessage | undefined {
   return undefined
 }
 
-function fallbackAssistantMessageEnd(
-  message: PiMessage | undefined,
-  messageId: string | undefined,
-  state: PiEventMappingState
-): UnifiedSessionEvent[] {
-  if (state.sawAssistantMessageInTurn || assistantTextFromPiMessage(message) === undefined) {
-    return []
+/**
+ * Build a held-latest entry from a pi message if it is an assistant message
+ * with real text content; otherwise undefined (e.g. an empty turn_end fallback,
+ * which must preserve true empty-response detection).
+ */
+function heldFromPiMessage(
+  piMessage: PiMessage | undefined,
+  messageId: string | undefined
+): HeldAssistantMessage | undefined {
+  if (assistantTextFromPiMessage(piMessage) === undefined) return undefined
+  const message = mapPiMessage(piMessage)
+  if (!message) return undefined
+  return { message, ...(messageId !== undefined ? { messageId } : {}) }
+}
+
+function messageEndEvent(held: HeldAssistantMessage, final: boolean): UnifiedSessionEvent {
+  return {
+    type: 'message_end',
+    ...(held.messageId !== undefined ? { messageId: held.messageId } : {}),
+    message: held.message,
+    payload: { final },
   }
+}
 
-  const mapped = mapPiMessage(message)
-  if (!mapped) return []
+/** Flush the held message (if any) with the given terminal-for-turn flag. */
+function flushHeld(state: PiEventMappingState, final: boolean): UnifiedSessionEvent[] {
+  const held = state.held
+  if (!held) return []
+  state.held = undefined
+  return [messageEndEvent(held, final)]
+}
 
-  state.sawAssistantMessageInTurn = true
-  return [
-    {
-      type: 'message_end',
-      ...(messageId !== undefined ? { messageId } : {}),
-      message: mapped,
-    },
-  ]
+/**
+ * Terminal flush for turn_end / agent_end. Prefer the held message (the latest
+ * observed message_end, which is the terminal answer for the turn); fall back
+ * to a terminal message carried directly on the terminal event when nothing was
+ * held (e.g. turn_end with an inline assistant message).
+ */
+function flushTerminal(
+  state: PiEventMappingState,
+  fallback: HeldAssistantMessage | undefined
+): UnifiedSessionEvent[] {
+  if (state.held) return flushHeld(state, true)
+  if (!fallback) return []
+  return [messageEndEvent(fallback, true)]
 }
 
 export function mapPiEventToUnified(
@@ -384,16 +421,12 @@ export function mapPiEventToUnified(
 ): UnifiedSessionEvent[] {
   switch (piEvent.type) {
     case 'agent_start':
-      state.sawAssistantMessageInTurn = false
+      state.held = undefined
       return [{ type: 'agent_start', sessionId }]
     case 'agent_end': {
       const reason = typeof piEvent.reason === 'string' ? piEvent.reason : undefined
       return [
-        ...fallbackAssistantMessageEnd(
-          latestAssistantMessage(piEvent['messages']),
-          undefined,
-          state
-        ),
+        ...flushTerminal(state, heldFromPiMessage(latestAssistantMessage(piEvent['messages']), undefined)),
         {
           type: 'agent_end',
           sessionId,
@@ -403,7 +436,6 @@ export function mapPiEventToUnified(
     }
     case 'turn_start': {
       const turnId = typeof piEvent.turnId === 'string' ? piEvent.turnId : undefined
-      state.sawAssistantMessageInTurn = false
       return [
         {
           type: 'turn_start',
@@ -422,10 +454,12 @@ export function mapPiEventToUnified(
         }
       })
       return [
-        ...fallbackAssistantMessageEnd(
-          piEvent.message as PiMessage | undefined,
-          typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined,
-          state
+        ...flushTerminal(
+          state,
+          heldFromPiMessage(
+            piEvent.message as PiMessage | undefined,
+            typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
+          )
         ),
         {
           type: 'turn_end',
@@ -460,7 +494,6 @@ export function mapPiEventToUnified(
           const delta = assistantMessageEvent.delta ?? assistantMessageEvent.text
           if (delta) {
             ;(event as { textDelta?: string }).textDelta = delta
-            state.sawAssistantMessageInTurn = true
           }
         }
       }
@@ -469,11 +502,20 @@ export function mapPiEventToUnified(
     }
     case 'message_end': {
       const piMessage = piEvent.message as PiMessage | undefined
-      const message = mapPiMessage(piMessage)
       const messageId = typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
-      if (assistantTextFromPiMessage(piMessage) !== undefined) {
-        state.sawAssistantMessageInTurn = true
+      const newHeld = heldFromPiMessage(piMessage, messageId)
+      if (newHeld) {
+        // Held-latest: the SDK reports this assistant message as complete, but
+        // we don't yet know whether it is terminal-for-turn. Flush the prior
+        // held message as a non-final intermediate, then hold this one until a
+        // turn/agent terminal (final:true) or the next message_end supersedes it.
+        const flushed = flushHeld(state, false)
+        state.held = newHeld
+        return flushed
       }
+      // Non-assistant (or empty) message_end: surface immediately, untouched by
+      // the held-latest assistant flow.
+      const message = mapPiMessage(piMessage)
       return [
         {
           type: 'message_end',
