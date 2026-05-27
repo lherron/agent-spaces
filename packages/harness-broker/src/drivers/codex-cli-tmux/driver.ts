@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationCapabilities,
+  InvocationEventEnvelope,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
@@ -20,7 +21,7 @@ import {
   createCodexCliTmuxHookEventNormalizer,
   normalizeCodexHookEnvelope,
 } from './hook-events'
-import { type CodexTranscriptTailer, createCodexTranscriptTailer } from './transcript-tail'
+import { type CodexHookTranscriptReader, createCodexHookTranscriptReader } from './hook-transcript'
 
 const CODEX_CLI_TMUX_DRIVER_VERSION = '0.1.0'
 
@@ -89,8 +90,8 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
   let ctx: DriverContext | undefined
   let surface: SurfaceState | undefined
   let hookListener: CodexHookListenerHandle | undefined
-  let transcriptTailer: CodexTranscriptTailer | undefined
-  let transcriptTailerStarted = false
+  let transcriptReader: CodexHookTranscriptReader | undefined
+  let hookDrain: Promise<void> = Promise.resolve()
   let currentTurnId: string | undefined
   let tmux: TmuxManager | undefined
 
@@ -139,46 +140,51 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         invocationId: driverCtx.invocationId,
         now,
       })
-      transcriptTailerStarted = false
       currentTurnId = undefined
-      transcriptTailer = createCodexTranscriptTailer({
+      hookDrain = Promise.resolve()
+      // Hook-driven rollout transcript reader (T-01710): reads newly appended
+      // transcript bytes synchronously from hook processing — NO polling timer —
+      // so interim agent prose is emitted in hook order, attributed to the live
+      // turn, and the terminal message lands before turn.completed.
+      const reader = createCodexHookTranscriptReader({
         invocationId: driverCtx.invocationId,
         now,
         getCurrentTurnId: () => currentTurnId,
-        emit: (event) => {
-          driverCtx.emit(event.type, event.payload, {
-            ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
-            ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
-            ...(event.driver !== undefined ? { driver: event.driver } : {}),
-          })
-        },
       })
-      hookListener = await options.hooks.listen(async (envelope) => {
+      transcriptReader = reader
+      const emit = (event: InvocationEventEnvelope): void => {
+        driverCtx.emit(event.type, event.payload, {
+          ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+          ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
+          ...(event.driver !== undefined ? { driver: event.driver } : {}),
+        })
+      }
+      const handleHookEnvelope = (envelope: CodexCliTmuxHookEnvelope): void => {
         const hook = extractHookRecord(envelope)
         const envelopeTurnId = getHookString(hook, 'turn_id') ?? envelope.turnId
         if (envelopeTurnId !== undefined) {
           currentTurnId = envelopeTurnId
         }
-        if (getHookString(hook, 'hook_event_name') === 'SessionStart') {
-          const transcriptPath = getHookString(hook, 'transcript_path')
-          if (transcriptPath !== undefined && transcriptPath.length > 0) {
-            try {
-              transcriptTailer?.start(transcriptPath)
-              transcriptTailerStarted = true
-            } catch (error) {
-              emitTranscriptDiagnostic(driverCtx, transcriptPath, error)
-            }
-          } else if (!transcriptTailerStarted) {
-            emitTranscriptDiagnostic(driverCtx, transcriptPath, undefined)
-          }
+        if (
+          getHookString(hook, 'hook_event_name') === 'SessionStart' &&
+          (getHookString(hook, 'transcript_path') ?? '').length === 0
+        ) {
+          emitTranscriptDiagnostic(driverCtx, undefined, undefined)
         }
-        for (const event of normalizeCodexHookEnvelope(envelope, { normalizer })) {
-          driverCtx.emit(event.type, event.payload, {
-            ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
-            ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
-            ...(event.driver !== undefined ? { driver: event.driver } : {}),
-          })
-        }
+        // Read the transcript BEFORE normalizing the triggering hook so interim
+        // assistant messages land first and the terminal message precedes
+        // turn.completed on Stop.
+        for (const event of reader.handleHook(hook)) emit(event)
+        for (const event of normalizeCodexHookEnvelope(envelope, { normalizer })) emit(event)
+      }
+      // Serialize hook processing like the Claude driver's hookDrain so transcript
+      // reads and hook normalization stay strictly ordered.
+      hookListener = await options.hooks.listen((envelope) => {
+        hookDrain = hookDrain.then(
+          () => handleHookEnvelope(envelope),
+          () => handleHookEnvelope(envelope)
+        )
+        return hookDrain
       })
 
       const hostSessionId =
@@ -236,14 +242,14 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
 
     async stop(_req: InvocationStopRequest): Promise<InvocationStopResponse> {
       await terminateSession()
-      stopTranscriptTailer()
+      resetTranscriptReader()
       await closeHookListener()
       return { accepted: true, state: 'exited' }
     },
 
     async dispose(): Promise<void> {
       await terminateSession()
-      stopTranscriptTailer()
+      resetTranscriptReader()
       await closeHookListener()
       ctx = undefined
       surface = undefined
@@ -260,6 +266,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
   }
 
   async function closeHookListener(): Promise<void> {
+    await hookDrain.catch(() => undefined)
     if (hookListener !== undefined) {
       const handle = hookListener
       hookListener = undefined
@@ -267,10 +274,9 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     }
   }
 
-  function stopTranscriptTailer(): void {
-    transcriptTailer?.stop()
-    transcriptTailer = undefined
-    transcriptTailerStarted = false
+  function resetTranscriptReader(): void {
+    transcriptReader?.reset()
+    transcriptReader = undefined
   }
 }
 
