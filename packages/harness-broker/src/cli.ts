@@ -1,10 +1,17 @@
 import type {
   HarnessInvocationSpec,
+  InvocationDispatchRequest,
   InvocationEventEnvelope,
   InvocationInput,
+  InvocationStartRequest,
   JsonRpcNotification,
+  PermissionDecision,
+  PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
+import { validateCommand, validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import { createBroker } from './broker'
+import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
+import { runClaudeHookBridgeCli } from './drivers/claude-code-tmux/hook-bridge'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
 import { createProtocolServer } from './protocol-server'
 
@@ -36,8 +43,12 @@ async function main(): Promise<void> {
         process.stdout.write(`${driver.kind}\t${driver.available ? 'available' : 'unavailable'}\n`)
       }
     }
+  } else if (command === 'claude-hook') {
+    await runClaudeHookBridgeCli(args.slice(1))
   } else if (command === 'run-once') {
     await runOnce(args.slice(1))
+  } else if (command === 'validate-start-request') {
+    await validateStartRequestCommand(args.slice(1))
   } else {
     process.stderr.write(
       `Unknown command: ${command ?? '(none)'}\nUsage: harness-broker run --transport stdio\n`
@@ -46,10 +57,14 @@ async function main(): Promise<void> {
   }
 }
 
-function createDefaultBroker(onEvent?: (event: InvocationEventEnvelope) => void) {
+function createDefaultBroker(
+  onEvent?: (event: InvocationEventEnvelope) => void,
+  onPermissionRequest?: (params: PermissionRequestParams) => Promise<PermissionDecision>
+) {
   return createBroker({
-    drivers: [createCodexAppServerDriver()],
+    drivers: [createCodexAppServerDriver(), createDefaultClaudeCodeTmuxDriver()],
     ...(onEvent !== undefined ? { onEvent } : {}),
+    ...(onPermissionRequest !== undefined ? { onPermissionRequest } : {}),
   })
 }
 
@@ -69,37 +84,55 @@ function runStdio(): void {
     server.notify(notification)
   }
 
-  const broker = createDefaultBroker(emitEvent)
+  // Wire ask-client permission decisions to the broker→client request transport.
+  const broker = createDefaultBroker(emitEvent, (params) =>
+    server.request<PermissionDecision>('invocation.permission.request', params)
+  )
 
-  server.register('broker.hello', async ({ params }) => {
+  function validateParams(method: string, id: string | number | null, params: unknown): void {
+    validateCommand({ jsonrpc: '2.0', id, method, params })
+  }
+
+  server.register('broker.hello', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.hello(params as Parameters<typeof broker.hello>[0])
   })
 
-  server.register('broker.health', async ({ params }) => {
+  server.register('broker.health', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.health((params ?? {}) as Parameters<typeof broker.health>[0])
   })
 
-  server.register('invocation.start', async ({ params }) => {
-    return broker.start(params as Parameters<typeof broker.start>[0])
+  server.register('invocation.start', async ({ id, method, params }) => {
+    // validateCommand validates the full InvocationDispatchRequest envelope
+    // (including dispatchEnv key-class + lockedEnv-shadow rules) before dispatch.
+    validateParams(method, id, params)
+    const dispatch = params as InvocationDispatchRequest
+    return broker.start(dispatch.startRequest, dispatch.dispatchEnv)
   })
 
-  server.register('invocation.input', async ({ params }) => {
+  server.register('invocation.input', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.input(params as Parameters<typeof broker.input>[0])
   })
 
-  server.register('invocation.interrupt', async ({ params }) => {
+  server.register('invocation.interrupt', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.interrupt(params as Parameters<typeof broker.interrupt>[0])
   })
 
-  server.register('invocation.stop', async ({ params }) => {
+  server.register('invocation.stop', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.stop(params as Parameters<typeof broker.stop>[0])
   })
 
-  server.register('invocation.status', async ({ params }) => {
+  server.register('invocation.status', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.status(params as Parameters<typeof broker.status>[0])
   })
 
-  server.register('invocation.dispose', async ({ params }) => {
+  server.register('invocation.dispose', async ({ id, method, params }) => {
+    validateParams(method, id, params)
     return broker.dispose(params as Parameters<typeof broker.dispose>[0])
   })
 
@@ -113,17 +146,14 @@ function runStdio(): void {
 }
 
 async function runOnce(args: string[]): Promise<void> {
-  const specPath = readFlag(args, '--spec')
-  const inputPath = readFlag(args, '--input')
-  if (!specPath || !inputPath) {
-    process.stderr.write(
-      'Usage: harness-broker run-once --spec invocation.json --input input.json\n'
-    )
+  let request: InvocationStartRequest
+  try {
+    request = await loadStartRequest(args)
+  } catch (err) {
+    process.stderr.write(`${formatError(err)}\n`)
     process.exit(1)
   }
 
-  const spec = (await Bun.file(specPath).json()) as HarnessInvocationSpec
-  const input = (await Bun.file(inputPath).json()) as InvocationInput
   let resolveTurnDone: (() => void) | undefined
   const turnDone = new Promise<void>((resolve) => {
     resolveTurnDone = resolve
@@ -140,19 +170,68 @@ async function runOnce(args: string[]): Promise<void> {
     }
   })
 
-  const start = await broker.start({ spec })
-  await broker.input({
-    invocationId: start.invocationId,
-    input,
-    policy: { whenBusy: 'reject' },
-  })
+  // Same path the BrokerClient drives: a single InvocationStartRequest with its
+  // initialInput carries the first turn — no separate invocation.input call.
+  const start = await broker.start(request)
   await turnDone
   await broker.stop({
     invocationId: start.invocationId,
     reason: 'run-once complete',
-    graceMs: spec.process.limits?.stopGraceMs ?? 500,
+    graceMs: request.spec.process.limits?.stopGraceMs ?? 500,
   })
   await broker.dispose({ invocationId: start.invocationId })
+}
+
+/**
+ * Resolve a single InvocationStartRequest from CLI flags. `--start-request`
+ * (the ASP compiler's output shape) is preferred; `--spec`/`--input` is kept
+ * for backward compatibility and folded into the same request shape. The
+ * request is validated before it reaches the broker.
+ */
+async function loadStartRequest(args: string[]): Promise<InvocationStartRequest> {
+  const startRequestPath = readFlag(args, '--start-request')
+  if (startRequestPath) {
+    const raw = (await Bun.file(startRequestPath).json()) as unknown
+    return validateInvocationStartRequest(raw)
+  }
+
+  const specPath = readFlag(args, '--spec')
+  const inputPath = readFlag(args, '--input')
+  if (specPath && inputPath) {
+    const spec = (await Bun.file(specPath).json()) as HarnessInvocationSpec
+    const initialInput = (await Bun.file(inputPath).json()) as InvocationInput
+    return validateInvocationStartRequest({ spec, initialInput })
+  }
+
+  throw new Error(
+    'Usage: harness-broker run-once (--start-request start-request.json | --spec invocation.json --input input.json)'
+  )
+}
+
+async function validateStartRequestCommand(args: string[]): Promise<void> {
+  const filePath = readFlag(args, '--file')
+  if (!filePath) {
+    process.stderr.write('Usage: harness-broker validate-start-request --file start-request.json\n')
+    process.exit(1)
+  }
+
+  try {
+    const raw = (await Bun.file(filePath).json()) as unknown
+    validateInvocationStartRequest(raw)
+  } catch (err) {
+    process.stderr.write(`${formatError(err)}\n`)
+    process.exit(1)
+  }
+
+  process.stdout.write('valid\n')
+}
+
+function formatError(err: unknown): string {
+  if (err && typeof err === 'object' && 'issues' in err) {
+    const message = err instanceof Error ? err.message : 'Validation failed'
+    return `${message}\n${JSON.stringify((err as { issues: unknown }).issues, null, 2)}`
+  }
+  return err instanceof Error ? err.message : String(err)
 }
 
 function readFlag(args: string[], flag: string): string | undefined {

@@ -4,6 +4,7 @@ import type {
   BrokerHelloRequest,
   BrokerHelloResponse,
   HarnessInvocationSpec,
+  InvocationDispatchRequest,
   InvocationDisposeRequest,
   InvocationEventEnvelope,
   InvocationInput,
@@ -11,6 +12,7 @@ import type {
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationStartRequest,
   InvocationStartResponse,
   InvocationStatusRequest,
   InvocationStatusResponse,
@@ -21,17 +23,28 @@ import type {
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import { EventIterator } from './event-iterator'
-import { StdioTransport, type StdioTransportStartOptions } from './stdio-transport'
+import {
+  type CloseHandler,
+  StdioTransport,
+  type StdioTransportStartOptions,
+} from './stdio-transport'
 
 export type PermissionRequestHandler = (
   request: PermissionRequestParams
 ) => Promise<PermissionDecision>
+
+export interface InvocationStartResult {
+  invocationId: string
+  response: InvocationStartResponse
+  events: AsyncIterable<InvocationEventEnvelope>
+}
 
 export class BrokerClient {
   #transport: StdioTransport
   #events = new Map<string, EventIterator<InvocationEventEnvelope>>()
   #pendingEvents = new Map<string, InvocationEventEnvelope[]>()
   #permissionHandler: PermissionRequestHandler | undefined
+  #closeHandlers = new Set<CloseHandler>()
 
   private constructor(transport: StdioTransport) {
     this.#transport = transport
@@ -44,8 +57,11 @@ export class BrokerClient {
       }
       throw new Error(`Unsupported broker-to-client request: ${request.method}`)
     })
-    this.#transport.onClose(() => {
+    this.#transport.onClose((error) => {
       this.#closeEventStreams()
+      for (const handler of this.#closeHandlers) {
+        handler(error)
+      }
     })
   }
 
@@ -64,20 +80,34 @@ export class BrokerClient {
   async startInvocation(
     spec: HarnessInvocationSpec,
     initialInput?: InvocationInput
-  ): Promise<{ invocationId: string; events: AsyncIterable<InvocationEventEnvelope> }> {
-    const expectedInvocationId = spec.invocationId
+  ): Promise<InvocationStartResult> {
+    return this.startInvocationFromRequest(
+      initialInput === undefined ? { spec } : { spec, initialInput }
+    )
+  }
+
+  async startInvocationFromRequest(
+    request: InvocationStartRequest,
+    dispatchEnv?: Record<string, string>
+  ): Promise<InvocationStartResult> {
+    const expectedInvocationId = request.spec.invocationId
     const expectedEvents =
       expectedInvocationId !== undefined ? this.#eventStream(expectedInvocationId) : undefined
 
+    // invocation.start now carries the InvocationDispatchRequest envelope:
+    // a verbatim startRequest plus the optional per-invocation dispatchEnv.
+    const dispatch: InvocationDispatchRequest =
+      dispatchEnv === undefined ? { startRequest: request } : { startRequest: request, dispatchEnv }
+
     try {
-      const params = initialInput === undefined ? { spec } : { spec, initialInput }
       const response = await this.#transport.request<InvocationStartResponse>(
         'invocation.start',
-        params
+        structuredClone(dispatch)
       )
       const events = expectedEvents ?? this.#eventStream(response.invocationId)
       return {
         invocationId: response.invocationId,
+        response,
         events,
       }
     } catch (error) {
@@ -116,6 +146,10 @@ export class BrokerClient {
     this.#permissionHandler = handler
   }
 
+  onClose(handler: CloseHandler): void {
+    this.#closeHandlers.add(handler)
+  }
+
   async close(): Promise<void> {
     this.#closeEventStreams()
     await this.#transport.close()
@@ -126,8 +160,11 @@ export class BrokerClient {
       return
     }
 
+    // Permission decisions arrive ONLY as inbound 'invocation.permission.request'
+    // JSON-RPC requests (handled in #handlePermissionRequest via onRequest).
+    // permission.requested / permission.resolved are audit events surfaced
+    // through the normal observable event stream below.
     const event = notification.params as InvocationEventEnvelope
-    this.#handlePermissionEvent(event)
 
     const stream = this.#events.get(event.invocationId)
     if (stream) {
@@ -158,19 +195,6 @@ export class BrokerClient {
     return stream
   }
 
-  #handlePermissionEvent(event: InvocationEventEnvelope): void {
-    if (event.type !== ('invocation.permission.request' as InvocationEventEnvelope['type'])) {
-      return
-    }
-
-    void this.#handlePermissionRequest({
-      ...(event.payload as Record<string, unknown>),
-      invocationId: event.invocationId,
-      turnId: event.turnId,
-      permissionRequestId: this.#permissionRequestId(event),
-    })
-  }
-
   async #handlePermissionRequest(params: unknown): Promise<PermissionDecision> {
     const request = params as PermissionRequestParams
     if (!this.#permissionHandler) {
@@ -190,14 +214,6 @@ export class BrokerClient {
       )
       return { decision: request.defaultDecision ?? 'deny' }
     }
-  }
-
-  #permissionRequestId(event: InvocationEventEnvelope): string {
-    const payload = event.payload as { permissionRequestId?: unknown }
-    if (typeof payload.permissionRequestId === 'string') {
-      return payload.permissionRequestId
-    }
-    return `${event.invocationId}:${event.seq}`
   }
 
   #closeEventStreams(): void {

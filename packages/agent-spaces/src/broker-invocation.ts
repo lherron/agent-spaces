@@ -7,6 +7,7 @@ import type {
   CodexAppServerDriverSpec,
   HarnessInvocationSpec,
   InputContent,
+  InputId,
   InvocationInput,
   InvocationStartRequest,
 } from 'spaces-harness-broker-protocol'
@@ -15,7 +16,7 @@ import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
 import type { ContextResolverContext } from 'spaces-runtime'
 import { expandTemplate } from 'spaces-runtime'
 
-import { CodedError, CODEX_CLI_FRONTEND } from './client-support.js'
+import { CLAUDE_CODE_FRONTEND, CODEX_CLI_FRONTEND, CodedError } from './client-support.js'
 import type { PreparedPlacementCliRuntime } from './prepare-cli-runtime.js'
 import type {
   BuildHarnessBrokerInvocationRequest,
@@ -80,9 +81,7 @@ export function deriveHandleParts(placement: RuntimePlacement): HandleParts {
   return parts
 }
 
-export function buildPromptExpansionContext(
-  placement: RuntimePlacement
-): ContextResolverContext {
+export function buildPromptExpansionContext(placement: RuntimePlacement): ContextResolverContext {
   const handleParts = deriveHandleParts(placement)
   return {
     agentRoot: placement.agentRoot,
@@ -96,9 +95,44 @@ export function buildPromptExpansionContext(
   }
 }
 
-export function validateBrokerInvocationRequest(
-  req: BuildHarnessBrokerInvocationRequest
-): void {
+export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocationRequest): void {
+  // The public request type narrows provider/frontend/interactionMode to the
+  // codex headless literals and omits the broker-profile fields (brokerDriver /
+  // harnessTransport). Read the route discriminants through a widened view.
+  const broker = req as {
+    provider?: string | undefined
+    frontend?: string | undefined
+    interactionMode?: string | undefined
+    brokerDriver?: string | undefined
+    harnessTransport?: { kind?: string | undefined } | undefined
+  }
+  const transportKind = broker.harnessTransport?.kind
+
+  // Phase 3 route: OPERATOR-ATTACHABLE interactive Claude Code in tmux. This is
+  // the ONLY broker route allowed to be interactive (guardrails #1/#2), and it
+  // REUSES the pty transport (guardrail #3) — tmux is the terminal host, pty is
+  // the process transport.
+  if (
+    broker.provider === 'anthropic' &&
+    broker.frontend === CLAUDE_CODE_FRONTEND &&
+    broker.brokerDriver === 'claude-code-tmux'
+  ) {
+    if (broker.interactionMode !== 'interactive') {
+      throw new CodedError(
+        `claude-code-tmux broker route requires interactive interaction mode; got "${broker.interactionMode}"`,
+        'unsupported_frontend'
+      )
+    }
+    if (transportKind !== undefined && transportKind !== 'pty') {
+      throw new CodedError(
+        `claude-code-tmux broker route requires "pty" harness transport; got "${transportKind}"`,
+        'unsupported_frontend'
+      )
+    }
+    return
+  }
+
+  // Codex headless route: the original invariant is preserved unchanged.
   if (req.provider !== 'openai') {
     throw new CodedError(
       `Harness broker invocation only supports provider "openai"; got "${req.provider}"`,
@@ -114,6 +148,14 @@ export function validateBrokerInvocationRequest(
   if (req.interactionMode !== 'headless') {
     throw new CodedError(
       `Harness broker invocation only supports headless interaction mode; got "${req.interactionMode}"`,
+      'unsupported_frontend'
+    )
+  }
+  // codex-app-server stays jsonrpc-stdio (guardrail #1). pty is rejected here
+  // and ALSO at the process runner (process-runner.ts).
+  if (transportKind !== undefined && transportKind !== 'jsonrpc-stdio') {
+    throw new CodedError(
+      `codex-app-server broker route requires "jsonrpc-stdio" transport; got "${transportKind}"`,
       'unsupported_frontend'
     )
   }
@@ -207,7 +249,7 @@ function buildInitialInput(
     return undefined
   }
   return {
-    inputId: `input_${randomUUID()}`,
+    inputId: req.initialInputId ?? (`input_${randomUUID()}` as InputId),
     kind: 'user',
     content,
   }
@@ -247,7 +289,8 @@ export function toHarnessBrokerStartRequest(
       command: prepared.commandPath,
       args: prepared.args,
       cwd: prepared.cwd,
-      env: prepared.env,
+      lockedEnv: prepared.lockedEnv,
+      ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
       harnessTransport: { kind: 'jsonrpc-stdio' },
       limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
     },

@@ -4,9 +4,10 @@ import {
   createJsonRpcErrorResponse,
   encodeNdjsonFrame,
   isJsonRpcRequest,
+  isJsonRpcResponse,
 } from 'spaces-harness-broker-protocol'
 import type { JsonRpcId, JsonRpcMessage, JsonRpcNotification } from 'spaces-harness-broker-protocol'
-import { toJsonRpcError } from './errors'
+import { fromJsonRpcError, shutdownError, timeoutError, toJsonRpcError } from './errors'
 
 export type RequestHandler = (request: {
   id: JsonRpcId
@@ -20,27 +21,68 @@ export interface ProtocolServerOptions {
   stderr: Writable
 }
 
+export interface ProtocolServerRequestOptions {
+  timeoutMs?: number | undefined
+}
+
 export interface ProtocolServer {
   register(method: string, handler: RequestHandler): void
   start(): Promise<void>
+  request<T>(method: string, params: unknown, options?: ProtocolServerRequestOptions): Promise<T>
   notify(notification: JsonRpcNotification): void
   close(): Promise<void>
+}
+
+interface PendingRequest {
+  timer?: ReturnType<typeof setTimeout> | undefined
+  resolve(value: unknown): void
+  reject(reason: unknown): void
 }
 
 export function createProtocolServer(options: ProtocolServerOptions): ProtocolServer {
   const { stdin, stdout } = options
   const handlers = new Map<string, RequestHandler>()
+  const pendingRequests = new Map<JsonRpcId, PendingRequest>()
   const decoder = new NdjsonDecoder()
   let closed = false
+  let nextRequestId = 1
 
   function writeFrame(message: JsonRpcMessage): void {
     if (closed) return
     stdout.write(encodeNdjsonFrame(message))
   }
 
+  function settlePending(id: JsonRpcId, settle: (pending: PendingRequest) => void): void {
+    const pending = pendingRequests.get(id)
+    if (!pending) return
+
+    pendingRequests.delete(id)
+    if (pending.timer !== undefined) {
+      clearTimeout(pending.timer)
+    }
+    settle(pending)
+  }
+
+  function rejectAllPending(reason: unknown): void {
+    for (const id of pendingRequests.keys()) {
+      settlePending(id, (pending) => pending.reject(reason))
+    }
+  }
+
   function handleLine(frame: JsonRpcMessage): void {
+    if (isJsonRpcResponse(frame)) {
+      settlePending(frame.id, (pending) => {
+        if ('error' in frame) {
+          pending.reject(fromJsonRpcError(frame.error))
+        } else {
+          pending.resolve(frame.result)
+        }
+      })
+      return
+    }
+
     if (!isJsonRpcRequest(frame)) {
-      // Ignore non-request frames (responses, notifications from client side)
+      // Client-side notifications have no response path in the broker protocol.
       return
     }
 
@@ -104,9 +146,44 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
       writeFrame(notification)
     },
 
+    request<T>(
+      method: string,
+      params: unknown,
+      options: ProtocolServerRequestOptions = {}
+    ): Promise<T> {
+      if (closed) {
+        return Promise.reject(shutdownError('Protocol server is closed'))
+      }
+
+      const id = `broker_req_${nextRequestId++}`
+      return new Promise<T>((resolve, reject) => {
+        const pending: PendingRequest = {
+          resolve: (value) => resolve(value as T),
+          reject,
+        }
+
+        if (options.timeoutMs !== undefined && options.timeoutMs > 0) {
+          pending.timer = setTimeout(() => {
+            settlePending(id, (timedOut) => {
+              timedOut.reject(timeoutError(`Request timed out: ${method}`))
+            })
+          }, options.timeoutMs)
+        }
+
+        pendingRequests.set(id, pending)
+        writeFrame({
+          jsonrpc: '2.0',
+          id,
+          method,
+          params,
+        })
+      })
+    },
+
     async close(): Promise<void> {
       closed = true
       stdin.removeListener('data', onData)
+      rejectAllPending(shutdownError('Protocol server is closed'))
     },
   }
 }

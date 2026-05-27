@@ -12,6 +12,8 @@ pre-commit:
       stage_fixed: true
     boundaries:
       run: bun scripts/check-boundaries.ts
+    harness-boundaries:
+      run: bun scripts/check-runtime-contract-harness-boundaries.ts
     manifests:
       run: bun scripts/check-manifest-edges.ts
     build:

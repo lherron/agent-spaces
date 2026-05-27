@@ -10,6 +10,7 @@ export enum BrokerErrorCode {
   ResourceError = -32007,
   ShutdownInProgress = -32008,
   DriverUnavailable = -32009,
+  DispatchValidationFailed = -32010,
 }
 
 export function createJsonRpcError(code: number, message: string, data?: unknown): JsonRpcError {

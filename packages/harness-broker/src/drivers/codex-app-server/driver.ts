@@ -2,12 +2,14 @@ import { createInterface } from 'node:readline'
 import type {
   CodexAppServerDriverSpec,
   HarnessInvocationSpec,
+  InputId,
   InvocationCapabilities,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  TurnId,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
@@ -72,8 +74,8 @@ export function createCodexAppServerDriver(): Driver {
   let proc: ChildProcess | undefined
   let rpc: CodexRpcClient | undefined
   let threadId: string | undefined
-  let currentInputId: string | undefined
-  let currentTurnId: string | undefined
+  let currentInputId: InputId | undefined
+  let currentTurnId: TurnId | undefined
   let turnActive = false
   let startedEmitted = false
   let terminalEmitted = false
@@ -146,12 +148,20 @@ export function createCodexAppServerDriver(): Driver {
       return
     }
 
+    // After any invocation-terminal event, drop further native events so a late
+    // turn/completed (or any other notification) can never follow a terminal.
+    if (terminalEmitted) return
+
     for (const mapped of mapCodexNotification(notification)) {
-      const extra =
-        mapped.type === 'turn.started' ||
+      const isTurnTerminal =
         mapped.type === 'turn.completed' ||
         mapped.type === 'turn.failed' ||
         mapped.type === 'turn.interrupted'
+      // Suppress a turn terminal for a turn that already reached a terminal
+      // state (e.g. a turn-timeout turn.failed followed by a late turn/completed).
+      if (isTurnTerminal && !turnActive) continue
+      const extra =
+        mapped.type === 'turn.started' || isTurnTerminal
           ? { ...mapped.extra, inputId: currentInputId }
           : mapped.extra
       const event = requireCtx().emit(mapped.type, mapped.payload, extra)
@@ -279,7 +289,13 @@ export function createCodexAppServerDriver(): Driver {
       // Prevent unhandled rejection when startupFailure outlives the race
       startupFailure.catch(() => {})
 
-      proc = await spawnHarnessProcess(startSpec.process)
+      // Codex credentials live on disk (auth.json via CODEX_HOME, a lockedEnv
+      // path) — the credentials channel is empty. Only the per-invocation
+      // dispatchEnv rides alongside the lockedEnv from the spec.
+      proc = await spawnHarnessProcess(startSpec.process, {
+        credentials: {},
+        ...(driverCtx.dispatchEnv !== undefined ? { dispatchEnv: driverCtx.dispatchEnv } : {}),
+      })
       proc.on('exit', onExit)
       createInterface({ input: proc.stderr }).on('line', (line) => {
         if (line.trim().length > 0) {
@@ -327,11 +343,12 @@ export function createCodexAppServerDriver(): Driver {
 
       try {
         armStartupTimer()
-        await withStartupRace(
+        const initializeResult = await withStartupRace(
           rpcClient.sendRequest('initialize', {
             clientInfo: { name: 'harness-broker', version: '0.1.0' },
           })
         )
+        validateInitializeHandshake(initializeResult, emitDiagnostic)
         armStartupTimer() // re-arm after successful initialize
         await withStartupRace(rpcClient.sendNotification('initialized', {}))
         armStartupTimer() // re-arm after initialized notification
@@ -372,7 +389,7 @@ export function createCodexAppServerDriver(): Driver {
         throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Invocation is not ready')
       }
 
-      const inputId = input.inputId ?? `input_${Date.now().toString(36)}`
+      const inputId = input.inputId ?? (`input_${Date.now().toString(36)}` as InputId)
       currentInputId = inputId
 
       // Wire turn timeout
@@ -498,17 +515,83 @@ export function createCodexAppServerDriver(): Driver {
   }
 }
 
-function buildThreadStartParams(
+type DiagnosticEmitter = (
+  level: 'debug' | 'info' | 'warn' | 'error',
+  message: string,
+  data?: unknown
+) => void
+
+/**
+ * Tolerantly validate the Codex `initialize` handshake response.
+ *
+ * - A clearly-unsupported `protocolVersion` (a string that does not carry the
+ *   `codex-app-server/` namespace) is a hard failure: throw HarnessError so the
+ *   broker fails the invocation predictably rather than driving an incompatible
+ *   server.
+ * - A present-but-non-string `protocolVersion`, or a non-object response, is
+ *   suspicious but non-critical — emit a `warn` diagnostic and continue.
+ * - A missing `protocolVersion` is loose-but-common (do not overfit to the fake
+ *   server) — emit a `debug` diagnostic and continue.
+ */
+export function validateInitializeHandshake(
+  result: unknown,
+  emitDiagnostic: DiagnosticEmitter
+): void {
+  if (result === null || typeof result !== 'object') {
+    emitDiagnostic('warn', 'Codex initialize response was not an object', {
+      received: typeof result,
+    })
+    return
+  }
+
+  const protocolVersion = (result as Record<string, unknown>)['protocolVersion']
+  if (typeof protocolVersion === 'string') {
+    if (!protocolVersion.startsWith('codex-app-server/')) {
+      throw new BrokerError(
+        BrokerErrorCode.HarnessError,
+        `Unsupported Codex app-server protocol version: ${protocolVersion}`,
+        { protocolVersion }
+      )
+    }
+    return
+  }
+
+  if (protocolVersion !== undefined) {
+    emitDiagnostic('warn', 'Codex initialize protocolVersion was not a string', {
+      received: typeof protocolVersion,
+    })
+    return
+  }
+
+  emitDiagnostic('debug', 'Codex initialize response omitted protocolVersion')
+}
+
+/**
+ * Build `thread/start` params from the driver spec. Every driver-spec field is
+ * either forwarded to the native call or deliberately handled elsewhere:
+ *  - model / approvalPolicy / sandboxMode: forwarded here.
+ *  - profile: forwarded here (Codex app-server selects a config profile).
+ *  - modelReasoningEffort: forwarded as a thread-scope `config` override here
+ *    AND applied per-turn in buildTurnStartParams(effort).
+ *  - defaultImageAttachments: applied per-turn in buildTurnStartParams.
+ *  - resumeThreadId / resumeFallback / permissionPolicy: consumed by the driver
+ *    resume + permission paths, not by thread/start.
+ */
+export function buildThreadStartParams(
   spec: HarnessInvocationSpec,
   driver: CodexAppServerDriverSpec
 ): Record<string, unknown> {
   return {
     model: driver.model ?? null,
     modelProvider: null,
+    profile: driver.profile ?? null,
     cwd: spec.process.cwd,
     approvalPolicy: driver.approvalPolicy ?? 'never',
     sandbox: driver.sandboxMode ?? null,
-    config: null,
+    config:
+      driver.modelReasoningEffort !== undefined
+        ? { model_reasoning_effort: driver.modelReasoningEffort }
+        : null,
     baseInstructions: null,
     developerInstructions: null,
     experimentalRawEvents: false,

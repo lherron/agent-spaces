@@ -35,6 +35,9 @@ export interface PlacementRunTurnRequest {
   frontend: 'agent-sdk' | 'pi-sdk'
   model?: string | undefined
   continuation?: HarnessContinuationRef | undefined
+  lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string> | undefined
   prompt: string
   attachments?: Array<string | AttachmentRef> | undefined
@@ -62,6 +65,9 @@ export interface PlacementBuildInvocationRequest {
   interactionMode: 'interactive' | 'headless'
   ioMode: 'pty' | 'inherit' | 'pipes'
   continuation?: HarnessContinuationRef | undefined
+  lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string> | undefined
   artifactDir?: string | undefined
 }

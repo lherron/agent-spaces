@@ -15,6 +15,7 @@ import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { parseScopeHandle } from 'agent-scope'
+import { createCompileRuntimeFn } from 'agent-spaces'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
@@ -126,6 +127,21 @@ function buildSettingSources(options: RunOptions): string | null | undefined {
 }
 
 /**
+ * Print the REAL RuntimeCompileRequest/Response the run compiled.
+ *
+ * No re-compile, no synthetic identities — these are the exact request/response
+ * `run()` already produced for this invocation.
+ */
+function printCompilerDebugDump(runtimeCompile: { request: unknown; response: unknown }): void {
+  console.log('')
+  console.log(chalk.cyan('RuntimeCompileRequest'))
+  console.log(JSON.stringify(runtimeCompile.request, null, 2))
+  console.log('')
+  console.log(chalk.cyan('RuntimeCompileResponse'))
+  console.log(JSON.stringify(runtimeCompile.response, null, 2))
+}
+
+/**
  * Check if path is a local space directory.
  */
 async function isLocalSpacePath(targetPath: string): Promise<boolean> {
@@ -219,6 +235,7 @@ async function runProjectMode(
     pagePrompts: options.pagePrompts,
     projectId: resolvedTarget.projectId,
     taskId: resolvedTarget.taskId,
+    compileRuntime: createCompileRuntimeFn(options.aspHome),
   }
 
   if (options.dryRun) {
@@ -310,6 +327,7 @@ async function runGlobalMode(
     remoteControl: options.remoteControl,
     sessionNamePrefix: options.namePrefix,
     pagePrompts: options.pagePrompts,
+    compileRuntime: createCompileRuntimeFn(options.aspHome),
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -360,6 +378,7 @@ async function runDevMode(
     remoteControl: options.remoteControl,
     sessionNamePrefix: options.namePrefix,
     pagePrompts: options.pagePrompts,
+    compileRuntime: createCompileRuntimeFn(options.aspHome),
   }
 
   const result = await runLocalSpace(targetPath, devOptions)
@@ -496,6 +515,9 @@ export function registerRunCommand(program: Command): void {
             showCommand: true,
             pagePrompts: options.pagePrompts,
           })
+          if (options.debug && result.runtimeCompile) {
+            printCompilerDebugDump(result.runtimeCompile)
+          }
         }
 
         process.exit(result.exitCode)

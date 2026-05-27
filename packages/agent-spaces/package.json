@@ -26,10 +26,12 @@
     "agent-scope": "*",
     "spaces-config": "*",
     "spaces-execution": "*",
+    "spaces-harness-broker-client": "*",
     "spaces-harness-broker-protocol": "*",
     "spaces-harness-codex": "*",
     "spaces-harness-pi-sdk": "*",
-    "spaces-runtime": "*"
+    "spaces-runtime": "*",
+    "spaces-runtime-contracts": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",

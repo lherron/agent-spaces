@@ -32,6 +32,14 @@ interface PlacementRuntimeModelInfo {
   effectiveModel: string
   provider: string
   model: string
+  /**
+   * True when the model came from an explicit source (requested CLI/model,
+   * a default run-option model, or a supported effective-config model) rather
+   * than merely falling back to the adapter's default model. Only an explicit
+   * model is pushed onto the launch argv — legacy `asp run` omits --model when
+   * no explicit model is set (e.g. codex, where CODEX_HOME/config.toml governs).
+   */
+  explicit: boolean
 }
 
 export type PlacementRuntimeModelResolution =
@@ -73,7 +81,9 @@ export interface ProjectTargetRuntimePlan {
   defaultRunOptions: Partial<HarnessRunOptions>
 }
 
-function parsePlacementRuntimeModelId(modelId: string): PlacementRuntimeModelInfo | null {
+function parsePlacementRuntimeModelId(
+  modelId: string
+): Omit<PlacementRuntimeModelInfo, 'explicit'> | null {
   const separatorIndex = modelId.indexOf('/')
   if (separatorIndex === -1) {
     return { effectiveModel: modelId, provider: 'codex', model: modelId }
@@ -99,11 +109,11 @@ function resolvePlacementRuntimeModel(
     adapter.models.find((model) => model.default)?.id ?? adapter.models[0]?.id ?? requestedModel
   const supportedModels = new Set(adapter.models.map((model) => model.id))
   const effectiveModel = effectiveConfig?.model
-  const candidateModel =
+  const explicitModel =
     requestedModel ??
     defaultRunOptions.model ??
-    (effectiveModel && supportedModels.has(effectiveModel) ? effectiveModel : undefined) ??
-    defaultModelId
+    (effectiveModel && supportedModels.has(effectiveModel) ? effectiveModel : undefined)
+  const candidateModel = explicitModel ?? defaultModelId
 
   if (!candidateModel || !supportedModels.has(candidateModel)) {
     return { ok: false, modelId: candidateModel ?? 'unknown' }
@@ -114,7 +124,7 @@ function resolvePlacementRuntimeModel(
     return { ok: false, modelId: candidateModel }
   }
 
-  return { ok: true, info }
+  return { ok: true, info: { ...info, explicit: explicitModel !== undefined } }
 }
 
 export function buildSyntheticRunManifest(
@@ -239,7 +249,11 @@ export async function planPlacementRuntime(
       : {}),
   }
 
-  if (model.ok) {
+  // Only push --model onto the launch argv when the model came from an explicit
+  // source. Falling back to the adapter default for plan metadata must NOT inject
+  // --model into argv — legacy `asp run` omits it (e.g. codex, governed by
+  // CODEX_HOME/config.toml).
+  if (model.ok && model.info.explicit) {
     runOptions.model = model.info.model
   }
 

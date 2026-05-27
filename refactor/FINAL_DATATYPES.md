@@ -12,7 +12,7 @@ This file defines the canonical to-be datatypes. Implementations may split these
 ```text
 packages/spaces-runtime-contracts
   Owns: shared IDs, compiler plan, execution profiles, capability resolution, route decisions,
-        runtime state, operations, policy, continuation, redaction/hash helpers, public views.
+        runtime state, operations, policy, continuation, hash helpers, public views.
 
 packages/agent-spaces
   Owns: compileRuntimePlan(req) -> RuntimeCompileResponse.
@@ -114,16 +114,13 @@ export type Id<Name extends string> = string & { readonly __id: Name }
 export type RequestId = Id<'request'>
 export type CompileId = Id<'compile'>
 export type PlanHash = string
-export type RedactedPlanHash = string
 export type ProfileId = Id<'profile'>
 export type ProfileHash = string
 export type CompatibilityHash = string
 export type SpecHash = string
-export type RedactedSpecHash = string
 export type StartRequestHash = string
-export type RedactedStartRequestHash = string
 export type ArtifactId = Id<'artifact'>
-export type ArtifactHash = string
+export type ContentHash = string
 
 export type HostSessionId = Id<'hostSession'>
 export type RuntimeId = Id<'runtime'>
@@ -181,6 +178,9 @@ export type RuntimePlacement = {
   root?: string | undefined
   targetName?: string | undefined
   targetDir?: string | undefined
+  // NOTE: placement MUST NOT carry env in the compiled plan. ASP resolves only declared
+  // lockedEnv (projected onto the execution profiles); operator/ambient env is never projected
+  // into placement.
   [key: string]: unknown
 }
 
@@ -209,59 +209,58 @@ export type HrcTaskContext = {
 
 ---
 
-## 4. Hashing and redaction types
+## 4. Hashing and canonicalization types
+
+> **Confidentiality posture (pointer; canonical home: PLANE_SPEC §3.2; execution-env + credential
+> sources: §7.5.1).** The contract
+> plane may hold raw execution material in memory because HRC must launch the harness. It
+> defines **no** generic secret classification, redaction transforms, or digest-substituted
+> values. Durable/storage/display planes persist only explicit projections that omit fields
+> designated as live execution material. Confidentiality is enforced by not storing/displaying
+> those fields — or via runtime env injection, an external secret store, or an on-disk file
+> credential outside the compiled DTO (see PLANE_SPEC §7.5.1) — **not** by
+> contract-DTO redaction.
 
 ```ts
 // spaces-runtime-contracts/src/hash.ts
 
 export type HashAlgorithm = 'sha256-canonical-json/v1'
 
+// The canonicalization ALGORITHM (HashAlgorithm) is orthogonal to the projection POLICY
+// (RuntimeContractHashProjection). Keep the two version strings separate.
+export type RuntimeContractHashProjection = 'runtime-contract-semantic/v2'
+
 export type CanonicalHash = {
   algorithm: HashAlgorithm
   value: string
 }
 
-export type SecretDigest = {
-  algorithm: 'hmac-sha256-secret-digest/v1' | 'compiler-scoped-secret-digest/v1'
-  value: string
-  scope?: string | undefined
-}
-
-export type SecretRef = {
-  key: string
-  classification: 'secret'
-  digest: SecretDigest
-}
-
+// Hashing rule (replaces the secret-digest model): hashes are closure/dedup/route/reuse/test
+// tools, NOT confidentiality controls. Hash material is a named canonical projection selected
+// by explicit PATH omission — never key-name matching, never value scanning.
+//   - specHash         = HarnessInvocationSpec (lockedEnv included)
+//   - startRequestHash = InvocationStartRequest (initialInput included; lockedEnv included)
+//   - profileHash      = RuntimeExecutionProfile minus self-hash fields + ephemeral timestamps
+//   - planHash         = CompiledRuntimePlan minus self-hash fields + ephemeral timestamps
+//   - compatibilityHash = command, args, cwd, pathPrepend, transport, driver config/model/reasoning,
+//     bundle identity/lock, policy, resource limits, continuation provider/kind/non-secret identity,
+//     + the canonical lockedEnv object (keys and values)
+// lockedEnv is a non-secret declared config object and is INCLUDED in
+// specHash/startRequestHash/profileHash/planHash/compatibilityHash as the canonical lockedEnv
+// object. dispatchEnv is in NONE of them and is never in the compiled projection.
+// Hard rule: secrets must NEVER be placed in argv, cwd, driver config, initial input, labels,
+// or correlation if those are hashed/persisted/displayed. Secret launch material arrives only
+// via process env, runtime env injection, an external secret store/reference, or an on-disk
+// file credential — all outside this contract plane (see PLANE_SPEC §7.5.1).
 export type HashMaterialPolicy = {
-  omitFields: string[]
-  secretMode: 'digest' | 'redacted-placeholder'
+  hashProjection: RuntimeContractHashProjection
+  omitPaths: string[]
   timestampMode: 'omit-ephemeral' | 'include-semantic'
 }
 
 export interface CanonicalHasher {
   canonicalize(value: unknown, policy?: Partial<HashMaterialPolicy>): string
   hash(value: unknown, policy?: Partial<HashMaterialPolicy>): CanonicalHash
-}
-
-// spaces-runtime-contracts/src/redaction.ts
-
-export type RedactionState = 'none' | 'redacted' | 'contains-secret-digests'
-
-export type RedactedValue =
-  | { redacted: true; reason: 'secret' | 'token' | 'path' | 'policy'; digest?: SecretDigest | undefined }
-  | string
-  | number
-  | boolean
-  | null
-  | RedactedValue[]
-  | { [key: string]: RedactedValue }
-
-export type RedactedArtifact<T = unknown> = {
-  schemaVersion: string
-  redactionState: RedactionState
-  hash: string
-  value: T
 }
 ```
 
@@ -424,7 +423,7 @@ export type BrokerPermissionDecisionRecord = {
   runtimeId: RuntimeId
   runId?: RunId | undefined
   kind: BrokerPermissionRequestKind
-  subjectRedactedJson: string
+  subjectDisplayJson: string
   defaultDecision: 'allow' | 'deny'
   decision: 'allow' | 'deny'
   decidedBy: 'policy' | 'user' | 'api' | 'timeout'
@@ -480,6 +479,22 @@ export type AgentchatExposurePolicy =
   | { mode: 'hrc-registers-target'; targetKind: 'broker-runtime' }
   | { mode: 'broker-reports-target'; targetKind: string }
 
+export type BrokerTerminalSurface = {
+  host: 'tmux'
+  startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal'
+  turnDelivery: 'terminal-literal-input'
+  operatorAttach: true
+  // Must match BrokerExecutionProfile.policy.exposurePolicy exactly.
+  exposurePolicy: { mode: 'broker-reports-target'; targetKind: 'tmux-session' }
+}
+
+export type BrokerTerminalSurfaceReport = {
+  kind: 'tmux-session'
+  socketPath: string
+  sessionName: string
+  paneId?: string | undefined
+}
+
 // spaces-runtime-contracts/src/resources.ts
 
 export type RuntimeResourceLimits = {
@@ -515,9 +530,7 @@ export type BrokerObservabilityContract = {
     invocationId: InvocationId
     traceId?: TraceId | undefined
   }
-  env: Record<string, string>
   driverConfig?: Record<string, unknown> | undefined
-  redaction: 'broker-redaction-required'
 }
 ```
 
@@ -530,14 +543,14 @@ export type BrokerObservabilityContract = {
 
 export type HrcContinuationRef = {
   provider: ProviderDomain
-  keyHash: string
+  continuationId: string
   key?: string | undefined
 }
 
 export type BrokerContinuationRef = {
   provider: string
   kind?: 'thread' | 'session' | 'conversation' | string | undefined
-  keyHash: string
+  continuationId: string
   key?: string | undefined
 }
 
@@ -620,7 +633,6 @@ export type CompiledRuntimePlan = {
   }
   compileId: CompileId
   planHash: PlanHash
-  redactedPlanHash: RedactedPlanHash
   createdAt: IsoTimestamp
 
   identity: RuntimeIdentityAllocation
@@ -650,10 +662,8 @@ export type CompiledRuntimePlan = {
     bundleIdentity: string
   }
 
-  secrets: {
-    envKeys: string[]
-    secretEnvKeys: string[]
-    secretDigests?: Record<string, SecretDigest> | undefined
+  lockedEnv: {
+    lockedEnvKeys: string[]
   }
 
   diagnostics: CompileDiagnostic[]
@@ -665,7 +675,7 @@ export type CompileDiagnostic = {
   message: string
   plane: 'asp-compiler'
   profileId?: ProfileId | undefined
-  redactedDetails?: unknown
+  details?: unknown
 }
 ```
 
@@ -691,7 +701,6 @@ export type RuntimeExecutionProfileBase = {
   kind: RuntimeExecutionProfileKind
   interactionMode: InteractionMode
   expectedCapabilities: CapabilityRequirements
-  redactedProfile: unknown
   diagnostics?: CompileDiagnostic[] | undefined
 }
 
@@ -699,16 +708,20 @@ export type TerminalExecutionProfile = RuntimeExecutionProfileBase & {
   kind: 'terminal'
   interactionMode: 'interactive'
   terminal: {
-    host: 'tmux' | 'ghostty'
-    startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal'
+    host: 'foreground' | 'tmux' | 'ghostty'
+    startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal' | 'inherit-current-terminal'
     turnDelivery: 'terminal-launch-input' | 'terminal-literal-input'
   }
   process: {
     command: string
     args: string[]
     cwd: string
-    env: Record<string, string>
-    io: { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
+    // ASP-declared environment required for the harness to function. Hash-covered;
+    // HRC MUST NOT modify it. Declared config only — never ambient/operator env, never credentials.
+    lockedEnv: Record<string, string>
+    io:
+      | { kind: 'inherit' }
+      | { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
   }
   policy: {
     exposurePolicy: AgentchatExposurePolicy
@@ -728,7 +741,13 @@ export type EmbeddedSdkExecutionProfile = RuntimeExecutionProfileBase & {
     provider: ProviderDomain
     modelId: string
     cwd: string
-    env: Record<string, string>
+    // ASP-declared environment required for the harness to function. Hash-covered;
+    // HRC MUST NOT modify it. Declared config only — never ambient/operator env, never credentials.
+    lockedEnv: Record<string, string>
+    // Ordered directories prepended to the final composed PATH. PATH stays out of
+    // lockedEnv; this typed field is launch shape and participates in profile and
+    // compatibility hash material.
+    pathPrepend?: string[] | undefined
   }
   policy: {
     inputPolicy?: BrokerInputPolicy | undefined
@@ -739,20 +758,19 @@ export type EmbeddedSdkExecutionProfile = RuntimeExecutionProfileBase & {
 
 export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   kind: 'harness-broker'
-  interactionMode: 'headless'
+  interactionMode: 'headless' | 'interactive'
 
   brokerProtocol: 'harness-broker/0.1'
-  brokerDriver: 'codex-app-server' | string
+  brokerDriver: 'codex-app-server' | 'claude-code-tmux' | string
   brokerOwnership: 'hrc-owned-process'
+  // Selection/exposure metadata for broker-owned interactive terminal surfaces.
+  // The launch truth remains harnessInvocation.startRequest.spec.
+  brokerTerminal?: BrokerTerminalSurface | undefined
 
   harnessInvocation: {
     startRequest: InvocationStartRequest
     specHash: SpecHash
-    redactedSpecHash: RedactedSpecHash
     startRequestHash: StartRequestHash
-    redactedStartRequestHash: RedactedStartRequestHash
-    redactedSpec: RedactedHarnessInvocationSpec
-    redactedStartRequest: RedactedInvocationStartRequest
     initialInputHash?: string | undefined
   }
 
@@ -781,7 +799,9 @@ export type CommandExecutionProfile = RuntimeExecutionProfileBase & {
     turnDelivery: 'process-stdin' | 'none'
     argv: string[]
     cwd: string
-    env: Record<string, string>
+    // ASP-declared environment required for the harness to function. Hash-covered;
+    // HRC MUST NOT modify it. Declared config only — never ambient/operator env, never credentials.
+    lockedEnv: Record<string, string>
     shell?:
       | {
           executable?: string | undefined
@@ -864,27 +884,27 @@ export interface HarnessInvocationSpec {
   process: HarnessProcessSpec
   interaction?: InteractionSpec | undefined
   continuation?: ContinuationSpec | undefined
-  driver: CodexAppServerDriverSpec | UnknownDriverSpec
+  driver: CodexAppServerDriverSpec | ClaudeCodeTmuxDriverSpec | UnknownDriverSpec
   correlation?: Record<string, string> | undefined
-}
-
-export interface RedactedHarnessInvocationSpec {
-  specVersion: 'harness-broker.invocation/v1'
-  redactionState: 'redacted' | 'contains-secret-digests'
-  value: RedactedValue
 }
 
 export interface HarnessDescriptor {
   frontend: string
   provider?: string | undefined
-  driver: 'codex-app-server' | string
+  driver: 'codex-app-server' | 'claude-code-tmux' | string
 }
 
 export interface HarnessProcessSpec {
   command: string
   args: string[]
   cwd: string
-  env?: Record<string, string> | undefined
+  // ASP-declared environment required for the harness to function. Hash-covered; HRC MUST NOT
+  // modify it. Contains only declared config resolved from space/agent/target configuration —
+  // never the operator/ambient environment, never credentials.
+  lockedEnv?: Record<string, string> | undefined
+  // Ordered directories prepended to the final composed PATH. Hash-covered.
+  // PATH itself stays reserved and outside lockedEnv.
+  pathPrepend?: string[] | undefined
   harnessTransport: HarnessTransportSpec
   limits?: ProcessLimits | undefined
 }
@@ -924,6 +944,13 @@ export interface CodexAppServerDriverSpec {
   defaultImageAttachments?: string[] | undefined
   permissionPolicy?: DriverPermissionPolicy | undefined
   resumeFallback?: 'start-fresh' | 'fail' | undefined
+}
+
+export interface ClaudeCodeTmuxDriverSpec {
+  kind: 'claude-code-tmux'
+  terminalHost: 'tmux'
+  hookBridge: 'claude-code-hooks/v1'
+  eventSource: 'terminal-hook'
 }
 
 export interface DriverPermissionPolicy {
@@ -1072,9 +1099,14 @@ export interface InvocationStartRequest {
   initialInput?: InvocationInput | undefined
 }
 
-export interface RedactedInvocationStartRequest {
-  redactionState: 'redacted' | 'contains-secret-digests'
-  value: RedactedValue
+// Outer dispatch envelope. HRC constructs it and MAY populate dispatchEnv (per-invocation,
+// non-identity context — handles/correlation, e.g. a wrkq handoff id). `startRequest` is
+// forwarded byte/semantically unchanged and is the only hashed payload. `dispatchEnv` is
+// validated at dispatch by the broker, never hashed, never persisted in the contract projection
+// plane, and is NOT a recompile trigger.
+export interface InvocationDispatchRequest {
+  startRequest: InvocationStartRequest
+  dispatchEnv?: Record<string, string>
 }
 
 export interface InvocationStartResponse {
@@ -1240,6 +1272,8 @@ export type InvocationEventType =
   | 'usage.updated'
   | 'diagnostic'
   | 'driver.notice'
+  // Broker-owned terminal attach surface report. Not broker.attach/replay.
+  | 'terminal.surface.reported'
   | 'permission.requested'
   | 'permission.resolved'
 
@@ -1266,14 +1300,24 @@ export type InvocationEventPayload =
   | UsageUpdatedPayload
   | DiagnosticPayload
   | DriverNoticePayload
+  | TerminalSurfaceReportedPayload
   | PermissionRequestedPayload
   | PermissionResolvedPayload
 
 export interface InvocationStartedPayload {
   pid?: number | undefined
-  command: string
-  args: string[]
+  // Process-backed invocations provide command/args. In-process SDK invocations
+  // instead identify the controller/sdk below and MUST NOT fake a spawned process.
+  command?: string | undefined
+  args?: string[] | undefined
   cwd: string
+  controller?: string | undefined
+  sdk?:
+    | {
+        runtime: 'claude-agent-sdk' | 'pi-sdk'
+        sessionKey?: string | undefined
+      }
+    | undefined
 }
 
 export interface InvocationReadyPayload {
@@ -1318,6 +1362,10 @@ export interface TurnCompletedPayload {
   turnId: TurnId
   status: 'completed' | 'failed' | 'interrupted'
   finalOutput?: string | undefined
+  // True when the normalized controller stream observed assistant text, tool
+  // calls/results, or other content-bearing turn activity. Tool-only SDK turns
+  // set this true even when finalOutput is empty.
+  producedContent?: boolean | undefined
   usage?: unknown
 }
 
@@ -1383,7 +1431,7 @@ export interface UsageUpdatedPayload {
 export interface DiagnosticPayload {
   level: 'debug' | 'info' | 'warn' | 'error'
   message: string
-  source?: 'broker' | 'harness' | 'driver' | undefined
+  source?: 'controller' | 'broker' | 'harness' | 'driver' | undefined
   data?: unknown
 }
 
@@ -1393,10 +1441,17 @@ export interface DriverNoticePayload {
   data?: unknown
 }
 
+export interface TerminalSurfaceReportedPayload {
+  kind: 'tmux-session'
+  socketPath: string
+  sessionName: string
+  paneId?: string | undefined
+}
+
 export interface PermissionRequestedPayload {
   permissionRequestId: PermissionRequestId
   kind: 'command' | 'file_change' | 'tool' | string
-  subjectRedacted: unknown
+  subjectDisplay: unknown
   defaultDecision: 'allow' | 'deny'
   deadlineMs?: number | undefined
 }
@@ -1607,6 +1662,11 @@ export type RuntimeControllerStartInput<TDecision extends RuntimeRouteDecision> 
   compiledPlan: CompiledRuntimePlan
   selectedProfile: RuntimeExecutionProfile
   operation: RuntimeOperation
+  // HRC-supplied per-invocation context. This is the concrete dispatchEnv
+  // channel for in-process embedded-sdk controller.start() and the source for
+  // the broker InvocationDispatchRequest envelope. It is never part of the
+  // compiled plan and is hashed nowhere.
+  dispatchEnv?: Record<string, string> | undefined
   existingRuntime?: HrcRuntimeSnapshot | undefined
 }
 
@@ -1615,11 +1675,22 @@ export type RuntimeControllerDispatchInput<TDecision extends RuntimeRouteDecisio
   runtime: HrcRuntimeSnapshot
   operation: RuntimeOperation
   input: RuntimeInputEnvelope
+  dispatchEnv?: Record<string, string> | undefined
 }
 
 export interface HarnessBrokerController extends RuntimeController<RuntimeRouteDecision> {
   readonly kind: 'harness-broker'
 }
+
+export interface EmbeddedSdkController extends RuntimeController<RuntimeRouteDecision> {
+  readonly kind: 'embedded-sdk'
+}
+
+// Broker and embedded-sdk controllers emit the same normalized controller-event
+// envelope at the HRC boundary. Embedded SDK controllers do not expose native SDK
+// events directly and do not define a parallel event taxonomy.
+export type ControllerEventEnvelope = InvocationEventEnvelope
+export type EmbeddedSdkControllerEventEnvelope = ControllerEventEnvelope
 
 export type RuntimeInputEnvelope = {
   inputId: InputId
@@ -1736,9 +1807,7 @@ export type BrokerRuntimeState = RuntimeStateBase & {
     selectedProfileId: ProfileId
     selectedProfileHash: ProfileHash
     specHash: SpecHash
-    redactedSpecHash?: RedactedSpecHash | undefined
     startRequestHash: StartRequestHash
-    redactedStartRequestHash?: RedactedStartRequestHash | undefined
   }
 
   broker: {
@@ -1760,6 +1829,11 @@ export type BrokerRuntimeState = RuntimeStateBase & {
     lastEventSeq?: number | undefined
     capabilities: InvocationCapabilities
   }
+  terminalSurface?:
+    | (BrokerTerminalSurfaceReport & {
+        reportedAt: IsoTimestamp
+      })
+    | undefined
 
   continuation?: RuntimeContinuationRef | undefined
   brokerContinuation?: BrokerContinuationRef | undefined
@@ -1925,8 +1999,43 @@ export type HrcEventEnvelope = {
 
 ## 17. Broker invocation persistence records
 
+Projection DTOs are **persist/display-boundary** types computed where artifacts are persisted
+or displayed. They are the named canonical projections selected by `RuntimeContractHashProjection`.
+The projection DTOs MAY carry `lockedEnv` (declared, non-secret config); ambient, credential, and
+dispatch env are never present. They are **NOT** embedded in the live `BrokerExecutionProfile` —
+the live profile carries the raw `startRequest` plus `specHash`/`startRequestHash` only (HRC needs
+the raw request to launch).
+
 ```ts
 // spaces-runtime-contracts/src/persistence.ts
+
+// Persist/display-boundary projections. Each is the source DTO canonicalized under
+// hashProjection = 'runtime-contract-semantic/v2'. Projections MAY carry lockedEnv (declared
+// non-secret config); ambient/credential/dispatch env are never present. NOT embedded in the
+// live profile.
+export type CompiledRuntimePlanProjection = {
+  hashProjection: RuntimeContractHashProjection
+  planHash: PlanHash
+  value: JsonValue
+}
+
+export type RuntimeExecutionProfileProjection = {
+  hashProjection: RuntimeContractHashProjection
+  profileHash: ProfileHash
+  value: JsonValue
+}
+
+export type HarnessInvocationSpecProjection = {
+  hashProjection: RuntimeContractHashProjection
+  specHash: SpecHash
+  value: JsonValue
+}
+
+export type InvocationStartRequestProjection = {
+  hashProjection: RuntimeContractHashProjection
+  startRequestHash: StartRequestHash
+  value: JsonValue
+}
 
 export type CompiledRuntimePlanRecord = {
   planHash: PlanHash
@@ -1934,8 +2043,7 @@ export type CompiledRuntimePlanRecord = {
   schemaVersion: 'agent-runtime-plan/v1'
   compilerName: 'agent-spaces'
   compilerVersion: string
-  redactedPlanHash: RedactedPlanHash
-  redactedPlanJson: string
+  planProjectionJson: string
   diagnosticsJson?: string | undefined
   createdAt: IsoTimestamp
 }
@@ -1979,12 +2087,10 @@ export type BrokerInvocationRecord = {
   continuationJson?: string | undefined
   brokerContinuationJson?: string | undefined
   specHash: SpecHash
-  redactedSpecHash?: RedactedSpecHash | undefined
   startRequestHash: StartRequestHash
-  redactedStartRequestHash?: RedactedStartRequestHash | undefined
   selectedProfileHash: ProfileHash
-  redactedSpecJson?: string | undefined
-  redactedStartRequestJson?: string | undefined
+  specProjectionJson?: string | undefined
+  startRequestProjectionJson?: string | undefined
   lastEventSeq?: number | undefined
   ownerServerInstanceId?: ServerInstanceId | undefined
   createdAt: IsoTimestamp
@@ -2018,8 +2124,7 @@ export type RuntimeArtifactRecord = {
     | string
   mediaType: 'application/json' | 'text/plain' | string
   storageKind: 'inline-json' | 'file-path'
-  contentHash: ArtifactHash
-  redactionState: RedactionState
+  contentHash: ContentHash
   artifactJson?: string | undefined
   artifactPath?: string | undefined
   createdAt: IsoTimestamp
@@ -2085,7 +2190,12 @@ export type RuntimeExecutionView = {
   controller:
     | { kind: 'terminal'; terminalHost: 'tmux' | 'ghostty' }
     | { kind: 'embedded-sdk' }
-    | { kind: 'harness-broker'; brokerDriver: string; brokerProtocol: 'harness-broker/0.1' }
+    | {
+        kind: 'harness-broker'
+        brokerDriver: string
+        brokerProtocol: 'harness-broker/0.1'
+        brokerTerminal?: BrokerTerminalSurface | undefined
+      }
     | { kind: 'command-process' }
     | { kind: 'legacy-exec'; migrationOnly: true }
 
@@ -2119,6 +2229,7 @@ export function legacyTransportAlias(view: RuntimeExecutionView): LegacyTranspor
     case 'embedded-sdk':
       return 'sdk'
     case 'harness-broker':
+      return view.controller.brokerTerminal?.host === 'tmux' ? 'tmux' : 'headless'
     case 'command-process':
     case 'legacy-exec':
       return 'headless'
@@ -2301,7 +2412,7 @@ export enum BrokerErrorCode {
 
 export type RuntimeRouteCatalogEntry = {
   controller: RuntimeControllerKind
-  terminalHost?: 'tmux' | 'ghostty' | undefined
+  terminalHost?: 'foreground' | 'tmux' | 'ghostty' | undefined
   migrationOnly?: boolean | undefined
   modelProvider: ProviderDomain
   harnessFamily: HarnessFamily
@@ -2312,8 +2423,8 @@ export type RuntimeRouteCatalogEntry = {
   broker?:
     | {
         protocolVersion: 'harness-broker/0.1'
-        driver: 'codex-app-server' | string
-        processTransport: 'jsonrpc-stdio'
+        driver: 'codex-app-server' | 'claude-code-tmux' | string
+        processTransport: 'jsonrpc-stdio' | 'pty'
       }
     | undefined
   removalGate?: string | undefined
@@ -2327,7 +2438,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     harnessFamily: 'claude-code',
     harnessRuntime: 'claude-code-cli',
     interactionMode: 'interactive',
-    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal'],
+    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal', 'inherit-current-terminal'],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
   },
   {
@@ -2337,7 +2448,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     harnessFamily: 'codex',
     harnessRuntime: 'codex-cli',
     interactionMode: 'interactive',
-    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal'],
+    startupMethods: ['create-terminal', 'reuse-existing', 'adopt-terminal', 'inherit-current-terminal'],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
   },
   {
@@ -2357,6 +2468,21 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     interactionMode: 'nonInteractive',
     startupMethods: ['create-sdk-session', 'reuse-existing'],
     turnDeliveries: ['sdk-turn', 'sdk-inflight-input'],
+  },
+  {
+    controller: 'harness-broker',
+    terminalHost: 'tmux',
+    modelProvider: 'anthropic',
+    harnessFamily: 'claude-code',
+    harnessRuntime: 'claude-code-cli',
+    interactionMode: 'interactive',
+    startupMethods: ['create-broker-invocation', 'reuse-existing'],
+    turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    broker: {
+      protocolVersion: 'harness-broker/0.1',
+      driver: 'claude-code-tmux',
+      processTransport: 'pty',
+    },
   },
   {
     controller: 'harness-broker',

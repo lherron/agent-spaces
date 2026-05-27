@@ -26,11 +26,21 @@ export interface InvocationCapabilities {
     toolCalls: boolean
     usage: boolean
     diagnostics: boolean
+    replay?: boolean | undefined
+    ack?: boolean | undefined
   }
   control: {
     stop: boolean
     dispose: boolean
+    status?: boolean | undefined
+    attach?: boolean | undefined
   }
+  permissions?:
+    | {
+        brokerToClientRequests: boolean
+        eventAudit: boolean
+      }
+    | undefined
 }
 
 export interface BrokerCapabilities {
@@ -38,6 +48,7 @@ export interface BrokerCapabilities {
   transports: Array<'stdio-jsonrpc-ndjson'>
   eventNotifications: true
   brokerToClientRequests: boolean
+  attachReplay?: boolean | undefined
 }
 
 export interface DriverSummary {

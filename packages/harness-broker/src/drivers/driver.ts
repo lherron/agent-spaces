@@ -1,18 +1,23 @@
 import type {
   ClientCapabilities,
   HarnessInvocationSpec,
+  InputId,
   InvocationCapabilities,
   InvocationEventEnvelope,
   InvocationEventType,
+  InvocationId,
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  PermissionDecision,
+  PermissionRequestParams,
+  TurnId,
 } from 'spaces-harness-broker-protocol'
 
 export interface ApplyInputResult {
-  turnId?: string | undefined
+  turnId?: TurnId | undefined
 }
 
 export interface Driver {
@@ -27,18 +32,48 @@ export interface Driver {
 }
 
 export interface DriverContext {
-  invocationId: string
+  invocationId: InvocationId
   clientCapabilities: ClientCapabilities
+  /**
+   * Per-invocation env from the `InvocationDispatchRequest` envelope (HRC-supplied,
+   * not part of the hashed spec). The driver threads this into the spawn-env
+   * composition (`spawnHarnessProcess`). Absent when no dispatchEnv was supplied.
+   */
+  dispatchEnv?: Record<string, string> | undefined
+  /**
+   * Dispatch-time runtime overlay (spec §3.3) supplied by the HRC runtime
+   * control plane — or the pre-HRC harness stand-in — AFTER profile selection.
+   * Carries pre-allocated runtime resource handles (e.g. the tmux server socket
+   * a terminal-host driver attaches to). NOT part of the hashed spec. Absent
+   * when the route needs no runtime handles.
+   */
+  runtime?:
+    | {
+        tmux?:
+          | {
+              socketPath: string
+            }
+          | undefined
+      }
+    | undefined
   emit<TPayload>(
     type: InvocationEventType,
     payload: TPayload,
     extra?: {
-      turnId?: string | undefined
-      inputId?: string | undefined
+      turnId?: TurnId | undefined
+      inputId?: InputId | undefined
       itemId?: string | undefined
       driver?: { kind: string; rawType?: string | undefined } | undefined
     }
   ): InvocationEventEnvelope<TPayload>
+  /**
+   * Ask the connected client to decide a permission request via the
+   * broker→client JSON-RPC request transport. Provided only when the broker
+   * has a transport that supports outbound requests (and, in production, when
+   * the client negotiated `permissionRequests`). Absent for in-process callers
+   * that have no client to ask.
+   */
+  requestPermission?(params: PermissionRequestParams): Promise<PermissionDecision>
 }
 
 export interface DriverStartResult {

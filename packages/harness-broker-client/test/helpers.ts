@@ -41,7 +41,7 @@ export function codexSpec(
       driver: 'codex-app-server',
     },
     process: {
-      command: Bun.execPath,
+      command: process.execPath,
       args: [join(fakeCodexFixtureDir, `${scenario}.ts`)],
       cwd: repoRoot,
       harnessTransport: { kind: 'jsonrpc-stdio' },

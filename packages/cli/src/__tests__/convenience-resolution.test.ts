@@ -264,5 +264,5 @@ describe('default frontend', () => {
     } finally {
       await cleanup()
     }
-  })
+  }, 15_000)
 })

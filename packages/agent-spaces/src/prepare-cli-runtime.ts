@@ -1,12 +1,7 @@
 import { basename, extname, resolve } from 'node:path'
 
-import type { AttachmentRef } from 'spaces-runtime'
-import type {
-  HarnessDetection,
-  HarnessRunOptions,
-  ResolvedPlacementContext,
-} from 'spaces-config'
-import { getAspHome, type RuntimePlacement, resolvePlacementContext } from 'spaces-config'
+import type { HarnessDetection, HarnessRunOptions, ResolvedPlacementContext } from 'spaces-config'
+import { type RuntimePlacement, getAspHome, resolvePlacementContext } from 'spaces-config'
 import type { PlacementRuntimePlan } from 'spaces-execution'
 import {
   detectAgentLocalComponents,
@@ -17,17 +12,12 @@ import {
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
 import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
+import type { AttachmentRef } from 'spaces-runtime'
 import type { MaterializeResult } from 'spaces-runtime'
 import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
 
-import {
-  buildPromptExpansionContext,
-  deriveHandleParts,
-} from './broker-invocation.js'
-import {
-  type MaterializedSpec,
-  materializeSpec,
-} from './client-materialization.js'
+import { buildPromptExpansionContext, deriveHandleParts } from './broker-invocation.js'
+import { type MaterializedSpec, materializeSpec } from './client-materialization.js'
 import {
   CODEX_CLI_FRONTEND,
   CodedError,
@@ -59,7 +49,11 @@ export interface PreparedPlacementCliRuntime {
   commandPath: string
   args: string[]
   argv: string[]
+  lockedEnv: Record<string, string>
+  dispatchEnv: Record<string, string>
   env: Record<string, string>
+  /** Ordered dirs to prepend to the launched process PATH (typed PATH mutation, NOT lockedEnv). */
+  pathPrepend: string[]
   cwd: string
   displayCommand: string
   continuation?: HarnessContinuationRef | undefined
@@ -77,6 +71,9 @@ interface PreparePlacementCliRuntimeRequest {
   continuation?: HarnessContinuationRef | undefined
   prompt?: string | undefined
   attachments?: AttachmentRef[] | undefined
+  lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string> | undefined
   placement?: RuntimePlacement | undefined
 }
@@ -195,9 +192,19 @@ export async function preparePlacementCliRuntime(
     ...(handleParts.lane !== undefined ? { lane: handleParts.lane } : {}),
   })
 
+  // Bundle label = the LOGICAL target name (legacy `asp run` labels the bundle
+  // with the agent/target name). For agent-project placements the materialization
+  // cache dir is a synthesized name (e.g. `placement-empty` for empty compose),
+  // but that is a path-only artifact (the documented bundle-root follow-up) and
+  // must NOT leak into launch-shape VALUES like the claude remote-control session
+  // name (`<targetName>-<project>`). loadTargetBundle derives all paths from
+  // outputPath; targetName is purely the logical label, so threading the agent
+  // name here restores launch-shape parity without touching any materialized path.
+  const bundleLabel =
+    placement.bundle.kind === 'agent-project' ? placement.bundle.agentName : materialized.targetName
   const bundle = await adapter.loadTargetBundle(
     materialized.materialization.outputPath,
-    materialized.targetName
+    bundleLabel
   )
 
   const imageAttachmentPaths = extractImageAttachmentPaths(req.attachments)
@@ -210,7 +217,12 @@ export async function preparePlacementCliRuntime(
   // Build run options for the adapter
   let runOptions: HarnessRunOptions = {
     ...runtimePlan.runOptions,
-    model: runtimePlan.model.info.model,
+    // Only push --model onto argv when the model came from an explicit source
+    // (requested CLI/model, a default run-option model, or a supported
+    // effective-config model). Falling back to the adapter default for plan
+    // metadata must NOT inject --model — legacy `asp run` omits it (e.g. codex,
+    // governed by CODEX_HOME/config.toml).
+    ...(runtimePlan.model.info.explicit ? { model: runtimePlan.model.info.model } : {}),
     ...(expandedPrompt !== undefined ? { prompt: expandedPrompt } : {}),
     ...(runtimePlan.yolo !== undefined ? { yolo: runtimePlan.yolo } : {}),
     ...(imageAttachmentPaths.length > 0 ? { imageAttachments: imageAttachmentPaths } : {}),
@@ -253,25 +265,42 @@ export async function preparePlacementCliRuntime(
     agentchatEnv['ASP_PROJECT'] = basename(resolve(placement.projectRoot))
   }
 
-  // Merge env: adapter env + correlation + agentchat + request env delta + ASP_HOME
-  let env: Record<string, string> = {
+  let lockedEnv: Record<string, string> = {
     ...adapterEnv,
-    ...correlationEnv,
     ...agentchatEnv,
     ...(req.env ?? {}),
+    ...(req.lockedEnv ?? {}),
     ASP_HOME: aspHome,
   }
+  const dispatchEnv: Record<string, string> = {
+    ...correlationEnv,
+    ...(req.dispatchEnv ?? {}),
+  }
+  let env: Record<string, string> = {
+    ...lockedEnv,
+    ...dispatchEnv,
+  }
 
-  const brainEnv = await prepareAgentBrainRuntime(
-    {
-      agentRoot: placement.agentRoot,
-      agentName: basename(placement.agentRoot),
-      ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
-    },
-    env
-  )
-  env = { ...env, ...brainEnv }
+  // Brain env (GBRAIN_HOME/BRAIN_REPO) is deferred to the real (non-dry) spawn —
+  // exactly as the legacy adapter path does (execute.ts gates the same call on
+  // `!options.dryRun`). prepareAgentBrainRuntime is NOT a pure compose: it
+  // ensureDirectory()s, may `gbrain init`, and registers sources. A dry-run /
+  // --print-command MUST NOT mutate and MUST NOT advertise brain env, so the
+  // compiled launch shape only carries GBRAIN_HOME/BRAIN_REPO for a real launch.
+  if (placement.dryRun !== true) {
+    const brainEnv = await prepareAgentBrainRuntime(
+      {
+        agentRoot: placement.agentRoot,
+        agentName: basename(placement.agentRoot),
+        ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
+      },
+      env
+    )
+    lockedEnv = { ...lockedEnv, ...brainEnv }
+    env = { ...env, ...brainEnv }
+  }
 
+  let pathPrepend: string[] = []
   if (agentLocalComponents?.hasTools) {
     const toolRuntime = await prepareAgentToolRuntime(
       {
@@ -281,6 +310,13 @@ export async function preparePlacementCliRuntime(
       },
       env
     )
+    const { PATH: toolPath, ...toolLockedEnv } = toolRuntime.env
+    void toolPath
+    // PATH is never routed through lockedEnv. The tool-bin dirs are emitted as
+    // the typed HarnessProcessSpec.pathPrepend field (consumed by the broker
+    // env compose) so the controlled PATH mutation is part of the launch shape.
+    pathPrepend = toolRuntime.pathPrepend
+    lockedEnv = { ...lockedEnv, ...toolLockedEnv }
     env = { ...env, ...toolRuntime.env }
     warnings.push(...toolRuntime.warnings)
   }
@@ -293,9 +329,14 @@ export async function preparePlacementCliRuntime(
     ? { provider: runtimePlan.provider, key: req.continuation.key }
     : undefined
 
+  // The headless codex app-server conveys the model via its descriptor (config),
+  // NOT via CLI argv. Plan metadata records the RESOLVED model (including the
+  // adapter default) even when it is not pushed onto a foreground argv — so the
+  // descriptor must always receive the resolved model, independent of the
+  // source-aware `runOptions.model` (which only carries an explicit model).
   const codexAppServer =
     req.frontend === 'codex-cli' && req.interactionMode === 'headless'
-      ? buildCodexAppServerLaunchDescriptor(runOptions)
+      ? buildCodexAppServerLaunchDescriptor({ ...runOptions, model: runtimePlan.model.info.model })
       : undefined
 
   return {
@@ -313,7 +354,10 @@ export async function preparePlacementCliRuntime(
     args,
     argv,
     cwd,
+    lockedEnv,
+    dispatchEnv,
     env,
+    pathPrepend,
     ...(continuation ? { continuation } : {}),
     displayCommand,
     ...(codexAppServer ? { codexAppServer } : {}),

@@ -2,27 +2,33 @@ import type {
   ClientCapabilities,
   ContinuationUpdate,
   HarnessInvocationSpec,
+  InputId,
   InvocationCapabilities,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
   InvocationEventEnvelope,
   InvocationEventType,
+  InvocationId,
   InvocationInput,
   InvocationInputRequest,
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationRuntimeContext,
   InvocationStartResponse,
   InvocationState,
   InvocationStatusResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  PermissionDecision,
+  PermissionRequestParams,
+  TurnId,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import type { Driver, DriverContext } from './drivers/driver'
 import { BrokerError } from './errors'
 import type { InvocationEventSequencer } from './events'
-import { buildEnvSecrets, redactPayload, safeStartedPayload } from './security/redaction'
+import { normalizeEventPayload } from './runtime/event-normalize'
 
 // ---------------------------------------------------------------------------
 // Reason-string vocabulary (centralized for spec traceability)
@@ -44,21 +50,28 @@ const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
 // Queue types
 // ---------------------------------------------------------------------------
 interface QueuedInput {
-  inputId: string
+  inputId: InputId
   input: InvocationInputWithId
 }
 
-type InvocationInputWithId = InvocationInput & { inputId: string }
+type InvocationInputWithId = InvocationInput & { inputId: InputId }
 
 export interface Invocation {
-  readonly invocationId: string
+  readonly invocationId: InvocationId
   readonly spec: HarnessInvocationSpec
   state: InvocationState
   capabilities: InvocationCapabilities
   driver: Driver
   continuation?: ContinuationUpdate | undefined
   terminalEmitted: boolean
-  envSecrets: Set<string>
+  /** True once invocation.disposed has been emitted — keeps it idempotent. */
+  disposedEmitted: boolean
+  /** Manager-owned public status projection, driven by applyEventState. */
+  currentTurnId?: TurnId | undefined
+  currentInputId?: InputId | undefined
+  childPid?: number | undefined
+  exitCode?: number | null | undefined
+  signal?: string | null | undefined
   /** Per-invocation FIFO queue of pending inputs. */
   pending: QueuedInput[]
   /** Self-clearing drain lock: set while a drain is in flight, cleared in .finally(). */
@@ -71,6 +84,15 @@ export interface InvocationManagerOptions {
   sequencer: InvocationEventSequencer
   onEvent: (event: InvocationEventEnvelope) => void
   getClientCapabilities?: (() => ClientCapabilities) | undefined
+  /**
+   * Broker→client permission request transport. When provided, drivers can ask
+   * the connected client to decide a permission request via
+   * `DriverContext.requestPermission`. Absent when no outbound request
+   * transport is available.
+   */
+  onPermissionRequest?:
+    | ((params: PermissionRequestParams) => Promise<PermissionDecision>)
+    | undefined
   maxInputQueueDepth?: number | undefined
 }
 
@@ -78,23 +100,25 @@ export interface InvocationManager {
   start(
     spec: HarnessInvocationSpec,
     driver: Driver,
-    initialInput?: InvocationInput | undefined
+    initialInput?: InvocationInput | undefined,
+    dispatchEnv?: Record<string, string> | undefined,
+    runtime?: InvocationRuntimeContext | undefined
   ): Promise<InvocationStartResponse>
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
-  status(invocationId: string): InvocationStatusResponse
+  status(invocationId: InvocationId): InvocationStatusResponse
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
-  get(invocationId: string): Invocation | undefined
+  get(invocationId: InvocationId): Invocation | undefined
   activeCount(): number
 }
 
 export function createInvocationManager(options: InvocationManagerOptions): InvocationManager {
-  const { sequencer, onEvent, getClientCapabilities = () => ({}) } = options
+  const { sequencer, onEvent, getClientCapabilities = () => ({}), onPermissionRequest } = options
   const maxQueueDepth = options.maxInputQueueDepth ?? DEFAULT_MAX_INPUT_QUEUE_DEPTH
   const invocations = new Map<string, Invocation>()
 
-  function requireInvocation(invocationId: string): Invocation {
+  function requireInvocation(invocationId: InvocationId): Invocation {
     const inv = invocations.get(invocationId)
     if (!inv) {
       throw new BrokerError(
@@ -131,10 +155,15 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       } catch (err) {
         // Input failed at the driver level — reject this item and continue
         // draining; the while-loop guard re-checks state before the next item.
-        emit(inv, 'input.rejected', {
-          inputId: head.inputId,
-          reason: String(err instanceof Error ? err.message : err),
-        }, { inputId: head.inputId })
+        emit(
+          inv,
+          'input.rejected',
+          {
+            inputId: head.inputId,
+            reason: String(err instanceof Error ? err.message : err),
+          },
+          { inputId: head.inputId }
+        )
       }
     }
   }
@@ -147,7 +176,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   async function applyAndEmit(
     inv: Invocation,
     input: InvocationInputWithId
-  ): Promise<{ turnId?: string | undefined }> {
+  ): Promise<{ turnId?: TurnId | undefined }> {
     // Broker owns input.accepted emission — before the driver applies the input
     const { inputId } = input
     emit(inv, 'input.accepted', { inputId }, { inputId })
@@ -157,7 +186,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
   function rejectQueueInput(
     inv: Invocation,
-    inputId: string,
+    inputId: InputId,
     reason: string
   ): InvocationInputResponse {
     emit(inv, 'input.rejected', { inputId, reason }, { inputId })
@@ -184,15 +213,34 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   // ---------------------------------------------------------------------------
   function applyEventState(inv: Invocation, event: InvocationEventEnvelope): void {
     switch (event.type) {
+      case 'invocation.started': {
+        // Capture the child pid for the manager-owned status projection.
+        const pid = (event.payload as { pid?: unknown } | undefined)?.pid
+        if (typeof pid === 'number') {
+          inv.childPid = pid
+        }
+        return
+      }
       case 'invocation.ready':
         inv.state = 'ready'
         return
+      case 'input.accepted':
+        // The input that drives the next turn — cleared when the turn ends.
+        if (event.inputId !== undefined) {
+          inv.currentInputId = event.inputId
+        }
+        return
       case 'turn.started':
         inv.state = 'turn_active'
+        if (event.turnId !== undefined) {
+          inv.currentTurnId = event.turnId
+        }
         return
       case 'turn.completed':
       case 'turn.failed':
       case 'turn.interrupted':
+        inv.currentTurnId = undefined
+        inv.currentInputId = undefined
         if (inv.state !== 'exited' && inv.state !== 'failed' && inv.state !== 'disposed') {
           inv.state = 'ready'
         }
@@ -203,15 +251,33 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         inv.state = 'stopping'
         evictQueue(inv, REASON_INVOCATION_STOPPING)
         return
-      case 'invocation.exited':
+      case 'invocation.exited': {
         inv.state = 'exited'
         inv.terminalEmitted = true
+        inv.currentTurnId = undefined
+        inv.currentInputId = undefined
+        const payload = event.payload as { exitCode?: unknown; signal?: unknown } | undefined
+        if (payload && 'exitCode' in payload) {
+          inv.exitCode = payload.exitCode as number | null | undefined
+        }
+        if (payload && 'signal' in payload) {
+          inv.signal = payload.signal as string | null | undefined
+        }
         evictQueue(inv, REASON_INVOCATION_TERMINATED)
         return
+      }
       case 'invocation.failed':
         inv.state = 'failed'
         inv.terminalEmitted = true
+        inv.currentTurnId = undefined
+        inv.currentInputId = undefined
         evictQueue(inv, REASON_INVOCATION_TERMINATED)
+        return
+      case 'invocation.disposed':
+        inv.state = 'disposed'
+        inv.disposedEmitted = true
+        inv.currentTurnId = undefined
+        inv.currentInputId = undefined
         return
       case 'continuation.updated':
         inv.continuation = event.payload as ContinuationUpdate
@@ -227,28 +293,36 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     type: InvocationEventEnvelope['type'],
     payload: TPayload,
     extra?: {
-      turnId?: string | undefined
-      inputId?: string | undefined
+      turnId?: TurnId | undefined
+      inputId?: InputId | undefined
       itemId?: string | undefined
       driver?: { kind: string; rawType?: string | undefined } | undefined
     }
   ): InvocationEventEnvelope<TPayload> {
-    // Apply redaction before sequencing: constrain invocation.started and scrub secrets.
-    let safePayload: TPayload = payload
-    if (type === 'invocation.started') {
-      safePayload = safeStartedPayload(payload) as TPayload
-    }
-    if (inv.envSecrets.size > 0) {
-      safePayload = redactPayload(safePayload, inv.envSecrets) as TPayload
-    }
+    // Single central event-safety path before sequencing: constrain/normalize
+    // well-known payloads and truncate oversized payloads against maxEventBytes.
+    const { payload: safePayload, diagnostics } = normalizeEventPayload({
+      type,
+      payload,
+      maxEventBytes: inv.spec.process.limits?.maxEventBytes,
+    })
 
     const event = sequencer.next(inv.invocationId, type, safePayload, extra)
     if (inv.spec.correlation !== undefined) {
       event.correlation = inv.spec.correlation
     }
-    applyEventState(inv, event)
-    onEvent(event)
-    return event
+    applyEventState(inv, event as InvocationEventEnvelope)
+    onEvent(event as InvocationEventEnvelope)
+
+    // Follow-on diagnostics (e.g. truncation notices) are emitted as their own
+    // events. Their payloads are small, so they never re-trigger truncation.
+    if (diagnostics) {
+      for (const diagnostic of diagnostics) {
+        emit(inv, 'diagnostic', diagnostic, extra)
+      }
+    }
+
+    return event as InvocationEventEnvelope<TPayload>
   }
 
   function emitTerminal(
@@ -266,17 +340,19 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   // ---------------------------------------------------------------------------
   // InputId resolution
   // ---------------------------------------------------------------------------
-  function resolveInputId(inv: Invocation, input: InvocationInput): string {
+  function resolveInputId(inv: Invocation, input: InvocationInput): InputId {
     if (input.inputId) return input.inputId
     inv.inputCounter += 1
-    return `input_${inv.invocationId}_${inv.inputCounter}`
+    return `input_${inv.invocationId}_${inv.inputCounter}` as InputId
   }
 
   return {
     async start(
       spec: HarnessInvocationSpec,
       driver: Driver,
-      initialInput?: InvocationInput | undefined
+      initialInput?: InvocationInput | undefined,
+      dispatchEnv?: Record<string, string> | undefined,
+      runtime?: InvocationRuntimeContext | undefined
     ): Promise<InvocationStartResponse> {
       // Check if there's already an active invocation
       for (const existing of invocations.values()) {
@@ -291,7 +367,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
       const invocationId =
         spec.invocationId ??
-        `inv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+        (`inv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}` as InvocationId)
 
       const driverCaps = driver.capabilities()
       const composedQueue =
@@ -317,7 +393,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         capabilities,
         driver,
         terminalEmitted: false,
-        envSecrets: buildEnvSecrets(spec.process.env),
+        disposedEmitted: false,
         pending: [],
         inputCounter: 0,
       }
@@ -326,6 +402,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const ctx: DriverContext = {
         invocationId,
         clientCapabilities: getClientCapabilities(),
+        ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
+        ...(runtime !== undefined ? { runtime } : {}),
         emit<TPayload>(
           type: InvocationEventType,
           payload: TPayload,
@@ -333,6 +411,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         ) {
           return emit(inv, type, payload, extra)
         },
+        ...(onPermissionRequest !== undefined
+          ? { requestPermission: (params) => onPermissionRequest(params) }
+          : {}),
       }
 
       try {
@@ -354,7 +435,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           })
         }
         if (inv.state !== 'ready') {
-          emit(inv, 'invocation.ready', {})
+          emit(inv, 'invocation.ready', { state: 'ready' })
         }
       }
 
@@ -383,10 +464,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const input: InvocationInputWithId = { ...rawInput, inputId }
 
       // Invalid state rejection
-      if (
-        inv.state !== 'ready' &&
-        inv.state !== 'turn_active'
-      ) {
+      if (inv.state !== 'ready' && inv.state !== 'turn_active') {
         throw new BrokerError(
           BrokerErrorCode.InvalidInvocationState,
           `Cannot accept input in state: ${inv.state}`,
@@ -395,12 +473,28 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       }
 
       if (input.kind === 'steer' && !inv.capabilities.input.steer) {
-        emit(inv, 'input.rejected', { inputId, reason: 'UnsupportedCapability: input.steer' }, { inputId })
-        throw new BrokerError(BrokerErrorCode.UnsupportedCapability, 'UnsupportedCapability: input.steer')
+        emit(
+          inv,
+          'input.rejected',
+          { inputId, reason: 'UnsupportedCapability: input.steer' },
+          { inputId }
+        )
+        throw new BrokerError(
+          BrokerErrorCode.UnsupportedCapability,
+          'UnsupportedCapability: input.steer'
+        )
       }
       if (input.kind === 'append_context' && !inv.capabilities.input.appendContext) {
-        emit(inv, 'input.rejected', { inputId, reason: 'UnsupportedCapability: input.appendContext' }, { inputId })
-        throw new BrokerError(BrokerErrorCode.UnsupportedCapability, 'UnsupportedCapability: input.appendContext')
+        emit(
+          inv,
+          'input.rejected',
+          { inputId, reason: 'UnsupportedCapability: input.appendContext' },
+          { inputId }
+        )
+        throw new BrokerError(
+          BrokerErrorCode.UnsupportedCapability,
+          'UnsupportedCapability: input.appendContext'
+        )
       }
 
       // --- State: ready → apply immediately ---
@@ -429,11 +523,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       // whenBusy: 'reject'
       if (policy.whenBusy === 'reject') {
         emit(inv, 'input.rejected', { inputId, reason: REASON_BUSY_REJECTED }, { inputId })
-        throw new BrokerError(
-          BrokerErrorCode.InputRejected,
-          REASON_BUSY_REJECTED,
-          { invocationId: inv.invocationId }
-        )
+        throw new BrokerError(BrokerErrorCode.InputRejected, REASON_BUSY_REJECTED, {
+          invocationId: inv.invocationId,
+        })
       }
 
       // whenBusy: 'interrupt_then_apply' — centrally rejected in v1
@@ -514,20 +606,37 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       return { accepted: true, state: inv.state }
     },
 
-    status(invocationId: string): InvocationStatusResponse {
+    status(invocationId: InvocationId): InvocationStatusResponse {
       const inv = requireInvocation(invocationId)
-      return {
+      const response: InvocationStatusResponse = {
         invocationId: inv.invocationId,
         state: inv.state,
         capabilities: inv.capabilities,
         continuation: inv.continuation,
       }
+      if (inv.currentTurnId !== undefined) {
+        response.currentTurnId = inv.currentTurnId
+      }
+      // Project child-process info when any of pid/exitCode/signal is known.
+      if (inv.childPid !== undefined || inv.exitCode !== undefined || inv.signal !== undefined) {
+        response.process = {
+          ...(inv.childPid !== undefined ? { pid: inv.childPid } : {}),
+          ...(inv.exitCode !== undefined ? { exitCode: inv.exitCode } : {}),
+          ...(inv.signal !== undefined ? { signal: inv.signal } : {}),
+        }
+      }
+      return response
     },
 
     async dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse> {
       const inv = requireInvocation(req.invocationId)
 
-      if (!TERMINAL_STATES.has(inv.state) && inv.state !== 'disposed') {
+      // Idempotent: a second dispose neither re-runs the driver nor re-emits.
+      if (inv.state === 'disposed' || inv.disposedEmitted) {
+        return { disposed: true }
+      }
+
+      if (!TERMINAL_STATES.has(inv.state)) {
         throw new BrokerError(
           BrokerErrorCode.InvalidInvocationState,
           `Cannot dispose invocation in state: ${inv.state}`,
@@ -536,12 +645,14 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       }
 
       await inv.driver.dispose()
-      inv.state = 'disposed'
+
+      // emit() → applyEventState sets state = 'disposed' and disposedEmitted.
+      emit(inv, 'invocation.disposed', { disposed: true })
 
       return { disposed: true }
     },
 
-    get(invocationId: string): Invocation | undefined {
+    get(invocationId: InvocationId): Invocation | undefined {
       return invocations.get(invocationId)
     },
 

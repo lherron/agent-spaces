@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  validateCommand,
+  validateEventEnvelope,
+  validateInvocationDispatchRequest,
   validateInvocationInput,
   validateInvocationSpec,
   validateInvocationStartRequest,
+  validatePermissionRequestParams,
 } from '../src/schemas'
 
 const specSection62Example = {
@@ -16,7 +20,7 @@ const specSection62Example = {
     command: 'codex',
     args: ['--enable', 'goals', 'app-server'],
     cwd: '/workspace/project',
-    env: {
+    lockedEnv: {
       CODEX_HOME: '/workspace/.codex-home',
     },
     harnessTransport: { kind: 'jsonrpc-stdio' },
@@ -52,7 +56,7 @@ const specSection19InvocationStartSpec = {
     command: 'codex',
     args: ['--enable', 'goals', 'app-server'],
     cwd: '/workspace/project',
-    env: {
+    lockedEnv: {
       CODEX_HOME: '/workspace/.codex-home',
     },
     harnessTransport: { kind: 'jsonrpc-stdio' },
@@ -68,6 +72,30 @@ const specSection19InvocationStartSpec = {
     sandboxMode: 'workspace-write',
     resumeFallback: 'start-fresh',
     permissionPolicy: { mode: 'deny' },
+  },
+}
+
+const claudeCodeTmuxSpec = {
+  specVersion: 'harness-broker.invocation/v1',
+  harness: {
+    frontend: 'claude-code',
+    provider: 'anthropic',
+    driver: 'claude-code-tmux',
+  },
+  process: {
+    command: 'claude',
+    args: ['--model', 'sonnet'],
+    cwd: '/workspace/project',
+    harnessTransport: { kind: 'pty' },
+  },
+  interaction: {
+    mode: 'interactive',
+    turnConcurrency: 'single',
+    inputQueue: 'fifo',
+  },
+  driver: {
+    kind: 'claude-code-tmux',
+    terminalHost: 'tmux',
   },
 }
 
@@ -96,6 +124,42 @@ const expectInvalidStartRequest = (
   expect(() => validateInvocationStartRequest(value)).toThrow(
     expect.objectContaining({
       code: 'INVALID_INVOCATION_START_REQUEST',
+      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
+    })
+  )
+}
+
+const expectInvalidDispatchRequest = (
+  value: unknown,
+  expectedIssue: { path: string; code: string }
+) => {
+  expect(() => validateInvocationDispatchRequest(value)).toThrow(
+    expect.objectContaining({
+      code: 'INVALID_INVOCATION_DISPATCH_REQUEST',
+      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
+    })
+  )
+}
+
+const expectInvalidEventEnvelope = (
+  value: unknown,
+  expectedIssue: { path: string; code: string }
+) => {
+  expect(() => validateEventEnvelope(value)).toThrow(
+    expect.objectContaining({
+      code: 'INVALID_EVENT_ENVELOPE',
+      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
+    })
+  )
+}
+
+const expectInvalidPermissionRequestParams = (
+  value: unknown,
+  expectedIssue: { path: string; code: string }
+) => {
+  expect(() => validatePermissionRequestParams(value)).toThrow(
+    expect.objectContaining({
+      code: 'INVALID_PERMISSION_REQUEST_PARAMS',
       issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
     })
   )
@@ -134,17 +198,70 @@ describe('validateInvocationSpec', () => {
 
   test('rejects env keys that cannot be passed to spawn safely', () => {
     const invalidWithEquals = structuredClone(specSection62Example)
-    invalidWithEquals.process.env['BAD=KEY'] = 'value'
+    invalidWithEquals.process.lockedEnv['BAD=KEY'] = 'value'
     expectInvalidSpec(invalidWithEquals, {
-      path: 'process.env.BAD=KEY',
+      path: 'process.lockedEnv.BAD=KEY',
       code: 'invalid_env_key',
     })
 
     const invalidWithNull = structuredClone(specSection62Example)
-    invalidWithNull.process.env['BAD\u0000KEY'] = 'value'
+    invalidWithNull.process.lockedEnv['BAD\u0000KEY'] = 'value'
     expectInvalidSpec(invalidWithNull, {
-      path: 'process.env.BAD\u0000KEY',
+      path: 'process.lockedEnv.BAD\u0000KEY',
       code: 'invalid_env_key',
+    })
+  })
+
+  test('rejects lockedEnv keys from ambient, credential, and reserved classes', () => {
+    const ambient = structuredClone(specSection62Example)
+    ambient.process.lockedEnv.HOME = '/Users/lherron'
+    expectInvalidSpec(ambient, {
+      path: 'process.lockedEnv.HOME',
+      code: 'ambient_env_key',
+    })
+
+    const credential = structuredClone(specSection62Example)
+    credential.process.lockedEnv.OPENAI_API_KEY = 'sk-test'
+    expectInvalidSpec(credential, {
+      path: 'process.lockedEnv.OPENAI_API_KEY',
+      code: 'credential_env_key',
+    })
+
+    const reserved = structuredClone(specSection62Example)
+    reserved.process.lockedEnv.NODE_OPTIONS = '--inspect'
+    expectInvalidSpec(reserved, {
+      path: 'process.lockedEnv.NODE_OPTIONS',
+      code: 'reserved_env_key',
+    })
+  })
+
+  test('accepts process.pathPrepend as an array of strings', () => {
+    const valid = structuredClone(specSection62Example) as typeof specSection62Example & {
+      process: { pathPrepend?: string[] }
+    }
+    valid.process.pathPrepend = ['/agent/tools/bin', '/opt/bin']
+    expect(validateInvocationSpec(valid)).toEqual(valid)
+  })
+
+  test('rejects process.pathPrepend that is not an array', () => {
+    const invalid = structuredClone(specSection62Example) as typeof specSection62Example & {
+      process: { pathPrepend?: unknown }
+    }
+    invalid.process.pathPrepend = '/agent/tools/bin'
+    expectInvalidSpec(invalid, {
+      path: 'process.pathPrepend',
+      code: 'invalid_type',
+    })
+  })
+
+  test('rejects process.pathPrepend entries that are not strings', () => {
+    const invalid = structuredClone(specSection62Example) as typeof specSection62Example & {
+      process: { pathPrepend?: unknown[] }
+    }
+    invalid.process.pathPrepend = ['/agent/tools/bin', 42]
+    expectInvalidSpec(invalid, {
+      path: 'process.pathPrepend.1',
+      code: 'invalid_type',
     })
   })
 
@@ -154,6 +271,19 @@ describe('validateInvocationSpec', () => {
 
     expectInvalidSpec(invalid, {
       path: 'specVersion',
+      code: 'invalid_literal',
+    })
+  })
+
+  test('rejects unsupported driver permission default decisions', () => {
+    const invalid = structuredClone(specSection62Example)
+    invalid.driver.permissionPolicy = {
+      mode: 'ask-client',
+      defaultDecision: 'prompt',
+    }
+
+    expectInvalidSpec(invalid, {
+      path: 'driver.permissionPolicy.defaultDecision',
       code: 'invalid_literal',
     })
   })
@@ -212,6 +342,319 @@ describe('validateInvocationStartRequest', () => {
       {
         path: 'spec.process.command',
         code: 'required',
+      }
+    )
+  })
+})
+
+describe('validateInvocationDispatchRequest', () => {
+  test('accepts a dispatch envelope with a verbatim start request and dispatchEnv', () => {
+    const request = {
+      startRequest: {
+        spec: specSection19InvocationStartSpec,
+        initialInput: {
+          inputId: 'input_1',
+          kind: 'user',
+          content: [{ type: 'text', text: 'hello' }],
+        },
+      },
+      dispatchEnv: {
+        WRKQ_HANDOFF_ID: 'handoff_1',
+      },
+    }
+
+    expect(validateInvocationDispatchRequest(request)).toEqual(request)
+  })
+
+  test('rejects dispatchEnv that shadows lockedEnv', () => {
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: specSection19InvocationStartSpec },
+        dispatchEnv: { CODEX_HOME: '/tmp/other' },
+      },
+      {
+        path: 'dispatchEnv.CODEX_HOME',
+        code: 'dispatch_env_shadow',
+      }
+    )
+  })
+
+  test('rejects dispatchEnv from ambient, credential, and reserved classes', () => {
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: specSection19InvocationStartSpec },
+        dispatchEnv: { HOME: '/tmp' },
+      },
+      {
+        path: 'dispatchEnv.HOME',
+        code: 'ambient_env_key',
+      }
+    )
+
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: specSection19InvocationStartSpec },
+        dispatchEnv: { GITHUB_TOKEN: 'secret' },
+      },
+      {
+        path: 'dispatchEnv.GITHUB_TOKEN',
+        code: 'credential_env_key',
+      }
+    )
+
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: specSection19InvocationStartSpec },
+        dispatchEnv: { SSH_AUTH_SOCK: '/tmp/socket' },
+      },
+      {
+        path: 'dispatchEnv.SSH_AUTH_SOCK',
+        code: 'reserved_env_key',
+      }
+    )
+  })
+
+  test('requires a runtime tmux socket for claude-code-tmux dispatch requests', () => {
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: claudeCodeTmuxSpec },
+      },
+      {
+        path: 'startRequest.runtime.tmux.socketPath',
+        code: 'required',
+      }
+    )
+  })
+
+  test('accepts a runtime tmux socket for claude-code-tmux dispatch requests', () => {
+    const request = {
+      startRequest: {
+        spec: claudeCodeTmuxSpec,
+        runtime: {
+          tmux: {
+            socketPath: '/tmp/preallocated/hrc-owned-tmux.sock',
+          },
+        },
+      },
+    }
+
+    expect(validateInvocationDispatchRequest(request)).toEqual(request)
+  })
+})
+
+describe('validateCommand', () => {
+  test('validates invocation.start as a dispatch envelope', () => {
+    const command = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'invocation.start',
+      params: {
+        startRequest: {
+          spec: specSection19InvocationStartSpec,
+        },
+        dispatchEnv: {
+          WRKQ_HANDOFF_ID: 'handoff_1',
+        },
+      },
+    }
+
+    expect(validateCommand(command)).toEqual(command)
+  })
+
+  test('rejects bare start request params for invocation.start', () => {
+    expect(() =>
+      validateCommand({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'invocation.start',
+        params: {
+          spec: specSection19InvocationStartSpec,
+        },
+      })
+    ).toThrow(
+      expect.objectContaining({
+        code: 'INVALID_COMMAND',
+        issues: expect.arrayContaining([
+          expect.objectContaining({ path: 'params.startRequest', code: 'required' }),
+        ]),
+      })
+    )
+  })
+
+  test('keeps v1 command validation notification-based', () => {
+    expect(() =>
+      validateCommand({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'invocation.events',
+        params: { invocationId: 'inv_1' },
+      })
+    ).toThrow(
+      expect.objectContaining({
+        code: 'INVALID_COMMAND',
+        issues: expect.arrayContaining([
+          expect.objectContaining({ path: 'method', code: 'unknown_method' }),
+        ]),
+      })
+    )
+  })
+})
+
+describe('validatePermissionRequestParams', () => {
+  test('accepts broker-to-client permission request params', () => {
+    const params = {
+      invocationId: 'inv_1',
+      turnId: 'turn_1',
+      permissionRequestId: 'perm_1',
+      kind: 'command',
+      subject: { argv: ['ls'] },
+      defaultDecision: 'deny',
+      deadlineMs: 1000,
+    }
+
+    expect(validatePermissionRequestParams(params)).toEqual(params)
+  })
+
+  test('rejects unsupported default decisions', () => {
+    expectInvalidPermissionRequestParams(
+      {
+        invocationId: 'inv_1',
+        permissionRequestId: 'perm_1',
+        kind: 'command',
+        subject: { argv: ['ls'] },
+        defaultDecision: 'prompt',
+      },
+      {
+        path: 'defaultDecision',
+        code: 'invalid_literal',
+      }
+    )
+  })
+
+  test('requires the subject field even when display subject is absent', () => {
+    expectInvalidPermissionRequestParams(
+      {
+        invocationId: 'inv_1',
+        permissionRequestId: 'perm_1',
+        kind: 'command',
+        defaultDecision: 'deny',
+      },
+      {
+        path: 'subject',
+        code: 'required',
+      }
+    )
+  })
+})
+
+describe('validateEventEnvelope', () => {
+  const envelope = (type: string, payload: unknown) => ({
+    invocationId: 'inv_1',
+    seq: 1,
+    time: '2026-05-24T00:00:00.000Z',
+    type,
+    payload,
+  })
+
+  const eventPayloads: Record<string, unknown> = {
+    'invocation.started': {
+      command: 'codex',
+      args: ['app-server'],
+      cwd: '/workspace',
+    },
+    'invocation.ready': { state: 'ready' },
+    'invocation.stopping': { reason: 'requested' },
+    'invocation.exited': { exitCode: 0, signal: null },
+    'invocation.failed': { message: 'failed' },
+    'invocation.disposed': { disposed: true },
+    'continuation.updated': { provider: 'openai', key: 'thread_1' },
+    'input.accepted': { inputId: 'input_1' },
+    'input.rejected': { inputId: 'input_1', reason: 'busy' },
+    'input.queued': { inputId: 'input_1' },
+    'turn.started': { turnId: 'turn_1' },
+    'turn.completed': { turnId: 'turn_1', status: 'completed' },
+    'turn.failed': { turnId: 'turn_1', message: 'failed' },
+    'turn.interrupted': { turnId: 'turn_1', reason: 'requested' },
+    'assistant.message.started': { messageId: 'msg_1' },
+    'assistant.message.delta': { messageId: 'msg_1', text: 'hello' },
+    'assistant.message.completed': {
+      messageId: 'msg_1',
+      content: [{ type: 'text', text: 'hello' }],
+    },
+    'tool.call.started': { toolCallId: 'tool_1', name: 'read' },
+    'tool.call.delta': { toolCallId: 'tool_1', text: 'chunk' },
+    'tool.call.completed': { toolCallId: 'tool_1', name: 'read' },
+    'tool.call.failed': { toolCallId: 'tool_1', name: 'read', message: 'failed' },
+    'usage.updated': { usage: { inputTokens: 1 } },
+    diagnostic: { level: 'info', message: 'notice' },
+    'driver.notice': { message: 'notice' },
+    'terminal.surface.reported': {
+      kind: 'tmux-session',
+      socketPath: '/tmp/tmux-501/default',
+      sessionName: 'asp-claude',
+      paneId: '%1',
+    },
+    'permission.requested': {
+      permissionRequestId: 'perm_1',
+      kind: 'command',
+      subjectDisplay: { argv: ['ls'] },
+      defaultDecision: 'deny',
+      deadlineMs: 1000,
+    },
+    'permission.resolved': {
+      permissionRequestId: 'perm_1',
+      decision: 'deny',
+      decidedBy: 'policy',
+      message: 'blocked',
+    },
+  }
+
+  test('accepts every final v1 invocation event type', () => {
+    for (const [type, payload] of Object.entries(eventPayloads)) {
+      expect(validateEventEnvelope(envelope(type, payload))).toEqual(envelope(type, payload))
+    }
+  })
+
+  test('rejects unsupported event types', () => {
+    expectInvalidEventEnvelope(envelope('invocation.permission.request', {}), {
+      path: 'type',
+      code: 'invalid_event_type',
+    })
+  })
+
+  test('validates invocation.ready and invocation.disposed payloads', () => {
+    expectInvalidEventEnvelope(envelope('invocation.ready', {}), {
+      path: 'payload.state',
+      code: 'required',
+    })
+    expectInvalidEventEnvelope(envelope('invocation.disposed', {}), {
+      path: 'payload.disposed',
+      code: 'required',
+    })
+  })
+
+  test('validates permission event payloads', () => {
+    expectInvalidEventEnvelope(
+      envelope('permission.requested', {
+        permissionRequestId: 'perm_1',
+        kind: 'command',
+        subjectDisplay: { argv: ['ls'] },
+        defaultDecision: 'prompt',
+      }),
+      {
+        path: 'payload.defaultDecision',
+        code: 'invalid_literal',
+      }
+    )
+    expectInvalidEventEnvelope(
+      envelope('permission.resolved', {
+        permissionRequestId: 'perm_1',
+        decision: 'deny',
+        decidedBy: 'client',
+      }),
+      {
+        path: 'payload.decidedBy',
+        code: 'invalid_literal',
       }
     )
   })

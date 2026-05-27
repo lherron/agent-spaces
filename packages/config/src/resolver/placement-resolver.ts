@@ -421,6 +421,7 @@ function buildSyntheticAgentProjectManifest(
           ? { priming_prompt: effectiveConfig.priming_prompt }
           : {}),
         ...(effectiveConfig.yolo ? { yolo: effectiveConfig.yolo } : {}),
+        ...(effectiveConfig.remoteControl ? { remote_control: effectiveConfig.remoteControl } : {}),
         ...(Object.keys(effectiveConfig.claude).length > 0
           ? { claude: effectiveConfig.claude }
           : {}),

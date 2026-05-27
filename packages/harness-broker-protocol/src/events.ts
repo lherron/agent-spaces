@@ -1,11 +1,21 @@
-export interface InvocationEventEnvelope<TPayload = unknown> {
-  invocationId: string
+import type {
+  InputId,
+  InvocationId,
+  MessageId,
+  PermissionRequestId,
+  ToolCallId,
+  TurnId,
+} from './ids'
+import type { IsoTimestamp } from './primitives'
+
+export interface InvocationEventEnvelope<TPayload = InvocationEventPayload> {
+  invocationId: InvocationId
   seq: number
-  time: string
+  time: IsoTimestamp
   type: InvocationEventType
   payload: TPayload
-  turnId?: string | undefined
-  inputId?: string | undefined
+  turnId?: TurnId | undefined
+  inputId?: InputId | undefined
   itemId?: string | undefined
   correlation?: Record<string, string> | undefined
   driver?:
@@ -41,12 +51,54 @@ export type InvocationEventType =
   | 'usage.updated'
   | 'diagnostic'
   | 'driver.notice'
+  | 'terminal.surface.reported'
+  | 'permission.requested'
+  | 'permission.resolved'
+
+export type InvocationEventPayload =
+  | InvocationStartedPayload
+  | InvocationReadyPayload
+  | InvocationStoppingPayload
+  | InvocationExitedPayload
+  | InvocationFailedPayload
+  | InvocationDisposedPayload
+  | ContinuationUpdate
+  | InputDispositionPayload
+  | TurnStartedPayload
+  | TurnCompletedPayload
+  | TurnFailedPayload
+  | TurnInterruptedPayload
+  | AssistantMessageStartedPayload
+  | AssistantMessageDeltaPayload
+  | AssistantMessageCompletedPayload
+  | ToolCallStartedPayload
+  | ToolCallDeltaPayload
+  | ToolCallCompletedPayload
+  | ToolCallFailedPayload
+  | UsageUpdatedPayload
+  | DiagnosticPayload
+  | DriverNoticePayload
+  | TerminalSurfaceReportedPayload
+  | PermissionRequestedPayload
+  | PermissionResolvedPayload
 
 export interface InvocationStartedPayload {
   pid?: number | undefined
   command: string
   args: string[]
   cwd: string
+}
+
+export interface InvocationReadyPayload {
+  state: 'ready'
+}
+
+export interface InvocationStoppingPayload {
+  reason?: string | undefined
+}
+
+export interface InvocationDisposedPayload {
+  disposed: true
 }
 
 export interface ContinuationUpdate {
@@ -56,38 +108,38 @@ export interface ContinuationUpdate {
 }
 
 export interface TurnStartedPayload {
-  turnId: string
+  turnId: TurnId
 }
 
 export interface AssistantMessageStartedPayload {
-  messageId: string
+  messageId: MessageId
 }
 
 export interface AssistantMessageDeltaPayload {
-  messageId: string
+  messageId: MessageId
   text: string
 }
 
 export interface AssistantMessageCompletedPayload {
-  messageId: string
+  messageId: MessageId
   content: Array<{ type: 'text'; text: string }>
   final?: boolean | undefined
 }
 
 export interface ToolCallStartedPayload {
-  toolCallId: string
+  toolCallId: ToolCallId
   name: string
   input?: unknown
 }
 
 export interface ToolCallDeltaPayload {
-  toolCallId: string
+  toolCallId: ToolCallId
   text?: string | undefined
   data?: unknown
 }
 
 export interface ToolCallCompletedPayload {
-  toolCallId: string
+  toolCallId: ToolCallId
   name: string
   result?: unknown
   isError?: boolean | undefined
@@ -95,10 +147,36 @@ export interface ToolCallCompletedPayload {
 }
 
 export interface TurnCompletedPayload {
-  turnId: string
+  turnId: TurnId
   status: 'completed' | 'failed' | 'interrupted'
   finalOutput?: string | undefined
+  /**
+   * Whether the turn produced observable content (assistant text OR tool
+   * activity). A tool-only turn sets this true even with an empty finalOutput;
+   * an empty finalOutput alone is NOT an empty_response (T-01522).
+   */
+  producedContent?: boolean | undefined
   usage?: unknown
+}
+
+export interface TurnFailedPayload {
+  turnId: TurnId
+  message: string
+  code?: string | undefined
+  data?: unknown
+}
+
+export interface TurnInterruptedPayload {
+  turnId: TurnId
+  reason?: string | undefined
+}
+
+export interface ToolCallFailedPayload {
+  toolCallId: ToolCallId
+  name: string
+  message: string
+  code?: string | undefined
+  data?: unknown
 }
 
 export interface DiagnosticPayload {
@@ -120,7 +198,7 @@ export interface InvocationFailedPayload {
 }
 
 export interface InputDispositionPayload {
-  inputId: string
+  inputId: InputId
   reason?: string | undefined
 }
 
@@ -132,4 +210,26 @@ export interface DriverNoticePayload {
   message: string
   code?: string | undefined
   data?: unknown
+}
+
+export interface TerminalSurfaceReportedPayload {
+  kind: 'tmux-session'
+  socketPath: string
+  sessionName: string
+  paneId?: string | undefined
+}
+
+export interface PermissionRequestedPayload {
+  permissionRequestId: PermissionRequestId
+  kind: 'command' | 'file_change' | 'tool' | string
+  subjectDisplay: unknown
+  defaultDecision: 'allow' | 'deny'
+  deadlineMs?: number | undefined
+}
+
+export interface PermissionResolvedPayload {
+  permissionRequestId: PermissionRequestId
+  decision: 'allow' | 'deny'
+  decidedBy: 'policy' | 'user' | 'api' | 'timeout'
+  message?: string | undefined
 }

@@ -1,10 +1,14 @@
 import { describe, expect, test } from 'bun:test'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
-import { createCodexAppServerDriver } from '../../../src/drivers/codex-app-server/driver'
+import {
+  buildThreadStartParams,
+  createCodexAppServerDriver,
+  validateInitializeHandshake,
+} from '../../../src/drivers/codex-app-server/driver'
 
 const root = new URL('../../..', import.meta.url).pathname
 const fixtureDir = join(root, 'test/fixtures/fake-codex')
@@ -27,9 +31,9 @@ const scenarioSpec = (
     command: Bun.execPath,
     args: [join(fixtureDir, `${scenario}.ts`), '--literal', '$NO_EXPAND', '*.ts'],
     cwd: process.cwd(),
-    env: {
+    lockedEnv: {
       CODEX_HOME: '/tmp/harness-broker-codex-home',
-      SECRET_TOKEN: 'red-test-secret-value',
+      ASP_RED_TEST_VALUE: 'red-test-secret-value',
     },
     harnessTransport: { kind: 'jsonrpc-stdio' },
     limits: {
@@ -70,7 +74,13 @@ function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope
 
 async function expectGolden(scenario: string, events: InvocationEventEnvelope[]): Promise<void> {
   const actual = `${events.map((event) => JSON.stringify(normalizeEvent(event))).join('\n')}\n`
-  const expected = await readFile(join(goldenDir, `${scenario}.golden.jsonl`), 'utf8')
+  const goldenPath = join(goldenDir, `${scenario}.golden.jsonl`)
+  // Set UPDATE_GOLDEN=1 to regenerate fixtures after a deliberate contract change.
+  if (process.env['UPDATE_GOLDEN'] === '1') {
+    await writeFile(goldenPath, actual)
+    return
+  }
+  const expected = await readFile(goldenPath, 'utf8')
   expect(actual).toBe(expected)
 }
 
@@ -161,6 +171,25 @@ describe('Codex app-server driver red scenarios', () => {
     await expectGolden('usage-update', events)
   })
 
+  test('surfaces an unknown native notification as a trace diagnostic without leaking the native type', async () => {
+    const events = await runScenario('unknown-notification')
+    const types = events.map((event) => event.type)
+    // The unknown native method must never appear as a normalized event type.
+    expect(types).not.toContain('thread/experimentalSignal')
+    const diagnostic = events.find(
+      (event) =>
+        event.type === 'diagnostic' &&
+        (event.payload as { message?: string }).message?.includes('thread/experimentalSignal')
+    )
+    expect(diagnostic).toBeDefined()
+    expect((diagnostic?.payload as { level: string }).level).toBe('debug')
+    expect(diagnostic?.driver).toEqual({
+      kind: 'codex-app-server',
+      rawType: 'thread/experimentalSignal',
+    })
+    await expectGolden('unknown-notification', events)
+  })
+
   test.todo('permission request policies are Phase 3 scope per T-01544')
 
   test('maps startup error notification to diagnostic and terminal invocation.failed', async () => {
@@ -174,6 +203,37 @@ describe('Codex app-server driver red scenarios', () => {
       code: BrokerErrorCode.HarnessError,
     })
     await expectGolden('startup-error', events)
+  })
+
+  test('rejects an unsupported initialize protocol version with a terminal invocation.failed', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    await expect(
+      broker.start({ spec: scenarioSpec('handshake-unsupported') })
+    ).rejects.toMatchObject({ code: BrokerErrorCode.HarnessError })
+    // No invocation.started / ready: handshake validation fails before they emit.
+    expect(events.map((event) => event.type)).toEqual(['invocation.failed'])
+    expect(events[0]?.payload).toMatchObject({
+      message: expect.stringContaining('Unsupported Codex app-server protocol version'),
+    })
+  })
+
+  test('maps a process exit during startup to a terminal invocation.failed', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    await expect(broker.start({ spec: scenarioSpec('exit-during-startup') })).rejects.toMatchObject(
+      { code: BrokerErrorCode.HarnessError }
+    )
+    expect(events.map((event) => event.type)).toEqual(['invocation.failed'])
+    expect(events.some((event) => event.type === 'invocation.started')).toBe(false)
   })
 
   test('encodes sandboxMode as Codex internally tagged sandboxPolicy', async () => {
@@ -302,5 +362,90 @@ describe('Codex app-server process behavior red tests', () => {
     const eventJson = JSON.stringify(events)
     expect(eventJson).not.toContain('red-test-secret-value')
     expect(eventJson).not.toContain('/tmp/harness-broker-codex-home')
+  })
+})
+
+describe('buildThreadStartParams driver-spec field handling (H6)', () => {
+  const baseSpec = scenarioSpec('start-fresh-turn')
+
+  test('forwards model, approvalPolicy, sandboxMode and profile', () => {
+    const params = buildThreadStartParams(baseSpec, {
+      kind: 'codex-app-server',
+      model: 'gpt-5-codex',
+      approvalPolicy: 'on-request',
+      sandboxMode: 'workspace-write',
+      profile: 'review',
+    })
+    expect(params).toMatchObject({
+      model: 'gpt-5-codex',
+      approvalPolicy: 'on-request',
+      sandbox: 'workspace-write',
+      profile: 'review',
+      cwd: baseSpec.process.cwd,
+    })
+  })
+
+  test('forwards modelReasoningEffort as a thread-scope config override', () => {
+    const params = buildThreadStartParams(baseSpec, {
+      kind: 'codex-app-server',
+      modelReasoningEffort: 'high',
+    })
+    expect(params['config']).toEqual({ model_reasoning_effort: 'high' })
+  })
+
+  test('defaults to safe nulls and never-approve when fields are absent', () => {
+    const params = buildThreadStartParams(baseSpec, { kind: 'codex-app-server' })
+    expect(params).toMatchObject({
+      model: null,
+      profile: null,
+      sandbox: null,
+      config: null,
+      approvalPolicy: 'never',
+    })
+  })
+})
+
+describe('validateInitializeHandshake tolerance (H6)', () => {
+  function collectDiagnostics() {
+    const diagnostics: Array<{ level: string; message: string }> = []
+    const emit = (level: string, message: string) => {
+      diagnostics.push({ level, message })
+    }
+    return { diagnostics, emit: emit as Parameters<typeof validateInitializeHandshake>[1] }
+  }
+
+  test('accepts a namespaced protocolVersion with no diagnostics', () => {
+    const { diagnostics, emit } = collectDiagnostics()
+    expect(() =>
+      validateInitializeHandshake({ protocolVersion: 'codex-app-server/v0' }, emit)
+    ).not.toThrow()
+    expect(diagnostics).toHaveLength(0)
+  })
+
+  test('throws on a clearly-unsupported protocolVersion', () => {
+    const { emit } = collectDiagnostics()
+    expect(() =>
+      validateInitializeHandshake({ protocolVersion: 'acp-incompatible/v1' }, emit)
+    ).toThrow(/Unsupported Codex app-server protocol version/)
+  })
+
+  test('tolerates a missing protocolVersion with a debug diagnostic', () => {
+    const { diagnostics, emit } = collectDiagnostics()
+    expect(() => validateInitializeHandshake({ capabilities: {} }, emit)).not.toThrow()
+    expect(diagnostics).toEqual([
+      { level: 'debug', message: 'Codex initialize response omitted protocolVersion' },
+    ])
+  })
+
+  test('tolerates a non-object response with a warn diagnostic', () => {
+    const { diagnostics, emit } = collectDiagnostics()
+    expect(() => validateInitializeHandshake(null, emit)).not.toThrow()
+    expect(diagnostics[0]?.level).toBe('warn')
+  })
+
+  test('tolerates a non-string protocolVersion with a warn diagnostic', () => {
+    const { diagnostics, emit } = collectDiagnostics()
+    expect(() => validateInitializeHandshake({ protocolVersion: 42 }, emit)).not.toThrow()
+    expect(diagnostics[0]?.level).toBe('warn')
   })
 })

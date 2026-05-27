@@ -5,10 +5,11 @@ import type {
   InvocationCapabilities,
 } from './capabilities'
 import type { ContinuationUpdate } from './events'
+import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
 import type { HarnessInvocationSpec } from './invocation'
 import type { JsonRpcRequest } from './jsonrpc'
 
-export type BrokerMethod =
+export type BrokerMethodV1 =
   | 'broker.hello'
   | 'broker.health'
   | 'invocation.start'
@@ -18,10 +19,24 @@ export type BrokerMethod =
   | 'invocation.status'
   | 'invocation.dispose'
 
+export type BrokerMethodV2 =
+  | BrokerMethodV1
+  | 'broker.attach'
+  | 'broker.listInvocations'
+  | 'invocation.eventsSince'
+  | 'invocation.ackEvents'
+  | 'invocation.snapshot'
+  | 'invocation.permission.respond'
+
+export type BrokerMethod = BrokerMethodV1
+
+export type BrokerToClientRequestMethod = 'invocation.permission.request'
+export type BrokerNotificationMethod = 'invocation.event'
+
 export type BrokerCommand =
   | JsonRpcRequest<'broker.hello', BrokerHelloRequest>
   | JsonRpcRequest<'broker.health', BrokerHealthRequest>
-  | JsonRpcRequest<'invocation.start', InvocationStartRequest>
+  | JsonRpcRequest<'invocation.start', InvocationDispatchRequest>
   | JsonRpcRequest<'invocation.input', InvocationInputRequest>
   | JsonRpcRequest<'invocation.interrupt', InvocationInterruptRequest>
   | JsonRpcRequest<'invocation.stop', InvocationStopRequest>
@@ -57,13 +72,40 @@ export interface BrokerHealthResponse {
   drivers?: DriverSummary[] | undefined
 }
 
+/**
+ * Dispatch-time runtime overlay (spec §3.3). Carries per-operation runtime
+ * allocations and handles supplied AFTER profile selection by the HRC runtime
+ * control plane (or the pre-HRC harness stand-in). This is NOT part of the
+ * compiled/hashed spec: the compiled profile carries launch INTENT only
+ * (`brokerTerminal.host: 'tmux'`), never a concrete tmux server socket.
+ */
+export interface InvocationRuntimeContext {
+  /** Pre-allocated tmux server socket owned by the runtime control plane. */
+  tmux?:
+    | {
+        socketPath: string
+      }
+    | undefined
+}
+
 export interface InvocationStartRequest {
   spec: HarnessInvocationSpec
   initialInput?: InvocationInput | undefined
+  /**
+   * Dispatch-time runtime overlay. REQUIRED for `claude-code-tmux` dispatch
+   * (the driver attaches to this runtime-owned tmux socket; it must not own the
+   * tmux server). Absent for routes that need no runtime resource handles.
+   */
+  runtime?: InvocationRuntimeContext | undefined
+}
+
+export interface InvocationDispatchRequest {
+  startRequest: InvocationStartRequest
+  dispatchEnv?: Record<string, string> | undefined
 }
 
 export interface InvocationStartResponse {
-  invocationId: string
+  invocationId: InvocationId
   state: InvocationState
   capabilities: InvocationCapabilities
 }
@@ -78,13 +120,13 @@ export type InvocationState =
   | 'disposed'
 
 export interface InvocationInputRequest {
-  invocationId: string
+  invocationId: InvocationId
   input: InvocationInput
   policy?: InputPolicy | undefined
 }
 
 export interface InvocationInput {
-  inputId?: string | undefined
+  inputId?: InputId | undefined
   kind: 'user' | 'steer' | 'append_context'
   content: InputContent[]
   metadata?: Record<string, string> | undefined
@@ -101,15 +143,15 @@ export interface InputPolicy {
 }
 
 export interface InvocationInputResponse {
-  inputId: string
+  inputId: InputId
   accepted: boolean
   disposition: 'started' | 'queued' | 'rejected'
   reason?: string | undefined
-  turnId?: string | undefined
+  turnId?: TurnId | undefined
 }
 
 export interface InvocationInterruptRequest {
-  invocationId: string
+  invocationId: InvocationId
   scope: 'turn' | 'invocation'
   reason?: string | undefined
   graceMs?: number | undefined
@@ -122,7 +164,7 @@ export interface InvocationInterruptResponse {
 }
 
 export interface InvocationStopRequest {
-  invocationId: string
+  invocationId: InvocationId
   reason?: string | undefined
   graceMs?: number | undefined
 }
@@ -133,13 +175,13 @@ export interface InvocationStopResponse {
 }
 
 export interface InvocationStatusRequest {
-  invocationId: string
+  invocationId: InvocationId
 }
 
 export interface InvocationStatusResponse {
-  invocationId: string
+  invocationId: InvocationId
   state: InvocationState
-  currentTurnId?: string | undefined
+  currentTurnId?: TurnId | undefined
   continuation?: ContinuationUpdate | undefined
   capabilities: InvocationCapabilities
   process?:
@@ -152,7 +194,7 @@ export interface InvocationStatusResponse {
 }
 
 export interface InvocationDisposeRequest {
-  invocationId: string
+  invocationId: InvocationId
 }
 
 export interface InvocationDisposeResponse {
@@ -160,9 +202,9 @@ export interface InvocationDisposeResponse {
 }
 
 export interface PermissionRequestParams {
-  invocationId: string
-  turnId?: string | undefined
-  permissionRequestId: string
+  invocationId: InvocationId
+  turnId?: TurnId | undefined
+  permissionRequestId: PermissionRequestId
   kind: 'command' | 'file_change' | 'tool' | string
   subject: unknown
   defaultDecision: 'allow' | 'deny'

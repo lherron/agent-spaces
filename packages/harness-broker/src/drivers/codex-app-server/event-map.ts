@@ -1,12 +1,12 @@
-import type { InvocationEventType } from 'spaces-harness-broker-protocol'
+import type { InputId, InvocationEventType, TurnId } from 'spaces-harness-broker-protocol'
 import type { JsonRpcNotification } from './rpc-client'
 
 export interface MappedEvent {
   type: InvocationEventType
   payload: unknown
   extra?: {
-    turnId?: string | undefined
-    inputId?: string | undefined
+    turnId?: TurnId | undefined
+    inputId?: InputId | undefined
     itemId?: string | undefined
     driver?: { kind: string; rawType?: string | undefined } | undefined
   }
@@ -18,6 +18,9 @@ export interface CodexErrorInfo {
   data?: unknown
 }
 
+/** Stable driver identity stamped onto every event derived from a native notification. */
+export const CODEX_DRIVER_KIND = 'codex-app-server'
+
 const TOOL_NAMES: Record<string, string> = {
   commandExecution: 'command',
   fileChange: 'file_change',
@@ -28,7 +31,26 @@ const TOOL_NAMES: Record<string, string> = {
 
 const TOOL_TYPES = new Set(Object.keys(TOOL_NAMES))
 
+function asTurnId(value: string): TurnId {
+  return value as TurnId
+}
+
+/**
+ * Map a native Codex app-server notification to zero or more normalized broker
+ * events. Every emitted event is stamped with `extra.driver` so consumers can
+ * trace it back to the native method without that native type ever leaking into
+ * the normalized `type`. Unknown native methods become a trace-level diagnostic
+ * (again carrying `rawType`) rather than being silently dropped.
+ */
 export function mapCodexNotification(notification: JsonRpcNotification): MappedEvent[] {
+  const driver = { kind: CODEX_DRIVER_KIND, rawType: notification.method }
+  return mapCodexNotificationInner(notification).map((event) => ({
+    ...event,
+    extra: { ...event.extra, driver },
+  }))
+}
+
+function mapCodexNotificationInner(notification: JsonRpcNotification): MappedEvent[] {
   const params = asRecord(notification.params)
 
   switch (notification.method) {
@@ -39,7 +61,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
         {
           type: 'turn.started',
           payload: { turnId },
-          extra: { turnId },
+          extra: { turnId: asTurnId(turnId) },
         },
       ]
     }
@@ -61,7 +83,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
           {
             type: 'assistant.message.started',
             payload: { messageId: itemId },
-            extra: { turnId, itemId },
+            extra: { turnId: asTurnId(turnId), itemId },
           },
         ]
       }
@@ -76,7 +98,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
               name: TOOL_NAMES[itemType] ?? itemType,
               ...(input !== undefined ? { input } : {}),
             },
-            extra: { turnId, itemId },
+            extra: { turnId: asTurnId(turnId), itemId },
           },
         ]
       }
@@ -92,7 +114,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
         {
           type: 'assistant.message.delta',
           payload: { messageId: itemId, text },
-          extra: { turnId, itemId },
+          extra: { turnId: asTurnId(turnId), itemId },
         },
       ]
     }
@@ -107,7 +129,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
         {
           type: 'tool.call.delta',
           payload: { toolCallId: itemId, text },
-          extra: { turnId, itemId },
+          extra: { turnId: asTurnId(turnId), itemId },
         },
       ]
     }
@@ -123,7 +145,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
             toolCallId: itemId,
             ...(params['data'] !== undefined ? { data: params['data'] } : { data: params }),
           },
-          extra: { turnId, itemId },
+          extra: { turnId: asTurnId(turnId), itemId },
         },
       ]
     }
@@ -144,7 +166,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
               content: normalizeMessageContent(item),
               final: true,
             },
-            extra: { turnId, itemId },
+            extra: { turnId: asTurnId(turnId), itemId },
           },
         ]
       }
@@ -163,7 +185,7 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
               isError,
               ...(durationMs !== undefined ? { durationMs } : {}),
             },
-            extra: { turnId, itemId },
+            extra: { turnId: asTurnId(turnId), itemId },
           },
         ]
       }
@@ -199,13 +221,25 @@ export function mapCodexNotification(notification: JsonRpcNotification): MappedE
                 ? { finalOutput: turn['finalOutput'] }
                 : {}),
           },
-          extra: { turnId },
+          extra: { turnId: asTurnId(turnId) },
         },
       ]
     }
 
     default:
-      return []
+      // Unknown native notification: surface as a trace-level diagnostic so it
+      // is observable but never leaks the native method name as a normalized
+      // event `type`. The native method is preserved in `extra.driver.rawType`.
+      return [
+        {
+          type: 'diagnostic',
+          payload: {
+            level: 'debug',
+            message: `Unhandled Codex notification: ${notification.method}`,
+            source: 'driver',
+          },
+        },
+      ]
   }
 }
 

@@ -1,8 +1,38 @@
-import type { BrokerCommand, BrokerMethod } from './commands'
-import type { InvocationInput, InvocationStartRequest } from './commands'
+import type { BrokerCommand, BrokerMethod, BrokerMethodV1 } from './commands'
+import type {
+  InvocationDispatchRequest,
+  InvocationInput,
+  InvocationStartRequest,
+  PermissionRequestParams,
+} from './commands'
 import type { InvocationEventEnvelope, InvocationEventType } from './events'
 import type { HarnessInvocationSpec } from './invocation'
 import { isJsonRpcRequest } from './jsonrpc'
+
+// Env-key classification policy lives in ./env-keys; re-export to preserve the
+// public package surface (ENV_KEY_PATTERN / isAmbientEnvKey / etc.).
+export * from './env-keys.js'
+import {
+  ENV_KEY_PATTERN,
+  isAmbientEnvKey,
+  isCredentialEnvKey,
+  isReservedEnvKey,
+} from './env-keys.js'
+import {
+  path,
+  asRecord,
+  issue,
+  optionalBoolean,
+  optionalEnum,
+  optionalNumber,
+  optionalString,
+  optionalStringArray,
+  requireNumber,
+  requirePayloadRecord,
+  requireString,
+  requireStringArray,
+  requireTrue,
+} from './validation-primitives.js'
 
 export interface ValidationIssue {
   path: string
@@ -43,6 +73,28 @@ export class InvocationStartRequestValidationError extends Error {
   }
 }
 
+export class InvocationDispatchRequestValidationError extends Error {
+  readonly code = 'INVALID_INVOCATION_DISPATCH_REQUEST'
+  readonly issues: ValidationIssue[]
+
+  constructor(issues: ValidationIssue[]) {
+    super('Invalid invocation dispatch request')
+    this.name = 'InvocationDispatchRequestValidationError'
+    this.issues = issues
+  }
+}
+
+export class PermissionRequestParamsValidationError extends Error {
+  readonly code = 'INVALID_PERMISSION_REQUEST_PARAMS'
+  readonly issues: ValidationIssue[]
+
+  constructor(issues: ValidationIssue[]) {
+    super('Invalid permission request params')
+    this.name = 'PermissionRequestParamsValidationError'
+    this.issues = issues
+  }
+}
+
 export class CommandValidationError extends Error {
   readonly code = 'INVALID_COMMAND'
   readonly issues: ValidationIssue[]
@@ -65,7 +117,7 @@ export class EventEnvelopeValidationError extends Error {
   }
 }
 
-type SchemaRecord = Record<string, unknown> & {
+export type SchemaRecord = Record<string, unknown> & {
   approvalPolicy?: unknown
   args?: unknown
   capabilities?: unknown
@@ -79,6 +131,7 @@ type SchemaRecord = Record<string, unknown> & {
   defaultImageAttachments?: unknown
   driver?: unknown
   env?: unknown
+  dispatchEnv?: unknown
   frontend?: unknown
   harness?: unknown
   harnessTransport?: unknown
@@ -91,6 +144,7 @@ type SchemaRecord = Record<string, unknown> & {
   kind?: unknown
   labels?: unknown
   limits?: unknown
+  lockedEnv?: unknown
   maxEventBytes?: unknown
   metadata?: unknown
   mimeType?: unknown
@@ -99,9 +153,11 @@ type SchemaRecord = Record<string, unknown> & {
   modelReasoningEffort?: unknown
   name?: unknown
   path?: unknown
+  pathPrepend?: unknown
   permissionRequests?: unknown
   permissionPolicy?: unknown
   policy?: unknown
+  paneId?: unknown
   probeDrivers?: unknown
   process?: unknown
   profile?: unknown
@@ -113,8 +169,10 @@ type SchemaRecord = Record<string, unknown> & {
   rows?: unknown
   sandboxMode?: unknown
   seq?: unknown
+  sessionName?: unknown
   spec?: unknown
   specVersion?: unknown
+  socketPath?: unknown
   startupTimeoutMs?: unknown
   stopGraceMs?: unknown
   text?: unknown
@@ -128,10 +186,11 @@ type SchemaRecord = Record<string, unknown> & {
   eventAcks?: unknown
   graceMs?: unknown
   initialInput?: unknown
+  startRequest?: unknown
   scope?: unknown
 }
 
-const brokerMethods = new Set<BrokerMethod>([
+const brokerMethods = new Set<BrokerMethodV1>([
   'broker.hello',
   'broker.health',
   'invocation.start',
@@ -167,6 +226,9 @@ const eventTypes = new Set<InvocationEventType>([
   'usage.updated',
   'diagnostic',
   'driver.notice',
+  'terminal.surface.reported',
+  'permission.requested',
+  'permission.resolved',
 ])
 
 export function validateInvocationSpec(value: unknown): HarnessInvocationSpec {
@@ -204,6 +266,24 @@ export function validateInvocationStartRequest(value: unknown): InvocationStartR
   return value as InvocationStartRequest
 }
 
+export function validateInvocationDispatchRequest(value: unknown): InvocationDispatchRequest {
+  const issues: ValidationIssue[] = []
+  validateInvocationDispatchRequestShape(value, '', issues)
+  if (issues.length > 0) {
+    throw new InvocationDispatchRequestValidationError(issues)
+  }
+  return value as InvocationDispatchRequest
+}
+
+export function validatePermissionRequestParams(value: unknown): PermissionRequestParams {
+  const issues: ValidationIssue[] = []
+  validatePermissionRequestParamsShape(value, '', issues)
+  if (issues.length > 0) {
+    throw new PermissionRequestParamsValidationError(issues)
+  }
+  return value as PermissionRequestParams
+}
+
 export function validateCommand(value: unknown): BrokerCommand {
   const issues: ValidationIssue[] = []
   if (!isJsonRpcRequest(value)) {
@@ -237,6 +317,8 @@ export function validateEventEnvelope(value: unknown): InvocationEventEnvelope {
     }
     if (!Object.hasOwn(envelope, 'payload')) {
       issues.push(issue('payload', 'required', 'payload is required'))
+    } else if (typeof envelope.type === 'string') {
+      validateEventPayload(envelope.type as InvocationEventType, envelope['payload'], issues)
     }
   }
 
@@ -280,7 +362,8 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
     requireString(process.command, path(prefix, 'process.command'), issues)
     requireStringArray(process.args, path(prefix, 'process.args'), issues)
     requireString(process.cwd, path(prefix, 'process.cwd'), issues)
-    validateEnv(process.env, path(prefix, 'process.env'), issues)
+    validateEnv(process.lockedEnv, path(prefix, 'process.lockedEnv'), issues, 'lockedEnv')
+    optionalStringArray(process.pathPrepend, path(prefix, 'process.pathPrepend'), issues)
     validateHarnessTransport(
       process.harnessTransport,
       path(prefix, 'process.harnessTransport'),
@@ -344,10 +427,7 @@ function validateCommandParams(
       validateBrokerHelloParams(commandParams, issues)
       return
     case 'invocation.start':
-      validateSpec(commandParams.spec, issues, 'params.spec')
-      if (commandParams.initialInput !== undefined) {
-        validateInvocationInputShape(commandParams.initialInput, 'params.initialInput', issues)
-      }
+      validateInvocationDispatchRequestShape(commandParams, 'params', issues)
       return
     case 'invocation.input':
       requireString(commandParams.invocationId, 'params.invocationId', issues)
@@ -368,6 +448,163 @@ function validateCommandParams(
     case 'invocation.status':
     case 'invocation.dispose':
       requireString(commandParams.invocationId, 'params.invocationId', issues)
+      return
+  }
+}
+
+function validatePermissionRequestParamsShape(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  const params = asRecord(value)
+  if (!params) {
+    issues.push(issue(basePath, 'invalid_type', 'Permission request params must be an object'))
+    return
+  }
+
+  requireString(params.invocationId, path(basePath, 'invocationId'), issues)
+  optionalString(params['turnId'], path(basePath, 'turnId'), issues)
+  requireString(params['permissionRequestId'], path(basePath, 'permissionRequestId'), issues)
+  requireString(params.kind, path(basePath, 'kind'), issues)
+  if (!Object.hasOwn(params, 'subject')) {
+    issues.push(issue(path(basePath, 'subject'), 'required', 'subject is required'))
+  }
+  optionalEnum(
+    params['defaultDecision'],
+    ['allow', 'deny'],
+    path(basePath, 'defaultDecision'),
+    issues,
+    true
+  )
+  optionalNumber(params['deadlineMs'], path(basePath, 'deadlineMs'), issues)
+}
+
+function validateInvocationDispatchRequestShape(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  const request = asRecord(value)
+  if (!request) {
+    issues.push(issue(basePath, 'invalid_type', 'Invocation dispatch request must be an object'))
+    return
+  }
+
+  const startRequest = asRecord(request.startRequest)
+  if (!startRequest) {
+    issues.push(issue(path(basePath, 'startRequest'), 'required', 'startRequest is required'))
+  } else {
+    const startPath = path(basePath, 'startRequest')
+    validateSpec(startRequest.spec, issues, path(startPath, 'spec'))
+    if (startRequest.initialInput !== undefined) {
+      validateInvocationInputShape(
+        startRequest.initialInput,
+        path(startPath, 'initialInput'),
+        issues
+      )
+    }
+    validateDispatchRuntime(startRequest, startPath, issues)
+  }
+
+  const lockedEnv =
+    asRecord(startRequest?.spec)?.process !== undefined
+      ? asRecord(asRecord(startRequest?.spec)?.process)?.lockedEnv
+      : undefined
+  validateEnv(request.dispatchEnv, path(basePath, 'dispatchEnv'), issues, 'dispatchEnv', lockedEnv)
+}
+
+/**
+ * Spec §3.3 dispatch-time contract: a `claude-code-tmux` dispatch MUST carry a
+ * runtime-owned tmux socket (`startRequest.runtime.tmux.socketPath`). The
+ * compiled profile emits launch INTENT only — the concrete tmux server socket
+ * is a runtime allocation supplied by HRC (or the pre-HRC harness stand-in) at
+ * dispatch time. The driver attaches to this socket; it never owns the server.
+ */
+function validateDispatchRuntime(
+  startRequest: Record<string, unknown>,
+  startPath: string,
+  issues: ValidationIssue[]
+): void {
+  const driverKind = asRecord(asRecord(startRequest['spec'])?.['harness'])?.['driver']
+  if (driverKind !== 'claude-code-tmux') {
+    return
+  }
+
+  const runtime = asRecord(startRequest['runtime'])
+  const tmux = runtime ? asRecord(runtime['tmux']) : undefined
+  if (!tmux || typeof tmux['socketPath'] !== 'string' || tmux['socketPath'].length === 0) {
+    issues.push(
+      issue(
+        path(startPath, 'runtime.tmux.socketPath'),
+        'required',
+        'claude-code-tmux dispatch requires a runtime tmux socket'
+      )
+    )
+  }
+}
+
+function validateEventPayload(
+  eventType: InvocationEventType,
+  value: unknown,
+  issues: ValidationIssue[]
+): void {
+  switch (eventType) {
+    case 'invocation.ready': {
+      const payload = requirePayloadRecord(value, issues)
+      if (!payload) return
+      optionalEnum(payload['state'], ['ready'], 'payload.state', issues, true)
+      return
+    }
+    case 'invocation.disposed': {
+      const payload = requirePayloadRecord(value, issues)
+      if (!payload) return
+      requireTrue(payload['disposed'], 'payload.disposed', issues)
+      return
+    }
+    case 'permission.requested': {
+      const payload = requirePayloadRecord(value, issues)
+      if (!payload) return
+      requireString(payload['permissionRequestId'], 'payload.permissionRequestId', issues)
+      requireString(payload.kind, 'payload.kind', issues)
+      if (!Object.hasOwn(payload, 'subjectDisplay')) {
+        issues.push(issue('payload.subjectDisplay', 'required', 'subjectDisplay is required'))
+      }
+      optionalEnum(
+        payload['defaultDecision'],
+        ['allow', 'deny'],
+        'payload.defaultDecision',
+        issues,
+        true
+      )
+      optionalNumber(payload['deadlineMs'], 'payload.deadlineMs', issues)
+      return
+    }
+    case 'terminal.surface.reported': {
+      const payload = requirePayloadRecord(value, issues)
+      if (!payload) return
+      optionalEnum(payload.kind, ['tmux-session'], 'payload.kind', issues, true)
+      requireString(payload['socketPath'], 'payload.socketPath', issues)
+      requireString(payload['sessionName'], 'payload.sessionName', issues)
+      optionalString(payload['paneId'], 'payload.paneId', issues)
+      return
+    }
+    case 'permission.resolved': {
+      const payload = requirePayloadRecord(value, issues)
+      if (!payload) return
+      requireString(payload['permissionRequestId'], 'payload.permissionRequestId', issues)
+      optionalEnum(payload['decision'], ['allow', 'deny'], 'payload.decision', issues, true)
+      optionalEnum(
+        payload['decidedBy'],
+        ['policy', 'user', 'api', 'timeout'],
+        'payload.decidedBy',
+        issues,
+        true
+      )
+      optionalString(payload['message'], 'payload.message', issues)
+      return
+    }
+    default:
       return
   }
 }
@@ -471,22 +708,49 @@ function validateInputPolicy(value: unknown, basePath: string, issues: Validatio
   optionalNumber(policy.timeoutMs, path(basePath, 'timeoutMs'), issues)
 }
 
-function validateEnv(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+type EnvChannel = 'lockedEnv' | 'dispatchEnv'
+
+function validateEnv(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[],
+  channel: EnvChannel,
+  lockedEnv?: unknown
+): void {
   if (value === undefined) {
     return
   }
   const record = asRecord(value)
   if (!record) {
-    issues.push(issue(basePath, 'invalid_type', 'env must be an object'))
+    issues.push(issue(basePath, 'invalid_type', `${channel} must be an object`))
     return
   }
+  const lockedEnvKeys = new Set(
+    asRecord(lockedEnv) ? Object.keys(asRecord(lockedEnv) as SchemaRecord) : []
+  )
   for (const [key, envValue] of Object.entries(record)) {
     const envPath = path(basePath, key)
-    if (key.length === 0 || key.includes('=') || key.includes('\u0000')) {
-      issues.push(issue(envPath, 'invalid_env_key', 'env key cannot be empty or contain = or NUL'))
+    if (!ENV_KEY_PATTERN.test(key)) {
+      issues.push(
+        issue(envPath, 'invalid_env_key', `${channel} key must match ${String(ENV_KEY_PATTERN)}`)
+      )
+    }
+    if (isAmbientEnvKey(key)) {
+      issues.push(issue(envPath, 'ambient_env_key', `${channel} key conflicts with ambient env`))
+    }
+    if (isCredentialEnvKey(key)) {
+      issues.push(
+        issue(envPath, 'credential_env_key', `${channel} key conflicts with credential env`)
+      )
+    }
+    if (isReservedEnvKey(key)) {
+      issues.push(issue(envPath, 'reserved_env_key', `${channel} key is reserved`))
+    }
+    if (channel === 'dispatchEnv' && lockedEnvKeys.has(key)) {
+      issues.push(issue(envPath, 'dispatch_env_shadow', 'dispatchEnv must not shadow lockedEnv'))
     }
     if (typeof envValue !== 'string') {
-      issues.push(issue(envPath, 'invalid_type', 'env value must be a string'))
+      issues.push(issue(envPath, 'invalid_type', `${channel} value must be a string`))
     }
   }
 }
@@ -618,6 +882,12 @@ function validateCodexDriver(
         true
       )
       optionalNumber(policy.timeoutMs, path(basePath, 'permissionPolicy.timeoutMs'), issues)
+      optionalEnum(
+        policy['defaultDecision'],
+        ['allow', 'deny'],
+        path(basePath, 'permissionPolicy.defaultDecision'),
+        issues
+      )
     }
   }
 }
@@ -644,107 +914,4 @@ function validateStringRecord(
       issues.push(issue(path(basePath, key), 'invalid_type', 'value must be a string'))
     }
   }
-}
-
-function requireString(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value === undefined) {
-    issues.push(issue(basePath, 'required', `${basePath} is required`))
-  } else if (typeof value !== 'string') {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a string`))
-  }
-}
-
-function requireNumber(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value === undefined) {
-    issues.push(issue(basePath, 'required', `${basePath} is required`))
-  } else if (typeof value !== 'number' || !Number.isFinite(value)) {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a finite number`))
-  }
-}
-
-function requireStringArray(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (!Array.isArray(value)) {
-    issues.push(
-      issue(
-        basePath,
-        value === undefined ? 'required' : 'invalid_type',
-        `${basePath} must be an array`
-      )
-    )
-    return
-  }
-  value.forEach((item, index) => {
-    if (typeof item !== 'string') {
-      issues.push(
-        issue(path(basePath, String(index)), 'invalid_type', 'array item must be a string')
-      )
-    }
-  })
-}
-
-function optionalString(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value !== undefined && typeof value !== 'string') {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a string`))
-  }
-}
-
-function optionalNumber(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value))) {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a finite number`))
-  }
-}
-
-function optionalBoolean(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value !== undefined && typeof value !== 'boolean') {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a boolean`))
-  }
-}
-
-function optionalStringArray(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value === undefined) {
-    return
-  }
-  if (!Array.isArray(value)) {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be an array`))
-    return
-  }
-  value.forEach((item, index) => {
-    if (typeof item !== 'string') {
-      issues.push(
-        issue(path(basePath, String(index)), 'invalid_type', 'array item must be a string')
-      )
-    }
-  })
-}
-
-function optionalEnum(
-  value: unknown,
-  allowed: string[],
-  basePath: string,
-  issues: ValidationIssue[],
-  required = false
-): void {
-  if (value === undefined) {
-    if (required) {
-      issues.push(issue(basePath, 'required', `${basePath} is required`))
-    }
-    return
-  }
-  if (typeof value !== 'string' || !allowed.includes(value)) {
-    issues.push(issue(basePath, 'invalid_literal', `${basePath} has an unsupported value`))
-  }
-}
-
-function asRecord(value: unknown): SchemaRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as SchemaRecord)
-    : undefined
-}
-
-function path(prefix: string, suffix: string): string {
-  return prefix.length === 0 ? suffix : `${prefix}.${suffix}`
-}
-
-function issue(pathValue: string, code: string, message: string): ValidationIssue {
-  return { path: pathValue, code, message }
 }

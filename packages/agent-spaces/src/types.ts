@@ -6,12 +6,15 @@ import type {
 } from 'spaces-config'
 import type {
   HarnessInvocationSpec,
+  InputId,
+  InvocationId,
   InvocationInput,
   InvocationStartRequest,
   PermissionPolicy,
   ProcessLimits,
 } from 'spaces-harness-broker-protocol'
 import type { AttachmentRef } from 'spaces-runtime'
+import type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 
 /** Re-export HostCorrelation from config for placement consumers */
 export type HostCorrelation = HostCorrelationType
@@ -126,6 +129,9 @@ export interface RunTurnNonInteractiveRequest {
   yolo?: boolean | undefined
   continuation?: HarnessContinuationRef | undefined
   cwd: string
+  lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string> | undefined
   prompt: string
   attachments?: AgentSpacesAttachmentInput[] | undefined
@@ -192,6 +198,9 @@ export interface BuildProcessInvocationSpecRequest {
   ioMode: 'pty' | 'inherit' | 'pipes'
   continuation?: HarnessContinuationRef | undefined
   cwd: string
+  lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string> | undefined
   artifactDir?: string | undefined
   /** Prompt text to include in the invocation argv */
@@ -221,8 +230,12 @@ export interface BuildHarnessBrokerInvocationRequest {
   continuation?: HarnessContinuationRef | undefined
   prompt?: string | undefined
   attachments?: AttachmentRef[] | undefined
+  lockedEnv?: Record<string, string> | undefined
+  dispatchEnv?: Record<string, string> | undefined
+  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
   env?: Record<string, string> | undefined
-  invocationId?: string | undefined
+  invocationId?: InvocationId | undefined
+  initialInputId?: InputId | undefined
   labels?: Record<string, string> | undefined
   correlation?: Record<string, string> | undefined
   permissionPolicy?: PermissionPolicy | undefined
@@ -370,6 +383,7 @@ export type AgentEvent =
 // ---------------------------------------------------------------------------
 
 export interface AgentSpacesClient {
+  compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
   runTurnNonInteractive(req: RunTurnNonInteractiveRequest): Promise<RunTurnNonInteractiveResponse>
   runTurnInFlight(req: RunTurnInFlightRequest): Promise<RunTurnNonInteractiveResponse>
   queueInFlightInput(req: QueueInFlightInputRequest): Promise<QueueInFlightInputResponse>

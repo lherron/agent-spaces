@@ -96,7 +96,9 @@ Harness stdio is always owned by the driver. For Codex app-server, the driver cr
 
 ### 4.3 tmux and pty ownership
 
-The broker does not own tmux. A client or external supervisor may launch the broker inside tmux, attach a terminal UI to broker events, or allocate terminal resources. The broker may support pty-backed harness drivers in future versions, but tmux session/window/pane lifecycle is outside this spec.
+The broker does not own the tmux server daemon. A client or external supervisor may launch the broker inside tmux, attach a terminal UI to broker events, or allocate terminal resources. If a pty-backed driver needs tmux, the tmux server socket is a dispatch-time resource supplied by the client/supervisor, not a compiled-spec value and not a hidden broker default.
+
+A tmux-backed broker driver may own only invocation-scoped terminal objects on the supplied server, such as a session, window, or pane created for that invocation. It must not start, remove, or otherwise manage the tmux server socket. When the driver exposes an operator-attachable terminal, it reports the observed runtime surface with `terminal.surface.reported` rather than encoding concrete socket/session/pane ids in the compiled invocation spec.
 
 For v0 Codex app-server, `harnessTransport.kind` is `jsonrpc-stdio`; no pty is required.
 
