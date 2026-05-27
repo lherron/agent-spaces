@@ -7,11 +7,14 @@
  * normalized broker event vocabulary fired — reusing existing coverage instead
  * of duplicating per-harness scripts.
  *
- * Rows (each gated on availability; SKIPs cleanly when binary/auth/Ghostty absent):
+ * Rows (HARD-FAIL gate, Lance directive 2026-05-27): every row's real dependency
+ * (binary + auth + tool) is probed up front. A MISSING dependency is a row FAILURE,
+ * never a skip — the matrix only goes green on a host where all rows ran and passed.
  *   (a) fake-codex            codex-app-server headless, deterministic fixture (CI-safe)
  *   (b) real-codex            codex-app-server headless, REAL `codex`
  *   (c) real-claude-tmux      claude-code-tmux interactive-tmux, REAL `claude`
  *   (d) claude-tmux-ghostmux  claude-code-tmux + REAL ghostmux operator-attach
+ *   (e) real-pi-sdk-embedded  in-process pi-sdk embedded executor, REAL pi auth
  *
  * Cross-harness floor on EVERY row (cody bar C-02759 item 2):
  *   - compile/select/verify start contract (hashes + route invariants),
@@ -45,6 +48,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -202,7 +206,9 @@ function parseArgs(argv: string[]): CliArgs {
 // ---------------------------------------------------------------------------
 
 type Failure = { code: string; message: string; path?: string | undefined }
-type RowStatus = 'OK' | 'FAIL' | 'SKIP'
+// Hard-fail gate: a row either ran and passed (OK) or it did not (FAIL). A missing
+// real dependency is a FAIL, never a skip (Lance directive 2026-05-27).
+type RowStatus = 'OK' | 'FAIL'
 
 type RowResult = {
   name: RowName
@@ -269,18 +275,39 @@ function resolveClaudeBin(): string | undefined {
   return undefined
 }
 
+/**
+ * nvm installs codex per node version under ~/.nvm/versions/node/<v>/bin/codex.
+ * The version dirs are not a fixed path, so enumerate them (newest first by string
+ * sort, good enough — we just need any real install) rather than hardcoding a version.
+ */
+function nvmCodexCandidates(): string[] {
+  const versionsDir = join(process.env['HOME'] ?? '', '.nvm/versions/node')
+  if (!existsSync(versionsDir)) return []
+  try {
+    return readdirSync(versionsDir)
+      .sort()
+      .reverse()
+      .map((v) => join(versionsDir, v, 'bin/codex'))
+  } catch {
+    return []
+  }
+}
+
 function resolveRealCodexBin(): string | undefined {
   for (const candidate of [
-    process.env['ASP_CODEX_PATH'],
+    process.env['ASP_CODEX_PATH'], // explicit override wins
     join(process.env['HOME'] ?? '', '.local/bin/codex'),
     '/opt/homebrew/bin/codex',
     '/usr/local/bin/codex',
     '/usr/bin/codex',
+    // version-manager installs (headless agents rarely have these bin dirs on PATH):
+    ...nvmCodexCandidates(),
+    join(process.env['HOME'] ?? '', '.volta/bin/codex'),
+    join(process.env['HOME'] ?? '', '.asdf/shims/codex'),
   ]) {
     if (candidate !== undefined && candidate.length > 0 && existsSync(candidate)) return candidate
   }
-  // Fall back to PATH resolution so version-manager installs (nvm/volta/asdf,
-  // whose bin dirs are not in the explicit list above) are found. Bun.which
+  // Final fallback: PATH resolution for any other install location. Bun.which
   // resolves a real executable on PATH — NOT a shell alias — so an interactive
   // `alias codex=...` stays correctly excluded.
   const onPath = Bun.which('codex')
@@ -1635,10 +1662,6 @@ type MatrixReport = {
 
 function printRow(row: RowResult): void {
   const head = `[${row.status}] ${row.name} — ${row.marker}`
-  if (row.status === 'SKIP') {
-    console.log(`${head}\n    reason: ${row.reason ?? '(none)'}`)
-    return
-  }
   console.log(head)
   console.log(
     `    compile: compileId=${row.compile.compileId ?? '(none)'} planHash=${(row.compile.planHash ?? '').slice(0, 12)} profileHash=${(row.compile.selectedProfileHash ?? '').slice(0, 12)}`
@@ -1688,20 +1711,22 @@ async function main(): Promise<void> {
       reason: e instanceof Error ? e.message : String(e),
     }))
     if (!probe.available) {
-      const skipped: RowResult = {
+      // Missing real dependency = hard FAIL, never a skip. The matrix may only go
+      // green on a host where every row's binary/auth/tool is present and reachable.
+      const failed: RowResult = {
         name: config.name,
-        status: 'SKIP',
+        status: 'FAIL',
         reason: probe.reason,
         marker: ctx.marker,
         observedTurnIds: [],
         compile: {},
-        floorFailures: [],
+        floorFailures: [{ code: 'dependency_missing', message: probe.reason }],
         contractFailures: [],
         extraFailures: [],
         notes: {},
       }
-      rows.push(skipped)
-      printRow(skipped)
+      rows.push(failed)
+      printRow(failed)
       continue
     }
 
@@ -1730,8 +1755,8 @@ async function main(): Promise<void> {
   }
 
   const finishedAt = new Date().toISOString()
-  // A row counts against the matrix only if it actually FAILED; SKIP is allowed.
-  const ok = rows.every((r) => r.status !== 'FAIL')
+  // Hard-fail gate: every row must have run AND passed. No skips allowed.
+  const ok = rows.every((r) => r.status === 'OK')
   const report: MatrixReport = {
     schemaVersion: 'pre-hrc-broker-matrix-e2e/v1',
     ok,
@@ -1748,9 +1773,7 @@ async function main(): Promise<void> {
   console.log('\n=== MATRIX SUMMARY ===')
   for (const row of rows) {
     const counts = `floor=${row.floorFailures.length} contract=${row.contractFailures.length} extra=${row.extraFailures.length}`
-    console.log(
-      `  ${row.status.padEnd(4)} ${row.name.padEnd(22)} ${row.status === 'SKIP' ? `skip: ${row.reason}` : counts}`
-    )
+    console.log(`  ${row.status.padEnd(4)} ${row.name.padEnd(22)} ${counts}`)
   }
   console.log(`\nmatrix: ${ok ? 'OK' : 'FAILED'}  artifact: ${artifactPath}`)
 
