@@ -593,6 +593,77 @@ function assertCodexContinuation(events: InvocationEventEnvelope[]): Failure[] {
   ]
 }
 
+/**
+ * Codex transcript-tail intermediate agent-message proof (T-01700 / cody #6).
+ *
+ * The codex-cli-tmux transcript tailer (243e2bb) surfaces every intermediate
+ * agent message as assistant.message.completed{final:false} (held-latest
+ * emission) and the rollout task_complete as exactly one {final:true}. A
+ * narration-inducing turn must therefore produce >=2 intermediate (final:false)
+ * messages BEFORE its terminal turn.completed, plus exactly one final (final:true)
+ * closing message.
+ *
+ * CODEX-SPECIFIC: claude rows have no transcript tail and never set `final`, so
+ * this only runs on the codex-cli-tmux rows and never touches the claude rows.
+ * Scoped to the narration turn's hook-originated turn id(s) so unrelated marker /
+ * operator turns (each typically a single final assistant message) do not skew the
+ * counts; falls back to the whole ledger only if the turn id could not be captured.
+ */
+function assertCodexIntermediateMessages(
+  events: InvocationEventEnvelope[],
+  narrationTurnIds: string[]
+): Failure[] {
+  const failures: Failure[] = []
+  const finalFlag = (event: InvocationEventEnvelope): boolean | undefined => {
+    const value = asRecord(event.payload)?.['final']
+    return typeof value === 'boolean' ? value : undefined
+  }
+  const scoped = narrationTurnIds.length > 0
+  const inNarration = (event: InvocationEventEnvelope): boolean =>
+    !scoped || (typeof event.turnId === 'string' && narrationTurnIds.includes(event.turnId))
+
+  const completions = events.filter(
+    (event) => event.type === 'assistant.message.completed' && inNarration(event)
+  )
+  const intermediates = completions.filter((event) => finalFlag(event) === false)
+  const finals = completions.filter((event) => finalFlag(event) === true)
+
+  if (intermediates.length < 2) {
+    failures.push({
+      code: 'codex_intermediate_messages_missing',
+      message: `narration turn must surface >=2 intermediate assistant.message.completed{final:false} events, got ${intermediates.length} (narrationTurnIds=${JSON.stringify(narrationTurnIds)})`,
+    })
+  }
+
+  // Intermediate narration is emitted mid-turn: each final:false must precede the
+  // narration turn's terminal turn.completed (not a trailing/post-turn artifact).
+  if (scoped) {
+    const narrationTerminalIndex = events.findIndex(
+      (event) => event.type === 'turn.completed' && inNarration(event)
+    )
+    if (narrationTerminalIndex !== -1) {
+      const trailing = intermediates.filter(
+        (event) => events.indexOf(event) > narrationTerminalIndex
+      )
+      if (trailing.length > 0) {
+        failures.push({
+          code: 'codex_intermediate_after_terminal',
+          message: `${trailing.length} intermediate assistant.message.completed{final:false} event(s) appeared AFTER the narration turn.completed; intermediates must be emitted mid-turn`,
+        })
+      }
+    }
+  }
+
+  // The rollout finalizes the held-latest message exactly once per turn.
+  if (finals.length !== 1) {
+    failures.push({
+      code: 'codex_final_message_count',
+      message: `narration turn must surface exactly one final assistant.message.completed{final:true}, got ${finals.length}`,
+    })
+  }
+  return failures
+}
+
 /** Real-codex app-server / env evidence (ported from the real-codex smoke). */
 function assertRealCodexEnvEvidence(
   result: Awaited<ReturnType<typeof runPreHrcBrokerContractHarness>>,
@@ -1051,9 +1122,16 @@ async function runCodexTmuxRow(
   const rowName: RowName = options.ghostmuxOperator ? 'codex-tmux-ghostmux' : 'real-codex-tmux'
   const operatorMarker = `${ctx.marker}_OP`
   const commandMarker = options.ghostmuxOperator ? operatorMarker : ctx.marker
+  // Narration-inducing turn (Lance's live ghostmux demo, T-01700): codex emits
+  // intermediate agent messages BETWEEN the two tool execs. The transcript tailer
+  // (243e2bb) surfaces each as assistant.message.completed{final:false} and the
+  // rollout task_complete as {final:true}; assertCodexIntermediateMessages proves it.
+  const narrationPrompt =
+    'Perform an ls and tell me something interesting about this directory, then run pwd. ' +
+    'I want a short notification message in between each tool exec.'
   const prompts = [
     `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
-    `Run the Bash command: printf '${ctx.marker}_T2' — then reply with exactly ${ctx.marker}_T2 and nothing else.`,
+    narrationPrompt,
   ]
   const operatorPrompt = `Run the Bash command: printf '${operatorMarker}' — then reply with exactly ${operatorMarker} and nothing else.`
   const result: RowResult = {
@@ -1196,8 +1274,10 @@ async function runCodexTmuxRow(
     }
 
     const scriptedTurns: Array<{ prompt: string; terminalTurnObserved: boolean }> = []
+    let narrationTurnIds: string[] = []
     for (const prompt of prompts) {
       const baseline = terminalTurnCount(events)
+      const turnIdsBefore = new Set(observedTurnIds(events))
       await manager.input({
         invocationId,
         input: { kind: 'user', content: [{ type: 'text', text: prompt }] },
@@ -1210,8 +1290,14 @@ async function runCodexTmuxRow(
       )
       scriptedTurns.push({ prompt, terminalTurnObserved })
       await sleep(2_000)
+      if (prompt === narrationPrompt) {
+        // The hook-originated turn(s) that appeared during the narration prompt;
+        // the transcript-tail assistant.message.completed events carry these ids.
+        narrationTurnIds = observedTurnIds(events).filter((id) => !turnIdsBefore.has(id))
+      }
     }
     result.notes['scriptedTurns'] = scriptedTurns
+    result.notes['narrationTurnIds'] = narrationTurnIds
 
     if (options.ghostmuxOperator) {
       const ghostmuxBin = 'ghostmux'
@@ -1305,6 +1391,7 @@ async function runCodexTmuxRow(
     )
 
     result.extraFailures.push(...assertCodexContinuation(events))
+    result.extraFailures.push(...assertCodexIntermediateMessages(events, narrationTurnIds))
     if (observedTurnIds(events).length < 2) {
       result.extraFailures.push({
         code: 'codex_tmux_turn_count',
