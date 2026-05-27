@@ -246,6 +246,57 @@ function codexBrokerProfile(overrides: Record<string, unknown> = {}): BrokerExec
   return brokerProfileFrom(baseHeadlessCodexProfile, overrides)
 }
 
+const baseCodexCliTmuxProfile = brokerProfile({
+  profileId: 'profile:test-codex-cli-tmux-broker',
+  interactionMode: 'interactive',
+  brokerDriver: 'codex-cli-tmux',
+  brokerTerminal: {
+    host: 'tmux',
+    startupMethod: 'create-terminal',
+    turnDelivery: 'terminal-literal-input',
+    operatorAttach: true,
+    exposurePolicy: tmuxExposurePolicy,
+  },
+  harnessInvocation: {
+    startRequest: {
+      spec: {
+        harness: {
+          frontend: 'codex-cli',
+          provider: 'openai',
+          driver: 'codex-cli-tmux',
+        },
+        process: {
+          command: 'codex',
+          args: [],
+          cwd: '/tmp',
+          lockedEnv: {},
+          harnessTransport: { kind: 'pty' },
+        },
+        interaction: {
+          mode: 'interactive',
+          turnConcurrency: 'single',
+          inputQueue: 'fifo',
+        },
+        driver: {
+          kind: 'codex-cli-tmux',
+          terminalHost: 'tmux',
+          hookBridge: 'codex-hooks/v1',
+        },
+      },
+    },
+  },
+  policy: {
+    ...baseBrokerProfile.policy,
+    exposurePolicy: tmuxExposurePolicy,
+  },
+})
+
+function codexCliTmuxBrokerProfile(
+  overrides: Record<string, unknown> = {}
+): BrokerExecutionProfile {
+  return brokerProfileFrom(baseCodexCliTmuxProfile, overrides)
+}
+
 const baseEmbeddedSdkProfile = {
   schemaVersion: 'agent-runtime-profile/v1',
   profileId: 'profile:test-embedded-sdk',
@@ -381,6 +432,29 @@ describe('validateBrokerExecutionProfile', () => {
 
   test('allows a valid codex-app-server headless broker profile', () => {
     expect(validateBrokerExecutionProfile(codexBrokerProfile())).toEqual([])
+  })
+
+  test('allows a valid codex-cli-tmux interactive broker profile', () => {
+    expect(validateBrokerExecutionProfile(codexCliTmuxBrokerProfile())).toEqual([])
+  })
+
+  test('rejects codex-cli-tmux profiles without pty process transport', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      codexCliTmuxBrokerProfile({
+        harnessInvocation: {
+          startRequest: {
+            spec: {
+              process: {
+                ...baseCodexCliTmuxProfile.harnessInvocation.startRequest.spec.process,
+                harnessTransport: { kind: 'jsonrpc-stdio' },
+              },
+            },
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('codex_cli_tmux_requires_pty_transport')
   })
 
   test('rejects claude-code-tmux profiles without pty process transport', () => {
@@ -649,6 +723,38 @@ describe('runtime route selection', () => {
     expect(selectedRoute?.broker).toMatchObject({
       driver: 'claude-code-tmux',
       processTransport: 'pty',
+    })
+  })
+
+  test('selects harness-broker codex-cli-tmux for the pre-HRC openai codex interactive route', () => {
+    const selectedRoute = RUNTIME_ROUTE_CATALOG.find(
+      (route) =>
+        route.modelProvider === 'openai' &&
+        route.harnessFamily === 'codex' &&
+        route.harnessRuntime === 'codex-cli' &&
+        route.interactionMode === 'interactive'
+    )
+
+    expect(selectedRoute?.controller).toBe('harness-broker')
+    expect(selectedRoute?.broker).toMatchObject({
+      driver: 'codex-cli-tmux',
+      processTransport: 'pty',
+    })
+  })
+
+  test('keeps openai codex headless on the codex-app-server broker route', () => {
+    const selectedRoute = RUNTIME_ROUTE_CATALOG.find(
+      (route) =>
+        route.modelProvider === 'openai' &&
+        route.harnessFamily === 'codex' &&
+        route.harnessRuntime === 'codex-cli' &&
+        route.interactionMode === 'headless' &&
+        route.controller === 'harness-broker'
+    )
+
+    expect(selectedRoute?.broker).toMatchObject({
+      driver: 'codex-app-server',
+      processTransport: 'jsonrpc-stdio',
     })
   })
 
