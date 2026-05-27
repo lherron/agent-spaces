@@ -671,15 +671,18 @@ Validator gates:
 - A `codex-app-server` profile with `interactionMode: 'interactive'` MUST reject.
 - The pre-HRC interactive Claude Code and Codex tmux paths MUST compile/select `kind: 'harness-broker'`; older `TerminalExecutionProfile` routes remain valid only when terminal-controller behavior is explicitly requested.
 
-`codex-cli-tmux` uses Codex lifecycle hooks as driver-private input. ASP/driver mechanics MUST install or overlay trusted Codex hook configuration for `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, and `Stop`. The broker driver maps those raw native payloads into normalized broker events and MUST NOT expose native Codex hook names as normalized event `type`s. Real Codex hook evidence from T-01681 defines the v1 field contract:
+`codex-cli-tmux` uses Codex lifecycle hooks and the Codex rollout transcript tail as driver-private input. ASP/driver mechanics MUST install or overlay trusted Codex hook configuration for `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, and `Stop`. The broker driver maps those raw native payloads plus transcript tail entries into normalized broker events and MUST NOT expose native Codex hook names or rollout entry names as normalized event `type`s`. Real Codex hook evidence from T-01681 and rollout-tail evidence from T-01700 define the v1 field contract:
 
+- `SessionStart` carries `transcript_path`; the driver uses it to tail the Codex rollout transcript for assistant-message evidence.
 - `UserPromptSubmit` carries `turn_id`, `session_id`, `prompt`, `cwd`, and `model`; it opens the normalized turn and can report the broker continuation from `session_id`.
 - `PreToolUse` carries `tool_use_id`, `tool_name`, `tool_input`, and `turn_id`; it maps to `tool.call.started`.
 - `PermissionRequest` carries `tool_name`, `tool_input.command`, optional `tool_input.description`, and `turn_id`, but no `tool_use_id`; the driver correlates it to a pending tool call by `(turn_id, tool_input.command)`.
 - `PostToolUse` carries `tool_use_id`, `tool_name`, `tool_input`, `tool_response`, and `turn_id`; it maps to `tool.call.completed`, preserving command errors/results in the result payload rather than normalizing command failure to `tool.call.failed`.
-- `Stop` carries `last_assistant_message`, `stop_hook_active`, `turn_id`, and `session_id`; it maps to `assistant.message.completed` and `turn.completed`.
+- Codex rollout transcript tail assistant-message entries map to complete intermediate `assistant.message.completed` events with `{ final: false }`.
+- Codex rollout `task_complete` flushes the final assistant message as `assistant.message.completed` with `{ final: true }`.
+- `Stop` carries `stop_hook_active`, `turn_id`, and `session_id`; it is only the turn-completion/continuation hook and maps to `turn.completed` plus `continuation.updated`.
 
-Codex hooks are discrete lifecycle events. `codex-cli-tmux` is not required to emit `assistant.message.delta` or `tool.call.delta` unless a future native source provides them. `session_id` is the Codex v1 continuation key; `turn_id` is per-turn; `transcript_path` is diagnostic/session evidence and MUST NOT be required by HRC to project continuation.
+Codex hooks are discrete lifecycle events and the rollout transcript tail currently provides complete assistant messages, not token deltas. `codex-cli-tmux` MUST set `capabilities.events.assistantDeltas` to `false`; `assistant.message.delta` and `tool.call.delta` are unavailable unless a future native source provides them. `session_id` is the Codex v1 continuation key; `turn_id` is per-turn; `transcript_path` is driver-private assistant-message evidence and MUST NOT be required by HRC to project continuation.
 
 ### 7.5 Compiler determinism and hashing
 

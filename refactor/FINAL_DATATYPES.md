@@ -957,9 +957,10 @@ export interface CodexCliTmuxDriverSpec {
   kind: 'codex-cli-tmux'
   terminalHost: 'tmux'
   hookBridge: 'codex-hooks/v1'
-  eventSource: 'codex-lifecycle-hooks'
+  eventSource: 'codex-lifecycle-hooks+rollout-transcript-tail'
   hooks: {
     requiredEvents: [
+      'SessionStart',
       'UserPromptSubmit',
       'PreToolUse',
       'PermissionRequest',
@@ -973,24 +974,37 @@ export interface CodexCliTmuxDriverSpec {
     continuationSource: 'session_id'
     turnIdSource: 'turn_id'
     permissionCorrelation: 'turn_id+tool_input.command'
-    assistantMessageSource: 'last_assistant_message'
+    transcriptPathSource: 'SessionStart.transcript_path'
+    intermediateAssistantMessageSource: 'rollout-transcript-tail'
+    finalAssistantMessageSource: 'rollout-task_complete'
     deltas: 'not-emitted'
   }
 }
 
-export type CodexLifecycleHookEventName =
+export type CodexTurnLifecycleHookEventName =
   | 'UserPromptSubmit'
   | 'PreToolUse'
   | 'PermissionRequest'
   | 'PostToolUse'
   | 'Stop'
 
+export type CodexLifecycleHookEventName = 'SessionStart' | CodexTurnLifecycleHookEventName
+
+export interface CodexSessionStartHookPayload {
+  session_id: string
+  transcript_path: string
+  cwd: string
+  hook_event_name: 'SessionStart'
+  model?: string | undefined
+  permission_mode?: string | undefined
+}
+
 export interface CodexLifecycleHookPayloadBase {
   session_id: string
   turn_id: string
   transcript_path: string
   cwd: string
-  hook_event_name: CodexLifecycleHookEventName
+  hook_event_name: CodexTurnLifecycleHookEventName
   model: string
   permission_mode: string
 }
@@ -1029,10 +1043,10 @@ export type CodexPostToolUseHookPayload = CodexLifecycleHookPayloadBase & {
 export type CodexStopHookPayload = CodexLifecycleHookPayloadBase & {
   hook_event_name: 'Stop'
   stop_hook_active: boolean
-  last_assistant_message: string
 }
 
 export type CodexCliTmuxHookPayload =
+  | CodexSessionStartHookPayload
   | CodexUserPromptSubmitHookPayload
   | CodexPreToolUseHookPayload
   | CodexPermissionRequestHookPayload
