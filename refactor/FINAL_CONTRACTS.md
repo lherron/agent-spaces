@@ -28,13 +28,13 @@ Harness Broker execution plane
 
 The decisive rule is compiler closure:
 
-> After ASP emits a `CompiledRuntimePlan`, HRC MUST NOT reconstruct, mutate, patch, infer, or synthesize broker execution mechanics.
+> After ASP emits a `CompiledRuntimePlan`, HRC MUST NOT reconstruct, mutate, patch, infer, or synthesize compiled execution mechanics.
 
-For broker-capable routes this includes `HarnessInvocationSpec`, `InvocationStartRequest`, driver config, process command/args/cwd and declared `lockedEnv`, harness transport descriptors, Codex app-server descriptors, prompt/context materialization paths, continuation encoding, harness-specific OTEL/config mutation, and native launch-mode detection.
+For broker-capable routes this includes `HarnessInvocationSpec`, `InvocationStartRequest`, driver config, process command/args/cwd and declared `lockedEnv`, harness transport descriptors, Codex app-server descriptors, prompt/context materialization paths, continuation encoding, harness-specific OTEL/config mutation, and native launch-mode detection. For embedded-sdk routes this includes SDK runtime, session cwd, `session.lockedEnv`, `session.pathPrepend`, model/provider, policy, continuation/session shape, and native SDK launch-mode detection.
 
-If HRC needs a different broker request, process argv/env/cwd, driver config, continuation shape, prompt materialization, model, placement, permission policy, or input policy, HRC MUST ask ASP to recompile.
+If HRC needs a different broker request, SDK session shape, process argv/env/cwd, driver config, continuation shape, prompt materialization, model, placement, permission policy, or input policy, HRC MUST ask ASP to recompile.
 
-**Confidentiality posture.** The compiled spec is credential-free and ambient-free by contract: it carries declared non-secret `lockedEnv` (hashed) but never credential or ambient material. It defines **no** generic secret classification, redaction transforms, or digest-substituted values. Credential material reaches the harness only through a broker/driver-owned credential source (broker launch environment, external secret store, or an on-disk file credential materialized outside the compiled DTO; see PLANE_SPEC §7.5.1), and the broker composes the spawn env as a validated disjoint union of ambient allowlist + credentials + `lockedEnv` + `dispatchEnv`. Confidentiality is enforced by keeping credentials out of the compiled spec — **not** by contract-DTO redaction. (The canonical statement of this principle lives in the PLANE_SPEC architecture section; this is a pointer.)
+**Confidentiality posture.** The compiled spec is credential-free and ambient-free by contract: it carries declared non-secret `lockedEnv` (hashed) but never credential or ambient material. It defines **no** generic secret classification, redaction transforms, or digest-substituted values. Credential material reaches the harness only through an execution-owner credential source (broker/driver launch environment, embedded SDK controller environment, external secret store, or an on-disk file credential materialized outside the compiled DTO; see PLANE_SPEC §7.5.1), and the execution owner composes the env as a validated disjoint union of ambient allowlist + credentials + `lockedEnv` + `dispatchEnv`. Confidentiality is enforced by keeping credentials out of the compiled spec — **not** by contract-DTO redaction. (The canonical statement of this principle lives in the PLANE_SPEC architecture section; this is a pointer.)
 
 ---
 
@@ -206,13 +206,13 @@ All hashes are **closure/dedup/route/reuse/test** tools, **not** confidentiality
 
 HRC MAY verify that the selected profile’s immutable values still hash to the ASP-supplied hashes immediately before sending them to the broker. HRC MUST NOT use hashes to reconstruct missing execution mechanics.
 
-### 5.3 Confidentiality and the spawn-env model
+### 5.3 Confidentiality and the execution-env model
 
-There is no generic secret classification, redaction transform, or digest-substituted value in the contract plane. The compiled spec carries `lockedEnv` (declared non-secret config) directly; durable, storage, and display planes persist explicit **projections** that MAY carry `lockedEnv` (non-secret). Confidentiality is enforced by keeping credential material out of the compiled spec entirely — credentials reach the harness only through a broker/driver-owned credential source (env value, external store, or an on-disk file credential materialized outside the DTO; see PLANE_SPEC §7.5.1) — **not** by contract-DTO redaction.
+There is no generic secret classification, redaction transform, or digest-substituted value in the contract plane. The compiled spec carries `lockedEnv` (declared non-secret config) directly; durable, storage, and display planes persist explicit **projections** that MAY carry `lockedEnv` (non-secret). Confidentiality is enforced by keeping credential material out of the compiled spec entirely — credentials reach the harness only through an execution-owner credential source (env value, external store, or an on-disk file credential materialized outside the DTO; see PLANE_SPEC §7.5.1) — **not** by contract-DTO redaction.
 
-**Hard secret rule:** Secrets MUST NEVER appear in the compiled spec — including `spec.process.lockedEnv`, argv, cwd, driver config, initial input, labels, or correlation. Credential material reaches the harness only through a broker/driver-owned credential source (broker launch environment, external secret store, or an on-disk file credential materialized outside the compiled DTO; see PLANE_SPEC §7.5.1). The compiled spec is credential-free and ambient-free by contract.
+**Hard secret rule:** Secrets MUST NEVER appear in the compiled spec — including `spec.process.lockedEnv`, `session.lockedEnv`, argv, cwd, driver/session config, initial input, labels, or correlation. Credential material reaches the harness only through an execution-owner credential source (broker launch environment, embedded SDK controller environment, external secret store, or an on-disk file credential materialized outside the compiled DTO; see PLANE_SPEC §7.5.1). The compiled spec is credential-free and ambient-free by contract.
 
-**Spawn-env composition.** (The canonical statement lives in PLANE_SPEC; this is the compact version.) The broker composes the harness spawn environment as a **validated disjoint union** across four channels:
+**Execution-env composition.** (The canonical statement lives in PLANE_SPEC; this is the compact version.) The execution owner composes the harness environment as a **validated disjoint union** across four channels. For broker routes the owner is the broker at process spawn; for embedded-sdk routes it is `EmbeddedSdkController` before creating or reusing the in-process SDK session:
 
 ```text
 harnessEnv = ambientAllowlist ⊎ credentials ⊎ lockedEnv ⊎ dispatchEnv
@@ -222,12 +222,12 @@ Key collisions across channels are **validation errors, never precedence**. `loc
 
 The four channels are:
 
-- **ambient allowlist** — broker-inherited, not in spec, not hashed;
-- **credentials** — broker/driver/external (env-value source) **or on-disk file credential** materialized outside the DTO, never in spec, not hashed; missing env-value creds → typed pre-start error, while on-disk file creds MAY surface as the native harness startup failure (Codex v1: empty credentials map, `auth.json` under `CODEX_HOME`, materialized by runtime-home prep as today) — see PLANE_SPEC §7.5.1;
+- **ambient allowlist** — execution-owner-inherited, not in spec, not hashed;
+- **credentials** — execution-owner/driver/external (env-value source) **or on-disk file credential** materialized outside the DTO, never in spec, not hashed; missing env-value creds → typed pre-start error, while on-disk file creds MAY surface as the native harness startup failure (Codex v1: empty credentials map, `auth.json` under `CODEX_HOME`, materialized by runtime-home prep as today) — see PLANE_SPEC §7.5.1;
 - **lockedEnv** — ASP-declared, in spec, HASHED, HRC-immutable;
-- **dispatchEnv** — HRC-supplied per-invocation, NOT in spec, NOT hashed, NOT a recompile trigger.
+- **dispatchEnv** — HRC-supplied per-invocation through `InvocationDispatchRequest.dispatchEnv` for broker or `RuntimeControllerStartInput.dispatchEnv` / `RuntimeControllerDispatchInput.dispatchEnv` for embedded-sdk, NOT in spec, NOT hashed, NOT a recompile trigger.
 
-There is **no** reuse-soundness / `environmentRevision` rule. Credentials are read directly by the harness/broker, not via env passthrough; they are simply absent from `compatibilityHash`, so there is no reuse-invalidation language. Guardrail: anything affecting compiled launch shape or reuse compatibility is `lockedEnv` (hashed); a future route MUST NOT hide runtime mechanics in `dispatchEnv` or credentials — this guards against hiding mechanics, not an `environmentRevision` subsystem.
+There is **no** reuse-soundness / `environmentRevision` rule. Credentials are read directly by the harness/broker/SDK controller, not via contract env passthrough; they are simply absent from `compatibilityHash`, so there is no reuse-invalidation language. Guardrail: anything affecting compiled launch/session shape or reuse compatibility is hashed compiled material (`lockedEnv` for env values, typed `pathPrepend` for PATH mutation); a future route MUST NOT hide runtime mechanics in `dispatchEnv` or credentials — this guards against hiding mechanics, not an `environmentRevision` subsystem.
 
 ---
 
@@ -263,7 +263,7 @@ HRC supplies:
 - continuation refs;
 - correlation fields.
 
-Compile input is the only place where HRC may affect broker execution mechanics. If HRC policy changes after compilation, the route must reject or recompile unless the policy change is represented by a documented non-mechanical overlay that does not mutate the broker request.
+Compile input is the only place where HRC may affect compiled execution mechanics. If HRC policy changes after compilation, the route must reject or recompile unless the policy change is represented by a documented non-mechanical overlay that does not mutate the selected profile.
 
 ### 6.3 Compiler responsibilities
 
@@ -308,13 +308,15 @@ ASP emits exactly one immutable compiler product:
 CompiledRuntimePlan
 ```
 
-The plan contains one or more `RuntimeExecutionProfile` objects. Each profile is a complete execution strategy. For Codex headless v1, ASP MUST emit a `BrokerExecutionProfile` when the requested route is admissible at compile time.
+The plan contains one or more `RuntimeExecutionProfile` objects. Each profile is a complete execution strategy. For Codex headless v1, ASP MUST emit a `BrokerExecutionProfile` when the requested route is admissible at compile time. For SDK runtimes, ASP MUST emit an `EmbeddedSdkExecutionProfile` when the requested nonInteractive embedded-sdk route is admissible at compile time.
 
 A broker profile MUST include a complete `InvocationStartRequest`, including `spec` and optional `initialInput`. It MUST include `specHash`, `startRequestHash`, policy, continuation refs, expected capabilities, `compatibilityHash`, and observability contract. The live profile carries the raw `startRequest` plus these hashes only; it does **not** embed projection DTOs. HRC persists projections (`spec`/`start-request`/`plan`/`profile`) separately at the persistence/display boundary.
 
+An embedded SDK profile MUST include complete SDK/session launch truth: SDK runtime, startup method, turn delivery, provider/model, cwd, `session.lockedEnv`, optional `session.pathPrepend`, policy, continuation metadata, expected capabilities, `profileHash`, and `compatibilityHash`. It MUST NOT include broker protocol fields, process command/args, harness transport, callback sockets, ptys, or terminal surfaces.
+
 ### 6.6 Execution profile rule
 
-Profiles are closed products. HRC may select, reject, persist, or send them. HRC may not complete them. If ASP cannot produce a complete broker profile, it MUST emit diagnostics; HRC must select another already-complete profile or reject/recompile.
+Profiles are closed products. HRC may select, reject, persist, or send them. HRC may not complete them. If ASP cannot produce a complete broker or embedded-sdk profile, it MUST emit diagnostics; HRC must select another already-complete profile or reject/recompile.
 
 ### 6.7 Recompile triggers
 
@@ -486,9 +488,43 @@ stop
 dispose
 ```
 
-Controllers execute mechanics. They do not recompute route policy. A controller receives a route decision plus selected immutable profile and returns typed result objects. Controller implementations may supervise processes they own, but the broker controller only supervises the broker process; it does not synthesize harness process mechanics.
+Controllers execute mechanics. They do not recompute route policy. A controller receives a route decision plus selected immutable profile and returns typed result objects. `RuntimeControllerStartInput` and `RuntimeControllerDispatchInput` MAY carry `dispatchEnv`; this is the HRC-owned per-invocation context channel and is never copied into the compiled profile or hash material. Controller implementations may supervise processes they own, but the broker controller only supervises the broker process; it does not synthesize harness process mechanics. Embedded SDK controllers run SDK sessions in-process and MUST NOT inherit broker process/socket assumptions.
 
-### 7.8 HarnessBrokerController contract
+### 7.8 EmbeddedSdkController contract
+
+`EmbeddedSdkController` consumes a selected `EmbeddedSdkExecutionProfile`. It MUST NOT build or patch the profile. It runs the SDK in-process inside `hrc-server`.
+
+It owns:
+
+- SDK session create/reuse;
+- scoped SDK env composition from ambient allowlist + credentials + `session.lockedEnv` + `dispatchEnv`;
+- typed `session.pathPrepend` application to the scoped PATH;
+- SDK turn delivery according to compiled policy/capability;
+- mapping native SDK output into the normalized controller event envelope;
+- continuation/sessionKey reporting;
+- stop/interrupt/dispose where supported by the SDK;
+- reconciliation of persisted embedded SDK runtime state.
+
+It MUST NOT:
+
+- spawn a harness process;
+- create callback/spool sockets;
+- start or speak to Harness Broker;
+- allocate a pty or terminal surface;
+- expose Claude/Pi native SDK events outside the controller;
+- mutate `session.lockedEnv`, `session.pathPrepend`, model, policy, or continuation shape after compilation.
+
+Embedded SDK legality gates:
+
+- `interactionMode` MUST be `nonInteractive`, not `headless`.
+- `claude-agent-sdk` requires provider `anthropic`; `pi-sdk` requires provider `openai`.
+- `turnDelivery` MUST be `sdk-turn` or `sdk-inflight-input`; in-flight input also requires selected profile, HRC policy, runtime state, and SDK implementation capability.
+- `session.lockedEnv` obeys the same declared non-secret, hash-covered, disjoint-key rules as process `lockedEnv`.
+- `session.pathPrepend` is typed launch/session shape and participates in profile and compatibility hash material; `PATH` MUST NOT appear in `session.lockedEnv`.
+
+Embedded SDK controllers emit the same normalized `ControllerEventEnvelope` / `InvocationEventEnvelope` vocabulary used by broker controllers. Tool-only SDK turns emit normalized `tool.call.*` events and complete with `turn.completed.producedContent: true`; absence of assistant text alone is not `empty_response` or `runtime_unavailable`.
+
+### 7.9 HarnessBrokerController contract
 
 `HarnessBrokerController` consumes a selected `BrokerExecutionProfile`. It MUST NOT build or patch the profile. It owns:
 
@@ -510,7 +546,7 @@ It MUST NOT:
 - write Codex/Claude/Pi config;
 - alter `startRequest.spec.process` or `startRequest.spec.driver`.
 
-### 7.9 Permission mediation contract
+### 7.10 Permission mediation contract
 
 HRC owns final product/security permission decisions. Broker emits permission requests either as broker-to-client JSON-RPC requests or as typed normalized events. HRC MUST audit every request and decision.
 
@@ -587,6 +623,22 @@ At minimum, broker routes must persist:
 - continuation refs;
 - permission audit records.
 
+At minimum, embedded-sdk routes must persist:
+
+- `operationId`;
+- `runtimeId`;
+- `runId` when present;
+- `compileId`;
+- `planHash`;
+- `selectedProfileId`;
+- `selectedProfileHash`;
+- plan/profile projections (credential-free and ambient-free; declared `session.lockedEnv` included);
+- capability resolution;
+- route decision JSON;
+- normalized controller event records;
+- SDK `sessionKey` / continuation refs when reported;
+- permission audit records where SDK permission mediation is used.
+
 Persisted compiler artifacts are evidence for compiler closure. They are not a cache from which HRC may reconstruct process/driver mechanics.
 
 ### 7.13 Restart and reconcile contract
@@ -598,7 +650,8 @@ On restart:
 - if broker process is gone and active run exists, mark runtime unknown/failed and finalize active run degraded according to policy;
 - if broker status is reachable and terminal, reconcile active run to terminal state;
 - if no terminal broker event exists, synthesize degraded completion only through reconciliation policy;
-- do not claim continuation unless persisted continuation or broker status/event proves it;
+- do not claim continuation unless persisted continuation, broker status/event, or embedded controller event/state proves it;
+- do not claim live embedded-sdk session reuse after restart unless the SDK continuation/sessionKey is persisted and validated for the selected runtime;
 - do not kill unrelated harness processes during orphan cleanup.
 
 V2 may support attach/replay only when broker implements `broker.attach`, `invocation.eventsSince`, `invocation.snapshot`, and event ack semantics.
@@ -1169,10 +1222,10 @@ No live reattach claim unless v2 attach/replay exists
 - Projection-hash determinism: the same source object yields the same hash, computed over the named canonical projection (which includes the canonical `lockedEnv` object).
 - `lockedEnv` values affect hashes: changing a `lockedEnv` key or value changes the affected semantic hashes (`planHash`/`profileHash`/`specHash`/`startRequestHash`/`compatibilityHash`).
 - `dispatchEnv` is hashed nowhere and is changeable without recompile.
-- The compiled spec is credential-free and ambient-free; secrets/credentials never appear in `spec.process.lockedEnv`, argv, cwd, driver config, initial input, labels, or correlation.
+- The compiled spec is credential-free and ambient-free; secrets/credentials never appear in `spec.process.lockedEnv`, `session.lockedEnv`, argv, cwd, driver/session config, initial input, labels, or correlation.
 - A `lockedEnv` key that collides with a reserved/credential/ambient key class is rejected at compile time.
-- Changing process/driver mechanics changes semantic hashes.
-- Missing broker profile produces diagnostics, not HRC-side patching.
+- Changing process/driver/session mechanics changes semantic hashes.
+- Missing broker or embedded-sdk profile produces diagnostics, not HRC-side patching.
 - Mutation attempts violate compiler closure tests.
 
 ### 14.2 HRC boundary tests
@@ -1243,7 +1296,7 @@ The to-be contract surface is accepted only when all are true:
 1. ASP emits versioned, hashable `CompiledRuntimePlan` artifacts; the compiled spec carries declared non-secret `lockedEnv` (hashed) and is credential-free and ambient-free; `dispatchEnv` is hashed nowhere and is changeable without recompile.
 2. HRC route decisions select profiles from compiled plans.
 3. Codex headless selects `controller: 'harness-broker'` by default.
-4. HRC never reconstructs, mutates, patches, infers, or synthesizes broker execution mechanics after ASP compilation.
+4. HRC never reconstructs, mutates, patches, infers, or synthesizes compiled execution mechanics after ASP compilation.
 5. HRC broker paths do not import concrete harness driver packages.
 6. HRC broker paths do not spawn or reference `launch/exec.ts`.
 7. HRC broker paths do not parse native harness events.
@@ -1255,7 +1308,7 @@ The to-be contract surface is accepted only when all are true:
 13. Public APIs expose controller/profile/capability fields and derive old `transport` aliases.
 14. Legacy `exec.ts` is feature-gated, isolated, and deleted after Codex broker cutover.
 15. Cross-repo boundary checks enforce dependency direction.
-16. Persisted/displayed artifacts are named canonical projections that include the canonical `lockedEnv` object (non-secret); secrets/credentials never appear in `spec.process.lockedEnv`, argv, cwd, driver config, initial input, labels, or correlation; a `lockedEnv` collision with a reserved/credential key is rejected at compile and a `dispatchEnv` collision is rejected at dispatch; and there is no secret classification, redaction transform, or digest-substituted value anywhere in the contract plane.
+16. Persisted/displayed artifacts are named canonical projections that include the canonical `lockedEnv` object (non-secret); secrets/credentials never appear in `spec.process.lockedEnv`, `session.lockedEnv`, argv, cwd, driver/session config, initial input, labels, or correlation; a `lockedEnv` collision with a reserved/credential key is rejected at compile and a `dispatchEnv` collision is rejected at dispatch; and there is no secret classification, redaction transform, or digest-substituted value anywhere in the contract plane.
 
 Final deletion criterion:
 

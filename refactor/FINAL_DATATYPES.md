@@ -211,7 +211,7 @@ export type HrcTaskContext = {
 
 ## 4. Hashing and canonicalization types
 
-> **Confidentiality posture (pointer; canonical home: PLANE_SPEC §3.2; spawn-env + credential
+> **Confidentiality posture (pointer; canonical home: PLANE_SPEC §3.2; execution-env + credential
 > sources: §7.5.1).** The contract
 > plane may hold raw execution material in memory because HRC must launch the harness. It
 > defines **no** generic secret classification, redaction transforms, or digest-substituted
@@ -744,6 +744,10 @@ export type EmbeddedSdkExecutionProfile = RuntimeExecutionProfileBase & {
     // ASP-declared environment required for the harness to function. Hash-covered;
     // HRC MUST NOT modify it. Declared config only — never ambient/operator env, never credentials.
     lockedEnv: Record<string, string>
+    // Ordered directories prepended to the final composed PATH. PATH stays out of
+    // lockedEnv; this typed field is launch shape and participates in profile and
+    // compatibility hash material.
+    pathPrepend?: string[] | undefined
   }
   policy: {
     inputPolicy?: BrokerInputPolicy | undefined
@@ -1302,9 +1306,18 @@ export type InvocationEventPayload =
 
 export interface InvocationStartedPayload {
   pid?: number | undefined
-  command: string
-  args: string[]
+  // Process-backed invocations provide command/args. In-process SDK invocations
+  // instead identify the controller/sdk below and MUST NOT fake a spawned process.
+  command?: string | undefined
+  args?: string[] | undefined
   cwd: string
+  controller?: string | undefined
+  sdk?:
+    | {
+        runtime: 'claude-agent-sdk' | 'pi-sdk'
+        sessionKey?: string | undefined
+      }
+    | undefined
 }
 
 export interface InvocationReadyPayload {
@@ -1349,6 +1362,10 @@ export interface TurnCompletedPayload {
   turnId: TurnId
   status: 'completed' | 'failed' | 'interrupted'
   finalOutput?: string | undefined
+  // True when the normalized controller stream observed assistant text, tool
+  // calls/results, or other content-bearing turn activity. Tool-only SDK turns
+  // set this true even when finalOutput is empty.
+  producedContent?: boolean | undefined
   usage?: unknown
 }
 
@@ -1414,7 +1431,7 @@ export interface UsageUpdatedPayload {
 export interface DiagnosticPayload {
   level: 'debug' | 'info' | 'warn' | 'error'
   message: string
-  source?: 'broker' | 'harness' | 'driver' | undefined
+  source?: 'controller' | 'broker' | 'harness' | 'driver' | undefined
   data?: unknown
 }
 
@@ -1645,6 +1662,11 @@ export type RuntimeControllerStartInput<TDecision extends RuntimeRouteDecision> 
   compiledPlan: CompiledRuntimePlan
   selectedProfile: RuntimeExecutionProfile
   operation: RuntimeOperation
+  // HRC-supplied per-invocation context. This is the concrete dispatchEnv
+  // channel for in-process embedded-sdk controller.start() and the source for
+  // the broker InvocationDispatchRequest envelope. It is never part of the
+  // compiled plan and is hashed nowhere.
+  dispatchEnv?: Record<string, string> | undefined
   existingRuntime?: HrcRuntimeSnapshot | undefined
 }
 
@@ -1653,11 +1675,22 @@ export type RuntimeControllerDispatchInput<TDecision extends RuntimeRouteDecisio
   runtime: HrcRuntimeSnapshot
   operation: RuntimeOperation
   input: RuntimeInputEnvelope
+  dispatchEnv?: Record<string, string> | undefined
 }
 
 export interface HarnessBrokerController extends RuntimeController<RuntimeRouteDecision> {
   readonly kind: 'harness-broker'
 }
+
+export interface EmbeddedSdkController extends RuntimeController<RuntimeRouteDecision> {
+  readonly kind: 'embedded-sdk'
+}
+
+// Broker and embedded-sdk controllers emit the same normalized controller-event
+// envelope at the HRC boundary. Embedded SDK controllers do not expose native SDK
+// events directly and do not define a parallel event taxonomy.
+export type ControllerEventEnvelope = InvocationEventEnvelope
+export type EmbeddedSdkControllerEventEnvelope = ControllerEventEnvelope
 
 export type RuntimeInputEnvelope = {
   inputId: InputId
