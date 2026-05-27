@@ -257,6 +257,15 @@ function embeddedSdkProfile(response: RuntimeCompileResponse): EmbeddedSdkExecut
   return profiles[0]
 }
 
+function rejectedWithoutEmbeddedSdkProfile(response: RuntimeCompileResponse): CompileDiagnostic[] {
+  expect(response.ok).toBe(false)
+  expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
+  if (response.ok) {
+    throw new Error('compileRuntimePlan returned an embedded-sdk plan for an invalid route')
+  }
+  return response.diagnostics
+}
+
 function terminalProfile(response: RuntimeCompileResponse): TerminalExecutionProfile {
   if (!response.ok) {
     throw new Error(
@@ -433,6 +442,96 @@ describe('compileRuntimePlan broker profile contract', () => {
       })
     )
     expect(validateEmbeddedSdkExecutionProfile(profile)).toEqual([])
+  })
+
+  test('rejects pi-sdk headless requests instead of rewriting them to nonInteractive embedded-sdk', async () => {
+    const response = await createClient().compileRuntimePlan(
+      baseCompileRequest({
+        requested: {
+          modelProvider: 'openai',
+          model: 'gpt-5.5',
+          reasoningEffort: 'medium',
+          harnessFamily: 'pi',
+          preferredHarnessRuntime: 'pi-sdk',
+          interactionMode: 'headless',
+        },
+        materialization: {
+          ...baseCompileRequest().materialization,
+          attachments: [],
+        },
+        continuation: undefined,
+      })
+    )
+
+    const diagnostics = rejectedWithoutEmbeddedSdkProfile(response)
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        level: 'error',
+        plane: 'asp-compiler',
+        message: expect.stringContaining('nonInteractive'),
+      })
+    )
+  })
+
+  test('rejects pi-sdk requests when nonInteractive interaction mode is omitted', async () => {
+    const response = await createClient().compileRuntimePlan(
+      baseCompileRequest({
+        requested: {
+          modelProvider: 'openai',
+          model: 'gpt-5.5',
+          reasoningEffort: 'medium',
+          harnessFamily: 'pi',
+          preferredHarnessRuntime: 'pi-sdk',
+        },
+        materialization: {
+          ...baseCompileRequest().materialization,
+          attachments: [],
+        },
+        continuation: undefined,
+      })
+    )
+
+    const diagnostics = rejectedWithoutEmbeddedSdkProfile(response)
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        level: 'error',
+        plane: 'asp-compiler',
+        message: expect.stringContaining('explicit'),
+      })
+    )
+    expect(diagnostics.map((diagnostic) => diagnostic.message).join('\n')).toContain(
+      'nonInteractive'
+    )
+  })
+
+  test('rejects pi-sdk requests when the harness family is not pi', async () => {
+    const response = await createClient().compileRuntimePlan(
+      baseCompileRequest({
+        requested: {
+          modelProvider: 'openai',
+          model: 'gpt-5.5',
+          reasoningEffort: 'medium',
+          harnessFamily: 'codex',
+          preferredHarnessRuntime: 'pi-sdk',
+          interactionMode: 'nonInteractive',
+        },
+        materialization: {
+          ...baseCompileRequest().materialization,
+          attachments: [],
+        },
+        continuation: undefined,
+      })
+    )
+
+    const diagnostics = rejectedWithoutEmbeddedSdkProfile(response)
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        level: 'error',
+        plane: 'asp-compiler',
+        message: expect.stringContaining('harnessFamily'),
+      })
+    )
+    expect(diagnostics.map((diagnostic) => diagnostic.message).join('\n')).toContain('pi')
   })
 
   test('selects the claude-code-tmux harness-broker for the pre-HRC interactive default', async () => {
