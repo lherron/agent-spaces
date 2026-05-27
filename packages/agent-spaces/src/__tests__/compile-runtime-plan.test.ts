@@ -13,8 +13,8 @@ import type {
   TerminalExecutionProfile,
 } from 'spaces-runtime-contracts'
 import {
-  DEFAULT_CODEX_BROKER_INPUT_POLICY,
   type CompileDiagnostic,
+  DEFAULT_CODEX_BROKER_INPUT_POLICY,
   project,
 } from 'spaces-runtime-contracts'
 import * as RuntimeContracts from 'spaces-runtime-contracts'
@@ -233,9 +233,11 @@ type EmbeddedSdkProfileValidator = (profile: EmbeddedSdkExecutionProfile) => Com
 function validateEmbeddedSdkExecutionProfile(
   profile: EmbeddedSdkExecutionProfile
 ): CompileDiagnostic[] {
-  const validator = (RuntimeContracts as typeof RuntimeContracts & {
-    validateEmbeddedSdkExecutionProfile?: EmbeddedSdkProfileValidator | undefined
-  }).validateEmbeddedSdkExecutionProfile
+  const validator = (
+    RuntimeContracts as typeof RuntimeContracts & {
+      validateEmbeddedSdkExecutionProfile?: EmbeddedSdkProfileValidator | undefined
+    }
+  ).validateEmbeddedSdkExecutionProfile
 
   expect(validator).toBeFunction()
   return validator(profile)
@@ -628,7 +630,7 @@ exit 0
     }
   })
 
-  test('compiles codex-cli interactive requests to a foreground terminal profile', async () => {
+  test('compiles codex-cli interactive requests to the codex-cli-tmux broker profile', async () => {
     const response = await createClient().compileRuntimePlan(
       interactiveCompileRequest({
         modelProvider: 'openai',
@@ -639,16 +641,23 @@ exit 0
         interactionMode: 'interactive',
       })
     )
-    const profile = terminalProfile(response)
+    const profile = brokerProfile(response)
 
     expect(response.ok).toBe(true)
-    expect(profile.kind).toBe('terminal')
+    expect(profile.kind).toBe('harness-broker')
     expect(profile.interactionMode).toBe('interactive')
-    expect(profile.terminal.host).toBe('foreground')
-    expect(profile.terminal.startupMethod).toBe('inherit-current-terminal')
-    expect(profile.terminal.turnDelivery).toBe('terminal-launch-input')
-    expect(profile.process.io.kind).toBe('inherit')
-    expect(profile.policy.exposurePolicy.mode).toBe('none')
+    expect(profile.brokerDriver).toBe('codex-cli-tmux')
+    expect(profile.brokerTerminal).toMatchObject({
+      host: 'tmux',
+      turnDelivery: 'terminal-literal-input',
+      operatorAttach: true,
+    })
+    expect(profile.harnessInvocation.startRequest.spec.process.harnessTransport.kind).toBe('pty')
+    expect(profile.harnessInvocation.startRequest.spec.driver).toMatchObject({
+      kind: 'codex-cli-tmux',
+      terminalHost: 'tmux',
+      hookBridge: 'codex-hooks/v1',
+    })
   })
 
   test('emits all required plan, profile, spec, and start request hashes', async () => {

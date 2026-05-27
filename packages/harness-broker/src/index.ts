@@ -16,6 +16,11 @@ export { createDriverRegistry } from './drivers/registry'
 export type { DriverRegistry } from './drivers/registry'
 
 export { createNoopDriver } from './drivers/noop-driver'
+export {
+  CODEX_CLI_TMUX_DRIVER_KIND,
+  createCodexCliTmuxHookEventNormalizer,
+} from './drivers/codex-cli-tmux/hook-events'
+export { createCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
 export type { NoopDriverOptions } from './drivers/noop-driver'
 
 export type { Driver, DriverContext, DriverStartResult } from './drivers/driver'

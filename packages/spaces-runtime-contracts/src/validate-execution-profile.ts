@@ -115,10 +115,13 @@ export function validateBrokerExecutionProfile(
   const specInteractionMode = spec.interaction?.mode
   const specDriverTerminalHost =
     'terminalHost' in spec.driver ? spec.driver['terminalHost'] : undefined
+  const specDriverHookBridge = 'hookBridge' in spec.driver ? spec.driver['hookBridge'] : undefined
   const isCodexAppServer =
     profile.brokerDriver === 'codex-app-server' || specDriverKind === 'codex-app-server'
   const profileClaimsClaudeCodeTmux = profile.brokerDriver === 'claude-code-tmux'
   const isClaudeCodeTmux = profileClaimsClaudeCodeTmux || specDriverKind === 'claude-code-tmux'
+  const profileClaimsCodexCliTmux = profile.brokerDriver === 'codex-cli-tmux'
+  const isCodexCliTmux = profileClaimsCodexCliTmux || specDriverKind === 'codex-cli-tmux'
 
   if (
     isCodexAppServer &&
@@ -193,6 +196,46 @@ export function validateBrokerExecutionProfile(
         profile,
         'claude_code_tmux_requires_pty_transport',
         'claude-code-tmux broker profiles must use pty process transport.'
+      )
+    )
+  }
+
+  if (profileClaimsCodexCliTmux && specDriverKind !== 'codex-cli-tmux') {
+    diagnostics.push(
+      executionProfileDiagnostic(
+        profile,
+        'codex_cli_tmux_requires_driver_kind',
+        'codex-cli-tmux broker profiles must use codex-cli-tmux in the hashed driver spec.'
+      )
+    )
+  }
+
+  if (specDriverKind === 'codex-cli-tmux' && specDriverTerminalHost !== 'tmux') {
+    diagnostics.push(
+      executionProfileDiagnostic(
+        profile,
+        'codex_cli_tmux_requires_terminal_host',
+        'codex-cli-tmux broker profiles must declare terminalHost tmux in the hashed driver spec.'
+      )
+    )
+  }
+
+  if (isCodexCliTmux && transportKind !== 'pty') {
+    diagnostics.push(
+      executionProfileDiagnostic(
+        profile,
+        'codex_cli_tmux_requires_pty_transport',
+        'codex-cli-tmux broker profiles must use pty process transport.'
+      )
+    )
+  }
+
+  if (specDriverKind === 'codex-cli-tmux' && specDriverHookBridge !== 'codex-hooks/v1') {
+    diagnostics.push(
+      executionProfileDiagnostic(
+        profile,
+        'codex_cli_tmux_requires_codex_hooks_bridge',
+        'codex-cli-tmux broker profiles must declare hookBridge codex-hooks/v1.'
       )
     )
   }

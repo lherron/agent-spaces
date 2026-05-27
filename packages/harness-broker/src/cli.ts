@@ -13,6 +13,7 @@ import { createBroker } from './broker'
 import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
 import { runClaudeHookBridgeCli } from './drivers/claude-code-tmux/hook-bridge'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
+import { createDefaultCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
 import { createProtocolServer } from './protocol-server'
 
 async function main(): Promise<void> {
@@ -62,7 +63,11 @@ function createDefaultBroker(
   onPermissionRequest?: (params: PermissionRequestParams) => Promise<PermissionDecision>
 ) {
   return createBroker({
-    drivers: [createCodexAppServerDriver(), createDefaultClaudeCodeTmuxDriver()],
+    drivers: [
+      createCodexAppServerDriver(),
+      createDefaultClaudeCodeTmuxDriver(),
+      createDefaultCodexCliTmuxDriver(),
+    ],
     ...(onEvent !== undefined ? { onEvent } : {}),
     ...(onPermissionRequest !== undefined ? { onPermissionRequest } : {}),
   })

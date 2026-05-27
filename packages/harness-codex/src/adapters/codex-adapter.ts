@@ -9,7 +9,7 @@
 
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import {
   constants,
   access,
@@ -298,7 +298,7 @@ export function buildCodexHookTrustState(
 ): Record<string, { trusted_hash: string }> {
   const root = isRecord(hooksConfig['hooks']) ? hooksConfig['hooks'] : {}
   const trustedState: Record<string, { trusted_hash: string }> = {}
-  const keySource = resolve(hooksPath)
+  const keySource = canonicalHookTrustPath(hooksPath)
 
   for (const [eventName, eventLabel] of Object.entries(CODEX_HOOK_EVENT_KEY_LABELS)) {
     const groups = root[eventName]
@@ -353,9 +353,9 @@ export function addCodexHookTrustState(
 
   const hooks = isRecord(config['hooks']) ? { ...config['hooks'] } : {}
   const state = isRecord(hooks['state']) ? { ...hooks['state'] } : {}
-  const keySource = resolve(hooksPath)
+  const keySource = canonicalHookTrustPath(hooksPath)
   for (const staleHooksPath of options.replaceHooksPaths ?? []) {
-    const staleKeySource = resolve(staleHooksPath)
+    const staleKeySource = canonicalHookTrustPath(staleHooksPath)
     for (const key of Object.keys(trustState)) {
       const suffix = key.slice(keySource.length)
       delete state[`${staleKeySource}${suffix}`]
@@ -373,6 +373,15 @@ export function addCodexHookTrustState(
       ...hooks,
       state,
     },
+  }
+}
+
+function canonicalHookTrustPath(hooksPath: string): string {
+  const resolved = resolve(hooksPath)
+  try {
+    return realpathSync(resolved)
+  } catch {
+    return resolved
   }
 }
 

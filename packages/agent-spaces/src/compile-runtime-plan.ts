@@ -188,7 +188,9 @@ const RUNTIME_TO_FAMILY: Partial<Record<HarnessRuntime, HarnessFamily>> = {
  */
 function resolveForegroundRoute(
   req: RuntimeCompileRequest
-): { route: ForegroundRoute; diagnostics: CompileDiagnostic[] } | { diagnostics: CompileDiagnostic[] } {
+):
+  | { route: ForegroundRoute; diagnostics: CompileDiagnostic[] }
+  | { diagnostics: CompileDiagnostic[] } {
   const diagnostics: CompileDiagnostic[] = []
   const requestedRuntime = req.requested.preferredHarnessRuntime
   const family =
@@ -371,6 +373,31 @@ function buildClaudeTmuxInitialInput(
   }
 }
 
+function withoutCodexInteractiveLaunchPrompt(args: string[], prompt: string | undefined): string[] {
+  if (prompt === undefined || prompt.length === 0) return args
+  const promptIndex = args.findIndex((arg) => arg === prompt)
+  if (promptIndex === -1) return args
+  return [...args.slice(0, promptIndex), ...args.slice(promptIndex + 1)]
+}
+
+function buildCodexTmuxInitialInput(
+  req: RuntimeCompileRequest,
+  initialText: string | undefined
+): InvocationInput | undefined {
+  const content: InputContent[] = []
+  if (initialText !== undefined && initialText.length > 0) {
+    content.push({ type: 'text', text: initialText })
+  }
+  if (content.length === 0) return undefined
+  return {
+    inputId:
+      req.identity.initialInputId ??
+      (`input_${hashValue({ route: 'codex-cli-tmux', content }).slice(0, 32)}` as InputId),
+    kind: 'user',
+    content,
+  }
+}
+
 function brokerCorrelation(req: RuntimeCompileRequest): Record<string, string> {
   const out: Record<string, string> = {
     requestId: req.correlation.requestId,
@@ -526,6 +553,15 @@ function selectsInteractiveClaudeTmuxBroker(req: RuntimeCompileRequest): boolean
   return family === 'claude-code'
 }
 
+function selectsInteractiveCodexTmuxBroker(req: RuntimeCompileRequest): boolean {
+  if (req.requested.controllerIntent === 'foreground-terminal') return false
+  const requestedRuntime = req.requested.preferredHarnessRuntime
+  const family =
+    req.requested.harnessFamily ??
+    (requestedRuntime !== undefined ? RUNTIME_TO_FAMILY[requestedRuntime] : undefined)
+  return family === 'codex'
+}
+
 export async function compileRuntimePlan(
   req: RuntimeCompileRequest,
   options?: CompileRuntimePlanOptions
@@ -534,6 +570,9 @@ export async function compileRuntimePlan(
   if (req.requested.interactionMode === 'interactive') {
     if (selectsInteractiveClaudeTmuxBroker(req)) {
       return compileClaudeTmuxBrokerPlan(req, placement, options)
+    }
+    if (selectsInteractiveCodexTmuxBroker(req)) {
+      return compileCodexTmuxBrokerPlan(req, placement, options)
     }
     return compileForegroundPlan(req, placement, options)
   }
@@ -1388,6 +1427,237 @@ async function compileClaudeTmuxBrokerPlan(
     expectedCapabilities: expectedCapabilities(permissionPolicy),
     brokerProtocol: 'harness-broker/0.1' as const,
     brokerDriver: 'claude-code-tmux' as const,
+    brokerOwnership: 'hrc-owned-process' as const,
+    brokerTerminal: CLAUDE_TMUX_BROKER_TERMINAL,
+    harnessInvocation: {
+      startRequest,
+      specHash,
+      startRequestHash,
+      ...(initialInputHash !== undefined ? { initialInputHash } : {}),
+    },
+    policy: {
+      permissionPolicy,
+      inputPolicy,
+      exposurePolicy: TMUX_BROKER_EXPOSURE_POLICY,
+      ...(req.hrcPolicy.resourceLimits !== undefined
+        ? { resourceLimits: req.hrcPolicy.resourceLimits }
+        : {}),
+    },
+    ...(req.continuation !== undefined
+      ? { continuation: { hrc: req.continuation, broker: req.continuation.broker } }
+      : {}),
+    observability: brokerObservability(
+      req,
+      startRequest.spec.invocationId ??
+        req.identity.invocationId ??
+        (profileId as unknown as InvocationId)
+    ),
+  }
+  const profileHash = projectionHash(
+    { ...profileMaterial, compatibilityHash },
+    'profile'
+  ).profileHash
+  const profile: BrokerExecutionProfile = {
+    ...profileMaterial,
+    profileHash,
+    compatibilityHash,
+  }
+
+  const validationDiagnostics = validateBrokerExecutionProfile(profile)
+  if (validationDiagnostics.length > 0) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: validationDiagnostics,
+    }
+  }
+
+  const diagnostics: CompileDiagnostic[] = (prepared.warnings ?? []).map((warning) => ({
+    level: 'warning',
+    code: 'prepare_runtime_warning',
+    message: warning,
+    plane: 'asp-compiler',
+    profileId,
+  }))
+  const compileId = stableId('compile', {
+    requestId: req.identity.requestId,
+    operationId: req.identity.operationId,
+    generation: req.identity.generation,
+    profileHash,
+  }) as CompileId
+  const createdAt = new Date().toISOString()
+  const resolvedBundle = (prepared.resolvedBundle ?? {
+    bundleIdentity,
+  }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  const compiledPlacement = toCompiledPlacement(placement)
+
+  const planMaterial = {
+    schemaVersion: 'agent-runtime-plan/v1' as const,
+    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
+    compileId,
+    createdAt,
+    identity: req.identity,
+    placement: compiledPlacement,
+    resolvedBundle,
+    harness: {
+      family: route.family,
+      runtime: route.runtime,
+      provider: route.provider,
+    },
+    model: {
+      provider: route.provider,
+      modelId:
+        prepared.runtimePlan.model.ok === true
+          ? prepared.runtimePlan.model.info.model
+          : (req.requested.model ?? 'unknown'),
+      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
+      ...(req.requested.reasoningEffort !== undefined
+        ? { reasoningEffort: req.requested.reasoningEffort }
+        : {}),
+    },
+    executionProfiles: [profile],
+    artifacts: {
+      materializedBundleRoot: prepared.materialized.materialization.outputPath,
+      ...(prepared.systemPrompt?.path !== undefined
+        ? { systemPromptFile: prepared.systemPrompt.path }
+        : {}),
+      ...(lockHash !== undefined ? { lockHash } : {}),
+      bundleIdentity,
+    },
+    lockedEnv: {
+      lockedEnvKeys,
+    },
+    diagnostics,
+  }
+  const planHash = projectionHash(planMaterial, 'plan').planHash
+  const plan: CompiledRuntimePlan = {
+    ...planMaterial,
+    planHash,
+  }
+
+  return {
+    schemaVersion: 'agent-runtime-compile-response/v1',
+    ok: true,
+    plan,
+    diagnostics,
+  }
+}
+
+async function compileCodexTmuxBrokerPlan(
+  req: RuntimeCompileRequest,
+  placement: CompilePlacement,
+  options?: CompileRuntimePlanOptions
+): Promise<RuntimeCompileResponse> {
+  const routed = resolveForegroundRoute(req)
+  if (!('route' in routed)) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: routed.diagnostics,
+    }
+  }
+  const route = routed.route
+  resolveFrontend(route.frontend)
+
+  const attachments = toBrokerAttachments(req.materialization.attachments)
+  const prepared = await preparePlacementCliRuntime(
+    {
+      provider: route.provider,
+      frontend: route.frontend,
+      interactionMode: 'interactive',
+      ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
+      ...(req.continuation?.hrc.key !== undefined
+        ? { continuation: { provider: route.provider, key: req.continuation.hrc.key } }
+        : {}),
+      ...(req.materialization.initialPrompt !== undefined
+        ? { prompt: req.materialization.initialPrompt }
+        : {}),
+      ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
+      ...(placement.env !== undefined ? { env: placement.env } : {}),
+      ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
+      ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
+      placement,
+    },
+    options?.clientAspHome
+  )
+
+  const permissionPolicy = req.hrcPolicy.permissionPolicy ?? { mode: 'deny', audit: true }
+  const inputPolicy: BrokerInputPolicy =
+    req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
+  const limits = toProcessLimits(req.hrcPolicy.resourceLimits)
+  const taskId = req.materialization.taskContext?.taskId
+
+  const lockedEnv = prepared.lockedEnv
+  const lockedEnvKeys = Object.keys(lockedEnv).sort()
+  const bundleIdentity = prepared.resolvedBundle?.bundleIdentity ?? 'unknown'
+  const lockHash = (prepared.resolvedBundle as { lockHash?: string | undefined } | undefined)
+    ?.lockHash
+  const processArgs = withoutCodexInteractiveLaunchPrompt(prepared.args, prepared.expandedPrompt)
+
+  const spec: HarnessInvocationSpec = {
+    specVersion: 'harness-broker.invocation/v1',
+    ...(req.identity.invocationId !== undefined ? { invocationId: req.identity.invocationId } : {}),
+    ...(taskId !== undefined ? { labels: { task: taskId } } : {}),
+    harness: {
+      frontend: route.frontend,
+      provider: route.provider,
+      driver: 'codex-cli-tmux',
+    },
+    process: {
+      command: prepared.commandPath,
+      args: processArgs,
+      cwd: prepared.cwd,
+      lockedEnv,
+      ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
+      harnessTransport: { kind: 'pty' },
+      ...(limits !== undefined ? { limits } : {}),
+    },
+    interaction: {
+      mode: 'interactive',
+      turnConcurrency: 'single',
+      inputQueue: 'none',
+    },
+    ...(req.continuation?.hrc.key !== undefined
+      ? {
+          continuation: {
+            provider: route.provider,
+            key: req.continuation.hrc.key,
+            kind: 'session',
+          },
+        }
+      : {}),
+    driver: { kind: 'codex-cli-tmux', terminalHost: 'tmux', hookBridge: 'codex-hooks/v1' },
+    correlation: brokerCorrelation(req),
+  }
+  validateInvocationSpec(spec)
+  const initialInput = buildCodexTmuxInitialInput(req, prepared.expandedPrompt)
+  if (initialInput !== undefined) {
+    validateInvocationInput(initialInput)
+  }
+  const startRequest: InvocationStartRequest =
+    initialInput === undefined ? { spec } : { spec, initialInput }
+
+  const profileId = stableId('profile', {
+    kind: 'harness-broker',
+    brokerDriver: 'codex-cli-tmux',
+    startRequest,
+  }) as ProfileId
+  const compatibilityHash = hashValue(
+    buildCompatibilityMaterial(req, startRequest, bundleIdentity, lockHash, lockedEnv)
+  )
+  const specHash = projectionHash(spec, 'spec').specHash
+  const startRequestHash = projectionHash(startRequest, 'start-request').startRequestHash
+  const initialInputHash =
+    startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
+
+  const profileMaterial = {
+    schemaVersion: 'agent-runtime-profile/v1' as const,
+    profileId,
+    kind: 'harness-broker' as const,
+    interactionMode: 'interactive' as const,
+    expectedCapabilities: expectedCapabilities(permissionPolicy),
+    brokerProtocol: 'harness-broker/0.1' as const,
+    brokerDriver: 'codex-cli-tmux' as const,
     brokerOwnership: 'hrc-owned-process' as const,
     brokerTerminal: CLAUDE_TMUX_BROKER_TERMINAL,
     harnessInvocation: {

@@ -67,6 +67,7 @@ function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope
       if (key === 'time') return '<time>'
       if (key === 'pid') return '<pid>'
       if (key === 'durationMs') return '<durationMs>'
+      if (key === 'command' && value === Bun.execPath) return '<bun>'
       return value
     })
   ) as InvocationEventEnvelope
