@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -12,6 +12,9 @@ const PACKAGES = [
   'packages/config',
   'packages/runtime',
   'packages/execution',
+  'packages/harness-broker-protocol',
+  'packages/harness-broker-client',
+  'packages/spaces-runtime-contracts',
   'packages/harness-claude',
   'packages/harness-codex',
   'packages/harness-pi',
@@ -23,6 +26,8 @@ type Manifest = {
   name?: string
   version?: string
   private?: boolean
+  main?: string
+  types?: string
   exports?: unknown
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
@@ -30,14 +35,15 @@ type Manifest = {
   optionalDependencies?: Record<string, string>
 }
 
-let publishVersion = ''
-let internalNames = new Set<string>()
+let publishVersionsByName = new Map<string, string>()
 
 type Options = {
   dryRun: boolean
   force: boolean
+  skipExisting: boolean
   tag?: string
   version?: string
+  sourceVersions: boolean
 }
 
 type RegistryMetadata = {
@@ -46,7 +52,12 @@ type RegistryMetadata = {
 }
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { dryRun: false, force: false }
+  const options: Options = {
+    dryRun: false,
+    force: false,
+    skipExisting: false,
+    sourceVersions: false,
+  }
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -54,6 +65,10 @@ function parseArgs(argv: string[]): Options {
       options.dryRun = true
     } else if (arg === '--force') {
       options.force = true
+    } else if (arg === '--skip-existing') {
+      options.skipExisting = true
+    } else if (arg === '--source-versions') {
+      options.sourceVersions = true
     } else if (arg === '--version') {
       const value = argv[++i]
       if (!value) throw new Error('--version requires a value')
@@ -74,15 +89,24 @@ function parseArgs(argv: string[]): Options {
     }
   }
 
+  if (options.sourceVersions && (options.version || process.env.ASP_PUBLISH_VERSION)) {
+    throw new Error('--source-versions cannot be combined with --version or ASP_PUBLISH_VERSION')
+  }
+  if (options.force && options.skipExisting) {
+    throw new Error('--force cannot be combined with --skip-existing')
+  }
+
   return options
 }
 
 function printHelp(): void {
   console.log(`Usage:
   bun scripts/publish-local-verdaccio.ts [--dry-run]
-  bun scripts/publish-local-verdaccio.ts --version <semver> [--tag <tag>] [--force] [--dry-run]
+  bun scripts/publish-local-verdaccio.ts --source-versions [--tag <tag>] [--force|--skip-existing] [--dry-run]
+  bun scripts/publish-local-verdaccio.ts --version <semver> [--tag <tag>] [--force|--skip-existing] [--dry-run]
 
 Default mode publishes a timestamped dev set as <base>-dev.YYYYMMDDHHMMSS tagged latest.
+Source-version mode publishes each package at the version declared in its package.json.
 Explicit --version publishes that exact version. Stable versions default to --tag latest.
 Explicit prerelease versions require --tag.`)
 }
@@ -146,6 +170,25 @@ function findBunConditions(value: unknown, path = 'exports'): string[] {
   return offenders
 }
 
+function exportedFilePaths(value: unknown): string[] {
+  if (typeof value === 'string' && value.startsWith('./') && !value.includes('*')) {
+    return [value]
+  }
+  if (Array.isArray(value)) return value.flatMap(exportedFilePaths)
+  if (!value || typeof value !== 'object') return []
+
+  return Object.values(value as Record<string, unknown>).flatMap(exportedFilePaths)
+}
+
+async function assertPackagedFile(packageDir: string, path: string, name: string): Promise<void> {
+  const normalized = path.replace(/^\.\//, '')
+  try {
+    await access(join(packageDir, normalized))
+  } catch {
+    throw new Error(`${name} tarball references missing file: ${path}`)
+  }
+}
+
 async function registryMetadata(name: string): Promise<RegistryMetadata | undefined> {
   const response = await fetch(`${REGISTRY.replace(/\/$/, '')}/${encodeURIComponent(name)}`)
   if (!response.ok) return undefined
@@ -177,28 +220,30 @@ function timestampVersion(baseVersion: string): string {
   return `${baseVersion.split('-')[0]}-dev.${stamp}`
 }
 
-async function packageNames(): Promise<Set<string>> {
-  const names = await Promise.all(
+async function packageVersionsByName(versionOverride?: string): Promise<Map<string, string>> {
+  const entries = await Promise.all(
     PACKAGES.map(async (rel) => {
       const manifest = (await Bun.file(join(ROOT, rel, 'package.json')).json()) as Manifest
-      if (!manifest.name) throw new Error(`${rel}/package.json must include name`)
-      return manifest.name
+      if (!manifest.name || !manifest.version) {
+        throw new Error(`${rel}/package.json must include name and version`)
+      }
+      return [manifest.name, versionOverride ?? manifest.version] as const
     })
   )
-  return new Set(names)
+  return new Map(entries)
 }
 
 function pinInternalDependencies(
   deps: Record<string, string> | undefined,
-  names: Set<string>,
-  version: string
+  versionsByName: Map<string, string>
 ): Record<string, string> | undefined {
   if (!deps) return undefined
 
   let changed = false
   const next: Record<string, string> = {}
   for (const [name, spec] of Object.entries(deps)) {
-    if (names.has(name)) {
+    const version = versionsByName.get(name)
+    if (version) {
       next[name] = version
       changed = true
     } else {
@@ -225,26 +270,21 @@ async function packForPublish(rel: string): Promise<{
     if (!manifest.name || !manifest.version) {
       throw new Error(`${rel}/package.json must include name and version`)
     }
+    const packagePublishVersion = publishVersionsByName.get(manifest.name)
+    if (!packagePublishVersion) {
+      throw new Error(`no publish version resolved for ${manifest.name}`)
+    }
 
     const { private: _private, ...manifestWithoutPrivate } = manifest
     const publishManifest = {
       ...manifestWithoutPrivate,
-      version: publishVersion,
-      dependencies: pinInternalDependencies(manifest.dependencies, internalNames, publishVersion),
-      devDependencies: pinInternalDependencies(
-        manifest.devDependencies,
-        internalNames,
-        publishVersion
-      ),
-      peerDependencies: pinInternalDependencies(
-        manifest.peerDependencies,
-        internalNames,
-        publishVersion
-      ),
+      version: packagePublishVersion,
+      dependencies: pinInternalDependencies(manifest.dependencies, publishVersionsByName),
+      devDependencies: pinInternalDependencies(manifest.devDependencies, publishVersionsByName),
+      peerDependencies: pinInternalDependencies(manifest.peerDependencies, publishVersionsByName),
       optionalDependencies: pinInternalDependencies(
         manifest.optionalDependencies,
-        internalNames,
-        publishVersion
+        publishVersionsByName
       ),
       exports: stripBunConditions(manifest.exports),
     }
@@ -282,8 +322,17 @@ async function packForPublish(rel: string): Promise<{
     if (stagedManifest.private) {
       throw new Error(`${manifest.name} tarball still has private=true`)
     }
+    const extractedPackageDir = join(extractDir, 'package')
+    const referencedFiles = [
+      stagedManifest.main,
+      stagedManifest.types,
+      ...exportedFilePaths(stagedManifest.exports),
+    ].filter((path): path is string => Boolean(path))
+    for (const path of new Set(referencedFiles)) {
+      await assertPackagedFile(extractedPackageDir, path, manifest.name)
+    }
 
-    return { name: manifest.name, version: publishVersion, tarballPath, tmp }
+    return { name: manifest.name, version: packagePublishVersion, tarballPath, tmp }
   } catch (error) {
     if (tmp) await rm(tmp, { recursive: true, force: true })
     throw error
@@ -297,7 +346,12 @@ async function publishPackage(rel: string): Promise<void> {
   const id = `${packed.name}@${packed.version}`
 
   try {
-    if ((await versionExists(packed.name, packed.version)) && !options.force) {
+    const exists = await versionExists(packed.name, packed.version)
+    if (exists && options.skipExisting) {
+      console.log(`SKIPPED    ${id} already exists in ${REGISTRY}`)
+      return
+    }
+    if (exists && !options.force) {
       throw new Error(`${id} already exists in ${REGISTRY}; use --force to replace it`)
     }
 
@@ -350,13 +404,18 @@ async function main() {
   if (!firstManifest.version) {
     throw new Error(`${PACKAGES[0]}/package.json must include version`)
   }
-  publishVersion = resolvePublishVersion(firstManifest.version, options)
   publishTag = resolveTag(options)
-  internalNames = await packageNames()
+  const versionOverride = options.sourceVersions
+    ? undefined
+    : resolvePublishVersion(firstManifest.version, options)
+  publishVersionsByName = await packageVersionsByName(versionOverride)
 
   const mode = options.dryRun ? 'Dry-run publishing' : 'Publishing'
+  const versionLabel = options.sourceVersions
+    ? 'source manifest versions'
+    : [...new Set(publishVersionsByName.values())].join(', ')
   console.log(
-    `${mode} ${PACKAGES.length} ASP package(s) as ${publishVersion} --tag ${publishTag} to ${REGISTRY}`
+    `${mode} ${PACKAGES.length} ASP package(s) as ${versionLabel} --tag ${publishTag} to ${REGISTRY}`
   )
   for (const rel of PACKAGES) {
     await publishPackage(rel)
