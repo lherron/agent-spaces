@@ -84,6 +84,8 @@ export type ContractHarnessFailureCode =
   | 'real_codex_tool_call_missing'
   | 'real_codex_tool_call_invalid'
   | 'real_codex_assistant_marker_missing'
+  | 'shared_command_turn_missing'
+  | 'shared_command_turn_invalid'
   | 'broker_terminal_turn_missing'
   | 'broker_capability_missing'
   | 'interactive_tmux_mode_invalid'

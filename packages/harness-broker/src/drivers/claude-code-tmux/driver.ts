@@ -118,6 +118,15 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let activeTurnId: string | undefined
   let turnCounter = 0
 
+  // Single shared per-invocation turn-id allocator (cody's blessed scheme,
+  // C-02755). BOTH applyInputNow (manager path) and the hook normalizer (which
+  // mints for turn-id-less operator prompts) call THIS closure so manager- and
+  // normalizer-minted ids never collide and stay monotonic in turn-open order.
+  function allocateTurnId(): string {
+    turnCounter += 1
+    return `turn_${requireCtx().invocationId}_${turnCounter}`
+  }
+
   function requireCtx(): DriverContext {
     if (ctx === undefined) {
       throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Driver has not started')
@@ -172,11 +181,16 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       const normalizer: ClaudeCodeHookEventNormalizer = createClaudeCodeHookEventNormalizer({
         invocationId: driverCtx.invocationId,
         now,
+        allocateTurnId,
       })
       hookListener = await options.hooks.listen(async (envelope) => {
         // H2: when neither the envelope nor the raw hook carries a turn id, fall
         // back to the driver-tracked active broker turn id so turn lifecycle
-        // events still resolve to the live turn.
+        // events still resolve to the live turn. The fallback is only injected
+        // while a turn is OPEN — it is cleared on terminal below so a stale,
+        // already-completed id is never merged into raw turn_id indistinguishably
+        // (C-02755 step 5); that lets the normalizer mint a fresh id for the next
+        // turn-id-less operator prompt.
         const effectiveEnvelope =
           envelope.turnId === undefined && activeTurnId !== undefined
             ? { ...envelope, turnId: activeTurnId }
@@ -187,6 +201,15 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
             ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
             ...(event.driver !== undefined ? { driver: event.driver } : {}),
           })
+          // Provenance sync (C-02755 step 5): mirror the normalizer's turn
+          // lifecycle into the driver-side fallback id. After turn.started, point
+          // the fallback at the live turn (so its tool-call/Stop hooks resolve);
+          // after a terminal, clear it so the next turn-id-less prompt mints.
+          if (event.type === 'turn.started' && event.turnId !== undefined) {
+            activeTurnId = event.turnId
+          } else if (event.type === 'turn.completed' && activeTurnId === event.turnId) {
+            activeTurnId = undefined
+          }
         }
       })
 
@@ -235,10 +258,10 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       const { paneId } = requireSurface()
       const text = extractText(input)
       // H2: open a broker-tracked turn so out-of-band hook envelopes that omit a
-      // turn id are attributed to this turn. Returned to the caller as the
+      // turn id are attributed to this turn. Uses the SAME shared allocator as
+      // the normalizer (C-02755) and is returned to the caller as the
       // authoritative turn id for this input.
-      turnCounter += 1
-      const turnId = `turn_${requireCtx().invocationId}_${turnCounter}`
+      const turnId = allocateTurnId()
       activeTurnId = turnId
       // terminal-literal-input turn delivery: literal text then Enter so shell
       // expansion / key interpretation never mangles the prompt.

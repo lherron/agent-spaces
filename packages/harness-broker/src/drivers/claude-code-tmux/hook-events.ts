@@ -26,6 +26,14 @@ export type ClaudeCodeHookEventNormalizer = {
 export type ClaudeCodeHookEventNormalizerOptions = {
   invocationId: string
   now: () => Date
+  /**
+   * Shared per-invocation turn-id allocator (cody's blessed scheme, C-02755).
+   * MUST be the SAME closure the driver's `applyInputNow` uses so manager-minted
+   * and normalizer-minted ids never collide and stay monotonic in turn-open
+   * order. When omitted a local fallback allocator is used (sufficient for the
+   * one-shot `normalizeHookEnvelope` path, which always supplies a turn id).
+   */
+  allocateTurnId?: (() => string) | undefined
 }
 
 /**
@@ -104,6 +112,16 @@ export function createClaudeCodeHookEventNormalizer(
   const sequencer = createInvocationEventSequencer({ now: options.now })
   const completedTurns = new Set<string>()
   let activeTurnId: string | undefined
+  // Fallback allocator when the shared one is not wired (one-shot envelope path
+  // always carries a turn id, so it never actually mints). Mirrors the driver's
+  // `turn_${invocationId}_${n}` namespace so any minted id stays consistent.
+  let fallbackCounter = 0
+  const allocateTurnId =
+    options.allocateTurnId ??
+    (() => {
+      fallbackCounter += 1
+      return `turn_${options.invocationId}_${fallbackCounter}`
+    })
 
   const emit = (rawType: string, event: MappedHookEvent): InvocationEventEnvelope => {
     return sequencer.next(invocationId, event.type, event.payload as InvocationEventPayload, {
@@ -117,17 +135,30 @@ export function createClaudeCodeHookEventNormalizer(
     normalizeHook(hook: Record<string, unknown>): InvocationEventEnvelope[] {
       const unwrapped = unwrapHookPayload(hook)
       const rawType = getString(unwrapped, 'hook_event_name') ?? 'unknown'
-      const turnIdText = getString(unwrapped, 'turn_id') ?? activeTurnId
+      const rawTurnId = getString(unwrapped, 'turn_id')
+      const turnIdText = rawTurnId ?? activeTurnId
       const turnId = turnIdText !== undefined ? asTurnId(turnIdText) : undefined
 
       if (rawType === 'UserPromptSubmit') {
-        if (turnIdText === undefined || turnId === undefined) return []
-        activeTurnId = turnIdText
+        // Resolve the turn id for this prompt (C-02755 step 3): prefer an
+        // explicit raw turn id; otherwise reuse the active turn ONLY while it is
+        // still open; otherwise MINT a fresh id via the shared allocator. This
+        // fixes cold-start (no active turn yet) AND post-completed operator
+        // prompts (active turn already terminal) — both previously dropped.
+        let resolvedText: string
+        if (rawTurnId !== undefined) {
+          resolvedText = rawTurnId
+        } else if (activeTurnId !== undefined && !completedTurns.has(activeTurnId)) {
+          resolvedText = activeTurnId
+        } else {
+          resolvedText = allocateTurnId()
+        }
+        activeTurnId = resolvedText
         return [
           emit(rawType, {
             type: 'turn.started',
-            payload: { turnId: turnIdText },
-            turnId,
+            payload: { turnId: resolvedText },
+            turnId: asTurnId(resolvedText),
           }),
         ]
       }
@@ -212,7 +243,14 @@ export function createClaudeCodeHookEventNormalizer(
         if (turnIdText === undefined || turnId === undefined || completedTurns.has(turnIdText)) {
           return []
         }
+        // Emit exactly one terminal for this turn, mark it terminal for dedupe,
+        // and clear the active turn when it matches so the NEXT turn-id-less
+        // prompt mints a fresh id instead of reusing a completed one (C-02755
+        // step 4).
         completedTurns.add(turnIdText)
+        if (activeTurnId === turnIdText) {
+          activeTurnId = undefined
+        }
         return [
           emit(rawType, {
             type: 'turn.completed',
