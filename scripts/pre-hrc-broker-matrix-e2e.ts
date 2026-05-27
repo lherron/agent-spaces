@@ -254,6 +254,12 @@ function resolveRealCodexBin(): string | undefined {
   ]) {
     if (candidate !== undefined && candidate.length > 0 && existsSync(candidate)) return candidate
   }
+  // Fall back to PATH resolution so version-manager installs (nvm/volta/asdf,
+  // whose bin dirs are not in the explicit list above) are found. Bun.which
+  // resolves a real executable on PATH — NOT a shell alias — so an interactive
+  // `alias codex=...` stays correctly excluded.
+  const onPath = Bun.which('codex')
+  if (onPath !== null && onPath.length > 0 && existsSync(onPath)) return onPath
   return undefined
 }
 
@@ -398,6 +404,46 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
+/**
+ * Concatenate the assistant transcript across the normalized event stream the way
+ * the deleted real-codex smoke did: streamed assistant.message.delta chunks are
+ * joined (so a marker split across deltas is whole), assistant.message.completed
+ * text parts are appended, and turn.completed finalOutput (when present) is too.
+ */
+function assembleAssistantText(events: InvocationEventEnvelope[]): string {
+  let deltaText = ''
+  const parts: string[] = []
+  for (const event of events) {
+    const payload = asRecord(event.payload)
+    if (event.type === 'assistant.message.delta' && typeof payload?.['text'] === 'string') {
+      deltaText += payload['text']
+    } else if (event.type === 'assistant.message.completed') {
+      const content = Array.isArray(payload?.['content']) ? payload['content'] : []
+      for (const part of content) {
+        const record = asRecord(part)
+        if (record?.['type'] === 'text' && typeof record['text'] === 'string') {
+          parts.push(record['text'])
+        }
+      }
+    } else if (event.type === 'turn.completed' && typeof payload?.['finalOutput'] === 'string') {
+      parts.push(payload['finalOutput'])
+    }
+  }
+  if (deltaText.length > 0) parts.push(deltaText)
+  return parts.join('\n')
+}
+
+/** Outputs of every completed command/tool call (ported from the deleted smoke). */
+function collectCommandOutputs(events: InvocationEventEnvelope[]): string[] {
+  return events
+    .filter((event) => event.type === 'tool.call.completed')
+    .map((event) => {
+      const result = asRecord(asRecord(event.payload)?.['result'])
+      return String(result?.['output'] ?? '')
+    })
+    .filter((output) => output.length > 0)
+}
+
 // ---------------------------------------------------------------------------
 // Codex rows (fake + real) — shared mechanics
 // ---------------------------------------------------------------------------
@@ -536,6 +582,8 @@ function assertRealCodexEnvEvidence(
       message: 'adding a lockedEnv key did not change the spec hash',
     })
   }
+  // Compiled-spec evidence: the sparky tool-bin is emitted as the FIRST typed
+  // process.pathPrepend entry (sparky tool-bin contract case, not cody-specific).
   const expectedToolBin = join(resolve(agentRoot), 'tools', 'bin')
   if (pathPrepend.length === 0) {
     failures.push({ code: 'real_codex_path_prepend', message: 'process.pathPrepend was empty' })
@@ -545,16 +593,35 @@ function assertRealCodexEnvEvidence(
       message: `expected pathPrepend[0] ${expectedToolBin}, got ${pathPrepend[0]}`,
     })
   }
-  // assistant marker present in the command turn's reply.
+  // Runtime-visibility evidence (cody re-sign Q2, faithful to the deleted smoke):
+  // the compiled spec alone is not enough — prove the tool-bin was actually visible
+  // on the SPAWNED process PATH and that `command -v sparky-spark` resolved through
+  // it, by inspecting the executed command's tool output (the resolved
+  // `<toolsbin>/sparky-spark` line carries the tool-bin path).
   const events = brokerEvents(result)
-  const assistantHasMarker = events.some((e) => {
-    const payload = asRecord(e.payload)
-    if (e.type === 'assistant.message.delta')
-      return String(payload?.['text'] ?? '').includes(marker)
-    if (e.type === 'turn.completed') return String(payload?.['finalOutput'] ?? '').includes(marker)
-    return false
-  })
-  if (!assistantHasMarker) {
+  const commandOutput = collectCommandOutputs(events).join('\n')
+  const sparkySparkPath = join(expectedToolBin, 'sparky-spark')
+  if (pathPrepend[0] !== undefined && !commandOutput.includes(pathPrepend[0])) {
+    failures.push({
+      code: 'real_codex_path_visible',
+      message: `tool-bin ${pathPrepend[0]} was not visible in the spawned process PATH (command output)`,
+    })
+  }
+  if (!commandOutput.includes(sparkySparkPath)) {
+    failures.push({
+      code: 'real_codex_sparky_spark',
+      message: `command -v sparky-spark did not resolve to ${sparkySparkPath} in command output`,
+    })
+  }
+  // assistant marker present in the reply. codex STREAMS the reply as many
+  // assistant.message.delta chunks (e.g. "ASP","_MATRIX","_REAL",...), so the
+  // full marker never lands in a single delta; it is whole only in the
+  // CONCATENATED delta stream and in assistant.message.completed content (and
+  // turn.completed carries no finalOutput here). Mirror the deleted smoke's full
+  // assistant extraction — concat deltas + completed text parts + finalOutput —
+  // rather than testing each event in isolation (the consolidation regression).
+  const assistantText = assembleAssistantText(events)
+  if (!assistantText.includes(marker)) {
     failures.push({ code: 'real_codex_marker', message: `assistant marker ${marker} missing` })
   }
   return failures
@@ -573,7 +640,22 @@ async function runCodexRow(
     lockedEnv?: Record<string, string> | undefined
   }
 ): Promise<RowResult> {
-  const prompt = `Run \`printf '${ctx.marker}'\` then reply with exactly ${ctx.marker} and nothing else.`
+  // The real-codex row is the sparky tool-bin CONTRACT case (not cody-specific):
+  // it must prove the compiled `process.pathPrepend` tool-bin is actually visible
+  // on the spawned process PATH and that `sparky-spark` resolves through it — so
+  // the command echoes PATH_HEAD for diagnostics and runs `command -v sparky-spark`
+  // to prove the tools bin is visible on the spawned PATH. (Codex executes through
+  // `/bin/zsh -lc`, whose rc may re-prepend other dirs, so PATH_HEAD is NOT asserted
+  // to equal pathPrepend[0]; the contract is visibility + resolution, not position.)
+  // The fake row keeps the minimal marker prompt (its deterministic fixture has no
+  // tools/bin and runs no PATH-visibility assertion).
+  const prompt = options.real
+    ? [
+        'Run this exact Bash command and nothing else:',
+        `printf 'PATH_HEAD=%s\\n' "\${PATH%%:*}"; command -v sparky-spark || true`,
+        `Then reply with exactly ${ctx.marker} and nothing else.`,
+      ].join('\n')
+    : `Run \`printf '${ctx.marker}'\` then reply with exactly ${ctx.marker} and nothing else.`
   const name: RowName = options.real ? 'real-codex' : 'fake-codex'
   const result: RowResult = {
     name,
@@ -806,8 +888,13 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       const artifactDir = join(aspHome, 'matrix-real-codex-artifacts')
       const projectRoot = ctx.repoRoot
       ensureAspHomeRegistry(aspHome, projectRoot)
-      const scopeRef = 'cody@agent-spaces'
-      const agentRoot = resolve(projectRoot, '..', 'var', 'agents', 'cody')
+      // sparky is the canonical tool-bin smoke agent (var/agents/sparky/tools/bin/
+      // sparky-spark): the deleted real-codex smoke ran against it precisely so the
+      // compiler emits a real tool-bin pathPrepend that assertRealCodexEnvEvidence
+      // can verify. cody@agent-spaces has NO tools/bin, so pointing the row there
+      // (matrix-setup divergence from the smoke) left pathPrepend legitimately empty.
+      const scopeRef = 'sparky@agent-spaces'
+      const agentRoot = resolve(projectRoot, '..', 'var', 'agents', 'sparky')
       try {
         return await runCodexRow(ctx, {
           real: true,
