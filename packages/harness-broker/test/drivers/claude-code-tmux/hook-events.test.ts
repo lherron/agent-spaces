@@ -529,14 +529,17 @@ describe('claude-code-tmux hook event normalization', () => {
     })
   })
 
-  test('assistant message and usage events remain unemitted from Phase 2 hooks', async () => {
+  test('a non-string last_assistant_message is ignored and emits no terminal message', async () => {
     const normalizer = await createNormalizer()
+    // Only the string form of last_assistant_message (the real Claude shape) is
+    // used; a malformed object form falls back to the held-flush path (no held
+    // message here → nothing emitted). Also asserts no spurious delta/usage.
     const events = [
       ...normalizer.normalizeHook({ hook_event_name: 'UserPromptSubmit', turn_id: turnId }),
       ...normalizer.normalizeHook({
         hook_event_name: 'Stop',
         turn_id: turnId,
-        last_assistant_message: { content: [{ type: 'text', text: 'deferred to Phase 4' }] },
+        last_assistant_message: { content: [{ type: 'text', text: 'object form ignored' }] },
         usage: { input_tokens: 10, output_tokens: 20 },
       }),
     ]
@@ -544,5 +547,95 @@ describe('claude-code-tmux hook event normalization', () => {
     expect(eventTypes(events)).not.toContain('assistant.message.delta')
     expect(eventTypes(events)).not.toContain('assistant.message.completed')
     expect(eventTypes(events)).not.toContain('usage.updated')
+  })
+
+  // T-01722 Phase G race fix: Claude fires the terminal MessageDisplay{final:true}
+  // and Stop at end-of-turn as two SEPARATE racing hook-bridge processes; the
+  // MessageDisplay was observed landing 2–44ms AFTER Stop ~40% of runs. The Stop
+  // payload's authoritative `last_assistant_message` (a string) is the race-free
+  // source for the terminal assistant message.
+  test('Stop emits the terminal final message from last_assistant_message even when no MessageDisplay was held (race-won-by-Stop)', async () => {
+    const normalizer = await createNormalizer()
+    // No MessageDisplay arrived before Stop (its delivery lost the race).
+    const events = normalizer.normalizeHook({
+      hook_event_name: 'Stop',
+      turn_id: turnId,
+      last_assistant_message: 'Successfully inspected the agent-spaces project directory.',
+    })
+
+    expect(eventTypes(events)).toEqual(['assistant.message.completed', 'turn.completed'])
+    expect(events[0]).toMatchObject({
+      type: 'assistant.message.completed',
+      turnId,
+      payload: {
+        content: [{ type: 'text', text: 'Successfully inspected the agent-spaces project directory.' }],
+        final: true,
+      },
+    })
+  })
+
+  test('Stop with both a held terminal MessageDisplay and last_assistant_message emits exactly one final (no double)', async () => {
+    const normalizer = await createNormalizer()
+    // Terminal MessageDisplay WON the race (arrived before Stop) and is held.
+    expect(
+      normalizer.normalizeHook({
+        hook_event_name: 'MessageDisplay',
+        turn_id: turnId,
+        message_id: 'msg_final',
+        index: 0,
+        final: true,
+        delta: 'Successfully inspected the directory.',
+      })
+    ).toEqual([])
+
+    const events = normalizer.normalizeHook({
+      hook_event_name: 'Stop',
+      turn_id: turnId,
+      last_assistant_message: 'Successfully inspected the directory.',
+    })
+
+    const finals = events.filter(
+      (event) =>
+        event.type === 'assistant.message.completed' &&
+        (event.payload as { final?: boolean }).final === true
+    )
+    expect(finals).toHaveLength(1)
+    expect(eventTypes(events)).toEqual(['assistant.message.completed', 'turn.completed'])
+    expect(finals[0]).toMatchObject({ itemId: 'msg_final', payload: { messageId: 'msg_final' } })
+  })
+
+  test('a terminal MessageDisplay delivered AFTER Stop (race-lost) is dropped, not double-counted', async () => {
+    const normalizer = await createNormalizer()
+    const normalizeHookEnvelope = await loadNormalizeHookEnvelope()
+
+    // Live turn opens, then Stop arrives first (won the race) carrying the text.
+    normalizer.normalizeHook({ hook_event_name: 'UserPromptSubmit', turn_id: turnId })
+    const stopEvents = normalizer.normalizeHook({
+      hook_event_name: 'Stop',
+      turn_id: turnId,
+      last_assistant_message: 'Done.',
+    })
+    expect(eventTypes(stopEvents)).toEqual(['assistant.message.completed', 'turn.completed'])
+
+    // The terminal MessageDisplay arrives AFTER Stop. With the turn already
+    // completed there is no active turn id, so the envelope path resolves it to
+    // undefined and the late display is dropped — no second final.
+    const lateEvents = normalizeHookEnvelope(
+      {
+        invocationId,
+        generation: 1,
+        callbackSocket: '/tmp/claude-hooks.sock',
+        hookData: {
+          hook_event_name: 'MessageDisplay',
+          turn_id: turnId,
+          message_id: 'msg_late',
+          index: 0,
+          final: true,
+          delta: 'Done.',
+        },
+      },
+      { normalizer }
+    )
+    expect(lateEvents).toEqual([])
   })
 })

@@ -323,7 +323,44 @@ export function createClaudeCodeHookEventNormalizer(
       }
 
       if (rawType === 'Stop' || rawType === 'SessionEnd' || rawType === 'SubagentStop') {
-        const events = flushHeldAssistantMessage(true, turnId)
+        // Terminal assistant message is sourced from Stop's authoritative
+        // `last_assistant_message`, NOT from a held MessageDisplay (T-01722
+        // Phase G flake fix). Claude fires the terminal MessageDisplay{final:true}
+        // and Stop at end-of-turn as two SEPARATE racing hook-bridge processes;
+        // the MessageDisplay was observed landing 2–44ms AFTER Stop ~40% of runs,
+        // so `flushHeldAssistantMessage(true)` found nothing held and the row went
+        // red on final_message_count=0 (the late MessageDisplay then orphaned).
+        // Stop carries the same text in `last_assistant_message`, so emit the
+        // terminal final:true straight from it — race-free. The held terminal
+        // message (present only when the MessageDisplay won the race) is discarded
+        // to avoid a double final. Fall back to the held flush only when Stop has
+        // no last_assistant_message (SessionEnd/SubagentStop, older claude).
+        const lastAssistantMessage = getString(unwrapped, 'last_assistant_message')?.trim()
+        const turnAlreadyDone = turnIdText !== undefined && completedTurns.has(turnIdText)
+        let events: InvocationEventEnvelope[]
+        if (
+          lastAssistantMessage !== undefined &&
+          lastAssistantMessage.length > 0 &&
+          turnId !== undefined &&
+          !turnAlreadyDone
+        ) {
+          const messageId = heldAssistantMessage?.messageId ?? `${turnIdText}_final`
+          heldAssistantMessage = undefined
+          events = [
+            emit('MessageDisplay', {
+              type: 'assistant.message.completed',
+              payload: {
+                messageId,
+                content: [{ type: 'text', text: lastAssistantMessage }],
+                final: true,
+              },
+              turnId,
+              itemId: messageId,
+            }),
+          ]
+        } else {
+          events = flushHeldAssistantMessage(true, turnId)
+        }
         if (turnIdText === undefined || turnId === undefined || completedTurns.has(turnIdText)) {
           return events
         }

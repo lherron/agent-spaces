@@ -152,13 +152,32 @@ const ALL_ROWS: RowName[] = [
  * (preserving the marker echo so the shared floor still holds), multi-turn rows
  * run it as an isolated scripted turn. assertIntermediateMessages is scoped to
  * this turn on every row.
+ *
+ * WORDING IS LOAD-BEARING — DO NOT SOFTEN (was the source of the "known flake").
+ * The prior wording ("send me a one-line status message AS ITS OWN PLAIN-TEXT
+ * REPLY ... Step 1: say what you are about to inspect, THEN run ls") let the model
+ * satisfy the instruction literally by emitting ONLY the Step-1 status line as a
+ * complete reply and YIELDING THE TURN — Stop fired, zero tools ran, zero
+ * intermediate messages, and the row went red on intermediate_messages_missing /
+ * final_message_count. This is a continuation-amplified failure: turn 1's marker
+ * prompt ends with "reply ... and nothing else", priming a "one short reply then
+ * stop" disposition that the ambiguous "as its own plain-text reply" framing then
+ * cashed in. The rewrite (a) forbids ending the turn before Step 3, (b) forces
+ * ACTUAL command execution using the proven marker-turn imperative ("run the Bash
+ * command: ls"), and (c) keeps the status-line-before-each-command requirement so
+ * the conforming driver still surfaces >=1 intermediate final:false + exactly one
+ * final:true. Verified flake-free across repeated real-claude + real-codex runs
+ * (clod, 2026-05-28). If you must edit this, re-run the matrix many times first.
  */
 const NARRATION_PROMPT =
-  'For this task, before you run each command, first send me a one-line status message ' +
-  'as its own plain-text reply. Do not fold those status lines into your final answer. ' +
-  'Step 1: say what you are about to inspect, then run ls. ' +
-  'Step 2: say one interesting thing about the directory, then run pwd. ' +
-  'Step 3: give your final summary. Each status line must be a separate message that precedes its tool call.'
+  'Do all three steps below in ONE continuous turn. Do NOT end your turn until Step 3 is done, ' +
+  'and never stop right after a status line. You must ACTUALLY run each command — do not just ' +
+  'describe what you would do. ' +
+  'Step 1: write a one-line plain-text status saying what you are about to inspect, then run the Bash command: ls ' +
+  'Step 2: write a one-line plain-text status noting one thing about the directory, then run the Bash command: pwd ' +
+  'Step 3: write a one-line final summary. ' +
+  'Each Step 1/Step 2 status line must be its own plain-text sentence emitted immediately BEFORE its command ' +
+  'in the same turn — never fold those status lines into the final summary.'
 
 type CliArgs = {
   config?: RowName | undefined
@@ -2246,6 +2265,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
 
       let surfaceId: string | undefined
       let baselineSubmits = 0
+      let baselineCompleted = 0
 
       // Operator-attach seam: runs while the tmux session is live, AFTER the two
       // scripted broker turns, BEFORE the runner's clean teardown + signed
@@ -2260,7 +2280,9 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         baselineSubmits = live.events.filter(
           (e) => e.type === 'turn.started' && e.driver?.rawType === 'UserPromptSubmit'
         ).length
+        baselineCompleted = live.events.filter((e) => e.type === 'turn.completed').length
         result.notes['baselineSubmits'] = baselineSubmits
+        result.notes['baselineCompleted'] = baselineCompleted
 
         const newOut = await ghostmux(ghostmuxBin, [
           'new',
@@ -2298,16 +2320,25 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
 
         await driveOperatorTurn(ghostmuxBin, surfaceId, operatorPrompt, enterDelayMs)
 
-        // Wait for a NEW operator turn boundary (submit + stop) above the baseline.
+        // Wait for a NEW operator turn boundary above the baseline: a fresh
+        // UserPromptSubmit-originated turn.started AND a fresh terminal
+        // turn.completed. The completion is counted by turn.completed regardless
+        // of its driver rawType — NOT `rawType === 'Stop'`. Claude fires Stop and
+        // SubagentStop at end-of-turn as SEPARATE racing hook-bridge processes;
+        // the normalizer dedups to ONE turn.completed carrying whichever terminal
+        // won the race, so the operator turn's turn.completed legitimately carries
+        // rawType 'SubagentStop' ~part of the time. The old `stops >= submits`
+        // (Stop-only) condition then deadlocked → false operator_turn_not_recorded
+        // (the residual ghostmux "known flake"). This mirrors codex's
+        // rawType-agnostic terminalTurnCount, which never had the bug. (T-01722
+        // Phase G operator-flake fix.)
         const recorded = await pollUntil(
           () => {
             const submits = live.events.filter(
               (e) => e.type === 'turn.started' && e.driver?.rawType === 'UserPromptSubmit'
             ).length
-            const stops = live.events.filter(
-              (e) => e.type === 'turn.completed' && e.driver?.rawType === 'Stop'
-            ).length
-            return submits > baselineSubmits && stops >= submits
+            const completed = live.events.filter((e) => e.type === 'turn.completed').length
+            return submits > baselineSubmits && completed > baselineCompleted
           },
           ctx.turnTimeoutMs,
           1_500
