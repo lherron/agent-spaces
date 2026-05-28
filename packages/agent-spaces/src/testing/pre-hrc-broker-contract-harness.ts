@@ -281,6 +281,56 @@ function assertBrokerHelloCapabilities(
   ]
 }
 
+function assertHeadlessCodexInputQueueSpec(
+  profile: BrokerExecutionProfile | undefined
+): ContractHarnessFailure[] {
+  if (
+    profile === undefined ||
+    profile.interactionMode !== 'headless' ||
+    profile.brokerDriver !== 'codex-app-server'
+  ) {
+    return []
+  }
+  const inputQueue = profile.harnessInvocation.startRequest.spec.interaction?.inputQueue
+  if (inputQueue === 'fifo' && profile.expectedCapabilities.input.queue === 'required') {
+    return []
+  }
+  return [
+    {
+      code: 'broker_input_queue_invalid',
+      message:
+        'Headless codex-app-server broker profiles must compile with FIFO input queueing required.',
+      path: 'selectedProfile.harnessInvocation.startRequest.spec.interaction.inputQueue',
+      redactedDetails: {
+        inputQueue,
+        expectedCapability: profile.expectedCapabilities.input.queue,
+      },
+    },
+  ]
+}
+
+function assertHeadlessCodexComposedInputQueue(
+  profile: BrokerExecutionProfile,
+  response: InvocationStartResponse
+): ContractHarnessFailure[] {
+  if (profile.interactionMode !== 'headless' || profile.brokerDriver !== 'codex-app-server') {
+    return []
+  }
+  if (response.capabilities.input.queue === true) return []
+  return [
+    {
+      code: 'broker_input_queue_invalid',
+      message:
+        'Headless codex-app-server broker start must report composed input.queue capability true.',
+      path: 'invocationStart.response.capabilities.input.queue',
+      redactedDetails: {
+        inputQueue: profile.harnessInvocation.startRequest.spec.interaction?.inputQueue,
+        capability: response.capabilities.input.queue,
+      },
+    },
+  ]
+}
+
 function selectInteractiveTmuxProfile(
   plan: NonNullable<PreHrcBrokerContractHarnessResult['compiledPlan']>,
   selector: PreHrcBrokerContractHarnessInput['profileSelector']
@@ -621,6 +671,7 @@ async function startBrokerInvocation(
       'invocationStart.response.capabilities',
       hrcPolicy
     )
+    const queueFailures = assertHeadlessCodexComposedInputQueue(profile, startResult.response)
     const eventFailures = await collectEventsUntilTerminalTurn(
       startResult.events,
       ledger,
@@ -655,7 +706,13 @@ async function startBrokerInvocation(
         eventTypes: ledger.eventTypes(),
         permissionAudit,
       },
-      failures: [...invocationFailures, ...eventFailures, ...ledgerFailures, ...terminalFailures],
+      failures: [
+        ...invocationFailures,
+        ...queueFailures,
+        ...eventFailures,
+        ...ledgerFailures,
+        ...terminalFailures,
+      ],
     }
   } catch (error) {
     return {
@@ -1032,6 +1089,7 @@ export async function runPreHrcBrokerContractHarness(
 
   const failures: ContractHarnessFailure[] = [
     ...selectionFailures,
+    ...assertHeadlessCodexInputQueueSpec(selectedProfile),
     ...assertBrokerProfileClosure(compileResponse, selectedProfile),
     ...(verification?.failures ?? []),
     ...assertPreHrcRouteDecision(routeDecision, selectedProfile, compileResponse),

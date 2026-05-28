@@ -297,7 +297,7 @@ export function toHarnessBrokerStartRequest(
     interaction: {
       mode: 'headless',
       turnConcurrency: 'single',
-      inputQueue: req.interaction?.inputQueue ?? 'none',
+      inputQueue: 'fifo',
     },
     ...(req.continuation?.key !== undefined
       ? { continuation: { provider: 'codex', kind: 'thread', key: req.continuation.key } }

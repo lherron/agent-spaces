@@ -345,6 +345,19 @@ describe('validateInvocationStartRequest', () => {
       }
     )
   })
+
+  test('rejects stale runtime overlays on start requests', () => {
+    expectInvalidStartRequest(
+      {
+        spec: specSection19InvocationStartSpec,
+        runtime: { tmux: { socketPath: '/tmp/stale-start-request.sock' } },
+      },
+      {
+        path: 'runtime',
+        code: 'stale_runtime_overlay',
+      }
+    )
+  })
 })
 
 describe('validateInvocationDispatchRequest', () => {
@@ -420,7 +433,7 @@ describe('validateInvocationDispatchRequest', () => {
         startRequest: { spec: claudeCodeTmuxSpec },
       },
       {
-        path: 'startRequest.runtime.tmux.socketPath',
+        path: 'runtime.tmux.socketPath',
         code: 'required',
       }
     )
@@ -430,15 +443,34 @@ describe('validateInvocationDispatchRequest', () => {
     const request = {
       startRequest: {
         spec: claudeCodeTmuxSpec,
-        runtime: {
-          tmux: {
-            socketPath: '/tmp/preallocated/hrc-owned-tmux.sock',
-          },
+      },
+      runtime: {
+        tmux: {
+          socketPath: '/tmp/preallocated/hrc-owned-tmux.sock',
         },
       },
     }
 
     expect(validateInvocationDispatchRequest(request)).toEqual(request)
+  })
+
+  test('rejects stale runtime overlays nested inside dispatch startRequest', () => {
+    expectInvalidDispatchRequest(
+      {
+        startRequest: {
+          spec: claudeCodeTmuxSpec,
+          runtime: {
+            tmux: {
+              socketPath: '/tmp/stale-start-request.sock',
+            },
+          },
+        },
+      },
+      {
+        path: 'startRequest.runtime',
+        code: 'stale_runtime_overlay',
+      }
+    )
   })
 })
 

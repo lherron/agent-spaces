@@ -1160,7 +1160,7 @@ export type BrokerNotificationMethod = 'invocation.event'
 export type BrokerCommand =
   | JsonRpcRequest<'broker.hello', BrokerHelloRequest>
   | JsonRpcRequest<'broker.health', BrokerHealthRequest>
-  | JsonRpcRequest<'invocation.start', InvocationStartRequest>
+  | JsonRpcRequest<'invocation.start', InvocationDispatchRequest>
   | JsonRpcRequest<'invocation.input', InvocationInputRequest>
   | JsonRpcRequest<'invocation.interrupt', InvocationInterruptRequest>
   | JsonRpcRequest<'invocation.stop', InvocationStopRequest>
@@ -1209,6 +1209,7 @@ export interface InvocationStartRequest {
 export interface InvocationDispatchRequest {
   startRequest: InvocationStartRequest
   dispatchEnv?: Record<string, string>
+  runtime?: InvocationRuntimeContext
 }
 
 export interface InvocationStartResponse {

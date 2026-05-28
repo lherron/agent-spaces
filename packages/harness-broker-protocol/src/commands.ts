@@ -91,17 +91,18 @@ export interface InvocationRuntimeContext {
 export interface InvocationStartRequest {
   spec: HarnessInvocationSpec
   initialInput?: InvocationInput | undefined
-  /**
-   * Dispatch-time runtime overlay. REQUIRED for `claude-code-tmux` dispatch
-   * (the driver attaches to this runtime-owned tmux socket; it must not own the
-   * tmux server). Absent for routes that need no runtime resource handles.
-   */
-  runtime?: InvocationRuntimeContext | undefined
 }
 
 export interface InvocationDispatchRequest {
   startRequest: InvocationStartRequest
   dispatchEnv?: Record<string, string> | undefined
+  /**
+   * Dispatch-time runtime overlay. REQUIRED for tmux-driver dispatch
+   * (`claude-code-tmux`, `codex-cli-tmux`): the driver attaches to this
+   * runtime-owned tmux socket and must not own the tmux server. Absent for
+   * routes that need no runtime resource handles.
+   */
+  runtime?: InvocationRuntimeContext | undefined
 }
 
 export interface InvocationStartResponse {

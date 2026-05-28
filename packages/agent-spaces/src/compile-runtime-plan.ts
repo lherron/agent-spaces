@@ -438,7 +438,10 @@ function brokerObservability(
   }
 }
 
-function expectedCapabilities(policy: BrokerPermissionPolicy): CapabilityRequirements {
+function expectedCapabilities(
+  policy: BrokerPermissionPolicy,
+  options?: { inputQueue?: CapabilityRequirements['input']['queue'] | undefined }
+): CapabilityRequirements {
   return {
     input: {
       user: 'required',
@@ -446,7 +449,7 @@ function expectedCapabilities(policy: BrokerPermissionPolicy): CapabilityRequire
       appendContext: 'optional',
       localImages: 'optional',
       fileRefs: 'forbidden',
-      queue: 'forbidden',
+      queue: options?.inputQueue ?? 'forbidden',
     },
     turns: {
       concurrency: 'single',
@@ -664,7 +667,7 @@ async function compileBrokerPlan(
     profileId,
     kind: 'harness-broker' as const,
     interactionMode: 'headless' as const,
-    expectedCapabilities: expectedCapabilities(permissionPolicy),
+    expectedCapabilities: expectedCapabilities(permissionPolicy, { inputQueue: 'required' }),
     brokerProtocol: 'harness-broker/0.1' as const,
     brokerDriver: 'codex-app-server',
     brokerOwnership: 'hrc-owned-process' as const,

@@ -905,6 +905,12 @@ async function runCodexRow(
     }
     result.notes['brokerStartAttempted'] = harnessResult.brokerStart?.attempted === true
     result.notes['eventCount'] = events.length
+    result.notes['compiledInputQueue'] =
+      harnessResult.selectedProfile?.harnessInvocation.startRequest.spec.interaction?.inputQueue
+    result.notes['composedInputQueue'] =
+      harnessResult.brokerStart?.attempted === true
+        ? harnessResult.brokerStart.response.capabilities.input.queue
+        : undefined
 
     // Contract bucket: the harness already ran compile/select/verify + baseline.
     result.contractFailures = harnessResult.assertionReport.failures.map(toFailure)

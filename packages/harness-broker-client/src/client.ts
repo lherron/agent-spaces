@@ -12,6 +12,7 @@ import type {
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationRuntimeContext,
   InvocationStartRequest,
   InvocationStartResponse,
   InvocationStatusRequest,
@@ -79,25 +80,32 @@ export class BrokerClient {
 
   async startInvocation(
     spec: HarnessInvocationSpec,
-    initialInput?: InvocationInput
+    initialInput?: InvocationInput,
+    runtime?: InvocationRuntimeContext
   ): Promise<InvocationStartResult> {
     return this.startInvocationFromRequest(
-      initialInput === undefined ? { spec } : { spec, initialInput }
+      initialInput === undefined ? { spec } : { spec, initialInput },
+      undefined,
+      runtime
     )
   }
 
   async startInvocationFromRequest(
     request: InvocationStartRequest,
-    dispatchEnv?: Record<string, string>
+    dispatchEnv?: Record<string, string>,
+    runtime?: InvocationRuntimeContext
   ): Promise<InvocationStartResult> {
     const expectedInvocationId = request.spec.invocationId
     const expectedEvents =
       expectedInvocationId !== undefined ? this.#eventStream(expectedInvocationId) : undefined
 
     // invocation.start now carries the InvocationDispatchRequest envelope:
-    // a verbatim startRequest plus the optional per-invocation dispatchEnv.
-    const dispatch: InvocationDispatchRequest =
-      dispatchEnv === undefined ? { startRequest: request } : { startRequest: request, dispatchEnv }
+    // a verbatim startRequest plus optional per-invocation dispatchEnv/runtime.
+    const dispatch: InvocationDispatchRequest = {
+      startRequest: request,
+      ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
+      ...(runtime !== undefined ? { runtime } : {}),
+    }
 
     try {
       const response = await this.#transport.request<InvocationStartResponse>(

@@ -87,6 +87,7 @@ export type ContractHarnessFailureCode =
   | 'shared_command_turn_missing'
   | 'shared_command_turn_invalid'
   | 'broker_terminal_turn_missing'
+  | 'broker_input_queue_invalid'
   | 'broker_capability_missing'
   | 'interactive_tmux_mode_invalid'
   | 'interactive_tmux_runtime_socket_missing'

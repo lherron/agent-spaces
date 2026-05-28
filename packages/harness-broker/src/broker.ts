@@ -11,6 +11,7 @@ import type {
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationRuntimeContext,
   InvocationStartRequest,
   InvocationStartResponse,
   InvocationStatusRequest,
@@ -23,7 +24,7 @@ import type {
 import {
   BrokerErrorCode,
   validateCommand,
-  validateInvocationStartRequest,
+  validateInvocationDispatchRequest,
 } from 'spaces-harness-broker-protocol'
 import type { Driver } from './drivers/driver'
 import { createDriverRegistry } from './drivers/registry'
@@ -53,7 +54,8 @@ export interface Broker {
   health(req: BrokerHealthRequest): Promise<BrokerHealthResponse>
   start(
     req: InvocationStartRequest,
-    dispatchEnv?: Record<string, string> | undefined
+    dispatchEnv?: Record<string, string> | undefined,
+    runtime?: InvocationRuntimeContext | undefined
   ): Promise<InvocationStartResponse>
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
@@ -120,10 +122,15 @@ export function createBroker(options: BrokerOptions): Broker {
 
     start(
       req: InvocationStartRequest,
-      dispatchEnv?: Record<string, string> | undefined
+      dispatchEnv?: Record<string, string> | undefined,
+      runtime?: InvocationRuntimeContext | undefined
     ): Promise<InvocationStartResponse> {
       try {
-        validateInvocationStartRequest(req)
+        validateInvocationDispatchRequest({
+          startRequest: req,
+          ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
+          ...(runtime !== undefined ? { runtime } : {}),
+        })
       } catch (err) {
         return Promise.reject(toInvalidParamsBrokerError(err) ?? err)
       }
@@ -143,7 +150,7 @@ export function createBroker(options: BrokerOptions): Broker {
       // Non-async wrapper: the returned promise has a no-op catch pre-attached
       // so that bun's test runner doesn't flag it as an unhandled rejection when
       // the startup timeout fires before the caller awaits.
-      const result = manager.start(req.spec, driver, req.initialInput, dispatchEnv, req.runtime)
+      const result = manager.start(req.spec, driver, req.initialInput, dispatchEnv, runtime)
       result.catch(() => {})
       return result
     },

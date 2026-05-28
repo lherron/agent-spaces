@@ -592,6 +592,10 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       })
       expect(result.ok).toBe(true)
       expect(result.assertionReport.failures).toHaveLength(0)
+      expect(
+        result.selectedProfile?.harnessInvocation.startRequest.spec.interaction?.inputQueue
+      ).toBe('fifo')
+      expect(result.selectedProfile?.expectedCapabilities.input.queue).toBe('required')
 
       const startProjection = readFileSync(
         join(artifactDir, 'invocation-start-request.projection.json'),
@@ -678,6 +682,7 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
         throw new Error('expected broker start to be attempted')
       }
       expect(result.brokerStart.response.invocationId).toBe('inv_T01621')
+      expect(result.brokerStart.response.capabilities.input.queue).toBe(true)
       expect(result.brokerStart.eventTypes).toContain('invocation.started')
       expect(result.brokerStart.eventTypes).toContain('turn.completed')
       expect(result.brokerStart.eventTypes).not.toContain('turn/started')

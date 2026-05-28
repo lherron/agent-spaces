@@ -116,7 +116,7 @@ function runStdio(): void {
     // (including dispatchEnv key-class + lockedEnv-shadow rules) before dispatch.
     validateParams(method, id, params)
     const dispatch = params as InvocationDispatchRequest
-    return broker.start(dispatch.startRequest, dispatch.dispatchEnv)
+    return broker.start(dispatch.startRequest, dispatch.dispatchEnv, dispatch.runtime)
   })
 
   server.register('invocation.input', async ({ id, method, params }) => {

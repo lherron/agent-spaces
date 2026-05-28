@@ -198,6 +198,34 @@ describe('BrokerClient startInvocationFromRequest', () => {
     }
   })
 
+  test('threads runtime into the InvocationDispatchRequest envelope alongside the verbatim startRequest', async () => {
+    const request: InvocationStartRequest = {
+      spec: codexSpec('start-fresh-turn', {
+        invocationId: 'inv_client_start_request_runtime',
+      }),
+      initialInput,
+    }
+    const runtime = { tmux: { socketPath: '/tmp/client-runtime-overlay.sock' } }
+    const client = await BrokerClient.start({
+      command: process.execPath,
+      args: fakeBrokerArgs('exact-request', { startRequest: request, runtime }),
+      cwd: repoRoot,
+    })
+
+    try {
+      await client.hello(helloRequest())
+      const { invocationId, response } = await client.startInvocationFromRequest(
+        request,
+        undefined,
+        runtime
+      )
+      expect(invocationId).toBe(request.spec.invocationId)
+      expect(response).toMatchObject({ invocationId, state: 'ready' })
+    } finally {
+      await client.close()
+    }
+  })
+
   test('starts from an exact InvocationStartRequest and drives a Codex fake turn', async () => {
     const client = await BrokerClient.start({
       command: brokerCommand,

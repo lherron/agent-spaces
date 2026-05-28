@@ -381,6 +381,7 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.interactionMode).toBe('headless')
     expect(profile.brokerProtocol).toBe('harness-broker/0.1')
     expect(profile.brokerDriver).toBe('codex-app-server')
+    expect(profile.expectedCapabilities.input.queue).toBe('required')
     expect(validateInvocationStartRequest(profile.harnessInvocation.startRequest)).toEqual(
       profile.harnessInvocation.startRequest
     )
@@ -388,6 +389,11 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.harnessInvocation.startRequest.initialInput?.inputId).toBe(
       req.identity.initialInputId
     )
+    expect(profile.harnessInvocation.startRequest.spec.interaction).toEqual({
+      mode: 'headless',
+      turnConcurrency: 'single',
+      inputQueue: 'fifo',
+    })
   })
 
   test('keeps headless codex on the harness-broker execution profile path', async () => {

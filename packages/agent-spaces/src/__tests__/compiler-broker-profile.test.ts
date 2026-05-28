@@ -397,6 +397,11 @@ describe('compiled broker profile field mapping', () => {
       provider: 'openai',
       driver: 'codex-app-server',
     })
+    expect(spec.interaction).toEqual({
+      mode: 'headless',
+      turnConcurrency: 'single',
+      inputQueue: 'fifo',
+    })
     expect(spec.driver).toEqual(
       expect.objectContaining({
         kind: 'codex-app-server',
