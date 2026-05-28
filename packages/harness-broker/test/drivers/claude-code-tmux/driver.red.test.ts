@@ -144,14 +144,33 @@ function sentLiteralTexts(calls: TmuxExecCall[]): string[] {
     .map((argv) => argv.at(-1) ?? '')
 }
 
+function pastedTexts(calls: TmuxExecCall[]): string[] {
+  return calls
+    .map((call) => call.argv)
+    .filter((argv) => argv.includes('set-buffer'))
+    .map((argv) => argv.at(-1) ?? '')
+}
+
 function tmuxArgv(calls: TmuxExecCall[]): string[][] {
   return calls.map((call) => call.argv)
 }
 
 function launchCommand(calls: TmuxExecCall[]): string {
-  const command = sentLiteralTexts(calls).find((text) => text.includes('/opt/bin/claude'))
-  if (command === undefined) throw new Error('tmux launch command was not sent')
+  const command = [...sentLiteralTexts(calls), ...pastedTexts(calls)].find((text) =>
+    text.includes('/opt/bin/claude')
+  )
+  if (command === undefined) return readFileSync(launchScriptPath(calls), 'utf8')
   return command
+}
+
+function launchScriptPath(calls: TmuxExecCall[]): string {
+  const command = sentLiteralTexts(calls).find((text) =>
+    text.includes('/tmp/harness-broker/claude-hooks.sock.launch.sh')
+  )
+  if (command === undefined) throw new Error('tmux launch script command was not sent')
+  const match = command.match(/\/tmp\/harness-broker\/claude-hooks\.sock\.launch\.sh/)
+  if (!match) throw new Error(`unable to parse launch script path from: ${command}`)
+  return match[0]
 }
 
 describe('claude-code-tmux driver RED lifecycle', () => {
@@ -334,10 +353,11 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       createCtx([], { tmux: { socketPath: '/tmp/harness-broker/claude-tmux.sock' } })
     )
 
-    const launchCommand = sentLiteralTexts(tmuxCalls).find((text) =>
-      text.includes('/opt/bin/claude')
-    )
+    const path = launchScriptPath(tmuxCalls)
+    const launchCommand = readFileSync(path, 'utf8')
     expect(launchCommand).toBeDefined()
+    expect(launchCommand).not.toContain('\nexec HARNESS_BROKER_INVOCATION_ID=')
+    expect(launchCommand).toContain('\nHARNESS_BROKER_INVOCATION_ID=')
     expect(launchCommand).toContain('/tmp/harness-broker/claude-hooks.sock')
 
     // Env vars alone do not make Claude Code invoke hooks. The tmux launch must
@@ -354,6 +374,27 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     ]) {
       expect(launchCommand).toContain(hookName)
     }
+
+    expect(pastedTexts(tmuxCalls).some((text) => text.includes('/opt/bin/claude'))).toBe(false)
+    expect(tmuxArgv(tmuxCalls)).toContainEqual([
+      '/opt/bin/tmux',
+      '-S',
+      '/tmp/harness-broker/claude-tmux.sock',
+      'send-keys',
+      '-l',
+      '-t',
+      '%7',
+      'exec /bin/sh /tmp/harness-broker/claude-hooks.sock.launch.sh',
+    ])
+    expect(tmuxArgv(tmuxCalls)).toContainEqual([
+      '/opt/bin/tmux',
+      '-S',
+      '/tmp/harness-broker/claude-tmux.sock',
+      'send-keys',
+      '-t',
+      '%7',
+      'Enter',
+    ])
   })
 
   test('merges broker hooks into the effective pre-separator Claude settings file', async () => {

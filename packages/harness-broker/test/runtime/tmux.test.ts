@@ -19,6 +19,7 @@ const createRecordingTmux = async () => {
       sendLiteral: (paneId: string, text: string) => Promise<void>
       sendEnter: (paneId: string) => Promise<void>
       sendKeys: (paneId: string, keys: string) => Promise<void>
+      sendPastedLine: (paneId: string, text: string) => Promise<void>
     }
   }
   const calls: FakeExecCall[] = []
@@ -78,10 +79,12 @@ describe('tmux runtime substrate', () => {
     ])
   })
 
-  test('sendKeys sends literal text followed by Enter', async () => {
+  test('sendKeys sends literal text, waits briefly, then sends Enter', async () => {
     const { manager, calls } = await createRecordingTmux()
+    const startedAt = Date.now()
 
     await manager.sendKeys('%12', 'continue')
+    const elapsedMs = Date.now() - startedAt
 
     expect(calls.map((call) => call.argv)).toEqual([
       [
@@ -94,6 +97,37 @@ describe('tmux runtime substrate', () => {
         '%12',
         'continue',
       ],
+      ['/opt/bin/tmux', '-S', '/tmp/harness-broker-tmux.sock', 'send-keys', '-t', '%12', 'Enter'],
+    ])
+    expect(elapsedMs).toBeGreaterThanOrEqual(950)
+  })
+
+  test('sendPastedLine pastes through a buffer before sending Enter separately', async () => {
+    const { manager, calls } = await createRecordingTmux()
+
+    await manager.sendPastedLine('%12', 'very long command --with "$quoted args"')
+
+    expect(calls.map((call) => call.argv)).toEqual([
+      expect.arrayContaining([
+        '/opt/bin/tmux',
+        '-S',
+        '/tmp/harness-broker-tmux.sock',
+        'set-buffer',
+        '-b',
+        expect.stringMatching(/^harness-broker-/),
+        'very long command --with "$quoted args"',
+      ]),
+      expect.arrayContaining([
+        '/opt/bin/tmux',
+        '-S',
+        '/tmp/harness-broker-tmux.sock',
+        'paste-buffer',
+        '-d',
+        '-b',
+        expect.stringMatching(/^harness-broker-/),
+        '-t',
+        '%12',
+      ]),
       ['/opt/bin/tmux', '-S', '/tmp/harness-broker-tmux.sock', 'send-keys', '-t', '%12', 'Enter'],
     ])
   })

@@ -268,6 +268,7 @@ export class TmuxManager {
 
   async sendKeys(paneId: string, keys: string): Promise<void> {
     await this.sendLiteral(paneId, keys)
+    await sleep(1_000)
     await this.sendEnter(paneId)
   }
 
@@ -356,6 +357,10 @@ export class TmuxManager {
       env: sanitizeTmuxClientEnv(process.env),
     })
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function createDefaultTmuxExec(): TmuxExec {

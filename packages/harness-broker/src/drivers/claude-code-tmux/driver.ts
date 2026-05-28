@@ -259,7 +259,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         callbackSocket: hookListener.socketPath,
         bridgeCommand: options.hooks.bridgeCommand,
       })
-      await tmux.sendKeys(pane.paneId, launchCommand)
+      const launchScriptPath = await writeLaunchScript(hookListener.socketPath, launchCommand)
+      await tmux.sendKeys(pane.paneId, `exec /bin/sh ${shellQuote(launchScriptPath)}`)
 
       return { ok: true }
     },
@@ -274,10 +275,10 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // authoritative turn id for this input.
       const turnId = allocateTurnId()
       activeTurnId = turnId
-      // terminal-literal-input turn delivery: literal text then Enter so shell
-      // expansion / key interpretation never mangles the prompt.
-      await requireTmux().sendLiteral(paneId, text)
-      await requireTmux().sendEnter(paneId)
+      // terminal-literal-input turn delivery: literal text, a short TUI-friendly
+      // pause, then Enter so shell expansion / key interpretation never mangles
+      // the prompt and Claude reliably submits it.
+      await requireTmux().sendKeys(paneId, text)
       return { turnId: turnId as ApplyInputResult['turnId'] }
     },
 
@@ -387,6 +388,15 @@ async function buildLaunchCommandLine(
   const launchArgs = await buildArgsWithMergedSettings(spec.process.args, hookEnv)
   const argv = [spec.process.command, ...launchArgs].map(shellQuote)
   return [...assignments, ...argv].join(' ')
+}
+
+async function writeLaunchScript(callbackSocket: string, commandLine: string): Promise<string> {
+  const { chmod, mkdir, writeFile } = await import('node:fs/promises')
+  const launchScriptPath = `${callbackSocket}.launch.sh`
+  await mkdir(dirname(launchScriptPath), { recursive: true })
+  await writeFile(launchScriptPath, `#!/bin/sh\n${commandLine}\n`, 'utf8')
+  await chmod(launchScriptPath, 0o700)
+  return launchScriptPath
 }
 
 async function buildArgsWithMergedSettings(
