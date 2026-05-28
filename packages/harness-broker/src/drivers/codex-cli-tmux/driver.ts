@@ -12,7 +12,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
-import { TmuxPaneController, type TmuxExec, type TmuxPaneControllerLease } from '../../runtime/tmux'
+import { type TmuxExec, TmuxPaneController, type TmuxPaneControllerLease } from '../../runtime/tmux'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import {
   CODEX_CLI_TMUX_DRIVER_KIND,
@@ -153,7 +153,9 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         sessionId: leaseSurface.sessionId,
         windowId: leaseSurface.windowId,
         paneId: leaseSurface.paneId,
-        ...(leaseSurface.sessionName !== undefined ? { sessionName: leaseSurface.sessionName } : {}),
+        ...(leaseSurface.sessionName !== undefined
+          ? { sessionName: leaseSurface.sessionName }
+          : {}),
         ...(leaseSurface.windowName !== undefined ? { windowName: leaseSurface.windowName } : {}),
         allowedOps: leaseSurface.allowedOps,
       }
