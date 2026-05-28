@@ -490,7 +490,7 @@ export class TmuxPaneController {
 
   async sendPastedLine(text: string): Promise<void> {
     const bufferName = `harness-broker-${Date.now()}-${Math.random().toString(16).slice(2)}`
-    await this.exec(['set-buffer', '-b', bufferName, text])
+    await this.exec(['set-buffer', '-b', bufferName, '-t', this.lease.paneId, text])
     await this.exec(['paste-buffer', '-d', '-b', bufferName, '-t', this.lease.paneId])
     await sleep(1_000)
     await this.sendEnter()

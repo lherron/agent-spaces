@@ -2,7 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import type {
+  HarnessInvocationSpec,
+  InvocationEventEnvelope,
+  InvocationInput,
+} from 'spaces-harness-broker-protocol'
 import type { DriverContext } from '../../../src/drivers/driver'
 
 type TmuxExecCall = { argv: string[]; env?: Record<string, string | undefined> | undefined }
@@ -34,8 +38,27 @@ type CodexCliTmuxDriverFactory = (options: {
 }) => {
   kind: string
   start: (spec: HarnessInvocationSpec, ctx: DriverContext) => Promise<{ ok: true }>
+  applyInputNow: (input: InvocationInput) => Promise<Record<string, never>>
   stop: (req: { reason?: string | undefined }) => Promise<{ accepted: boolean; state: string }>
   dispose: () => Promise<void>
+}
+
+type TerminalSurfaceLease = {
+  kind: 'tmux-pane'
+  ownership: 'hrc'
+  socketPath: string
+  sessionId: string
+  windowId: string
+  paneId: string
+  sessionName?: string | undefined
+  windowName?: string | undefined
+  allowedOps: {
+    inspect: true
+    sendInput: true
+    sendInterrupt: true
+    capture?: boolean | undefined
+    resize?: boolean | undefined
+  }
 }
 
 const now = () => new Date('2026-05-27T17:31:00.000Z')
@@ -75,6 +98,7 @@ const recordingExec = (calls: TmuxExecCall[]) => {
     options?: { env?: Record<string, string | undefined> | undefined }
   ): Promise<{ stdout: string; stderr: string }> => {
     calls.push({ argv, env: options?.env })
+    if (argv.includes('display-message')) return { stdout: '$9\t@4\t%42\n', stderr: '' }
     if (argv.includes('list-panes')) throw new Error("can't find session")
     if (argv.includes('new-session')) {
       return { stdout: '$1\t@1\t%7\thrc-host-sessio\n', stderr: '' }
@@ -83,11 +107,27 @@ const recordingExec = (calls: TmuxExecCall[]) => {
   }
 }
 
-const createCtx = (events: InvocationEventEnvelope[], socketPath: string): DriverContext =>
+const paneLease = (overrides: Partial<TerminalSurfaceLease> = {}): TerminalSurfaceLease => ({
+  kind: 'tmux-pane',
+  ownership: 'hrc',
+  socketPath: '/tmp/harness-broker/codex-tmux.sock',
+  sessionId: '$9',
+  windowId: '@4',
+  paneId: '%42',
+  sessionName: 'hrc-owned-codex',
+  windowName: 'main',
+  allowedOps: { inspect: true, sendInput: true, sendInterrupt: true },
+  ...overrides,
+})
+
+const createCtx = (
+  events: InvocationEventEnvelope[],
+  runtime?: { terminalSurface?: unknown; tmux?: { socketPath: string } } | undefined
+): DriverContext =>
   ({
     invocationId,
     clientCapabilities: {},
-    runtime: { tmux: { socketPath } },
+    ...(runtime !== undefined ? { runtime } : {}),
     emit(type, payload, extra) {
       const event = {
         invocationId,
@@ -107,6 +147,189 @@ const agentMessage = (message: string): string =>
   jsonl({ type: 'event_msg', payload: { type: 'agent_message', message } })
 const taskComplete = (last: string): string =>
   jsonl({ type: 'event_msg', payload: { type: 'task_complete', last_agent_message: last } })
+
+const tmuxArgv = (calls: TmuxExecCall[]): string[][] => calls.map((call) => call.argv)
+
+const expectNoForbiddenLifecycleCommands = (calls: TmuxExecCall[]): void => {
+  const forbidden = [
+    'new-session',
+    'kill-session',
+    'start-server',
+    'kill-server',
+    'new-window',
+    'split-window',
+    'rename-session',
+    'attach-session',
+    'respawn-pane',
+    'set-environment',
+  ]
+  const flattened = tmuxArgv(calls).flat()
+  for (const command of forbidden) {
+    expect(flattened).not.toContain(command)
+  }
+}
+
+const expectTargetedToPane = (calls: TmuxExecCall[], paneId: string): void => {
+  for (const argv of tmuxArgv(calls)) {
+    if (
+      argv.includes('send-keys') ||
+      argv.includes('set-buffer') ||
+      argv.includes('paste-buffer') ||
+      argv.includes('display-message')
+    ) {
+      expect(argv).toContain('-t')
+      expect(argv).toContain(paneId)
+    }
+  }
+}
+
+describe('codex-cli-tmux driver: runtime pane lease', () => {
+  test('rejects start when runtime terminalSurface is absent', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: recordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    await expect(driver.start(codexTmuxSpec(), createCtx([]))).rejects.toThrow(
+      /runtime\.terminalSurface/i
+    )
+    expect(tmuxCalls).toEqual([])
+  })
+
+  test('rejects start when runtime terminalSurface is not an hrc tmux-pane lease', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: recordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    await expect(
+      driver.start(
+        codexTmuxSpec(),
+        createCtx([], {
+          terminalSurface: { ...paneLease(), kind: 'tmux-session', ownership: 'driver' } as never,
+        })
+      )
+    ).rejects.toThrow(/hrc.*tmux-pane/i)
+    expect(tmuxCalls).toEqual([])
+  })
+
+  test('rejects start when the leased pane cannot be inspected', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: async (argv, options) => {
+          tmuxCalls.push({ argv, env: options?.env })
+          if (argv.includes('display-message')) throw new Error("can't find pane: %42")
+          return { stdout: '', stderr: '' }
+        },
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    await expect(
+      driver.start(codexTmuxSpec(), createCtx([], { terminalSurface: paneLease() }))
+    ).rejects.toThrow(/can't find pane/)
+    expect(tmuxArgv(tmuxCalls)).toContainEqual(
+      expect.arrayContaining([
+        '/opt/bin/tmux',
+        '-S',
+        '/tmp/harness-broker/codex-tmux.sock',
+        'display-message',
+        '-t',
+        '%42',
+      ])
+    )
+  })
+
+  test('reports the leased tmux pane and never issues tmux lifecycle commands', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const events: InvocationEventEnvelope[] = []
+    const lease = paneLease()
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: recordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    await driver.start(codexTmuxSpec(), createCtx(events, { terminalSurface: lease }))
+    await driver.applyInputNow({
+      inputId: 'input_codex_driver_1',
+      kind: 'user',
+      content: [{ type: 'text', text: 'continue $WITHOUT_EXPANSION' }],
+    })
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'terminal.surface.reported',
+        payload: {
+          kind: 'tmux-pane',
+          socketPath: lease.socketPath,
+          sessionId: lease.sessionId,
+          windowId: lease.windowId,
+          paneId: lease.paneId,
+          sessionName: lease.sessionName,
+          windowName: lease.windowName,
+        },
+        driver: { kind: 'codex-cli-tmux', rawType: 'tmux.surface' },
+      })
+    )
+    expectNoForbiddenLifecycleCommands(tmuxCalls)
+    expectTargetedToPane(tmuxCalls, lease.paneId)
+    expect(tmuxArgv(tmuxCalls)).toContainEqual([
+      '/opt/bin/tmux',
+      '-S',
+      lease.socketPath,
+      'send-keys',
+      '-l',
+      '-t',
+      lease.paneId,
+      'continue $WITHOUT_EXPANSION',
+    ])
+  })
+})
 
 describe('codex-cli-tmux driver: hook-ordered transcript reading', () => {
   test('the transcript reader runs before hook normalization: terminal message precedes turn.completed', async () => {
@@ -133,7 +356,7 @@ describe('codex-cli-tmux driver: hook-ordered transcript reading', () => {
         now,
       })
 
-      await driver.start(codexTmuxSpec(), createCtx(events, socketPath))
+      await driver.start(codexTmuxSpec(), createCtx(events, { terminalSurface: paneLease() }))
       expect(hookHandler).toBeDefined()
 
       const env = (hookData: unknown): HookEnvelope => ({

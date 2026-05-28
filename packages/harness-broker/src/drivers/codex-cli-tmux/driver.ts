@@ -12,7 +12,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
-import { type TmuxExec, TmuxManager } from '../../runtime/tmux'
+import { TmuxPaneController, type TmuxExec, type TmuxPaneControllerLease } from '../../runtime/tmux'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import {
   CODEX_CLI_TMUX_DRIVER_KIND,
@@ -80,8 +80,17 @@ export interface CodexCliTmuxDriverOptions {
 
 interface SurfaceState {
   socketPath: string
-  sessionName: string
+  sessionId: string
+  windowId: string
   paneId: string
+  sessionName?: string | undefined
+  windowName?: string | undefined
+}
+
+type RuntimeTerminalSurface = TmuxPaneControllerLease & {
+  kind?: unknown
+  ownership?: unknown
+  socketPath: string
 }
 
 export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Driver {
@@ -93,7 +102,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
   let transcriptReader: CodexHookTranscriptReader | undefined
   let hookDrain: Promise<void> = Promise.resolve()
   let currentTurnId: string | undefined
-  let tmux: TmuxManager | undefined
+  let paneController: TmuxPaneController | undefined
 
   function requireCtx(): DriverContext {
     if (ctx === undefined) {
@@ -109,11 +118,11 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     return surface
   }
 
-  function requireTmux(): TmuxManager {
-    if (tmux === undefined) {
+  function requirePaneController(): TmuxPaneController {
+    if (paneController === undefined) {
       throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'tmux surface not established')
     }
-    return tmux
+    return paneController
   }
 
   return {
@@ -125,16 +134,49 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     },
 
     async start(spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
-      const runtimeSocket = driverCtx.runtime?.tmux?.socketPath
-      if (runtimeSocket === undefined || runtimeSocket.length === 0) {
+      const runtime = driverCtx.runtime as
+        | { terminalSurface?: RuntimeTerminalSurface | undefined }
+        | undefined
+      const leaseSurface = runtime?.terminalSurface
+      if (
+        leaseSurface === undefined ||
+        leaseSurface.kind !== 'tmux-pane' ||
+        leaseSurface.ownership !== 'hrc'
+      ) {
         throw new BrokerError(
           BrokerErrorCode.InvalidInvocationState,
-          'codex-cli-tmux start requires a runtime tmux socket (runtime.tmux.socketPath)'
+          'codex-cli-tmux start requires runtime.terminalSurface to be an hrc-owned tmux-pane lease'
+        )
+      }
+
+      const lease: TmuxPaneControllerLease = {
+        sessionId: leaseSurface.sessionId,
+        windowId: leaseSurface.windowId,
+        paneId: leaseSurface.paneId,
+        ...(leaseSurface.sessionName !== undefined ? { sessionName: leaseSurface.sessionName } : {}),
+        ...(leaseSurface.windowName !== undefined ? { windowName: leaseSurface.windowName } : {}),
+        allowedOps: leaseSurface.allowedOps,
+      }
+      const controller = new TmuxPaneController({
+        socketPath: leaseSurface.socketPath,
+        tmuxBin: options.tmux.tmuxBin,
+        exec: options.tmux.exec,
+        lease,
+      })
+      const inspection = await controller.inspect()
+      if (
+        inspection.sessionId !== lease.sessionId ||
+        inspection.windowId !== lease.windowId ||
+        inspection.paneId !== lease.paneId
+      ) {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          `codex-cli-tmux leased pane identity mismatch: expected ${lease.sessionId}/${lease.windowId}/${lease.paneId}, observed ${inspection.sessionId}/${inspection.windowId}/${inspection.paneId}`
         )
       }
 
       ctx = driverCtx
-      tmux = new TmuxManager(runtimeSocket, options.tmux.tmuxBin, options.tmux.exec)
+      paneController = controller
 
       const normalizer: CodexCliTmuxHookEventNormalizer = createCodexCliTmuxHookEventNormalizer({
         invocationId: driverCtx.invocationId,
@@ -187,22 +229,25 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         return hookDrain
       })
 
-      const hostSessionId =
-        spec.correlation?.['hostSessionId'] ?? spec.invocationId ?? driverCtx.invocationId
-      const pane = await tmux.ensurePane(hostSessionId, 'reuse_pty')
       surface = {
-        socketPath: pane.socketPath,
-        sessionName: pane.sessionName,
-        paneId: pane.paneId,
+        socketPath: leaseSurface.socketPath,
+        sessionId: lease.sessionId,
+        windowId: lease.windowId,
+        paneId: lease.paneId,
+        ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
+        ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
       }
 
       driverCtx.emit(
         'terminal.surface.reported',
         {
-          kind: 'tmux-session' as const,
-          socketPath: pane.socketPath,
-          sessionName: pane.sessionName,
-          paneId: pane.paneId,
+          kind: 'tmux-pane' as const,
+          socketPath: surface.socketPath,
+          sessionId: surface.sessionId,
+          windowId: surface.windowId,
+          paneId: surface.paneId,
+          ...(surface.sessionName !== undefined ? { sessionName: surface.sessionName } : {}),
+          ...(surface.windowName !== undefined ? { windowName: surface.windowName } : {}),
         },
         { driver: { kind: CODEX_CLI_TMUX_DRIVER_KIND, rawType: 'tmux.surface' } }
       )
@@ -212,8 +257,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         bridgeCommand: options.hooks.bridgeCommand,
       })
       await sleep(1_500)
-      await tmux.sendPastedLine(
-        pane.paneId,
+      await controller.sendPastedLine(
         buildLaunchCommandLine(spec, driverCtx, {
           callbackSocket: hookListener.socketPath,
           hookCliPath,
@@ -224,19 +268,19 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
 
     async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
       requireCtx()
-      const { paneId } = requireSurface()
-      await requireTmux().sendLiteral(paneId, extractText(input))
+      requireSurface()
+      const controller = requirePaneController()
+      await controller.sendLiteral(extractText(input))
       await sleep(1_000)
-      await requireTmux().sendEnter(paneId)
+      await controller.sendEnter()
       return {}
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
-      const current = surface
-      if (current === undefined || tmux === undefined) {
+      if (surface === undefined || paneController === undefined) {
         return { accepted: false, effect: 'no_active_turn' }
       }
-      await tmux.interrupt(current.paneId)
+      await paneController.interrupt()
       return { accepted: true, effect: 'turn_interrupted' }
     },
 
@@ -254,15 +298,12 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
       ctx = undefined
       surface = undefined
       currentTurnId = undefined
-      tmux = undefined
+      paneController = undefined
     },
   }
 
   async function terminateSession(): Promise<void> {
-    const current = surface
-    if (current !== undefined && tmux !== undefined) {
-      await tmux.terminate(current.sessionName)
-    }
+    surface = undefined
   }
 
   async function closeHookListener(): Promise<void> {

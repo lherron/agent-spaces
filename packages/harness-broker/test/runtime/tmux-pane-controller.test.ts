@@ -106,6 +106,17 @@ describe('TmuxPaneController', () => {
     for (const forbiddenVerb of FORBIDDEN_TMUX_VERBS) {
       expect(verbs).not.toContain(forbiddenVerb)
     }
+    for (const argv of calls.map((call) => call.argv)) {
+      if (
+        argv.includes('display-message') ||
+        argv.includes('send-keys') ||
+        argv.includes('set-buffer') ||
+        argv.includes('paste-buffer')
+      ) {
+        expect(argv).toContain('-t')
+        expect(argv).toContain(baseLease.paneId)
+      }
+    }
   })
 
   test('capture is gated by allowedOps.capture', async () => {
