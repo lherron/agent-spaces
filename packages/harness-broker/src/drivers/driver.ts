@@ -9,6 +9,7 @@ import type {
   InvocationInput,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationRuntimeContext,
   InvocationStopRequest,
   InvocationStopResponse,
   PermissionDecision,
@@ -43,19 +44,14 @@ export interface DriverContext {
   /**
    * Dispatch-time runtime overlay (spec §3.3) supplied by the HRC runtime
    * control plane — or the pre-HRC harness stand-in — AFTER profile selection.
-   * Carries pre-allocated runtime resource handles (e.g. the tmux server socket
-   * a terminal-host driver attaches to). NOT part of the hashed spec. Absent
-   * when the route needs no runtime handles.
+   * Carries pre-allocated runtime resource handles: for terminal-host drivers
+   * (Phase C/D) this is the `terminalSurface` pane lease the driver attaches
+   * to. NOT part of the hashed spec. Absent when the route needs no runtime
+   * handles. The legacy `tmux.socketPath` shape is still on the protocol
+   * envelope for backward compatibility, but Phase C+ driver code reads ONLY
+   * `terminalSurface`.
    */
-  runtime?:
-    | {
-        tmux?:
-          | {
-              socketPath: string
-            }
-          | undefined
-      }
-    | undefined
+  runtime?: InvocationRuntimeContext | undefined
   emit<TPayload>(
     type: InvocationEventType,
     payload: TPayload,

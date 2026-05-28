@@ -11,7 +11,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
-import { type TmuxExec, TmuxManager } from '../../runtime/tmux'
+import { type TmuxExec, TmuxPaneController, type TmuxPaneControllerLease } from '../../runtime/tmux'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import {
   CLAUDE_CODE_TMUX_DRIVER_KIND,
@@ -64,12 +64,13 @@ export type HookEnvelopeHandler = (envelope: ClaudeCodeHookEnvelope) => Promise<
 export interface ClaudeCodeTmuxDriverOptions {
   tmux: {
     /**
-     * Default tmux server socket. RETAINED for the default driver only; the
-     * live socket is ALWAYS the dispatch-time runtime allocation supplied on
-     * the start request (`ctx.runtime.tmux.socketPath`). The driver never falls
-     * back to this value (spec §3.3 T2).
+     * Default tmux server socket — IGNORED by the lease-consuming driver path
+     * (Phase C, T-01725). Retained on the options shape only for backward
+     * compatibility with construction sites that still pass it; the live
+     * socket is ALWAYS `runtime.terminalSurface.socketPath` from the pane
+     * lease handed in on start.
      */
-    socketPath: string
+    socketPath?: string | undefined
     tmuxBin?: string | undefined
     exec?: TmuxExec | undefined
   }
@@ -87,8 +88,11 @@ export interface ClaudeCodeTmuxDriverOptions {
 
 interface SurfaceState {
   socketPath: string
-  sessionName: string
+  sessionId: string
+  windowId: string
   paneId: string
+  sessionName?: string | undefined
+  windowName?: string | undefined
 }
 
 /**
@@ -107,12 +111,13 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let surface: SurfaceState | undefined
   let hookListener: HookListenerHandle | undefined
   let hookDrain: Promise<void> = Promise.resolve()
-  // The tmux server socket is a DISPATCH-TIME runtime allocation (spec §3.3),
-  // supplied on the broker start request by HRC / the pre-HRC harness — NOT a
-  // compiled/profile value and NOT a driver default. The manager constructs the
-  // TmuxManager lazily in start() against that runtime socket so the driver
-  // only ever ATTACHES to a server it does not own.
-  let tmux: TmuxManager | undefined
+  // The runtime hands the driver a pane LEASE — `runtime.terminalSurface`
+  // (kind: 'tmux-pane', ownership: 'hrc', T-01723 Phase A). The driver
+  // attaches to that lease through a TmuxPaneController (T-01724 Phase B)
+  // and NEVER constructs or owns a tmux session/server. All capability gates
+  // (inspect, sendInput, sendInterrupt, capture, resize) come from the
+  // lease's `allowedOps` set.
+  let paneController: TmuxPaneController | undefined
   // Active broker turn id (cody's Phase 3 seam, H2). Set by applyInputNow so
   // raw hook envelopes that carry neither an envelope turn id nor a raw
   // `turn_id` still attribute turn.started/turn.completed to the live turn.
@@ -142,11 +147,11 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     return surface
   }
 
-  function requireTmux(): TmuxManager {
-    if (tmux === undefined) {
+  function requirePaneController(): TmuxPaneController {
+    if (paneController === undefined) {
       throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'tmux surface not established')
     }
-    return tmux
+    return paneController
   }
 
   return {
@@ -158,23 +163,89 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     },
 
     async start(spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
-      // T2/T3: the tmux server socket is a runtime allocation supplied on the
-      // start request, NOT a compiled/profile value or a driver default. Reject
-      // before touching tmux at all if the runtime did not pre-allocate one.
-      const runtimeSocket = driverCtx.runtime?.tmux?.socketPath
-      if (runtimeSocket === undefined || runtimeSocket.length === 0) {
+      // T-01725 Phase C: the driver consumes a pane LEASE supplied on the
+      // dispatch envelope as `runtime.terminalSurface` (kind: 'tmux-pane',
+      // ownership: 'hrc'). It reads ONLY this field — never the legacy
+      // `runtime.tmux.socketPath` boundary shim — so capability scope is
+      // explicit and the driver cannot fall through to a server it owns.
+      const lease = driverCtx.runtime?.terminalSurface
+      if (lease === undefined) {
         throw new BrokerError(
           BrokerErrorCode.InvalidInvocationState,
-          'claude-code-tmux start requires a runtime tmux socket (runtime.tmux.socketPath); ' +
-            'HRC / the pre-HRC harness owns the tmux server and must supply its socket'
+          'claude-code-tmux start requires a runtime pane lease (runtime.terminalSurface); ' +
+            'HRC / the pre-HRC harness owns the tmux server and must hand the driver a pane'
+        )
+      }
+      if (lease.kind !== 'tmux-pane') {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          `claude-code-tmux requires runtime.terminalSurface.kind === 'tmux-pane' (got ${String(
+            (lease as { kind?: unknown }).kind
+          )})`
+        )
+      }
+      if (lease.ownership !== 'hrc') {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          `claude-code-tmux requires runtime.terminalSurface.ownership === 'hrc' (got ${String(
+            (lease as { ownership?: unknown }).ownership
+          )})`
         )
       }
 
       ctx = driverCtx
-      // Attach to the runtime-owned server socket. The driver MUST NOT start or
-      // initialize the server (no -V / start-server / set-environment), and MUST
-      // NOT rm() the socket: it only creates/uses/kills its own session/pane.
-      tmux = new TmuxManager(runtimeSocket, options.tmux.tmuxBin, options.tmux.exec)
+      // Construct the pane controller against the leased pane on the
+      // runtime-owned tmux server. The controller enforces allowedOps; it
+      // ONLY issues capability-safe verbs (send-keys, paste-buffer, set-buffer,
+      // capture-pane, display-message) and never any lifecycle command.
+      const controllerLease: TmuxPaneControllerLease = {
+        paneId: lease.paneId,
+        sessionId: lease.sessionId,
+        windowId: lease.windowId,
+        ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
+        ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
+        allowedOps: lease.allowedOps,
+      }
+      paneController = new TmuxPaneController({
+        socketPath: lease.socketPath,
+        ...(options.tmux.tmuxBin !== undefined ? { tmuxBin: options.tmux.tmuxBin } : {}),
+        ...(options.tmux.exec !== undefined ? { exec: options.tmux.exec } : {}),
+        lease: controllerLease,
+      })
+
+      // Validate the leased pane exists and the tmux server's reported ids
+      // match the lease (operator integrity check — fail loudly if HRC handed
+      // us a stale or wrong pane).
+      let inspection: { paneId: string; sessionId: string; windowId: string }
+      try {
+        inspection = await paneController.inspect()
+      } catch (error) {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          `leased pane not found or id mismatch: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        )
+      }
+      if (
+        inspection.paneId !== lease.paneId ||
+        inspection.sessionId !== lease.sessionId ||
+        inspection.windowId !== lease.windowId
+      ) {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          `leased pane not found or id mismatch: tmux reported ${inspection.sessionId}/${inspection.windowId}/${inspection.paneId}, lease ${lease.sessionId}/${lease.windowId}/${lease.paneId}`
+        )
+      }
+
+      surface = {
+        socketPath: lease.socketPath,
+        sessionId: lease.sessionId,
+        windowId: lease.windowId,
+        paneId: lease.paneId,
+        ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
+        ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
+      }
 
       // Wire the hook ingestion callback socket → normalize via the ENVELOPE
       // turn id seam → re-emit as broker events through ctx.emit. The shared
@@ -224,50 +295,43 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         return hookDrain
       })
 
-      // Create the attachable tmux session on the runtime-owned server. This is
-      // `new-session` only (Lance: "fine to create a tmux session, not fine to
-      // create a tmux server"). Session/pane ids are RUNTIME-REPORTED by tmux
-      // (guardrail #6), not pre-allocated.
-      const hostSessionId =
-        spec.correlation?.['hostSessionId'] ?? spec.invocationId ?? driverCtx.invocationId
-      const pane = await tmux.ensurePane(hostSessionId, 'reuse_pty')
-      surface = {
-        socketPath: pane.socketPath,
-        sessionName: pane.sessionName,
-        paneId: pane.paneId,
-      }
-
-      // T4: report the OBSERVED runtime socket/session/pane.
+      // T-01725 Q3: report-back. Echo the lease ids exactly so consumers can
+      // confirm the lease the driver is operating from matches what HRC
+      // handed out.
       driverCtx.emit(
         'terminal.surface.reported',
         {
-          kind: 'tmux-session' as const,
-          socketPath: pane.socketPath,
-          sessionName: pane.sessionName,
-          paneId: pane.paneId,
+          kind: 'tmux-pane' as const,
+          socketPath: lease.socketPath,
+          sessionId: lease.sessionId,
+          windowId: lease.windowId,
+          paneId: lease.paneId,
+          ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
+          ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
         },
         { driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'tmux.surface' } }
       )
 
-      // Launch Claude inside the pane (stdio inherits the pty — attachable).
-      // H1: the launch installs a broker-owned Claude hook settings overlay so
-      // the REAL runtime posts UserPromptSubmit/PreToolUse/PostToolUse/Stop… to
-      // the broker callback socket OUT-OF-BAND (not via stdout). Env vars alone
-      // do not make Claude invoke hooks.
+      // Launch Claude inside the LEASED pane (stdio inherits the pty —
+      // attachable). H1: the launch installs a broker-owned Claude hook
+      // settings overlay so the REAL runtime posts UserPromptSubmit /
+      // PreToolUse / PostToolUse / Stop… to the broker callback socket
+      // OUT-OF-BAND (not via stdout). Env vars alone do not make Claude
+      // invoke hooks.
       const launchCommand = await buildLaunchCommandLine(spec, {
         invocationId: driverCtx.invocationId,
         callbackSocket: hookListener.socketPath,
         bridgeCommand: options.hooks.bridgeCommand,
       })
       const launchScriptPath = await writeLaunchScript(hookListener.socketPath, launchCommand)
-      await tmux.sendKeys(pane.paneId, `exec /bin/sh ${shellQuote(launchScriptPath)}`)
+      await paneController.sendKeys(`exec /bin/sh ${shellQuote(launchScriptPath)}`)
 
       return { ok: true }
     },
 
     async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
       requireCtx()
-      const { paneId } = requireSurface()
+      requireSurface()
       const text = extractText(input)
       // H2: open a broker-tracked turn so out-of-band hook envelopes that omit a
       // turn id are attributed to this turn. Uses the SAME shared allocator as
@@ -278,44 +342,37 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // terminal-literal-input turn delivery: literal text, a short TUI-friendly
       // pause, then Enter so shell expansion / key interpretation never mangles
       // the prompt and Claude reliably submits it.
-      await requireTmux().sendKeys(paneId, text)
+      await requirePaneController().sendKeys(text)
       return { turnId: turnId as ApplyInputResult['turnId'] }
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
-      const current = surface
-      if (current === undefined || tmux === undefined) {
+      if (paneController === undefined) {
         return { accepted: false, effect: 'no_active_turn' }
       }
-      await tmux.interrupt(current.paneId)
+      await paneController.interrupt()
       return { accepted: true, effect: 'turn_interrupted' }
     },
 
     async stop(_req: InvocationStopRequest): Promise<InvocationStopResponse> {
-      await terminateSession()
+      // T-01725: the driver does NOT own the tmux session/server and so does
+      // not kill anything during stop. Pane lifecycle (kill-session, server
+      // teardown) belongs to HRC / the pre-HRC harness — the driver simply
+      // releases its hook listener and drops the pane controller reference.
       await closeHookListener()
       return { accepted: true, state: 'exited' }
     },
 
     async dispose(): Promise<void> {
-      // T3: dispose terminates ONLY the driver-owned session, never the server.
-      await terminateSession()
+      // T-01725: dispose releases driver-owned resources only — the hook
+      // listener and the in-memory pane controller. tmux server / session
+      // lifecycle stays with the runtime control plane.
       await closeHookListener()
       ctx = undefined
       surface = undefined
-      tmux = undefined
+      paneController = undefined
       activeTurnId = undefined
     },
-  }
-
-  // Kill only the driver-owned session on the runtime-owned socket (T3). Never
-  // kill-server / start-server: the tmux server lifecycle belongs to the
-  // runtime control plane (HRC) / pre-HRC harness, not the broker driver.
-  async function terminateSession(): Promise<void> {
-    const current = surface
-    if (current !== undefined && tmux !== undefined) {
-      await tmux.terminate(current.sessionName)
-    }
   }
 
   async function closeHookListener(): Promise<void> {
@@ -463,12 +520,13 @@ function shellQuote(value: string): string {
  * Default-configured driver for registry registration. Uses the real tmux
  * binary and a real Unix-domain hook callback socket. The socket is bound
  * lazily inside `start()` (construction is side-effect-free), so registering
- * this driver performs no I/O.
+ * this driver performs no I/O. T-01725: no default tmux socket — the live
+ * pane lease (`runtime.terminalSurface`) supplies it on start.
  */
 export function createDefaultClaudeCodeTmuxDriver(): Driver {
   const socketDir = join(tmpdir(), 'harness-broker')
   return createClaudeCodeTmuxDriver({
-    tmux: { socketPath: join(socketDir, 'claude-tmux.sock') },
+    tmux: {},
     hooks: {
       listen: (handler) => listenForHookEnvelopes(join(socketDir, 'claude-hooks.sock'), handler),
     },
