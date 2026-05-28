@@ -114,7 +114,7 @@ No explicit allow means deny. No negotiated permission request channel means den
 
 Broker headless runtimes SHOULD use `AgentchatExposurePolicy: { mode: 'none' }` until a concrete broker target contract exists. They MUST NOT inherit terminal Agentchat behavior accidentally from legacy `exec.ts`.
 
-Interactive broker runtimes with a broker-owned tmux surface are an explicit concrete target contract, not inherited terminal-controller behavior. They MUST declare `brokerTerminal.host: 'tmux'`, `brokerTerminal.operatorAttach: true`, and `AgentchatExposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' }`. `brokerTerminal.exposurePolicy` and `policy.exposurePolicy` MUST be identical.
+Interactive broker runtimes with an HRC-owned tmux pane lease are an explicit concrete target contract, not inherited terminal-controller behavior. They MUST declare `brokerTerminal.host: 'tmux'`, `brokerTerminal.operatorAttach: true`, and `AgentchatExposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-pane' }`. `brokerTerminal.exposurePolicy` and `policy.exposurePolicy` MUST be identical.
 
 ---
 
@@ -193,7 +193,31 @@ Compiled runtime routes have three distinct timing surfaces. They are intentiona
 
 The compile-time contract answers “what kind of runtime is required and how must the harness be launched?” The dispatch-time contract answers “which already-admitted runtime resources will this operation use?” Runtime-reported facts answer “what actually happened after the driver started?”
 
-Concrete example: an interactive `claude-code-tmux` profile may compile with `brokerTerminal.host: 'tmux'`, `terminalHost: 'tmux'`, `harnessTransport.kind: 'pty'`, and broker exposure policy. It MUST NOT compile a concrete tmux server socket, session name, or pane id. HRC supplies the pre-allocated tmux server socket at dispatch time; the broker driver uses that socket, manages only its invocation-scoped session/pane, and reports the observed socket/session/pane with `terminal.surface.reported`.
+Concrete example: an interactive `claude-code-tmux` profile may compile with `brokerTerminal.host: 'tmux'`, `terminalHost: 'tmux'`, `harnessTransport.kind: 'pty'`, and broker exposure policy. It MUST NOT compile a concrete tmux server socket, session id, window id, pane id, session name, or window name. HRC supplies an HRC-owned pane lease at dispatch time through `runtime.terminalSurface`; the broker driver attaches to the leased pane and never creates tmux lifecycle objects.
+
+```ts
+const runtime: InvocationRuntimeContext = {
+  terminalSurface: {
+    kind: 'tmux-pane',
+    ownership: 'hrc',
+    socketPath: '/tmp/hrc/tmux/default.sock',
+    sessionId: '$12',
+    windowId: '@34',
+    paneId: '%56',
+    sessionName: 'hrc-agent-spaces',
+    windowName: 'larry',
+    allowedOps: {
+      inspect: true,
+      sendInput: true,
+      sendInterrupt: true,
+      capture: true,
+      resize: true,
+    },
+  },
+}
+```
+
+The `claude-code-tmux` and `codex-cli-tmux` broker drivers MUST require `runtime.terminalSurface.kind === 'tmux-pane'` and `ownership === 'hrc'`. They may perform only the lease's allowed pane operations: `inspect`, `sendInput`, `sendInterrupt`, and, when cap-gated by `allowedOps`, `capture` and `resize`. They MUST NOT issue tmux lifecycle verbs including `start-server`, `kill-server`, `new-session`, `new-window`, `split-window`, `rename-session`, `kill-session`, `attach-session`, `respawn-pane`, or `set-environment`. The driver reports the observed leased pane with `terminal.surface.reported`.
 
 Dispatch-time overlays are not a loophole in compiler closure. If a value changes the deterministic launch mechanics selected by ASP, it belongs in compile input and requires recompilation. If a value selects or references an already-admitted runtime resource owned by HRC, it belongs at dispatch time and must be explicit, typed, and validated at the broker boundary.
 
@@ -625,7 +649,7 @@ export type BrokerTerminalSurface = {
   startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal'
   turnDelivery: 'terminal-literal-input'
   operatorAttach: true
-  exposurePolicy: { mode: 'broker-reports-target'; targetKind: 'tmux-session' }
+  exposurePolicy: { mode: 'broker-reports-target'; targetKind: 'tmux-pane' }
 }
 
 export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
@@ -664,8 +688,8 @@ The immutable launch truth for a broker profile remains `harnessInvocation.start
 Validator gates:
 
 - `brokerDriver: 'codex-app-server'` requires `interactionMode: 'headless'`, no `brokerTerminal`, `spec.interaction.mode: 'headless'`, and `spec.process.harnessTransport.kind: 'jsonrpc-stdio'`.
-- `brokerDriver: 'claude-code-tmux'` requires `interactionMode: 'interactive'`, `brokerTerminal.host: 'tmux'`, `brokerTerminal.turnDelivery: 'terminal-literal-input'`, `brokerTerminal.operatorAttach: true`, `brokerTerminal.exposurePolicy` identical to `policy.exposurePolicy`, `policy.exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' }`, `spec.driver.kind: 'claude-code-tmux'`, `spec.driver.terminalHost: 'tmux'`, `spec.interaction.mode: 'interactive'`, and `spec.process.harnessTransport.kind: 'pty'`.
-- `brokerDriver: 'codex-cli-tmux'` requires `interactionMode: 'interactive'`, `brokerTerminal.host: 'tmux'`, `brokerTerminal.turnDelivery: 'terminal-literal-input'`, `brokerTerminal.operatorAttach: true`, `brokerTerminal.exposurePolicy` identical to `policy.exposurePolicy`, `policy.exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' }`, `spec.driver.kind: 'codex-cli-tmux'`, `spec.driver.terminalHost: 'tmux'`, `spec.driver.hookBridge: 'codex-hooks/v1'`, `spec.interaction.mode: 'interactive'`, and `spec.process.harnessTransport.kind: 'pty'`.
+- `brokerDriver: 'claude-code-tmux'` requires `interactionMode: 'interactive'`, `brokerTerminal.host: 'tmux'`, `brokerTerminal.turnDelivery: 'terminal-literal-input'`, `brokerTerminal.operatorAttach: true`, `brokerTerminal.exposurePolicy` identical to `policy.exposurePolicy`, `policy.exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-pane' }`, `spec.driver.kind: 'claude-code-tmux'`, `spec.driver.terminalHost: 'tmux'`, `spec.interaction.mode: 'interactive'`, `spec.process.harnessTransport.kind: 'pty'`, and dispatch `runtime.terminalSurface` with `kind: 'tmux-pane'` and `ownership: 'hrc'`.
+- `brokerDriver: 'codex-cli-tmux'` requires `interactionMode: 'interactive'`, `brokerTerminal.host: 'tmux'`, `brokerTerminal.turnDelivery: 'terminal-literal-input'`, `brokerTerminal.operatorAttach: true`, `brokerTerminal.exposurePolicy` identical to `policy.exposurePolicy`, `policy.exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-pane' }`, `spec.driver.kind: 'codex-cli-tmux'`, `spec.driver.terminalHost: 'tmux'`, `spec.driver.hookBridge: 'codex-hooks/v1'`, `spec.interaction.mode: 'interactive'`, `spec.process.harnessTransport.kind: 'pty'`, and dispatch `runtime.terminalSurface` with `kind: 'tmux-pane'` and `ownership: 'hrc'`.
 - A `claude-code-tmux` or `codex-cli-tmux` broker profile whose `harnessTransport.kind` is not `pty` MUST reject.
 - A broker profile with `interactionMode: 'interactive'` and no `brokerTerminal.host: 'tmux'` MUST reject.
 - A `codex-app-server` profile with `interactionMode: 'interactive'` MUST reject.
@@ -907,7 +931,7 @@ export interface RuntimeController<TDecision extends RuntimeRouteDecision = Runt
 }
 ```
 
-Controllers implement mechanics. They do not recompute route policy. `RuntimeControllerStartInput` and `RuntimeControllerDispatchInput` MAY carry `dispatchEnv?: Record<string, string>` as the HRC-owned per-invocation context channel. Controllers validate it against the selected profile's `lockedEnv` and reserved/ambient/credential key classes before use; it is never copied into the compiled profile or hash material.
+Controllers implement mechanics. They do not recompute route policy. `RuntimeControllerStartInput` and `RuntimeControllerDispatchInput` MAY carry `dispatchEnv?: Record<string, string>` as the HRC-owned per-invocation context channel. Broker dispatch MAY also carry `runtime?: InvocationRuntimeContext` for typed HRC-owned resource leases such as `runtime.terminalSurface`. Controllers validate these dispatch-time overlays before use; they are never copied into the compiled profile or hash material.
 
 ### 9.5 HarnessBrokerController contract
 
@@ -930,18 +954,19 @@ HRC receives start/dispatch
   -> HRC starts broker process
   -> HRC sends broker.hello
   -> HRC validates capability intersection
-  -> HRC builds InvocationDispatchRequest { startRequest, dispatchEnv? }
+  -> HRC builds InvocationDispatchRequest { startRequest, dispatchEnv?, runtime? }
        (startRequest = selectedProfile.harnessInvocation.startRequest, verbatim)
-  -> HRC (MAY preflight-validate dispatchEnv)
+       (runtime.terminalSurface required for claude-code-tmux/codex-cli-tmux)
+  -> HRC (MAY preflight-validate dispatchEnv/runtime)
   -> HRC calls broker invocation.start(envelope)
-  -> broker validates dispatchEnv at dispatch, then merges at spawn
+  -> broker validates dispatchEnv/runtime at dispatch, then merges dispatchEnv at spawn
   -> HRC stores BrokerInvocation
   -> HRC consumes normalized broker events
 ```
 
-HRC sends an `InvocationDispatchRequest { startRequest, dispatchEnv? }` envelope. `startRequest` is forwarded **verbatim** and is the **only hashed payload**; `dispatchEnv` is per-invocation context, hashed nowhere. The broker validates `dispatchEnv` at dispatch (HRC MAY preflight) and merges it into the execution-env disjoint union at spawn (see §7.5.1). Broker `invocation.start` takes the envelope.
+HRC sends an `InvocationDispatchRequest { startRequest, dispatchEnv?, runtime? }` envelope. `startRequest` is forwarded **verbatim** and is the **only hashed payload**; `dispatchEnv` and `runtime` are per-invocation context, hashed nowhere. The broker validates `dispatchEnv` and `runtime` at dispatch (HRC MAY preflight) and merges only `dispatchEnv` into the execution-env disjoint union at spawn (see §7.5.1). Broker `invocation.start` takes the envelope. For `claude-code-tmux` and `codex-cli-tmux`, `runtime.terminalSurface` is required and contains the HRC-owned tmux pane lease. `runtime.tmux.socketPath` is a deprecated boundary shim accepted only during the migration window; if both are present, `runtime.terminalSurface` wins.
 
-The phrase “verbatim” is intentional. If HRC needs a changed `startRequest`, it recompiles; `dispatchEnv` is the only per-invocation channel HRC may vary without recompiling.
+The phrase “verbatim” is intentional. If HRC needs a changed `startRequest`, it recompiles; `dispatchEnv` and `runtime` are the only per-invocation channels HRC may vary without recompiling.
 
 ### 9.6 EmbeddedSdkController contract
 
@@ -1039,10 +1064,13 @@ export type BrokerRuntimeState = {
   }
 
   terminalSurface?: {
-    kind: 'tmux-session'
+    kind: 'tmux-pane'
     socketPath: string
-    sessionName: string
-    paneId?: string
+    sessionId: string
+    windowId: string
+    paneId: string
+    sessionName?: string
+    windowName?: string
     reportedAt: string
   }
 
@@ -1143,7 +1171,7 @@ Assistant message completion is a required harness-agnostic contract. Every natu
 
 `final` means "terminal assistant message for the turn"; it does not mean "this message item is internally complete." Drivers that learn message completion before turn completion MUST use a held-latest pattern: hold the newest completed natural assistant message as the possible terminal answer, emit the previously held message with `final: false` when another natural assistant message arrives, and flush the held message with `final: true` only when the turn terminal is known. `assistant.message.delta` remains optional streaming evidence; `capabilities.events.assistantDeltas` MUST NOT be overloaded to waive the completed-message requirement.
 
-`terminal.surface.reported` is the canonical v1 event for a broker-owned attachable terminal surface. For `claude-code-tmux` and `codex-cli-tmux`, the payload MUST be `{ kind: 'tmux-session', socketPath, sessionName, paneId? }`. This event is not `driver.notice`, not a launch callback, and not `broker.attach`; it only reports the tmux attach surface for operators and HRC projection.
+`terminal.surface.reported` is the canonical v1 event for an attachable terminal surface. For HRC-leased `claude-code-tmux` and `codex-cli-tmux` routes, the payload MUST be `{ kind: 'tmux-pane', socketPath, sessionId, windowId, paneId, sessionName?, windowName? }`. This event is not `driver.notice`, not a launch callback, and not `broker.attach`; it only reports the leased tmux pane for operators and HRC projection. Legacy non-leased routes may continue to report `{ kind: 'tmux-session', socketPath, sessionName, paneId? }` during migration.
 
 ### 10.4 Broker event mapper
 
@@ -1585,7 +1613,7 @@ The route catalog describes valid combinations. HRC route decisions select from 
 
 Terminal route hosts include `foreground`, `tmux`, and `ghostty`. Interactive route startup methods include `inherit-current-terminal` for foreground `asp run`; validators narrow host-specific combinations so foreground uses inherited stdio and launch input only, while controller-owned terminal hosts use pty semantics.
 
-The pre-HRC interactive Claude Code and Codex tmux routes are broker-owned, not terminal-controller owned. They remain attachable through a tmux surface reported by the broker driver, while normalized events come from the broker event stream.
+The pre-HRC interactive Claude Code and Codex tmux routes use an HRC-owned tmux pane lease, not terminal-controller ownership and not broker-created tmux lifecycle objects. They remain attachable through a tmux pane surface reported by the broker driver, while normalized events come from the broker event stream.
 
 ```ts
 export const RUNTIME_ROUTE_CATALOG = [
@@ -2000,7 +2028,7 @@ The architecture is accepted only when all of these are true:
 1. ASP emits versioned, hashable `CompiledRuntimePlan` artifacts; persisted forms are explicit projections that are credential-free and ambient-free by contract (self-hash/timestamp fields omitted by path; `lockedEnv` included, `dispatchEnv` never present).
 2. HRC route decisions select execution profiles from compiled plans.
 3. Codex headless routes select `controller: 'harness-broker'` by default.
-4. **Invariant 14.4 is enforced:** HRC never reconstructs, mutates, patches, infers, or synthesizes broker driver specs, process argv/lockedEnv/cwd, `HarnessInvocationSpec`, `InvocationStartRequest`, Codex app-server descriptors, continuation encoding, or harness-specific config after ASP compilation. HRC's only per-invocation channel is `dispatchEnv`.
+4. **Invariant 14.4 is enforced:** HRC never reconstructs, mutates, patches, infers, or synthesizes broker driver specs, process argv/lockedEnv/cwd, `HarnessInvocationSpec`, `InvocationStartRequest`, Codex app-server descriptors, continuation encoding, or harness-specific config after ASP compilation. HRC's only per-invocation broker channels are `dispatchEnv` and typed `runtime` overlays such as `runtime.terminalSurface`.
 5. HRC broker paths do not import Codex harness-driver packages.
 6. HRC broker paths do not spawn or reference `launch/exec.ts`.
 7. HRC broker paths do not parse Codex stdout, Codex JSONL, or Codex app-server native events.

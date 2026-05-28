@@ -96,9 +96,9 @@ Harness stdio is always owned by the driver. For Codex app-server, the driver cr
 
 ### 4.3 tmux and pty ownership
 
-The broker does not own the tmux server daemon. A client or external supervisor may launch the broker inside tmux, attach a terminal UI to broker events, or allocate terminal resources. If a pty-backed driver needs tmux, the tmux server socket is a dispatch-time resource supplied by the client/supervisor, not a compiled-spec value and not a hidden broker default.
+The broker does not own the tmux server daemon, session, window, or pane lifecycle. A client or external supervisor may launch the broker inside tmux, attach a terminal UI to broker events, or allocate terminal resources. If a pty-backed driver needs tmux, the concrete terminal surface is a dispatch-time pane lease supplied by the client/supervisor through `runtime.terminalSurface`, not a compiled-spec value and not a hidden broker default.
 
-A tmux-backed broker driver may own only invocation-scoped terminal objects on the supplied server, such as a session, window, or pane created for that invocation. It must not start, remove, or otherwise manage the tmux server socket. When the driver exposes an operator-attachable terminal, it reports the observed runtime surface with `terminal.surface.reported` rather than encoding concrete socket/session/pane ids in the compiled invocation spec.
+A tmux-backed broker driver attaches to the leased HRC-owned pane and may perform only the pane operations allowed by the lease: `inspect`, `sendInput`, `sendInterrupt`, and, when cap-gated by `allowedOps`, `capture` and `resize`. It must not issue tmux lifecycle commands: `start-server`, `kill-server`, `new-session`, `new-window`, `split-window`, `rename-session`, `kill-session`, `attach-session`, `respawn-pane`, or `set-environment`. When the driver exposes an operator-attachable terminal, it reports the observed leased pane with `terminal.surface.reported` rather than encoding concrete socket/session/window/pane ids in the compiled invocation spec.
 
 For v0 Codex app-server, `harnessTransport.kind` is `jsonrpc-stdio`; no pty is required.
 
@@ -401,7 +401,44 @@ export interface InvocationStartRequest {
   /** Optional convenience; semantically equivalent to start followed by invocation.input. */
   initialInput?: InvocationInput
 }
+
+export interface InvocationDispatchRequest {
+  startRequest: InvocationStartRequest
+  dispatchEnv?: Record<string, string>
+  runtime?: InvocationRuntimeContext
+}
+
+export interface InvocationRuntimeContext {
+  terminalSurface?: TmuxPaneTerminalSurfaceLease
+
+  /**
+   * Deprecated boundary shim for runtime.tmux.socketPath, accepted only during
+   * migration from socket-only tmux dispatch. If both fields are present,
+   * terminalSurface wins.
+   */
+  tmux?: { socketPath: string }
+}
+
+export interface TmuxPaneTerminalSurfaceLease {
+  kind: 'tmux-pane'
+  ownership: 'hrc'
+  socketPath: string
+  sessionId: string
+  windowId: string
+  paneId: string
+  sessionName?: string
+  windowName?: string
+  allowedOps: {
+    inspect: true
+    sendInput: true
+    sendInterrupt: true
+    capture?: boolean
+    resize?: boolean
+  }
+}
 ```
+
+The JSON-RPC params for `invocation.start` are an `InvocationDispatchRequest`. `startRequest` is the compiled launch request and is forwarded unchanged by clients that received it from ASP/HRC. `dispatchEnv` and `runtime` are dispatch-time overlays, not hash material and not compiled-spec fields. For `claude-code-tmux` and `codex-cli-tmux`, `runtime.terminalSurface` is required with `kind: 'tmux-pane'`, `ownership: 'hrc'`, non-empty `socketPath`, `sessionId`, `windowId`, and `paneId`, and `allowedOps.inspect`, `allowedOps.sendInput`, and `allowedOps.sendInterrupt` set to `true`.
 
 Response:
 
@@ -1184,7 +1221,7 @@ Client starts broker process, then sends:
 ```
 
 ```json
-{"jsonrpc":"2.0","id":"2","method":"invocation.start","params":{"spec":{"specVersion":"harness-broker.invocation/v1","harness":{"frontend":"codex","provider":"openai","driver":"codex-app-server"},"process":{"command":"codex","args":["--enable","goals","app-server"],"cwd":"/workspace/project","env":{"CODEX_HOME":"/workspace/.codex-home"},"harnessTransport":{"kind":"jsonrpc-stdio"}},"interaction":{"mode":"headless","turnConcurrency":"single","inputQueue":"none"},"driver":{"kind":"codex-app-server","approvalPolicy":"never","sandboxMode":"workspace-write","resumeFallback":"start-fresh","permissionPolicy":{"mode":"deny"}}}}}
+{"jsonrpc":"2.0","id":"2","method":"invocation.start","params":{"startRequest":{"spec":{"specVersion":"harness-broker.invocation/v1","harness":{"frontend":"codex","provider":"openai","driver":"codex-app-server"},"process":{"command":"codex","args":["--enable","goals","app-server"],"cwd":"/workspace/project","env":{"CODEX_HOME":"/workspace/.codex-home"},"harnessTransport":{"kind":"jsonrpc-stdio"}},"interaction":{"mode":"headless","turnConcurrency":"single","inputQueue":"none"},"driver":{"kind":"codex-app-server","approvalPolicy":"never","sandboxMode":"workspace-write","resumeFallback":"start-fresh","permissionPolicy":{"mode":"deny"}}}}}}
 ```
 
 Broker emits:

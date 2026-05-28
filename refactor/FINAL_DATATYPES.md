@@ -487,15 +487,26 @@ export type BrokerTerminalSurface = {
   turnDelivery: 'terminal-literal-input'
   operatorAttach: true
   // Must match BrokerExecutionProfile.policy.exposurePolicy exactly.
-  exposurePolicy: { mode: 'broker-reports-target'; targetKind: 'tmux-session' }
+  exposurePolicy: { mode: 'broker-reports-target'; targetKind: 'tmux-pane' }
 }
 
-export type BrokerTerminalSurfaceReport = {
-  kind: 'tmux-session'
-  socketPath: string
-  sessionName: string
-  paneId?: string | undefined
-}
+export type BrokerTerminalSurfaceReport =
+  | {
+      kind: 'tmux-pane'
+      socketPath: string
+      sessionId: string
+      windowId: string
+      paneId: string
+      sessionName?: string | undefined
+      windowName?: string | undefined
+    }
+  | {
+      // Legacy non-leased report shape accepted during migration.
+      kind: 'tmux-session'
+      socketPath: string
+      sessionName: string
+      paneId?: string | undefined
+    }
 
 // spaces-runtime-contracts/src/resources.ts
 
@@ -1201,11 +1212,41 @@ export interface InvocationStartRequest {
   initialInput?: InvocationInput | undefined
 }
 
+export type InvocationRuntimeContext = {
+  terminalSurface?: TmuxPaneTerminalSurfaceLease | undefined
+
+  /**
+   * Deprecated boundary shim for runtime.tmux.socketPath, accepted only during
+   * migration from socket-only tmux dispatch. If both fields are present,
+   * terminalSurface wins.
+   */
+  tmux?: { socketPath: string } | undefined
+}
+
+export type TmuxPaneTerminalSurfaceLease = {
+  kind: 'tmux-pane'
+  ownership: 'hrc'
+  socketPath: string
+  sessionId: string
+  windowId: string
+  paneId: string
+  sessionName?: string | undefined
+  windowName?: string | undefined
+  allowedOps: {
+    inspect: true
+    sendInput: true
+    sendInterrupt: true
+    capture?: boolean | undefined
+    resize?: boolean | undefined
+  }
+}
+
 // Outer dispatch envelope. HRC constructs it and MAY populate dispatchEnv (per-invocation,
 // non-identity context — handles/correlation, e.g. a wrkq handoff id). `startRequest` is
 // forwarded byte/semantically unchanged and is the only hashed payload. `dispatchEnv` is
 // validated at dispatch by the broker, never hashed, never persisted in the contract projection
-// plane, and is NOT a recompile trigger.
+// plane, and is NOT a recompile trigger. `runtime.terminalSurface` carries HRC-owned
+// dispatch resources such as tmux pane leases and is also outside compiled hash material.
 export interface InvocationDispatchRequest {
   startRequest: InvocationStartRequest
   dispatchEnv?: Record<string, string>
@@ -1547,12 +1588,7 @@ export interface DriverNoticePayload {
   data?: unknown
 }
 
-export interface TerminalSurfaceReportedPayload {
-  kind: 'tmux-session'
-  socketPath: string
-  sessionName: string
-  paneId?: string | undefined
-}
+export type TerminalSurfaceReportedPayload = BrokerTerminalSurfaceReport
 
 export interface PermissionRequestedPayload {
   permissionRequestId: PermissionRequestId
