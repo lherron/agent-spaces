@@ -72,7 +72,7 @@ const capabilityResolution = {
     continuation: 'optional',
     permissions: 'broker-request',
     events: {
-      assistantDeltas: 'required',
+      assistantDeltas: 'optional',
       toolCalls: 'optional',
       usage: 'optional',
       diagnostics: 'optional',

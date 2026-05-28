@@ -458,7 +458,7 @@ function expectedCapabilities(
     continuation: 'optional',
     permissions: policy.mode === 'ask-client' ? 'broker-request' : 'none',
     events: {
-      assistantDeltas: 'required',
+      assistantDeltas: 'optional',
       toolCalls: 'required',
       usage: 'optional',
       diagnostics: 'optional',
