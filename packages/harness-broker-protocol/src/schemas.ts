@@ -319,7 +319,10 @@ export function validateEventEnvelope(value: unknown): InvocationEventEnvelope {
     if (!Object.hasOwn(envelope, 'payload')) {
       issues.push(issue('payload', 'required', 'payload is required'))
     } else if (typeof envelope.type === 'string') {
-      validateEventPayload(envelope.type as InvocationEventType, envelope['payload'], issues)
+      const driverKind = asRecord(envelope['driver'])?.['kind']
+      validateEventPayload(envelope.type as InvocationEventType, envelope['payload'], issues, {
+        driverKind: typeof driverKind === 'string' ? driverKind : undefined,
+      })
     }
   }
 
@@ -517,12 +520,38 @@ function validateInvocationDispatchRequestShape(
 }
 
 /**
- * Spec §3.3 dispatch-time contract: a `claude-code-tmux` dispatch MUST carry a
- * runtime-owned tmux socket (`runtime.tmux.socketPath`) on the dispatch
- * envelope. The compiled profile emits launch INTENT only — the concrete tmux
- * server socket is a runtime allocation supplied by HRC (or the pre-HRC
- * harness stand-in) at dispatch time. The driver attaches to this socket; it
- * never owns the server.
+ * tmux id shape rules — enforced at the protocol layer so consumers can rely
+ * on the lease carrying canonical tmux ids without re-parsing.
+ *
+ *   - sessionId: tmux session ids look like `$3`
+ *   - windowId:  tmux window  ids look like `@7`
+ *   - paneId:    tmux pane    ids look like `%12`
+ */
+const TMUX_SESSION_ID_PATTERN = /^\$\d+$/
+const TMUX_WINDOW_ID_PATTERN = /^@\d+$/
+const TMUX_PANE_ID_PATTERN = /^%\d+$/
+
+/**
+ * Spec §3.3 dispatch-time contract: a `claude-code-tmux` / `codex-cli-tmux`
+ * dispatch MUST carry a runtime-owned terminal surface on the dispatch
+ * envelope. The compiled profile emits launch INTENT only — the concrete
+ * tmux server socket and pane are runtime allocations supplied by HRC (or
+ * the pre-HRC harness stand-in) at dispatch time. The driver attaches to
+ * this socket / pane; it never owns the server.
+ *
+ * Two shapes are accepted during the Phase A→D migration:
+ *
+ *   - NEW: `runtime.terminalSurface` carries a full `tmux-pane` lease with
+ *     pane coordinates and an `allowedOps` capability scope. Driver code
+ *     (Phase C/D) reads ONLY this field.
+ *   - LEGACY: `runtime.tmux.socketPath` is a bare runtime-owned tmux server
+ *     socket. Accepted unchanged for backward compatibility.
+ *
+ * If BOTH are present, `terminalSurface` wins at runtime (downstream
+ * consumers prefer the lease); the protocol layer accepts both without
+ * raising a conflict issue, leaving the wire format permissive during
+ * migration. NO stdout/stderr deprecation diagnostics are emitted — broker
+ * stdio is the wire protocol.
  */
 function validateDispatchRuntime(
   dispatchRequest: Record<string, unknown>,
@@ -555,20 +584,147 @@ function validateDispatchRuntime(
     }
   }
 
+  // Validate `runtime.terminalSurface` whenever it is present, regardless of
+  // driver kind. (Protocol layer rejects malformed leases up-front.)
+  const terminalSurfaceRaw = runtime?.['terminalSurface']
+  let terminalSurfaceLooksValid = false
+  if (terminalSurfaceRaw !== undefined) {
+    terminalSurfaceLooksValid = validateTerminalSurfaceLease(
+      terminalSurfaceRaw,
+      path(runtimePath, 'terminalSurface'),
+      issues
+    )
+  }
+
   if (driverKind !== 'claude-code-tmux' && driverKind !== 'codex-cli-tmux') {
     return
   }
 
   const tmux = runtime ? asRecord(runtime['tmux']) : undefined
-  if (!tmux || typeof tmux['socketPath'] !== 'string' || tmux['socketPath'].length === 0) {
+  const legacyShimSatisfied =
+    !!tmux && typeof tmux['socketPath'] === 'string' && tmux['socketPath'].length > 0
+
+  if (!legacyShimSatisfied && terminalSurfaceRaw === undefined) {
     issues.push(
       issue(
-        path(runtimePath, 'tmux.socketPath'),
+        path(runtimePath, 'terminalSurface'),
         'required',
-        `${driverKind} dispatch requires a runtime tmux socket`
+        `${driverKind} dispatch requires either runtime.terminalSurface (tmux-pane lease) or legacy runtime.tmux.socketPath`
       )
     )
+    return
   }
+
+  // If neither the legacy shim nor a well-formed lease is present, the
+  // detailed lease issues already emitted by validateTerminalSurfaceLease
+  // cover the rejection. No extra issue needed.
+  void terminalSurfaceLooksValid
+}
+
+/**
+ * Validate a `runtime.terminalSurface` pane lease. Returns true when the
+ * lease shape is well-formed (kind/ownership/ids/allowedOps all valid).
+ * Issues are pushed onto the shared list; the boolean is for callers that
+ * need to know whether downstream tmux drivers can rely on the lease.
+ */
+function validateTerminalSurfaceLease(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): boolean {
+  const surface = asRecord(value)
+  if (!surface) {
+    issues.push(issue(basePath, 'invalid_type', 'terminalSurface must be an object'))
+    return false
+  }
+
+  let ok = true
+
+  if (surface['kind'] !== 'tmux-pane') {
+    issues.push(
+      issue(path(basePath, 'kind'), 'invalid_literal', "terminalSurface.kind must be 'tmux-pane'")
+    )
+    ok = false
+  }
+  if (surface['ownership'] !== 'hrc') {
+    issues.push(
+      issue(
+        path(basePath, 'ownership'),
+        'invalid_literal',
+        "terminalSurface.ownership must be 'hrc'"
+      )
+    )
+    ok = false
+  }
+
+  const socketPath = surface['socketPath']
+  if (typeof socketPath !== 'string' || socketPath.length === 0) {
+    issues.push(
+      issue(
+        path(basePath, 'socketPath'),
+        'required',
+        'terminalSurface.socketPath must be a non-empty string'
+      )
+    )
+    ok = false
+  }
+
+  const validateTmuxId = (
+    fieldName: 'sessionId' | 'windowId' | 'paneId',
+    pattern: RegExp
+  ): void => {
+    const raw = surface[fieldName]
+    if (typeof raw !== 'string' || raw.length === 0) {
+      issues.push(
+        issue(
+          path(basePath, fieldName),
+          'required',
+          `terminalSurface.${fieldName} must be a non-empty string`
+        )
+      )
+      ok = false
+      return
+    }
+    if (!pattern.test(raw)) {
+      issues.push(
+        issue(
+          path(basePath, fieldName),
+          'invalid_tmux_id',
+          `terminalSurface.${fieldName} must match ${String(pattern)}`
+        )
+      )
+      ok = false
+    }
+  }
+
+  validateTmuxId('sessionId', TMUX_SESSION_ID_PATTERN)
+  validateTmuxId('windowId', TMUX_WINDOW_ID_PATTERN)
+  validateTmuxId('paneId', TMUX_PANE_ID_PATTERN)
+
+  optionalString(surface['sessionName'], path(basePath, 'sessionName'), issues)
+  optionalString(surface['windowName'], path(basePath, 'windowName'), issues)
+
+  const allowedOps = asRecord(surface['allowedOps'])
+  const allowedOpsPath = path(basePath, 'allowedOps')
+  if (!allowedOps) {
+    issues.push(issue(allowedOpsPath, 'required', 'terminalSurface.allowedOps is required'))
+    ok = false
+  } else {
+    requireTrue(allowedOps['inspect'], path(allowedOpsPath, 'inspect'), issues)
+    requireTrue(allowedOps['sendInput'], path(allowedOpsPath, 'sendInput'), issues)
+    requireTrue(allowedOps['sendInterrupt'], path(allowedOpsPath, 'sendInterrupt'), issues)
+    optionalBoolean(allowedOps['capture'], path(allowedOpsPath, 'capture'), issues)
+    optionalBoolean(allowedOps['resize'], path(allowedOpsPath, 'resize'), issues)
+    if (
+      allowedOps['inspect'] !== true ||
+      allowedOps['sendInput'] !== true ||
+      allowedOps['sendInterrupt'] !== true
+    ) {
+      ok = false
+    }
+  }
+
+  return ok
 }
 
 function rejectStaleStartRequestRuntime(
@@ -586,10 +742,15 @@ function rejectStaleStartRequestRuntime(
   )
 }
 
+interface EventPayloadContext {
+  driverKind?: string | undefined
+}
+
 function validateEventPayload(
   eventType: InvocationEventType,
   value: unknown,
-  issues: ValidationIssue[]
+  issues: ValidationIssue[],
+  context: EventPayloadContext = {}
 ): void {
   switch (eventType) {
     case 'invocation.ready': {
@@ -625,10 +786,72 @@ function validateEventPayload(
     case 'terminal.surface.reported': {
       const payload = requirePayloadRecord(value, issues)
       if (!payload) return
-      optionalEnum(payload.kind, ['tmux-session'], 'payload.kind', issues, true)
-      requireString(payload['socketPath'], 'payload.socketPath', issues)
-      requireString(payload['sessionName'], 'payload.sessionName', issues)
-      optionalString(payload['paneId'], 'payload.paneId', issues)
+      const driverKind = context.driverKind
+      const requiresPaneKind =
+        driverKind === 'claude-code-tmux' || driverKind === 'codex-cli-tmux'
+
+      if (payload.kind === 'tmux-pane') {
+        requireString(payload['socketPath'], 'payload.socketPath', issues)
+        const sessionId = payload['sessionId']
+        if (typeof sessionId !== 'string' || sessionId.length === 0) {
+          issues.push(
+            issue('payload.sessionId', 'required', 'payload.sessionId must be a non-empty string')
+          )
+        } else if (!TMUX_SESSION_ID_PATTERN.test(sessionId)) {
+          issues.push(
+            issue(
+              'payload.sessionId',
+              'invalid_tmux_id',
+              `payload.sessionId must match ${String(TMUX_SESSION_ID_PATTERN)}`
+            )
+          )
+        }
+        const windowId = payload['windowId']
+        if (typeof windowId !== 'string' || windowId.length === 0) {
+          issues.push(
+            issue('payload.windowId', 'required', 'payload.windowId must be a non-empty string')
+          )
+        } else if (!TMUX_WINDOW_ID_PATTERN.test(windowId)) {
+          issues.push(
+            issue(
+              'payload.windowId',
+              'invalid_tmux_id',
+              `payload.windowId must match ${String(TMUX_WINDOW_ID_PATTERN)}`
+            )
+          )
+        }
+        const paneId = payload['paneId']
+        if (typeof paneId !== 'string' || paneId.length === 0) {
+          issues.push(
+            issue('payload.paneId', 'required', 'payload.paneId must be a non-empty string')
+          )
+        } else if (!TMUX_PANE_ID_PATTERN.test(paneId)) {
+          issues.push(
+            issue(
+              'payload.paneId',
+              'invalid_tmux_id',
+              `payload.paneId must match ${String(TMUX_PANE_ID_PATTERN)}`
+            )
+          )
+        }
+        optionalString(payload['sessionName'], 'payload.sessionName', issues)
+        optionalString(payload['windowName'], 'payload.windowName', issues)
+      } else if (payload.kind === 'tmux-session') {
+        if (requiresPaneKind) {
+          issues.push(
+            issue(
+              'payload.kind',
+              'invalid_literal',
+              `${driverKind} driver requires terminal.surface.reported payload kind 'tmux-pane'`
+            )
+          )
+        }
+        requireString(payload['socketPath'], 'payload.socketPath', issues)
+        requireString(payload['sessionName'], 'payload.sessionName', issues)
+        optionalString(payload['paneId'], 'payload.paneId', issues)
+      } else {
+        optionalEnum(payload.kind, ['tmux-session', 'tmux-pane'], 'payload.kind', issues, true)
+      }
       return
     }
     case 'permission.resolved': {

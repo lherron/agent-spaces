@@ -212,12 +212,36 @@ export interface DriverNoticePayload {
   data?: unknown
 }
 
-export interface TerminalSurfaceReportedPayload {
-  kind: 'tmux-session'
-  socketPath: string
-  sessionName: string
-  paneId?: string | undefined
-}
+/**
+ * Discriminated payload for `terminal.surface.reported`.
+ *
+ * - `tmux-session` (legacy): emitted by drivers on the pre-lease path. The
+ *   driver reports the runtime tmux socket plus the observed session name
+ *   and optional pane id. Stays valid for non-leased routes.
+ * - `tmux-pane`: emitted by drivers operating from a runtime-owned pane
+ *   lease (Phase C/D). Carries the full pane coordinates so consumers can
+ *   address the pane directly without re-resolving via session name.
+ *
+ * Schema assertion (see `validateEventEnvelope`): when the envelope's
+ * `driver.kind` is `claude-code-tmux` or `codex-cli-tmux`, the payload kind
+ * MUST be `tmux-pane`.
+ */
+export type TerminalSurfaceReportedPayload =
+  | {
+      kind: 'tmux-session'
+      socketPath: string
+      sessionName: string
+      paneId?: string | undefined
+    }
+  | {
+      kind: 'tmux-pane'
+      socketPath: string
+      sessionId: string
+      windowId: string
+      paneId: string
+      sessionName?: string | undefined
+      windowName?: string | undefined
+    }
 
 export interface PermissionRequestedPayload {
   permissionRequestId: PermissionRequestId

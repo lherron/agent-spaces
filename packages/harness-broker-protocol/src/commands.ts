@@ -80,10 +80,51 @@ export interface BrokerHealthResponse {
  * (`brokerTerminal.host: 'tmux'`), never a concrete tmux server socket.
  */
 export interface InvocationRuntimeContext {
-  /** Pre-allocated tmux server socket owned by the runtime control plane. */
+  /**
+   * Legacy pre-allocated tmux server socket owned by the runtime control
+   * plane. Kept as a boundary shim during migration to `terminalSurface`. New
+   * dispatch paths SHOULD send `terminalSurface` instead; when BOTH are
+   * present, `terminalSurface` wins. Driver code reads only `terminalSurface`
+   * (Phase C/D flip); this field is accepted for backward compatibility only.
+   */
   tmux?:
     | {
         socketPath: string
+      }
+    | undefined
+  /**
+   * Runtime-owned terminal surface (pane-lease) handed to the driver. For
+   * `claude-code-tmux` / `codex-cli-tmux` dispatches, this carries the
+   * runtime-allocated tmux pane the driver must attach to — the driver
+   * NEVER owns the tmux server itself.
+   *
+   * `allowedOps` declares the capability scope this lease grants to the
+   * driver; `inspect`, `sendInput`, and `sendInterrupt` are non-optional and
+   * always true for tmux pane leases (Phase B capability gating consumes
+   * this).
+   *
+   * tmux id shape rules (enforced by `validateDispatchRuntime`):
+   *   - `sessionId` matches `^\$\d+$` (e.g. `$3`)
+   *   - `windowId`  matches `^@\d+$` (e.g. `@7`)
+   *   - `paneId`    matches `^%\d+$` (e.g. `%12`)
+   */
+  terminalSurface?:
+    | {
+        kind: 'tmux-pane'
+        ownership: 'hrc'
+        socketPath: string
+        sessionId: string
+        windowId: string
+        paneId: string
+        sessionName?: string | undefined
+        windowName?: string | undefined
+        allowedOps: {
+          inspect: true
+          sendInput: true
+          sendInterrupt: true
+          capture?: boolean | undefined
+          resize?: boolean | undefined
+        }
       }
     | undefined
 }

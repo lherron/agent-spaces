@@ -11,6 +11,13 @@ export enum BrokerErrorCode {
   ShutdownInProgress = -32008,
   DriverUnavailable = -32009,
   DispatchValidationFailed = -32010,
+  /**
+   * Returned when an operation is rejected because the caller (driver, client,
+   * or runtime) does not hold the capability needed to perform it. Phase B
+   * uses this for terminal-surface lease enforcement: e.g. attempting to
+   * resize a pane that did not grant `allowedOps.resize`.
+   */
+  CapabilityDenied = -32011,
 }
 
 export function createJsonRpcError(code: number, message: string, data?: unknown): JsonRpcError {

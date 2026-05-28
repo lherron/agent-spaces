@@ -427,19 +427,19 @@ describe('validateInvocationDispatchRequest', () => {
     )
   })
 
-  test('requires a runtime tmux socket for claude-code-tmux dispatch requests', () => {
+  test('requires a runtime terminal surface or legacy tmux socket for claude-code-tmux dispatch requests', () => {
     expectInvalidDispatchRequest(
       {
         startRequest: { spec: claudeCodeTmuxSpec },
       },
       {
-        path: 'runtime.tmux.socketPath',
+        path: 'runtime.terminalSurface',
         code: 'required',
       }
     )
   })
 
-  test('accepts a runtime tmux socket for claude-code-tmux dispatch requests', () => {
+  test('accepts a legacy runtime.tmux.socketPath for claude-code-tmux dispatch (boundary shim)', () => {
     const request = {
       startRequest: {
         spec: claudeCodeTmuxSpec,
@@ -452,6 +452,156 @@ describe('validateInvocationDispatchRequest', () => {
     }
 
     expect(validateInvocationDispatchRequest(request)).toEqual(request)
+  })
+
+  const validTerminalSurface = {
+    kind: 'tmux-pane' as const,
+    ownership: 'hrc' as const,
+    socketPath: '/tmp/preallocated/hrc-owned-tmux.sock',
+    sessionId: '$3',
+    windowId: '@7',
+    paneId: '%12',
+    sessionName: 'asp-claude',
+    windowName: 'main',
+    allowedOps: {
+      inspect: true as const,
+      sendInput: true as const,
+      sendInterrupt: true as const,
+      capture: true,
+      resize: false,
+    },
+  }
+
+  test('accepts a runtime terminalSurface pane lease for claude-code-tmux dispatch', () => {
+    const request = {
+      startRequest: { spec: claudeCodeTmuxSpec },
+      runtime: { terminalSurface: validTerminalSurface },
+    }
+    expect(validateInvocationDispatchRequest(request)).toEqual(request)
+  })
+
+  test('accepts both legacy tmux.socketPath AND terminalSurface together (terminalSurface wins downstream)', () => {
+    const request = {
+      startRequest: { spec: claudeCodeTmuxSpec },
+      runtime: {
+        tmux: { socketPath: '/tmp/preallocated/hrc-owned-tmux.sock' },
+        terminalSurface: validTerminalSurface,
+      },
+    }
+    expect(validateInvocationDispatchRequest(request)).toEqual(request)
+  })
+
+  test('rejects terminalSurface with a malformed paneId', () => {
+    const surface = structuredClone(validTerminalSurface) as typeof validTerminalSurface & {
+      paneId: string
+    }
+    surface.paneId = 'pane-12' // missing leading %, not a tmux pane id
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: claudeCodeTmuxSpec },
+        runtime: { terminalSurface: surface },
+      },
+      {
+        path: 'runtime.terminalSurface.paneId',
+        code: 'invalid_tmux_id',
+      }
+    )
+  })
+
+  test('rejects terminalSurface missing paneId', () => {
+    const surface = structuredClone(validTerminalSurface) as Partial<typeof validTerminalSurface>
+    Reflect.deleteProperty(surface, 'paneId')
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: claudeCodeTmuxSpec },
+        runtime: { terminalSurface: surface },
+      },
+      {
+        path: 'runtime.terminalSurface.paneId',
+        code: 'required',
+      }
+    )
+  })
+
+  test('rejects terminalSurface with malformed sessionId / windowId', () => {
+    const badSession = structuredClone(validTerminalSurface)
+    badSession.sessionId = 'session-3'
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: claudeCodeTmuxSpec },
+        runtime: { terminalSurface: badSession },
+      },
+      {
+        path: 'runtime.terminalSurface.sessionId',
+        code: 'invalid_tmux_id',
+      }
+    )
+
+    const badWindow = structuredClone(validTerminalSurface)
+    badWindow.windowId = 'win-7'
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: claudeCodeTmuxSpec },
+        runtime: { terminalSurface: badWindow },
+      },
+      {
+        path: 'runtime.terminalSurface.windowId',
+        code: 'invalid_tmux_id',
+      }
+    )
+  })
+
+  test('rejects terminalSurface with wrong ownership or kind', () => {
+    const badOwnership = structuredClone(validTerminalSurface) as typeof validTerminalSurface & {
+      ownership: string
+    }
+    badOwnership.ownership = 'driver'
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: claudeCodeTmuxSpec },
+        runtime: { terminalSurface: badOwnership },
+      },
+      {
+        path: 'runtime.terminalSurface.ownership',
+        code: 'invalid_literal',
+      }
+    )
+
+    const badKind = structuredClone(validTerminalSurface) as typeof validTerminalSurface & {
+      kind: string
+    }
+    badKind.kind = 'tmux-session'
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: claudeCodeTmuxSpec },
+        runtime: { terminalSurface: badKind },
+      },
+      {
+        path: 'runtime.terminalSurface.kind',
+        code: 'invalid_literal',
+      }
+    )
+  })
+
+  test('rejects terminalSurface allowedOps without inspect/sendInput/sendInterrupt = true', () => {
+    const surface = structuredClone(validTerminalSurface) as typeof validTerminalSurface & {
+      allowedOps: Record<string, unknown>
+    }
+    surface.allowedOps = {
+      inspect: false,
+      sendInput: true,
+      sendInterrupt: true,
+    }
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: claudeCodeTmuxSpec },
+        runtime: { terminalSurface: surface },
+      },
+      {
+        path: 'runtime.terminalSurface.allowedOps.inspect',
+        code: 'invalid_literal',
+      }
+    )
   })
 
   test('rejects stale runtime overlays nested inside dispatch startRequest', () => {
@@ -662,6 +812,89 @@ describe('validateEventEnvelope', () => {
     expectInvalidEventEnvelope(envelope('invocation.disposed', {}), {
       path: 'payload.disposed',
       code: 'required',
+    })
+  })
+
+  test('accepts terminal.surface.reported with kind:tmux-pane and full tmux ids', () => {
+    const env = envelope('terminal.surface.reported', {
+      kind: 'tmux-pane',
+      socketPath: '/tmp/tmux-501/default',
+      sessionId: '$3',
+      windowId: '@7',
+      paneId: '%12',
+      sessionName: 'asp-claude',
+      windowName: 'main',
+    })
+    expect(validateEventEnvelope(env)).toEqual(env)
+  })
+
+  test('rejects terminal.surface.reported tmux-pane with malformed paneId', () => {
+    expectInvalidEventEnvelope(
+      envelope('terminal.surface.reported', {
+        kind: 'tmux-pane',
+        socketPath: '/tmp/tmux-501/default',
+        sessionId: '$3',
+        windowId: '@7',
+        paneId: 'pane-12',
+      }),
+      {
+        path: 'payload.paneId',
+        code: 'invalid_tmux_id',
+      }
+    )
+  })
+
+  test('rejects terminal.surface.reported tmux-pane missing windowId', () => {
+    expectInvalidEventEnvelope(
+      envelope('terminal.surface.reported', {
+        kind: 'tmux-pane',
+        socketPath: '/tmp/tmux-501/default',
+        sessionId: '$3',
+        paneId: '%12',
+      }),
+      {
+        path: 'payload.windowId',
+        code: 'required',
+      }
+    )
+  })
+
+  test('requires terminal.surface.reported kind:tmux-pane when driver is claude-code-tmux', () => {
+    const env = {
+      invocationId: 'inv_1',
+      seq: 1,
+      time: '2026-05-28T00:00:00.000Z',
+      type: 'terminal.surface.reported',
+      payload: {
+        kind: 'tmux-session',
+        socketPath: '/tmp/tmux-501/default',
+        sessionName: 'asp-claude',
+        paneId: '%12',
+      },
+      driver: { kind: 'claude-code-tmux' },
+    }
+    expectInvalidEventEnvelope(env, {
+      path: 'payload.kind',
+      code: 'invalid_literal',
+    })
+  })
+
+  test('requires terminal.surface.reported kind:tmux-pane when driver is codex-cli-tmux', () => {
+    const env = {
+      invocationId: 'inv_1',
+      seq: 1,
+      time: '2026-05-28T00:00:00.000Z',
+      type: 'terminal.surface.reported',
+      payload: {
+        kind: 'tmux-session',
+        socketPath: '/tmp/tmux-501/default',
+        sessionName: 'asp-codex',
+      },
+      driver: { kind: 'codex-cli-tmux' },
+    }
+    expectInvalidEventEnvelope(env, {
+      path: 'payload.kind',
+      code: 'invalid_literal',
     })
   })
 
