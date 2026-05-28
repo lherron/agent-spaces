@@ -9,6 +9,17 @@ export type { InvocationEventSequencer, EventSequencerOptions } from './events'
 
 export { BrokerError, toJsonRpcError } from './errors'
 
+export { createTmuxPaneController, TmuxPaneController } from './runtime/tmux'
+export type {
+  TmuxExec,
+  TmuxExecResult,
+  TmuxPaneAllowedOps,
+  TmuxPaneControllerLease,
+  TmuxPaneControllerOptions,
+  TmuxPaneInspection,
+  TmuxPaneResize,
+} from './runtime/tmux'
+
 export { createInvocationManager } from './invocation-manager'
 export type { InvocationManager, Invocation } from './invocation-manager'
 

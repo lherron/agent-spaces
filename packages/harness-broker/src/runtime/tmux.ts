@@ -1,4 +1,6 @@
 import { rm } from 'node:fs/promises'
+import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import { BrokerError } from '../errors'
 
 export type RestartStyle = 'reuse_pty' | 'fresh_pty'
 
@@ -18,6 +20,42 @@ export type TmuxManagerOptions = {
   exec?: TmuxExec | undefined
 }
 
+export type TmuxPaneAllowedOps = {
+  inspect?: boolean | undefined
+  sendInput?: boolean | undefined
+  sendInterrupt?: boolean | undefined
+  capture?: boolean | undefined
+  resize?: boolean | undefined
+}
+
+export type TmuxPaneControllerLease = {
+  paneId: string
+  sessionId: string
+  windowId: string
+  sessionName?: string | undefined
+  windowName?: string | undefined
+  allowedOps: TmuxPaneAllowedOps
+}
+
+export type TmuxPaneControllerOptions = {
+  socketPath: string
+  tmuxBin?: string | undefined
+  exec?: TmuxExec | undefined
+  lease: TmuxPaneControllerLease
+}
+
+export type TmuxPaneInspection = {
+  paneId: string
+  sessionId: string
+  windowId: string
+  alive: boolean
+}
+
+export type TmuxPaneResize = {
+  columns?: number | undefined
+  rows?: number | undefined
+}
+
 export type TmuxPaneState = {
   socketPath: string
   sessionName: string
@@ -34,6 +72,8 @@ const MIN_SUPPORTED_TMUX_VERSION = {
 
 const WINDOW_NAME = 'main'
 const PANE_METADATA_PATTERN = /^(\$\d+)[\t_](@\d+)[\t_](%\d+)[\t_](.+)$/
+const PANE_IDENTITY_PATTERN = /^(\$\d+)[\t_](@\d+)[\t_](%\d+)$/
+const PANE_IDENTITY_FORMAT = '#{session_id}\t#{window_id}\t#{pane_id}'
 const SCRUB_EXACT_KEYS = new Set([
   'BUILD_NUMBER',
   'CI',
@@ -160,6 +200,34 @@ export function parsePaneState(stdout: string, socketPath: string): TmuxPaneStat
     windowId,
     paneId,
   }
+}
+
+function parsePaneIdentity(stdout: string): {
+  sessionId: string
+  windowId: string
+  paneId: string
+} {
+  const line = stdout
+    .trim()
+    .split('\n')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0)
+
+  if (!line) {
+    throw new Error('tmux command did not return pane identity')
+  }
+
+  const match = PANE_IDENTITY_PATTERN.exec(line)
+  if (!match) {
+    throw new Error(`unexpected tmux pane identity line: ${line}`)
+  }
+
+  const [, sessionId, windowId, paneId] = match
+  if (!sessionId || !windowId || !paneId) {
+    throw new Error(`tmux pane identity regex captured empty groups in line: ${line}`)
+  }
+
+  return { sessionId, windowId, paneId }
 }
 
 export class TmuxManager {
@@ -359,6 +427,101 @@ export class TmuxManager {
   }
 }
 
+export class TmuxPaneController {
+  private readonly socketPath: string
+  private readonly tmuxBinary: string
+  private readonly execImpl: TmuxExec
+  private readonly lease: TmuxPaneControllerLease
+
+  constructor(options: TmuxPaneControllerOptions) {
+    this.socketPath = options.socketPath
+    this.tmuxBinary = options.tmuxBin ?? 'tmux'
+    this.execImpl = options.exec ?? createDefaultTmuxExec()
+    this.lease = options.lease
+
+    const { allowedOps } = this.lease
+    if (allowedOps.inspect !== true) {
+      throw new BrokerError(BrokerErrorCode.CapabilityDenied, 'inspect requires allowedOps.inspect')
+    }
+    if (allowedOps.sendInput !== true) {
+      throw new BrokerError(
+        BrokerErrorCode.CapabilityDenied,
+        'sendInput requires allowedOps.sendInput'
+      )
+    }
+    if (allowedOps.sendInterrupt !== true) {
+      throw new BrokerError(
+        BrokerErrorCode.CapabilityDenied,
+        'sendInterrupt requires allowedOps.sendInterrupt'
+      )
+    }
+  }
+
+  async inspect(): Promise<TmuxPaneInspection> {
+    const result = await this.exec([
+      'display-message',
+      '-p',
+      '-t',
+      this.lease.paneId,
+      '-F',
+      PANE_IDENTITY_FORMAT,
+    ])
+    const { sessionId, windowId, paneId } = parsePaneIdentity(result.stdout)
+    return { paneId, sessionId, windowId, alive: true }
+  }
+
+  async sendLiteral(text: string): Promise<void> {
+    if (text.length === 0) {
+      return
+    }
+
+    await this.exec(['send-keys', '-l', '-t', this.lease.paneId, text])
+  }
+
+  async sendEnter(): Promise<void> {
+    await this.exec(['send-keys', '-t', this.lease.paneId, 'Enter'])
+  }
+
+  async sendKeys(keys: string): Promise<void> {
+    await this.sendLiteral(keys)
+    await sleep(1_000)
+    await this.sendEnter()
+  }
+
+  async sendPastedLine(text: string): Promise<void> {
+    const bufferName = `harness-broker-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    await this.exec(['set-buffer', '-b', bufferName, text])
+    await this.exec(['paste-buffer', '-d', '-b', bufferName, '-t', this.lease.paneId])
+    await sleep(1_000)
+    await this.sendEnter()
+  }
+
+  async interrupt(): Promise<void> {
+    await this.exec(['send-keys', '-t', this.lease.paneId, 'C-c'])
+  }
+
+  async capture(): Promise<string> {
+    if (this.lease.allowedOps.capture !== true) {
+      throw new BrokerError(BrokerErrorCode.CapabilityDenied, 'capture requires allowedOps.capture')
+    }
+
+    const result = await this.exec(['capture-pane', '-t', this.lease.paneId, '-p'])
+    return result.stdout
+  }
+
+  async resize(_size: TmuxPaneResize): Promise<void> {
+    if (this.lease.allowedOps.resize !== true) {
+      throw new BrokerError(BrokerErrorCode.CapabilityDenied, 'resize requires allowedOps.resize')
+    }
+  }
+
+  private async exec(args: string[]): Promise<TmuxExecResult> {
+    return this.execImpl([this.tmuxBinary, '-S', this.socketPath, ...args], {
+      env: sanitizeTmuxClientEnv(process.env),
+    })
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -388,4 +551,8 @@ function createDefaultTmuxExec(): TmuxExec {
 
 export function createTmuxManager(options: TmuxManagerOptions): TmuxManager {
   return new TmuxManager(options.socketPath, options.tmuxBin, options.exec)
+}
+
+export function createTmuxPaneController(options: TmuxPaneControllerOptions): TmuxPaneController {
+  return new TmuxPaneController(options)
 }
