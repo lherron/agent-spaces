@@ -852,6 +852,7 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
     expect(result.interactiveTmux.socketPath).toBe(socketPath)
     expect(result.interactiveTmux.tmuxServerEvents).toEqual([
       { owner: 'harness', action: 'start-server', socketPath },
+      { owner: 'harness', action: 'new-session', socketPath },
       { owner: 'harness', action: 'kill-server', socketPath },
     ])
     expect(result.interactiveTmux.surface).toEqual({
@@ -860,12 +861,14 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       paneId: '%7',
     })
 
+    // T-01727 Phase E: harness owns the tmux session lifecycle; the driver
+    // consumes the leased pane and must NOT issue any server/session
+    // lifecycle command itself.
     const driverCommands = result.interactiveTmux.driverTmuxArgv.flat()
     expect(driverCommands).not.toContain('start-server')
     expect(driverCommands).not.toContain('kill-server')
-    expect(result.interactiveTmux.driverTmuxArgv).toContainEqual(
-      expect.arrayContaining(['-S', socketPath, 'new-session'])
-    )
+    expect(driverCommands).not.toContain('new-session')
+    expect(driverCommands).not.toContain('kill-session')
   })
 
   test('interactive-tmux validates deterministic hook ledger ordering and clean exit', async () => {
@@ -955,7 +958,13 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
       .map((argv) => argv.at(-1) ?? '')
     expect(literalTmuxInputs).toEqual(expect.arrayContaining([firstInput, secondInput]))
-    const launchCommand = literalTmuxInputs.find((text) => text.includes('claude'))
+    // 52e99a3 + T-01725: driver launches claude via an exec'd shell script
+    // (so settings/env injection survives quoting). The send-keys literal is
+    // `exec /bin/sh <path>.launch.sh` — confirm the launch send happened and
+    // that the initialPrompt did NOT leak into a launch turn.
+    const launchCommand = literalTmuxInputs.find((text) =>
+      /^exec \/bin\/sh .*\.launch\.sh$/.test(text)
+    )
     expect(launchCommand).toBeDefined()
     expect(launchCommand).not.toContain('hello deterministic interactive tmux harness')
   })

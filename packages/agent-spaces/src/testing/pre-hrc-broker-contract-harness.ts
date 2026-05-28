@@ -6,6 +6,7 @@ import type {
   InvocationCapabilities,
   InvocationEventEnvelope,
   InvocationId,
+  InvocationRuntimeContext,
   InvocationStartRequest,
   InvocationStartResponse,
   PermissionRequestParams,
@@ -381,7 +382,7 @@ type InProcessInvocationManager = {
     driver: unknown,
     initialInput: undefined,
     dispatchEnv: Record<string, string> | undefined,
-    runtime: { tmux: { socketPath: string } }
+    runtime: InvocationRuntimeContext
   ) => Promise<InvocationStartResponse>
   input: (request: {
     invocationId: string
@@ -411,7 +412,7 @@ export function assertInteractiveTmuxEvents(input: {
   queuedInputLeft: boolean
   tmuxServerEvents: Array<{
     owner: 'harness'
-    action: 'start-server' | 'kill-server'
+    action: 'start-server' | 'kill-server' | 'new-session'
     socketPath: string
   }>
   driverTmuxArgv: string[][]
@@ -539,23 +540,37 @@ export function assertInteractiveTmuxEvents(input: {
   }
 
   const driverCommands = input.driverTmuxArgv.flat()
-  if (driverCommands.includes('start-server') || driverCommands.includes('kill-server')) {
+  if (
+    driverCommands.includes('start-server') ||
+    driverCommands.includes('kill-server') ||
+    driverCommands.includes('new-session') ||
+    driverCommands.includes('kill-session')
+  ) {
     failures.push({
       code: 'interactive_tmux_runtime_socket_missing',
-      message: 'interactive-tmux driver must not start or kill the tmux server.',
+      message:
+        'interactive-tmux driver must not start/kill the tmux server or create/kill sessions (the harness owns tmux lifecycle and hands the driver a pane lease).',
       path: 'interactiveTmux.driverTmuxArgv',
     })
   }
+  // The harness (pre-HRC HRC stand-in) MUST own:
+  //   - start-server (first ledger entry)
+  //   - kill-server  (last  ledger entry)
+  // and SHOULD own a new-session step between them (T-01727 Phase E: harness
+  // allocates the pane and dispatches it as runtime.terminalSurface).
+  const newSessionEvent = input.tmuxServerEvents.find((event) => event.action === 'new-session')
   if (
     input.tmuxServerEvents[0]?.action !== 'start-server' ||
     input.tmuxServerEvents.at(-1)?.action !== 'kill-server' ||
+    newSessionEvent === undefined ||
     input.tmuxServerEvents.some(
       (event) => event.owner !== 'harness' || event.socketPath !== socketPath
     )
   ) {
     failures.push({
       code: 'interactive_tmux_runtime_socket_missing',
-      message: 'interactive-tmux mode must start and tear down the tmux server as the harness.',
+      message:
+        'interactive-tmux mode must start the tmux server, allocate a session (new-session), and tear down the server — all as the harness — with the driver only consuming the leased pane.',
       path: 'interactiveTmux.tmuxServerEvents',
       redactedDetails: input.tmuxServerEvents,
     })
@@ -745,7 +760,7 @@ async function runInteractiveTmuxInvocation(
   const tmuxBin = runtimeOptions?.tmuxBin ?? '/opt/bin/tmux'
   const tmuxServerEvents: Array<{
     owner: 'harness'
-    action: 'start-server' | 'kill-server'
+    action: 'start-server' | 'kill-server' | 'new-session'
     socketPath: string
   }> = []
   const driverTmuxArgv: string[][] = []
@@ -804,6 +819,33 @@ async function runInteractiveTmuxInvocation(
         ledger.append(event)
       },
     })
+    // T-01727 Phase E: harness allocates the tmux session/window/pane (deterministic,
+    // no real tmux server here — the exec stub answers `display-message` with the
+    // same identifiers the lease advertises so the driver's inspect() verifies).
+    const harnessLeaseSessionId = '$1'
+    const harnessLeaseWindowId = '@1'
+    const harnessLeasePaneId = '%7'
+    const harnessLeaseSessionName = 'hrc-host-sessio'
+    const harnessLeaseWindowName = 'main'
+    const harnessLease = {
+      kind: 'tmux-pane' as const,
+      ownership: 'hrc' as const,
+      socketPath,
+      sessionId: harnessLeaseSessionId,
+      windowId: harnessLeaseWindowId,
+      paneId: harnessLeasePaneId,
+      sessionName: harnessLeaseSessionName,
+      windowName: harnessLeaseWindowName,
+      allowedOps: {
+        inspect: true as const,
+        sendInput: true as const,
+        sendInterrupt: true as const,
+        capture: true,
+        resize: false,
+      },
+    }
+    tmuxServerEvents.push({ owner: 'harness', action: 'new-session', socketPath })
+
     const driver = createTmuxDriver({
       tmux: {
         socketPath,
@@ -813,11 +855,18 @@ async function runInteractiveTmuxInvocation(
           if (argv.includes('start-server') || argv.includes('kill-server')) {
             throw new Error('driver attempted to own tmux server')
           }
+          if (argv.includes('new-session') || argv.includes('kill-session')) {
+            throw new Error('driver attempted to allocate/kill a tmux session')
+          }
+          if (argv.includes('display-message')) {
+            // Pane identity probe (inspect()): return the leased ids.
+            return {
+              stdout: `${harnessLeaseSessionId}\t${harnessLeaseWindowId}\t${harnessLeasePaneId}\n`,
+              stderr: '',
+            }
+          }
           if (argv.includes('list-panes')) {
             throw new Error("can't find session: hostSession")
-          }
-          if (argv.includes('new-session')) {
-            return { stdout: '$1\t@1\t%7\thrc-host-sessio\n', stderr: '' }
           }
           return { stdout: '', stderr: '' }
         },
@@ -837,7 +886,7 @@ async function runInteractiveTmuxInvocation(
     })
 
     const response = await manager.start(startRequest.spec, driver, undefined, dispatchEnv, {
-      tmux: { socketPath },
+      terminalSurface: harnessLease,
     })
     if (hookHandler === undefined) {
       throw new Error('interactive-tmux driver did not install a hook listener')

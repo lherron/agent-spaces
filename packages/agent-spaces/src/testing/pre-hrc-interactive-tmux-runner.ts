@@ -42,6 +42,7 @@ import {
   buildPlacementFromScopeRef,
   verifyBrokerStartContract,
 } from './pre-hrc-broker-helpers.js'
+import { allocatePreHrcTmuxPane } from './pre-hrc-tmux-allocator.js'
 
 // ---------------------------------------------------------------------------
 // Injected harness-broker factory shapes (structural; no harness-broker import)
@@ -164,7 +165,7 @@ export type InteractiveTmuxRunResult = {
   surface?: { socketPath: string; sessionName: string; paneId: string } | undefined
   tmuxServerEvents: Array<{
     owner: 'harness'
-    action: 'start-server' | 'kill-server'
+    action: 'start-server' | 'kill-server' | 'new-session'
     socketPath: string
   }>
   driverTmuxArgv: string[][]
@@ -655,6 +656,24 @@ export async function runInteractiveClaudeTmuxSession(
       socketPath: options.socketPath,
     })
 
+    // --- 3b. Harness allocates the tmux session/window/pane and builds the
+    //         lease (T-01727 Phase E). The driver (Phase C/D) reads only the
+    //         lease — it never owns the tmux server or allocates panes.
+    const harnessSessionName = `phase5-${String(invocationId)
+      .replace(/[^A-Za-z0-9_-]/g, '_')
+      .slice(0, 32)}`
+    const allocated = await allocatePreHrcTmuxPane({
+      tmuxBin: options.tmuxBin,
+      socketPath: options.socketPath,
+      sessionName: harnessSessionName,
+      env: serverEnv,
+    })
+    tmuxServerEvents.push({
+      owner: 'harness',
+      action: 'new-session',
+      socketPath: options.socketPath,
+    })
+
     // --- 4. Build the REAL driver + manager (injected factories) and dispatch ---
     const driver = deps.createClaudeCodeTmuxDriver({
       tmux: { socketPath: options.socketPath, tmuxBin: options.tmuxBin, exec: driverExec },
@@ -686,7 +705,7 @@ export async function runInteractiveClaudeTmuxSession(
       ...placementDispatchEnv,
     }
 
-    const runtime: InvocationRuntimeContext = { tmux: { socketPath: options.socketPath } }
+    const runtime: InvocationRuntimeContext = { terminalSurface: allocated.lease }
     await manager.start(spec, driver, undefined, dispatchEnv, runtime)
     result.provenance.launchCommandLine = launchCommandLine
 

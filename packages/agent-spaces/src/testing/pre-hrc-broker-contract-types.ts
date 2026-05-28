@@ -219,7 +219,7 @@ export type PreHrcBrokerContractHarnessResult = {
         socketPath: string
         tmuxServerEvents: Array<{
           owner: 'harness'
-          action: 'start-server' | 'kill-server'
+          action: 'start-server' | 'kill-server' | 'new-session'
           socketPath: string
         }>
         driverTmuxArgv: string[][]

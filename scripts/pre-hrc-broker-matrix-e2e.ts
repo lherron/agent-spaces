@@ -118,6 +118,7 @@ import {
 } from '../packages/agent-spaces/src/testing/pre-hrc-ghostmux-operator.js'
 import type { InteractiveTmuxRunnerDeps } from '../packages/agent-spaces/src/testing/pre-hrc-interactive-tmux-runner.js'
 import { runInteractiveClaudeTmuxSession } from '../packages/agent-spaces/src/testing/pre-hrc-interactive-tmux-runner.js'
+import { allocatePreHrcTmuxPane } from '../packages/agent-spaces/src/testing/pre-hrc-tmux-allocator.js'
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -1284,6 +1285,27 @@ async function runCodexTmuxRow(
     result.notes['brokerDriver'] = profile.brokerDriver
 
     await runMatrixTmux(ctx.tmuxBin, ['-S', socketPath, 'start-server'])
+    // T-01727 Phase E: harness allocates the tmux session/window/pane and
+    // dispatches the codex-cli-tmux driver with a pane lease via
+    // `runtime.terminalSurface`. The driver consumes the lease and never
+    // owns the tmux server or allocates sessions.
+    const harnessSessionName = `matrix-${rowName}-${ctx.marker}`
+      .replace(/[^A-Za-z0-9_-]/g, '_')
+      .slice(0, 60)
+    const allocated = await allocatePreHrcTmuxPane({
+      tmuxBin: ctx.tmuxBin,
+      socketPath,
+      sessionName: harnessSessionName,
+    })
+    const tmuxServerEvents: Array<{
+      owner: 'harness'
+      action: 'start-server' | 'kill-server' | 'new-session'
+      socketPath: string
+    }> = [
+      { owner: 'harness', action: 'start-server', socketPath },
+      { owner: 'harness', action: 'new-session', socketPath },
+    ]
+
     const bridgeCommand = `bun ${join(ctx.repoRoot, 'packages/harness-broker/bin/harness-broker.js')} codex-hook`
     const driver = createCodexCliTmuxDriver({
       tmux: {
@@ -1310,7 +1332,7 @@ async function runCodexTmuxRow(
     const spec = profile.harnessInvocation.startRequest.spec
     const invocationId = (spec.invocationId ??
       `inv_matrix_codex_tmux_${ctx.marker}`) as InvocationId
-    await manager.start(spec, driver, undefined, undefined, { tmux: { socketPath } })
+    await manager.start(spec, driver, undefined, undefined, { terminalSurface: allocated.lease })
 
     const surfaceEvent = events.find((event) => event.type === 'terminal.surface.reported')
     const sp = surfaceEvent?.payload as
@@ -1437,6 +1459,13 @@ async function runCodexTmuxRow(
     result.observedTurnIds = observedTurnIds(events)
     result.notes['ledgerEventTypes'] = [...new Set(events.map((event) => event.type))]
     result.notes['tmuxArgv'] = tmuxArgv
+    result.notes['tmuxServerEvents'] = [...tmuxServerEvents]
+    result.notes['leasedPane'] = {
+      sessionId: allocated.sessionId,
+      windowId: allocated.windowId,
+      paneId: allocated.paneId,
+      sessionName: allocated.sessionName,
+    }
     result.notes['eventCount'] = events.length
     if (surface !== undefined) {
       result.notes['postTurnPane'] = await captureTmuxPane(
@@ -1494,6 +1523,8 @@ async function runCodexTmuxRow(
 
     await manager.stop({ invocationId, reason: 'matrix complete' })
     await manager.dispose({ invocationId })
+    tmuxServerEvents.push({ owner: 'harness', action: 'kill-server', socketPath })
+    result.notes['tmuxServerEvents'] = [...tmuxServerEvents]
   } finally {
     if (surfaceId !== undefined) {
       await ghostmux('ghostmux', ['kill-surface', '-t', surfaceId]).catch(() => undefined)

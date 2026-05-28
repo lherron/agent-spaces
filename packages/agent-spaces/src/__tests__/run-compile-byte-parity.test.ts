@@ -473,15 +473,25 @@ describe('asp run <-> compiler foreground byte-parity', () => {
       '../../../harness-broker/src/drivers/claude-code-tmux/driver'
     )
     const tmuxArgv: string[][] = []
+    // T-01725 Phase C: the driver consumes a pane lease — synthesize one with
+    // valid tmux id shapes ($N session, @N window, %N pane) and answer the
+    // driver's inspect() probe (`display-message`) with matching identifiers
+    // so the leased pane integrity check passes.
+    const leaseSocketPath = '/tmp/preallocated/run-compile-byte-parity.sock'
+    const leaseSessionId = '$1'
+    const leaseWindowId = '@1'
+    const leasePaneId = '%7'
     const driver = createClaudeCodeTmuxDriver({
       tmux: {
-        socketPath: '/tmp/preallocated/run-compile-byte-parity.sock',
+        socketPath: leaseSocketPath,
         tmuxBin: '/opt/bin/tmux',
         exec: async (argv) => {
           tmuxArgv.push([...argv])
-          if (argv.includes('list-panes')) throw new Error("can't find session: hostSession")
-          if (argv.includes('new-session')) {
-            return { stdout: '$1\t@1\t%7\thrc-host-sessio\n', stderr: '' }
+          if (argv.includes('display-message')) {
+            return {
+              stdout: `${leaseSessionId}\t${leaseWindowId}\t${leasePaneId}\n`,
+              stderr: '',
+            }
           }
           return { stdout: '', stderr: '' }
         },
@@ -498,21 +508,46 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     await driver.start(broker.harnessInvocation.startRequest.spec, {
       invocationId: 'inv_parity',
       clientCapabilities: {},
-      runtime: { tmux: { socketPath: '/tmp/preallocated/run-compile-byte-parity.sock' } },
+      runtime: {
+        terminalSurface: {
+          kind: 'tmux-pane',
+          ownership: 'hrc',
+          socketPath: leaseSocketPath,
+          sessionId: leaseSessionId,
+          windowId: leaseWindowId,
+          paneId: leasePaneId,
+          sessionName: 'hrc-host-sessio',
+          windowName: 'main',
+          allowedOps: {
+            inspect: true,
+            sendInput: true,
+            sendInterrupt: true,
+            capture: true,
+            resize: false,
+          },
+        },
+      },
       emit: () => undefined,
     } as never)
 
-    const launchCommand = tmuxArgv
+    // T-01725: the driver now sends `exec /bin/sh <launchScriptPath>` via
+    // send-keys (52e99a3 + Phase C). The actual command line — including
+    // `--settings <durable>` and the merged hook overlay — lives INSIDE the
+    // launch script, not in the send-keys text.
+    const launchSendKeys = tmuxArgv
       .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
       .map((argv) => argv.at(-1) ?? '')
-      .find((text) => text.includes(brokerProcess.command))
-    if (launchCommand === undefined) throw new Error('tmux launch command was not sent')
+      .find((text) => /^exec \/bin\/sh .*\.launch\.sh$/.test(text))
+    if (launchSendKeys === undefined) throw new Error('tmux launch command was not sent')
+    const launchScriptPath = launchSendKeys.replace(/^exec \/bin\/sh /, '')
+    const launchCommand = readFileSync(launchScriptPath, 'utf8')
 
+    expect(launchCommand).toContain(brokerProcess.command)
     const promptSeparator = ` -- ${prompt}`
     const preSeparatorLaunch = launchCommand.includes(promptSeparator)
       ? launchCommand.slice(0, launchCommand.indexOf(promptSeparator))
       : launchCommand
-    const launchSettingsPaths = [...preSeparatorLaunch.matchAll(/--settings ([^ ]+)/g)].map(
+    const launchSettingsPaths = [...preSeparatorLaunch.matchAll(/--settings (\S+)/g)].map(
       (match) => match[1]
     )
     expect(launchSettingsPaths).toHaveLength(1)
