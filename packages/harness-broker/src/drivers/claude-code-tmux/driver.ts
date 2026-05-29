@@ -319,12 +319,18 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // PreToolUse / PostToolUse / Stop… to the broker callback socket
       // OUT-OF-BAND (not via stdout). Env vars alone do not make Claude
       // invoke hooks.
-      const launchCommand = await buildLaunchCommandLine(spec, {
+      const launchCommand = await buildLaunchCommandLine(spec, driverCtx, {
         invocationId: driverCtx.invocationId,
         callbackSocket: hookListener.socketPath,
         bridgeCommand: options.hooks.bridgeCommand,
       })
-      await paneController.sendKeys(launchCommand)
+      // Deliver the launch via the hardened paste-confirm-submit path (T-01747),
+      // matching codex-cli-tmux: (re)paste until the command renders at the
+      // leased pane's prompt, then confirm the line advanced past it. A blind
+      // send-keys + fixed sleep + Enter can drop on a cold pane's not-yet-reading
+      // shell PTY or swallow the Enter; sendPastedLine observes the pane and
+      // degrades to a single blind paste+gap+Enter only when capture is denied.
+      await paneController.sendPastedLine(launchCommand)
 
       return { ok: true }
     },
@@ -347,7 +353,10 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
-      if (paneController === undefined) {
+      // Parity with codex-cli-tmux: a stopped driver clears `surface`, so an
+      // interrupt after stop reports no_active_turn rather than firing a stray
+      // C-c at a pane the driver no longer considers live.
+      if (surface === undefined || paneController === undefined) {
         return { accepted: false, effect: 'no_active_turn' }
       }
       await paneController.interrupt()
@@ -358,8 +367,11 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // T-01725: the driver does NOT own the tmux session/server and so does
       // not kill anything during stop. Pane lifecycle (kill-session, server
       // teardown) belongs to HRC / the pre-HRC harness — the driver simply
-      // releases its hook listener and drops the pane controller reference.
+      // releases its hook listener. It also drops the surface so post-stop
+      // interrupt/applyInputNow observe a not-live driver (codex parity); the
+      // pane controller ref is retained until dispose, like codex-cli-tmux.
       await closeHookListener()
+      surface = undefined
       return { accepted: true, state: 'exited' }
     },
 
@@ -434,9 +446,12 @@ export function buildClaudeHookSettingsOverlay(options: {
 
 async function buildLaunchCommandLine(
   spec: HarnessInvocationSpec,
+  ctx: DriverContext,
   hookEnv: { invocationId: string; callbackSocket: string; bridgeCommand?: string | undefined }
 ): Promise<string> {
   const env = {
+    ...spec.process.lockedEnv,
+    ...(ctx.dispatchEnv ?? {}),
     HARNESS_BROKER_INVOCATION_ID: hookEnv.invocationId,
     HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
     HARNESS_BROKER_HOOK_EVENTS: HOOK_EVENT_NAMES.join(','),

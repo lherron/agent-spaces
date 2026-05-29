@@ -166,6 +166,12 @@ const loadFactory = async (): Promise<ClaudeCodeTmuxDriverFactory> => {
  * exercise the mismatch path override this via `createMismatchingExec`.
  */
 function createRecordingExec(calls: TmuxExecCall[], lease: PaneLease = defaultLease()) {
+  // Stateful so the launch's sendPastedLine confirm path (capture: true) resolves
+  // deterministically: set-buffer stages the pasted line, capture-pane echoes it
+  // back (so the render check sees the command present), and Enter clears it (so
+  // the submit check sees the prompt advance). Without this the confirm path
+  // would poll an empty capture until timeout on every start().
+  let pendingLine = ''
   return async (
     argv: string[],
     options?: { env?: Record<string, string | undefined> | undefined }
@@ -176,6 +182,18 @@ function createRecordingExec(calls: TmuxExecCall[], lease: PaneLease = defaultLe
         stdout: `${lease.sessionId}\t${lease.windowId}\t${lease.paneId}\n`,
         stderr: '',
       }
+    }
+    if (argv.includes('set-buffer')) {
+      pendingLine = argv.at(-1) ?? ''
+      return { stdout: '', stderr: '' }
+    }
+    if (argv.includes('send-keys') && argv.includes('Enter')) {
+      // Enter submits the staged line; the prompt advances past it.
+      pendingLine = ''
+      return { stdout: '', stderr: '' }
+    }
+    if (argv.includes('capture-pane')) {
+      return { stdout: pendingLine, stderr: '' }
     }
     return { stdout: '', stderr: '' }
   }
@@ -255,7 +273,9 @@ function launchArtifact(calls: TmuxExecCall[]): LaunchArtifact {
 }
 
 function launchFilePath(calls: TmuxExecCall[]): string {
-  const command = sentLiteralTexts(calls).find((text) =>
+  // The launch command is delivered via sendPastedLine (set-buffer + paste-buffer),
+  // so it lands in the pasted-buffer text, not a send-keys -l literal.
+  const command = pastedTexts(calls).find((text) =>
     text.includes('/tmp/harness-broker/claude-hooks.sock.claude.launch.json')
   )
   if (command === undefined) throw new Error('tmux launch artifact command was not sent')
@@ -488,23 +508,33 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       expect(settings.hooks?.[hookName]).toBeDefined()
     }
 
+    // The raw claude binary is never typed at the prompt — only the launch-runner
+    // command line is, with the binary path captured inside the JSON artifact.
     expect(pastedTexts(tmuxCalls).some((text) => text.includes('/opt/bin/claude'))).toBe(false)
-    // The launch command runs the real launch-runner module (not a generated
-    // script) against the JSON launch artifact written beside the hook socket.
-    const launchSendKeys = tmuxArgv(tmuxCalls).find(
-      (argv) => argv.includes('send-keys') && argv.includes('-l')
+    // T-01747 parity with codex-cli-tmux: the launch is delivered via the
+    // paste-confirm-submit path (set-buffer + paste-buffer), NOT a blind
+    // send-keys -l. The command runs the real launch-runner module against the
+    // JSON launch artifact written beside the hook socket.
+    const launchSetBuffer = tmuxArgv(tmuxCalls).find(
+      (argv) =>
+        argv.includes('set-buffer') &&
+        (argv.at(-1) ?? '').includes('tmux-launch-runner')
     )
-    expect(launchSendKeys?.slice(0, -1)).toEqual([
-      '/opt/bin/tmux',
-      '-S',
-      DEFAULT_LEASE_SOCKET,
-      'send-keys',
-      '-l',
-      '-t',
-      DEFAULT_LEASE_PANE,
-    ])
-    expect(launchSendKeys?.at(-1)).toMatch(
+    expect(launchSetBuffer?.at(-1)).toMatch(
       /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \/tmp\/harness-broker\/claude-hooks\.sock\.claude\.launch\.json$/
+    )
+    // The launch command is NOT typed as a send-keys -l literal (that path is the
+    // pre-T-01747 blind delivery the codex driver already abandoned).
+    const launchSendKeys = tmuxArgv(tmuxCalls).find(
+      (argv) =>
+        argv.includes('send-keys') &&
+        argv.includes('-l') &&
+        (argv.at(-1) ?? '').includes('tmux-launch-runner')
+    )
+    expect(launchSendKeys).toBeUndefined()
+    // paste-buffer targets the leased pane and Enter submits the staged line.
+    expect(tmuxArgv(tmuxCalls)).toContainEqual(
+      expect.arrayContaining(['paste-buffer', '-t', DEFAULT_LEASE_PANE])
     )
     expect(tmuxArgv(tmuxCalls)).toContainEqual([
       '/opt/bin/tmux',
@@ -515,6 +545,96 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       DEFAULT_LEASE_PANE,
       'Enter',
     ])
+  })
+
+  test('threads spec.process.lockedEnv and ctx.dispatchEnv into the tmux launch env (codex parity)', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const driver = createDriver({
+      tmux: {
+        tmuxBin: '/opt/bin/tmux',
+        exec: createRecordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/claude-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    // Per-invocation HRC correlation env rides on ctx.dispatchEnv (HRC_SESSION_REF,
+    // ASP_PROJECT, …). Like codex-cli-tmux, the claude driver must merge both
+    // spec.process.lockedEnv and ctx.dispatchEnv into the launched pane env —
+    // otherwise the in-pane agent loses "me"/project resolution.
+    const ctx = {
+      ...createCtx([], { terminalSurface: defaultLease() }),
+      dispatchEnv: {
+        HRC_SESSION_REF: 'agent:clod:project:agent-spaces:task:primary/lane:main',
+        ASP_PROJECT: 'agent-spaces',
+      },
+    } as DriverContext
+    await driver.start(claudeTmuxSpec(), ctx)
+
+    const artifact = launchArtifact(tmuxCalls)
+    // lockedEnv (claudeTmuxSpec sets ANTHROPIC_API_KEY)
+    expect(artifact.env?.['ANTHROPIC_API_KEY']).toBe('test-key')
+    // dispatchEnv correlation vars
+    expect(artifact.env?.['HRC_SESSION_REF']).toBe(
+      'agent:clod:project:agent-spaces:task:primary/lane:main'
+    )
+    expect(artifact.env?.['ASP_PROJECT']).toBe('agent-spaces')
+    // broker hook vars still present and not clobbered by the spreads
+    expect(artifact.env?.['HARNESS_BROKER_INVOCATION_ID']).toBe('inv_claude_tmux_1')
+  })
+
+  test('interrupt/stop lifecycle matches codex-cli-tmux (C-c live, no_active_turn after stop)', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/claude-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    // Before start: nothing is live.
+    expect(await driver.interrupt({} as never)).toEqual({
+      accepted: false,
+      effect: 'no_active_turn',
+    })
+
+    await driver.start(claudeTmuxSpec(), createCtx([], { terminalSurface: defaultLease() }))
+
+    // Live: interrupt fires a real C-c at the leased pane.
+    expect(await driver.interrupt({} as never)).toEqual({
+      accepted: true,
+      effect: 'turn_interrupted',
+    })
+    expect(tmuxArgv(tmuxCalls)).toContainEqual([
+      '/opt/bin/tmux',
+      '-S',
+      DEFAULT_LEASE_SOCKET,
+      'send-keys',
+      '-t',
+      DEFAULT_LEASE_PANE,
+      'C-c',
+    ])
+
+    // After stop: surface is dropped, so interrupt no longer fires C-c (parity
+    // with codex — a stopped driver reports no_active_turn).
+    expect(await driver.stop({} as never)).toEqual({ accepted: true, state: 'exited' })
+    const callsAfterStop = tmuxCalls.length
+    expect(await driver.interrupt({} as never)).toEqual({
+      accepted: false,
+      effect: 'no_active_turn',
+    })
+    expect(tmuxCalls.length).toBe(callsAfterStop)
   })
 
   test('merges broker hooks into the effective pre-separator Claude settings file', async () => {
