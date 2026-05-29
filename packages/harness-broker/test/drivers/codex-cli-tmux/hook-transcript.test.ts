@@ -149,19 +149,13 @@ describe('codex-cli-tmux hook-driven transcript reader', () => {
 
     reader.handleHook(sessionStart(path))
 
-    // First interim arrives before the first tool call; it is held, not emitted.
+    // First interim arrives before the first tool call; the tool boundary proves
+    // it is non-terminal, so it flushes before the normalized tool event.
     appendFileSync(path, agentMessage('first note', { id: 'rollout_msg_a' }))
-    expect(reader.handleHook(preToolUse())).toEqual([])
-    expect(reader.handleHook(postToolUse())).toEqual([])
-
-    // Second interim arrives before the next tool call → first interim flushes
-    // as final:false BEFORE this hook's normalized tool event (driver ordering).
-    harness.setTurnId('turn_codex_2')
-    appendFileSync(path, agentMessage('second note'))
-    const onSecondPre = reader.handleHook(preToolUse())
-    expect(eventTypes(onSecondPre)).toEqual(['assistant.message.completed'])
-    expect(onSecondPre[0]).toMatchObject({
-      turnId: 'turn_codex_2',
+    const onFirstPre = reader.handleHook(preToolUse())
+    expect(eventTypes(onFirstPre)).toEqual(['assistant.message.completed'])
+    expect(onFirstPre[0]).toMatchObject({
+      turnId: 'turn_codex_1',
       itemId: 'rollout_msg_a',
       payload: {
         messageId: 'rollout_msg_a',
@@ -169,31 +163,39 @@ describe('codex-cli-tmux hook-driven transcript reader', () => {
         final: false,
       },
     })
+    expect(reader.handleHook(postToolUse())).toEqual([])
 
-    // Terminal answer + task_complete; Stop flushes second note (false) then the
-    // terminal (true), exactly once each.
+    // Second interim arrives before the next tool call and likewise flushes
+    // as final:false BEFORE this hook's normalized tool event (driver ordering).
+    harness.setTurnId('turn_codex_2')
+    appendFileSync(path, agentMessage('second note'))
+    const onSecondPre = reader.handleHook(preToolUse())
+    expect(eventTypes(onSecondPre)).toEqual(['assistant.message.completed'])
+    expect(onSecondPre[0]).toMatchObject({
+      turnId: 'turn_codex_2',
+      itemId: `msg_${invocationId}_1`,
+      payload: {
+        messageId: `msg_${invocationId}_1`,
+        content: [{ type: 'text', text: 'second note' }],
+        final: false,
+      },
+    })
+
+    // Terminal answer + task_complete; Stop flushes the terminal exactly once.
     harness.setTurnId('turn_codex_3')
     appendFileSync(path, agentMessage('final note'))
     appendFileSync(path, taskComplete({ last_agent_message: 'final note' }))
     const onStop = reader.handleHook(stop({ last_assistant_message: 'final note' }))
 
-    expect(eventTypes(onStop)).toEqual([
-      'assistant.message.completed',
-      'assistant.message.completed',
-    ])
-    expect(finals(onStop)).toEqual([false, true])
+    expect(eventTypes(onStop)).toEqual(['assistant.message.completed'])
+    expect(finals(onStop)).toEqual([true])
     expect(onStop[0]).toMatchObject({
-      turnId: 'turn_codex_3',
-      itemId: `msg_${invocationId}_1`,
-      payload: { content: [{ type: 'text', text: 'second note' }], final: false },
-    })
-    expect(onStop[1]).toMatchObject({
       turnId: 'turn_codex_3',
       itemId: `msg_${invocationId}_2`,
       payload: { content: [{ type: 'text', text: 'final note' }], final: true },
     })
 
-    const all = [...onSecondPre, ...onStop]
+    const all = [...onFirstPre, ...onSecondPre, ...onStop]
     expect(eventTypes(all)).not.toContain('assistant.message.started')
     expect(eventTypes(all)).not.toContain('assistant.message.delta')
     expect(finals(all)).toEqual([false, false, true])
@@ -241,7 +243,8 @@ describe('codex-cli-tmux hook-driven transcript reader', () => {
 
     reader.handleHook(sessionStart(pathA))
     appendFileSync(pathA, agentMessage('stale from A', { id: 'a1' }))
-    expect(reader.handleHook(preToolUse())).toEqual([]) // held, not emitted
+    // A non-tool hook reads and holds the message without flushing it.
+    expect(reader.handleHook({ hook_event_name: 'UserPromptSubmit' })).toEqual([])
 
     // New session/transcript: held state from A must be discarded.
     reader.handleHook(sessionStart(pathB))
