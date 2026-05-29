@@ -565,28 +565,46 @@ function selectsInteractiveCodexTmuxBroker(req: RuntimeCompileRequest): boolean 
   return family === 'codex'
 }
 
+// Launch-timing instrumentation (diagnostic). The compiler has no logger of its
+// own and runs in-process: client-side for `hrc run --dry-run` previews (lands on
+// CLI stderr) and server-side inside hrc-server for real runs (lands in
+// hrc-server.err.log). A single line per compile is emitted to stderr so the
+// compile cost is observable on both paths. Always-on: this is the launch path,
+// not a per-token hot loop.
+function emitAspCompileTiming(req: RuntimeCompileRequest, startedAtMs: number): void {
+  const durMs = (performance.now() - startedAtMs).toFixed(1)
+  const mode = req.requested.interactionMode
+  const runtime = req.requested.preferredHarnessRuntime ?? '(unspecified)'
+  process.stderr.write(`[asp-timing] compileRuntimePlan dur=${durMs}ms mode=${mode} runtime=${runtime}\n`)
+}
+
 export async function compileRuntimePlan(
   req: RuntimeCompileRequest,
   options?: CompileRuntimePlanOptions
 ): Promise<RuntimeCompileResponse> {
-  const placement = req.placement as CompilePlacement
-  if (req.requested.interactionMode === 'interactive') {
-    if (selectsInteractiveClaudeTmuxBroker(req)) {
-      return compileClaudeTmuxBrokerPlan(req, placement, options)
+  const startedAtMs = performance.now()
+  try {
+    const placement = req.placement as CompilePlacement
+    if (req.requested.interactionMode === 'interactive') {
+      if (selectsInteractiveClaudeTmuxBroker(req)) {
+        return await compileClaudeTmuxBrokerPlan(req, placement, options)
+      }
+      if (selectsInteractiveCodexTmuxBroker(req)) {
+        return await compileCodexTmuxBrokerPlan(req, placement, options)
+      }
+      return await compileForegroundPlan(req, placement, options)
     }
-    if (selectsInteractiveCodexTmuxBroker(req)) {
-      return compileCodexTmuxBrokerPlan(req, placement, options)
+    // nonInteractive + pi-sdk routes to the IN-PROCESS embedded-sdk controller.
+    // claude-agent-sdk stays UNEMITTED (impl deferred per Lance) — it falls through
+    // to the broker route, which rejects it. Any other nonInteractive/headless
+    // request stays on the codex headless broker path.
+    if (req.requested.preferredHarnessRuntime === 'pi-sdk') {
+      return await compileEmbeddedSdkPlan(req, placement, options)
     }
-    return compileForegroundPlan(req, placement, options)
+    return await compileBrokerPlan(req, placement, options)
+  } finally {
+    emitAspCompileTiming(req, startedAtMs)
   }
-  // nonInteractive + pi-sdk routes to the IN-PROCESS embedded-sdk controller.
-  // claude-agent-sdk stays UNEMITTED (impl deferred per Lance) — it falls through
-  // to the broker route, which rejects it. Any other nonInteractive/headless
-  // request stays on the codex headless broker path.
-  if (req.requested.preferredHarnessRuntime === 'pi-sdk') {
-    return compileEmbeddedSdkPlan(req, placement, options)
-  }
-  return compileBrokerPlan(req, placement, options)
 }
 
 async function compileBrokerPlan(
