@@ -96,6 +96,8 @@ export type ContractHarnessFailureCode =
   | 'interactive_tmux_event_sequence_invalid'
   | 'interactive_tmux_tool_mapping_invalid'
   | 'interactive_tmux_clean_exit_invalid'
+  | 'launch_priming_missing'
+  | 'launch_initial_input_present'
 
 export type ContractHarnessFailure = {
   code: ContractHarnessFailureCode

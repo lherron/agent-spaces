@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -17,6 +17,12 @@ type HookEnvelope = {
   callbackSocket?: string | undefined
   turnId?: string | undefined
   hookData?: unknown
+}
+
+type LaunchArtifact = {
+  argv: string[]
+  cwd: string
+  env?: Record<string, string | undefined> | undefined
 }
 
 type CodexCliTmuxDriverFactory = (options: {
@@ -149,6 +155,22 @@ const taskComplete = (last: string): string =>
   jsonl({ type: 'event_msg', payload: { type: 'task_complete', last_agent_message: last } })
 
 const tmuxArgv = (calls: TmuxExecCall[]): string[][] => calls.map((call) => call.argv)
+
+const pastedTexts = (calls: TmuxExecCall[]): string[] =>
+  calls
+    .map((call) => call.argv)
+    .filter((argv) => argv.includes('set-buffer'))
+    .map((argv) => argv.at(-1) ?? '')
+
+function launchArtifact(calls: TmuxExecCall[]): LaunchArtifact {
+  const launchCommand = pastedTexts(calls).find((text) =>
+    text.includes('/tmp/harness-broker/codex-hooks.sock.codex.launch.json')
+  )
+  if (launchCommand === undefined) throw new Error('tmux launch artifact command was not pasted')
+  const match = launchCommand.match(/\/tmp\/harness-broker\/codex-hooks\.sock\.codex\.launch\.json/)
+  if (!match) throw new Error(`unable to parse launch artifact path from: ${launchCommand}`)
+  return JSON.parse(readFileSync(match[0], 'utf8')) as LaunchArtifact
+}
 
 const expectNoForbiddenLifecycleCommands = (calls: TmuxExecCall[]): void => {
   const forbidden = [
@@ -318,6 +340,14 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     )
     expectNoForbiddenLifecycleCommands(tmuxCalls)
     expectTargetedToPane(tmuxCalls, lease.paneId)
+    expect(pastedTexts(tmuxCalls).some((text) => text.includes('/opt/bin/codex'))).toBe(false)
+    const artifact = launchArtifact(tmuxCalls)
+    expect(artifact.argv).toEqual(['/opt/bin/codex', '--', 'launch'])
+    expect(artifact.env?.['OPENAI_API_KEY']).toBe('test-key')
+    expect(artifact.env?.['HARNESS_BROKER_INVOCATION_ID']).toBe(invocationId)
+    expect(artifact.env?.['HARNESS_BROKER_CALLBACK_SOCKET']).toBe(
+      '/tmp/harness-broker/codex-hooks.sock'
+    )
     expect(tmuxArgv(tmuxCalls)).toContainEqual([
       '/opt/bin/tmux',
       '-S',
@@ -409,6 +439,13 @@ describe('codex-cli-tmux driver: hook-ordered transcript reading', () => {
       // Interim narration and exactly one terminal message.
       expect(interimCompleted.length).toBeGreaterThanOrEqual(1)
       expect(finalCompleted).toHaveLength(1)
+
+      // Prose already present in the Codex transcript at PreToolUse is flushed
+      // before the normalized tool.call.started event.
+      const firstAssistantIdx = events.indexOf(completed[0] as InvocationEventEnvelope)
+      const firstToolStartedIdx = types.indexOf('tool.call.started')
+      expect(firstAssistantIdx).toBeGreaterThanOrEqual(0)
+      expect(firstAssistantIdx).toBeLessThan(firstToolStartedIdx)
 
       // The reader runs BEFORE normalization: the terminal final:true message is
       // emitted before this turn's turn.completed.

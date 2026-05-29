@@ -23,6 +23,12 @@ type HookEnvelope = {
   hookData: unknown
 }
 
+type LaunchArtifact = {
+  argv: string[]
+  cwd: string
+  env?: Record<string, string | undefined> | undefined
+}
+
 type PaneLease = {
   kind: 'tmux-pane'
   ownership: 'hrc'
@@ -244,21 +250,17 @@ function tmuxArgv(calls: TmuxExecCall[]): string[][] {
   return calls.map((call) => call.argv)
 }
 
-function launchCommand(calls: TmuxExecCall[]): string {
-  const command = [...sentLiteralTexts(calls), ...pastedTexts(calls)].find((text) =>
-    text.includes('/opt/bin/claude')
-  )
-  if (command === undefined) return readFileSync(launchScriptPath(calls), 'utf8')
-  return command
+function launchArtifact(calls: TmuxExecCall[]): LaunchArtifact {
+  return JSON.parse(readFileSync(launchFilePath(calls), 'utf8')) as LaunchArtifact
 }
 
-function launchScriptPath(calls: TmuxExecCall[]): string {
+function launchFilePath(calls: TmuxExecCall[]): string {
   const command = sentLiteralTexts(calls).find((text) =>
-    text.includes('/tmp/harness-broker/claude-hooks.sock.launch.sh')
+    text.includes('/tmp/harness-broker/claude-hooks.sock.claude.launch.json')
   )
-  if (command === undefined) throw new Error('tmux launch script command was not sent')
-  const match = command.match(/\/tmp\/harness-broker\/claude-hooks\.sock\.launch\.sh/)
-  if (!match) throw new Error(`unable to parse launch script path from: ${command}`)
+  if (command === undefined) throw new Error('tmux launch artifact command was not sent')
+  const match = command.match(/\/tmp\/harness-broker\/claude-hooks\.sock\.claude\.launch\.json/)
+  if (!match) throw new Error(`unable to parse launch artifact path from: ${command}`)
   return match[0]
 }
 
@@ -460,18 +462,22 @@ describe('claude-code-tmux driver RED lifecycle', () => {
 
     await driver.start(claudeTmuxSpec(), createCtx([], { terminalSurface: defaultLease() }))
 
-    const path = launchScriptPath(tmuxCalls)
-    const launchCmd = readFileSync(path, 'utf8')
-    expect(launchCmd).toBeDefined()
-    expect(launchCmd).not.toContain('\nexec HARNESS_BROKER_INVOCATION_ID=')
-    expect(launchCmd).toContain('\nHARNESS_BROKER_INVOCATION_ID=')
-    expect(launchCmd).toContain('/tmp/harness-broker/claude-hooks.sock')
+    const artifact = launchArtifact(tmuxCalls)
+    expect(artifact.argv).toContain('/opt/bin/claude')
+    expect(artifact.env?.['HARNESS_BROKER_INVOCATION_ID']).toBe('inv_claude_tmux_1')
+    expect(artifact.env?.['HARNESS_BROKER_CALLBACK_SOCKET']).toBe(
+      '/tmp/harness-broker/claude-hooks.sock'
+    )
 
     // Env vars alone do not make Claude Code invoke hooks. The tmux launch must
     // include a Claude hook settings overlay / hook command so the real runtime
     // posts these events back to the broker callback socket.
-    expect(launchCmd).toContain('--settings')
-    expect(launchCmd).toContain('hook')
+    expect(artifact.argv).toContain('--settings')
+    const settingsPath = artifact.argv[artifact.argv.indexOf('--settings') + 1]
+    const settings = JSON.parse(readFileSync(settingsPath ?? '', 'utf8')) as {
+      hooks?: Record<string, unknown>
+    }
+    expect(JSON.stringify(settings.hooks)).toContain('harness-broker claude-hook')
     for (const hookName of [
       'UserPromptSubmit',
       'MessageDisplay',
@@ -479,11 +485,16 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       'PostToolUse',
       'Stop',
     ]) {
-      expect(launchCmd).toContain(hookName)
+      expect(settings.hooks?.[hookName]).toBeDefined()
     }
 
     expect(pastedTexts(tmuxCalls).some((text) => text.includes('/opt/bin/claude'))).toBe(false)
-    expect(tmuxArgv(tmuxCalls)).toContainEqual([
+    // The launch command runs the real launch-runner module (not a generated
+    // script) against the JSON launch artifact written beside the hook socket.
+    const launchSendKeys = tmuxArgv(tmuxCalls).find(
+      (argv) => argv.includes('send-keys') && argv.includes('-l')
+    )
+    expect(launchSendKeys?.slice(0, -1)).toEqual([
       '/opt/bin/tmux',
       '-S',
       DEFAULT_LEASE_SOCKET,
@@ -491,8 +502,10 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       '-l',
       '-t',
       DEFAULT_LEASE_PANE,
-      'exec /bin/sh /tmp/harness-broker/claude-hooks.sock.launch.sh',
     ])
+    expect(launchSendKeys?.at(-1)).toMatch(
+      /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \/tmp\/harness-broker\/claude-hooks\.sock\.claude\.launch\.json$/
+    )
     expect(tmuxArgv(tmuxCalls)).toContainEqual([
       '/opt/bin/tmux',
       '-S',
@@ -545,19 +558,21 @@ describe('claude-code-tmux driver RED lifecycle', () => {
 
       await driver.start(spec, createCtx([], { terminalSurface: defaultLease() }))
 
-      const command = launchCommand(tmuxCalls)
-      const separator = command.indexOf(' -- launch-prompt')
+      const argv = launchArtifact(tmuxCalls).argv
+      const separator = argv.indexOf('--')
       expect(separator).toBeGreaterThan(0)
 
-      const beforeSeparator = command.slice(0, separator)
-      const afterSeparator = command.slice(separator + ' -- launch-prompt'.length)
-      const preSettings = [...beforeSeparator.matchAll(/--settings ([^ ]+)/g)].map(
-        (match) => match[1]
-      )
-      expect(preSettings).toHaveLength(1)
-      expect(afterSeparator).not.toContain('--settings')
+      const preSeparatorArgs = argv.slice(0, separator)
+      const postSeparatorArgs = argv.slice(separator)
+      const settingsIndex = preSeparatorArgs.indexOf('--settings')
+      expect(settingsIndex).toBeGreaterThan(0)
+      expect(preSeparatorArgs.filter((arg) => arg === '--settings')).toHaveLength(1)
+      expect(postSeparatorArgs).toEqual(['--', 'launch-prompt'])
+      expect(postSeparatorArgs).not.toContain('--settings')
 
-      const effectiveSettings = JSON.parse(readFileSync(preSettings[0] ?? '', 'utf8')) as {
+      const effectiveSettings = JSON.parse(
+        readFileSync(preSeparatorArgs[settingsIndex + 1] ?? '', 'utf8')
+      ) as {
         statusLine?: unknown
         hooks?: Record<string, unknown>
       }

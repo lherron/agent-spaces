@@ -43,7 +43,7 @@ The target path:
 
 ```text
 HRC request
-  -> ASP compileRuntimePlan(...)
+  -> ASP compileRuntimePlan(...) via SDK or aspc/0.1 RPC
   -> HRC RuntimeRouteDecision selects one compiled execution profile
   -> HRC RuntimeController executes selected profile
   -> HarnessBrokerController passes ASP-emitted startRequest unchanged
@@ -75,6 +75,10 @@ A legacy path means code under an explicitly named, feature-gated legacy adapter
 ASP owns runtime construction. It resolves placement, target bundle, model, harness family, harness runtime, prompt/context materialization, the declared `lockedEnv` (from resolved space/agent/target config), process argv, driver spec, continuation encoding, permission policy input, and broker start request construction. ASP MUST NOT project the operator or ambient environment into the spec, and MUST NOT derive `lockedEnv` from `process.env`.
 
 ASP emits one immutable compiler product: `CompiledRuntimePlan`.
+
+### AD-001A — ASPC RPC is additive compiler access, not broker runtime scope
+
+The existing in-process ASP SDK compiler API remains supported. An `aspc/0.1` JSON-RPC facade MAY expose the same compiler product to non-TS or dependency-sensitive clients, and MAY be co-hosted with a broker endpoint for one-process integration. This does not make Harness Broker a compiler. `aspc.*` methods remain separate from `harness-broker/0.1` methods, and any convenience `aspc.compileAndStart` MUST return the exact compiled `InvocationStartRequest` it sends to broker `invocation.start`.
 
 ### AD-002 — HRC is the runtime control plane
 
@@ -947,7 +951,7 @@ Start flow:
 
 ```text
 HRC receives start/dispatch
-  -> HRC calls ASP compileRuntimePlan(...)
+  -> HRC calls ASP compileRuntimePlan(...) via SDK or aspc/0.1 RPC
   -> HRC selects BrokerExecutionProfile
   -> HRC persists CompiledRuntimePlan projection
   -> HRC creates RuntimeOperation(kind='broker_invocation')
@@ -982,7 +986,7 @@ Start flow:
 
 ```text
 HRC receives start/dispatch
-  -> HRC calls ASP compileRuntimePlan(...)
+  -> HRC calls ASP compileRuntimePlan(...) via SDK or aspc/0.1 RPC
   -> HRC selects EmbeddedSdkExecutionProfile
   -> HRC persists CompiledRuntimePlan projection
   -> HRC creates RuntimeOperation(kind='sdk_turn')

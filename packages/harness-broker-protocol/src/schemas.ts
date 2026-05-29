@@ -143,6 +143,7 @@ export type SchemaRecord = Record<string, unknown> & {
   key?: unknown
   kind?: unknown
   labels?: unknown
+  launch?: unknown
   limits?: unknown
   lockedEnv?: unknown
   maxEventBytes?: unknown
@@ -400,6 +401,45 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
     if (driver.kind === 'codex-app-server') {
       validateCodexDriver(driver, path(prefix, 'driver'), issues)
     }
+  }
+
+  validateLaunch(spec.launch, path(prefix, 'launch'), issues)
+}
+
+function validateLaunch(value: unknown, prefix: string, issues: ValidationIssue[]): void {
+  if (value === undefined) {
+    return
+  }
+  const launch = asRecord(value)
+  if (!launch) {
+    issues.push(issue(prefix, 'invalid_type', 'launch must be an object'))
+    return
+  }
+  const systemPromptFile = launch['systemPromptFile']
+  const systemPromptMode = launch['systemPromptMode']
+  const initialPrompt = launch['initialPrompt']
+  if (systemPromptFile !== undefined && typeof systemPromptFile !== 'string') {
+    issues.push(
+      issue(path(prefix, 'systemPromptFile'), 'invalid_type', 'systemPromptFile must be a string')
+    )
+  }
+  if (
+    systemPromptMode !== undefined &&
+    systemPromptMode !== 'append' &&
+    systemPromptMode !== 'replace'
+  ) {
+    issues.push(
+      issue(
+        path(prefix, 'systemPromptMode'),
+        'invalid_literal',
+        'systemPromptMode must be "append" or "replace"'
+      )
+    )
+  }
+  if (initialPrompt !== undefined && typeof initialPrompt !== 'string') {
+    issues.push(
+      issue(path(prefix, 'initialPrompt'), 'invalid_type', 'initialPrompt must be a string')
+    )
   }
 }
 

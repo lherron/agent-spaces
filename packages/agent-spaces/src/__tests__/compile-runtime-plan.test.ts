@@ -560,6 +560,11 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.brokerDriver).toBe('claude-code-tmux')
     expect(profile.brokerTerminal?.host).toBe('tmux')
     expect(profile.harnessInvocation.startRequest.spec.driver.kind).toBe('claude-code-tmux')
+    expect(profile.harnessInvocation.startRequest.spec.process.args).toEqual(
+      expect.arrayContaining(['--', 'hello foreground terminal'])
+    )
+    expect(profile.harnessInvocation.startRequest.initialInput).toBeUndefined()
+    expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
   })
 
   test('selects the foreground terminal only when compiler intent explicitly requests it', async () => {
@@ -664,6 +669,11 @@ exit 0
       terminalHost: 'tmux',
       hookBridge: 'codex-hooks/v1',
     })
+    expect(profile.harnessInvocation.startRequest.spec.process.args).toContain(
+      'hello foreground terminal'
+    )
+    expect(profile.harnessInvocation.startRequest.initialInput).toBeUndefined()
+    expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
   })
 
   test('emits all required plan, profile, spec, and start request hashes', async () => {

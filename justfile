@@ -33,6 +33,10 @@ test-integration:
 lint:
     bun run lint
 
+# Attach-before-start live debugger for the real codex-cli-tmux broker path.
+debug-codex-tmux-live *args:
+    bun scripts/debug-codex-tmux-live.ts {{args}}
+
 # Fix lint issues
 lint-fix:
     bun run lint:fix

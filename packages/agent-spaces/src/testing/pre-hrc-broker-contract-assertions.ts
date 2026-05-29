@@ -190,6 +190,52 @@ export function assertBrokerProfileClosure(
   return failures
 }
 
+/**
+ * Interactive tmux launch contract (T-01746). Both interactive tmux drivers
+ * (claude-code-tmux, codex-cli-tmux) deliver the startup priming via the launch
+ * argv and frame-print the launch header from `spec.launch` — NOT by typing a
+ * broker `initialInput` (which raced the harness cold-boot and dropped the
+ * priming). Per pre-HRC conformance, this is a required contract for every
+ * interactive tmux row, so assert the environment-independent invariants
+ * harness-agnostically:
+ *   - the priming rides spec.launch.initialPrompt (so the wrapper frames it),
+ *   - startRequest carries NO initialInput (priming is not typed → no race).
+ */
+export function assertInteractiveTmuxLaunchClosure(
+  profile: BrokerExecutionProfile | undefined
+): ContractHarnessFailure[] {
+  const failures: ContractHarnessFailure[] = []
+  if (profile?.kind !== 'harness-broker') return failures
+  if (profile.interactionMode !== 'interactive') return failures
+  const driver = profile.brokerDriver
+  if (driver !== 'claude-code-tmux' && driver !== 'codex-cli-tmux') return failures
+
+  const startRequest = profile.harnessInvocation?.startRequest
+  if (startRequest === undefined) return failures
+
+  const launch = startRequest.spec.launch
+  if (launch?.initialPrompt === undefined || launch.initialPrompt.length === 0) {
+    failures.push({
+      code: 'launch_priming_missing',
+      message: `Interactive tmux profile (${driver}) must carry the priming in spec.launch.initialPrompt.`,
+      path: 'selectedProfile.harnessInvocation.startRequest.spec.launch.initialPrompt',
+    })
+  }
+  // systemPromptFile is intentionally NOT required: whether a system prompt is
+  // materialized is agent-config-dependent. When present it rides
+  // spec.launch.systemPromptFile (validated by the protocol schema) and the
+  // launch wrapper frames it.
+  if (startRequest.initialInput !== undefined) {
+    failures.push({
+      code: 'launch_initial_input_present',
+      message: `Interactive tmux profile (${driver}) must NOT carry a broker initialInput; the priming rides the launch argv, not a typed turn.`,
+      path: 'selectedProfile.harnessInvocation.startRequest.initialInput',
+    })
+  }
+
+  return failures
+}
+
 export function assertPreHrcRouteDecision(
   decision: PreHrcRouteDecision | undefined,
   profile: BrokerExecutionProfile | undefined,

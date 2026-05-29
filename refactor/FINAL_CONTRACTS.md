@@ -26,6 +26,8 @@ Harness Broker execution plane
   emits InvocationEventEnvelope + InvocationStatus
 ```
 
+An ASPC JSON-RPC surface is an access path into the ASP compiler plane, not a fourth ownership plane and not an expansion of the Harness Broker runtime contract. It may be hosted as a standalone compiler service or co-hosted in an ASPC+broker facade process, but `aspc.*` methods and `broker.*`/`invocation.*` methods remain separate protocols.
+
 The decisive rule is compiler closure:
 
 > After ASP emits a `CompiledRuntimePlan`, HRC MUST NOT reconstruct, mutate, patch, infer, or synthesize compiled execution mechanics.
@@ -106,14 +108,40 @@ packages/spaces-runtime-contracts/
 
 This package MUST contain DTOs, schema identifiers, canonicalization helpers, hash helpers, projection DTOs/helpers, and error-code constants. It MUST NOT import HRC server code, broker driver code, or concrete harness implementation packages.
 
+### 3.1.1 ASPC compiler RPC packages
+
+The ASP compiler MAY also be exposed through an additive JSON-RPC compiler protocol:
+
+```text
+packages/spaces-aspc-protocol/
+  owns aspc/0.1 JSON-RPC DTOs, compile facade requests/responses, and validators
+
+packages/spaces-aspc-client/
+  owns client transport for aspc/0.1
+
+packages/spaces-aspc-service/
+  owns the RPC service implementation that delegates to the existing ASP compiler SDK
+
+packages/aspc-broker-facade/ or equivalent bin
+  MAY co-host aspc/0.1 and harness-broker/0.1 endpoints for one-process integration
+```
+
+`spaces-aspc-protocol` is adjacent to, not below, the broker protocol. It MAY import `spaces-runtime-contracts` and `spaces-harness-broker-protocol` DTOs because its job is to return the same `CompiledRuntimePlan`, `BrokerExecutionProfile`, `InvocationStartRequest`, and optional convenience dispatch/start records that existing SDK flows already produce. `spaces-runtime-contracts` and `spaces-harness-broker-protocol` MUST NOT import ASPC protocol packages.
+
 ### 3.2 Allowed dependencies
 
 ```text
 agent-spaces            -> spaces-runtime-contracts
 hrc-server              -> spaces-runtime-contracts
-hrc-server              -> agent-spaces compiler API
+hrc-server              -> agent-spaces compiler API                 # existing SDK path
+hrc-server              -> spaces-aspc-client/protocol               # additive RPC path
 hrc-server              -> spaces-harness-broker-client
 hrc-server              -> spaces-harness-broker-protocol
+spaces-aspc-protocol    -> spaces-runtime-contracts
+spaces-aspc-protocol    -> spaces-harness-broker-protocol
+spaces-aspc-client      -> spaces-aspc-protocol
+spaces-aspc-service     -> agent-spaces compiler API
+spaces-aspc-service     -> spaces-aspc-protocol
 harness-broker-client   -> spaces-harness-broker-protocol
 harness-broker          -> spaces-harness-broker-protocol
 harness-broker/drivers  -> concrete harness implementation packages
@@ -129,7 +157,11 @@ hrc-server -> harness-broker/src/drivers/*
 hrc-server broker controller -> runtime-controllers/legacy-exec/*
 agent-spaces -> hrc-server
 harness-broker -> hrc-server
+harness-broker -> spaces-aspc-*
+harness-broker-protocol -> spaces-aspc-*
 spaces-runtime-contracts -> concrete harness packages
+spaces-runtime-contracts -> spaces-aspc-*
+spaces-harness-broker-protocol -> spaces-aspc-*
 ```
 
 ### 3.4 Boundary checks
@@ -235,7 +267,7 @@ There is **no** reuse-soundness / `environmentRevision` rule. Credentials are re
 
 ### 6.1 API surface
 
-ASP exposes the compiler API:
+ASP exposes the compiler API through the existing in-process SDK surface:
 
 ```ts
 declare function compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
@@ -249,6 +281,26 @@ ok: false, diagnostics: CompileDiagnostic[]
 ```
 
 ASP MAY continue exposing legacy helper APIs during migration, but HRC broker-capable routes MUST call `compileRuntimePlan`, not `buildHarnessBrokerInvocation` directly.
+
+ASP MAY additionally expose an additive `aspc/0.1` JSON-RPC compiler facade. This facade MUST delegate to the same compiler implementation used by the SDK path and MUST NOT require any change to existing SDK callers. The minimum RPC surface is:
+
+```text
+aspc.hello
+aspc.compileRuntimePlan
+aspc.compileHarnessInvocation
+```
+
+`aspc.compileRuntimePlan` returns the same `RuntimeCompileResponse` shape as the SDK API. `aspc.compileHarnessInvocation` is a convenience compiler facade for broker-capable clients: it compiles, selects an already-complete `BrokerExecutionProfile` according to explicit selector/preferences, and returns the selected profile plus its exact `InvocationStartRequest`. It MUST NOT start the broker.
+
+An optional one-call facade MAY expose:
+
+```text
+aspc.compileAndStart
+```
+
+`aspc.compileAndStart` is sugar over `aspc.compileHarnessInvocation` followed by broker `invocation.start`. It MUST return the compile result and exact compiled `InvocationStartRequest` alongside the broker start response. It MUST send broker `invocation.start` an `InvocationDispatchRequest { startRequest, dispatchEnv?, runtime? }`; it MUST NOT hide compilation inside start without returning the compiled artifact.
+
+ASPC methods MUST NOT be added to `harness-broker/0.1`. A co-hosted ASPC+broker facade process may multiplex both protocols on one transport, but method namespaces, validators, errors, and failure domains remain separate. Compile failures are `aspc/0.1` compiler diagnostics; broker start/control failures remain broker JSON-RPC or runtime-control errors.
 
 ### 6.2 Compile input
 
@@ -361,7 +413,7 @@ HRC owns:
 - request normalization;
 - operation/runtime/run identity allocation;
 - session/generation policy;
-- call into ASP compiler;
+- call into ASP compiler through the existing SDK path or the additive ASPC RPC path;
 - route admission;
 - selection of one compiled execution profile;
 - runtime reuse/adoption/new-runtime decision;
@@ -423,7 +475,7 @@ For broker-capable Codex headless start:
 
 ```text
 1. HRC normalizes request and allocates IDs.
-2. HRC calls ASP compileRuntimePlan(req).
+2. HRC calls ASP `compileRuntimePlan(req)` through the SDK path or `aspc.compileRuntimePlan` / `aspc.compileHarnessInvocation` through the additive RPC path.
 3. HRC route engine selects exactly one compiled profile by profileId/profileHash.
 4. HRC validates product policy and capability requirements.
 5. HRC persists plan/profile projections and diagnostics.
@@ -731,6 +783,8 @@ JSON-RPC 2.0 requests/responses
 JSON-RPC notifications for invocation events
 JSON-RPC broker-to-client requests for permission requests when negotiated
 ```
+
+The broker protocol contains only broker runtime methods. `aspc.*` compiler methods are never part of `harness-broker/0.1`; a facade process that exposes both protocols MUST keep `aspc/0.1` and `harness-broker/0.1` negotiation and validation separate.
 
 HRC starts one broker process per runtime for v1. Shared broker processes are forbidden until broker advertises and proves multi-invocation plus attach/replay semantics.
 

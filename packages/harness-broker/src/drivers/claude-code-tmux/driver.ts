@@ -12,6 +12,7 @@ import type {
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import { type TmuxExec, TmuxPaneController, type TmuxPaneControllerLease } from '../../runtime/tmux'
+import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import {
   CLAUDE_CODE_TMUX_DRIVER_KIND,
@@ -323,8 +324,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         callbackSocket: hookListener.socketPath,
         bridgeCommand: options.hooks.bridgeCommand,
       })
-      const launchScriptPath = await writeLaunchScript(hookListener.socketPath, launchCommand)
-      await paneController.sendKeys(`exec /bin/sh ${shellQuote(launchScriptPath)}`)
+      await paneController.sendKeys(launchCommand)
 
       return { ok: true }
     },
@@ -436,24 +436,20 @@ async function buildLaunchCommandLine(
   spec: HarnessInvocationSpec,
   hookEnv: { invocationId: string; callbackSocket: string; bridgeCommand?: string | undefined }
 ): Promise<string> {
-  const assignments: string[] = [
-    `HARNESS_BROKER_INVOCATION_ID=${shellQuote(hookEnv.invocationId)}`,
-    `HARNESS_BROKER_CALLBACK_SOCKET=${shellQuote(hookEnv.callbackSocket)}`,
-    `HARNESS_BROKER_HOOK_EVENTS=${shellQuote(HOOK_EVENT_NAMES.join(','))}`,
-    'HARNESS_BROKER_HOOK_GENERATION=1',
-  ]
+  const env = {
+    HARNESS_BROKER_INVOCATION_ID: hookEnv.invocationId,
+    HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
+    HARNESS_BROKER_HOOK_EVENTS: HOOK_EVENT_NAMES.join(','),
+    HARNESS_BROKER_HOOK_GENERATION: '1',
+  }
   const launchArgs = await buildArgsWithMergedSettings(spec.process.args, hookEnv)
-  const argv = [spec.process.command, ...launchArgs].map(shellQuote)
-  return [...assignments, ...argv].join(' ')
-}
-
-async function writeLaunchScript(callbackSocket: string, commandLine: string): Promise<string> {
-  const { chmod, mkdir, writeFile } = await import('node:fs/promises')
-  const launchScriptPath = `${callbackSocket}.launch.sh`
-  await mkdir(dirname(launchScriptPath), { recursive: true })
-  await writeFile(launchScriptPath, `#!/bin/sh\n${commandLine}\n`, 'utf8')
-  await chmod(launchScriptPath, 0o700)
-  return launchScriptPath
+  const launch = await writeTmuxLaunchExecFiles(`${hookEnv.callbackSocket}.claude`, {
+    argv: [spec.process.command, ...launchArgs],
+    cwd: spec.process.cwd,
+    env,
+    ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
+  })
+  return launch.commandLine
 }
 
 async function buildArgsWithMergedSettings(

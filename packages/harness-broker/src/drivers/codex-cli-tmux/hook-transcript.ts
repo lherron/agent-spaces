@@ -110,6 +110,13 @@ export function createCodexHookTranscriptReader(
     held = { messageId, content }
   }
 
+  const flushHeldInterim = (into: InvocationEventEnvelope[]): void => {
+    if (held === undefined) return
+    const message = held
+    held = undefined
+    into.push(completedEvent(message, false))
+  }
+
   // Flush the held message as the terminal answer. Uses the held content
   // verbatim (never concatenates interim prose); falls back to the rollout /
   // Stop terminal text only when the held message is missing or empty.
@@ -229,6 +236,11 @@ export function createCodexHookTranscriptReader(
       if (seenMessageIds.has(id)) return
       seenMessageIds.add(id)
       transcriptLastAgentMessage = message
+      if (getString(payload, 'phase') === 'commentary') {
+        flushHeldInterim(into)
+        into.push(completedEvent({ messageId: id, content: message }, false))
+        return
+      }
       holdMessage(id, message, into)
       return
     }
@@ -295,6 +307,15 @@ export function createCodexHookTranscriptReader(
       }
 
       readNewBytes(into)
+
+      if (rawType === 'PreToolUse' || rawType === 'PostToolUse') {
+        // A pending assistant message at a tool boundary cannot be the terminal
+        // answer for this turn. Flush it before the normalized tool event so
+        // prose that Codex logged before a function_call appears before
+        // tool.call.started when the transcript has reached the hook.
+        coalescePendingDelta(into)
+        flushHeldInterim(into)
+      }
 
       if (rawType === 'Stop' || rawType === 'SubagentStop') {
         // Any in-flight delta stream completes; then the last agent message is

@@ -13,6 +13,7 @@ import type {
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import { type TmuxExec, TmuxPaneController, type TmuxPaneControllerLease } from '../../runtime/tmux'
+import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import {
   CODEX_CLI_TMUX_DRIVER_KIND,
@@ -258,9 +259,14 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         callbackSocket: hookListener.socketPath,
         bridgeCommand: options.hooks.bridgeCommand,
       })
-      await sleep(1_500)
+      // Shell-readiness is handled deterministically inside sendPastedLine: it
+      // (re)pastes until the command renders at the prompt, so a paste dropped
+      // before the leased pane's shell PTY is reading is retried rather than lost.
+      // No blind pre-paste sleep (T-01747) — that masked the race and cost ~1.5s
+      // every launch; a dropped paste used to fall through to a 10s timeout +
+      // bare-shell pane.
       await controller.sendPastedLine(
-        buildLaunchCommandLine(spec, driverCtx, {
+        await buildLaunchCommandLine(spec, driverCtx, {
           callbackSocket: hookListener.socketPath,
           hookCliPath,
         })
@@ -364,11 +370,11 @@ function getHookString(obj: Record<string, unknown>, key: string): string | unde
   return typeof value === 'string' ? value : undefined
 }
 
-function buildLaunchCommandLine(
+async function buildLaunchCommandLine(
   spec: HarnessInvocationSpec,
   ctx: DriverContext,
   hookEnv: { callbackSocket: string; hookCliPath: string }
-): string {
+): Promise<string> {
   const env = {
     ...spec.process.lockedEnv,
     ...(ctx.dispatchEnv ?? {}),
@@ -377,11 +383,13 @@ function buildLaunchCommandLine(
     HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
     HARNESS_BROKER_HOOK_GENERATION: '1',
   }
-  const assignments = Object.entries(env)
-    .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-    .map(([key, value]) => `${key}=${shellQuote(value)}`)
-  const argv = [spec.process.command, ...spec.process.args].map(shellQuote)
-  return [...assignments, ...argv].join(' ')
+  const launch = await writeTmuxLaunchExecFiles(`${hookEnv.callbackSocket}.codex`, {
+    argv: [spec.process.command, ...spec.process.args],
+    cwd: spec.process.cwd,
+    env,
+    ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
+  })
+  return launch.commandLine
 }
 
 const DEFAULT_HOOK_BRIDGE_COMMAND = 'harness-broker codex-hook'

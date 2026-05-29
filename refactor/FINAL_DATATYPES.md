@@ -18,9 +18,18 @@ packages/agent-spaces
   Owns: compileRuntimePlan(req) -> RuntimeCompileResponse.
   Imports: spaces-runtime-contracts, spaces-harness-broker-protocol.
 
+packages/spaces-aspc-protocol
+  Owns: additive aspc/0.1 JSON-RPC compiler facade DTOs and validators.
+  Imports: spaces-runtime-contracts, spaces-harness-broker-protocol.
+
+packages/spaces-aspc-client / packages/spaces-aspc-service
+  Own: optional RPC client/service path over the existing ASP compiler SDK implementation.
+  Existing SDK callers remain supported.
+
 packages/hrc-server / hrc-core / hrc-sdk
   Owns: public HTTP DTOs, controller result DTOs, persistence records.
-  Imports: spaces-runtime-contracts, spaces-harness-broker-client/protocol.
+  Imports: spaces-runtime-contracts, spaces-harness-broker-client/protocol, and either
+           agent-spaces compiler SDK or spaces-aspc-client/protocol.
 
 packages/harness-broker-protocol
   Owns: broker JSON-RPC DTOs, invocation specs, events, capabilities, protocol errors.
@@ -51,6 +60,10 @@ export type SchemaVersion =
   | 'runtime-continuation/v1'
   | 'runtime-public-view/v1'
   | 'harness-broker.invocation/v1'
+  | 'aspc-compile-harness-invocation-request/v1'
+  | 'aspc-compile-harness-invocation-response/v1'
+  | 'aspc-compile-and-start-request/v1'
+  | 'aspc-compile-and-start-response/v1'
 
 export type ProviderDomain = 'anthropic' | 'openai'
 export type HarnessFamily = 'claude-code' | 'codex' | 'pi'
@@ -62,6 +75,7 @@ export type HarnessRuntime =
   | 'pi-sdk'
 
 export type InteractionMode = 'interactive' | 'headless' | 'nonInteractive'
+export type AspcProtocolVersion = 'aspc/0.1'
 export type RuntimeControllerKind =
   | 'terminal'
   | 'embedded-sdk'
@@ -590,6 +604,25 @@ export type RuntimeContinuationRef = {
 ```ts
 // spaces-runtime-contracts/src/compiler-plan.ts
 
+export type BrokerDriverSelectionPreferences = {
+  /**
+   * Exact driver request. If provided with selectionMode='exact', compile fails unless
+   * that driver can produce a valid selected profile.
+   */
+  kind?: string | undefined
+  /** Candidate allowlist evaluated by the compiler before materialization. */
+  allow?: string[] | undefined
+  /** Candidate denylist evaluated by the compiler before materialization. */
+  deny?: string[] | undefined
+  /** Compiler-defined capability ids that the selected driver/profile must satisfy. */
+  requireCapabilities?: string[] | undefined
+  /**
+   * Client-late, compiler-early selection. The client may defer driver choice to ASP,
+   * but ASP selects before materialization and before emitting HarnessInvocationSpec.
+   */
+  selectionMode?: 'exact' | 'best-available' | undefined
+}
+
 export type RuntimeCompileRequest = {
   schemaVersion: 'agent-runtime-compile-request/v1'
   identity: RuntimeIdentityAllocation
@@ -603,6 +636,8 @@ export type RuntimeCompileRequest = {
     harnessFamily?: HarnessFamily | undefined
     preferredHarnessRuntime?: HarnessRuntime | undefined
     interactionMode?: InteractionMode | undefined
+    /** Optional additive broker-driver preference; ignored by non-broker profiles. */
+    brokerDriver?: BrokerDriverSelectionPreferences | undefined
   }
 
   materialization: {
@@ -691,6 +726,142 @@ export type CompileDiagnostic = {
   details?: unknown
 }
 ```
+
+---
+
+### 8.1 ASPC JSON-RPC compiler facade datatypes
+
+These types live in `spaces-aspc-protocol`. They are additive: the existing
+`agent-spaces` SDK compiler API remains intact, and broker protocol DTOs remain in
+`spaces-harness-broker-protocol`.
+
+```ts
+// spaces-aspc-protocol/src/commands.ts
+
+export type AspcMethodV1 =
+  | 'aspc.hello'
+  | 'aspc.compileRuntimePlan'
+  | 'aspc.compileHarnessInvocation'
+  | 'aspc.compileAndStart'
+
+export type AspcCommand =
+  | JsonRpcRequest<'aspc.hello', AspcHelloRequest>
+  | JsonRpcRequest<'aspc.compileRuntimePlan', RuntimeCompileRequest>
+  | JsonRpcRequest<'aspc.compileHarnessInvocation', AspcCompileHarnessInvocationRequest>
+  | JsonRpcRequest<'aspc.compileAndStart', AspcCompileAndStartRequest>
+
+export interface AspcHelloRequest {
+  clientInfo: {
+    name: string
+    version?: string | undefined
+  }
+  protocolVersions: AspcProtocolVersion[]
+  capabilities?:
+    | {
+        compileAndStart?: boolean | undefined
+      }
+    | undefined
+}
+
+export interface AspcHelloResponse {
+  compilerInfo: {
+    name: 'agent-spaces'
+    version: string
+  }
+  protocolVersion: AspcProtocolVersion
+  supportedCompileSchemas: Array<'agent-runtime-compile-request/v1'>
+  supportedResponseSchemas: Array<'agent-runtime-compile-response/v1'>
+  supportedProviders: ProviderDomain[]
+  supportedHarnessRuntimes: HarnessRuntime[]
+  supportedDriverKinds: string[]
+  /**
+   * Present only for a co-hosted ASPC+broker facade. This is descriptive only;
+   * broker.hello remains the authoritative broker capability negotiation.
+   */
+  cohostedBroker?:
+    | {
+        protocolVersions: Array<'harness-broker/0.1'>
+        driverKinds: string[]
+      }
+    | undefined
+}
+
+export type BrokerProfileSelector = {
+  profileId?: ProfileId | undefined
+  profileHash?: ProfileHash | undefined
+  brokerDriver?: string | undefined
+  interactionMode?: 'headless' | 'interactive' | undefined
+  selectionMode?: 'exact' | 'best-available' | undefined
+}
+
+export type AspcCompileHarnessInvocationRequest = {
+  schemaVersion: 'aspc-compile-harness-invocation-request/v1'
+  compile: RuntimeCompileRequest
+  /**
+   * Optional selector over the compiled plan's BrokerExecutionProfile candidates.
+   * Driver selection remains client-late but compiler-early: ASP selects before
+   * materialization and returns a concrete HarnessInvocationSpec.
+   */
+  profileSelector?: BrokerProfileSelector | undefined
+}
+
+export type AspcCompileHarnessInvocationResponse =
+  | {
+      schemaVersion: 'aspc-compile-harness-invocation-response/v1'
+      ok: true
+      compile: Extract<RuntimeCompileResponse, { ok: true }>
+      selectedProfile: BrokerExecutionProfile
+      startRequest: InvocationStartRequest
+      spec: HarnessInvocationSpec
+      initialInput?: InvocationInput | undefined
+      diagnostics: CompileDiagnostic[]
+    }
+  | {
+      schemaVersion: 'aspc-compile-harness-invocation-response/v1'
+      ok: false
+      compile?: RuntimeCompileResponse | undefined
+      diagnostics: CompileDiagnostic[]
+    }
+
+export type AspcCompileAndStartRequest = {
+  schemaVersion: 'aspc-compile-and-start-request/v1'
+  compile: AspcCompileHarnessInvocationRequest
+  /**
+   * Dispatch-time overlays for the broker InvocationDispatchRequest. They are
+   * never part of the compiled profile or hash material.
+   */
+  dispatchEnv?: Record<string, string> | undefined
+  runtime?: InvocationRuntimeContext | undefined
+}
+
+export type AspcCompileAndStartResponse =
+  | {
+      schemaVersion: 'aspc-compile-and-start-response/v1'
+      ok: true
+      compile: Extract<AspcCompileHarnessInvocationResponse, { ok: true }>
+      dispatch: InvocationDispatchRequest
+      start: InvocationStartResponse
+    }
+  | {
+      schemaVersion: 'aspc-compile-and-start-response/v1'
+      ok: false
+      phase: 'compile'
+      compile?: AspcCompileHarnessInvocationResponse | undefined
+      diagnostics: CompileDiagnostic[]
+    }
+  | {
+      schemaVersion: 'aspc-compile-and-start-response/v1'
+      ok: false
+      phase: 'broker-start'
+      compile: Extract<AspcCompileHarnessInvocationResponse, { ok: true }>
+      dispatch: InvocationDispatchRequest
+      error: RuntimeControlError | JsonRpcError
+    }
+```
+
+`aspc.compileAndStart` is a convenience facade only. Canonical clients may always call
+`aspc.compileHarnessInvocation`, then broker `invocation.start` with
+`InvocationDispatchRequest { startRequest, dispatchEnv?, runtime? }`.
 
 ---
 

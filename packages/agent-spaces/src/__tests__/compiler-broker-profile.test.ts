@@ -451,15 +451,19 @@ describe('compiled broker profile field mapping', () => {
     expect(validateBrokerExecutionProfile(profile)).toEqual([])
   })
 
-  test('keeps the interactive claude-code-tmux prompt out of process argv', async () => {
+  test('passes the interactive claude-code-tmux prompt through process argv', async () => {
     const req = claudeTmuxCompileRequest()
     const profile = brokerProfile(await createClient().compileRuntimePlan(req))
     const spec = compiledSpec(profile)
 
     const separatorIndex = spec.process.args.indexOf('--')
-    expect(separatorIndex).toBe(-1)
-    expect(spec.process.args).not.toContain('hello interactive claude tmux broker')
-    expect(textFromInitialInput(profile)).toBe('hello interactive claude tmux broker')
+    expect(separatorIndex).toBeGreaterThanOrEqual(0)
+    expect(spec.process.args.slice(separatorIndex)).toEqual([
+      '--',
+      'hello interactive claude tmux broker',
+    ])
+    expect(textFromInitialInput(profile)).toBeUndefined()
+    expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
   })
 
   test('translates the OpenAI continuation into a broker Codex thread continuation', async () => {

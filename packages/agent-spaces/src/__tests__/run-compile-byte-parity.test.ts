@@ -435,7 +435,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     })
   }
 
-  test('claude: tmux broker preserves durable settings while hooks load pre-separator without a positional prompt', async () => {
+  test('claude: tmux broker preserves durable settings while the priming rides the launch argv positional', async () => {
     const testCase = CASES.find((candidate) => candidate.harness === 'claude')
     if (testCase === undefined) throw new Error('missing claude parity case')
     const prompt = 'hello-tmux-invariant'
@@ -530,17 +530,18 @@ describe('asp run <-> compiler foreground byte-parity', () => {
       emit: () => undefined,
     } as never)
 
-    // T-01725: the driver now sends `exec /bin/sh <launchScriptPath>` via
-    // send-keys (52e99a3 + Phase C). The actual command line — including
-    // `--settings <durable>` and the merged hook overlay — lives INSIDE the
-    // launch script, not in the send-keys text.
+    // T-01746: the driver now sends `exec bun <…/tmux-launch-runner> --launch-file
+    // <…>.launch.json` via send-keys. The actual command line — including
+    // `--settings <durable>` and the merged hook overlay — lives in the JSON
+    // launch artifact's `argv`, not in the send-keys text.
     const launchSendKeys = tmuxArgv
       .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
       .map((argv) => argv.at(-1) ?? '')
-      .find((text) => /^exec \/bin\/sh .*\.launch\.sh$/.test(text))
+      .find((text) => /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \S+$/.test(text))
     if (launchSendKeys === undefined) throw new Error('tmux launch command was not sent')
-    const launchScriptPath = launchSendKeys.replace(/^exec \/bin\/sh /, '')
-    const launchCommand = readFileSync(launchScriptPath, 'utf8')
+    const launchFilePath = launchSendKeys.replace(/^.*--launch-file /, '')
+    const launchArtifact = JSON.parse(readFileSync(launchFilePath, 'utf8')) as { argv: string[] }
+    const launchCommand = launchArtifact.argv.join(' ')
 
     expect(launchCommand).toContain(brokerProcess.command)
     const promptSeparator = ` -- ${prompt}`
@@ -557,6 +558,9 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     expect(JSON.stringify(effectiveSettings['hooks'])).toContain(
       'harness-broker claude-hook --socket /tmp/preallocated/run-compile-byte-parity.hooks.sock'
     )
-    expect(launchCommand).not.toContain(promptSeparator)
+    // T-01746: the priming rides the launch argv as the post-separator positional
+    // (delivered to claude at launch, not typed), while settings/hooks stay
+    // pre-separator. Confirm the positional priming IS present.
+    expect(launchCommand).toContain(promptSeparator)
   })
 })

@@ -22,6 +22,7 @@ import type {
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
 import { createAgentSpacesClient } from '../index.js'
+import { assertInteractiveTmuxLaunchClosure } from '../testing/pre-hrc-broker-contract-assertions.js'
 import { runPreHrcBrokerContractHarness } from '../testing/pre-hrc-broker-contract-harness.js'
 import { PreHrcBrokerEventLedger } from '../testing/pre-hrc-broker-event-ledger.js'
 import {
@@ -247,6 +248,51 @@ function interactiveTmuxCompileRequest(): RuntimeCompileRequest {
     },
     continuation: undefined,
   }
+}
+
+function codexInteractiveTmuxCompileRequest(): RuntimeCompileRequest {
+  const base = baseCompileRequest()
+  return {
+    ...base,
+    requested: {
+      modelProvider: 'openai',
+      reasoningEffort: 'medium',
+      harnessFamily: 'codex',
+      preferredHarnessRuntime: 'codex-cli',
+      interactionMode: 'interactive',
+    },
+    materialization: {
+      ...base.materialization,
+      initialPrompt: 'hello deterministic interactive codex tmux harness',
+      attachments: [],
+    },
+    hrcPolicy: {
+      ...base.hrcPolicy,
+      exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' },
+    },
+    continuation: undefined,
+  }
+}
+
+async function compileInteractiveTmuxProfile(
+  request: RuntimeCompileRequest,
+  driver: 'claude-code-tmux' | 'codex-cli-tmux'
+): Promise<BrokerExecutionProfile> {
+  const client = createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+  const response = await client.compileRuntimePlan(request)
+  if (!response.ok) {
+    throw new Error(
+      `compileRuntimePlan failed: ${response.diagnostics.map((d) => d.code).join(', ')}`
+    )
+  }
+  const profile = response.plan.executionProfiles.find(
+    (candidate): candidate is BrokerExecutionProfile =>
+      candidate.kind === 'harness-broker' && candidate.brokerDriver === driver
+  )
+  if (profile === undefined) {
+    throw new Error(`compile did not emit a ${driver} profile`)
+  }
+  return profile
 }
 
 async function compilePlan(): Promise<CompiledRuntimePlan> {
@@ -958,12 +1004,14 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
       .map((argv) => argv.at(-1) ?? '')
     expect(literalTmuxInputs).toEqual(expect.arrayContaining([firstInput, secondInput]))
-    // 52e99a3 + T-01725: driver launches claude via an exec'd shell script
-    // (so settings/env injection survives quoting). The send-keys literal is
-    // `exec /bin/sh <path>.launch.sh` — confirm the launch send happened and
-    // that the initialPrompt did NOT leak into a launch turn.
+    // T-01746: the driver launches the harness via the real launch-runner module
+    // against a JSON launch artifact. The send-keys literal is
+    // `exec bun <…/tmux-launch-runner.(ts|js)> --launch-file <…>.launch.json` —
+    // confirm the launch send happened and that the initialPrompt did NOT leak
+    // into the command line (the priming rides the launch argv inside the JSON
+    // artifact, not a typed launch turn).
     const launchCommand = literalTmuxInputs.find((text) =>
-      /^exec \/bin\/sh .*\.launch\.sh$/.test(text)
+      /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \S*\.launch\.json$/.test(text)
     )
     expect(launchCommand).toBeDefined()
     expect(launchCommand).not.toContain('hello deterministic interactive tmux harness')
@@ -983,6 +1031,76 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
     expect(result.ok).toBe(false)
     expect(result.assertionReport.failures.map((failure) => failure.code)).toContain(
       'interactive_tmux_clean_exit_invalid'
+    )
+  })
+})
+
+describe('interactive tmux launch closure (T-01746)', () => {
+  // Per pre-HRC conformance, the launch-header / priming-via-launch-argv contract
+  // is required for EVERY interactive tmux row, so assert it for both drivers.
+  test('claude-code-tmux carries spec.launch and no typed initialInput', async () => {
+    const profile = await compileInteractiveTmuxProfile(
+      interactiveTmuxCompileRequest(),
+      'claude-code-tmux'
+    )
+    expect(assertInteractiveTmuxLaunchClosure(profile)).toEqual([])
+    const launch = profile.harnessInvocation.startRequest.spec.launch
+    expect(launch?.initialPrompt).toBe('hello deterministic interactive tmux harness')
+    expect(profile.harnessInvocation.startRequest.initialInput).toBeUndefined()
+  })
+
+  test('codex-cli-tmux carries spec.launch and no typed initialInput', async () => {
+    const profile = await compileInteractiveTmuxProfile(
+      codexInteractiveTmuxCompileRequest(),
+      'codex-cli-tmux'
+    )
+    expect(assertInteractiveTmuxLaunchClosure(profile)).toEqual([])
+    const launch = profile.harnessInvocation.startRequest.spec.launch
+    expect(launch?.initialPrompt).toBe('hello deterministic interactive codex tmux harness')
+    expect(profile.harnessInvocation.startRequest.initialInput).toBeUndefined()
+  })
+
+  test('FAILS when an interactive tmux profile reintroduces a typed initialInput', async () => {
+    const profile = await compileInteractiveTmuxProfile(
+      interactiveTmuxCompileRequest(),
+      'claude-code-tmux'
+    )
+    const mutated = {
+      ...profile,
+      harnessInvocation: {
+        ...profile.harnessInvocation,
+        startRequest: {
+          ...profile.harnessInvocation.startRequest,
+          initialInput: {
+            inputId: 'input_typed' as InputId,
+            kind: 'user' as const,
+            content: [{ type: 'text' as const, text: 'typed priming' }],
+          },
+        },
+      },
+    } as BrokerExecutionProfile
+    expect(assertInteractiveTmuxLaunchClosure(mutated).map((f) => f.code)).toContain(
+      'launch_initial_input_present'
+    )
+  })
+
+  test('FAILS when spec.launch no longer carries the priming', async () => {
+    const profile = await compileInteractiveTmuxProfile(
+      codexInteractiveTmuxCompileRequest(),
+      'codex-cli-tmux'
+    )
+    const mutated = {
+      ...profile,
+      harnessInvocation: {
+        ...profile.harnessInvocation,
+        startRequest: {
+          ...profile.harnessInvocation.startRequest,
+          spec: { ...profile.harnessInvocation.startRequest.spec, launch: undefined },
+        },
+      },
+    } as BrokerExecutionProfile
+    expect(assertInteractiveTmuxLaunchClosure(mutated).map((f) => f.code)).toContain(
+      'launch_priming_missing'
     )
   })
 })

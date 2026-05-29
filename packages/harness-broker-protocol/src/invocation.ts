@@ -9,7 +9,28 @@ export interface HarnessInvocationSpec {
   interaction?: InteractionSpec | undefined
   continuation?: ContinuationSpec | undefined
   driver: CodexAppServerDriverSpec | UnknownDriverSpec
+  /**
+   * Harness-kind-agnostic startup payload consumed by launch wrappers BEFORE the
+   * harness TUI/protocol is ready: the material needed to frame-print the launch
+   * header (system prompt + priming) into the terminal surface. Distinct from
+   * `process` (pure exec shape) and from broker `InvocationInput` (subsequent
+   * turns). Part of the deterministic launch contract — included in spec hashing.
+   */
+  launch?: HarnessLaunchSpec | undefined
   correlation?: Record<string, string> | undefined
+}
+
+export interface HarnessLaunchSpec {
+  /** Path to the materialized system-prompt file (content read at launch for the header). */
+  systemPromptFile?: string | undefined
+  /** How the harness applies the system prompt; rides with systemPromptFile so the header labels it correctly. */
+  systemPromptMode?: 'append' | 'replace' | undefined
+  /**
+   * Startup priming text. This is launch/header material, NOT broker
+   * InvocationInput — the harness receives the priming via its launch argv, and
+   * the launch wrapper uses this only to frame-print the priming section.
+   */
+  initialPrompt?: string | undefined
 }
 
 export interface HarnessDescriptor {
