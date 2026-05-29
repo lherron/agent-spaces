@@ -1,4 +1,4 @@
-{"invocationId":"inv_unknown_notification","seq":1,"time":"<time>","type":"invocation.started","payload":{"pid":"<pid>","command":"<bun>","args":["/Users/lherron/praesidium/agent-spaces/packages/harness-broker/test/fixtures/fake-codex/unknown-notification.ts","--literal","$NO_EXPAND","*.ts"],"cwd":"/Users/lherron/praesidium/agent-spaces/packages/harness-broker"}}
+{"invocationId":"inv_unknown_notification","seq":1,"time":"<time>","type":"invocation.started","payload":{"pid":"<pid>","command":"<bun>","args":["/Users/lherron/praesidium/agent-spaces/packages/harness-broker/test/fixtures/fake-codex/unknown-notification.ts","--literal","$NO_EXPAND","*.ts"],"cwd":"<cwd>"}}
 {"invocationId":"inv_unknown_notification","seq":2,"time":"<time>","type":"continuation.updated","payload":{"provider":"codex","kind":"thread","key":"thread_unknown"}}
 {"invocationId":"inv_unknown_notification","seq":3,"time":"<time>","type":"invocation.ready","payload":{"state":"ready"}}
 {"invocationId":"inv_unknown_notification","seq":4,"time":"<time>","type":"input.accepted","inputId":"input_1","payload":{"inputId":"input_1"}}

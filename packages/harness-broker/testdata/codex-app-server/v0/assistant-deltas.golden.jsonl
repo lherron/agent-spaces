@@ -1,4 +1,4 @@
-{"invocationId":"inv_assistant_deltas","seq":1,"time":"<time>","type":"invocation.started","payload":{"pid":"<pid>","command":"<bun>","args":["/Users/lherron/praesidium/agent-spaces/packages/harness-broker/test/fixtures/fake-codex/assistant-deltas.ts","--literal","$NO_EXPAND","*.ts"],"cwd":"/Users/lherron/praesidium/agent-spaces/packages/harness-broker"}}
+{"invocationId":"inv_assistant_deltas","seq":1,"time":"<time>","type":"invocation.started","payload":{"pid":"<pid>","command":"<bun>","args":["/Users/lherron/praesidium/agent-spaces/packages/harness-broker/test/fixtures/fake-codex/assistant-deltas.ts","--literal","$NO_EXPAND","*.ts"],"cwd":"<cwd>"}}
 {"invocationId":"inv_assistant_deltas","seq":2,"time":"<time>","type":"continuation.updated","payload":{"provider":"codex","kind":"thread","key":"thread_assistant"}}
 {"invocationId":"inv_assistant_deltas","seq":3,"time":"<time>","type":"invocation.ready","payload":{"state":"ready"}}
 {"invocationId":"inv_assistant_deltas","seq":4,"time":"<time>","type":"input.accepted","inputId":"input_1","payload":{"inputId":"input_1"}}
