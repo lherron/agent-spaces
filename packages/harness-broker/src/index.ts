@@ -1,5 +1,6 @@
 export { createBroker } from './broker'
 export type { Broker, BrokerOptions } from './broker'
+export { createDefaultBroker } from './default-broker'
 
 export { createProtocolServer } from './protocol-server'
 export type { ProtocolServer, ProtocolServerOptions, RequestHandler } from './protocol-server'

@@ -1,0 +1,41 @@
+{
+  "name": "spaces-aspc",
+  "version": "0.1.1",
+  "description": "ASPC compiler JSON-RPC service, client, and broker facade",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "aspc-facade": "./bin/aspc-facade.js"
+  },
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "cd ../.. && bun test packages/aspc/test",
+    "prepack": "bun ../../scripts/strip-bun-exports.ts",
+    "postpack": "git checkout HEAD -- package.json"
+  },
+  "dependencies": {
+    "agent-spaces": "workspace:*",
+    "spaces-aspc-protocol": "workspace:*",
+    "spaces-harness-broker": "workspace:*",
+    "spaces-harness-broker-client": "workspace:*",
+    "spaces-harness-broker-protocol": "workspace:*",
+    "spaces-runtime-contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

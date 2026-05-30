@@ -25,6 +25,7 @@ const PACKAGES = [
   'packages/harness-pi',
   'packages/harness-pi-sdk',
   'packages/spaces-runtime-contracts',
+  'packages/aspc-protocol',
   'packages/agent-spaces',
 ] as const
 

@@ -6,14 +6,10 @@ import type {
   InvocationStartRequest,
   JsonRpcNotification,
   PermissionDecision,
-  PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import { validateCommand, validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
-import { createBroker } from './broker'
-import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
+import { createDefaultBroker } from './default-broker'
 import { runClaudeHookBridgeCli } from './drivers/claude-code-tmux/hook-bridge'
-import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
-import { createDefaultCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
 import { runCodexHookBridgeCli } from './drivers/codex-cli-tmux/hook-bridge'
 import { createProtocolServer } from './protocol-server'
 
@@ -59,21 +55,6 @@ async function main(): Promise<void> {
     )
     process.exit(1)
   }
-}
-
-function createDefaultBroker(
-  onEvent?: (event: InvocationEventEnvelope) => void,
-  onPermissionRequest?: (params: PermissionRequestParams) => Promise<PermissionDecision>
-) {
-  return createBroker({
-    drivers: [
-      createCodexAppServerDriver(),
-      createDefaultClaudeCodeTmuxDriver(),
-      createDefaultCodexCliTmuxDriver(),
-    ],
-    ...(onEvent !== undefined ? { onEvent } : {}),
-    ...(onPermissionRequest !== undefined ? { onPermissionRequest } : {}),
-  })
 }
 
 function runStdio(): void {

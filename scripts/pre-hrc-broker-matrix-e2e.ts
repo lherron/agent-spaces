@@ -91,6 +91,7 @@ import { DEFAULT_CODEX_BROKER_INPUT_POLICY, project } from 'spaces-runtime-contr
 import { executeEmbeddedSdkTurn } from '../packages/agent-spaces/src/execute-embedded-sdk.js'
 import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.js'
 import { piSessionPath } from '../packages/agent-spaces/src/runtime-env.js'
+import { AspcClient } from '../packages/aspc/src/index.js'
 
 import { createClaudeCodeTmuxDriver } from '../packages/harness-broker/src/drivers/claude-code-tmux/driver'
 import { createCodexCliTmuxDriver } from '../packages/harness-broker/src/drivers/codex-cli-tmux/driver'
@@ -132,6 +133,8 @@ type RowName =
   | 'real-claude-tmux'
   | 'claude-tmux-ghostmux'
   | 'real-pi-sdk-embedded'
+
+type CompileTransport = 'sdk' | 'aspc-rpc'
 const ALL_ROWS: RowName[] = [
   'fake-codex',
   'real-codex',
@@ -181,6 +184,7 @@ const NARRATION_PROMPT =
 
 type CliArgs = {
   config?: RowName | undefined
+  compileTransport?: CompileTransport | undefined
   allowLegacyPermissionEvent: boolean
   keepArtifacts: boolean
   json: boolean
@@ -199,6 +203,7 @@ function printUsage(): void {
       '',
       'Options:',
       `  --config <name>                  Run a single row: ${ALL_ROWS.join(' | ')}`,
+      '  --compile-transport <name>       Compile through sdk or aspc-rpc (default: sdk)',
       '  --allow-legacy-permission-event  TEMPORARY: tolerate the legacy invocation.permission.request event',
       '  --boot-wait-ms <n>               Claude boot wait before the first tmux turn (default: 9000)',
       '  --turn-timeout-ms <n>            Per-turn terminal wait (default: 120000)',
@@ -237,6 +242,15 @@ function parseArgs(argv: string[]): CliArgs {
           throw new Error(`--config must be one of: ${ALL_ROWS.join(', ')}`)
         }
         args.config = value as RowName
+        i += 1
+        break
+      }
+      case '--compile-transport': {
+        const value = readValue(argv, i, arg)
+        if (value !== 'sdk' && value !== 'aspc-rpc') {
+          throw new Error('--compile-transport must be one of: sdk, aspc-rpc')
+        }
+        args.compileTransport = value
         i += 1
         break
       }
@@ -301,6 +315,7 @@ type RowContext = {
   bootWaitMs: number
   turnTimeoutMs: number
   tmuxBin: string
+  compileTransport: CompileTransport
 }
 
 type HarnessConfig = {
@@ -324,6 +339,30 @@ function resolveTmuxBin(): string {
     if (existsSync(candidate)) return candidate
   }
   return 'tmux'
+}
+
+async function compileRuntimePlanForMatrix(
+  ctx: RowContext,
+  aspHome: string | undefined,
+  req: RuntimeCompileRequest
+): Promise<RuntimeCompileResponse> {
+  if (ctx.compileTransport === 'sdk') {
+    const client = createAgentSpacesClient({ aspHome }) as ReturnType<
+      typeof createAgentSpacesClient
+    > & { compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse> }
+    return client.compileRuntimePlan(req)
+  }
+
+  const client = await AspcClient.start({
+    command: process.execPath,
+    args: ['packages/aspc/bin/aspc-facade.js', 'run', '--transport', 'stdio'],
+    cwd: ctx.repoRoot,
+  })
+  try {
+    return await client.compileRuntimePlan({ compileRequest: req, aspHome })
+  } finally {
+    await client.close()
+  }
 }
 
 function resolveClaudeBin(): string | undefined {
@@ -905,6 +944,8 @@ async function runCodexRow(
       }),
       aspHome: options.aspHome,
       artifactDir: options.artifactDir,
+      compileRuntimePlan: (req, compileOptions) =>
+        compileRuntimePlanForMatrix(ctx, compileOptions?.clientAspHome, req),
       dryRunCompile: false,
       allowLegacyPermissionEvent: ctx.allowLegacyPermissionEvent,
       timeoutMs: ctx.turnTimeoutMs,
@@ -1259,10 +1300,9 @@ async function runCodexTmuxRow(
 
   try {
     ensureAspHomeRegistry(aspHome, projectRoot)
-    const client = createAgentSpacesClient({ aspHome }) as ReturnType<
-      typeof createAgentSpacesClient
-    > & { compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse> }
-    const response = await client.compileRuntimePlan(
+    const response = await compileRuntimePlanForMatrix(
+      ctx,
+      aspHome,
       codexInteractiveCompileRequest({
         scopeRef,
         agentRoot,
@@ -1865,10 +1905,9 @@ async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
   const fx = createPiSdkFixture()
   const hostSessionId = `host_pi_${ctx.marker}`
   try {
-    const client = createAgentSpacesClient({ aspHome: fx.aspHome }) as ReturnType<
-      typeof createAgentSpacesClient
-    > & { compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse> }
-    const response = await client.compileRuntimePlan(
+    const response = await compileRuntimePlanForMatrix(
+      ctx,
+      fx.aspHome,
       embeddedCompileRequest({
         agentRoot: fx.agentRoot,
         projectRoot: fx.projectRoot,
@@ -2531,12 +2570,16 @@ function printRow(row: RowResult): void {
 // Main
 // ---------------------------------------------------------------------------
 
-async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2))
+export async function runPreHrcBrokerMatrixE2e(
+  argv: string[] = process.argv.slice(2),
+  options: { compileTransport?: CompileTransport | undefined } = {}
+): Promise<void> {
+  const args = parseArgs(argv)
   if (args.help) {
     printUsage()
     return
   }
+  const compileTransport = options.compileTransport ?? args.compileTransport ?? 'sdk'
 
   const repoRoot = resolve(new URL('..', import.meta.url).pathname)
   const runId = Date.now().toString(36).toUpperCase()
@@ -2556,9 +2599,12 @@ async function main(): Promise<void> {
       bootWaitMs: args.bootWaitMs,
       turnTimeoutMs: args.turnTimeoutMs,
       tmuxBin: resolveTmuxBin(),
+      compileTransport,
     }
 
-    console.log(`\n=== row: ${config.name} (${config.description}) ===`)
+    console.log(
+      `\n=== row: ${config.name} (${config.description}; compile=${compileTransport}) ===`
+    )
     const probe = await config.probe(ctx).catch((e) => ({
       available: false,
       reason: e instanceof Error ? e.message : String(e),
@@ -2634,9 +2680,11 @@ async function main(): Promise<void> {
   if (!ok) process.exitCode = 1
 }
 
-try {
-  await main()
-} catch (error) {
-  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error))
-  process.exit(2)
+if (import.meta.main) {
+  try {
+    await runPreHrcBrokerMatrixE2e()
+  } catch (error) {
+    console.error(error instanceof Error ? (error.stack ?? error.message) : String(error))
+    process.exit(2)
+  }
 }

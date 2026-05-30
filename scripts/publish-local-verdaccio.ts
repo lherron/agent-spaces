@@ -15,6 +15,7 @@ const PACKAGES = [
   'packages/harness-broker-protocol',
   'packages/harness-broker-client',
   'packages/spaces-runtime-contracts',
+  'packages/aspc-protocol',
   'packages/harness-claude',
   'packages/harness-codex',
   'packages/harness-pi',

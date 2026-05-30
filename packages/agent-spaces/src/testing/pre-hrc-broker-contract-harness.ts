@@ -1088,7 +1088,8 @@ export async function runPreHrcBrokerContractHarness(
   input: PreHrcBrokerContractHarnessInput
 ): Promise<PreHrcBrokerContractHarnessResult> {
   const mode = harnessMode(input)
-  const compileResponse = await compileRuntimePlan(input.compileRequest, {
+  const compiler = input.compileRuntimePlan ?? compileRuntimePlan
+  const compileResponse = await compiler(input.compileRequest, {
     clientAspHome: input.aspHome,
   })
   const compiledPlan = compileResponse.ok ? compileResponse.plan : undefined

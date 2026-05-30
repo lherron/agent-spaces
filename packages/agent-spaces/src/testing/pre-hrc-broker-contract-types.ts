@@ -109,6 +109,12 @@ export type ContractHarnessFailure = {
 export type PreHrcBrokerContractHarnessInput = {
   schemaVersion?: 'pre-hrc-broker-contract-harness-input/v1' | undefined
   compileRequest: RuntimeCompileRequest
+  compileRuntimePlan?:
+    | ((
+        req: RuntimeCompileRequest,
+        options?: { clientAspHome?: string | undefined }
+      ) => Promise<RuntimeCompileResponse>)
+    | undefined
   aspHome?: string | undefined
   artifactDir?: string | undefined
   mode?: 'dry-run-compile' | 'broker-start' | 'interactive-tmux' | undefined
