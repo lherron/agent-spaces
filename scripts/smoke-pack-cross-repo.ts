@@ -8,7 +8,7 @@
 // Cleans up tarball + extraction dir each pass. Exit 0 = all pass.
 
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -57,6 +57,8 @@ function run(cmd: string, args: string[], cwd: string): { status: number; out: s
 async function checkPackage(rel: string): Promise<CheckOutcome> {
   const pkgDir = join(ROOT, rel)
   const tmp = await mkdtemp(join(tmpdir(), 'asp-pack-'))
+  const packageJsonPath = join(pkgDir, 'package.json')
+  const originalPackageJson = await readFile(packageJsonPath, 'utf8')
   // Track whether we mutated package.json so finally can always restore.
   let prepackRan = false
   try {
@@ -103,11 +105,9 @@ async function checkPackage(rel: string): Promise<CheckOutcome> {
     return { pkg: rel, status: 'pass' }
   } finally {
     if (prepackRan) {
-      // Always restore the committed manifest, even on failure.
-      const postpack = run('bun', ['run', 'postpack'], pkgDir)
-      if (postpack.status !== 0) {
-        console.error(`WARN  postpack on ${rel} exited ${postpack.status}: ${postpack.out}`)
-      }
+      // Always restore the manifest, including newly-added packages that are not
+      // yet known to git and cannot be restored by their postpack script.
+      await writeFile(packageJsonPath, originalPackageJson)
     }
     await rm(tmp, { recursive: true, force: true })
   }
