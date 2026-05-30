@@ -212,6 +212,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const agentId = agentProfile ? basename(agentProfile.agentRoot) : undefined
   const projectId =
     options.projectId ??
+    process.env['ASP_PROJECT'] ??
     inferProjectIdFromCwd({
       cwd: options.projectPath,
       ...(options.aspHome !== undefined ? { aspHome: options.aspHome } : {}),

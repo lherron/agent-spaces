@@ -119,27 +119,30 @@ describe('runtime placement helpers', () => {
     })
   })
 
-  test('inferProjectIdFromCwd prefers ASP_PROJECT and falls back to marker walk-up', () => {
-    expect(
-      inferProjectIdFromCwd({
-        env: {
-          ASP_PROJECT: 'explicit-project',
-        },
-        cwd: '/tmp',
-      })
-    ).toBe('explicit-project')
-
+  test('inferProjectIdFromCwd infers from cwd and ignores ASP_PROJECT', () => {
+    // ASP_PROJECT must NOT short-circuit cwd inference: the function name
+    // promises cwd inference, and callers compose env precedence explicitly.
     const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-marker-'))
     const projectDir = join(tmp, 'agent-spaces')
     mkdirSync(projectDir, { recursive: true })
     writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\n')
 
+    // Even with a conflicting ASP_PROJECT set, the cwd marker wins.
     expect(
       inferProjectIdFromCwd({
-        env: {},
+        env: { ASP_PROJECT: 'explicit-project' },
         cwd: projectDir,
       })
     ).toBe('agent-spaces')
+
+    // No marker reachable (cwd outside any project) → undefined, regardless of
+    // ASP_PROJECT.
+    expect(
+      inferProjectIdFromCwd({
+        env: { ASP_PROJECT: 'explicit-project' },
+        cwd: '/tmp',
+      })
+    ).toBeUndefined()
   })
 
   test('findProjectMarker walks up and stops at agentsRoot boundary', () => {

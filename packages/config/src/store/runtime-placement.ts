@@ -192,22 +192,22 @@ export function resolveAgentPlacementPaths(
 }
 
 /**
- * Infer a projectId from the current environment.
+ * Infer a projectId from the current working directory.
  *
- * Precedence:
- *   1. `ASP_PROJECT` env var (explicit override from caller or parent process).
- *   2. `asp-targets.toml` found by walking up from cwd — id = basename(markerDir).
+ * Resolution: `asp-targets.toml` (or implicit git-repo root) found by walking
+ * up from cwd — id = basename(markerDir).
  *
- * Returns undefined if neither signal is present. Callers are expected to
- * decide whether to prompt, error, or silently fall back.
+ * This intentionally does NOT consult `ASP_PROJECT`: the function name promises
+ * cwd inference, and conflating it with the env var makes `ASP_PROJECT ??
+ * inferProjectIdFromCwd()` dead code and defeats any cwd-vs-env comparison.
+ * Callers that want env precedence compose it explicitly, e.g.
+ * `explicitOption ?? env.ASP_PROJECT ?? inferProjectIdFromCwd()`.
+ *
+ * Returns undefined if no marker/repo is found. Callers decide whether to
+ * prompt, error, or silently fall back.
  */
 export function inferProjectIdFromCwd(options?: InferProjectIdFromCwdOptions): string | undefined {
   const env = options?.env ?? process.env
-  const fromEnv = env['ASP_PROJECT']
-  if (fromEnv) {
-    return fromEnv
-  }
-
   const agentsRoot = getAgentsRoot(toConfigOptions({ aspHome: options?.aspHome, env }))
   const marker = findProjectMarker(options?.cwd ?? process.cwd(), { agentsRoot })
   return marker?.id
