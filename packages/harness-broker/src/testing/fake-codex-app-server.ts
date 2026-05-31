@@ -24,6 +24,12 @@ export function framed(
   const waiters: Array<(frame: JsonRpcRequestFrame) => void> = []
 
   const rl = createInterface({ input: stdin })
+  // Exit when stdin reaches EOF (parent broker closed the pipe / orphaned us).
+  // Without this, fixtures that block forever keep a readline open over an
+  // EOF'd stdin and busy-spin the Bun event loop at ~100% CPU as orphans.
+  rl.on('close', () => {
+    process.exit(0)
+  })
   rl.on('line', (line) => {
     const frame = JSON.parse(line) as JsonRpcRequestFrame
     const waiter = waiters.shift()
