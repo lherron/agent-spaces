@@ -221,9 +221,11 @@ export interface BuildProcessInvocationSpecResponse {
 
 export interface BuildHarnessBrokerInvocationRequest {
   placement: RuntimePlacement
-  provider: 'openai'
-  frontend: 'codex-cli'
-  interactionMode: 'headless'
+  provider: ProviderDomain
+  frontend: 'codex-cli' | 'claude-code'
+  interactionMode: 'headless' | 'interactive'
+  brokerDriver?: 'codex-app-server' | 'claude-code-tmux' | undefined
+  harnessTransport?: { kind: 'jsonrpc-stdio' | 'pty' } | undefined
   aspHome?: string | undefined
   model?: string | undefined
   yolo?: boolean | undefined

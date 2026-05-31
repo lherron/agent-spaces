@@ -694,6 +694,40 @@ paths = ["/var/log"]
       expect(args).toContain('hello')
     })
 
+    test('fresh launches include a generated session id and do not resume', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'test',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      const args = adapter.buildRunArgs(bundle, {})
+
+      const sessionIdIndex = args.indexOf('--session-id')
+      expect(sessionIdIndex).toBeGreaterThanOrEqual(0)
+      expect(args[sessionIdIndex + 1]).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      )
+      expect(args).not.toContain('--resume')
+    })
+
+    test('resume launches use --resume and do not allocate a fresh session id', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'test',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      const args = adapter.buildRunArgs(bundle, { continuationKey: 'claude-session-123' })
+
+      const resumeIndex = args.indexOf('--resume')
+      expect(resumeIndex).toBeGreaterThanOrEqual(0)
+      expect(args[resumeIndex + 1]).toBe('claude-session-123')
+      expect(args).not.toContain('--session-id')
+    })
+
     test('includes settingSources when provided', () => {
       const bundle = {
         harnessId: 'claude' as const,

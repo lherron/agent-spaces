@@ -1005,14 +1005,17 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       .map((argv) => argv.at(-1) ?? '')
     expect(literalTmuxInputs).toEqual(expect.arrayContaining([firstInput, secondInput]))
     // T-01746: the driver launches the harness via the real launch-runner module
-    // against a JSON launch artifact. The send-keys literal is
+    // against a JSON launch artifact. The staged paste buffer is
     // `exec bun <…/tmux-launch-runner.(ts|js)> --launch-file <…>.launch.json` —
     // confirm the launch send happened and that the initialPrompt did NOT leak
     // into the command line (the priming rides the launch argv inside the JSON
     // artifact, not a typed launch turn).
-    const launchCommand = literalTmuxInputs.find((text) =>
-      /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \S*\.launch\.json$/.test(text)
-    )
+    const launchCommand = result.interactiveTmux.driverTmuxArgv
+      .filter((argv) => argv.includes('set-buffer'))
+      .map((argv) => argv.at(-1) ?? '')
+      .find((text) =>
+        /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \S*\.launch\.json$/.test(text)
+      )
     expect(launchCommand).toBeDefined()
     expect(launchCommand).not.toContain('hello deterministic interactive tmux harness')
   })

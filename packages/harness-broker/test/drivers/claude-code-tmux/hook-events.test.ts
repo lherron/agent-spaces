@@ -63,6 +63,23 @@ const eventTypes = (events: InvocationEventEnvelope[]): InvocationEventType[] =>
   events.map((event) => event.type)
 
 describe('claude-code-tmux hook event normalization', () => {
+  test('SessionStart emits continuation.updated from the authoritative Claude session_id', async () => {
+    const event = await single({
+      hook_event_name: 'SessionStart',
+      session_id: 'claude-session-01769',
+    })
+
+    expect(event).toMatchObject({
+      invocationId,
+      type: 'continuation.updated',
+      payload: {
+        provider: 'anthropic',
+        kind: 'session',
+        key: 'claude-session-01769',
+      },
+    })
+  })
+
   test('UserPromptSubmit emits turn.started with turnId in the envelope and payload', async () => {
     const event = await single({
       hook_event_name: 'UserPromptSubmit',
@@ -568,7 +585,9 @@ describe('claude-code-tmux hook event normalization', () => {
       type: 'assistant.message.completed',
       turnId,
       payload: {
-        content: [{ type: 'text', text: 'Successfully inspected the agent-spaces project directory.' }],
+        content: [
+          { type: 'text', text: 'Successfully inspected the agent-spaces project directory.' },
+        ],
         final: true,
       },
     })

@@ -5,6 +5,7 @@
  * existing functionality from spaces-claude and spaces-materializer.
  */
 
+import { randomUUID } from 'node:crypto'
 import { chmod, copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -393,15 +394,18 @@ export class ClaudeAdapter implements HarnessAdapter {
       }
     }
 
-    // Handle continuation key: --resume [session-id] or -r [session-id]
-    const resumeArgs: string[] = []
+    // Fresh launches create a Claude session id; persisted continuations resume
+    // separately so first-turn --session-id never collides with later --resume.
+    const sessionArgs: string[] = []
     if (options.continuationKey) {
       if (typeof options.continuationKey === 'string') {
-        resumeArgs.push('--resume', options.continuationKey)
+        sessionArgs.push('--resume', options.continuationKey)
       } else {
         // true means open picker
-        resumeArgs.push('--resume')
+        sessionArgs.push('--resume')
       }
+    } else {
+      sessionArgs.push('--session-id', randomUUID())
     }
 
     // Insert '--' before a bare positional prompt to prevent boolean flags
@@ -426,7 +430,7 @@ export class ClaudeAdapter implements HarnessAdapter {
           })()
         : []),
       ...(options.extraArgs ?? []),
-      ...resumeArgs,
+      ...sessionArgs,
       ...(needsSeparator ? ['--'] : []),
       ...promptArgs,
     ]

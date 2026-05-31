@@ -259,6 +259,52 @@ export function toHarnessBrokerStartRequest(
   prepared: PreparedPlacementCliRuntime,
   req: BuildHarnessBrokerInvocationRequest
 ): BuildHarnessBrokerInvocationResponse {
+  if (
+    req.provider === 'anthropic' &&
+    req.frontend === CLAUDE_CODE_FRONTEND &&
+    req.brokerDriver === 'claude-code-tmux'
+  ) {
+    const spec: HarnessInvocationSpec = {
+      specVersion: 'harness-broker.invocation/v1',
+      ...(req.invocationId !== undefined ? { invocationId: req.invocationId } : {}),
+      ...(req.labels !== undefined ? { labels: req.labels } : {}),
+      harness: {
+        frontend: CLAUDE_CODE_FRONTEND,
+        provider: 'anthropic',
+        driver: 'claude-code-tmux',
+      },
+      process: {
+        command: prepared.commandPath,
+        args: prepared.args,
+        cwd: prepared.cwd,
+        lockedEnv: prepared.lockedEnv,
+        ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
+        harnessTransport: req.harnessTransport ?? { kind: 'pty' },
+        limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
+      },
+      interaction: {
+        mode: 'interactive',
+        turnConcurrency: 'single',
+        inputQueue: req.interaction?.inputQueue ?? 'none',
+      },
+      ...(req.continuation?.key !== undefined
+        ? { continuation: { provider: 'anthropic', kind: 'session', key: req.continuation.key } }
+        : {}),
+      driver: { kind: 'claude-code-tmux', terminalHost: 'tmux' },
+      correlation: req.correlation ?? brokerCorrelationFromPlacement(req.placement),
+    }
+    const startRequest: InvocationStartRequest = { spec }
+
+    validateInvocationSpec(startRequest.spec)
+
+    return {
+      startRequest,
+      spec,
+      resolvedBundle: prepared.resolvedBundle,
+      ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
+    }
+  }
+
   const codexDescriptor = buildCodexAppServerLaunchDescriptor(prepared.runOptions)
   const driver: CodexAppServerDriverSpec = {
     kind: 'codex-app-server',

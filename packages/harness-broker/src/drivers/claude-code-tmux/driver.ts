@@ -38,7 +38,9 @@ const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
     interrupt: 'process',
   },
   continuation: {
-    supported: false,
+    supported: true,
+    provider: 'anthropic',
+    keyKind: 'session',
   },
   events: {
     assistantDeltas: false,

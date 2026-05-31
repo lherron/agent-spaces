@@ -97,6 +97,20 @@ exit 0
     const args = adapter.buildRunArgs(bundle, options)
     const claudeArgs = claude.buildRunArgs({ ...bundle, harnessId: 'claude' }, options)
 
-    expect(args).toEqual(claudeArgs)
+    const sessionIdIndex = args.indexOf('--session-id')
+    const claudeSessionIdIndex = claudeArgs.indexOf('--session-id')
+    expect(sessionIdIndex).toBeGreaterThanOrEqual(0)
+    expect(claudeSessionIdIndex).toBeGreaterThanOrEqual(0)
+    expect(args[sessionIdIndex + 1]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    )
+    expect(claudeArgs[claudeSessionIdIndex + 1]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    )
+    const normalizedArgs = [...args]
+    const normalizedClaudeArgs = [...claudeArgs]
+    normalizedArgs[sessionIdIndex + 1] = '<uuid>'
+    normalizedClaudeArgs[claudeSessionIdIndex + 1] = '<uuid>'
+    expect(normalizedArgs).toEqual(normalizedClaudeArgs)
   })
 })

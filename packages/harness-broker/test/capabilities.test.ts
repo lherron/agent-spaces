@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { InvocationCapabilities } from 'spaces-harness-broker-protocol'
+import { createDefaultClaudeCodeTmuxDriver } from '../src/drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from '../src/drivers/codex-app-server/driver'
 
 const CODEX_APP_SERVER_V0_CAPABILITIES: InvocationCapabilities = {
@@ -35,5 +36,15 @@ const CODEX_APP_SERVER_V0_CAPABILITIES: InvocationCapabilities = {
 describe('Codex app-server v0 capability matrix', () => {
   test('driver capabilities deep-equal the spec fixture exactly', () => {
     expect(createCodexAppServerDriver().capabilities()).toEqual(CODEX_APP_SERVER_V0_CAPABILITIES)
+  })
+})
+
+describe('Claude Code tmux capability matrix', () => {
+  test('advertises durable Anthropic session continuation', () => {
+    expect(createDefaultClaudeCodeTmuxDriver().capabilities().continuation).toEqual({
+      supported: true,
+      provider: 'anthropic',
+      keyKind: 'session',
+    })
   })
 })

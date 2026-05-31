@@ -241,8 +241,15 @@ function normalizeBundleRoot(value: string): string {
   return value.replace(/\/projects\/[^/]+\/targets\/[^/]+\//g, '/projects/<P>/targets/<T>/')
 }
 
+function normalizeGeneratedSessionIds(value: string): string {
+  return value.replace(
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g,
+    '<session-id>'
+  )
+}
+
 function normalizeArgv(argv: string[]): string[] {
-  return argv.map(normalizeBundleRoot)
+  return argv.map((arg) => normalizeGeneratedSessionIds(normalizeBundleRoot(arg)))
 }
 
 function normalizeEnv(env: Record<string, string>): Record<string, string> {
@@ -313,7 +320,7 @@ function canonicalCommandTokens(render: string): string[] {
   const idx = render.indexOf(COMMAND_MARKER)
   if (idx === -1) return []
   const commandLine = render.slice(idx + COMMAND_MARKER.length).trim()
-  return normalizeBundleRoot(commandLine)
+  return normalizeGeneratedSessionIds(normalizeBundleRoot(commandLine))
     .split(/\s+/)
     .filter((token) => token.length > 0 && !token.startsWith('ASP_HOME='))
     .sort()
@@ -481,6 +488,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     const leaseSessionId = '$1'
     const leaseWindowId = '@1'
     const leasePaneId = '%7'
+    let pendingLine = ''
     const driver = createClaudeCodeTmuxDriver({
       tmux: {
         socketPath: leaseSocketPath,
@@ -492,6 +500,17 @@ describe('asp run <-> compiler foreground byte-parity', () => {
               stdout: `${leaseSessionId}\t${leaseWindowId}\t${leasePaneId}\n`,
               stderr: '',
             }
+          }
+          if (argv.includes('set-buffer')) {
+            pendingLine = argv.at(-1) ?? ''
+            return { stdout: '', stderr: '' }
+          }
+          if (argv.includes('capture-pane')) {
+            return { stdout: pendingLine, stderr: '' }
+          }
+          if (argv.includes('send-keys') && argv.includes('Enter')) {
+            pendingLine = ''
+            return { stdout: '', stderr: '' }
           }
           return { stdout: '', stderr: '' }
         },
@@ -531,15 +550,15 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     } as never)
 
     // T-01746: the driver now sends `exec bun <…/tmux-launch-runner> --launch-file
-    // <…>.launch.json` via send-keys. The actual command line — including
+    // <…>.launch.json` via the paste-confirm path. The actual command line — including
     // `--settings <durable>` and the merged hook overlay — lives in the JSON
-    // launch artifact's `argv`, not in the send-keys text.
-    const launchSendKeys = tmuxArgv
-      .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
+    // launch artifact's `argv`, not in the staged tmux command text.
+    const launchCommandLine = tmuxArgv
+      .filter((argv) => argv.includes('set-buffer'))
       .map((argv) => argv.at(-1) ?? '')
       .find((text) => /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \S+$/.test(text))
-    if (launchSendKeys === undefined) throw new Error('tmux launch command was not sent')
-    const launchFilePath = launchSendKeys.replace(/^.*--launch-file /, '')
+    if (launchCommandLine === undefined) throw new Error('tmux launch command was not staged')
+    const launchFilePath = launchCommandLine.replace(/^.*--launch-file /, '')
     const launchArtifact = JSON.parse(readFileSync(launchFilePath, 'utf8')) as { argv: string[] }
     const launchCommand = launchArtifact.argv.join(' ')
 

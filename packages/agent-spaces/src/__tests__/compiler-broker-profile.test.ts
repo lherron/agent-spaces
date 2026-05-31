@@ -456,6 +456,13 @@ describe('compiled broker profile field mapping', () => {
     const profile = brokerProfile(await createClient().compileRuntimePlan(req))
     const spec = compiledSpec(profile)
 
+    const sessionIdIndex = spec.process.args.indexOf('--session-id')
+    expect(sessionIdIndex).toBeGreaterThanOrEqual(0)
+    expect(spec.process.args[sessionIdIndex + 1]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    )
+    expect(spec.process.args).not.toContain('--resume')
+
     const separatorIndex = spec.process.args.indexOf('--')
     expect(separatorIndex).toBeGreaterThanOrEqual(0)
     expect(spec.process.args.slice(separatorIndex)).toEqual([
@@ -464,6 +471,42 @@ describe('compiled broker profile field mapping', () => {
     ])
     expect(textFromInitialInput(profile)).toBeUndefined()
     expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
+  })
+
+  test('translates the Anthropic continuation into a claude-code-tmux session resume', async () => {
+    const profile = brokerProfile(
+      await createClient().compileRuntimePlan(
+        claudeTmuxCompileRequest({
+          continuation: {
+            schemaVersion: 'runtime-continuation/v1',
+            hrc: {
+              provider: 'anthropic',
+              keyHash: 'claude-session-hash',
+              key: 'claude-session-01769',
+            },
+            broker: {
+              provider: 'anthropic',
+              kind: 'session',
+              keyHash: 'claude-session-hash',
+              key: 'claude-session-01769',
+            },
+            source: 'harness-broker',
+            observedAt: '2026-05-31T03:55:32.000Z',
+          },
+        })
+      )
+    )
+    const spec = compiledSpec(profile)
+
+    expect(spec.continuation).toEqual({
+      provider: 'anthropic',
+      kind: 'session',
+      key: 'claude-session-01769',
+    })
+    const resumeIndex = spec.process.args.indexOf('--resume')
+    expect(resumeIndex).toBeGreaterThanOrEqual(0)
+    expect(spec.process.args[resumeIndex + 1]).toBe('claude-session-01769')
+    expect(spec.process.args).not.toContain('--session-id')
   })
 
   test('translates the OpenAI continuation into a broker Codex thread continuation', async () => {

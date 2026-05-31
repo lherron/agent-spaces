@@ -211,8 +211,19 @@ export function createClaudeCodeHookEventNormalizer(
       const unwrapped = unwrapHookPayload(hook)
       const rawType = getString(unwrapped, 'hook_event_name') ?? 'unknown'
       const rawTurnId = getString(unwrapped, 'turn_id')
+      const sessionId = getString(unwrapped, 'session_id')
       const turnIdText = rawTurnId ?? activeTurnId
       const turnId = turnIdText !== undefined ? asTurnId(turnIdText) : undefined
+
+      if (rawType === 'SessionStart') {
+        if (sessionId === undefined) return []
+        return [
+          emit(rawType, {
+            type: 'continuation.updated',
+            payload: { provider: 'anthropic', kind: 'session', key: sessionId },
+          }),
+        ]
+      }
 
       if (rawType === 'UserPromptSubmit') {
         // Resolve the turn id for this prompt (C-02755 step 3): prefer an

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { RuntimePlacement } from 'spaces-config'
+import { toHarnessBrokerStartRequest, validateBrokerInvocationRequest } from '../broker-invocation'
 import type { BuildHarnessBrokerInvocationRequest } from '../types'
-import { validateBrokerInvocationRequest } from '../broker-invocation'
 
 const placement = {
   agentRoot: '/tmp/agents/cody',
@@ -61,5 +61,53 @@ describe('broker invocation driver gate lift RED', () => {
         })
       )
     ).toThrow(/jsonrpc-stdio|pty|transport/)
+  })
+
+  test('maps claude-code-tmux continuation into an Anthropic session HarnessInvocationSpec', () => {
+    const prepared = {
+      runOptions: {},
+      commandPath: '/usr/local/bin/claude',
+      args: ['--model', 'opus[1m]', '--resume', 'claude-session-01769'],
+      cwd: '/tmp/projects/agent-spaces',
+      lockedEnv: {},
+      pathPrepend: [],
+      placement,
+      imageAttachmentPaths: [],
+      runtimePlan: { defaultRunOptions: {} },
+      placementContext: { materialization: {} },
+      resolvedBundle: { bundleIdentity: 'test-bundle' },
+      warnings: [],
+    }
+
+    const { spec, startRequest } = toHarnessBrokerStartRequest(
+      prepared as any,
+      brokerReq({
+        provider: 'anthropic',
+        frontend: 'claude-code',
+        interactionMode: 'interactive',
+        brokerDriver: 'claude-code-tmux',
+        harnessTransport: { kind: 'pty' },
+        continuation: { provider: 'anthropic', key: 'claude-session-01769' },
+      })
+    )
+
+    expect(spec.harness).toEqual({
+      frontend: 'claude-code',
+      provider: 'anthropic',
+      driver: 'claude-code-tmux',
+    })
+    expect(spec.process.harnessTransport).toEqual({ kind: 'pty' })
+    expect(spec.interaction).toEqual({
+      mode: 'interactive',
+      turnConcurrency: 'single',
+      inputQueue: 'none',
+    })
+    expect(spec.continuation).toEqual({
+      provider: 'anthropic',
+      kind: 'session',
+      key: 'claude-session-01769',
+    })
+    expect(spec.driver).toEqual({ kind: 'claude-code-tmux', terminalHost: 'tmux' })
+    expect(startRequest.initialInput).toBeUndefined()
   })
 })

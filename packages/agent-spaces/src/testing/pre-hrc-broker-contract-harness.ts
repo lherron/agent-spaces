@@ -846,6 +846,7 @@ async function runInteractiveTmuxInvocation(
     }
     tmuxServerEvents.push({ owner: 'harness', action: 'new-session', socketPath })
 
+    let pendingLine = ''
     const driver = createTmuxDriver({
       tmux: {
         socketPath,
@@ -864,6 +865,17 @@ async function runInteractiveTmuxInvocation(
               stdout: `${harnessLeaseSessionId}\t${harnessLeaseWindowId}\t${harnessLeasePaneId}\n`,
               stderr: '',
             }
+          }
+          if (argv.includes('set-buffer')) {
+            pendingLine = argv.at(-1) ?? ''
+            return { stdout: '', stderr: '' }
+          }
+          if (argv.includes('capture-pane')) {
+            return { stdout: pendingLine, stderr: '' }
+          }
+          if (argv.includes('send-keys') && argv.includes('Enter')) {
+            pendingLine = ''
+            return { stdout: '', stderr: '' }
           }
           if (argv.includes('list-panes')) {
             throw new Error("can't find session: hostSession")
