@@ -79,6 +79,11 @@ type ClaudeCodeTmuxDriverFactory = (options: {
   dispose: () => Promise<void>
 }
 
+type HookListenerMeta = {
+  invocationId: string
+  runtimeId?: string | undefined
+}
+
 const now = () => new Date('2026-05-26T15:30:00.000Z')
 
 const DEFAULT_LEASE_SOCKET = '/tmp/preallocated/hrc-owned-tmux.sock'
@@ -159,6 +164,20 @@ const loadFactory = async (): Promise<ClaudeCodeTmuxDriverFactory> => {
   return target.createClaudeCodeTmuxDriver
 }
 
+const loadSocketPathBuilder = async (): Promise<
+  (socketDir: string, context: HookListenerMeta) => string
+> => {
+  const target = (await import('../../../src/drivers/claude-code-tmux/driver')) as {
+    buildClaudeHookSocketPath?:
+      | ((socketDir: string, context: HookListenerMeta) => string)
+      | undefined
+  }
+  if (target.buildClaudeHookSocketPath === undefined) {
+    throw new Error('buildClaudeHookSocketPath export is required')
+  }
+  return target.buildClaudeHookSocketPath
+}
+
 /**
  * Recording tmux exec mock. `display-message` (the only verb the
  * TmuxPaneController issues during inspect()) returns the leased ids so
@@ -229,15 +248,16 @@ function createNotFoundExec(calls: TmuxExecCall[]) {
 
 function createCtx(
   events: InvocationEventEnvelope[],
-  runtime?: BrokerRuntimeContext | undefined
+  runtime?: BrokerRuntimeContext | undefined,
+  invocationId = 'inv_claude_tmux_1'
 ): DriverContext {
   return {
-    invocationId: 'inv_claude_tmux_1',
+    invocationId,
     clientCapabilities: {},
     ...(runtime !== undefined ? { runtime } : {}),
     emit(type, payload, extra) {
       const event = {
-        invocationId: 'inv_claude_tmux_1',
+        invocationId,
         seq: events.length + 1,
         time: now().toISOString(),
         type,
@@ -250,11 +270,15 @@ function createCtx(
   } as DriverContext
 }
 
-function sentLiteralTexts(calls: TmuxExecCall[]): string[] {
-  return calls
-    .map((call) => call.argv)
-    .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
-    .map((argv) => argv.at(-1) ?? '')
+function specWithIds(invocationId: string, runtimeId: string): HarnessInvocationSpec {
+  return {
+    ...claudeTmuxSpec(),
+    invocationId,
+    correlation: {
+      hostSessionId: `host-${runtimeId}`,
+      runtimeId,
+    },
+  }
 }
 
 function pastedTexts(calls: TmuxExecCall[]): string[] {
@@ -311,6 +335,26 @@ function expectNoForbiddenLifecycleVerbs(calls: TmuxExecCall[]): void {
 }
 
 describe('claude-code-tmux driver RED lifecycle', () => {
+  test('default hook callback socket path is unique per invocation and runtime', async () => {
+    const buildSocketPath = await loadSocketPathBuilder()
+    const first = buildSocketPath('/tmp/harness-broker', {
+      invocationId: 'inv_first_concurrent',
+      runtimeId: 'runtime-first-concurrent',
+    })
+    const second = buildSocketPath('/tmp/harness-broker', {
+      invocationId: 'inv_second_concurrent',
+      runtimeId: 'runtime-second-concurrent',
+    })
+
+    expect(first).not.toBe('/tmp/harness-broker/claude-hooks.sock')
+    expect(second).not.toBe('/tmp/harness-broker/claude-hooks.sock')
+    expect(first).not.toBe(second)
+    expect(first).toContain('inv_first_conc')
+    expect(first).toContain('runtime-first-c')
+    expect(second).toContain('inv_second_con')
+    expect(second).toContain('runtime-second-')
+  })
+
   test('start reports the leased tmux pane surface with the driver envelope', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
@@ -463,6 +507,97 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     ).toEqual(['turn.started', 'tool.call.started', 'turn.completed'])
   })
 
+  test('second concurrent hook listener ignores stale envelopes from the first invocation', async () => {
+    const createDriver = await loadFactory()
+    const firstTmuxCalls: TmuxExecCall[] = []
+    const secondTmuxCalls: TmuxExecCall[] = []
+    const firstEvents: InvocationEventEnvelope[] = []
+    const secondEvents: InvocationEventEnvelope[] = []
+    const hookHandlers: Array<(envelope: HookEnvelope) => Promise<void>> = []
+    const listenerMetas: HookListenerMeta[] = []
+
+    const firstDriver = createDriver({
+      tmux: {
+        tmuxBin: '/opt/bin/tmux',
+        exec: createRecordingExec(firstTmuxCalls),
+      },
+      hooks: {
+        listen: async (handler, meta?: HookListenerMeta) => {
+          hookHandlers.push(handler as (envelope: HookEnvelope) => Promise<void>)
+          if (meta !== undefined) listenerMetas.push(meta)
+          return {
+            socketPath: `/tmp/harness-broker/claude-hooks.${meta?.invocationId ?? 'missing'}.sock`,
+            close: async () => undefined,
+          }
+        },
+      },
+      now,
+    })
+    const secondDriver = createDriver({
+      tmux: {
+        tmuxBin: '/opt/bin/tmux',
+        exec: createRecordingExec(secondTmuxCalls),
+      },
+      hooks: {
+        listen: async (handler, meta?: HookListenerMeta) => {
+          hookHandlers.push(handler as (envelope: HookEnvelope) => Promise<void>)
+          if (meta !== undefined) listenerMetas.push(meta)
+          return {
+            socketPath: `/tmp/harness-broker/claude-hooks.${meta?.invocationId ?? 'missing'}.sock`,
+            close: async () => undefined,
+          }
+        },
+      },
+      now,
+    })
+
+    await firstDriver.start(
+      specWithIds('inv_first_concurrent', 'runtime-first-concurrent'),
+      createCtx(firstEvents, { terminalSurface: defaultLease() }, 'inv_first_concurrent')
+    )
+    await secondDriver.start(
+      specWithIds('inv_second_concurrent', 'runtime-second-concurrent'),
+      createCtx(secondEvents, { terminalSurface: defaultLease() }, 'inv_second_concurrent')
+    )
+
+    expect(listenerMetas).toEqual([
+      { invocationId: 'inv_first_concurrent', runtimeId: 'runtime-first-concurrent' },
+      { invocationId: 'inv_second_concurrent', runtimeId: 'runtime-second-concurrent' },
+    ])
+
+    const secondHandler = hookHandlers[1]
+    if (secondHandler === undefined) throw new Error('second hook handler was not captured')
+
+    await secondHandler({
+      invocationId: 'inv_first_concurrent',
+      generation: 1,
+      callbackSocket: '/tmp/harness-broker/claude-hooks.inv_first_concurrent.sock',
+      runtimeId: 'runtime-first-concurrent',
+      turnId: 'turn_foreign_1',
+      hookData: {
+        hook_event_name: 'MessageDisplay',
+        message_id: 'msg_foreign_1',
+        index: 0,
+        delta: 'foreign assistant text',
+        final: true,
+      },
+    })
+    await secondHandler({
+      invocationId: 'inv_first_concurrent',
+      generation: 1,
+      callbackSocket: '/tmp/harness-broker/claude-hooks.inv_first_concurrent.sock',
+      runtimeId: 'runtime-first-concurrent',
+      turnId: 'turn_foreign_1',
+      hookData: {
+        hook_event_name: 'Stop',
+        last_assistant_message: 'foreign assistant text',
+      },
+    })
+
+    expect(secondEvents.map((event) => event.type)).toEqual(['terminal.surface.reported'])
+    expect(JSON.stringify(secondEvents)).not.toContain('foreign assistant text')
+  })
+
   test('start installs a real Claude hook bridge in the tmux launch, not only broker env vars', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
@@ -485,6 +620,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const artifact = launchArtifact(tmuxCalls)
     expect(artifact.argv).toContain('/opt/bin/claude')
     expect(artifact.env?.['HARNESS_BROKER_INVOCATION_ID']).toBe('inv_claude_tmux_1')
+    expect(artifact.env?.['HARNESS_BROKER_RUNTIME_ID']).toBe('runtime-driver-red')
     expect(artifact.env?.['HARNESS_BROKER_CALLBACK_SOCKET']).toBe(
       '/tmp/harness-broker/claude-hooks.sock'
     )
@@ -516,9 +652,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     // send-keys -l. The command runs the real launch-runner module against the
     // JSON launch artifact written beside the hook socket.
     const launchSetBuffer = tmuxArgv(tmuxCalls).find(
-      (argv) =>
-        argv.includes('set-buffer') &&
-        (argv.at(-1) ?? '').includes('tmux-launch-runner')
+      (argv) => argv.includes('set-buffer') && (argv.at(-1) ?? '').includes('tmux-launch-runner')
     )
     expect(launchSetBuffer?.at(-1)).toMatch(
       /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \/tmp\/harness-broker\/claude-hooks\.sock\.claude\.launch\.json$/

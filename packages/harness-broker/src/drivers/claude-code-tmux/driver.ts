@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type {
@@ -61,6 +62,11 @@ export interface HookListenerHandle {
   close: () => Promise<void>
 }
 
+export interface HookListenerContext {
+  invocationId: string
+  runtimeId?: string | undefined
+}
+
 /** Receives normalized hook envelopes posted by the in-pane Claude hook CLI. */
 export type HookEnvelopeHandler = (envelope: ClaudeCodeHookEnvelope) => Promise<void>
 
@@ -78,7 +84,10 @@ export interface ClaudeCodeTmuxDriverOptions {
     exec?: TmuxExec | undefined
   }
   hooks: {
-    listen: (handler: HookEnvelopeHandler) => Promise<HookListenerHandle>
+    listen: (
+      handler: HookEnvelopeHandler,
+      context: HookListenerContext
+    ) => Promise<HookListenerHandle>
     /**
      * Executable that the in-pane Claude hook settings overlay invokes to POST
      * each hook payload to the broker callback socket. Broker-owned (H3); no
@@ -258,8 +267,22 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         now,
         allocateTurnId,
       })
+      const expectedRuntimeId = getInvocationRuntimeId(spec)
       hookDrain = Promise.resolve()
       const handleHookEnvelope = async (envelope: ClaudeCodeHookEnvelope): Promise<void> => {
+        if (envelope.invocationId !== driverCtx.invocationId) {
+          return
+        }
+        if (
+          expectedRuntimeId !== undefined &&
+          envelope.runtimeId !== undefined &&
+          envelope.runtimeId !== expectedRuntimeId
+        ) {
+          return
+        }
+        if (hookListener !== undefined && envelope.callbackSocket !== hookListener.socketPath) {
+          return
+        }
         // H2: when neither the envelope nor the raw hook carries a turn id, fall
         // back to the driver-tracked active broker turn id so turn lifecycle
         // events still resolve to the live turn. The fallback is only injected
@@ -290,13 +313,19 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           }
         }
       }
-      hookListener = await options.hooks.listen((envelope) => {
-        hookDrain = hookDrain.then(
-          () => handleHookEnvelope(envelope),
-          () => handleHookEnvelope(envelope)
-        )
-        return hookDrain
-      })
+      hookListener = await options.hooks.listen(
+        (envelope) => {
+          hookDrain = hookDrain.then(
+            () => handleHookEnvelope(envelope),
+            () => handleHookEnvelope(envelope)
+          )
+          return hookDrain
+        },
+        {
+          invocationId: driverCtx.invocationId,
+          ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+        }
+      )
 
       // T-01725 Q3: report-back. Echo the lease ids exactly so consumers can
       // confirm the lease the driver is operating from matches what HRC
@@ -323,6 +352,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // invoke hooks.
       const launchCommand = await buildLaunchCommandLine(spec, driverCtx, {
         invocationId: driverCtx.invocationId,
+        ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
         callbackSocket: hookListener.socketPath,
         bridgeCommand: options.hooks.bridgeCommand,
       })
@@ -406,6 +436,10 @@ function extractText(input: InvocationInput): string {
     .join('')
 }
 
+function getInvocationRuntimeId(spec: HarnessInvocationSpec): string | undefined {
+  return spec.correlation?.['runtimeId']
+}
+
 /** Claude Code hook events the broker overlay subscribes to. */
 const HOOK_EVENT_NAMES = [
   'SessionStart',
@@ -449,7 +483,12 @@ export function buildClaudeHookSettingsOverlay(options: {
 async function buildLaunchCommandLine(
   spec: HarnessInvocationSpec,
   ctx: DriverContext,
-  hookEnv: { invocationId: string; callbackSocket: string; bridgeCommand?: string | undefined }
+  hookEnv: {
+    invocationId: string
+    runtimeId?: string | undefined
+    callbackSocket: string
+    bridgeCommand?: string | undefined
+  }
 ): Promise<string> {
   const env = {
     ...spec.process.lockedEnv,
@@ -458,6 +497,7 @@ async function buildLaunchCommandLine(
     HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
     HARNESS_BROKER_HOOK_EVENTS: HOOK_EVENT_NAMES.join(','),
     HARNESS_BROKER_HOOK_GENERATION: '1',
+    ...(hookEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId } : {}),
   }
   const launchArgs = await buildArgsWithMergedSettings(spec.process.args, hookEnv)
   const launch = await writeTmuxLaunchExecFiles(`${hookEnv.callbackSocket}.claude`, {
@@ -541,9 +581,23 @@ export function createDefaultClaudeCodeTmuxDriver(): Driver {
   return createClaudeCodeTmuxDriver({
     tmux: {},
     hooks: {
-      listen: (handler) => listenForHookEnvelopes(join(socketDir, 'claude-hooks.sock'), handler),
+      listen: (handler, context) =>
+        listenForHookEnvelopes(buildClaudeHookSocketPath(socketDir, context), handler),
     },
   })
+}
+
+export function buildClaudeHookSocketPath(socketDir: string, context: HookListenerContext): string {
+  const invocationToken = shortSocketToken(context.invocationId, 'inv')
+  const runtimeToken = shortSocketToken(context.runtimeId ?? 'runtime-unknown', 'rt')
+  return join(socketDir, `claude-hooks.${invocationToken}.${runtimeToken}.${process.pid}.sock`)
+}
+
+function shortSocketToken(value: string, fallback: string): string {
+  const normalized = value.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '')
+  const prefix = (normalized.length > 0 ? normalized : fallback).slice(0, 16)
+  const digest = createHash('sha256').update(value).digest('hex').slice(0, 6)
+  return `${prefix}-${digest}`
 }
 
 async function listenForHookEnvelopes(
