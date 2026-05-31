@@ -34,6 +34,7 @@ export type InvocationEventType =
   | 'invocation.failed'
   | 'invocation.disposed'
   | 'continuation.updated'
+  | 'continuation.cleared'
   | 'input.accepted'
   | 'input.rejected'
   | 'input.queued'
@@ -63,6 +64,7 @@ export type InvocationEventPayload =
   | InvocationFailedPayload
   | InvocationDisposedPayload
   | ContinuationUpdate
+  | ContinuationCleared
   | InputDispositionPayload
   | TurnStartedPayload
   | TurnCompletedPayload
@@ -105,6 +107,17 @@ export interface ContinuationUpdate {
   provider: string
   key: string
   kind?: string | undefined
+}
+
+/**
+ * Drop a previously-captured continuation so the next launch starts a FRESH
+ * session instead of resuming. Emitted when the harness observes a
+ * USER-INITIATED end (e.g. Claude `/quit`), as opposed to an external
+ * pane-kill / crash where the continuation must survive for `--resume`.
+ * `reason` carries the raw driver end-reason for diagnostics.
+ */
+export interface ContinuationCleared {
+  reason?: string | undefined
 }
 
 export interface TurnStartedPayload {

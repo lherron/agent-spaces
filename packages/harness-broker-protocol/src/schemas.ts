@@ -210,6 +210,7 @@ const eventTypes = new Set<InvocationEventType>([
   'invocation.failed',
   'invocation.disposed',
   'continuation.updated',
+  'continuation.cleared',
   'input.accepted',
   'input.rejected',
   'input.queued',

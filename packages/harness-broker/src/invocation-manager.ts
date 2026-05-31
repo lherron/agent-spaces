@@ -282,6 +282,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       case 'continuation.updated':
         inv.continuation = event.payload as ContinuationUpdate
         return
+      case 'continuation.cleared':
+        inv.continuation = undefined
+        return
     }
   }
 

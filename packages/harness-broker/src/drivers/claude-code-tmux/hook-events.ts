@@ -11,6 +11,16 @@ import { createInvocationEventSequencer } from '../../events'
 
 export const CLAUDE_CODE_TMUX_DRIVER_KIND = 'claude-code-tmux'
 
+/**
+ * Claude `SessionEnd` reasons that mean the OPERATOR deliberately ended the
+ * conversation, so the captured continuation must be dropped (next launch is
+ * fresh). An external pane-kill / crash reports `other` (or fires no SessionEnd
+ * at all) and is intentionally absent here, so `--resume` durability survives
+ * pane recreation (T-01761 ariadne case). Verified against claude 2.1.158:
+ * `/quit` -> `prompt_input_exit`; external tmux pane kill -> `other`.
+ */
+const USER_INITIATED_END_REASONS = new Set(['prompt_input_exit', 'logout', 'clear'])
+
 export type ClaudeCodeHookEventNormalizer = {
   normalizeHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
   normalizeToolCallFailure: (failure: {
@@ -334,6 +344,24 @@ export function createClaudeCodeHookEventNormalizer(
       }
 
       if (rawType === 'Stop' || rawType === 'SessionEnd' || rawType === 'SubagentStop') {
+        // A user-initiated SessionEnd (Claude `/quit`, `/logout`, `/clear`)
+        // means the operator deliberately ended the conversation: DROP the
+        // captured continuation so the next launch starts fresh instead of
+        // `--resume`-ing the quit session. External pane-kill / crash reports
+        // reason `other` (or no SessionEnd), which we ignore so resume
+        // durability survives pane recreation (T-01761 ariadne case).
+        const prefix: InvocationEventEnvelope[] = []
+        if (rawType === 'SessionEnd') {
+          const endReason = getString(unwrapped, 'reason')
+          if (endReason !== undefined && USER_INITIATED_END_REASONS.has(endReason)) {
+            prefix.push(
+              emit(rawType, {
+                type: 'continuation.cleared',
+                payload: { reason: endReason },
+              })
+            )
+          }
+        }
         // Terminal assistant message is sourced from Stop's authoritative
         // `last_assistant_message`, NOT from a held MessageDisplay (T-01722
         // Phase G flake fix). Claude fires the terminal MessageDisplay{final:true}
@@ -373,7 +401,7 @@ export function createClaudeCodeHookEventNormalizer(
           events = flushHeldAssistantMessage(true, turnId)
         }
         if (turnIdText === undefined || turnId === undefined || completedTurns.has(turnIdText)) {
-          return events
+          return [...prefix, ...events]
         }
         // Emit exactly one terminal for this turn, mark it terminal for dedupe,
         // and clear the active turn when it matches so the NEXT turn-id-less
@@ -390,7 +418,7 @@ export function createClaudeCodeHookEventNormalizer(
             turnId,
           })
         )
-        return events
+        return [...prefix, ...events]
       }
 
       if (rawType === 'PreCompact') {

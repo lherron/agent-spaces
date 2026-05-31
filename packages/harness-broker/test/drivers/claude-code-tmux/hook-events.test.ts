@@ -441,6 +441,54 @@ describe('claude-code-tmux hook event normalization', () => {
     }
   )
 
+  test.each(['prompt_input_exit', 'logout', 'clear'])(
+    'SessionEnd reason=%s drops the continuation (continuation.cleared before turn.completed)',
+    async (reason) => {
+      const events = (await createNormalizer()).normalizeHook({
+        hook_event_name: 'SessionEnd',
+        turn_id: turnId,
+        reason,
+      })
+
+      expect(eventTypes(events)).toEqual(['continuation.cleared', 'turn.completed'])
+      expect(events[0]).toMatchObject({
+        type: 'continuation.cleared',
+        payload: { reason },
+        driver: { kind: 'claude-code-tmux', rawType: 'SessionEnd' },
+      })
+    }
+  )
+
+  test('SessionEnd reason=other (external pane-kill) keeps the continuation', async () => {
+    const events = (await createNormalizer()).normalizeHook({
+      hook_event_name: 'SessionEnd',
+      turn_id: turnId,
+      reason: 'other',
+    })
+
+    expect(eventTypes(events)).not.toContain('continuation.cleared')
+    expect(eventTypes(events)).toEqual(['turn.completed'])
+  })
+
+  test('SessionEnd with no reason keeps the continuation', async () => {
+    const events = (await createNormalizer()).normalizeHook({
+      hook_event_name: 'SessionEnd',
+      turn_id: turnId,
+    })
+
+    expect(eventTypes(events)).not.toContain('continuation.cleared')
+  })
+
+  test('Stop never emits continuation.cleared even with a user-exit reason', async () => {
+    const events = (await createNormalizer()).normalizeHook({
+      hook_event_name: 'Stop',
+      turn_id: turnId,
+      reason: 'prompt_input_exit',
+    })
+
+    expect(eventTypes(events)).not.toContain('continuation.cleared')
+  })
+
   test('PreCompact emits diagnostic with harness source and compaction details', async () => {
     const event = await single({
       hook_event_name: 'PreCompact',
