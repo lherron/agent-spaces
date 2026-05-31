@@ -14,6 +14,7 @@ const PACKAGES = [
   'packages/execution',
   'packages/harness-broker-protocol',
   'packages/harness-broker-client',
+  'packages/harness-broker',
   'packages/spaces-runtime-contracts',
   'packages/aspc-protocol',
   'packages/harness-claude',
@@ -21,6 +22,7 @@ const PACKAGES = [
   'packages/harness-pi',
   'packages/harness-pi-sdk',
   'packages/agent-spaces',
+  'packages/aspc',
 ] as const
 
 type Manifest = {
