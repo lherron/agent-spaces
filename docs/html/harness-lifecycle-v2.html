@@ -1,0 +1,1730 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Harness Lifecycle Contract v2</title>
+    <style>
+      :root {
+        --paper: #fbfaf6;
+        --ink: #151817;
+        --muted: #5f6663;
+        --quiet: #8a928d;
+        --line: #d8ddda;
+        --line-strong: #aab5af;
+        --panel: #ffffff;
+        --field: #eef3f1;
+        --retention: #b3322a;
+        --retention-soft: #ffe8e4;
+        --recovery: #00716f;
+        --recovery-soft: #ddf3ef;
+        --retry: #976800;
+        --retry-soft: #fff1c7;
+        --hrc: #1c7560;
+        --broker: #a15d12;
+        --asp: #8d3430;
+        --danger: #ba2835;
+        --ok: #287a4d;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+        --sans: "Avenir Next", "Gill Sans", "Trebuchet MS", Verdana, sans-serif;
+        --shadow: 0 16px 38px rgba(26, 31, 29, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      html,
+      body {
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(90deg, rgba(21, 24, 23, 0.035) 1px, transparent 1px) 0 0 / 30px 30px,
+          linear-gradient(0deg, rgba(21, 24, 23, 0.024) 1px, transparent 1px) 0 0 / 30px 30px,
+          var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.55;
+      }
+
+      a {
+        color: var(--recovery);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      code,
+      pre {
+        font-family: var(--mono);
+      }
+
+      .page {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        height: 100vh;
+        overflow: auto;
+        border-right: 1px solid var(--line);
+        background: rgba(251, 250, 246, 0.94);
+        backdrop-filter: blur(14px);
+        padding: 28px 20px;
+      }
+
+      .brand {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 24px;
+      }
+
+      .brand-kicker,
+      .eyebrow,
+      .label,
+      .badge,
+      .metric-label,
+      .caption,
+      .compare-action,
+      .phase-num {
+        font-family: var(--mono);
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .brand-kicker {
+        color: var(--retention);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .brand-title {
+        font-family: var(--serif);
+        font-size: 29px;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .brand-subtitle {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .nav {
+        display: grid;
+        gap: 7px;
+        margin: 0 0 26px;
+      }
+
+      .nav a {
+        border: 1px solid transparent;
+        border-radius: 8px;
+        color: var(--ink);
+        display: block;
+        font-size: 13px;
+        font-weight: 800;
+        line-height: 1.2;
+        padding: 10px 11px;
+        text-decoration: none;
+      }
+
+      .nav a:hover,
+      .nav a:focus {
+        border-color: var(--line-strong);
+        background: var(--panel);
+      }
+
+      .sidebar-note {
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+        padding-top: 18px;
+      }
+
+      main {
+        min-width: 0;
+      }
+
+      .content {
+        width: min(1210px, calc(100vw - 300px));
+        max-width: 100%;
+        padding: 42px 48px 76px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.02fr) minmax(330px, 0.78fr);
+        gap: 28px;
+        align-items: start;
+      }
+
+      .hero-copy {
+        border-top: 10px solid var(--retention);
+        padding-top: 26px;
+      }
+
+      .eyebrow {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        margin-bottom: 12px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        letter-spacing: 0;
+      }
+
+      h1 {
+        font-family: var(--serif);
+        font-size: clamp(42px, 5.8vw, 68px);
+        line-height: 1.03;
+        margin: 0 0 18px;
+        max-width: 880px;
+      }
+
+      h2 {
+        align-items: end;
+        border-top: 2px solid var(--ink);
+        display: flex;
+        font-family: var(--serif);
+        font-size: clamp(30px, 4vw, 45px);
+        gap: 14px;
+        line-height: 1.06;
+        margin: 48px 0 18px;
+        padding-top: 18px;
+      }
+
+      h2 .section-num {
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h3 {
+        font-family: var(--serif);
+        font-size: 23px;
+        line-height: 1.12;
+        margin: 0 0 10px;
+      }
+
+      p {
+        margin: 0 0 14px;
+      }
+
+      ul {
+        margin: 0;
+        padding: 0;
+      }
+
+      li {
+        list-style: none;
+      }
+
+      .lead {
+        color: #303634;
+        font-family: var(--serif);
+        font-size: clamp(21px, 2.4vw, 28px);
+        line-height: 1.2;
+        max-width: 860px;
+      }
+
+      .section-intro {
+        color: var(--muted);
+        line-height: 1.55;
+        max-width: 890px;
+        margin-bottom: 18px;
+      }
+
+      .section-intro strong {
+        color: var(--ink);
+      }
+
+      .decision-board {
+        align-self: start;
+        background: var(--panel);
+        border: 1px solid var(--ink);
+        box-shadow: var(--shadow);
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+      }
+
+      .board-heading {
+        border-bottom: 1px solid var(--line);
+        display: grid;
+        gap: 6px;
+        padding: 0 0 12px;
+      }
+
+      .board-heading .caption {
+        color: var(--retention);
+        font-size: 12px;
+        font-weight: 900;
+      }
+
+      .board-heading p {
+        color: var(--muted);
+        font-size: 13px;
+        margin: 0;
+      }
+
+      .decision-item {
+        border-left: 8px solid var(--line-strong);
+        display: grid;
+        gap: 5px;
+        padding: 11px 0 11px 14px;
+      }
+
+      .decision-item + .decision-item {
+        border-top: 1px solid var(--line);
+      }
+
+      .decision-item.retention {
+        border-left-color: var(--retention);
+      }
+
+      .decision-item.recovery {
+        border-left-color: var(--recovery);
+      }
+
+      .decision-item.retry {
+        border-left-color: var(--retry);
+      }
+
+      .decision-title {
+        font-family: var(--serif);
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1.05;
+      }
+
+      .decision-copy {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .callout {
+        background: var(--ink);
+        color: white;
+        display: grid;
+        gap: 12px;
+        grid-column: 1 / -1;
+        margin-top: 6px;
+        padding: 18px;
+      }
+
+      .callout blockquote {
+        border: 0;
+        color: white;
+        font-family: var(--serif);
+        font-size: clamp(21px, 2.4vw, 30px);
+        line-height: 1.12;
+        margin: 0;
+      }
+
+      .callout .caption {
+        color: #c8cfcc;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+        min-width: 0;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid.four {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .panel,
+      .policy-card,
+      .owner-card,
+      .flow-card,
+      .event-card,
+      .gate,
+      .phase,
+      .driver-card,
+      .failure-card,
+      .compare-card {
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        min-width: 0;
+        padding: 18px;
+      }
+
+      .panel.strong,
+      .policy-card.strong {
+        border-color: var(--ink);
+        box-shadow: var(--shadow);
+      }
+
+      .badge {
+        align-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        display: inline-flex;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1;
+        min-height: 24px;
+        padding: 6px 9px;
+        white-space: nowrap;
+      }
+
+      .badge.retention {
+        background: var(--retention-soft);
+        border-color: #efb3ab;
+        color: var(--retention);
+      }
+
+      .badge.recovery {
+        background: var(--recovery-soft);
+        border-color: #9bd4cf;
+        color: var(--recovery);
+      }
+
+      .badge.retry {
+        background: var(--retry-soft);
+        border-color: #e2c464;
+        color: #755000;
+      }
+
+      .badge.hrc {
+        background: #e3f3ec;
+        border-color: #a7d3c5;
+        color: var(--hrc);
+      }
+
+      .badge.broker {
+        background: #fff0df;
+        border-color: #e4b27e;
+        color: var(--broker);
+      }
+
+      .badge.asp {
+        background: #f7e6e3;
+        border-color: #dfada8;
+        color: var(--asp);
+      }
+
+      .inline-code {
+        background: #eef2f1;
+        border: 1px solid #d5ddda;
+        border-radius: 5px;
+        color: #111615;
+        font-family: var(--mono);
+        font-size: 0.92em;
+        overflow-wrap: anywhere;
+        padding: 1px 5px;
+      }
+
+      .label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .minor {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .thesis-grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 0.9fr 1.1fr;
+      }
+
+      .metric-row {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 12px;
+      }
+
+      .metric {
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+      }
+
+      .metric-label {
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      .metric-value {
+        font-family: var(--serif);
+        font-size: 23px;
+        font-weight: 700;
+        line-height: 1.05;
+        margin-top: 4px;
+      }
+
+      .takeaway-strip {
+        border-top: 2px solid var(--ink);
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin: 20px 0 0;
+        padding-top: 14px;
+      }
+
+      .takeaway {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .takeaway strong {
+        font-family: var(--serif);
+        font-size: 21px;
+        line-height: 1.05;
+      }
+
+      .takeaway span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .policy-card {
+        border-top: 10px solid var(--line-strong);
+        display: grid;
+        gap: 12px;
+        min-height: 285px;
+      }
+
+      .policy-card.retention {
+        border-top-color: var(--retention);
+      }
+
+      .policy-card.recovery {
+        border-top-color: var(--recovery);
+      }
+
+      .policy-card.retry {
+        border-top-color: var(--retry);
+      }
+
+      .policy-head {
+        align-items: center;
+        display: grid;
+        gap: 12px;
+        grid-template-columns: 54px minmax(0, 1fr);
+      }
+
+      .shape {
+        align-items: center;
+        color: white;
+        display: flex;
+        font-family: var(--mono);
+        font-size: 18px;
+        font-weight: 900;
+        height: 44px;
+        justify-content: center;
+        width: 44px;
+      }
+
+      .shape.circle {
+        background: var(--retention);
+        border-radius: 50%;
+      }
+
+      .shape.square {
+        background: var(--recovery);
+        border-radius: 6px;
+      }
+
+      .shape.diamond {
+        background: var(--retry);
+        transform: rotate(45deg);
+      }
+
+      .shape.diamond span {
+        transform: rotate(-45deg);
+      }
+
+      .check-list {
+        display: grid;
+        gap: 0;
+      }
+
+      .check-list li {
+        border-top: 1px solid var(--line);
+        padding: 9px 0;
+      }
+
+      .owner-map {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: minmax(0, 1fr) 46px minmax(0, 1fr) 46px minmax(0, 1fr);
+        align-items: stretch;
+        margin-top: 18px;
+      }
+
+      .owner-card {
+        border: 2px solid var(--line);
+        border-top-width: 12px;
+      }
+
+      .owner-card.asp {
+        border-top-color: var(--asp);
+      }
+
+      .owner-card.hrc {
+        border-top-color: var(--hrc);
+      }
+
+      .owner-card.broker {
+        border-top-color: var(--broker);
+      }
+
+      .connector {
+        align-items: center;
+        color: var(--quiet);
+        display: flex;
+        font-family: var(--mono);
+        font-size: 24px;
+        font-weight: 800;
+        justify-content: center;
+      }
+
+      .compare-row {
+        border-top: 1px solid var(--line-strong);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 86px minmax(0, 1fr);
+        gap: 16px;
+        margin-top: 18px;
+        padding-top: 18px;
+      }
+
+      .compare-card.before {
+        border-left: 8px solid var(--danger);
+      }
+
+      .compare-card.after {
+        border-left: 8px solid var(--ok);
+      }
+
+      .compare-action {
+        align-items: center;
+        color: var(--muted);
+        display: flex;
+        font-size: 12px;
+        font-weight: 800;
+        justify-content: center;
+      }
+
+      .code-panel {
+        background: #101312;
+        border-radius: 8px;
+        color: #f4f7f5;
+        max-width: 100%;
+        overflow: auto;
+        padding: 18px;
+      }
+
+      .code-panel pre {
+        font-size: 13px;
+        line-height: 1.52;
+        margin: 0;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+
+      .figure-caption {
+        border-left: 4px solid var(--line-strong);
+        color: var(--muted);
+        font-size: 13px;
+        margin: 10px 0 18px;
+        max-width: 78ch;
+        padding-left: 12px;
+      }
+
+      .figure-caption strong {
+        color: var(--ink);
+      }
+
+      .overlay-board {
+        background: linear-gradient(180deg, #ffffff 0%, #f7fbf9 100%);
+        border: 1px solid var(--ink);
+        box-shadow: var(--shadow);
+        display: grid;
+        gap: 0;
+      }
+
+      .overlay-row {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: 220px minmax(0, 1fr);
+        padding: 16px 18px;
+      }
+
+      .overlay-row + .overlay-row {
+        border-top: 1px solid var(--line);
+      }
+
+      .overlay-row .label {
+        color: var(--ink);
+      }
+
+      .swimlane {
+        display: grid;
+        gap: 12px;
+      }
+
+      .flow-card {
+        align-items: start;
+        display: grid;
+        gap: 14px;
+        grid-template-columns: 58px minmax(0, 1fr);
+      }
+
+      .flow-card::before {
+        align-items: center;
+        background: var(--ink);
+        border-radius: 50%;
+        color: white;
+        content: attr(data-step);
+        display: flex;
+        font-family: var(--mono);
+        font-size: 13px;
+        font-weight: 900;
+        height: 42px;
+        justify-content: center;
+        width: 42px;
+      }
+
+      .lane-title {
+        align-items: center;
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .state-strip {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        margin: 18px 0;
+      }
+
+      .state-node {
+        align-items: center;
+        background: var(--panel);
+        border: 2px solid var(--line);
+        border-radius: 999px;
+        display: flex;
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 800;
+        justify-content: center;
+        min-height: 44px;
+        padding: 8px 10px;
+        text-align: center;
+      }
+
+      .state-node.hot {
+        border-color: var(--retention);
+        color: var(--retention);
+      }
+
+      .state-node.ready {
+        border-color: var(--recovery);
+        color: var(--recovery);
+      }
+
+      .state-node.term {
+        border-color: var(--ink);
+        color: var(--ink);
+      }
+
+      .event-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .event-card {
+        display: grid;
+        gap: 8px;
+      }
+
+      .event-name {
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 13px;
+        font-weight: 900;
+        overflow-wrap: anywhere;
+      }
+
+      .event-card.policy {
+        border-left: 8px solid var(--retention);
+      }
+
+      .event-card.harness {
+        border-left: 8px solid var(--recovery);
+      }
+
+      .event-card.turn {
+        border-left: 8px solid var(--retry);
+      }
+
+      .event-card.permission {
+        border-left: 8px solid var(--danger);
+      }
+
+      .projection-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .projection {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-left: 8px solid var(--hrc);
+        border-radius: 8px;
+        display: grid;
+        gap: 7px;
+        padding: 16px;
+      }
+
+      .projection .event-name {
+        color: var(--hrc);
+      }
+
+      .driver-card {
+        display: grid;
+        gap: 12px;
+      }
+
+      .driver-matrix {
+        display: grid;
+        gap: 8px;
+      }
+
+      .driver-row {
+        border-top: 1px solid var(--line);
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 92px minmax(0, 1fr);
+        padding-top: 9px;
+      }
+
+      .driver-row strong {
+        font-family: var(--mono);
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      .failure-card {
+        border-left: 8px solid var(--line-strong);
+      }
+
+      .failure-card.ok {
+        border-left-color: var(--ok);
+      }
+
+      .failure-card.warn {
+        border-left-color: var(--retry);
+      }
+
+      .failure-card.stop {
+        border-left-color: var(--danger);
+      }
+
+      .gate-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .gate {
+        display: grid;
+        gap: 8px;
+      }
+
+      .gate::before {
+        background: var(--ok);
+        content: "";
+        height: 8px;
+        width: 34px;
+      }
+
+      .phase-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .phase {
+        align-items: start;
+        display: grid;
+        gap: 14px;
+        grid-template-columns: 70px minmax(0, 1fr);
+      }
+
+      .phase-num {
+        align-items: center;
+        background: var(--ink);
+        border-radius: 8px;
+        color: white;
+        display: flex;
+        font-size: 12px;
+        font-weight: 900;
+        justify-content: center;
+        min-height: 44px;
+        padding: 8px;
+      }
+
+      .verdict {
+        background: var(--ink);
+        color: white;
+        display: grid;
+        gap: 16px;
+        margin-top: 18px;
+        padding: 22px;
+      }
+
+      .verdict h3,
+      .verdict p {
+        color: white;
+      }
+
+      .verdict .check-list li {
+        border-top-color: rgba(255, 255, 255, 0.18);
+      }
+
+      footer {
+        border-top: 2px solid var(--ink);
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 54px;
+        padding-top: 18px;
+      }
+
+      @media (max-width: 1100px) {
+        .page {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          border-bottom: 1px solid var(--line);
+          border-right: 0;
+          height: auto;
+          position: relative;
+        }
+
+        .nav {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .content {
+          width: 100%;
+          padding: 34px 24px 64px;
+        }
+
+        .hero,
+        .thesis-grid,
+        .takeaway-strip,
+        .grid.four,
+        .grid.three,
+        .owner-map,
+        .event-grid,
+        .state-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .connector {
+          min-height: 22px;
+          transform: rotate(90deg);
+        }
+      }
+
+      @media (max-width: 760px) {
+        body {
+          font-size: 15px;
+        }
+
+        .sidebar {
+          padding: 18px 16px 14px;
+        }
+
+        .brand {
+          margin-bottom: 14px;
+        }
+
+        .nav {
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 6px;
+          margin: 0;
+          overflow-x: visible;
+          padding-bottom: 4px;
+        }
+
+        .nav a {
+          font-size: 11px;
+          min-width: 0;
+          overflow-wrap: anywhere;
+          padding: 7px 4px;
+          text-align: center;
+        }
+
+        .sidebar-note {
+          display: none;
+        }
+
+        .content {
+          padding: 26px 16px 52px;
+        }
+
+        .lead {
+          font-size: 22px;
+        }
+
+        h2 {
+          align-items: start;
+          flex-direction: column;
+          gap: 7px;
+        }
+
+        .grid.two,
+        .compare-row,
+        .metric-row,
+        .overlay-row,
+        .flow-card,
+        .projection-grid,
+        .driver-row,
+        .gate-grid,
+        .phase {
+          grid-template-columns: 1fr;
+        }
+
+        .badge {
+          white-space: normal;
+        }
+
+        .compare-action {
+          justify-content: flex-start;
+          min-height: 24px;
+        }
+
+        .flow-card::before {
+          height: 34px;
+          width: 34px;
+        }
+
+        .policy-head {
+          grid-template-columns: 48px minmax(0, 1fr);
+        }
+
+        .shape {
+          height: 40px;
+          width: 40px;
+        }
+
+        .code-panel {
+          padding: 14px;
+        }
+
+        .code-panel pre {
+          font-size: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar" aria-label="Harness lifecycle navigation">
+        <div class="brand">
+          <div class="brand-kicker">Broker lifecycle</div>
+          <div class="brand-title">Contract v2</div>
+          <div class="brand-subtitle">Visual brief from <span class="inline-code">refactor/PROPOSAL_harness-lifecycle_v2.md</span></div>
+        </div>
+        <nav class="nav" aria-label="Page sections">
+          <a href="#thesis">Thesis</a>
+          <a href="#ownership">Owners</a>
+          <a href="#overlay">Overlay</a>
+          <a href="#policies">Policies</a>
+          <a href="#lifecycle">Flow</a>
+          <a href="#events">Events</a>
+          <a href="#projection">HRC</a>
+          <a href="#drivers">Drivers</a>
+          <a href="#tests">Tests</a>
+          <a href="#phases">Phases</a>
+        </nav>
+        <div class="sidebar-note">
+          Scope: ASP compiler plane, HRC runtime control plane, and Harness Broker execution plane. This page compresses the proposal into reviewable contracts and validation gates.
+        </div>
+      </aside>
+
+      <main>
+        <div class="content">
+          <section class="hero" id="thesis" aria-labelledby="page-title">
+            <div class="hero-copy">
+              <div class="eyebrow">Retention is not recovery. Recovery is not replay.</div>
+              <h1 id="page-title">Split broker lifecycle into three policies with separate safety rules.</h1>
+              <p class="lead">
+                Adopt idle self-retirement and harness generation fencing now. Treat child restart as process recovery. Keep automatic user-turn retry disabled unless a driver can prove the previous attempt did not finish and did not mutate the outside world.
+              </p>
+            </div>
+
+            <div class="decision-board" aria-label="Executive decision summary">
+              <div class="board-heading">
+                <div class="caption">At a glance</div>
+                <p>Read this as a policy-placement correction: one compiled start request, one typed lifecycle overlay, three different safety envelopes.</p>
+              </div>
+              <div class="decision-item retention">
+                <div class="label">HRC policy, broker implemented</div>
+                <div class="decision-title">RuntimeRetentionPolicy</div>
+                <div class="decision-copy">Controls keep-alive and idle TTL only between turns, while the invocation is ready and the input queue is empty.</div>
+              </div>
+              <div class="decision-item recovery">
+                <div class="label">Broker child mechanics</div>
+                <div class="decision-title">HarnessRecoveryPolicy</div>
+                <div class="decision-copy">Owns child exit/stall observation, harness generations, recycle mechanics, process-tree kill, and stale event fencing.</div>
+              </div>
+              <div class="decision-item retry">
+                <div class="label">Semantic replay, default off</div>
+                <div class="decision-title">TurnRetryPolicy</div>
+                <div class="decision-copy">May replay a user turn only when all safe-retry predicates are proven. Unknown evidence fails closed.</div>
+              </div>
+            </div>
+
+            <div class="callout">
+              <div class="caption">Compiler closure invariant</div>
+              <blockquote>
+                Lifecycle policy must not be written by HRC into <span class="inline-code">HarnessInvocationSpec</span> or <span class="inline-code">InvocationStartRequest</span> after ASP compilation.
+              </blockquote>
+            </div>
+          </section>
+
+          <section id="summary" aria-labelledby="summary-title">
+            <h2 id="summary-title"><span class="section-num">00</span> Policy placement is the contract risk</h2>
+            <div class="thesis-grid">
+              <article class="panel strong">
+                <span class="badge retention">Correction</span>
+                <h3>Policy placement is the main fix</h3>
+                <p>
+                  HRC may own runtime lifecycle policy, but the compiled start request remains ASP-owned. The proposal moves lifecycle policy into a typed <span class="inline-code">BrokerLifecyclePolicyOverlay</span> on <span class="inline-code">InvocationDispatchRequest</span>, persisted and hashed separately from the compiled start request.
+                </p>
+                <div class="metric-row">
+                  <div class="metric">
+                    <div class="metric-label">Compiled hash</div>
+                    <div class="metric-value">unchanged</div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-label">Overlay hash</div>
+                    <div class="metric-value">separate</div>
+                  </div>
+                  <div class="metric">
+                    <div class="metric-label">Retry mode</div>
+                    <div class="metric-value">none</div>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel">
+                <span class="badge recovery">Why this matters</span>
+                <h3>Lifecycle ambiguity currently leaks across planes</h3>
+                <ul class="check-list">
+                  <li>Broker-tmux runtimes can remain resident indefinitely.</li>
+                  <li>Hung or dead harness children fall to coarse HRC stale/zombie recovery.</li>
+                  <li>Current tmux driver <span class="inline-code">stop()</span> paths clear broker-side state without proving the harness exited.</li>
+                  <li>No protocol field currently identifies harness generation or turn attempt.</li>
+                  <li>Permission decisions only support <span class="inline-code">allow | deny</span>, so cancellation needs its own event.</li>
+                </ul>
+              </article>
+            </div>
+            <div class="takeaway-strip" aria-label="Executive takeaways">
+              <div class="takeaway">
+                <strong>Do now</strong>
+                <span>Idle self-retirement and generation fencing.</span>
+              </div>
+              <div class="takeaway">
+                <strong>Keep out</strong>
+                <span>HRC-authored policy must not patch compiled mechanics.</span>
+              </div>
+              <div class="takeaway">
+                <strong>Default off</strong>
+                <span>Automatic turn retry remains <span class="inline-code">none</span>.</span>
+              </div>
+              <div class="takeaway">
+                <strong>Gate by proof</strong>
+                <span>Drivers advertise only capabilities their tests prove.</span>
+              </div>
+            </div>
+          </section>
+
+          <section id="ownership" aria-labelledby="ownership-title">
+            <h2 id="ownership-title"><span class="section-num">01</span> HRC owns hard control; broker owns soft lifecycle</h2>
+            <p class="section-intro">
+              <strong>The boundary is a safety contract.</strong> HRC owns durable runtime authority and public lifecycle semantics. The broker owns live harness-child mechanics below the broker boundary. ASP remains the compiler for execution mechanics.
+            </p>
+
+            <div class="owner-map">
+              <article class="owner-card asp">
+                <span class="badge asp">ASP compiler plane</span>
+                <h3>Compiles execution mechanics</h3>
+                <ul class="check-list">
+                  <li>Emits compiled plan and selected profile inputs.</li>
+                  <li>Owns argv/env/cwd, driver spec, continuation encoding, and hashes.</li>
+                  <li>Must recompile if lifecycle policy changes execution mechanics.</li>
+                </ul>
+              </article>
+              <div class="connector" aria-hidden="true">-&gt;</div>
+              <article class="owner-card hrc">
+                <span class="badge hrc">HRC control plane</span>
+                <h3>Owns durable authority</h3>
+                <ul class="check-list">
+                  <li>Owns runtime container, broker process, tmux lease, durable state, public lifecycle policy, reconciliation, and hard reap.</li>
+                  <li>Supplies an admitted terminal lease for tmux routes.</li>
+                  <li>Persists policy hashes and terminal projections transactionally.</li>
+                </ul>
+              </article>
+              <div class="connector" aria-hidden="true">-&gt;</div>
+              <article class="owner-card broker">
+                <span class="badge broker">Broker execution plane</span>
+                <h3>Owns live harness control</h3>
+                <ul class="check-list">
+                  <li>Owns native protocol handling, child supervision, recycle, input disposition, permission requests, and normalized events.</li>
+                  <li>May use driver-private quit text or runner control channels when policy and capability allow.</li>
+                  <li>Must not allocate or mutate tmux lifecycle objects.</li>
+                </ul>
+              </article>
+            </div>
+            <p class="figure-caption"><strong>What to notice:</strong> the arrows are ownership handoffs, not permission to rebuild lower-plane facts. ASP compiles mechanics, HRC admits and persists policy, and the broker emits live harness facts.</p>
+
+            <div class="compare-row">
+              <div class="compare-card before">
+                <span class="badge retention">Too broad</span>
+                <h3>"HRC owns the process"</h3>
+                <p>That phrase blurs durable container authority with live harness-child mechanics and invites HRC to synthesize broker behavior.</p>
+              </div>
+              <div class="compare-action">replace with</div>
+              <div class="compare-card after">
+                <span class="badge recovery">Precise split</span>
+                <h3>HRC owns hard control; broker owns soft lifecycle</h3>
+                <p>HRC can stop, dispose, reconcile, and hard-reap. The broker supervises the harness child and emits the lifecycle facts HRC projects.</p>
+              </div>
+            </div>
+          </section>
+
+          <section id="overlay" aria-labelledby="overlay-title">
+            <h2 id="overlay-title"><span class="section-num">02</span> Keep HRC policy outside the compiled start request</h2>
+            <p class="section-intro">
+              <strong>The overlay preserves compiler closure.</strong> It is typed policy, not environment metadata. It is carried beside the compiled start request, validated against lifecycle capabilities, and audited with its own canonical hash.
+            </p>
+
+            <div class="overlay-board" aria-label="Broker lifecycle policy overlay contract">
+              <div class="overlay-row">
+                <div class="label">Envelope location</div>
+                <div><span class="inline-code">InvocationDispatchRequest.lifecyclePolicy</span>, outside <span class="inline-code">startRequest</span>.</div>
+              </div>
+              <div class="overlay-row">
+                <div class="label">Audit identity</div>
+                <div><span class="inline-code">policyId</span> plus <span class="inline-code">policyHash</span>, persisted before broker invocation starts.</div>
+              </div>
+              <div class="overlay-row">
+                <div class="label">Hash rule</div>
+                <div><span class="inline-code">startRequestHash</span> remains the ASP-compiled start request hash. Lifecycle policy changes do not mutate it.</div>
+              </div>
+              <div class="overlay-row">
+                <div class="label">Fallback rule</div>
+                <div>No silent downgrade from <span class="inline-code">idle-ttl</span>, <span class="inline-code">recycle-child</span>, or guarded retry unless HRC explicitly requested fallback behavior.</div>
+              </div>
+            </div>
+            <p class="figure-caption"><strong>What to notice:</strong> the overlay has its own identity and audit path. If policy changes argv, env, cwd, driver config, or continuation encoding, it is no longer an overlay and must be recompiled by ASP.</p>
+
+            <div class="code-panel" aria-label="Broker lifecycle policy overlay TypeScript">
+              <pre>export interface InvocationDispatchRequest {
+  startRequest: InvocationStartRequest
+  dispatchEnv?: Record&lt;string, string&gt;
+  runtime?: InvocationRuntimeContext
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay
+}
+
+export interface BrokerLifecyclePolicyOverlay {
+  schemaVersion: 'harness-broker.lifecycle-policy/v1'
+  policyId: string
+  policyHash: string
+  retention: RuntimeRetentionPolicy
+  harnessRecovery: HarnessRecoveryPolicy
+  turnRetry: TurnRetryPolicy
+}</pre>
+            </div>
+            <p class="figure-caption"><strong>Contract shape:</strong> <span class="inline-code">startRequest</span> stays byte-stable while lifecycle policy travels as an adjacent typed control-plane field.</p>
+          </section>
+
+          <section id="policies" aria-labelledby="policies-title">
+            <h2 id="policies-title"><span class="section-num">03</span> Separate residency, recovery, and replay</h2>
+            <p class="section-intro">
+              <strong>The three policies answer different questions.</strong> Keeping them separate prevents a healthy process recovery feature from becoming an unsafe user-input replay system.
+            </p>
+
+            <div class="grid three">
+              <article class="policy-card retention strong">
+                <div class="policy-head">
+                  <div class="shape circle">R</div>
+                  <div>
+                    <span class="badge retention">RuntimeRetentionPolicy</span>
+                    <h3>Between-turn residency</h3>
+                  </div>
+                </div>
+                <p>Controls whether a healthy invocation stays alive or self-retires after it is idle.</p>
+                <ul class="check-list">
+                  <li>Modes: <span class="inline-code">keep-alive</span>, <span class="inline-code">idle-ttl</span>, transitional <span class="inline-code">unmanaged</span>.</li>
+                  <li>Idle clock starts only in <span class="inline-code">ready</span>, with no active turn, no pending permission, and an empty input queue.</li>
+                  <li>Retirement emits terminal lifecycle events and no user-turn accounting.</li>
+                </ul>
+              </article>
+
+              <article class="policy-card recovery strong">
+                <div class="policy-head">
+                  <div class="shape square">G</div>
+                  <div>
+                    <span class="badge recovery">HarnessRecoveryPolicy</span>
+                    <h3>Generation-aware child recovery</h3>
+                  </div>
+                </div>
+                <p>Controls observation and repair of the harness child process inside one broker invocation.</p>
+                <ul class="check-list">
+                  <li>Modes: <span class="inline-code">none</span>, <span class="inline-code">observe</span>, <span class="inline-code">recycle-child</span>.</li>
+                  <li>Uses harness generations to fence stale events, hooks, and permissions.</li>
+                  <li>Stall detection must combine no progress with a health signal.</li>
+                </ul>
+              </article>
+
+              <article class="policy-card retry strong">
+                <div class="policy-head">
+                  <div class="shape diamond"><span>T</span></div>
+                  <div>
+                    <span class="badge retry">TurnRetryPolicy</span>
+                    <h3>Semantic replay, fail closed</h3>
+                  </div>
+                </div>
+                <p>Controls whether an accepted user input can be replayed after a failed attempt.</p>
+                <ul class="check-list">
+                  <li>Default: <span class="inline-code">mode:'none'</span>.</li>
+                  <li><span class="inline-code">safe-retry</span> requires no tool call, no pending permission, no assistant final, no mutation evidence, known continuation, and proof the prior turn is incomplete.</li>
+                  <li>Retry keeps the same <span class="inline-code">inputId</span> and logical <span class="inline-code">turnId</span>, then increments <span class="inline-code">turnAttempt</span>.</li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section id="lifecycle" aria-labelledby="lifecycle-title">
+            <h2 id="lifecycle-title"><span class="section-num">04</span> A child exit is not an invocation exit</h2>
+            <p class="section-intro">
+              <strong>Invocation state remains container-level.</strong> Harness generation state is nested under it, so child recycle can repair a generation while the runtime lease and invocation identity remain stable.
+            </p>
+
+            <div class="state-strip" aria-label="Invocation state flow">
+              <div class="state-node">starting</div>
+              <div class="state-node ready">ready</div>
+              <div class="state-node hot">turn_active</div>
+              <div class="state-node">stopping</div>
+              <div class="state-node term">exited / failed</div>
+            </div>
+            <p class="figure-caption"><strong>What to notice:</strong> <span class="inline-code">ready</span> is the safe point for idle retirement; <span class="inline-code">turn_active</span> needs truthful failure or proven retry before recovery can drain queued input.</p>
+
+            <div class="grid two">
+              <article class="panel">
+                <span class="badge retention">Idle TTL flow</span>
+                <h3>Clean self-retirement is a broker terminal fact</h3>
+                <div class="swimlane">
+                  <div class="flow-card" data-step="1">
+                    <div>
+                      <h3>Idle clock expires</h3>
+                      <p>The invocation is <span class="inline-code">ready</span>, no turn is active, no permission is pending, and the input queue is empty.</p>
+                    </div>
+                  </div>
+                  <div class="flow-card" data-step="2">
+                    <div>
+                      <h3>Driver-private retire runs</h3>
+                      <p>The broker emits <span class="inline-code">invocation.stopping</span>, sends native quit or process termination, and suppresses user-turn events.</p>
+                    </div>
+                  </div>
+                  <div class="flow-card" data-step="3">
+                    <div>
+                      <h3>Exit is verified</h3>
+                      <p>The broker emits <span class="inline-code">harness.exited</span> and <span class="inline-code">invocation.exited{reason:'idle-ttl'}</span> after child or runner retirement completes.</p>
+                    </div>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel">
+                <span class="badge recovery">Recycle flow</span>
+                <h3>Process recovery does not replay input</h3>
+                <div class="swimlane">
+                  <div class="flow-card" data-step="1">
+                    <div>
+                      <h3>Generation N fails</h3>
+                      <p>A child exits while ready, or a turn stalls with both no progress and a failed health signal.</p>
+                    </div>
+                  </div>
+                  <div class="flow-card" data-step="2">
+                    <div>
+                      <h3>Broker fences old generation</h3>
+                      <p>Old-generation events become diagnostics only; pending permissions are cancelled with generation and attempt identity.</p>
+                    </div>
+                  </div>
+                  <div class="flow-card" data-step="3">
+                    <div>
+                      <h3>Generation N+1 starts</h3>
+                      <p>The runtime lease and invocation identity remain unchanged. The broker emits <span class="inline-code">harness.started</span> for the new generation and returns to ready if recovery succeeds.</p>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <div class="code-panel" aria-label="Harness generation envelope fields">
+              <pre>export interface InvocationEventEnvelope&lt;TPayload = InvocationEventPayload&gt; {
+  invocationId: InvocationId
+  seq: number
+  time: IsoTimestamp
+  type: InvocationEventType
+  payload: TPayload
+  turnId?: TurnId
+  inputId?: InputId
+  harnessGeneration?: number
+  turnAttempt?: number
+}</pre>
+            </div>
+            <p class="figure-caption"><strong>Identity rule:</strong> generation and attempt live on the event envelope so old hooks, stale permissions, and replay attempts can be fenced consistently across event families.</p>
+          </section>
+
+          <section id="events" aria-labelledby="events-title">
+            <h2 id="events-title"><span class="section-num">05</span> Generation-aware events make recovery auditable</h2>
+            <p class="section-intro">
+              <strong>Lifecycle must be observable as first-class broker facts.</strong> Existing events get narrow extensions; lifecycle policy and generation data do not belong inside <span class="inline-code">invocation.started</span>.
+            </p>
+
+            <div class="event-grid">
+              <article class="event-card policy">
+                <div class="event-name">lifecycle.policy.accepted</div>
+                <p class="minor">Records accepted policy hash and modes after broker validation.</p>
+              </article>
+              <article class="event-card policy">
+                <div class="event-name">lifecycle.escalation</div>
+                <p class="minor">Requests HRC hard reap or operator attention after broker-side recovery cannot proceed.</p>
+              </article>
+              <article class="event-card harness">
+                <div class="event-name">harness.started</div>
+                <p class="minor">Starts generation 1 or a recycled generation with mechanism and optional pid/control socket evidence.</p>
+              </article>
+              <article class="event-card harness">
+                <div class="event-name">harness.exited</div>
+                <p class="minor">Terminates a child generation without automatically terminating the invocation.</p>
+              </article>
+              <article class="event-card harness">
+                <div class="event-name">harness.recovery.started</div>
+                <p class="minor">Captures child-exit, stall, or healthcheck-failed recovery reasons and active turn disposition.</p>
+              </article>
+              <article class="event-card harness">
+                <div class="event-name">harness.recovery.completed</div>
+                <p class="minor">Advances the active harness generation when recycle succeeds.</p>
+              </article>
+              <article class="event-card turn">
+                <div class="event-name">turn.stalled</div>
+                <p class="minor">Reports threshold, no-progress window, health probe, generation, and attempt.</p>
+              </article>
+              <article class="event-card turn">
+                <div class="event-name">turn.retry</div>
+                <p class="minor">Audits a safe retry under the same logical input and turn, with incremented attempt.</p>
+              </article>
+              <article class="event-card permission">
+                <div class="event-name">permission.cancelled</div>
+                <p class="minor">Cancels old-generation permission requests without overloading <span class="inline-code">allow | deny</span>.</p>
+              </article>
+            </div>
+            <p class="figure-caption"><strong>Scan path:</strong> policy events explain what was accepted, harness events explain which child is current, turn events explain attempt semantics, and permission cancellation prevents stale approvals from crossing generations.</p>
+
+            <div class="compare-row">
+              <div class="compare-card before">
+                <span class="badge retention">Avoid</span>
+                <h3>Adding <span class="inline-code">cancelled</span> to permission decisions</h3>
+                <p>The current permission decision contract is only <span class="inline-code">allow | deny</span>. Overloading it would make stale generation handling ambiguous.</p>
+              </div>
+              <div class="compare-action">use</div>
+              <div class="compare-card after">
+                <span class="badge recovery">Required</span>
+                <h3><span class="inline-code">permission.cancelled</span> plus composite identity</h3>
+                <p>Persist uniqueness by globally unique permission IDs or by <span class="inline-code">(invocation_id, harness_generation, turn_attempt, permission_request_id)</span>.</p>
+              </div>
+            </div>
+          </section>
+
+          <section id="projection" aria-labelledby="projection-title">
+            <h2 id="projection-title"><span class="section-num">06</span> Projection must fence stale facts</h2>
+            <p class="section-intro">
+              <strong>HRC's broker event mapper is the only place broker events become runtime/run/message state.</strong> Projection must enforce sequence idempotence, generation equality, and clean terminal ordering.
+            </p>
+
+            <div class="projection-grid">
+              <article class="projection">
+                <div class="event-name">lifecycle.policy.accepted</div>
+                <p>Store accepted policy hash and modes on broker invocation and runtime state.</p>
+              </article>
+              <article class="projection">
+                <div class="event-name">harness.started</div>
+                <p>Set current harness generation and record the generation transition while runtime remains active.</p>
+              </article>
+              <article class="projection">
+                <div class="event-name">turn.retry</div>
+                <p>Add an attempt record under the same logical input and turn. Do not create a second accepted input.</p>
+              </article>
+              <article class="projection">
+                <div class="event-name">invocation.exited{reason:'idle-ttl'}</div>
+                <p>Project clean runtime termination before liveness reconcile can classify the pane as stale.</p>
+              </article>
+              <article class="projection">
+                <div class="event-name">permission.cancelled</div>
+                <p>Mark pending permission stale/cancelled and block late decisions from reaching the current generation.</p>
+              </article>
+              <article class="projection">
+                <div class="event-name">lifecycle.escalation</div>
+                <p>Record broker-requested escalation, then let HRC hard-reap as a control-plane action.</p>
+              </article>
+            </div>
+            <p class="figure-caption"><strong>Projection rule:</strong> event idempotence by <span class="inline-code">(invocationId, seq)</span> is necessary but not sufficient; state-affecting projection also needs generation and attempt checks.</p>
+
+            <div class="code-panel" aria-label="Suggested persistence additions">
+              <pre>ALTER TABLE broker_invocations
+  ADD COLUMN lifecycle_policy_hash TEXT,
+  ADD COLUMN lifecycle_policy_json TEXT,
+  ADD COLUMN current_harness_generation INTEGER DEFAULT 0,
+  ADD COLUMN terminal_reason TEXT;
+
+CREATE TABLE broker_harness_generations (
+  invocation_id TEXT NOT NULL,
+  harness_generation INTEGER NOT NULL,
+  mode TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  exited_at TEXT,
+  exit_reason TEXT,
+  PRIMARY KEY (invocation_id, harness_generation)
+);
+
+CREATE TABLE broker_turn_attempts (
+  invocation_id TEXT NOT NULL,
+  input_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  turn_attempt INTEGER NOT NULL,
+  harness_generation INTEGER,
+  terminal_kind TEXT,
+  terminal_reason TEXT,
+  PRIMARY KEY (invocation_id, turn_id, turn_attempt)
+);</pre>
+            </div>
+            <p class="figure-caption"><strong>Persistence rule:</strong> policy hash, current generation, generation history, and turn attempts need durable homes so HRC restart and liveness reconcile do not reinterpret clean lifecycle facts as stale panes.</p>
+          </section>
+
+          <section id="drivers" aria-labelledby="drivers-title">
+            <h2 id="drivers-title"><span class="section-num">07</span> Drivers advertise only proven lifecycle capability</h2>
+            <p class="section-intro">
+              <strong>Capability is evidence, not intent.</strong> No driver should advertise new lifecycle capability until the corresponding behavior is real and tested. Current tmux <span class="inline-code">stop()</span> implementations are not sufficient for idle retirement.
+            </p>
+
+            <div class="grid three">
+              <article class="driver-card">
+                <span class="badge broker">claude-code-tmux</span>
+                <h3>Enable idle TTL only after real retire</h3>
+                <div class="driver-matrix">
+                  <div class="driver-row"><strong>Retention</strong><span><span class="inline-code">keep-alive</span>; <span class="inline-code">idle-ttl</span> only after driver-private retire.</span></div>
+                  <div class="driver-row"><strong>Recovery</strong><span>Unsupported until runner control, process-tree handling, hook socket rotation, and generation fencing exist.</span></div>
+                  <div class="driver-row"><strong>Retry</strong><span>Unsupported by default.</span></div>
+                </div>
+              </article>
+
+              <article class="driver-card">
+                <span class="badge broker">codex-cli-tmux</span>
+                <h3>Treat like Claude tmux</h3>
+                <div class="driver-matrix">
+                  <div class="driver-row"><strong>Retention</strong><span>Do not advertise <span class="inline-code">idle-ttl</span> until exit is proven.</span></div>
+                  <div class="driver-row"><strong>Recovery</strong><span>Requires the same runner and generation model as other tmux routes.</span></div>
+                  <div class="driver-row"><strong>Retry</strong><span>Unsupported by default.</span></div>
+                </div>
+              </article>
+
+              <article class="driver-card">
+                <span class="badge broker">codex-app-server</span>
+                <h3>Separate timeout from stall recovery</h3>
+                <div class="driver-matrix">
+                  <div class="driver-row"><strong>Retention</strong><span>Can be process/protocol-backed rather than tmux-backed.</span></div>
+                  <div class="driver-row"><strong>Recovery</strong><span>Still needs generation/attempt identity and permission/event fencing.</span></div>
+                  <div class="driver-row"><strong>Retry</strong><span>Unsupported unless protocol proves no completion and no side effects.</span></div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="failures" aria-labelledby="failures-title">
+            <h2 id="failures-title"><span class="section-num">08</span> Truthful failure beats hidden replay</h2>
+            <p class="section-intro">
+              <strong>Recovery should preserve truthful state.</strong> It should not hide uncertainty by converting a stalled or crashed turn into an unproven successful replay.
+            </p>
+
+            <div class="grid three">
+              <article class="failure-card ok">
+                <span class="badge retention">Clean</span>
+                <h3>Idle retire succeeds</h3>
+                <p>Broker emits <span class="inline-code">invocation.exited{reason:'idle-ttl'}</span>. HRC treats pane disappearance as cleanup confirmation, not stale evidence.</p>
+              </article>
+              <article class="failure-card warn">
+                <span class="badge recovery">Recoverable</span>
+                <h3>Child crashes while ready</h3>
+                <p>Broker recycles if policy allows, otherwise fails or escalates. Runtime remains active only if recovery completes.</p>
+              </article>
+              <article class="failure-card stop">
+                <span class="badge retry">No replay</span>
+                <h3>Turn stalls</h3>
+                <p>Broker emits <span class="inline-code">turn.stalled</span>, then fails active turn or escalates. Replay requires proven <span class="inline-code">safe-retry</span>.</p>
+              </article>
+              <article class="failure-card stop">
+                <span class="badge broker">Escalate</span>
+                <h3>Runner unresponsive</h3>
+                <p>Broker emits <span class="inline-code">lifecycle.escalation{requestedAction:'hard-reap'}</span>. HRC records the request and hard-reaps.</p>
+              </article>
+              <article class="failure-card warn">
+                <span class="badge hrc">Conservative</span>
+                <h3>Broker process dies</h3>
+                <p>No broker event exists. HRC uses stale/orphan reconciliation, not semantic retry.</p>
+              </article>
+              <article class="failure-card stop">
+                <span class="badge recovery">Fence</span>
+                <h3>Late old-generation hook</h3>
+                <p>Store as diagnostics only. Do not project into active runtime, turn, permission, assistant, or tool state.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="tests" aria-labelledby="tests-title">
+            <h2 id="tests-title"><span class="section-num">09</span> Tests decide when capability can be advertised</h2>
+            <p class="section-intro">
+              <strong>The contract is complete only when these checks exist.</strong> They are framed as visible gates rather than prose preferences.
+            </p>
+
+            <div class="gate-grid">
+              <article class="gate">
+                <h3>Compiler closure and policy transport</h3>
+                <p>Prove lifecycle overlay does not mutate <span class="inline-code">startRequest</span> bytes/hash; reject attempts to patch lifecycle into <span class="inline-code">HarnessInvocationSpec</span>; persist policy hash separately.</p>
+              </article>
+              <article class="gate">
+                <h3>Idle TTL</h3>
+                <p>Verify ready/empty queue/no permissions starts the timer; active turn, queued input, or pending permission prevents it; clean retire emits no <span class="inline-code">input.accepted</span>.</p>
+              </article>
+              <article class="gate">
+                <h3>Harness generations</h3>
+                <p>Assert initial generation 1, recycle generation 2, stable runtime lease, exactly-once generation advancement, and old-generation event rejection.</p>
+              </article>
+              <article class="gate">
+                <h3>Process-tree correctness</h3>
+                <p>Kill/recycle children with descendants, escalate stubborn children, handle runner death during recycle, restore terminal foreground, and prove no forbidden tmux lifecycle commands.</p>
+              </article>
+              <article class="gate">
+                <h3>Turn retry</h3>
+                <p>Default retry disabled; retry emits no second <span class="inline-code">input.accepted</span>; unsafe evidence suppresses retry; exhausted retry fails the turn terminally.</p>
+              </article>
+              <article class="gate">
+                <h3>Permission fencing</h3>
+                <p>Requests include generation and attempt; recycle emits <span class="inline-code">permission.cancelled</span>; late old-generation decisions are rejected or audited.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="phases" aria-labelledby="phases-title">
+            <h2 id="phases-title"><span class="section-num">10</span> Ship cleanup before recycle, retry last</h2>
+            <p class="section-intro">
+              <strong>The migration sequence protects semantics while still delivering value early.</strong> It keeps high-value, low-risk lifecycle cleanup ahead of process recycle, and keeps semantic retry last.
+            </p>
+
+            <div class="phase-grid">
+              <article class="phase">
+                <div class="phase-num">0</div>
+                <div>
+                  <h3>Spec and data model only</h3>
+                  <p>Add lifecycle overlay, capability fields, harness generation, turn attempt, lifecycle events, HRC persistence, and normalizer preservation. No driver advertises capability yet.</p>
+                </div>
+              </article>
+              <article class="phase">
+                <div class="phase-num">1</div>
+                <div>
+                  <h3>Idle TTL only</h3>
+                  <p>Implement real driver-private retire, broker idle timer, clean terminal events, HRC clean projection, and reconcile race fencing. This is the first production value slice.</p>
+                </div>
+              </article>
+              <article class="phase">
+                <div class="phase-num">2</div>
+                <div>
+                  <h3>Harness generations and recovery without retry</h3>
+                  <p>Add runner control channel, process-tree recycle, hook socket rotation or equivalent generation fence, turn stall reporting, fail-before-recycle, and return to ready.</p>
+                </div>
+              </article>
+              <article class="phase">
+                <div class="phase-num">3</div>
+                <div>
+                  <h3>Guarded retry for proven-safe subset</h3>
+                  <p>Implement retry predicates, fail-closed behavior, attempt projection, and enable only for drivers that can prove no prior completion and no side effects.</p>
+                </div>
+              </article>
+              <article class="phase">
+                <div class="phase-num">4</div>
+                <div>
+                  <h3>Long-term route cleanup</h3>
+                  <p>Prefer real non-interactive or SDK-backed drivers for Discord/ariadne-style workloads. Keep tmux where operator-visible interactive sessions are the right substrate.</p>
+                </div>
+              </article>
+            </div>
+
+            <div class="verdict">
+              <h3>Contract verdict</h3>
+              <p>Adopt the proposal with the corrections below. Without them, the contract blurs compiler closure, overstates retry safety, under-models generation identity, and risks converting clean lifecycle events into stale runtime failures.</p>
+              <ul class="check-list">
+                <li>Use three policies: retention, harness recovery, and turn retry.</li>
+                <li>Carry HRC-authored policy as a separately hashed dispatch overlay, or require ASP to compile it.</li>
+                <li>Keep child recycle as process recovery, not automatic user-input replay.</li>
+                <li>Add harness generations, turn attempts, permission cancellation, and transactionally clean idle projection.</li>
+              </ul>
+            </div>
+          </section>
+
+          <footer>
+            Source: <span class="inline-code">refactor/PROPOSAL_harness-lifecycle_v2.md</span>. Title: Proposal: broker lifecycle contract - retention, harness recovery, and guarded turn retry.
+          </footer>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>
