@@ -349,10 +349,21 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expect(first).not.toBe('/tmp/harness-broker/claude-hooks.sock')
     expect(second).not.toBe('/tmp/harness-broker/claude-hooks.sock')
     expect(first).not.toBe(second)
-    expect(first).toContain('inv_first_conc')
-    expect(first).toContain('runtime-first-c')
-    expect(second).toContain('inv_second_con')
-    expect(second).toContain('runtime-second-')
+    expect(first.split('/').at(-1)).toMatch(/^claude-hooks\.[0-9a-f]{16}\.sock$/)
+    expect(second.split('/').at(-1)).toMatch(/^claude-hooks\.[0-9a-f]{16}\.sock$/)
+  })
+
+  test('default hook callback socket path stays below macOS unix socket path limit with realistic TMPDIR', async () => {
+    const buildSocketPath = await loadSocketPathBuilder()
+    const socketPath = buildSocketPath(
+      '/var/folders/c0/klfmxdkd20x6qnclf4zbvgnh0000gn/T/harness-broker',
+      {
+        invocationId: 'inv-8a4010c1-88c8-4296-8fdc-407ba5c2de15',
+        runtimeId: 'rt-cf950440-b3c7-4e4b-99b6-10fe6370ef6d',
+      }
+    )
+
+    expect(socketPath.length).toBeLessThan(104)
   })
 
   test('start reports the leased tmux pane surface with the driver envelope', async () => {

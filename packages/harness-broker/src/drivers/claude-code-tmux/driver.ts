@@ -588,16 +588,11 @@ export function createDefaultClaudeCodeTmuxDriver(): Driver {
 }
 
 export function buildClaudeHookSocketPath(socketDir: string, context: HookListenerContext): string {
-  const invocationToken = shortSocketToken(context.invocationId, 'inv')
-  const runtimeToken = shortSocketToken(context.runtimeId ?? 'runtime-unknown', 'rt')
-  return join(socketDir, `claude-hooks.${invocationToken}.${runtimeToken}.${process.pid}.sock`)
-}
-
-function shortSocketToken(value: string, fallback: string): string {
-  const normalized = value.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '')
-  const prefix = (normalized.length > 0 ? normalized : fallback).slice(0, 16)
-  const digest = createHash('sha256').update(value).digest('hex').slice(0, 6)
-  return `${prefix}-${digest}`
+  const token = createHash('sha256')
+    .update(`${context.invocationId}\0${context.runtimeId ?? ''}`)
+    .digest('hex')
+    .slice(0, 16)
+  return join(socketDir, `claude-hooks.${token}.sock`)
 }
 
 async function listenForHookEnvelopes(
