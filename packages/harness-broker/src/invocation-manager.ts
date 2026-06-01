@@ -28,6 +28,7 @@ import type {
 import { BrokerErrorCode, acceptedLifecyclePolicy } from 'spaces-harness-broker-protocol'
 import type { Driver, DriverContext } from './drivers/driver'
 import { BrokerError } from './errors'
+import { stableJsonStringify } from './event-ledger'
 import type { InvocationEventSequencer } from './events'
 import { normalizeEventPayload } from './runtime/event-normalize'
 
@@ -87,6 +88,13 @@ interface QueuedInput {
 
 type InvocationInputWithId = InvocationInput & { inputId: InputId }
 
+/** Per-invocation in-memory record of a resolved input disposition. */
+interface InputDispositionRecord {
+  /** Stable fingerprint of the request content + policy, keyed by inputId. */
+  fingerprint: string
+  response: InvocationInputResponse
+}
+
 export interface Invocation {
   readonly invocationId: InvocationId
   readonly spec: HarnessInvocationSpec
@@ -109,6 +117,13 @@ export interface Invocation {
   drainPromise?: Promise<void> | undefined
   /** Monotonic counter for broker-assigned inputIds. */
   inputCounter: number
+  /**
+   * In-memory idempotency ledger for client-provided inputIds. A duplicate
+   * inputId with byte-identical content/policy replays the original response;
+   * a duplicate inputId with differing content/policy is a conflict. Surfaced
+   * in the durability snapshot. Broker-survives-HRC-restart only (not on disk).
+   */
+  inputDispositions: Map<string, InputDispositionRecord>
 }
 
 export interface InvocationManagerOptions {
@@ -383,6 +398,33 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     return `input_${inv.invocationId}_${inv.inputCounter}` as InputId
   }
 
+  /**
+   * Stable fingerprint of an input request's content + policy, used to detect
+   * whether a duplicate inputId carries byte-identical payload (idempotent
+   * replay) or differing payload (conflict). Keyed externally by inputId, so
+   * the fingerprint deliberately ignores the inputId itself.
+   */
+  function fingerprintInput(req: InvocationInputRequest): string {
+    return stableJsonStringify({
+      kind: req.input.kind,
+      content: req.input.content,
+      policy: req.policy ?? null,
+    })
+  }
+
+  /** Persist a resolved disposition for a client-provided inputId (idempotency). */
+  function recordDisposition(
+    inv: Invocation,
+    req: InvocationInputRequest,
+    response: InvocationInputResponse
+  ): void {
+    if (req.input.inputId === undefined) return
+    inv.inputDispositions.set(req.input.inputId, {
+      fingerprint: fingerprintInput(req),
+      response,
+    })
+  }
+
   return {
     async start(
       spec: HarnessInvocationSpec,
@@ -435,6 +477,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         disposedEmitted: false,
         pending: [],
         inputCounter: 0,
+        inputDispositions: new Map(),
       }
       invocations.set(invocationId, inv)
 
@@ -504,6 +547,25 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     async input(req: InvocationInputRequest): Promise<InvocationInputResponse> {
       const inv = requireInvocation(req.invocationId)
 
+      // inputId idempotency: a duplicate client-provided inputId replays the
+      // original response when content/policy is byte-identical, or conflicts
+      // when it differs. Checked before any state validation so a retry never
+      // re-drives a turn or trips a stale-state rejection.
+      const providedInputId = req.input.inputId
+      if (providedInputId !== undefined) {
+        const existing = inv.inputDispositions.get(providedInputId)
+        if (existing !== undefined) {
+          if (existing.fingerprint === fingerprintInput(req)) {
+            return existing.response
+          }
+          throw new BrokerError(
+            BrokerErrorCode.DuplicateInputConflict,
+            `Duplicate inputId ${providedInputId} with differing content or policy`,
+            { invocationId: inv.invocationId, inputId: providedInputId }
+          )
+        }
+      }
+
       // Resolve inputId upfront — stable across all paths
       const rawInput = req.input
       const inputId = resolveInputId(inv, rawInput)
@@ -546,12 +608,14 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       // --- State: ready → apply immediately ---
       if (inv.state === 'ready') {
         const result = await applyAndEmit(inv, input)
-        return {
+        const response: InvocationInputResponse = {
           inputId,
           accepted: true,
           disposition: 'started',
           turnId: result.turnId,
         }
+        recordDisposition(inv, req, response)
+        return response
       }
 
       // --- State: turn_active → policy-driven ---
@@ -601,11 +665,13 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         // Enqueue
         inv.pending.push({ inputId, input })
         emit(inv, 'input.queued', { inputId }, { inputId })
-        return {
+        const response: InvocationInputResponse = {
           inputId,
           accepted: true,
           disposition: 'queued',
         }
+        recordDisposition(inv, req, response)
+        return response
       }
 
       // Fallback: unknown policy

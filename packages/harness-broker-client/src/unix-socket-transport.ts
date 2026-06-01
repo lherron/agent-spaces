@@ -7,11 +7,7 @@ import {
   isJsonRpcRequest,
   isJsonRpcResponse,
 } from 'spaces-harness-broker-protocol'
-import type {
-  JsonRpcId,
-  JsonRpcMessage,
-  JsonRpcRequest,
-} from 'spaces-harness-broker-protocol'
+import type { JsonRpcId, JsonRpcMessage, JsonRpcRequest } from 'spaces-harness-broker-protocol'
 import { BrokerRpcError, BrokerTransportError } from './errors'
 import { assertSocketPathWithinBudget } from './socket-path'
 import type {
@@ -48,7 +44,7 @@ export class UnixSocketTransport implements BrokerJsonRpcTransport {
   #requestHandler: RequestHandler | undefined
   #closeHandler: CloseHandler = () => {}
   #closed = false
-  #closeError: BrokerTransportError | undefined
+  #closeError: Error | undefined
   #closePromise: Promise<void>
   #resolveClose!: () => void
 
@@ -66,16 +62,12 @@ export class UnixSocketTransport implements BrokerJsonRpcTransport {
       this.#fail(new BrokerTransportError('Broker socket error', error))
     })
     socket.once('close', () => {
-      const message = this.#closed
-        ? 'Broker socket closed'
-        : 'Broker socket closed unexpectedly'
+      const message = this.#closed ? 'Broker socket closed' : 'Broker socket closed unexpectedly'
       this.#fail(new BrokerTransportError(message))
     })
   }
 
-  static async connect(
-    options: UnixSocketTransportConnectOptions
-  ): Promise<UnixSocketTransport> {
+  static async connect(options: UnixSocketTransportConnectOptions): Promise<UnixSocketTransport> {
     assertSocketPathWithinBudget(options.socketPath)
 
     const socket = connect({ path: options.socketPath })
@@ -197,6 +189,21 @@ export class UnixSocketTransport implements BrokerJsonRpcTransport {
   }
 
   #handleMessage(message: JsonRpcMessage): void {
+    // A `control.fenced` notification means a newer controller attached and
+    // this connection has been superseded. Latch the fence as the close cause
+    // so a request raced against the close rejects with ControllerFenced rather
+    // than a generic transport-closed error.
+    if (isJsonRpcNotification(message) && message.method === 'control.fenced') {
+      const params = (message.params ?? {}) as { code?: number; message?: string }
+      this.#fail(
+        new BrokerRpcError({
+          code: params.code ?? -32015,
+          message: params.message ?? 'Controller fenced',
+        })
+      )
+      return
+    }
+
     if (isJsonRpcResponse(message)) {
       const key = this.#idKey(message.id)
       const pending = this.#pending.get(key)
@@ -254,7 +261,7 @@ export class UnixSocketTransport implements BrokerJsonRpcTransport {
     this.socket.write(encodeNdjsonFrame(message))
   }
 
-  #fail(error: BrokerTransportError): void {
+  #fail(error: Error): void {
     if (this.#closeError === undefined) {
       this.#closeError = error
       this.#rejectPending(error)
@@ -263,7 +270,7 @@ export class UnixSocketTransport implements BrokerJsonRpcTransport {
     this.#resolveClose()
   }
 
-  #rejectPending(error: BrokerTransportError): void {
+  #rejectPending(error: Error): void {
     const pending = [...this.#pending.values()]
     this.#pending.clear()
     for (const request of pending) {

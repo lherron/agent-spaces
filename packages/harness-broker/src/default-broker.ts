@@ -4,14 +4,18 @@ import type {
   PermissionDecision,
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
-import { createBroker } from './broker'
+import { type BrokerAttachIdentity, createBroker } from './broker'
 import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
 import { createDefaultCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
+import type { EventLedger } from './event-ledger'
 
 export interface DefaultBrokerOptions {
   advertisedTransports?: BrokerTransportKind[] | undefined
   advertiseAttachReplay?: boolean | undefined
+  eventLedger?: EventLedger | undefined
+  attachIdentity?: BrokerAttachIdentity | undefined
+  brokerInstanceId?: string | undefined
 }
 
 export function createDefaultBroker(
@@ -34,6 +38,11 @@ export function createDefaultBroker(
       : {}),
     ...(options.advertiseAttachReplay !== undefined
       ? { advertiseAttachReplay: options.advertiseAttachReplay }
+      : {}),
+    ...(options.eventLedger !== undefined ? { eventLedger: options.eventLedger } : {}),
+    ...(options.attachIdentity !== undefined ? { attachIdentity: options.attachIdentity } : {}),
+    ...(options.brokerInstanceId !== undefined
+      ? { brokerInstanceId: options.brokerInstanceId }
       : {}),
   })
 }

@@ -1,9 +1,13 @@
 import { existsSync } from 'node:fs'
-import { mkdir, unlink } from 'node:fs/promises'
+import { mkdir, readFile, unlink } from 'node:fs/promises'
 import { type Socket, connect, createServer } from 'node:net'
 import { dirname } from 'node:path'
 import type {
+  BrokerAttachRequest,
+  BrokerAttachResponse,
   HarnessInvocationSpec,
+  InvocationAckEventsRequest,
+  InvocationAckEventsResponse,
   InvocationDispatchRequest,
   InvocationEventEnvelope,
   InvocationInput,
@@ -11,11 +15,17 @@ import type {
   JsonRpcNotification,
   PermissionDecision,
 } from 'spaces-harness-broker-protocol'
-import { validateCommand, validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
-import type { Broker } from './broker'
+import {
+  BrokerErrorCode,
+  validateCommand,
+  validateInvocationStartRequest,
+} from 'spaces-harness-broker-protocol'
+import type { Broker, BrokerAttachIdentity } from './broker'
 import { createDefaultBroker } from './default-broker'
 import { runClaudeHookBridgeCli } from './drivers/claude-code-tmux/hook-bridge'
 import { runCodexHookBridgeCli } from './drivers/codex-cli-tmux/hook-bridge'
+import { BrokerError } from './errors'
+import { createEventLedger } from './event-ledger'
 import { type ProtocolServer, createProtocolServer } from './protocol-server'
 import { assertSocketPathWithinBudget } from './socket-path'
 
@@ -158,8 +168,9 @@ function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
 /**
  * Long-lived broker over a Unix domain socket. The broker process owns a single
  * `net.Server`; controllers connect and disconnect freely without terminating
- * it (the durability difference from the stdio child). Phase B wires the
- * transport + lifecycle only — durable ledger/attach/fencing land in Phase C.
+ * it (the durability difference from the stdio child). Phase C1 adds the
+ * durable event ledger, attach identity gate, latest-valid-attach-wins fencing,
+ * and the eventsSince/ackEvents/snapshot replay surface.
  */
 async function runUnix(args: string[]): Promise<void> {
   const socketPath = readFlag(args, '--socket')
@@ -177,9 +188,31 @@ async function runUnix(args: string[]): Promise<void> {
     process.exit(1)
   }
 
-  // Flags accepted for forward-compat with Phase C durability (--runtime-id,
-  // --host-session-id, --generation, --attach-token-file, --event-ledger,
-  // --log-file). Phase B does not act on them beyond accepting them.
+  // Durability wiring (Phase C1): on-disk event ledger + attach identity gate.
+  const ledgerPath = readFlag(args, '--event-ledger')
+  const runtimeId = readFlag(args, '--runtime-id')
+  const hostSessionId = readFlag(args, '--host-session-id')
+  const generationRaw = readFlag(args, '--generation')
+  const attachTokenFile = readFlag(args, '--attach-token-file')
+
+  const eventLedger = ledgerPath !== undefined ? createEventLedger({ path: ledgerPath }) : undefined
+
+  let attachIdentity: BrokerAttachIdentity | undefined
+  if (
+    runtimeId !== undefined &&
+    hostSessionId !== undefined &&
+    generationRaw !== undefined &&
+    attachTokenFile !== undefined
+  ) {
+    attachIdentity = {
+      runtimeId,
+      hostSessionId,
+      generation: Number(generationRaw),
+      attachToken: (await readFile(attachTokenFile, 'utf8')).trim(),
+    }
+  }
+
+  const brokerInstanceId = `broker_${process.pid}`
 
   await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 })
 
@@ -187,56 +220,130 @@ async function runUnix(args: string[]): Promise<void> {
   // that NO live listener answers; never steal a socket a peer accepts.
   await reclaimStaleSocket(socketPath)
 
-  let activeServer: ProtocolServer | undefined
-  let activeSocket: Socket | undefined
+  // The live controller channel: the most recently connected — and ultimately
+  // the attached/fenced — controller. Event notifications and broker→client
+  // permission requests route here.
+  let liveServer: ProtocolServer | undefined
+  let liveSocket: Socket | undefined
+  // Fencing gate: set on a successful attach; only this controller may ack.
+  let activeController: { server: ProtocolServer; socket: Socket; instanceId: string } | undefined
 
   function emitEvent(event: InvocationEventEnvelope): void {
-    if (!activeServer) return
+    if (!liveServer) return
     const notification: JsonRpcNotification = {
       jsonrpc: '2.0',
       method: 'invocation.event',
       params: event,
     }
-    activeServer.notify(notification)
+    liveServer.notify(notification)
   }
 
   const broker = createDefaultBroker(
     emitEvent,
     (params) => {
-      if (!activeServer) {
+      if (!liveServer) {
         return Promise.reject(new Error('No controller connected for permission request'))
       }
-      return activeServer.request<PermissionDecision>('invocation.permission.request', params)
+      return liveServer.request<PermissionDecision>('invocation.permission.request', params)
     },
     {
       advertisedTransports: ['stdio-jsonrpc-ndjson', 'unix-jsonrpc-ndjson'],
       advertiseAttachReplay: true,
+      brokerInstanceId,
+      ...(eventLedger !== undefined ? { eventLedger } : {}),
+      ...(attachIdentity !== undefined ? { attachIdentity } : {}),
     }
   )
 
-  const netServer = createServer((socket) => {
-    // Hazard (c): pre-fencing — accept only ONE controller connection at a
-    // time so an extra socket can never observe notifications/permissions.
-    if (activeSocket) {
-      socket.destroy()
-      return
+  // Send a terminal control error to the fenced controller, then close it. The
+  // client transport surfaces `control.fenced` as a ControllerFenced close so a
+  // subsequent ackEvents on the dead socket rejects with that code.
+  function fenceController(prev: { server: ProtocolServer; socket: Socket }): void {
+    try {
+      prev.server.notify({
+        jsonrpc: '2.0',
+        method: 'control.fenced',
+        params: {
+          code: BrokerErrorCode.ControllerFenced,
+          message: 'Controller fenced by a newer attach',
+        },
+      })
+    } catch {
+      // Best-effort: the socket may already be gone.
     }
-    activeSocket = socket
+    prev.socket.end()
+  }
+
+  async function handleAttach(
+    params: BrokerAttachRequest,
+    server: ProtocolServer,
+    socket: Socket
+  ): Promise<BrokerAttachResponse> {
+    // broker.attach validates identity/token/correlation and throws
+    // AttachRejected on any mismatch — validate BEFORE fencing the incumbent.
+    const response = await broker.attach(params)
+    const previous = activeController
+    activeController = { server, socket, instanceId: params.controllerInstanceId }
+    liveServer = server
+    liveSocket = socket
+    if (previous && previous.socket !== socket) {
+      fenceController(previous)
+    }
+    return response
+  }
+
+  async function handleAckEvents(
+    params: InvocationAckEventsRequest
+  ): Promise<InvocationAckEventsResponse> {
+    if (activeController && activeController.instanceId !== params.controllerInstanceId) {
+      throw new BrokerError(
+        BrokerErrorCode.ControllerFenced,
+        'Controller has been fenced by a newer attach',
+        { controllerInstanceId: params.controllerInstanceId }
+      )
+    }
+    return broker.ackEvents(params)
+  }
+
+  function registerDurabilityMethods(server: ProtocolServer, socket: Socket): void {
+    server.register('broker.attach', async ({ params }) =>
+      handleAttach(params as BrokerAttachRequest, server, socket)
+    )
+    server.register('invocation.snapshot', async ({ params }) =>
+      broker.snapshot(params as Parameters<typeof broker.snapshot>[0])
+    )
+    server.register('invocation.eventsSince', async ({ params }) =>
+      broker.eventsSince(params as Parameters<typeof broker.eventsSince>[0])
+    )
+    server.register('invocation.ackEvents', async ({ params }) =>
+      handleAckEvents(params as InvocationAckEventsRequest)
+    )
+  }
+
+  const netServer = createServer((socket) => {
     const server = createProtocolServer({
       stdin: socket,
       stdout: socket,
       stderr: process.stderr,
     })
-    activeServer = server
     registerBrokerMethods(server, broker)
+    registerDurabilityMethods(server, socket)
     void server.start()
 
+    // Latest connection becomes the live notification target; a previously
+    // attached controller is only fenced when a new controller attaches.
+    liveServer = server
+    liveSocket = socket
+
     const cleanup = (): void => {
-      if (activeSocket === socket) {
-        activeSocket = undefined
-        activeServer = undefined
-        void server.close()
+      if (liveSocket === socket) {
+        liveSocket = undefined
+        liveServer = undefined
       }
+      if (activeController && activeController.socket === socket) {
+        activeController = undefined
+      }
+      void server.close()
     }
     socket.once('close', cleanup)
     socket.once('error', cleanup)

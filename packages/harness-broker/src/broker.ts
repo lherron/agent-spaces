@@ -1,4 +1,6 @@
 import type {
+  BrokerAttachRequest,
+  BrokerAttachResponse,
   BrokerHealthRequest,
   BrokerHealthResponse,
   BrokerHelloRequest,
@@ -6,14 +8,21 @@ import type {
   BrokerLifecyclePolicyOverlay,
   BrokerTransportKind,
   ClientCapabilities,
+  InvocationAckEventsRequest,
+  InvocationAckEventsResponse,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
   InvocationEventEnvelope,
+  InvocationEventsSinceRequest,
+  InvocationEventsSinceResponse,
+  InvocationId,
   InvocationInputRequest,
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationRuntimeContext,
+  InvocationSnapshot,
+  InvocationSnapshotRequest,
   InvocationStartRequest,
   InvocationStartResponse,
   InvocationStatusRequest,
@@ -32,10 +41,23 @@ import {
 import type { Driver } from './drivers/driver'
 import { createDriverRegistry } from './drivers/registry'
 import { BrokerError, toInvalidParamsBrokerError } from './errors'
+import type { EventLedger } from './event-ledger'
 import { createInvocationEventSequencer } from './events'
 import { createInvocationManager } from './invocation-manager'
 
 const BROKER_VERSION = '0.1.0'
+
+/**
+ * Launch-time runtime identity a durable (unix) broker validates incoming
+ * `broker.attach` requests against. Sourced from the broker's own CLI flags;
+ * absent for stdio brokers (which never attach).
+ */
+export interface BrokerAttachIdentity {
+  runtimeId: string
+  hostSessionId: string
+  generation: number
+  attachToken: string
+}
 
 export interface BrokerOptions {
   drivers: Driver[]
@@ -60,6 +82,19 @@ export interface BrokerOptions {
    * unix durable runtime advertises it; the stdio child does not.
    */
   advertiseAttachReplay?: boolean | undefined
+  /**
+   * Durable event ledger. When present, every emitted event is persisted
+   * (append idempotent by `(invocationId, seq)`) before the client is notified,
+   * and the eventsSince/ackEvents/snapshot control surface serves from it.
+   */
+  eventLedger?: EventLedger | undefined
+  /**
+   * Runtime identity that `broker.attach` validates incoming requests against.
+   * Present only for the durable unix runtime.
+   */
+  attachIdentity?: BrokerAttachIdentity | undefined
+  /** Stable id reported in `broker.attach` responses. */
+  brokerInstanceId?: string | undefined
 }
 
 export interface Broker {
@@ -76,13 +111,29 @@ export interface Broker {
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   status(req: InvocationStatusRequest): Promise<InvocationStatusResponse>
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
+  // --- Durability control surface (durable/unix runtime only) ---
+  attach(req: BrokerAttachRequest): Promise<BrokerAttachResponse>
+  snapshot(req: InvocationSnapshotRequest): Promise<InvocationSnapshot>
+  eventsSince(req: InvocationEventsSinceRequest): Promise<InvocationEventsSinceResponse>
+  ackEvents(req: InvocationAckEventsRequest): Promise<InvocationAckEventsResponse>
 }
 
 export function createBroker(options: BrokerOptions): Broker {
   const { drivers, now = () => new Date() } = options
   const registry = createDriverRegistry(drivers)
   const sequencer = createInvocationEventSequencer({ now })
-  const onEvent = options.onEvent ?? (() => {})
+  const eventLedger = options.eventLedger
+  const attachIdentity = options.attachIdentity
+  const brokerInstanceId = options.brokerInstanceId ?? `broker_${process.pid}`
+  const baseOnEvent = options.onEvent ?? (() => {})
+  // Persist before notifying: the ledger's synchronous append runs before the
+  // client sees the event, so a reconnecting controller can always replay it.
+  const onEvent = eventLedger
+    ? (event: InvocationEventEnvelope) => {
+        eventLedger.append(event).catch(() => {})
+        baseOnEvent(event)
+      }
+    : baseOnEvent
   const advertisedTransports: BrokerTransportKind[] = options.advertisedTransports ?? [
     'stdio-jsonrpc-ndjson',
   ]
@@ -96,6 +147,49 @@ export function createBroker(options: BrokerOptions): Broker {
     onPermissionRequest: options.onPermissionRequest,
     maxInputQueueDepth: options.maxInputQueueDepth,
   })
+
+  function requireManagedInvocation(invocationId: InvocationId) {
+    const inv = manager.get(invocationId)
+    if (!inv) {
+      throw new BrokerError(
+        BrokerErrorCode.UnknownInvocation,
+        `Unknown invocation: ${invocationId}`,
+        { invocationId }
+      )
+    }
+    return inv
+  }
+
+  async function buildSnapshot(invocationId: InvocationId): Promise<InvocationSnapshot> {
+    const inv = requireManagedInvocation(invocationId)
+    const currentSeq = eventLedger?.currentSeq(invocationId) ?? 0
+    const retentionFloorSeq = eventLedger ? await eventLedger.retentionFloorSeq(invocationId) : 0
+
+    const inputDispositions: Record<string, InvocationInputResponse> = {}
+    for (const [inputId, record] of inv.inputDispositions) {
+      inputDispositions[inputId] = record.response
+    }
+
+    return {
+      invocationId: inv.invocationId,
+      state: inv.state,
+      capabilities: inv.capabilities,
+      pendingInputIds: inv.pending.map((item) => item.inputId),
+      inputDispositions,
+      // Pending-permission state is filled by Phase C2; C1 always reports none.
+      pendingPermissionRequests: [],
+      process: {
+        brokerPid: process.pid,
+        ...(inv.childPid !== undefined ? { childPid: inv.childPid } : {}),
+        ...(inv.exitCode !== undefined ? { exitCode: inv.exitCode } : {}),
+        ...(inv.signal !== undefined ? { signal: inv.signal } : {}),
+      },
+      currentSeq,
+      retentionFloorSeq,
+      ...(inv.currentTurnId !== undefined ? { currentTurnId: inv.currentTurnId } : {}),
+      ...(inv.continuation !== undefined ? { continuation: inv.continuation } : {}),
+    }
+  }
 
   return {
     async hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse> {
@@ -216,6 +310,98 @@ export function createBroker(options: BrokerOptions): Broker {
     async dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse> {
       validateBrokerParams('invocation.dispose', req)
       return manager.dispose(req)
+    },
+
+    async attach(req: BrokerAttachRequest): Promise<BrokerAttachResponse> {
+      validateBrokerParams('broker.attach', req)
+
+      // Launch identity + attach token must match the runtime this broker was
+      // started for. Any mismatch is AttachRejected (no information leak about
+      // which field failed beyond the data bag).
+      if (
+        attachIdentity !== undefined &&
+        (req.runtimeId !== attachIdentity.runtimeId ||
+          req.hostSessionId !== attachIdentity.hostSessionId ||
+          req.generation !== attachIdentity.generation ||
+          req.attachToken !== attachIdentity.attachToken)
+      ) {
+        throw new BrokerError(
+          BrokerErrorCode.AttachRejected,
+          'Attach rejected: runtime identity or attach token mismatch',
+          { runtimeId: req.runtimeId, generation: req.generation }
+        )
+      }
+
+      const inv = manager.get(req.invocationId)
+      if (!inv) {
+        throw new BrokerError(
+          BrokerErrorCode.AttachRejected,
+          `Attach rejected: unknown invocation ${req.invocationId}`,
+          { invocationId: req.invocationId }
+        )
+      }
+
+      // Per-invocation request/profile hashes must match the started invocation.
+      const correlation = inv.spec.correlation
+      const correlatedStartHash = correlation?.['startRequestHash']
+      const correlatedProfileHash = correlation?.['selectedProfileHash']
+      if (
+        (correlatedStartHash !== undefined && req.startRequestHash !== correlatedStartHash) ||
+        (correlatedProfileHash !== undefined && req.selectedProfileHash !== correlatedProfileHash)
+      ) {
+        throw new BrokerError(
+          BrokerErrorCode.AttachRejected,
+          'Attach rejected: start-request or profile hash mismatch',
+          { invocationId: req.invocationId }
+        )
+      }
+
+      const snapshot = await buildSnapshot(req.invocationId)
+      return {
+        attached: true,
+        brokerInstanceId,
+        runtimeId: req.runtimeId,
+        generation: req.generation,
+        invocationId: req.invocationId,
+        activeControllerInstanceId: req.controllerInstanceId,
+        currentSeq: snapshot.currentSeq,
+        retentionFloorSeq: snapshot.retentionFloorSeq,
+        snapshot,
+      }
+    },
+
+    async snapshot(req: InvocationSnapshotRequest): Promise<InvocationSnapshot> {
+      validateBrokerParams('invocation.snapshot', req)
+      return buildSnapshot(req.invocationId)
+    },
+
+    async eventsSince(req: InvocationEventsSinceRequest): Promise<InvocationEventsSinceResponse> {
+      validateBrokerParams('invocation.eventsSince', req)
+      if (!eventLedger) {
+        throw new BrokerError(
+          BrokerErrorCode.EventReplayUnavailable,
+          'Event replay unavailable: no durable ledger configured',
+          { invocationId: req.invocationId }
+        )
+      }
+      // eventsSince rejects below the retention floor (EventReplayUnavailable).
+      const events = await eventLedger.eventsSince(req.invocationId, req.afterSeq)
+      const currentSeq = eventLedger.currentSeq(req.invocationId)
+      const retentionFloorSeq = await eventLedger.retentionFloorSeq(req.invocationId)
+      return { events, currentSeq, retentionFloorSeq }
+    },
+
+    async ackEvents(req: InvocationAckEventsRequest): Promise<InvocationAckEventsResponse> {
+      validateBrokerParams('invocation.ackEvents', req)
+      if (!eventLedger) {
+        throw new BrokerError(
+          BrokerErrorCode.EventReplayUnavailable,
+          'Event ack unavailable: no durable ledger configured',
+          { invocationId: req.invocationId }
+        )
+      }
+      // Monotonic per invocation; controller-fencing is enforced by the caller.
+      return eventLedger.ackEvents(req.invocationId, req.throughSeq)
     },
   }
 }
