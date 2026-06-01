@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -21,6 +21,30 @@ const runBrokerStdio = () =>
     stderr: 'pipe',
     cwd: repoRoot,
   })
+
+const waitForSocket = async (
+  socketPath: string,
+  proc: ReturnType<typeof Bun.spawn>,
+  timeoutMs = 1500
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (proc.exitCode !== null) {
+      const stderr = await new Response(proc.stderr).text()
+      throw new Error(`broker exited before creating unix socket: ${stderr.trim()}`)
+    }
+    try {
+      const info = await stat(socketPath)
+      if (info.isSocket()) {
+        return
+      }
+    } catch {
+      // Keep polling until the broker binds the socket or exits.
+    }
+    await Bun.sleep(25)
+  }
+  throw new Error(`timed out waiting for unix socket ${socketPath}`)
+}
 
 async function exchange(input: string) {
   const proc = runBrokerStdio()
@@ -125,6 +149,96 @@ describe('harness-broker CLI', () => {
     const response = expectResult<BrokerHelloResponse>(frame, 'hello-caps')
     // v1 broker exposes no attach/replay control surface.
     expect(response.result.capabilities.attachReplay ?? false).toBe(false)
+  })
+
+  test('run --transport bogus exits nonzero with a clear transport error', async () => {
+    const proc = Bun.spawn({
+      cmd: ['bun', 'packages/harness-broker/bin/harness-broker.js', 'run', '--transport', 'bogus'],
+      cwd: repoRoot,
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+    const exitCode = await proc.exited
+
+    expect(exitCode).not.toBe(0)
+    expect(stdout).toBe('')
+    expect(stderr).toContain('transport')
+    expect(stderr).toContain('bogus')
+  })
+})
+
+describe('harness-broker unix transport red tests for T-01792', () => {
+  const tmpDirs: string[] = []
+
+  afterEach(async () => {
+    await Promise.all(tmpDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  })
+
+  test('run --transport unix --socket starts a long-lived unix socket server', async () => {
+    // T-01792 Phase B: this is the broker-side real-byte entry point for
+    // UnixSocketTransport and must coexist with the existing stdio transport.
+    const dir = await mkdtemp(join(tmpdir(), 'harness-broker-cli-unix-'))
+    tmpDirs.push(dir)
+    const socketPath = join(dir, 'broker.sock')
+    const proc = Bun.spawn({
+      cmd: [
+        'bun',
+        'packages/harness-broker/bin/harness-broker.js',
+        'run',
+        '--transport',
+        'unix',
+        '--socket',
+        socketPath,
+      ],
+      cwd: repoRoot,
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+
+    try {
+      await waitForSocket(socketPath, proc)
+      expect(proc.exitCode).toBeNull()
+    } finally {
+      proc.kill('SIGTERM')
+      await proc.exited.catch(() => {})
+    }
+  })
+
+  test('run --transport unix rejects over-long socket paths before bind', async () => {
+    // T-01792 Phase B hazard: fail early with a readable socket-path-budget error
+    // instead of surfacing a low-level sockaddr_un bind/connect failure.
+    const dir = await mkdtemp(join(tmpdir(), 'harness-broker-cli-unix-long-'))
+    tmpDirs.push(dir)
+    const socketPath = join(dir, `${'x'.repeat(160)}.sock`)
+    const proc = Bun.spawn({
+      cmd: [
+        'bun',
+        'packages/harness-broker/bin/harness-broker.js',
+        'run',
+        '--transport',
+        'unix',
+        '--socket',
+        socketPath,
+      ],
+      cwd: repoRoot,
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+    const exitCode = await proc.exited
+
+    expect(exitCode).not.toBe(0)
+    expect(stdout).toBe('')
+    expect(stderr).toContain('socket path')
+    expect(stderr).toContain('too long')
   })
 })
 
