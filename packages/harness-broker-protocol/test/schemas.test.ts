@@ -12,6 +12,15 @@ import {
   validatePermissionRequestParams,
 } from '../src/schemas'
 
+const expectInvalidCommand = (value: unknown, expectedIssue: { path: string; code: string }) => {
+  expect(() => validateCommand(value)).toThrow(
+    expect.objectContaining({
+      code: 'INVALID_COMMAND',
+      issues: expect.arrayContaining([expect.objectContaining(expectedIssue)]),
+    })
+  )
+}
+
 const specSection62Example = {
   specVersion: 'harness-broker.invocation/v1',
   harness: {
@@ -741,20 +750,92 @@ describe('validateCommand', () => {
   })
 
   test('keeps v1 command validation notification-based', () => {
-    expect(() =>
-      validateCommand({
+    expectInvalidCommand(
+      {
         jsonrpc: '2.0',
         id: 1,
         method: 'invocation.events',
         params: { invocationId: 'inv_1' },
-      })
-    ).toThrow(
-      expect.objectContaining({
-        code: 'INVALID_COMMAND',
-        issues: expect.arrayContaining([
-          expect.objectContaining({ path: 'method', code: 'unknown_method' }),
-        ]),
-      })
+      },
+      { path: 'method', code: 'unknown_method' }
+    )
+  })
+
+  test.each([
+    [
+      'broker.attach',
+      {
+        runtimeId: 'runtime_1',
+        hostSessionId: 'host_session_1',
+        generation: 2,
+        invocationId: 'inv_1',
+        startRequestHash: 'start_hash_1',
+        selectedProfileHash: 'profile_hash_1',
+        controllerInstanceId: 'hrc_server_1',
+        attachToken: 'secret-token',
+        lastProjectedSeq: 12,
+        clientCapabilities: { permissionRequests: true, eventAcks: true },
+      },
+      {
+        runtimeId: 'runtime_1',
+        hostSessionId: 'host_session_1',
+        generation: 2,
+        invocationId: 'inv_1',
+        startRequestHash: 'start_hash_1',
+        selectedProfileHash: 'profile_hash_1',
+        controllerInstanceId: 'hrc_server_1',
+      },
+      { path: 'params.attachToken', code: 'required' },
+    ],
+    [
+      'invocation.eventsSince',
+      { invocationId: 'inv_1', afterSeq: 12, live: true },
+      { invocationId: 'inv_1', afterSeq: '12' },
+      { path: 'params.afterSeq', code: 'invalid_type' },
+    ],
+    [
+      'invocation.ackEvents',
+      { invocationId: 'inv_1', throughSeq: 12, controllerInstanceId: 'hrc_server_1' },
+      { invocationId: 'inv_1', throughSeq: 12 },
+      { path: 'params.controllerInstanceId', code: 'required' },
+    ],
+    [
+      'invocation.snapshot',
+      { invocationId: 'inv_1' },
+      {},
+      { path: 'params.invocationId', code: 'required' },
+    ],
+    [
+      'invocation.permission.respond',
+      {
+        invocationId: 'inv_1',
+        permissionRequestId: 'perm_1',
+        decision: 'allow',
+        controllerInstanceId: 'hrc_server_1',
+      },
+      { invocationId: 'inv_1', permissionRequestId: 'perm_1', decision: 'prompt' },
+      { path: 'params.decision', code: 'invalid_literal' },
+    ],
+  ])(
+    'validates v2 method %s params and rejects malformed params',
+    (method, validParams, malformedParams, expectedIssue) => {
+      // T-01791 Phase A: HRC restart durability depends on these v2 IPC commands
+      // being accepted by schema validation before broker/client behavior exists.
+      const command = { jsonrpc: '2.0', id: 1, method, params: validParams }
+      expect(validateCommand(command)).toEqual(command)
+
+      expectInvalidCommand(
+        { jsonrpc: '2.0', id: 2, method, params: malformedParams },
+        expectedIssue
+      )
+    }
+  )
+
+  test('does not recognize broker.listInvocations in Phase A', () => {
+    // T-01791/C-03046: broker.listInvocations is reserved but out of this milestone.
+    expectInvalidCommand(
+      { jsonrpc: '2.0', id: 1, method: 'broker.listInvocations', params: {} },
+      { path: 'method', code: 'unknown_method' }
     )
   })
 })

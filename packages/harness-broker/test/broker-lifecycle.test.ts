@@ -67,6 +67,21 @@ describe('broker lifecycle', () => {
     })
   })
 
+  test('broker.hello selects highest mutually supported protocol version', async () => {
+    const broker = createTestBroker()
+
+    // T-01791/C-03046: broker.hello must negotiate across 0.1 and 0.2 instead
+    // of pinning old stdio-only clients or new attach/replay clients to 0.1.
+    await expect(
+      broker.hello({
+        clientInfo: { name: 'phase-a-v2-negotiation' },
+        protocolVersions: ['harness-broker/0.1', 'harness-broker/0.2'],
+      })
+    ).resolves.toMatchObject({
+      protocolVersion: 'harness-broker/0.2',
+    })
+  })
+
   test('broker.health returns status and active invocation count', async () => {
     const broker = createTestBroker()
 
