@@ -1396,7 +1396,11 @@ async function compileClaudeTmuxBrokerPlan(
     interaction: {
       mode: 'interactive',
       turnConcurrency: 'single',
-      inputQueue: 'none',
+      // FIFO so a turn dispatched while the TUI is mid-turn queues into the live
+      // pane (composed input.queue = driver.queue && user && inputQueue==='fifo')
+      // and drains on turn.completed, instead of being rejected or forked onto a
+      // competing headless runtime. Paired with expectedCapabilities queue:required.
+      inputQueue: 'fifo',
     },
     ...(req.continuation?.hrc.key !== undefined
       ? {
@@ -1432,7 +1436,7 @@ async function compileClaudeTmuxBrokerPlan(
     profileId,
     kind: 'harness-broker' as const,
     interactionMode: 'interactive' as const,
-    expectedCapabilities: expectedCapabilities(permissionPolicy),
+    expectedCapabilities: expectedCapabilities(permissionPolicy, { inputQueue: 'required' }),
     brokerProtocol: 'harness-broker/0.1' as const,
     brokerDriver: 'claude-code-tmux' as const,
     brokerOwnership: 'hrc-owned-process' as const,
@@ -1620,7 +1624,11 @@ async function compileCodexTmuxBrokerPlan(
     interaction: {
       mode: 'interactive',
       turnConcurrency: 'single',
-      inputQueue: 'none',
+      // FIFO so a turn dispatched while the TUI is mid-turn queues into the live
+      // pane (composed input.queue = driver.queue && user && inputQueue==='fifo')
+      // and drains on turn.completed, instead of being rejected or forked onto a
+      // competing headless runtime. Paired with expectedCapabilities queue:required.
+      inputQueue: 'fifo',
     },
     ...(req.continuation?.hrc.key !== undefined
       ? {
@@ -1656,7 +1664,7 @@ async function compileCodexTmuxBrokerPlan(
     profileId,
     kind: 'harness-broker' as const,
     interactionMode: 'interactive' as const,
-    expectedCapabilities: expectedCapabilities(permissionPolicy),
+    expectedCapabilities: expectedCapabilities(permissionPolicy, { inputQueue: 'required' }),
     brokerProtocol: 'harness-broker/0.1' as const,
     brokerDriver: 'codex-cli-tmux' as const,
     brokerOwnership: 'hrc-owned-process' as const,

@@ -42,7 +42,12 @@ const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
     appendContext: false,
     localImages: false,
     fileRefs: false,
-    queue: false,
+    // FIFO queue: the broker core enqueues turn_active input and drains it on
+    // turn.completed via applyInputNow (paste→Enter), which only runs once the
+    // invocation is back at `ready` (Claude at the prompt). This lets a DM/turn
+    // for a busy interactive TUI queue into the live pane instead of being
+    // rejected RUNTIME_BUSY or forked onto a competing headless runtime.
+    queue: true,
   },
   turns: {
     concurrency: 'single',
