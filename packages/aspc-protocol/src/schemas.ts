@@ -179,6 +179,7 @@ function validateCompileHarnessInvocation(
   validateProfileSelector(request['profileSelector'], path(basePath, 'profileSelector'), issues)
   validateStringRecord(request['dispatchEnv'], path(basePath, 'dispatchEnv'), issues)
   validateOptionalRecord(request['runtime'], path(basePath, 'runtime'), issues)
+  validateOptionalRecord(request['lifecyclePolicy'], path(basePath, 'lifecyclePolicy'), issues)
 }
 
 function validateRuntimeCompileRequest(

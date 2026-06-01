@@ -6,6 +6,18 @@ import type {
   ToolCallId,
   TurnId,
 } from './ids'
+import type {
+  HarnessExitedPayload,
+  HarnessRecoveryCompletedPayload,
+  HarnessRecoveryFailedPayload,
+  HarnessRecoveryStartedPayload,
+  HarnessStartedPayload,
+  LifecycleEscalationPayload,
+  LifecyclePolicyAcceptedPayload,
+  PermissionCancelledPayload,
+  TurnRetryPayload,
+  TurnStalledPayload,
+} from './lifecycle'
 import type { IsoTimestamp } from './primitives'
 
 export interface InvocationEventEnvelope<TPayload = InvocationEventPayload> {
@@ -24,6 +36,8 @@ export interface InvocationEventEnvelope<TPayload = InvocationEventPayload> {
         rawType?: string | undefined
       }
     | undefined
+  harnessGeneration?: number | undefined
+  turnAttempt?: number | undefined
 }
 
 export type InvocationEventType =
@@ -33,12 +47,21 @@ export type InvocationEventType =
   | 'invocation.exited'
   | 'invocation.failed'
   | 'invocation.disposed'
+  | 'lifecycle.policy.accepted'
+  | 'lifecycle.escalation'
+  | 'harness.started'
+  | 'harness.exited'
+  | 'harness.recovery.started'
+  | 'harness.recovery.completed'
+  | 'harness.recovery.failed'
   | 'continuation.updated'
   | 'continuation.cleared'
   | 'input.accepted'
   | 'input.rejected'
   | 'input.queued'
   | 'turn.started'
+  | 'turn.stalled'
+  | 'turn.retry'
   | 'turn.completed'
   | 'turn.failed'
   | 'turn.interrupted'
@@ -55,6 +78,7 @@ export type InvocationEventType =
   | 'terminal.surface.reported'
   | 'permission.requested'
   | 'permission.resolved'
+  | 'permission.cancelled'
 
 export type InvocationEventPayload =
   | InvocationStartedPayload
@@ -63,10 +87,19 @@ export type InvocationEventPayload =
   | InvocationExitedPayload
   | InvocationFailedPayload
   | InvocationDisposedPayload
+  | LifecyclePolicyAcceptedPayload
+  | LifecycleEscalationPayload
+  | HarnessStartedPayload
+  | HarnessExitedPayload
+  | HarnessRecoveryStartedPayload
+  | HarnessRecoveryCompletedPayload
+  | HarnessRecoveryFailedPayload
   | ContinuationUpdate
   | ContinuationCleared
   | InputDispositionPayload
   | TurnStartedPayload
+  | TurnStalledPayload
+  | TurnRetryPayload
   | TurnCompletedPayload
   | TurnFailedPayload
   | TurnInterruptedPayload
@@ -83,6 +116,7 @@ export type InvocationEventPayload =
   | TerminalSurfaceReportedPayload
   | PermissionRequestedPayload
   | PermissionResolvedPayload
+  | PermissionCancelledPayload
 
 export interface InvocationStartedPayload {
   pid?: number | undefined
@@ -122,6 +156,8 @@ export interface ContinuationCleared {
 
 export interface TurnStartedPayload {
   turnId: TurnId
+  inputId?: InputId | undefined
+  turnAttempt?: number | undefined
 }
 
 export interface AssistantMessageStartedPayload {
@@ -177,6 +213,10 @@ export interface TurnFailedPayload {
   message: string
   code?: string | undefined
   data?: unknown
+  retryable?: boolean | undefined
+  reason?: 'harness-stalled' | 'retry-unsafe' | 'retry-exhausted' | string | undefined
+  turnAttempt?: number | undefined
+  retrySuppressed?: boolean | undefined
 }
 
 export interface TurnInterruptedPayload {
@@ -202,12 +242,22 @@ export interface DiagnosticPayload {
 export interface InvocationExitedPayload {
   exitCode?: number | null | undefined
   signal?: string | null | undefined
+  reason?: 'idle-ttl' | 'operator-stop' | 'process-exit' | string | undefined
+  droppedContinuation?: boolean | undefined
 }
 
 export interface InvocationFailedPayload {
   message: string
   code?: string | undefined
   data?: unknown
+  retryable?: boolean | undefined
+  reason?:
+    | 'idle-retire-timeout'
+    | 'harness-stalled'
+    | 'stall-unrecoverable'
+    | 'runner-degraded'
+    | string
+    | undefined
 }
 
 export interface InputDispositionPayload {

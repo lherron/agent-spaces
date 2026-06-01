@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { BrokerClient } from 'spaces-harness-broker-client'
 import type { InvocationInput, InvocationStartRequest } from 'spaces-harness-broker-protocol'
+import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
 import {
   brokerArgs,
   brokerCommand,
@@ -219,6 +220,38 @@ describe('BrokerClient startInvocationFromRequest', () => {
         undefined,
         runtime
       )
+      expect(invocationId).toBe(request.spec.invocationId)
+      expect(response).toMatchObject({ invocationId, state: 'ready' })
+    } finally {
+      await client.close()
+    }
+  })
+
+  test('threads lifecyclePolicy through the options-object dispatch envelope', async () => {
+    const request: InvocationStartRequest = {
+      spec: codexSpec('start-fresh-turn', {
+        invocationId: 'inv_client_start_request_lifecycle_policy',
+      }),
+      initialInput,
+    }
+    const dispatchEnv = { AGENT_SCOPE_REF: 'agent:curly:project:p:task:t' }
+    const lifecyclePolicy = conservativeDefaultLifecyclePolicyOverlay('policy_client_default')
+    const client = await BrokerClient.start({
+      command: process.execPath,
+      args: fakeBrokerArgs('exact-request', {
+        startRequest: request,
+        dispatchEnv,
+        lifecyclePolicy,
+      }),
+      cwd: repoRoot,
+    })
+
+    try {
+      await client.hello(helloRequest())
+      const { invocationId, response } = await client.startInvocationFromRequest(request, {
+        dispatchEnv,
+        lifecyclePolicy,
+      })
       expect(invocationId).toBe(request.spec.invocationId)
       expect(response).toMatchObject({ invocationId, state: 'ready' })
     } finally {

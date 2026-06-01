@@ -60,6 +60,8 @@ export interface DriverContext {
       inputId?: InputId | undefined
       itemId?: string | undefined
       driver?: { kind: string; rawType?: string | undefined } | undefined
+      harnessGeneration?: number | undefined
+      turnAttempt?: number | undefined
     }
   ): InvocationEventEnvelope<TPayload>
   /**

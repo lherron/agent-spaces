@@ -7,7 +7,10 @@ import type {
   InvocationStopRequest,
   InvocationStopResponse,
 } from 'spaces-harness-broker-protocol'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import {
+  BrokerErrorCode,
+  CONSERVATIVE_LIFECYCLE_CAPABILITIES,
+} from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from './driver'
 
@@ -42,6 +45,7 @@ const NOOP_CAPABILITIES: InvocationCapabilities = {
     stop: true,
     dispose: true,
   },
+  lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
 export function createNoopDriver(options: NoopDriverOptions = {}): Driver {

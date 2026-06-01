@@ -3,6 +3,7 @@ import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
 import type {
   BrokerHelloResponse,
+  BrokerLifecyclePolicyOverlay,
   InvocationCapabilities,
   InvocationEventEnvelope,
   InvocationId,
@@ -214,6 +215,34 @@ function assertInvocationCapabilities(
     'Required broker permission request capability is missing.',
     { required: requirements.permissions, actual: capabilities.permissions, hrcPolicy }
   )
+
+  for (const mode of requirements.lifecycle.runtimeRetention) {
+    requiredFlag(
+      failures,
+      capabilities.lifecycle.runtimeRetention.includes(mode),
+      `${pathPrefix}.lifecycle.runtimeRetention`,
+      `Required lifecycle retention mode is missing: ${mode}.`,
+      { required: mode, actual: capabilities.lifecycle.runtimeRetention, hrcPolicy }
+    )
+  }
+  for (const mode of requirements.lifecycle.harnessRecovery) {
+    requiredFlag(
+      failures,
+      capabilities.lifecycle.harnessRecovery.includes(mode),
+      `${pathPrefix}.lifecycle.harnessRecovery`,
+      `Required lifecycle recovery mode is missing: ${mode}.`,
+      { required: mode, actual: capabilities.lifecycle.harnessRecovery, hrcPolicy }
+    )
+  }
+  for (const mode of requirements.lifecycle.turnRetry) {
+    requiredFlag(
+      failures,
+      capabilities.lifecycle.turnRetry.includes(mode),
+      `${pathPrefix}.lifecycle.turnRetry`,
+      `Required lifecycle turn retry mode is missing: ${mode}.`,
+      { required: mode, actual: capabilities.lifecycle.turnRetry, hrcPolicy }
+    )
+  }
 
   return failures
 }
@@ -637,6 +666,7 @@ async function collectEventsUntilTerminalTurn(
 async function startBrokerInvocation(
   profile: BrokerExecutionProfile,
   dispatchEnv: Record<string, string> | undefined,
+  lifecyclePolicy: BrokerLifecyclePolicyOverlay | undefined,
   hrcPolicy: HrcCapabilityPolicy | undefined,
   timeoutMs: number,
   allowLegacyPermissionEvent: boolean
@@ -678,7 +708,7 @@ async function startBrokerInvocation(
 
     const startResult = await brokerClient.startInvocationFromRequest(
       profile.harnessInvocation.startRequest,
-      dispatchEnv
+      { dispatchEnv, lifecyclePolicy }
     )
     const invocationFailures = assertInvocationCapabilities(
       profile.expectedCapabilities,
@@ -1174,6 +1204,7 @@ export async function runPreHrcBrokerContractHarness(
     const brokerResult = await startBrokerInvocation(
       selectedProfile,
       dispatchEnv,
+      input.lifecyclePolicy,
       input.compileRequest.hrcPolicy.capabilityPolicy,
       input.timeoutMs ?? selectedProfile.policy.resourceLimits?.turnTimeoutMs ?? 10_000,
       input.allowLegacyPermissionEvent === true

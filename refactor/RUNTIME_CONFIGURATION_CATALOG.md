@@ -1,6 +1,6 @@
 # Runtime Configuration Catalog
 
-Last updated: 2026-05-28
+Last updated: 2026-05-31
 
 This is the human planning catalog for ASP/HRC runtime configurations. The code
 validation catalog is `packages/spaces-runtime-contracts/src/route-catalog.ts`.
@@ -30,6 +30,19 @@ The current typed route catalog contains these route families:
 | `pi-sdk-embedded-noninteractive` | Current | `openai` | `pi-sdk` / `pi-sdk` | `pi-sdk` | `nonInteractive` | `embedded-sdk` | in-process SDK | `sdk-turn`, `sdk-inflight-input` | `real-pi-sdk-embedded` |
 | `codex-app-server-headless` | Current default | `openai` | `codex-cli` / `codex` | `codex-cli` | `headless` | `harness-broker` | `codex-app-server`, jsonrpc-stdio | `broker-input` | `fake-codex`, `real-codex` |
 | `codex-legacy-exec-headless` | Legacy / migration-only | `openai` | `codex-cli` / `codex` | `codex-cli` | `headless` | `legacy-exec` | legacy launch artifact | `legacy-launch-input` | Missing |
+
+## Lifecycle Certification Baseline
+
+Lifecycle policy is carried as an HRC-owned `BrokerLifecyclePolicyOverlay` on broker dispatch, not as compiled profile/start-request material. The enforceable route catalog should expose only capabilities that the driver and HRC projection tests have certified.
+
+| Route family | Retention baseline | Harness recovery baseline | Turn retry baseline | Certification gate |
+| --- | --- | --- | --- | --- |
+| `claude-code-broker-tmux-interactive` | `keep-alive`; future `idle-ttl` only after driver-private retire is real | `none` or `fail-and-escalate`; future `recycle-child` requires generation fencing | `none` | Requires `/quit`/retire path, verified foreground exit, hook fencing, stale permission cancellation, and liveness-reconcile race tests. |
+| `codex-cli-broker-tmux-interactive` | `keep-alive`; future `idle-ttl` only after driver-private retire is real | `none` or `fail-and-escalate`; future `recycle-child` requires runner/process-tree certification | `none` | Requires runner control, process-tree kill semantics, hook socket rotation, permission cancellation, and stale-event projection tests. |
+| `codex-app-server-headless` | `keep-alive`; absolute turn timeout remains separate from idle retention | `fail-and-escalate` via direct child status/timeout, unless direct-child recycle is explicitly certified | `none` | Timeout, child exit, and retry semantics must remain distinct; tool/permission side effects disable automatic retry. |
+| `agent-sdk-embedded-*` / `pi-sdk-embedded-*` | Controller/session policy, not broker lifecycle overlay | Controller-owned SDK session recovery | `none` unless SDK-specific idempotency is proven | Embedded SDK routes do not receive broker lifecycle policy unless promoted to a broker execution profile. |
+| `legacy-exec` / terminal compatibility routes | unmanaged/migration-only | none | none | Do not add lifecycle overlay support; retire route or move it behind broker/controller contracts. |
+
 
 ## Public ASP Compatibility Surface
 
@@ -93,6 +106,10 @@ Minimum missing rows for full legacy ASP coverage:
 8. `agent-sdk` in-flight SDK turn.
 9. `pi-sdk` runner interactive/print, unless explicitly retired in favor of
    embedded SDK only.
+10. Broker lifecycle overlay smoke: accepted `keep-alive` policy produces a lifecycle policy hash and `lifecycle.policy.accepted`.
+11. Idle-retire certification for tmux broker drivers: driver-private retire, terminal projection before stale reconcile, and no synthetic user turn.
+12. Harness-generation certification: child exit/recycle events carry `harnessGeneration`; stale hooks and permission responses are fenced.
+13. Guarded retry certification: default `turnRetry.none`; `safe-retry` only where side-effect/idempotency predicates are proven.
 
 ## Maintenance Rule
 
@@ -102,4 +119,5 @@ change:
 1. `packages/spaces-runtime-contracts/src/route-catalog.ts` for enforceable route
    validation.
 2. `scripts/pre-hrc-broker-matrix-e2e.ts` for driver certification rows.
-3. This file for current, legacy, and future planning visibility.
+3. This file for current, legacy, future, and lifecycle-certification planning visibility.
+4. Lifecycle capability tests when a route changes `RuntimeRetentionPolicy`, `HarnessRecoveryPolicy`, or `TurnRetryPolicy` support.

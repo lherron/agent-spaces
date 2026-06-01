@@ -79,6 +79,7 @@ import type {
   InvocationId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
+import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
   BrokerPermissionPolicy,
@@ -144,6 +145,23 @@ const ALL_ROWS: RowName[] = [
   'claude-tmux-ghostmux',
   'real-pi-sdk-embedded',
 ]
+
+async function ghostmuxNewWithRetry(
+  bin: string,
+  args: string[],
+  attempts = 3
+): Promise<Awaited<ReturnType<typeof ghostmux>>> {
+  let last: Awaited<ReturnType<typeof ghostmux>> | undefined
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const out = await ghostmux(bin, args)
+    if (out.code === 0) return out
+    last = out
+    const failure = `${out.stderr}\n${out.stdout}`
+    if (!/Surface failed to realize|libghostty API call failed/i.test(failure)) return out
+    if (attempt < attempts) await sleep(1_500 * attempt)
+  }
+  return last ?? { code: 1, stdout: '', stderr: 'ghostmux new failed before execution' }
+}
 
 /**
  * SHARED narration-inducing scenario (Lance's live ghostmux demo, T-01700).
@@ -926,6 +944,9 @@ async function runCodexRow(
 
   const savedCodexPath = process.env['ASP_CODEX_PATH']
   const savedSkip = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
+  const lifecyclePolicy = options.real
+    ? undefined
+    : conservativeDefaultLifecyclePolicyOverlay(`matrix-fake-codex-${ctx.marker}`)
   process.env['ASP_CODEX_PATH'] = options.codexPath
   process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
 
@@ -948,6 +969,7 @@ async function runCodexRow(
         compileRuntimePlanForMatrix(ctx, compileOptions?.clientAspHome, req),
       dryRunCompile: false,
       allowLegacyPermissionEvent: ctx.allowLegacyPermissionEvent,
+      lifecyclePolicy,
       timeoutMs: ctx.turnTimeoutMs,
       brokerStartAssertions: {
         baseline: { expectInitialInputAccepted: true, expectedTerminalType: 'turn.completed' },
@@ -972,6 +994,11 @@ async function runCodexRow(
       harnessResult.brokerStart?.attempted === true
         ? harnessResult.brokerStart.response.capabilities.input.queue
         : undefined
+    result.notes['lifecyclePolicyHash'] = lifecyclePolicy?.policyHash
+    result.notes['acceptedLifecyclePolicy'] =
+      harnessResult.brokerStart?.attempted === true
+        ? (harnessResult.brokerStart.response.acceptedLifecyclePolicy ?? null)
+        : null
 
     // Contract bucket: the harness already ran compile/select/verify + baseline.
     result.contractFailures = harnessResult.assertionReport.failures.map(toFailure)
@@ -980,6 +1007,33 @@ async function runCodexRow(
         code: 'broker_start_not_attempted',
         message: `broker start not attempted (${harnessResult.brokerStart?.attempted === false ? harnessResult.brokerStart.reason : 'unknown'})`,
       })
+    }
+    if (lifecyclePolicy !== undefined && harnessResult.brokerStart?.attempted === true) {
+      const accepted = harnessResult.brokerStart.response.acceptedLifecyclePolicy
+      if (accepted?.policyHash !== lifecyclePolicy.policyHash) {
+        result.contractFailures.push({
+          code: 'lifecycle_default_overlay_not_accepted',
+          message: 'fake-codex lifecycle default overlay was not accepted with its policy hash',
+        })
+      }
+      const acceptedIndex = events.findIndex((event) => event.type === 'lifecycle.policy.accepted')
+      const readyIndex = events.findIndex((event) => event.type === 'invocation.ready')
+      if (acceptedIndex < 0 || (readyIndex >= 0 && acceptedIndex > readyIndex)) {
+        result.contractFailures.push({
+          code: 'lifecycle_policy_event_order_invalid',
+          message: 'lifecycle.policy.accepted must be emitted before invocation.ready',
+        })
+      }
+      if (
+        JSON.stringify(harnessResult.selectedProfile?.harnessInvocation.startRequest).includes(
+          'lifecyclePolicy'
+        )
+      ) {
+        result.contractFailures.push({
+          code: 'lifecycle_policy_in_start_request',
+          message: 'lifecycle policy leaked into the compiled InvocationStartRequest',
+        })
+      }
     }
 
     // Uniform floor.
@@ -1459,7 +1513,7 @@ async function runCodexTmuxRow(
         surface !== undefined
           ? `${ctx.tmuxBin} -S ${surface.socketPath} attach-session -t ${surface.sessionName}`
           : `${ctx.tmuxBin} -S ${socketPath} attach-session`
-      const newOut = await ghostmux(ghostmuxBin, [
+      const newOut = await ghostmuxNewWithRetry(ghostmuxBin, [
         'new',
         '--command',
         attachCommand,
@@ -2323,7 +2377,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         result.notes['baselineSubmits'] = baselineSubmits
         result.notes['baselineCompleted'] = baselineCompleted
 
-        const newOut = await ghostmux(ghostmuxBin, [
+        const newOut = await ghostmuxNewWithRetry(ghostmuxBin, [
           'new',
           '--command',
           live.attachCommand,

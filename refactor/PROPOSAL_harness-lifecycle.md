@@ -1,6 +1,6 @@
 # Proposal: broker lifecycle contract — retention, harness recovery, and guarded turn retry
 
-**Status:** rewritten recommendation for review. This replaces the two-policy shape in `PROPOSAL_harness-lifecycle.md`.
+**Status:** approved; incorporated into `FINAL_CONTRACTS.md`, `FINAL_DATATYPES.md`, `AGENT_RUNTIME_CONTRACT_PLANE_SPEC.md`, and `RUNTIME_CONFIGURATION_CATALOG.md`.
 
 **Scope:** Agent Spaces / ASP compiler plane, HRC runtime control plane, Harness Broker execution plane.
 
@@ -119,7 +119,7 @@ The existing compiled `startRequestHash` MUST remain the hash of the ASP-compile
 
 ### 3.2 Capability validation
 
-HRC SHOULD preflight the lifecycle overlay against broker/driver capabilities from `broker.hello` or driver summaries. The broker MUST validate the overlay at `invocation.start` and reject unsupported policy with a typed error. There must be no silent downgrade from `idle-ttl` to `keep-alive`, from `recycle-child` to no recovery, or from guarded retry to no retry unless HRC explicitly requested fallback behavior.
+HRC SHOULD preflight the lifecycle overlay against broker/driver capabilities from `broker.hello` or driver summaries. The broker MUST validate the overlay at `invocation.start` and reject unsupported policy with a typed error. There must be no silent downgrade from `idle-ttl` to `keep-alive`, from `recycle-child` to no recovery, or from guarded retry to no retry. Unsupported lifecycle policy is a typed start rejection.
 
 Add lifecycle capability information to invocation or driver capabilities:
 
@@ -227,12 +227,13 @@ export type HarnessRecoveryPolicy =
       mode: 'none'
     }
   | {
-      mode: 'observe'
-      reportChildExit: boolean
+      mode: 'fail-and-escalate'
+      stallDetection?: StallDetectionPolicy
+      escalation: 'fail-turn' | 'fail-invocation' | 'escalate-hard-reap'
     }
   | {
       mode: 'recycle-child'
-      maxRecoveriesPerInvocation: number
+      maxGenerationsPerInvocation: number
       activeTurnDisposition: 'fail-before-recycle' | 'escalate-only'
       stallDetection: StallDetectionPolicy
       recycle: {

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createAgentSpacesClient } from 'agent-spaces'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import type { BrokerHelloResponse } from 'spaces-harness-broker-protocol'
+import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
 import type { BrokerExecutionProfile, RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 import {
@@ -104,6 +105,27 @@ describe('ASPC combined facade', () => {
       expect(response.startRequest).toEqual(response.selectedProfile.harnessInvocation.startRequest)
       expect(response.dispatchRequest.startRequest).toEqual(response.startRequest)
       expect(response.dispatchRequest.dispatchEnv).toEqual({ EXTRA_FLAG: 'aspc' })
+    } finally {
+      await client.close()
+    }
+  })
+
+  test('compileHarnessInvocation carries lifecycle policy only on dispatch envelope', async () => {
+    const client = await startFacadeClient()
+    const lifecyclePolicy = conservativeDefaultLifecyclePolicyOverlay('policy_aspc_default')
+    try {
+      const response = await client.compileHarnessInvocation({
+        compileRequest: buildCompileRequest('harness_invocation_lifecycle'),
+        aspHome: fixture.aspHome,
+        profileSelector: { brokerDriver: 'codex-app-server' },
+        lifecyclePolicy,
+      })
+      expect(response.ok).toBe(true)
+      if (!response.ok) return
+
+      expect(response.dispatchRequest.lifecyclePolicy).toEqual(lifecyclePolicy)
+      expect(response.dispatchRequest.startRequest).toEqual(response.startRequest)
+      expect(JSON.stringify(response.startRequest)).not.toContain('lifecyclePolicy')
     } finally {
       await client.close()
     }

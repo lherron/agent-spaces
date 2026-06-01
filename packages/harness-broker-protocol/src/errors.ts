@@ -18,6 +18,7 @@ export enum BrokerErrorCode {
    * resize a pane that did not grant `allowedOps.resize`.
    */
   CapabilityDenied = -32011,
+  BrokerLifecyclePolicyUnsupported = -32012,
 }
 
 export function createJsonRpcError(code: number, message: string, data?: unknown): JsonRpcError {

@@ -18,11 +18,11 @@ ASP compiler plane
   emits CompiledRuntimePlan
 
 HRC runtime control plane
-  owns route admission, runtime lifecycle, reuse, persistence, public API semantics, policy, reconciliation
+  owns route admission, runtime/container/broker lifecycle, tmux leases, reuse, persistence, public API semantics, policy, reconciliation, hard reap
   emits RuntimeRouteDecision + RuntimeOperation + RuntimeState
 
 Harness Broker execution plane
-  owns harness process execution, native driver protocols, input disposition, permission requests, normalized broker events
+  owns live harness-child execution below the broker boundary, native driver protocols, input disposition, permission requests, normalized broker events
   emits InvocationEventEnvelope + InvocationStatus
 ```
 
@@ -34,7 +34,9 @@ The decisive rule is compiler closure:
 
 For broker-capable routes this includes `HarnessInvocationSpec`, `InvocationStartRequest`, driver config, process command/args/cwd and declared `lockedEnv`, harness transport descriptors, Codex app-server descriptors, prompt/context materialization paths, continuation encoding, harness-specific OTEL/config mutation, and native launch-mode detection. For embedded-sdk routes this includes SDK runtime, session cwd, `session.lockedEnv`, `session.pathPrepend`, model/provider, policy, continuation/session shape, and native SDK launch-mode detection.
 
-If HRC needs a different broker request, SDK session shape, process argv/env/cwd, driver config, continuation shape, prompt materialization, model, placement, permission policy, or input policy, HRC MUST ask ASP to recompile.
+HRC-authored lifecycle policy preserves compiler closure only when it is carried as the explicit `BrokerLifecyclePolicyOverlay` on `InvocationDispatchRequest`, outside `startRequest`, outside `HarnessInvocationSpec`, and outside `startRequestHash`. That overlay is HRC-owned policy, not a patch to process or driver shape; it has its own canonical policy hash and persistence record.
+
+If HRC needs a different broker request, SDK session shape, process argv/env/cwd, driver config, continuation shape, prompt materialization, model, placement, permission policy, input policy, or any lifecycle behavior that changes compiled mechanics, HRC MUST ask ASP to recompile.
 
 **Confidentiality posture.** The compiled spec is credential-free and ambient-free by contract: it carries declared non-secret `lockedEnv` (hashed) but never credential or ambient material. It defines **no** generic secret classification, redaction transforms, or digest-substituted values. Credential material reaches the harness only through an execution-owner credential source (broker/driver launch environment, embedded SDK controller environment, external secret store, or an on-disk file credential materialized outside the compiled DTO; see PLANE_SPEC §7.5.1), and the execution owner composes the env as a validated disjoint union of ambient allowlist + credentials + `lockedEnv` + `dispatchEnv`. Confidentiality is enforced by keeping credentials out of the compiled spec — **not** by contract-DTO redaction. (The canonical statement of this principle lives in the PLANE_SPEC architecture section; this is a pointer.)
 
@@ -72,6 +74,10 @@ A **compiled execution profile** is one element of `CompiledRuntimePlan.executio
 | Permission product policy | Receives HRC overlay; emits compiled policy | Owns final adjudication and audit | Emits requests; enforces decisions |
 | Input policy | Emits requested profile policy | Admits against capability intersection | Enforces/disposes/queues |
 | Turn lifecycle projection | No | Owns HRC projection | Emits normalized facts |
+| Runtime retention policy | No | Owns policy and audit hash | Implements accepted policy when capability allows |
+| Live harness-child lifecycle | No | Observes through broker events; may hard-reap container/lease | Owns child start/retire/recycle inside broker boundary |
+| Harness generation/attempt projection | No | Owns durable projection and stale-event fencing | Owns generation/attempt emission and stale native-event filtering |
+| Semantic turn retry | No | Owns public/API semantics and admission policy | Executes only explicitly accepted safe retry policy |
 | Runtime reuse/adoption | No | Owns | Reports status/capabilities |
 | Persistence | Emits projection/hashable artifacts | Owns durable state | No durable HRC state |
 | Restart/reconcile | No | Owns | Supports status; v2 supports attach/replay |
@@ -99,6 +105,7 @@ packages/spaces-runtime-contracts/
   src/continuation.ts
   src/permissions.ts
   src/input.ts
+  src/lifecycle.ts
   src/observability.ts
   src/hash.ts
   src/public-api.ts
@@ -207,6 +214,8 @@ ASP MUST embed these IDs into the compiled plan/profile/start request as applica
 
 This identity rule is required for stable hashes, replayable diagnostics, idempotent event mapping, and operation auditability.
 
+Broker-owned lifecycle identity is separate from HRC runtime identity. `harnessGeneration` is a 1-based child-process generation within one broker invocation; it is not HRC runtime `generation`. `turnAttempt` is the attempt number for one logical input/turn; a retry keeps the same public `inputId` and logical `turnId` and increments `turnAttempt`. HRC MUST persist and fence generation/attempt values when present, but HRC MUST NOT allocate or infer harness generations.
+
 ---
 
 ## 5. Hashing, projection, and canonicalization contract
@@ -233,7 +242,8 @@ All hashes are **closure/dedup/route/reuse/test** tools, **not** confidentiality
 | `profileHash` | ASP | Semantic hash of one execution profile projection (minus self-hash fields, ephemeral timestamps; includes the canonical `lockedEnv` object). |
 | `compatibilityHash` | ASP | Hash of fields that determine runtime reuse compatibility: command, args, cwd, pathPrepend, transport, driver config/model/reasoning, bundle identity/lock, policy, resource limits, continuation provider/kind/non-secret identity, **plus the canonical `lockedEnv` object** (declared non-secret config; keys and values are hashed). |
 | `specHash` | ASP | Semantic hash of broker `HarnessInvocationSpec`; includes the canonical `lockedEnv` object. |
-| `startRequestHash` | ASP | Semantic hash of broker `InvocationStartRequest`; includes the canonical `lockedEnv` object (initial input **included**). |
+| `startRequestHash` | ASP | Semantic hash of broker `InvocationStartRequest`; includes the canonical `lockedEnv` object (initial input **included**). Excludes `dispatchEnv`, `runtime`, and `lifecyclePolicy`. |
+| `lifecyclePolicyHash` | HRC | Semantic hash of `BrokerLifecyclePolicyOverlay` excluding `policyHash` itself. It is persisted/audited separately and never proves compiler closure. |
 | `contentHash` | ASP/HRC | Content hash of persisted artifact JSON/file bytes. |
 
 HRC MAY verify that the selected profile’s immutable values still hash to the ASP-supplied hashes immediately before sending them to the broker. HRC MUST NOT use hashes to reconstruct missing execution mechanics.
@@ -298,7 +308,7 @@ An optional one-call facade MAY expose:
 aspc.compileAndStart
 ```
 
-`aspc.compileAndStart` is sugar over `aspc.compileHarnessInvocation` followed by broker `invocation.start`. It MUST return the compile result and exact compiled `InvocationStartRequest` alongside the broker start response. It MUST send broker `invocation.start` an `InvocationDispatchRequest { startRequest, dispatchEnv?, runtime? }`; it MUST NOT hide compilation inside start without returning the compiled artifact.
+`aspc.compileAndStart` is sugar over `aspc.compileHarnessInvocation` followed by broker `invocation.start`. It MUST return the compile result, exact compiled `InvocationStartRequest`, dispatch overlay, and broker start response. It MAY send broker `invocation.start` an `InvocationDispatchRequest { startRequest, dispatchEnv?, runtime?, lifecyclePolicy? }`; the optional lifecycle overlay remains HRC-owned dispatch policy and MUST NOT be compiled into or hidden inside the returned `InvocationStartRequest`.
 
 ASPC methods MUST NOT be added to `harness-broker/0.1`. A co-hosted ASPC+broker facade process may multiplex both protocols on one transport, but method namespaces, validators, errors, and failure domains remain separate. Compile failures are `aspc/0.1` compiler diagnostics; broker start/control failures remain broker JSON-RPC or runtime-control errors.
 
@@ -484,7 +494,7 @@ For broker-capable Codex headless start:
 8. HRC sends broker.hello.
 9. HRC validates broker hello capabilities and driver summary.
 10. HRC verifies selected profile hashes without mutating profile content.
-11. HRC sends an `InvocationDispatchRequest { startRequest, dispatchEnv?, runtime? }` to the broker; `startRequest` (= selectedProfile.harnessInvocation.startRequest) is forwarded **verbatim** and is the only hashed payload. For `claude-code-tmux` and `codex-cli-tmux`, `runtime.terminalSurface` is required and MUST be an HRC-owned tmux pane lease. The broker validates `dispatchEnv` and `runtime` at dispatch (HRC MAY preflight) and merges only `dispatchEnv` at spawn.
+11. HRC sends an `InvocationDispatchRequest { startRequest, dispatchEnv?, runtime?, lifecyclePolicy? }` to the broker; `startRequest` (= selectedProfile.harnessInvocation.startRequest) is forwarded **verbatim** and remains the only ASP-compiled hashed payload. `lifecyclePolicy`, when present, has a separate HRC-owned audit hash and is not part of `startRequestHash`. For `claude-code-tmux` and `codex-cli-tmux`, `runtime.terminalSurface` is required and MUST be an HRC-owned tmux pane lease. The broker validates `dispatchEnv`, `runtime`, and `lifecyclePolicy` at dispatch (HRC MAY preflight), emits `lifecycle.policy.accepted` for accepted lifecycle overlays, and merges only `dispatchEnv` at spawn.
 12. HRC persists BrokerInvocation.
 13. HRC consumes broker event notifications.
 14. HRC projects broker events through one BrokerEventMapper.
@@ -542,7 +552,7 @@ stop
 dispose
 ```
 
-Controllers execute mechanics. They do not recompute route policy. A controller receives a route decision plus selected immutable profile and returns typed result objects. `RuntimeControllerStartInput` and `RuntimeControllerDispatchInput` MAY carry `dispatchEnv`; this is the HRC-owned per-invocation context channel and is never copied into the compiled profile or hash material. Controller implementations may supervise processes they own, but the broker controller only supervises the broker process; it does not synthesize harness process mechanics. Embedded SDK controllers run SDK sessions in-process and MUST NOT inherit broker process/socket assumptions.
+Controllers execute mechanics. They do not recompute route policy. A controller receives a route decision plus selected immutable profile and returns typed result objects. `RuntimeControllerStartInput` and `RuntimeControllerDispatchInput` MAY carry explicit HRC-owned dispatch overlays: `dispatchEnv`, `runtime`, and for broker routes `lifecyclePolicy`. These overlays are never copied into the compiled profile or hash material. Controller implementations may supervise processes they own; the broker controller supervises the broker process and delegates live harness-child mechanics to the broker, while retaining HRC hard-reap authority over the runtime/container. Embedded SDK controllers run SDK sessions in-process and MUST NOT inherit broker process/socket assumptions.
 
 ### 7.8 EmbeddedSdkController contract
 
@@ -842,11 +852,13 @@ If no common protocol exists, broker rejects. HRC MUST fail route admission if r
 
 ### 8.7 Invocation start contract
 
-`invocation.start` receives an `InvocationDispatchRequest { startRequest, dispatchEnv?, runtime? }` envelope. The `startRequest` is the compiled `InvocationStartRequest` (with `HarnessInvocationSpec` and optional `initialInput`) forwarded verbatim and is the only hashed payload. Broker MUST validate the request against protocol schema, validate `dispatchEnv` at dispatch (disjoint from ambient/credential/reserved key classes and not shadowing any `lockedEnv` key), validate `runtime` at dispatch, choose the driver by `spec.harness.driver`, compose the spawn env as the validated disjoint union of ambient allowlist + credentials + `lockedEnv` + `dispatchEnv`, and start the harness process. For `claude-code-tmux` and `codex-cli-tmux`, `runtime.terminalSurface` is required and MUST be `{ kind: 'tmux-pane', ownership: 'hrc', socketPath, sessionId, windowId, paneId, sessionName?, windowName?, allowedOps }` with `allowedOps.inspect`, `allowedOps.sendInput`, and `allowedOps.sendInterrupt` set to `true`. `runtime.tmux.socketPath` is a deprecated boundary shim accepted only during the migration window; if both are present, `runtime.terminalSurface` wins.
+`invocation.start` receives an `InvocationDispatchRequest { startRequest, dispatchEnv?, runtime?, lifecyclePolicy? }` envelope. The `startRequest` is the compiled `InvocationStartRequest` (with `HarnessInvocationSpec` and optional `initialInput`) forwarded verbatim and is the only ASP-compiled hashed payload. `dispatchEnv`, `runtime`, and `lifecyclePolicy` are outside `startRequestHash`; only `lifecyclePolicy` has a separate HRC-owned audit hash.
 
-Broker MUST preserve HRC-provided `invocationId` when present. Broker response includes invocation ID, initial state, and invocation capabilities.
+Broker MUST validate the request against protocol schema, validate `dispatchEnv` at dispatch (disjoint from ambient/credential/reserved key classes and not shadowing any `lockedEnv` key), validate `runtime` at dispatch, validate `lifecyclePolicy` against broker/driver lifecycle capabilities, choose the driver by `spec.harness.driver`, compose the spawn env as the validated disjoint union of ambient allowlist + credentials + `lockedEnv` + `dispatchEnv`, and start the harness process. Unsupported lifecycle policy MUST fail with a typed error; silent downgrade is forbidden.
 
-Broker MUST emit ordered events starting with `invocation.started` or `invocation.failed`. If initial input exists and is accepted, broker emits input and turn events.
+For `claude-code-tmux` and `codex-cli-tmux`, `runtime.terminalSurface` is required and MUST be `{ kind: 'tmux-pane', ownership: 'hrc', socketPath, sessionId, windowId, paneId, sessionName?, windowName?, allowedOps }` with `allowedOps.inspect`, `allowedOps.sendInput`, and `allowedOps.sendInterrupt` set to `true`. `runtime.tmux.socketPath` is a deprecated boundary shim accepted only during the migration window; if both are present, `runtime.terminalSurface` wins.
+
+Broker MUST preserve HRC-provided `invocationId` when present. Broker response includes invocation ID, initial state, invocation capabilities, and the accepted lifecycle policy hash when an overlay was provided. Broker MUST emit ordered events starting with `invocation.started` or `invocation.failed`; when lifecycle policy is accepted it MUST emit `lifecycle.policy.accepted` before lifecycle-dependent events. If initial input exists and is accepted, broker emits input and turn events.
 
 ### 8.8 Invocation lifecycle state machine
 
@@ -868,7 +880,18 @@ exited -> disposed
 failed -> disposed
 ```
 
-Broker status MUST report the current state, current turn ID when present, continuation when known, capabilities, and process info when known.
+Broker status MUST report the current state, current turn ID when present, current harness generation when known, current turn attempt when known, continuation when known, capabilities, and process info when known.
+
+Harness generation lifecycle is nested under invocation lifecycle:
+
+```text
+none -> harness.started(generation=1)
+harness.started(N) -> harness.exited(N)
+harness.exited(N) -> harness.started(N+1)   # only recovery recycle
+harness.exited(N) -> invocation terminal    # idle retire/crash/no recovery
+```
+
+`harness.exited` is not equivalent to `invocation.exited`. A child may exit as part of successful recycle while the invocation remains active. A broker-initiated `ready -> stopping -> exited` transition is valid for `RuntimeRetentionPolicy.mode='idle-ttl'` only when the invocation is ready, the queue is empty, and no permission is pending.
 
 ### 8.9 Input contract
 
@@ -900,10 +923,19 @@ Required normalized event families:
 ```text
 invocation.started
 invocation.ready
+lifecycle.policy.accepted
+lifecycle.escalation
+harness.started
+harness.exited
+harness.recovery.started
+harness.recovery.completed
+harness.recovery.failed
 input.accepted
 input.queued
 input.rejected
 turn.started
+turn.stalled
+turn.retry
 assistant.message.started
 assistant.message.delta
 assistant.message.completed
@@ -925,7 +957,10 @@ driver.notice
 terminal.surface.reported
 permission.requested
 permission.resolved
+permission.cancelled
 ```
+
+Event envelopes MAY carry `harnessGeneration` and `turnAttempt`; when present, they are normative projection fences. State-affecting events from an old generation or stale attempt MUST be stored only as diagnostics or rejected from active projection. The broker normalizer MUST preserve and validate these fields before any driver advertises lifecycle capability. `invocation.started` remains process/controller-start metadata only; lifecycle policy and harness generation MUST be reported by `lifecycle.policy.accepted` and `harness.started`, not appended to `invocation.started`.
 
 Assistant message completion is a required harness-agnostic turn contract. In any turn that produces multiple natural assistant messages, every natural assistant message before the terminal answer MUST be emitted as `assistant.message.completed` with `{ final: false }` before the turn terminal. The terminal assistant message for the turn MUST be emitted as `assistant.message.completed` with `{ final: true }` exactly once, and before `turn.completed`, `turn.failed`, or `turn.interrupted` for that turn.
 
@@ -951,21 +986,25 @@ Broker MUST default-deny when the request channel is unavailable or handler fail
 
 Broker SHOULD also emit normalized `permission.requested` and `permission.resolved` events for auditability, but the final protocol must avoid duplicate semantics. If both broker-to-client request and event are emitted, the request is the control message and events are audit facts.
 
+Permission request and response correlation MUST include `harnessGeneration` and `turnAttempt` when the invocation has started a harness child. `permission.resolved.decision` remains only `allow | deny`; stale or generation-ended requests are represented by a separate `permission.cancelled` event. HRC MUST reject or stale-audit late decisions for old generations and MUST NOT deliver them to the current harness generation.
+
 ### 8.12 Driver SPI contract
 
 Each driver implements:
 
-- driver summary and static capabilities;
+- driver summary and static capabilities, including lifecycle capabilities;
 - `start(spec, initialInput)`;
 - `input(req)`;
 - `interrupt(req)`;
-- `stop(req)`;
-- `status()`;
+- `stop(req)` for explicit stop semantics;
+- `retire(req)` when advertising `RuntimeRetentionPolicy.mode='idle-ttl'` or a strengthened `stop()` with the same actual-retirement semantics;
+- `recover(req)` / runner-control integration only when advertising child recycle;
+- `status()` including current child generation when known;
 - `dispose()`;
 - native event parser;
 - continuation extractor.
 
-Driver code is the only place where native harness protocol semantics live. HRC never imports or parses driver internals.
+Driver code is the only place where native harness protocol semantics live. HRC never imports or parses driver internals. Current tmux driver `stop()` implementations that only release broker-side listeners are not sufficient for idle retirement; a driver may advertise `idleTtl` only after it can perform real graceful harness exit, suppress user-turn accounting, verify process/runner exit, and emit terminal lifecycle events.
 
 ---
 
@@ -990,6 +1029,8 @@ reject
 ```
 
 Silent degrade is forbidden. `headless`, `sdk`, `tmux`, `codex-cli`, `agent-sdk`, and `broker-capable` are labels, not capability models.
+
+Lifecycle capabilities are part of the same intersection. HRC SHOULD preflight `BrokerLifecyclePolicyOverlay` against `broker.hello` and driver summaries; the broker MUST validate again at `invocation.start`. `retention.idleTtl`, `harnessRecovery.recycle`, and `turnRetry.safe-retry` are independent capabilities. A driver may support idle retirement without supporting recycle, and may support recycle without supporting semantic retry.
 
 ---
 
@@ -1026,6 +1067,16 @@ It MUST NOT inherit terminal Agentchat behavior. Explicit broker Agentchat expos
 ### 10.4 Resource policy
 
 Resource limits are compiled into the selected profile. HRC may reject based on policy but MUST NOT patch process limits after compilation.
+
+### 10.5 Lifecycle policy overlay
+
+Lifecycle policy is split into three policies with separate safety properties:
+
+- `RuntimeRetentionPolicy` controls between-turn residency: `keep-alive`, `idle-ttl`, or migration-only `unmanaged`.
+- `HarnessRecoveryPolicy` controls broker-owned child process observation/recycle mechanics and harness generations. It is process recovery, not input replay.
+- `TurnRetryPolicy` controls semantic replay of a logical user turn. Default is `mode:'none'`; `safe-retry` is opt-in, at-least-once, and must fail closed unless all safety predicates are proven.
+
+HRC owns the policy decision and audit hash. Broker owns implementation after accepting the overlay. `idle-ttl` may run only in `ready` with no active turn, empty input queue, and no pending permission. Stall detection MUST NOT be based solely on event silence; it must combine no-progress evidence with a health probe. Turn retry MUST keep the same public `inputId` and logical `turnId`, increment `turnAttempt`, and MUST NOT emit a second `input.accepted`.
 
 ---
 
@@ -1064,6 +1115,8 @@ CREATE TABLE IF NOT EXISTS runtime_operations (
   status TEXT NOT NULL,
   route_decision_json TEXT NOT NULL,
   capability_resolution_json TEXT,
+  lifecycle_policy_hash TEXT,
+  lifecycle_policy_json TEXT,
   created_at TEXT NOT NULL,
   started_at TEXT,
   completed_at TEXT,
@@ -1083,6 +1136,10 @@ CREATE TABLE IF NOT EXISTS broker_invocations (
   child_pid INTEGER,
   invocation_state TEXT NOT NULL,
   capabilities_json TEXT NOT NULL,
+  lifecycle_policy_hash TEXT,
+  lifecycle_policy_json TEXT,
+  current_harness_generation INTEGER DEFAULT 0,
+  terminal_reason TEXT,
   continuation_json TEXT,
   broker_continuation_json TEXT,
   spec_hash TEXT NOT NULL,
@@ -1094,6 +1151,31 @@ CREATE TABLE IF NOT EXISTS broker_invocations (
   owner_server_instance_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS broker_harness_generations (
+  invocation_id TEXT NOT NULL,
+  harness_generation INTEGER NOT NULL,
+  mode TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  exited_at TEXT,
+  exit_reason TEXT,
+  exit_code INTEGER,
+  signal TEXT,
+  PRIMARY KEY (invocation_id, harness_generation)
+);
+
+CREATE TABLE IF NOT EXISTS broker_turn_attempts (
+  invocation_id TEXT NOT NULL,
+  input_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  turn_attempt INTEGER NOT NULL,
+  harness_generation INTEGER,
+  started_at TEXT,
+  terminal_at TEXT,
+  terminal_kind TEXT,
+  terminal_reason TEXT,
+  PRIMARY KEY (invocation_id, turn_id, turn_attempt)
 );
 
 CREATE TABLE IF NOT EXISTS broker_invocation_events (
@@ -1124,10 +1206,14 @@ CREATE TABLE IF NOT EXISTS runtime_artifacts (
 );
 
 CREATE TABLE IF NOT EXISTS permission_decisions (
-  permission_request_id TEXT PRIMARY KEY,
+  permission_identity_key TEXT PRIMARY KEY,
+  permission_request_id TEXT NOT NULL,
   invocation_id TEXT NOT NULL,
   runtime_id TEXT NOT NULL,
   run_id TEXT,
+  turn_id TEXT,
+  turn_attempt INTEGER NOT NULL DEFAULT 0,
+  harness_generation INTEGER NOT NULL DEFAULT 0,
   kind TEXT NOT NULL,
   subject_display_json TEXT NOT NULL,
   default_decision TEXT NOT NULL,
@@ -1135,11 +1221,12 @@ CREATE TABLE IF NOT EXISTS permission_decisions (
   decided_by TEXT NOT NULL,
   policy_json TEXT NOT NULL,
   requested_at TEXT NOT NULL,
-  decided_at TEXT NOT NULL
+  decided_at TEXT NOT NULL,
+  UNIQUE (invocation_id, harness_generation, turn_attempt, permission_request_id)
 );
 ```
 
-`lockedEnv`-bearing projection JSON (e.g. `plan_projection_json`, `spec_projection_json`, `start_request_projection_json`) MAY carry the canonical `lockedEnv` object (non-secret). `dispatchEnv` is **NOT** persisted in the contract projection plane; if any audit captures it, it is operational dispatch metadata that lives outside the contract projection plane.
+`lockedEnv`-bearing projection JSON (e.g. `plan_projection_json`, `spec_projection_json`, `start_request_projection_json`) MAY carry the canonical `lockedEnv` object (non-secret). `dispatchEnv` is **NOT** persisted in the contract projection plane; if any audit captures it, it is operational dispatch metadata that lives outside the contract projection plane. `lifecycle_policy_json` is also outside the compiler projection plane: it is HRC policy audit material keyed by `lifecycle_policy_hash`, not compiled execution material.
 
 ### 11.2 Runtime columns
 
@@ -1220,9 +1307,10 @@ HRC selects profile and validates capabilities/policy
 HRC starts broker process
 HRC -> Broker broker.hello
 Broker -> HRC hello response
-HRC -> Broker invocation.start(startRequest unchanged)
-Broker -> HRC start response
-Broker -> HRC invocation.event notifications
+HRC -> Broker invocation.start({startRequest unchanged, dispatchEnv?, runtime?, lifecyclePolicy?})
+Broker validates lifecycle overlay/capabilities
+Broker -> HRC start response with capabilities and accepted lifecycle policy hash
+Broker -> HRC invocation.event notifications including lifecycle.policy.accepted/harness.started when applicable
 HRC persists events by (invocationId, seq)
 HRC BrokerEventMapper projects runtime/run/message state
 HRC -> Client RuntimeExecutionView / DispatchTurnResponse
@@ -1245,12 +1333,12 @@ HRC -> Client DispatchTurnResponse
 
 ```text
 Broker driver observes native permission request
-Broker emits/requests invocation.permission.request
-HRC permission mediator validates capability and policy
+Broker emits/requests invocation.permission.request with generation/attempt fences when present
+HRC permission mediator validates capability, policy, and generation/attempt freshness
 HRC writes permission_decisions audit row
-HRC returns PermissionDecision
-Broker enforces decision
-Broker emits permission.resolved audit event
+HRC returns PermissionDecision with matching fences
+Broker enforces decision only for the same generation/attempt
+Broker emits permission.resolved audit event or permission.cancelled for stale/generation-ended requests
 HRC maps audit event idempotently
 ```
 
@@ -1266,7 +1354,42 @@ HRC updates runtime/run state
 HRC closes broker process when appropriate
 ```
 
-### 13.5 Restart/reconcile v1
+### 13.5 Idle TTL self-retire
+
+```text
+Broker observes ready + empty queue + no pending permission for idleTtlMs
+Broker emits invocation.stopping{reason:'idle-ttl'}
+Broker invokes driver-private retire path; no input.accepted or turn events are emitted
+Broker emits harness.exited{reason:'idle-retire'} when a child was present
+Broker emits invocation.exited{reason:'idle-ttl', droppedContinuation:false}
+HRC projects clean runtime terminal before any liveness-derived stale classification
+HRC reclaims broker/tmux lease as cleanup, not as stale recovery
+```
+
+### 13.6 Harness recovery without retry
+
+```text
+Broker detects child exit or no-progress-plus-health stall
+Broker emits turn.stalled when an active turn stalls
+Broker fails active turn or escalates according to HarnessRecoveryPolicy.activeTurnDisposition
+Broker emits harness.recovery.started
+Broker recycles child only when capability and process-tree semantics allow
+Broker emits harness.exited(old generation) and harness.started(new generation)
+HRC advances current harness generation and fences old-generation events
+```
+
+### 13.7 Guarded turn retry
+
+```text
+TurnRetryPolicy defaults to none
+If safe-retry is explicitly accepted and all predicates hold:
+  same inputId + same logical turnId + incremented turnAttempt
+  no second input.accepted
+  turn.retry records from/to attempts and generations
+Otherwise the turn fails and recovered harness returns to ready for future input
+```
+
+### 13.8 Restart/reconcile v1
 
 ```text
 HRC boots
@@ -1293,6 +1416,7 @@ No live reattach claim unless v2 attach/replay exists
 - Changing process/driver/session mechanics changes semantic hashes.
 - Missing broker or embedded-sdk profile produces diagnostics, not HRC-side patching.
 - Mutation attempts violate compiler closure tests.
+- Lifecycle overlay changes leave `startRequest` bytes/hash unchanged and produce a distinct `lifecyclePolicyHash`.
 
 ### 14.2 HRC boundary tests
 
@@ -1302,6 +1426,7 @@ No live reattach claim unless v2 attach/replay exists
 - HRC broker path does not parse Codex JSONL, hook, OTEL, app-server, or other native harness events.
 - HRC broker path does not assign `spec.driver`, `spec.process.command`, `spec.process.args`, `spec.process.cwd`, `spec.process.lockedEnv`, `spec.process.pathPrepend`, or `spec.process.harnessTransport`.
 - A `dispatchEnv` key that collides with a `lockedEnv`/reserved/credential/ambient key is rejected at dispatch.
+- HRC may construct `BrokerLifecyclePolicyOverlay` but may not patch lifecycle fields into `HarnessInvocationSpec` or `InvocationStartRequest`.
 - Legacy path requires explicit opt-in.
 
 ### 14.3 Route/capability tests
@@ -1314,12 +1439,13 @@ No live reattach claim unless v2 attach/replay exists
 - `claude-code-tmux` and `codex-cli-tmux` reject non-pty harness transports, broker interactive without an HRC-owned tmux pane lease rejects, and `codex-app-server + interactive` rejects.
 - Old `transport` aliases are derived.
 - Missing required capability rejects before broker start.
+- Lifecycle policy unsupported by broker/driver rejects before or during `invocation.start`; silent lifecycle downgrade is forbidden.
 - Degradation requires explicit policy.
 
 ### 14.4 Broker lifecycle tests
 
 - `broker.hello` protocol mismatch fails cleanly.
-- `invocation.start` persists invocation ID, spec hash, start-request hash, and capabilities.
+- `invocation.start` persists invocation ID, spec hash, start-request hash, lifecycle policy hash when present, current harness generation, and capabilities.
 - `invocation.ready` marks runtime ready.
 - `turn.started` marks run started and runtime busy.
 - `turn.completed` marks run completed and runtime ready.
@@ -1328,6 +1454,10 @@ No live reattach claim unless v2 attach/replay exists
 - Duplicate events are ignored by `(invocationId, seq)`.
 - Out-of-order terminal handling is deterministic.
 - Broker process exit triggers reconcile.
+- Idle TTL emits `invocation.stopping -> harness.exited? -> invocation.exited{reason:'idle-ttl'}` without `input.accepted`.
+- HRC projects idle TTL exit as clean terminal even under concurrent liveness reconcile.
+- Harness recycle advances generation exactly once and stale old-generation events do not affect active projection.
+- Turn retry is disabled by default and, when enabled, keeps the same input/logical turn IDs and increments `turnAttempt` without a second `input.accepted`.
 
 ### 14.5 Permission tests
 
@@ -1337,6 +1467,9 @@ No live reattach claim unless v2 attach/replay exists
 - Ask-client timeout uses explicit default.
 - Missing default denies.
 - Permission subject persisted as a bounded display subject (`subject_display_json`); raw native payloads are not persisted.
+- Permission requests/responses carry generation/attempt fences when present.
+- `permission.cancelled` marks old-generation pending requests without adding `cancelled` to the `allow | deny` decision domain.
+- Late decisions for old generations are rejected/audited and never delivered to the current generation.
 
 ### 14.6 Input tests
 
@@ -1353,6 +1486,8 @@ No live reattach claim unless v2 attach/replay exists
 - Broker terminal status reconciles open run terminal.
 - Persisted continuation survives restart.
 - Orphan cleanup does not kill unrelated harness processes.
+- Clean broker terminal events win over liveness-derived stale classification for the same runtime under a runtime-level lock or compare-and-set.
+- Recycle process-tree tests cover descendants, stubborn children, runner death during recycle, and terminal foreground restoration before recycle capability is advertised.
 
 ---
 
@@ -1367,15 +1502,17 @@ The to-be contract surface is accepted only when all are true:
 5. HRC broker paths do not import concrete harness driver packages.
 6. HRC broker paths do not spawn or reference `launch/exec.ts`.
 7. HRC broker paths do not parse native harness events.
-8. Broker invocation identity, plan hash, selected profile hash, spec hash, start-request hash, capabilities, continuation, state, and event sequence are persisted.
+8. Broker invocation identity, plan hash, selected profile hash, spec hash, start-request hash, lifecycle policy hash when present, capabilities, continuation, lifecycle/generation/attempt state, and event sequence are persisted.
 9. Broker events are mapped through one idempotent `BrokerEventMapper`.
 10. Permission decisions are explicit, audited, default-deny, and persist only a bounded display subject.
 11. Busy-input behavior is explicit and tested against actual broker capabilities.
 12. HRC restart behavior is conservative in v1 and live-reattachable only after broker attach/replay support exists.
 13. Public APIs expose controller/profile/capability fields and derive old `transport` aliases.
-14. Legacy `exec.ts` is feature-gated, isolated, and deleted after Codex broker cutover.
-15. Cross-repo boundary checks enforce dependency direction.
-16. Persisted/displayed artifacts are named canonical projections that include the canonical `lockedEnv` object (non-secret); secrets/credentials never appear in `spec.process.lockedEnv`, `session.lockedEnv`, argv, cwd, driver/session config, initial input, labels, or correlation; a `lockedEnv` collision with a reserved/credential key is rejected at compile and a `dispatchEnv` collision is rejected at dispatch; and there is no secret classification, redaction transform, or digest-substituted value anywhere in the contract plane.
+14. Lifecycle policy is split into runtime retention, harness recovery, and turn retry; it is carried as a typed dispatch overlay with a separate audit hash, never as a mutation of compiled `startRequest`.
+15. Harness generations and turn attempts are first-class event/projection fences; permission cancellation uses `permission.cancelled`, not a third permission decision.
+16. Legacy `exec.ts` is feature-gated, isolated, and deleted after Codex broker cutover.
+17. Cross-repo boundary checks enforce dependency direction.
+18. Persisted/displayed artifacts are named canonical projections that include the canonical `lockedEnv` object (non-secret); secrets/credentials never appear in `spec.process.lockedEnv`, `session.lockedEnv`, argv, cwd, driver/session config, initial input, labels, or correlation; a `lockedEnv` collision with a reserved/credential key is rejected at compile and a `dispatchEnv` collision is rejected at dispatch; and there is no secret classification, redaction transform, or digest-substituted value anywhere in the contract plane.
 
 Final deletion criterion:
 

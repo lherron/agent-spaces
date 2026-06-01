@@ -4,8 +4,8 @@ import {
   type BrokerExecutionProfile,
   type CompileDiagnostic,
   type EmbeddedSdkExecutionProfile,
-  type TerminalExecutionProfile,
   RUNTIME_ROUTE_CATALOG,
+  type TerminalExecutionProfile,
   validateTerminalExecutionProfile,
 } from '../src/index'
 
@@ -63,9 +63,11 @@ type BrokerProfileValidator = (profile: BrokerExecutionProfile) => CompileDiagno
 type EmbeddedSdkProfileValidator = (profile: EmbeddedSdkExecutionProfile) => CompileDiagnostic[]
 
 function validateBrokerExecutionProfile(profile: BrokerExecutionProfile): CompileDiagnostic[] {
-  const validator = (Contracts as typeof Contracts & {
-    validateBrokerExecutionProfile?: BrokerProfileValidator | undefined
-  }).validateBrokerExecutionProfile
+  const validator = (
+    Contracts as typeof Contracts & {
+      validateBrokerExecutionProfile?: BrokerProfileValidator | undefined
+    }
+  ).validateBrokerExecutionProfile
 
   expect(validator).toBeFunction()
   return validator(profile)
@@ -74,9 +76,11 @@ function validateBrokerExecutionProfile(profile: BrokerExecutionProfile): Compil
 function validateEmbeddedSdkExecutionProfile(
   profile: EmbeddedSdkExecutionProfile
 ): CompileDiagnostic[] {
-  const validator = (Contracts as typeof Contracts & {
-    validateEmbeddedSdkExecutionProfile?: EmbeddedSdkProfileValidator | undefined
-  }).validateEmbeddedSdkExecutionProfile
+  const validator = (
+    Contracts as typeof Contracts & {
+      validateEmbeddedSdkExecutionProfile?: EmbeddedSdkProfileValidator | undefined
+    }
+  ).validateEmbeddedSdkExecutionProfile
 
   expect(validator).toBeFunction()
   return validator(profile)
@@ -165,7 +169,9 @@ function brokerProfileFrom(
   base: BrokerExecutionProfile,
   overrides: Record<string, unknown> = {}
 ): BrokerExecutionProfile {
-  const harnessInvocationOverride = overrides.harnessInvocation as Record<string, unknown> | undefined
+  const harnessInvocationOverride = overrides.harnessInvocation as
+    | Record<string, unknown>
+    | undefined
   const startRequestOverride = harnessInvocationOverride?.startRequest as
     | Record<string, unknown>
     | undefined
@@ -329,9 +335,12 @@ const baseEmbeddedSdkProfile = {
 
 function embeddedSdkProfile(overrides: Record<string, unknown> = {}): EmbeddedSdkExecutionProfile {
   const sdkOverride = overrides.sdk as Partial<EmbeddedSdkExecutionProfile['sdk']> | undefined
-  const sessionOverride =
-    overrides.session as Partial<EmbeddedSdkExecutionProfile['session']> | undefined
-  const policyOverride = overrides.policy as Partial<EmbeddedSdkExecutionProfile['policy']> | undefined
+  const sessionOverride = overrides.session as
+    | Partial<EmbeddedSdkExecutionProfile['session']>
+    | undefined
+  const policyOverride = overrides.policy as
+    | Partial<EmbeddedSdkExecutionProfile['policy']>
+    | undefined
 
   return {
     ...baseEmbeddedSdkProfile,
@@ -756,6 +765,26 @@ describe('runtime route selection', () => {
       driver: 'codex-app-server',
       processTransport: 'jsonrpc-stdio',
     })
+  })
+
+  test('keeps broker lifecycle baselines conservative until mechanics are certified', () => {
+    const brokerRoutes = RUNTIME_ROUTE_CATALOG.filter(
+      (route) => route.controller === 'harness-broker'
+    )
+
+    expect(brokerRoutes.length).toBeGreaterThan(0)
+    for (const route of brokerRoutes) {
+      expect(route.lifecycle).toEqual({
+        runtimeRetention: ['keep-alive'],
+        harnessRecovery: ['none'],
+        turnRetry: ['none'],
+        generationFencing: false,
+        permissionCancellation: false,
+      })
+      expect(route.lifecycle.runtimeRetention).not.toContain('idle-ttl')
+      expect(route.lifecycle.harnessRecovery).not.toContain('recycle-child')
+      expect(route.lifecycle.turnRetry).not.toContain('safe-retry')
+    }
   })
 
   test('selects embedded-sdk for openai pi-sdk nonInteractive route', () => {

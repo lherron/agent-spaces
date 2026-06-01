@@ -83,12 +83,8 @@ install no-sync="":
     just publish-dev
 
     if [ -z "{{ no-sync }}" ]; then
-      ( cd ../hrc-runtime && bun run sync:asp 2>&1 | sed 's/^/[hrc-sync] /' ) &
-      hrc_pid=$!
-      ( cd ../agent-control-plane && bun run sync:asp 2>&1 | sed 's/^/[acp-sync] /' ) &
-      acp_pid=$!
-      wait $hrc_pid
-      wait $acp_pid
+      ( cd ../hrc-runtime && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
+      ( cd ../agent-control-plane && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
     else
       echo "[install] skipping downstream sync (no-sync=1)"
     fi
@@ -100,12 +96,8 @@ install no-sync="":
 sync-downstream:
     #!/usr/bin/env bash
     set -euo pipefail
-    ( cd ../hrc-runtime && bun run sync:asp 2>&1 | sed 's/^/[hrc-sync] /' ) &
-    hrc_pid=$!
-    ( cd ../agent-control-plane && bun run sync:asp 2>&1 | sed 's/^/[acp-sync] /' ) &
-    acp_pid=$!
-    wait $hrc_pid
-    wait $acp_pid
+    ( cd ../hrc-runtime && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
+    ( cd ../agent-control-plane && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
 
 # Publish timestamped dev package set to local Verdaccio
 publish-dev:

@@ -5,10 +5,12 @@
  * before actually running install or upgrade.
  */
 
+import { join } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
 import {
+  LOCK_FILENAME,
   type LockFile,
   type ResolveOptions,
   lockFileExists,
@@ -173,8 +175,9 @@ async function computeAllDiffs(
   options: { target?: string | undefined }
 ): Promise<TargetDiff[]> {
   // Load current lock file
-  const hasLock = await lockFileExists(ctx.projectPath)
-  const currentLock = hasLock ? await readLockJson(ctx.projectPath) : null
+  const lockPath = join(ctx.projectPath, LOCK_FILENAME)
+  const hasLock = await lockFileExists(lockPath)
+  const currentLock = hasLock ? await readLockJson(lockPath) : null
 
   // Load manifest
   const manifest = await readTargetsToml(`${ctx.projectPath}/asp-targets.toml`)

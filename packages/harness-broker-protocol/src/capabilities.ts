@@ -1,3 +1,5 @@
+import type { InvocationLifecycleCapabilities } from './lifecycle'
+
 export interface InvocationCapabilities {
   input: {
     user: boolean
@@ -41,6 +43,7 @@ export interface InvocationCapabilities {
         eventAudit: boolean
       }
     | undefined
+  lifecycle: InvocationLifecycleCapabilities
 }
 
 export interface BrokerCapabilities {

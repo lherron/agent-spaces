@@ -260,6 +260,28 @@ function foregroundCapabilities(): CapabilityRequirements {
       reconcile: 'forbidden',
       attachReplay: 'forbidden',
     },
+    lifecycle: lifecycleCapabilityBaseline('unmanaged'),
+  }
+}
+
+function lifecycleCapabilityBaseline(
+  route: 'broker' | 'embedded-sdk' | 'unmanaged'
+): CapabilityRequirements['lifecycle'] {
+  if (route === 'broker') {
+    return {
+      runtimeRetention: ['keep-alive'],
+      harnessRecovery: ['none'],
+      turnRetry: ['none'],
+      generationFencing: 'optional',
+      permissionCancellation: 'optional',
+    }
+  }
+  return {
+    runtimeRetention: route === 'unmanaged' ? ['unmanaged'] : [],
+    harnessRecovery: ['none'],
+    turnRetry: ['none'],
+    generationFencing: 'forbidden',
+    permissionCancellation: 'forbidden',
   }
 }
 
@@ -416,6 +438,7 @@ function expectedCapabilities(
       reconcile: 'optional',
       attachReplay: 'forbidden',
     },
+    lifecycle: lifecycleCapabilityBaseline('broker'),
   }
 }
 
@@ -522,7 +545,9 @@ function emitAspCompileTiming(req: RuntimeCompileRequest, startedAtMs: number): 
   const durMs = (performance.now() - startedAtMs).toFixed(1)
   const mode = req.requested.interactionMode
   const runtime = req.requested.preferredHarnessRuntime ?? '(unspecified)'
-  process.stderr.write(`[asp-timing] compileRuntimePlan dur=${durMs}ms mode=${mode} runtime=${runtime}\n`)
+  process.stderr.write(
+    `[asp-timing] compileRuntimePlan dur=${durMs}ms mode=${mode} runtime=${runtime}\n`
+  )
 }
 
 export async function compileRuntimePlan(
@@ -955,6 +980,7 @@ function embeddedSdkCapabilities(): CapabilityRequirements {
       reconcile: 'optional',
       attachReplay: 'forbidden',
     },
+    lifecycle: lifecycleCapabilityBaseline('embedded-sdk'),
   }
 }
 

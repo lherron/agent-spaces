@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import {
+  BrokerErrorCode,
+  conservativeDefaultLifecyclePolicyOverlay,
+  lifecyclePolicyHash,
+} from 'spaces-harness-broker-protocol'
 import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
 import type { Driver } from '../src/drivers/driver'
@@ -179,6 +183,86 @@ describe('broker lifecycle', () => {
 
     const ready = events.find((event) => event.type === 'invocation.ready')
     expect(ready?.payload).toEqual({ state: 'ready' })
+  })
+
+  test('accepts an explicit conservative lifecycle overlay and reports policy hash separately', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createNoopDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const lifecyclePolicy = conservativeDefaultLifecyclePolicyOverlay('policy_noop_default')
+    const startRequest = { spec: noopSpec({ invocationId: 'inv_lifecycle_default' }) }
+    const startRequestBytesBefore = JSON.stringify(startRequest)
+
+    const response = await broker.start(startRequest, undefined, undefined, lifecyclePolicy)
+
+    expect(JSON.stringify(startRequest)).toBe(startRequestBytesBefore)
+    expect(response.acceptedLifecyclePolicy).toEqual({
+      policyId: lifecyclePolicy.policyId,
+      policyHash: lifecyclePolicy.policyHash,
+      retentionMode: 'keep-alive',
+      harnessRecoveryMode: 'none',
+      turnRetryMode: 'none',
+    })
+    expect(events.map((event) => event.type)).toEqual([
+      'lifecycle.policy.accepted',
+      'invocation.started',
+      'invocation.ready',
+    ])
+    expect(events[0]?.payload).toMatchObject({ policyHash: lifecyclePolicy.policyHash })
+    expect(events[1]?.payload).not.toHaveProperty('policyHash')
+    expect(events[1]?.payload).not.toHaveProperty('harnessGeneration')
+  })
+
+  test('omitted lifecycle overlay preserves the legacy startup event stream', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createNoopDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+
+    const response = await broker.start({
+      spec: noopSpec({ invocationId: 'inv_lifecycle_omitted' }),
+    })
+
+    expect(response.acceptedLifecyclePolicy).toBeUndefined()
+    expect(events.map((event) => event.type)).toEqual(['invocation.started', 'invocation.ready'])
+  })
+
+  test('rejects unsupported lifecycle modes without downgrading', async () => {
+    const broker = createBroker({ drivers: [createNoopDriver()], now })
+    const policy = conservativeDefaultLifecyclePolicyOverlay('policy_unsupported')
+    const unsupported = {
+      ...policy,
+      retention: {
+        mode: 'idle-ttl' as const,
+        idleTtlMs: 1000,
+        retire: {
+          mode: 'driver-retire' as const,
+          graceMs: 100,
+          onTimeout: 'fail-invocation' as const,
+        },
+      },
+    }
+    unsupported.policyHash = lifecyclePolicyHash(unsupported)
+
+    await expect(
+      broker.start(
+        { spec: noopSpec({ invocationId: 'inv_lifecycle_unsupported' }) },
+        undefined,
+        undefined,
+        unsupported
+      )
+    ).rejects.toMatchObject({
+      code: BrokerErrorCode.BrokerLifecyclePolicyUnsupported,
+      data: {
+        code: 'broker-lifecycle-policy-unsupported',
+        missing: expect.arrayContaining(['retention.idle-ttl']),
+      },
+    })
   })
 
   test('dispose emits invocation.disposed exactly once and is idempotent', async () => {

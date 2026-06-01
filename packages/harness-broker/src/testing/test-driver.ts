@@ -9,7 +9,10 @@ import type {
   InvocationStopResponse,
   TurnId,
 } from 'spaces-harness-broker-protocol'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import {
+  BrokerErrorCode,
+  CONSERVATIVE_LIFECYCLE_CAPABILITIES,
+} from 'spaces-harness-broker-protocol'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../drivers/driver'
 import { BrokerError } from '../errors'
 
@@ -58,6 +61,7 @@ const TEST_CAPABILITIES: InvocationCapabilities = {
     stop: true,
     dispose: true,
   },
+  lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
 export function createTestDriver(options: TestDriverOptions = {}): TestDriverHandle {

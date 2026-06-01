@@ -10,7 +10,10 @@ import type {
   InvocationStopRequest,
   InvocationStopResponse,
 } from 'spaces-harness-broker-protocol'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import {
+  BrokerErrorCode,
+  CONSERVATIVE_LIFECYCLE_CAPABILITIES,
+} from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import { type TmuxExec, TmuxPaneController, type TmuxPaneControllerLease } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
@@ -54,6 +57,7 @@ const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
     dispose: true,
     attach: true,
   },
+  lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
 /** Handle returned by a hook callback listener bound to the broker socket. */

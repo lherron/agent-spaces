@@ -1,4 +1,5 @@
 import type {
+  BrokerLifecyclePolicyOverlay,
   InvocationEventEnvelope,
   InvocationStartResponse,
 } from 'spaces-harness-broker-protocol'
@@ -89,6 +90,7 @@ export type ContractHarnessFailureCode =
   | 'broker_terminal_turn_missing'
   | 'broker_input_queue_invalid'
   | 'broker_capability_missing'
+  | 'broker_lifecycle_policy_invalid'
   | 'interactive_tmux_mode_invalid'
   | 'interactive_tmux_runtime_socket_missing'
   | 'interactive_tmux_surface_invalid'
@@ -129,6 +131,7 @@ export type PreHrcBrokerContractHarnessInput = {
    * rejected unless this temporary transition flag is explicitly set to true.
    */
   allowLegacyPermissionEvent?: boolean | undefined
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
   /** Narrow profile selection by id/hash (forwarded to selectBrokerProfile). */
   profileSelector?: { profileId?: string | undefined; profileHash?: string | undefined } | undefined
   brokerStartAssertions?:

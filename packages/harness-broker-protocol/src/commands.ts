@@ -8,6 +8,7 @@ import type { ContinuationUpdate } from './events'
 import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
 import type { HarnessInvocationSpec } from './invocation'
 import type { JsonRpcRequest } from './jsonrpc'
+import type { AcceptedLifecyclePolicy, BrokerLifecyclePolicyOverlay } from './lifecycle'
 
 export type BrokerMethodV1 =
   | 'broker.hello'
@@ -144,12 +145,20 @@ export interface InvocationDispatchRequest {
    * routes that need no runtime resource handles.
    */
   runtime?: InvocationRuntimeContext | undefined
+  /**
+   * HRC-owned broker lifecycle dispatch overlay. This policy is outside the
+   * compiled InvocationStartRequest and outside startRequestHash material. Raw
+   * omission preserves legacy broker behavior; an explicit overlay is validated
+   * at dispatch and audited with its own policyHash.
+   */
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
 }
 
 export interface InvocationStartResponse {
   invocationId: InvocationId
   state: InvocationState
   capabilities: InvocationCapabilities
+  acceptedLifecyclePolicy?: AcceptedLifecyclePolicy | undefined
 }
 
 export type InvocationState =
@@ -246,6 +255,8 @@ export interface InvocationDisposeResponse {
 export interface PermissionRequestParams {
   invocationId: InvocationId
   turnId?: TurnId | undefined
+  harnessGeneration?: number | undefined
+  turnAttempt?: number | undefined
   permissionRequestId: PermissionRequestId
   kind: 'command' | 'file_change' | 'tool' | string
   subject: unknown
@@ -256,4 +267,6 @@ export interface PermissionRequestParams {
 export interface PermissionDecision {
   decision: 'allow' | 'deny'
   message?: string | undefined
+  harnessGeneration?: number | undefined
+  turnAttempt?: number | undefined
 }

@@ -11,7 +11,10 @@ import type {
   InvocationStopResponse,
   TurnId,
 } from 'spaces-harness-broker-protocol'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import {
+  BrokerErrorCode,
+  CONSERVATIVE_LIFECYCLE_CAPABILITIES,
+} from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import { spawnHarnessProcess } from '../../runtime/process-runner'
 import { terminateProcess } from '../../runtime/signals'
@@ -58,6 +61,7 @@ const CODEX_CAPABILITIES: InvocationCapabilities = {
     stop: true,
     dispose: true,
   },
+  lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
 interface ThreadResponse {

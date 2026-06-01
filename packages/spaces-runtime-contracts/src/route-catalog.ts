@@ -1,3 +1,4 @@
+import type { InvocationLifecycleCapabilities } from 'spaces-harness-broker-protocol'
 import type { TerminalHost } from './execution-profile'
 import type {
   HarnessFamily,
@@ -17,6 +18,7 @@ export type RuntimeRouteCatalogEntry = {
   interactionMode: InteractionMode
   startupMethods: string[]
   turnDeliveries: string[]
+  lifecycle: InvocationLifecycleCapabilities
   broker?:
     | {
         protocolVersion: 'harness-broker/0.1'
@@ -25,6 +27,30 @@ export type RuntimeRouteCatalogEntry = {
       }
     | undefined
   removalGate?: string | undefined
+}
+
+const BROKER_LIFECYCLE_BASELINE: InvocationLifecycleCapabilities = {
+  runtimeRetention: ['keep-alive'],
+  harnessRecovery: ['none'],
+  turnRetry: ['none'],
+  generationFencing: false,
+  permissionCancellation: false,
+}
+
+const EMBEDDED_SDK_LIFECYCLE_BASELINE: InvocationLifecycleCapabilities = {
+  runtimeRetention: [],
+  harnessRecovery: ['none'],
+  turnRetry: ['none'],
+  generationFencing: false,
+  permissionCancellation: false,
+}
+
+const UNMANAGED_LIFECYCLE_BASELINE: InvocationLifecycleCapabilities = {
+  runtimeRetention: ['unmanaged'],
+  harnessRecovery: ['none'],
+  turnRetry: ['none'],
+  generationFencing: false,
+  permissionCancellation: false,
 }
 
 export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
@@ -36,6 +62,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     interactionMode: 'interactive',
     startupMethods: ['create-broker-invocation', 'reuse-existing'],
     turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    lifecycle: BROKER_LIFECYCLE_BASELINE,
     broker: {
       protocolVersion: 'harness-broker/0.1',
       driver: 'claude-code-tmux',
@@ -56,6 +83,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
       'inherit-current-terminal',
     ],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
+    lifecycle: UNMANAGED_LIFECYCLE_BASELINE,
   },
   {
     controller: 'harness-broker',
@@ -65,6 +93,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     interactionMode: 'interactive',
     startupMethods: ['create-broker-invocation', 'reuse-existing'],
     turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    lifecycle: BROKER_LIFECYCLE_BASELINE,
     broker: {
       protocolVersion: 'harness-broker/0.1',
       driver: 'codex-cli-tmux',
@@ -85,6 +114,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
       'inherit-current-terminal',
     ],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
+    lifecycle: UNMANAGED_LIFECYCLE_BASELINE,
   },
   {
     controller: 'embedded-sdk',
@@ -94,6 +124,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     interactionMode: 'nonInteractive',
     startupMethods: ['create-sdk-session', 'reuse-existing'],
     turnDeliveries: ['sdk-turn', 'sdk-inflight-input'],
+    lifecycle: EMBEDDED_SDK_LIFECYCLE_BASELINE,
   },
   {
     controller: 'embedded-sdk',
@@ -103,6 +134,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     interactionMode: 'nonInteractive',
     startupMethods: ['create-sdk-session', 'reuse-existing'],
     turnDeliveries: ['sdk-turn', 'sdk-inflight-input'],
+    lifecycle: EMBEDDED_SDK_LIFECYCLE_BASELINE,
   },
   {
     controller: 'harness-broker',
@@ -112,6 +144,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     interactionMode: 'headless',
     startupMethods: ['create-broker-invocation', 'reuse-existing'],
     turnDeliveries: ['broker-input'],
+    lifecycle: BROKER_LIFECYCLE_BASELINE,
     broker: {
       protocolVersion: 'harness-broker/0.1',
       driver: 'codex-app-server',
@@ -127,6 +160,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     interactionMode: 'headless',
     startupMethods: ['legacy-launch-artifact'],
     turnDeliveries: ['legacy-launch-input'],
+    lifecycle: UNMANAGED_LIFECYCLE_BASELINE,
     removalGate: 'delete-after-broker-codex-cutover',
   },
 ]

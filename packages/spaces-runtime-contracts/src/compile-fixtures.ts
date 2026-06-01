@@ -1,4 +1,5 @@
 import type { InvocationId } from 'spaces-harness-broker-protocol'
+import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
 import type { CapabilityResolution, RuntimeCapabilities } from './capabilities'
 import type {
   CompileId,
@@ -52,6 +53,7 @@ const runtimeCapabilities = {
     status: true,
     attach: false,
   },
+  lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 } satisfies RuntimeCapabilities
 
 const capabilityResolution = {
@@ -82,6 +84,13 @@ const capabilityResolution = {
       dispose: 'optional',
       reconcile: 'optional',
       attachReplay: 'forbidden',
+    },
+    lifecycle: {
+      runtimeRetention: ['keep-alive'],
+      harnessRecovery: ['none'],
+      turnRetry: ['none'],
+      generationFencing: 'optional',
+      permissionCancellation: 'optional',
     },
   },
   hrcPolicy: {
@@ -185,6 +194,7 @@ export const compileOnlyBrokerRuntimeState = {
         brokerToClientRequests: true,
         eventAudit: true,
       },
+      lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
     },
   },
   permission: {

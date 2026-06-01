@@ -3,6 +3,7 @@ import type {
   BrokerHealthResponse,
   BrokerHelloRequest,
   BrokerHelloResponse,
+  BrokerLifecyclePolicyOverlay,
   ClientCapabilities,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
@@ -55,7 +56,8 @@ export interface Broker {
   start(
     req: InvocationStartRequest,
     dispatchEnv?: Record<string, string> | undefined,
-    runtime?: InvocationRuntimeContext | undefined
+    runtime?: InvocationRuntimeContext | undefined,
+    lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
   ): Promise<InvocationStartResponse>
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
@@ -123,13 +125,15 @@ export function createBroker(options: BrokerOptions): Broker {
     start(
       req: InvocationStartRequest,
       dispatchEnv?: Record<string, string> | undefined,
-      runtime?: InvocationRuntimeContext | undefined
+      runtime?: InvocationRuntimeContext | undefined,
+      lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
     ): Promise<InvocationStartResponse> {
       try {
         validateInvocationDispatchRequest({
           startRequest: req,
           ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
           ...(runtime !== undefined ? { runtime } : {}),
+          ...(lifecyclePolicy !== undefined ? { lifecyclePolicy } : {}),
         })
       } catch (err) {
         return Promise.reject(toInvalidParamsBrokerError(err) ?? err)
@@ -150,7 +154,14 @@ export function createBroker(options: BrokerOptions): Broker {
       // Non-async wrapper: the returned promise has a no-op catch pre-attached
       // so that bun's test runner doesn't flag it as an unhandled rejection when
       // the startup timeout fires before the caller awaits.
-      const result = manager.start(req.spec, driver, req.initialInput, dispatchEnv, runtime)
+      const result = manager.start(
+        req.spec,
+        driver,
+        req.initialInput,
+        dispatchEnv,
+        runtime,
+        lifecyclePolicy
+      )
       result.catch(() => {})
       return result
     },

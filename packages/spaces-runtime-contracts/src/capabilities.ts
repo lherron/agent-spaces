@@ -1,7 +1,9 @@
 import type { BrokerCapabilities, InvocationCapabilities } from 'spaces-harness-broker-protocol'
+import type { InvocationLifecycleCapabilities } from 'spaces-harness-broker-protocol'
 import type { ProfileHash } from './ids'
 
 export type { BrokerCapabilities, InvocationCapabilities } from 'spaces-harness-broker-protocol'
+export type { InvocationLifecycleCapabilities } from 'spaces-harness-broker-protocol'
 
 export type CapabilityNeed = 'required' | 'optional' | 'forbidden'
 
@@ -31,6 +33,13 @@ export type CapabilityRequirements = {
     dispose: CapabilityNeed
     reconcile: CapabilityNeed
     attachReplay: CapabilityNeed
+  }
+  lifecycle: {
+    runtimeRetention: Array<'keep-alive' | 'idle-ttl' | 'unmanaged'>
+    harnessRecovery: Array<'none' | 'fail-and-escalate' | 'recycle-child'>
+    turnRetry: Array<'none' | 'safe-retry'>
+    generationFencing: CapabilityNeed
+    permissionCancellation: CapabilityNeed
   }
 }
 
@@ -71,6 +80,7 @@ export type RuntimeCapabilities = {
     status: boolean
     attach: boolean
   }
+  lifecycle: InvocationLifecycleCapabilities
 }
 
 export type HrcCapabilityPolicy = {

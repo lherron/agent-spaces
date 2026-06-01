@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { InvocationCapabilities } from 'spaces-harness-broker-protocol'
+import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
 import { createDefaultClaudeCodeTmuxDriver } from '../src/drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from '../src/drivers/codex-app-server/driver'
 
@@ -31,6 +32,7 @@ const CODEX_APP_SERVER_V0_CAPABILITIES: InvocationCapabilities = {
     stop: true,
     dispose: true,
   },
+  lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
 describe('Codex app-server v0 capability matrix', () => {

@@ -111,7 +111,12 @@ function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
   server.register('invocation.start', async ({ id, method, params }) => {
     validateParams(method, id, params)
     const dispatch = params as InvocationDispatchRequest
-    return broker.start(dispatch.startRequest, dispatch.dispatchEnv, dispatch.runtime)
+    return broker.start(
+      dispatch.startRequest,
+      dispatch.dispatchEnv,
+      dispatch.runtime,
+      dispatch.lifecyclePolicy
+    )
   })
 
   server.register('invocation.input', async ({ id, method, params }) => {

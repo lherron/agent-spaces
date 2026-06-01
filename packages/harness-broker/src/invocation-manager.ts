@@ -1,4 +1,5 @@
 import type {
+  BrokerLifecyclePolicyOverlay,
   ClientCapabilities,
   ContinuationUpdate,
   HarnessInvocationSpec,
@@ -24,7 +25,7 @@ import type {
   PermissionRequestParams,
   TurnId,
 } from 'spaces-harness-broker-protocol'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import { BrokerErrorCode, acceptedLifecyclePolicy } from 'spaces-harness-broker-protocol'
 import type { Driver, DriverContext } from './drivers/driver'
 import { BrokerError } from './errors'
 import type { InvocationEventSequencer } from './events'
@@ -45,6 +46,36 @@ const DEFAULT_MAX_INPUT_QUEUE_DEPTH = 64
 
 /** Terminal states that allow dispose. */
 const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
+
+function assertLifecyclePolicySupported(
+  policy: BrokerLifecyclePolicyOverlay | undefined,
+  capabilities: InvocationCapabilities
+): void {
+  if (policy === undefined) return
+  const missing: string[] = []
+  if (!capabilities.lifecycle.runtimeRetention.includes(policy.retention.mode)) {
+    missing.push(`retention.${policy.retention.mode}`)
+  }
+  if (!capabilities.lifecycle.harnessRecovery.includes(policy.harnessRecovery.mode)) {
+    missing.push(`harnessRecovery.${policy.harnessRecovery.mode}`)
+  }
+  if (!capabilities.lifecycle.turnRetry.includes(policy.turnRetry.mode)) {
+    missing.push(`turnRetry.${policy.turnRetry.mode}`)
+  }
+  if (missing.length > 0) {
+    throw new BrokerError(
+      BrokerErrorCode.BrokerLifecyclePolicyUnsupported,
+      'Broker lifecycle policy unsupported by selected driver capabilities',
+      {
+        code: 'broker-lifecycle-policy-unsupported',
+        policyId: policy.policyId,
+        policyHash: policy.policyHash,
+        missing,
+        capabilities: capabilities.lifecycle,
+      }
+    )
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Queue types
@@ -102,7 +133,8 @@ export interface InvocationManager {
     driver: Driver,
     initialInput?: InvocationInput | undefined,
     dispatchEnv?: Record<string, string> | undefined,
-    runtime?: InvocationRuntimeContext | undefined
+    runtime?: InvocationRuntimeContext | undefined,
+    lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
   ): Promise<InvocationStartResponse>
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
@@ -300,6 +332,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       inputId?: InputId | undefined
       itemId?: string | undefined
       driver?: { kind: string; rawType?: string | undefined } | undefined
+      harnessGeneration?: number | undefined
+      turnAttempt?: number | undefined
     }
   ): InvocationEventEnvelope<TPayload> {
     // Single central event-safety path before sequencing: constrain/normalize
@@ -355,7 +389,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       driver: Driver,
       initialInput?: InvocationInput | undefined,
       dispatchEnv?: Record<string, string> | undefined,
-      runtime?: InvocationRuntimeContext | undefined
+      runtime?: InvocationRuntimeContext | undefined,
+      lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
     ): Promise<InvocationStartResponse> {
       // Check if there's already an active invocation
       for (const existing of invocations.values()) {
@@ -373,6 +408,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         (`inv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}` as InvocationId)
 
       const driverCaps = driver.capabilities()
+      assertLifecyclePolicySupported(lifecyclePolicy, driverCaps)
       const composedQueue =
         driverCaps.input.queue === true &&
         // input.user is a capability-dependency check (queueing requires user-input capability),
@@ -419,6 +455,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           : {}),
       }
 
+      if (lifecyclePolicy !== undefined) {
+        emit(inv, 'lifecycle.policy.accepted', acceptedLifecyclePolicy(lifecyclePolicy))
+      }
+
       try {
         await driver.start(spec, ctx)
       } catch (err) {
@@ -455,6 +495,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         invocationId,
         state: inv.state,
         capabilities: inv.capabilities,
+        ...(lifecyclePolicy !== undefined
+          ? { acceptedLifecyclePolicy: acceptedLifecyclePolicy(lifecyclePolicy) }
+          : {}),
       }
     },
 

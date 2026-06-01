@@ -21,6 +21,8 @@ export interface InvocationEventSequencer {
       inputId?: InputId | undefined
       itemId?: string | undefined
       driver?: { kind: string; rawType?: string | undefined } | undefined
+      harnessGeneration?: number | undefined
+      turnAttempt?: number | undefined
     }
   ): InvocationEventEnvelope<TPayload>
 }
@@ -41,6 +43,8 @@ export function createInvocationEventSequencer(
         inputId?: InputId | undefined
         itemId?: string | undefined
         driver?: { kind: string; rawType?: string | undefined } | undefined
+        harnessGeneration?: number | undefined
+        turnAttempt?: number | undefined
       }
     ): InvocationEventEnvelope<TPayload> {
       const current = counters.get(invocationId) ?? 0
@@ -65,6 +69,12 @@ export function createInvocationEventSequencer(
       }
       if (extra?.driver !== undefined) {
         envelope.driver = extra.driver
+      }
+      if (extra?.harnessGeneration !== undefined) {
+        envelope.harnessGeneration = extra.harnessGeneration
+      }
+      if (extra?.turnAttempt !== undefined) {
+        envelope.turnAttempt = extra.turnAttempt
       }
       if (correlation !== undefined) {
         envelope.correlation = correlation

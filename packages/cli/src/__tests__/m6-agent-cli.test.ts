@@ -17,7 +17,7 @@
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { cp, lstat, mkdir, mkdtemp, readlink, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdir, mkdtemp, readlink, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -42,6 +42,15 @@ function resolveProjectRoot(): string {
 }
 
 const ASP_CLI = join(import.meta.dirname, '..', '..', 'bin', 'asp.js')
+const SAMPLE_FIXTURES_DIR = join(
+  import.meta.dirname,
+  '..',
+  '..',
+  '..',
+  '..',
+  'integration-tests',
+  'fixtures'
+)
 const CLI_TEST_TIMEOUT_MS = 15000
 
 function cliTest(name: string, fn: TestFn): void
@@ -314,6 +323,40 @@ describe('existing CLI compatibility (T-00867)', () => {
 
     // The new agent command should appear in top-level help
     expect(output).toMatch(/agent/i)
+  })
+
+  cliTest('asp diff --json reads asp-lock.json instead of the project directory', async () => {
+    const aspHome = await mkdtemp(join(tmpdir(), 'asp-diff-home-'))
+    try {
+      const result = runAsp(
+        [
+          'diff',
+          '--project',
+          join(SAMPLE_FIXTURES_DIR, 'sample-project'),
+          '--registry',
+          join(SAMPLE_FIXTURES_DIR, 'sample-registry'),
+          '--target',
+          'dev',
+          '--json',
+        ],
+        { env: { ASP_HOME: aspHome } }
+      )
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stderr).not.toContain('EISDIR')
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        diffs: [
+          {
+            target: 'dev',
+            changes: expect.arrayContaining([
+              expect.objectContaining({ spaceId: 'base', type: 'added' }),
+            ]),
+          },
+        ],
+      })
+    } finally {
+      await rm(aspHome, { recursive: true, force: true })
+    }
   })
 })
 

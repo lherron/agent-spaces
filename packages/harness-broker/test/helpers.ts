@@ -4,6 +4,7 @@ import type {
   JsonRpcMessage,
   JsonRpcResponse,
 } from 'spaces-harness-broker-protocol'
+import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
 
 export const noopCapabilities: InvocationCapabilities = {
   input: {
@@ -31,6 +32,7 @@ export const noopCapabilities: InvocationCapabilities = {
     stop: true,
     dispose: true,
   },
+  lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
 export const noopSpec = (

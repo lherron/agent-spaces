@@ -12,7 +12,8 @@ This file defines the canonical to-be datatypes. Implementations may split these
 ```text
 packages/spaces-runtime-contracts
   Owns: shared IDs, compiler plan, execution profiles, capability resolution, route decisions,
-        runtime state, operations, policy, continuation, hash helpers, public views.
+        runtime state, operations, policy, lifecycle policy, continuation, hash helpers,
+        public views.
 
 packages/agent-spaces
   Owns: compileRuntimePlan(req) -> RuntimeCompileResponse.
@@ -59,6 +60,7 @@ export type SchemaVersion =
   | 'runtime-state/v1'
   | 'runtime-continuation/v1'
   | 'runtime-public-view/v1'
+  | 'harness-broker.lifecycle-policy/v1'
   | 'harness-broker.invocation/v1'
   | 'aspc-compile-harness-invocation-request/v1'
   | 'aspc-compile-harness-invocation-response/v1'
@@ -133,6 +135,8 @@ export type ProfileHash = string
 export type CompatibilityHash = string
 export type SpecHash = string
 export type StartRequestHash = string
+export type LifecyclePolicyId = Id<'lifecyclePolicy'>
+export type LifecyclePolicyHash = string
 export type ArtifactId = Id<'artifact'>
 export type ContentHash = string
 
@@ -316,6 +320,27 @@ export type CapabilityRequirements = {
   }
 }
 
+export interface InvocationLifecycleCapabilities {
+  retention: {
+    keepAlive: true
+    idleTtl: boolean
+    retireModes: Array<'driver-retire' | 'process-terminate'>
+  }
+  harnessRecovery: {
+    generations: boolean
+    recycle: 'unsupported' | 'in-pane-runner' | 'direct-child'
+    processTreeKill: boolean
+    healthProbes: Array<'runner-status' | 'driver-status' | 'native-heartbeat'>
+    hookSocketRotation: boolean
+  }
+  turnRetry: {
+    supported: boolean
+    modes: Array<'none' | 'safe-retry'>
+    canProveNoPriorCompletion: boolean
+    canFenceExternalSideEffects: boolean
+  }
+}
+
 export type RuntimeCapabilities = {
   input: {
     user: boolean
@@ -353,6 +378,7 @@ export type RuntimeCapabilities = {
     status: boolean
     attach: boolean
   }
+  lifecycle?: InvocationLifecycleCapabilities | undefined
 }
 
 export type HrcCapabilityPolicy = {
@@ -419,6 +445,8 @@ export type BrokerPermissionRequest = {
   runtimeId: RuntimeId
   runId?: RunId | undefined
   turnId?: TurnId | undefined
+  turnAttempt?: number | undefined
+  harnessGeneration?: number | undefined
   kind: BrokerPermissionRequestKind
   subject: unknown
   defaultDecision: 'allow' | 'deny'
@@ -428,6 +456,8 @@ export type BrokerPermissionRequest = {
 
 export type BrokerPermissionDecision = {
   permissionRequestId: PermissionRequestId
+  harnessGeneration?: number | undefined
+  turnAttempt?: number | undefined
   decision: 'allow' | 'deny'
   message?: string | undefined
   decidedAt: IsoTimestamp
@@ -438,6 +468,9 @@ export type BrokerPermissionDecisionRecord = {
   invocationId: InvocationId
   runtimeId: RuntimeId
   runId?: RunId | undefined
+  turnId?: TurnId | undefined
+  turnAttempt?: number | undefined
+  harnessGeneration?: number | undefined
   kind: BrokerPermissionRequestKind
   subjectDisplayJson: string
   defaultDecision: 'allow' | 'deny'
@@ -479,6 +512,97 @@ export type BrokerInputRuntimeState = {
   pendingDepth: number
   lastInputId?: InputId | undefined
   lastDisposition?: 'started' | 'queued' | 'rejected' | undefined
+}
+
+// spaces-runtime-contracts/src/lifecycle.ts
+
+export type RuntimeRetentionPolicy =
+  | { mode: 'keep-alive' }
+  | {
+      mode: 'idle-ttl'
+      idleTtlMs: number
+      retire: {
+        mode: 'driver-retire'
+        graceMs: number
+        onTimeout: 'fail-invocation' | 'escalate-hard-reap'
+      }
+    }
+  | { mode: 'unmanaged'; reason: 'test-only' | string }
+
+export type StallDetectionPolicy =
+  | { mode: 'disabled' }
+  | {
+      mode: 'no-progress-plus-health'
+      noProgressMs: number
+      minTurnAgeMs?: number | undefined
+      healthProbe: 'runner-status' | 'driver-status' | 'native-heartbeat'
+    }
+
+export type HarnessRecoveryPolicy =
+  | { mode: 'none' }
+  | {
+      mode: 'fail-and-escalate'
+      stallDetection?: StallDetectionPolicy | undefined
+      escalation: 'fail-turn' | 'fail-invocation' | 'escalate-hard-reap'
+    }
+  | {
+      mode: 'recycle-child'
+      maxGenerationsPerInvocation: number
+      activeTurnDisposition: 'fail-before-recycle' | 'escalate-only'
+      stallDetection: StallDetectionPolicy
+      recycle: {
+        mechanism: 'capability-selected' | 'in-pane-runner' | 'direct-child'
+        killGraceMs: number
+        killProcessTree: boolean
+        restartFrom: 'latest-continuation'
+        requireContinuation: boolean
+      }
+      onRecoveryFailure: 'fail-invocation' | 'escalate-hard-reap'
+    }
+
+export type TurnRetryPolicy =
+  | { mode: 'none' }
+  | {
+      mode: 'safe-retry'
+      maxAttempts: number
+      retryOn: Array<'harness-stalled' | 'harness-crashed'>
+      requires: {
+        noToolCallObserved: true
+        noPermissionRequestPending: true
+        noPermissionRequestObserved?: true | undefined
+        noAssistantFinalObserved: true
+        noExternalMutationObserved: true
+        continuationKnown: true
+        driverCanProvePriorTurnIncomplete: true
+      }
+      identity: {
+        inputId: 'same'
+        logicalTurnId: 'same'
+        turnAttempt: 'increment'
+      }
+      semantics: 'at-least-once'
+      onUnsafe: 'fail-turn'
+    }
+
+export interface BrokerLifecyclePolicyOverlay {
+  schemaVersion: 'harness-broker.lifecycle-policy/v1'
+  policyId: LifecyclePolicyId
+  /** Canonical hash over this overlay excluding policyHash itself. */
+  policyHash: LifecyclePolicyHash
+  retention: RuntimeRetentionPolicy
+  harnessRecovery: HarnessRecoveryPolicy
+  turnRetry: TurnRetryPolicy
+}
+
+export type BrokerLifecycleRuntimeState = {
+  policyId?: LifecyclePolicyId | undefined
+  policyHash?: LifecyclePolicyHash | undefined
+  retentionMode?: RuntimeRetentionPolicy['mode'] | undefined
+  harnessRecoveryMode?: HarnessRecoveryPolicy['mode'] | undefined
+  turnRetryMode?: TurnRetryPolicy['mode'] | undefined
+  currentHarnessGeneration: number
+  currentTurnAttempt?: number | undefined
+  terminalReason?: string | undefined
 }
 
 export const DEFAULT_CODEX_BROKER_INPUT_POLICY: BrokerInputPolicy = {
@@ -832,6 +956,7 @@ export type AspcCompileAndStartRequest = {
    */
   dispatchEnv?: Record<string, string> | undefined
   runtime?: InvocationRuntimeContext | undefined
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
 }
 
 export type AspcCompileAndStartResponse =
@@ -861,7 +986,9 @@ export type AspcCompileAndStartResponse =
 
 `aspc.compileAndStart` is a convenience facade only. Canonical clients may always call
 `aspc.compileHarnessInvocation`, then broker `invocation.start` with
-`InvocationDispatchRequest { startRequest, dispatchEnv?, runtime? }`.
+`InvocationDispatchRequest { startRequest, dispatchEnv?, runtime?, lifecyclePolicy? }`.
+`lifecyclePolicy`, when present, is dispatch policy with a separate audit hash and is not
+part of the compiled `InvocationStartRequest`.
 
 ---
 
@@ -1284,6 +1411,7 @@ export interface InvocationCapabilities {
     status?: boolean | undefined
     attach?: boolean | undefined
   }
+  lifecycle?: InvocationLifecycleCapabilities | undefined
   permissions?:
     | {
         brokerToClientRequests: boolean
@@ -1298,6 +1426,7 @@ export interface BrokerCapabilities {
   eventNotifications: true
   brokerToClientRequests: boolean
   attachReplay?: boolean | undefined
+  lifecyclePolicy?: boolean | undefined
 }
 
 export interface DriverSummary {
@@ -1414,20 +1543,27 @@ export type TmuxPaneTerminalSurfaceLease = {
 
 // Outer dispatch envelope. HRC constructs it and MAY populate dispatchEnv (per-invocation,
 // non-identity context — handles/correlation, e.g. a wrkq handoff id). `startRequest` is
-// forwarded byte/semantically unchanged and is the only hashed payload. `dispatchEnv` is
-// validated at dispatch by the broker, never hashed, never persisted in the contract projection
-// plane, and is NOT a recompile trigger. `runtime.terminalSurface` carries HRC-owned
-// dispatch resources such as tmux pane leases and is also outside compiled hash material.
+// forwarded byte/semantically unchanged and is the only ASP-compiled hashed payload.
+// `dispatchEnv` is validated at dispatch by the broker, never hashed, never persisted in the
+// contract projection plane, and is NOT a recompile trigger. `runtime.terminalSurface` carries
+// HRC-owned dispatch resources such as tmux pane leases and is also outside compiled hash
+// material. `lifecyclePolicy` is a typed HRC-owned control-plane overlay with its own audit
+// hash; it MUST NOT be copied into `startRequest` or `HarnessInvocationSpec`.
 export interface InvocationDispatchRequest {
   startRequest: InvocationStartRequest
   dispatchEnv?: Record<string, string>
   runtime?: InvocationRuntimeContext
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
 }
 
 export interface InvocationStartResponse {
   invocationId: InvocationId
   state: InvocationState
   capabilities: InvocationCapabilities
+  acceptedLifecyclePolicy?: {
+    policyId: LifecyclePolicyId
+    policyHash: LifecyclePolicyHash
+  } | undefined
 }
 
 export type InvocationState =
@@ -1502,6 +1638,8 @@ export interface InvocationStatusResponse {
   invocationId: InvocationId
   state: InvocationState
   currentTurnId?: TurnId | undefined
+  currentHarnessGeneration?: number | undefined
+  currentTurnAttempt?: number | undefined
   continuation?: ContinuationUpdate | undefined
   capabilities: InvocationCapabilities
   process?:
@@ -1524,6 +1662,8 @@ export interface InvocationDisposeResponse {
 export interface PermissionRequestParams {
   invocationId: InvocationId
   turnId?: TurnId | undefined
+  turnAttempt?: number | undefined
+  harnessGeneration?: number | undefined
   permissionRequestId: PermissionRequestId
   kind: 'command' | 'file_change' | 'tool' | string
   subject: unknown
@@ -1533,6 +1673,9 @@ export interface PermissionRequestParams {
 
 export interface PermissionDecision {
   decision: 'allow' | 'deny'
+  /** Echoed fence values when present on the request; stale responses MUST be rejected. */
+  harnessGeneration?: number | undefined
+  turnAttempt?: number | undefined
   message?: string | undefined
 }
 ```
@@ -1554,6 +1697,10 @@ export interface InvocationEventEnvelope<TPayload = InvocationEventPayload> {
   inputId?: InputId | undefined
   itemId?: string | undefined
   correlation?: Record<string, string> | undefined
+  /** Broker-owned child generation, not HRC runtime generation. */
+  harnessGeneration?: number | undefined
+  /** Attempt number for the logical turn; 1 when absent/initial. */
+  turnAttempt?: number | undefined
   driver?:
     | {
         kind: string
@@ -1569,6 +1716,13 @@ export type InvocationEventType =
   | 'invocation.exited'
   | 'invocation.failed'
   | 'invocation.disposed'
+  | 'lifecycle.policy.accepted'
+  | 'lifecycle.escalation'
+  | 'harness.started'
+  | 'harness.exited'
+  | 'harness.recovery.started'
+  | 'harness.recovery.completed'
+  | 'harness.recovery.failed'
   | 'continuation.updated'
   | 'input.accepted'
   | 'input.rejected'
@@ -1577,6 +1731,8 @@ export type InvocationEventType =
   | 'turn.completed'
   | 'turn.failed'
   | 'turn.interrupted'
+  | 'turn.stalled'
+  | 'turn.retry'
   | 'assistant.message.started'
   | 'assistant.message.delta'
   | 'assistant.message.completed'
@@ -1591,6 +1747,7 @@ export type InvocationEventType =
   | 'terminal.surface.reported'
   | 'permission.requested'
   | 'permission.resolved'
+  | 'permission.cancelled'
 
 export type InvocationEventPayload =
   | InvocationStartedPayload
@@ -1599,12 +1756,21 @@ export type InvocationEventPayload =
   | InvocationExitedPayload
   | InvocationFailedPayload
   | InvocationDisposedPayload
+  | LifecyclePolicyAcceptedPayload
+  | LifecycleEscalationPayload
+  | HarnessStartedPayload
+  | HarnessExitedPayload
+  | HarnessRecoveryStartedPayload
+  | HarnessRecoveryCompletedPayload
+  | HarnessRecoveryFailedPayload
   | ContinuationUpdate
   | InputDispositionPayload
   | TurnStartedPayload
   | TurnCompletedPayload
   | TurnFailedPayload
   | TurnInterruptedPayload
+  | TurnStalledPayload
+  | TurnRetryPayload
   | AssistantMessageStartedPayload
   | AssistantMessageDeltaPayload
   | AssistantMessageCompletedPayload
@@ -1618,6 +1784,7 @@ export type InvocationEventPayload =
   | TerminalSurfaceReportedPayload
   | PermissionRequestedPayload
   | PermissionResolvedPayload
+  | PermissionCancelledPayload
 
 export interface InvocationStartedPayload {
   pid?: number | undefined
@@ -1646,16 +1813,91 @@ export interface InvocationStoppingPayload {
 export interface InvocationExitedPayload {
   exitCode?: number | null | undefined
   signal?: string | null | undefined
+  reason?: 'idle-ttl' | 'operator-stop' | 'process-exit' | string | undefined
+  droppedContinuation?: boolean | undefined
 }
 
 export interface InvocationFailedPayload {
   message: string
   code?: string | undefined
+  retryable?: boolean | undefined
+  reason?:
+    | 'idle-retire-timeout'
+    | 'harness-stalled'
+    | 'stall-unrecoverable'
+    | 'runner-degraded'
+    | string
+    | undefined
   data?: unknown
 }
 
 export interface InvocationDisposedPayload {
   disposed: true
+}
+
+export interface LifecyclePolicyAcceptedPayload {
+  policyId: LifecyclePolicyId
+  policyHash: LifecyclePolicyHash
+  retentionMode: RuntimeRetentionPolicy['mode']
+  harnessRecoveryMode: HarnessRecoveryPolicy['mode']
+  turnRetryMode: TurnRetryPolicy['mode']
+}
+
+export interface LifecycleEscalationPayload {
+  reason:
+    | 'idle-retire-timeout'
+    | 'recycle-failed'
+    | 'runner-unresponsive'
+    | 'retry-exhausted'
+    | 'broker-degraded'
+    | string
+  requestedAction: 'hard-reap' | 'operator-attention'
+  harnessGeneration?: number | undefined
+  inputId?: InputId | undefined
+  turnId?: TurnId | undefined
+  turnAttempt?: number | undefined
+  policyHash?: LifecyclePolicyHash | undefined
+}
+
+export interface HarnessStartedPayload {
+  generation: number
+  mode: 'initial' | 'recycle'
+  mechanism: 'in-pane-runner' | 'direct-child'
+  pid?: number | undefined
+  argvHash?: string | undefined
+  controlSocketId?: string | undefined
+}
+
+export interface HarnessExitedPayload {
+  generation: number
+  reason:
+    | 'idle-retire'
+    | 'operator-stop'
+    | 'crash'
+    | 'recycle-kill'
+    | 'process-exit'
+    | 'runner-exit'
+    | string
+  exitCode?: number | null | undefined
+  signal?: string | null | undefined
+}
+
+export interface HarnessRecoveryStartedPayload {
+  fromGeneration: number
+  reason: 'child-exit' | 'stall' | 'healthcheck-failed' | string
+  activeTurnDisposition: 'fail-before-recycle' | 'escalate-only' | 'none'
+}
+
+export interface HarnessRecoveryCompletedPayload {
+  fromGeneration: number
+  toGeneration: number
+  ready: boolean
+}
+
+export interface HarnessRecoveryFailedPayload {
+  fromGeneration: number
+  reason: 'runner-unresponsive' | 'kill-timeout' | 'spawn-failed' | 'continuation-missing' | string
+  requestedAction?: 'hard-reap' | undefined
 }
 
 export interface ContinuationUpdate {
@@ -1671,6 +1913,8 @@ export interface InputDispositionPayload {
 
 export interface TurnStartedPayload {
   turnId: TurnId
+  inputId?: InputId | undefined
+  turnAttempt?: number | undefined
 }
 
 export interface TurnCompletedPayload {
@@ -1688,12 +1932,37 @@ export interface TurnFailedPayload {
   turnId: TurnId
   message: string
   code?: string | undefined
+  retryable?: boolean | undefined
+  reason?: 'harness-stalled' | 'retry-unsafe' | 'retry-exhausted' | string | undefined
+  turnAttempt?: number | undefined
+  retrySuppressed?: boolean | undefined
   data?: unknown
 }
 
 export interface TurnInterruptedPayload {
   turnId: TurnId
   reason?: string | undefined
+}
+
+export interface TurnStalledPayload {
+  inputId: InputId
+  turnId: TurnId
+  noProgressMs: number
+  thresholdMs: number
+  healthProbe: 'runner-status' | 'driver-status' | 'native-heartbeat'
+  harnessGeneration: number
+  turnAttempt: number
+}
+
+export interface TurnRetryPayload {
+  inputId: InputId
+  turnId: TurnId
+  fromAttempt: number
+  toAttempt: number
+  fromHarnessGeneration: number
+  toHarnessGeneration: number
+  reason: 'harness-stalled' | 'harness-crashed'
+  semantics: 'at-least-once'
 }
 
 export interface AssistantMessageStartedPayload {
@@ -1767,13 +2036,24 @@ export interface PermissionRequestedPayload {
   subjectDisplay: unknown
   defaultDecision: 'allow' | 'deny'
   deadlineMs?: number | undefined
+  harnessGeneration?: number | undefined
+  turnAttempt?: number | undefined
 }
 
 export interface PermissionResolvedPayload {
   permissionRequestId: PermissionRequestId
   decision: 'allow' | 'deny'
   decidedBy: 'policy' | 'user' | 'api' | 'timeout'
+  harnessGeneration?: number | undefined
+  turnAttempt?: number | undefined
   message?: string | undefined
+}
+
+export interface PermissionCancelledPayload {
+  permissionRequestId: PermissionRequestId
+  reason: 'harness-generation-ended' | 'turn-failed' | 'invocation-stopping'
+  harnessGeneration?: number | undefined
+  turnAttempt?: number | undefined
 }
 ```
 
@@ -1938,6 +2218,7 @@ export type RuntimeRouteDecision = {
     inputPolicy?: BrokerInputPolicy | undefined
     exposurePolicy?: AgentchatExposurePolicy | undefined
     resourceLimits?: RuntimeResourceLimits | undefined
+    lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
   }
 
   capabilities: CapabilityResolution
@@ -1982,6 +2263,8 @@ export type RuntimeControllerStartInput<TDecision extends RuntimeRouteDecision> 
   // the broker InvocationDispatchRequest envelope. It is never part of the
   // compiled plan and is hashed nowhere.
   dispatchEnv?: Record<string, string> | undefined
+  /** HRC-owned policy overlay sent to broker outside the compiled startRequest hash. */
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
   existingRuntime?: HrcRuntimeSnapshot | undefined
 }
 
@@ -2123,6 +2406,7 @@ export type BrokerRuntimeState = RuntimeStateBase & {
     selectedProfileHash: ProfileHash
     specHash: SpecHash
     startRequestHash: StartRequestHash
+    lifecyclePolicyHash?: LifecyclePolicyHash | undefined
   }
 
   broker: {
@@ -2141,9 +2425,12 @@ export type BrokerRuntimeState = RuntimeStateBase & {
     harnessRuntime: HarnessRuntime | string
     childPid?: number | undefined
     currentTurnId?: TurnId | undefined
+    currentHarnessGeneration: number
+    currentTurnAttempt?: number | undefined
     lastEventSeq?: number | undefined
     capabilities: InvocationCapabilities
   }
+  lifecycle: BrokerLifecycleRuntimeState
   terminalSurface?:
     | (BrokerTerminalSurfaceReport & {
         reportedAt: IsoTimestamp
@@ -2221,6 +2508,7 @@ export type RuntimeOperation = {
   turnDelivery?: string | undefined
   status: RuntimeOperationStatus
   routeDecision: RuntimeRouteDecision
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
   createdAt: IsoTimestamp
   startedAt?: IsoTimestamp | undefined
   completedAt?: IsoTimestamp | undefined
@@ -2380,6 +2668,8 @@ export type RuntimeOperationRecord = {
   status: RuntimeOperationStatus
   routeDecisionJson: string
   capabilityResolutionJson?: string | undefined
+  lifecyclePolicyHash?: LifecyclePolicyHash | undefined
+  lifecyclePolicyJson?: string | undefined
   createdAt: IsoTimestamp
   startedAt?: IsoTimestamp | undefined
   completedAt?: IsoTimestamp | undefined
@@ -2399,6 +2689,10 @@ export type BrokerInvocationRecord = {
   childPid?: number | undefined
   invocationState: InvocationState
   capabilitiesJson: string
+  lifecyclePolicyHash?: LifecyclePolicyHash | undefined
+  lifecyclePolicyJson?: string | undefined
+  currentHarnessGeneration: number
+  terminalReason?: string | undefined
   continuationJson?: string | undefined
   brokerContinuationJson?: string | undefined
   specHash: SpecHash
@@ -2410,6 +2704,29 @@ export type BrokerInvocationRecord = {
   ownerServerInstanceId?: ServerInstanceId | undefined
   createdAt: IsoTimestamp
   updatedAt: IsoTimestamp
+}
+
+export type BrokerHarnessGenerationRecord = {
+  invocationId: InvocationId
+  harnessGeneration: number
+  mode: 'initial' | 'recycle'
+  startedAt: IsoTimestamp
+  exitedAt?: IsoTimestamp | undefined
+  exitReason?: string | undefined
+  exitCode?: number | null | undefined
+  signal?: string | null | undefined
+}
+
+export type BrokerTurnAttemptRecord = {
+  invocationId: InvocationId
+  inputId: InputId
+  turnId: TurnId
+  turnAttempt: number
+  harnessGeneration?: number | undefined
+  startedAt?: IsoTimestamp | undefined
+  terminalAt?: IsoTimestamp | undefined
+  terminalKind?: 'completed' | 'failed' | 'interrupted' | undefined
+  terminalReason?: string | undefined
 }
 
 export type BrokerInvocationEventRecord = {
@@ -2659,6 +2976,8 @@ export type ReconcileRuntimesResponse = {
 export type PermissionRespondRequest = {
   permissionRequestId: PermissionRequestId
   decision: 'allow' | 'deny'
+  harnessGeneration?: number | undefined
+  turnAttempt?: number | undefined
   message?: string | undefined
 }
 
@@ -2683,6 +3002,9 @@ export type RuntimeControlErrorCode =
   | 'legacy-disabled'
   | 'broker-protocol-mismatch'
   | 'broker-driver-unavailable'
+  | 'broker-lifecycle-policy-unsupported'
+  | 'harness-recovery-unsupported'
+  | 'turn-retry-unsafe'
   | 'broker-start-failed'
   | 'broker-input-rejected'
   | 'broker-busy'

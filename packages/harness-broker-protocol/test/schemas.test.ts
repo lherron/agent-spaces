@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { conservativeDefaultLifecyclePolicyOverlay, lifecyclePolicyHash } from '../src/lifecycle'
 import {
   validateCommand,
   validateEventEnvelope,
@@ -358,6 +361,19 @@ describe('validateInvocationStartRequest', () => {
       }
     )
   })
+
+  test('rejects lifecycle overlays on start requests', () => {
+    expectInvalidStartRequest(
+      {
+        spec: specSection19InvocationStartSpec,
+        lifecyclePolicy: conservativeDefaultLifecyclePolicyOverlay('policy_start_request_stale'),
+      },
+      {
+        path: 'lifecyclePolicy',
+        code: 'stale_lifecycle_overlay',
+      }
+    )
+  })
 })
 
 describe('validateInvocationDispatchRequest', () => {
@@ -377,6 +393,52 @@ describe('validateInvocationDispatchRequest', () => {
     }
 
     expect(validateInvocationDispatchRequest(request)).toEqual(request)
+  })
+
+  test('accepts an explicit conservative lifecycle overlay with a deterministic hash', () => {
+    const lifecyclePolicy = conservativeDefaultLifecyclePolicyOverlay('policy_default')
+    const request = {
+      startRequest: { spec: specSection19InvocationStartSpec },
+      lifecyclePolicy,
+    }
+
+    expect(validateInvocationDispatchRequest(request)).toEqual(request)
+    expect(lifecyclePolicy.policyHash).toBe(lifecyclePolicyHash(lifecyclePolicy))
+  })
+
+  test('rejects lifecycle policy hash mismatches', () => {
+    const lifecyclePolicy = {
+      ...conservativeDefaultLifecyclePolicyOverlay('policy_bad_hash'),
+      policyHash: 'not-the-canonical-hash',
+    }
+
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: specSection19InvocationStartSpec },
+        lifecyclePolicy,
+      },
+      {
+        path: 'lifecyclePolicy.policyHash',
+        code: 'lifecycle_policy_hash_mismatch',
+      }
+    )
+  })
+
+  test('rejects lifecycle overlays patched into HarnessInvocationSpec', () => {
+    const spec = {
+      ...specSection19InvocationStartSpec,
+      lifecyclePolicy: conservativeDefaultLifecyclePolicyOverlay('policy_spec_stale'),
+    }
+
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec },
+      },
+      {
+        path: 'startRequest.spec.lifecyclePolicy',
+        code: 'stale_lifecycle_overlay',
+      }
+    )
   })
 
   test('rejects dispatchEnv that shadows lockedEnv', () => {
@@ -619,6 +681,21 @@ describe('validateInvocationDispatchRequest', () => {
       {
         path: 'startRequest.runtime',
         code: 'stale_runtime_overlay',
+      }
+    )
+  })
+
+  test('rejects stale lifecycle overlays nested inside dispatch startRequest', () => {
+    expectInvalidDispatchRequest(
+      {
+        startRequest: {
+          spec: specSection19InvocationStartSpec,
+          lifecyclePolicy: conservativeDefaultLifecyclePolicyOverlay('policy_nested_stale'),
+        },
+      },
+      {
+        path: 'startRequest.lifecyclePolicy',
+        code: 'stale_lifecycle_overlay',
       }
     )
   })
@@ -922,5 +999,76 @@ describe('validateEventEnvelope', () => {
         code: 'invalid_literal',
       }
     )
+  })
+
+  test('validates lifecycle event payloads and generation fences', () => {
+    const policy = conservativeDefaultLifecyclePolicyOverlay('policy_event')
+    expect(
+      validateEventEnvelope({
+        invocationId: 'inv_1',
+        seq: 1,
+        time: '2026-05-24T00:00:00.000Z',
+        type: 'lifecycle.policy.accepted',
+        payload: {
+          policyId: policy.policyId,
+          policyHash: policy.policyHash,
+          retentionMode: 'keep-alive',
+          harnessRecoveryMode: 'none',
+          turnRetryMode: 'none',
+        },
+      })
+    ).toMatchObject({ type: 'lifecycle.policy.accepted' })
+
+    expect(
+      validateEventEnvelope({
+        invocationId: 'inv_1',
+        seq: 2,
+        time: '2026-05-24T00:00:00.000Z',
+        type: 'permission.cancelled',
+        harnessGeneration: 1,
+        turnAttempt: 1,
+        payload: {
+          permissionRequestId: 'perm_1',
+          reason: 'harness-generation-ended',
+          harnessGeneration: 1,
+          turnAttempt: 1,
+        },
+      })
+    ).toMatchObject({ type: 'permission.cancelled', harnessGeneration: 1, turnAttempt: 1 })
+
+    expectInvalidEventEnvelope(
+      {
+        invocationId: 'inv_1',
+        seq: 3,
+        time: '2026-05-24T00:00:00.000Z',
+        type: 'harness.started',
+        harnessGeneration: 0,
+        payload: {
+          generation: 1,
+          mode: 'initial',
+          mechanism: 'direct-child',
+        },
+      },
+      {
+        path: 'harnessGeneration',
+        code: 'invalid_positive_integer',
+      }
+    )
+  })
+})
+
+describe('package boundaries', () => {
+  test('protocol source does not import spaces-runtime-contracts', () => {
+    const sourceRoot = join(import.meta.dir, '..', 'src')
+    for (const file of [
+      'capabilities.ts',
+      'commands.ts',
+      'events.ts',
+      'index.ts',
+      'lifecycle.ts',
+      'schemas.ts',
+    ]) {
+      expect(readFileSync(join(sourceRoot, file), 'utf8')).not.toContain('spaces-runtime-contracts')
+    }
   })
 })

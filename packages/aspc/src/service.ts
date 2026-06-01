@@ -91,7 +91,8 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
       const startResponse = await broker.start(
         dispatch.startRequest,
         dispatch.dispatchEnv,
-        dispatch.runtime
+        dispatch.runtime,
+        dispatch.lifecyclePolicy
       )
       return {
         schemaVersion: 'aspc-compile-and-start-response/v1',
@@ -238,6 +239,7 @@ function buildDispatchRequest(
     startRequest: profile.harnessInvocation.startRequest,
     ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
     ...(req.runtime !== undefined ? { runtime: req.runtime } : {}),
+    ...(req.lifecyclePolicy !== undefined ? { lifecyclePolicy: req.lifecyclePolicy } : {}),
   }
 }
 

@@ -3,6 +3,7 @@ import type {
   BrokerHealthResponse,
   BrokerHelloRequest,
   BrokerHelloResponse,
+  BrokerLifecyclePolicyOverlay,
   HarnessInvocationSpec,
   InvocationDispatchRequest,
   InvocationDisposeRequest,
@@ -38,6 +39,12 @@ export interface InvocationStartResult {
   invocationId: string
   response: InvocationStartResponse
   events: AsyncIterable<InvocationEventEnvelope>
+}
+
+export interface InvocationStartDispatchOptions {
+  dispatchEnv?: Record<string, string> | undefined
+  runtime?: InvocationRuntimeContext | undefined
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
 }
 
 export class BrokerClient {
@@ -81,30 +88,46 @@ export class BrokerClient {
   async startInvocation(
     spec: HarnessInvocationSpec,
     initialInput?: InvocationInput,
-    runtime?: InvocationRuntimeContext
+    runtime?: InvocationRuntimeContext,
+    lifecyclePolicy?: BrokerLifecyclePolicyOverlay
   ): Promise<InvocationStartResult> {
     return this.startInvocationFromRequest(
       initialInput === undefined ? { spec } : { spec, initialInput },
-      undefined,
-      runtime
+      {
+        runtime,
+        lifecyclePolicy,
+      }
     )
   }
 
   async startInvocationFromRequest(
     request: InvocationStartRequest,
-    dispatchEnv?: Record<string, string>,
+    dispatchEnvOrOptions?: Record<string, string> | InvocationStartDispatchOptions,
     runtime?: InvocationRuntimeContext
   ): Promise<InvocationStartResult> {
     const expectedInvocationId = request.spec.invocationId
     const expectedEvents =
       expectedInvocationId !== undefined ? this.#eventStream(expectedInvocationId) : undefined
+    const options =
+      dispatchEnvOrOptions !== undefined &&
+      ('dispatchEnv' in dispatchEnvOrOptions ||
+        'runtime' in dispatchEnvOrOptions ||
+        'lifecyclePolicy' in dispatchEnvOrOptions)
+        ? (dispatchEnvOrOptions as InvocationStartDispatchOptions)
+        : {
+            dispatchEnv: dispatchEnvOrOptions as Record<string, string> | undefined,
+            runtime,
+          }
 
     // invocation.start now carries the InvocationDispatchRequest envelope:
-    // a verbatim startRequest plus optional per-invocation dispatchEnv/runtime.
+    // a verbatim startRequest plus optional per-invocation dispatchEnv/runtime/lifecyclePolicy.
     const dispatch: InvocationDispatchRequest = {
       startRequest: request,
-      ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
-      ...(runtime !== undefined ? { runtime } : {}),
+      ...(options.dispatchEnv !== undefined ? { dispatchEnv: options.dispatchEnv } : {}),
+      ...(options.runtime !== undefined ? { runtime: options.runtime } : {}),
+      ...(options.lifecyclePolicy !== undefined
+        ? { lifecyclePolicy: options.lifecyclePolicy }
+        : {}),
     }
 
     try {

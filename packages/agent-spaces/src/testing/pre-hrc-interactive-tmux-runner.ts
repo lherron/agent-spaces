@@ -488,6 +488,40 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms))
 }
 
+function isBusyRejectedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  const data = (error as { data?: { reason?: unknown } } | undefined)?.data
+  return message.includes('busy_rejected') || data?.reason === 'busy_rejected'
+}
+
+function observedTurnsSettled(events: InvocationEventEnvelope[]): boolean {
+  const started = new Set<string>()
+  const settled = new Set<string>()
+  for (const event of events) {
+    if (event.turnId === undefined) continue
+    if (event.type === 'turn.started') started.add(event.turnId)
+    if (
+      event.type === 'turn.completed' ||
+      event.type === 'turn.failed' ||
+      event.type === 'turn.interrupted'
+    ) {
+      settled.add(event.turnId)
+    }
+  }
+  return [...started].every((turnId) => settled.has(turnId))
+}
+
+async function waitForObservedTurnsToSettle(
+  events: InvocationEventEnvelope[],
+  timeoutMs: number
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (observedTurnsSettled(events)) return
+    await delay(250)
+  }
+}
+
 function terminalTurnFor(events: InvocationEventEnvelope[], turnId: string): boolean {
   return events.some(
     (e) =>
@@ -726,13 +760,35 @@ export async function runInteractiveClaudeTmuxSession(
     if (!options.mockClaude && options.bootWaitMs > 0) await delay(options.bootWaitMs)
 
     // --- 5. Drive >= 2 turns via terminal-literal input (send-keys) ---
+    const applyInputWhenReady = async (
+      request: Parameters<InteractiveTmuxManager['input']>[0],
+      label: string
+    ): Promise<{ turnId?: string | undefined }> => {
+      const deadline = Date.now() + options.turnTimeoutMs
+      let lastBusy: unknown
+      while (Date.now() < deadline) {
+        await waitForObservedTurnsToSettle(events, Math.min(2_000, options.turnTimeoutMs))
+        try {
+          return await manager.input(request)
+        } catch (error) {
+          if (!isBusyRejectedError(error)) throw error
+          lastBusy = error
+          await delay(1_000)
+        }
+      }
+      throw new Error(`${label} was still busy after ${options.turnTimeoutMs}ms: ${lastBusy}`)
+    }
+
     for (let i = 0; i < options.prompts.length; i += 1) {
       const prompt = options.prompts[i] ?? ''
-      const inputResponse = await manager.input({
-        invocationId,
-        input: { kind: 'user', content: [{ type: 'text', text: prompt }] },
-        policy: { whenBusy: 'reject' },
-      })
+      const inputResponse = await applyInputWhenReady(
+        {
+          invocationId,
+          input: { kind: 'user', content: [{ type: 'text', text: prompt }] },
+          policy: { whenBusy: 'reject' },
+        },
+        `Turn ${i + 1}`
+      )
       const turnId = inputResponse.turnId
       if (turnId === undefined) throw new Error(`Turn ${i + 1} did not return a broker turn id`)
 

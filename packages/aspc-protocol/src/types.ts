@@ -1,4 +1,5 @@
 import type {
+  BrokerLifecyclePolicyOverlay,
   InvocationDispatchRequest,
   InvocationRuntimeContext,
   InvocationStartResponse,
@@ -74,6 +75,7 @@ export interface AspcCompileHarnessInvocationRequest extends AspcCompileRuntimeP
   profileSelector?: AspcProfileSelector | undefined
   dispatchEnv?: Record<string, string> | undefined
   runtime?: InvocationRuntimeContext | undefined
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
 }
 
 export type AspcCompileHarnessInvocationResponse =
