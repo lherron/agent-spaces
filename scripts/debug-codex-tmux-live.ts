@@ -1,19 +1,21 @@
 #!/usr/bin/env bun
-import { spawn } from 'node:child_process'
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import {
   appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { createServer } from 'node:net'
+import { connect, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import type {
+  InvocationId,
   InvocationInput,
   InvocationRuntimeContext,
   InvocationStartRequest,
@@ -32,8 +34,11 @@ import {
   buildPlacementFromScopeRef,
 } from '../packages/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
 import { allocatePreHrcTmuxPane } from '../packages/agent-spaces/src/testing/pre-hrc-tmux-allocator.js'
+import { BrokerClient } from '../packages/harness-broker-client/src/index.js'
 import { createBroker } from '../packages/harness-broker/src/broker'
 import { createCodexCliTmuxDriver } from '../packages/harness-broker/src/drivers/codex-cli-tmux/driver'
+
+type BrokerTransportMode = 'direct' | 'stdio' | 'ipc'
 
 type Args = {
   scopeRef: string
@@ -48,10 +53,21 @@ type Args = {
   noWait: boolean
   manualAttach: boolean
   ghostmuxTarget?: string | undefined
+  brokerTransport: BrokerTransportMode
 }
 
 type TmuxResult = { stdout: string; stderr: string }
 type GhostmuxResult = { code: number; stdout: string; stderr: string }
+type DebugBroker = {
+  start: (
+    request: InvocationStartRequest,
+    runtime: InvocationRuntimeContext
+  ) => Promise<{ invocationId: InvocationId; state: string }>
+  input: (req: Parameters<BrokerClient['input']>[0]) => Promise<unknown>
+  stop: (req: Parameters<BrokerClient['stop']>[0]) => Promise<unknown>
+  dispose: (req: Parameters<BrokerClient['dispose']>[0]) => Promise<unknown>
+  close: () => Promise<void>
+}
 
 function parseArgs(argv: string[]): Args {
   const args: Args = {
@@ -64,6 +80,7 @@ function parseArgs(argv: string[]): Args {
     noPrompt: false,
     delayedInput: false,
     manualAttach: false,
+    brokerTransport: 'stdio',
   }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
@@ -112,6 +129,10 @@ function parseArgs(argv: string[]): Args {
         args.ghostmuxTarget = readValue(value, arg)
         i += 1
         break
+      case '--broker-transport':
+        args.brokerTransport = parseBrokerTransport(readValue(value, arg))
+        i += 1
+        break
       case '--help':
         printUsage()
         process.exit(0)
@@ -128,6 +149,14 @@ function parseArgs(argv: string[]): Args {
     args.agentRoot = resolve(args.projectRoot, '..', 'var', 'agents', scopeAgent(args.scopeRef))
   }
   return args
+}
+
+function parseBrokerTransport(value: string): BrokerTransportMode {
+  if (value === 'direct' || value === 'stdio' || value === 'ipc') return value
+  if (value === 'unix') return 'ipc'
+  throw new Error(
+    `Unsupported --broker-transport ${JSON.stringify(value)}; use direct, stdio, or ipc`
+  )
 }
 
 function readValue(value: string | undefined, flag: string): string {
@@ -156,6 +185,7 @@ function printUsage(): void {
       '  --no-wait                Do not pause after attach before broker.start',
       '  --manual-attach          Print attach command and wait instead of using ghostmux',
       '  --ghostmux-target <id>   Ghostty surface to split (default: focused/$GHOSTTY_SURFACE_UUID)',
+      '  --broker-transport <m>   direct | stdio | ipc/unix (default: stdio)',
       '  --help                   Show this message',
     ].join('\n')
   )
@@ -198,6 +228,7 @@ async function main(): Promise<void> {
   let started = false
   let keepAlive: NodeJS.Timeout | undefined
   let ghostmuxSurfaceId: string | undefined
+  let broker: DebugBroker | undefined
   try {
     await runTmux(tmuxBin, ['-S', socketPath, 'start-server'])
     const allocated = await allocatePreHrcTmuxPane({ tmuxBin, socketPath, sessionName })
@@ -239,28 +270,23 @@ async function main(): Promise<void> {
     )
 
     const eventsPath = join(artifactDir, 'events.ndjson')
-    const broker = createBroker({
-      drivers: [
-        createCodexCliTmuxDriver({
-          tmux: {
-            socketPath,
-            tmuxBin,
-            exec: (argv, execOptions) => runTmux(tmuxBin, argv.slice(1), execOptions?.env),
-          },
-          hooks: {
-            listen: makeCodexHookListener(hookSocketPath),
-            bridgeCommand: `bun ${join(args.projectRoot, 'packages/harness-broker/bin/harness-broker.js')} codex-hook`,
-          },
-        }),
-      ],
-      onEvent: (event) => {
-        appendFileSync(eventsPath, `${JSON.stringify(event)}\n`)
-        console.log(formatEventLogLine(event))
-      },
+    const logEvent = (event: { type: string; turnId?: string | undefined; payload?: unknown }) => {
+      appendFileSync(eventsPath, `${JSON.stringify(event)}\n`)
+      console.log(formatEventLogLine(event))
+    }
+    broker = await createDebugBroker({
+      mode: args.brokerTransport,
+      tmuxBin,
+      tmuxSocketPath: socketPath,
+      hookSocketPath,
+      projectRoot: args.projectRoot,
+      artifactDir,
+      logEvent,
     })
 
     console.log(`artifactDir: ${artifactDir}`)
     console.log(`codex:      ${codex}`)
+    console.log(`broker:     ${args.brokerTransport}`)
     console.log(`tmux pane:  ${allocated.lease.paneId}`)
     console.log(`prompt:     ${prompt ?? '(none)'}`)
     const inputMode =
@@ -292,7 +318,7 @@ async function main(): Promise<void> {
 
     started = true
     console.log('calling broker.start(...)')
-    const start = await broker.start(startRequest, undefined, {
+    const start = await broker.start(startRequest, {
       terminalSurface: allocated.lease,
     } satisfies InvocationRuntimeContext)
     console.log(`broker.start returned: invocationId=${start.invocationId} state=${start.state}`)
@@ -330,8 +356,11 @@ async function main(): Promise<void> {
       .stop({ invocationId: start.invocationId, reason: 'debugger-exit' })
       .catch(() => undefined)
     await broker.dispose({ invocationId: start.invocationId }).catch(() => undefined)
+    await broker.close().catch(() => undefined)
+    broker = undefined
   } finally {
     if (keepAlive !== undefined) clearInterval(keepAlive)
+    await broker?.close().catch(() => undefined)
     console.log(`final attach command: ${attachCommand}`)
     console.log(`artifacts: ${artifactDir}`)
     if (args.cleanup || !started) {
@@ -343,6 +372,193 @@ async function main(): Promise<void> {
       await runTmux(tmuxBin, ['-S', socketPath, 'kill-server']).catch(() => undefined)
     }
   }
+}
+
+async function createDebugBroker(input: {
+  mode: BrokerTransportMode
+  tmuxBin: string
+  tmuxSocketPath: string
+  hookSocketPath: string
+  projectRoot: string
+  artifactDir: string
+  logEvent: (event: { type: string; turnId?: string | undefined; payload?: unknown }) => void
+}): Promise<DebugBroker> {
+  if (input.mode === 'direct') {
+    const broker = createBroker({
+      drivers: [
+        createCodexCliTmuxDriver({
+          tmux: {
+            socketPath: input.tmuxSocketPath,
+            tmuxBin: input.tmuxBin,
+            exec: (argv, execOptions) => runTmux(input.tmuxBin, argv.slice(1), execOptions?.env),
+          },
+          hooks: {
+            listen: makeCodexHookListener(input.hookSocketPath),
+            bridgeCommand: `bun ${join(input.projectRoot, 'packages/harness-broker/bin/harness-broker.js')} codex-hook`,
+          },
+        }),
+      ],
+      onEvent: input.logEvent,
+    })
+    return {
+      start: (request, runtime) => broker.start(request, undefined, runtime),
+      input: (req) => broker.input(req),
+      stop: (req) => broker.stop(req),
+      dispose: (req) => broker.dispose(req),
+      close: async () => undefined,
+    }
+  }
+
+  if (input.mode === 'stdio') {
+    const client = await BrokerClient.start({
+      command: 'bun',
+      args: ['packages/harness-broker/bin/harness-broker.js', 'run', '--transport', 'stdio'],
+      cwd: input.projectRoot,
+      env: {
+        ASP_CODEX_SKIP_COMMON_PATHS: '1',
+        ...(process.env['ASP_CODEX_PATH'] !== undefined
+          ? { ASP_CODEX_PATH: process.env['ASP_CODEX_PATH'] }
+          : {}),
+      },
+    })
+    return clientDebugBroker(client, input.logEvent)
+  }
+
+  const ipc = await bootIpcBroker(input.projectRoot, input.artifactDir)
+  try {
+    const client = await BrokerClient.connectUnix({ socketPath: ipc.socketPath, timeoutMs: 2000 })
+    const broker = clientDebugBroker(client, input.logEvent)
+    return {
+      ...broker,
+      close: async () => {
+        await broker.close().catch(() => undefined)
+        await stopIpcBroker(ipc)
+      },
+    }
+  } catch (error) {
+    await stopIpcBroker(ipc).catch(() => undefined)
+    throw error
+  }
+}
+
+function clientDebugBroker(
+  client: BrokerClient,
+  logEvent: (event: { type: string; turnId?: string | undefined; payload?: unknown }) => void
+): DebugBroker {
+  let eventPump: Promise<void> | undefined
+  const startEventPump = (events: AsyncIterable<Parameters<typeof logEvent>[0]>): void => {
+    eventPump = (async () => {
+      for await (const event of events) logEvent(event)
+    })().catch((error) => {
+      console.error(`event pump stopped: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }
+  return {
+    start: async (request, runtime) => {
+      const started = await client.startInvocationFromRequest(request, { runtime })
+      startEventPump(started.events)
+      return { invocationId: started.invocationId, state: started.response.state }
+    },
+    input: (req) => client.input(req),
+    stop: (req) => client.stop(req),
+    dispose: (req) => client.dispose(req),
+    close: async () => {
+      await client.close().catch(() => undefined)
+      await eventPump?.catch(() => undefined)
+    },
+  }
+}
+
+type IpcBrokerHandle = {
+  proc: ChildProcessWithoutNullStreams
+  dir: string
+  socketPath: string
+}
+
+async function bootIpcBroker(projectRoot: string, artifactDir: string): Promise<IpcBrokerHandle> {
+  const ipcDir = mkdtempSync('/tmp/asp-ipc-')
+  const socketPath = join(ipcDir, 'b.sock')
+  writeFileSync(join(artifactDir, 'broker-ipc-socket.txt'), `${socketPath}\n`)
+  const proc = spawn(
+    'bun',
+    [
+      'packages/harness-broker/bin/harness-broker.js',
+      'run',
+      '--transport',
+      'unix',
+      '--socket',
+      socketPath,
+      '--event-ledger',
+      join(artifactDir, 'broker-events.jsonl'),
+    ],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        ASP_CODEX_SKIP_COMMON_PATHS: '1',
+        ...(process.env['ASP_CODEX_PATH'] !== undefined
+          ? { ASP_CODEX_PATH: process.env['ASP_CODEX_PATH'] }
+          : {}),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }
+  )
+  proc.stderr.on('data', (chunk: Buffer) => {
+    appendFileSync(join(artifactDir, 'broker-ipc.stderr.log'), chunk)
+  })
+  proc.stdout.on('data', (chunk: Buffer) => {
+    appendFileSync(join(artifactDir, 'broker-ipc.stdout.log'), chunk)
+  })
+  await waitForSocket(socketPath, proc, 4000)
+  return { proc, dir: ipcDir, socketPath }
+}
+
+async function stopIpcBroker(handle: IpcBrokerHandle): Promise<void> {
+  if (handle.proc.exitCode === null && handle.proc.signalCode === null) {
+    handle.proc.kill('SIGTERM')
+  }
+  await new Promise<void>((resolvePromise) => {
+    if (handle.proc.exitCode !== null || handle.proc.signalCode !== null) {
+      resolvePromise()
+      return
+    }
+    handle.proc.once('exit', () => resolvePromise())
+    setTimeout(() => {
+      if (handle.proc.exitCode === null && handle.proc.signalCode === null) {
+        handle.proc.kill('SIGKILL')
+      }
+      resolvePromise()
+    }, 1000)
+  })
+  rmSync(handle.dir, { recursive: true, force: true })
+}
+
+async function waitForSocket(
+  socketPath: string,
+  proc: ChildProcessWithoutNullStreams,
+  timeoutMs: number
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      throw new Error('ipc broker exited before listening; see broker-ipc.stderr.log')
+    }
+    if (await canConnectSocket(socketPath)) return
+    await sleep(25)
+  }
+  throw new Error(`timed out waiting for ipc broker socket ${socketPath}`)
+}
+
+function canConnectSocket(socketPath: string): Promise<boolean> {
+  return new Promise((resolvePromise) => {
+    const socket = connect({ path: socketPath })
+    const done = (ok: boolean): void => {
+      socket.destroy()
+      resolvePromise(ok)
+    }
+    socket.once('connect', () => done(true))
+    socket.once('error', () => done(false))
+  })
 }
 
 function codexInteractiveCompileRequest(input: {
