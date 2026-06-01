@@ -144,6 +144,8 @@ export interface Invocation {
   pending: QueuedInput[]
   /** Self-clearing drain lock: set while a drain is in flight, cleared in .finally(). */
   drainPromise?: Promise<void> | undefined
+  /** Short write lock for terminal-immediate busy inputs. This is not a turn queue. */
+  steerPromise?: Promise<void> | undefined
   /** Monotonic counter for broker-assigned inputIds. */
   inputCounter: number
   /**
@@ -270,9 +272,60 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   ): Promise<{ turnId?: TurnId | undefined }> {
     // Broker owns input.accepted emission — before the driver applies the input
     const { inputId } = input
-    emit(inv, 'input.accepted', { inputId }, { inputId })
+    emit(inv, 'input.accepted', { inputId, disposition: 'started' }, { inputId })
     const result = await inv.driver.applyInputNow(input)
     return result
+  }
+
+  async function attemptSteerAndEmit(
+    inv: Invocation,
+    input: InvocationInputWithId
+  ): Promise<InvocationInputResponse> {
+    const applySteerNow = inv.driver.applySteerNow
+    if (applySteerNow === undefined) {
+      return rejectQueueInput(inv, input.inputId, REASON_QUEUE_NOT_SUPPORTED)
+    }
+
+    // Serialize pane writes only. This does not create a broker-owned pending
+    // turn, and it never retroactively upgrades the request to `started`.
+    const previous = inv.steerPromise ?? Promise.resolve()
+    const run = previous
+      .catch(() => undefined)
+      .then(async (): Promise<InvocationInputResponse> => {
+        try {
+          await applySteerNow.call(inv.driver, input)
+        } catch (err) {
+          return rejectQueueInput(
+            inv,
+            input.inputId,
+            String(err instanceof Error ? err.message : err)
+          )
+        }
+
+        emit(
+          inv,
+          'input.accepted',
+          { inputId: input.inputId, disposition: 'attempted_steer' },
+          { inputId: input.inputId }
+        )
+        return {
+          inputId: input.inputId,
+          accepted: true,
+          disposition: 'attempted_steer',
+        }
+      })
+    const tail = run.then(
+      () => undefined,
+      () => undefined
+    )
+    inv.steerPromise = tail
+    try {
+      return await run
+    } finally {
+      if (inv.steerPromise === tail) {
+        inv.steerPromise = undefined
+      }
+    }
   }
 
   function rejectQueueInput(
@@ -316,6 +369,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         inv.state = 'ready'
         return
       case 'input.accepted':
+        if (
+          (event.payload as { disposition?: unknown } | undefined)?.disposition ===
+          'attempted_steer'
+        ) {
+          return
+        }
         // The input that drives the next turn — cleared when the turn ends.
         if (event.inputId !== undefined) {
           inv.currentInputId = event.inputId
@@ -780,6 +839,15 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           return rejectQueueInput(inv, inputId, REASON_QUEUE_NOT_SUPPORTED)
         }
 
+        if (
+          inv.spec.interaction?.mode === 'interactive' &&
+          inv.driver.applySteerNow !== undefined
+        ) {
+          const response = await attemptSteerAndEmit(inv, input)
+          recordDisposition(inv, req, response)
+          return response
+        }
+
         // Check depth cap
         if (inv.pending.length >= maxQueueDepth) {
           return rejectQueueInput(inv, inputId, REASON_QUEUE_FULL)
@@ -787,7 +855,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
         // Enqueue
         inv.pending.push({ inputId, input })
-        emit(inv, 'input.queued', { inputId }, { inputId })
+        emit(inv, 'input.queued', { inputId, disposition: 'queued' }, { inputId })
         const response: InvocationInputResponse = {
           inputId,
           accepted: true,

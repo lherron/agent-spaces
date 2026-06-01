@@ -18,6 +18,7 @@ import { BrokerError } from '../errors'
 
 export interface TestDriverController {
   readonly inputs: InvocationInput[]
+  readonly steeredInputs: InvocationInput[]
   readonly activeInput: InvocationInput | undefined
   readonly activeTurnId: TurnId | undefined
   completeActiveTurn(finalOutput?: string): void
@@ -28,6 +29,7 @@ export interface TestDriverController {
 export interface TestDriverOptions {
   failInputIds?: Iterable<string> | undefined
   inputCapabilities?: Partial<InvocationCapabilities['input']> | undefined
+  supportsSteer?: boolean | undefined
 }
 
 export interface TestDriverHandle {
@@ -74,6 +76,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     },
   }
   const inputs: InvocationInput[] = []
+  const steeredInputs: InvocationInput[] = []
   let ctx: DriverContext | undefined
   let activeInput: InvocationInput | undefined
   let activeTurnId: TurnId | undefined
@@ -100,6 +103,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
 
   const controller: TestDriverController = {
     inputs,
+    steeredInputs,
 
     get activeInput(): InvocationInput | undefined {
       return activeInput
@@ -193,6 +197,14 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
       clearActiveTurn()
       inputs.length = 0
     },
+  }
+
+  if (options.supportsSteer === true) {
+    driver.applySteerNow = async (input: InvocationInput): Promise<void> => {
+      const inputId = input.inputId ?? (`input_test_steer_${steeredInputs.length + 1}` as InputId)
+      const resolved = { ...input, inputId }
+      steeredInputs.push(resolved)
+    }
   }
 
   return { driver, controller }

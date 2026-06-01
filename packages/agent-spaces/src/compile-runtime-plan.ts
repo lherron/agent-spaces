@@ -1396,10 +1396,9 @@ async function compileClaudeTmuxBrokerPlan(
     interaction: {
       mode: 'interactive',
       turnConcurrency: 'single',
-      // FIFO so a turn dispatched while the TUI is mid-turn queues into the live
-      // pane (composed input.queue = driver.queue && user && inputQueue==='fifo')
-      // and drains on turn.completed, instead of being rejected or forked onto a
-      // competing headless runtime. Paired with expectedCapabilities queue:required.
+      // FIFO enables the broker busy-input policy for this interactive profile.
+      // The tmux driver applies busy input as attempted_steer immediately, leaving
+      // the TUI to steer, queue internally, or surface a later hook-derived turn.
       inputQueue: 'fifo',
     },
     ...(req.continuation?.hrc.key !== undefined
@@ -1624,10 +1623,9 @@ async function compileCodexTmuxBrokerPlan(
     interaction: {
       mode: 'interactive',
       turnConcurrency: 'single',
-      // FIFO so a turn dispatched while the TUI is mid-turn queues into the live
-      // pane (composed input.queue = driver.queue && user && inputQueue==='fifo')
-      // and drains on turn.completed, instead of being rejected or forked onto a
-      // competing headless runtime. Paired with expectedCapabilities queue:required.
+      // FIFO enables the broker busy-input policy for this interactive profile.
+      // The tmux driver applies busy input as attempted_steer immediately, leaving
+      // the TUI to steer, queue internally, or surface a later hook-derived turn.
       inputQueue: 'fifo',
     },
     ...(req.continuation?.hrc.key !== undefined

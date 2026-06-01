@@ -27,6 +27,7 @@ export interface Driver {
   capabilities(): InvocationCapabilities
   start(spec: HarnessInvocationSpec, ctx: DriverContext): Promise<DriverStartResult>
   applyInputNow(input: InvocationInput): Promise<ApplyInputResult>
+  applySteerNow?(input: InvocationInput): Promise<void>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   dispose(): Promise<void>

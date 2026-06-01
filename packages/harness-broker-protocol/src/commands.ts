@@ -215,7 +215,7 @@ export interface InputPolicy {
 export interface InvocationInputResponse {
   inputId: InputId
   accepted: boolean
-  disposition: 'started' | 'queued' | 'rejected'
+  disposition: 'started' | 'queued' | 'attempted_steer' | 'rejected'
   reason?: string | undefined
   turnId?: TurnId | undefined
 }

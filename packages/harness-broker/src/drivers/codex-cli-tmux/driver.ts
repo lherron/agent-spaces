@@ -44,11 +44,9 @@ const CODEX_CLI_TMUX_CAPABILITIES: InvocationCapabilities = {
     appendContext: false,
     localImages: false,
     fileRefs: false,
-    // FIFO queue: the broker core enqueues turn_active input and drains it on
-    // turn.completed via applyInputNow (paste→Enter), which only runs once the
-    // invocation is back at `ready` (codex at the prompt). This lets a DM/turn
-    // for a busy interactive TUI queue into the live pane instead of being
-    // rejected RUNTIME_BUSY or forked onto a competing headless runtime.
+    // Busy user input is accepted by the broker, then applied through
+    // applySteerNow as an attempted steer. The TUI decides whether that text
+    // affects the active turn, queues internally, or becomes a later prompt.
     queue: true,
   },
   turns: {
@@ -245,7 +243,10 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         // invocation — but STRICTLY only for fields the durable unix mode
         // actually provides, so legacy/stdio rows that omit generation/runtimeId
         // are never rejected for an absent field.
-        if (envelope.invocationId !== undefined && envelope.invocationId !== driverCtx.invocationId) {
+        if (
+          envelope.invocationId !== undefined &&
+          envelope.invocationId !== driverCtx.invocationId
+        ) {
           return
         }
         if (
@@ -349,6 +350,15 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
       await sleep(1_000)
       await controller.sendEnter()
       return {}
+    },
+
+    async applySteerNow(input: InvocationInput): Promise<void> {
+      requireCtx()
+      requireSurface()
+      const controller = requirePaneController()
+      await controller.sendLiteral(extractText(input))
+      await sleep(1_000)
+      await controller.sendEnter()
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
@@ -458,9 +468,7 @@ async function buildLaunchCommandLine(
     // spreads `process.env`) cannot poison the hook envelope and trip the
     // T-01794 Phase D identity fence — which silently drops EVERY hook,
     // yielding zero events (T-01798). Mirrors the claude-code-tmux driver.
-    ...(hookEnv.runtimeId !== undefined
-      ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId }
-      : {}),
+    ...(hookEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId } : {}),
   }
   const launch = await writeTmuxLaunchExecFiles(`${hookEnv.callbackSocket}.codex`, {
     argv: [spec.process.command, ...spec.process.args],

@@ -42,11 +42,9 @@ const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
     appendContext: false,
     localImages: false,
     fileRefs: false,
-    // FIFO queue: the broker core enqueues turn_active input and drains it on
-    // turn.completed via applyInputNow (paste→Enter), which only runs once the
-    // invocation is back at `ready` (Claude at the prompt). This lets a DM/turn
-    // for a busy interactive TUI queue into the live pane instead of being
-    // rejected RUNTIME_BUSY or forked onto a competing headless runtime.
+    // Busy user input is accepted by the broker, then applied through
+    // applySteerNow as an attempted steer. The TUI decides whether that text
+    // affects the active turn, queues internally, or becomes a later prompt.
     queue: true,
   },
   turns: {
@@ -410,6 +408,12 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // the prompt and Claude reliably submits it.
       await requirePaneController().sendKeys(text)
       return { turnId: turnId as ApplyInputResult['turnId'] }
+    },
+
+    async applySteerNow(input: InvocationInput): Promise<void> {
+      requireCtx()
+      requireSurface()
+      await requirePaneController().sendKeys(extractText(input))
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {

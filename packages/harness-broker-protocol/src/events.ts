@@ -262,6 +262,7 @@ export interface InvocationFailedPayload {
 
 export interface InputDispositionPayload {
   inputId: InputId
+  disposition?: 'started' | 'queued' | 'attempted_steer' | 'rejected' | undefined
   reason?: string | undefined
 }
 

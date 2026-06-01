@@ -64,15 +64,18 @@ const setup = async (
   options: {
     invocationId?: string | undefined
     inputQueue?: 'fifo' | 'none' | undefined
+    interactionMode?: 'headless' | 'interactive' | undefined
     inputCapabilities?: Partial<InvocationCapabilities['input']> | undefined
     maxInputQueueDepth?: number | undefined
     failInputIds?: string[] | undefined
+    supportsSteer?: boolean | undefined
   } = {}
 ) => {
   const events: InvocationEventEnvelope[] = []
   const { driver, controller } = createTestDriver({
     failInputIds: options.failInputIds,
     inputCapabilities: options.inputCapabilities,
+    supportsSteer: options.supportsSteer,
   })
   const brokerOptions: Parameters<typeof createBroker>[0] & {
     maxInputQueueDepth?: number | undefined
@@ -88,7 +91,7 @@ const setup = async (
   const spec = testSpec(
     { invocationId: options.invocationId ?? 'inv_input_queue' },
     {
-      mode: 'headless',
+      mode: options.interactionMode ?? 'headless',
       turnConcurrency: 'single',
       inputQueue: options.inputQueue ?? 'fifo',
     }
@@ -180,6 +183,59 @@ describe('broker-owned FIFO input queue', () => {
       payload: { inputId: 'input_queued' },
     })
     expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_active'])
+  })
+
+  test('interactive driver with steer support attempts steer immediately instead of broker-queueing', async () => {
+    const { broker, controller, events, invocationId } = await setup({
+      invocationId: 'inv_queue_interactive_attempted_steer',
+      interactionMode: 'interactive',
+      supportsSteer: true,
+    })
+    await broker.input({ invocationId, input: userInput('input_active', 'active') })
+
+    const response = await broker.input({
+      invocationId,
+      input: userInput('input_attempted_steer', 'steer while busy'),
+      policy: { whenBusy: 'queue' },
+    })
+
+    expect(response).toMatchObject({
+      inputId: 'input_attempted_steer',
+      accepted: true,
+      disposition: 'attempted_steer',
+    })
+    expect(response.turnId).toBeUndefined()
+    expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_active'])
+    expect(controller.steeredInputs.map((input) => input.inputId)).toEqual([
+      'input_attempted_steer',
+    ])
+    expect(inputEvents(events, 'input.queued')).toHaveLength(0)
+    expect(inputEvents(events, 'input.accepted').at(-1)).toMatchObject({
+      inputId: 'input_attempted_steer',
+      payload: { inputId: 'input_attempted_steer', disposition: 'attempted_steer' },
+    })
+  })
+
+  test('replaying an attempted steer inputId does not write to the terminal twice', async () => {
+    const { broker, controller, invocationId } = await setup({
+      invocationId: 'inv_queue_interactive_attempted_steer_replay',
+      interactionMode: 'interactive',
+      supportsSteer: true,
+    })
+    await broker.input({ invocationId, input: userInput('input_active', 'active') })
+    const request = {
+      invocationId,
+      input: userInput('input_attempted_steer_replay', 'steer once'),
+      policy: { whenBusy: 'queue' as const },
+    }
+
+    const first = await broker.input(request)
+    const replayed = await broker.input(request)
+
+    expect(first).toEqual(replayed)
+    expect(controller.steeredInputs.map((input) => input.inputId)).toEqual([
+      'input_attempted_steer_replay',
+    ])
   })
 
   test('turn.completed drains the next queued input on a microtask', async () => {
