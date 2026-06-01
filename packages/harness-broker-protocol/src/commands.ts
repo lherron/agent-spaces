@@ -6,7 +6,20 @@ import type {
 } from './capabilities'
 import type { ContinuationUpdate } from './events'
 import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
-import type { HarnessInvocationSpec } from './invocation'
+import type {
+  BrokerAttachRequest,
+  BrokerAttachResponse,
+  BrokerProtocolVersion,
+  HarnessInvocationSpec,
+  InvocationAckEventsRequest,
+  InvocationAckEventsResponse,
+  InvocationEventsSinceRequest,
+  InvocationEventsSinceResponse,
+  InvocationPermissionRespondRequest,
+  InvocationPermissionRespondResponse,
+  InvocationSnapshot,
+  InvocationSnapshotRequest,
+} from './invocation'
 import type { JsonRpcRequest } from './jsonrpc'
 import type { AcceptedLifecyclePolicy, BrokerLifecyclePolicyOverlay } from './lifecycle'
 
@@ -23,13 +36,14 @@ export type BrokerMethodV1 =
 export type BrokerMethodV2 =
   | BrokerMethodV1
   | 'broker.attach'
-  | 'broker.listInvocations'
   | 'invocation.eventsSince'
   | 'invocation.ackEvents'
   | 'invocation.snapshot'
   | 'invocation.permission.respond'
 
-export type BrokerMethod = BrokerMethodV1
+// Reserved for a future milestone; intentionally excluded from Phase A.
+// | 'broker.listInvocations'
+export type BrokerMethod = BrokerMethodV2
 
 export type BrokerToClientRequestMethod = 'invocation.permission.request'
 export type BrokerNotificationMethod = 'invocation.event'
@@ -43,6 +57,11 @@ export type BrokerCommand =
   | JsonRpcRequest<'invocation.stop', InvocationStopRequest>
   | JsonRpcRequest<'invocation.status', InvocationStatusRequest>
   | JsonRpcRequest<'invocation.dispose', InvocationDisposeRequest>
+  | JsonRpcRequest<'broker.attach', BrokerAttachRequest>
+  | JsonRpcRequest<'invocation.eventsSince', InvocationEventsSinceRequest>
+  | JsonRpcRequest<'invocation.ackEvents', InvocationAckEventsRequest>
+  | JsonRpcRequest<'invocation.snapshot', InvocationSnapshotRequest>
+  | JsonRpcRequest<'invocation.permission.respond', InvocationPermissionRespondRequest>
 
 export interface BrokerHelloRequest {
   clientInfo: {
@@ -58,7 +77,7 @@ export interface BrokerHelloResponse {
     name: 'harness-broker'
     version: string
   }
-  protocolVersion: 'harness-broker/0.1'
+  protocolVersion: BrokerProtocolVersion
   capabilities: BrokerCapabilities
   drivers: DriverSummary[]
 }
@@ -269,4 +288,17 @@ export interface PermissionDecision {
   message?: string | undefined
   harnessGeneration?: number | undefined
   turnAttempt?: number | undefined
+}
+
+export type {
+  BrokerAttachRequest,
+  BrokerAttachResponse,
+  InvocationAckEventsRequest,
+  InvocationAckEventsResponse,
+  InvocationEventsSinceRequest,
+  InvocationEventsSinceResponse,
+  InvocationPermissionRespondRequest,
+  InvocationPermissionRespondResponse,
+  InvocationSnapshot,
+  InvocationSnapshotRequest,
 }

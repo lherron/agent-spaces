@@ -24,6 +24,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
+  SUPPORTED_BROKER_PROTOCOL_VERSIONS,
   validateCommand,
   validateInvocationDispatchRequest,
 } from 'spaces-harness-broker-protocol'
@@ -85,8 +86,10 @@ export function createBroker(options: BrokerOptions): Broker {
     async hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse> {
       validateBrokerParams('broker.hello', req)
 
-      const supported = req.protocolVersions.includes('harness-broker/0.1')
-      if (!supported) {
+      const protocolVersion = [...SUPPORTED_BROKER_PROTOCOL_VERSIONS]
+        .reverse()
+        .find((version) => req.protocolVersions.includes(version))
+      if (!protocolVersion) {
         throw new BrokerError(
           BrokerErrorCode.UnsupportedCapability,
           'No supported protocol version in request'
@@ -103,7 +106,7 @@ export function createBroker(options: BrokerOptions): Broker {
           name: 'harness-broker',
           version: BROKER_VERSION,
         },
-        protocolVersion: 'harness-broker/0.1',
+        protocolVersion,
         capabilities: {
           multiInvocation: false,
           transports: ['stdio-jsonrpc-ndjson'],

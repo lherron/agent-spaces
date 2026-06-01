@@ -1,4 +1,4 @@
-import type { BrokerCommand, BrokerMethod, BrokerMethodV1 } from './commands'
+import type { BrokerCommand, BrokerMethod } from './commands'
 import type {
   InvocationDispatchRequest,
   InvocationInput,
@@ -233,17 +233,35 @@ export type SchemaRecord = Record<string, unknown> & {
   permissionRequestId?: unknown
   startRequest?: unknown
   scope?: unknown
+  runtimeId?: unknown
+  hostSessionId?: unknown
+  startRequestHash?: unknown
+  selectedProfileHash?: unknown
+  controllerInstanceId?: unknown
+  attachToken?: unknown
+  lastProjectedSeq?: unknown
+  clientCapabilities?: unknown
+  afterSeq?: unknown
+  live?: unknown
+  throughSeq?: unknown
+  decision?: unknown
+  message?: unknown
 }
 
-const brokerMethods = new Set<BrokerMethodV1>([
+const brokerMethods = new Set<BrokerMethod>([
   'broker.hello',
   'broker.health',
+  'broker.attach',
   'invocation.start',
   'invocation.input',
   'invocation.interrupt',
   'invocation.stop',
   'invocation.status',
   'invocation.dispose',
+  'invocation.eventsSince',
+  'invocation.ackEvents',
+  'invocation.snapshot',
+  'invocation.permission.respond',
 ])
 
 const eventTypes = new Set<InvocationEventType>([
@@ -536,6 +554,22 @@ function validateCommandParams(
     case 'broker.hello':
       validateBrokerHelloParams(commandParams, issues)
       return
+    case 'broker.attach':
+      requireString(commandParams.runtimeId, 'params.runtimeId', issues)
+      requireString(commandParams.hostSessionId, 'params.hostSessionId', issues)
+      requireNumber(commandParams.generation, 'params.generation', issues)
+      requireString(commandParams.invocationId, 'params.invocationId', issues)
+      requireString(commandParams.startRequestHash, 'params.startRequestHash', issues)
+      requireString(commandParams.selectedProfileHash, 'params.selectedProfileHash', issues)
+      requireString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
+      requireString(commandParams.attachToken, 'params.attachToken', issues)
+      optionalNumber(commandParams.lastProjectedSeq, 'params.lastProjectedSeq', issues)
+      validateClientCapabilities(
+        commandParams.clientCapabilities,
+        'params.clientCapabilities',
+        issues
+      )
+      return
     case 'invocation.start':
       validateInvocationDispatchRequestShape(commandParams, 'params', issues)
       return
@@ -558,6 +592,26 @@ function validateCommandParams(
     case 'invocation.status':
     case 'invocation.dispose':
       requireString(commandParams.invocationId, 'params.invocationId', issues)
+      return
+    case 'invocation.eventsSince':
+      requireString(commandParams.invocationId, 'params.invocationId', issues)
+      requireNumber(commandParams.afterSeq, 'params.afterSeq', issues)
+      optionalBoolean(commandParams.live, 'params.live', issues)
+      return
+    case 'invocation.ackEvents':
+      requireString(commandParams.invocationId, 'params.invocationId', issues)
+      requireNumber(commandParams.throughSeq, 'params.throughSeq', issues)
+      requireString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
+      return
+    case 'invocation.snapshot':
+      requireString(commandParams.invocationId, 'params.invocationId', issues)
+      return
+    case 'invocation.permission.respond':
+      requireString(commandParams.invocationId, 'params.invocationId', issues)
+      requireString(commandParams.permissionRequestId, 'params.permissionRequestId', issues)
+      optionalEnum(commandParams.decision, ['allow', 'deny'], 'params.decision', issues, true)
+      optionalString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
+      optionalString(commandParams.message, 'params.message', issues)
       return
   }
 }
@@ -1514,17 +1568,24 @@ function validateBrokerHelloParams(params: SchemaRecord, issues: ValidationIssue
   requireStringArray(params.protocolVersions, 'params.protocolVersions', issues)
 
   if (params.capabilities !== undefined) {
-    const capabilities = asRecord(params.capabilities)
-    if (!capabilities) {
-      issues.push(issue('params.capabilities', 'invalid_type', 'capabilities must be an object'))
-    } else {
-      optionalBoolean(
-        capabilities.permissionRequests,
-        'params.capabilities.permissionRequests',
-        issues
-      )
-      optionalBoolean(capabilities.eventAcks, 'params.capabilities.eventAcks', issues)
-    }
+    validateClientCapabilities(params.capabilities, 'params.capabilities', issues)
+  }
+}
+
+function validateClientCapabilities(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  if (value === undefined) {
+    return
+  }
+  const capabilities = asRecord(value)
+  if (!capabilities) {
+    issues.push(issue(basePath, 'invalid_type', 'capabilities must be an object'))
+  } else {
+    optionalBoolean(capabilities.permissionRequests, path(basePath, 'permissionRequests'), issues)
+    optionalBoolean(capabilities.eventAcks, path(basePath, 'eventAcks'), issues)
   }
 }
 

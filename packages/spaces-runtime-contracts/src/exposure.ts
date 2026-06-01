@@ -11,9 +11,4 @@ export type BrokerTerminalSurface = {
   exposurePolicy: { mode: 'broker-reports-target'; targetKind: 'tmux-session' }
 }
 
-export type BrokerTerminalSurfaceReport = {
-  kind: 'tmux-session'
-  socketPath: string
-  sessionName: string
-  paneId?: string | undefined
-}
+export type { BrokerTerminalSurfaceReport } from 'spaces-harness-broker-protocol'

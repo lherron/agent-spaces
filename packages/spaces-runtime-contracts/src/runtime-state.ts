@@ -1,4 +1,6 @@
 import type {
+  BrokerProtocolVersion,
+  BrokerTerminalSurfaceReport,
   InvocationCapabilities,
   InvocationId,
   InvocationState,
@@ -7,7 +9,6 @@ import type {
 import type { RuntimeCapabilities } from './capabilities'
 import type { BrokerContinuationRef, RuntimeContinuationRef } from './continuation'
 import type { ControllerOwnedTerminalHost } from './execution-profile'
-import type { BrokerTerminalSurfaceReport } from './exposure'
 import type {
   CompileId,
   HostSessionId,
@@ -71,6 +72,29 @@ export type EmbeddedSdkRuntimeState = RuntimeStateBase & {
   continuation?: RuntimeContinuationRef | undefined
 }
 
+export type BrokerRuntimeEndpoint =
+  | { kind: 'stdio-jsonrpc-ndjson' }
+  | {
+      kind: 'unix-jsonrpc-ndjson'
+      socketPath: string
+      attachTokenRef: {
+        kind: 'file'
+        path: string
+        redacted: true
+      }
+    }
+
+export type BrokerRuntimeControlMode = 'broker-ipc' | 'direct-tmux-degraded' | 'stdio-legacy'
+
+export type RuntimeTmuxPaneMetadata = {
+  host?: 'tmux' | undefined
+  socketPath: string
+  sessionName?: string | undefined
+  windowId?: string | undefined
+  windowName?: string | undefined
+  paneId?: string | undefined
+}
+
 export type BrokerRuntimeState = RuntimeStateBase & {
   kind: 'harness-broker'
 
@@ -84,12 +108,20 @@ export type BrokerRuntimeState = RuntimeStateBase & {
   }
 
   broker: {
-    protocolVersion: 'harness-broker/0.1'
+    protocolVersion: BrokerProtocolVersion
     brokerPid?: number | undefined
-    endpoint: { kind: 'stdio-jsonrpc-ndjson' }
+    endpoint: BrokerRuntimeEndpoint
     multiInvocation: boolean
     startedAt: IsoTimestamp
     ownerServerInstanceId: ServerInstanceId
+    tmux?: RuntimeTmuxPaneMetadata | undefined
+  }
+
+  control?: {
+    mode: BrokerRuntimeControlMode
+    brokerAttached?: boolean | undefined
+    attachedAt?: IsoTimestamp | undefined
+    lastAttachError?: string | null | undefined
   }
 
   invocation: {
@@ -108,6 +140,14 @@ export type BrokerRuntimeState = RuntimeStateBase & {
         reportedAt: IsoTimestamp
       })
     | undefined
+
+  tui?:
+    | (RuntimeTmuxPaneMetadata & {
+        host: 'tmux'
+        operatorAttachTarget?: boolean | undefined
+      })
+    | undefined
+  eventHighWater?: number | undefined
 
   continuation?: RuntimeContinuationRef | undefined
   brokerContinuation?: BrokerContinuationRef | undefined

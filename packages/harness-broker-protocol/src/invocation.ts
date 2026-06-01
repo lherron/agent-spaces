@@ -1,4 +1,127 @@
-import type { InvocationId } from './ids'
+import type { ClientCapabilities, InvocationCapabilities } from './capabilities'
+import type { InvocationInputResponse, InvocationState, PermissionRequestParams } from './commands'
+import type { ContinuationUpdate, InvocationEventEnvelope } from './events'
+import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
+
+export type BrokerProtocolVersion = 'harness-broker/0.1' | 'harness-broker/0.2'
+
+export const SUPPORTED_BROKER_PROTOCOL_VERSIONS = [
+  'harness-broker/0.1',
+  'harness-broker/0.2',
+] as const satisfies readonly BrokerProtocolVersion[]
+
+export type BrokerTerminalSurfaceReport = {
+  kind: 'tmux-session'
+  socketPath: string
+  sessionName: string
+  windowId?: string | undefined
+  windowName?: string | undefined
+  paneId?: string | undefined
+}
+
+export interface BrokerAttachRequest {
+  runtimeId: string
+  hostSessionId: string
+  generation: number
+  invocationId: InvocationId
+  startRequestHash: string
+  selectedProfileHash: string
+  controllerInstanceId: string
+  attachToken: string
+  lastProjectedSeq?: number | undefined
+  clientCapabilities?: ClientCapabilities | undefined
+}
+
+export interface BrokerAttachResponse {
+  attached: true
+  brokerInstanceId: string
+  runtimeId: string
+  generation: number
+  invocationId: InvocationId
+  activeControllerInstanceId: string
+  currentSeq: number
+  retentionFloorSeq: number
+  snapshot: InvocationSnapshot
+}
+
+export interface InvocationSnapshotRequest {
+  invocationId: InvocationId
+}
+
+export interface InvocationSnapshot {
+  invocationId: InvocationId
+  state: InvocationState
+  currentTurnId?: TurnId | undefined
+  continuation?: ContinuationUpdate | undefined
+  capabilities: InvocationCapabilities
+  pendingInputIds: InputId[]
+  inputDispositions: Record<string, InvocationInputResponse>
+  pendingPermissionRequests: PermissionRequestParams[]
+  terminalSurface?: BrokerTerminalSurfaceReport | undefined
+  process?:
+    | {
+        brokerPid?: number | undefined
+        childPid?: number | undefined
+        exitCode?: number | null | undefined
+        signal?: string | null | undefined
+      }
+    | undefined
+  currentSeq: number
+  retentionFloorSeq: number
+}
+
+export interface InvocationEventsSinceRequest {
+  invocationId: InvocationId
+  afterSeq: number
+  live?: boolean | undefined
+}
+
+export interface InvocationEventsSinceResponse {
+  events: InvocationEventEnvelope[]
+  currentSeq: number
+  retentionFloorSeq: number
+  liveStreamAttached?: boolean | undefined
+}
+
+export interface InvocationAckEventsRequest {
+  invocationId: InvocationId
+  throughSeq: number
+  controllerInstanceId: string
+}
+
+export interface InvocationAckEventsResponse {
+  ackedThroughSeq: number
+}
+
+export interface InvocationPermissionRespondRequest {
+  invocationId: InvocationId
+  permissionRequestId: PermissionRequestId
+  decision: 'allow' | 'deny'
+  message?: string | undefined
+  controllerInstanceId?: string | undefined
+}
+
+export type InvocationPermissionRespondResponse =
+  | {
+      status: 'accepted'
+      permissionRequestId: PermissionRequestId
+      decision: 'allow' | 'deny'
+    }
+  | {
+      status: 'duplicate'
+      permissionRequestId: PermissionRequestId
+      originalDecision: 'allow' | 'deny'
+    }
+  | {
+      status: 'conflict'
+      permissionRequestId: PermissionRequestId
+      originalDecision: 'allow' | 'deny'
+      attemptedDecision: 'allow' | 'deny'
+    }
+  | {
+      status: 'expired' | 'unknown'
+      permissionRequestId: PermissionRequestId
+    }
 
 export interface HarnessInvocationSpec {
   specVersion: 'harness-broker.invocation/v1'

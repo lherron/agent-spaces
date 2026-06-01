@@ -1,5 +1,7 @@
 import type { InvocationLifecycleCapabilities } from './lifecycle'
 
+export type BrokerTransportKind = 'stdio-jsonrpc-ndjson' | 'unix-jsonrpc-ndjson'
+
 export interface InvocationCapabilities {
   input: {
     user: boolean
@@ -36,6 +38,7 @@ export interface InvocationCapabilities {
     dispose: boolean
     status?: boolean | undefined
     attach?: boolean | undefined
+    driverAttachExistingSurface?: boolean | undefined
   }
   permissions?:
     | {
@@ -48,7 +51,7 @@ export interface InvocationCapabilities {
 
 export interface BrokerCapabilities {
   multiInvocation: boolean
-  transports: Array<'stdio-jsonrpc-ndjson'>
+  transports: BrokerTransportKind[]
   eventNotifications: true
   brokerToClientRequests: boolean
   attachReplay?: boolean | undefined

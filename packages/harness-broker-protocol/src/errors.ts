@@ -19,6 +19,13 @@ export enum BrokerErrorCode {
    */
   CapabilityDenied = -32011,
   BrokerLifecyclePolicyUnsupported = -32012,
+  EventReplayUnavailable = -32013,
+  AttachRejected = -32014,
+  ControllerFenced = -32015,
+  DuplicateInputConflict = -32016,
+  PermissionResponseConflict = -32017,
+  PermissionResponseExpired = -32018,
+  UnknownPermissionRequest = -32019,
 }
 
 export function createJsonRpcError(code: number, message: string, data?: unknown): JsonRpcError {
