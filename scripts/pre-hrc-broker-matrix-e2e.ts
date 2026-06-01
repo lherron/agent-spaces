@@ -66,6 +66,7 @@ import {
   mkdtempSync,
   readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -73,13 +74,21 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
+import { BrokerClient } from 'spaces-harness-broker-client'
 import type {
+  BrokerAttachRequest,
+  HarnessInvocationSpec,
   InputId,
   InvocationEventEnvelope,
   InvocationId,
+  InvocationInput,
+  PermissionRequestParams,
   TurnId,
 } from 'spaces-harness-broker-protocol'
-import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
+import {
+  BrokerErrorCode,
+  conservativeDefaultLifecyclePolicyOverlay,
+} from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
   BrokerPermissionPolicy,
@@ -128,6 +137,7 @@ import { allocatePreHrcTmuxPane } from '../packages/agent-spaces/src/testing/pre
 
 type RowName =
   | 'fake-codex'
+  | 'unix-jsonrpc-ndjson'
   | 'real-codex'
   | 'real-codex-tmux'
   | 'codex-tmux-ghostmux'
@@ -138,6 +148,7 @@ type RowName =
 type CompileTransport = 'sdk' | 'aspc-rpc'
 const ALL_ROWS: RowName[] = [
   'fake-codex',
+  'unix-jsonrpc-ndjson',
   'real-codex',
   'real-codex-tmux',
   'codex-tmux-ghostmux',
@@ -2048,6 +2059,664 @@ async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Unix-socket transport row (T-01795 Phase E — CAPSTONE)
+//
+// The stdio rows drive an ephemeral broker CHILD that the contract harness owns
+// (spawn -> stdin/stdout JSON-RPC -> kill). This row instead boots a REAL
+// long-lived `harness-broker run --transport unix --socket <tmp>` process and
+// drives it over Phase B's BrokerClient.connectUnix. The broker is NOT owned by
+// the client: transport.close() leaves the broker process alive, which is the
+// whole durability premise that the unix-specific scenarios assert.
+//
+// PARITY (Lance directive, driver certification): the SHARED command-turn
+// scenario (command-turn-marker fixture) and the normalized event-contract
+// floor (runSharedFloor + assertIntermediateMessages) run against the unix
+// transport exactly as for the stdio rows — a missing SHARED event here is a
+// GAP, not an exemption. UNIX-SPECIFIC durability scenarios (attach/replay,
+// inputId idempotency on retry, pending-permission survives reconnect, broker
+// survives transport.close()) run ONLY on this row.
+// ---------------------------------------------------------------------------
+
+const FAKE_CODEX_FIXTURE_DIR = 'packages/harness-broker/test/fixtures/fake-codex'
+
+type UnixBrokerIdentity = {
+  runtimeId: string
+  hostSessionId: string
+  generation: number
+  invocationId: string
+  startRequestHash: string
+  selectedProfileHash: string
+  attachToken: string
+}
+
+function unixIdentity(marker: string, suffix: string): UnixBrokerIdentity {
+  const tag = `${marker}_${suffix}`
+  return {
+    runtimeId: `runtime_${tag}`,
+    hostSessionId: `hostSession_${tag}`,
+    generation: 1,
+    invocationId: `inv_${tag}`,
+    startRequestHash: `start_hash_${tag}`,
+    selectedProfileHash: `profile_hash_${tag}`,
+    attachToken: `attach-token-${tag}`,
+  }
+}
+
+type UnixBrokerHandle = {
+  proc: ReturnType<typeof Bun.spawn>
+  socketPath: string
+  dir: string
+  pid: number
+}
+
+const isPidAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function waitForUnixSocket(
+  socketPath: string,
+  proc: ReturnType<typeof Bun.spawn>,
+  timeoutMs = 4000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (proc.exitCode !== null) {
+      const stderr = await new Response(proc.stderr).text()
+      throw new Error(`broker exited before creating unix socket: ${stderr.trim()}`)
+    }
+    try {
+      if (statSync(socketPath).isSocket()) return
+    } catch {
+      // keep polling until the broker binds the socket or exits
+    }
+    await sleep(25)
+  }
+  throw new Error(`timed out waiting for unix socket ${socketPath}`)
+}
+
+/** Boot a REAL long-lived unix-transport broker with the Phase C durability flags. */
+async function bootUnixBroker(
+  repoRoot: string,
+  identity: UnixBrokerIdentity
+): Promise<UnixBrokerHandle> {
+  const dir = mkdtempSync(join(tmpdir(), 'asp-matrix-unix-'))
+  const socketPath = join(dir, 'broker.sock')
+  const tokenPath = join(dir, 'attach.token')
+  const ledgerPath = join(dir, 'events.jsonl')
+  writeFileSync(tokenPath, identity.attachToken, 'utf8')
+
+  const proc = Bun.spawn({
+    cmd: [
+      process.execPath,
+      'packages/harness-broker/bin/harness-broker.js',
+      'run',
+      '--transport',
+      'unix',
+      '--socket',
+      socketPath,
+      '--runtime-id',
+      identity.runtimeId,
+      '--host-session-id',
+      identity.hostSessionId,
+      '--generation',
+      String(identity.generation),
+      '--attach-token-file',
+      tokenPath,
+      '--event-ledger',
+      ledgerPath,
+    ],
+    cwd: repoRoot,
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+
+  await waitForUnixSocket(socketPath, proc)
+  return { proc, socketPath, dir, pid: proc.pid }
+}
+
+async function shutdownUnixBroker(handle: UnixBrokerHandle, keepArtifacts: boolean): Promise<void> {
+  if (isPidAlive(handle.pid)) handle.proc.kill('SIGTERM')
+  await handle.proc.exited.catch(() => {})
+  if (!keepArtifacts) rmSync(handle.dir, { recursive: true, force: true })
+}
+
+const connectUnix = (socketPath: string): Promise<BrokerClient> =>
+  BrokerClient.connectUnix({ socketPath, timeoutMs: 2000 })
+
+const unixHelloRequest = {
+  clientInfo: { name: 'pre-hrc-matrix-unix', version: '0.1.0' },
+  protocolVersions: ['harness-broker/0.2', 'harness-broker/0.1'],
+  capabilities: { eventReplay: true, permissionRequests: true },
+} as const
+
+function unixAttachRequest(
+  identity: UnixBrokerIdentity,
+  controllerInstanceId: string,
+  overrides: Partial<BrokerAttachRequest> = {}
+): BrokerAttachRequest {
+  return {
+    runtimeId: identity.runtimeId,
+    hostSessionId: identity.hostSessionId,
+    generation: identity.generation,
+    invocationId: identity.invocationId,
+    startRequestHash: identity.startRequestHash,
+    selectedProfileHash: identity.selectedProfileHash,
+    attachToken: identity.attachToken,
+    controllerInstanceId,
+    clientCapabilities: { eventReplay: true, permissionRequests: true },
+    ...overrides,
+  } as BrokerAttachRequest
+}
+
+function unixUserInput(text: string, inputId?: string): InvocationInput {
+  return {
+    inputId: inputId ?? `input_${Math.random().toString(36).slice(2, 10)}`,
+    kind: 'user',
+    content: [{ type: 'text', text }],
+  }
+}
+
+/** Build a fixture-backed invocation spec for the unix transport row. */
+function unixFixtureSpec(opts: {
+  repoRoot: string
+  scenario: string
+  identity: UnixBrokerIdentity
+  marker?: string | undefined
+  permissionTimeoutMs?: number | undefined
+}): HarnessInvocationSpec {
+  const fixtureDir = join(opts.repoRoot, FAKE_CODEX_FIXTURE_DIR)
+  return {
+    specVersion: 'harness-broker.invocation/v1',
+    invocationId: opts.identity.invocationId as InvocationId,
+    labels: { package: 'pre-hrc-matrix', scenario: opts.scenario },
+    harness: { frontend: 'codex', provider: 'openai', driver: 'codex-app-server' },
+    process: {
+      command: process.execPath,
+      args: [join(fixtureDir, `${opts.scenario}.ts`)],
+      cwd: opts.repoRoot,
+      harnessTransport: { kind: 'jsonrpc-stdio' },
+      limits: { startupTimeoutMs: 5000, turnTimeoutMs: 15_000, stopGraceMs: 100 },
+      ...(opts.marker !== undefined ? { lockedEnv: { ASP_MATRIX_FAKE_MARKER: opts.marker } } : {}),
+    },
+    interaction: { mode: 'headless', turnConcurrency: 'single', inputQueue: 'none' },
+    correlation: {
+      runtimeId: opts.identity.runtimeId,
+      hostSessionId: opts.identity.hostSessionId,
+      startRequestHash: opts.identity.startRequestHash,
+      selectedProfileHash: opts.identity.selectedProfileHash,
+    },
+    driver:
+      opts.permissionTimeoutMs !== undefined
+        ? {
+            kind: 'codex-app-server',
+            resumeFallback: 'start-fresh',
+            permissionPolicy: {
+              mode: 'ask-client',
+              timeoutMs: opts.permissionTimeoutMs,
+              defaultDecision: 'allow',
+            },
+          }
+        : { kind: 'codex-app-server', resumeFallback: 'start-fresh' },
+  }
+}
+
+/** Drain an event stream up to (and including) a target type, with a deadline. */
+async function unixCollectUntil(
+  events: AsyncIterable<InvocationEventEnvelope>,
+  type: string,
+  timeoutMs = 15_000
+): Promise<InvocationEventEnvelope[]> {
+  const iterator = events[Symbol.asyncIterator]()
+  const collected: InvocationEventEnvelope[] = []
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) {
+      throw new Error(`timed out collecting broker events until ${type}`)
+    }
+    const next = await Promise.race([
+      iterator.next(),
+      sleep(remaining).then(() => 'timeout' as const),
+    ])
+    if (next === 'timeout') throw new Error(`timed out collecting broker events until ${type}`)
+    if (next.done) throw new Error(`event stream ended before ${type}`)
+    collected.push(next.value)
+    if (next.value.type === type) return collected
+  }
+}
+
+async function withUnixTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  const result = await Promise.race([promise, sleep(timeoutMs).then(() => 'timeout' as const)])
+  if (result === 'timeout') throw new Error(message)
+  return result
+}
+
+/**
+ * PARITY scenario: drive the SHARED command-turn fixture over the unix transport
+ * and run the same normalized-event floor + intermediate-message contract the
+ * stdio rows run. Populates floorFailures / contractFailures / extraFailures.
+ */
+async function unixSharedCommandTurn(ctx: RowContext, result: RowResult): Promise<void> {
+  const identity = unixIdentity(ctx.marker, 'shared')
+  const handle = await bootUnixBroker(ctx.repoRoot, identity)
+  let client: BrokerClient | undefined
+  try {
+    client = await connectUnix(handle.socketPath)
+    await client.hello(unixHelloRequest)
+    const started = await client.startInvocationFromRequest({
+      spec: unixFixtureSpec({
+        repoRoot: ctx.repoRoot,
+        scenario: 'command-turn-marker',
+        identity,
+        marker: ctx.marker,
+      }),
+      initialInput: unixUserInput(`Run the command turn for ${ctx.marker}.`),
+    })
+    const events = await unixCollectUntil(started.events, 'turn.completed', ctx.turnTimeoutMs)
+    const commandTurnId = deriveCommandTurnId(events)
+    result.commandTurnId = commandTurnId
+    result.observedTurnIds = observedTurnIds(events)
+    result.notes['sharedEventCount'] = events.length
+    result.notes['brokerPid'] = handle.pid
+
+    result.floorFailures = runSharedFloor(
+      events,
+      ctx.marker,
+      commandTurnId,
+      ctx.allowLegacyPermissionEvent
+    )
+    const narrationTurnIds = commandTurnId !== undefined ? [commandTurnId] : []
+    result.notes['narrationTurnIds'] = narrationTurnIds
+    result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
+  } finally {
+    await client?.close().catch(() => {})
+    await shutdownUnixBroker(handle, ctx.keepArtifacts)
+  }
+}
+
+/**
+ * DURABILITY scenario 1: attach/replay after a simulated controller disconnect.
+ * Drop the socket (client.close, which over unix leaves the broker alive), then
+ * reconnect via a fresh connectUnix, broker.attach, read the snapshot, replay
+ * eventsSince(lastSeq), and ackEvents — proving no duplicate/lost events.
+ */
+async function unixAttachReplay(ctx: RowContext, result: RowResult): Promise<void> {
+  const identity = unixIdentity(ctx.marker, 'attach')
+  const handle = await bootUnixBroker(ctx.repoRoot, identity)
+  let first: BrokerClient | undefined
+  let second: BrokerClient | undefined
+  try {
+    first = await connectUnix(handle.socketPath)
+    await first.hello(unixHelloRequest)
+    const started = await first.startInvocationFromRequest({
+      spec: unixFixtureSpec({ repoRoot: ctx.repoRoot, scenario: 'three-turns', identity }),
+    })
+    await unixCollectUntil(started.events, 'invocation.ready', ctx.turnTimeoutMs)
+    const driven = await first.input({
+      invocationId: identity.invocationId,
+      input: unixUserInput('Produce replayable events before a controller disconnect.'),
+    })
+    if (!driven.accepted) {
+      result.extraFailures.push({
+        code: 'unix_attach_input_rejected',
+        message: 'broker rejected the pre-disconnect turn input',
+      })
+    }
+    const beforeDrop = await unixCollectUntil(started.events, 'turn.completed', ctx.turnTimeoutMs)
+    const lastSeqBeforeDrop = Math.max(...beforeDrop.map((e) => e.seq))
+
+    // Simulate a controller disconnect: over unix, close() destroys ONLY the
+    // socket — the broker process must survive.
+    await first.close()
+    first = undefined
+    if (!isPidAlive(handle.pid)) {
+      result.extraFailures.push({
+        code: 'unix_broker_died_on_disconnect',
+        message: 'broker process exited when the controller socket closed',
+      })
+      return
+    }
+
+    // Reconnect via a FRESH connectUnix and re-attach.
+    second = await connectUnix(handle.socketPath)
+    await second.hello(unixHelloRequest)
+    const attached = await second.attach(unixAttachRequest(identity, 'controller-reconnect'))
+    if (!attached.attached || attached.invocationId !== identity.invocationId) {
+      result.extraFailures.push({
+        code: 'unix_attach_failed',
+        message: `attach did not bind the live invocation (attached=${attached.attached}, invocationId=${attached.invocationId})`,
+      })
+      return
+    }
+
+    // The attach snapshot must report a current sequence at or beyond what the
+    // first controller observed (durable ledger, nothing lost).
+    const snapshotSeq = attached.snapshot.currentSeq
+    if (snapshotSeq < lastSeqBeforeDrop) {
+      result.extraFailures.push({
+        code: 'unix_attach_snapshot_regressed',
+        message: `attach snapshot currentSeq ${snapshotSeq} < pre-disconnect lastSeq ${lastSeqBeforeDrop}`,
+      })
+    }
+
+    // Replay the durable ledger and assert monotonic, gap-free, no-duplicate.
+    const replay = await second.eventsSince({ invocationId: identity.invocationId, afterSeq: 0 })
+    const seqs = replay.events.map((e) => e.seq)
+    const sorted = [...seqs].sort((a, b) => a - b)
+    if (JSON.stringify(seqs) !== JSON.stringify(sorted)) {
+      result.extraFailures.push({
+        code: 'unix_replay_non_monotonic',
+        message: `eventsSince replay was not monotonic: ${JSON.stringify(seqs)}`,
+      })
+    }
+    if (new Set(seqs).size !== seqs.length) {
+      result.extraFailures.push({
+        code: 'unix_replay_duplicate',
+        message: `eventsSince replay contained duplicate seqs: ${JSON.stringify(seqs)}`,
+      })
+    }
+    if (replay.events.length === 0) {
+      result.extraFailures.push({
+        code: 'unix_replay_empty',
+        message: 'eventsSince(0) returned no events after reconnect',
+      })
+    }
+
+    // An empty tail replay past the head proves the cursor is honored.
+    const tail = await second.eventsSince({
+      invocationId: identity.invocationId,
+      afterSeq: replay.currentSeq,
+    })
+    if (tail.events.length !== 0) {
+      result.extraFailures.push({
+        code: 'unix_replay_tail_not_empty',
+        message: `eventsSince(currentSeq=${replay.currentSeq}) replayed ${tail.events.length} unexpected events`,
+      })
+    }
+
+    const acked = await second.ackEvents({
+      invocationId: identity.invocationId,
+      throughSeq: replay.currentSeq,
+      controllerInstanceId: 'controller-reconnect',
+    })
+    if (acked.ackedThroughSeq !== replay.currentSeq) {
+      result.extraFailures.push({
+        code: 'unix_ack_mismatch',
+        message: `ackEvents acked ${acked.ackedThroughSeq}, expected ${replay.currentSeq}`,
+      })
+    }
+    result.notes['attachReplaySeqs'] = seqs
+  } finally {
+    await first?.close().catch(() => {})
+    await second?.close().catch(() => {})
+    await shutdownUnixBroker(handle, ctx.keepArtifacts)
+  }
+}
+
+/**
+ * DURABILITY scenario 2: inputId idempotency across reconnect. Send an input,
+ * disconnect, reconnect+attach, then resend the SAME inputId — the broker must
+ * replay the ORIGINAL disposition (no duplicate turn) and reject a same-inputId
+ * resend that carries conflicting content.
+ */
+async function unixInputIdempotency(ctx: RowContext, result: RowResult): Promise<void> {
+  const identity = unixIdentity(ctx.marker, 'idem')
+  const handle = await bootUnixBroker(ctx.repoRoot, identity)
+  let first: BrokerClient | undefined
+  let second: BrokerClient | undefined
+  try {
+    first = await connectUnix(handle.socketPath)
+    await first.hello(unixHelloRequest)
+    const started = await first.startInvocationFromRequest({
+      spec: unixFixtureSpec({ repoRoot: ctx.repoRoot, scenario: 'three-turns', identity }),
+    })
+    await unixCollectUntil(started.events, 'invocation.ready', ctx.turnTimeoutMs)
+
+    const input = unixUserInput('Idempotent payload that must survive reconnect.', `input_${ctx.marker}_idem`)
+    const original = await first.input({ invocationId: identity.invocationId, input })
+
+    // Disconnect and reconnect.
+    await first.close()
+    first = undefined
+    second = await connectUnix(handle.socketPath)
+    await second.hello(unixHelloRequest)
+    await second.attach(unixAttachRequest(identity, 'controller-idem'))
+
+    // Resend the SAME inputId after reconnect → original disposition replays.
+    const replayed = await second.input({
+      invocationId: identity.invocationId,
+      input: structuredClone(input),
+    })
+    if (JSON.stringify(replayed) !== JSON.stringify(original)) {
+      result.extraFailures.push({
+        code: 'unix_inputid_not_idempotent',
+        message: `resent inputId did not replay the original disposition: original=${JSON.stringify(original)} replayed=${JSON.stringify(replayed)}`,
+      })
+    }
+
+    // Same inputId + different content → DuplicateInputConflict.
+    let conflicted = false
+    try {
+      await second.input({
+        invocationId: identity.invocationId,
+        input: { ...input, content: [{ type: 'text', text: 'Conflicting retry payload.' }] },
+      })
+    } catch (error) {
+      conflicted = (error as { code?: unknown }).code === BrokerErrorCode.DuplicateInputConflict
+    }
+    if (!conflicted) {
+      result.extraFailures.push({
+        code: 'unix_inputid_conflict_not_rejected',
+        message: 'resending the same inputId with conflicting content was not rejected with DuplicateInputConflict',
+      })
+    }
+    result.notes['idempotentInputId'] = input.inputId
+  } finally {
+    await first?.close().catch(() => {})
+    await second?.close().catch(() => {})
+    await shutdownUnixBroker(handle, ctx.keepArtifacts)
+  }
+}
+
+/**
+ * DURABILITY scenario 3: a pending permission request survives a controller
+ * disconnect and is visible (with an absolute deadline) in the reconnect attach
+ * snapshot — the broker owns the pending request, not the controller socket.
+ */
+async function unixPendingPermission(ctx: RowContext, result: RowResult): Promise<void> {
+  const identity = unixIdentity(ctx.marker, 'perm')
+  const handle = await bootUnixBroker(ctx.repoRoot, identity)
+  let first: BrokerClient | undefined
+  let second: BrokerClient | undefined
+  try {
+    first = await connectUnix(handle.socketPath)
+    await first.hello(unixHelloRequest)
+
+    // Hold the broker-owned permission pending: never resolve the handler, so the
+    // request must outlive the controller socket until its absolute deadline.
+    let resolveRequest!: (req: PermissionRequestParams) => void
+    const requestPromise = new Promise<PermissionRequestParams>((resolve) => {
+      resolveRequest = resolve
+    })
+    first.onPermissionRequest(async (request) => {
+      resolveRequest(request)
+      return new Promise<never>(() => {})
+    })
+
+    const started = await first.startInvocationFromRequest({
+      spec: unixFixtureSpec({
+        repoRoot: ctx.repoRoot,
+        scenario: 'permission-request',
+        identity,
+        permissionTimeoutMs: 8000,
+      }),
+    })
+    await unixCollectUntil(started.events, 'invocation.ready', ctx.turnTimeoutMs)
+
+    const inputPromise = first
+      .input({
+        invocationId: identity.invocationId,
+        input: unixUserInput('Trigger a reconnectable permission request.'),
+      })
+      .catch(() => undefined)
+
+    const permissionRequest = await withUnixTimeout(
+      requestPromise,
+      ctx.turnTimeoutMs,
+      'broker did not send a permission request to the controller'
+    )
+
+    // Disconnect with the permission still pending.
+    await first.close()
+    first = undefined
+    await inputPromise
+    if (!isPidAlive(handle.pid)) {
+      result.extraFailures.push({
+        code: 'unix_broker_died_with_pending_permission',
+        message: 'broker exited when the controller disconnected mid-permission',
+      })
+      return
+    }
+
+    // Reconnect: the pending permission must be in the attach snapshot.
+    second = await connectUnix(handle.socketPath)
+    await second.hello(unixHelloRequest)
+    const attached = await second.attach(unixAttachRequest(identity, 'controller-perm-reconnect'))
+    const pending = attached.snapshot.pendingPermissionRequests
+    if (pending.length !== 1) {
+      result.extraFailures.push({
+        code: 'unix_pending_permission_missing',
+        message: `attach snapshot reported ${pending.length} pending permission requests, expected 1`,
+      })
+      return
+    }
+    const surfaced = pending[0] as { permissionRequestId?: unknown; deadlineAt?: unknown }
+    if (surfaced.permissionRequestId !== permissionRequest.permissionRequestId) {
+      result.extraFailures.push({
+        code: 'unix_pending_permission_id_mismatch',
+        message: `snapshot pending permissionRequestId ${String(surfaced.permissionRequestId)} != requested ${permissionRequest.permissionRequestId}`,
+      })
+    }
+    const deadlineAt = surfaced.deadlineAt
+    if (typeof deadlineAt !== 'string' || Number.isNaN(Date.parse(deadlineAt))) {
+      result.extraFailures.push({
+        code: 'unix_pending_permission_no_deadline',
+        message: `snapshot pending permission missing a parseable absolute deadlineAt (got ${String(deadlineAt)})`,
+      })
+    }
+
+    // The reconnect controller can settle the broker-owned pending request.
+    const respond = await second.permissionRespond({
+      invocationId: identity.invocationId,
+      permissionRequestId: permissionRequest.permissionRequestId,
+      decision: 'deny',
+      controllerInstanceId: 'controller-perm-reconnect',
+    })
+    if (respond.status !== 'accepted') {
+      result.extraFailures.push({
+        code: 'unix_permission_respond_not_accepted',
+        message: `reconnect controller could not settle the pending permission (status=${respond.status})`,
+      })
+    }
+    result.notes['pendingPermissionId'] = permissionRequest.permissionRequestId
+  } finally {
+    await first?.close().catch(() => {})
+    await second?.close().catch(() => {})
+    await shutdownUnixBroker(handle, ctx.keepArtifacts)
+  }
+}
+
+/**
+ * DURABILITY scenario 4: the broker process survives transport.close(). Unlike
+ * the stdio child (where closing stdin terminates the broker), a unix-transport
+ * broker is long-lived — close() must destroy only the socket and leave the
+ * process alive and reconnectable.
+ */
+async function unixBrokerSurvivesClose(ctx: RowContext, result: RowResult): Promise<void> {
+  const identity = unixIdentity(ctx.marker, 'survive')
+  const handle = await bootUnixBroker(ctx.repoRoot, identity)
+  let client: BrokerClient | undefined
+  try {
+    client = await connectUnix(handle.socketPath)
+    await client.hello(unixHelloRequest)
+    const started = await client.startInvocationFromRequest({
+      spec: unixFixtureSpec({ repoRoot: ctx.repoRoot, scenario: 'three-turns', identity }),
+    })
+    await unixCollectUntil(started.events, 'invocation.ready', ctx.turnTimeoutMs)
+
+    await client.close()
+    client = undefined
+    // Give any (incorrect) child-style teardown a chance to fire.
+    await sleep(250)
+    if (!isPidAlive(handle.pid)) {
+      result.extraFailures.push({
+        code: 'unix_broker_not_durable',
+        message: 'broker process died after transport.close(); a unix broker must survive',
+      })
+      return
+    }
+
+    // Prove it is still reconnectable after the close.
+    const reconnect = await connectUnix(handle.socketPath)
+    try {
+      await reconnect.hello(unixHelloRequest)
+      const attached = await reconnect.attach(unixAttachRequest(identity, 'controller-after-close'))
+      if (!attached.attached) {
+        result.extraFailures.push({
+          code: 'unix_broker_unreachable_after_close',
+          message: 'broker survived close() but a fresh connectUnix could not attach',
+        })
+      }
+    } finally {
+      await reconnect.close().catch(() => {})
+    }
+    result.notes['survivedClosePid'] = handle.pid
+  } finally {
+    await client?.close().catch(() => {})
+    await shutdownUnixBroker(handle, ctx.keepArtifacts)
+  }
+}
+
+async function runUnixRow(ctx: RowContext): Promise<RowResult> {
+  const result: RowResult = {
+    name: 'unix-jsonrpc-ndjson',
+    status: 'FAIL',
+    marker: ctx.marker,
+    observedTurnIds: [],
+    compile: {},
+    floorFailures: [],
+    contractFailures: [],
+    extraFailures: [],
+    notes: {},
+  }
+
+  // PARITY first: the shared command-turn floor must hold over the unix transport
+  // exactly as for stdio rows.
+  await unixSharedCommandTurn(ctx, result)
+
+  // UNIX-SPECIFIC durability scenarios (run only on this row).
+  await unixAttachReplay(ctx, result)
+  await unixInputIdempotency(ctx, result)
+  await unixPendingPermission(ctx, result)
+  await unixBrokerSurvivesClose(ctx, result)
+
+  const allFailed =
+    result.floorFailures.length + result.contractFailures.length + result.extraFailures.length
+  result.status = allFailed === 0 ? 'OK' : 'FAIL'
+  return result
+}
+
+// ---------------------------------------------------------------------------
 // HARNESS_CONFIGS
 // ---------------------------------------------------------------------------
 
@@ -2075,6 +2744,16 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         if (!ctx.keepArtifacts) fixture.cleanup()
       }
     },
+  },
+  {
+    name: 'unix-jsonrpc-ndjson',
+    description:
+      'REAL long-lived unix-socket broker driven via BrokerClient.connectUnix; shared command-turn parity + durability (CI-safe)',
+    probe: async () => ({
+      available: true,
+      reason: 'unix-transport broker + fake-codex fixtures are always available',
+    }),
+    run: async (ctx) => runUnixRow(ctx),
   },
   {
     name: 'real-codex',
