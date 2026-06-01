@@ -457,6 +457,24 @@ exit 1
       expect(args).not.toContain('Summarize repository health')
     })
 
+    test('interactive mode bypasses codex hook trust so the Stop hook fires (T-01798)', () => {
+      const args = adapter.buildRunArgs(bundle, {
+        interactive: true,
+        prompt: 'Run a command',
+      })
+
+      expect(args).toContain('--dangerously-bypass-hook-trust')
+    })
+
+    test('headless app-server runs never carry the hook-trust bypass flag (T-01798)', () => {
+      const args = adapter.buildRunArgs(bundle, {
+        interactive: false,
+        prompt: 'Summarize repository health',
+      })
+
+      expect(args).not.toContain('--dangerously-bypass-hook-trust')
+    })
+
     test('keeps headless model reasoning effort out of app-server argv', () => {
       const args = adapter.buildRunArgs(bundle, {
         interactive: false,

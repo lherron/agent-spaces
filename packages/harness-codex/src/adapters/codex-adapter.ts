@@ -1113,6 +1113,15 @@ export class CodexAdapter implements HarnessAdapter {
     if (sandboxMode) {
       args.push('--sandbox', sandboxMode)
     }
+    // codex-cli >=0.135.0 gates hook execution behind a persisted hook-trust
+    // store; the broker materializes & vets the Stop hook itself (the sole
+    // trigger for the codex-cli-tmux transcript reader), so the pre-seeded
+    // `trusted_hash` no longer satisfies codex and the hook is silently
+    // skipped — yielding zero events on cold start (T-01798). The broker is
+    // the trusted hook source, exactly the documented use of the bypass flag.
+    // Interactive-only: the headless path runs `codex app-server` over
+    // JSON-RPC and gets events natively, never via TUI hooks.
+    args.push('--dangerously-bypass-hook-trust')
     if (options.profile) {
       args.push('--profile', options.profile)
     }

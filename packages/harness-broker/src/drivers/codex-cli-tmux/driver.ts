@@ -330,6 +330,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         await buildLaunchCommandLine(spec, driverCtx, {
           callbackSocket: hookListener.socketPath,
           hookCliPath,
+          ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
         })
       )
       return { ok: true }
@@ -438,7 +439,7 @@ function getHookString(obj: Record<string, unknown>, key: string): string | unde
 async function buildLaunchCommandLine(
   spec: HarnessInvocationSpec,
   ctx: DriverContext,
-  hookEnv: { callbackSocket: string; hookCliPath: string }
+  hookEnv: { callbackSocket: string; hookCliPath: string; runtimeId?: string | undefined }
 ): Promise<string> {
   const env = {
     ...spec.process.lockedEnv,
@@ -447,6 +448,14 @@ async function buildLaunchCommandLine(
     HARNESS_BROKER_INVOCATION_ID: ctx.invocationId,
     HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
     HARNESS_BROKER_HOOK_GENERATION: String(CODEX_HOOK_GENERATION),
+    // Authoritatively stamp the invocation's runtimeId so an inherited/leaked
+    // HARNESS_BROKER_RUNTIME_ID from an outer broker session (the launch runner
+    // spreads `process.env`) cannot poison the hook envelope and trip the
+    // T-01794 Phase D identity fence — which silently drops EVERY hook,
+    // yielding zero events (T-01798). Mirrors the claude-code-tmux driver.
+    ...(hookEnv.runtimeId !== undefined
+      ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId }
+      : {}),
   }
   const launch = await writeTmuxLaunchExecFiles(`${hookEnv.callbackSocket}.codex`, {
     argv: [spec.process.command, ...spec.process.args],

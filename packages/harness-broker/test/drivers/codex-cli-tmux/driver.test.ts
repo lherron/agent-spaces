@@ -425,6 +425,10 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     expect(artifact.env?.['HARNESS_BROKER_CALLBACK_SOCKET']).toBe(
       '/tmp/harness-broker/codex-hooks.sock'
     )
+    // T-01798: the launch env must authoritatively stamp the invocation's
+    // runtimeId so an inherited/leaked HARNESS_BROKER_RUNTIME_ID cannot poison
+    // the hook envelope and trip the identity fence (which drops every hook).
+    expect(artifact.env?.['HARNESS_BROKER_RUNTIME_ID']).toBe('runtime-codex-driver')
     expect(tmuxArgv(tmuxCalls)).toContainEqual([
       '/opt/bin/tmux',
       '-S',
