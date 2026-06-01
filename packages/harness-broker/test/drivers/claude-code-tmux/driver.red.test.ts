@@ -335,6 +335,29 @@ function expectNoForbiddenLifecycleVerbs(calls: TmuxExecCall[]): void {
 }
 
 describe('claude-code-tmux driver RED lifecycle', () => {
+  test('advertises no live driver attach-to-existing-surface support distinct from operator attach', async () => {
+    const createDriver = await loadFactory()
+    const driver = createDriver({
+      tmux: {
+        tmuxBin: '/opt/bin/tmux',
+        exec: createRecordingExec([]),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/claude-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    // T-01794 Phase D: control.attach means operator can attach to the TUI.
+    // It must not imply the broker can restart and reattach this driver to an
+    // already-live surface; that separate capability defaults false.
+    expect(driver.capabilities().control.attach).toBe(true)
+    expect(driver.capabilities().control.driverAttachExistingSurface).toBe(false)
+  })
+
   test('default hook callback socket path is unique per invocation and runtime', async () => {
     const buildSocketPath = await loadSocketPathBuilder()
     const first = buildSocketPath('/tmp/harness-broker', {
@@ -516,6 +539,55 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expect(
       events.filter((event) => event.turnId === 'turn_driver_envelope_1').map((event) => event.type)
     ).toEqual(['turn.started', 'tool.call.started', 'turn.completed'])
+  })
+
+  test('durable hook envelopes reject mismatched generation but accept matching identity', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const hookSocket =
+      '/tmp/praesidium/runtime/broker-ipc/runtime-claude/hooks/claude-hooks.live.sock'
+    const driver = createDriver({
+      tmux: {
+        tmuxBin: '/opt/bin/tmux',
+        exec: createRecordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return {
+            socketPath: hookSocket,
+            close: async () => undefined,
+          }
+        },
+      },
+      now,
+    })
+
+    await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
+    if (hookHandler === undefined) throw new Error('hook handler was not captured')
+
+    const baseline = events.length
+    await hookHandler({
+      invocationId: 'inv_claude_tmux_1',
+      runtimeId: 'runtime-driver-red',
+      generation: 2,
+      callbackSocket: hookSocket,
+      turnId: 'turn_driver_generation_mismatch',
+      hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'foreign generation' },
+    })
+    expect(events).toHaveLength(baseline)
+
+    await hookHandler({
+      invocationId: 'inv_claude_tmux_1',
+      runtimeId: 'runtime-driver-red',
+      generation: 1,
+      callbackSocket: hookSocket,
+      turnId: 'turn_driver_generation_match',
+      hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'live generation' },
+    })
+    expect(events.slice(baseline).map((event) => event.type)).toEqual(['turn.started'])
   })
 
   test('second concurrent hook listener ignores stale envelopes from the first invocation', async () => {

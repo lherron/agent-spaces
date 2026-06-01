@@ -15,6 +15,7 @@ type HookEnvelope = {
   invocationId?: string | undefined
   generation?: number | undefined
   callbackSocket?: string | undefined
+  runtimeId?: string | undefined
   turnId?: string | undefined
   hookData?: unknown
 }
@@ -43,6 +44,7 @@ type CodexCliTmuxDriverFactory = (options: {
   now: () => Date
 }) => {
   kind: string
+  capabilities: () => ReturnType<import('../../../src/drivers/driver').Driver['capabilities']>
   start: (spec: HarnessInvocationSpec, ctx: DriverContext) => Promise<{ ok: true }>
   applyInputNow: (input: InvocationInput) => Promise<Record<string, never>>
   stop: (req: { reason?: string | undefined }) => Promise<{ accepted: boolean; state: string }>
@@ -98,6 +100,23 @@ const loadFactory = async (): Promise<CodexCliTmuxDriverFactory> => {
   return target.createCodexCliTmuxDriver
 }
 
+const loadSocketPathBuilder = async (): Promise<
+  (socketDir: string, context: { invocationId: string; runtimeId?: string | undefined }) => string
+> => {
+  const target = (await import('../../../src/drivers/codex-cli-tmux/driver')) as {
+    buildCodexHookSocketPath?:
+      | ((
+          socketDir: string,
+          context: { invocationId: string; runtimeId?: string | undefined }
+        ) => string)
+      | undefined
+  }
+  if (target.buildCodexHookSocketPath === undefined) {
+    throw new Error('buildCodexHookSocketPath export is required')
+  }
+  return target.buildCodexHookSocketPath
+}
+
 const recordingExec = (calls: TmuxExecCall[]) => {
   return async (
     argv: string[],
@@ -126,17 +145,28 @@ const paneLease = (overrides: Partial<TerminalSurfaceLease> = {}): TerminalSurfa
   ...overrides,
 })
 
+const codexTmuxSpecWithIds = (nextInvocationId: string, runtimeId: string): HarnessInvocationSpec =>
+  ({
+    ...codexTmuxSpec(),
+    invocationId: nextInvocationId,
+    correlation: {
+      hostSessionId: `host-${runtimeId}`,
+      runtimeId,
+    },
+  }) as HarnessInvocationSpec
+
 const createCtx = (
   events: InvocationEventEnvelope[],
-  runtime?: { terminalSurface?: unknown; tmux?: { socketPath: string } } | undefined
+  runtime?: { terminalSurface?: unknown; tmux?: { socketPath: string } } | undefined,
+  ctxInvocationId = invocationId
 ): DriverContext =>
   ({
-    invocationId,
+    invocationId: ctxInvocationId,
     clientCapabilities: {},
     ...(runtime !== undefined ? { runtime } : {}),
     emit(type, payload, extra) {
       const event = {
-        invocationId,
+        invocationId: ctxInvocationId,
         seq: events.length + 1,
         time: now().toISOString(),
         type,
@@ -206,6 +236,53 @@ const expectTargetedToPane = (calls: TmuxExecCall[], paneId: string): void => {
 }
 
 describe('codex-cli-tmux driver: runtime pane lease', () => {
+  test('advertises no live driver attach-to-existing-surface support distinct from operator attach', async () => {
+    const createDriver = await loadFactory()
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/codex-tmux.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: recordingExec([]),
+      },
+      hooks: {
+        listen: async () => ({
+          socketPath: '/tmp/harness-broker/codex-hooks.sock',
+          close: async () => undefined,
+        }),
+      },
+      now,
+    })
+
+    // T-01794 Phase D: control.attach means operator can attach to the TUI.
+    // It must not imply the broker can restart and reattach this driver to an
+    // already-live surface; that separate capability defaults false.
+    expect(driver.capabilities().control.attach).toBe(true)
+    expect(driver.capabilities().control.driverAttachExistingSurface).toBe(false)
+  })
+
+  test('runtime-scoped hook callback socket path is per invocation/runtime and stays under hooks dir', async () => {
+    const buildSocketPath = await loadSocketPathBuilder()
+    const hooksDir = '/tmp/praesidium/runtime/broker-ipc/runtime-a/hooks'
+    const first = buildSocketPath(hooksDir, {
+      invocationId: 'inv_codex_runtime_scope_first',
+      runtimeId: 'runtime-codex-a',
+    })
+    const second = buildSocketPath(hooksDir, {
+      invocationId: 'inv_codex_runtime_scope_second',
+      runtimeId: 'runtime-codex-b',
+    })
+
+    // T-01794 Phase D: codex-cli-tmux must stop sharing the legacy global
+    // /tmp/harness-broker/codex-hooks.sock between durable broker runtimes.
+    expect(first).toStartWith(`${hooksDir}/`)
+    expect(second).toStartWith(`${hooksDir}/`)
+    expect(first).not.toBe('/tmp/harness-broker/codex-hooks.sock')
+    expect(second).not.toBe('/tmp/harness-broker/codex-hooks.sock')
+    expect(first).not.toBe(second)
+    expect(first.split('/').at(-1)).toMatch(/^codex-hooks\.[0-9a-f]{16}\.sock$/)
+    expect(second.split('/').at(-1)).toMatch(/^codex-hooks\.[0-9a-f]{16}\.sock$/)
+  })
+
   test('rejects start when runtime terminalSurface is absent', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
@@ -358,6 +435,94 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
       lease.paneId,
       'continue $WITHOUT_EXPANSION',
     ])
+  })
+
+  test('durable hook envelopes reject mismatched invocation/runtime/generation/socket identity', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const events: InvocationEventEnvelope[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const hookSocket = '/tmp/praesidium/runtime/broker-ipc/runtime-codex/hooks/codex-hooks.live.sock'
+    const liveInvocationId = 'inv_codex_identity_live'
+    const liveRuntimeId = 'runtime-codex-identity-live'
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: recordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      now,
+    })
+
+    await driver.start(
+      codexTmuxSpecWithIds(liveInvocationId, liveRuntimeId),
+      createCtx(events, { terminalSurface: paneLease() }, liveInvocationId)
+    )
+    if (hookHandler === undefined) throw new Error('hook handler was not captured')
+
+    const envelope = (overrides: Partial<HookEnvelope> = {}): HookEnvelope => ({
+      invocationId: liveInvocationId,
+      runtimeId: liveRuntimeId,
+      generation: 1,
+      callbackSocket: hookSocket,
+      turnId: 'turn_codex_identity_1',
+      hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'go' },
+      ...overrides,
+    })
+
+    const baseline = events.length
+    await hookHandler(envelope({ invocationId: 'inv_codex_identity_foreign' }))
+    await hookHandler(envelope({ runtimeId: 'runtime-codex-identity-foreign' }))
+    await hookHandler(envelope({ generation: 2 }))
+    await hookHandler(envelope({ callbackSocket: `${hookSocket}.foreign` }))
+    expect(events).toHaveLength(baseline)
+
+    await hookHandler(envelope())
+    expect(events.slice(baseline).map((event) => event.type)).toEqual(['turn.started'])
+  })
+
+  test('legacy hook envelope without durable generation is still accepted', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const events: InvocationEventEnvelope[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const hookSocket = '/tmp/harness-broker/codex-hooks.sock'
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: recordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      now,
+    })
+
+    await driver.start(codexTmuxSpec(), createCtx(events, { terminalSurface: paneLease() }))
+    if (hookHandler === undefined) throw new Error('hook handler was not captured')
+    const baseline = events.length
+
+    // T-01794 Phase D: strict generation checks only apply to durable identity
+    // envelopes. Legacy stdio/callback rows that omit generation must continue
+    // to flow.
+    await hookHandler({
+      invocationId,
+      callbackSocket: hookSocket,
+      turnId: 'turn_codex_legacy_generation_absent',
+      hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'legacy go' },
+    })
+
+    expect(events.slice(baseline).map((event) => event.type)).toEqual(['turn.started'])
   })
 })
 
