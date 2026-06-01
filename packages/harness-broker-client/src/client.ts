@@ -1,19 +1,27 @@
 import type {
+  BrokerAttachRequest,
+  BrokerAttachResponse,
   BrokerHealthRequest,
   BrokerHealthResponse,
   BrokerHelloRequest,
   BrokerHelloResponse,
   BrokerLifecyclePolicyOverlay,
   HarnessInvocationSpec,
+  InvocationAckEventsRequest,
+  InvocationAckEventsResponse,
   InvocationDispatchRequest,
   InvocationDisposeRequest,
   InvocationEventEnvelope,
+  InvocationEventsSinceRequest,
+  InvocationEventsSinceResponse,
   InvocationInput,
   InvocationInputRequest,
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
   InvocationRuntimeContext,
+  InvocationSnapshot,
+  InvocationSnapshotRequest,
   InvocationStartRequest,
   InvocationStartResponse,
   InvocationStatusRequest,
@@ -25,11 +33,14 @@ import type {
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import { EventIterator } from './event-iterator'
-import {
-  type CloseHandler,
-  StdioTransport,
-  type StdioTransportStartOptions,
-} from './stdio-transport'
+import { StdioTransport, type StdioTransportStartOptions } from './stdio-transport'
+import type { BrokerJsonRpcTransport, CloseHandler } from './transport'
+import { UnixSocketTransport } from './unix-socket-transport'
+
+export interface ConnectUnixOptions {
+  socketPath: string
+  timeoutMs?: number | undefined
+}
 
 export type PermissionRequestHandler = (
   request: PermissionRequestParams
@@ -48,13 +59,16 @@ export interface InvocationStartDispatchOptions {
 }
 
 export class BrokerClient {
-  #transport: StdioTransport
+  #transport: BrokerJsonRpcTransport
   #events = new Map<string, EventIterator<InvocationEventEnvelope>>()
   #pendingEvents = new Map<string, InvocationEventEnvelope[]>()
+  // Highest event seq already surfaced per invocation. Used to drop duplicates
+  // when replayed (attach/eventsSince) events overlap live notifications.
+  #lastEventSeq = new Map<string, number>()
   #permissionHandler: PermissionRequestHandler | undefined
   #closeHandlers = new Set<CloseHandler>()
 
-  private constructor(transport: StdioTransport) {
+  private constructor(transport: BrokerJsonRpcTransport) {
     this.#transport = transport
     this.#transport.onNotification((notification) => {
       this.#handleNotification(notification)
@@ -75,6 +89,20 @@ export class BrokerClient {
 
   static async start(opts: StdioTransportStartOptions): Promise<BrokerClient> {
     return new BrokerClient(await StdioTransport.start(opts))
+  }
+
+  /**
+   * Connect to a long-lived broker over a Unix domain socket. Unlike
+   * {@link start}, the broker is NOT owned by this client: {@link close}
+   * destroys only the socket and leaves the broker process running.
+   */
+  static async connectUnix(opts: ConnectUnixOptions): Promise<BrokerClient> {
+    return new BrokerClient(await UnixSocketTransport.connect(opts))
+  }
+
+  /** Wrap an already-established transport (e.g. for tests or custom channels). */
+  static fromTransport(transport: BrokerJsonRpcTransport): BrokerClient {
+    return new BrokerClient(transport)
   }
 
   hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse> {
@@ -171,6 +199,27 @@ export class BrokerClient {
     const events = this.#events.get(req.invocationId)
     events?.close()
     this.#events.delete(req.invocationId)
+    this.#lastEventSeq.delete(req.invocationId)
+  }
+
+  // --- Protocol v2 (broker durability) methods ---------------------------
+  // These delegate verbatim to the transport. Brokers that do not yet expose
+  // the v2 control surface answer with method-not-found until Phase C lands.
+
+  attach(req: BrokerAttachRequest): Promise<BrokerAttachResponse> {
+    return this.#transport.request('broker.attach', req)
+  }
+
+  eventsSince(req: InvocationEventsSinceRequest): Promise<InvocationEventsSinceResponse> {
+    return this.#transport.request('invocation.eventsSince', req)
+  }
+
+  ackEvents(req: InvocationAckEventsRequest): Promise<InvocationAckEventsResponse> {
+    return this.#transport.request('invocation.ackEvents', req)
+  }
+
+  snapshot(req: InvocationSnapshotRequest): Promise<InvocationSnapshot> {
+    return this.#transport.request('invocation.snapshot', req)
   }
 
   onPermissionRequest(handler: PermissionRequestHandler): void {
@@ -196,6 +245,20 @@ export class BrokerClient {
     // permission.requested / permission.resolved are audit events surfaced
     // through the normal observable event stream below.
     const event = notification.params as InvocationEventEnvelope
+    this.#ingestEvent(event)
+  }
+
+  /**
+   * Surface an event to its stream, dropping duplicates by (invocationId, seq).
+   * Replayed events (attach/eventsSince) can overlap live notifications; the
+   * client de-dupes so a stream never sees the same seq twice or goes backwards.
+   */
+  #ingestEvent(event: InvocationEventEnvelope): void {
+    const lastSeq = this.#lastEventSeq.get(event.invocationId)
+    if (lastSeq !== undefined && event.seq <= lastSeq) {
+      return
+    }
+    this.#lastEventSeq.set(event.invocationId, event.seq)
 
     const stream = this.#events.get(event.invocationId)
     if (stream) {
@@ -253,5 +316,6 @@ export class BrokerClient {
     }
     this.#events.clear()
     this.#pendingEvents.clear()
+    this.#lastEventSeq.clear()
   }
 }

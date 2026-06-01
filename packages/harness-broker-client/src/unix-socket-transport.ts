@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { type Socket, connect } from 'node:net'
 import {
   NdjsonDecoder,
   createJsonRpcErrorResponse,
@@ -13,6 +13,7 @@ import type {
   JsonRpcRequest,
 } from 'spaces-harness-broker-protocol'
 import { BrokerRpcError, BrokerTransportError } from './errors'
+import { assertSocketPathWithinBudget } from './socket-path'
 import type {
   BrokerJsonRpcTransport,
   CloseHandler,
@@ -20,11 +21,9 @@ import type {
   RequestHandler,
 } from './transport'
 
-export interface StdioTransportStartOptions {
-  command: string
-  args?: string[] | undefined
-  cwd?: string | undefined
-  env?: Record<string, string> | undefined
+export interface UnixSocketTransportConnectOptions {
+  socketPath: string
+  timeoutMs?: number | undefined
 }
 
 type PendingRequest = {
@@ -32,8 +31,15 @@ type PendingRequest = {
   reject: (error: Error) => void
 }
 
-export class StdioTransport implements BrokerJsonRpcTransport {
-  readonly child: ChildProcessWithoutNullStreams
+/**
+ * JSON-RPC NDJSON transport over a Unix domain socket. The broker is a
+ * long-lived server; this transport owns ONLY the client-side socket. Its
+ * {@link close} destroys that socket and never terminates the broker process —
+ * this is the durability difference versus {@link StdioTransport}, which kills
+ * its owned child.
+ */
+export class UnixSocketTransport implements BrokerJsonRpcTransport {
+  readonly socket: Socket
 
   #decoder = new NdjsonDecoder()
   #nextId = 1
@@ -42,49 +48,70 @@ export class StdioTransport implements BrokerJsonRpcTransport {
   #requestHandler: RequestHandler | undefined
   #closeHandler: CloseHandler = () => {}
   #closed = false
-  #exitError: BrokerTransportError | undefined
-  #exitPromise: Promise<void>
-  #resolveExit!: () => void
-  #stderrTail = ''
+  #closeError: BrokerTransportError | undefined
+  #closePromise: Promise<void>
+  #resolveClose!: () => void
 
-  private constructor(child: ChildProcessWithoutNullStreams) {
-    this.child = child
-    this.#exitPromise = new Promise<void>((resolve) => {
-      this.#resolveExit = resolve
+  private constructor(socket: Socket) {
+    this.socket = socket
+    this.#closePromise = new Promise<void>((resolve) => {
+      this.#resolveClose = resolve
     })
 
-    child.stdout.on('data', (chunk: Buffer | string) => {
-      this.#handleStdout(chunk)
+    socket.setEncoding('utf8')
+    socket.on('data', (chunk: string) => {
+      this.#handleData(chunk)
     })
-    child.stderr.on('data', (chunk: Buffer | string) => {
-      this.#appendStderr(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
+    socket.once('error', (error) => {
+      this.#fail(new BrokerTransportError('Broker socket error', error))
     })
-    child.once('error', (error) => {
-      this.#fail(new BrokerTransportError('Broker process error', error))
-    })
-    child.once('exit', (code, signal) => {
-      const detail =
-        signal !== null ? `signal ${signal}` : `exit code ${code === null ? 'unknown' : code}`
+    socket.once('close', () => {
       const message = this.#closed
-        ? `Broker process closed with ${detail}`
-        : `Broker process exited with ${detail}`
+        ? 'Broker socket closed'
+        : 'Broker socket closed unexpectedly'
       this.#fail(new BrokerTransportError(message))
     })
   }
 
-  static async start(options: StdioTransportStartOptions): Promise<StdioTransport> {
-    const child = spawn(options.command, options.args ?? [], {
-      cwd: options.cwd,
-      env: options.env === undefined ? process.env : { ...process.env, ...options.env },
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
+  static async connect(
+    options: UnixSocketTransportConnectOptions
+  ): Promise<UnixSocketTransport> {
+    assertSocketPathWithinBudget(options.socketPath)
+
+    const socket = connect({ path: options.socketPath })
 
     await new Promise<void>((resolve, reject) => {
-      child.once('spawn', resolve)
-      child.once('error', reject)
+      let settled = false
+      const timeoutMs = options.timeoutMs
+      const timer =
+        timeoutMs !== undefined && timeoutMs > 0
+          ? setTimeout(() => {
+              if (settled) return
+              settled = true
+              socket.destroy()
+              reject(
+                new BrokerTransportError(
+                  `Timed out connecting to broker unix socket ${options.socketPath}`
+                )
+              )
+            }, timeoutMs)
+          : undefined
+
+      socket.once('connect', () => {
+        if (settled) return
+        settled = true
+        if (timer !== undefined) clearTimeout(timer)
+        resolve()
+      })
+      socket.once('error', (error) => {
+        if (settled) return
+        settled = true
+        if (timer !== undefined) clearTimeout(timer)
+        reject(new BrokerTransportError('Failed to connect to broker unix socket', error))
+      })
     })
 
-    return new StdioTransport(child)
+    return new UnixSocketTransport(socket)
   }
 
   onNotification(handler: NotificationHandler): void {
@@ -100,8 +127,8 @@ export class StdioTransport implements BrokerJsonRpcTransport {
   }
 
   request<T>(method: string, params?: unknown): Promise<T> {
-    if (this.#exitError) {
-      return Promise.reject(this.#exitError)
+    if (this.#closeError) {
+      return Promise.reject(this.#closeError)
     }
     if (this.#closed) {
       return Promise.reject(new BrokerTransportError('Broker transport is closed'))
@@ -135,37 +162,31 @@ export class StdioTransport implements BrokerJsonRpcTransport {
     return promise
   }
 
-  async close(options: { graceMs?: number | undefined } = {}): Promise<void> {
+  /**
+   * Destroy ONLY the client socket. The broker process is a separate,
+   * long-lived server and must keep running after the controller disconnects.
+   */
+  async close(_options: { graceMs?: number | undefined } = {}): Promise<void> {
     if (this.#closed) {
-      return this.#exitPromise
+      return this.#closePromise
     }
 
     this.#closed = true
     this.#rejectPending(new BrokerTransportError('Broker transport closed'))
 
-    if (this.child.exitCode !== null || this.child.signalCode !== null) {
-      return this.#exitPromise
+    if (this.socket.destroyed) {
+      this.#resolveClose()
+      return this.#closePromise
     }
 
-    const graceMs = options.graceMs ?? 500
-    this.child.stdin.end()
-    this.child.kill('SIGTERM')
+    this.socket.end()
+    this.socket.destroy()
 
-    const exited = await Promise.race([
-      this.#exitPromise.then(() => true),
-      new Promise<false>((resolve) => {
-        setTimeout(() => resolve(false), graceMs)
-      }),
-    ])
-
-    if (!exited && this.child.exitCode === null && this.child.signalCode === null) {
-      this.child.kill('SIGKILL')
-      await this.#exitPromise
-    }
+    return this.#closePromise
   }
 
-  #handleStdout(chunk: Buffer | string): void {
-    const frames = this.#decoder.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
+  #handleData(chunk: string): void {
+    const frames = this.#decoder.push(chunk)
     for (const frame of frames) {
       if (!frame.ok) {
         this.#fail(new BrokerTransportError('Broker emitted an invalid NDJSON frame', frame.error))
@@ -177,11 +198,12 @@ export class StdioTransport implements BrokerJsonRpcTransport {
 
   #handleMessage(message: JsonRpcMessage): void {
     if (isJsonRpcResponse(message)) {
-      const pending = this.#pending.get(this.#idKey(message.id))
+      const key = this.#idKey(message.id)
+      const pending = this.#pending.get(key)
       if (!pending) {
         return
       }
-      this.#pending.delete(this.#idKey(message.id))
+      this.#pending.delete(key)
       if ('error' in message) {
         pending.reject(new BrokerRpcError(message.error))
       } else {
@@ -223,29 +245,22 @@ export class StdioTransport implements BrokerJsonRpcTransport {
   }
 
   #write(message: JsonRpcMessage): void {
-    if (this.#exitError) {
-      throw this.#exitError
+    if (this.#closeError) {
+      throw this.#closeError
     }
-    if (this.child.stdin.destroyed) {
-      throw new BrokerTransportError('Broker stdin is closed')
+    if (this.socket.destroyed) {
+      throw new BrokerTransportError('Broker socket is closed')
     }
-    this.child.stdin.write(encodeNdjsonFrame(message))
-  }
-
-  #appendStderr(chunk: string): void {
-    this.#stderrTail = `${this.#stderrTail}${chunk}`.slice(-4096)
+    this.socket.write(encodeNdjsonFrame(message))
   }
 
   #fail(error: BrokerTransportError): void {
-    if (this.#exitError === undefined) {
-      this.#exitError =
-        this.#stderrTail.trim().length > 0
-          ? new BrokerTransportError(`${error.message}\nBroker stderr:\n${this.#stderrTail.trim()}`)
-          : error
-      this.#rejectPending(this.#exitError)
-      this.#closeHandler(this.#exitError)
+    if (this.#closeError === undefined) {
+      this.#closeError = error
+      this.#rejectPending(error)
+      this.#closeHandler(error)
     }
-    this.#resolveExit()
+    this.#resolveClose()
   }
 
   #rejectPending(error: BrokerTransportError): void {

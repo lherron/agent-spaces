@@ -4,6 +4,7 @@ import type {
   BrokerHelloRequest,
   BrokerHelloResponse,
   BrokerLifecyclePolicyOverlay,
+  BrokerTransportKind,
   ClientCapabilities,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
@@ -49,6 +50,16 @@ export interface BrokerOptions {
     | ((params: PermissionRequestParams) => Promise<PermissionDecision>)
     | undefined
   maxInputQueueDepth?: number | undefined
+  /**
+   * Transports this broker process advertises in `broker.hello`. Defaults to
+   * stdio only; the unix server entry point advertises both stdio and unix.
+   */
+  advertisedTransports?: BrokerTransportKind[] | undefined
+  /**
+   * Whether `broker.hello` advertises the attach/replay control surface. The
+   * unix durable runtime advertises it; the stdio child does not.
+   */
+  advertiseAttachReplay?: boolean | undefined
 }
 
 export interface Broker {
@@ -72,6 +83,10 @@ export function createBroker(options: BrokerOptions): Broker {
   const registry = createDriverRegistry(drivers)
   const sequencer = createInvocationEventSequencer({ now })
   const onEvent = options.onEvent ?? (() => {})
+  const advertisedTransports: BrokerTransportKind[] = options.advertisedTransports ?? [
+    'stdio-jsonrpc-ndjson',
+  ]
+  const advertiseAttachReplay = options.advertiseAttachReplay ?? false
   let clientCapabilities: ClientCapabilities = {}
 
   const manager = createInvocationManager({
@@ -109,9 +124,10 @@ export function createBroker(options: BrokerOptions): Broker {
         protocolVersion,
         capabilities: {
           multiInvocation: false,
-          transports: ['stdio-jsonrpc-ndjson'],
+          transports: [...advertisedTransports],
           eventNotifications: true,
           brokerToClientRequests: hasPermissionRequests,
+          ...(advertiseAttachReplay ? { attachReplay: true } : {}),
         },
         drivers: registry.summaries(),
       }

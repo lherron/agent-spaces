@@ -1,3 +1,7 @@
+import { existsSync } from 'node:fs'
+import { mkdir, unlink } from 'node:fs/promises'
+import { type Socket, connect, createServer } from 'node:net'
+import { dirname } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationDispatchRequest,
@@ -8,10 +12,12 @@ import type {
   PermissionDecision,
 } from 'spaces-harness-broker-protocol'
 import { validateCommand, validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
+import type { Broker } from './broker'
 import { createDefaultBroker } from './default-broker'
 import { runClaudeHookBridgeCli } from './drivers/claude-code-tmux/hook-bridge'
 import { runCodexHookBridgeCli } from './drivers/codex-cli-tmux/hook-bridge'
-import { createProtocolServer } from './protocol-server'
+import { type ProtocolServer, createProtocolServer } from './protocol-server'
+import { assertSocketPathWithinBudget } from './socket-path'
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
@@ -21,12 +27,14 @@ async function main(): Promise<void> {
     const transportIdx = args.indexOf('--transport')
     const transport = transportIdx !== -1 ? args[transportIdx + 1] : undefined
 
-    if (transport !== 'stdio') {
+    if (transport === 'stdio') {
+      runStdio()
+    } else if (transport === 'unix') {
+      await runUnix(args)
+    } else {
       process.stderr.write(`Unknown or missing transport: ${transport ?? '(none)'}\n`)
       process.exit(1)
     }
-
-    runStdio()
   } else if (command === 'drivers') {
     const json = args.includes('--json')
     const broker = createDefaultBroker()
@@ -78,6 +86,22 @@ function runStdio(): void {
     server.request<PermissionDecision>('invocation.permission.request', params)
   )
 
+  registerBrokerMethods(server, broker)
+
+  void server.start()
+
+  process.stdin.on('end', () => {
+    void server.close().then(() => {
+      process.exit(0)
+    })
+  })
+}
+
+/**
+ * Register the v1 broker JSON-RPC methods on a protocol server. Shared by the
+ * stdio and unix transport entry points so both expose identical surfaces.
+ */
+function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
   function validateParams(method: string, id: string | number | null, params: unknown): void {
     validateCommand({ jsonrpc: '2.0', id, method, params })
   }
@@ -129,13 +153,137 @@ function runStdio(): void {
     validateParams(method, id, params)
     return broker.dispose(params as Parameters<typeof broker.dispose>[0])
   })
+}
 
-  void server.start()
+/**
+ * Long-lived broker over a Unix domain socket. The broker process owns a single
+ * `net.Server`; controllers connect and disconnect freely without terminating
+ * it (the durability difference from the stdio child). Phase B wires the
+ * transport + lifecycle only — durable ledger/attach/fencing land in Phase C.
+ */
+async function runUnix(args: string[]): Promise<void> {
+  const socketPath = readFlag(args, '--socket')
+  if (!socketPath) {
+    process.stderr.write('Usage: harness-broker run --transport unix --socket <path>\n')
+    process.exit(1)
+  }
 
-  process.stdin.on('end', () => {
-    void server.close().then(() => {
-      process.exit(0)
+  // Hazard (a): refuse over-long socket paths up front with a readable error
+  // instead of surfacing a low-level sockaddr_un bind failure.
+  try {
+    assertSocketPathWithinBudget(socketPath)
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    process.exit(1)
+  }
+
+  // Flags accepted for forward-compat with Phase C durability (--runtime-id,
+  // --host-session-id, --generation, --attach-token-file, --event-ledger,
+  // --log-file). Phase B does not act on them beyond accepting them.
+
+  await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 })
+
+  // Hazard (b): conservative stale-socket cleanup — only unlink a socket node
+  // that NO live listener answers; never steal a socket a peer accepts.
+  await reclaimStaleSocket(socketPath)
+
+  let activeServer: ProtocolServer | undefined
+  let activeSocket: Socket | undefined
+
+  function emitEvent(event: InvocationEventEnvelope): void {
+    if (!activeServer) return
+    const notification: JsonRpcNotification = {
+      jsonrpc: '2.0',
+      method: 'invocation.event',
+      params: event,
+    }
+    activeServer.notify(notification)
+  }
+
+  const broker = createDefaultBroker(
+    emitEvent,
+    (params) => {
+      if (!activeServer) {
+        return Promise.reject(new Error('No controller connected for permission request'))
+      }
+      return activeServer.request<PermissionDecision>('invocation.permission.request', params)
+    },
+    {
+      advertisedTransports: ['stdio-jsonrpc-ndjson', 'unix-jsonrpc-ndjson'],
+      advertiseAttachReplay: true,
+    }
+  )
+
+  const netServer = createServer((socket) => {
+    // Hazard (c): pre-fencing — accept only ONE controller connection at a
+    // time so an extra socket can never observe notifications/permissions.
+    if (activeSocket) {
+      socket.destroy()
+      return
+    }
+    activeSocket = socket
+    const server = createProtocolServer({
+      stdin: socket,
+      stdout: socket,
+      stderr: process.stderr,
     })
+    activeServer = server
+    registerBrokerMethods(server, broker)
+    void server.start()
+
+    const cleanup = (): void => {
+      if (activeSocket === socket) {
+        activeSocket = undefined
+        activeServer = undefined
+        void server.close()
+      }
+    }
+    socket.once('close', cleanup)
+    socket.once('error', cleanup)
+  })
+
+  const shutdown = (): void => {
+    netServer.close()
+    void unlink(socketPath)
+      .catch(() => {})
+      .then(() => {
+        process.exit(0)
+      })
+  }
+  process.on('SIGTERM', shutdown)
+  process.on('SIGINT', shutdown)
+
+  netServer.on('error', (err) => {
+    process.stderr.write(
+      `Broker unix server error: ${err instanceof Error ? err.message : String(err)}\n`
+    )
+    process.exit(1)
+  })
+
+  netServer.listen(socketPath)
+}
+
+/** Probe an existing socket node and unlink it only if no live listener answers. */
+async function reclaimStaleSocket(socketPath: string): Promise<void> {
+  if (!existsSync(socketPath)) {
+    return
+  }
+  if (await probeSocketAlive(socketPath)) {
+    process.stderr.write(`Broker socket already in use by a live listener: ${socketPath}\n`)
+    process.exit(1)
+  }
+  await unlink(socketPath).catch(() => {})
+}
+
+function probeSocketAlive(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = connect({ path: socketPath })
+    const done = (alive: boolean): void => {
+      probe.destroy()
+      resolve(alive)
+    }
+    probe.once('connect', () => done(true))
+    probe.once('error', () => done(false))
   })
 }
 
