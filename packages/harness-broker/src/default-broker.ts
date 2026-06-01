@@ -16,6 +16,15 @@ export interface DefaultBrokerOptions {
   eventLedger?: EventLedger | undefined
   attachIdentity?: BrokerAttachIdentity | undefined
   brokerInstanceId?: string | undefined
+  /**
+   * Runtime-scoped IPC directory (the durable broker's `--socket` parent →
+   * `hooks/`). When supplied, the tmux drivers bind per-invocation hook sockets
+   * under it instead of the global `tmpdir()/harness-broker` default — so two
+   * durable broker runtimes never collide on a shared hook socket (T-01794
+   * Phase D). Absent for stdio / in-process callers, which keep the tmpdir
+   * default.
+   */
+  hookIpcDir?: string | undefined
 }
 
 export function createDefaultBroker(
@@ -28,8 +37,8 @@ export function createDefaultBroker(
   return createBroker({
     drivers: [
       createCodexAppServerDriver(),
-      createDefaultClaudeCodeTmuxDriver(),
-      createDefaultCodexCliTmuxDriver(),
+      createDefaultClaudeCodeTmuxDriver(options.hookIpcDir),
+      createDefaultCodexCliTmuxDriver(options.hookIpcDir),
     ],
     ...(onEvent !== undefined ? { onEvent } : {}),
     ...(onPermissionRequest !== undefined ? { onPermissionRequest } : {}),

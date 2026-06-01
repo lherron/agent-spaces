@@ -28,6 +28,13 @@ import {
 
 const CLAUDE_CODE_TMUX_DRIVER_VERSION = '0.1.0'
 
+/**
+ * Live hook generation stamped into the launch env (HARNESS_BROKER_HOOK_GENERATION)
+ * and used to fence out-of-band hook envelopes. A durable broker restart would
+ * bump this; envelopes carrying a stale generation are rejected (T-01794 Phase D).
+ */
+const CLAUDE_HOOK_GENERATION = 1
+
 const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
   input: {
     user: true,
@@ -56,6 +63,11 @@ const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
     stop: true,
     dispose: true,
     attach: true,
+    // T-01794 Phase D: `attach` means an OPERATOR can `tmux attach` to the
+    // live TUI. It does NOT imply the broker can restart this driver and
+    // reattach it to an already-live surface — that distinct capability is
+    // explicitly false (no driver attach-to-existing-surface impl in scope).
+    driverAttachExistingSurface: false,
   },
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
@@ -284,6 +296,13 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         ) {
           return
         }
+        // T-01794 Phase D: durable identity fencing. Reject an envelope whose
+        // generation does not match the live launch generation — but STRICTLY
+        // only when the field is present, so legacy/stdio rows that omit it are
+        // never rejected for an absent field.
+        if (envelope.generation !== undefined && envelope.generation !== CLAUDE_HOOK_GENERATION) {
+          return
+        }
         if (hookListener !== undefined && envelope.callbackSocket !== hookListener.socketPath) {
           return
         }
@@ -500,7 +519,7 @@ async function buildLaunchCommandLine(
     HARNESS_BROKER_INVOCATION_ID: hookEnv.invocationId,
     HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
     HARNESS_BROKER_HOOK_EVENTS: HOOK_EVENT_NAMES.join(','),
-    HARNESS_BROKER_HOOK_GENERATION: '1',
+    HARNESS_BROKER_HOOK_GENERATION: String(CLAUDE_HOOK_GENERATION),
     ...(hookEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId } : {}),
   }
   const launchArgs = await buildArgsWithMergedSettings(spec.process.args, hookEnv)
@@ -580,8 +599,9 @@ function shellQuote(value: string): string {
  * this driver performs no I/O. T-01725: no default tmux socket — the live
  * pane lease (`runtime.terminalSurface`) supplies it on start.
  */
-export function createDefaultClaudeCodeTmuxDriver(): Driver {
-  const socketDir = join(tmpdir(), 'harness-broker')
+export function createDefaultClaudeCodeTmuxDriver(
+  socketDir: string = join(tmpdir(), 'harness-broker')
+): Driver {
   return createClaudeCodeTmuxDriver({
     tmux: {},
     hooks: {

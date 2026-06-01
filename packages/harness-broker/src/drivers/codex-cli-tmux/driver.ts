@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type {
@@ -29,6 +30,13 @@ import { type CodexHookTranscriptReader, createCodexHookTranscriptReader } from 
 
 const CODEX_CLI_TMUX_DRIVER_VERSION = '0.1.0'
 
+/**
+ * Live hook generation stamped into the launch env (HARNESS_BROKER_HOOK_GENERATION)
+ * and used to fence out-of-band hook envelopes against stale durable runtimes
+ * (T-01794 Phase D).
+ */
+const CODEX_HOOK_GENERATION = 1
+
 const CODEX_CLI_TMUX_CAPABILITIES: InvocationCapabilities = {
   input: {
     user: true,
@@ -55,6 +63,10 @@ const CODEX_CLI_TMUX_CAPABILITIES: InvocationCapabilities = {
     stop: true,
     dispose: true,
     attach: true,
+    // T-01794 Phase D: `attach` is OPERATOR `tmux attach`. It does NOT mean the
+    // broker can restart this driver and reattach to an already-live surface;
+    // that distinct capability is explicitly false (no impl in scope).
+    driverAttachExistingSurface: false,
   },
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
@@ -62,6 +74,16 @@ const CODEX_CLI_TMUX_CAPABILITIES: InvocationCapabilities = {
 export interface CodexHookListenerHandle {
   socketPath: string
   close: () => Promise<void>
+}
+
+/**
+ * Per-invocation/runtime identity handed to the hook listener so a durable
+ * broker binds a UNIQUE callback socket per invocation under its runtime hooks
+ * dir (T-01794 Phase D) — never the legacy single global codex-hooks.sock.
+ */
+export interface CodexHookListenerContext {
+  invocationId: string
+  runtimeId?: string | undefined
 }
 
 export type CodexHookEnvelopeHandler = (envelope: CodexCliTmuxHookEnvelope) => Promise<void>
@@ -73,7 +95,10 @@ export interface CodexCliTmuxDriverOptions {
     exec?: TmuxExec | undefined
   }
   hooks: {
-    listen: (handler: CodexHookEnvelopeHandler) => Promise<CodexHookListenerHandle>
+    listen: (
+      handler: CodexHookEnvelopeHandler,
+      context: CodexHookListenerContext
+    ) => Promise<CodexHookListenerHandle>
     /**
      * Broker-owned receiver command invoked by the generated HRC_LAUNCH_HOOK_CLI
      * wrapper. Defaults to the installed `harness-broker codex-hook` CLI.
@@ -185,6 +210,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
       ctx = driverCtx
       paneController = controller
 
+      const expectedRuntimeId = getInvocationRuntimeId(spec)
       const normalizer: CodexCliTmuxHookEventNormalizer = createCodexCliTmuxHookEventNormalizer({
         invocationId: driverCtx.invocationId,
         now,
@@ -209,6 +235,31 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         })
       }
       const handleHookEnvelope = (envelope: CodexCliTmuxHookEnvelope): void => {
+        // T-01794 Phase D: durable identity fencing. Reject an envelope whose
+        // invocation/runtime/generation/callback-socket does not match the live
+        // invocation — but STRICTLY only for fields the durable unix mode
+        // actually provides, so legacy/stdio rows that omit generation/runtimeId
+        // are never rejected for an absent field.
+        if (envelope.invocationId !== undefined && envelope.invocationId !== driverCtx.invocationId) {
+          return
+        }
+        if (
+          expectedRuntimeId !== undefined &&
+          envelope.runtimeId !== undefined &&
+          envelope.runtimeId !== expectedRuntimeId
+        ) {
+          return
+        }
+        if (envelope.generation !== undefined && envelope.generation !== CODEX_HOOK_GENERATION) {
+          return
+        }
+        if (
+          envelope.callbackSocket !== undefined &&
+          hookListener !== undefined &&
+          envelope.callbackSocket !== hookListener.socketPath
+        ) {
+          return
+        }
         const hook = extractHookRecord(envelope)
         const envelopeTurnId = getHookString(hook, 'turn_id') ?? envelope.turnId
         if (envelopeTurnId !== undefined) {
@@ -228,13 +279,19 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
       }
       // Serialize hook processing like the Claude driver's hookDrain so transcript
       // reads and hook normalization stay strictly ordered.
-      hookListener = await options.hooks.listen((envelope) => {
-        hookDrain = hookDrain.then(
-          () => handleHookEnvelope(envelope),
-          () => handleHookEnvelope(envelope)
-        )
-        return hookDrain
-      })
+      hookListener = await options.hooks.listen(
+        (envelope) => {
+          hookDrain = hookDrain.then(
+            () => handleHookEnvelope(envelope),
+            () => handleHookEnvelope(envelope)
+          )
+          return hookDrain
+        },
+        {
+          invocationId: driverCtx.invocationId,
+          ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
+        }
+      )
 
       surface = {
         socketPath: leaseSurface.socketPath,
@@ -356,6 +413,10 @@ function emitTranscriptDiagnostic(
   )
 }
 
+function getInvocationRuntimeId(spec: HarnessInvocationSpec): string | undefined {
+  return spec.correlation?.['runtimeId']
+}
+
 function extractHookRecord(envelope: CodexCliTmuxHookEnvelope): Record<string, unknown> {
   const hook = asRecord(envelope.hookData ?? envelope.hookEvent ?? envelope.payload ?? envelope)
   const nested = asRecord(hook['hookEvent'])
@@ -385,7 +446,7 @@ async function buildLaunchCommandLine(
     HRC_LAUNCH_HOOK_CLI: hookEnv.hookCliPath,
     HARNESS_BROKER_INVOCATION_ID: ctx.invocationId,
     HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
-    HARNESS_BROKER_HOOK_GENERATION: '1',
+    HARNESS_BROKER_HOOK_GENERATION: String(CODEX_HOOK_GENERATION),
   }
   const launch = await writeTmuxLaunchExecFiles(`${hookEnv.callbackSocket}.codex`, {
     argv: [spec.process.command, ...spec.process.args],
@@ -450,14 +511,37 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-export function createDefaultCodexCliTmuxDriver(): Driver {
-  const socketDir = join(tmpdir(), 'harness-broker')
+export function createDefaultCodexCliTmuxDriver(
+  socketDir: string = join(tmpdir(), 'harness-broker')
+): Driver {
   return createCodexCliTmuxDriver({
     tmux: { socketPath: join(socketDir, 'codex-tmux.sock') },
     hooks: {
-      listen: (handler) => listenForHookEnvelopes(join(socketDir, 'codex-hooks.sock'), handler),
+      // T-01794 Phase D: per-invocation/runtime hook socket under the runtime
+      // hooks dir — kills the single global /tmp/harness-broker/codex-hooks.sock
+      // that two durable broker runtimes would otherwise collide on.
+      listen: (handler, context) =>
+        listenForHookEnvelopes(buildCodexHookSocketPath(socketDir, context), handler),
     },
   })
+}
+
+/**
+ * Build a SHORT, per-invocation/runtime codex hook socket path under
+ * `socketDir`. Mirrors `buildClaudeHookSocketPath`: a 16-hex digest of
+ * invocationId+runtimeId keeps the basename short so the relocated socket and
+ * its derived wrapper/launch-artifact paths stay within the unix socket path
+ * budget (Phase B).
+ */
+export function buildCodexHookSocketPath(
+  socketDir: string,
+  context: CodexHookListenerContext
+): string {
+  const token = createHash('sha256')
+    .update(`${context.invocationId}\0${context.runtimeId ?? ''}`)
+    .digest('hex')
+    .slice(0, 16)
+  return join(socketDir, `codex-hooks.${token}.sock`)
 }
 
 async function listenForHookEnvelopes(

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, unlink } from 'node:fs/promises'
 import { type Socket, connect, createServer } from 'node:net'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import type {
   BrokerAttachRequest,
   BrokerAttachResponse,
@@ -250,6 +250,10 @@ async function runUnix(args: string[]): Promise<void> {
       advertisedTransports: ['stdio-jsonrpc-ndjson', 'unix-jsonrpc-ndjson'],
       advertiseAttachReplay: true,
       brokerInstanceId,
+      // T-01794 Phase D: runtime-scoped hook IPC dir derived from this durable
+      // broker's --socket parent, so its tmux drivers bind per-invocation hook
+      // sockets under it (never the global tmpdir socket two runtimes share).
+      hookIpcDir: join(dirname(socketPath), 'hooks'),
       ...(eventLedger !== undefined ? { eventLedger } : {}),
       ...(attachIdentity !== undefined ? { attachIdentity } : {}),
     }
