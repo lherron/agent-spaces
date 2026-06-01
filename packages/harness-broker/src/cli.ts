@@ -318,6 +318,9 @@ async function runUnix(args: string[]): Promise<void> {
     server.register('invocation.ackEvents', async ({ params }) =>
       handleAckEvents(params as InvocationAckEventsRequest)
     )
+    server.register('invocation.permission.respond', async ({ params }) =>
+      broker.permissionRespond(params as Parameters<typeof broker.permissionRespond>[0])
+    )
   }
 
   const netServer = createServer((socket) => {

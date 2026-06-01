@@ -20,6 +20,8 @@ import type {
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationPermissionRespondRequest,
+  InvocationPermissionRespondResponse,
   InvocationRuntimeContext,
   InvocationSnapshot,
   InvocationSnapshotRequest,
@@ -116,6 +118,9 @@ export interface Broker {
   snapshot(req: InvocationSnapshotRequest): Promise<InvocationSnapshot>
   eventsSince(req: InvocationEventsSinceRequest): Promise<InvocationEventsSinceResponse>
   ackEvents(req: InvocationAckEventsRequest): Promise<InvocationAckEventsResponse>
+  permissionRespond(
+    req: InvocationPermissionRespondRequest
+  ): Promise<InvocationPermissionRespondResponse>
 }
 
 export function createBroker(options: BrokerOptions): Broker {
@@ -146,6 +151,7 @@ export function createBroker(options: BrokerOptions): Broker {
     getClientCapabilities: () => clientCapabilities,
     onPermissionRequest: options.onPermissionRequest,
     maxInputQueueDepth: options.maxInputQueueDepth,
+    now,
   })
 
   function requireManagedInvocation(invocationId: InvocationId) {
@@ -170,14 +176,20 @@ export function createBroker(options: BrokerOptions): Broker {
       inputDispositions[inputId] = record.response
     }
 
+    // Broker-owned pending permission requests, each carrying its ABSOLUTE
+    // deadline so a reconnecting controller can render the remaining time (C2).
+    const pendingPermissionRequests = Array.from(inv.pendingPermissions.values()).map((record) => ({
+      ...record.params,
+      deadlineAt: record.deadlineAt,
+    }))
+
     return {
       invocationId: inv.invocationId,
       state: inv.state,
       capabilities: inv.capabilities,
       pendingInputIds: inv.pending.map((item) => item.inputId),
       inputDispositions,
-      // Pending-permission state is filled by Phase C2; C1 always reports none.
-      pendingPermissionRequests: [],
+      pendingPermissionRequests,
       process: {
         brokerPid: process.pid,
         ...(inv.childPid !== undefined ? { childPid: inv.childPid } : {}),
@@ -402,6 +414,13 @@ export function createBroker(options: BrokerOptions): Broker {
       }
       // Monotonic per invocation; controller-fencing is enforced by the caller.
       return eventLedger.ackEvents(req.invocationId, req.throughSeq)
+    },
+
+    async permissionRespond(
+      req: InvocationPermissionRespondRequest
+    ): Promise<InvocationPermissionRespondResponse> {
+      validateBrokerParams('invocation.permission.respond', req)
+      return manager.permissionRespond(req)
     },
   }
 }

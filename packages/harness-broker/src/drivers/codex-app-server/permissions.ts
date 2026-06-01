@@ -232,6 +232,15 @@ export async function handlePermissionRequest(
     ...(deadlineMs !== undefined ? { deadlineMs } : {}),
   }
 
+  // Broker-owned lifecycle (C2): the broker holds the pending request until an
+  // absolute deadline, survives controller disconnect, emits
+  // `permission.resolved`, and returns the FINAL decision. The driver must not
+  // impose its own timeout nor emit the resolution — just relay the decision.
+  if (ctx.brokerOwnsPermissionLifecycle) {
+    const decision = await ctx.requestPermission(params)
+    return { decision: decision.decision === 'allow' ? 'approve' : 'decline' }
+  }
+
   const timeoutMs = policy.timeoutMs ?? 1000
   const outcome = await raceWithTimeout(ctx.requestPermission(params), timeoutMs)
 

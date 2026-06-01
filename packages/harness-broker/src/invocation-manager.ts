@@ -15,6 +15,8 @@ import type {
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationPermissionRespondRequest,
+  InvocationPermissionRespondResponse,
   InvocationRuntimeContext,
   InvocationStartResponse,
   InvocationState,
@@ -22,6 +24,7 @@ import type {
   InvocationStopRequest,
   InvocationStopResponse,
   PermissionDecision,
+  PermissionRequestId,
   PermissionRequestParams,
   TurnId,
 } from 'spaces-harness-broker-protocol'
@@ -44,6 +47,11 @@ const REASON_INVOCATION_TERMINATED = 'invocation_terminated'
 const REASON_INVOCATION_STOPPING = 'invocation_stopping'
 
 const DEFAULT_MAX_INPUT_QUEUE_DEPTH = 64
+
+/** Fallback bound for a broker-owned permission deadline when the policy omits one. */
+const DEFAULT_PERMISSION_TIMEOUT_MS = 1000
+
+type PermissionDecidedBy = 'policy' | 'user' | 'api' | 'timeout'
 
 /** Terminal states that allow dispose. */
 const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
@@ -95,6 +103,27 @@ interface InputDispositionRecord {
   response: InvocationInputResponse
 }
 
+/**
+ * Broker-owned pending permission request (C2). The pending state is held in
+ * the broker (NOT the JSON-RPC request promise), survives controller
+ * disconnect, and is retained until `deadlineAt`. `settle` resolves it exactly
+ * once — by client response, reconnect respond, or deadline expiry.
+ */
+interface PendingPermissionRecord {
+  params: PermissionRequestParams
+  defaultDecision: 'allow' | 'deny'
+  /** Absolute ISO-8601 deadline surfaced to reconnecting controllers. */
+  deadlineAt: string
+  settle(decision: 'allow' | 'deny', decidedBy: PermissionDecidedBy): void
+}
+
+/** In-memory record of how a permission request settled (idempotency surface). */
+interface SettledPermissionRecord {
+  decision: 'allow' | 'deny'
+  /** True when settled by deadline expiry — a later respond is then "expired". */
+  expired: boolean
+}
+
 export interface Invocation {
   readonly invocationId: InvocationId
   readonly spec: HarnessInvocationSpec
@@ -124,6 +153,17 @@ export interface Invocation {
    * in the durability snapshot. Broker-survives-HRC-restart only (not on disk).
    */
   inputDispositions: Map<string, InputDispositionRecord>
+  /**
+   * Broker-owned pending permission requests, keyed by permissionRequestId.
+   * Retained across controller disconnect until each request's absolute
+   * deadline, and surfaced in the durability snapshot (C2). In-memory only.
+   */
+  pendingPermissions: Map<PermissionRequestId, PendingPermissionRecord>
+  /**
+   * How already-settled permission requests resolved, keyed by
+   * permissionRequestId. Backs idempotent/conflict/expired `permission.respond`.
+   */
+  settledPermissions: Map<PermissionRequestId, SettledPermissionRecord>
 }
 
 export interface InvocationManagerOptions {
@@ -140,6 +180,8 @@ export interface InvocationManagerOptions {
     | ((params: PermissionRequestParams) => Promise<PermissionDecision>)
     | undefined
   maxInputQueueDepth?: number | undefined
+  /** Clock for broker-owned permission deadlines. Defaults to wall-clock. */
+  now?: (() => Date) | undefined
 }
 
 export interface InvocationManager {
@@ -156,12 +198,14 @@ export interface InvocationManager {
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   status(invocationId: InvocationId): InvocationStatusResponse
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
+  permissionRespond(req: InvocationPermissionRespondRequest): InvocationPermissionRespondResponse
   get(invocationId: InvocationId): Invocation | undefined
   activeCount(): number
 }
 
 export function createInvocationManager(options: InvocationManagerOptions): InvocationManager {
   const { sequencer, onEvent, getClientCapabilities = () => ({}), onPermissionRequest } = options
+  const now = options.now ?? (() => new Date())
   const maxQueueDepth = options.maxInputQueueDepth ?? DEFAULT_MAX_INPUT_QUEUE_DEPTH
   const invocations = new Map<string, Invocation>()
 
@@ -425,6 +469,76 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     })
   }
 
+  // ---------------------------------------------------------------------------
+  // Broker-owned permission lifecycle (C2)
+  // ---------------------------------------------------------------------------
+  /**
+   * Register a broker-owned pending permission request and return a promise that
+   * resolves with the FINAL decision. Unlike the JSON-RPC request promise, this
+   * pending state is broker-held: it survives controller disconnect and is
+   * retained until an absolute `deadlineAt`. It settles exactly once — by the
+   * connected client's response (`user`), a reconnected controller's respond
+   * (`user`), or deadline expiry applying `defaultDecision` (`timeout`). The
+   * `permission.resolved` audit event is emitted on settlement. A failed/closed
+   * broker→client request does NOT settle the pending request; it stays pending
+   * until the deadline or a respond.
+   */
+  function brokerRequestPermission(
+    inv: Invocation,
+    params: PermissionRequestParams
+  ): Promise<PermissionDecision> {
+    const defaultDecision = params.defaultDecision
+    const timeoutMs = params.deadlineMs ?? DEFAULT_PERMISSION_TIMEOUT_MS
+    const deadlineAt = new Date(now().getTime() + timeoutMs).toISOString()
+    const extra = {
+      ...(params.turnId !== undefined ? { turnId: params.turnId } : {}),
+      ...(inv.currentInputId !== undefined ? { inputId: inv.currentInputId } : {}),
+    }
+
+    return new Promise<PermissionDecision>((resolveDriver) => {
+      let settled = false
+
+      const settle = (decision: 'allow' | 'deny', decidedBy: PermissionDecidedBy): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        inv.pendingPermissions.delete(params.permissionRequestId)
+        inv.settledPermissions.set(params.permissionRequestId, {
+          decision,
+          expired: decidedBy === 'timeout',
+        })
+        emit(
+          inv,
+          'permission.resolved',
+          { permissionRequestId: params.permissionRequestId, decision, decidedBy },
+          extra
+        )
+        resolveDriver({ decision })
+      }
+
+      // setTimeout/onPermissionRequest are async, so `timer` is always assigned
+      // before `settle` (which reads it) can run.
+      const timer = setTimeout(() => settle(defaultDecision, 'timeout'), timeoutMs)
+
+      inv.pendingPermissions.set(params.permissionRequestId, {
+        params,
+        defaultDecision,
+        deadlineAt,
+        settle,
+      })
+
+      // Ask the connected controller. A response settles by `user`; a rejection
+      // (controller disconnect / handler error) is intentionally ignored so the
+      // request stays pending until the deadline or a reconnect respond.
+      if (onPermissionRequest !== undefined) {
+        onPermissionRequest(params).then(
+          (decision) => settle(decision.decision === 'allow' ? 'allow' : 'deny', 'user'),
+          () => {}
+        )
+      }
+    })
+  }
+
   return {
     async start(
       spec: HarnessInvocationSpec,
@@ -478,6 +592,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         pending: [],
         inputCounter: 0,
         inputDispositions: new Map(),
+        pendingPermissions: new Map(),
+        settledPermissions: new Map(),
       }
       invocations.set(invocationId, inv)
 
@@ -494,7 +610,14 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           return emit(inv, type, payload, extra)
         },
         ...(onPermissionRequest !== undefined
-          ? { requestPermission: (params) => onPermissionRequest(params) }
+          ? {
+              // Broker-owned permission lifecycle (C2): the driver hands the
+              // request to the broker, which holds it until an absolute
+              // deadline, survives controller disconnect, emits
+              // permission.resolved, and returns the final decision.
+              requestPermission: (params) => brokerRequestPermission(inv, params),
+              brokerOwnsPermissionLifecycle: true,
+            }
           : {}),
       }
 
@@ -762,6 +885,61 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       emit(inv, 'invocation.disposed', { disposed: true })
 
       return { disposed: true }
+    },
+
+    permissionRespond(
+      req: InvocationPermissionRespondRequest
+    ): InvocationPermissionRespondResponse {
+      const inv = requireInvocation(req.invocationId)
+
+      const pending = inv.pendingPermissions.get(req.permissionRequestId)
+      if (pending !== undefined) {
+        // Settle the broker-owned pending request: emits permission.resolved and
+        // resolves the driver's awaiting decision.
+        pending.settle(req.decision, 'user')
+        return {
+          status: 'accepted',
+          permissionRequestId: req.permissionRequestId,
+          decision: req.decision,
+        }
+      }
+
+      const settled = inv.settledPermissions.get(req.permissionRequestId)
+      if (settled === undefined) {
+        throw new BrokerError(
+          BrokerErrorCode.UnknownPermissionRequest,
+          `Unknown permission request: ${req.permissionRequestId}`,
+          { invocationId: req.invocationId, permissionRequestId: req.permissionRequestId }
+        )
+      }
+
+      // Settled by deadline expiry — a respond can no longer take effect.
+      if (settled.expired) {
+        throw new BrokerError(
+          BrokerErrorCode.PermissionResponseExpired,
+          `Permission request already expired: ${req.permissionRequestId}`,
+          { invocationId: req.invocationId, permissionRequestId: req.permissionRequestId }
+        )
+      }
+
+      // Already answered: replay the original decision, or conflict on a mismatch.
+      if (settled.decision === req.decision) {
+        return {
+          status: 'duplicate',
+          permissionRequestId: req.permissionRequestId,
+          originalDecision: settled.decision,
+        }
+      }
+      throw new BrokerError(
+        BrokerErrorCode.PermissionResponseConflict,
+        `Permission request already decided ${settled.decision}; cannot change to ${req.decision}`,
+        {
+          invocationId: req.invocationId,
+          permissionRequestId: req.permissionRequestId,
+          originalDecision: settled.decision,
+          attemptedDecision: req.decision,
+        }
+      )
     },
 
     get(invocationId: InvocationId): Invocation | undefined {

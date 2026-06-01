@@ -19,6 +19,8 @@ import type {
   InvocationInputResponse,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationPermissionRespondRequest,
+  InvocationPermissionRespondResponse,
   InvocationRuntimeContext,
   InvocationSnapshot,
   InvocationSnapshotRequest,
@@ -220,6 +222,18 @@ export class BrokerClient {
 
   snapshot(req: InvocationSnapshotRequest): Promise<InvocationSnapshot> {
     return this.#transport.request('invocation.snapshot', req)
+  }
+
+  /**
+   * Settle a broker-owned pending permission request by permissionRequestId
+   * (C2). Idempotent: a duplicate same-decision response replays the original
+   * result; a different decision rejects with PermissionResponseConflict; an
+   * expired or unknown id rejects with the corresponding Phase A error code.
+   */
+  permissionRespond(
+    req: InvocationPermissionRespondRequest
+  ): Promise<InvocationPermissionRespondResponse> {
+    return this.#transport.request('invocation.permission.respond', req)
   }
 
   onPermissionRequest(handler: PermissionRequestHandler): void {

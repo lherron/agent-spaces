@@ -48,6 +48,18 @@ export interface InvocationSnapshotRequest {
   invocationId: InvocationId
 }
 
+/**
+ * A broker-owned pending permission request as surfaced in an
+ * {@link InvocationSnapshot}. Extends the broker→client request params with the
+ * ABSOLUTE deadline (`deadlineAt`) the broker will apply `defaultDecision` at —
+ * so a reconnecting controller can render the remaining time without depending
+ * on the relative `deadlineMs` from request time.
+ */
+export interface PendingPermissionRequest extends PermissionRequestParams {
+  /** Absolute ISO-8601 instant after which the broker settles by defaultDecision. */
+  deadlineAt: string
+}
+
 export interface InvocationSnapshot {
   invocationId: InvocationId
   state: InvocationState
@@ -56,7 +68,7 @@ export interface InvocationSnapshot {
   capabilities: InvocationCapabilities
   pendingInputIds: InputId[]
   inputDispositions: Record<string, InvocationInputResponse>
-  pendingPermissionRequests: PermissionRequestParams[]
+  pendingPermissionRequests: PendingPermissionRequest[]
   terminalSurface?: BrokerTerminalSurfaceReport | undefined
   process?:
     | {

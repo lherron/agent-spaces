@@ -72,6 +72,17 @@ export interface DriverContext {
    * that have no client to ask.
    */
   requestPermission?(params: PermissionRequestParams): Promise<PermissionDecision>
+  /**
+   * True when the broker owns the permission-request lifecycle (C2): pending
+   * state is broker-held until an absolute deadline, survives controller
+   * disconnect, and the broker emits `permission.resolved` and applies the
+   * timeout default. In this mode the driver emits `permission.requested`, then
+   * awaits {@link requestPermission} for the FINAL decision WITHOUT imposing its
+   * own timeout or emitting `permission.resolved`. When false/absent (e.g. the
+   * isolated driver unit harness) the driver owns the timeout and emits the
+   * resolution itself.
+   */
+  brokerOwnsPermissionLifecycle?: boolean | undefined
 }
 
 export interface DriverStartResult {
