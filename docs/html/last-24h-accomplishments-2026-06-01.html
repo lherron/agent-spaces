@@ -1,0 +1,1230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Praesidium 24h Accomplishments - 2026-06-01</title>
+    <style>
+      :root {
+        --bg: #f6f8f7;
+        --paper: #ffffff;
+        --ink: #111615;
+        --muted: #59615e;
+        --quiet: #7c8581;
+        --line: #d8dfdb;
+        --line-strong: #a9b5af;
+        --field: #eef3f0;
+        --asp: #a53d36;
+        --asp-soft: #fde8e4;
+        --hrc: #146f64;
+        --hrc-soft: #ddf2ec;
+        --acp: #6c58a8;
+        --acp-soft: #ece8fb;
+        --tools: #9b6b00;
+        --tools-soft: #fff0c8;
+        --risk: #b42f4a;
+        --risk-soft: #ffe4eb;
+        --ok: #23734c;
+        --ok-soft: #e1f3e8;
+        --shadow: 0 18px 42px rgba(21, 27, 24, 0.08);
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        --sans: "Avenir Next", "Gill Sans", "Trebuchet MS", Verdana, sans-serif;
+        --serif: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      html,
+      body {
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(90deg, rgba(17, 22, 21, 0.035) 1px, transparent 1px) 0 0 / 34px 34px,
+          linear-gradient(0deg, rgba(17, 22, 21, 0.026) 1px, transparent 1px) 0 0 / 34px 34px,
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      a {
+        color: var(--hrc);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+      }
+
+      .page {
+        display: grid;
+        grid-template-columns: 292px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        height: 100vh;
+        overflow: auto;
+        border-right: 1px solid var(--line);
+        background: rgba(246, 248, 247, 0.95);
+        backdrop-filter: blur(12px);
+        padding: 26px 20px;
+      }
+
+      .brand {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 22px;
+      }
+
+      .kicker,
+      .eyebrow,
+      .metric-label,
+      .tag,
+      .nav a,
+      .record-meta,
+      .axis-label,
+      .footer {
+        font-family: var(--mono);
+        letter-spacing: 0.055em;
+        text-transform: uppercase;
+      }
+
+      .kicker {
+        color: var(--asp);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: 29px;
+        line-height: 1.04;
+        letter-spacing: 0;
+      }
+
+      .brand p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .nav {
+        display: grid;
+        gap: 7px;
+        margin: 22px 0;
+      }
+
+      .nav a {
+        display: block;
+        border-left: 3px solid transparent;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.25;
+        padding: 7px 9px;
+        text-decoration: none;
+      }
+
+      .nav a:hover,
+      .nav a:focus {
+        border-left-color: var(--hrc);
+        background: var(--field);
+        color: var(--ink);
+      }
+
+      .sidebar-note {
+        border-top: 1px solid var(--line);
+        padding-top: 16px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      main {
+        min-width: 0;
+      }
+
+      .hero {
+        padding: 46px min(5vw, 64px) 34px;
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(90deg, rgba(20, 111, 100, 0.12), transparent 42%),
+          var(--paper);
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+        gap: 32px;
+        align-items: start;
+        max-width: 1180px;
+      }
+
+      .eyebrow {
+        color: var(--hrc);
+        font-size: 12px;
+        font-weight: 900;
+        margin-bottom: 12px;
+      }
+
+      .hero h2 {
+        margin: 0;
+        max-width: 760px;
+        font-family: var(--serif);
+        font-size: clamp(38px, 5.4vw, 74px);
+        line-height: 0.98;
+        letter-spacing: 0;
+      }
+
+      .thesis {
+        max-width: 720px;
+        margin: 20px 0 0;
+        color: var(--muted);
+        font-size: clamp(17px, 1.7vw, 21px);
+        line-height: 1.45;
+      }
+
+      .scorecard {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .metric {
+        min-width: 0;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: var(--shadow);
+        padding: 16px;
+      }
+
+      .metric-value {
+        display: block;
+        font-family: var(--serif);
+        font-size: 44px;
+        font-weight: 700;
+        line-height: 0.95;
+      }
+
+      .metric-label {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .content {
+        display: grid;
+        gap: 42px;
+        max-width: 1180px;
+        padding: 42px min(5vw, 64px) 56px;
+      }
+
+      section {
+        min-width: 0;
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 0.72fr) minmax(280px, 0.5fr);
+        gap: 28px;
+        align-items: end;
+        margin-bottom: 18px;
+      }
+
+      .section-head h2 {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: clamp(28px, 3vw, 42px);
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      .section-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .brief {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.42fr);
+        gap: 16px;
+      }
+
+      .takeaway {
+        border: 1px solid var(--line-strong);
+        background: var(--paper);
+        padding: 22px;
+        box-shadow: var(--shadow);
+      }
+
+      .takeaway h3,
+      .callout h3,
+      .lane h3,
+      .record h3,
+      .status-card h3 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.2;
+      }
+
+      .takeaway p,
+      .callout p,
+      .lane p,
+      .record p,
+      .status-card p {
+        margin: 10px 0 0;
+        color: var(--muted);
+      }
+
+      .takeaway-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .mini-stat {
+        border-top: 4px solid var(--hrc);
+        background: var(--field);
+        padding: 13px;
+      }
+
+      .mini-stat strong {
+        display: block;
+        font-family: var(--serif);
+        font-size: 28px;
+        line-height: 1;
+      }
+
+      .mini-stat span {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .callout {
+        border: 1px solid var(--line);
+        background: var(--field);
+        padding: 18px;
+      }
+
+      .callout.warn {
+        border-color: rgba(180, 47, 74, 0.42);
+        background: var(--risk-soft);
+      }
+
+      .callout.ok {
+        border-color: rgba(35, 115, 76, 0.42);
+        background: var(--ok-soft);
+      }
+
+      .workstream-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .lane {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        min-width: 0;
+        border: 1px solid var(--line);
+        background: var(--paper);
+        padding: 18px;
+      }
+
+      .lane.asp {
+        border-top: 6px solid var(--asp);
+      }
+
+      .lane.hrc {
+        border-top: 6px solid var(--hrc);
+      }
+
+      .lane.acp {
+        border-top: 6px solid var(--acp);
+      }
+
+      .lane.tools {
+        border-top: 6px solid var(--tools);
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
+        border: 1px solid var(--line);
+        background: var(--field);
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 800;
+        padding: 3px 7px;
+        white-space: nowrap;
+      }
+
+      .tag.asp {
+        background: var(--asp-soft);
+        border-color: rgba(165, 61, 54, 0.28);
+        color: var(--asp);
+      }
+
+      .tag.hrc {
+        background: var(--hrc-soft);
+        border-color: rgba(20, 111, 100, 0.28);
+        color: var(--hrc);
+      }
+
+      .tag.acp {
+        background: var(--acp-soft);
+        border-color: rgba(108, 88, 168, 0.28);
+        color: var(--acp);
+      }
+
+      .tag.tools {
+        background: var(--tools-soft);
+        border-color: rgba(155, 107, 0, 0.28);
+        color: var(--tools);
+      }
+
+      .lane-list {
+        display: grid;
+        gap: 9px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .lane-list li {
+        border-left: 3px solid var(--line-strong);
+        color: var(--muted);
+        font-size: 14px;
+        padding-left: 10px;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .flow-step {
+        position: relative;
+        min-width: 0;
+        border: 1px solid var(--line);
+        background: var(--paper);
+        padding: 14px;
+      }
+
+      .flow-step::before {
+        content: "";
+        display: block;
+        width: 14px;
+        height: 14px;
+        margin-bottom: 10px;
+        background: var(--asp);
+        transform: rotate(45deg);
+      }
+
+      .flow-step:nth-child(2)::before,
+      .flow-step:nth-child(3)::before,
+      .flow-step:nth-child(4)::before {
+        background: var(--hrc);
+      }
+
+      .flow-step:nth-child(5)::before {
+        background: var(--acp);
+      }
+
+      .flow-step:nth-child(6)::before {
+        background: var(--tools);
+      }
+
+      .flow-step strong {
+        display: block;
+        font-size: 15px;
+        line-height: 1.2;
+      }
+
+      .flow-step span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .records {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .record {
+        display: grid;
+        grid-template-columns: minmax(92px, 0.24fr) minmax(0, 1fr);
+        gap: 14px;
+        min-width: 0;
+        border: 1px solid var(--line);
+        background: var(--paper);
+        padding: 16px;
+      }
+
+      .record-meta {
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .record-id {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 900;
+        letter-spacing: 0;
+      }
+
+      .record h3 {
+        font-size: 16px;
+      }
+
+      .record p {
+        font-size: 14px;
+      }
+
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .status-card {
+        min-width: 0;
+        border: 1px solid var(--line);
+        background: var(--paper);
+        padding: 18px;
+      }
+
+      .status-card.clean {
+        border-top: 6px solid var(--ok);
+      }
+
+      .status-card.pending {
+        border-top: 6px solid var(--tools);
+      }
+
+      .status-card.risk {
+        border-top: 6px solid var(--risk);
+      }
+
+      .status-list {
+        display: grid;
+        gap: 10px;
+        margin: 14px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .status-list li {
+        display: grid;
+        grid-template-columns: 86px minmax(0, 1fr);
+        gap: 10px;
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .repo-name {
+        color: var(--ink);
+        font-family: var(--mono);
+        font-weight: 800;
+        overflow-wrap: anywhere;
+      }
+
+      .evidence {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 0.48fr);
+        gap: 14px;
+      }
+
+      .check-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .check {
+        border: 1px solid rgba(35, 115, 76, 0.3);
+        background: var(--ok-soft);
+        padding: 14px;
+      }
+
+      .check strong {
+        display: block;
+      }
+
+      .check span {
+        display: block;
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .axis {
+        display: grid;
+        gap: 9px;
+        border: 1px solid var(--line);
+        background: var(--paper);
+        padding: 16px;
+      }
+
+      .axis-row {
+        display: grid;
+        grid-template-columns: 100px minmax(0, 1fr) 70px;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .axis-label {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 800;
+      }
+
+      .bar {
+        height: 14px;
+        background: var(--field);
+        border: 1px solid var(--line);
+      }
+
+      .bar span {
+        display: block;
+        height: 100%;
+      }
+
+      .bar.asp span {
+        width: 56%;
+        background: var(--asp);
+      }
+
+      .bar.hrc span {
+        width: 68%;
+        background: var(--hrc);
+      }
+
+      .bar.acp span {
+        width: 8%;
+        background: var(--acp);
+      }
+
+      .bar.tools span {
+        width: 12%;
+        background: var(--tools);
+      }
+
+      .axis-count {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 800;
+        text-align: right;
+      }
+
+      .footer {
+        border-top: 1px solid var(--line);
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 800;
+        padding: 18px min(5vw, 64px) 30px;
+      }
+
+      @media (max-width: 1120px) {
+        .page {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: relative;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .nav {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .hero-grid,
+        .brief,
+        .evidence {
+          grid-template-columns: 1fr;
+        }
+
+        .workstream-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .flow {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        body {
+          font-size: 15px;
+        }
+
+        .sidebar,
+        .hero,
+        .content,
+        .footer {
+          padding-left: 18px;
+          padding-right: 18px;
+        }
+
+        .sidebar {
+          padding-top: 16px;
+          padding-bottom: 14px;
+        }
+
+        .brand {
+          margin-bottom: 0;
+        }
+
+        .brand h1 {
+          font-size: 26px;
+        }
+
+        .brand p {
+          font-size: 13px;
+        }
+
+        .nav,
+        .sidebar-note {
+          display: none;
+        }
+
+        .nav,
+        .scorecard,
+        .takeaway-grid,
+        .workstream-grid,
+        .flow,
+        .records,
+        .status-grid,
+        .check-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .section-head {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+
+        .hero-grid {
+          gap: 22px;
+        }
+
+        .hero h2 {
+          font-size: clamp(36px, 12vw, 54px);
+        }
+
+        .record,
+        .status-list li,
+        .axis-row {
+          grid-template-columns: 1fr;
+        }
+
+        .axis-count {
+          text-align: left;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar" aria-label="Page navigation">
+        <div class="brand">
+          <div class="kicker">Praesidium brief</div>
+          <h1>Last 24 Hours</h1>
+          <p>Git history, completed wrkq tasks, and visible working-tree state.</p>
+        </div>
+        <nav class="nav" aria-label="Sections">
+          <a href="#at-a-glance">At a Glance</a>
+          <a href="#workstreams">Workstreams</a>
+          <a href="#sequence">Delivery Sequence</a>
+          <a href="#tasks">Completed Tasks</a>
+          <a href="#validation">Validation</a>
+          <a href="#open-state">Open State</a>
+        </nav>
+        <div class="sidebar-note">
+          <strong>Window:</strong><br />
+          2026-05-31 08:28 CDT through 2026-06-01 08:28 CDT.
+        </div>
+      </aside>
+
+      <main>
+        <header class="hero">
+          <div class="hero-grid">
+            <div>
+              <div class="eyebrow">System progress summary</div>
+              <h2>Broker durability moved from proposal to tested control plane.</h2>
+              <p class="thesis">
+                The day centered on finishing the ASP Unix IPC durability stack,
+                cutting HRC over to broker-managed sessions, and carrying lifecycle
+                semantics through persistence, projection, and reconciliation.
+              </p>
+            </div>
+            <div class="scorecard" aria-label="Summary metrics">
+              <div class="metric">
+                <span class="metric-value">37</span>
+                <span class="metric-label">commits found</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value">23</span>
+                <span class="metric-label">completed wrkq tasks</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value">5</span>
+                <span class="metric-label">repos with commits</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value">0</span>
+                <span class="metric-label">agent-spaces dirty files</span>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div class="content">
+          <section id="at-a-glance" aria-labelledby="at-a-glance-title">
+            <div class="section-head">
+              <h2 id="at-a-glance-title">At a Glance</h2>
+              <p>
+                The useful read is not raw commit volume. It is the system shape that
+                emerged: ASP owns a durable broker protocol; HRC consumes it as the
+                runtime control plane; ACP/Discord can keep users attached to active runs.
+              </p>
+            </div>
+
+            <div class="brief">
+              <article class="takeaway">
+                <h3>Main outcome</h3>
+                <p>
+                  Broker IPC durability is now exercised by a Unix-socket matrix row,
+                  with attach, replay, idempotent input, pending permission recovery,
+                  and process-survival checks running through the same event floor as
+                  stdio rows.
+                </p>
+                <div class="takeaway-grid" aria-label="Repository change volume">
+                  <div class="mini-stat">
+                    <strong>15</strong>
+                    <span>agent-spaces commits, 77 files, +10603/-2340</span>
+                  </div>
+                  <div class="mini-stat">
+                    <strong>18</strong>
+                    <span>hrc-runtime commits, 52 files, +7038/-4988</span>
+                  </div>
+                  <div class="mini-stat">
+                    <strong>4</strong>
+                    <span>support commits across ACP, wrkq, spaces-repo</span>
+                  </div>
+                </div>
+              </article>
+
+              <aside class="callout ok">
+                <h3>Best evidence</h3>
+                <p>
+                  Task closures record ASP IPC suite acceptance at 409 pass / 0 fail
+                  and a green <code>unix-jsonrpc-ndjson</code> matrix row. HRC cutover
+                  was validated with installed service smoke for real headless and
+                  interactive broker starts.
+                </p>
+              </aside>
+            </div>
+          </section>
+
+          <section id="workstreams" aria-labelledby="workstreams-title">
+            <div class="section-head">
+              <h2 id="workstreams-title">Four Workstreams Landed Together</h2>
+              <p>
+                The day was not one monolithic change. It was four interlocking tracks
+                that made broker-managed sessions durable enough to survive real service
+                lifecycle events.
+              </p>
+            </div>
+
+            <div class="workstream-grid">
+              <article class="lane asp">
+                <div class="tag-row">
+                  <span class="tag asp">ASP</span>
+                  <span class="tag">Protocol</span>
+                  <span class="tag">IPC</span>
+                </div>
+                <h3>Unix broker control plane</h3>
+                <p>
+                  Added protocol v2 contracts, Unix JSON-RPC NDJSON transport,
+                  durable ledger/replay, permission reconnect, and hook-socket scoping.
+                </p>
+                <ul class="lane-list">
+                  <li>Protocol v2, snapshot, attach, replay, permission response.</li>
+                  <li>Broker-owned pending permission lifecycle with deadline state.</li>
+                  <li>Per-runtime hook sockets and identity fencing for tmux drivers.</li>
+                </ul>
+              </article>
+
+              <article class="lane hrc">
+                <div class="tag-row">
+                  <span class="tag hrc">HRC</span>
+                  <span class="tag">Cutover</span>
+                  <span class="tag">Runtime</span>
+                </div>
+                <h3>Broker-only runtime admission</h3>
+                <p>
+                  Legacy fallback paths were removed or fail-closed, with headless and
+                  interactive starts routed through HarnessBrokerController.
+                </p>
+                <ul class="lane-list">
+                  <li>Non-broker live runtimes are not reused for harness input.</li>
+                  <li>Legacy startup sweep preserves broker runtimes and stales legacy ones.</li>
+                  <li>Production references to the old exec launch surface were removed.</li>
+                </ul>
+              </article>
+
+              <article class="lane hrc">
+                <div class="tag-row">
+                  <span class="tag hrc">HRC</span>
+                  <span class="tag">Lifecycle</span>
+                  <span class="tag">Projection</span>
+                </div>
+                <h3>Lifecycle semantics became persistent</h3>
+                <p>
+                  HRC now stores lifecycle policy audit material, dispatches overlays
+                  outside compiler hashes, projects lifecycle events, and reconciles by
+                  persisted terminal reason.
+                </p>
+                <ul class="lane-list">
+                  <li>Migrations 0019-0021 and generation-aware permission identities.</li>
+                  <li>Hash-invariance guard: lifecycle policy stays outside startRequestHash.</li>
+                  <li>Stale generation/attempt events are retained as evidence, not active state.</li>
+                </ul>
+              </article>
+
+              <article class="lane acp">
+                <div class="tag-row">
+                  <span class="tag acp">ACP</span>
+                  <span class="tag">Discord</span>
+                  <span class="tag tools">Tools</span>
+                </div>
+                <h3>User-facing run continuity improved</h3>
+                <p>
+                  Discord can render AskUserQuestion prompts and route replies into
+                  the active run. Tooling updates reduced friction in wrkq and spaces.
+                </p>
+                <ul class="lane-list">
+                  <li>Replies steer into active paused runs instead of spawning new runs.</li>
+                  <li><code>wrkq</code> accepts bare numbers like <code>1454</code> as <code>T-01454</code>.</li>
+                  <li>spaces-repo was restructured around current agent/skill usage.</li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section id="sequence" aria-labelledby="sequence-title">
+            <div class="section-head">
+              <h2 id="sequence-title">Delivery Sequence</h2>
+              <p>
+                The core arc started with lifecycle documents and contracts, then moved
+                through HRC cutover and finally into ASP Unix IPC durability phases.
+              </p>
+            </div>
+
+            <div class="flow" aria-label="Condensed delivery timeline">
+              <div class="flow-step">
+                <strong>Lifecycle brief</strong>
+                <span>Refresh proposal docs and HTML reference for lifecycle contract v2.</span>
+              </div>
+              <div class="flow-step">
+                <strong>ASPC facade path</strong>
+                <span>Move HRC broker compile through ASPC JSON-RPC facade.</span>
+              </div>
+              <div class="flow-step">
+                <strong>Broker cutover</strong>
+                <span>Fail closed, route starts through broker, remove exec production path.</span>
+              </div>
+              <div class="flow-step">
+                <strong>Lifecycle HRC</strong>
+                <span>Persist, dispatch, project, fence, and reconcile lifecycle events.</span>
+              </div>
+              <div class="flow-step">
+                <strong>Discord continuity</strong>
+                <span>Render questions and steer answers into active runs.</span>
+              </div>
+              <div class="flow-step">
+                <strong>ASP IPC A-E</strong>
+                <span>Protocol, Unix transport, durability, hooks, and e2e matrix row.</span>
+              </div>
+            </div>
+          </section>
+
+          <section id="tasks" aria-labelledby="tasks-title">
+            <div class="section-head">
+              <h2 id="tasks-title">Completed wrkq Work</h2>
+              <p>
+                These are the completed tasks updated in the 24-hour window. They are
+                grouped by owning repo because the architecture boundary matters.
+              </p>
+            </div>
+
+            <div class="records" aria-label="Completed task records">
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01791</span>agent-spaces</div>
+                <div>
+                  <h3>Protocol v2 contract + runtime-state union</h3>
+                  <p>Defined attach/replay/snapshot/permission contracts and runtime-state metadata for durable Unix broker endpoints.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01792</span>agent-spaces</div>
+                <div>
+                  <h3>Transport split + Unix socket server/client</h3>
+                  <p>Added long-lived Unix transport, client connectUnix path, socket path guards, and stdio-compatible transport abstraction.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01793</span>agent-spaces</div>
+                <div>
+                  <h3>Broker durability C1</h3>
+                  <p>Implemented event ledger, attach fencing, replay, snapshot, ack, and inputId idempotency.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01796</span>agent-spaces</div>
+                <div>
+                  <h3>Permission reconnect C2</h3>
+                  <p>Moved pending permission lifecycle into the broker, with deadline snapshots and idempotent permission.respond.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01794</span>agent-spaces</div>
+                <div>
+                  <h3>Driver / hook-socket runtime scoping</h3>
+                  <p>Scoped hook sockets per runtime/invocation and fenced mismatched durable hook envelopes.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01795</span>agent-spaces</div>
+                <div>
+                  <h3>Pre-HRC Unix-socket e2e row</h3>
+                  <p>Added the matrix row proving attach/replay, idempotency, pending permission reconnect, and broker process survival.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01777</span>agent-spaces</div>
+                <div>
+                  <h3>ASP broker lifecycle dispatch contract</h3>
+                  <p>Closed ASP-owned lifecycle DTOs, broker validation, client overlay support, route baselines, and smoke coverage.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01753</span>hrc-runtime</div>
+                <div>
+                  <h3>Final cutover to harness broker sessions</h3>
+                  <p>Completed the broker-only runtime path across fail-closed admission, ensure/attach, start, relaunch, and startup sweep.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01764</span>hrc-runtime</div>
+                <div>
+                  <h3>HRC compile path to ASPC facade</h3>
+                  <p>Compiled broker runtime plans through the ASPC JSON-RPC facade and reused facade broker clients through controller start/control.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01772</span>hrc-runtime</div>
+                <div>
+                  <h3>Discord follow-up turns and questions</h3>
+                  <p>Validated active-run steering for AskUserQuestion replies, multi-message progress, tool calls, and overflow handling.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01786</span>hrc-runtime</div>
+                <div>
+                  <h3>Lifecycle persistence foundation</h3>
+                  <p>Added lifecycle policies, runtime/invocation state columns, and generation-aware permission decision identity.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01787</span>hrc-runtime</div>
+                <div>
+                  <h3>Route lifecycle overlay assembly</h3>
+                  <p>Materialized conservative overlays for broker routes while keeping lifecycle data outside compiler closure hashes.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01788</span>hrc-runtime</div>
+                <div>
+                  <h3>Lifecycle projection + fencing</h3>
+                  <p>Projected lifecycle vocabulary, fenced stale generations/attempts, and persisted lifecycle terminal reasons.</p>
+                </div>
+              </article>
+              <article class="record">
+                <div class="record-meta"><span class="record-id">T-01789</span>hrc-runtime</div>
+                <div>
+                  <h3>Reconciliation ordering</h3>
+                  <p>Made broker-tmux liveness reconciliation defer to persisted lifecycle terminal reasons before synthesizing stale causes.</p>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="validation" aria-labelledby="validation-title">
+            <div class="section-head">
+              <h2 id="validation-title">Validation Evidence</h2>
+              <p>
+                The closure notes distinguish real acceptance from known host issues.
+                The strongest signal is installed-service smoke plus matrix and suite
+                coverage on the paths that changed.
+              </p>
+            </div>
+
+            <div class="evidence">
+              <div class="check-grid">
+                <div class="check">
+                  <strong>ASP IPC stack</strong>
+                  <span>409 pass / 0 fail across harness-broker protocol, broker, client, and runtime-contract packages.</span>
+                </div>
+                <div class="check">
+                  <strong>Unix matrix row</strong>
+                  <span><code>unix-jsonrpc-ndjson</code> independently reverified green with floor=0, contract=0, extra=0.</span>
+                </div>
+                <div class="check">
+                  <strong>HRC cutover</strong>
+                  <span>Installed HRC restart smoke proved interactive broker turn and headless Codex broker start without exec artifacts.</span>
+                </div>
+                <div class="check">
+                  <strong>Discord route</strong>
+                  <span>Virtu matrix covered multi-message turns, AskUserQuestion answer routing, post-question follow-up, and overflow rendering.</span>
+                </div>
+              </div>
+
+              <aside class="callout warn">
+                <h3>Known caveats</h3>
+                <p>
+                  Ghostmux/libghostty surface failures and a tmux enter=false flake
+                  remained environmental. The completed tasks explicitly separated
+                  those from the feature gates they were validating.
+                </p>
+              </aside>
+            </div>
+          </section>
+
+          <section id="open-state" aria-labelledby="open-state-title">
+            <div class="section-head">
+              <h2 id="open-state-title">State Still Visible After the Window</h2>
+              <p>
+                This separates accomplishment from repo hygiene. The main
+                <code>agent-spaces</code> worktree is clean, but related repos have
+                unpushed or uncommitted follow-through.
+              </p>
+            </div>
+
+            <div class="status-grid">
+              <article class="status-card clean">
+                <h3>Clean / committed</h3>
+                <ul class="status-list">
+                  <li><span class="repo-name">agent-spaces</span><span>Clean on <code>main</code>; 15 commits in window.</span></li>
+                  <li><span class="repo-name">spaces-repo</span><span>Clean after space restructuring commit.</span></li>
+                </ul>
+              </article>
+
+              <article class="status-card pending">
+                <h3>Needs commit or push</h3>
+                <ul class="status-list">
+                  <li><span class="repo-name">hrc-runtime</span><span>Ahead of origin by 9 commits; has uncommitted ASP package pin bump and <code>broker-ipc-proposal.md</code>.</span></li>
+                  <li><span class="repo-name">agent-control-plane</span><span>Uncommitted dependency sync and expanded HRC package sync script.</span></li>
+                  <li><span class="repo-name">wrkq</span><span>Untracked <code>always-clod.sh</code> helper script.</span></li>
+                </ul>
+              </article>
+
+              <article class="status-card risk">
+                <h3>Tracking mismatch</h3>
+                <ul class="status-list">
+                  <li><span class="repo-name">T-01790</span><span>Parent task remains open even though its children and closure comment say all ASP IPC phases are complete.</span></li>
+                  <li><span class="repo-name">host flakes</span><span>Ghostmux GPU surface and real-codex-tmux zero-event issues are side defects, not closed by this work.</span></li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section id="commit-shape" aria-labelledby="commit-shape-title">
+            <div class="section-head">
+              <h2 id="commit-shape-title">Commit Shape</h2>
+              <p>
+                The visual distribution matches the task distribution: most code
+                landed in ASP and HRC, with supporting commits in user-facing and
+                tooling repos.
+              </p>
+            </div>
+
+            <div class="axis" aria-label="Commit counts by repo group">
+              <div class="axis-row">
+                <span class="axis-label">agent-spaces</span>
+                <span class="bar asp"><span></span></span>
+                <span class="axis-count">15</span>
+              </div>
+              <div class="axis-row">
+                <span class="axis-label">hrc-runtime</span>
+                <span class="bar hrc"><span></span></span>
+                <span class="axis-count">18</span>
+              </div>
+              <div class="axis-row">
+                <span class="axis-label">acp</span>
+                <span class="bar acp"><span></span></span>
+                <span class="axis-count">1</span>
+              </div>
+              <div class="axis-row">
+                <span class="axis-label">tools/spaces</span>
+                <span class="bar tools"><span></span></span>
+                <span class="axis-count">3</span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="footer">
+          Source: generated from git history, completed wrkq tasks, and working-tree state for the 2026-05-31 08:28 CDT to 2026-06-01 08:28 CDT review window. No task state was changed.
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>
