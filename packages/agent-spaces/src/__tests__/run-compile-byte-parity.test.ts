@@ -183,6 +183,13 @@ function compileRequest(
       cwd: fixture.projectRoot,
       runMode: 'query',
       bundle: { kind: 'agent-project', agentName: AGENT_NAME, projectRoot: fixture.projectRoot },
+      correlation: {
+        sessionRef: {
+          scopeRef: `agent:${AGENT_NAME}:project:project:task:primary`,
+          laneRef: 'main',
+        },
+        hostSessionId: 'hostSession_parity',
+      },
     },
     requested: {
       modelProvider: testCase.provider,
@@ -192,7 +199,15 @@ function compileRequest(
       interactionMode: 'interactive',
       ...(controllerIntent !== undefined ? { controllerIntent } : {}),
     } as unknown as RuntimeCompileRequest['requested'],
-    materialization: {},
+    materialization: {
+      taskContext: {
+        taskId: 'primary',
+        phase: null,
+        role: 'asp-run',
+        requiredEvidenceKinds: [],
+        hintsText: '',
+      },
+    },
     hrcPolicy: {
       permissionPolicy: { mode: 'deny', audit: true },
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
@@ -378,9 +393,9 @@ describe('asp run <-> compiler foreground byte-parity', () => {
         expect(compiledArgv).toContain('--remote-control')
         expect(compiledArgv).toContain('--remote-control-session-name-prefix')
         expect(compiledArgv).toContain('--name')
-        // The session-name VALUE (`<targetName>-<project>`) is a launch-shape value
+        // The session-name VALUE (`<targetName>-<project>-<task>`) is a launch-shape value
         // and must match legacy exactly (NOT the materialized cache-dir name).
-        expect(compiledArgv).toContain('parityagent-project')
+        expect(compiledArgv).toContain('parityagent-project-primary')
         // Every legacy argv element is present, modulo the materialized bundle-root
         // path segment (the accepted, separately-tracked convergence follow-up that
         // line 341 also normalizes) — same normalization the byte-parity diff uses.

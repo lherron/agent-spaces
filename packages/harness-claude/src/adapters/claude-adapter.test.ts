@@ -694,6 +694,43 @@ paths = ["/var/log"]
       expect(args).toContain('hello')
     })
 
+    test('includes task id in remote-control session names', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'agent',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      const args = adapter.buildRunArgs(bundle, {
+        projectPath: '/work/project',
+        taskId: 'task',
+        remoteControl: true,
+      })
+
+      expect(args).toContain('--remote-control-session-name-prefix')
+      expect(args).toContain('--name')
+      expect(args).toContain('agent-project-task')
+    })
+
+    test('keeps remote-control prefix before agent-project-task name', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'agent',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      const args = adapter.buildRunArgs(bundle, {
+        projectPath: '/work/project',
+        taskId: 'task',
+        remoteControl: true,
+        sessionNamePrefix: 'dev',
+      })
+
+      expect(args).toContain('dev-agent-project-task')
+    })
+
     test('fresh launches include a generated session id and do not resume', () => {
       const bundle = {
         harnessId: 'claude' as const,

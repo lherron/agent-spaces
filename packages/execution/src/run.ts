@@ -223,6 +223,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const cliRunOptions: HarnessRunOptions = toHarnessRunOptions(options, {
     aspHome,
     projectPath: options.projectPath,
+    taskId,
     cwd: options.cwd,
     prompt: effectivePrompt,
   })
@@ -304,7 +305,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
               dryRun: options.dryRun === true,
               ...(options.env !== undefined ? { env: options.env } : {}),
             }
-      const scopeRef = `${targetName}@${projectId}${taskId ? `:${taskId}` : ''}`
+      const scopeRef = `agent:${targetName}:project:${projectId}${taskId ? `:task:${taskId}` : ''}`
       return {
         aspHome,
         harnessId,

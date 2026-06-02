@@ -541,7 +541,12 @@ function buildRemoteControlArgs(
   bundle: ComposedTargetBundle,
   options: HarnessRunOptions
 ): string[] {
-  const autoName = `${bundle.targetName}-${basename(options.projectPath ?? options.cwd ?? process.cwd())}`
+  const nameParts = [
+    bundle.targetName,
+    basename(options.projectPath ?? options.cwd ?? process.cwd()),
+    options.taskId,
+  ].filter((part): part is string => part !== undefined && part.length > 0)
+  const autoName = nameParts.join('-')
   const name = options.sessionNamePrefix ? `${options.sessionNamePrefix}-${autoName}` : autoName
   return ['--remote-control', '--remote-control-session-name-prefix', name, '--name', name]
 }

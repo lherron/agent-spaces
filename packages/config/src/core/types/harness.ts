@@ -440,6 +440,8 @@ export interface HarnessRunOptions {
   interactive?: boolean | undefined
   /** Project directory */
   projectPath?: string | undefined
+  /** Logical task id, used for session identity and display naming */
+  taskId?: string | undefined
   /** Working directory for harness execution */
   cwd?: string | undefined
   /** Initial prompt text for the harness session */

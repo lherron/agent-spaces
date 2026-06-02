@@ -91,6 +91,7 @@ export function toHarnessRunOptions(
   overrides: {
     aspHome: string
     projectPath: string | undefined
+    taskId?: string | undefined
     cwd: string | undefined
     prompt: string | undefined
   }
@@ -108,6 +109,7 @@ export function toHarnessRunOptions(
     yolo: options.yolo,
     debug: options.debug,
     projectPath: overrides.projectPath,
+    taskId: overrides.taskId,
     cwd: overrides.cwd,
     artifactDir: options.artifactDir,
     continuationKey: options.continuationKey,

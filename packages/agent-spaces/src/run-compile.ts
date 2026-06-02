@@ -13,6 +13,7 @@
 
 import { randomUUID } from 'node:crypto'
 
+import { resolveScopeInput } from 'agent-scope'
 import type { CompileRuntimeFn, RunCompilerDebugContext } from 'spaces-execution'
 import {
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
@@ -52,10 +53,33 @@ function normalizeReasoningEffort(
   return undefined
 }
 
+function taskContextFromScopeRef(
+  scopeRef: string
+): RuntimeCompileRequest['materialization']['taskContext'] {
+  let taskId: string | undefined
+  try {
+    taskId = resolveScopeInput(scopeRef).parsed.taskId
+  } catch {
+    return undefined
+  }
+  if (taskId === undefined) return undefined
+  return {
+    taskId,
+    phase: null,
+    role: 'asp-run',
+    requiredEvidenceKinds: [],
+    hintsText: '',
+  }
+}
+
 /** Build the real RuntimeCompileRequest from the run's compiler context. */
 function buildRunCompileRequest(context: RunCompilerDebugContext): RuntimeCompileRequest {
   const identity = allocateRunIdentity()
   const now = new Date().toISOString()
+  const taskContext =
+    context.correlation.scopeRef !== undefined
+      ? taskContextFromScopeRef(context.correlation.scopeRef)
+      : undefined
   const placement = {
     ...context.placement,
     correlation: {
@@ -92,6 +116,7 @@ function buildRunCompileRequest(context: RunCompilerDebugContext): RuntimeCompil
     },
     materialization: {
       initialPrompt: context.materialization.initialPrompt,
+      ...(taskContext !== undefined ? { taskContext } : {}),
       resolvedBundleHint: context.materialization
         .resolvedBundleHint as RuntimeCompileRequest['materialization']['resolvedBundleHint'],
     },
