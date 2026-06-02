@@ -8,11 +8,25 @@ import type {
   PermissionRequest,
   PromptOptions,
   SessionMetadataSnapshot,
-  ToolResult,
   UnifiedSession,
   UnifiedSessionEvent,
   UnifiedSessionState,
 } from 'spaces-runtime'
+import { toError } from '../errors.js'
+import {
+  type AgentMessageDeltaNotification,
+  type CodexThreadItem,
+  type CommandExecutionOutputDeltaNotification,
+  type ErrorNotification,
+  type FileChangeOutputDeltaNotification,
+  type ItemCompletedNotification,
+  type ItemStartedNotification,
+  type McpToolCallProgressNotification,
+  type TurnStartResponse,
+  type TurnStartedNotification,
+  mapItemCompleted,
+  mapItemStarted,
+} from './event-mapping.js'
 import {
   CodexRpcClient,
   type JsonRpcMessage,
@@ -29,58 +43,6 @@ const CLIENT_INFO = {
   version: process.env['npm_package_version'] ?? 'unknown',
 }
 
-type CodexThreadItem =
-  | {
-      type: 'agentMessage'
-      id: string
-      text: string
-    }
-  | {
-      type: 'commandExecution'
-      id: string
-      command: string
-      cwd: string
-      aggregatedOutput: string | null
-      exitCode: number | null
-      durationMs: number | null
-      status?: string | undefined
-    }
-  | {
-      type: 'fileChange'
-      id: string
-      changes: Array<unknown>
-      status?: string | undefined
-    }
-  | {
-      type: 'mcpToolCall'
-      id: string
-      server: string
-      tool: string
-      arguments: unknown
-      result: unknown | null
-      error: unknown | null
-      durationMs: number | null
-      status?: string | undefined
-    }
-  | {
-      type: 'webSearch'
-      id: string
-      query: string
-    }
-  | {
-      type: 'imageView'
-      id: string
-      path: string
-    }
-  | {
-      type: string
-      id?: string | undefined
-    }
-
-interface TurnStartResponse {
-  turn?: { id?: string | undefined } | undefined
-}
-
 interface ThreadStartResponse {
   thread?: { id?: string | undefined } | undefined
 }
@@ -89,42 +51,8 @@ interface ThreadResumeResponse {
   thread?: { id?: string | undefined } | undefined
 }
 
-interface TurnStartedNotification {
-  turn: { id: string }
-}
-
 interface TurnCompletedNotification {
   turn: { id: string }
-}
-
-interface ItemStartedNotification {
-  item: CodexThreadItem
-  turnId: string
-}
-
-interface ItemCompletedNotification {
-  item: CodexThreadItem
-  turnId: string
-}
-
-interface AgentMessageDeltaNotification {
-  itemId: string
-  delta: string
-}
-
-interface CommandExecutionOutputDeltaNotification {
-  itemId: string
-  delta: string
-}
-
-interface FileChangeOutputDeltaNotification {
-  itemId: string
-  delta: string
-}
-
-interface McpToolCallProgressNotification {
-  itemId: string
-  message: string
 }
 
 interface TurnDiffUpdatedNotification {
@@ -136,13 +64,6 @@ interface TurnPlanUpdatedNotification {
   turnId: string
   explanation: string | null
   plan: Array<{ id?: string | undefined; text?: string | undefined; status?: string | undefined }>
-}
-
-interface ErrorNotification {
-  error: { message: string; codexErrorInfo: unknown | null; additionalDetails: string | null }
-  willRetry: boolean
-  threadId: string
-  turnId: string
 }
 
 interface CommandExecutionRequestApprovalParams {
@@ -203,7 +124,8 @@ export class CodexSession implements UnifiedSession {
         args.push(...this.config.extraArgs)
       }
       const env = { ...process.env, CODEX_HOME: this.config.homeDir }
-      this.proc = spawn(command, args, {
+      const spawnProc = this.config.spawnProc ?? spawn
+      this.proc = spawnProc(command, args, {
         cwd: this.config.cwd,
         env,
         stdio: 'pipe',
@@ -304,7 +226,7 @@ export class CodexSession implements UnifiedSession {
 
       await pending
     } catch (error) {
-      this.handleError(error instanceof Error ? error : new Error(String(error)))
+      this.handleError(toError(error))
       throw error
     } finally {
       // Transition back to running if we're still streaming
@@ -375,7 +297,7 @@ export class CodexSession implements UnifiedSession {
       appendFile(this.config.eventsOutputPath as string, `${JSON.stringify(message)}\n`)
     )
     this.eventsOutputPromise.catch((error) => {
-      this.handleError(error instanceof Error ? error : new Error(String(error)))
+      this.handleError(toError(error))
     })
   }
 
@@ -500,74 +422,8 @@ export class CodexSession implements UnifiedSession {
     if (item.id) {
       this.items.set(item.id, item)
     }
-
-    switch (item.type) {
-      case 'agentMessage': {
-        // Type guard: we know this is the agentMessage variant
-        const agentItem = item as Extract<CodexThreadItem, { type: 'agentMessage' }>
-        this.emitEvent({
-          type: 'message_start',
-          messageId: agentItem.id,
-          message: { role: 'assistant', content: agentItem.text ?? '' },
-          payload: agentItem,
-        })
-        return
-      }
-      case 'commandExecution': {
-        const cmdItem = item as Extract<CodexThreadItem, { type: 'commandExecution' }>
-        this.emitEvent({
-          type: 'tool_execution_start',
-          toolUseId: cmdItem.id,
-          toolName: 'command_execution',
-          input: { command: cmdItem.command, cwd: cmdItem.cwd },
-          payload: cmdItem,
-        })
-        return
-      }
-      case 'fileChange': {
-        const fileItem = item as Extract<CodexThreadItem, { type: 'fileChange' }>
-        this.emitEvent({
-          type: 'tool_execution_start',
-          toolUseId: fileItem.id,
-          toolName: 'file_change',
-          input: { changes: fileItem.changes },
-          payload: fileItem,
-        })
-        return
-      }
-      case 'mcpToolCall': {
-        const mcpItem = item as Extract<CodexThreadItem, { type: 'mcpToolCall' }>
-        this.emitEvent({
-          type: 'tool_execution_start',
-          toolUseId: mcpItem.id,
-          toolName: `mcp:${mcpItem.server}/${mcpItem.tool}`,
-          input: { server: mcpItem.server, tool: mcpItem.tool, arguments: mcpItem.arguments },
-          payload: mcpItem,
-        })
-        return
-      }
-      case 'webSearch': {
-        const searchItem = item as Extract<CodexThreadItem, { type: 'webSearch' }>
-        this.emitEvent({
-          type: 'tool_execution_start',
-          toolUseId: searchItem.id,
-          toolName: 'web_search',
-          input: { query: searchItem.query },
-          payload: searchItem,
-        })
-        return
-      }
-      case 'imageView': {
-        const imageItem = item as Extract<CodexThreadItem, { type: 'imageView' }>
-        this.emitEvent({
-          type: 'tool_execution_start',
-          toolUseId: imageItem.id,
-          toolName: 'image_view',
-          input: { path: imageItem.path },
-          payload: imageItem,
-        })
-        return
-      }
+    for (const event of mapItemStarted(item)) {
+      this.emitEvent(event)
     }
   }
 
@@ -576,89 +432,8 @@ export class CodexSession implements UnifiedSession {
     if (item.id) {
       this.items.set(item.id, item)
     }
-
-    switch (item.type) {
-      case 'agentMessage': {
-        const agentItem = item as Extract<CodexThreadItem, { type: 'agentMessage' }>
-        this.emitEvent({
-          type: 'message_end',
-          messageId: agentItem.id,
-          message: { role: 'assistant', content: agentItem.text ?? '' },
-          payload: agentItem,
-        })
-        return
-      }
-      case 'commandExecution': {
-        const cmdItem = item as Extract<CodexThreadItem, { type: 'commandExecution' }>
-        const result = buildToolResult(cmdItem.aggregatedOutput ?? '', {
-          exitCode: cmdItem.exitCode,
-          durationMs: cmdItem.durationMs,
-        })
-        this.emitEvent({
-          type: 'tool_execution_end',
-          toolUseId: cmdItem.id,
-          toolName: 'command_execution',
-          result,
-          ...(cmdItem.exitCode !== null && cmdItem.exitCode !== 0 ? { isError: true } : {}),
-          ...(cmdItem.durationMs !== null ? { durationMs: cmdItem.durationMs } : {}),
-          payload: cmdItem,
-        })
-        return
-      }
-      case 'fileChange': {
-        const fileItem = item as Extract<CodexThreadItem, { type: 'fileChange' }>
-        const result = buildToolResult(JSON.stringify(fileItem.changes ?? [], null, 2))
-        this.emitEvent({
-          type: 'tool_execution_end',
-          toolUseId: fileItem.id,
-          toolName: 'file_change',
-          result,
-          ...(fileItem.status && fileItem.status !== 'completed' ? { isError: true } : {}),
-          payload: fileItem,
-        })
-        return
-      }
-      case 'mcpToolCall': {
-        const mcpItem = item as Extract<CodexThreadItem, { type: 'mcpToolCall' }>
-        const resultPayload = mcpItem.error ?? mcpItem.result ?? ''
-        const result = buildToolResult(
-          typeof resultPayload === 'string' ? resultPayload : JSON.stringify(resultPayload, null, 2)
-        )
-        this.emitEvent({
-          type: 'tool_execution_end',
-          toolUseId: mcpItem.id,
-          toolName: `mcp:${mcpItem.server}/${mcpItem.tool}`,
-          result,
-          ...(mcpItem.error ? { isError: true } : {}),
-          ...(mcpItem.durationMs !== null ? { durationMs: mcpItem.durationMs } : {}),
-          payload: mcpItem,
-        })
-        return
-      }
-      case 'webSearch': {
-        const searchItem = item as Extract<CodexThreadItem, { type: 'webSearch' }>
-        const result = buildToolResult(`web_search: ${searchItem.query}`)
-        this.emitEvent({
-          type: 'tool_execution_end',
-          toolUseId: searchItem.id,
-          toolName: 'web_search',
-          result,
-          payload: searchItem,
-        })
-        return
-      }
-      case 'imageView': {
-        const imageItem = item as Extract<CodexThreadItem, { type: 'imageView' }>
-        const result = buildToolResult(`image_view: ${imageItem.path}`)
-        this.emitEvent({
-          type: 'tool_execution_end',
-          toolUseId: imageItem.id,
-          toolName: 'image_view',
-          result,
-          payload: imageItem,
-        })
-        return
-      }
+    for (const event of mapItemCompleted(item).events) {
+      this.emitEvent(event)
     }
   }
 
@@ -710,13 +485,6 @@ export class CodexSession implements UnifiedSession {
     }
     const result = await handler.requestPermission(request)
     return result.allowed ? 'acceptForSession' : 'decline'
-  }
-}
-
-function buildToolResult(content: string, details?: Record<string, unknown>): ToolResult {
-  return {
-    content: [{ type: 'text', text: content }],
-    ...(details ? { details } : {}),
   }
 }
 

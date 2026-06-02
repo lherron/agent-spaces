@@ -43,6 +43,9 @@ import { validateAgentRoot } from './agent-root.js'
 import { resolveRootRelativeRef } from './root-relative-refs.js'
 import { resolveSpaceComposition } from './space-composition.js'
 
+/** Hex length of the truncated bundle-identity audit hash. */
+const BUNDLE_IDENTITY_HASH_LEN = 16
+
 /**
  * Resolve a RuntimePlacement into a ResolvedRuntimeBundle plus
  * materialization context for downstream runtime planning.
@@ -239,6 +242,19 @@ function computeSpaceIntegrity(ref: string, placement: RuntimePlacement): string
 }
 
 /**
+ * Read a file's UTF-8 contents, returning undefined when it doesn't exist.
+ *
+ * Centralizes the repeated "exists? → read : undefined" pattern so the
+ * filesystem touch happens in one place (a future IO/test seam can wrap this).
+ */
+function readFileIfExists(filePath: string): string | undefined {
+  if (!existsSync(filePath)) {
+    return undefined
+  }
+  return readFileSync(filePath, 'utf8')
+}
+
+/**
  * Compute a simple directory hash for audit purposes.
  */
 function computeDirectoryHash(dirPath: string): string {
@@ -265,7 +281,10 @@ function computeBundleIdentity(placement: RuntimePlacement): string {
       break
   }
 
-  const hash = createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 16)
+  const hash = createHash('sha256')
+    .update(parts.join('\0'))
+    .digest('hex')
+    .slice(0, BUNDLE_IDENTITY_HASH_LEN)
   return `bundle:${hash}`
 }
 
@@ -302,10 +321,11 @@ function resolvePlacementInstructions(placement: RuntimePlacement): ResolvedInst
 
   if (placement.runMode === 'heartbeat') {
     const heartbeatPath = join(placement.agentRoot, 'HEARTBEAT.md')
-    if (existsSync(heartbeatPath)) {
+    const heartbeatContent = readFileIfExists(heartbeatPath)
+    if (heartbeatContent !== undefined) {
       slots.push({
         slot: 'heartbeat',
-        content: readFileSync(heartbeatPath, 'utf8'),
+        content: heartbeatContent,
         ref: 'agent-root:///HEARTBEAT.md',
       })
     }
@@ -361,11 +381,7 @@ function resolveInstructionRef(ref: string, placement: RuntimePlacement): string
           })
         : join(placement.agentRoot, ref)
 
-    if (!existsSync(filePath)) {
-      return undefined
-    }
-
-    return readFileSync(filePath, 'utf8')
+    return readFileIfExists(filePath)
   } catch {
     return undefined
   }
@@ -373,10 +389,11 @@ function resolveInstructionRef(ref: string, placement: RuntimePlacement): string
 
 function loadAgentProfile(agentRoot: string): AgentRuntimeProfile {
   const profilePath = join(agentRoot, 'agent-profile.toml')
-  if (!existsSync(profilePath)) {
+  const content = readFileIfExists(profilePath)
+  if (content === undefined) {
     return { schemaVersion: 1 }
   }
-  return parseAgentProfile(readFileSync(profilePath, 'utf8'), profilePath)
+  return parseAgentProfile(content, profilePath)
 }
 
 function loadProjectTargetOptional(
@@ -388,11 +405,11 @@ function loadProjectTargetOptional(
   }
 
   const targetsPath = join(projectRoot, 'asp-targets.toml')
-  if (!existsSync(targetsPath)) {
+  const content = readFileIfExists(targetsPath)
+  if (content === undefined) {
     return undefined
   }
 
-  const content = readFileSync(targetsPath, 'utf8')
   const parsed = parseToml(content) as Record<string, unknown>
   const rawTargets = parsed['targets'] as Record<string, unknown> | undefined
   if (!rawTargets?.[targetName]) {

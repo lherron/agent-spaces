@@ -31,10 +31,9 @@ import type {
   InvocationStopRequest,
   InvocationStopResponse,
   JsonRpcNotification,
-  PermissionDecision,
-  PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
-import { EventIterator } from './event-iterator'
+import { InvocationEventHub } from './invocation-event-hub'
+import { type PermissionRequestHandler, PermissionRouter } from './permission-router'
 import { StdioTransport, type StdioTransportStartOptions } from './stdio-transport'
 import type { BrokerJsonRpcTransport, CloseHandler } from './transport'
 import { UnixSocketTransport } from './unix-socket-transport'
@@ -44,9 +43,14 @@ export interface ConnectUnixOptions {
   timeoutMs?: number | undefined
 }
 
-export type PermissionRequestHandler = (
-  request: PermissionRequestParams
-) => Promise<PermissionDecision>
+export type { PermissionRequestHandler }
+
+/**
+ * Unsubscribe callback returned by handler-registration methods
+ * ({@link BrokerClient.onClose}, {@link BrokerClient.onPermissionRequest}).
+ * Calling it removes the handler; calling it more than once is a no-op.
+ */
+export type Disposer = () => void
 
 export interface InvocationStartResult {
   invocationId: string
@@ -62,12 +66,8 @@ export interface InvocationStartDispatchOptions {
 
 export class BrokerClient {
   #transport: BrokerJsonRpcTransport
-  #events = new Map<string, EventIterator<InvocationEventEnvelope>>()
-  #pendingEvents = new Map<string, InvocationEventEnvelope[]>()
-  // Highest event seq already surfaced per invocation. Used to drop duplicates
-  // when replayed (attach/eventsSince) events overlap live notifications.
-  #lastEventSeq = new Map<string, number>()
-  #permissionHandler: PermissionRequestHandler | undefined
+  #eventHub = new InvocationEventHub()
+  #permissions = new PermissionRouter()
   #closeHandlers = new Set<CloseHandler>()
 
   private constructor(transport: BrokerJsonRpcTransport) {
@@ -77,12 +77,12 @@ export class BrokerClient {
     })
     this.#transport.onRequest(async (request) => {
       if (request.method === 'invocation.permission.request') {
-        return this.#handlePermissionRequest(request.params)
+        return this.#permissions.handle(request.params)
       }
       throw new Error(`Unsupported broker-to-client request: ${request.method}`)
     })
     this.#transport.onClose((error) => {
-      this.#closeEventStreams()
+      this.#eventHub.closeAll()
       for (const handler of this.#closeHandlers) {
         handler(error)
       }
@@ -137,35 +137,19 @@ export class BrokerClient {
   ): Promise<InvocationStartResult> {
     const expectedInvocationId = request.spec.invocationId
     const expectedEvents =
-      expectedInvocationId !== undefined ? this.#eventStream(expectedInvocationId) : undefined
-    const options =
-      dispatchEnvOrOptions !== undefined &&
-      ('dispatchEnv' in dispatchEnvOrOptions ||
-        'runtime' in dispatchEnvOrOptions ||
-        'lifecyclePolicy' in dispatchEnvOrOptions)
-        ? (dispatchEnvOrOptions as InvocationStartDispatchOptions)
-        : {
-            dispatchEnv: dispatchEnvOrOptions as Record<string, string> | undefined,
-            runtime,
-          }
-
-    // invocation.start now carries the InvocationDispatchRequest envelope:
-    // a verbatim startRequest plus optional per-invocation dispatchEnv/runtime/lifecyclePolicy.
-    const dispatch: InvocationDispatchRequest = {
-      startRequest: request,
-      ...(options.dispatchEnv !== undefined ? { dispatchEnv: options.dispatchEnv } : {}),
-      ...(options.runtime !== undefined ? { runtime: options.runtime } : {}),
-      ...(options.lifecyclePolicy !== undefined
-        ? { lifecyclePolicy: options.lifecyclePolicy }
-        : {}),
-    }
+      expectedInvocationId !== undefined ? this.#eventHub.stream(expectedInvocationId) : undefined
+    const options = this.#normalizeDispatchOptions(dispatchEnvOrOptions, runtime)
+    const dispatch = this.#buildDispatch(request, options)
 
     try {
+      // `dispatch` was just assembled from caller-owned fragments and is not
+      // mutated below; the transport serializes it to NDJSON rather than
+      // retaining it, so no defensive copy is needed here.
       const response = await this.#transport.request<InvocationStartResponse>(
         'invocation.start',
-        structuredClone(dispatch)
+        dispatch
       )
-      const events = expectedEvents ?? this.#eventStream(response.invocationId)
+      const events = expectedEvents ?? this.#eventHub.stream(response.invocationId)
       return {
         invocationId: response.invocationId,
         response,
@@ -174,9 +158,51 @@ export class BrokerClient {
     } catch (error) {
       if (expectedInvocationId !== undefined) {
         expectedEvents?.close()
-        this.#events.delete(expectedInvocationId)
+        this.#eventHub.drop(expectedInvocationId)
       }
       throw error
+    }
+  }
+
+  /**
+   * Resolve the positional-overload arg into a single
+   * {@link InvocationStartDispatchOptions}. The second positional may be either
+   * a bare `dispatchEnv` map or a full options object; the latter is recognized
+   * by the presence of any options-only key.
+   */
+  #normalizeDispatchOptions(
+    dispatchEnvOrOptions: Record<string, string> | InvocationStartDispatchOptions | undefined,
+    runtime: InvocationRuntimeContext | undefined
+  ): InvocationStartDispatchOptions {
+    if (
+      dispatchEnvOrOptions !== undefined &&
+      ('dispatchEnv' in dispatchEnvOrOptions ||
+        'runtime' in dispatchEnvOrOptions ||
+        'lifecyclePolicy' in dispatchEnvOrOptions)
+    ) {
+      return dispatchEnvOrOptions as InvocationStartDispatchOptions
+    }
+    return {
+      dispatchEnv: dispatchEnvOrOptions as Record<string, string> | undefined,
+      runtime,
+    }
+  }
+
+  /**
+   * Assemble the `invocation.start` envelope: a verbatim startRequest plus any
+   * per-invocation dispatchEnv/runtime/lifecyclePolicy overrides.
+   */
+  #buildDispatch(
+    request: InvocationStartRequest,
+    options: InvocationStartDispatchOptions
+  ): InvocationDispatchRequest {
+    return {
+      startRequest: request,
+      ...(options.dispatchEnv !== undefined ? { dispatchEnv: options.dispatchEnv } : {}),
+      ...(options.runtime !== undefined ? { runtime: options.runtime } : {}),
+      ...(options.lifecyclePolicy !== undefined
+        ? { lifecyclePolicy: options.lifecyclePolicy }
+        : {}),
     }
   }
 
@@ -198,10 +224,7 @@ export class BrokerClient {
 
   async dispose(req: InvocationDisposeRequest): Promise<void> {
     await this.#transport.request('invocation.dispose', req)
-    const events = this.#events.get(req.invocationId)
-    events?.close()
-    this.#events.delete(req.invocationId)
-    this.#lastEventSeq.delete(req.invocationId)
+    this.#eventHub.dispose(req.invocationId)
   }
 
   // --- Protocol v2 (broker durability) methods ---------------------------
@@ -217,12 +240,12 @@ export class BrokerClient {
    * `startInvocationFromRequest` returns its own stream for an invocation it
    * launched; a controller that re-attached over `broker.attach` has none, so
    * this exposes the per-invocation `EventIterator`. Opening it drains any live
-   * notifications buffered since the attach (held in `#pendingEvents`) and then
-   * yields all future ones, de-duped by `(invocationId, seq)` in `#ingestEvent`.
+   * notifications buffered since the attach and then yields all future ones,
+   * de-duped by `(invocationId, seq)` in `InvocationEventHub.ingest`.
    * Closed on transport close / dispose with the rest of the streams.
    */
   streamInvocationEvents(invocationId: string): AsyncIterable<InvocationEventEnvelope> {
-    return this.#eventStream(invocationId)
+    return this.#eventHub.stream(invocationId)
   }
 
   eventsSince(req: InvocationEventsSinceRequest): Promise<InvocationEventsSinceResponse> {
@@ -249,16 +272,29 @@ export class BrokerClient {
     return this.#transport.request('invocation.permission.respond', req)
   }
 
-  onPermissionRequest(handler: PermissionRequestHandler): void {
-    this.#permissionHandler = handler
+  /**
+   * Register the single inbound-permission handler. Last-writer-wins: a second
+   * registration replaces the previous handler. Returns a {@link Disposer} that
+   * clears the handler (a no-op once it has been superseded).
+   */
+  onPermissionRequest(handler: PermissionRequestHandler): Disposer {
+    return this.#permissions.setHandler(handler)
   }
 
-  onClose(handler: CloseHandler): void {
+  /**
+   * Register a transport-close handler. Multiple handlers may be registered and
+   * all fire on close. Returns a {@link Disposer} that removes this handler so a
+   * long-lived client does not accrue handlers for its full lifetime.
+   */
+  onClose(handler: CloseHandler): Disposer {
     this.#closeHandlers.add(handler)
+    return () => {
+      this.#closeHandlers.delete(handler)
+    }
   }
 
   async close(): Promise<void> {
-    this.#closeEventStreams()
+    this.#eventHub.closeAll()
     await this.#transport.close()
   }
 
@@ -268,81 +304,10 @@ export class BrokerClient {
     }
 
     // Permission decisions arrive ONLY as inbound 'invocation.permission.request'
-    // JSON-RPC requests (handled in #handlePermissionRequest via onRequest).
+    // JSON-RPC requests (handled by PermissionRouter via onRequest).
     // permission.requested / permission.resolved are audit events surfaced
     // through the normal observable event stream below.
     const event = notification.params as InvocationEventEnvelope
-    this.#ingestEvent(event)
-  }
-
-  /**
-   * Surface an event to its stream, dropping duplicates by (invocationId, seq).
-   * Replayed events (attach/eventsSince) can overlap live notifications; the
-   * client de-dupes so a stream never sees the same seq twice or goes backwards.
-   */
-  #ingestEvent(event: InvocationEventEnvelope): void {
-    const lastSeq = this.#lastEventSeq.get(event.invocationId)
-    if (lastSeq !== undefined && event.seq <= lastSeq) {
-      return
-    }
-    this.#lastEventSeq.set(event.invocationId, event.seq)
-
-    const stream = this.#events.get(event.invocationId)
-    if (stream) {
-      stream.push(event)
-      return
-    }
-
-    const pending = this.#pendingEvents.get(event.invocationId) ?? []
-    pending.push(event)
-    this.#pendingEvents.set(event.invocationId, pending)
-  }
-
-  #eventStream(invocationId: string): EventIterator<InvocationEventEnvelope> {
-    const existing = this.#events.get(invocationId)
-    if (existing) {
-      return existing
-    }
-
-    const stream = new EventIterator<InvocationEventEnvelope>()
-    this.#events.set(invocationId, stream)
-    const pending = this.#pendingEvents.get(invocationId)
-    if (pending) {
-      this.#pendingEvents.delete(invocationId)
-      for (const event of pending) {
-        stream.push(event)
-      }
-    }
-    return stream
-  }
-
-  async #handlePermissionRequest(params: unknown): Promise<PermissionDecision> {
-    const request = params as PermissionRequestParams
-    if (!this.#permissionHandler) {
-      console.warn(
-        `Broker permission request ${request.permissionRequestId} has no client handler; broker defaultDecision will apply.`
-      )
-      return { decision: request.defaultDecision ?? 'deny' }
-    }
-
-    try {
-      return await this.#permissionHandler(request)
-    } catch (error) {
-      console.warn(
-        `Broker permission handler failed for ${request.permissionRequestId}: ${
-          error instanceof Error ? error.message : String(error)
-        }; broker defaultDecision will apply.`
-      )
-      return { decision: request.defaultDecision ?? 'deny' }
-    }
-  }
-
-  #closeEventStreams(): void {
-    for (const events of this.#events.values()) {
-      events.close()
-    }
-    this.#events.clear()
-    this.#pendingEvents.clear()
-    this.#lastEventSeq.clear()
+    this.#eventHub.ingest(event)
   }
 }

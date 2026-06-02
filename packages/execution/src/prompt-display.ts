@@ -10,6 +10,7 @@
 import chalk from 'chalk'
 
 import { paginate } from './pager.js'
+import { shellQuote } from './run/util.js'
 
 const FRAME_WIDTH = 72
 const PROMPT_FLAGS = new Set(['--system-prompt', '--append-system-prompt'])
@@ -60,11 +61,6 @@ export function renderSection(section: PromptSection): string[] {
   lines.push(chalk.dim(`└${bottomRule}`) + chalk.dim(metaSegment))
 
   return lines
-}
-
-function shellQuote(value: string): string {
-  if (/^[a-zA-Z0-9_./-]+$/.test(value)) return value
-  return `'${value.replace(/'/g, "'\\''")}'`
 }
 
 /**

@@ -64,11 +64,28 @@ export class AspcClient {
     return this.#transport.request(method, params)
   }
 
+  /**
+   * Registers the single facade-to-client request handler. Single-registration
+   * is intentional: a second call would silently disable the first handler
+   * (last-writer-wins foot-gun), so double registration throws instead. Hosts
+   * that need to fan out should compose their own dispatcher behind one handler.
+   */
   onRequest(handler: AspcRequestHandler): void {
+    if (this.#requestHandler !== undefined) {
+      throw new Error('AspcClient.onRequest handler already registered')
+    }
     this.#requestHandler = handler
   }
 
+  /**
+   * Registers the single facade-to-client notification handler. As with
+   * {@link onRequest}, registration is single-shot: re-registering throws
+   * rather than silently overwriting the prior handler.
+   */
   onNotification(handler: (notification: JsonRpcNotification) => void): void {
+    if (this.#notificationHandler !== undefined) {
+      throw new Error('AspcClient.onNotification handler already registered')
+    }
     this.#notificationHandler = handler
   }
 

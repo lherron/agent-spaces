@@ -13,6 +13,7 @@ import {
   type SpaceRefString,
   type TargetDefinition,
   getAgentsRoot,
+  getHarnessCatalogEntry,
   getHarnessCatalogEntryByFrontend,
 } from 'spaces-config'
 
@@ -26,7 +27,6 @@ import {
   resolveAgentRunDefaultsFromProfile,
   resolveProfileHarnessForRun,
 } from './agent-profile.js'
-import { resolveInteractive } from './util.js'
 
 interface PlacementRuntimeModelInfo {
   effectiveModel: string
@@ -137,11 +137,10 @@ export function buildSyntheticRunManifest(
   const claude: ClaudeOptions = { ...(defaults.claude ?? {}) }
   const codex: CodexOptions = { ...(defaults.codex ?? {}) }
 
-  if (
-    (harnessId === 'claude' || harnessId === 'claude-agent-sdk') &&
-    defaults.model !== undefined &&
-    claude.model === undefined
-  ) {
+  // Source the claude-family check from the catalog provider (anthropic) instead
+  // of a hardcoded harness-id list so new claude variants are covered for free.
+  const isClaudeFamily = getHarnessCatalogEntry(harnessId).provider === 'anthropic'
+  if (isClaudeFamily && defaults.model !== undefined && claude.model === undefined) {
     claude.model = defaults.model
   }
 
@@ -238,7 +237,7 @@ export async function planPlacementRuntime(
   const runOptions: Partial<HarnessRunOptions> = {
     ...defaultRunOptions,
     aspHome,
-    interactive: resolveInteractive(options.interactive),
+    interactive: options.interactive,
     projectPath: cwd,
     cwd,
     ...(prompt !== undefined ? { prompt } : {}),

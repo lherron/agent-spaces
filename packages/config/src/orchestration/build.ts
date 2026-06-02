@@ -31,7 +31,7 @@ import {
   materializeSpaces,
 } from '../materializer/index.js'
 
-import { DEV_COMMIT_MARKER, DEV_INTEGRITY } from '../resolver/index.js'
+import { COMMIT_KEY_PREFIX_LEN, classifySpaceEntry } from '../resolver/index.js'
 import { PathResolver, ensureDir, getAspHome } from '../store/index.js'
 
 import {
@@ -132,8 +132,7 @@ export async function build(targetName: string, options: BuildOptions): Promise<
   // Build materialization inputs from locked spaces
   // For @dev entries, use filesystem path; for others, use store snapshot
   const inputs = entries.map((entry) => {
-    const isDev =
-      entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY
+    const isDev = classifySpaceEntry(entry) === 'dev'
 
     return {
       manifest: {
@@ -147,7 +146,7 @@ export async function build(targetName: string, options: BuildOptions): Promise<
         : paths.snapshot(entry.integrity),
       spaceKey: isDev
         ? (`${entry.id}@dev` as SpaceKey)
-        : (`${entry.id}@${entry.commit.slice(0, 12)}` as SpaceKey),
+        : (`${entry.id}@${entry.commit.slice(0, COMMIT_KEY_PREFIX_LEN)}` as SpaceKey),
       integrity: entry.integrity,
     }
   })

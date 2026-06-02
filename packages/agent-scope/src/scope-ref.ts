@@ -1,24 +1,44 @@
-import type { ParsedScopeRef } from './types.js'
-import { TOKEN_MAX_LENGTH, TOKEN_MIN_LENGTH, TOKEN_PATTERN } from './types.js'
-
-function validateToken(value: string, label: string): string | undefined {
-  if (value.length < TOKEN_MIN_LENGTH || value.length > TOKEN_MAX_LENGTH) {
-    return `${label} must be ${TOKEN_MIN_LENGTH}..${TOKEN_MAX_LENGTH} characters, got ${value.length}`
-  }
-  if (!TOKEN_PATTERN.test(value)) {
-    return `${label} contains invalid characters: must match [A-Za-z0-9._-]+`
-  }
-  return undefined
-}
+import type { ParsedScopeRef, ValidationResult } from './types.js'
+import { validateToken } from './types.js'
 
 function part(parts: string[], i: number): string {
   return parts[i] as string
 }
 
+/** Field set shared by the canonical ScopeRef builders. */
+type ScopeRefFields = {
+  agentId: string
+  projectId?: string | undefined
+  taskId?: string | undefined
+  roleName?: string | undefined
+}
+
+/**
+ * Single source of truth for assembling a canonical scope ref string from its
+ * component fields. Each segment is appended only when its field is present.
+ */
+export function buildScopeRef(fields: ScopeRefFields): string {
+  let ref = `agent:${fields.agentId}`
+
+  if (fields.projectId !== undefined) {
+    ref += `:project:${fields.projectId}`
+  }
+
+  if (fields.taskId !== undefined) {
+    ref += `:task:${fields.taskId}`
+  }
+
+  if (fields.roleName !== undefined) {
+    ref += `:role:${fields.roleName}`
+  }
+
+  return ref
+}
+
 /**
  * Validate a scope ref string. Returns { ok: true } or { ok: false, error }.
  */
-export function validateScopeRef(scopeRef: string): { ok: true } | { ok: false; error: string } {
+export function validateScopeRef(scopeRef: string): ValidationResult {
   const parts = scopeRef.split(':')
 
   // Must start with "agent:<agentId>"
@@ -130,42 +150,28 @@ export function parseScopeRef(scopeRef: string): ParsedScopeRef {
  * Format a ParsedScopeRef back into its canonical string form.
  */
 export function formatScopeRef(parsed: ParsedScopeRef): string {
-  let ref = `agent:${parsed.agentId}`
-
-  if (parsed.projectId !== undefined) {
-    ref += `:project:${parsed.projectId}`
-  }
-
-  if (parsed.taskId !== undefined) {
-    ref += `:task:${parsed.taskId}`
-  }
-
-  if (parsed.roleName !== undefined) {
-    ref += `:role:${parsed.roleName}`
-  }
-
-  return ref
+  return buildScopeRef(parsed)
 }
 
 /**
  * Return the ancestor scope refs from least-specific to most-specific.
  */
 export function ancestorScopeRefs(scopeRef: string): string[] {
-  const parsed = parseScopeRef(scopeRef)
+  const { agentId, projectId, taskId, roleName } = parseScopeRef(scopeRef)
   const ancestors: string[] = []
 
   // Always include agent level
-  ancestors.push(`agent:${parsed.agentId}`)
+  ancestors.push(buildScopeRef({ agentId }))
 
-  if (parsed.projectId !== undefined) {
-    ancestors.push(`agent:${parsed.agentId}:project:${parsed.projectId}`)
+  if (projectId !== undefined) {
+    ancestors.push(buildScopeRef({ agentId, projectId }))
   }
 
-  if (parsed.taskId !== undefined) {
-    ancestors.push(`agent:${parsed.agentId}:project:${parsed.projectId}:task:${parsed.taskId}`)
+  if (taskId !== undefined) {
+    ancestors.push(buildScopeRef({ agentId, projectId, taskId }))
   }
 
-  if (parsed.roleName !== undefined) {
+  if (roleName !== undefined) {
     // The full ref with role is always the most specific
     ancestors.push(scopeRef)
   }

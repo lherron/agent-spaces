@@ -9,9 +9,9 @@ import { readdir } from 'node:fs/promises'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { PathResolver, getAspHome, readSpaceToml } from 'spaces-config'
+import { readSpaceToml } from 'spaces-config'
 
-import { exitWithAspError } from '../../helpers.js'
+import { exitWithAspError, resolvePaths } from '../../helpers.js'
 
 interface SpaceInfo {
   id: string
@@ -143,8 +143,7 @@ export function registerSpacesListCommand(parent: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (options) => {
       try {
-        const aspHome = options.aspHome ?? getAspHome()
-        const paths = new PathResolver({ aspHome })
+        const { paths } = resolvePaths(options)
 
         const exists = await ensureRegistryExists(paths.repo)
         if (!exists) {

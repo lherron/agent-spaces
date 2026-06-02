@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  ASPC_METHODS,
   ASPC_PROTOCOL_VERSION,
+  AspcCommandValidationError,
+  AspcHelloRequestValidationError,
   validateAspcCommand,
+  validateAspcCompileAndStartRequest,
   validateAspcCompileHarnessInvocationRequest,
   validateAspcCompileRuntimePlanRequest,
   validateAspcHelloRequest,
@@ -97,6 +101,29 @@ describe('ASPC protocol validators', () => {
     ).toMatchObject({ method: 'aspc.compileHarnessInvocation' })
   })
 
+  test('validates compileAndStart params (request helper + command)', () => {
+    const request = {
+      compileRequest,
+      profileSelector: { brokerDriver: 'codex-app-server' },
+      dispatchEnv: { EXTRA_FLAG: '1' },
+    }
+    expect(validateAspcCompileAndStartRequest(request)).toEqual(request)
+    expect(
+      validateAspcCommand({
+        jsonrpc: '2.0',
+        id: '5',
+        method: 'aspc.compileAndStart',
+        params: request,
+      })
+    ).toMatchObject({ method: 'aspc.compileAndStart' })
+  })
+
+  test('rejects compileAndStart params with a non-object compileRequest', () => {
+    expect(() => validateAspcCompileAndStartRequest({ compileRequest: 'nope' })).toThrow(
+      'Invalid ASPC compileHarnessInvocation request'
+    )
+  })
+
   test('rejects unknown ASPC methods', () => {
     expect(() =>
       validateAspcCommand({
@@ -106,5 +133,43 @@ describe('ASPC protocol validators', () => {
         params: {},
       })
     ).toThrow('Invalid ASPC command')
+  })
+
+  test('unsupported method error lists the valid methods', () => {
+    let caught: AspcCommandValidationError | undefined
+    try {
+      validateAspcCommand({
+        jsonrpc: '2.0',
+        id: '4',
+        method: 'broker.hello',
+        params: {},
+      })
+    } catch (error) {
+      caught = error as AspcCommandValidationError
+    }
+    expect(caught).toBeInstanceOf(AspcCommandValidationError)
+    const methodIssue = caught?.issues.find((entry) => entry.path === 'method')
+    expect(methodIssue?.message).toContain('broker.hello')
+    for (const method of ASPC_METHODS) {
+      expect(methodIssue?.message).toContain(method)
+    }
+  })
+
+  test('non-string protocolVersions element reports an indexed path', () => {
+    let caught: AspcHelloRequestValidationError | undefined
+    try {
+      validateAspcHelloRequest({
+        clientInfo: { name: 'client' },
+        protocolVersions: [ASPC_PROTOCOL_VERSION, 42],
+      })
+    } catch (error) {
+      caught = error as AspcHelloRequestValidationError
+    }
+    expect(caught).toBeInstanceOf(AspcHelloRequestValidationError)
+    const itemIssue = caught?.issues.find((entry) => entry.path === 'params.protocolVersions.1')
+    expect(itemIssue?.message).toBe('params.protocolVersions.1 must be a string')
+    // The array is malformed, so the "unsupported protocol" issue must NOT also
+    // fire for the same field (A3: gated on the array being well-formed).
+    expect(caught?.issues.some((entry) => entry.code === 'unsupported_protocol')).toBe(false)
   })
 })

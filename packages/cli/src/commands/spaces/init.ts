@@ -9,9 +9,7 @@ import { mkdir } from 'node:fs/promises'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { PathResolver, getAspHome } from 'spaces-config'
-
-import { exitWithAspError } from '../../helpers.js'
+import { exitWithAspError, resolvePaths } from '../../helpers.js'
 
 interface InitOptions {
   description?: string | undefined
@@ -102,8 +100,7 @@ export function registerSpacesInitCommand(parent: Command): void {
         }
 
         // Get paths
-        const aspHome = options.aspHome ?? getAspHome()
-        const paths = new PathResolver({ aspHome })
+        const { paths } = resolvePaths(options)
         const spaceDir = `${paths.repo}/spaces/${spaceId}`
 
         // Check if registry exists

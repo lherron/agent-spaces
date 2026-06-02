@@ -31,7 +31,15 @@ export interface RunCompilerDebugContext {
   }
 }
 
-export interface RunOptions extends ResolveOptions {
+/**
+ * Launch fields shared by both run paths (project-target `RunOptions` and
+ * `GlobalRunOptions`). Extracted so a new run option only has to be declared
+ * once; the two run modes then differ only in their resolve-time / lifecycle
+ * deltas (`projectId`/`taskId`/`refresh` vs `cleanup`/`registryPath`). Keeping
+ * these in lockstep is what lets `toHarnessRunOptions` map either bag with a
+ * single helper instead of two copy-pasted literals.
+ */
+export interface BaseRunOptions {
   harness?: HarnessId | undefined
   cwd?: string | undefined
   interactive?: boolean | undefined
@@ -42,7 +50,6 @@ export interface RunOptions extends ResolveOptions {
   settingSources?: string | null | undefined
   permissionMode?: string | undefined
   settings?: string | undefined
-  refresh?: boolean | undefined
   yolo?: boolean | undefined
   debug?: boolean | undefined
   model?: string | undefined
@@ -54,14 +61,18 @@ export interface RunOptions extends ResolveOptions {
   remoteControl?: boolean | undefined
   sessionNamePrefix?: string | undefined
   pagePrompts?: boolean | undefined
-  projectId?: string | undefined
-  taskId?: string | undefined
   /**
    * Injected compiler. When provided, the run compiles a real
    * RuntimeCompileRequest (used for `--debug` and, behind the
    * ASP_RUN_VIA_COMPILER gate, to drive a foreground inherit-spawn).
    */
   compileRuntime?: CompileRuntimeFn | undefined
+}
+
+export interface RunOptions extends ResolveOptions, BaseRunOptions {
+  refresh?: boolean | undefined
+  projectId?: string | undefined
+  taskId?: string | undefined
 }
 
 export interface RunInvocationResult {
@@ -131,31 +142,9 @@ export interface RunResult {
   runtimeCompile?: { request: unknown; response: unknown } | undefined
 }
 
-export interface GlobalRunOptions {
+export interface GlobalRunOptions extends BaseRunOptions {
   aspHome?: string | undefined
   registryPath?: string | undefined
-  harness?: HarnessId | undefined
-  cwd?: string | undefined
-  interactive?: boolean | undefined
-  prompt?: string | undefined
-  extraArgs?: string[] | undefined
   cleanup?: boolean | undefined
-  env?: Record<string, string> | undefined
-  dryRun?: boolean | undefined
-  settingSources?: string | null | undefined
-  permissionMode?: string | undefined
-  settings?: string | undefined
   refresh?: boolean | undefined
-  yolo?: boolean | undefined
-  debug?: boolean | undefined
-  model?: string | undefined
-  modelReasoningEffort?: string | undefined
-  inheritProject?: boolean | undefined
-  inheritUser?: boolean | undefined
-  artifactDir?: string | undefined
-  continuationKey?: string | boolean | undefined
-  remoteControl?: boolean | undefined
-  sessionNamePrefix?: string | undefined
-  pagePrompts?: boolean | undefined
-  compileRuntime?: CompileRuntimeFn | undefined
 }

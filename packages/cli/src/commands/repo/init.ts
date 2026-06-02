@@ -11,18 +11,9 @@ import { dirname } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import {
-  PathResolver,
-  add,
-  cloneRepo,
-  commit,
-  createTag,
-  ensureAspHome,
-  getAspHome,
-  initRepo,
-} from 'spaces-config'
+import { add, cloneRepo, commit, createTag, ensureAspHome, initRepo } from 'spaces-config'
 
-import { exitWithAspError } from '../../helpers.js'
+import { exitWithAspError, resolvePaths } from '../../helpers.js'
 import {
   MANAGER_SPACE_ID,
   MANAGER_SPACE_VERSION,
@@ -136,8 +127,7 @@ export function registerRepoInitCommand(parent: Command): void {
     .option('--no-manager', 'Skip installing the manager space (for testing)')
     .action(async (options: RepoInitOptions) => {
       try {
-        const aspHome = options.aspHome ?? getAspHome()
-        const paths = new PathResolver({ aspHome })
+        const { paths } = resolvePaths(options)
         await ensureAspHome()
 
         console.log(chalk.blue('Initializing registry...'))

@@ -1,7 +1,10 @@
 export {
   AgentSession,
   type AgentSessionConfig,
+  type AgentSessionOpts,
   type AgentSessionState,
+  type QueryFactory,
+  type RuntimeEnv,
 } from './agent-session.js'
 export { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk'
 export {

@@ -547,9 +547,7 @@ describe('unified placement materialization (T-00876)', () => {
     const runSource = readFileSync(join(import.meta.dirname, '..', 'run-placement-turn.ts'), 'utf8')
 
     // Extract the two placement functions
-    const buildFn = prepareSource.match(
-      /async function preparePlacementCliRuntime[\s\S]*?^}/m
-    )?.[0]
+    const buildFn = prepareSource.match(/async function preparePlacementCliRuntime[\s\S]*?^}/m)?.[0]
     const runFn = runSource.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
 
     expect(buildFn).toBeDefined()

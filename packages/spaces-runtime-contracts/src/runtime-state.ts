@@ -15,6 +15,7 @@ import type {
   PlanHash,
   ProfileHash,
   ProfileId,
+  RunId,
   RuntimeId,
   ServerInstanceId,
   SpecHash,
@@ -47,8 +48,6 @@ export type RuntimeStateBase = {
   createdAt: IsoTimestamp
   updatedAt: IsoTimestamp
 }
-
-import type { RunId } from './ids'
 
 export type TerminalRuntimeState = RuntimeStateBase & {
   kind: 'terminal'

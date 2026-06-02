@@ -30,10 +30,22 @@ interface HandleParts {
   lane?: string | undefined
 }
 
+/**
+ * Default broker process limits (milliseconds) applied when the caller does not
+ * override them. Named per-field so the intent of each magic number is explicit
+ * and so any tuning happens against a single documented source of truth.
+ */
+/** Max time to wait for the harness process to come up before failing the start. */
+const DEFAULT_BROKER_STARTUP_TIMEOUT_MS = 20_000
+/** Max wall-clock time a single turn may run before the broker aborts it (15 min). */
+const DEFAULT_BROKER_TURN_TIMEOUT_MS = 900_000
+/** Grace period granted for a clean shutdown before the broker hard-stops it. */
+const DEFAULT_BROKER_STOP_GRACE_MS = 5_000
+
 const DEFAULT_BROKER_PROCESS_LIMITS: NonNullable<HarnessInvocationSpec['process']['limits']> = {
-  startupTimeoutMs: 20_000,
-  turnTimeoutMs: 900_000,
-  stopGraceMs: 5_000,
+  startupTimeoutMs: DEFAULT_BROKER_STARTUP_TIMEOUT_MS,
+  turnTimeoutMs: DEFAULT_BROKER_TURN_TIMEOUT_MS,
+  stopGraceMs: DEFAULT_BROKER_STOP_GRACE_MS,
 }
 
 export function deriveHandleParts(placement: RuntimePlacement): HandleParts {
@@ -50,9 +62,19 @@ export function deriveHandleParts(placement: RuntimePlacement): HandleParts {
       if (parsed.taskId !== undefined) {
         parts.taskId = parsed.taskId
       }
-    } catch {
+    } catch (error) {
       // Best-effort fallback for older callers that sent shorthand handles
-      // instead of canonical ScopeRefs.
+      // instead of canonical ScopeRefs. A genuine parse failure on a value that
+      // looks canonical is indistinguishable from shorthand here, so emit a
+      // single diagnostic line — otherwise a derived agentId/projectId/taskId
+      // mislabel would silently flow into broker correlation labels with no
+      // trace of the parse having failed. (Best-effort fallback is retained.)
+      const reason = error instanceof Error ? error.message : String(error)
+      process.stderr.write(
+        `[asp-diag] deriveHandleParts: parseScopeRef failed for scopeRef=${JSON.stringify(
+          scopeRef
+        )} (${reason}); using shorthand fallback\n`
+      )
       const atIndex = scopeRef.indexOf('@')
       if (atIndex === -1) {
         parts.agentId = scopeRef

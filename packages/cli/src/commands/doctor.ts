@@ -8,10 +8,10 @@
 import { constants, access } from 'node:fs/promises'
 import type { Command } from 'commander'
 
-import { PathResolver, ensureAspHome, getAspHome, gitExec, listRemotes } from 'spaces-config'
+import { ensureAspHome, gitExec, listRemotes } from 'spaces-config'
 import { detectClaude } from 'spaces-execution'
 
-import { formatCheckResults, outputDoctorSummary } from '../helpers.js'
+import { errorMessage, formatCheckResults, outputDoctorSummary, resolvePaths } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 
 interface CheckResult {
@@ -38,7 +38,7 @@ async function checkClaude(): Promise<CheckResult> {
       name: 'claude',
       status: 'error',
       message: 'Claude not found',
-      detail: error instanceof Error ? error.message : String(error),
+      detail: errorMessage(error),
     }
   }
 }
@@ -59,7 +59,7 @@ async function checkAspHome(aspHome: string): Promise<CheckResult> {
       name: 'asp_home',
       status: 'error',
       message: `Cannot create ASP_HOME: ${aspHome}`,
-      detail: error instanceof Error ? error.message : String(error),
+      detail: errorMessage(error),
     }
   }
 }
@@ -165,7 +165,7 @@ async function checkRegistryRemote(repoPath: string): Promise<CheckResult> {
       name: 'registry_remote',
       status: 'warning',
       message: 'Could not check registry remote',
-      detail: error instanceof Error ? error.message : String(error),
+      detail: errorMessage(error),
     }
   }
 }
@@ -206,8 +206,7 @@ export function registerDoctorCommand(program: Command): void {
       checks.push(await checkClaude())
 
       // Check ASP_HOME
-      const aspHome = options.aspHome ?? getAspHome()
-      const paths = new PathResolver({ aspHome })
+      const { aspHome, paths } = resolvePaths(options)
       checks.push(await checkAspHome(aspHome))
 
       // Check cache directory

@@ -14,7 +14,8 @@ export interface ScanOptions {
   categoriesToSkip?: ScanCategory[] | undefined
 }
 
-const ENTRY_DELIMITER = '\n§\n'
+/** Separator between distinct memory entries within a target file. */
+export const ENTRY_DELIMITER = '\n§\n'
 
 const THREAT_PATTERNS: Array<{
   pattern: RegExp

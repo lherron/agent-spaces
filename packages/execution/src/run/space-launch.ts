@@ -7,6 +7,7 @@ import {
   DEFAULT_HARNESS,
   type HarnessAdapter,
   type HarnessDetection,
+  type HarnessId,
   type HarnessRunOptions,
   type LockFile,
   PathResolver,
@@ -30,10 +31,16 @@ import {
 
 import { harnessRegistry } from '../harness/index.js'
 
-import { buildCompilerDebugContext } from './compiler-debug.js'
+import { maybeCompileForRun } from './compiler-debug.js'
 import { executeHarnessRun } from './execute.js'
-import type { GlobalRunOptions, RunCompileOutcome, RunResult } from './types.js'
-import { cleanupTempDir, createTempDir, mergeDefined, resolveInteractive } from './util.js'
+import type { GlobalRunOptions, RunResult } from './types.js'
+import {
+  cleanupTempDir,
+  createTempDir,
+  mergeDefined,
+  resolveRunEnvFlags,
+  toHarnessRunOptions,
+} from './util.js'
 
 async function persistGlobalLock(newLock: LockFile, globalLockPath: string): Promise<void> {
   let existingLock: LockFile | undefined
@@ -81,25 +88,13 @@ async function executeSpaceRun({
   tempDir,
   lock,
 }: ExecuteSpaceRunArgs): Promise<RunResult> {
-  const cliRunOptions: HarnessRunOptions = {
+  const cwd = options.cwd ?? defaultCwd
+  const cliRunOptions: HarnessRunOptions = toHarnessRunOptions(options, {
     aspHome,
-    model: options.model,
-    modelReasoningEffort: options.modelReasoningEffort,
-    extraArgs: options.extraArgs,
-    interactive: resolveInteractive(options.interactive),
+    projectPath: cwd,
+    cwd,
     prompt: options.prompt,
-    settingSources: options.settingSources,
-    permissionMode: options.permissionMode,
-    settings: options.settings,
-    yolo: options.yolo,
-    debug: options.debug,
-    projectPath: options.cwd ?? defaultCwd,
-    cwd: options.cwd ?? defaultCwd,
-    artifactDir: options.artifactDir,
-    continuationKey: options.continuationKey,
-    remoteControl: options.remoteControl,
-    sessionNamePrefix: options.sessionNamePrefix,
-  }
+  })
   const runOptions = mergeDefined<HarnessRunOptions>({}, cliRunOptions)
 
   if (runOptions.interactive === false && runOptions.prompt === undefined) {
@@ -108,45 +103,44 @@ async function executeSpaceRun({
 
   // Compile through the injected compiler when needed (real `--debug` dump and,
   // behind the ASP_RUN_VIA_COMPILER gate, a foreground inherit-spawn).
-  const viaCompiler =
-    process.env['ASP_RUN_VIA_COMPILER'] === '1' || process.env['ASP_RUN_VIA_COMPILER'] === 'true'
+  const { viaCompiler } = resolveRunEnvFlags()
   const wantDebugDump = options.dryRun === true && options.debug === true
-  let compileOutcome: RunCompileOutcome | undefined
-  if (options.compileRuntime && (viaCompiler || wantDebugDump)) {
-    const cwd = runOptions.cwd ?? runOptions.projectPath ?? defaultCwd
-    const compilerContext = buildCompilerDebugContext({
-      aspHome,
-      harnessId: adapter.id,
-      model: runOptions.model,
-      reasoningEffort: runOptions.modelReasoningEffort,
-      interactive: runOptions.interactive,
-      yolo: runOptions.yolo,
-      placement: {
-        agentRoot: cwd,
-        projectRoot: cwd,
-        cwd,
-        runMode: 'query',
-        bundle: { kind: 'compose', compose: lock.targets[bundle.targetName]?.compose ?? [] },
-        dryRun: options.dryRun === true,
-        ...(options.env !== undefined ? { env: options.env } : {}),
-      },
-      initialPrompt: runOptions.prompt,
-      resolvedBundleHint: {
-        bundleIdentity: `asp-run:${bundle.rootDir}:${bundle.targetName}:${adapter.id}`,
-        root: bundle.rootDir,
-        targetName: bundle.targetName,
-      },
-      correlation: {
-        appSessionKey: bundle.targetName,
-        scopeRef: bundle.targetName,
-        laneRef: 'main',
-      },
-    })
-    compileOutcome = await options.compileRuntime(compilerContext)
-  }
-
-  const compiledLaunch =
-    viaCompiler && compileOutcome?.foreground ? compileOutcome.foreground : undefined
+  const { compileOutcome, compiledLaunch } = await maybeCompileForRun({
+    compileRuntime: options.compileRuntime,
+    viaCompiler,
+    wantDebugDump,
+    buildContext: () => {
+      const compilerCwd = runOptions.cwd ?? runOptions.projectPath ?? defaultCwd
+      return {
+        aspHome,
+        harnessId: adapter.id,
+        model: runOptions.model,
+        reasoningEffort: runOptions.modelReasoningEffort,
+        interactive: runOptions.interactive,
+        yolo: runOptions.yolo,
+        placement: {
+          agentRoot: compilerCwd,
+          projectRoot: compilerCwd,
+          cwd: compilerCwd,
+          runMode: 'query',
+          bundle: { kind: 'compose', compose: lock.targets[bundle.targetName]?.compose ?? [] },
+          dryRun: options.dryRun === true,
+          ...(options.env !== undefined ? { env: options.env } : {}),
+        },
+        initialPrompt: runOptions.prompt,
+        resolvedBundleHint: {
+          bundleIdentity: `asp-run:${bundle.rootDir}:${bundle.targetName}:${adapter.id}`,
+          root: bundle.rootDir,
+          targetName: bundle.targetName,
+        },
+        correlation: {
+          appSessionKey: bundle.targetName,
+          scopeRef: bundle.targetName,
+          laneRef: 'main',
+        },
+      }
+    },
+  })
 
   const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
     env: options.env,
@@ -177,6 +171,96 @@ async function executeSpaceRun({
       ? { runtimeCompile: { request: compileOutcome.request, response: compileOutcome.response } }
       : {}),
   }
+}
+
+type SpaceClosure = Awaited<ReturnType<typeof computeClosure>>
+
+interface MaterializedClosureArtifacts {
+  artifacts: ResolvedSpaceArtifact[]
+  settingsInputs: SpaceSettings[]
+  loadOrder: SpaceKey[]
+}
+
+/**
+ * Materialize every harness-supported space in a closure into per-space
+ * artifacts and collect the composition inputs.
+ *
+ * Extracted from `runGlobalSpace` so that lock/closure resolution, per-space
+ * artifact materialization, and execution are separable responsibilities.
+ * Root spaces that do not support the harness are a hard error; non-root spaces
+ * are skipped, mirroring the prior inline behavior.
+ */
+async function materializeClosureArtifacts(
+  closure: SpaceClosure,
+  lock: LockFile,
+  context: {
+    paths: PathResolver
+    harnessId: HarnessId
+    adapter: HarnessAdapter
+    artifactRoot: string
+  }
+): Promise<MaterializedClosureArtifacts> {
+  const { paths, harnessId, adapter, artifactRoot } = context
+  const artifacts: ResolvedSpaceArtifact[] = []
+  const settingsInputs: SpaceSettings[] = []
+  const loadOrder: SpaceKey[] = []
+  const rootKeys = new Set(closure.roots)
+
+  for (const spaceKey of closure.loadOrder) {
+    const space = closure.spaces.get(spaceKey)
+    if (!space) throw new Error(`Space not found in closure: ${spaceKey}`)
+
+    const supports = space.manifest.harness?.supports
+    if (!isHarnessSupported(supports, harnessId)) {
+      if (rootKeys.has(spaceKey)) {
+        throw new Error(`Space "${space.id}" does not support harness "${harnessId}"`)
+      }
+      continue
+    }
+
+    const lockEntry = lock.spaces[spaceKey]
+    const pluginName =
+      lockEntry?.plugin?.name ?? space.manifest.plugin?.name ?? (space.id as string)
+    const pluginVersion = lockEntry?.plugin?.version ?? space.manifest.plugin?.version
+    const snapshotIntegrity = lockEntry?.integrity ?? `sha256:${'0'.repeat(64)}`
+    const snapshotPath = paths.snapshot(snapshotIntegrity)
+
+    const manifest = {
+      ...space.manifest,
+      schema: 1 as const,
+      id: space.id,
+      plugin: {
+        ...(space.manifest.plugin ?? {}),
+        name: pluginName,
+        ...(pluginVersion ? { version: pluginVersion } : {}),
+      },
+    }
+
+    const artifactPath = join(artifactRoot, spaceKey.replace(/[^a-zA-Z0-9._-]/g, '_'))
+    await adapter.materializeSpace(
+      {
+        manifest,
+        snapshotPath,
+        spaceKey,
+        integrity: snapshotIntegrity as `sha256:${string}`,
+      },
+      artifactPath,
+      { force: true, useHardlinks: true }
+    )
+
+    artifacts.push({
+      spaceKey,
+      spaceId: space.id,
+      artifactPath,
+      pluginName,
+      ...(pluginVersion ? { pluginVersion } : {}),
+    })
+
+    settingsInputs.push(space.manifest.settings ?? {})
+    loadOrder.push(spaceKey)
+  }
+
+  return { artifacts, settingsInputs, loadOrder }
 }
 
 /**
@@ -226,64 +310,11 @@ export async function runGlobalSpace(
   await ensureDir(artifactRoot)
 
   try {
-    const artifacts: ResolvedSpaceArtifact[] = []
-    const settingsInputs: SpaceSettings[] = []
-    const loadOrder: SpaceKey[] = []
-    const rootKeys = new Set(closure.roots)
-
-    for (const spaceKey of closure.loadOrder) {
-      const space = closure.spaces.get(spaceKey)
-      if (!space) throw new Error(`Space not found in closure: ${spaceKey}`)
-
-      const supports = space.manifest.harness?.supports
-      if (!isHarnessSupported(supports, harnessId)) {
-        if (rootKeys.has(spaceKey)) {
-          throw new Error(`Space "${space.id}" does not support harness "${harnessId}"`)
-        }
-        continue
-      }
-
-      const lockEntry = lock.spaces[spaceKey]
-      const pluginName =
-        lockEntry?.plugin?.name ?? space.manifest.plugin?.name ?? (space.id as string)
-      const pluginVersion = lockEntry?.plugin?.version ?? space.manifest.plugin?.version
-      const snapshotIntegrity = lockEntry?.integrity ?? `sha256:${'0'.repeat(64)}`
-      const snapshotPath = paths.snapshot(snapshotIntegrity)
-
-      const manifest = {
-        ...space.manifest,
-        schema: 1 as const,
-        id: space.id,
-        plugin: {
-          ...(space.manifest.plugin ?? {}),
-          name: pluginName,
-          ...(pluginVersion ? { version: pluginVersion } : {}),
-        },
-      }
-
-      const artifactPath = join(artifactRoot, spaceKey.replace(/[^a-zA-Z0-9._-]/g, '_'))
-      await adapter.materializeSpace(
-        {
-          manifest,
-          snapshotPath,
-          spaceKey,
-          integrity: snapshotIntegrity as `sha256:${string}`,
-        },
-        artifactPath,
-        { force: true, useHardlinks: true }
-      )
-
-      artifacts.push({
-        spaceKey,
-        spaceId: space.id,
-        artifactPath,
-        pluginName,
-        ...(pluginVersion ? { pluginVersion } : {}),
-      })
-
-      settingsInputs.push(space.manifest.settings ?? {})
-      loadOrder.push(spaceKey)
-    }
+    const { artifacts, settingsInputs, loadOrder } = await materializeClosureArtifacts(
+      closure,
+      lock,
+      { paths, harnessId, adapter, artifactRoot }
+    )
 
     const roots = closure.roots.filter((key) => loadOrder.includes(key))
     const composeInput: ComposeTargetInput = {

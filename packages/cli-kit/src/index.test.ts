@@ -33,28 +33,29 @@ async function tempFile(contents: string): Promise<string> {
   return path
 }
 
-function captureExit(fn: () => never): { code: number | undefined; stderr: string } {
-  const originalExit = process.exit
-  const originalWrite = process.stderr.write
+// Exercise exitWithError through its injected `write`/`exit` seam rather than
+// monkey-patching global `process.exit`/`process.stderr.write`. This keeps the
+// test isolated from shared process state (no race with concurrent writers) and
+// restores nothing because nothing global was mutated.
+function captureExit(
+  run: (deps: {
+    write: (chunk: string) => void
+    exit: (code: number) => never
+  }) => never
+): { code: number | undefined; stderr: string } {
   let code: number | undefined
   let stderr = ''
 
-  process.exit = ((exitCode?: number | string | null) => {
-    code = typeof exitCode === 'number' ? exitCode : undefined
-    throw new Error('process.exit')
-  }) as typeof process.exit
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    stderr += chunk.toString()
-    return true
-  }) as typeof process.stderr.write
-
-  try {
-    expect(fn).toThrow('process.exit')
-    return { code, stderr }
-  } finally {
-    process.exit = originalExit
-    process.stderr.write = originalWrite
+  const write = (chunk: string) => {
+    stderr += chunk
   }
+  const exit = ((exitCode: number) => {
+    code = exitCode
+    throw new Error('process.exit')
+  }) as (code: number) => never
+
+  expect(() => run({ write, exit })).toThrow('process.exit')
+  return { code, stderr }
 }
 
 describe('commander helpers', () => {
@@ -83,6 +84,12 @@ describe('commander helpers', () => {
   test('repeatable accumulates parsed values', () => {
     const collect = repeatable((raw) => Number.parseInt(raw, 10))
     expect(collect('2', collect('1', undefined))).toEqual([1, 2])
+  })
+
+  test('repeatable without a parser accumulates raw strings (typed string[])', () => {
+    const collect = repeatable()
+    const result: string[] = collect('b', collect('a', undefined))
+    expect(result).toEqual(['a', 'b'])
   })
 
   test('withDeps passes options, positionals, and deps to a handler', async () => {
@@ -123,8 +130,8 @@ describe('validators', () => {
   })
 
   test('parseCommaList trims values and rejects empty lists', () => {
-    expect(parseCommaList('a, b,,c', '--ids')).toEqual(['a', 'b', 'c'])
-    expect(() => parseCommaList(' , ', '--ids')).toThrow('--ids requires at least one value')
+    expect(parseCommaList('--ids', 'a, b,,c')).toEqual(['a', 'b', 'c'])
+    expect(() => parseCommaList('--ids', ' , ')).toThrow('--ids requires at least one value')
   })
 
   test('parseIntegerValue validates minimums', () => {
@@ -139,26 +146,46 @@ describe('validators', () => {
     expect(consumeBody({ positional: 'inline' })).toBe('inline')
     expect(consumeBody({ file: path, positional: 'ignored' })).toBe('from-file')
   })
+
+  test('consumeBody reads stdin for a "-" positional via the injected reader', () => {
+    const reads: string[] = []
+    const readFile = (p: string) => {
+      reads.push(p)
+      return 'from-stdin'
+    }
+    expect(consumeBody({ positional: '-' }, { readFile })).toBe('from-stdin')
+    expect(reads).toEqual(['/dev/stdin'])
+  })
+
+  test('consumeBody wraps an unreadable file path as a CliUsageError', () => {
+    const readFile = () => {
+      throw new Error('ENOENT: no such file or directory')
+    }
+    expect(() => consumeBody({ file: '/missing' }, { readFile })).toThrow(CliUsageError)
+    expect(() => consumeBody({ file: '/missing' }, { readFile })).toThrow(/cannot read --file/)
+  })
 })
 
 describe('error envelope', () => {
   test('exitWithError emits exit code 2 for CliUsageError', () => {
-    const result = captureExit(() =>
-      exitWithError(new CliUsageError('bad input'), { binName: 'tool' })
+    const result = captureExit((deps) =>
+      exitWithError(new CliUsageError('bad input'), { binName: 'tool' }, deps)
     )
     expect(result.code).toBe(2)
     expect(result.stderr).toBe('tool: bad input\n')
   })
 
   test('exitWithError emits exit code 1 for other Error types', () => {
-    const result = captureExit(() => exitWithError(new Error('boom'), { binName: 'tool' }))
+    const result = captureExit((deps) =>
+      exitWithError(new Error('boom'), { binName: 'tool' }, deps)
+    )
     expect(result.code).toBe(1)
     expect(result.stderr).toBe('tool: boom\n')
   })
 
   test('exitWithError can emit a JSON error envelope', () => {
-    const result = captureExit(() =>
-      exitWithError(new CliUsageError('bad input'), { binName: 'tool', json: true })
+    const result = captureExit((deps) =>
+      exitWithError(new CliUsageError('bad input'), { binName: 'tool', json: true }, deps)
     )
     expect(result.code).toBe(2)
     expect(JSON.parse(result.stderr)).toEqual({ error: { message: 'bad input', usage: true } })

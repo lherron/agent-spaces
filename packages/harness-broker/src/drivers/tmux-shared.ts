@@ -1,0 +1,206 @@
+import { createHash } from 'node:crypto'
+import { join } from 'node:path'
+import type { HarnessInvocationSpec, InvocationInput } from 'spaces-harness-broker-protocol'
+import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import { BrokerError } from '../errors'
+import { shellQuote } from '../runtime/shell-quote'
+import { type TmuxExec, TmuxPaneController, type TmuxPaneControllerLease } from '../runtime/tmux'
+import type { DriverContext } from './driver'
+
+export { shellQuote }
+
+/** Concatenate the text parts of an invocation input into a single string. */
+export function extractText(input: InvocationInput): string {
+  return input.content
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .filter((segment) => segment.length > 0)
+    .join('')
+}
+
+/** Sleep helper shared by the tmux drivers' input-delivery paths. */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Read the invocation's runtime id off the spec's correlation map, if present. */
+export function getInvocationRuntimeId(spec: HarnessInvocationSpec): string | undefined {
+  return spec.correlation?.['runtimeId']
+}
+
+/**
+ * Build a SHORT, per-invocation/runtime hook socket path under `socketDir`. A
+ * 16-hex digest of invocationId+runtimeId keeps the basename short so the
+ * relocated socket and its derived wrapper/launch-artifact paths stay within
+ * the unix socket path budget.
+ */
+export function buildHookSocketPath(
+  socketDir: string,
+  prefix: string,
+  context: { invocationId: string; runtimeId?: string | undefined }
+): string {
+  const token = createHash('sha256')
+    .update(`${context.invocationId}\0${context.runtimeId ?? ''}`)
+    .digest('hex')
+    .slice(0, 16)
+  return join(socketDir, `${prefix}.${token}.sock`)
+}
+
+/** Handle returned by a hook callback listener bound to a broker socket. */
+export interface HookListenerHandle {
+  socketPath: string
+  close: () => Promise<void>
+}
+
+/**
+ * Bind a Unix-domain socket server that accepts a single JSON envelope per
+ * connection, parses it, and hands it to `handler`. Shared by both tmux drivers;
+ * the envelope type is supplied by the caller.
+ */
+export async function listenForHookEnvelopes<TEnvelope>(
+  socketPath: string,
+  handler: (envelope: TEnvelope) => Promise<void> | void
+): Promise<HookListenerHandle> {
+  const { createServer } = await import('node:net')
+  const { mkdir, rm } = await import('node:fs/promises')
+  const { dirname } = await import('node:path')
+
+  await mkdir(dirname(socketPath), { recursive: true }).catch(() => undefined)
+  await rm(socketPath, { force: true }).catch(() => undefined)
+
+  const server = createServer((conn) => {
+    const chunks: Buffer[] = []
+    conn.on('data', (chunk: Buffer) => chunks.push(chunk))
+    conn.on('end', () => {
+      void (async () => {
+        try {
+          const body = Buffer.concat(chunks).toString('utf8').trim()
+          if (body.length > 0) {
+            await handler(JSON.parse(body) as TEnvelope)
+          }
+          conn.end('ok')
+        } catch {
+          conn.end('err')
+        }
+      })()
+    })
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(socketPath, () => {
+      server.removeListener('error', reject)
+      resolve()
+    })
+  })
+
+  return {
+    socketPath,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve())
+      }),
+  }
+}
+
+/** Surface ids reported by a consumed pane lease. */
+export interface PaneLeaseSurface {
+  socketPath: string
+  sessionId: string
+  windowId: string
+  paneId: string
+  sessionName?: string | undefined
+  windowName?: string | undefined
+}
+
+export interface ConsumePaneLeaseResult {
+  controller: TmuxPaneController
+  surface: PaneLeaseSurface
+}
+
+/**
+ * Validate the runtime pane lease shape (`runtime.terminalSurface`), construct a
+ * {@link TmuxPaneController} against it, inspect the pane, and assert the tmux
+ * server's reported ids match the lease. Throws a {@link BrokerError} on any
+ * shape/identity mismatch. Shared by both tmux drivers' `start()`.
+ */
+export async function consumePaneLease(
+  driverCtx: DriverContext,
+  opts: {
+    driverKind: string
+    tmuxBin?: string | undefined
+    exec?: TmuxExec | undefined
+  }
+): Promise<ConsumePaneLeaseResult> {
+  const lease = driverCtx.runtime?.terminalSurface
+  if (lease === undefined) {
+    throw new BrokerError(
+      BrokerErrorCode.InvalidInvocationState,
+      `${opts.driverKind} start requires a runtime pane lease (runtime.terminalSurface); HRC / the pre-HRC harness owns the tmux server and must hand the driver a pane`
+    )
+  }
+  if (lease.kind !== 'tmux-pane') {
+    throw new BrokerError(
+      BrokerErrorCode.InvalidInvocationState,
+      `${opts.driverKind} requires an hrc-owned tmux-pane lease: runtime.terminalSurface.kind === 'tmux-pane' (got ${String(
+        (lease as { kind?: unknown }).kind
+      )})`
+    )
+  }
+  if (lease.ownership !== 'hrc') {
+    throw new BrokerError(
+      BrokerErrorCode.InvalidInvocationState,
+      `${opts.driverKind} requires an hrc-owned tmux-pane lease: runtime.terminalSurface.ownership === 'hrc' (got ${String(
+        (lease as { ownership?: unknown }).ownership
+      )})`
+    )
+  }
+
+  const controllerLease: TmuxPaneControllerLease = {
+    paneId: lease.paneId,
+    sessionId: lease.sessionId,
+    windowId: lease.windowId,
+    ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
+    ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
+    allowedOps: lease.allowedOps,
+  }
+  const controller = new TmuxPaneController({
+    socketPath: lease.socketPath,
+    ...(opts.tmuxBin !== undefined ? { tmuxBin: opts.tmuxBin } : {}),
+    ...(opts.exec !== undefined ? { exec: opts.exec } : {}),
+    lease: controllerLease,
+  })
+
+  let inspection: { paneId: string; sessionId: string; windowId: string }
+  try {
+    inspection = await controller.inspect()
+  } catch (error) {
+    throw new BrokerError(
+      BrokerErrorCode.InvalidInvocationState,
+      `leased pane not found or id mismatch: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    )
+  }
+  if (
+    inspection.paneId !== lease.paneId ||
+    inspection.sessionId !== lease.sessionId ||
+    inspection.windowId !== lease.windowId
+  ) {
+    throw new BrokerError(
+      BrokerErrorCode.InvalidInvocationState,
+      `leased pane not found or id mismatch: tmux reported ${inspection.sessionId}/${inspection.windowId}/${inspection.paneId}, lease ${lease.sessionId}/${lease.windowId}/${lease.paneId}`
+    )
+  }
+
+  return {
+    controller,
+    surface: {
+      socketPath: lease.socketPath,
+      sessionId: lease.sessionId,
+      windowId: lease.windowId,
+      paneId: lease.paneId,
+      ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
+      ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
+    },
+  }
+}

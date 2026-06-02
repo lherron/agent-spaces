@@ -5,6 +5,16 @@ export const MEMORY_FILE = 'MEMORY.md'
 export const USER_FILE = 'USER.md'
 export const PERSONA_FILE = 'SOUL.md'
 
+/**
+ * Character caps per memory target. These are budgeted against the system-prompt
+ * context window: the per-agent reminder (`MEMORY.md`) and the shared user note
+ * (`USER.md`) are kept small so they fit inside the reminder zone, while the
+ * persona (`SOUL.md`) is allowed a full prompt-zone budget.
+ */
+export const MEMORY_CAP_CHARS = 2200
+export const USER_CAP_CHARS = 1375
+export const PERSONA_CAP_CHARS = 8192
+
 export type MemoryTargetName = 'memory' | 'user' | 'persona'
 
 export type MemoryTargetScope = 'per-agent' | 'shared-editable'
@@ -37,7 +47,7 @@ export function resolveMemoryPaths(
     memory: {
       path: memoryPath,
       lockPath: `${memoryPath}.lock`,
-      capChars: 2200,
+      capChars: MEMORY_CAP_CHARS,
       scope: 'per-agent',
       zone: 'reminder',
       scannerCategoriesToSkip: [],
@@ -45,7 +55,7 @@ export function resolveMemoryPaths(
     user: {
       path: userPath,
       lockPath: `${userPath}.lock`,
-      capChars: 1375,
+      capChars: USER_CAP_CHARS,
       scope: 'shared-editable',
       zone: 'reminder',
       scannerCategoriesToSkip: [],
@@ -53,7 +63,7 @@ export function resolveMemoryPaths(
     persona: {
       path: personaPath,
       lockPath: `${personaPath}.lock`,
-      capChars: 8192,
+      capChars: PERSONA_CAP_CHARS,
       scope: 'per-agent',
       zone: 'prompt',
       scannerCategoriesToSkip: ['prompt_injection'],

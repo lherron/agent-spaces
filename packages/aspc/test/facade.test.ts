@@ -131,6 +131,23 @@ describe('ASPC combined facade', () => {
     }
   })
 
+  test('client onRequest/onNotification reject double registration (single-writer contract)', async () => {
+    const client = await startFacadeClient()
+    try {
+      client.onRequest(async () => undefined)
+      expect(() => client.onRequest(async () => undefined)).toThrow(
+        'onRequest handler already registered'
+      )
+
+      client.onNotification(() => {})
+      expect(() => client.onNotification(() => {})).toThrow(
+        'onNotification handler already registered'
+      )
+    } finally {
+      await client.close()
+    }
+  })
+
   test('compileAndStart compiles through ASPC and starts through the co-hosted broker', async () => {
     const client = await startFacadeClient()
     try {

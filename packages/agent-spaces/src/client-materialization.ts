@@ -21,6 +21,7 @@ import {
 } from 'spaces-config'
 import { materializeFromRefs, materializeTarget } from 'spaces-execution'
 
+import { CodedError } from './client-support.js'
 import type { SpaceSpec } from './types.js'
 
 export interface ValidatedSpec {
@@ -281,7 +282,15 @@ export async function collectHooks(pluginDirs: string[]): Promise<string[]> {
 export async function collectTools(mcpConfigPath: string | undefined): Promise<string[]> {
   if (!mcpConfigPath) return []
   const raw = await readFile(mcpConfigPath, 'utf-8')
-  const parsed = JSON.parse(raw) as { mcpServers?: Record<string, unknown> } | undefined
+  let parsed: { mcpServers?: Record<string, unknown> } | undefined
+  try {
+    parsed = JSON.parse(raw) as { mcpServers?: Record<string, unknown> } | undefined
+  } catch (error) {
+    // Wrap the opaque SyntaxError with the offending path so the failure is
+    // actionable ("invalid MCP config at <path>") instead of a bare parse error.
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new CodedError(`Invalid MCP config JSON at ${mcpConfigPath}: ${reason}`, 'resolve_failed')
+  }
   if (!parsed?.mcpServers) return []
   return Object.keys(parsed.mcpServers)
 }

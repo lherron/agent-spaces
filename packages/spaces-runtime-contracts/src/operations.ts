@@ -1,4 +1,4 @@
-import type { InvocationId } from 'spaces-harness-broker-protocol'
+import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import type { RuntimeCapabilities } from './capabilities'
 import type { RuntimeContinuationRef } from './continuation'
 import type {
@@ -83,8 +83,6 @@ export type RuntimeInputEnvelope = {
   >
   metadata?: Record<string, string> | undefined
 }
-
-import type { InputId } from 'spaces-harness-broker-protocol'
 
 export type HrcRuntimeSnapshot = {
   runtimeId: RuntimeId

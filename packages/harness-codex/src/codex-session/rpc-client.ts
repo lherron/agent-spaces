@@ -1,6 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { once } from 'node:events'
 import { createInterface } from 'node:readline'
+import { errorMessage, toError } from '../errors.js'
 
 export type JsonRpcId = number | string
 
@@ -57,7 +58,7 @@ export class CodexRpcClient {
     })
 
     proc.on('error', (error) => {
-      this.handleError(error instanceof Error ? error : new Error(String(error)))
+      this.handleError(toError(error))
     })
 
     proc.on('exit', (code, signal) => {
@@ -106,13 +107,7 @@ export class CodexRpcClient {
     try {
       message = JSON.parse(trimmed) as JsonRpcMessage
     } catch (error) {
-      this.handleError(
-        new Error(
-          `Failed to parse JSON-RPC message: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        )
-      )
+      this.handleError(new Error(`Failed to parse JSON-RPC message: ${errorMessage(error)}`))
       return
     }
 
@@ -185,13 +180,13 @@ export class CodexRpcClient {
         result,
       } satisfies JsonRpcResponse)
     } catch (error) {
-      const messageText = error instanceof Error ? error.message : String(error)
+      const messageText = errorMessage(error)
       await this.writeMessage({
         jsonrpc: '2.0',
         id: message.id,
         error: { code: -32000, message: messageText },
       } satisfies JsonRpcResponse)
-      this.handleError(error instanceof Error ? error : new Error(messageText))
+      this.handleError(toError(error))
     }
   }
 

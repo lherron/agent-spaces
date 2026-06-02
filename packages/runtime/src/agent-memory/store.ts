@@ -2,9 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, open, readFile, rename, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { type MemoryTargetConfig, type MemoryTargetName, resolveMemoryPaths } from './paths.js'
-import { type ScanResult, scan } from './scan.js'
-
-export const ENTRY_DELIMITER = '\n§\n'
+import { ENTRY_DELIMITER, type ScanResult, scan } from './scan.js'
 
 export type StoreResult =
   | { ok: true }

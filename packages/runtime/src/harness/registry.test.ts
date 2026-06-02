@@ -225,6 +225,112 @@ describe('HarnessRegistry', () => {
       expect(results.get('claude')?.error).toBe('Detection failed')
     })
 
+    test('logs the full error (preserving cause) under ASP_DEBUG when detection throws', async () => {
+      const cause = new Error('underlying boom')
+      const thrown = new Error('Detection failed', { cause })
+      const errorAdapter: HarnessAdapter = {
+        id: 'claude',
+        name: 'Claude Code',
+        detect: async () => {
+          throw thrown
+        },
+        validateSpace: () => ({ valid: true, errors: [], warnings: [] }),
+        materializeSpace: async () => ({ artifactPath: '/test', files: [], warnings: [] }),
+        composeTarget: async () => ({
+          bundle: { harnessId: 'claude', targetName: 'test', rootDir: '/test' },
+          warnings: [],
+        }),
+        buildRunArgs: () => [],
+        getTargetOutputPath: (dir, target) => `${dir}/${target}/claude`,
+        loadTargetBundle: async () => ({
+          harnessId: 'claude',
+          targetName: 'test',
+          rootDir: '/test',
+        }),
+        getRunEnv: () => ({}),
+        getDefaultRunOptions: (_manifest: ProjectManifest, _targetName: string) => ({}),
+      }
+
+      registry.register(errorAdapter)
+
+      const previous = process.env['ASP_DEBUG']
+      process.env['ASP_DEBUG'] = '1'
+      const originalDebug = console.debug
+      const debugCalls: unknown[][] = []
+      console.debug = (...args: unknown[]) => {
+        debugCalls.push(args)
+      }
+
+      try {
+        const results = await registry.detectAvailable()
+        // Returned detection is still the flat message (behavior preserved).
+        expect(results.get('claude')?.error).toBe('Detection failed')
+        // The full error object (carrying stack + cause) reaches the debug log.
+        expect(debugCalls).toHaveLength(1)
+        const logged = debugCalls[0]?.at(-1)
+        expect(logged).toBe(thrown)
+        expect((logged as Error).cause).toBe(cause)
+      } finally {
+        console.debug = originalDebug
+        if (previous === undefined) {
+          // biome-ignore lint/performance/noDelete: delete is the correct way to unset an env var
+          delete process.env['ASP_DEBUG']
+        } else {
+          process.env['ASP_DEBUG'] = previous
+        }
+      }
+    })
+
+    test('does not emit debug output when ASP_DEBUG is unset', async () => {
+      const errorAdapter: HarnessAdapter = {
+        id: 'claude',
+        name: 'Claude Code',
+        detect: async () => {
+          throw new Error('Detection failed')
+        },
+        validateSpace: () => ({ valid: true, errors: [], warnings: [] }),
+        materializeSpace: async () => ({ artifactPath: '/test', files: [], warnings: [] }),
+        composeTarget: async () => ({
+          bundle: { harnessId: 'claude', targetName: 'test', rootDir: '/test' },
+          warnings: [],
+        }),
+        buildRunArgs: () => [],
+        getTargetOutputPath: (dir, target) => `${dir}/${target}/claude`,
+        loadTargetBundle: async () => ({
+          harnessId: 'claude',
+          targetName: 'test',
+          rootDir: '/test',
+        }),
+        getRunEnv: () => ({}),
+        getDefaultRunOptions: (_manifest: ProjectManifest, _targetName: string) => ({}),
+      }
+
+      registry.register(errorAdapter)
+
+      const previous = process.env['ASP_DEBUG']
+      // biome-ignore lint/performance/noDelete: delete is the correct way to unset an env var
+      delete process.env['ASP_DEBUG']
+      const originalDebug = console.debug
+      let debugCallCount = 0
+      console.debug = () => {
+        debugCallCount += 1
+      }
+
+      try {
+        const results = await registry.detectAvailable()
+        expect(results.get('claude')?.available).toBe(false)
+        expect(debugCallCount).toBe(0)
+      } finally {
+        console.debug = originalDebug
+        if (previous === undefined) {
+          // biome-ignore lint/performance/noDelete: delete is the correct way to unset an env var
+          delete process.env['ASP_DEBUG']
+        } else {
+          process.env['ASP_DEBUG'] = previous
+        }
+      }
+    })
+
     test('handles non-Error throws in detection', async () => {
       const errorAdapter: HarnessAdapter = {
         id: 'claude',

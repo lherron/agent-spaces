@@ -1,6 +1,6 @@
-import { parseScopeRef } from './scope-ref.js'
-import type { ParsedScopeRef } from './types.js'
-import { TOKEN_MAX_LENGTH, TOKEN_MIN_LENGTH, TOKEN_PATTERN } from './types.js'
+import { buildScopeRef, parseScopeRef } from './scope-ref.js'
+import type { ParsedScopeRef, ValidationResult } from './types.js'
+import { validateToken } from './types.js'
 
 /**
  * ScopeHandle grammar:
@@ -14,29 +14,25 @@ import { TOKEN_MAX_LENGTH, TOKEN_MIN_LENGTH, TOKEN_PATTERN } from './types.js'
  *   alice@demo:t1/reviewer  → agent:alice:project:demo:task:t1:role:reviewer
  */
 
-function validateToken(value: string, label: string): string | undefined {
-  if (value.length < TOKEN_MIN_LENGTH || value.length > TOKEN_MAX_LENGTH) {
-    return `${label} must be ${TOKEN_MIN_LENGTH}..${TOKEN_MAX_LENGTH} characters, got ${value.length}`
-  }
-  if (!TOKEN_PATTERN.test(value)) {
-    return `${label} contains invalid characters: must match [A-Za-z0-9._-]+`
-  }
-  return undefined
+/** Structural decomposition of a scope handle, prior to token validation. */
+type HandleParts = {
+  agentId: string
+  projectId?: string | undefined
+  taskId?: string | undefined
+  roleName?: string | undefined
 }
 
 /**
- * Validate a scope handle string. Returns { ok: true } or { ok: false, error }.
+ * Split a scope handle into its component tokens without validating them.
+ * Single source of truth for the handle grammar, reused by both
+ * `validateScopeHandle` and `parseScopeHandle`.
  */
-export function validateScopeHandle(handle: string): { ok: true } | { ok: false; error: string } {
-  if (handle.length === 0) {
-    return { ok: false, error: 'ScopeHandle must not be empty' }
-  }
-
-  // Split off role first: everything after the last "/" in the project portion
+function splitHandle(handle: string): HandleParts {
+  // Split off role first: everything after the first "/" in the project portion.
+  // Role delimiter "/" is only meaningful after "@".
   let main = handle
   let roleName: string | undefined
 
-  // Role delimiter "/" only valid after "@"
   const atIdx = handle.indexOf('@')
   if (atIdx !== -1) {
     const afterAt = handle.slice(atIdx + 1)
@@ -47,27 +43,37 @@ export function validateScopeHandle(handle: string): { ok: true } | { ok: false;
     }
   }
 
-  // Now parse main: agentId ["@" projectId [":" taskId]]
-  let agentId: string
-  let projectId: string | undefined
-  let taskId: string | undefined
-
+  // Parse main: agentId ["@" projectId [":" taskId]]
   if (atIdx === -1) {
-    agentId = main
-  } else {
-    agentId = main.slice(0, atIdx)
-    const projectPart = main.slice(atIdx + 1)
-
-    const colonIdx = projectPart.indexOf(':')
-    if (colonIdx === -1) {
-      projectId = projectPart
-    } else {
-      projectId = projectPart.slice(0, colonIdx)
-      taskId = projectPart.slice(colonIdx + 1)
-    }
+    return { agentId: main, roleName }
   }
 
-  // Validate each token
+  const agentId = main.slice(0, atIdx)
+  const projectPart = main.slice(atIdx + 1)
+
+  const colonIdx = projectPart.indexOf(':')
+  if (colonIdx === -1) {
+    return { agentId, projectId: projectPart, roleName }
+  }
+
+  return {
+    agentId,
+    projectId: projectPart.slice(0, colonIdx),
+    taskId: projectPart.slice(colonIdx + 1),
+    roleName,
+  }
+}
+
+/**
+ * Validate a scope handle string. Returns { ok: true } or { ok: false, error }.
+ */
+export function validateScopeHandle(handle: string): ValidationResult {
+  if (handle.length === 0) {
+    return { ok: false, error: 'ScopeHandle must not be empty' }
+  }
+
+  const { agentId, projectId, taskId, roleName } = splitHandle(handle)
+
   const agentErr = validateToken(agentId, 'agentId')
   if (agentErr) return { ok: false, error: agentErr }
 
@@ -99,47 +105,9 @@ export function parseScopeHandle(handle: string): ParsedScopeRef {
     throw new Error(`Invalid ScopeHandle "${handle}": ${validation.error}`)
   }
 
-  // Split off role
-  let main = handle
-  let roleName: string | undefined
-
-  const atIdx = handle.indexOf('@')
-  if (atIdx !== -1) {
-    const afterAt = handle.slice(atIdx + 1)
-    const slashIdx = afterAt.indexOf('/')
-    if (slashIdx !== -1) {
-      roleName = afterAt.slice(slashIdx + 1)
-      main = handle.slice(0, atIdx + 1 + slashIdx)
-    }
-  }
-
-  // Parse main: agentId ["@" projectId [":" taskId]]
-  let agentId: string
-  let projectId: string | undefined
-  let taskId: string | undefined
-
-  if (atIdx === -1) {
-    agentId = main
-  } else {
-    agentId = main.slice(0, atIdx)
-    const projectPart = main.slice(atIdx + 1)
-
-    const colonIdx = projectPart.indexOf(':')
-    if (colonIdx === -1) {
-      projectId = projectPart
-    } else {
-      projectId = projectPart.slice(0, colonIdx)
-      taskId = projectPart.slice(colonIdx + 1)
-    }
-  }
-
-  // Build canonical scope ref and parse it to get the ParsedScopeRef
-  let scopeRef = `agent:${agentId}`
-  if (projectId !== undefined) scopeRef += `:project:${projectId}`
-  if (taskId !== undefined) scopeRef += `:task:${taskId}`
-  if (roleName !== undefined) scopeRef += `:role:${roleName}`
-
-  return parseScopeRef(scopeRef)
+  // Reuse the validated split; build the canonical ref and parse it to derive
+  // the ParsedScopeRef (kind, etc.).
+  return parseScopeRef(buildScopeRef(splitHandle(handle)))
 }
 
 /**

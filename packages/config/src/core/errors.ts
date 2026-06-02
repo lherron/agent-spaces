@@ -123,11 +123,16 @@ export class MissingDependencyError extends ResolutionError {
   readonly spaceId: string
   readonly dependsOn: string
 
-  constructor(spaceId: string, dependsOn: string) {
+  constructor(spaceId: string, dependsOn: string, options?: { cause?: unknown } | undefined) {
     super(`Space "${spaceId}" depends on missing space: "${dependsOn}"`, 'MISSING_DEPENDENCY_ERROR')
     this.name = 'MissingDependencyError'
     this.spaceId = spaceId
     this.dependsOn = dependsOn
+    // Preserve the underlying failure (e.g. a manifest read/parse error several
+    // levels deep) so it is not erased when a deep error is re-wrapped here.
+    if (options && 'cause' in options) {
+      this.cause = options.cause
+    }
   }
 }
 

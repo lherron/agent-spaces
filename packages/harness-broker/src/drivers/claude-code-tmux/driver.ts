@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type {
@@ -15,9 +14,18 @@ import {
   CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
-import { type TmuxExec, TmuxPaneController, type TmuxPaneControllerLease } from '../../runtime/tmux'
+import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import {
+  type HookListenerHandle,
+  buildHookSocketPath,
+  consumePaneLease,
+  extractText,
+  getInvocationRuntimeId,
+  listenForHookEnvelopes,
+  shellQuote,
+} from '../tmux-shared'
 import {
   CLAUDE_CODE_TMUX_DRIVER_KIND,
   type ClaudeCodeHookEnvelope,
@@ -75,11 +83,7 @@ const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
-/** Handle returned by a hook callback listener bound to the broker socket. */
-export interface HookListenerHandle {
-  socketPath: string
-  close: () => Promise<void>
-}
+export type { HookListenerHandle }
 
 export interface HookListenerContext {
   invocationId: string
@@ -199,84 +203,20 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // ownership: 'hrc'). It reads ONLY this field — never the legacy
       // `runtime.tmux.socketPath` boundary shim — so capability scope is
       // explicit and the driver cannot fall through to a server it owns.
-      const lease = driverCtx.runtime?.terminalSurface
-      if (lease === undefined) {
-        throw new BrokerError(
-          BrokerErrorCode.InvalidInvocationState,
-          'claude-code-tmux start requires a runtime pane lease (runtime.terminalSurface); ' +
-            'HRC / the pre-HRC harness owns the tmux server and must hand the driver a pane'
-        )
-      }
-      if (lease.kind !== 'tmux-pane') {
-        throw new BrokerError(
-          BrokerErrorCode.InvalidInvocationState,
-          `claude-code-tmux requires runtime.terminalSurface.kind === 'tmux-pane' (got ${String(
-            (lease as { kind?: unknown }).kind
-          )})`
-        )
-      }
-      if (lease.ownership !== 'hrc') {
-        throw new BrokerError(
-          BrokerErrorCode.InvalidInvocationState,
-          `claude-code-tmux requires runtime.terminalSurface.ownership === 'hrc' (got ${String(
-            (lease as { ownership?: unknown }).ownership
-          )})`
-        )
-      }
-
-      ctx = driverCtx
-      // Construct the pane controller against the leased pane on the
-      // runtime-owned tmux server. The controller enforces allowedOps; it
-      // ONLY issues capability-safe verbs (send-keys, paste-buffer, set-buffer,
-      // capture-pane, display-message) and never any lifecycle command.
-      const controllerLease: TmuxPaneControllerLease = {
-        paneId: lease.paneId,
-        sessionId: lease.sessionId,
-        windowId: lease.windowId,
-        ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
-        ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
-        allowedOps: lease.allowedOps,
-      }
-      paneController = new TmuxPaneController({
-        socketPath: lease.socketPath,
+      // consumePaneLease validates the lease shape, constructs the pane
+      // controller (allowedOps-gated, capability-safe verbs only — never a
+      // lifecycle command), inspects the leased pane, and fails loudly if the
+      // tmux server's reported ids do not match the lease.
+      const leased = await consumePaneLease(driverCtx, {
+        driverKind: 'claude-code-tmux',
         ...(options.tmux.tmuxBin !== undefined ? { tmuxBin: options.tmux.tmuxBin } : {}),
         ...(options.tmux.exec !== undefined ? { exec: options.tmux.exec } : {}),
-        lease: controllerLease,
       })
 
-      // Validate the leased pane exists and the tmux server's reported ids
-      // match the lease (operator integrity check — fail loudly if HRC handed
-      // us a stale or wrong pane).
-      let inspection: { paneId: string; sessionId: string; windowId: string }
-      try {
-        inspection = await paneController.inspect()
-      } catch (error) {
-        throw new BrokerError(
-          BrokerErrorCode.InvalidInvocationState,
-          `leased pane not found or id mismatch: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        )
-      }
-      if (
-        inspection.paneId !== lease.paneId ||
-        inspection.sessionId !== lease.sessionId ||
-        inspection.windowId !== lease.windowId
-      ) {
-        throw new BrokerError(
-          BrokerErrorCode.InvalidInvocationState,
-          `leased pane not found or id mismatch: tmux reported ${inspection.sessionId}/${inspection.windowId}/${inspection.paneId}, lease ${lease.sessionId}/${lease.windowId}/${lease.paneId}`
-        )
-      }
-
-      surface = {
-        socketPath: lease.socketPath,
-        sessionId: lease.sessionId,
-        windowId: lease.windowId,
-        paneId: lease.paneId,
-        ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
-        ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
-      }
+      ctx = driverCtx
+      paneController = leased.controller
+      surface = leased.surface
+      const lease = leased.surface
 
       // Wire the hook ingestion callback socket → normalize via the ENVELOPE
       // turn id seam → re-emit as broker events through ctx.emit. The shared
@@ -461,17 +401,6 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   }
 }
 
-function extractText(input: InvocationInput): string {
-  return input.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .filter((segment) => segment.length > 0)
-    .join('')
-}
-
-function getInvocationRuntimeId(spec: HarnessInvocationSpec): string | undefined {
-  return spec.correlation?.['runtimeId']
-}
-
 /** Claude Code hook events the broker overlay subscribes to. */
 const HOOK_EVENT_NAMES = [
   'SessionStart',
@@ -594,13 +523,6 @@ async function writeMergedSettingsFile(
   return settingsPath
 }
 
-function shellQuote(value: string): string {
-  if (/^[A-Za-z0-9_./:=-]+$/.test(value)) {
-    return value
-  }
-  return `'${value.replace(/'/g, `'\\''`)}'`
-}
-
 /**
  * Default-configured driver for registry registration. Uses the real tmux
  * binary and a real Unix-domain hook callback socket. The socket is bound
@@ -615,61 +537,14 @@ export function createDefaultClaudeCodeTmuxDriver(
     tmux: {},
     hooks: {
       listen: (handler, context) =>
-        listenForHookEnvelopes(buildClaudeHookSocketPath(socketDir, context), handler),
+        listenForHookEnvelopes<ClaudeCodeHookEnvelope>(
+          buildClaudeHookSocketPath(socketDir, context),
+          handler
+        ),
     },
   })
 }
 
 export function buildClaudeHookSocketPath(socketDir: string, context: HookListenerContext): string {
-  const token = createHash('sha256')
-    .update(`${context.invocationId}\0${context.runtimeId ?? ''}`)
-    .digest('hex')
-    .slice(0, 16)
-  return join(socketDir, `claude-hooks.${token}.sock`)
-}
-
-async function listenForHookEnvelopes(
-  socketPath: string,
-  handler: HookEnvelopeHandler
-): Promise<HookListenerHandle> {
-  const { createServer } = await import('node:net')
-  const { mkdir, rm } = await import('node:fs/promises')
-  const { dirname } = await import('node:path')
-
-  await mkdir(dirname(socketPath), { recursive: true }).catch(() => undefined)
-  await rm(socketPath, { force: true }).catch(() => undefined)
-
-  const server = createServer((conn) => {
-    const chunks: Buffer[] = []
-    conn.on('data', (chunk: Buffer) => chunks.push(chunk))
-    conn.on('end', () => {
-      void (async () => {
-        try {
-          const body = Buffer.concat(chunks).toString('utf8').trim()
-          if (body.length > 0) {
-            await handler(JSON.parse(body) as ClaudeCodeHookEnvelope)
-          }
-          conn.end('ok')
-        } catch {
-          conn.end('err')
-        }
-      })()
-    })
-  })
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(socketPath, () => {
-      server.removeListener('error', reject)
-      resolve()
-    })
-  })
-
-  return {
-    socketPath,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve())
-      }),
-  }
+  return buildHookSocketPath(socketDir, 'claude-hooks', context)
 }

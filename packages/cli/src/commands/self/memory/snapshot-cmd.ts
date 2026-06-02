@@ -6,17 +6,21 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { CliUsageError } from 'cli-kit'
 import type { Command } from 'commander'
 
 import { resolveContextTemplateDetailed } from 'spaces-runtime'
 
 import { resolveSelfContext, resolveSelfTemplateContext } from '../lib.js'
+import { withMemoryCommand } from './lib.js'
 
 interface SnapshotOptions {
   json?: boolean
   target?: string
   bundleRoot?: string
 }
+
+const COMMAND_NAME = 'self memory snapshot'
 
 export function registerMemorySnapshotCommand(parent: Command): void {
   parent
@@ -26,18 +30,17 @@ export function registerMemorySnapshotCommand(parent: Command): void {
     .option('--target <name>', 'Target filter (memory|user only — persona is rejected)')
     .option('--bundle-root <path>', 'Override bundle root for testing')
     .action(async (options: SnapshotOptions) => {
-      try {
+      await withMemoryCommand(COMMAND_NAME, async () => {
         // Reject persona target
         if (options.target === 'persona') {
-          process.stderr.write(
-            'self memory snapshot: --target persona is not supported (persona is prompt-zone, not reminder-zone)\n'
+          throw new CliUsageError(
+            '--target persona is not supported (persona is prompt-zone, not reminder-zone)'
           )
-          process.exit(2)
         }
 
         const ctx = resolveSelfContext()
         if (!ctx.agentName) {
-          process.stderr.write('self memory snapshot: cannot determine agent name\n')
+          process.stderr.write(`${COMMAND_NAME}: cannot determine agent name\n`)
           process.exit(1)
         }
 
@@ -81,10 +84,6 @@ export function registerMemorySnapshotCommand(parent: Command): void {
             process.stdout.write('source: resolver-fallback\n\n')
           }
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`self memory snapshot: ${message}\n`)
-        process.exit(1)
-      }
+      })
     })
 }

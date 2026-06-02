@@ -1,6 +1,6 @@
-import { normalizeLaneRef } from './lane-ref.js'
+import { laneIdFromRef, normalizeLaneRef } from './lane-ref.js'
 import { parseScopeHandle, validateScopeHandle } from './scope-handle.js'
-import { formatScopeRef, parseScopeRef, validateScopeRef } from './scope-ref.js'
+import { buildScopeRef, formatScopeRef, parseScopeRef, validateScopeRef } from './scope-ref.js'
 import { parseSessionHandle } from './session-handle.js'
 import type { LaneRef, ParsedScopeRef } from './types.js'
 
@@ -57,7 +57,7 @@ function parseScopeInput(input: string, defaultLaneId?: string): ResolvedScopeIn
     return {
       parsed: parseScopeRef(session.scopeRef),
       scopeRef: session.scopeRef,
-      laneId: session.laneRef === 'main' ? 'main' : session.laneRef.slice(5),
+      laneId: laneIdFromRef(session.laneRef),
       laneRef: session.laneRef,
     }
   }
@@ -70,7 +70,7 @@ function parseScopeInput(input: string, defaultLaneId?: string): ResolvedScopeIn
     return {
       parsed,
       scopeRef: formatScopeRef(parsed),
-      laneId: laneRef === 'main' ? 'main' : laneRef.slice(5),
+      laneId: laneIdFromRef(laneRef),
       laneRef,
     }
   }
@@ -80,7 +80,7 @@ function parseScopeInput(input: string, defaultLaneId?: string): ResolvedScopeIn
     return {
       parsed: parseScopeRef(input),
       scopeRef: input,
-      laneId: laneRef === 'main' ? 'main' : laneRef.slice(5),
+      laneId: laneIdFromRef(laneRef),
       laneRef,
     }
   }
@@ -139,10 +139,7 @@ export function resolveQualifiedScopeInput(
     taskId = opts.taskId ?? opts.defaultTaskId ?? DEFAULT_PRIMARY_TASK_ID
   }
 
-  let scopeRef = `agent:${agentId}`
-  if (projectId !== undefined) scopeRef += `:project:${projectId}`
-  if (taskId !== undefined) scopeRef += `:task:${taskId}`
-  if (roleName !== undefined) scopeRef += `:role:${roleName}`
+  const scopeRef = buildScopeRef({ agentId, projectId, taskId, roleName })
 
   return {
     parsed: parseScopeRef(scopeRef),

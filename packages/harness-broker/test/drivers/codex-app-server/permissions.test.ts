@@ -10,6 +10,7 @@ import type {
 import {
   type PermissionHandlerContext,
   buildSubjectDisplay,
+  createPermissionRequestIdAllocator,
   handlePermissionRequest,
 } from '../../../src/drivers/codex-app-server/permissions'
 import type { JsonRpcRequest } from '../../../src/drivers/codex-app-server/rpc-client'
@@ -58,6 +59,7 @@ async function runPermissionScenario(options: {
   clientCapabilities?: ClientCapabilities | undefined
   requestPermission?: RequestPermissionHandler | undefined
   request?: JsonRpcRequest | undefined
+  permissionRequestIds?: PermissionHandlerContext['permissionRequestIds'] | undefined
 }): Promise<PermissionScenarioResult> {
   const events: InvocationEventEnvelope[] = []
   const permissionRequests: PermissionRequestParams[] = []
@@ -97,6 +99,7 @@ async function runPermissionScenario(options: {
     driver,
     currentTurnId: turnId,
     currentInputId: inputId,
+    permissionRequestIds: options.permissionRequestIds ?? createPermissionRequestIdAllocator(),
   } satisfies PermissionHandlerContext)
 
   return { response, events, permissionRequests }
@@ -340,6 +343,42 @@ describe('Codex app-server permission policies', () => {
     expect(display).toEqual({})
     expect(JSON.stringify(display)).not.toContain('sk-live-array-secret')
     expect(JSON.stringify(display)).not.toContain('rm -rf /')
+  })
+
+  // Refactor A4: the permissionRequestId counter is now per-invocation (owned by
+  // a `PermissionRequestIdAllocator`) instead of a process-global module
+  // variable. Two independent allocators must each start their id sequence at 1,
+  // so concurrent invocations / separate test cases no longer share counter
+  // state.
+  test('separate permissionRequestId allocators produce independent id sequences', async () => {
+    const firstAllocator = createPermissionRequestIdAllocator()
+    const secondAllocator = createPermissionRequestIdAllocator()
+
+    const firstA = await runPermissionScenario({
+      permissionPolicy: { mode: 'allow' },
+      permissionRequestIds: firstAllocator,
+    })
+    const firstB = await runPermissionScenario({
+      permissionPolicy: { mode: 'allow' },
+      permissionRequestIds: firstAllocator,
+    })
+    const second = await runPermissionScenario({
+      permissionPolicy: { mode: 'allow' },
+      permissionRequestIds: secondAllocator,
+    })
+
+    const idOf = (result: PermissionScenarioResult): string =>
+      (
+        permissionEvents(result.events, 'permission.requested')[0]?.payload as {
+          permissionRequestId: string
+        }
+      ).permissionRequestId
+
+    // The first allocator increments across calls.
+    expect(idOf(firstA)).toBe(`perm_${invocationId}_1`)
+    expect(idOf(firstB)).toBe(`perm_${invocationId}_2`)
+    // The second allocator starts fresh, independent of the first.
+    expect(idOf(second)).toBe(`perm_${invocationId}_1`)
   })
 
   test('permission.requested emits an empty subjectDisplay for a non-object native payload', async () => {

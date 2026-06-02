@@ -11,14 +11,12 @@ import { mkdir, readdir } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
 
 import {
-  AGENT_COMMIT_MARKER,
   type AgentLocalComponents,
   type CommitSha,
   DEFAULT_HARNESS,
   type HarnessAdapter,
   type HarnessId,
   type LockFile,
-  PROJECT_COMMIT_MARKER,
   type SpaceId,
   type SpaceRefString,
   atomicWriteJson,
@@ -28,9 +26,8 @@ import {
 
 import {
   type ClosureOptions,
-  DEV_COMMIT_MARKER,
-  DEV_INTEGRITY,
   type LockGeneratorOptions,
+  classifySpaceEntry,
   computeClosure,
   generateLockFileForTarget,
   mergeLockFiles,
@@ -256,7 +253,7 @@ function extractPinnedSpaces(lock: LockFile | null): Map<SpaceId, CommitSha> | u
   const pinned = new Map<SpaceId, CommitSha>()
   for (const entry of Object.values(lock.spaces)) {
     // Skip dev entries
-    if (entry.commit === DEV_COMMIT_MARKER || entry.integrity === DEV_INTEGRITY) {
+    if (classifySpaceEntry(entry) === 'dev') {
       continue
     }
     pinned.set(entry.id as SpaceId, entry.commit as CommitSha)
@@ -291,12 +288,7 @@ async function populateSnapshots(
 
   for (const entry of Object.values(lock.spaces)) {
     // Skip @dev, agent-local, and project-local entries - they use filesystem directly
-    if (
-      entry.commit === DEV_COMMIT_MARKER ||
-      entry.commit === (AGENT_COMMIT_MARKER as string) ||
-      entry.commit === (PROJECT_COMMIT_MARKER as string) ||
-      entry.integrity === DEV_INTEGRITY
-    ) {
+    if (classifySpaceEntry(entry) !== 'registry') {
       continue
     }
 

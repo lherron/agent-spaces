@@ -30,6 +30,17 @@ export interface LoadedAgentProfile {
   profile: AgentRuntimeProfile
 }
 
+/** Run-time defaults resolved from an agent profile merged with a project target. */
+export interface AgentRunDefaults {
+  yolo?: boolean
+  remoteControl?: boolean
+  model?: string
+  harness?: string
+  claude?: ClaudeOptions
+  codex?: CodexOptions
+  compose?: SpaceRefString[]
+}
+
 export async function detectAgentLocalComponents(
   agentRoot: string
 ): Promise<AgentLocalComponents | undefined> {
@@ -119,15 +130,7 @@ export function resolveAgentPrimingPromptForRun(
 export function resolveAgentRunDefaultsFromProfile(
   target: TargetDefinition | undefined,
   agentProfile: LoadedAgentProfile
-): {
-  yolo?: boolean
-  remoteControl?: boolean
-  model?: string
-  harness?: string
-  claude?: ClaudeOptions
-  codex?: CodexOptions
-  compose?: SpaceRefString[]
-} {
+): AgentRunDefaults {
   const primingPrompt = resolveAgentPrimingPrompt(agentProfile.profile, agentProfile.agentRoot)
   const effective = mergeAgentWithProjectTarget(
     {
@@ -153,17 +156,7 @@ export function resolveAgentRunDefaults(
   targetName: string,
   target: TargetDefinition | undefined,
   options?: { agentsRoot?: string | undefined }
-):
-  | {
-      yolo?: boolean
-      remoteControl?: boolean
-      model?: string
-      harness?: string
-      claude?: ClaudeOptions
-      codex?: CodexOptions
-      compose?: SpaceRefString[]
-    }
-  | undefined {
+): AgentRunDefaults | undefined {
   const agentProfile = loadAgentProfileForRun(targetName, options)
   if (!agentProfile) {
     return undefined

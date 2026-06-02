@@ -12,5 +12,5 @@ export function createSession(options: CreateSessionOptions): UnifiedSession {
   if (!sessionRegistry) {
     throw new Error('Session registry not configured')
   }
-  return sessionRegistry.getOrThrow(options.kind)(options)
+  return sessionRegistry.createSession(options)
 }

@@ -77,18 +77,36 @@ export type RuntimeExecutionView = {
   supportsInFlightInput: boolean
 }
 
-export function legacyTransportAlias(view: RuntimeExecutionView): LegacyTransportAlias {
-  switch (view.controller.kind) {
+/**
+ * Canonical controller → legacy-transport-alias derivation, expressed over the
+ * minimal inputs a producer actually has at decision time: the controller kind
+ * plus (for `harness-broker`) the broker-terminal host. Both the
+ * {@link legacyTransportAlias} view helper and any route-decision producer that
+ * must populate `legacyTransportAlias`/`transport` should call this so all
+ * sites stay in agreement (see route-decision.ts / operations.ts fields).
+ */
+export function transportAliasFor(
+  controllerKind: RuntimeControllerKind,
+  brokerTerminalHost?: 'tmux' | undefined
+): LegacyTransportAlias {
+  switch (controllerKind) {
     case 'terminal':
       return 'tmux'
     case 'embedded-sdk':
       return 'sdk'
     case 'harness-broker':
-      return view.controller.brokerTerminal?.host === 'tmux' ? 'tmux' : 'headless'
+      return brokerTerminalHost === 'tmux' ? 'tmux' : 'headless'
     case 'command-process':
     case 'legacy-exec':
       return 'headless'
   }
+}
+
+export function legacyTransportAlias(view: RuntimeExecutionView): LegacyTransportAlias {
+  return transportAliasFor(
+    view.controller.kind,
+    view.controller.kind === 'harness-broker' ? view.controller.brokerTerminal?.host : undefined
+  )
 }
 
 export type EnsureRuntimeRequest = {

@@ -13,6 +13,7 @@ import type {
   ComposeTargetInput,
   ComposeTargetOptions,
   ComposeTargetResult,
+  ComposedSettings,
   ComposedTargetBundle,
   HarnessAdapter,
   HarnessDetection,
@@ -345,21 +346,14 @@ export class ClaudeAdapter implements HarnessAdapter {
       settingsOutputPath
     )
 
-    // Install statusline script and add to settings
-    const statuslineDestPath = join(outputDir, 'statusline.sh')
-    try {
-      const statuslineSrc = await readFile(STATUSLINE_ASSET_PATH)
-      await writeFile(statuslineDestPath, statuslineSrc)
-      await chmod(statuslineDestPath, 0o755)
-
-      // Patch settings.json with statusLine configuration
-      composedSettings.statusLine = {
-        type: 'command',
-        command: `bash ${statuslineDestPath}`,
-      }
-      await writeFile(settingsOutputPath, JSON.stringify(composedSettings, null, 2))
-    } catch {
-      // Statusline is best-effort - don't fail composition if asset is missing
+    // Install statusline script and add to settings (best-effort)
+    const statuslineWarning = await installStatusline(
+      outputDir,
+      settingsOutputPath,
+      composedSettings
+    )
+    if (statuslineWarning) {
+      warnings.push({ code: 'W_STATUSLINE', message: statuslineWarning })
     }
 
     const bundle: ComposedTargetBundle = {
@@ -385,28 +379,8 @@ export class ClaudeAdapter implements HarnessAdapter {
           ? ''
           : options.settingSources
 
-    const promptArgs: string[] = []
-    if (options.prompt) {
-      if (options.interactive === false) {
-        promptArgs.push('-p', options.prompt)
-      } else {
-        promptArgs.push(options.prompt)
-      }
-    }
-
-    // Fresh launches create a Claude session id; persisted continuations resume
-    // separately so first-turn --session-id never collides with later --resume.
-    const sessionArgs: string[] = []
-    if (options.continuationKey) {
-      if (typeof options.continuationKey === 'string') {
-        sessionArgs.push('--resume', options.continuationKey)
-      } else {
-        // true means open picker
-        sessionArgs.push('--resume')
-      }
-    } else {
-      sessionArgs.push('--session-id', randomUUID())
-    }
+    const promptArgs = buildPromptArgs(options)
+    const sessionArgs = buildSessionArgs(options)
 
     // Insert '--' before a bare positional prompt to prevent boolean flags
     // (e.g. --remote-control) from consuming it as their value.
@@ -414,21 +388,7 @@ export class ClaudeAdapter implements HarnessAdapter {
     const extraArgs = [
       '--chrome',
       ...(options.yolo ? ['--dangerously-skip-permissions'] : []),
-      ...(options.remoteControl
-        ? (() => {
-            const autoName = `${bundle.targetName}-${basename(options.projectPath ?? options.cwd ?? process.cwd())}`
-            const name = options.sessionNamePrefix
-              ? `${options.sessionNamePrefix}-${autoName}`
-              : autoName
-            return [
-              '--remote-control',
-              '--remote-control-session-name-prefix',
-              name,
-              '--name',
-              name,
-            ]
-          })()
-        : []),
+      ...(options.remoteControl ? buildRemoteControlArgs(bundle, options) : []),
       ...(options.extraArgs ?? []),
       ...sessionArgs,
       ...(needsSeparator ? ['--'] : []),
@@ -515,6 +475,75 @@ export class ClaudeAdapter implements HarnessAdapter {
       remoteControl: target?.remote_control ?? false,
     }
   }
+}
+
+/**
+ * Install the bundled statusline script into the target and patch the composed
+ * settings to invoke it. Best-effort: returns a warning message if the asset
+ * cannot be installed (e.g. missing in a trimmed package) rather than failing
+ * composition; returns undefined on success.
+ */
+async function installStatusline(
+  outputDir: string,
+  settingsOutputPath: string,
+  composedSettings: ComposedSettings
+): Promise<string | undefined> {
+  const statuslineDestPath = join(outputDir, 'statusline.sh')
+  try {
+    const statuslineSrc = await readFile(STATUSLINE_ASSET_PATH)
+    await writeFile(statuslineDestPath, statuslineSrc)
+    await chmod(statuslineDestPath, 0o755)
+
+    // Patch settings.json with statusLine configuration
+    composedSettings.statusLine = {
+      type: 'command',
+      command: `bash ${statuslineDestPath}`,
+    }
+    await writeFile(settingsOutputPath, JSON.stringify(composedSettings, null, 2))
+    return undefined
+  } catch (error) {
+    // Statusline is best-effort - don't fail composition if asset is missing,
+    // but surface the failure as an observable warning.
+    const reason = error instanceof Error ? error.message : String(error)
+    return `Statusline install skipped (best-effort): ${reason}`
+  }
+}
+
+/**
+ * Build the positional/`-p` prompt arguments for a run.
+ */
+function buildPromptArgs(options: HarnessRunOptions): string[] {
+  if (!options.prompt) return []
+  return options.interactive === false ? ['-p', options.prompt] : [options.prompt]
+}
+
+/**
+ * Build the session-identity arguments for a run.
+ *
+ * Fresh launches create a Claude session id; persisted continuations resume
+ * separately so a first-turn `--session-id` never collides with a later
+ * `--resume`.
+ */
+function buildSessionArgs(options: HarnessRunOptions): string[] {
+  if (options.continuationKey) {
+    // A string continuation key resumes that session; `true` opens the picker.
+    return typeof options.continuationKey === 'string'
+      ? ['--resume', options.continuationKey]
+      : ['--resume']
+  }
+  return ['--session-id', randomUUID()]
+}
+
+/**
+ * Build the remote-control arguments (session name derivation + flags) for a run.
+ */
+function buildRemoteControlArgs(
+  bundle: ComposedTargetBundle,
+  options: HarnessRunOptions
+): string[] {
+  const autoName = `${bundle.targetName}-${basename(options.projectPath ?? options.cwd ?? process.cwd())}`
+  const name = options.sessionNamePrefix ? `${options.sessionNamePrefix}-${autoName}` : autoName
+  return ['--remote-control', '--remote-control-session-name-prefix', name, '--name', name]
 }
 
 /**

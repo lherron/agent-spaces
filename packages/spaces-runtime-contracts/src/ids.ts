@@ -1,4 +1,4 @@
-import type { Id } from 'spaces-harness-broker-protocol'
+import type { Id, InputId, InvocationId } from 'spaces-harness-broker-protocol'
 
 export type {
   Id,
@@ -27,8 +27,6 @@ export type RuntimeOperationId = Id<'runtimeOperation'>
 export type RunId = Id<'run'>
 export type TraceId = Id<'trace'>
 export type ServerInstanceId = Id<'serverInstance'>
-
-import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 
 export type RuntimeIdentityAllocation = {
   requestId: RequestId

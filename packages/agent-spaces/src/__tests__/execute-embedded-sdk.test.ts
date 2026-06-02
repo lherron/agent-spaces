@@ -203,7 +203,8 @@ describe('executeEmbeddedSdkTurn', () => {
     })
 
     const result = await executeEmbeddedSdkTurn(input)
-    const sessions = (input as { testObserver: { sessions: FakePiSession[] } }).testObserver.sessions
+    const sessions = (input as { testObserver: { sessions: FakePiSession[] } }).testObserver
+      .sessions
 
     expect(sessions).toHaveLength(1)
     expect(sessions[0].started).toBe(true)
@@ -355,7 +356,8 @@ describe('executeEmbeddedSdkTurn', () => {
     )
 
     const result = await executeEmbeddedSdkTurn(input)
-    const sessions = (input as { testObserver: { sessions: FakePiSession[] } }).testObserver.sessions
+    const sessions = (input as { testObserver: { sessions: FakePiSession[] } }).testObserver
+      .sessions
 
     expect(input.sessionPath).toBe(sessionPath)
     expect(sessions).toHaveLength(1)
@@ -416,7 +418,8 @@ describe('executeEmbeddedSdkTurn', () => {
     )
 
     const result = await executeEmbeddedSdkTurn(input)
-    const sessions = (input as { testObserver: { sessions: FakePiSession[] } }).testObserver.sessions
+    const sessions = (input as { testObserver: { sessions: FakePiSession[] } }).testObserver
+      .sessions
 
     expect(sessions).toHaveLength(1)
     expect(sessions[0].config).toEqual(
@@ -480,7 +483,8 @@ describe('executeEmbeddedSdkTurn', () => {
     )
 
     const result = await executeEmbeddedSdkTurn(input)
-    const sessions = (input as { testObserver: { sessions: FakePiSession[] } }).testObserver.sessions
+    const sessions = (input as { testObserver: { sessions: FakePiSession[] } }).testObserver
+      .sessions
 
     expect(result.success).toBe(false)
     expect(result.error).toEqual(
@@ -492,11 +496,7 @@ describe('executeEmbeddedSdkTurn', () => {
   })
 
   test('collapses multi-round Pi turns into ONE broker turn and propagates held-latest final flags', async () => {
-    const completed = (
-      messageId: string,
-      text: string,
-      final: boolean
-    ): UnifiedSessionEvent => ({
+    const completed = (messageId: string, text: string, final: boolean): UnifiedSessionEvent => ({
       type: 'message_end',
       messageId,
       message: { role: 'assistant', content: [{ type: 'text', text }] },

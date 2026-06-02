@@ -5,13 +5,15 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { MemoryStore, type MemoryTargetName } from 'spaces-runtime'
+import type { MemoryTargetName } from 'spaces-runtime'
 
-import { resolveSelfContext } from '../lib.js'
+import { withMemoryStore } from './lib.js'
 
 interface InspectOptions {
   json?: boolean
 }
+
+const COMMAND_NAME = 'self memory inspect'
 
 const HUMAN_LABELS: Record<MemoryTargetName, { scope: string; zone: string }> = {
   memory: { scope: 'per-agent', zone: 'reminder' },
@@ -25,18 +27,7 @@ export function registerMemoryInspectCommand(parent: Command): void {
     .description('Show metadata for all memory targets')
     .option('--json', 'Emit machine-readable JSON')
     .action(async (options: InspectOptions) => {
-      try {
-        const ctx = resolveSelfContext()
-        if (!ctx.agentName) {
-          process.stderr.write('self memory inspect: cannot determine agent name\n')
-          process.exit(1)
-        }
-
-        const store = new MemoryStore({
-          agentName: ctx.agentName,
-          agentsRoot: ctx.agentsRoot,
-        })
-
+      await withMemoryStore(COMMAND_NAME, async (store, _ctx, agentName) => {
         const targets: MemoryTargetName[] = ['memory', 'user', 'persona']
         const result: Record<string, unknown> = {}
 
@@ -59,12 +50,8 @@ export function registerMemoryInspectCommand(parent: Command): void {
           return
         }
 
-        renderHuman(result, ctx.agentName)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`self memory inspect: ${message}\n`)
-        process.exit(1)
-      }
+        renderHuman(result, agentName)
+      })
     })
 }
 

@@ -1,3 +1,5 @@
+import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from 'node:child_process'
+
 export type CodexApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never'
 export type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 
@@ -33,6 +35,18 @@ export function toCodexSandboxPolicy(
   }
 }
 
+/**
+ * Factory used to spawn the `codex app-server` child process. Defaults to
+ * `node:child_process.spawn`; injectable so the interactive session can be
+ * unit-tested against a fake process (mirroring the injected `proc` the
+ * one-shot path already accepts).
+ */
+export type CodexSpawnProc = (
+  command: string,
+  args: string[],
+  options: SpawnOptionsWithoutStdio
+) => ChildProcessWithoutNullStreams
+
 export interface CodexSessionConfig {
   ownerId: string
   cwd: string
@@ -49,6 +63,7 @@ export interface CodexSessionConfig {
   extraArgs?: string[] | undefined
   resumeThreadId?: string | undefined
   eventsOutputPath?: string | undefined
+  spawnProc?: CodexSpawnProc | undefined
 }
 
 export interface CodexTurnArtifacts {

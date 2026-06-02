@@ -321,6 +321,42 @@ describe('invokeClaude', () => {
     const result = await invokeClaude({ captureOutput: true })
     expect(result.exitCode).toBe(42)
   })
+
+  test('timeout kills a long-running child and still resolves', async () => {
+    // Documents CURRENT behavior: when the timeout fires it kills the child,
+    // and invokeClaude resolves normally (the kill produces a non-zero exit
+    // code). It does NOT throw or otherwise signal that a timeout occurred —
+    // that missing surface is tracked as BUGS.md harness-claude A4 and is
+    // asserted in the `.todo` below.
+    //
+    // `exec sleep` so the kill signal reaches the sleep directly (otherwise
+    // bash's child sleep survives and the stdout pipe never closes).
+    await createMockClaude('#!/bin/bash\nexec sleep 30\n')
+
+    const result = await invokeClaude({ captureOutput: true, timeout: 100 })
+
+    // The child was killed before it could exit 0, so the exit code is not 0.
+    expect(result.exitCode).not.toBe(0)
+  }, 10_000)
+
+  // BUGS.md harness-claude A4: the timeout outcome is silent — invokeClaude
+  // gives the caller no signal (no thrown ClaudeInvocationError, no `timedOut`
+  // flag) that the child was killed by the timeout. Skipped until that bug is
+  // fixed; enabling this test would require surfacing the timeout.
+  test.todo('surfaces a timeout to the caller (BUGS harness-claude A4)', async () => {
+    await createMockClaude('#!/bin/bash\nsleep 5\nexit 0\n')
+
+    let timedOut = false
+    try {
+      const result = (await invokeClaude({ captureOutput: true, timeout: 100 })) as {
+        timedOut?: boolean
+      }
+      timedOut = result.timedOut === true
+    } catch (err) {
+      timedOut = err instanceof ClaudeInvocationError
+    }
+    expect(timedOut).toBe(true)
+  })
 })
 
 describe('invokeClaudeOrThrow', () => {

@@ -168,6 +168,7 @@ export {
   HARNESS_PROVIDERS,
   isHarnessSupported,
   isHarnessId,
+  LOCK_HARNESSES,
   normalizeHarnessFrontend,
   normalizeHarnessId,
   resolveHarnessCatalogEntry,

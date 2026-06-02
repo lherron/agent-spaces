@@ -26,17 +26,17 @@ import { join } from 'node:path'
 import TOML from '@iarna/toml'
 
 import {
-  CODEX_INTERACTIVE_HOOK_EVENTS,
-  addCodexHookTrustState,
-  buildHrcCodexHooksConfig,
-} from '../packages/harness-codex/src/adapters/codex-adapter.js'
-import {
   capturePane,
   driveOperatorTurn,
   ghostmux,
   ghostmuxAvailable,
   sleep,
 } from '../packages/agent-spaces/src/testing/pre-hrc-ghostmux-operator.js'
+import {
+  CODEX_INTERACTIVE_HOOK_EVENTS,
+  addCodexHookTrustState,
+  buildHrcCodexHooksConfig,
+} from '../packages/harness-codex/src/adapters/codex-adapter.js'
 
 const ARTIFACT_DIR =
   process.env['ASP_SPIKE_ARTIFACT_DIR'] ?? '/Users/lherron/praesidium/var/wrkq-artifacts/T-01681'
@@ -169,7 +169,8 @@ async function main(): Promise<void> {
     const bootPane = await capturePane(GMUX, surfaceId)
     writeFileSync(join(ARTIFACT_DIR, 'pane-boot.txt'), bootPane)
     console.log(`[spike] codex ready=${ready}; boot pane saved (${bootPane.length} bytes)`)
-    if (!ready) console.log('[spike] WARNING proceeding despite not-confirmed-ready; see pane-boot.txt')
+    if (!ready)
+      console.log('[spike] WARNING proceeding despite not-confirmed-ready; see pane-boot.txt')
 
     const prompt = `Run the bash command: printf '${MARKER}' — then reply with exactly ${MARKER} and nothing else.`
     console.log(`[spike] driving operator turn: ${prompt}`)

@@ -17,11 +17,19 @@ export const ASPC_PROTOCOL_VERSION = 'aspc/0.1' as const
 
 export type AspcProtocolVersion = typeof ASPC_PROTOCOL_VERSION
 
-export type AspcMethod =
-  | 'aspc.hello'
-  | 'aspc.compileRuntimePlan'
-  | 'aspc.compileHarnessInvocation'
-  | 'aspc.compileAndStart'
+/**
+ * Single source of truth for the set of `aspc.*` methods. `AspcMethod`, the
+ * runtime predicate, and the validator dispatch table are all derived from this
+ * tuple so a new method cannot drift out of sync across those surfaces.
+ */
+export const ASPC_METHODS = [
+  'aspc.hello',
+  'aspc.compileRuntimePlan',
+  'aspc.compileHarnessInvocation',
+  'aspc.compileAndStart',
+] as const
+
+export type AspcMethod = (typeof ASPC_METHODS)[number]
 
 export type AspcCommand =
   | JsonRpcRequest<'aspc.hello', AspcHelloRequest>
@@ -96,7 +104,7 @@ export type AspcCompileHarnessInvocationResponse =
       diagnostics: CompileDiagnostic[]
     }
 
-export interface AspcCompileAndStartRequest extends AspcCompileHarnessInvocationRequest {}
+export type AspcCompileAndStartRequest = AspcCompileHarnessInvocationRequest
 
 export type AspcCompileAndStartResponse =
   | {

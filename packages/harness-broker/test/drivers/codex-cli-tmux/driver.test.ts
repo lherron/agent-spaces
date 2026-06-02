@@ -446,7 +446,8 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const tmuxCalls: TmuxExecCall[] = []
     const events: InvocationEventEnvelope[] = []
     let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
-    const hookSocket = '/tmp/praesidium/runtime/broker-ipc/runtime-codex/hooks/codex-hooks.live.sock'
+    const hookSocket =
+      '/tmp/praesidium/runtime/broker-ipc/runtime-codex/hooks/codex-hooks.live.sock'
     const liveInvocationId = 'inv_codex_identity_live'
     const liveRuntimeId = 'runtime-codex-identity-live'
     const driver = createDriver({

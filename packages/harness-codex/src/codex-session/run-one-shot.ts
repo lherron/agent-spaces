@@ -1,72 +1,28 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
-import type { ToolResult, UnifiedSessionEvent } from 'spaces-runtime'
+import type { UnifiedSessionEvent } from 'spaces-runtime'
 
+import { toError } from '../errors.js'
+import {
+  type AgentMessageDeltaNotification,
+  type CodexThreadItem,
+  type CommandExecutionOutputDeltaNotification,
+  type ErrorNotification,
+  type FileChangeOutputDeltaNotification,
+  type ItemCompletedNotification,
+  type ItemStartedNotification,
+  type McpToolCallProgressNotification,
+  type ThreadResumeResponse,
+  type ThreadStartResponse,
+  type TurnStartResponse,
+  mapItemCompleted,
+  mapItemStarted,
+} from './event-mapping.js'
 import { CodexRpcClient, type JsonRpcNotification, type JsonRpcRequest } from './rpc-client.js'
 import { type CodexApprovalPolicy, type CodexSandboxMode, toCodexSandboxPolicy } from './types.js'
 
 const CLIENT_INFO = {
   name: 'agent-spaces',
   version: process.env['npm_package_version'] ?? 'unknown',
-}
-
-type CodexThreadItem =
-  | {
-      type: 'agentMessage'
-      id: string
-      text: string
-    }
-  | {
-      type: 'commandExecution'
-      id: string
-      command: string
-      cwd: string
-      aggregatedOutput: string | null
-      exitCode: number | null
-      durationMs: number | null
-      status?: string | undefined
-    }
-  | {
-      type: 'fileChange'
-      id: string
-      changes: Array<unknown>
-      status?: string | undefined
-    }
-  | {
-      type: 'mcpToolCall'
-      id: string
-      server: string
-      tool: string
-      arguments: unknown
-      result: unknown | null
-      error: unknown | null
-      durationMs: number | null
-      status?: string | undefined
-    }
-  | {
-      type: 'webSearch'
-      id: string
-      query: string
-    }
-  | {
-      type: 'imageView'
-      id: string
-      path: string
-    }
-  | {
-      type: 'unknown'
-      id?: string | undefined
-    }
-
-interface ThreadStartResponse {
-  thread?: { id?: string | undefined } | undefined
-}
-
-interface ThreadResumeResponse {
-  thread?: { id?: string | undefined } | undefined
-}
-
-interface TurnStartResponse {
-  turn?: { id?: string | undefined } | undefined
 }
 
 interface TurnCompletedNotification {
@@ -77,50 +33,9 @@ interface TurnCompletedNotification {
   }
 }
 
-interface ItemStartedNotification {
-  item: CodexThreadItem
-  turnId: string
-}
-
-interface ItemCompletedNotification {
-  item: CodexThreadItem
-  turnId: string
-}
-
 interface ThreadTokenUsageUpdatedNotification {
   tokenUsage?: unknown
   token_usage?: unknown
-}
-
-interface AgentMessageDeltaNotification {
-  itemId: string
-  delta: string
-}
-
-interface CommandExecutionOutputDeltaNotification {
-  itemId: string
-  delta: string
-}
-
-interface FileChangeOutputDeltaNotification {
-  itemId: string
-  delta: string
-}
-
-interface McpToolCallProgressNotification {
-  itemId: string
-  message: string
-}
-
-interface ErrorNotification {
-  error: {
-    message?: string | undefined
-    codexErrorInfo?: unknown
-    additionalDetails?: string | null
-  }
-  willRetry?: boolean | undefined
-  threadId?: string | undefined
-  turnId?: string | undefined
 }
 
 export interface CodexAppServerOneShotOptions {
@@ -185,7 +100,7 @@ export async function runCodexAppServerOneShot(
 
   function rejectWith(error: unknown): void {
     if (terminalError) return
-    terminalError = error instanceof Error ? error : new Error(String(error))
+    terminalError = toError(error)
     rejectTurn?.(terminalError)
   }
 
@@ -210,14 +125,25 @@ export async function runCodexAppServerOneShot(
       }
       case 'item/started': {
         const params = notification.params as ItemStartedNotification
-        await handleItemStarted(params, items, emitEvent)
+        if (params.item.id) {
+          items.set(params.item.id, params.item)
+        }
+        for (const event of mapItemStarted(params.item)) {
+          await emitEvent(event)
+        }
         return
       }
       case 'item/completed': {
         const params = notification.params as ItemCompletedNotification
-        const output = await handleItemCompleted(params, items, emitEvent)
-        if (output !== undefined) {
-          finalOutput = output
+        if (params.item.id) {
+          items.set(params.item.id, params.item)
+        }
+        const mapped = mapItemCompleted(params.item)
+        for (const event of mapped.events) {
+          await emitEvent(event)
+        }
+        if (mapped.finalOutput !== undefined) {
+          finalOutput = mapped.finalOutput
         }
         return
       }
@@ -407,180 +333,15 @@ function buildUserInputs(
   return inputs
 }
 
-async function handleItemStarted(
-  params: ItemStartedNotification,
-  items: Map<string, CodexThreadItem>,
-  emitEvent: (event: UnifiedSessionEvent) => Promise<void>
-): Promise<void> {
-  const item = params.item
-  if (item.id) {
-    items.set(item.id, item)
-  }
-
-  switch (item.type) {
-    case 'agentMessage': {
-      await emitEvent({
-        type: 'message_start',
-        messageId: item.id,
-        message: { role: 'assistant', content: item.text ?? '' },
-        payload: item,
-      })
-      return
-    }
-    case 'commandExecution': {
-      await emitEvent({
-        type: 'tool_execution_start',
-        toolUseId: item.id,
-        toolName: 'command_execution',
-        input: { command: item.command, cwd: item.cwd },
-        payload: item,
-      })
-      return
-    }
-    case 'fileChange': {
-      await emitEvent({
-        type: 'tool_execution_start',
-        toolUseId: item.id,
-        toolName: 'file_change',
-        input: { changes: item.changes },
-        payload: item,
-      })
-      return
-    }
-    case 'mcpToolCall': {
-      await emitEvent({
-        type: 'tool_execution_start',
-        toolUseId: item.id,
-        toolName: `mcp:${item.server}/${item.tool}`,
-        input: { server: item.server, tool: item.tool, arguments: item.arguments },
-        payload: item,
-      })
-      return
-    }
-    case 'webSearch': {
-      await emitEvent({
-        type: 'tool_execution_start',
-        toolUseId: item.id,
-        toolName: 'web_search',
-        input: { query: item.query },
-        payload: item,
-      })
-      return
-    }
-    case 'imageView': {
-      await emitEvent({
-        type: 'tool_execution_start',
-        toolUseId: item.id,
-        toolName: 'image_view',
-        input: { path: item.path },
-        payload: item,
-      })
-      return
-    }
-  }
-}
-
-async function handleItemCompleted(
-  params: ItemCompletedNotification,
-  items: Map<string, CodexThreadItem>,
-  emitEvent: (event: UnifiedSessionEvent) => Promise<void>
-): Promise<string | undefined> {
-  const item = params.item
-  if (item.id) {
-    items.set(item.id, item)
-  }
-
-  switch (item.type) {
-    case 'agentMessage': {
-      const text = item.text ?? ''
-      await emitEvent({
-        type: 'message_end',
-        messageId: item.id,
-        message: { role: 'assistant', content: text },
-        payload: item,
-      })
-      return text
-    }
-    case 'commandExecution': {
-      const result = buildToolResult(item.aggregatedOutput ?? '', {
-        exitCode: item.exitCode,
-        durationMs: item.durationMs,
-      })
-      await emitEvent({
-        type: 'tool_execution_end',
-        toolUseId: item.id,
-        toolName: 'command_execution',
-        result,
-        ...(item.exitCode !== null && item.exitCode !== 0 ? { isError: true } : {}),
-        ...(item.durationMs !== null ? { durationMs: item.durationMs } : {}),
-        payload: item,
-      })
-      return undefined
-    }
-    case 'fileChange': {
-      await emitEvent({
-        type: 'tool_execution_end',
-        toolUseId: item.id,
-        toolName: 'file_change',
-        result: buildToolResult(JSON.stringify(item.changes ?? [], null, 2)),
-        ...(item.status && item.status !== 'completed' ? { isError: true } : {}),
-        payload: item,
-      })
-      return undefined
-    }
-    case 'mcpToolCall': {
-      const resultPayload = item.error ?? item.result ?? ''
-      await emitEvent({
-        type: 'tool_execution_end',
-        toolUseId: item.id,
-        toolName: `mcp:${item.server}/${item.tool}`,
-        result: buildToolResult(
-          typeof resultPayload === 'string' ? resultPayload : JSON.stringify(resultPayload, null, 2)
-        ),
-        ...(item.error ? { isError: true } : {}),
-        ...(item.durationMs !== null ? { durationMs: item.durationMs } : {}),
-        payload: item,
-      })
-      return undefined
-    }
-    case 'webSearch': {
-      await emitEvent({
-        type: 'tool_execution_end',
-        toolUseId: item.id,
-        toolName: 'web_search',
-        result: buildToolResult(`web_search: ${item.query}`),
-        payload: item,
-      })
-      return undefined
-    }
-    case 'imageView': {
-      await emitEvent({
-        type: 'tool_execution_end',
-        toolUseId: item.id,
-        toolName: 'image_view',
-        result: buildToolResult(`image_view: ${item.path}`),
-        payload: item,
-      })
-      return undefined
-    }
-  }
-
-  return undefined
-}
-
-function buildToolResult(content: string, details?: Record<string, unknown>): ToolResult {
-  return {
-    content: [{ type: 'text', text: content }],
-    ...(details ? { details } : {}),
-  }
-}
-
 function resolveFinalOutput(items: CodexThreadItem[] | undefined): string | undefined {
   if (!items) return undefined
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index]
-    if (item?.type === 'agentMessage' && typeof item.text === 'string') {
-      return item.text
+    if (item?.type === 'agentMessage') {
+      const text = (item as Extract<CodexThreadItem, { type: 'agentMessage' }>).text
+      if (typeof text === 'string') {
+        return text
+      }
     }
   }
   return undefined

@@ -193,6 +193,17 @@ export function isHarnessSupported(
 /** Default harness when none specified */
 export const DEFAULT_HARNESS: HarnessId = 'claude'
 
+/**
+ * Harnesses for which lock generation emits a per-harness env-hash entry.
+ *
+ * Single source of truth for the lock-file harness enumeration (consumed by
+ * `resolver/lock-generator.ts`). Currently only the default harness is
+ * recorded; widening this list (e.g. to add per-harness env hashes for
+ * `codex`/`pi`) is the one place to edit rather than a constant inlined in the
+ * generator.
+ */
+export const LOCK_HARNESSES: readonly HarnessId[] = [DEFAULT_HARNESS] as const
+
 // ============================================================================
 // Harness Detection
 // ============================================================================

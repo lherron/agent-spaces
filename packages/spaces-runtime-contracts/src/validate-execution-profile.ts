@@ -2,6 +2,7 @@ import type { CompileDiagnostic } from './compiler-plan'
 import type {
   BrokerExecutionProfile,
   EmbeddedSdkExecutionProfile,
+  RuntimeExecutionProfile,
   RuntimeExecutionProfileBase,
   TerminalExecutionProfile,
 } from './execution-profile'
@@ -105,167 +106,197 @@ function isNoneExposurePolicy(policy: AgentchatExposurePolicy): boolean {
   return policy.mode === 'none'
 }
 
-export function validateBrokerExecutionProfile(
-  profile: BrokerExecutionProfile
-): CompileDiagnostic[] {
-  const diagnostics: CompileDiagnostic[] = []
+/**
+ * Typed structural reads for fields that may be absent from a given
+ * `HarnessInvocationSpec.driver` variant. The unsafe `'key' in driver` probing
+ * lives here (one auditable place) so the rule bodies below stay declarative.
+ */
+function readDriverTerminalHost(spec: BrokerInvocationSpec): unknown {
+  const { driver } = spec
+  return 'terminalHost' in driver ? driver['terminalHost'] : undefined
+}
+
+function readDriverHookBridge(spec: BrokerInvocationSpec): unknown {
+  const { driver } = spec
+  return 'hookBridge' in driver ? driver['hookBridge'] : undefined
+}
+
+type BrokerInvocationSpec = BrokerExecutionProfile['harnessInvocation']['startRequest']['spec']
+
+/**
+ * Derived facts about a broker profile, computed once so the legality rules can
+ * read them declaratively instead of re-probing `spec.driver` / re-deriving the
+ * driver-identity booleans in every branch.
+ */
+type BrokerProfileFacts = {
+  specDriverKind: string
+  transportKind: string
+  specInteractionMode: string | undefined
+  specDriverTerminalHost: unknown
+  specDriverHookBridge: unknown
+  isCodexAppServer: boolean
+  profileClaimsClaudeCodeTmux: boolean
+  isClaudeCodeTmux: boolean
+  profileClaimsCodexCliTmux: boolean
+  isCodexCliTmux: boolean
+}
+
+function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfileFacts {
   const spec = profile.harnessInvocation.startRequest.spec
   const specDriverKind = spec.driver.kind
-  const transportKind = spec.process.harnessTransport.kind
-  const specInteractionMode = spec.interaction?.mode
-  const specDriverTerminalHost =
-    'terminalHost' in spec.driver ? spec.driver['terminalHost'] : undefined
-  const specDriverHookBridge = 'hookBridge' in spec.driver ? spec.driver['hookBridge'] : undefined
-  const isCodexAppServer =
-    profile.brokerDriver === 'codex-app-server' || specDriverKind === 'codex-app-server'
   const profileClaimsClaudeCodeTmux = profile.brokerDriver === 'claude-code-tmux'
-  const isClaudeCodeTmux = profileClaimsClaudeCodeTmux || specDriverKind === 'claude-code-tmux'
   const profileClaimsCodexCliTmux = profile.brokerDriver === 'codex-cli-tmux'
-  const isCodexCliTmux = profileClaimsCodexCliTmux || specDriverKind === 'codex-cli-tmux'
+  return {
+    specDriverKind,
+    transportKind: spec.process.harnessTransport.kind,
+    specInteractionMode: spec.interaction?.mode,
+    specDriverTerminalHost: readDriverTerminalHost(spec),
+    specDriverHookBridge: readDriverHookBridge(spec),
+    isCodexAppServer:
+      profile.brokerDriver === 'codex-app-server' || specDriverKind === 'codex-app-server',
+    profileClaimsClaudeCodeTmux,
+    isClaudeCodeTmux: profileClaimsClaudeCodeTmux || specDriverKind === 'claude-code-tmux',
+    profileClaimsCodexCliTmux,
+    isCodexCliTmux: profileClaimsCodexCliTmux || specDriverKind === 'codex-cli-tmux',
+  }
+}
 
-  if (
-    isCodexAppServer &&
+/**
+ * A single-purpose broker legality gate. Returns a diagnostic when the profile
+ * violates the gate, otherwise `undefined`. Adding a new gate means appending a
+ * rule (or a new driver's rule array) — never editing a sibling branch.
+ */
+type BrokerLegalityRule = (
+  profile: BrokerExecutionProfile,
+  facts: BrokerProfileFacts
+) => CompileDiagnostic | undefined
+
+const CODEX_APP_SERVER_RULES: BrokerLegalityRule[] = [
+  (profile, facts) =>
+    facts.isCodexAppServer &&
     (profile.interactionMode !== 'headless' ||
-      (specInteractionMode !== undefined && specInteractionMode !== 'headless'))
-  ) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'codex_app_server_requires_headless',
-        'codex-app-server broker profiles must be headless.'
-      )
-    )
-  }
+      (facts.specInteractionMode !== undefined && facts.specInteractionMode !== 'headless'))
+      ? executionProfileDiagnostic(
+          profile,
+          'codex_app_server_requires_headless',
+          'codex-app-server broker profiles must be headless.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isCodexAppServer && facts.transportKind !== 'jsonrpc-stdio'
+      ? executionProfileDiagnostic(
+          profile,
+          'codex_app_server_requires_jsonrpc_stdio',
+          'codex-app-server broker profiles must use jsonrpc stdio process transport.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isCodexAppServer && profile.brokerTerminal !== undefined
+      ? executionProfileDiagnostic(
+          profile,
+          'codex_app_server_forbids_tmux_terminal',
+          'codex-app-server broker profiles must not declare a brokerTerminal.'
+        )
+      : undefined,
+]
 
-  if (isCodexAppServer && transportKind !== 'jsonrpc-stdio') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'codex_app_server_requires_jsonrpc_stdio',
-        'codex-app-server broker profiles must use jsonrpc stdio process transport.'
-      )
-    )
-  }
+const EXPOSURE_RULES: BrokerLegalityRule[] = [
+  (profile) =>
+    profile.interactionMode === 'headless' && !isNoneExposurePolicy(profile.policy.exposurePolicy)
+      ? executionProfileDiagnostic(
+          profile,
+          'headless_requires_none_exposure',
+          'Headless broker profiles must use exposurePolicy mode none.'
+        )
+      : undefined,
+]
 
-  if (isCodexAppServer && profile.brokerTerminal !== undefined) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'codex_app_server_forbids_tmux_terminal',
-        'codex-app-server broker profiles must not declare a brokerTerminal.'
-      )
-    )
-  }
+const CLAUDE_CODE_TMUX_RULES: BrokerLegalityRule[] = [
+  (profile, facts) =>
+    facts.profileClaimsClaudeCodeTmux && facts.specDriverKind !== 'claude-code-tmux'
+      ? executionProfileDiagnostic(
+          profile,
+          'claude_code_tmux_requires_driver_kind',
+          'claude-code-tmux broker profiles must use claude-code-tmux in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.specDriverKind === 'claude-code-tmux' && facts.specDriverTerminalHost !== 'tmux'
+      ? executionProfileDiagnostic(
+          profile,
+          'claude_code_tmux_requires_terminal_host',
+          'claude-code-tmux broker profiles must declare terminalHost tmux in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isClaudeCodeTmux && facts.transportKind !== 'pty'
+      ? executionProfileDiagnostic(
+          profile,
+          'claude_code_tmux_requires_pty_transport',
+          'claude-code-tmux broker profiles must use pty process transport.'
+        )
+      : undefined,
+]
 
-  if (
-    profile.interactionMode === 'headless' &&
-    !isNoneExposurePolicy(profile.policy.exposurePolicy)
-  ) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'headless_requires_none_exposure',
-        'Headless broker profiles must use exposurePolicy mode none.'
-      )
-    )
-  }
+const CODEX_CLI_TMUX_RULES: BrokerLegalityRule[] = [
+  (profile, facts) =>
+    facts.profileClaimsCodexCliTmux && facts.specDriverKind !== 'codex-cli-tmux'
+      ? executionProfileDiagnostic(
+          profile,
+          'codex_cli_tmux_requires_driver_kind',
+          'codex-cli-tmux broker profiles must use codex-cli-tmux in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.specDriverKind === 'codex-cli-tmux' && facts.specDriverTerminalHost !== 'tmux'
+      ? executionProfileDiagnostic(
+          profile,
+          'codex_cli_tmux_requires_terminal_host',
+          'codex-cli-tmux broker profiles must declare terminalHost tmux in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isCodexCliTmux && facts.transportKind !== 'pty'
+      ? executionProfileDiagnostic(
+          profile,
+          'codex_cli_tmux_requires_pty_transport',
+          'codex-cli-tmux broker profiles must use pty process transport.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.specDriverKind === 'codex-cli-tmux' && facts.specDriverHookBridge !== 'codex-hooks/v1'
+      ? executionProfileDiagnostic(
+          profile,
+          'codex_cli_tmux_requires_codex_hooks_bridge',
+          'codex-cli-tmux broker profiles must declare hookBridge codex-hooks/v1.'
+        )
+      : undefined,
+]
 
-  if (profileClaimsClaudeCodeTmux && specDriverKind !== 'claude-code-tmux') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'claude_code_tmux_requires_driver_kind',
-        'claude-code-tmux broker profiles must use claude-code-tmux in the hashed driver spec.'
-      )
-    )
-  }
-
-  if (specDriverKind === 'claude-code-tmux' && specDriverTerminalHost !== 'tmux') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'claude_code_tmux_requires_terminal_host',
-        'claude-code-tmux broker profiles must declare terminalHost tmux in the hashed driver spec.'
-      )
-    )
-  }
-
-  if (isClaudeCodeTmux && transportKind !== 'pty') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'claude_code_tmux_requires_pty_transport',
-        'claude-code-tmux broker profiles must use pty process transport.'
-      )
-    )
-  }
-
-  if (profileClaimsCodexCliTmux && specDriverKind !== 'codex-cli-tmux') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'codex_cli_tmux_requires_driver_kind',
-        'codex-cli-tmux broker profiles must use codex-cli-tmux in the hashed driver spec.'
-      )
-    )
-  }
-
-  if (specDriverKind === 'codex-cli-tmux' && specDriverTerminalHost !== 'tmux') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'codex_cli_tmux_requires_terminal_host',
-        'codex-cli-tmux broker profiles must declare terminalHost tmux in the hashed driver spec.'
-      )
-    )
-  }
-
-  if (isCodexCliTmux && transportKind !== 'pty') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'codex_cli_tmux_requires_pty_transport',
-        'codex-cli-tmux broker profiles must use pty process transport.'
-      )
-    )
-  }
-
-  if (specDriverKind === 'codex-cli-tmux' && specDriverHookBridge !== 'codex-hooks/v1') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'codex_cli_tmux_requires_codex_hooks_bridge',
-        'codex-cli-tmux broker profiles must declare hookBridge codex-hooks/v1.'
-      )
-    )
-  }
-
-  if (profile.interactionMode === 'interactive' && specInteractionMode !== 'interactive') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'interactive_profile_requires_interactive_spec',
-        'Interactive broker profiles must use interaction mode interactive in the hashed spec.'
-      )
-    )
-  }
-
-  if (
+const INTERACTIVE_TMUX_RULES: BrokerLegalityRule[] = [
+  (profile, facts) =>
+    profile.interactionMode === 'interactive' && facts.specInteractionMode !== 'interactive'
+      ? executionProfileDiagnostic(
+          profile,
+          'interactive_profile_requires_interactive_spec',
+          'Interactive broker profiles must use interaction mode interactive in the hashed spec.'
+        )
+      : undefined,
+  (profile) =>
     profile.interactionMode === 'interactive' &&
     (profile.brokerTerminal?.host !== 'tmux' ||
       profile.brokerTerminal.turnDelivery !== 'terminal-literal-input' ||
       profile.brokerTerminal.operatorAttach !== true)
-  ) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'interactive_broker_requires_tmux_terminal',
-        'Interactive broker profiles must declare an operator-attachable tmux brokerTerminal.'
-      )
-    )
-  }
-
-  if (profile.interactionMode === 'interactive' && profile.brokerTerminal !== undefined) {
+      ? executionProfileDiagnostic(
+          profile,
+          'interactive_broker_requires_tmux_terminal',
+          'Interactive broker profiles must declare an operator-attachable tmux brokerTerminal.'
+        )
+      : undefined,
+  (profile) => {
+    if (profile.interactionMode !== 'interactive' || profile.brokerTerminal === undefined) {
+      return undefined
+    }
     const profileExposure = profile.policy.exposurePolicy
     const terminalExposure = profile.brokerTerminal.exposurePolicy
     if (
@@ -273,21 +304,53 @@ export function validateBrokerExecutionProfile(
       !isTmuxBrokerExposurePolicy(terminalExposure) ||
       !exposurePoliciesMatch(profileExposure, terminalExposure)
     ) {
-      diagnostics.push(
-        executionProfileDiagnostic(
-          profile,
-          'broker_exposure_policy_mismatch',
-          'brokerTerminal.exposurePolicy must match policy.exposurePolicy for tmux broker exposure.'
-        )
+      return executionProfileDiagnostic(
+        profile,
+        'broker_exposure_policy_mismatch',
+        'brokerTerminal.exposurePolicy must match policy.exposurePolicy for tmux broker exposure.'
       )
     }
-  }
+    return undefined
+  },
+]
 
+// Ordered registry: diagnostics are emitted in this order, which existing tests
+// assert. Each driver's gates are co-located so a new broker driver appends an
+// array rather than editing a sibling branch.
+const BROKER_RULES: BrokerLegalityRule[] = [
+  ...CODEX_APP_SERVER_RULES,
+  ...EXPOSURE_RULES,
+  ...CLAUDE_CODE_TMUX_RULES,
+  ...CODEX_CLI_TMUX_RULES,
+  ...INTERACTIVE_TMUX_RULES,
+]
+
+export function validateBrokerExecutionProfile(
+  profile: BrokerExecutionProfile
+): CompileDiagnostic[] {
+  const facts = computeBrokerProfileFacts(profile)
+  const diagnostics: CompileDiagnostic[] = []
+  for (const rule of BROKER_RULES) {
+    const diagnostic = rule(profile, facts)
+    if (diagnostic !== undefined) {
+      diagnostics.push(diagnostic)
+    }
+  }
   return diagnostics
 }
 
 const EMBEDDED_SDK_STARTUP_METHODS = new Set(['create-sdk-session', 'reuse-existing'])
 const EMBEDDED_SDK_TURN_DELIVERIES = new Set(['sdk-turn', 'sdk-inflight-input'])
+
+/**
+ * Some embedded-sdk legality gates assert the ABSENCE of broker/process/
+ * transport/terminal launch fields, which are not part of the
+ * EmbeddedSdkExecutionProfile type. This isolates the one unsafe structural cast
+ * needed to detect an illegally-shaped profile, so the gate bodies stay typed.
+ */
+function hasForbiddenProfileField(profile: EmbeddedSdkExecutionProfile, key: string): boolean {
+  return key in (profile as unknown as Record<string, unknown>)
+}
 
 /**
  * Validate an embedded-sdk execution profile against the §7.3.2 / FINAL_CONTRACTS
@@ -301,10 +364,6 @@ export function validateEmbeddedSdkExecutionProfile(
   profile: EmbeddedSdkExecutionProfile
 ): CompileDiagnostic[] {
   const diagnostics: CompileDiagnostic[] = []
-  // Some legality gates assert the ABSENCE of broker/process launch fields, which
-  // are not part of the EmbeddedSdkExecutionProfile type — read them through a
-  // structural record view so an illegally-shaped profile is still caught.
-  const fields = profile as unknown as Record<string, unknown>
 
   if (profile.interactionMode !== 'nonInteractive') {
     diagnostics.push(
@@ -336,7 +395,11 @@ export function validateEmbeddedSdkExecutionProfile(
     )
   }
 
-  if ('brokerProtocol' in fields || 'brokerDriver' in fields || 'brokerTerminal' in fields) {
+  if (
+    hasForbiddenProfileField(profile, 'brokerProtocol') ||
+    hasForbiddenProfileField(profile, 'brokerDriver') ||
+    hasForbiddenProfileField(profile, 'brokerTerminal')
+  ) {
     diagnostics.push(
       executionProfileDiagnostic(
         profile,
@@ -346,7 +409,7 @@ export function validateEmbeddedSdkExecutionProfile(
     )
   }
 
-  if ('process' in fields) {
+  if (hasForbiddenProfileField(profile, 'process')) {
     diagnostics.push(
       executionProfileDiagnostic(
         profile,
@@ -356,7 +419,7 @@ export function validateEmbeddedSdkExecutionProfile(
     )
   }
 
-  if ('transport' in fields) {
+  if (hasForbiddenProfileField(profile, 'transport')) {
     diagnostics.push(
       executionProfileDiagnostic(
         profile,
@@ -366,7 +429,7 @@ export function validateEmbeddedSdkExecutionProfile(
     )
   }
 
-  if ('terminal' in fields) {
+  if (hasForbiddenProfileField(profile, 'terminal')) {
     diagnostics.push(
       executionProfileDiagnostic(
         profile,
@@ -397,4 +460,33 @@ export function validateEmbeddedSdkExecutionProfile(
   }
 
   return diagnostics
+}
+
+/**
+ * Kind-dispatching entry point over every {@link RuntimeExecutionProfile}
+ * variant. Routes to the matching per-kind validator and returns `[]` for the
+ * `command-process` / `legacy-exec` kinds, which carry no legality gates today.
+ *
+ * The exhaustive `switch` (with a `never` default) means adding a new profile
+ * kind is a compile error here until it is wired up — so a missing validator
+ * can't stay silent. Behaviour for the existing kinds is identical to calling
+ * the per-kind validators directly.
+ */
+export function validateExecutionProfile(profile: RuntimeExecutionProfile): CompileDiagnostic[] {
+  switch (profile.kind) {
+    case 'terminal':
+      return validateTerminalExecutionProfile(profile)
+    case 'harness-broker':
+      return validateBrokerExecutionProfile(profile)
+    case 'embedded-sdk':
+      return validateEmbeddedSdkExecutionProfile(profile)
+    case 'command-process':
+    case 'legacy-exec':
+      return []
+    default: {
+      const _exhaustive: never = profile
+      void _exhaustive
+      return []
+    }
+  }
 }

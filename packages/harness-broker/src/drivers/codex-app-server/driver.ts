@@ -21,7 +21,11 @@ import { terminateProcess } from '../../runtime/signals'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import { createCodexNotificationMapper, parseCodexError } from './event-map'
 import { buildTurnStartParams } from './input'
-import { type PermissionHandlerContext, handlePermissionRequest } from './permissions'
+import {
+  type PermissionHandlerContext,
+  createPermissionRequestIdAllocator,
+  handlePermissionRequest,
+} from './permissions'
 import { CodexRpcClient, CodexRpcError, type JsonRpcNotification } from './rpc-client'
 
 const bunRuntime =
@@ -89,6 +93,7 @@ export function createCodexAppServerDriver(): Driver {
   let startupFailure: Promise<never> | undefined
   let turnTimeout: ReturnType<typeof setTimeout> | undefined
   const mapCodexNotification = createCodexNotificationMapper()
+  const permissionRequestIds = createPermissionRequestIdAllocator()
 
   function requireCtx(): DriverContext {
     if (!ctx) {
@@ -316,6 +321,7 @@ export function createCodexAppServerDriver(): Driver {
             driver: activeDriverSpec,
             currentTurnId,
             currentInputId,
+            permissionRequestIds,
           }
           return handlePermissionRequest(request, permCtx)
         },

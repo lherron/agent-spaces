@@ -18,7 +18,14 @@ import type {
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 
-const ASPC_FACADE_VERSION = '0.1.0'
+// Keep in sync with package.json `version`. The build's rootDir is `./src`, so
+// the manifest cannot be imported directly without breaking emit; this single
+// constant is the source of truth surfaced by `aspc.hello`.
+const ASPC_FACADE_VERSION = '0.1.1'
+
+const ASPC_COMPILE_AND_START_SCHEMA = 'aspc-compile-and-start-response/v1'
+const ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA = 'aspc-compile-harness-invocation-response/v1'
+const RUNTIME_COMPILE_RESPONSE_SCHEMA = 'agent-runtime-compile-response/v1'
 
 export type AspcCompiler = (
   req: RuntimeCompileRequest,
@@ -79,12 +86,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
 
       const compile = await compileHarnessInvocation(compiler, req)
       if (!compile.ok) {
-        return {
-          schemaVersion: 'aspc-compile-and-start-response/v1',
-          ok: false,
-          compile,
-          diagnostics: compile.diagnostics,
-        }
+        return failCompileAndStart(compile)
       }
 
       const dispatch = compile.dispatchRequest
@@ -95,7 +97,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
         dispatch.lifecyclePolicy
       )
       return {
-        schemaVersion: 'aspc-compile-and-start-response/v1',
+        schemaVersion: ASPC_COMPILE_AND_START_SCHEMA,
         ok: true,
         compile,
         startResponse,
@@ -120,13 +122,9 @@ async function compileRuntimePlanSafe(
   try {
     return await compiler(req, { aspHome })
   } catch (error) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: [
-        compilerDiagnostic('compiler_exception', formatError(error), errorDetails(error)),
-      ],
-    }
+    return failRuntimeCompile([
+      compilerDiagnostic('compiler_exception', formatError(error), errorDetails(error)),
+    ])
   }
 }
 
@@ -136,32 +134,18 @@ async function compileHarnessInvocation(
 ): Promise<AspcCompileHarnessInvocationResponse> {
   const compileResponse = await compileRuntimePlanSafe(compiler, req.compileRequest, req.aspHome)
   if (!compileResponse.ok) {
-    return {
-      schemaVersion: 'aspc-compile-harness-invocation-response/v1',
-      ok: false,
-      compileResponse,
-      diagnostics: compileResponse.diagnostics,
-    }
+    return failHarnessInvocation(compileResponse, compileResponse.diagnostics)
   }
 
   const selected = selectBrokerProfile(compileResponse.plan, req.profileSelector)
   if (!selected.ok) {
     const diagnostics = [...compileResponse.diagnostics, selected.diagnostic]
-    return {
-      schemaVersion: 'aspc-compile-harness-invocation-response/v1',
-      ok: false,
-      compileResponse: {
-        schemaVersion: 'agent-runtime-compile-response/v1',
-        ok: false,
-        diagnostics,
-      },
-      diagnostics,
-    }
+    return failHarnessInvocation(failRuntimeCompile(diagnostics), diagnostics)
   }
 
   const dispatchRequest = buildDispatchRequest(selected.profile, req)
   return {
-    schemaVersion: 'aspc-compile-harness-invocation-response/v1',
+    schemaVersion: ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA,
     ok: true,
     compileResponse,
     plan: compileResponse.plan,
@@ -176,24 +160,27 @@ function selectBrokerProfile(
   plan: Extract<RuntimeCompileResponse, { ok: true }>['plan'],
   selector: AspcCompileHarnessInvocationRequest['profileSelector']
 ): { ok: true; profile: BrokerExecutionProfile } | { ok: false; diagnostic: CompileDiagnostic } {
-  let profiles = plan.executionProfiles.filter(
+  const brokerProfiles = plan.executionProfiles.filter(
     (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
   )
-  if (selector?.profileId !== undefined) {
-    profiles = profiles.filter((profile) => profile.profileId === selector.profileId)
-  }
-  if (selector?.profileHash !== undefined) {
-    profiles = profiles.filter((profile) => profile.profileHash === selector.profileHash)
-  }
-  if (selector?.brokerDriver !== undefined) {
-    profiles = profiles.filter((profile) => profile.brokerDriver === selector.brokerDriver)
-  }
 
-  if (profiles.length === 1) {
-    const profile = profiles[0]
-    if (profile !== undefined) {
-      return { ok: true, profile }
+  // Driven by a table so a new selector dimension is added by appending one
+  // entry (Open/Closed): each criterion narrows the candidate list only when
+  // the corresponding selector key is provided.
+  const profiles = SELECTOR_CRITERIA.reduce((candidates, { field }) => {
+    const expected = selector?.[field]
+    if (expected === undefined) {
+      return candidates
     }
+    return candidates.filter((profile) => profile[field] === expected)
+  }, brokerProfiles)
+
+  // A single matched profile is always returned. `profiles[0]` is non-undefined
+  // whenever `length === 1`, so rely on the length check directly rather than a
+  // redundant `!== undefined` guard that could otherwise let the single-match
+  // case fall through to the `broker_profile_missing` diagnostic below.
+  if (profiles.length === 1) {
+    return { ok: true, profile: profiles[0] as BrokerExecutionProfile }
   }
 
   if (profiles.length === 0) {
@@ -227,19 +214,64 @@ function selectBrokerProfile(
   }
 }
 
+type ProfileSelector = NonNullable<AspcCompileHarnessInvocationRequest['profileSelector']>
+
+// Selector key ↔ profile field pairs. The keys are intentionally shared so a
+// new dimension is one extra entry rather than another `if (...)` block.
+const SELECTOR_CRITERIA: ReadonlyArray<{
+  field: keyof ProfileSelector & keyof BrokerExecutionProfile
+}> = [{ field: 'profileId' }, { field: 'profileHash' }, { field: 'brokerDriver' }]
+
+function placementDispatchEnv(
+  req: AspcCompileHarnessInvocationRequest
+): Record<string, string> | undefined {
+  return (req.compileRequest.placement as { dispatchEnv?: Record<string, string> | undefined })
+    .dispatchEnv
+}
+
 function buildDispatchRequest(
   profile: BrokerExecutionProfile,
   req: AspcCompileHarnessInvocationRequest
 ): InvocationDispatchRequest {
-  const placementDispatchEnv = (
-    req.compileRequest.placement as { dispatchEnv?: Record<string, string> | undefined }
-  ).dispatchEnv
-  const dispatchEnv = req.dispatchEnv ?? placementDispatchEnv
+  const dispatchEnv = req.dispatchEnv ?? placementDispatchEnv(req)
   return {
     startRequest: profile.harnessInvocation.startRequest,
     ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
     ...(req.runtime !== undefined ? { runtime: req.runtime } : {}),
     ...(req.lifecyclePolicy !== undefined ? { lifecyclePolicy: req.lifecyclePolicy } : {}),
+  }
+}
+
+function failRuntimeCompile(
+  diagnostics: CompileDiagnostic[]
+): Extract<RuntimeCompileResponse, { ok: false }> {
+  return {
+    schemaVersion: RUNTIME_COMPILE_RESPONSE_SCHEMA,
+    ok: false,
+    diagnostics,
+  }
+}
+
+function failHarnessInvocation(
+  compileResponse: RuntimeCompileResponse,
+  diagnostics: CompileDiagnostic[]
+): Extract<AspcCompileHarnessInvocationResponse, { ok: false }> {
+  return {
+    schemaVersion: ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA,
+    ok: false,
+    compileResponse,
+    diagnostics,
+  }
+}
+
+function failCompileAndStart(
+  compile: Extract<AspcCompileHarnessInvocationResponse, { ok: false }>
+): Extract<AspcCompileAndStartResponse, { ok: false }> {
+  return {
+    schemaVersion: ASPC_COMPILE_AND_START_SCHEMA,
+    ok: false,
+    compile,
+    diagnostics: compile.diagnostics,
   }
 }
 

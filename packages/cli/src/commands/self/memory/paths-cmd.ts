@@ -7,11 +7,13 @@ import type { Command } from 'commander'
 
 import { type MemoryTargetName, resolveMemoryPaths } from 'spaces-runtime'
 
-import { resolveSelfContext } from '../lib.js'
+import { withMemoryContext } from './lib.js'
 
 interface PathsOptions {
   json?: boolean
 }
+
+const COMMAND_NAME = 'self memory paths'
 
 const HUMAN_LABELS: Record<MemoryTargetName, string> = {
   memory: 'per-agent, reminder',
@@ -25,14 +27,8 @@ export function registerMemoryPathsCommand(parent: Command): void {
     .description('List all memory target paths with zone and scope labels')
     .option('--json', 'Emit machine-readable JSON')
     .action(async (options: PathsOptions) => {
-      try {
-        const ctx = resolveSelfContext()
-        if (!ctx.agentName) {
-          process.stderr.write('self memory paths: cannot determine agent name\n')
-          process.exit(1)
-        }
-
-        const paths = resolveMemoryPaths(ctx.agentName, ctx.agentsRoot)
+      await withMemoryContext(COMMAND_NAME, async (ctx, agentName) => {
+        const paths = resolveMemoryPaths(agentName, ctx.agentsRoot)
         const targets: Array<{
           target: string
           path: string
@@ -68,10 +64,6 @@ export function registerMemoryPathsCommand(parent: Command): void {
         out.push('persona: per-agent, prompt (next-session)')
 
         process.stdout.write(`${out.join('\n')}\n`)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`self memory paths: ${message}\n`)
-        process.exit(1)
-      }
+      })
     })
 }

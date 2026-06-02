@@ -23,6 +23,7 @@ import {
   type HarnessId,
   LOCK_FILENAME,
   type LockFile,
+  type LockSpaceEntry,
   type MaterializeSpaceInput,
   type ResolvedSpaceArtifact,
   type ResolvedSpaceManifest,
@@ -41,9 +42,13 @@ import {
   withProjectLock,
 } from '../core/index.js'
 
-import { AGENT_COMMIT_MARKER, PROJECT_COMMIT_MARKER } from '../core/index.js'
 import { linkDirectory } from '../materializer/link-components.js'
-import { DEV_COMMIT_MARKER, DEV_INTEGRITY, mergeLockFiles } from '../resolver/index.js'
+import {
+  COMMIT_KEY_PREFIX_LEN,
+  classifySpaceEntry,
+  mergeLockFiles,
+  resolveSpaceContentDir,
+} from '../resolver/index.js'
 
 import {
   PathResolver,
@@ -75,6 +80,9 @@ import {
   loadProjectManifest,
   resolveTarget,
 } from './resolve.js'
+
+/** Default plugin version used when a space declares none. */
+const DEFAULT_PLUGIN_VERSION = '0.0.0'
 
 /**
  * Options for install operation.
@@ -188,18 +196,8 @@ export async function populateStore(lock: LockFile, options: InstallOptions): Pr
   let created = 0
 
   for (const [_key, entry] of Object.entries(lock.spaces)) {
-    // Skip @dev entries - they use filesystem directly, no snapshot needed
-    if (entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY) {
-      continue
-    }
-
-    // Skip project spaces - they use project filesystem directly, no snapshot needed
-    if (entry.commit === (PROJECT_COMMIT_MARKER as string) || entry.projectSpace) {
-      continue
-    }
-
-    // Skip agent spaces - they use agent filesystem directly, no snapshot needed
-    if (entry.commit === (AGENT_COMMIT_MARKER as string) || entry.agentSpace) {
+    // Skip filesystem-backed entries (@dev / project / agent) — no snapshot needed
+    if (classifySpaceEntry(entry) !== 'registry') {
       continue
     }
 
@@ -224,6 +222,170 @@ export async function writeLockFile(lock: LockFile, projectPath: string): Promis
   const lockPath = join(projectPath, LOCK_FILENAME)
   await atomicWriteJson(lockPath, lock)
   return lockPath
+}
+
+/**
+ * Per-target context shared by the space-materialization helpers.
+ */
+interface MaterializeTargetContext {
+  paths: PathResolver
+  registryPath: string
+  harnessId: HarnessId
+  adapter: HarnessAdapter
+  options: InstallOptions
+}
+
+/**
+ * Materialize a single locked space entry into a plugin artifact.
+ *
+ * Returns the resolved artifact plus the settings to feed composition, or null
+ * when the space does not support the selected harness (and is skipped).
+ */
+async function materializeSpaceEntry(
+  entry: LockSpaceEntry,
+  ctx: MaterializeTargetContext
+): Promise<{ artifact: ResolvedSpaceArtifact; settings: SpaceSettings } | null> {
+  const { paths, registryPath, harnessId, adapter, options } = ctx
+
+  const kind = classifySpaceEntry(entry)
+  const isDev = kind === 'dev'
+  const isProjectSpace = kind === 'project'
+  const isAgentSpace = kind === 'agent'
+
+  // Compute cache key
+  const pluginName = entry.plugin?.name ?? entry.id
+  const pluginVersion = entry.plugin?.version ?? DEFAULT_PLUGIN_VERSION
+  const cacheKey = computePluginCacheKey(
+    entry.integrity as Sha256Integrity,
+    pluginName,
+    pluginVersion
+  )
+  const cacheDir = paths.pluginCache(cacheKey)
+
+  // Build space key
+  let spaceKey: SpaceKey
+  if (isAgentSpace) {
+    spaceKey = `${entry.id}@agent` as SpaceKey
+  } else if (isProjectSpace) {
+    spaceKey = `${entry.id}@project` as SpaceKey
+  } else if (isDev) {
+    spaceKey = `${entry.id}@dev` as SpaceKey
+  } else {
+    spaceKey = `${entry.id}@${entry.commit.slice(0, COMMIT_KEY_PREFIX_LEN)}` as SpaceKey
+  }
+
+  // Build snapshot path
+  // - Agent spaces: read from agent's spaces/ directory
+  // - Project spaces: read from project's spaces/ directory
+  // - @dev spaces: read from registry's spaces/ directory
+  // - Others: read from content-addressed store
+  const snapshotPath = resolveSpaceContentDir(kind, entry, {
+    agentPath: options.agentPath,
+    projectPath: options.projectPath,
+    registryPath,
+    paths,
+  })
+
+  // Read manifest for settings and harness support filtering
+  let manifest: ResolvedSpaceManifest | undefined
+  try {
+    const spaceTomlPath = join(snapshotPath, 'space.toml')
+    const parsed = await readSpaceToml(spaceTomlPath)
+    manifest = {
+      ...parsed,
+      schema: 1,
+      id: entry.id,
+      plugin: {
+        ...parsed.plugin,
+        name: pluginName,
+        version: pluginVersion,
+      },
+    } as ResolvedSpaceManifest
+  } catch {
+    manifest = undefined
+  }
+
+  const supports = manifest?.harness?.supports
+  if (!isHarnessSupported(supports, harnessId)) {
+    // Skip spaces that do not support the selected harness
+    return null
+  }
+
+  // Check cache (skip for @dev, project, and agent refs since content can change, or when refresh requested)
+  const isCached =
+    !isDev &&
+    !isProjectSpace &&
+    !isAgentSpace &&
+    !options.refresh &&
+    (await cacheExists(cacheKey, { paths }))
+
+  if (!isCached) {
+    // Build input for harness adapter
+    const input: MaterializeSpaceInput = {
+      spaceKey,
+      manifest:
+        manifest ??
+        ({
+          schema: 1,
+          id: entry.id,
+          plugin: {
+            ...entry.plugin,
+            name: pluginName,
+            version: pluginVersion,
+          },
+        } as ResolvedSpaceManifest),
+      snapshotPath,
+      integrity: entry.integrity,
+    }
+
+    // Materialize using harness adapter (handles hooks.toml → hooks.json, etc.)
+    // For dev, project, and agent spaces, use copy instead of hardlinks to protect source files
+    const useHardlinks = !isDev && !isProjectSpace && !isAgentSpace
+    await adapter.materializeSpace(input, cacheDir, { force: true, useHardlinks })
+
+    // Write cache metadata
+    await writeCacheMetadata(
+      cacheKey,
+      {
+        pluginName,
+        pluginVersion,
+        integrity: entry.integrity as Sha256Integrity,
+        cacheKey,
+        createdAt: new Date().toISOString(),
+        spaceKey,
+      },
+      { paths }
+    )
+  }
+
+  return {
+    artifact: {
+      spaceKey,
+      spaceId: entry.id,
+      artifactPath: cacheDir,
+      pluginName,
+      pluginVersion,
+    },
+    // Read settings from snapshot's space.toml for composition
+    settings: manifest?.settings ?? {},
+  }
+}
+
+/**
+ * Load the effective codex options for a target, if the project carries an
+ * asp-targets.toml manifest. Returns undefined when there is no manifest.
+ */
+async function loadEffectiveCodexOptions(
+  projectPath: string,
+  targetName: string,
+  aspHome: string | undefined
+): Promise<CodexOptions | undefined> {
+  const manifestPath = join(projectPath, TARGETS_FILENAME)
+  if (!existsSync(manifestPath)) {
+    return undefined
+  }
+  const manifest = await loadProjectManifest(projectPath, aspHome)
+  return getEffectiveCodexOptions(manifest, targetName)
 }
 
 /**
@@ -261,140 +423,18 @@ export async function materializeTarget(
 
   // Phase 1: Materialize each space using the harness adapter
   // This handles harness-specific transforms like hooks.toml → hooks.json for Claude
+  const ctx: MaterializeTargetContext = { paths, registryPath, harnessId, adapter, options }
   const artifacts: ResolvedSpaceArtifact[] = []
   const settingsInputs: SpaceSettings[] = []
 
   for (const entry of entries) {
-    const isDev =
-      entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY
-    const isProjectSpace = entry.commit === (PROJECT_COMMIT_MARKER as string) || entry.projectSpace
-    const isAgentSpace = entry.commit === (AGENT_COMMIT_MARKER as string) || entry.agentSpace
-
-    // Compute cache key
-    const pluginName = entry.plugin?.name ?? entry.id
-    const pluginVersion = entry.plugin?.version ?? '0.0.0'
-    const cacheKey = computePluginCacheKey(
-      entry.integrity as Sha256Integrity,
-      pluginName,
-      pluginVersion
-    )
-    const cacheDir = paths.pluginCache(cacheKey)
-
-    // Build space key
-    let spaceKey: SpaceKey
-    if (isAgentSpace) {
-      spaceKey = `${entry.id}@agent` as SpaceKey
-    } else if (isProjectSpace) {
-      spaceKey = `${entry.id}@project` as SpaceKey
-    } else if (isDev) {
-      spaceKey = `${entry.id}@dev` as SpaceKey
-    } else {
-      spaceKey = `${entry.id}@${entry.commit.slice(0, 12)}` as SpaceKey
-    }
-
-    // Build snapshot path
-    // - Agent spaces: read from agent's spaces/ directory
-    // - Project spaces: read from project's spaces/ directory
-    // - @dev spaces: read from registry's spaces/ directory
-    // - Others: read from content-addressed store
-    let snapshotPath: string
-    if (isAgentSpace && options.agentPath) {
-      snapshotPath = join(options.agentPath, 'spaces', entry.id)
-    } else if (isProjectSpace) {
-      snapshotPath = join(options.projectPath, 'spaces', entry.id)
-    } else if (isDev) {
-      snapshotPath = join(registryPath, 'spaces', entry.id)
-    } else {
-      snapshotPath = paths.snapshot(entry.integrity)
-    }
-
-    // Read manifest for settings and harness support filtering
-    let manifest: ResolvedSpaceManifest | undefined
-    try {
-      const spaceTomlPath = join(snapshotPath, 'space.toml')
-      const parsed = await readSpaceToml(spaceTomlPath)
-      manifest = {
-        ...parsed,
-        schema: 1,
-        id: entry.id,
-        plugin: {
-          ...parsed.plugin,
-          name: pluginName,
-          version: pluginVersion,
-        },
-      } as ResolvedSpaceManifest
-    } catch {
-      manifest = undefined
-    }
-
-    const supports = manifest?.harness?.supports
-    if (!isHarnessSupported(supports, harnessId)) {
-      // Skip spaces that do not support the selected harness
+    const result = await materializeSpaceEntry(entry, ctx)
+    if (!result) {
+      // Space does not support the selected harness — skipped
       continue
     }
-
-    // Check cache (skip for @dev, project, and agent refs since content can change, or when refresh requested)
-    const isCached =
-      !isDev &&
-      !isProjectSpace &&
-      !isAgentSpace &&
-      !options.refresh &&
-      (await cacheExists(cacheKey, { paths }))
-
-    if (!isCached) {
-      // Build input for harness adapter
-      const input: MaterializeSpaceInput = {
-        spaceKey,
-        manifest:
-          manifest ??
-          ({
-            schema: 1,
-            id: entry.id,
-            plugin: {
-              ...entry.plugin,
-              name: pluginName,
-              version: pluginVersion,
-            },
-          } as ResolvedSpaceManifest),
-        snapshotPath,
-        integrity: entry.integrity,
-      }
-
-      // Materialize using harness adapter (handles hooks.toml → hooks.json, etc.)
-      // For dev, project, and agent spaces, use copy instead of hardlinks to protect source files
-      const useHardlinks = !isDev && !isProjectSpace && !isAgentSpace
-      await adapter.materializeSpace(input, cacheDir, { force: true, useHardlinks })
-
-      // Write cache metadata
-      await writeCacheMetadata(
-        cacheKey,
-        {
-          pluginName,
-          pluginVersion,
-          integrity: entry.integrity as Sha256Integrity,
-          cacheKey,
-          createdAt: new Date().toISOString(),
-          spaceKey,
-        },
-        { paths }
-      )
-    }
-
-    // Collect artifact
-    artifacts.push({
-      spaceKey,
-      spaceId: entry.id,
-      artifactPath: cacheDir,
-      pluginName,
-      pluginVersion,
-    })
-
-    // Read settings from snapshot's space.toml for composition
-    if (manifest?.settings) {
-      settingsInputs.push(manifest.settings)
-    } else {
-      settingsInputs.push({})
-    }
+    artifacts.push(result.artifact)
+    settingsInputs.push(result.settings)
   }
 
   // Phase 1b: Materialize agent-local components as a synthetic plugin (appended last)
@@ -409,12 +449,11 @@ export async function materializeTarget(
   // Phase 2: Compose target using harness adapter
   // This handles assembling artifacts into the final target bundle
   const target = lock.targets[targetName]
-  let codexOptions: CodexOptions | undefined
-  const manifestPath = join(options.projectPath, TARGETS_FILENAME)
-  if (existsSync(manifestPath)) {
-    const manifest = await loadProjectManifest(options.projectPath, options.aspHome)
-    codexOptions = getEffectiveCodexOptions(manifest, targetName)
-  }
+  const codexOptions = await loadEffectiveCodexOptions(
+    options.projectPath,
+    targetName,
+    options.aspHome
+  )
   const composeInput: ComposeTargetInput = {
     targetName,
     compose: (target?.compose ?? []) as SpaceRefString[],
@@ -490,7 +529,7 @@ export async function materializeAgentLocalComponents(
     JSON.stringify(
       {
         name: pluginName,
-        version: '0.0.0',
+        version: DEFAULT_PLUGIN_VERSION,
         description: 'Agent-local skills and commands',
       },
       null,
@@ -513,7 +552,7 @@ export async function materializeAgentLocalComponents(
     spaceId: pluginName,
     artifactPath: tmpDir,
     pluginName,
-    pluginVersion: '0.0.0',
+    pluginVersion: DEFAULT_PLUGIN_VERSION,
   }
 }
 
@@ -587,20 +626,12 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
   const lintData: SpaceLintData[] = Object.entries(mergedLock.spaces).map(([key, entry]) => {
-    const isDev =
-      entry.commit === (DEV_COMMIT_MARKER as string) || entry.integrity === DEV_INTEGRITY
-    const isProjectSpace = entry.commit === (PROJECT_COMMIT_MARKER as string) || entry.projectSpace
-    const isAgentSpace = entry.commit === (AGENT_COMMIT_MARKER as string) || entry.agentSpace
-    let pluginPath: string
-    if (isAgentSpace && options.agentPath) {
-      pluginPath = join(options.agentPath, 'spaces', entry.id)
-    } else if (isProjectSpace) {
-      pluginPath = join(options.projectPath, 'spaces', entry.id)
-    } else if (isDev) {
-      pluginPath = join(registryPath, 'spaces', entry.id)
-    } else {
-      pluginPath = paths.snapshot(entry.integrity)
-    }
+    const pluginPath = resolveSpaceContentDir(classifySpaceEntry(entry), entry, {
+      agentPath: options.agentPath,
+      projectPath: options.projectPath,
+      registryPath,
+      paths,
+    })
     return {
       key: key as SpaceKey,
       manifest: {

@@ -4,9 +4,9 @@
 
 import type { Command } from 'commander'
 
-import { MemoryStore, type MemoryTargetName } from 'spaces-runtime'
+import type { MemoryTargetName } from 'spaces-runtime'
 
-import { resolveSelfContext } from '../lib.js'
+import { validateTarget, withMemoryStore } from './lib.js'
 
 interface ReadOptions {
   json?: boolean
@@ -15,6 +15,8 @@ interface ReadOptions {
 
 const ALL_TARGETS: MemoryTargetName[] = ['memory', 'user', 'persona']
 
+const COMMAND_NAME = 'self memory read'
+
 export function registerMemoryReadCommand(parent: Command): void {
   parent
     .command('read')
@@ -22,20 +24,9 @@ export function registerMemoryReadCommand(parent: Command): void {
     .option('--json', 'Emit machine-readable JSON')
     .option('--target <name>', 'Read a specific target: memory|user|persona')
     .action(async (options: ReadOptions) => {
-      try {
-        const ctx = resolveSelfContext()
-        if (!ctx.agentName) {
-          process.stderr.write('self memory read: cannot determine agent name\n')
-          process.exit(1)
-        }
-
-        const store = new MemoryStore({
-          agentName: ctx.agentName,
-          agentsRoot: ctx.agentsRoot,
-        })
-
+      await withMemoryStore(COMMAND_NAME, async (store) => {
         if (options.target) {
-          validateTarget(options.target)
+          validateTarget(COMMAND_NAME, options.target)
           const content = await store.read(options.target as MemoryTargetName)
 
           if (options.json) {
@@ -64,19 +55,6 @@ export function registerMemoryReadCommand(parent: Command): void {
           process.stdout.write(`target: ${entry.target}\n`)
           process.stdout.write(`${entry.content}\n`)
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`self memory read: ${message}\n`)
-        process.exit(1)
-      }
+      })
     })
-}
-
-function validateTarget(value: string): asserts value is MemoryTargetName {
-  if (value !== 'memory' && value !== 'user' && value !== 'persona') {
-    process.stderr.write(
-      `self memory read: invalid --target '${value}' (expected: memory, user, persona)\n`
-    )
-    process.exit(1)
-  }
 }

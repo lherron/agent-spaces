@@ -10,9 +10,13 @@ import type { Command } from 'commander'
 
 import { scan } from 'spaces-runtime'
 
+import { withMemoryCommand } from './lib.js'
+
 interface ScanOptions {
   json?: boolean
 }
+
+const COMMAND_NAME = 'self memory scan'
 
 export function registerMemoryScanCommand(parent: Command): void {
   parent
@@ -20,7 +24,7 @@ export function registerMemoryScanCommand(parent: Command): void {
     .description('Check content for scanner violations')
     .option('--json', 'Emit machine-readable JSON')
     .action(async (contentArgs: string[], options: ScanOptions) => {
-      try {
+      await withMemoryCommand(COMMAND_NAME, async () => {
         let content: string
 
         if (contentArgs.length === 1 && contentArgs[0] === '-') {
@@ -29,7 +33,7 @@ export function registerMemoryScanCommand(parent: Command): void {
         } else if (contentArgs.length > 0) {
           content = contentArgs.join(' ')
         } else {
-          process.stderr.write('self memory scan: content argument required\n')
+          process.stderr.write(`${COMMAND_NAME}: content argument required\n`)
           process.exit(1)
           return
         }
@@ -58,10 +62,6 @@ export function registerMemoryScanCommand(parent: Command): void {
           process.stderr.write(`scanner blocked: ${output.category} (${output.pattern})\n`)
         }
         process.exit(2)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`self memory scan: ${message}\n`)
-        process.exit(1)
-      }
+      })
     })
 }

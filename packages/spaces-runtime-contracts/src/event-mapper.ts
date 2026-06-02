@@ -23,6 +23,11 @@ export type BrokerEventContext = {
   invocation: BrokerInvocationRecord
   routeDecision: RuntimeRouteDecision
   now: IsoTimestamp
+  /**
+   * Optional cancellation seam for an in-flight event application. Additive and
+   * back-compatible: mappers that ignore it behave exactly as before.
+   */
+  signal?: AbortSignal | undefined
 }
 
 export type BrokerEventApplyResult =

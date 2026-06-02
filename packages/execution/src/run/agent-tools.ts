@@ -18,6 +18,14 @@ export interface AgentToolEnvResult {
   warnings: string[]
 }
 
+/** Any-execute permission bits (owner/group/other) used to check a tool is runnable. */
+const EXECUTABLE_MODE_BITS = 0o111
+/** Bytes read from the head of a tool file when sniffing for a shebang. */
+const SHEBANG_SNIFF_BYTES = 4096
+/** ASCII codes for the shebang prefix `#!`. */
+const SHEBANG_HASH = 0x23 // '#'
+const SHEBANG_BANG = 0x21 // '!'
+
 const TOOL_NAME_PATTERN = /^[a-z][a-z0-9._-]*$/
 const RESERVED_TOOL_NAMES = new Set([
   'sh',
@@ -157,7 +165,7 @@ export async function validateAgentTools(components: AgentLocalComponents): Prom
     if (!resolvedStats.isFile()) {
       throw new Error(`Agent tool "${name}" must be a regular file or safe symlink`)
     }
-    if ((resolvedStats.mode & 0o111) === 0) {
+    if ((resolvedStats.mode & EXECUTABLE_MODE_BITS) === 0) {
       throw new Error(`Agent tool "${name}" must be executable`)
     }
 
@@ -176,7 +184,7 @@ function isUnderToolsRoot(resolvedPath: string, toolsRootReal: string): boolean 
 async function isExecutableTextWithoutShebang(filePath: string): Promise<boolean> {
   const file = await open(filePath, 'r')
   try {
-    const buffer = Buffer.alloc(4096)
+    const buffer = Buffer.alloc(SHEBANG_SNIFF_BYTES)
     const { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
     if (bytesRead === 0) {
       return false
@@ -185,7 +193,7 @@ async function isExecutableTextWithoutShebang(filePath: string): Promise<boolean
     if (prefix.includes(0)) {
       return false
     }
-    return !(prefix[0] === 35 && prefix[1] === 33)
+    return !(prefix[0] === SHEBANG_HASH && prefix[1] === SHEBANG_BANG)
   } finally {
     await file.close()
   }

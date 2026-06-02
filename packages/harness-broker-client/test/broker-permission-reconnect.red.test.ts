@@ -4,20 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BrokerClient } from 'spaces-harness-broker-client'
 import {
-  BrokerErrorCode,
   type BrokerAttachRequest,
+  BrokerErrorCode,
   type InvocationPermissionRespondRequest,
   type InvocationPermissionRespondResponse,
   type PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
-import {
-  brokerCommand,
-  codexSpec,
-  collectUntil,
-  repoRoot,
-  userInput,
-  withTimeout,
-} from './helpers'
+import { brokerCommand, codexSpec, collectUntil, repoRoot, userInput, withTimeout } from './helpers'
 
 const tmpDirs: string[] = []
 
@@ -223,8 +216,9 @@ describe('broker permission reconnect red tests for T-01796 Phase C2', () => {
         permissionRequestId: permissionRequest.permissionRequestId,
         defaultDecision: 'allow',
       })
-      const deadlineAt = (attached.snapshot.pendingPermissionRequests[0] as { deadlineAt?: unknown })
-        .deadlineAt
+      const deadlineAt = (
+        attached.snapshot.pendingPermissionRequests[0] as { deadlineAt?: unknown }
+      ).deadlineAt
       expect(typeof deadlineAt).toBe('string')
       expect(Date.parse(deadlineAt as string)).toBeGreaterThan(Date.now())
     } finally {

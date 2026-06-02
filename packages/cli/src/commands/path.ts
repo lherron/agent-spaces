@@ -8,7 +8,7 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { PathResolver, getAspHome } from 'spaces-config'
+import { resolvePaths } from '../helpers.js'
 
 interface PathOptions {
   aspHome?: string | undefined
@@ -26,9 +26,7 @@ export function registerPathCommand(program: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     .option('--registry <path>', 'Registry path override')
     .action(async (spaceId: string, options: PathOptions) => {
-      const aspHome = options.aspHome ?? getAspHome()
-      const paths = new PathResolver({ aspHome })
-      const registryPath = options.registry ?? paths.repo
+      const { registryPath } = resolvePaths(options)
       const spaceDir = `${registryPath}/spaces/${spaceId}`
 
       // Check if space exists

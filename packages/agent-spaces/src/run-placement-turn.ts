@@ -30,7 +30,11 @@ import {
 import { buildCorrelationEnvVars } from './placement-api.js'
 import type { InFlightRunContext } from './run-tracker.js'
 import { enqueueInFlightPrompt } from './run-tracker.js'
-import { shouldDrainOutstandingTurn, toAgentSpacesError } from './run-turn-helpers.js'
+import {
+  emitTurnFailure,
+  shouldDrainOutstandingTurn,
+  toAgentSpacesError,
+} from './run-turn-helpers.js'
 import {
   applyEnvOverlay,
   piSessionPath,
@@ -91,15 +95,15 @@ export async function runPlacementTurnNonInteractive(
     })
     resolvedPrompt = runtimePlan.prompt ?? ''
   } catch (error) {
-    const result: RunResult = { success: false, error: toAgentSpacesError(error) }
-    await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-    await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-    return {
-      provider: frontendDef.provider,
-      frontend: req.frontend,
-      model: req.model,
-      result,
-    }
+    return emitTurnFailure(
+      eventEmitter,
+      {
+        provider: frontendDef.provider,
+        frontend: req.frontend,
+        model: req.model,
+      },
+      toAgentSpacesError(error)
+    )
   }
 
   if (continuationKey) {
@@ -123,15 +127,15 @@ export async function runPlacementTurnNonInteractive(
       ),
       'model_not_supported'
     )
-    const result: RunResult = { success: false, error }
-    await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-    await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-    return {
-      provider: runtimePlan.provider,
-      frontend: req.frontend,
-      model: runtimePlan.model.modelId,
-      result,
-    }
+    return emitTurnFailure(
+      eventEmitter,
+      {
+        provider: runtimePlan.provider,
+        frontend: req.frontend,
+        model: runtimePlan.model.modelId,
+      },
+      error
+    )
   }
 
   const permissionHandler = buildAutoPermissionHandler()
@@ -380,21 +384,20 @@ export async function runPlacementTurnNonInteractive(
         ),
         'empty_response'
       )
-      const result: RunResult = { success: false, error }
-      await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-      await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-
       // Do NOT propagate continuation on failure — a crashed session's
       // sdkSessionId points to a non-existent or corrupt conversation file.
       // Returning it here causes a cascade where every subsequent turn tries
       // to --resume from a dead session and immediately fails with ENOENT.
-      return {
-        provider: runtimePlan.provider,
-        frontend: req.frontend,
-        model: runtimePlan.model.info.effectiveModel,
-        result,
-        resolvedBundle,
-      }
+      return emitTurnFailure(
+        eventEmitter,
+        {
+          provider: runtimePlan.provider,
+          frontend: req.frontend,
+          model: runtimePlan.model.info.effectiveModel,
+          resolvedBundle,
+        },
+        error
+      )
     }
 
     const result: RunResult = { success: true, ...(finalOutput ? { finalOutput } : {}) }
@@ -422,23 +425,19 @@ export async function runPlacementTurnNonInteractive(
       }
     }
 
-    const result: RunResult = {
-      success: false,
-      error: toAgentSpacesError(error, 'resolve_failed'),
-    }
-    await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-    await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-
     const finalContinuation: HarnessContinuationRef | undefined = continuationKey
       ? { provider: runtimePlan.provider, key: continuationKey }
       : undefined
 
-    return {
-      ...(finalContinuation ? { continuation: finalContinuation } : {}),
-      provider: runtimePlan.provider,
-      frontend: req.frontend,
-      model: runtimePlan.model.ok ? runtimePlan.model.info.effectiveModel : req.model,
-      result,
-    }
+    return emitTurnFailure(
+      eventEmitter,
+      {
+        ...(finalContinuation ? { continuation: finalContinuation } : {}),
+        provider: runtimePlan.provider,
+        frontend: req.frontend,
+        model: runtimePlan.model.ok ? runtimePlan.model.info.effectiveModel : req.model,
+      },
+      toAgentSpacesError(error, 'resolve_failed')
+    )
   }
 }

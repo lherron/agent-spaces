@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
 import { type RunMode, type RunScaffoldPacket, getAspHome } from 'spaces-config'
@@ -7,8 +7,13 @@ import {
   type ResolvedContextSection,
   resolveContextTemplateDetailed,
 } from './context-resolver.js'
-import { type ContextTemplate, parseContextTemplate } from './context-template.js'
+import {
+  type ContextSection,
+  type ContextTemplate,
+  parseContextTemplate,
+} from './context-template.js'
 import type { SystemPromptMode } from './context-template.js'
+import { writeMaterializedContext, writeMaterializedPrompt } from './materialize-io.js'
 
 export interface MaterializeSystemPromptInput {
   agentRoot: string
@@ -169,8 +174,7 @@ export async function inspectAgentSystemPrompt(
   }
 
   const template =
-    templateSource?.template ??
-    parseContextTemplate(buildDefaultTemplateToml(profile.additionalBase, input.scaffoldPackets))
+    templateSource?.template ?? buildDefaultTemplate(profile.additionalBase, input.scaffoldPackets)
   const resolved = await resolveContextTemplateDetailed(template, {
     agentRoot: input.agentRoot,
     agentName: basename(input.agentRoot),
@@ -223,45 +227,6 @@ export async function inspectAgentSystemPrompt(
       sections: resolved.reminderSections,
     },
     diagnostics: resolved.diagnostics,
-  }
-}
-
-function writeMaterializedPrompt(
-  outputPath: string,
-  prompt: { content: string; mode: SystemPromptMode }
-): MaterializeResult {
-  const promptPath = join(outputPath, 'system-prompt.md')
-  mkdirSync(outputPath, { recursive: true })
-  writeFileSync(promptPath, prompt.content, 'utf8')
-
-  return {
-    path: promptPath,
-    content: prompt.content,
-    mode: prompt.mode,
-  }
-}
-
-function writeMaterializedContext(
-  outputPath: string,
-  prompt: {
-    content: string
-    mode: SystemPromptMode
-    reminderContent: string | undefined
-    maxChars?: number | undefined
-  }
-): MaterializeResult {
-  const promptPath = join(outputPath, 'system-prompt.md')
-  const reminderPath = join(outputPath, 'session-reminder.md')
-  mkdirSync(outputPath, { recursive: true })
-  writeFileSync(promptPath, prompt.content, 'utf8')
-  writeFileSync(reminderPath, prompt.reminderContent ?? '', 'utf8')
-
-  return {
-    path: promptPath,
-    content: prompt.content,
-    mode: prompt.mode,
-    reminderContent: prompt.reminderContent,
-    ...(prompt.maxChars !== undefined ? { maxChars: prompt.maxChars } : {}),
   }
 }
 
@@ -356,64 +321,62 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function buildDefaultTemplateToml(
+/**
+ * Build the built-in default context template directly as a `ContextTemplate`
+ * object. (Previously this synthesized TOML text that was immediately re-parsed
+ * by `parseContextTemplate`; constructing the object avoids that fragile
+ * round-trip and the manual TOML quoting it required.)
+ */
+function buildDefaultTemplate(
   additionalBase: string[] | undefined,
   scaffoldPackets: RunScaffoldPacket[] | undefined
-): string {
-  const sections = [
-    fileSectionToml('prompt', 'soul', 'agent-root:///SOUL.md'),
-    ...(additionalBase ?? []).map((ref, index) =>
-      fileSectionToml('prompt', `additional-base-${index}`, ref)
+): ContextTemplate {
+  const promptSections: ContextSection[] = [
+    { name: 'soul', type: 'file', path: 'agent-root:///SOUL.md' },
+    ...(additionalBase ?? []).map(
+      (ref, index): ContextSection => ({
+        name: `additional-base-${index}`,
+        type: 'file',
+        path: ref,
+      })
     ),
-    [
-      '[[prompt]]',
-      'name = "heartbeat"',
-      'type = "file"',
-      `path = ${quoteTomlString('agent-root:///HEARTBEAT.md')}`,
-      'when = { runMode = "heartbeat" }',
-    ].join('\n'),
-    ...buildScaffoldSectionsToml(scaffoldPackets),
+    {
+      name: 'heartbeat',
+      type: 'file',
+      path: 'agent-root:///HEARTBEAT.md',
+      when: { runMode: 'heartbeat' },
+    },
+    ...buildScaffoldSections(scaffoldPackets),
   ]
 
-  return ['schema_version = 2', 'mode = "replace"', '', ...sections].join('\n\n')
+  return {
+    schemaVersion: 2,
+    mode: 'replace',
+    promptSections,
+    reminderSections: [],
+  }
 }
 
-function buildScaffoldSectionsToml(scaffoldPackets: RunScaffoldPacket[] | undefined): string[] {
+function buildScaffoldSections(scaffoldPackets: RunScaffoldPacket[] | undefined): ContextSection[] {
   if (!scaffoldPackets) {
     return []
   }
 
-  return scaffoldPackets.flatMap((packet, index) => {
-    const sections: string[] = []
+  return scaffoldPackets.flatMap((packet, index): ContextSection[] => {
+    const sections: ContextSection[] = []
 
-    if (packet.content !== undefined) {
-      sections.push(
-        [
-          '[[prompt]]',
-          `name = ${quoteTomlString(`scaffold-inline-${index}`)}`,
-          'type = "inline"',
-          `content = ${quoteTomlString(packet.content)}`,
-        ].join('\n')
-      )
+    if (packet.content) {
+      sections.push({
+        name: `scaffold-inline-${index}`,
+        type: 'inline',
+        content: packet.content,
+      })
     }
 
     if (packet.ref) {
-      sections.push(fileSectionToml('prompt', `scaffold-ref-${index}`, packet.ref))
+      sections.push({ name: `scaffold-ref-${index}`, type: 'file', path: packet.ref })
     }
 
     return sections
   })
-}
-
-function fileSectionToml(tableName: 'prompt' | 'reminder', name: string, path: string): string {
-  return [
-    `[[${tableName}]]`,
-    `name = ${quoteTomlString(name)}`,
-    'type = "file"',
-    `path = ${quoteTomlString(path)}`,
-  ].join('\n')
-}
-
-function quoteTomlString(value: string): string {
-  return JSON.stringify(value)
 }

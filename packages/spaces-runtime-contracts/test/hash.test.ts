@@ -95,6 +95,55 @@ describe('canonical JSON hasher', () => {
     )
   })
 
+  test('omitPaths omitting an object key keeps the canonical string well-formed', () => {
+    const h = hasher()
+    // Object-key omits are dropped cleanly (the value pair disappears), so the
+    // canonical token stays valid JSON. This is the safe, already-exercised path
+    // and a baseline for the array-index gap covered by the .todo cases below.
+    const policy = {
+      ...defaultPolicy,
+      omitPaths: ['/dropped'],
+    } satisfies Partial<HashMaterialPolicy>
+
+    expect(h.canonicalize({ dropped: 'x', kept: 1 }, policy)).toBe('{"kept":1}')
+  })
+
+  // BUGS.md spaces-runtime-contracts A1: omitting an *array element* via
+  // omitPaths makes serialize() return '' for that element, so joining with ','
+  // yields a malformed canonical token (e.g. `[1,,3]`) and project() then throws
+  // on JSON.parse. These document the intended post-fix contract; they are
+  // .todo (not failing) so the suite stays green until A1 is fixed.
+  test.todo('omitting an array element produces a well-formed canonical string (BUGS A1)', () => {
+    const h = hasher()
+    const policy = {
+      ...defaultPolicy,
+      omitPaths: ['/items/1'],
+    } satisfies Partial<HashMaterialPolicy>
+
+    // Once A1 is fixed the omitted element must not leave a dangling comma; the
+    // canonical string must remain parseable JSON (the exact shape — dropped vs
+    // null-filled — depends on the chosen fix).
+    const canonical = h.canonicalize({ items: [1, 2, 3] }, policy)
+    expect(() => JSON.parse(canonical)).not.toThrow()
+  })
+
+  test.todo('project round-trips when an omitPath targets an array index (BUGS A1)', () => {
+    expect(project, 'project must be exported').toBeFunction()
+    // project() canonicalizes then JSON.parse()s the result; an array-index omit
+    // currently corrupts the canonical string and throws here.
+    expect(() => project({ items: [1, 2, 3], specVersion: 'x' }, 'spec')).not.toThrow()
+  })
+
+  // BUGS.md spaces-runtime-contracts A3: a top-level undefined/function/symbol
+  // silently hashes the literal 'null' instead of being rejected. Document the
+  // intended post-fix throw as .todo so the suite stays green until A3 is fixed.
+  test.todo('top-level non-serializable values are rejected, not coerced to null (BUGS A3)', () => {
+    const h = hasher()
+    expect(() => h.canonicalize(undefined, defaultPolicy)).toThrow()
+    expect(() => h.canonicalize(() => {}, defaultPolicy)).toThrow()
+    expect(() => h.canonicalize(Symbol('x'), defaultPolicy)).toThrow()
+  })
+
   test('lockedEnv keys and values are included in hash material', () => {
     const h = hasher()
     const base = {

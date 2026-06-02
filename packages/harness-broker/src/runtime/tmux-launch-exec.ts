@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { shellQuote } from './shell-quote'
 
 export type TmuxLaunchExecPrompts = {
   /** Path to the materialized system-prompt file; content is read+framed at launch. */
@@ -58,11 +59,4 @@ export async function writeTmuxLaunchExecFiles(
     runnerPath,
     commandLine: `exec bun ${shellQuote(runnerPath)} --launch-file ${shellQuote(launchFilePath)}`,
   }
-}
-
-function shellQuote(value: string): string {
-  if (/^[A-Za-z0-9_./:=-]+$/.test(value)) {
-    return value
-  }
-  return `'${value.replace(/'/g, `'\\''`)}'`
 }

@@ -1,7 +1,9 @@
 import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { PathResolver, type SpaceRefString } from 'spaces-config'
+import { type HarnessRunOptions, PathResolver, type SpaceRefString } from 'spaces-config'
+
+import type { BaseRunOptions } from './types.js'
 
 export function shellQuote(value: string): string {
   if (/^[a-zA-Z0-9_./-]+$/.test(value)) return value
@@ -30,6 +32,13 @@ export function mergeDefined<T extends object>(defaults: Partial<T>, overrides: 
   return merged
 }
 
+/**
+ * Combine a priming prompt and a user prompt into a single prompt.
+ *
+ * Ordering contract: the priming prompt always precedes the user prompt,
+ * separated by a blank line (`priming\n\nuser`). Multiple call sites depend on
+ * this order; do not reorder without updating them.
+ */
 export function combinePrompts(
   primingPrompt: string | undefined,
   userPrompt: string | undefined
@@ -40,11 +49,71 @@ export function combinePrompts(
   return primingPrompt ?? userPrompt
 }
 
-export function resolveInteractive(interactive: boolean | undefined): boolean | undefined {
-  if (interactive !== undefined) {
-    return interactive
+/** Parse an env-style boolean gate that accepts `'1'` or `'true'`. */
+function isEnvFlagEnabled(value: string | undefined): boolean {
+  return value === '1' || value === 'true'
+}
+
+/**
+ * Resolve the run-time feature gates from the environment.
+ *
+ * Centralizes the `ASP_RUN_VIA_COMPILER` / `ASP_DEBUG_RUN` `'1' | 'true'` gate
+ * parsing that both `run.ts` and `space-launch.ts` previously duplicated inline.
+ * `env` defaults to `process.env` so existing callers behave identically, while
+ * tests can pass an explicit env.
+ */
+export function resolveRunEnvFlags(env: NodeJS.ProcessEnv = process.env): {
+  viaCompiler: boolean
+  debugRun: boolean
+} {
+  return {
+    viaCompiler: isEnvFlagEnabled(env['ASP_RUN_VIA_COMPILER']),
+    debugRun: isEnvFlagEnabled(env['ASP_DEBUG_RUN']),
   }
-  return undefined
+}
+
+/** Whether the run should be driven through the injected compiler. */
+export function isViaCompiler(env: NodeJS.ProcessEnv = process.env): boolean {
+  return resolveRunEnvFlags(env).viaCompiler
+}
+
+/**
+ * Map a run-options bag onto the harness-facing `HarnessRunOptions` literal.
+ *
+ * Both the project-target run (`run.ts`) and the space run (`space-launch.ts`)
+ * previously inlined a near-identical ~18-field literal that differed only in
+ * `aspHome` / `projectPath` / `cwd` defaulting and the prompt value. This helper
+ * captures the shared mapping; callers pass the run-mode-specific overrides so a
+ * new launch field is added in exactly one place.
+ */
+export function toHarnessRunOptions(
+  options: BaseRunOptions,
+  overrides: {
+    aspHome: string
+    projectPath: string | undefined
+    cwd: string | undefined
+    prompt: string | undefined
+  }
+): HarnessRunOptions {
+  return {
+    aspHome: overrides.aspHome,
+    model: options.model,
+    modelReasoningEffort: options.modelReasoningEffort,
+    extraArgs: options.extraArgs,
+    interactive: options.interactive,
+    prompt: overrides.prompt,
+    settingSources: options.settingSources,
+    permissionMode: options.permissionMode,
+    settings: options.settings,
+    yolo: options.yolo,
+    debug: options.debug,
+    projectPath: overrides.projectPath,
+    cwd: overrides.cwd,
+    artifactDir: options.artifactDir,
+    continuationKey: options.continuationKey,
+    remoteControl: options.remoteControl,
+    sessionNamePrefix: options.sessionNamePrefix,
+  }
 }
 
 export async function pathExists(path: string): Promise<boolean> {

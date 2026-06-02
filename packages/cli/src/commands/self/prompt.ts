@@ -8,14 +8,15 @@
  * derived from the current context template.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import chalk from 'chalk'
+import { CliUsageError } from 'cli-kit'
 import type { Command } from 'commander'
 
 import { resolveContextTemplateDetailed } from 'spaces-runtime'
 
+import { errorMessage } from '../../helpers.js'
 import {
   type ResolveSelfContextOptions,
   type SectionReport,
@@ -25,6 +26,7 @@ import {
   charCount,
   classifyTemplateSource,
   extractPrimingPrompt,
+  readOptionalFile,
   resolveSelfContext,
   resolveSelfTemplateContext,
 } from './lib.js'
@@ -91,8 +93,12 @@ export function registerSelfPromptCommand(self: Command): void {
 
         renderHuman(ctx.agentName, payload, !!options.sections, !!options.recompute)
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`self prompt: ${message}\n`)
+        // Usage errors flow to the central cli-kit handler (exit 2); everything
+        // else is an unexpected failure for this command (exit 1).
+        if (error instanceof CliUsageError) {
+          throw error
+        }
+        process.stderr.write(`self prompt: ${errorMessage(error)}\n`)
         process.exit(1)
       }
     })
@@ -107,26 +113,20 @@ function normalizeWhich(value: string | undefined): PromptWhich {
     return value
   }
 
-  process.stderr.write(
-    `self prompt: invalid prompt kind '${value}' (expected: system, reminder, priming)\n`
-  )
-  process.exit(2)
+  throw new CliUsageError(`invalid prompt kind '${value}' (expected: system, reminder, priming)`)
 }
 
 function validateOptions(which: PromptWhich, options: PromptOptions): void {
   if (options.raw && options.sections) {
-    process.stderr.write('self prompt: --raw and --sections are mutually exclusive\n')
-    process.exit(2)
+    throw new CliUsageError('--raw and --sections are mutually exclusive')
   }
 
   if (options.recompute && which !== 'reminder') {
-    process.stderr.write('self prompt: --recompute is only supported for reminder\n')
-    process.exit(2)
+    throw new CliUsageError('--recompute is only supported for reminder')
   }
 
   if (options.sections && which === 'priming') {
-    process.stderr.write('self prompt: --sections is only supported for system and reminder\n')
-    process.exit(2)
+    throw new CliUsageError('--sections is only supported for system and reminder')
   }
 }
 
@@ -270,13 +270,6 @@ function buildPrimingPayload(ctx: ReturnType<typeof resolveSelfContext>): Prompt
     bytes: byteCount(ctx.primingPrompt),
     source: fromArgv ? 'launch argv (after --)' : 'ASP_PRIMING_PROMPT env fallback',
   }
-}
-
-function readOptionalFile(path: string | null): string | null {
-  if (!path || !existsSync(path)) {
-    return null
-  }
-  return readFileSync(path, 'utf8')
 }
 
 function renderHuman(

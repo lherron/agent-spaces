@@ -1,4 +1,4 @@
-import type { InvocationId } from 'spaces-harness-broker-protocol'
+import type { InvocationCapabilities, InvocationId } from 'spaces-harness-broker-protocol'
 import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
 import type { CapabilityResolution, RuntimeCapabilities } from './capabilities'
 import type {
@@ -13,27 +13,38 @@ import type {
   SpecHash,
   StartRequestHash,
 } from './ids'
+import type { BrokerInputRuntimeState } from './input'
+import type { BrokerPermissionRuntimeState } from './permissions'
 import type { RuntimeRouteDecision } from './route-decision'
 import type { BrokerRuntimeState } from './runtime-state'
 
+// Shared capability sub-blocks. These input/turns/continuation shapes are
+// identical across the runtime-capabilities fixture and both invocation
+// fixtures; centralizing them prevents silent drift between copies.
+const BASE_INPUT_CAPABILITIES = {
+  user: true,
+  steer: false,
+  appendContext: false,
+  localImages: true,
+  fileRefs: false,
+  queue: false,
+} as const
+
+const BASE_TURNS_CAPABILITIES = {
+  concurrency: 'single',
+  interrupt: 'protocol',
+} as const
+
+const BASE_CONTINUATION_CAPABILITIES = {
+  supported: true,
+  provider: 'openai',
+  keyKind: 'thread',
+} as const
+
 const runtimeCapabilities = {
-  input: {
-    user: true,
-    steer: false,
-    appendContext: false,
-    localImages: true,
-    fileRefs: false,
-    queue: false,
-  },
-  turns: {
-    concurrency: 'single',
-    interrupt: 'protocol',
-  },
-  continuation: {
-    supported: true,
-    provider: 'openai',
-    keyKind: 'thread',
-  },
+  input: BASE_INPUT_CAPABILITIES,
+  turns: BASE_TURNS_CAPABILITIES,
+  continuation: BASE_CONTINUATION_CAPABILITIES,
   permissions: {
     mode: 'broker-request',
     brokerToClientRequests: true,
@@ -55,6 +66,44 @@ const runtimeCapabilities = {
   },
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 } satisfies RuntimeCapabilities
+
+// Shared invocation-capabilities sub-blocks. The compile-only and durable-unix
+// fixtures differ only in events.replay/ack and control.attach (see overrides
+// at each composition site); these three blocks are identical across both.
+const BASE_INVOCATION_INPUT_BLOCKS = {
+  input: BASE_INPUT_CAPABILITIES,
+  turns: BASE_TURNS_CAPABILITIES,
+  continuation: BASE_CONTINUATION_CAPABILITIES,
+} as const
+
+const BASE_INVOCATION_PERMISSIONS = {
+  brokerToClientRequests: true,
+  eventAudit: true,
+} as const
+
+// Shared broker permission/input runtime-state blocks (identical across the
+// compile-only and durable-unix fixtures).
+const BASE_PERMISSION_STATE = {
+  policy: {
+    mode: 'deny',
+    audit: true,
+  },
+  negotiated: true,
+  pending: [],
+} satisfies BrokerPermissionRuntimeState
+
+const BASE_INPUT_STATE = {
+  policy: {
+    readyInput: 'start-turn',
+    busy: { whenBusy: 'reject' },
+    supportedKinds: ['user'],
+    attachmentPolicy: {
+      localImages: true,
+      fileRefs: false,
+    },
+  },
+  pendingDepth: 0,
+} satisfies BrokerInputRuntimeState
 
 const capabilityResolution = {
   selectedProfileHash: 'profile-hash' as ProfileHash,
@@ -159,23 +208,7 @@ export const compileOnlyBrokerRuntimeState = {
     driver: 'codex-app-server',
     harnessRuntime: 'codex-cli',
     capabilities: {
-      input: {
-        user: true,
-        steer: false,
-        appendContext: false,
-        localImages: true,
-        fileRefs: false,
-        queue: false,
-      },
-      turns: {
-        concurrency: 'single',
-        interrupt: 'protocol',
-      },
-      continuation: {
-        supported: true,
-        provider: 'openai',
-        keyKind: 'thread',
-      },
+      ...BASE_INVOCATION_INPUT_BLOCKS,
       events: {
         assistantDeltas: true,
         toolCalls: true,
@@ -190,33 +223,12 @@ export const compileOnlyBrokerRuntimeState = {
         status: true,
         attach: false,
       },
-      permissions: {
-        brokerToClientRequests: true,
-        eventAudit: true,
-      },
+      permissions: BASE_INVOCATION_PERMISSIONS,
       lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
-    },
+    } satisfies InvocationCapabilities,
   },
-  permission: {
-    policy: {
-      mode: 'deny',
-      audit: true,
-    },
-    negotiated: true,
-    pending: [],
-  },
-  input: {
-    policy: {
-      readyInput: 'start-turn',
-      busy: { whenBusy: 'reject' },
-      supportedKinds: ['user'],
-      attachmentPolicy: {
-        localImages: true,
-        fileRefs: false,
-      },
-    },
-    pendingDepth: 0,
-  },
+  permission: BASE_PERMISSION_STATE,
+  input: BASE_INPUT_STATE,
 } satisfies BrokerRuntimeState
 
 export const durableUnixBrokerRuntimeState = {
@@ -271,23 +283,7 @@ export const durableUnixBrokerRuntimeState = {
     harnessRuntime: 'claude-code',
     lastEventSeq: 123,
     capabilities: {
-      input: {
-        user: true,
-        steer: false,
-        appendContext: false,
-        localImages: true,
-        fileRefs: false,
-        queue: false,
-      },
-      turns: {
-        concurrency: 'single',
-        interrupt: 'protocol',
-      },
-      continuation: {
-        supported: true,
-        provider: 'openai',
-        keyKind: 'thread',
-      },
+      ...BASE_INVOCATION_INPUT_BLOCKS,
       events: {
         assistantDeltas: true,
         toolCalls: true,
@@ -302,12 +298,9 @@ export const durableUnixBrokerRuntimeState = {
         status: true,
         attach: true,
       },
-      permissions: {
-        brokerToClientRequests: true,
-        eventAudit: true,
-      },
+      permissions: BASE_INVOCATION_PERMISSIONS,
       lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
-    },
+    } satisfies InvocationCapabilities,
   },
   tui: {
     host: 'tmux',
@@ -318,24 +311,6 @@ export const durableUnixBrokerRuntimeState = {
     operatorAttachTarget: true,
   },
   eventHighWater: 123,
-  permission: {
-    policy: {
-      mode: 'deny',
-      audit: true,
-    },
-    negotiated: true,
-    pending: [],
-  },
-  input: {
-    policy: {
-      readyInput: 'start-turn',
-      busy: { whenBusy: 'reject' },
-      supportedKinds: ['user'],
-      attachmentPolicy: {
-        localImages: true,
-        fileRefs: false,
-      },
-    },
-    pendingDepth: 0,
-  },
+  permission: BASE_PERMISSION_STATE,
+  input: BASE_INPUT_STATE,
 } satisfies BrokerRuntimeState

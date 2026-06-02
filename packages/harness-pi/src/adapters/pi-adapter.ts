@@ -6,12 +6,20 @@
  * - Skills directory handling (Agent Skills standard)
  * - Hook bridge generation for shell scripts
  * - Tool namespacing
+ *
+ * Cohesive concerns live in sibling modules and are re-exported here to keep
+ * the public surface (`./pi-adapter.js`) stable:
+ * - `errors.ts`              — Pi-specific error classes
+ * - `detect.ts`             — binary discovery / version / flag probing / cache
+ * - `bundle.ts`             — extension bundling + discovery
+ * - `codegen/hook-bridge.ts`— hook bridge code generation
+ * - `codegen/hrc-events.ts` — HRC events bridge code generation
  */
 
 import { readdirSync } from 'node:fs'
-import { constants, access, mkdir, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   AspError,
   type ComposeTargetInput,
@@ -43,647 +51,55 @@ import {
   toPiPermissions,
 } from 'spaces-config'
 
-// ============================================================================
-// Pi-specific Errors
-// ============================================================================
+import { type ExtensionBuildOptions, bundleExtension, discoverExtensions } from './bundle.js'
+import {
+  type HookDefinition,
+  generateHookBridgeCode,
+  resolveHookScriptPath,
+} from './codegen/hook-bridge.js'
+import { generateHrcEventsBridgeCode } from './codegen/hrc-events.js'
+import {
+  DEFAULT_PI_MODEL,
+  HRC_RUNTIME_SESSIONS_SUBPATH,
+  PI_AUTH_RELATIVE_PATH,
+  PI_BLOCKING_EVENTS,
+  PRAESIDIUM_VAR_RELATIVE_DIR,
+} from './constants.js'
+import { detectPi } from './detect.js'
+import { PiBundleError } from './errors.js'
+import { copyComponentDir, listDirEntries } from './fs-helpers.js'
 
-/** Error thrown when Pi binary is not found */
-export class PiNotFoundError extends AspError {
-  constructor(searchedPaths: string[]) {
-    super(`Pi CLI not found. Searched: ${searchedPaths.join(', ')}`, 'PI_NOT_FOUND_ERROR')
-    this.name = 'PiNotFoundError'
-  }
-}
+// Re-export the cohesive submodules so `./pi-adapter.js` remains the stable
+// public entrypoint for consumers and tests.
+export { PiBundleError, PiNotFoundError } from './errors.js'
+export {
+  type PiInfo,
+  clearPiCache,
+  detectPi,
+  findPiBinary,
+} from './detect.js'
+export { type ExtensionBuildOptions, bundleExtension, discoverExtensions } from './bundle.js'
+export { type HookDefinition, generateHookBridgeCode } from './codegen/hook-bridge.js'
 
-/** Error thrown when Pi extension bundling fails */
-export class PiBundleError extends AspError {
-  readonly extensionPath: string
-  readonly stderr: string
-
-  constructor(extensionPath: string, stderr: string) {
-    super(`Failed to bundle Pi extension "${extensionPath}": ${stderr}`, 'PI_BUNDLE_ERROR')
-    this.name = 'PiBundleError'
-    this.extensionPath = extensionPath
-    this.stderr = stderr
-  }
-}
-
-// ============================================================================
-// Constants
-// ============================================================================
+/** Pi permissions shape produced by `toPiPermissions`. */
+type PiPermissions = ReturnType<typeof toPiPermissions>
 
 /**
- * Common locations to search for the Pi binary.
+ * Permission facets that Pi can only lint (not enforce). Each entry names a
+ * facet and reads its enforcement/value off the Pi permissions object.
  */
-const DEFAULT_PI_MODEL = 'gpt-5.5'
-const COMMON_PI_PATHS = [
-  // Primary location
-  join(process.env['HOME'] || '~', 'tools/pi-mono/packages/cli/bin/pi.js'),
-  // Alternative locations
-  join(process.env['HOME'] || '~', 'tools/pi-mono'),
-  '/usr/local/bin/pi',
-  '/usr/bin/pi',
-  join(process.env['HOME'] || '~', '.local/bin/pi'),
+const LINT_ONLY_FACETS: ReadonlyArray<{
+  name: string
+  read: (p: PiPermissions) => { enforcement?: string; value?: unknown[] } | undefined
+}> = [
+  { name: 'read', read: (p) => p.read },
+  { name: 'write', read: (p) => p.write },
+  { name: 'network', read: (p) => p.network },
+  { name: 'deny.read', read: (p) => p.deny?.read },
+  { name: 'deny.write', read: (p) => p.deny?.write },
+  { name: 'deny.exec', read: (p) => p.deny?.exec },
+  { name: 'deny.network', read: (p) => p.deny?.network },
 ]
-
-/**
- * Component directories Pi handles from spaces.
- */
-const _PI_COMPONENT_DIRS = ['extensions', 'skills', 'hooks', 'scripts', 'shared'] as const
-
-/**
- * Events that Pi can support blocking on (none currently - best-effort only).
- */
-const PI_BLOCKING_EVENTS: string[] = []
-
-// ============================================================================
-// Detection Utilities
-// ============================================================================
-
-/**
- * Cached Pi info to avoid repeated detection.
- */
-let cachedPiInfo: PiInfo | null = null
-
-/**
- * Information about the detected Pi installation.
- */
-export interface PiInfo {
-  /** Absolute path to the Pi binary */
-  path: string
-  /** Pi version string */
-  version: string
-  /** Whether extensions are supported */
-  supportsExtensions: boolean
-  /** Whether skills are supported */
-  supportsSkills: boolean
-}
-
-/**
- * Check if a file exists and is executable.
- */
-async function isExecutable(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.X_OK)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Check if a file exists.
- */
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.F_OK)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Search PATH for the Pi binary.
- */
-async function searchPath(): Promise<string | null> {
-  const pathEnv = process.env['PATH'] || ''
-  const pathDirs = pathEnv.split(':')
-
-  for (const dir of pathDirs) {
-    const piPath = join(dir, 'pi')
-    if (await isExecutable(piPath)) {
-      return piPath
-    }
-  }
-
-  return null
-}
-
-/**
- * Find the Pi binary location.
- *
- * Priority:
- * 1. PI_PATH environment variable
- * 2. PATH environment variable
- * 3. Common installation locations
- */
-export async function findPiBinary(): Promise<string> {
-  const searchedPaths: string[] = []
-
-  // 1. Check PI_PATH environment variable
-  const envPath = process.env['PI_PATH']
-  if (envPath) {
-    searchedPaths.push(envPath)
-    if (await isExecutable(envPath)) {
-      return envPath
-    }
-    // If PI_PATH is set but not found, throw immediately
-    throw new PiNotFoundError(searchedPaths)
-  }
-
-  // 2. Search PATH
-  const pathResult = await searchPath()
-  if (pathResult) {
-    return pathResult
-  }
-
-  // 3. Check common locations
-  for (const commonPath of COMMON_PI_PATHS) {
-    searchedPaths.push(commonPath)
-    if (await isExecutable(commonPath)) {
-      return commonPath
-    }
-    // Also check if it's a .js file that can be run with node/bun
-    if (commonPath.endsWith('.js') && (await fileExists(commonPath))) {
-      return commonPath
-    }
-  }
-
-  throw new PiNotFoundError(searchedPaths)
-}
-
-/**
- * Query Pi version by running `pi --version`.
- */
-async function queryPiVersion(piPath: string): Promise<string> {
-  try {
-    // If it's a .js file, run with bun
-    const command = piPath.endsWith('.js') ? ['bun', piPath, '--version'] : [piPath, '--version']
-
-    const proc = Bun.spawn(command, {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-
-    const exitCode = await proc.exited
-    const stdout = await new Response(proc.stdout).text()
-
-    if (exitCode !== 0) {
-      return 'unknown'
-    }
-
-    // Parse version from output
-    const match = stdout.match(/(\d+\.\d+\.\d+)/)
-    return match?.[1] ?? (stdout.trim() || 'unknown')
-  } catch {
-    return 'unknown'
-  }
-}
-
-/**
- * Check if a specific flag is supported by running `pi --help`.
- */
-async function supportsPiFlag(piPath: string, flag: string): Promise<boolean> {
-  try {
-    const command = piPath.endsWith('.js') ? ['bun', piPath, '--help'] : [piPath, '--help']
-
-    const proc = Bun.spawn(command, {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-
-    await proc.exited
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-
-    const helpText = stdout + stderr
-    return helpText.includes(flag)
-  } catch {
-    // If --help fails, assume flags are supported (conservative)
-    return true
-  }
-}
-
-/**
- * Detect Pi installation and query capabilities.
- */
-export async function detectPi(forceRefresh = false): Promise<PiInfo> {
-  if (cachedPiInfo && !forceRefresh) {
-    return cachedPiInfo
-  }
-
-  const path = await findPiBinary()
-  const version = await queryPiVersion(path)
-
-  // Check supported flags in parallel
-  const [supportsExtensions, supportsSkills] = await Promise.all([
-    supportsPiFlag(path, '--extension'),
-    supportsPiFlag(path, '--skills'),
-  ])
-
-  cachedPiInfo = {
-    path,
-    version,
-    supportsExtensions,
-    supportsSkills,
-  }
-
-  return cachedPiInfo
-}
-
-/**
- * Clear the cached Pi info.
- */
-export function clearPiCache(): void {
-  cachedPiInfo = null
-}
-
-// ============================================================================
-// Extension Bundling
-// ============================================================================
-
-/**
- * Build options for extension bundling.
- */
-export interface ExtensionBuildOptions {
-  /** Output format: "esm" or "cjs" */
-  format?: 'esm' | 'cjs' | undefined
-  /** Target runtime: "bun" or "node" */
-  target?: 'bun' | 'node' | undefined
-  /** Dependencies to exclude from bundle */
-  external?: string[] | undefined
-}
-
-/**
- * Bundle a TypeScript extension to JavaScript using Bun.
- *
- * @param srcPath - Source TypeScript file path
- * @param outPath - Output JavaScript file path
- * @param options - Build options
- */
-export async function bundleExtension(
-  srcPath: string,
-  outPath: string,
-  options: ExtensionBuildOptions = {}
-): Promise<void> {
-  const { format = 'esm', target = 'bun', external = [] } = options
-
-  // Build args for bun build
-  const args = ['build', srcPath, '--outfile', outPath, '--format', format, '--target', target]
-
-  // Add external dependencies
-  for (const ext of external) {
-    args.push('--external', ext)
-  }
-
-  const proc = Bun.spawn(['bun', ...args], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-
-  const exitCode = await proc.exited
-  const stderr = await new Response(proc.stderr).text()
-
-  if (exitCode !== 0) {
-    throw new PiBundleError(srcPath, stderr)
-  }
-}
-
-/**
- * Discover extensions in a snapshot directory.
- *
- * @param snapshotPath - Path to the space snapshot
- * @returns Array of extension file paths
- */
-export async function discoverExtensions(snapshotPath: string): Promise<string[]> {
-  const extensionsDir = join(snapshotPath, 'extensions')
-  const extensions: string[] = []
-
-  try {
-    const stats = await stat(extensionsDir)
-    if (!stats.isDirectory()) {
-      return extensions
-    }
-
-    const entries = await readdir(extensionsDir)
-    for (const entry of entries) {
-      // Skip package.json and node_modules
-      if (entry === 'package.json' || entry === 'node_modules') {
-        continue
-      }
-
-      // Include .ts and .js files
-      if (entry.endsWith('.ts') || entry.endsWith('.js')) {
-        extensions.push(join(extensionsDir, entry))
-      }
-    }
-  } catch {
-    // Extensions directory doesn't exist
-  }
-
-  return extensions
-}
-
-// ============================================================================
-// Hook Bridge Generation
-// ============================================================================
-
-/**
- * Hook definition from hooks.toml or hooks.json.
- */
-export interface HookDefinition {
-  /** Event name */
-  event: string
-  /** Path to script */
-  script: string
-  /** Tools to filter on (optional) */
-  tools?: string[] | undefined
-  /** Whether hook should block (Pi: best-effort) */
-  blocking?: boolean | undefined
-  /** Harness-specific hook */
-  harness?: string | undefined
-}
-
-async function isFile(path: string): Promise<boolean> {
-  try {
-    const stats = await stat(path)
-    return stats.isFile()
-  } catch {
-    return false
-  }
-}
-
-async function resolveHookScriptPath(script: string, hooksDir: string): Promise<string> {
-  const normalized = script.replace(/^\$\{CLAUDE_PLUGIN_ROOT\}\//, '').replace(/^hooks\//, '')
-
-  // Treat commands with whitespace as raw shell commands.
-  if (/\s/.test(normalized)) {
-    return script
-  }
-
-  if (isAbsolute(normalized)) {
-    if (await isFile(normalized)) {
-      return normalized
-    }
-    throw new AspError(`Hook script not found: "${script}"`, 'HOOK_SCRIPT_NOT_FOUND')
-  }
-
-  const directPath = join(hooksDir, normalized)
-  if (await isFile(directPath)) {
-    return directPath
-  }
-
-  if (!normalized.startsWith('scripts/')) {
-    const scriptsPath = join(hooksDir, 'scripts', normalized)
-    if (await isFile(scriptsPath)) {
-      return scriptsPath
-    }
-  }
-
-  // If it doesn't look like a path, treat as a command.
-  if (!normalized.includes('/') && !normalized.includes('\\')) {
-    return script
-  }
-
-  throw new AspError(
-    `Hook script not found: "${script}" (tried "${directPath}")`,
-    'HOOK_SCRIPT_NOT_FOUND'
-  )
-}
-
-/**
- * Generate the hook bridge extension for Pi.
- *
- * The hook bridge is a generated extension that translates hooks.toml/hooks.json
- * declarations into Pi event handlers that shell out to the configured scripts.
- */
-export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string[]): string {
-  // Filter hooks applicable to Pi
-  const piHooks = hooks.filter((h) => !h.harness || h.harness === 'pi')
-
-  const hookRegistrations = piHooks
-    .map((hook) => {
-      // Map both abstract event names and Claude event names to Pi events
-      const eventMap: Record<string, string> = {
-        // Abstract event names (from hooks.toml)
-        pre_tool_use: 'tool_call',
-        post_tool_use: 'tool_result',
-        session_start: 'session_start',
-        session_end: 'session_shutdown',
-        // Claude event names (from hooks.json)
-        PreToolUse: 'tool_call',
-        PostToolUse: 'tool_result',
-        SessionStart: 'session_start',
-        Stop: 'session_shutdown',
-        // Lowercased variants (from buggy snake_case conversion in readHooksWithPrecedence)
-        sessionstart: 'session_start',
-        pretooluse: 'tool_call',
-        posttooluse: 'tool_result',
-        stop: 'session_shutdown',
-      }
-
-      const piEvent = eventMap[hook.event] || hook.event
-      const toolsFilter = hook.tools ? JSON.stringify(hook.tools) : 'null'
-
-      return `
-  // Hook: ${hook.event} -> ${hook.script}
-  pi.on('${piEvent}', async (event, ctx) => {
-    const toolsFilter = ${toolsFilter};
-    // For tool events, filter by tool name
-    if (toolsFilter && event.toolName && !toolsFilter.includes(event.toolName)) {
-      return;
-    }
-
-    const env = {
-      ...process.env,
-      ASP_TOOL_NAME: event.toolName || '',
-      ASP_TOOL_ARGS: JSON.stringify(event.input || {}),
-      ASP_TOOL_RESULT: JSON.stringify(event.result || {}),
-      ASP_HARNESS: 'pi',
-      ASP_SPACES: ${JSON.stringify(spaceIds.join(','))},
-    };
-
-    try {
-      log('DEBUG', \`Running hook: ${hook.script}\`);
-      const { spawn } = await import('node:child_process');
-      let payload = '';
-      try {
-        payload = JSON.stringify(event ?? {});
-      } catch {
-        payload = '';
-      }
-      const proc = spawn('${hook.script}', [], {
-        env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
-      });
-      let stdout = '';
-      let stderr = '';
-      proc.stdout?.on('data', (data) => {
-        stdout += data.toString();
-      });
-      proc.stderr?.on('data', (data) => {
-        stderr += data.toString();
-      });
-      if (proc.stdin) {
-        proc.stdin.write(payload);
-        proc.stdin.end();
-      }
-      const exitCode = await new Promise((resolve) => proc.on('close', resolve));
-      const outputParts = [];
-      if (stdout.trim().length > 0) {
-        outputParts.push(stdout.trimEnd());
-      }
-      if (stderr.trim().length > 0) {
-        outputParts.push(\`[stderr]\\n\${stderr.trimEnd()}\`);
-      }
-      if (outputParts.length > 0 || exitCode !== 0) {
-        const header = \`Hook ${hook.event}: ${hook.script}\`;
-        const body = outputParts.length > 0 ? outputParts.join('\\n\\n') : '(no output)';
-        const content = \`\${header}\\n\\n\${body}\`;
-        const options = ctx.isIdle() ? {} : { deliverAs: 'nextTurn' };
-        pi.sendMessage(
-          {
-            customType: 'asp-hook',
-            content,
-            display: true,
-            details: {
-              event: '${hook.event}',
-              script: '${hook.script}',
-              exitCode,
-            },
-          },
-          options
-        );
-      }
-      if (exitCode !== 0) {
-        log('WARN', \`Hook script "${hook.script}" exited with \${exitCode}\`);
-      } else {
-        log('DEBUG', \`Hook script "${hook.script}" completed successfully\`);
-      }
-    } catch (err) {
-      log('ERROR', \`Hook script "${hook.script}" failed: \${err}\`);
-    }
-  });`
-    })
-    .join('\n')
-
-  return `/**
- * ASP Hook Bridge Extension
- *
- * Generated by Agent Spaces - DO NOT EDIT
- *
- * This extension bridges hooks.toml declarations to Pi event handlers,
- * executing shell scripts with standardized ASP_* environment variables.
- */
-
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-
-const LOG_DIR = path.join(os.homedir(), 'praesidium', 'var', 'logs');
-const LOG_FILE = path.join(LOG_DIR, 'asp-hooks.log');
-
-function log(level, message) {
-  try {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
-    const timestamp = new Date().toISOString();
-    fs.appendFileSync(LOG_FILE, \`[\${timestamp}] [\${level}] \${message}\\n\`);
-  } catch (e) {
-    // Silently fail if logging fails
-  }
-}
-
-module.exports = function(pi) {
-  log('INFO', 'ASP Hook Bridge loaded');
-${hookRegistrations || '  // No hooks configured'}
-};
-`
-}
-
-export function generateHrcEventsBridgeCode(): string {
-  const eventNames = [
-    'before_agent_start',
-    'agent_start',
-    'agent_end',
-    'turn_start',
-    'turn_end',
-    'message_start',
-    'message_update',
-    'message_end',
-    'tool_execution_start',
-    'tool_execution_update',
-    'tool_execution_end',
-    'session_shutdown',
-  ]
-
-  // Standard event subscriptions: forward (event, ctx) → forward(eventName, payload).
-  // The session_start handler is special-cased below to capture sessionId from
-  // ctx.sessionManager so HRC can persist it as the runtime continuation key.
-  const registrations = eventNames
-    .map(
-      (eventName) => `
-  pi.on('${eventName}', async (event, _ctx) => {
-    await forward('${eventName}', event);
-  });`
-    )
-    .join('\n')
-
-  return `/**
- * ASP HRC Events Bridge Extension
- *
- * Generated by Agent Spaces - DO NOT EDIT
- *
- * This extension forwards Pi lifecycle and stream events to the HRC launch hook.
- * The session_start handler additionally captures the Pi sessionId so HRC can
- * persist it as the runtime continuation key (enabling deterministic resume).
- */
-
-const { spawn } = require('node:child_process');
-
-function forward(eventName, payload) {
-  const hookCli = process.env.HRC_LAUNCH_HOOK_CLI;
-  if (!hookCli) return Promise.resolve();
-
-  const envelope = {
-    eventName,
-    payload: payload ?? {},
-  };
-
-  return new Promise((resolve) => {
-    const proc = spawn('bun', [hookCli], {
-      env: process.env,
-      stdio: ['pipe', 'ignore', 'ignore'],
-    });
-
-    proc.on('error', () => resolve());
-    proc.on('close', () => resolve());
-
-    try {
-      proc.stdin.write(JSON.stringify(envelope));
-      proc.stdin.end();
-    } catch {
-      resolve();
-    }
-  });
-}
-
-module.exports = function(pi) {
-${registrations}
-
-  pi.on('session_start', async (event, ctx) => {
-    let sessionId;
-    let sessionFile;
-    try {
-      sessionId = ctx?.sessionManager?.getSessionId?.();
-      sessionFile = ctx?.sessionManager?.getSessionFile?.();
-    } catch {
-      // ctx unavailable — fall through with undefined
-    }
-    await forward('session_start', {
-      ...(event ?? {}),
-      sessionId: sessionId ?? null,
-      sessionFile: sessionFile ?? null,
-    });
-  });
-};
-`
-}
-
-// ============================================================================
-// PiAdapter Implementation
-// ============================================================================
 
 /**
  * PiAdapter implements the HarnessAdapter interface for Pi Coding Agent.
@@ -741,23 +157,16 @@ export class PiAdapter implements HarnessAdapter {
   /**
    * Validate that a space is compatible with Pi.
    *
-   * Pi spaces should have extensions/ directory.
-   * Skills are optional (Agent Skills standard).
+   * Pi intentionally opts out of space-level validation: it imposes no naming
+   * pattern on extensions, skills are optional (Agent Skills standard), and the
+   * MCP-only (no extensions) case is handled at composition time. This stub
+   * therefore always reports valid with no warnings.
    */
   validateSpace(_input: MaterializeSpaceInput): HarnessValidationResult {
-    const errors: string[] = []
-    const warnings: string[] = []
-
-    // Pi doesn't require a specific naming pattern for extensions
-    // but we can warn about potential issues
-
-    // Check for MCP-only spaces (no extensions)
-    // This is handled at composition time, not validation
-
     return {
-      valid: errors.length === 0,
-      errors,
-      warnings,
+      valid: true,
+      errors: [],
+      warnings: [],
     }
   }
 
@@ -781,103 +190,8 @@ export class PiAdapter implements HarnessAdapter {
       }
       await mkdir(cacheDir, { recursive: true })
 
-      // Get build options from manifest (pi config is optional extension)
-      // Cast manifest to access potential pi config from extended schema
-      const manifestWithPi = input.manifest as typeof input.manifest & {
-        pi?: {
-          build?: {
-            format?: 'esm' | 'cjs' | undefined
-            target?: 'bun' | 'node' | undefined
-            external?: string[] | undefined
-          }
-        }
-      }
-      const buildOpts: ExtensionBuildOptions = {
-        format: manifestWithPi.pi?.build?.format,
-        target: manifestWithPi.pi?.build?.target,
-        external: manifestWithPi.pi?.build?.external,
-      }
-
-      // Bundle extensions
-      const extensionsDir = join(cacheDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const sourceExtensions = await discoverExtensions(input.snapshotPath)
-      const spaceId = input.manifest.id
-
-      for (const srcPath of sourceExtensions) {
-        const srcBasename = basename(srcPath)
-        const srcName = srcBasename.replace(/\.(ts|js)$/, '')
-        // Namespace extension: spaceId__name.js
-        const outName = `${spaceId}__${srcName}.js`
-        const outPath = join(extensionsDir, outName)
-
-        try {
-          await bundleExtension(srcPath, outPath, buildOpts)
-          files.push(`extensions/${outName}`)
-        } catch (err) {
-          if (err instanceof PiBundleError) {
-            warnings.push(`Failed to bundle ${srcBasename}: ${err.stderr}`)
-          } else {
-            throw err
-          }
-        }
-      }
-
-      // Copy skills directory (Agent Skills standard - same as Claude)
-      const srcSkillsDir = join(input.snapshotPath, 'skills')
-      const destSkillsDir = join(cacheDir, 'skills')
-      try {
-        const skillsStats = await stat(srcSkillsDir)
-        if (skillsStats.isDirectory()) {
-          await copyDir(srcSkillsDir, destSkillsDir)
-          const skillEntries = await readdir(destSkillsDir)
-          for (const entry of skillEntries) {
-            files.push(`skills/${entry}`)
-          }
-        }
-      } catch {
-        // Skills directory doesn't exist
-      }
-
-      // Copy hooks directory as hooks-scripts/ (Pi has incompatible hooks/ format)
-      const srcHooksDir = join(input.snapshotPath, 'hooks')
-      const destHooksDir = join(cacheDir, 'hooks-scripts')
-      try {
-        const hooksStats = await stat(srcHooksDir)
-        if (hooksStats.isDirectory()) {
-          await copyDir(srcHooksDir, destHooksDir)
-          const hookEntries = await readdir(destHooksDir)
-          for (const entry of hookEntries) {
-            files.push(`hooks-scripts/${entry}`)
-          }
-        }
-      } catch {
-        // Hooks directory doesn't exist
-      }
-
-      // Copy shared directory
-      const srcSharedDir = join(input.snapshotPath, 'shared')
-      try {
-        const sharedStats = await stat(srcSharedDir)
-        if (sharedStats.isDirectory()) {
-          await copyDir(srcSharedDir, cacheDir)
-        }
-      } catch {
-        // Shared directory doesn't exist
-      }
-
-      // Copy scripts directory
-      const srcScriptsDir = join(input.snapshotPath, 'scripts')
-      const destScriptsDir = join(cacheDir, 'scripts')
-      try {
-        const scriptsStats = await stat(srcScriptsDir)
-        if (scriptsStats.isDirectory()) {
-          await copyDir(srcScriptsDir, destScriptsDir)
-        }
-      } catch {
-        // Scripts directory doesn't exist
-      }
+      await this.bundleSpaceExtensions(input, cacheDir, files, warnings)
+      await this.copySpaceComponents(input, cacheDir, files)
 
       // Link instructions file (AGENT.md → AGENT.md for Pi)
       const instructionsResult = await linkInstructionsFile(input.snapshotPath, cacheDir, 'pi')
@@ -906,6 +220,92 @@ export class PiAdapter implements HarnessAdapter {
   }
 
   /**
+   * Bundle a space's TypeScript extensions into the cache dir, namespacing each
+   * output as `spaceId__name.js`.
+   */
+  private async bundleSpaceExtensions(
+    input: MaterializeSpaceInput,
+    cacheDir: string,
+    files: string[],
+    warnings: string[]
+  ): Promise<void> {
+    // Get build options from manifest (pi config is optional extension)
+    // Cast manifest to access potential pi config from extended schema
+    const manifestWithPi = input.manifest as typeof input.manifest & {
+      pi?: {
+        build?: {
+          format?: 'esm' | 'cjs' | undefined
+          target?: 'bun' | 'node' | undefined
+          external?: string[] | undefined
+        }
+      }
+    }
+    const buildOpts: ExtensionBuildOptions = {
+      format: manifestWithPi.pi?.build?.format,
+      target: manifestWithPi.pi?.build?.target,
+      external: manifestWithPi.pi?.build?.external,
+    }
+
+    const extensionsDir = join(cacheDir, 'extensions')
+    await mkdir(extensionsDir, { recursive: true })
+
+    const sourceExtensions = await discoverExtensions(input.snapshotPath)
+    const spaceId = input.manifest.id
+
+    for (const srcPath of sourceExtensions) {
+      const srcBasename = basename(srcPath)
+      const srcName = srcBasename.replace(/\.(ts|js)$/, '')
+      // Namespace extension: spaceId__name.js
+      const outName = `${spaceId}__${srcName}.js`
+      const outPath = join(extensionsDir, outName)
+
+      try {
+        await bundleExtension(srcPath, outPath, buildOpts)
+        files.push(`extensions/${outName}`)
+      } catch (err) {
+        if (err instanceof PiBundleError) {
+          warnings.push(`Failed to bundle ${srcBasename}: ${err.stderr}`)
+        } else {
+          throw err
+        }
+      }
+    }
+  }
+
+  /**
+   * Copy the skills/hooks/shared/scripts component directories from a space
+   * snapshot into the cache dir, recording the per-entry file list where the
+   * original behavior did so.
+   */
+  private async copySpaceComponents(
+    input: MaterializeSpaceInput,
+    cacheDir: string,
+    files: string[]
+  ): Promise<void> {
+    // Copy skills directory (Agent Skills standard - same as Claude)
+    const destSkillsDir = join(cacheDir, 'skills')
+    if (await copyComponentDir(join(input.snapshotPath, 'skills'), destSkillsDir)) {
+      for (const entry of await listDirEntries(destSkillsDir)) {
+        files.push(`skills/${entry}`)
+      }
+    }
+
+    // Copy hooks directory as hooks-scripts/ (Pi has incompatible hooks/ format)
+    const destHooksDir = join(cacheDir, 'hooks-scripts')
+    if (await copyComponentDir(join(input.snapshotPath, 'hooks'), destHooksDir)) {
+      for (const entry of await listDirEntries(destHooksDir)) {
+        files.push(`hooks-scripts/${entry}`)
+      }
+    }
+
+    // Copy shared directory (merged into the cache dir root)
+    await copyComponentDir(join(input.snapshotPath, 'shared'), cacheDir)
+
+    // Copy scripts directory
+    await copyComponentDir(join(input.snapshotPath, 'scripts'), join(cacheDir, 'scripts'))
+  }
+
+  /**
    * Compose a target bundle from ordered space artifacts.
    *
    * This assembles materialized artifacts into the final target structure:
@@ -926,12 +326,52 @@ export class PiAdapter implements HarnessAdapter {
     }
     await mkdir(outputDir, { recursive: true })
 
-    // Merge extensions from all spaces
+    const extensionsDir = await this.mergeExtensions(input, outputDir, warnings)
+    const skillsDir = await this.mergeSkills(input, outputDir)
+    const allHooks = await this.mergeHooks(input, outputDir)
+
+    const { hookBridgePath, hrcEventsBridgePath } = await this.writeBridges(
+      input,
+      outputDir,
+      allHooks,
+      warnings
+    )
+
+    const skillsDirPath = (await listDirEntries(skillsDir)).length > 0 ? skillsDir : undefined
+
+    await this.linkPiAuth(outputDir)
+    await this.writePiSettings(outputDir, options)
+    await this.lintPermissions(input, warnings)
+
+    const bundle: ComposedTargetBundle = {
+      harnessId: 'pi',
+      targetName: input.targetName,
+      rootDir: outputDir,
+      pi: {
+        extensionsDir,
+        skillsDir: skillsDirPath,
+        hookBridgePath,
+        hrcEventsBridgePath,
+      } as ComposedTargetBundle['pi'] & { hrcEventsBridgePath: string },
+    }
+
+    return { bundle, warnings }
+  }
+
+  /**
+   * Merge already-namespaced extension files from every artifact into the
+   * output extensions dir, warning (W303) on cross-space filename collisions.
+   */
+  private async mergeExtensions(
+    input: ComposeTargetInput,
+    outputDir: string,
+    warnings: LockWarning[]
+  ): Promise<string> {
     const extensionsDir = join(outputDir, 'extensions')
     await mkdir(extensionsDir, { recursive: true })
 
-    // Track extension files for W303 collision detection
-    const extensionSources = new Map<string, string>() // filename -> spaceId
+    // Track extension files for W303 collision detection: filename -> spaceId
+    const extensionSources = new Map<string, string>()
 
     for (const artifact of input.artifacts) {
       const srcExtDir = join(artifact.artifactPath, 'extensions')
@@ -962,7 +402,13 @@ export class PiAdapter implements HarnessAdapter {
       }
     }
 
-    // Merge skills directories
+    return extensionsDir
+  }
+
+  /**
+   * Merge each artifact's skill subdirectories into the output skills dir.
+   */
+  private async mergeSkills(input: ComposeTargetInput, outputDir: string): Promise<string> {
     const skillsDir = join(outputDir, 'skills')
     await mkdir(skillsDir, { recursive: true })
 
@@ -986,9 +432,20 @@ export class PiAdapter implements HarnessAdapter {
       }
     }
 
-    // Merge hooks directories and collect hook definitions
-    // Priority: hooks.toml (canonical harness-agnostic) > hooks.json (legacy)
-    // Use hooks-scripts/ to avoid conflict with Pi's incompatible hooks/ format
+    return skillsDir
+  }
+
+  /**
+   * Merge hook script directories from each artifact and collect the resolved
+   * hook definitions.
+   *
+   * Priority: hooks.toml (canonical harness-agnostic) > hooks.json (legacy).
+   * Uses hooks-scripts/ to avoid conflict with Pi's incompatible hooks/ format.
+   */
+  private async mergeHooks(
+    input: ComposeTargetInput,
+    outputDir: string
+  ): Promise<HookDefinition[]> {
     const hooksDir = join(outputDir, 'hooks-scripts')
     await mkdir(hooksDir, { recursive: true })
     const allHooks: HookDefinition[] = []
@@ -1025,7 +482,19 @@ export class PiAdapter implements HarnessAdapter {
       }
     }
 
-    // Generate hook bridge extension
+    return allHooks
+  }
+
+  /**
+   * Generate the hook-bridge (if any hooks) and the always-present HRC events
+   * bridge extension, warning (W301) on blocking hooks Pi cannot enforce.
+   */
+  private async writeBridges(
+    input: ComposeTargetInput,
+    outputDir: string,
+    allHooks: HookDefinition[],
+    warnings: LockWarning[]
+  ): Promise<{ hookBridgePath: string | undefined; hrcEventsBridgePath: string }> {
     let hookBridgePath: string | undefined
     const spaceIds = input.artifacts.map((a) => a.spaceId)
 
@@ -1048,19 +517,15 @@ export class PiAdapter implements HarnessAdapter {
     const hrcEventsBridgePath = join(outputDir, 'asp-hrc-events.bridge.js')
     await writeFile(hrcEventsBridgePath, generateHrcEventsBridgeCode())
 
-    // Check skills directory has content
-    let skillsDirPath: string | undefined
-    try {
-      const skillsEntries = await readdir(skillsDir)
-      if (skillsEntries.length > 0) {
-        skillsDirPath = skillsDir
-      }
-    } catch {
-      // No skills
-    }
+    return { hookBridgePath, hrcEventsBridgePath }
+  }
 
-    // Create symlink to ~/.pi/agent/auth.json for Pi authentication
-    const piAuthSource = join(homedir(), '.pi', 'agent', 'auth.json')
+  /**
+   * Create a symlink to ~/.pi/agent/auth.json for Pi authentication, when the
+   * source auth file exists.
+   */
+  private async linkPiAuth(outputDir: string): Promise<void> {
+    const piAuthSource = join(homedir(), ...PI_AUTH_RELATIVE_PATH)
     const piAuthDest = join(outputDir, 'auth.json')
     try {
       const authStats = await stat(piAuthSource)
@@ -1072,10 +537,15 @@ export class PiAdapter implements HarnessAdapter {
     } catch {
       // ~/.pi/auth.json doesn't exist - Pi will prompt for auth
     }
+  }
 
-    // Generate settings.json to control skill discovery
-    // By default, disable .claude/.codex directories but allow Pi directories
-    // The --inherit-project and --inherit-user flags can enable Pi directories
+  /**
+   * Generate settings.json to control skill discovery.
+   *
+   * By default, disable .claude/.codex directories but allow Pi directories.
+   * The --inherit-project and --inherit-user flags enable Pi directories.
+   */
+  private async writePiSettings(outputDir: string, options: ComposeTargetOptions): Promise<void> {
     const piSettings = {
       skills: {
         enableCodexUser: false,
@@ -1087,8 +557,13 @@ export class PiAdapter implements HarnessAdapter {
     }
     const settingsPath = join(outputDir, 'settings.json')
     await writeFile(settingsPath, JSON.stringify(piSettings, null, 2))
+  }
 
-    // Read permissions.toml from each artifact and generate warnings for lint_only facets
+  /**
+   * Read permissions.toml from each artifact and emit a W304 warning for any
+   * facets Pi can only lint (not enforce).
+   */
+  private async lintPermissions(input: ComposeTargetInput, warnings: LockWarning[]): Promise<void> {
     for (const artifact of input.artifacts) {
       const permissions = await readPermissionsToml(artifact.artifactPath)
       if (permissions && hasPermissions(permissions)) {
@@ -1105,45 +580,16 @@ export class PiAdapter implements HarnessAdapter {
         }
       }
     }
-
-    const bundle: ComposedTargetBundle = {
-      harnessId: 'pi',
-      targetName: input.targetName,
-      rootDir: outputDir,
-      pi: {
-        extensionsDir,
-        skillsDir: skillsDirPath,
-        hookBridgePath,
-        hrcEventsBridgePath,
-      } as ComposedTargetBundle['pi'] & { hrcEventsBridgePath: string },
-    }
-
-    return { bundle, warnings }
   }
 
-  private collectLintOnlyFacets(piPerms: ReturnType<typeof toPiPermissions>): string[] {
+  private collectLintOnlyFacets(piPerms: PiPermissions): string[] {
     const lintOnlyFacets: string[] = []
 
-    if (piPerms.read?.enforcement === 'lint_only' && piPerms.read.value?.length) {
-      lintOnlyFacets.push('read')
-    }
-    if (piPerms.write?.enforcement === 'lint_only' && piPerms.write.value?.length) {
-      lintOnlyFacets.push('write')
-    }
-    if (piPerms.network?.enforcement === 'lint_only' && piPerms.network.value?.length) {
-      lintOnlyFacets.push('network')
-    }
-    if (piPerms.deny?.read?.enforcement === 'lint_only' && piPerms.deny.read.value?.length) {
-      lintOnlyFacets.push('deny.read')
-    }
-    if (piPerms.deny?.write?.enforcement === 'lint_only' && piPerms.deny.write.value?.length) {
-      lintOnlyFacets.push('deny.write')
-    }
-    if (piPerms.deny?.exec?.enforcement === 'lint_only' && piPerms.deny.exec.value?.length) {
-      lintOnlyFacets.push('deny.exec')
-    }
-    if (piPerms.deny?.network?.enforcement === 'lint_only' && piPerms.deny.network.value?.length) {
-      lintOnlyFacets.push('deny.network')
+    for (const { name, read } of LINT_ONLY_FACETS) {
+      const facet = read(piPerms)
+      if (facet?.enforcement === 'lint_only' && facet.value?.length) {
+        lintOnlyFacets.push(name)
+      }
     }
 
     return lintOnlyFacets
@@ -1233,8 +679,8 @@ export class PiAdapter implements HarnessAdapter {
         .runtimeId
       const sessionDir = runtimeId
         ? join(
-            options.aspHome ?? join(homedir(), 'praesidium', 'var'),
-            'state/hrc/runtimes',
+            options.aspHome ?? join(homedir(), ...PRAESIDIUM_VAR_RELATIVE_DIR),
+            HRC_RUNTIME_SESSIONS_SUBPATH,
             runtimeId,
             'pi-sessions'
           )
@@ -1322,6 +768,10 @@ export class PiAdapter implements HarnessAdapter {
     }
   }
 
+  /**
+   * Pi intentionally provides no default run options; the runtime supplies all
+   * invocation options explicitly.
+   */
   getDefaultRunOptions(
     _manifest: ProjectManifest,
     _targetName: string

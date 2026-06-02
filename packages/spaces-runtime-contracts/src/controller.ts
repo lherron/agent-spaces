@@ -29,6 +29,13 @@ export type RuntimeControllerStartInput<TDecision extends RuntimeRouteDecision> 
   selectedProfile: RuntimeExecutionProfile
   operation: RuntimeOperation
   existingRuntime?: HrcRuntimeSnapshot | undefined
+  /**
+   * Optional cancellation seam for an in-flight controller operation. When the
+   * signal aborts, an implementation should abandon (and clean up) the
+   * half-started runtime rather than return it. Additive and back-compatible:
+   * implementations that ignore it behave exactly as before.
+   */
+  signal?: AbortSignal | undefined
 }
 
 export type RuntimeControllerDispatchInput<TDecision extends RuntimeRouteDecision> = {
@@ -36,6 +43,11 @@ export type RuntimeControllerDispatchInput<TDecision extends RuntimeRouteDecisio
   runtime: HrcRuntimeSnapshot
   operation: RuntimeOperation
   input: RuntimeInputEnvelope
+  /**
+   * Optional cancellation seam for an in-flight dispatch. Additive and
+   * back-compatible: implementations that ignore it behave exactly as before.
+   */
+  signal?: AbortSignal | undefined
 }
 
 export interface HarnessBrokerController extends RuntimeController<RuntimeRouteDecision> {

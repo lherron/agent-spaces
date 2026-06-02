@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type {
@@ -11,14 +10,22 @@ import type {
   InvocationStopRequest,
   InvocationStopResponse,
 } from 'spaces-harness-broker-protocol'
-import {
-  BrokerErrorCode,
-  CONSERVATIVE_LIFECYCLE_CAPABILITIES,
-} from 'spaces-harness-broker-protocol'
+import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
+import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
-import { type TmuxExec, TmuxPaneController, type TmuxPaneControllerLease } from '../../runtime/tmux'
+import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import {
+  type HookListenerHandle,
+  buildHookSocketPath,
+  consumePaneLease,
+  extractText,
+  getInvocationRuntimeId,
+  listenForHookEnvelopes,
+  shellQuote,
+  sleep,
+} from '../tmux-shared'
 import {
   CODEX_CLI_TMUX_DRIVER_KIND,
   type CodexCliTmuxHookEnvelope,
@@ -36,6 +43,13 @@ const CODEX_CLI_TMUX_DRIVER_VERSION = '0.1.0'
  * (T-01794 Phase D).
  */
 const CODEX_HOOK_GENERATION = 1
+
+/**
+ * TUI settle gap between pasting literal input and pressing Enter. The Codex CLI
+ * needs a brief pause so the pasted line is fully rendered/accepted before the
+ * Enter submits it; pressing Enter too early can submit a partial line.
+ */
+const INPUT_SUBMIT_GAP_MS = 1_000
 
 const CODEX_CLI_TMUX_CAPABILITIES: InvocationCapabilities = {
   input: {
@@ -74,10 +88,7 @@ const CODEX_CLI_TMUX_CAPABILITIES: InvocationCapabilities = {
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
-export interface CodexHookListenerHandle {
-  socketPath: string
-  close: () => Promise<void>
-}
+export type CodexHookListenerHandle = HookListenerHandle
 
 /**
  * Per-invocation/runtime identity handed to the hook listener so a durable
@@ -120,12 +131,6 @@ interface SurfaceState {
   windowName?: string | undefined
 }
 
-type RuntimeTerminalSurface = TmuxPaneControllerLease & {
-  kind?: unknown
-  ownership?: unknown
-  socketPath: string
-}
-
 export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Driver {
   const now = options.now ?? (() => new Date())
 
@@ -158,6 +163,17 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     return paneController
   }
 
+  // Shared literal-input delivery for both applyInputNow and applySteerNow:
+  // paste the literal text, settle, then submit with Enter.
+  async function deliverInput(input: InvocationInput): Promise<void> {
+    requireCtx()
+    requireSurface()
+    const controller = requirePaneController()
+    await controller.sendLiteral(extractText(input))
+    await sleep(INPUT_SUBMIT_GAP_MS)
+    await controller.sendEnter()
+  }
+
   return {
     kind: CODEX_CLI_TMUX_DRIVER_KIND,
     version: CODEX_CLI_TMUX_DRIVER_VERSION,
@@ -167,48 +183,13 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     },
 
     async start(spec: HarnessInvocationSpec, driverCtx: DriverContext): Promise<DriverStartResult> {
-      const runtime = driverCtx.runtime as
-        | { terminalSurface?: RuntimeTerminalSurface | undefined }
-        | undefined
-      const leaseSurface = runtime?.terminalSurface
-      if (
-        leaseSurface === undefined ||
-        leaseSurface.kind !== 'tmux-pane' ||
-        leaseSurface.ownership !== 'hrc'
-      ) {
-        throw new BrokerError(
-          BrokerErrorCode.InvalidInvocationState,
-          'codex-cli-tmux start requires runtime.terminalSurface to be an hrc-owned tmux-pane lease'
-        )
-      }
-
-      const lease: TmuxPaneControllerLease = {
-        sessionId: leaseSurface.sessionId,
-        windowId: leaseSurface.windowId,
-        paneId: leaseSurface.paneId,
-        ...(leaseSurface.sessionName !== undefined
-          ? { sessionName: leaseSurface.sessionName }
-          : {}),
-        ...(leaseSurface.windowName !== undefined ? { windowName: leaseSurface.windowName } : {}),
-        allowedOps: leaseSurface.allowedOps,
-      }
-      const controller = new TmuxPaneController({
-        socketPath: leaseSurface.socketPath,
-        tmuxBin: options.tmux.tmuxBin,
-        exec: options.tmux.exec,
-        lease,
+      const leased = await consumePaneLease(driverCtx, {
+        driverKind: 'codex-cli-tmux',
+        ...(options.tmux.tmuxBin !== undefined ? { tmuxBin: options.tmux.tmuxBin } : {}),
+        ...(options.tmux.exec !== undefined ? { exec: options.tmux.exec } : {}),
       })
-      const inspection = await controller.inspect()
-      if (
-        inspection.sessionId !== lease.sessionId ||
-        inspection.windowId !== lease.windowId ||
-        inspection.paneId !== lease.paneId
-      ) {
-        throw new BrokerError(
-          BrokerErrorCode.InvalidInvocationState,
-          `codex-cli-tmux leased pane identity mismatch: expected ${lease.sessionId}/${lease.windowId}/${lease.paneId}, observed ${inspection.sessionId}/${inspection.windowId}/${inspection.paneId}`
-        )
-      }
+      const controller = leased.controller
+      const leaseSurface = leased.surface
 
       ctx = driverCtx
       paneController = controller
@@ -299,14 +280,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         }
       )
 
-      surface = {
-        socketPath: leaseSurface.socketPath,
-        sessionId: lease.sessionId,
-        windowId: lease.windowId,
-        paneId: lease.paneId,
-        ...(lease.sessionName !== undefined ? { sessionName: lease.sessionName } : {}),
-        ...(lease.windowName !== undefined ? { windowName: lease.windowName } : {}),
-      }
+      surface = leaseSurface
 
       driverCtx.emit(
         'terminal.surface.reported',
@@ -343,22 +317,12 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
     },
 
     async applyInputNow(input: InvocationInput): Promise<ApplyInputResult> {
-      requireCtx()
-      requireSurface()
-      const controller = requirePaneController()
-      await controller.sendLiteral(extractText(input))
-      await sleep(1_000)
-      await controller.sendEnter()
+      await deliverInput(input)
       return {}
     },
 
     async applySteerNow(input: InvocationInput): Promise<void> {
-      requireCtx()
-      requireSurface()
-      const controller = requirePaneController()
-      await controller.sendLiteral(extractText(input))
-      await sleep(1_000)
-      await controller.sendEnter()
+      await deliverInput(input)
     },
 
     async interrupt(_req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
@@ -427,10 +391,6 @@ function emitTranscriptDiagnostic(
     },
     { driver: { kind: CODEX_CLI_TMUX_DRIVER_KIND, rawType: 'SessionStart' } }
   )
-}
-
-function getInvocationRuntimeId(spec: HarnessInvocationSpec): string | undefined {
-  return spec.correlation?.['runtimeId']
 }
 
 function extractHookRecord(envelope: CodexCliTmuxHookEnvelope): Record<string, unknown> {
@@ -515,24 +475,6 @@ async function writeCodexHookBridgeWrapper(options: {
   return wrapperPath
 }
 
-function extractText(input: InvocationInput): string {
-  return input.content
-    .map((part) => (part.type === 'text' ? part.text : ''))
-    .filter((segment) => segment.length > 0)
-    .join('')
-}
-
-function shellQuote(value: string): string {
-  if (/^[A-Za-z0-9_./:=-]+$/.test(value)) {
-    return value
-  }
-  return `'${value.replace(/'/g, `'\\''`)}'`
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 export function createDefaultCodexCliTmuxDriver(
   socketDir: string = join(tmpdir(), 'harness-broker')
 ): Driver {
@@ -543,7 +485,10 @@ export function createDefaultCodexCliTmuxDriver(
       // hooks dir — kills the single global /tmp/harness-broker/codex-hooks.sock
       // that two durable broker runtimes would otherwise collide on.
       listen: (handler, context) =>
-        listenForHookEnvelopes(buildCodexHookSocketPath(socketDir, context), handler),
+        listenForHookEnvelopes<CodexCliTmuxHookEnvelope>(
+          buildCodexHookSocketPath(socketDir, context),
+          handler
+        ),
     },
   })
 }
@@ -559,55 +504,5 @@ export function buildCodexHookSocketPath(
   socketDir: string,
   context: CodexHookListenerContext
 ): string {
-  const token = createHash('sha256')
-    .update(`${context.invocationId}\0${context.runtimeId ?? ''}`)
-    .digest('hex')
-    .slice(0, 16)
-  return join(socketDir, `codex-hooks.${token}.sock`)
-}
-
-async function listenForHookEnvelopes(
-  socketPath: string,
-  handler: CodexHookEnvelopeHandler
-): Promise<CodexHookListenerHandle> {
-  const { createServer } = await import('node:net')
-  const { mkdir, rm } = await import('node:fs/promises')
-  const { dirname } = await import('node:path')
-
-  await mkdir(dirname(socketPath), { recursive: true }).catch(() => undefined)
-  await rm(socketPath, { force: true }).catch(() => undefined)
-
-  const server = createServer((conn) => {
-    const chunks: Buffer[] = []
-    conn.on('data', (chunk: Buffer) => chunks.push(chunk))
-    conn.on('end', () => {
-      void (async () => {
-        try {
-          const body = Buffer.concat(chunks).toString('utf8').trim()
-          if (body.length > 0) {
-            await handler(JSON.parse(body) as CodexCliTmuxHookEnvelope)
-          }
-          conn.end('ok')
-        } catch {
-          conn.end('err')
-        }
-      })()
-    })
-  })
-
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(socketPath, () => {
-      server.removeListener('error', reject)
-      resolve()
-    })
-  })
-
-  return {
-    socketPath,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve())
-      }),
-  }
+  return buildHookSocketPath(socketDir, 'codex-hooks', context)
 }

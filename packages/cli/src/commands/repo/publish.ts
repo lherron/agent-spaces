@@ -8,15 +8,9 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import {
-  PathResolver,
-  atomicWriteJson,
-  createAnnotatedTag,
-  getAspHome,
-  gitExecLines,
-} from 'spaces-config'
+import { atomicWriteJson, createAnnotatedTag, gitExecLines } from 'spaces-config'
 
-import { exitWithAspError } from '../../helpers.js'
+import { exitWithAspError, resolvePaths } from '../../helpers.js'
 
 interface RepoPublishOptions {
   tag: string
@@ -108,8 +102,7 @@ export function registerRepoPublishCommand(parent: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (spaceId: string, options: RepoPublishOptions) => {
       try {
-        const aspHome = options.aspHome ?? getAspHome()
-        const paths = new PathResolver({ aspHome })
+        const { paths } = resolvePaths(options)
 
         validateVersionTag(options.tag)
         await ensureRegistryExists(paths.repo)

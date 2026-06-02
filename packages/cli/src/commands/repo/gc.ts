@@ -12,15 +12,13 @@ import type { Command } from 'commander'
 import {
   type GCOptions,
   type LockFile,
-  PathResolver,
-  getAspHome,
   gitExec,
   lockFileExists,
   readLockJson,
   runGC,
 } from 'spaces-config'
 
-import { exitWithAspError } from '../../helpers.js'
+import { exitWithAspError, resolvePaths } from '../../helpers.js'
 
 interface RepoGcOptions {
   dryRun?: boolean | undefined
@@ -111,8 +109,7 @@ export function registerRepoGcCommand(repo: Command): void {
     .option('--prune-global-lock', 'Also clean up global lock file entries')
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (options: RepoGcOptions) => {
-      const aspHome = options.aspHome ?? getAspHome()
-      const paths = new PathResolver({ aspHome })
+      const { paths } = resolvePaths(options)
       const dryRun = options.dryRun ?? false
 
       console.log(chalk.blue('Running repository garbage collection...'))

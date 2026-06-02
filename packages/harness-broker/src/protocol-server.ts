@@ -46,6 +46,14 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
   const decoder = new NdjsonDecoder()
   let closed = false
   let nextRequestId = 1
+  // Robustness bound (refactor A9): a peer streaming non-NDJSON bytes would
+  // otherwise produce one parse-error frame per malformed line with no cap,
+  // amplifying a single bad chunk into unbounded writes. We stop emitting
+  // parse-error frames once this many parse errors arrive without any
+  // intervening well-formed frame; any successfully decoded frame resets the
+  // run. Well-formed traffic is unaffected.
+  const MAX_CONSECUTIVE_PARSE_ERRORS = 64
+  let consecutiveParseErrors = 0
 
   function writeFrame(message: JsonRpcMessage): void {
     if (closed) return
@@ -116,10 +124,18 @@ export function createProtocolServer(options: ProtocolServerOptions): ProtocolSe
     const results = decoder.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
     for (const result of results) {
       if (result.ok) {
+        // A well-formed frame ends any run of parse errors.
+        consecutiveParseErrors = 0
         handleLine(result.value)
       } else {
-        // Malformed frame: respond with parse error (id = null per JSON-RPC)
-        writeFrame(createJsonRpcErrorResponse(null, -32700, 'Parse error'))
+        // Malformed frame: respond with parse error (id = null per JSON-RPC),
+        // but cap the reply rate so a stream of garbage can't amplify into
+        // unbounded writes (refactor A9). Once the cap is reached we silently
+        // drop further parse-error frames until a valid frame resets the run.
+        consecutiveParseErrors += 1
+        if (consecutiveParseErrors <= MAX_CONSECUTIVE_PARSE_ERRORS) {
+          writeFrame(createJsonRpcErrorResponse(null, -32700, 'Parse error'))
+        }
       }
     }
   }

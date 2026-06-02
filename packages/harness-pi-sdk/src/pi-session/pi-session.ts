@@ -48,6 +48,23 @@ function resolveAuthStoragePath(globalAgentDir: string): string {
   return authPath
 }
 
+/**
+ * Resolve the Pi global agent directory using start-option, config, env, and
+ * homedir precedence (in that order). Pure: depends only on its inputs plus the
+ * process env / homedir defaults.
+ */
+function resolveGlobalAgentDir(
+  optionsGlobalAgentDir: string | undefined,
+  configGlobalAgentDir: string | undefined
+): string {
+  return (
+    optionsGlobalAgentDir ??
+    configGlobalAgentDir ??
+    process.env['PI_CODING_AGENT_DIR'] ??
+    join(homedir(), '.pi', 'agent')
+  )
+}
+
 export class PiSession implements UnifiedSession {
   readonly kind = 'pi' as const
   private state: PiSessionState = 'idle'
@@ -79,33 +96,17 @@ export class PiSession implements UnifiedSession {
 
     try {
       const agentDir = options.agentDir ?? this.config.agentDir
-      const globalAgentDir =
-        options.globalAgentDir ??
-        this.config.globalAgentDir ??
-        process.env['PI_CODING_AGENT_DIR'] ??
-        join(homedir(), '.pi', 'agent')
+      const globalAgentDir = resolveGlobalAgentDir(
+        options.globalAgentDir,
+        this.config.globalAgentDir
+      )
 
       const authStorage = AuthStorage.create(resolveAuthStoragePath(globalAgentDir))
       const modelsJsonPath = join(globalAgentDir, 'models.json')
       const modelRegistry = ModelRegistry.create(authStorage, modelsJsonPath)
 
-      let model = undefined
-      if (this.config.model && this.config.provider) {
-        const found = modelRegistry.find(this.config.provider, this.config.model)
-        model = found ?? undefined
-        if (!model) {
-          console.warn(
-            `[pi-session] Model not found: ${this.config.provider}:${this.config.model}. Falling back to defaults.`
-          )
-        }
-      }
-
-      const sessionManager =
-        this.config.persistSessions === false
-          ? SessionManager.inMemory()
-          : this.config.sessionPath
-            ? SessionManager.create(this.config.sessionPath)
-            : SessionManager.create(this.config.cwd)
+      const model = this.resolveModel(modelRegistry)
+      const sessionManager = this.createSessionManager()
 
       const sessionOptions: NonNullable<Parameters<typeof createAgentSession>[0]> = {
         cwd: this.config.cwd,
@@ -143,8 +144,7 @@ export class PiSession implements UnifiedSession {
     this.state = 'streaming'
 
     try {
-      const runId = typeof (options as unknown) === 'string' ? (options as string) : options?.runId
-      this.currentRunId = runId ?? `run-${Date.now()}`
+      this.currentRunId = options?.runId ?? `run-${Date.now()}`
       await this.agentSession.prompt(text)
     } catch (error) {
       console.error('[pi-session] Error in sendPrompt:', error)
@@ -215,6 +215,32 @@ export class PiSession implements UnifiedSession {
       return 'off'
     }
     return level
+  }
+
+  private resolveModel(
+    modelRegistry: ModelRegistry
+  ): ReturnType<ModelRegistry['find']> | undefined {
+    if (!this.config.model || !this.config.provider) {
+      return undefined
+    }
+    const found = modelRegistry.find(this.config.provider, this.config.model)
+    if (!found) {
+      console.warn(
+        `[pi-session] Model not found: ${this.config.provider}:${this.config.model}. Falling back to defaults.`
+      )
+      return undefined
+    }
+    return found
+  }
+
+  private createSessionManager(): SessionManager {
+    if (this.config.persistSessions === false) {
+      return SessionManager.inMemory()
+    }
+    if (this.config.sessionPath) {
+      return SessionManager.create(this.config.sessionPath)
+    }
+    return SessionManager.create(this.config.cwd)
   }
 
   private subscribeToEvents(): void {
@@ -425,6 +451,102 @@ function flushTerminal(
   return [messageEndEvent(fallback, true)]
 }
 
+function handleAgentEnd(
+  piEvent: PiAgentSessionEvent,
+  sessionId: string,
+  state: PiEventMappingState
+): UnifiedSessionEvent[] {
+  const reason = typeof piEvent.reason === 'string' ? piEvent.reason : undefined
+  // Operator terminal: finalize the last held assistant message as
+  // final:true (falling back to the latest assistant message in the
+  // agent_end payload when nothing is held).
+  const flush = flushTerminal(
+    state,
+    heldFromPiMessage(latestAssistantMessage(piEvent['messages']), undefined)
+  )
+  state.agentActive = false
+  return [
+    ...flush,
+    {
+      type: 'agent_end',
+      sessionId,
+      ...(reason !== undefined ? { reason } : {}),
+    },
+  ]
+}
+
+function handleTurnEnd(
+  piEvent: PiAgentSessionEvent,
+  state: PiEventMappingState
+): UnifiedSessionEvent[] {
+  const turnId = typeof piEvent.turnId === 'string' ? piEvent.turnId : undefined
+  const rawToolResults = Array.isArray(piEvent.toolResults) ? piEvent.toolResults : []
+  const toolResults = rawToolResults.map((tr: unknown) => {
+    const result = tr as { toolUseId?: string; result?: unknown }
+    return {
+      toolUseId: result.toolUseId ?? '',
+      result: mapToolResultContent(result.result),
+    }
+  })
+  // Inside an agent lifecycle, a native turn_end is an INTERNAL model-round
+  // boundary: the held message carries forward (a later message_end
+  // supersedes it as final:false; agent_end finalizes the last as
+  // final:true). A BARE turn_end (no agent lifecycle) is itself the terminal
+  // boundary and finalizes the held/inline assistant message as final:true.
+  const flush = state.agentActive
+    ? []
+    : flushTerminal(
+        state,
+        heldFromPiMessage(
+          piEvent.message as PiMessage | undefined,
+          typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
+        )
+      )
+  return [
+    ...flush,
+    {
+      type: 'turn_end',
+      ...(turnId !== undefined ? { turnId } : {}),
+      ...(toolResults.length > 0 ? { toolResults } : {}),
+    },
+  ]
+}
+
+function handleMessageEnd(
+  piEvent: PiAgentSessionEvent,
+  state: PiEventMappingState
+): UnifiedSessionEvent[] {
+  const piMessage = piEvent.message as PiMessage | undefined
+  const messageId = typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
+  const newHeld = heldFromPiMessage(piMessage, messageId)
+  if (newHeld) {
+    // Held-latest: the SDK reports this assistant message as complete, but
+    // we don't yet know whether it is terminal-for-turn. Flush the prior
+    // held message as a non-final intermediate, then hold this one until a
+    // turn/agent terminal (final:true) or the next message_end supersedes it.
+    const flushed = flushHeld(state, false)
+    state.held = newHeld
+    return flushed
+  }
+  // An assistant message with no natural-language text (e.g. a tool-call-only
+  // message) is NOT a natural assistant message: do not surface it as a
+  // completion — its tool calls surface via tool_execution events, and
+  // surfacing it would emit a stray assistant.message.completed with no
+  // held-latest `final` flag. Non-assistant message_end (user/toolResult)
+  // passes through unchanged.
+  if (piMessage?.role === 'assistant') {
+    return []
+  }
+  const message = mapPiMessage(piMessage)
+  return [
+    {
+      type: 'message_end',
+      ...(messageId !== undefined ? { messageId } : {}),
+      ...(message !== undefined ? { message } : {}),
+    },
+  ]
+}
+
 export function mapPiEventToUnified(
   piEvent: PiAgentSessionEvent,
   sessionId: string,
@@ -435,25 +557,8 @@ export function mapPiEventToUnified(
       state.agentActive = true
       state.held = undefined
       return [{ type: 'agent_start', sessionId }]
-    case 'agent_end': {
-      const reason = typeof piEvent.reason === 'string' ? piEvent.reason : undefined
-      // Operator terminal: finalize the last held assistant message as
-      // final:true (falling back to the latest assistant message in the
-      // agent_end payload when nothing is held).
-      const flush = flushTerminal(
-        state,
-        heldFromPiMessage(latestAssistantMessage(piEvent['messages']), undefined)
-      )
-      state.agentActive = false
-      return [
-        ...flush,
-        {
-          type: 'agent_end',
-          sessionId,
-          ...(reason !== undefined ? { reason } : {}),
-        },
-      ]
-    }
+    case 'agent_end':
+      return handleAgentEnd(piEvent, sessionId, state)
     case 'turn_start': {
       const turnId = typeof piEvent.turnId === 'string' ? piEvent.turnId : undefined
       return [
@@ -463,39 +568,8 @@ export function mapPiEventToUnified(
         },
       ]
     }
-    case 'turn_end': {
-      const turnId = typeof piEvent.turnId === 'string' ? piEvent.turnId : undefined
-      const rawToolResults = Array.isArray(piEvent.toolResults) ? piEvent.toolResults : []
-      const toolResults = rawToolResults.map((tr: unknown) => {
-        const result = tr as { toolUseId?: string; result?: unknown }
-        return {
-          toolUseId: result.toolUseId ?? '',
-          result: mapToolResultContent(result.result),
-        }
-      })
-      // Inside an agent lifecycle, a native turn_end is an INTERNAL model-round
-      // boundary: the held message carries forward (a later message_end
-      // supersedes it as final:false; agent_end finalizes the last as
-      // final:true). A BARE turn_end (no agent lifecycle) is itself the terminal
-      // boundary and finalizes the held/inline assistant message as final:true.
-      const flush = state.agentActive
-        ? []
-        : flushTerminal(
-            state,
-            heldFromPiMessage(
-              piEvent.message as PiMessage | undefined,
-              typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
-            )
-          )
-      return [
-        ...flush,
-        {
-          type: 'turn_end',
-          ...(turnId !== undefined ? { turnId } : {}),
-          ...(toolResults.length > 0 ? { toolResults } : {}),
-        },
-      ]
-    }
+    case 'turn_end':
+      return handleTurnEnd(piEvent, state)
     case 'message_start': {
       const message = mapPiMessage(piEvent.message as PiMessage | undefined)
       if (!message) return []
@@ -528,37 +602,8 @@ export function mapPiEventToUnified(
 
       return [event as UnifiedSessionEvent]
     }
-    case 'message_end': {
-      const piMessage = piEvent.message as PiMessage | undefined
-      const messageId = typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
-      const newHeld = heldFromPiMessage(piMessage, messageId)
-      if (newHeld) {
-        // Held-latest: the SDK reports this assistant message as complete, but
-        // we don't yet know whether it is terminal-for-turn. Flush the prior
-        // held message as a non-final intermediate, then hold this one until a
-        // turn/agent terminal (final:true) or the next message_end supersedes it.
-        const flushed = flushHeld(state, false)
-        state.held = newHeld
-        return flushed
-      }
-      // An assistant message with no natural-language text (e.g. a tool-call-only
-      // message) is NOT a natural assistant message: do not surface it as a
-      // completion — its tool calls surface via tool_execution events, and
-      // surfacing it would emit a stray assistant.message.completed with no
-      // held-latest `final` flag. Non-assistant message_end (user/toolResult)
-      // passes through unchanged.
-      if (piMessage?.role === 'assistant') {
-        return []
-      }
-      const message = mapPiMessage(piMessage)
-      return [
-        {
-          type: 'message_end',
-          ...(messageId !== undefined ? { messageId } : {}),
-          ...(message !== undefined ? { message } : {}),
-        },
-      ]
-    }
+    case 'message_end':
+      return handleMessageEnd(piEvent, state)
     case 'tool_execution_start':
       return [
         {
@@ -650,74 +695,60 @@ function mapContentBlocks(piBlocks: PiContentBlock[]): ContentBlock[] {
     })
 }
 
+interface RawContentBlock {
+  type: string
+  text?: string
+  data?: string
+  mimeType?: string
+  url?: string
+  filename?: string
+  alt?: string
+}
+
+function isRawContentBlock(item: unknown): item is RawContentBlock {
+  return typeof item === 'object' && item !== null && 'type' in item
+}
+
+/**
+ * Map a single tool-result content item (of unknown shape) to a ContentBlock.
+ * Recognizes image / media_ref / text blocks; an already-shaped block falls
+ * through verbatim, and a scalar item is stringified into a text block.
+ */
+function mapToolResultItem(item: unknown): ContentBlock {
+  if (isRawContentBlock(item)) {
+    const block = item
+    if (block.type === 'image' && block.data && block.mimeType) {
+      return { type: 'image', data: block.data, mimeType: block.mimeType }
+    }
+    if (block.type === 'media_ref' && block.url) {
+      return {
+        type: 'media_ref',
+        url: block.url,
+        ...(typeof block.mimeType === 'string' ? { mimeType: block.mimeType } : {}),
+        ...(typeof block.filename === 'string' ? { filename: block.filename } : {}),
+        ...(typeof block.alt === 'string' ? { alt: block.alt } : {}),
+      }
+    }
+    if (block.type === 'text' && block.text !== undefined) {
+      return { type: 'text', text: block.text }
+    }
+    return item as ContentBlock
+  }
+  return { type: 'text', text: String(item) }
+}
+
 function mapToolResultContent(result: unknown): ToolResult {
   let content: ContentBlock[]
   if (typeof result === 'string') {
     content = [{ type: 'text', text: result }]
   } else if (Array.isArray(result)) {
-    content = result.map((item: unknown) => {
-      if (typeof item === 'object' && item !== null && 'type' in item) {
-        const block = item as {
-          type: string
-          text?: string
-          data?: string
-          mimeType?: string
-          url?: string
-          filename?: string
-          alt?: string
-        }
-        if (block.type === 'image' && block.data && block.mimeType) {
-          return { type: 'image', data: block.data, mimeType: block.mimeType }
-        }
-        if (block.type === 'media_ref' && block.url) {
-          return {
-            type: 'media_ref',
-            url: block.url,
-            ...(typeof block.mimeType === 'string' ? { mimeType: block.mimeType } : {}),
-            ...(typeof block.filename === 'string' ? { filename: block.filename } : {}),
-            ...(typeof block.alt === 'string' ? { alt: block.alt } : {}),
-          }
-        }
-        if (block.type === 'text' && block.text !== undefined) {
-          return { type: 'text', text: block.text }
-        }
-        return item as ContentBlock
-      }
-      return { type: 'text', text: String(item) }
-    })
+    content = result.map(mapToolResultItem)
   } else if (typeof result === 'object' && result !== null) {
-    const obj = result as { content?: unknown }
-    const objContent = obj.content
+    const objContent = (result as { content?: unknown }).content
     if (Array.isArray(objContent)) {
-      content = objContent.map((item: unknown) => {
-        if (typeof item === 'object' && item !== null && 'type' in item) {
-          const block = item as {
-            type: string
-            text?: string
-            data?: string
-            mimeType?: string
-            url?: string
-            filename?: string
-            alt?: string
-          }
-          if (block.type === 'image' && block.data && block.mimeType) {
-            return { type: 'image', data: block.data, mimeType: block.mimeType }
-          }
-          if (block.type === 'media_ref' && block.url) {
-            return {
-              type: 'media_ref',
-              url: block.url,
-              ...(typeof block.mimeType === 'string' ? { mimeType: block.mimeType } : {}),
-              ...(typeof block.filename === 'string' ? { filename: block.filename } : {}),
-              ...(typeof block.alt === 'string' ? { alt: block.alt } : {}),
-            }
-          }
-          if (block.type === 'text' && block.text !== undefined) {
-            return { type: 'text', text: block.text }
-          }
-        }
-        return item as ContentBlock
-      })
+      content = objContent.map((item: unknown) =>
+        isRawContentBlock(item) ? mapToolResultItem(item) : (item as ContentBlock)
+      )
     } else {
       content = [{ type: 'text', text: JSON.stringify(result, null, 2) }]
     }

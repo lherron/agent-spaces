@@ -99,6 +99,20 @@ function toCompiledPlacement(placement: CompilePlacement): CompiledRuntimePlan['
   return compiledPlacement
 }
 
+/**
+ * Coerce the prepared/broker `resolvedBundle` (or a `{ bundleIdentity }`-only
+ * fallback when the prepare step produced none) into the plan-shaped
+ * `CompiledRuntimePlan['resolvedBundle']`. Centralizes the `as unknown as` cast
+ * that was hand-repeated across every plan builder. Hash-neutral: the returned
+ * runtime value is identical to the previous inline expression.
+ */
+function toResolvedBundle(
+  source: { bundleIdentity?: string | undefined } | undefined,
+  bundleIdentity: string
+): CompiledRuntimePlan['resolvedBundle'] {
+  return (source ?? { bundleIdentity }) as unknown as CompiledRuntimePlan['resolvedBundle']
+}
+
 function compileError(code: string, message: string, details?: unknown): CompileDiagnostic {
   return {
     level: 'error',
@@ -179,6 +193,20 @@ const RUNTIME_TO_FAMILY: Partial<Record<HarnessRuntime, HarnessFamily>> = {
 }
 
 /**
+ * Resolve the requested harness family from the explicit `harnessFamily` field,
+ * falling back to the family implied by `preferredHarnessRuntime`. Centralizes
+ * the family-resolution logic that was duplicated across the foreground route
+ * resolver and the interactive-broker route predicates.
+ */
+function resolveRequestedFamily(req: RuntimeCompileRequest): HarnessFamily | undefined {
+  const requestedRuntime = req.requested.preferredHarnessRuntime
+  return (
+    req.requested.harnessFamily ??
+    (requestedRuntime !== undefined ? RUNTIME_TO_FAMILY[requestedRuntime] : undefined)
+  )
+}
+
+/**
  * Resolve a foreground (interactive) route from the requested harness fields.
  * Emits diagnostics for genuinely unsupported pairings (sdk runtimes, provider
  * mismatch, inconsistent family/runtime) so the compiler returns errors rather
@@ -191,9 +219,7 @@ function resolveForegroundRoute(
   | { diagnostics: CompileDiagnostic[] } {
   const diagnostics: CompileDiagnostic[] = []
   const requestedRuntime = req.requested.preferredHarnessRuntime
-  const family =
-    req.requested.harnessFamily ??
-    (requestedRuntime !== undefined ? RUNTIME_TO_FAMILY[requestedRuntime] : undefined)
+  const family = resolveRequestedFamily(req)
 
   if (family === undefined) {
     diagnostics.push(
@@ -508,31 +534,42 @@ function buildCompatibilityMaterial(
   }
 }
 
+/** Compiles an interactive request into a runtime plan. */
+type InteractiveCompileBuilder = (
+  req: RuntimeCompileRequest,
+  placement: CompilePlacement,
+  options?: CompileRuntimePlanOptions
+) => Promise<RuntimeCompileResponse>
+
 /**
- * Discriminate the interactive controller route by EXPLICIT compiler intent,
- * never by descriptive catalog array order (cody 0B mandate).
- *
- * The pre-HRC default for interactive claude-code is the operator-attachable
- * harness-broker (claude-code-tmux). The foreground TerminalExecutionProfile is
- * selectable ONLY when the request carries controllerIntent 'foreground-terminal'.
- * Non-claude families keep the foreground terminal as their interactive default.
+ * Families that route interactive requests to an operator-attachable
+ * harness-broker (tmux) rather than the foreground TerminalExecutionProfile.
+ * Mirrors the extensible `FOREGROUND_ROUTES` table: adding a tmux-broker family
+ * is a one-line entry rather than a new boolean predicate + dispatch branch.
  */
-function selectsInteractiveClaudeTmuxBroker(req: RuntimeCompileRequest): boolean {
-  if (req.requested.controllerIntent === 'foreground-terminal') return false
-  const requestedRuntime = req.requested.preferredHarnessRuntime
-  const family =
-    req.requested.harnessFamily ??
-    (requestedRuntime !== undefined ? RUNTIME_TO_FAMILY[requestedRuntime] : undefined)
-  return family === 'claude-code'
+const INTERACTIVE_BROKER_BUILDERS: Partial<Record<HarnessFamily, InteractiveCompileBuilder>> = {
+  'claude-code': (req, placement, options) => compileClaudeTmuxBrokerPlan(req, placement, options),
+  codex: (req, placement, options) => compileCodexTmuxBrokerPlan(req, placement, options),
 }
 
-function selectsInteractiveCodexTmuxBroker(req: RuntimeCompileRequest): boolean {
-  if (req.requested.controllerIntent === 'foreground-terminal') return false
-  const requestedRuntime = req.requested.preferredHarnessRuntime
-  const family =
-    req.requested.harnessFamily ??
-    (requestedRuntime !== undefined ? RUNTIME_TO_FAMILY[requestedRuntime] : undefined)
-  return family === 'codex'
+/**
+ * Resolve the interactive controller route by EXPLICIT compiler intent, never by
+ * descriptive catalog array order (cody 0B mandate).
+ *
+ * The pre-HRC default for interactive claude-code/codex is the operator-attachable
+ * harness-broker (claude-code-tmux / codex-cli-tmux). The foreground
+ * TerminalExecutionProfile is selectable ONLY when the request carries
+ * controllerIntent 'foreground-terminal'; other families fall through to the
+ * foreground terminal as their interactive default. Returns the matching broker
+ * builder, or `undefined` to fall through to the foreground plan.
+ */
+function resolveInteractiveBrokerBuilder(
+  req: RuntimeCompileRequest
+): InteractiveCompileBuilder | undefined {
+  if (req.requested.controllerIntent === 'foreground-terminal') return undefined
+  const family = resolveRequestedFamily(req)
+  if (family === undefined) return undefined
+  return INTERACTIVE_BROKER_BUILDERS[family]
 }
 
 // Launch-timing instrumentation (diagnostic). The compiler has no logger of its
@@ -558,11 +595,9 @@ export async function compileRuntimePlan(
   try {
     const placement = req.placement as CompilePlacement
     if (req.requested.interactionMode === 'interactive') {
-      if (selectsInteractiveClaudeTmuxBroker(req)) {
-        return await compileClaudeTmuxBrokerPlan(req, placement, options)
-      }
-      if (selectsInteractiveCodexTmuxBroker(req)) {
-        return await compileCodexTmuxBrokerPlan(req, placement, options)
+      const brokerBuilder = resolveInteractiveBrokerBuilder(req)
+      if (brokerBuilder) {
+        return await brokerBuilder(req, placement, options)
       }
       return await compileForegroundPlan(req, placement, options)
     }
@@ -710,9 +745,7 @@ async function compileBrokerPlan(
     profileHash,
   }) as CompileId
   const createdAt = new Date().toISOString()
-  const resolvedBundle = (brokerInvocation.resolvedBundle ?? {
-    bundleIdentity,
-  }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  const resolvedBundle = toResolvedBundle(brokerInvocation.resolvedBundle, bundleIdentity)
   const compiledPlacement = toCompiledPlacement(placement)
   const planMaterial = {
     schemaVersion: 'agent-runtime-plan/v1' as const,
@@ -894,9 +927,7 @@ async function compileForegroundPlan(
     profileHash,
   }) as CompileId
   const createdAt = new Date().toISOString()
-  const resolvedBundle = (prepared.resolvedBundle ?? {
-    bundleIdentity,
-  }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  const resolvedBundle = toResolvedBundle(prepared.resolvedBundle, bundleIdentity)
   const compiledPlacement = toCompiledPlacement(placement)
 
   const planMaterial = {
@@ -1211,9 +1242,7 @@ async function compileEmbeddedSdkPlan(
     profileHash,
   }) as CompileId
   const createdAt = new Date().toISOString()
-  const resolvedBundle = (prepared.resolvedBundle ?? {
-    bundleIdentity,
-  }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  const resolvedBundle = toResolvedBundle(prepared.resolvedBundle, bundleIdentity)
   const compiledPlacement = toCompiledPlacement(placement)
 
   const planMaterial = {
@@ -1496,9 +1525,7 @@ async function compileClaudeTmuxBrokerPlan(
     profileHash,
   }) as CompileId
   const createdAt = new Date().toISOString()
-  const resolvedBundle = (prepared.resolvedBundle ?? {
-    bundleIdentity,
-  }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  const resolvedBundle = toResolvedBundle(prepared.resolvedBundle, bundleIdentity)
   const compiledPlacement = toCompiledPlacement(placement)
 
   const planMaterial = {
@@ -1723,9 +1750,7 @@ async function compileCodexTmuxBrokerPlan(
     profileHash,
   }) as CompileId
   const createdAt = new Date().toISOString()
-  const resolvedBundle = (prepared.resolvedBundle ?? {
-    bundleIdentity,
-  }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  const resolvedBundle = toResolvedBundle(prepared.resolvedBundle, bundleIdentity)
   const compiledPlacement = toCompiledPlacement(placement)
 
   const planMaterial = {

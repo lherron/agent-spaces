@@ -117,6 +117,34 @@ async function isFile(path: string): Promise<boolean> {
   }
 }
 
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    const stats = await stat(path)
+    return stats.isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/** Copy `src` to `dest` when `src` is an existing directory; returns whether it did. */
+async function copyDirIfPresent(src: string, dest: string): Promise<boolean> {
+  if (!(await isDirectory(src))) {
+    return false
+  }
+  await copyDir(src, dest)
+  return true
+}
+
+/** Whether `dir` exists and contains at least one entry. */
+async function dirHasEntries(dir: string): Promise<boolean> {
+  try {
+    const entries = await readdir(dir)
+    return entries.length > 0
+  } catch {
+    return false
+  }
+}
+
 function normalizeBundlePath(path: string): string {
   return path.replaceAll('\\', '/')
 }
@@ -301,32 +329,20 @@ export class PiSdkAdapter implements HarnessAdapter {
 
       const srcSkillsDir = join(input.snapshotPath, 'skills')
       const destSkillsDir = join(cacheDir, 'skills')
-      try {
-        const skillsStats = await stat(srcSkillsDir)
-        if (skillsStats.isDirectory()) {
-          await copyDir(srcSkillsDir, destSkillsDir)
-          const skillEntries = await readdir(destSkillsDir)
-          for (const entry of skillEntries) {
-            files.push(`skills/${entry}`)
-          }
+      if (await copyDirIfPresent(srcSkillsDir, destSkillsDir)) {
+        const skillEntries = await readdir(destSkillsDir)
+        for (const entry of skillEntries) {
+          files.push(`skills/${entry}`)
         }
-      } catch {
-        // Skills directory doesn't exist
       }
 
       const srcHooksDir = join(input.snapshotPath, 'hooks')
       const destHooksDir = join(cacheDir, 'hooks')
-      try {
-        const hooksStats = await stat(srcHooksDir)
-        if (hooksStats.isDirectory()) {
-          await copyDir(srcHooksDir, destHooksDir)
-          const hookEntries = await readdir(destHooksDir)
-          for (const entry of hookEntries) {
-            files.push(`hooks/${entry}`)
-          }
+      if (await copyDirIfPresent(srcHooksDir, destHooksDir)) {
+        const hookEntries = await readdir(destHooksDir)
+        for (const entry of hookEntries) {
+          files.push(`hooks/${entry}`)
         }
-      } catch {
-        // Hooks directory doesn't exist
       }
 
       const contextDir = join(cacheDir, 'context')
@@ -377,155 +393,18 @@ export class PiSdkAdapter implements HarnessAdapter {
     const hooks: PiSdkBundleHookEntry[] = []
 
     for (const artifact of input.artifacts) {
-      const srcExtDir = join(artifact.artifactPath, 'extensions')
-      try {
-        const stats = await stat(srcExtDir)
-        if (stats.isDirectory()) {
-          const entries = (await readdir(srcExtDir)).sort()
-          for (const file of entries) {
-            const srcPath = join(srcExtDir, file)
-            const destPath = join(extensionsDir, file)
-            await linkOrCopy(srcPath, destPath)
-            extensions.push({
-              spaceId: artifact.spaceId,
-              path: normalizeBundlePath(join('extensions', file)),
-            })
-          }
-        }
-      } catch {
-        // Extensions directory doesn't exist in this artifact
-      }
-
-      const srcSkillsDir = join(artifact.artifactPath, 'skills')
-      try {
-        const stats = await stat(srcSkillsDir)
-        if (stats.isDirectory()) {
-          const skillEntries = await readdir(srcSkillsDir, { withFileTypes: true })
-          for (const entry of skillEntries) {
-            if (entry.isDirectory()) {
-              const srcPath = join(srcSkillsDir, entry.name)
-              const destPath = join(skillsDir, entry.name)
-              await copyDir(srcPath, destPath)
-            }
-          }
-        }
-      } catch {
-        // Skills directory doesn't exist in this artifact
-      }
-
-      const srcHooksDir = join(artifact.artifactPath, 'hooks')
-      try {
-        const stats = await stat(srcHooksDir)
-        if (stats.isDirectory()) {
-          const destHooksDir = join(hooksDir, artifact.spaceId)
-          await copyDir(srcHooksDir, destHooksDir)
-
-          const hooksResult = await readHooksWithPrecedence(srcHooksDir)
-          const filteredHooks = hooksResult.hooks.filter(
-            (hook) => !hook.harness || hook.harness === 'pi-sdk'
-          )
-
-          for (const hook of filteredHooks) {
-            const resolvedScript = await resolveHookScriptRelative(hook.script, srcHooksDir)
-            let scriptPath = resolvedScript
-
-            if (!/\s/.test(resolvedScript) && !isAbsolute(resolvedScript)) {
-              scriptPath = normalizeBundlePath(join('hooks', artifact.spaceId, resolvedScript))
-            }
-
-            hooks.push({
-              event: hook.event,
-              script: scriptPath,
-              tools: hook.tools,
-              blocking: hook.blocking,
-            })
-          }
-        }
-      } catch {
-        // Hooks directory doesn't exist in this artifact
-      }
-
-      const srcContextDir = join(artifact.artifactPath, 'context')
-      try {
-        const stats = await stat(srcContextDir)
-        if (stats.isDirectory()) {
-          const contextEntries = await readdir(srcContextDir, { withFileTypes: true })
-          for (const entry of contextEntries) {
-            if (entry.isFile()) {
-              const srcPath = join(srcContextDir, entry.name)
-              const destPath = join(contextDir, entry.name)
-              await linkOrCopy(srcPath, destPath)
-              contextFiles.push({
-                spaceId: artifact.spaceId,
-                path: normalizeBundlePath(join('context', entry.name)),
-                label: `space:${artifact.spaceId} instructions`,
-              })
-            }
-          }
-        }
-      } catch {
-        // Context directory doesn't exist in this artifact
-      }
+      await this.mergeArtifactExtensions(artifact, extensionsDir, extensions)
+      await this.mergeArtifactSkills(artifact, skillsDir)
+      await this.mergeArtifactHooks(artifact, hooksDir, hooks)
+      await this.mergeArtifactContext(artifact, contextDir, contextFiles)
     }
 
-    let hasSkills = false
-    try {
-      const skillsEntries = await readdir(skillsDir)
-      if (skillsEntries.length > 0) {
-        hasSkills = true
-      }
-    } catch {
-      // No skills
-    }
+    const hasSkills = await dirHasEntries(skillsDir)
+    const hasHooks = await dirHasEntries(hooksDir)
+    const hasContext = await dirHasEntries(contextDir)
 
-    let hasHooks = false
-    try {
-      const hookEntries = await readdir(hooksDir)
-      if (hookEntries.length > 0) {
-        hasHooks = true
-      }
-    } catch {
-      // No hooks
-    }
-
-    let hasContext = false
-    try {
-      const contextEntries = await readdir(contextDir)
-      if (contextEntries.length > 0) {
-        hasContext = true
-      }
-    } catch {
-      // No context
-    }
-
-    // Create symlink to ~/.pi/agent/auth.json for Pi authentication
-    const piAuthSource = join(homedir(), '.pi', 'agent', 'auth.json')
-    const piAuthDest = join(outputDir, 'auth.json')
-    try {
-      const authStats = await stat(piAuthSource)
-      if (authStats.isFile()) {
-        // Remove existing symlink/file if present
-        await rm(piAuthDest, { force: true })
-        await symlink(piAuthSource, piAuthDest)
-      }
-    } catch {
-      // ~/.pi/agent/auth.json doesn't exist - Pi will prompt for auth
-    }
-
-    // Generate settings.json to control skill discovery
-    // By default, disable .claude/.codex directories but allow Pi directories
-    // The --inherit-project and --inherit-user flags can enable Pi directories
-    const piSettings = {
-      skills: {
-        enableCodexUser: false,
-        enableClaudeUser: false,
-        enableClaudeProject: false,
-        enablePiUser: options.inheritUser ?? false,
-        enablePiProject: options.inheritProject ?? false,
-      },
-    }
-    const settingsPath = join(outputDir, 'settings.json')
-    await writeFile(settingsPath, JSON.stringify(piSettings, null, 2))
+    await this.writeAuthSymlink(outputDir)
+    await this.writeSettings(outputDir, options)
 
     const bundleManifest: PiSdkBundleManifest = {
       schemaVersion: 1,
@@ -538,8 +417,7 @@ export class PiSdkAdapter implements HarnessAdapter {
       hooks,
     }
 
-    const manifestPath = join(outputDir, 'bundle.json')
-    await writeFile(manifestPath, JSON.stringify(bundleManifest, null, 2))
+    const manifestPath = await this.writeBundleManifest(outputDir, bundleManifest)
 
     const bundle: ComposedTargetBundle = {
       harnessId: 'pi-sdk',
@@ -555,6 +433,144 @@ export class PiSdkAdapter implements HarnessAdapter {
     }
 
     return { bundle, warnings }
+  }
+
+  private async mergeArtifactExtensions(
+    artifact: ComposeTargetInput['artifacts'][number],
+    extensionsDir: string,
+    extensions: PiSdkBundleExtensionEntry[]
+  ): Promise<void> {
+    const srcExtDir = join(artifact.artifactPath, 'extensions')
+    if (!(await isDirectory(srcExtDir))) {
+      return
+    }
+    const entries = (await readdir(srcExtDir)).sort()
+    for (const file of entries) {
+      const srcPath = join(srcExtDir, file)
+      const destPath = join(extensionsDir, file)
+      await linkOrCopy(srcPath, destPath)
+      extensions.push({
+        spaceId: artifact.spaceId,
+        path: normalizeBundlePath(join('extensions', file)),
+      })
+    }
+  }
+
+  private async mergeArtifactSkills(
+    artifact: ComposeTargetInput['artifacts'][number],
+    skillsDir: string
+  ): Promise<void> {
+    const srcSkillsDir = join(artifact.artifactPath, 'skills')
+    if (!(await isDirectory(srcSkillsDir))) {
+      return
+    }
+    const skillEntries = await readdir(srcSkillsDir, { withFileTypes: true })
+    for (const entry of skillEntries) {
+      if (entry.isDirectory()) {
+        const srcPath = join(srcSkillsDir, entry.name)
+        const destPath = join(skillsDir, entry.name)
+        await copyDir(srcPath, destPath)
+      }
+    }
+  }
+
+  private async mergeArtifactHooks(
+    artifact: ComposeTargetInput['artifacts'][number],
+    hooksDir: string,
+    hooks: PiSdkBundleHookEntry[]
+  ): Promise<void> {
+    const srcHooksDir = join(artifact.artifactPath, 'hooks')
+    if (!(await isDirectory(srcHooksDir))) {
+      return
+    }
+    const destHooksDir = join(hooksDir, artifact.spaceId)
+    await copyDir(srcHooksDir, destHooksDir)
+
+    const hooksResult = await readHooksWithPrecedence(srcHooksDir)
+    const filteredHooks = hooksResult.hooks.filter(
+      (hook) => !hook.harness || hook.harness === 'pi-sdk'
+    )
+
+    for (const hook of filteredHooks) {
+      const resolvedScript = await resolveHookScriptRelative(hook.script, srcHooksDir)
+      let scriptPath = resolvedScript
+
+      if (!/\s/.test(resolvedScript) && !isAbsolute(resolvedScript)) {
+        scriptPath = normalizeBundlePath(join('hooks', artifact.spaceId, resolvedScript))
+      }
+
+      hooks.push({
+        event: hook.event,
+        script: scriptPath,
+        tools: hook.tools,
+        blocking: hook.blocking,
+      })
+    }
+  }
+
+  private async mergeArtifactContext(
+    artifact: ComposeTargetInput['artifacts'][number],
+    contextDir: string,
+    contextFiles: PiSdkBundleContextEntry[]
+  ): Promise<void> {
+    const srcContextDir = join(artifact.artifactPath, 'context')
+    if (!(await isDirectory(srcContextDir))) {
+      return
+    }
+    const contextEntries = await readdir(srcContextDir, { withFileTypes: true })
+    for (const entry of contextEntries) {
+      if (entry.isFile()) {
+        const srcPath = join(srcContextDir, entry.name)
+        const destPath = join(contextDir, entry.name)
+        await linkOrCopy(srcPath, destPath)
+        contextFiles.push({
+          spaceId: artifact.spaceId,
+          path: normalizeBundlePath(join('context', entry.name)),
+          label: `space:${artifact.spaceId} instructions`,
+        })
+      }
+    }
+  }
+
+  /** Symlink ~/.pi/agent/auth.json into the bundle for Pi authentication. */
+  private async writeAuthSymlink(outputDir: string): Promise<void> {
+    const piAuthSource = join(homedir(), '.pi', 'agent', 'auth.json')
+    const piAuthDest = join(outputDir, 'auth.json')
+    if (await isFile(piAuthSource)) {
+      // Remove existing symlink/file if present
+      await rm(piAuthDest, { force: true })
+      await symlink(piAuthSource, piAuthDest)
+    }
+    // Otherwise ~/.pi/agent/auth.json doesn't exist - Pi will prompt for auth.
+  }
+
+  /**
+   * Generate settings.json to control skill discovery. By default, disable
+   * .claude/.codex directories but allow Pi directories; the --inherit-project
+   * and --inherit-user flags can enable Pi directories.
+   */
+  private async writeSettings(outputDir: string, options: ComposeTargetOptions): Promise<void> {
+    const piSettings = {
+      skills: {
+        enableCodexUser: false,
+        enableClaudeUser: false,
+        enableClaudeProject: false,
+        enablePiUser: options.inheritUser ?? false,
+        enablePiProject: options.inheritProject ?? false,
+      },
+    }
+    const settingsPath = join(outputDir, 'settings.json')
+    await writeFile(settingsPath, JSON.stringify(piSettings, null, 2))
+  }
+
+  /** Write bundle.json and return its path. */
+  private async writeBundleManifest(
+    outputDir: string,
+    manifest: PiSdkBundleManifest
+  ): Promise<string> {
+    const manifestPath = join(outputDir, 'bundle.json')
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2))
+    return manifestPath
   }
 
   buildRunArgs(bundle: ComposedTargetBundle, options: HarnessRunOptions): string[] {
@@ -645,35 +661,13 @@ export class PiSdkAdapter implements HarnessAdapter {
     const hooksDir = join(outputDir, 'hooks')
     const contextDir = join(outputDir, 'context')
 
-    let skillsDirPath: string | undefined
-    try {
-      const entries = await readdir(skillsDir)
-      if (entries.length > 0) {
-        skillsDirPath = skillsDir
-      }
-    } catch {
-      // No skills directory
-    }
-
-    let hooksDirPath: string | undefined
-    try {
-      const entries = await readdir(hooksDir)
-      if (entries.length > 0) {
-        hooksDirPath = hooksDir
-      }
-    } catch {
-      // No hooks directory
-    }
-
-    let contextDirPath: string | undefined
-    try {
-      const entries = await readdir(contextDir)
-      if (entries.length > 0) {
-        contextDirPath = contextDir
-      }
-    } catch {
-      // No context directory
-    }
+    const skillsDirPath: string | undefined = (await dirHasEntries(skillsDir))
+      ? skillsDir
+      : undefined
+    const hooksDirPath: string | undefined = (await dirHasEntries(hooksDir)) ? hooksDir : undefined
+    const contextDirPath: string | undefined = (await dirHasEntries(contextDir))
+      ? contextDir
+      : undefined
 
     return {
       harnessId: 'pi-sdk',

@@ -4,6 +4,7 @@ import type {
   ContinuationUpdate,
   HarnessInvocationSpec,
   InputId,
+  InputPolicy,
   InvocationCapabilities,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
@@ -350,6 +351,76 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       const item = inv.pending.shift()!
       emit(inv, 'input.rejected', { inputId: item.inputId, reason }, { inputId: item.inputId })
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // whenBusy policy dispatch — one handler per policy (OCP): adding a policy is
+  // adding a table entry, not editing an if-chain. Each handler receives the
+  // resolved input and the originating request and returns the input response
+  // (or throws for the rejection paths that surface as broker errors).
+  // ---------------------------------------------------------------------------
+  type BusyInputContext = {
+    inv: Invocation
+    input: InvocationInputWithId
+    inputId: InputId
+    req: InvocationInputRequest
+  }
+
+  async function handleQueueWhenBusy({
+    inv,
+    input,
+    inputId,
+    req,
+  }: BusyInputContext): Promise<InvocationInputResponse> {
+    // Only 'user' kind can be queued
+    if (input.kind !== 'user') {
+      return rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_INPUT_KIND)
+    }
+
+    // Check composed queue capability
+    const queueEnabled =
+      inv.spec.interaction?.inputQueue === 'fifo' && inv.capabilities.input.queue === true
+    if (!queueEnabled) {
+      return rejectQueueInput(inv, inputId, REASON_QUEUE_NOT_SUPPORTED)
+    }
+
+    if (inv.spec.interaction?.mode === 'interactive' && inv.driver.applySteerNow !== undefined) {
+      const response = await attemptSteerAndEmit(inv, input)
+      recordDisposition(inv, req, response)
+      return response
+    }
+
+    // Check depth cap
+    if (inv.pending.length >= maxQueueDepth) {
+      return rejectQueueInput(inv, inputId, REASON_QUEUE_FULL)
+    }
+
+    // Enqueue
+    inv.pending.push({ inputId, input })
+    emit(inv, 'input.queued', { inputId, disposition: 'queued' }, { inputId })
+    const response: InvocationInputResponse = {
+      inputId,
+      accepted: true,
+      disposition: 'queued',
+    }
+    recordDisposition(inv, req, response)
+    return response
+  }
+
+  const busyPolicyHandlers: Record<
+    InputPolicy['whenBusy'],
+    (ctx: BusyInputContext) => Promise<InvocationInputResponse>
+  > = {
+    reject: async ({ inv, inputId }) => {
+      emit(inv, 'input.rejected', { inputId, reason: REASON_BUSY_REJECTED }, { inputId })
+      throw new BrokerError(BrokerErrorCode.InputRejected, REASON_BUSY_REJECTED, {
+        invocationId: inv.invocationId,
+      })
+    },
+    // interrupt_then_apply is centrally rejected in v1.
+    interrupt_then_apply: async ({ inv, inputId }) =>
+      rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_BUSY_POLICY),
+    queue: handleQueueWhenBusy,
   }
 
   // ---------------------------------------------------------------------------
@@ -812,65 +883,15 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         )
       }
 
-      // whenBusy: 'reject'
-      if (policy.whenBusy === 'reject') {
-        emit(inv, 'input.rejected', { inputId, reason: REASON_BUSY_REJECTED }, { inputId })
-        throw new BrokerError(BrokerErrorCode.InputRejected, REASON_BUSY_REJECTED, {
-          invocationId: inv.invocationId,
-        })
+      const handler = busyPolicyHandlers[policy.whenBusy]
+      if (handler === undefined) {
+        throw new BrokerError(
+          BrokerErrorCode.InputRejected,
+          `Unknown whenBusy policy: ${(policy as { whenBusy: string }).whenBusy}`,
+          { invocationId: inv.invocationId }
+        )
       }
-
-      // whenBusy: 'interrupt_then_apply' — centrally rejected in v1
-      if (policy.whenBusy === 'interrupt_then_apply') {
-        return rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_BUSY_POLICY)
-      }
-
-      // whenBusy: 'queue'
-      if (policy.whenBusy === 'queue') {
-        // Only 'user' kind can be queued
-        if (input.kind !== 'user') {
-          return rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_INPUT_KIND)
-        }
-
-        // Check composed queue capability
-        const queueEnabled =
-          inv.spec.interaction?.inputQueue === 'fifo' && inv.capabilities.input.queue === true
-        if (!queueEnabled) {
-          return rejectQueueInput(inv, inputId, REASON_QUEUE_NOT_SUPPORTED)
-        }
-
-        if (
-          inv.spec.interaction?.mode === 'interactive' &&
-          inv.driver.applySteerNow !== undefined
-        ) {
-          const response = await attemptSteerAndEmit(inv, input)
-          recordDisposition(inv, req, response)
-          return response
-        }
-
-        // Check depth cap
-        if (inv.pending.length >= maxQueueDepth) {
-          return rejectQueueInput(inv, inputId, REASON_QUEUE_FULL)
-        }
-
-        // Enqueue
-        inv.pending.push({ inputId, input })
-        emit(inv, 'input.queued', { inputId, disposition: 'queued' }, { inputId })
-        const response: InvocationInputResponse = {
-          inputId,
-          accepted: true,
-          disposition: 'queued',
-        }
-        recordDisposition(inv, req, response)
-        return response
-      }
-
-      // Fallback: unknown policy
-      throw new BrokerError(
-        BrokerErrorCode.InputRejected,
-        `Unknown whenBusy policy: ${(policy as { whenBusy: string }).whenBusy}`,
-        { invocationId: inv.invocationId }
-      )
+      return handler({ inv, input, inputId, req })
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {

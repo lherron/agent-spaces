@@ -25,6 +25,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   type ScopeKind,
   ancestorScopeRefs,
+  buildScopeRef,
   formatScopeRef,
   formatSessionRef,
   normalizeLaneRef,
@@ -339,6 +340,113 @@ describe('ancestorScopeRefs (T-00846)', () => {
     expect(ancestors[0]).toBe('agent:alice')
     // Last element is always the input itself
     expect(ancestors[ancestors.length - 1]).toBe('agent:alice:project:demo:task:t1')
+  })
+})
+
+// ===================================================================
+// buildScopeRef / formatScopeRef — canonical assembly (backlog G)
+// ===================================================================
+describe('buildScopeRef (backlog G)', () => {
+  test('agent only', () => {
+    expect(buildScopeRef({ agentId: 'alice' })).toBe('agent:alice')
+  })
+
+  test('agent + project', () => {
+    expect(buildScopeRef({ agentId: 'alice', projectId: 'demo' })).toBe('agent:alice:project:demo')
+  })
+
+  test('agent + project + task', () => {
+    expect(buildScopeRef({ agentId: 'alice', projectId: 'demo', taskId: 't1' })).toBe(
+      'agent:alice:project:demo:task:t1'
+    )
+  })
+
+  test('agent + project + task + role', () => {
+    expect(
+      buildScopeRef({ agentId: 'alice', projectId: 'demo', taskId: 't1', roleName: 'tester' })
+    ).toBe('agent:alice:project:demo:task:t1:role:tester')
+  })
+
+  test('agent + project + role (no task)', () => {
+    expect(buildScopeRef({ agentId: 'alice', projectId: 'demo', roleName: 'tester' })).toBe(
+      'agent:alice:project:demo:role:tester'
+    )
+  })
+})
+
+describe('formatScopeRef parse round-trip per kind (backlog G)', () => {
+  const refs = [
+    'agent:alice',
+    'agent:alice:project:demo',
+    'agent:alice:project:demo:role:tester',
+    'agent:alice:project:demo:task:t1',
+    'agent:alice:project:demo:task:t1:role:tester',
+  ]
+  for (const ref of refs) {
+    test(`formatScopeRef(parseScopeRef("${ref}")) === input`, () => {
+      expect(formatScopeRef(parseScopeRef(ref))).toBe(ref)
+    })
+  }
+})
+
+// ===================================================================
+// validateScopeRef — distinct error branches (backlog G)
+// ===================================================================
+describe('validateScopeRef error branches (backlog G)', () => {
+  const branches: Array<{ input: string; match: RegExp }> = [
+    { input: 'project:demo', match: /must start with "agent:<agentId>"/ },
+    { input: 'agent:has space', match: /agentId contains invalid characters/ },
+    { input: 'agent:alice:task:t1', match: /expected "project:<projectId>"/ },
+    { input: 'agent:alice:project:has space', match: /projectId contains invalid characters/ },
+    {
+      input: 'agent:alice:project:demo:role:r1:extra:x',
+      match: /Expected exactly "role:<roleName>" after project segment/,
+    },
+    {
+      input: 'agent:alice:project:demo:role:has space',
+      match: /roleName contains invalid characters/,
+    },
+    {
+      input: 'agent:alice:project:demo:task:has space',
+      match: /taskId contains invalid characters/,
+    },
+    {
+      input: 'agent:alice:project:demo:task:t1:notrole:x',
+      match: /After "task:<taskId>", expected "role:<roleName>"/,
+    },
+    {
+      input: 'agent:alice:project:demo:task:t1:role:has space',
+      match: /roleName contains invalid characters/,
+    },
+    {
+      input: 'agent:alice:project:demo:channel:general',
+      match: /Unexpected segment "channel" after project/,
+    },
+  ]
+
+  for (const { input, match } of branches) {
+    test(`"${input}" → ${match}`, () => {
+      const result = validateScopeRef(input)
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.error).toMatch(match)
+      }
+    })
+  }
+})
+
+// ===================================================================
+// ancestorScopeRefs — project-role-without-task ordering (backlog G)
+// ===================================================================
+describe('ancestorScopeRefs project-role ordering (backlog G)', () => {
+  test('project-role (no task) skips the task ancestor', () => {
+    // The role ref is appended as the most-specific entry even though there is
+    // no intervening task level.
+    expect(ancestorScopeRefs('agent:alice:project:demo:role:reviewer')).toEqual([
+      'agent:alice',
+      'agent:alice:project:demo',
+      'agent:alice:project:demo:role:reviewer',
+    ])
   })
 })
 

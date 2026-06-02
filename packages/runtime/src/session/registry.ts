@@ -25,6 +25,16 @@ export class SessionRegistry {
     return factory
   }
 
+  /**
+   * Create a session via this registry's factory for `options.kind`. Prefer
+   * this over the module-level {@link createSession} when a caller already
+   * holds a registry instance, so the dependency is passed explicitly rather
+   * than read from ambient module state.
+   */
+  createSession(options: CreateSessionOptions): UnifiedSession {
+    return this.getOrThrow(options.kind)(options)
+  }
+
   getKinds(): SessionKind[] {
     return Array.from(this.factories.keys())
   }

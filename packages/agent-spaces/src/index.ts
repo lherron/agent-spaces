@@ -16,6 +16,7 @@ export type {
   HostCorrelation,
   InteractionMode,
   InterruptInFlightTurnRequest,
+  InvocationSpecBuilder,
   IoMode,
   ProcessInvocationSpec,
   ProviderDomain,
@@ -24,12 +25,15 @@ export type {
   ResolveRequest,
   ResolveResponse,
   RunResult,
+  RuntimeCompiler,
   RunTurnInFlightRequest,
   RunTurnNonInteractiveRequest,
   RunTurnNonInteractiveResponse,
   SessionCallbacks,
   SessionState,
+  SpaceResolver,
   SpaceSpec,
+  TurnExecutor,
 } from './types.js'
 
 export type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'

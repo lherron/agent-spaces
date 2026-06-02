@@ -9,11 +9,23 @@ import type {
 import type { DriverContext } from '../driver'
 import type { JsonRpcRequest } from './rpc-client'
 
+/**
+ * Allocates monotonically increasing `permissionRequestId` values for a single
+ * invocation. Each invocation owns its own allocator (created via
+ * {@link createPermissionRequestIdAllocator}), so the per-request counter is no
+ * longer process-global shared state across concurrent invocations or test
+ * cases — id sequences start independently per invocation.
+ */
+export interface PermissionRequestIdAllocator {
+  next(invocationId: string): PermissionRequestId
+}
+
 export interface PermissionHandlerContext {
   ctx: DriverContext
   driver: CodexAppServerDriverSpec
   currentTurnId: TurnId | undefined
   currentInputId: InputId | undefined
+  permissionRequestIds: PermissionRequestIdAllocator
 }
 
 /**
@@ -92,11 +104,19 @@ export function buildSubjectDisplay(kind: string, params: unknown): Record<strin
   return display
 }
 
-let permissionRequestCounter = 0
-
-function nextPermissionRequestId(invocationId: string): PermissionRequestId {
-  permissionRequestCounter += 1
-  return `perm_${invocationId}_${permissionRequestCounter}` as PermissionRequestId
+/**
+ * Create a fresh per-invocation `permissionRequestId` allocator. The counter is
+ * encapsulated in the returned closure rather than living at module scope, so
+ * separate invocations (and separate test cases) get independent id sequences.
+ */
+export function createPermissionRequestIdAllocator(): PermissionRequestIdAllocator {
+  let counter = 0
+  return {
+    next(invocationId: string): PermissionRequestId {
+      counter += 1
+      return `perm_${invocationId}_${counter}` as PermissionRequestId
+    },
+  }
 }
 
 type RaceOutcome<T> =
@@ -169,7 +189,7 @@ export async function handlePermissionRequest(
     policyWithDefault.defaultDecision ?? (mode === 'allow' ? 'allow' : 'deny')
 
   const kind = permissionKind(request.method)
-  const permissionRequestId = nextPermissionRequestId(ctx.invocationId)
+  const permissionRequestId = handlerCtx.permissionRequestIds.next(ctx.invocationId)
   const subjectDisplay = buildSubjectDisplay(kind, request.params)
   const deadlineMs = policy.timeoutMs
 

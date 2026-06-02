@@ -8,6 +8,7 @@
  */
 
 import chalk from 'chalk'
+import { CliUsageError } from 'cli-kit'
 import type { Command } from 'commander'
 
 import { type PathKind, enumeratePaths, resolveSelfContext } from './lib.js'
@@ -39,10 +40,9 @@ export function registerSelfPathsCommand(self: Command): void {
 
         if (options.kind) {
           if (!isPathKind(options.kind)) {
-            process.stderr.write(
-              `self paths: invalid --kind '${options.kind}' (expected: editable, shared-editable, derived, ephemeral)\n`
+            throw new CliUsageError(
+              `invalid --kind '${options.kind}' (expected: editable, shared-editable, derived, ephemeral)`
             )
-            process.exit(2)
           }
           const wanted = options.kind
           entries = entries.filter((e) => e.kind === wanted)
@@ -70,6 +70,11 @@ export function registerSelfPathsCommand(self: Command): void {
 
         renderHuman(entries, ctx.agentName)
       } catch (err) {
+        // Usage errors flow to the central cli-kit handler (exit 2); everything
+        // else is an unexpected failure for this command (exit 1).
+        if (err instanceof CliUsageError) {
+          throw err
+        }
         const message = err instanceof Error ? err.message : String(err)
         process.stderr.write(`self paths: ${message}\n`)
         process.exit(1)

@@ -12,6 +12,8 @@ import figures from 'figures'
 
 import { type HarnessDetection, type HarnessModelInfo, harnessRegistry } from 'spaces-execution'
 
+import { errorMessage } from '../helpers.js'
+
 interface HarnessInfo {
   id: string
   name: string
@@ -136,7 +138,7 @@ export function registerHarnessesCommand(program: Command): void {
           formatHarnessesText(output)
         }
       } catch (error) {
-        console.error(chalk.red(`Error: ${error instanceof Error ? error.message : String(error)}`))
+        console.error(chalk.red(`Error: ${errorMessage(error)}`))
         process.exit(1)
       }
     })

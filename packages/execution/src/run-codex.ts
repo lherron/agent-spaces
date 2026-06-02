@@ -8,7 +8,6 @@ import {
   readlink,
   rename,
   rm,
-  stat,
   symlink,
   writeFile,
 } from 'node:fs/promises'
@@ -29,25 +28,21 @@ import {
   trustCodexHooksInConfigToml,
 } from 'spaces-harness-codex'
 
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path)
-    return true
-  } catch {
-    return false
-  }
-}
+import { pathExists } from './run/util.js'
 
 function isWithinPath(path: string, parent: string): boolean {
   const rel = relative(resolve(parent), resolve(path))
   return rel !== '' && !rel.startsWith('..') && !rel.startsWith('/')
 }
 
+/** Hex length of the truncated sha256 used to key an ad-hoc codex runtime home. */
+const CODEX_RUNTIME_KEY_LENGTH = 24
+
 function computeCodexRuntimeKey(targetName: string, cwd: string): string {
   return createHash('sha256')
     .update(`codex-runtime-v1\0${targetName}\0${resolve(cwd)}`)
     .digest('hex')
-    .slice(0, 24)
+    .slice(0, CODEX_RUNTIME_KEY_LENGTH)
 }
 
 interface CodexRuntimeMetadata {
@@ -164,6 +159,19 @@ export async function migrateLegacyProjectCodexRuntimeHome(
   return runtimeHome
 }
 
+/** Managed single-file entries synced from the codex.home template into the runtime home. */
+const MANAGED_FILES = [
+  'AGENTS.md',
+  'config.toml',
+  'hooks.json',
+  'mcp.json',
+  'manifest.json',
+  'auth.json',
+] as const
+
+/** Managed directory entries synced from the codex.home template into the runtime home. */
+const MANAGED_DIRS = ['skills', 'prompts'] as const
+
 async function syncManagedFile(
   templateHome: string,
   runtimeHome: string,
@@ -214,14 +222,12 @@ export async function prepareCodexRuntimeHome(
   const runtimeHome = resolveCodexRuntimeHomePath(bundle, runOptions)
   await mkdir(runtimeHome, { recursive: true })
 
-  await syncManagedFile(templateHome, runtimeHome, 'AGENTS.md')
-  await syncManagedFile(templateHome, runtimeHome, 'config.toml')
-  await syncManagedFile(templateHome, runtimeHome, 'hooks.json')
-  await syncManagedFile(templateHome, runtimeHome, 'mcp.json')
-  await syncManagedFile(templateHome, runtimeHome, 'manifest.json')
-  await syncManagedFile(templateHome, runtimeHome, 'auth.json')
-  await syncManagedDir(templateHome, runtimeHome, 'skills')
-  await syncManagedDir(templateHome, runtimeHome, 'prompts')
+  for (const relativePath of MANAGED_FILES) {
+    await syncManagedFile(templateHome, runtimeHome, relativePath)
+  }
+  for (const relativePath of MANAGED_DIRS) {
+    await syncManagedDir(templateHome, runtimeHome, relativePath)
+  }
 
   await applyPraesidiumContextToCodexHome(runtimeHome, {
     systemPrompt: runOptions.systemPrompt,

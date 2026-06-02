@@ -801,3 +801,65 @@ describe('runtime route selection', () => {
     expect(selectedRoute?.turnDeliveries).toEqual(['sdk-turn', 'sdk-inflight-input'])
   })
 })
+
+describe('validateExecutionProfile (kind-dispatching entry point)', () => {
+  const validateExecutionProfile = Contracts.validateExecutionProfile
+
+  test('routes a terminal profile to the terminal validator', () => {
+    // baseProfile is foreground + inherit-current-terminal => no diagnostics.
+    const clean = profile()
+    expect(diagnosticCodes(validateExecutionProfile(clean))).toEqual(
+      diagnosticCodes(validateTerminalExecutionProfile(clean))
+    )
+
+    // A foreground profile that demands pty IO trips the terminal gate; the
+    // dispatcher must surface the same diagnostic as the per-kind validator.
+    const bad = profile({ process: { io: { kind: 'pty' } } })
+    expect(diagnosticCodes(validateExecutionProfile(bad))).toEqual(
+      diagnosticCodes(validateTerminalExecutionProfile(bad))
+    )
+    expect(diagnosticCodes(validateExecutionProfile(bad))).toContain(
+      'foreground_requires_inherit_io'
+    )
+  })
+
+  test('returns no diagnostics for command-process and legacy-exec kinds', () => {
+    const commandProfile = {
+      schemaVersion: 'agent-runtime-profile/v1',
+      profileId: 'profile:test-command',
+      profileHash: 'profile-hash',
+      compatibilityHash: 'compatibility-hash',
+      kind: 'command-process',
+      interactionMode: 'headless',
+      expectedCapabilities: {},
+      command: {
+        startupMethod: 'create-command-process',
+        turnDelivery: 'none',
+        argv: ['echo'],
+        cwd: '/tmp',
+        lockedEnv: {},
+      },
+      policy: {},
+    } as unknown as Contracts.RuntimeExecutionProfile
+
+    const legacyProfile = {
+      schemaVersion: 'agent-runtime-profile/v1',
+      profileId: 'profile:test-legacy',
+      profileHash: 'profile-hash',
+      compatibilityHash: 'compatibility-hash',
+      kind: 'legacy-exec',
+      interactionMode: 'headless',
+      migrationOnly: true,
+      removalGate: 'delete-after-broker-codex-cutover',
+      expectedCapabilities: {},
+      legacy: {
+        startupMethod: 'legacy-launch-artifact',
+        turnDelivery: 'legacy-launch-input',
+        launchArtifactShape: 'hrc-launch-artifact/v1',
+      },
+    } as unknown as Contracts.RuntimeExecutionProfile
+
+    expect(validateExecutionProfile(commandProfile)).toEqual([])
+    expect(validateExecutionProfile(legacyProfile)).toEqual([])
+  })
+})

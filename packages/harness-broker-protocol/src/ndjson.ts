@@ -1,17 +1,17 @@
+import { ProtocolError } from './errors'
 import { type JsonRpcMessage, parseJsonRpcMessage } from './jsonrpc'
 
 export type NdjsonFrameResult =
   | { ok: true; value: JsonRpcMessage }
   | { ok: false; error: NdjsonFrameError }
 
-export class NdjsonFrameError extends Error {
+export class NdjsonFrameError extends ProtocolError {
   readonly code = 'INVALID_NDJSON_FRAME'
   readonly line: string
   readonly causeError?: unknown
 
   constructor(line: string, causeError?: unknown) {
-    super('Invalid NDJSON frame')
-    this.name = 'NdjsonFrameError'
+    super('NdjsonFrameError', 'Invalid NDJSON frame')
     this.line = line
     this.causeError = causeError
   }

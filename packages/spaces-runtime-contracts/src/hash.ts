@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto'
+import type { JsonValue } from './primitives'
+
 export type HashAlgorithm = 'sha256-canonical-json/v1'
 export type RuntimeContractHashProjection = 'runtime-contract-semantic/v2'
 
@@ -20,9 +23,6 @@ export interface CanonicalHasher {
 // ---------------------------------------------------------------------------
 // Implementation (sha256-canonical-json/v1)
 // ---------------------------------------------------------------------------
-
-import { createHash } from 'node:crypto'
-import type { JsonValue } from './primitives'
 
 const CANONICAL_ALGORITHM: HashAlgorithm = 'sha256-canonical-json/v1'
 export const DEFAULT_HASH_PROJECTION: RuntimeContractHashProjection = 'runtime-contract-semantic/v2'

@@ -7,19 +7,22 @@
  * reminder, launch-file unreadable, shared template winning over local, etc.).
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import chalk from 'chalk'
+import { CliUsageError } from 'cli-kit'
 import type { Command } from 'commander'
 
 import { resolveContextTemplateDetailed } from 'spaces-runtime'
 
+import { errorMessage } from '../../helpers.js'
 import {
   type ResolveSelfContextOptions,
   type TemplateSourceInfo,
   analyzeTemplateSections,
   classifyTemplateSource,
+  readOptionalFile,
   resolveSelfContext,
   resolveSelfTemplateContext,
 } from './lib.js'
@@ -74,8 +77,12 @@ export function registerSelfExplainCommand(self: Command): void {
 
         renderHuman(ctx.agentName, payload)
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`self explain: ${message}\n`)
+        // Usage errors flow to the central cli-kit handler (exit 2); everything
+        // else is an unexpected failure for this command (exit 1).
+        if (error instanceof CliUsageError) {
+          throw error
+        }
+        process.stderr.write(`self explain: ${errorMessage(error)}\n`)
         process.exit(1)
       }
     })
@@ -90,10 +97,7 @@ function normalizeTopic(value: string | undefined): ExplainTopic {
     return value
   }
 
-  process.stderr.write(
-    `self explain: invalid topic '${value}' (expected: prompt, reminder, launch)\n`
-  )
-  process.exit(2)
+  throw new CliUsageError(`invalid topic '${value}' (expected: prompt, reminder, launch)`)
 }
 
 async function buildExplainPayload(
@@ -397,13 +401,6 @@ function extractResolvedPath(source: string): string {
     return source.slice(arrowIdx + 4)
   }
   return source
-}
-
-function readOptionalFile(path: string | null): string | null {
-  if (!path || !existsSync(path)) {
-    return null
-  }
-  return readFileSync(path, 'utf8')
 }
 
 function formatTemplateWinnerMessage(source: TemplateSourceInfo): string {

@@ -12,6 +12,7 @@ import type {
   RuntimeOperationId,
 } from './ids'
 import type { BrokerInputPolicy } from './input'
+import type { HrcRuntimeSnapshot } from './operations'
 import type { BrokerPermissionPolicy } from './permissions'
 import type {
   HarnessRuntime,
@@ -109,7 +110,5 @@ export type RuntimeRouteDecision = {
       }>
     | undefined
 }
-
-import type { HrcRuntimeSnapshot } from './operations'
 
 export type RuntimeRouteHarnessRuntime = HarnessRuntime | string

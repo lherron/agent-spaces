@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from 'bun:test'
 import type { CommitSha, SpaceId, SpaceKey, SpaceManifest } from '../core/index.js'
+import { LOCK_HARNESSES } from '../core/index.js'
 import type { ClosureResult, ResolvedSpace } from './closure.js'
 import { type LockGeneratorOptions, type TargetInput, generateLockFile } from './lock-generator.js'
 
@@ -134,7 +135,41 @@ describe('lock-generator', () => {
       if (!targetEntry) throw new Error('targetEntry is undefined')
       expect(targetEntry.warnings).toBeUndefined()
     })
+  })
 
+  describe('harness enumeration (A6)', () => {
+    test('emits one harness entry per LOCK_HARNESSES, defaulting to claude', async () => {
+      const space = createMockSpace('space-a', 'abc1234', 'plugin-a')
+      const key = 'space-a@abc1234' as SpaceKey
+
+      const closure: ClosureResult = {
+        spaces: new Map<SpaceKey, ResolvedSpace>([[key, space]]),
+        roots: [key],
+        loadOrder: [key],
+      }
+      const target: TargetInput = {
+        name: 'test-target',
+        compose: ['space:space-a@stable'],
+        closure,
+      }
+      const options: LockGeneratorOptions = {
+        cwd: '/mock/registry',
+        registry: { type: 'git', url: 'https://example.com/repo' },
+      }
+
+      const lock = await generateLockFile([target], options)
+      const targetEntry = lock.targets['test-target']
+      if (!targetEntry) throw new Error('targetEntry is undefined')
+
+      // Behavior is driven by the shared enumeration, not an inline literal.
+      expect(Object.keys(targetEntry.harnesses).sort()).toEqual([...LOCK_HARNESSES].sort())
+      // Preserved default: only the claude entry today.
+      expect(LOCK_HARNESSES).toEqual(['claude'])
+      expect(targetEntry.harnesses.claude?.envHash).toBeDefined()
+    })
+  })
+
+  describe('W205 plugin name collision warnings (continued)', () => {
     test('uses space id as plugin name when plugin.name not specified', async () => {
       // Create two spaces with the same ID would be invalid,
       // but if they somehow got the same derived plugin name, it should warn

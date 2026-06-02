@@ -11,10 +11,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const runPlacementTurnSrc = readFileSync(
-  resolve(__dirname, '..', 'run-placement-turn.ts'),
-  'utf8'
-)
+const runPlacementTurnSrc = readFileSync(resolve(__dirname, '..', 'run-placement-turn.ts'), 'utf8')
 
 const sessionSrc = readFileSync(
   resolve(__dirname, '..', '..', '..', 'harness-claude', 'src', 'agent-sdk', 'agent-session.ts'),
@@ -53,12 +50,16 @@ describe('T-01216 AgentSession resilience', () => {
   test('listenToOutput flushes pending turn_end on crash and clean exit', () => {
     // Both the catch and finally blocks must drain pendingTurnIds so that
     // awaiters of turnPromise in runPlacementTurnNonInteractive never hang
-    // when the SDK iterator ends without a terminal result message.
+    // when the SDK iterator ends without a terminal result message. The drain
+    // loop is factored into flushPendingTurns(); assert it is invoked from both
+    // paths (once in catch, once in finally) and that the helper drains the queue.
     const listenFn = sessionSrc.match(/private async listenToOutput\(\)[\s\S]*?^ {2}\}/m)?.[0]
     expect(listenFn).toBeDefined()
-    // Should appear at least twice — once in catch, once in finally.
-    const matches = listenFn?.match(/while \(this\.pendingTurnIds\.length > 0\)/g) ?? []
-    expect(matches.length).toBeGreaterThanOrEqual(2)
+    const flushCalls = listenFn?.match(/this\.flushPendingTurns\(\)/g) ?? []
+    expect(flushCalls.length).toBeGreaterThanOrEqual(2)
+    const flushFn = sessionSrc.match(/private flushPendingTurns\(\)[\s\S]*?^ {2}\}/m)?.[0]
+    expect(flushFn).toBeDefined()
+    expect(flushFn).toMatch(/while \(this\.pendingTurnIds\.length > 0\)/)
   })
 
   test('session.start logs structured diagnostics', () => {

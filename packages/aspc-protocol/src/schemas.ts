@@ -8,51 +8,75 @@ import type {
   AspcHelloRequest,
   AspcMethod,
 } from './types.js'
-import { ASPC_PROTOCOL_VERSION } from './types.js'
+import { ASPC_METHODS, ASPC_PROTOCOL_VERSION } from './types.js'
 
 type SchemaRecord = Record<string, unknown>
 
-export class AspcHelloRequestValidationError extends Error {
+/**
+ * Shared issue `code` literals so producers reference one canonical set instead
+ * of repeating bare strings throughout the validators.
+ */
+const ISSUE_CODE = {
+  required: 'required',
+  invalidType: 'invalid_type',
+  invalidLiteral: 'invalid_literal',
+  unsupportedProtocol: 'unsupported_protocol',
+} as const
+
+/**
+ * Base for the package's request/command validation errors. Subclasses supply
+ * their own `code`/`name`/message via the constructor; the shared body carries
+ * the `issues` payload. The exported subclasses below keep their concrete names
+ * and `code` literals intact so consumers can still `instanceof`/branch on them.
+ */
+export abstract class AspcValidationError extends Error {
+  abstract readonly code: string
+  readonly issues: ValidationIssue[]
+
+  constructor(name: string, message: string, issues: ValidationIssue[]) {
+    super(message)
+    this.name = name
+    this.issues = issues
+  }
+}
+
+export class AspcHelloRequestValidationError extends AspcValidationError {
   readonly code = 'INVALID_ASPC_HELLO_REQUEST'
-  readonly issues: ValidationIssue[]
 
   constructor(issues: ValidationIssue[]) {
-    super('Invalid ASPC hello request')
-    this.name = 'AspcHelloRequestValidationError'
-    this.issues = issues
+    super('AspcHelloRequestValidationError', 'Invalid ASPC hello request', issues)
   }
 }
 
-export class AspcCompileRuntimePlanRequestValidationError extends Error {
+export class AspcCompileRuntimePlanRequestValidationError extends AspcValidationError {
   readonly code = 'INVALID_ASPC_COMPILE_RUNTIME_PLAN_REQUEST'
-  readonly issues: ValidationIssue[]
 
   constructor(issues: ValidationIssue[]) {
-    super('Invalid ASPC compileRuntimePlan request')
-    this.name = 'AspcCompileRuntimePlanRequestValidationError'
-    this.issues = issues
+    super(
+      'AspcCompileRuntimePlanRequestValidationError',
+      'Invalid ASPC compileRuntimePlan request',
+      issues
+    )
   }
 }
 
-export class AspcCompileHarnessInvocationRequestValidationError extends Error {
+export class AspcCompileHarnessInvocationRequestValidationError extends AspcValidationError {
   readonly code = 'INVALID_ASPC_COMPILE_HARNESS_INVOCATION_REQUEST'
-  readonly issues: ValidationIssue[]
 
   constructor(issues: ValidationIssue[]) {
-    super('Invalid ASPC compileHarnessInvocation request')
-    this.name = 'AspcCompileHarnessInvocationRequestValidationError'
-    this.issues = issues
+    super(
+      'AspcCompileHarnessInvocationRequestValidationError',
+      'Invalid ASPC compileHarnessInvocation request',
+      issues
+    )
   }
 }
 
-export class AspcCommandValidationError extends Error {
+export class AspcCommandValidationError extends AspcValidationError {
   readonly code = 'INVALID_ASPC_COMMAND'
-  readonly issues: ValidationIssue[]
 
   constructor(issues: ValidationIssue[]) {
-    super('Invalid ASPC command')
-    this.name = 'AspcCommandValidationError'
-    this.issues = issues
+    super('AspcCommandValidationError', 'Invalid ASPC command', issues)
   }
 }
 
@@ -91,26 +115,36 @@ export function validateAspcCompileAndStartRequest(value: unknown): AspcCompileA
   return validateAspcCompileHarnessInvocationRequest(value)
 }
 
+type ParamsValidator = (value: unknown, basePath: string, issues: ValidationIssue[]) => void
+
+/**
+ * Dispatch table mapping each `aspc.*` method to its params validator. Typing it
+ * as `Record<AspcMethod, ...>` makes the compiler fail if a method is added to
+ * `ASPC_METHODS` without a corresponding validator entry here.
+ */
+const ASPC_PARAMS_VALIDATORS: Record<AspcMethod, ParamsValidator> = {
+  'aspc.hello': validateHello,
+  'aspc.compileRuntimePlan': validateCompileRuntimePlan,
+  'aspc.compileHarnessInvocation': validateCompileHarnessInvocation,
+  'aspc.compileAndStart': validateCompileHarnessInvocation,
+}
+
 export function validateAspcCommand(value: unknown): AspcCommand {
   const issues: ValidationIssue[] = []
   if (!isJsonRpcRequest(value)) {
-    issues.push(issue('', 'invalid_type', 'ASPC command must be a JSON-RPC request'))
+    issues.push(issue('', ISSUE_CODE.invalidType, 'ASPC command must be a JSON-RPC request'))
   } else if (!isAspcMethod(value.method)) {
-    issues.push(issue('method', 'invalid_literal', `Unsupported ASPC method: ${value.method}`))
+    issues.push(
+      issue(
+        'method',
+        ISSUE_CODE.invalidLiteral,
+        `Unsupported ASPC method: ${value.method}. Expected one of: ${ASPC_METHODS.join(', ')}`
+      )
+    )
   } else {
-    validateJsonRpcId(value.id, 'id', issues)
-    switch (value.method) {
-      case 'aspc.hello':
-        validateHello(value.params, 'params', issues)
-        break
-      case 'aspc.compileRuntimePlan':
-        validateCompileRuntimePlan(value.params, 'params', issues)
-        break
-      case 'aspc.compileHarnessInvocation':
-      case 'aspc.compileAndStart':
-        validateCompileHarnessInvocation(value.params, 'params', issues)
-        break
-    }
+    // `isJsonRpcRequest` already guarantees `value.id` is a valid JSON-RPC id
+    // (string | number | null), so no separate id validation is needed here.
+    ASPC_PARAMS_VALIDATORS[value.method](value.params, 'params', issues)
   }
   if (issues.length > 0) {
     throw new AspcCommandValidationError(issues)
@@ -119,37 +153,32 @@ export function validateAspcCommand(value: unknown): AspcCommand {
 }
 
 function isAspcMethod(value: string): value is AspcMethod {
-  return (
-    value === 'aspc.hello' ||
-    value === 'aspc.compileRuntimePlan' ||
-    value === 'aspc.compileHarnessInvocation' ||
-    value === 'aspc.compileAndStart'
-  )
-}
-
-function validateJsonRpcId(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value !== null && typeof value !== 'string' && typeof value !== 'number') {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a string, number, or null`))
-  }
+  return (ASPC_METHODS as readonly string[]).includes(value)
 }
 
 function validateHello(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  const request = record(value, basePath, issues)
+  const request = requireRecord(value, basePath, issues)
   if (request === undefined) return
-  const clientInfo = record(request['clientInfo'], path(basePath, 'clientInfo'), issues)
+  const clientInfo = requireRecord(request['clientInfo'], path(basePath, 'clientInfo'), issues)
   if (clientInfo !== undefined) {
     requireString(clientInfo['name'], path(basePath, 'clientInfo.name'), issues)
     optionalString(clientInfo['version'], path(basePath, 'clientInfo.version'), issues)
   }
-  requireStringArray(request['protocolVersions'], path(basePath, 'protocolVersions'), issues)
+  const versions = request['protocolVersions']
+  const versionsIssueCount = issues.length
+  requireStringArray(versions, path(basePath, 'protocolVersions'), issues)
+  // Only check protocol support once the array itself is well-formed, so the
+  // "unsupported protocol" issue isn't emitted alongside item-type issues for
+  // the same field.
   if (
-    Array.isArray(request['protocolVersions']) &&
-    !request['protocolVersions'].includes(ASPC_PROTOCOL_VERSION)
+    issues.length === versionsIssueCount &&
+    Array.isArray(versions) &&
+    !versions.includes(ASPC_PROTOCOL_VERSION)
   ) {
     issues.push(
       issue(
         path(basePath, 'protocolVersions'),
-        'unsupported_protocol',
+        ISSUE_CODE.unsupportedProtocol,
         `protocolVersions must include ${ASPC_PROTOCOL_VERSION}`
       )
     )
@@ -161,11 +190,12 @@ function validateCompileRuntimePlan(
   value: unknown,
   basePath: string,
   issues: ValidationIssue[]
-): void {
-  const request = record(value, basePath, issues)
-  if (request === undefined) return
+): SchemaRecord | undefined {
+  const request = requireRecord(value, basePath, issues)
+  if (request === undefined) return undefined
   validateRuntimeCompileRequest(request['compileRequest'], path(basePath, 'compileRequest'), issues)
   optionalString(request['aspHome'], path(basePath, 'aspHome'), issues)
+  return request
 }
 
 function validateCompileHarnessInvocation(
@@ -173,13 +203,12 @@ function validateCompileHarnessInvocation(
   basePath: string,
   issues: ValidationIssue[]
 ): void {
-  validateCompileRuntimePlan(value, basePath, issues)
-  const request = asRecord(value)
+  const request = validateCompileRuntimePlan(value, basePath, issues)
   if (request === undefined) return
   validateProfileSelector(request['profileSelector'], path(basePath, 'profileSelector'), issues)
   validateStringRecord(request['dispatchEnv'], path(basePath, 'dispatchEnv'), issues)
-  validateOptionalRecord(request['runtime'], path(basePath, 'runtime'), issues)
-  validateOptionalRecord(request['lifecyclePolicy'], path(basePath, 'lifecyclePolicy'), issues)
+  optionalRecord(request['runtime'], path(basePath, 'runtime'), issues)
+  optionalRecord(request['lifecyclePolicy'], path(basePath, 'lifecyclePolicy'), issues)
 }
 
 function validateRuntimeCompileRequest(
@@ -187,7 +216,7 @@ function validateRuntimeCompileRequest(
   basePath: string,
   issues: ValidationIssue[]
 ): void {
-  const request = record(value, basePath, issues)
+  const request = requireRecord(value, basePath, issues)
   if (request === undefined) return
   requireLiteral(
     request['schemaVersion'],
@@ -195,12 +224,12 @@ function validateRuntimeCompileRequest(
     path(basePath, 'schemaVersion'),
     issues
   )
-  validateRequiredRecord(request['identity'], path(basePath, 'identity'), issues)
-  validateRequiredRecord(request['placement'], path(basePath, 'placement'), issues)
-  validateRequiredRecord(request['requested'], path(basePath, 'requested'), issues)
-  validateRequiredRecord(request['materialization'], path(basePath, 'materialization'), issues)
-  validateRequiredRecord(request['hrcPolicy'], path(basePath, 'hrcPolicy'), issues)
-  validateRequiredRecord(request['correlation'], path(basePath, 'correlation'), issues)
+  requireRecord(request['identity'], path(basePath, 'identity'), issues)
+  requireRecord(request['placement'], path(basePath, 'placement'), issues)
+  requireRecord(request['requested'], path(basePath, 'requested'), issues)
+  requireRecord(request['materialization'], path(basePath, 'materialization'), issues)
+  requireRecord(request['hrcPolicy'], path(basePath, 'hrcPolicy'), issues)
+  requireRecord(request['correlation'], path(basePath, 'correlation'), issues)
 }
 
 function validateProfileSelector(
@@ -209,7 +238,7 @@ function validateProfileSelector(
   issues: ValidationIssue[]
 ): void {
   if (value === undefined) return
-  const selector = record(value, basePath, issues)
+  const selector = requireRecord(value, basePath, issues)
   if (selector === undefined) return
   optionalString(selector['profileId'], path(basePath, 'profileId'), issues)
   optionalString(selector['profileHash'], path(basePath, 'profileHash'), issues)
@@ -222,12 +251,16 @@ function validateOptionalBooleanRecord(
   issues: ValidationIssue[]
 ): void {
   if (value === undefined) return
-  const object = record(value, basePath, issues)
+  const object = requireRecord(value, basePath, issues)
   if (object === undefined) return
   for (const [key, item] of Object.entries(object)) {
     if (typeof item !== 'boolean') {
       issues.push(
-        issue(path(basePath, key), 'invalid_type', `${path(basePath, key)} must be a boolean`)
+        issue(
+          path(basePath, key),
+          ISSUE_CODE.invalidType,
+          `${path(basePath, key)} must be a boolean`
+        )
       )
     }
   }
@@ -235,38 +268,43 @@ function validateOptionalBooleanRecord(
 
 function validateStringRecord(value: unknown, basePath: string, issues: ValidationIssue[]): void {
   if (value === undefined) return
-  const object = record(value, basePath, issues)
+  const object = requireRecord(value, basePath, issues)
   if (object === undefined) return
   for (const [key, item] of Object.entries(object)) {
     if (typeof item !== 'string') {
       issues.push(
-        issue(path(basePath, key), 'invalid_type', `${path(basePath, key)} must be a string`)
+        issue(
+          path(basePath, key),
+          ISSUE_CODE.invalidType,
+          `${path(basePath, key)} must be a string`
+        )
       )
     }
   }
 }
 
-function validateOptionalRecord(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+function optionalRecord(value: unknown, basePath: string, issues: ValidationIssue[]): void {
   if (value !== undefined) {
-    record(value, basePath, issues)
+    requireRecord(value, basePath, issues)
   }
 }
 
-function validateRequiredRecord(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  record(value, basePath, issues)
-}
-
-function record(
+/**
+ * Coerces `value` to a record, *pushing a validation issue* when it is not an
+ * object. Contrast with {@link coerceRecord}, which is silent. Returns the
+ * record on success, `undefined` (with an issue recorded) otherwise.
+ */
+function requireRecord(
   value: unknown,
   basePath: string,
   issues: ValidationIssue[]
 ): SchemaRecord | undefined {
-  const object = asRecord(value)
+  const object = coerceRecord(value)
   if (object === undefined) {
     issues.push(
       issue(
         basePath,
-        value === undefined ? 'required' : 'invalid_type',
+        value === undefined ? ISSUE_CODE.required : ISSUE_CODE.invalidType,
         `${basePath} must be an object`
       )
     )
@@ -275,7 +313,11 @@ function record(
   return object
 }
 
-function asRecord(value: unknown): SchemaRecord | undefined {
+/**
+ * Silently coerces `value` to a record, returning `undefined` when it is not a
+ * plain object. Contrast with {@link requireRecord}, which records an issue.
+ */
+function coerceRecord(value: unknown): SchemaRecord | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as SchemaRecord)
     : undefined
@@ -283,15 +325,15 @@ function asRecord(value: unknown): SchemaRecord | undefined {
 
 function requireString(value: unknown, basePath: string, issues: ValidationIssue[]): void {
   if (value === undefined) {
-    issues.push(issue(basePath, 'required', `${basePath} is required`))
+    issues.push(issue(basePath, ISSUE_CODE.required, `${basePath} is required`))
   } else if (typeof value !== 'string') {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a string`))
+    issues.push(issue(basePath, ISSUE_CODE.invalidType, `${basePath} must be a string`))
   }
 }
 
 function optionalString(value: unknown, basePath: string, issues: ValidationIssue[]): void {
   if (value !== undefined && typeof value !== 'string') {
-    issues.push(issue(basePath, 'invalid_type', `${basePath} must be a string`))
+    issues.push(issue(basePath, ISSUE_CODE.invalidType, `${basePath} must be a string`))
   }
 }
 
@@ -300,7 +342,7 @@ function requireStringArray(value: unknown, basePath: string, issues: Validation
     issues.push(
       issue(
         basePath,
-        value === undefined ? 'required' : 'invalid_type',
+        value === undefined ? ISSUE_CODE.required : ISSUE_CODE.invalidType,
         `${basePath} must be an array`
       )
     )
@@ -308,9 +350,8 @@ function requireStringArray(value: unknown, basePath: string, issues: Validation
   }
   value.forEach((item, index) => {
     if (typeof item !== 'string') {
-      issues.push(
-        issue(path(basePath, String(index)), 'invalid_type', 'array item must be a string')
-      )
+      const itemPath = path(basePath, String(index))
+      issues.push(issue(itemPath, ISSUE_CODE.invalidType, `${itemPath} must be a string`))
     }
   })
 }
@@ -322,9 +363,9 @@ function requireLiteral(
   issues: ValidationIssue[]
 ): void {
   if (value === undefined) {
-    issues.push(issue(basePath, 'required', `${basePath} is required`))
+    issues.push(issue(basePath, ISSUE_CODE.required, `${basePath} is required`))
   } else if (value !== expected) {
-    issues.push(issue(basePath, 'invalid_literal', `${basePath} must be ${expected}`))
+    issues.push(issue(basePath, ISSUE_CODE.invalidLiteral, `${basePath} must be ${expected}`))
   }
 }
 

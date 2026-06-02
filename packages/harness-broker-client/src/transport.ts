@@ -19,5 +19,16 @@ export interface BrokerJsonRpcTransport {
   onNotification(handler: NotificationHandler): void
   onRequest(handler: RequestHandler): void
   onClose(handler: CloseHandler): void
+  /**
+   * Tear down this transport. Behavior is transport-specific (see the
+   * interface-level note above):
+   *  - {@link StdioTransport} owns the broker child and terminates it,
+   *    SIGTERM-then-SIGKILL after `graceMs` (default 500ms).
+   *  - {@link UnixSocketTransport} owns ONLY its socket; it destroys the socket
+   *    and IGNORES `graceMs` (the broker is a separate long-lived server and
+   *    must keep running).
+   * A caller holding the abstraction therefore cannot assume `close()` stops
+   * the broker process.
+   */
   close(options?: { graceMs?: number | undefined }): Promise<void>
 }

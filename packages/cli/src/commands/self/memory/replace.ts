@@ -4,9 +4,14 @@
 
 import type { Command } from 'commander'
 
-import { MemoryStore, type MemoryTargetName, type StoreResult } from 'spaces-runtime'
+import type { MemoryTargetName } from 'spaces-runtime'
 
-import { resolveSelfContext } from '../lib.js'
+import {
+  type StoreFailure,
+  mapWriteFailureToExitCode,
+  validateTarget,
+  withMemoryStore,
+} from './lib.js'
 
 interface ReplaceOptions {
   json?: boolean
@@ -14,6 +19,8 @@ interface ReplaceOptions {
   match?: string
   content?: string
 }
+
+const COMMAND_NAME = 'self memory replace'
 
 export function registerMemoryReplaceCommand(parent: Command): void {
   parent
@@ -24,32 +31,21 @@ export function registerMemoryReplaceCommand(parent: Command): void {
     .option('--match <text>', 'Substring to locate the entry')
     .option('--content <text>', 'Replacement content')
     .action(async (options: ReplaceOptions) => {
-      try {
-        const ctx = resolveSelfContext()
-        if (!ctx.agentName) {
-          process.stderr.write('self memory replace: cannot determine agent name\n')
-          process.exit(1)
-        }
-
+      await withMemoryStore(COMMAND_NAME, async (store) => {
         if (!options.target) {
-          process.stderr.write('self memory replace: --target is required\n')
+          process.stderr.write(`${COMMAND_NAME}: --target is required\n`)
           process.exit(1)
         }
-        validateTarget(options.target)
+        validateTarget(COMMAND_NAME, options.target)
 
         if (!options.match) {
-          process.stderr.write('self memory replace: --match is required\n')
+          process.stderr.write(`${COMMAND_NAME}: --match is required\n`)
           process.exit(1)
         }
         if (!options.content) {
-          process.stderr.write('self memory replace: --content is required\n')
+          process.stderr.write(`${COMMAND_NAME}: --content is required\n`)
           process.exit(1)
         }
-
-        const store = new MemoryStore({
-          agentName: ctx.agentName,
-          agentsRoot: ctx.agentsRoot,
-        })
 
         const result = await store.replace({
           target: options.target as MemoryTargetName,
@@ -68,42 +64,19 @@ export function registerMemoryReplaceCommand(parent: Command): void {
 
         // Handle failures
         const output = mapReplaceError(result)
-        const exitCode = mapErrorToExitCode(result)
+        const exitCode = mapWriteFailureToExitCode(result)
 
         if (options.json) {
           process.stdout.write(`${JSON.stringify(output, null, 2)}\n`)
         } else {
-          process.stderr.write(`self memory replace: ${output.error}\n`)
+          process.stderr.write(`${COMMAND_NAME}: ${output.error}\n`)
         }
         process.exit(exitCode)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`self memory replace: ${message}\n`)
-        process.exit(1)
-      }
+      })
     })
 }
 
-function validateTarget(value: string): asserts value is MemoryTargetName {
-  if (value !== 'memory' && value !== 'user' && value !== 'persona') {
-    process.stderr.write(
-      `self memory replace: invalid --target '${value}' (expected: memory, user, persona)\n`
-    )
-    process.exit(1)
-  }
-}
-
-function mapErrorToExitCode(result: Extract<StoreResult, { ok: false }>): number {
-  if ('error' in result) {
-    if (result.error === 'ambiguous_match' || result.error === 'not_found') return 1
-    if (result.error === 'cap_exceeded') return 3
-    if (result.error === 'delimiter_in_content') return 4
-  }
-  if ('category' in result) return 2
-  return 1
-}
-
-function mapReplaceError(result: Extract<StoreResult, { ok: false }>): {
+function mapReplaceError(result: StoreFailure): {
   ok: false
   error: string
   [key: string]: unknown

@@ -18,12 +18,9 @@ import type {
   SpaceKey,
   SpaceRefString,
 } from '../core/index.js'
-import { derivePluginIdentity } from '../core/index.js'
+import { LOCK_HARNESSES, derivePluginIdentity } from '../core/index.js'
 import type { ClosureResult, ResolvedSpace } from './closure.js'
 import { computeEnvHash, computeHarnessEnvHash, computeIntegrity } from './integrity.js'
-
-/** Default harnesses to generate lock entries for */
-const DEFAULT_HARNESSES = ['claude'] as const
 
 /** Warning code for plugin name collisions */
 const W205_PLUGIN_NAME_COLLISION = 'W205'
@@ -174,9 +171,10 @@ function buildSpaceEntry(space: ResolvedSpace, integrity: Sha256Integrity): Lock
 /**
  * Build a LockTargetEntry from a target input.
  *
- * Generates per-harness entries for each supported harness (currently just "claude").
- * Each harness entry contains a harness-specific environment hash that allows
- * tracking which harness-specific materializations are up to date.
+ * Generates per-harness entries for each harness in the shared `LOCK_HARNESSES`
+ * enumeration (currently just the default harness, "claude"). Each harness
+ * entry contains a harness-specific environment hash that allows tracking which
+ * harness-specific materializations are up to date.
  */
 function buildTargetEntry(
   target: TargetInput,
@@ -203,9 +201,9 @@ function buildTargetEntry(
   // Compute warnings for this target (W205 plugin name collisions)
   const warnings = computePluginNameCollisions(target.closure.loadOrder, allSpaces)
 
-  // Build harness entries for each supported harness
+  // Build harness entries for each harness in the shared enumeration
   const harnesses: Record<string, LockHarnessEntry> = {}
-  for (const harnessId of DEFAULT_HARNESSES) {
+  for (const harnessId of LOCK_HARNESSES) {
     const harnessEnvHash = computeHarnessEnvHash(harnessId, envHashData)
     harnesses[harnessId] = {
       envHash: harnessEnvHash,

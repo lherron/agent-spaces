@@ -2482,7 +2482,10 @@ async function unixInputIdempotency(ctx: RowContext, result: RowResult): Promise
     })
     await unixCollectUntil(started.events, 'invocation.ready', ctx.turnTimeoutMs)
 
-    const input = unixUserInput('Idempotent payload that must survive reconnect.', `input_${ctx.marker}_idem`)
+    const input = unixUserInput(
+      'Idempotent payload that must survive reconnect.',
+      `input_${ctx.marker}_idem`
+    )
     const original = await first.input({ invocationId: identity.invocationId, input })
 
     // Disconnect and reconnect.
@@ -2517,7 +2520,8 @@ async function unixInputIdempotency(ctx: RowContext, result: RowResult): Promise
     if (!conflicted) {
       result.extraFailures.push({
         code: 'unix_inputid_conflict_not_rejected',
-        message: 'resending the same inputId with conflicting content was not rejected with DuplicateInputConflict',
+        message:
+          'resending the same inputId with conflicting content was not rejected with DuplicateInputConflict',
       })
     }
     result.notes['idempotentInputId'] = input.inputId

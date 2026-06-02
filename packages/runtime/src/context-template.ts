@@ -238,10 +238,7 @@ function parseSection(
     }
 
     case 'service-probe': {
-      const services = parseServiceProbeServices(
-        input['services'],
-        `${sectionLocation}.services`
-      )
+      const services = parseServiceProbeServices(input['services'], `${sectionLocation}.services`)
       const header = parseOptionalString(input['header'], `${sectionLocation}.header`)
       const timeout = parseOptionalNumber(input['timeout'], `${sectionLocation}.timeout`)
 

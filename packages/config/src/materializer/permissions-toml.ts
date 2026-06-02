@@ -156,6 +156,17 @@ export interface ClaudeSettingsPermissions {
 /** Filename for permissions.toml */
 export const PERMISSIONS_TOML_FILENAME = 'permissions.toml'
 
+/** How many facet values to preview inline in explain output before summarizing the rest. */
+const FACET_PREVIEW_COUNT = 3
+
+/**
+ * Default Pi built-in tools that are always available.
+ *
+ * Pi lacks fine-grained per-command tool control, so exec permissions cannot
+ * currently narrow this list — see {@link buildPiToolsList}.
+ */
+export const DEFAULT_PI_TOOLS = ['Read', 'Write', 'Bash', 'Glob', 'Grep']
+
 /** Permission facet keys */
 type PermissionFacetKey =
   | 'read'
@@ -271,10 +282,13 @@ export async function readPermissionsToml(spaceRoot: string): Promise<CanonicalP
     const content = await readFile(permissionsTomlPath, 'utf8')
     return parsePermissionsToml(content)
   } catch (err) {
+    // A missing permissions.toml is the common, optional case — treat as "none".
+    // Any other error (parse failure, IO error) is real and must surface per the
+    // repo's "never silently capture errors" policy.
     if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
       return null
     }
-    return null
+    throw err
   }
 }
 
@@ -611,13 +625,10 @@ export function toPiPermissions(permissions: CanonicalPermissions): PiPermission
  * @returns Array of tool names for Pi's --tools flag
  */
 export function buildPiToolsList(_permissions: CanonicalPermissions): string[] {
-  // Default tools that are always available
-  const defaultTools = ['Read', 'Write', 'Bash', 'Glob', 'Grep']
-
-  // If exec permissions are specified, we could potentially
-  // restrict which tools are available, but this is very limited
-  // For now, return default tools as Pi doesn't have fine-grained control
-  return defaultTools
+  // Pi has no fine-grained per-command tool control, so exec permissions cannot
+  // currently restrict the available tools. Return the always-available defaults.
+  // Returns a fresh copy so callers can mutate the result safely.
+  return [...DEFAULT_PI_TOOLS]
 }
 
 // ============================================================================
@@ -684,48 +695,36 @@ export function explainPermissions(
   harnessId: HarnessId
 ): string[] {
   const lines: string[] = []
-  const normalized = harnessId === 'pi' || harnessId === 'pi-sdk' ? 'pi' : 'claude'
-  const translated =
-    normalized === 'claude' ? toClaudePermissions(permissions) : toPiPermissions(permissions)
+  // ClaudePermissions and PiPermissions are structurally identical, so a single
+  // ordered facet list drives the output regardless of harness family.
+  const translated: ClaudePermissions | PiPermissions =
+    harnessId === 'pi' || harnessId === 'pi-sdk'
+      ? toPiPermissions(permissions)
+      : toClaudePermissions(permissions)
 
-  const formatFacet = (
-    name: string,
-    facet: AnnotatedPermissionFacet<string[]> | undefined
-  ): void => {
-    if (!facet || !facet.value?.length) return
+  const facets: Array<[string, AnnotatedPermissionFacet<string[]> | undefined]> = [
+    ['read', translated.read],
+    ['write', translated.write],
+    ['exec', translated.exec],
+    ['network', translated.network],
+    ['deny.read', translated.deny?.read],
+    ['deny.write', translated.deny?.write],
+    ['deny.exec', translated.deny?.exec],
+    ['deny.network', translated.deny?.network],
+  ]
+
+  for (const [name, facet] of facets) {
+    if (!facet || !facet.value?.length) continue
 
     const enforcement = facet.enforcement.toUpperCase()
     const note = facet.note ? ` (${facet.note})` : ''
-    const values = facet.value.slice(0, 3).join(', ')
-    const more = facet.value.length > 3 ? `, +${facet.value.length - 3} more` : ''
+    const values = facet.value.slice(0, FACET_PREVIEW_COUNT).join(', ')
+    const more =
+      facet.value.length > FACET_PREVIEW_COUNT
+        ? `, +${facet.value.length - FACET_PREVIEW_COUNT} more`
+        : ''
 
     lines.push(`  - ${name}: [${values}${more}] → [${enforcement}]${note}`)
-  }
-
-  if (normalized === 'claude') {
-    const claude = translated as ClaudePermissions
-    formatFacet('read', claude.read)
-    formatFacet('write', claude.write)
-    formatFacet('exec', claude.exec)
-    formatFacet('network', claude.network)
-    if (claude.deny) {
-      formatFacet('deny.read', claude.deny.read)
-      formatFacet('deny.write', claude.deny.write)
-      formatFacet('deny.exec', claude.deny.exec)
-      formatFacet('deny.network', claude.deny.network)
-    }
-  } else {
-    const pi = translated as PiPermissions
-    formatFacet('read', pi.read)
-    formatFacet('write', pi.write)
-    formatFacet('exec', pi.exec)
-    formatFacet('network', pi.network)
-    if (pi.deny) {
-      formatFacet('deny.read', pi.deny.read)
-      formatFacet('deny.write', pi.deny.write)
-      formatFacet('deny.exec', pi.deny.exec)
-      formatFacet('deny.network', pi.deny.network)
-    }
   }
 
   return lines

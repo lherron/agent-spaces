@@ -384,19 +384,37 @@ export type AgentEvent =
 // Client interface (updated per spec)
 // ---------------------------------------------------------------------------
 
-export interface AgentSpacesClient {
+/** Compiles a placement/request into a runtime plan (e.g. dry-run preview). */
+export interface RuntimeCompiler {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
-  runTurnNonInteractive(req: RunTurnNonInteractiveRequest): Promise<RunTurnNonInteractiveResponse>
-  runTurnInFlight(req: RunTurnInFlightRequest): Promise<RunTurnNonInteractiveResponse>
-  queueInFlightInput(req: QueueInFlightInputRequest): Promise<QueueInFlightInputResponse>
-  interruptInFlightTurn(req: InterruptInFlightTurnRequest): Promise<void>
+}
+
+/** Resolves and describes a space without executing a turn. */
+export interface SpaceResolver {
+  resolve(req: ResolveRequest): Promise<ResolveResponse>
+  describe(req: DescribeRequest): Promise<DescribeResponse>
+  getHarnessCapabilities(): Promise<HarnessCapabilities>
+}
+
+/** Builds process/broker invocation specs for out-of-process launches. */
+export interface InvocationSpecBuilder {
   buildProcessInvocationSpec(
     req: BuildProcessInvocationSpecRequest
   ): Promise<BuildProcessInvocationSpecResponse>
   buildHarnessBrokerInvocation(
     req: BuildHarnessBrokerInvocationRequest
   ): Promise<BuildHarnessBrokerInvocationResponse>
-  resolve(req: ResolveRequest): Promise<ResolveResponse>
-  describe(req: DescribeRequest): Promise<DescribeResponse>
-  getHarnessCapabilities(): Promise<HarnessCapabilities>
 }
+
+/** Executes turns and drives in-flight session input. */
+export interface TurnExecutor {
+  runTurnNonInteractive(req: RunTurnNonInteractiveRequest): Promise<RunTurnNonInteractiveResponse>
+  runTurnInFlight(req: RunTurnInFlightRequest): Promise<RunTurnNonInteractiveResponse>
+  queueInFlightInput(req: QueueInFlightInputRequest): Promise<QueueInFlightInputResponse>
+  interruptInFlightTurn(req: InterruptInFlightTurnRequest): Promise<void>
+}
+
+export type AgentSpacesClient = RuntimeCompiler &
+  SpaceResolver &
+  InvocationSpecBuilder &
+  TurnExecutor

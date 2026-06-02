@@ -9,9 +9,9 @@ import { readdir } from 'node:fs/promises'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { PathResolver, getAspHome, getStatus } from 'spaces-config'
+import { getStatus } from 'spaces-config'
 
-import { exitWithAspError } from '../../helpers.js'
+import { exitWithAspError, resolvePaths } from '../../helpers.js'
 
 /**
  * Registry status output structure.
@@ -147,8 +147,7 @@ export function registerRepoStatusCommand(parent: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (options) => {
       try {
-        const aspHome = options.aspHome ?? getAspHome()
-        const paths = new PathResolver({ aspHome })
+        const { paths } = resolvePaths(options)
 
         await ensureRegistryExists(paths.repo)
 

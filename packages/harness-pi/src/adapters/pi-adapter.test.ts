@@ -1753,6 +1753,240 @@ describe('Hook bridge generation', () => {
   })
 })
 
+describe('materializeSpace cleanup on failure', () => {
+  let tmpDir: string
+  let snapshotDir: string
+  let cacheDir: string
+
+  beforeEach(async () => {
+    tmpDir = join(tmpdir(), `pi-adapter-cleanup-${Date.now()}`)
+    snapshotDir = join(tmpDir, 'snapshot')
+    cacheDir = join(tmpDir, 'cache')
+    await mkdir(snapshotDir, { recursive: true })
+    await mkdir(cacheDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  test('removes the cache directory when a non-bundle error is thrown mid-materialize', async () => {
+    const adapter = new PiAdapter()
+
+    // Force a non-PiBundleError failure inside bundleSpaceExtensions:
+    // `mkdir(cacheDir/extensions, { recursive: true })` throws EEXIST/ENOTDIR
+    // when `extensions` already exists as a file. A non-force call leaves the
+    // pre-existing cacheDir untouched at entry, so the catch-block cleanup is
+    // the only thing that can remove it.
+    await writeFile(join(cacheDir, 'extensions'), 'not a directory')
+
+    const input = createMaterializeInput(snapshotDir)
+
+    await expect(adapter.materializeSpace(input, cacheDir, {})).rejects.toThrow()
+
+    // The catch block recursively removes cacheDir on failure.
+    const cacheExists = await Bun.file(join(cacheDir, 'extensions')).exists()
+    expect(cacheExists).toBe(false)
+  })
+})
+
+describe('loadTargetBundle', () => {
+  let tmpDir: string
+  let outputDir: string
+
+  beforeEach(async () => {
+    tmpDir = join(tmpdir(), `pi-adapter-load-bundle-${Date.now()}`)
+    outputDir = join(tmpDir, 'output')
+    await mkdir(outputDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  test('reports the expected pi paths and omits absent skills/bridges', async () => {
+    const adapter = new PiAdapter()
+
+    const bundle = await adapter.loadTargetBundle(outputDir, 'my-target')
+
+    expect(bundle.harnessId).toBe('pi')
+    expect(bundle.targetName).toBe('my-target')
+    expect(bundle.rootDir).toBe(outputDir)
+    expect(bundle.pi?.extensionsDir).toBe(join(outputDir, 'extensions'))
+    // No skills dir / bridges on disk -> undefined.
+    expect(bundle.pi?.skillsDir).toBeUndefined()
+    expect(bundle.pi?.hookBridgePath).toBeUndefined()
+    const piWithHrc = bundle.pi as
+      | (NonNullable<typeof bundle.pi> & { hrcEventsBridgePath?: string | undefined })
+      | undefined
+    expect(piWithHrc?.hrcEventsBridgePath).toBeUndefined()
+  })
+
+  test('detects skills dir and both bridges when present on disk', async () => {
+    const adapter = new PiAdapter()
+
+    // Skills dir with at least one entry.
+    await mkdir(join(outputDir, 'skills', 'skill-a'), { recursive: true })
+    await writeFile(join(outputDir, 'skills/skill-a/README.md'), '# Skill A')
+    // Hook bridge + HRC events bridge files.
+    await writeFile(join(outputDir, 'asp-hooks.bridge.js'), 'module.exports = () => {}')
+    await writeFile(join(outputDir, 'asp-hrc-events.bridge.js'), 'module.exports = () => {}')
+
+    const bundle = await adapter.loadTargetBundle(outputDir, 'my-target')
+
+    expect(bundle.pi?.skillsDir).toBe(join(outputDir, 'skills'))
+    expect(bundle.pi?.hookBridgePath).toBe(join(outputDir, 'asp-hooks.bridge.js'))
+    const piWithHrc = bundle.pi as NonNullable<typeof bundle.pi> & {
+      hrcEventsBridgePath?: string | undefined
+    }
+    expect(piWithHrc.hrcEventsBridgePath).toBe(join(outputDir, 'asp-hrc-events.bridge.js'))
+  })
+
+  test('treats an empty skills directory as no skills dir', async () => {
+    const adapter = new PiAdapter()
+    await mkdir(join(outputDir, 'skills'), { recursive: true })
+
+    const bundle = await adapter.loadTargetBundle(outputDir, 'my-target')
+
+    expect(bundle.pi?.skillsDir).toBeUndefined()
+  })
+})
+
+describe('getRunEnv', () => {
+  test('always sets PI_CODING_AGENT_DIR to the bundle root', () => {
+    const adapter = new PiAdapter()
+    const bundle = {
+      harnessId: 'pi' as const,
+      targetName: 'test',
+      rootDir: '/bundle/root',
+      pi: { extensionsDir: '/bundle/root/extensions' },
+    }
+
+    const env = adapter.getRunEnv(bundle, {})
+
+    expect(env['PI_CODING_AGENT_DIR']).toBe('/bundle/root')
+    expect(env['ASP_PRIMING_PROMPT']).toBeUndefined()
+  })
+
+  test('exposes the priming prompt via ASP_PRIMING_PROMPT when provided', () => {
+    const adapter = new PiAdapter()
+    const bundle = {
+      harnessId: 'pi' as const,
+      targetName: 'test',
+      rootDir: '/bundle/root',
+      pi: { extensionsDir: '/bundle/root/extensions' },
+    }
+
+    const env = adapter.getRunEnv(bundle, { prompt: 'go' })
+
+    expect(env['PI_CODING_AGENT_DIR']).toBe('/bundle/root')
+    expect(env['ASP_PRIMING_PROMPT']).toBe('go')
+  })
+})
+
+describe('getDefaultRunOptions', () => {
+  test('returns an empty options object (Pi opts out of defaults)', () => {
+    const adapter = new PiAdapter()
+    const manifest = createTestManifest({ id: 'any-space' }) as unknown as Parameters<
+      PiAdapter['getDefaultRunOptions']
+    >[0]
+
+    const options = adapter.getDefaultRunOptions(manifest, 'some-target')
+
+    expect(options).toEqual({})
+  })
+})
+
+describe('detect capability inference', () => {
+  let tmpDir: string
+  let mockPiPath: string
+  let originalEnv: string | undefined
+
+  beforeAll(async () => {
+    tmpDir = join(tmpdir(), `pi-adapter-detect-caps-${Date.now()}`)
+    await mkdir(tmpDir, { recursive: true })
+    mockPiPath = join(tmpDir, 'mock-pi')
+    originalEnv = process.env['PI_PATH']
+  })
+
+  beforeEach(() => {
+    clearPiCache()
+  })
+
+  afterEach(() => {
+    if (originalEnv !== undefined) {
+      process.env['PI_PATH'] = originalEnv
+    } else {
+      process.env['PI_PATH'] = undefined
+    }
+    clearPiCache()
+  })
+
+  afterAll(async () => {
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  test('omits extension/skill capabilities when --help advertises neither flag', async () => {
+    const adapter = new PiAdapter()
+    // --help succeeds but never mentions --extension or --skills, so the
+    // capability probes should resolve to false.
+    await writeFile(
+      mockPiPath,
+      `#!/bin/bash
+if [[ "$1" == "--version" ]]; then
+  echo "1.0.0"
+  exit 0
+fi
+if [[ "$1" == "--help" ]]; then
+  echo "usage: pi [--model MODEL]"
+  exit 0
+fi
+exit 0
+`
+    )
+    await chmod(mockPiPath, 0o755)
+    process.env['PI_PATH'] = mockPiPath
+
+    const result = await adapter.detect()
+
+    expect(result.available).toBe(true)
+    expect(result.capabilities).not.toContain('extensions')
+    expect(result.capabilities).not.toContain('skills')
+    // toolNamespacing is always advertised.
+    expect(result.capabilities).toContain('toolNamespacing')
+  })
+})
+
+describe('Hook bridge generation — codegen injection hazard', () => {
+  // NOTE: `generateHookBridgeCode` interpolates `hook.script` and `hook.event`
+  // directly into single-quoted JavaScript string literals in the emitted
+  // bridge (see codegen/hook-bridge.ts). A script value containing a quote or
+  // newline therefore breaks or injects code in the generated extension. This
+  // is the highest-correctness-risk item flagged in harness-pi-report.md
+  // (Technical Debt Notes / second-pass A8). It is an UNFIXED behavioral
+  // hazard, so this assertion is marked `.todo` to document the gap without
+  // turning the suite red. Enable it once the codegen serializes hook values
+  // safely (e.g. JSON-encoded table) rather than interpolating raw literals.
+  test.todo(
+    'escapes hook.script values containing quotes/newlines so generated code stays valid',
+    () => {
+      const code = generateHookBridgeCode(
+        [
+          {
+            event: 'pre_tool_use',
+            script: "/path/to/it's a script\n.sh; rm -rf /",
+          },
+        ],
+        ['space1']
+      )
+
+      // Once fixed, the raw unescaped script must NOT appear verbatim as a bare
+      // single-quoted literal that could terminate the string and inject code.
+      expect(code).not.toContain("'/path/to/it's a script")
+    }
+  )
+})
+
 describe('Error classes', () => {
   describe('PiNotFoundError', () => {
     test('includes searched paths in message', () => {

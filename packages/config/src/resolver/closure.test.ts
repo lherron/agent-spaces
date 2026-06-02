@@ -472,6 +472,42 @@ describe('computeClosure', () => {
     )
   })
 
+  it('should preserve the underlying error as cause when wrapping (A7)', async () => {
+    const commitA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
+
+    const manifestA: SpaceManifest = {
+      schema: 1,
+      id: 'space-a' as any,
+      version: '1.0.0',
+      deps: { spaces: ['space:bad-dep@stable' as any] },
+    }
+
+    const deepError = new Error('boom: bad manifest TOML several levels deep')
+
+    resolverSelectorSpy.mockImplementation(async (id: string) => {
+      if (id === 'bad-dep') {
+        throw deepError
+      }
+      return {
+        commit: commitA as any,
+        selector: { kind: 'dist-tag', tag: 'stable' },
+      }
+    })
+
+    readManifestSpy.mockResolvedValue(manifestA)
+
+    let caught: unknown
+    try {
+      await computeClosure(['space:space-a@stable' as any], { cwd: '/tmp' })
+    } catch (err) {
+      caught = err
+    }
+
+    expect(caught).toBeInstanceOf(MissingDependencyError)
+    // The original deep failure must remain diagnosable via `cause`, not be erased.
+    expect((caught as MissingDependencyError).cause).toBe(deepError)
+  })
+
   it('should use pinned spaces when provided', async () => {
     const pinnedCommit = 'abcdef1111111111111111111111111111111111'
     const manifestA: SpaceManifest = {

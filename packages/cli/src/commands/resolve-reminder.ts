@@ -26,6 +26,8 @@ import {
   resolveContextTemplateDetailed,
 } from 'spaces-runtime'
 
+import { errorMessage } from '../helpers.js'
+
 interface ResolveReminderOptions {
   agentRoot?: string
   agentsRoot?: string
@@ -211,8 +213,7 @@ export function registerResolveReminderCommand(program: Command): void {
 
         process.exit(0)
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        console.error(`resolve-reminder: ${message}`)
+        console.error(`resolve-reminder: ${errorMessage(error)}`)
         process.exit(1)
       }
     })

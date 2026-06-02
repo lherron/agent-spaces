@@ -84,6 +84,49 @@ describe('protocol server routing', () => {
     })
   })
 
+  // Refactor A9: a peer streaming non-NDJSON bytes must not amplify into one
+  // parse-error frame per malformed line without bound. After a run of malformed
+  // lines exceeds the cap, further parse-error replies are dropped; a subsequent
+  // well-formed frame both routes normally and resets the run so a fresh garbage
+  // burst is answered again.
+  test('parse-error replies are bounded for a flood of malformed input', async () => {
+    await withProtocolServer(async ({ input, outputText, server }) => {
+      server.register('test.ok', async () => ({ ok: true }))
+      await server.start()
+
+      const garbageLines = 500
+      for (let i = 0; i < garbageLines; i++) {
+        input.write('{not json}\n')
+      }
+      await flush()
+
+      const errorFrames = parseFrames(outputText()).filter(
+        (frame) => 'error' in frame && frame.error.code === -32700
+      )
+      // Bounded well below the number of malformed lines pushed.
+      expect(errorFrames.length).toBeGreaterThan(0)
+      expect(errorFrames.length).toBeLessThan(garbageLines)
+
+      // A valid frame after the flood still routes and resets the run.
+      input.write(request('after-flood', 'test.ok'))
+      await flush()
+      const frames = parseFrames(outputText())
+      const ok = frames.find((frame) => 'id' in frame && frame.id === 'after-flood')
+      expect(ok).toMatchObject({ result: { ok: true } })
+
+      // After the reset, a fresh burst of garbage is answered again.
+      const errorsBeforeSecondBurst = parseFrames(outputText()).filter(
+        (frame) => 'error' in frame && frame.error.code === -32700
+      ).length
+      input.write('{not json}\n')
+      await flush()
+      const errorsAfterSecondBurst = parseFrames(outputText()).filter(
+        (frame) => 'error' in frame && frame.error.code === -32700
+      ).length
+      expect(errorsAfterSecondBurst).toBe(errorsBeforeSecondBurst + 1)
+    })
+  })
+
   test('stdout contains only JSON-RPC frames', async () => {
     await withProtocolServer(async ({ input, outputText, server }) => {
       server.register('test.noisy', async () => ({ ok: true }))

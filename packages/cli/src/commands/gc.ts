@@ -8,8 +8,9 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { type GCOptions, PathResolver, getAspHome, readLockJson, runGC } from 'spaces-config'
+import { type GCOptions, readLockJson, runGC } from 'spaces-config'
 
+import { resolvePaths } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 
 /**
@@ -23,8 +24,7 @@ export function registerGcCommand(program: Command): void {
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (options) => {
-      const aspHome = options.aspHome ?? getAspHome()
-      const paths = new PathResolver({ aspHome })
+      const { paths } = resolvePaths(options)
 
       console.log(chalk.blue('Running garbage collection...'))
       console.log(`  Store: ${paths.store}`)

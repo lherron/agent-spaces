@@ -1,74 +1,53 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
-import {
-  NdjsonDecoder,
-  createJsonRpcErrorResponse,
-  encodeNdjsonFrame,
-  isJsonRpcNotification,
-  isJsonRpcRequest,
-  isJsonRpcResponse,
-} from 'spaces-harness-broker-protocol'
-import type {
-  JsonRpcId,
-  JsonRpcMessage,
-  JsonRpcRequest,
-} from 'spaces-harness-broker-protocol'
-import { BrokerRpcError, BrokerTransportError } from './errors'
-import type {
-  BrokerJsonRpcTransport,
-  CloseHandler,
-  NotificationHandler,
-  RequestHandler,
-} from './transport'
+import { encodeNdjsonFrame } from 'spaces-harness-broker-protocol'
+import type { JsonRpcMessage } from 'spaces-harness-broker-protocol'
+import { BrokerTransportError } from './errors'
+import { type JsonRpcChannelDebugOptions, JsonRpcFramedChannel } from './json-rpc-channel'
 
 export interface StdioTransportStartOptions {
   command: string
   args?: string[] | undefined
   cwd?: string | undefined
   env?: Record<string, string> | undefined
+  /** Optional diagnostics hooks for the underlying JSON-RPC channel. */
+  debug?: JsonRpcChannelDebugOptions | undefined
 }
 
-type PendingRequest = {
-  resolve: (value: unknown) => void
-  reject: (error: Error) => void
-}
+/** Default grace period before escalating SIGTERM to SIGKILL on close. */
+const DEFAULT_CLOSE_GRACE_MS = 500
+/** Cap on the captured stderr tail used to enrich a broker failure. */
+const STDERR_TAIL_LIMIT = 4096
 
-export class StdioTransport implements BrokerJsonRpcTransport {
+export class StdioTransport extends JsonRpcFramedChannel {
   readonly child: ChildProcessWithoutNullStreams
 
-  #decoder = new NdjsonDecoder()
-  #nextId = 1
-  #pending = new Map<string, PendingRequest>()
-  #notificationHandler: NotificationHandler = () => {}
-  #requestHandler: RequestHandler | undefined
-  #closeHandler: CloseHandler = () => {}
-  #closed = false
-  #exitError: BrokerTransportError | undefined
   #exitPromise: Promise<void>
   #resolveExit!: () => void
   #stderrTail = ''
 
-  private constructor(child: ChildProcessWithoutNullStreams) {
+  private constructor(child: ChildProcessWithoutNullStreams, debug?: JsonRpcChannelDebugOptions) {
+    super(debug)
     this.child = child
     this.#exitPromise = new Promise<void>((resolve) => {
       this.#resolveExit = resolve
     })
 
     child.stdout.on('data', (chunk: Buffer | string) => {
-      this.#handleStdout(chunk)
+      this.ingest(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
     })
     child.stderr.on('data', (chunk: Buffer | string) => {
       this.#appendStderr(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
     })
     child.once('error', (error) => {
-      this.#fail(new BrokerTransportError('Broker process error', error))
+      this.#failExit(new BrokerTransportError('Broker process error', error))
     })
     child.once('exit', (code, signal) => {
       const detail =
         signal !== null ? `signal ${signal}` : `exit code ${code === null ? 'unknown' : code}`
-      const message = this.#closed
+      const message = this.closed
         ? `Broker process closed with ${detail}`
         : `Broker process exited with ${detail}`
-      this.#fail(new BrokerTransportError(message))
+      this.#failExit(new BrokerTransportError(message))
     })
   }
 
@@ -84,70 +63,22 @@ export class StdioTransport implements BrokerJsonRpcTransport {
       child.once('error', reject)
     })
 
-    return new StdioTransport(child)
-  }
-
-  onNotification(handler: NotificationHandler): void {
-    this.#notificationHandler = handler
-  }
-
-  onRequest(handler: RequestHandler): void {
-    this.#requestHandler = handler
-  }
-
-  onClose(handler: CloseHandler): void {
-    this.#closeHandler = handler
-  }
-
-  request<T>(method: string, params?: unknown): Promise<T> {
-    if (this.#exitError) {
-      return Promise.reject(this.#exitError)
-    }
-    if (this.#closed) {
-      return Promise.reject(new BrokerTransportError('Broker transport is closed'))
-    }
-
-    const id = `req_${this.#nextId++}`
-    const request: JsonRpcRequest = {
-      jsonrpc: '2.0',
-      id,
-      method,
-    }
-    if (params !== undefined) {
-      request.params = params
-    }
-
-    const promise = new Promise<T>((resolve, reject) => {
-      this.#pending.set(id, {
-        resolve: (value) => resolve(value as T),
-        reject,
-      })
-    })
-    promise.catch(() => {})
-
-    try {
-      this.#write(request)
-    } catch (error) {
-      this.#pending.delete(id)
-      return Promise.reject(error)
-    }
-
-    return promise
+    return new StdioTransport(child, options.debug)
   }
 
   async close(options: { graceMs?: number | undefined } = {}): Promise<void> {
-    if (this.#closed) {
+    if (this.closed) {
       return this.#exitPromise
     }
 
-    this.#closed = true
-    this.#rejectPending(new BrokerTransportError('Broker transport closed'))
+    this.closed = true
+    this.rejectPending(new BrokerTransportError('Broker transport closed'))
 
     if (this.child.exitCode !== null || this.child.signalCode !== null) {
       return this.#exitPromise
     }
 
-    const graceMs = options.graceMs ?? 500
+    const graceMs = options.graceMs ?? DEFAULT_CLOSE_GRACE_MS
     this.child.stdin.end()
     this.child.kill('SIGTERM')
 
@@ -164,67 +95,9 @@ export class StdioTransport implements BrokerJsonRpcTransport {
     }
   }
 
-  #handleStdout(chunk: Buffer | string): void {
-    const frames = this.#decoder.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
-    for (const frame of frames) {
-      if (!frame.ok) {
-        this.#fail(new BrokerTransportError('Broker emitted an invalid NDJSON frame', frame.error))
-        return
-      }
-      this.#handleMessage(frame.value)
-    }
-  }
-
-  #handleMessage(message: JsonRpcMessage): void {
-    if (isJsonRpcResponse(message)) {
-      const pending = this.#pending.get(this.#idKey(message.id))
-      if (!pending) {
-        return
-      }
-      this.#pending.delete(this.#idKey(message.id))
-      if ('error' in message) {
-        pending.reject(new BrokerRpcError(message.error))
-      } else {
-        pending.resolve(message.result)
-      }
-      return
-    }
-
-    if (isJsonRpcNotification(message)) {
-      this.#notificationHandler(message)
-      return
-    }
-
-    if (isJsonRpcRequest(message)) {
-      void this.#handleRequest(message)
-    }
-  }
-
-  async #handleRequest(request: JsonRpcRequest): Promise<void> {
-    if (!this.#requestHandler) {
-      this.#write(
-        createJsonRpcErrorResponse(request.id, -32601, `Method not found: ${request.method}`)
-      )
-      return
-    }
-
-    try {
-      const result = await this.#requestHandler(request)
-      this.#write({ jsonrpc: '2.0', id: request.id, result })
-    } catch (error) {
-      this.#write(
-        createJsonRpcErrorResponse(
-          request.id,
-          -32603,
-          error instanceof Error ? error.message : 'Internal client error'
-        )
-      )
-    }
-  }
-
-  #write(message: JsonRpcMessage): void {
-    if (this.#exitError) {
-      throw this.#exitError
+  protected writeFrame(message: JsonRpcMessage): void {
+    if (this.failure) {
+      throw this.failure
     }
     if (this.child.stdin.destroyed) {
       throw new BrokerTransportError('Broker stdin is closed')
@@ -233,30 +106,20 @@ export class StdioTransport implements BrokerJsonRpcTransport {
   }
 
   #appendStderr(chunk: string): void {
-    this.#stderrTail = `${this.#stderrTail}${chunk}`.slice(-4096)
+    this.#stderrTail = `${this.#stderrTail}${chunk}`.slice(-STDERR_TAIL_LIMIT)
   }
 
-  #fail(error: BrokerTransportError): void {
-    if (this.#exitError === undefined) {
-      this.#exitError =
-        this.#stderrTail.trim().length > 0
-          ? new BrokerTransportError(`${error.message}\nBroker stderr:\n${this.#stderrTail.trim()}`)
-          : error
-      this.#rejectPending(this.#exitError)
-      this.#closeHandler(this.#exitError)
-    }
+  /**
+   * Latch the broker failure, enriching it with the captured stderr tail, then
+   * resolve the exit promise so {@link close} can settle.
+   */
+  #failExit(error: BrokerTransportError): void {
+    const tail = this.#stderrTail.trim()
+    const enriched =
+      tail.length > 0
+        ? new BrokerTransportError(`${error.message}\nBroker stderr:\n${tail}`)
+        : error
+    this.fail(enriched)
     this.#resolveExit()
-  }
-
-  #rejectPending(error: BrokerTransportError): void {
-    const pending = [...this.#pending.values()]
-    this.#pending.clear()
-    for (const request of pending) {
-      request.reject(error)
-    }
-  }
-
-  #idKey(id: JsonRpcId): string {
-    return String(id)
   }
 }

@@ -1,3 +1,5 @@
+import { ProtocolError } from './errors'
+
 export type JsonRpcId = string | number | null
 
 export interface JsonRpcRequest<TMethod extends string = string, TParams = unknown> {
@@ -48,13 +50,12 @@ type JsonRpcRecord = Record<string, unknown> & {
   message?: unknown
 }
 
-export class JsonRpcParseError extends Error {
+export class JsonRpcParseError extends ProtocolError {
   readonly code = 'INVALID_JSON_RPC'
   readonly issues: string[]
 
   constructor(message: string, issues: string[] = [message]) {
-    super(message)
-    this.name = 'JsonRpcParseError'
+    super('JsonRpcParseError', message)
     this.issues = issues
   }
 }

@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { connect as netConnect } from 'node:net'
 import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveRootRelativeRef } from 'spaces-config'
@@ -13,17 +12,20 @@ import type {
   FileSectionDef,
   SectionWrap,
   ServiceProbeSectionDef,
-  ServiceProbeSpec,
   SystemPromptMode,
   WhenPredicate,
 } from './context-template.js'
+import { displayServiceEndpoint, probeServiceEndpoint } from './service-probe.js'
+import { interpolateVariables } from './template-vars.js'
 
 const execFileAsync = promisify(execFile)
 const DEFAULT_EXEC_TIMEOUT_MS = 5000
 const DEFAULT_SERVICE_PROBE_TIMEOUT_MS = 250
 const SECTION_SEPARATOR = '\n\n---\n\n'
 const SLOT_SEPARATOR = '\n\n'
+const COMMAND_SEPARATOR = '\n'
 const TRUNCATION_MARKER = '[truncated]'
+const EXEC_MAX_BUFFER_BYTES = 1024 * 1024
 
 export interface ContextResolverContext {
   agentRoot: string
@@ -45,6 +47,12 @@ export interface ContextResolverContext {
   agentProfile?: Record<string, unknown> | undefined
   now?: Date | undefined
   env?: Record<string, string | undefined> | undefined
+  /**
+   * Base directory `when.exists` predicates resolve relative paths against.
+   * Defaults to `process.cwd()`; inject it to make `when.exists` deterministic
+   * instead of dependent on the caller's ambient working directory.
+   */
+  cwd?: string | undefined
 }
 
 export interface ResolvedContext {
@@ -295,7 +303,7 @@ function matchesWhenPredicate(section: ContextSection, context: ContextResolverC
     return false
   }
 
-  if (when.exists !== undefined && !existsSync(join(process.cwd(), when.exists))) {
+  if (when.exists !== undefined && !existsSync(join(context.cwd ?? process.cwd(), when.exists))) {
     return false
   }
 
@@ -369,12 +377,14 @@ async function resolveExecSection(
       cwd,
       timeout,
       encoding: 'utf8',
-      maxBuffer: 1024 * 1024,
+      maxBuffer: EXEC_MAX_BUFFER_BYTES,
       windowsHide: true,
     })
     const content = stdout.trim()
     return content.length > 0 ? content : undefined
   } catch {
+    // Intentional: an exec section that fails (non-zero exit, timeout, missing
+    // command) contributes no content rather than aborting prompt assembly.
     return undefined
   }
 }
@@ -406,70 +416,9 @@ async function resolveServiceProbeSection(
   }
   for (const { spec, up } of results) {
     const mark = up ? '✅' : '❌'
-    const display = spec.endpoint.startsWith('unix://')
-      ? spec.endpoint.slice('unix://'.length)
-      : spec.endpoint
-    lines.push(`  ${mark} ${spec.name.padEnd(nameWidth)}  ${display}`)
+    lines.push(`  ${mark} ${spec.name.padEnd(nameWidth)}  ${displayServiceEndpoint(spec.endpoint)}`)
   }
   return lines.join('\n')
-}
-
-interface ParsedEndpoint {
-  kind: 'tcp' | 'unix'
-  host?: string
-  port?: number
-  path?: string
-}
-
-function parseServiceEndpoint(endpoint: string): ParsedEndpoint | undefined {
-  if (endpoint.startsWith('unix://')) {
-    return { kind: 'unix', path: endpoint.slice('unix://'.length) }
-  }
-  if (endpoint.startsWith('/')) {
-    return { kind: 'unix', path: endpoint }
-  }
-  try {
-    const url = new URL(endpoint)
-    if (
-      url.protocol === 'tcp:' ||
-      url.protocol === 'http:' ||
-      url.protocol === 'https:' ||
-      url.protocol === 'ws:' ||
-      url.protocol === 'wss:'
-    ) {
-      const port = url.port
-        ? Number(url.port)
-        : url.protocol === 'https:' || url.protocol === 'wss:'
-          ? 443
-          : 80
-      return { kind: 'tcp', host: url.hostname, port }
-    }
-  } catch {
-    return undefined
-  }
-  return undefined
-}
-
-function probeServiceEndpoint(endpoint: string, timeoutMs: number): Promise<boolean> {
-  const parsed = parseServiceEndpoint(endpoint)
-  if (!parsed) return Promise.resolve(false)
-  return new Promise((resolve) => {
-    const sock =
-      parsed.kind === 'unix'
-        ? netConnect(parsed.path as string)
-        : netConnect({ host: parsed.host, port: parsed.port as number })
-    let settled = false
-    const finish = (up: boolean) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      sock.destroy()
-      resolve(up)
-    }
-    const timer = setTimeout(() => finish(false), timeoutMs)
-    sock.once('connect', () => finish(true))
-    sock.once('error', () => finish(false))
-  })
 }
 
 async function resolveSlotSection(
@@ -632,92 +581,6 @@ export function expandTemplate(content: string, context: ContextResolverContext)
   return interpolateVariables(content, context)
 }
 
-function interpolateVariables(content: string, context: ContextResolverContext): string {
-  const variables = buildVariableMap(context)
-  const env = context.env ?? process.env
-
-  return content.replace(
-    /\{\{\s*([a-zA-Z_][a-zA-Z_0-9.]*)\s*\}\}/g,
-    (match, variableName: string) => {
-      if (variableName.startsWith('env.')) {
-        const envKey = variableName.slice(4)
-        const envValue = env[envKey]
-        return typeof envValue === 'string' ? envValue : ''
-      }
-      return variableName in variables ? (variables[variableName] ?? '') : match
-    }
-  )
-}
-
-function buildVariableMap(context: ContextResolverContext): Record<string, string> {
-  const agentName = context.agentName ?? getAgentNameFromProfile(context.agentProfile) ?? ''
-  const agentId = context.agentId ?? agentName
-  const projectId = context.projectId ?? ''
-  const taskId = context.taskId ?? ''
-  const lane = context.lane ?? ''
-  const scopeRef = buildScopeRef(agentId, projectId, taskId)
-  const handle = buildHandle(agentId, projectId, taskId, lane)
-  const now = context.now ?? new Date()
-
-  return {
-    // Five top-level identity aliases
-    agentId,
-    projectId,
-    taskId,
-    scopeRef,
-    handle,
-    // Other flat scalars
-    lane,
-    runMode: context.runMode,
-    date: formatLocalDate(now),
-    dateUtc: now.toISOString(),
-    // path.* namespace
-    'path.agentRoot': context.agentRoot,
-    'path.agentsRoot': context.agentsRoot,
-    'path.projectRoot': context.projectRoot ?? '',
-    // Legacy / backwards-compatible names
-    agent_name: agentName,
-    agent_root: context.agentRoot,
-    agents_root: context.agentsRoot,
-    project_root: context.projectRoot ?? '',
-    project_id: projectId,
-    run_mode: context.runMode,
-    agentName,
-    agentRoot: context.agentRoot,
-    agentsRoot: context.agentsRoot,
-    projectRoot: context.projectRoot ?? '',
-  }
-}
-
-function buildScopeRef(agentId: string, projectId: string, taskId: string): string {
-  if (agentId.length === 0) {
-    return ''
-  }
-  let ref = agentId
-  if (projectId.length > 0) {
-    ref += `@${projectId}`
-    if (taskId.length > 0) {
-      ref += `:${taskId}`
-    }
-  }
-  return ref
-}
-
-function buildHandle(agentId: string, projectId: string, taskId: string, lane: string): string {
-  const base = buildScopeRef(agentId, projectId, taskId)
-  if (base.length === 0) {
-    return ''
-  }
-  return lane.length > 0 ? `${base}~${lane}` : base
-}
-
-function formatLocalDate(now: Date): string {
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 function interpolateContent(content: string, context: ContextResolverContext): string {
   return interpolateVariables(content, context)
 }
@@ -741,11 +604,6 @@ function applyWrap(
     content: `${prefix}${content}${suffix}`,
     wrapped: true,
   }
-}
-
-function getAgentNameFromProfile(profile: Record<string, unknown> | undefined): string | undefined {
-  const agent = resolveSourcePath(profile, 'agent.name')
-  return typeof agent === 'string' ? agent : undefined
 }
 
 function truncateSectionContent(content: string, maxChars?: number | undefined): string {
@@ -818,7 +676,7 @@ async function readOptionalFile(filePath: string): Promise<string | undefined> {
   }
 }
 
-function joinResolvedContent(contents: Array<string | undefined>): string | undefined {
+function joinNonEmpty(contents: Array<string | undefined>, separator: string): string | undefined {
   const resolved = contents.filter((content): content is string =>
     Boolean(content && content.length > 0)
   )
@@ -826,18 +684,15 @@ function joinResolvedContent(contents: Array<string | undefined>): string | unde
     return undefined
   }
 
-  return resolved.join(SLOT_SEPARATOR)
+  return resolved.join(separator)
+}
+
+function joinResolvedContent(contents: Array<string | undefined>): string | undefined {
+  return joinNonEmpty(contents, SLOT_SEPARATOR)
 }
 
 function joinCommandContent(contents: Array<string | undefined>): string | undefined {
-  const resolved = contents.filter((content): content is string =>
-    Boolean(content && content.length > 0)
-  )
-  if (resolved.length === 0) {
-    return undefined
-  }
-
-  return resolved.join('\n')
+  return joinNonEmpty(contents, COMMAND_SEPARATOR)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

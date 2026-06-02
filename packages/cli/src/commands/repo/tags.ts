@@ -8,9 +8,9 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { PathResolver, getAspHome, listTags } from 'spaces-config'
+import { listTags } from 'spaces-config'
 
-import { exitWithAspError } from '../../helpers.js'
+import { exitWithAspError, resolvePaths } from '../../helpers.js'
 
 interface RepoTagsOptions {
   json?: boolean | undefined
@@ -116,8 +116,7 @@ export function registerRepoTagsCommand(parent: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (spaceId: string, options: RepoTagsOptions) => {
       try {
-        const aspHome = options.aspHome ?? getAspHome()
-        const paths = new PathResolver({ aspHome })
+        const { paths } = resolvePaths(options)
 
         if (!(await Bun.file(`${paths.repo}/.git/HEAD`).exists())) {
           throw new Error('No registry found. Run "asp repo init" first.')

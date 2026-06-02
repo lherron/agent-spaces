@@ -1,6 +1,23 @@
 import { rm } from 'node:fs/promises'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
+import {
+  listInheritedEnvKeysToScrub,
+  sanitizeTmuxClientEnv,
+  sanitizeTmuxServerPath,
+} from './tmux-env'
+import {
+  MIN_SUPPORTED_TMUX_VERSION,
+  PANE_IDENTITY_FORMAT,
+  WINDOW_NAME,
+  parsePaneIdentity,
+  parsePaneState,
+  parseVersion,
+} from './tmux-parse'
+
+// Re-exported for backward compatibility — `parsePaneState` was a public export
+// of this module before the SRP split into `tmux-parse.ts`.
+export { parsePaneState }
 
 export type RestartStyle = 'reuse_pty' | 'fresh_pty'
 
@@ -65,13 +82,6 @@ export type TmuxPaneState = {
   paneId: string
 }
 
-const MIN_SUPPORTED_TMUX_VERSION = {
-  major: 3,
-  minor: 2,
-}
-
-const WINDOW_NAME = 'main'
-
 // sendPastedLine submit tuning (T-01734, hardened T-01747). The launch command is
 // pasted into the leased pane, then Enter is pressed to submit it. Two failure
 // modes are handled deterministically via capture-pane signals instead of blind
@@ -98,20 +108,6 @@ const LEGACY_PASTE_GAP_MS = 1_000
 // needle (whitespace-stripped so terminal line-wrap inside the window never breaks
 // the match — capture-pane hard-wraps long commands at pane width).
 const COMMAND_TAIL_LEN = 60
-const PANE_METADATA_PATTERN = /^(\$\d+)[\t_](@\d+)[\t_](%\d+)[\t_](.+)$/
-const PANE_IDENTITY_PATTERN = /^(\$\d+)[\t_](@\d+)[\t_](%\d+)$/
-const PANE_IDENTITY_FORMAT = '#{session_id}\t#{window_id}\t#{pane_id}'
-const SCRUB_EXACT_KEYS = new Set([
-  'BUILD_NUMBER',
-  'CI',
-  'CLICOLOR_FORCE',
-  'CONTINUOUS_INTEGRATION',
-  'FORCE_COLOR',
-  'GITHUB_ACTIONS',
-  'NO_COLOR',
-  'RUN_ID',
-])
-const SCRUB_PREFIXES = ['AGENTCHAT_', 'AGENT_', 'CODEX_', 'HRC_']
 
 function sessionNameFor(hostSessionId: string): string {
   return `hrc-${hostSessionId.slice(0, 12)}`
@@ -125,136 +121,6 @@ function isMissingTargetError(stderr: string): boolean {
     normalized.includes("can't find pane") ||
     normalized.includes("can't find window")
   )
-}
-
-function parseVersion(stdout: string, stderr: string): { major: number; minor: number } {
-  const source = `${stdout}\n${stderr}`.trim()
-  const match = source.match(/tmux\s+(\d+)\.(\d+)/i)
-  if (!match) {
-    throw new Error(`unable to parse tmux version from output: ${source || '<empty>'}`)
-  }
-
-  return {
-    major: Number.parseInt(match[1] ?? '0', 10),
-    minor: Number.parseInt(match[2] ?? '0', 10),
-  }
-}
-
-function shouldScrubInheritedEnvKey(key: string): boolean {
-  return SCRUB_EXACT_KEYS.has(key) || SCRUB_PREFIXES.some((prefix) => key.startsWith(prefix))
-}
-
-function scrubInheritedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
-  const scrubbed: Record<string, string> = {}
-  for (const [key, value] of Object.entries(env)) {
-    if (value !== undefined && !shouldScrubInheritedEnvKey(key)) {
-      scrubbed[key] = value
-    }
-  }
-  return scrubbed
-}
-
-function listInheritedEnvKeysToScrub(env: NodeJS.ProcessEnv): string[] {
-  const keys = new Set<string>(SCRUB_EXACT_KEYS)
-  for (const key of Object.keys(env)) {
-    if (shouldScrubInheritedEnvKey(key)) {
-      keys.add(key)
-    }
-  }
-  return [...keys].sort()
-}
-
-function sanitizeTmuxClientEnv(env: NodeJS.ProcessEnv): Record<string, string> {
-  const sanitized = scrubInheritedEnv(env)
-  const sanitizedPath = sanitizeTmuxServerPath(sanitized['PATH'])
-  if (!sanitizedPath) {
-    const { PATH: _discardedPath, ...withoutPath } = sanitized
-    return withoutPath
-  }
-  sanitized['PATH'] = sanitizedPath
-  return sanitized
-}
-
-function isCodexEphemeralPathEntry(entry: string): boolean {
-  return (
-    entry.includes('/tmp/arg0/codex-arg0') ||
-    entry.includes('/node_modules/@openai/codex/') ||
-    entry.includes('/node_modules/@openai/codex-darwin-arm64/vendor/')
-  )
-}
-
-function sanitizeTmuxServerPath(path: string | undefined): string | undefined {
-  if (!path) return undefined
-  const seen = new Set<string>()
-  const entries = path
-    .split(':')
-    .filter((entry) => entry.length > 0)
-    .filter((entry) => !isCodexEphemeralPathEntry(entry))
-    .filter((entry) => {
-      if (seen.has(entry)) return false
-      seen.add(entry)
-      return true
-    })
-  return entries.length > 0 ? entries.join(':') : undefined
-}
-
-export function parsePaneState(stdout: string, socketPath: string): TmuxPaneState {
-  const line = stdout
-    .trim()
-    .split('\n')
-    .map((entry) => entry.trim())
-    .find((entry) => entry.length > 0)
-
-  if (!line) {
-    throw new Error('tmux command did not return pane metadata')
-  }
-
-  const match = PANE_METADATA_PATTERN.exec(line)
-  if (!match) {
-    throw new Error(`unexpected tmux metadata line: ${line}`)
-  }
-
-  const [, sessionId, windowId, paneId, sessionName] = match
-  if (!sessionName || !sessionId || !windowId || !paneId) {
-    throw new Error(`tmux metadata regex captured empty groups in line: ${line}`)
-  }
-
-  return {
-    socketPath,
-    sessionName,
-    windowName: WINDOW_NAME,
-    sessionId,
-    windowId,
-    paneId,
-  }
-}
-
-function parsePaneIdentity(stdout: string): {
-  sessionId: string
-  windowId: string
-  paneId: string
-} {
-  const line = stdout
-    .trim()
-    .split('\n')
-    .map((entry) => entry.trim())
-    .find((entry) => entry.length > 0)
-
-  if (!line) {
-    throw new Error('tmux command did not return pane identity')
-  }
-
-  const match = PANE_IDENTITY_PATTERN.exec(line)
-  if (!match) {
-    throw new Error(`unexpected tmux pane identity line: ${line}`)
-  }
-
-  const [, sessionId, windowId, paneId] = match
-  if (!sessionId || !windowId || !paneId) {
-    throw new Error(`tmux pane identity regex captured empty groups in line: ${line}`)
-  }
-
-  return { sessionId, windowId, paneId }
 }
 
 export class TmuxManager {

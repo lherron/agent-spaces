@@ -333,9 +333,9 @@ describe('pi session event mapping', () => {
     ).toEqual([])
 
     // The text reply for the round is the held terminal, finalized at agent_end.
-    expect(mapPiEventToUnified(assistantMessageEnd('pi-msg-1', 'done'), 'session-1', state)).toEqual(
-      []
-    )
+    expect(
+      mapPiEventToUnified(assistantMessageEnd('pi-msg-1', 'done'), 'session-1', state)
+    ).toEqual([])
     const end = mapPiEventToUnified({ type: 'agent_end' }, 'session-1', state)
     expect(assistantFinalFlags(end)).toEqual([true])
     expect(messageEndEvents(end)[0]?.message).toEqual({

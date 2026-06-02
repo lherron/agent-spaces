@@ -1,31 +1,23 @@
 import { type Socket, connect } from 'node:net'
 import {
-  NdjsonDecoder,
-  createJsonRpcErrorResponse,
+  BrokerErrorCode,
   encodeNdjsonFrame,
   isJsonRpcNotification,
-  isJsonRpcRequest,
-  isJsonRpcResponse,
 } from 'spaces-harness-broker-protocol'
-import type { JsonRpcId, JsonRpcMessage, JsonRpcRequest } from 'spaces-harness-broker-protocol'
+import type { JsonRpcMessage } from 'spaces-harness-broker-protocol'
 import { BrokerRpcError, BrokerTransportError } from './errors'
+import { type JsonRpcChannelDebugOptions, JsonRpcFramedChannel } from './json-rpc-channel'
 import { assertSocketPathWithinBudget } from './socket-path'
-import type {
-  BrokerJsonRpcTransport,
-  CloseHandler,
-  NotificationHandler,
-  RequestHandler,
-} from './transport'
 
 export interface UnixSocketTransportConnectOptions {
   socketPath: string
   timeoutMs?: number | undefined
+  /** Optional diagnostics hooks for the underlying JSON-RPC channel. */
+  debug?: JsonRpcChannelDebugOptions | undefined
 }
 
-type PendingRequest = {
-  resolve: (value: unknown) => void
-  reject: (error: Error) => void
-}
+/** JSON-RPC error code for a superseded ("fenced") controller connection. */
+const CONTROLLER_FENCED_CODE = BrokerErrorCode.ControllerFenced
 
 /**
  * JSON-RPC NDJSON transport over a Unix domain socket. The broker is a
@@ -34,21 +26,14 @@ type PendingRequest = {
  * this is the durability difference versus {@link StdioTransport}, which kills
  * its owned child.
  */
-export class UnixSocketTransport implements BrokerJsonRpcTransport {
+export class UnixSocketTransport extends JsonRpcFramedChannel {
   readonly socket: Socket
 
-  #decoder = new NdjsonDecoder()
-  #nextId = 1
-  #pending = new Map<string, PendingRequest>()
-  #notificationHandler: NotificationHandler = () => {}
-  #requestHandler: RequestHandler | undefined
-  #closeHandler: CloseHandler = () => {}
-  #closed = false
-  #closeError: Error | undefined
   #closePromise: Promise<void>
   #resolveClose!: () => void
 
-  private constructor(socket: Socket) {
+  private constructor(socket: Socket, debug?: JsonRpcChannelDebugOptions) {
+    super(debug)
     this.socket = socket
     this.#closePromise = new Promise<void>((resolve) => {
       this.#resolveClose = resolve
@@ -56,14 +41,14 @@ export class UnixSocketTransport implements BrokerJsonRpcTransport {
 
     socket.setEncoding('utf8')
     socket.on('data', (chunk: string) => {
-      this.#handleData(chunk)
+      this.ingest(chunk)
     })
     socket.once('error', (error) => {
-      this.#fail(new BrokerTransportError('Broker socket error', error))
+      this.#failClose(new BrokerTransportError('Broker socket error', error))
     })
     socket.once('close', () => {
-      const message = this.#closed ? 'Broker socket closed' : 'Broker socket closed unexpectedly'
-      this.#fail(new BrokerTransportError(message))
+      const message = this.closed ? 'Broker socket closed' : 'Broker socket closed unexpectedly'
+      this.#failClose(new BrokerTransportError(message))
     })
   }
 
@@ -103,55 +88,7 @@ export class UnixSocketTransport implements BrokerJsonRpcTransport {
       })
     })
 
-    return new UnixSocketTransport(socket)
-  }
-
-  onNotification(handler: NotificationHandler): void {
-    this.#notificationHandler = handler
-  }
-
-  onRequest(handler: RequestHandler): void {
-    this.#requestHandler = handler
-  }
-
-  onClose(handler: CloseHandler): void {
-    this.#closeHandler = handler
-  }
-
-  request<T>(method: string, params?: unknown): Promise<T> {
-    if (this.#closeError) {
-      return Promise.reject(this.#closeError)
-    }
-    if (this.#closed) {
-      return Promise.reject(new BrokerTransportError('Broker transport is closed'))
-    }
-
-    const id = `req_${this.#nextId++}`
-    const request: JsonRpcRequest = {
-      jsonrpc: '2.0',
-      id,
-      method,
-    }
-    if (params !== undefined) {
-      request.params = params
-    }
-
-    const promise = new Promise<T>((resolve, reject) => {
-      this.#pending.set(id, {
-        resolve: (value) => resolve(value as T),
-        reject,
-      })
-    })
-    promise.catch(() => {})
-
-    try {
-      this.#write(request)
-    } catch (error) {
-      this.#pending.delete(id)
-      return Promise.reject(error)
-    }
-
-    return promise
+    return new UnixSocketTransport(socket, options.debug)
   }
 
   /**
@@ -159,12 +96,12 @@ export class UnixSocketTransport implements BrokerJsonRpcTransport {
    * long-lived server and must keep running after the controller disconnects.
    */
   async close(_options: { graceMs?: number | undefined } = {}): Promise<void> {
-    if (this.#closed) {
+    if (this.closed) {
       return this.#closePromise
     }
 
-    this.#closed = true
-    this.#rejectPending(new BrokerTransportError('Broker transport closed'))
+    this.closed = true
+    this.rejectPending(new BrokerTransportError('Broker transport closed'))
 
     if (this.socket.destroyed) {
       this.#resolveClose()
@@ -177,83 +114,28 @@ export class UnixSocketTransport implements BrokerJsonRpcTransport {
     return this.#closePromise
   }
 
-  #handleData(chunk: string): void {
-    const frames = this.#decoder.push(chunk)
-    for (const frame of frames) {
-      if (!frame.ok) {
-        this.#fail(new BrokerTransportError('Broker emitted an invalid NDJSON frame', frame.error))
-        return
-      }
-      this.#handleMessage(frame.value)
-    }
-  }
-
-  #handleMessage(message: JsonRpcMessage): void {
+  protected override handleMessage(message: JsonRpcMessage): void {
     // A `control.fenced` notification means a newer controller attached and
     // this connection has been superseded. Latch the fence as the close cause
     // so a request raced against the close rejects with ControllerFenced rather
     // than a generic transport-closed error.
     if (isJsonRpcNotification(message) && message.method === 'control.fenced') {
       const params = (message.params ?? {}) as { code?: number; message?: string }
-      this.#fail(
+      this.#failClose(
         new BrokerRpcError({
-          code: params.code ?? -32015,
+          code: params.code ?? CONTROLLER_FENCED_CODE,
           message: params.message ?? 'Controller fenced',
         })
       )
       return
     }
 
-    if (isJsonRpcResponse(message)) {
-      const key = this.#idKey(message.id)
-      const pending = this.#pending.get(key)
-      if (!pending) {
-        return
-      }
-      this.#pending.delete(key)
-      if ('error' in message) {
-        pending.reject(new BrokerRpcError(message.error))
-      } else {
-        pending.resolve(message.result)
-      }
-      return
-    }
-
-    if (isJsonRpcNotification(message)) {
-      this.#notificationHandler(message)
-      return
-    }
-
-    if (isJsonRpcRequest(message)) {
-      void this.#handleRequest(message)
-    }
+    super.handleMessage(message)
   }
 
-  async #handleRequest(request: JsonRpcRequest): Promise<void> {
-    if (!this.#requestHandler) {
-      this.#write(
-        createJsonRpcErrorResponse(request.id, -32601, `Method not found: ${request.method}`)
-      )
-      return
-    }
-
-    try {
-      const result = await this.#requestHandler(request)
-      this.#write({ jsonrpc: '2.0', id: request.id, result })
-    } catch (error) {
-      this.#write(
-        createJsonRpcErrorResponse(
-          request.id,
-          -32603,
-          error instanceof Error ? error.message : 'Internal client error'
-        )
-      )
-    }
-  }
-
-  #write(message: JsonRpcMessage): void {
-    if (this.#closeError) {
-      throw this.#closeError
+  protected writeFrame(message: JsonRpcMessage): void {
+    if (this.failure) {
+      throw this.failure
     }
     if (this.socket.destroyed) {
       throw new BrokerTransportError('Broker socket is closed')
@@ -261,24 +143,9 @@ export class UnixSocketTransport implements BrokerJsonRpcTransport {
     this.socket.write(encodeNdjsonFrame(message))
   }
 
-  #fail(error: Error): void {
-    if (this.#closeError === undefined) {
-      this.#closeError = error
-      this.#rejectPending(error)
-      this.#closeHandler(error)
-    }
+  /** Latch the close cause and resolve the close promise so {@link close} can settle. */
+  #failClose(error: Error): void {
+    this.fail(error)
     this.#resolveClose()
-  }
-
-  #rejectPending(error: Error): void {
-    const pending = [...this.#pending.values()]
-    this.#pending.clear()
-    for (const request of pending) {
-      request.reject(error)
-    }
-  }
-
-  #idKey(id: JsonRpcId): string {
-    return String(id)
   }
 }

@@ -92,7 +92,14 @@ export class HarnessRegistry {
           const detection = await adapter.detect()
           results.set(id, detection)
         } catch (error) {
-          // If detection throws, treat as unavailable with error
+          // If detection throws, treat as unavailable with error.
+          // `HarnessDetection.error` is a flat string, so the underlying
+          // stack/cause would otherwise be lost; surface the full error object
+          // (preserving stack and `cause`) to a guarded debug log so a
+          // misbehaving adapter is diagnosable without altering normal output.
+          if (process.env['ASP_DEBUG']) {
+            console.debug(`[HarnessRegistry] detect() failed for "${id}":`, error)
+          }
           results.set(id, {
             available: false,
             error: error instanceof Error ? error.message : String(error),

@@ -5,16 +5,20 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { CliUsageError } from 'cli-kit'
 import type { Command } from 'commander'
 
 import { resolveContextTemplateDetailed } from 'spaces-runtime'
 
 import { resolveSelfContext, resolveSelfTemplateContext } from '../lib.js'
+import { withMemoryCommand } from './lib.js'
 
 interface DiffOptions {
   json?: boolean
   target?: string
 }
+
+const COMMAND_NAME = 'self memory diff'
 
 export function registerMemoryDiffCommand(parent: Command): void {
   parent
@@ -23,18 +27,17 @@ export function registerMemoryDiffCommand(parent: Command): void {
     .option('--json', 'Emit machine-readable JSON')
     .option('--target <name>', 'Target filter (memory|user only — persona is rejected)')
     .action(async (options: DiffOptions) => {
-      try {
+      await withMemoryCommand(COMMAND_NAME, async () => {
         // Reject persona target
         if (options.target === 'persona') {
-          process.stderr.write(
-            'self memory diff: --target persona is not supported (persona is prompt-zone, not reminder-zone)\n'
+          throw new CliUsageError(
+            '--target persona is not supported (persona is prompt-zone, not reminder-zone)'
           )
-          process.exit(2)
         }
 
         const ctx = resolveSelfContext()
         if (!ctx.agentName) {
-          process.stderr.write('self memory diff: cannot determine agent name\n')
+          process.stderr.write(`${COMMAND_NAME}: cannot determine agent name\n`)
           process.exit(1)
         }
 
@@ -63,11 +66,7 @@ export function registerMemoryDiffCommand(parent: Command): void {
           process.stdout.write(diff)
           if (!diff.endsWith('\n')) process.stdout.write('\n')
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`self memory diff: ${message}\n`)
-        process.exit(1)
-      }
+      })
     })
 }
 

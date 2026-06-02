@@ -28,6 +28,30 @@ const DEFAULT_LOCK_OPTIONS: Required<LockOptions> = {
   retries: 300, // 300 retries * 100ms = 30s
 }
 
+/**
+ * Message substrings used by `proper-lockfile` that we classify into typed
+ * outcomes.
+ *
+ * WARNING: these are matched against the third-party error *message* text, not
+ * a stable error `code`. `proper-lockfile` does not expose typed errors or
+ * codes for these conditions, so message-matching is currently the only seam.
+ * Pinned against `proper-lockfile@^4` — if that dependency is upgraded, verify
+ * these wordings still hold (a wording change would silently demote a
+ * held-lock failure to a generic LockError, or turn a release no-op into a
+ * throw).
+ */
+const PROPER_LOCKFILE_MESSAGES = {
+  /** Lock is already held by another process (acquire path → treat as timeout). */
+  ACQUIRE_HELD: ['ELOCKED', 'already being held'],
+  /** Release of a lock that was never acquired / already released (release no-op). */
+  RELEASE_NO_OP: ['not acquired', 'already released'],
+} as const
+
+/** True if `err`'s message contains any of the given proper-lockfile substrings. */
+function messageMatches(err: Error, substrings: readonly string[]): boolean {
+  return substrings.some((substring) => err.message.includes(substring))
+}
+
 /** Lock release function */
 export type ReleaseFn = () => Promise<void>
 
@@ -97,8 +121,7 @@ export async function acquireLock(
           // Ignore errors when releasing (lock may already be released)
           if (
             err instanceof Error &&
-            !err.message.includes('not acquired') &&
-            !err.message.includes('already released')
+            !messageMatches(err, PROPER_LOCKFILE_MESSAGES.RELEASE_NO_OP)
           ) {
             throw new LockError(`Failed to release lock: ${err.message}`, lockPath)
           }
@@ -108,7 +131,7 @@ export async function acquireLock(
     }
   } catch (err) {
     if (err instanceof Error) {
-      if (err.message.includes('ELOCKED') || err.message.includes('already being held')) {
+      if (messageMatches(err, PROPER_LOCKFILE_MESSAGES.ACQUIRE_HELD)) {
         throw new LockTimeoutError(lockPath, opts.timeout)
       }
       throw new LockError(err.message, lockPath)

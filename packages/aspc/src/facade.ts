@@ -50,25 +50,32 @@ export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServ
     )
   const aspc = createAspcService({ broker, compiler: options.compiler })
 
-  server.register('aspc.hello', async ({ id, method, params }) => {
-    validateAspcCommand({ jsonrpc: '2.0', id, method, params })
-    return aspc.hello(validateAspcHelloRequest(params))
-  })
+  // Each ASPC route validates the JSON-RPC envelope, narrows params with its
+  // typed validator, then forwards to the service. `registerAspcMethod` factors
+  // out the shared envelope validation while preserving per-method typing.
+  function registerAspcMethod<Params, Result>(
+    method: string,
+    validateRequest: (params: unknown) => Params,
+    handle: (req: Params) => Promise<Result>
+  ): void {
+    server.register(method, async ({ id, params }) => {
+      validateAspcCommand({ jsonrpc: '2.0', id, method, params })
+      return handle(validateRequest(params))
+    })
+  }
 
-  server.register('aspc.compileRuntimePlan', async ({ id, method, params }) => {
-    validateAspcCommand({ jsonrpc: '2.0', id, method, params })
-    return aspc.compileRuntimePlan(validateAspcCompileRuntimePlanRequest(params))
-  })
-
-  server.register('aspc.compileHarnessInvocation', async ({ id, method, params }) => {
-    validateAspcCommand({ jsonrpc: '2.0', id, method, params })
-    return aspc.compileHarnessInvocation(validateAspcCompileHarnessInvocationRequest(params))
-  })
-
-  server.register('aspc.compileAndStart', async ({ id, method, params }) => {
-    validateAspcCommand({ jsonrpc: '2.0', id, method, params })
-    return aspc.compileAndStart(validateAspcCompileAndStartRequest(params))
-  })
+  registerAspcMethod('aspc.hello', validateAspcHelloRequest, (req) => aspc.hello(req))
+  registerAspcMethod('aspc.compileRuntimePlan', validateAspcCompileRuntimePlanRequest, (req) =>
+    aspc.compileRuntimePlan(req)
+  )
+  registerAspcMethod(
+    'aspc.compileHarnessInvocation',
+    validateAspcCompileHarnessInvocationRequest,
+    (req) => aspc.compileHarnessInvocation(req)
+  )
+  registerAspcMethod('aspc.compileAndStart', validateAspcCompileAndStartRequest, (req) =>
+    aspc.compileAndStart(req)
+  )
 
   registerBrokerMethods(server, broker)
   return server
@@ -93,54 +100,64 @@ export function runAspcFacadeStdio(
   })
 }
 
+/**
+ * Table of broker RPC routes. Each entry validates its params through the
+ * broker protocol seam and forwards to the matching `Broker` method, so adding
+ * a route is one row rather than another copy-pasted `server.register` block.
+ */
+function brokerMethodTable(broker: Broker): ReadonlyArray<{
+  method: string
+  invoke: (params: unknown) => Promise<unknown>
+}> {
+  return [
+    {
+      method: 'broker.hello',
+      invoke: (params) => broker.hello(params as Parameters<typeof broker.hello>[0]),
+    },
+    {
+      method: 'broker.health',
+      invoke: (params) => broker.health((params ?? {}) as Parameters<typeof broker.health>[0]),
+    },
+    {
+      method: 'invocation.start',
+      invoke: (params) => {
+        const dispatch = params as InvocationDispatchRequest
+        return broker.start(
+          dispatch.startRequest,
+          dispatch.dispatchEnv,
+          dispatch.runtime,
+          dispatch.lifecyclePolicy
+        )
+      },
+    },
+    {
+      method: 'invocation.input',
+      invoke: (params) => broker.input(params as Parameters<typeof broker.input>[0]),
+    },
+    {
+      method: 'invocation.interrupt',
+      invoke: (params) => broker.interrupt(params as Parameters<typeof broker.interrupt>[0]),
+    },
+    {
+      method: 'invocation.stop',
+      invoke: (params) => broker.stop(params as Parameters<typeof broker.stop>[0]),
+    },
+    {
+      method: 'invocation.status',
+      invoke: (params) => broker.status(params as Parameters<typeof broker.status>[0]),
+    },
+    {
+      method: 'invocation.dispose',
+      invoke: (params) => broker.dispose(params as Parameters<typeof broker.dispose>[0]),
+    },
+  ]
+}
+
 function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
-  function validateParams(method: string, id: string | number | null, params: unknown): void {
-    validateCommand({ jsonrpc: '2.0', id, method, params })
+  for (const { method, invoke } of brokerMethodTable(broker)) {
+    server.register(method, async ({ id, params }) => {
+      validateCommand({ jsonrpc: '2.0', id, method, params })
+      return invoke(params)
+    })
   }
-
-  server.register('broker.hello', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.hello(params as Parameters<typeof broker.hello>[0])
-  })
-
-  server.register('broker.health', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.health((params ?? {}) as Parameters<typeof broker.health>[0])
-  })
-
-  server.register('invocation.start', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    const dispatch = params as InvocationDispatchRequest
-    return broker.start(
-      dispatch.startRequest,
-      dispatch.dispatchEnv,
-      dispatch.runtime,
-      dispatch.lifecyclePolicy
-    )
-  })
-
-  server.register('invocation.input', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.input(params as Parameters<typeof broker.input>[0])
-  })
-
-  server.register('invocation.interrupt', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.interrupt(params as Parameters<typeof broker.interrupt>[0])
-  })
-
-  server.register('invocation.stop', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.stop(params as Parameters<typeof broker.stop>[0])
-  })
-
-  server.register('invocation.status', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.status(params as Parameters<typeof broker.status>[0])
-  })
-
-  server.register('invocation.dispose', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.dispose(params as Parameters<typeof broker.dispose>[0])
-  })
 }

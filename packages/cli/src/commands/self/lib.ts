@@ -22,6 +22,8 @@ import {
   resolveContextTemplateDetailed,
 } from 'spaces-runtime'
 
+import { errorMessage } from '../../helpers.js'
+
 /**
  * Lenient subset of the launch artifact. We read this read-only so missing
  * fields are tolerated.
@@ -226,6 +228,18 @@ function readAgentProfile(agentRoot: string | null): Record<string, unknown> | n
   }
 
   return parsed
+}
+
+/**
+ * Read a file if it exists, otherwise return null. Shared by the `self prompt`
+ * and `self explain` commands, which both read optional bundle artifacts
+ * (system-prompt.md, session-reminder.md) that may legitimately be absent.
+ */
+export function readOptionalFile(path: string | null): string | null {
+  if (!path || !existsSync(path)) {
+    return null
+  }
+  return readFileSync(path, 'utf8')
 }
 
 /**
@@ -435,6 +449,7 @@ export async function analyzeTemplateSections(input: {
         reminderSections: input.zone === 'reminder' ? [section] : [],
       }
 
+      const when = formatWhenPredicate(section)
       const base: SectionReport = {
         zone: input.zone,
         name: section.name,
@@ -442,7 +457,7 @@ export async function analyzeTemplateSections(input: {
         chars: 0,
         bytes: 0,
         included: false,
-        ...(formatWhenPredicate(section) ? { when: formatWhenPredicate(section) } : {}),
+        ...(when ? { when } : {}),
       }
 
       try {
@@ -463,10 +478,9 @@ export async function analyzeTemplateSections(input: {
           included: typeof content === 'string' && content.length > 0,
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
         return {
           ...base,
-          error: message,
+          error: errorMessage(error),
         }
       }
     })

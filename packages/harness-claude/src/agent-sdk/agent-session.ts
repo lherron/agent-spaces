@@ -14,6 +14,65 @@ import type {
 import type { HookEventBusAdapter } from './hooks-bridge.js'
 import { HooksBridge, processSDKMessage } from './hooks-bridge.js'
 import { PromptQueue } from './prompt-queue.js'
+import {
+  convertContentBlock,
+  extractStructuredContent,
+  extractToolInput,
+  extractToolName,
+  forEachToolBlock,
+  isToolResultError,
+  normalizeToolInput,
+  normalizeToolResultBlocks,
+  resolveToolUseId,
+} from './sdk-message-decode.js'
+
+/**
+ * Default cap on SDK turns when the caller does not specify one. The SDK has no
+ * implicit limit, so we bound runaway multi-turn loops.
+ */
+const DEFAULT_MAX_TURNS = 100
+
+/**
+ * Shell forced into the SDK child environment so tool invocations have a
+ * predictable, POSIX-compatible shell regardless of the host's login shell.
+ */
+const SDK_CHILD_SHELL = '/bin/bash'
+
+/**
+ * Factory for the SDK `query()` call. Defaults to the real SDK function but can
+ * be injected for tests so the session lifecycle / error paths can be exercised
+ * against a fake `Query` without spinning up the real SDK.
+ */
+export type QueryFactory = typeof query
+
+/**
+ * Seam over process globals (pid + env) so the session does not read
+ * `process.*` directly, enabling deterministic substitution in tests.
+ */
+export interface RuntimeEnv {
+  pid: number
+  env: Record<string, string | undefined>
+}
+
+const defaultRuntimeEnv: RuntimeEnv = {
+  get pid() {
+    return process.pid
+  },
+  get env() {
+    return process.env
+  },
+}
+
+/**
+ * Optional collaborators / seams for an {@link AgentSession}.
+ */
+export interface AgentSessionOpts {
+  onSdkSessionId?: (sdkSessionId: string) => void
+  /** Override the SDK `query()` entrypoint (defaults to the real SDK). */
+  queryFactory?: QueryFactory
+  /** Override the process pid/env seam (defaults to real `process`). */
+  runtimeEnv?: RuntimeEnv
+}
 
 /**
  * Configuration for an agent session.
@@ -88,15 +147,19 @@ export class AgentSession implements UnifiedSession {
    * cleared when the corresponding Task tool result is received.
    */
   private currentSubagentContext: string | undefined
+  private readonly queryFactory: QueryFactory
+  private readonly runtimeEnv: RuntimeEnv
 
   constructor(
     private readonly config: AgentSessionConfig,
     private readonly hookEventBus?: HookEventBusAdapter,
-    opts?: { onSdkSessionId?: (sdkSessionId: string) => void }
+    opts?: AgentSessionOpts
   ) {
     this.promptQueue = new PromptQueue(config.sessionId)
     this.hooksBridge = new HooksBridge(config.ownerId, hookEventBus, config.cwd, config.sessionId)
     this.onSdkSessionId = opts?.onSdkSessionId
+    this.queryFactory = opts?.queryFactory ?? query
+    this.runtimeEnv = opts?.runtimeEnv ?? defaultRuntimeEnv
     this.sessionId = config.sessionId ?? config.ownerId
   }
 
@@ -125,7 +188,7 @@ export class AgentSession implements UnifiedSession {
     })
 
     // Store PID of current process (the SDK runs in-process)
-    this.pid = process.pid
+    this.pid = this.runtimeEnv.pid
 
     // Map short model names to full SDK model names
     const sdkModel = AGENT_SDK_MODEL_MAP[this.config.model] ?? this.config.model
@@ -134,10 +197,10 @@ export class AgentSession implements UnifiedSession {
     const permissionMode = 'default' as const
     this.abortController = new AbortController()
     const options = {
-      maxTurns: this.config.maxTurns ?? 100,
+      maxTurns: this.config.maxTurns ?? DEFAULT_MAX_TURNS,
       model: sdkModel,
       cwd: this.config.cwd,
-      env: { ...process.env, SHELL: '/bin/bash' },
+      env: { ...this.runtimeEnv.env, SHELL: SDK_CHILD_SHELL },
       permissionMode,
       abortController: this.abortController,
       // biome-ignore lint/suspicious/noExplicitAny: SDK type compatibility for canUseTool callback
@@ -152,7 +215,7 @@ export class AgentSession implements UnifiedSession {
       `[agent-sdk] session.start ${this.config.ownerId} model=${sdkModel} resume=${this.config.continuationKey ? truncateId(this.config.continuationKey) : 'none'} plugins=${this.config.plugins?.length ?? 0} maxTurns=${options.maxTurns}`
     )
 
-    const result = query({
+    const result = this.queryFactory({
       // biome-ignore lint/suspicious/noExplicitAny: SDK type compatibility - accepts simpler message formats at runtime
       prompt: this.promptQueue as any,
       options,
@@ -371,54 +434,7 @@ export class AgentSession implements UnifiedSession {
         const { value, done } = result as IteratorResult<unknown>
         if (done) break
 
-        this.lastActivityAt = Date.now()
-
-        const msg = value as Record<string, unknown>
-        const msgType = typeof msg['type'] === 'string' ? msg['type'] : undefined
-
-        // Capture SDK session ID from system/init message
-        if (msgType === 'system' && msg['subtype'] === 'init') {
-          const sessionId = msg['session_id']
-          if (typeof sessionId === 'string' && this.sdkSessionId !== sessionId) {
-            this.sdkSessionId = sessionId
-            this.onSdkSessionId?.(sessionId)
-            // Emit dedicated event for SDK session ID (used for resume)
-            this.emitEvent({ type: 'sdk_session_id', sdkSessionId: sessionId })
-          }
-          const pluginList = Array.isArray(msg['plugins']) ? msg['plugins'] : []
-          const pluginNames = pluginList
-            .map((plugin) => {
-              if (plugin && typeof plugin === 'object' && typeof plugin.name === 'string') {
-                return plugin.name
-              }
-              return null
-            })
-            .filter((name): name is string => Boolean(name))
-          if (pluginNames.length > 0) {
-            console.log(
-              `[agent-sdk] init plugins for ${this.config.ownerId}: ${pluginNames.join(', ')}`
-            )
-          }
-        }
-        this.emitAgentStartIfNeeded()
-
-        // Extract assistant response text from SDK messages
-        const responseText = this.extractResponseText(value)
-        if (responseText) {
-          this.lastResponse = responseText
-        }
-
-        this.handleSdkMessage(msg, msgType)
-        processSDKMessage(value, this.hooksBridge)
-
-        // When we receive a result message, emit Stop to complete the current run
-        // The SDK session stays alive for subsequent prompts
-        if (msgType === 'result') {
-          this.emitStopIfNeeded(undefined, this.lastResponse || undefined)
-          // Clear lastResponse for next prompt
-          this.lastResponse = ''
-          this.emitTurnEndIfNeeded()
-        }
+        this.processMessage(value)
       }
     } catch (error) {
       this.state = 'error'
@@ -432,9 +448,7 @@ export class AgentSession implements UnifiedSession {
       // resolve instead of hanging. Without this, a mid-turn child crash
       // leaves runPlacementTurnNonInteractive blocked until the outer
       // abort/timeout fires, or worse, the turn is tracked as wedged.
-      while (this.pendingTurnIds.length > 0) {
-        this.emitTurnEndIfNeeded()
-      }
+      this.flushPendingTurns()
       throw error
     } finally {
       this.isListening = false
@@ -449,10 +463,79 @@ export class AgentSession implements UnifiedSession {
       // the SDK can end the iterator without emitting a terminal result
       // (e.g. child exits 0 after an empty resume), and callers need to
       // unblock on turn_end.
-      while (this.pendingTurnIds.length > 0) {
-        this.emitTurnEndIfNeeded()
-      }
+      this.flushPendingTurns()
       this.emitAgentEnd(this.stopReason ?? (this.state === 'error' ? 'error' : 'stopped'))
+    }
+  }
+
+  /**
+   * Process a single SDK output message: capture session id from init, emit
+   * agent_start, track the last assistant response, dispatch the message to the
+   * event/hook streams, and flush a turn when a terminal result arrives.
+   */
+  private processMessage(value: unknown): void {
+    this.lastActivityAt = Date.now()
+
+    const msg = value as Record<string, unknown>
+    const msgType = typeof msg['type'] === 'string' ? msg['type'] : undefined
+
+    if (msgType === 'system' && msg['subtype'] === 'init') {
+      this.captureInitMessage(msg)
+    }
+    this.emitAgentStartIfNeeded()
+
+    // Extract assistant response text from SDK messages
+    const responseText = this.extractResponseText(value)
+    if (responseText) {
+      this.lastResponse = responseText
+    }
+
+    this.handleSdkMessage(msg, msgType)
+    processSDKMessage(value, this.hooksBridge)
+
+    // When we receive a result message, emit Stop to complete the current run.
+    // The SDK session stays alive for subsequent prompts.
+    if (msgType === 'result') {
+      this.emitStopIfNeeded(undefined, this.lastResponse || undefined)
+      // Clear lastResponse for next prompt
+      this.lastResponse = ''
+      this.emitTurnEndIfNeeded()
+    }
+  }
+
+  /**
+   * Capture the SDK session id (for resume) and log discovered plugins from a
+   * `system`/`init` message.
+   */
+  private captureInitMessage(msg: Record<string, unknown>): void {
+    const sessionId = msg['session_id']
+    if (typeof sessionId === 'string' && this.sdkSessionId !== sessionId) {
+      this.sdkSessionId = sessionId
+      this.onSdkSessionId?.(sessionId)
+      // Emit dedicated event for SDK session ID (used for resume)
+      this.emitEvent({ type: 'sdk_session_id', sdkSessionId: sessionId })
+    }
+    const pluginList = Array.isArray(msg['plugins']) ? msg['plugins'] : []
+    const pluginNames = pluginList
+      .map((plugin) => {
+        if (plugin && typeof plugin === 'object' && typeof plugin.name === 'string') {
+          return plugin.name
+        }
+        return null
+      })
+      .filter((name): name is string => Boolean(name))
+    if (pluginNames.length > 0) {
+      console.log(`[agent-sdk] init plugins for ${this.config.ownerId}: ${pluginNames.join(', ')}`)
+    }
+  }
+
+  /**
+   * Drain all pending turn ids, emitting a `turn_end` for each so callers
+   * awaiting a turn promise unblock on every exit path.
+   */
+  private flushPendingTurns(): void {
+    while (this.pendingTurnIds.length > 0) {
+      this.emitTurnEndIfNeeded()
     }
   }
 
@@ -533,14 +616,8 @@ export class AgentSession implements UnifiedSession {
     // These come from the subagent's assistant response
     if (msgType === 'tool_use') {
       const toolUseId = resolveToolUseId(msg) ?? `sdk-tool-${++this.toolUseCounter}`
-      const toolName =
-        typeof msg['name'] === 'string'
-          ? msg['name']
-          : typeof msg['tool_name'] === 'string'
-            ? msg['tool_name']
-            : 'tool'
-      const toolInput =
-        'input' in msg ? msg['input'] : 'tool_input' in msg ? msg['tool_input'] : undefined
+      const toolName = extractToolName(msg)
+      const toolInput = extractToolInput(msg)
 
       this.toolUses.set(toolUseId, { name: toolName, input: toolInput })
       this.emitEvent({
@@ -575,43 +652,16 @@ export class AgentSession implements UnifiedSession {
   }
 
   private handleToolBlocks(content: unknown, parentToolUseId?: string): boolean {
-    if (!content) return false
-    const blocks = Array.isArray(content) ? content : [content]
-    let sawToolResultBlock = false
-
-    for (const block of blocks) {
-      if (!block || typeof block !== 'object') continue
-      const blockObj = block as Record<string, unknown>
-      const blockType = typeof blockObj['type'] === 'string' ? blockObj['type'] : undefined
-
-      if (blockType === 'tool_use') {
-        this.processToolUseBlock(blockObj, parentToolUseId)
-        continue
-      }
-
-      if (blockType === 'tool_result') {
-        sawToolResultBlock = true
-        this.processToolResultBlock(blockObj, parentToolUseId)
-      }
-    }
-
-    return sawToolResultBlock
+    return forEachToolBlock(content, {
+      onToolUse: (block) => this.processToolUseBlock(block, parentToolUseId),
+      onToolResult: (block) => this.processToolResultBlock(block, parentToolUseId),
+    })
   }
 
   private processToolUseBlock(blockObj: Record<string, unknown>, parentToolUseId?: string): void {
     const toolUseId = resolveToolUseId(blockObj) ?? `sdk-tool-${++this.toolUseCounter}`
-    const toolName =
-      typeof blockObj['name'] === 'string'
-        ? blockObj['name']
-        : typeof blockObj['tool_name'] === 'string'
-          ? blockObj['tool_name']
-          : 'tool'
-    const toolInput =
-      'input' in blockObj
-        ? blockObj['input']
-        : 'tool_input' in blockObj
-          ? blockObj['tool_input']
-          : undefined
+    const toolName = extractToolName(blockObj)
+    const toolInput = extractToolInput(blockObj)
 
     this.toolUses.set(toolUseId, { name: toolName, input: toolInput })
     this.emitEvent({
@@ -631,20 +681,13 @@ export class AgentSession implements UnifiedSession {
     const toolUseId = resolveToolUseId(blockObj)
     const resolvedToolUseId = toolUseId ?? `sdk-tool-${++this.toolUseCounter}`
     const toolMeta = toolUseId ? this.toolUses.get(toolUseId) : undefined
-    const toolName =
-      toolMeta?.name ??
-      (typeof blockObj['tool_name'] === 'string'
-        ? blockObj['tool_name']
-        : typeof blockObj['name'] === 'string'
-          ? blockObj['name']
-          : 'tool')
-    const isError = blockObj['is_error'] === true || blockObj['isError'] === true ? true : undefined
+    const toolName = toolMeta?.name ?? extractToolName(blockObj)
+    const isError = isToolResultError(blockObj)
     const { blocks } = normalizeToolResultBlocks(blockObj['content'])
     const details: Record<string, unknown> = {}
-    if (blockObj['structuredContent'] !== undefined) {
-      details['structured_content'] = blockObj['structuredContent']
-    } else if (blockObj['structured_content'] !== undefined) {
-      details['structured_content'] = blockObj['structured_content']
+    const structuredContent = extractStructuredContent(blockObj)
+    if (structuredContent !== undefined) {
+      details['structured_content'] = structuredContent
     }
     const result: ToolResult = {
       content: blocks,
@@ -786,35 +829,10 @@ function mapSdkContent(content: unknown): ContentBlock[] | string | undefined {
     const block = item as Record<string, unknown>
     const type = typeof block['type'] === 'string' ? block['type'] : undefined
 
-    if (type === 'text' && typeof block['text'] === 'string') {
-      blocks.push({ type: 'text', text: block['text'] })
-      continue
-    }
-
-    if (
-      type === 'image' &&
-      typeof block['data'] === 'string' &&
-      typeof block['mimeType'] === 'string'
-    ) {
-      blocks.push({ type: 'image', data: block['data'], mimeType: block['mimeType'] })
-      continue
-    }
-
-    if (type === 'media_ref' && typeof block['url'] === 'string') {
-      const entry: ContentBlock = { type: 'media_ref', url: block['url'] }
-      if (typeof block['mimeType'] === 'string') entry.mimeType = block['mimeType']
-      if (typeof block['filename'] === 'string') entry.filename = block['filename']
-      if (typeof block['alt'] === 'string') entry.alt = block['alt']
-      blocks.push(entry)
-      continue
-    }
-
-    if (type === 'resource_link' && typeof block['uri'] === 'string') {
-      const entry: ContentBlock = { type: 'media_ref', url: block['uri'] }
-      if (typeof block['mimeType'] === 'string') entry.mimeType = block['mimeType']
-      if (typeof block['filename'] === 'string') entry.filename = block['filename']
-      if (typeof block['alt'] === 'string') entry.alt = block['alt']
-      blocks.push(entry)
+    // Plain (non-tool) blocks are converted via the shared handler table.
+    if (type === 'text' || type === 'image' || type === 'media_ref' || type === 'resource_link') {
+      const converted = convertContentBlock(block)
+      if (converted) blocks.push(converted)
       continue
     }
 
@@ -831,7 +849,7 @@ function mapSdkContent(content: unknown): ContentBlock[] | string | undefined {
           type: 'tool_use',
           id: toolUseId,
           name: toolName,
-          input: normalizeToolInput(block['input'] ?? block['tool_input']),
+          input: normalizeToolInput(extractToolInput(block)),
         })
       }
       continue
@@ -855,99 +873,6 @@ function mapSdkContent(content: unknown): ContentBlock[] | string | undefined {
   }
 
   return blocks.length > 0 ? blocks : undefined
-}
-
-function normalizeToolInput(toolInput: unknown): Record<string, unknown> {
-  if (toolInput && typeof toolInput === 'object' && !Array.isArray(toolInput)) {
-    return toolInput as Record<string, unknown>
-  }
-  if (toolInput === undefined) return {}
-  return { value: toolInput }
-}
-
-function resolveToolUseId(blockObj: Record<string, unknown>): string | undefined {
-  if (typeof blockObj['tool_use_id'] === 'string') return blockObj['tool_use_id']
-  if (typeof blockObj['toolUseId'] === 'string') return blockObj['toolUseId']
-  if (typeof blockObj['id'] === 'string') return blockObj['id']
-  return undefined
-}
-
-function normalizeToolResultBlocks(content: unknown): { blocks: ContentBlock[]; text: string } {
-  const blocks: ContentBlock[] = []
-  const textParts: string[] = []
-  if (content === undefined || content === null) {
-    return { blocks, text: '' }
-  }
-
-  const items = Array.isArray(content) ? content : [content]
-  for (const item of items) {
-    if (!item || typeof item !== 'object') {
-      const text = typeof item === 'string' ? item : String(item)
-      if (text) {
-        blocks.push({ type: 'text', text })
-        textParts.push(text)
-      }
-      continue
-    }
-
-    const block = item as Record<string, unknown>
-    const type = typeof block['type'] === 'string' ? block['type'] : undefined
-
-    if (type === 'text' && typeof block['text'] === 'string') {
-      blocks.push({ type: 'text', text: block['text'] })
-      textParts.push(block['text'])
-      continue
-    }
-
-    if (
-      type === 'image' &&
-      typeof block['data'] === 'string' &&
-      typeof block['mimeType'] === 'string'
-    ) {
-      blocks.push({ type: 'image', data: block['data'], mimeType: block['mimeType'] })
-      continue
-    }
-
-    if (type === 'media_ref' && typeof block['url'] === 'string') {
-      const entry: ContentBlock = { type: 'media_ref', url: block['url'] }
-      if (typeof block['mimeType'] === 'string') entry.mimeType = block['mimeType']
-      if (typeof block['filename'] === 'string') entry.filename = block['filename']
-      if (typeof block['alt'] === 'string') entry.alt = block['alt']
-      blocks.push(entry)
-      continue
-    }
-
-    if (type === 'resource_link' && typeof block['uri'] === 'string') {
-      const entry: ContentBlock = { type: 'media_ref', url: block['uri'] }
-      if (typeof block['mimeType'] === 'string') entry.mimeType = block['mimeType']
-      if (typeof block['filename'] === 'string') entry.filename = block['filename']
-      if (typeof block['alt'] === 'string') entry.alt = block['alt']
-      blocks.push(entry)
-      continue
-    }
-
-    if (type === 'resource' && block['resource'] && typeof block['resource'] === 'object') {
-      const resource = block['resource'] as Record<string, unknown>
-      if (typeof resource['text'] === 'string') {
-        blocks.push({ type: 'text', text: resource['text'] })
-        textParts.push(resource['text'])
-        continue
-      }
-      if (
-        typeof resource['blob'] === 'string' &&
-        typeof block['mimeType'] === 'string' &&
-        block['mimeType'].startsWith('image/')
-      ) {
-        blocks.push({
-          type: 'image',
-          data: resource['blob'],
-          mimeType: block['mimeType'],
-        })
-      }
-    }
-  }
-
-  return { blocks, text: textParts.join('') }
 }
 
 // Shorten a UUID-like identifier for log lines. Full UUIDs are noisy and

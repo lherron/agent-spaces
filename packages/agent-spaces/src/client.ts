@@ -65,7 +65,11 @@ import {
 } from './client-support.js'
 import { preparePlacementCliRuntime, toProcessInvocationSpec } from './prepare-cli-runtime.js'
 import { runPlacementTurnNonInteractive } from './run-placement-turn.js'
-import { shouldDrainOutstandingTurn, toAgentSpacesError } from './run-turn-helpers.js'
+import {
+  emitTurnFailure,
+  shouldDrainOutstandingTurn,
+  toAgentSpacesError,
+} from './run-turn-helpers.js'
 import type {
   AgentSpacesClient,
   BuildHarnessBrokerInvocationRequest,
@@ -318,40 +322,26 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
         )
 
         if (frontendDef.frontend !== AGENT_SDK_FRONTEND) {
-          const result: RunResult = {
-            success: false,
-            error: toAgentSpacesError(
+          return emitTurnFailure(
+            eventEmitter,
+            { provider: frontendDef.provider, frontend: req.frontend, model: req.model },
+            toAgentSpacesError(
               new CodedError(
                 `In-flight input is only supported for frontend "${AGENT_SDK_FRONTEND}"`,
                 'unsupported_frontend'
               )
-            ),
-          }
-          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-          return {
-            provider: frontendDef.provider,
-            frontend: req.frontend,
-            model: req.model,
-            result,
-          }
+            )
+          )
         }
 
         if (inFlightRuns.has(hostSessionId as string)) {
-          const result: RunResult = {
-            success: false,
-            error: toAgentSpacesError(
+          return emitTurnFailure(
+            eventEmitter,
+            { provider: frontendDef.provider, frontend: req.frontend, model: req.model },
+            toAgentSpacesError(
               new Error(`In-flight run already active for hostSessionId ${hostSessionId as string}`)
-            ),
-          }
-          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-          return {
-            provider: frontendDef.provider,
-            frontend: req.frontend,
-            model: req.model,
-            result,
-          }
+            )
+          )
         }
 
         let spec: ValidatedSpec
@@ -366,15 +356,11 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           validateProviderMatch(frontendDef, req.continuation)
           modelResolution = resolveModel(frontendDef, req.model)
         } catch (error) {
-          const result: RunResult = { success: false, error: toAgentSpacesError(error) }
-          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-          return {
-            provider: frontendDef.provider,
-            frontend: req.frontend,
-            model: req.model,
-            result,
-          }
+          return emitTurnFailure(
+            eventEmitter,
+            { provider: frontendDef.provider, frontend: req.frontend, model: req.model },
+            toAgentSpacesError(error)
+          )
         }
 
         if (continuationKey) {
@@ -398,15 +384,15 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
             ),
             'model_not_supported'
           )
-          const result: RunResult = { success: false, error }
-          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-          return {
-            provider: frontendDef.provider,
-            frontend: req.frontend,
-            model: modelResolution.modelId,
-            result,
-          }
+          return emitTurnFailure(
+            eventEmitter,
+            {
+              provider: frontendDef.provider,
+              frontend: req.frontend,
+              model: modelResolution.modelId,
+            },
+            error
+          )
         }
 
         const permissionHandler = buildAutoPermissionHandler()
@@ -535,18 +521,15 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
             return response
           }
 
-          const result: RunResult = {
-            success: false,
-            error: toAgentSpacesError(error, 'resolve_failed'),
-          }
-          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-          return {
-            provider: frontendDef.provider,
-            frontend: req.frontend,
-            model: modelResolution.ok ? modelResolution.info.effectiveModel : req.model,
-            result,
-          }
+          return emitTurnFailure(
+            eventEmitter,
+            {
+              provider: frontendDef.provider,
+              frontend: req.frontend,
+              model: modelResolution.ok ? modelResolution.info.effectiveModel : req.model,
+            },
+            toAgentSpacesError(error, 'resolve_failed')
+          )
         }
       })
     },
@@ -650,15 +633,11 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
 
           modelResolution = resolveModel(frontendDef, req.model)
         } catch (error) {
-          const result: RunResult = { success: false, error: toAgentSpacesError(error) }
-          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-          return {
-            provider: frontendDef.provider,
-            frontend: req.frontend,
-            model: req.model,
-            result,
-          }
+          return emitTurnFailure(
+            eventEmitter,
+            { provider: frontendDef.provider, frontend: req.frontend, model: req.model },
+            toAgentSpacesError(error)
+          )
         }
 
         // Determine session/continuation context (no session record persistence)
@@ -690,15 +669,15 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
             ),
             'model_not_supported'
           )
-          const result: RunResult = { success: false, error }
-          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-          return {
-            provider: frontendDef.provider,
-            frontend: req.frontend,
-            model: modelResolution.modelId,
-            result,
-          }
+          return emitTurnFailure(
+            eventEmitter,
+            {
+              provider: frontendDef.provider,
+              frontend: req.frontend,
+              model: modelResolution.modelId,
+            },
+            error
+          )
         }
 
         // For pi-sdk resume: validate session path exists
@@ -708,16 +687,16 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
               new Error(`Continuation not found: ${continuationKey}`),
               'continuation_not_found'
             )
-            const result: RunResult = { success: false, error }
-            await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-            await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-            return {
-              continuation: { provider: frontendDef.provider, key: continuationKey },
-              provider: frontendDef.provider,
-              frontend: req.frontend,
-              model: modelResolution.info.effectiveModel,
-              result,
-            }
+            return emitTurnFailure(
+              eventEmitter,
+              {
+                continuation: { provider: frontendDef.provider, key: continuationKey },
+                provider: frontendDef.provider,
+                frontend: req.frontend,
+                model: modelResolution.info.effectiveModel,
+              },
+              error
+            )
           }
         }
 
@@ -846,24 +825,20 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
             }
           }
 
-          const result: RunResult = {
-            success: false,
-            error: toAgentSpacesError(error, 'resolve_failed'),
-          }
-          await eventEmitter.emit({ type: 'state', state: 'error' } as EventPayload)
-          await eventEmitter.emit({ type: 'complete', result } as EventPayload)
-
           const finalContinuation: HarnessContinuationRef | undefined = continuationKey
             ? { provider: frontendDef.provider, key: continuationKey }
             : undefined
 
-          return {
-            ...(finalContinuation ? { continuation: finalContinuation } : {}),
-            provider: frontendDef.provider,
-            frontend: req.frontend,
-            model: modelResolution.ok ? modelResolution.info.effectiveModel : req.model,
-            result,
-          }
+          return emitTurnFailure(
+            eventEmitter,
+            {
+              ...(finalContinuation ? { continuation: finalContinuation } : {}),
+              provider: frontendDef.provider,
+              frontend: req.frontend,
+              model: modelResolution.ok ? modelResolution.info.effectiveModel : req.model,
+            },
+            toAgentSpacesError(error, 'resolve_failed')
+          )
         }
       })
     },

@@ -264,9 +264,12 @@ export async function computeClosure(
         if (err instanceof Error && err.message.startsWith('Disallowed dependency edge')) {
           throw err
         }
-        // Wrap resolution errors as missing dependency
-        // MissingDependencyError takes (spaceId, dependsOn)
-        throw new MissingDependencyError(ref.id, depRefString)
+        // Wrap resolution errors as missing dependency, preserving the
+        // original failure as `cause` so a genuine deep read/parse/IO error
+        // (bad manifest TOML, etc.) stays diagnosable rather than being
+        // reported as a bare "missing dependency".
+        // MissingDependencyError takes (spaceId, dependsOn, { cause })
+        throw new MissingDependencyError(ref.id, depRefString, { cause: err })
       }
     }
 

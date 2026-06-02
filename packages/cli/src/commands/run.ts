@@ -11,6 +11,7 @@
  * 3. Dev mode: Run a local space directory (./path/to/space)
  */
 
+import { existsSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
@@ -127,6 +128,38 @@ function buildSettingSources(options: RunOptions): string | null | undefined {
 }
 
 /**
+ * Build the run-option fields shared by every run mode.
+ *
+ * WHY: the project/global/dev literals were ~25-field copies that drifted
+ * easily. Each mode now spreads this common shape and adds only its
+ * mode-specific keys (projectPath/projectId/taskId, interactive, prompt).
+ */
+function buildCommonRunOptions(options: RunOptions) {
+  return {
+    aspHome: options.aspHome,
+    registryPath: options.registry,
+    extraArgs: options.extraArgs,
+    dryRun: options.dryRun,
+    refresh: options.refresh,
+    yolo: options.yolo,
+    debug: options.debug,
+    permissionMode: options.permissionMode,
+    settingSources: buildSettingSources(options),
+    settings: options.settings,
+    harness: options.harness,
+    model: options.model,
+    modelReasoningEffort: options.modelReasoningEffort,
+    inheritProject: options.inheritProject,
+    inheritUser: options.inheritUser,
+    continuationKey: options.resume,
+    remoteControl: options.remoteControl,
+    sessionNamePrefix: options.namePrefix,
+    pagePrompts: options.pagePrompts,
+    compileRuntime: createCompileRuntimeFn(options.aspHome),
+  }
+}
+
+/**
  * Print the REAL RuntimeCompileRequest/Response the run compiled.
  *
  * No re-compile, no synthetic identities — these are the exact request/response
@@ -162,7 +195,6 @@ async function isLocalSpacePath(targetPath: string): Promise<boolean> {
 function hasAgentProfile(target: string): boolean {
   const agentsRoot = getAgentsRoot()
   if (!agentsRoot) return false
-  const { existsSync } = require('node:fs') as typeof import('node:fs')
   return existsSync(resolve(agentsRoot, target, 'agent-profile.toml'))
 }
 
@@ -211,31 +243,11 @@ async function runProjectMode(
   options: RunOptions
 ): Promise<RunResult> {
   const resolvedTarget = resolveProjectRunTarget(target)
-  const settingSources = buildSettingSources(options)
   const runOptions = {
+    ...buildCommonRunOptions(options),
     projectPath,
-    aspHome: options.aspHome,
-    registryPath: options.registry,
-    extraArgs: options.extraArgs,
-    dryRun: options.dryRun,
-    refresh: options.refresh,
-    yolo: options.yolo,
-    debug: options.debug,
-    permissionMode: options.permissionMode,
-    settingSources,
-    settings: options.settings,
-    harness: options.harness,
-    model: options.model,
-    modelReasoningEffort: options.modelReasoningEffort,
-    inheritProject: options.inheritProject,
-    inheritUser: options.inheritUser,
-    continuationKey: options.resume,
-    remoteControl: options.remoteControl,
-    sessionNamePrefix: options.namePrefix,
-    pagePrompts: options.pagePrompts,
     projectId: resolvedTarget.projectId,
     taskId: resolvedTarget.taskId,
-    compileRuntime: createCompileRuntimeFn(options.aspHome),
   }
 
   if (options.dryRun) {
@@ -304,30 +316,10 @@ async function runGlobalMode(
     console.log(chalk.blue(`Running space "${target}" in global mode...`))
   }
 
-  const settingSources = buildSettingSources(options)
   const globalOptions = {
-    aspHome: options.aspHome,
-    registryPath: options.registry,
-    extraArgs: options.extraArgs,
+    ...buildCommonRunOptions(options),
     interactive: options.interactive !== false,
     prompt,
-    dryRun: options.dryRun,
-    refresh: options.refresh,
-    yolo: options.yolo,
-    debug: options.debug,
-    permissionMode: options.permissionMode,
-    settingSources,
-    settings: options.settings,
-    harness: options.harness,
-    model: options.model,
-    modelReasoningEffort: options.modelReasoningEffort,
-    inheritProject: options.inheritProject,
-    inheritUser: options.inheritUser,
-    continuationKey: options.resume,
-    remoteControl: options.remoteControl,
-    sessionNamePrefix: options.namePrefix,
-    pagePrompts: options.pagePrompts,
-    compileRuntime: createCompileRuntimeFn(options.aspHome),
   }
 
   // target is validated by isSpaceReference() in detectRunMode before this function is called
@@ -355,30 +347,10 @@ async function runDevMode(
     console.log(chalk.blue(`Running local space "${target}" in dev mode...`))
   }
 
-  const settingSources = buildSettingSources(options)
   const devOptions = {
-    aspHome: options.aspHome,
-    registryPath: options.registry,
-    extraArgs: options.extraArgs,
+    ...buildCommonRunOptions(options),
     interactive: options.interactive !== false,
     prompt,
-    dryRun: options.dryRun,
-    refresh: options.refresh,
-    yolo: options.yolo,
-    debug: options.debug,
-    permissionMode: options.permissionMode,
-    settingSources,
-    settings: options.settings,
-    harness: options.harness,
-    model: options.model,
-    modelReasoningEffort: options.modelReasoningEffort,
-    inheritProject: options.inheritProject,
-    continuationKey: options.resume,
-    inheritUser: options.inheritUser,
-    remoteControl: options.remoteControl,
-    sessionNamePrefix: options.namePrefix,
-    pagePrompts: options.pagePrompts,
-    compileRuntime: createCompileRuntimeFn(options.aspHome),
   }
 
   const result = await runLocalSpace(targetPath, devOptions)

@@ -43,11 +43,6 @@ interface PluginJson {
   hooks?: string
 }
 
-/**
- * Known component directories in a plugin.
- */
-const _COMPONENT_DIRS = ['commands', 'agents', 'skills', 'hooks', 'scripts', 'mcp']
-
 // ============================================================================
 // Helper Functions - Directory Validation
 // ============================================================================

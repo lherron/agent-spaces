@@ -291,85 +291,121 @@ async function handleExecute(
       : undefined
   const envVars = parseEnvFlags(options.env)
 
-  if (frontend === 'claude-code' || frontend === 'codex-cli') {
-    const client = createAgentSpacesClient()
-    const response = await client.buildProcessInvocationSpec({
-      placement,
-      provider,
-      frontend,
-      model: options.model,
-      interactionMode: (options.interaction ?? 'headless') as 'interactive' | 'headless',
-      ioMode: (options.io ?? 'pipes') as 'pty' | 'pipes' | 'inherit',
-      continuation,
-      env: envVars,
-      prompt,
-      yolo: options.yolo,
-      hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
-    } as Parameters<typeof client.buildProcessInvocationSpec>[0])
+  const exec: FrontendExecContext = { placement, provider, continuation, envVars, prompt, options }
 
-    if (options.dryRun || options.printCommand) {
-      if (options.json) {
-        console.log(
-          JSON.stringify({ spec: response.spec, resolvedBundle: response.resolvedBundle }, null, 2)
-        )
-      } else {
-        if (options.printCommand) {
-          console.log(response.spec.displayCommand ?? response.spec.argv.join(' '))
-        }
-        if (options.dryRun) {
-          console.log('Dry run — would execute:')
-          console.log(`  argv: ${JSON.stringify(response.spec.argv)}`)
-          console.log(`  cwd:  ${response.spec.cwd}`)
-          if (response.resolvedBundle) {
-            console.log('Resolved Bundle:')
-            console.log(`  identity: ${response.resolvedBundle.bundleIdentity}`)
-          }
+  if (frontend === 'claude-code' || frontend === 'codex-cli') {
+    await runProcessFrontend(frontend, exec)
+  } else {
+    await runSdkFrontend(frontend, exec)
+  }
+}
+
+/**
+ * Resolved inputs shared by both frontend execution paths.
+ */
+interface FrontendExecContext {
+  placement: RuntimePlacement
+  provider: 'anthropic' | 'openai'
+  continuation: { provider: 'anthropic' | 'openai'; key: string } | undefined
+  envVars: Record<string, string> | undefined
+  prompt: string | undefined
+  options: AgentCommandOptions
+}
+
+/**
+ * Execute a CLI-frontend (claude-code / codex-cli): build a process invocation
+ * spec, then either print it (dry-run / print-command) or spawn the child.
+ */
+async function runProcessFrontend(
+  frontend: string,
+  { placement, provider, continuation, envVars, prompt, options }: FrontendExecContext
+): Promise<void> {
+  const client = createAgentSpacesClient()
+  const response = await client.buildProcessInvocationSpec({
+    placement,
+    provider,
+    frontend,
+    model: options.model,
+    interactionMode: (options.interaction ?? 'headless') as 'interactive' | 'headless',
+    ioMode: (options.io ?? 'pipes') as 'pty' | 'pipes' | 'inherit',
+    continuation,
+    env: envVars,
+    prompt,
+    yolo: options.yolo,
+    hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
+  } as Parameters<typeof client.buildProcessInvocationSpec>[0])
+
+  if (options.dryRun || options.printCommand) {
+    if (options.json) {
+      console.log(
+        JSON.stringify({ spec: response.spec, resolvedBundle: response.resolvedBundle }, null, 2)
+      )
+    } else {
+      if (options.printCommand) {
+        console.log(response.spec.displayCommand ?? response.spec.argv.join(' '))
+      }
+      if (options.dryRun) {
+        console.log('Dry run — would execute:')
+        console.log(`  argv: ${JSON.stringify(response.spec.argv)}`)
+        console.log(`  cwd:  ${response.spec.cwd}`)
+        if (response.resolvedBundle) {
+          console.log('Resolved Bundle:')
+          console.log(`  identity: ${response.resolvedBundle.bundleIdentity}`)
         }
       }
-      return
     }
-
-    const [command, ...args] = response.spec.argv
-    if (!command) throw new Error('Empty argv')
-    const stdinMode =
-      response.spec.ioMode === 'pty'
-        ? 'inherit'
-        : response.spec.interactionMode === 'headless'
-          ? 'ignore'
-          : 'pipe'
-    const child = spawn(command, args, {
-      cwd: response.spec.cwd,
-      env: { ...process.env, ...response.spec.env },
-      stdio: [stdinMode, response.spec.ioMode === 'pty' ? 'inherit' : 'pipe', 'pipe'],
-    })
-    if (child.stdout) child.stdout.pipe(process.stdout)
-    if (child.stderr) child.stderr.pipe(process.stderr)
-    const exitCode = await new Promise<number>((r) => child.on('close', (c) => r(c ?? 1)))
-    process.exit(exitCode)
-  } else {
-    const client = createAgentSpacesClient()
-    const response = await client.runTurnNonInteractive({
-      placement,
-      frontend: frontend as 'agent-sdk' | 'pi-sdk',
-      model: options.model,
-      yolo: options.yolo,
-      continuation,
-      env: envVars,
-      prompt: prompt ?? '',
-      attachments: options.attachment,
-      callbacks: {
-        onEvent: (event: AgentEvent) => {
-          if (options.json) console.log(JSON.stringify(event))
-          else if (event.type === 'message' && event.role === 'assistant')
-            process.stdout.write(event.content)
-          else if (event.type === 'message_delta') process.stdout.write(event.delta)
-        },
-      },
-      hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
-      runId: options.runId ?? '',
-    } as unknown as Parameters<typeof client.runTurnNonInteractive>[0])
-    if (!response.result.success) process.exit(1)
+    return
   }
+
+  const [command, ...args] = response.spec.argv
+  if (!command) throw new Error('Empty argv')
+  const stdinMode =
+    response.spec.ioMode === 'pty'
+      ? 'inherit'
+      : response.spec.interactionMode === 'headless'
+        ? 'ignore'
+        : 'pipe'
+  const child = spawn(command, args, {
+    cwd: response.spec.cwd,
+    env: { ...process.env, ...response.spec.env },
+    stdio: [stdinMode, response.spec.ioMode === 'pty' ? 'inherit' : 'pipe', 'pipe'],
+  })
+  if (child.stdout) child.stdout.pipe(process.stdout)
+  if (child.stderr) child.stderr.pipe(process.stderr)
+  const exitCode = await new Promise<number>((r) => child.on('close', (c) => r(c ?? 1)))
+  process.exit(exitCode)
+}
+
+/**
+ * Execute an SDK-frontend (agent-sdk / pi-sdk): run a non-interactive turn and
+ * stream events to stdout.
+ */
+async function runSdkFrontend(
+  frontend: string,
+  { placement, continuation, envVars, prompt, options }: FrontendExecContext
+): Promise<void> {
+  const client = createAgentSpacesClient()
+  const response = await client.runTurnNonInteractive({
+    placement,
+    frontend: frontend as 'agent-sdk' | 'pi-sdk',
+    model: options.model,
+    yolo: options.yolo,
+    continuation,
+    env: envVars,
+    prompt: prompt ?? '',
+    attachments: options.attachment,
+    callbacks: {
+      onEvent: (event: AgentEvent) => {
+        if (options.json) console.log(JSON.stringify(event))
+        else if (event.type === 'message' && event.role === 'assistant')
+          process.stdout.write(event.content)
+        else if (event.type === 'message_delta') process.stdout.write(event.delta)
+      },
+    },
+    hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
+    runId: options.runId ?? '',
+  } as unknown as Parameters<typeof client.runTurnNonInteractive>[0])
+  if (!response.result.success) process.exit(1)
 }
 
 function resolvePrompt(

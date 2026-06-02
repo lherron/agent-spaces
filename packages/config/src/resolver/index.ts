@@ -97,6 +97,15 @@ export {
   type IntegrityOptions,
 } from './integrity.js'
 
+// Space-entry classification + content-directory resolution
+export {
+  COMMIT_KEY_PREFIX_LEN,
+  classifySpaceEntry,
+  resolveSpaceContentDir,
+  type SpaceEntryKind,
+  type SpaceContentRoots,
+} from './space-classification.js'
+
 // Lock file generation
 export {
   generateLockFile,

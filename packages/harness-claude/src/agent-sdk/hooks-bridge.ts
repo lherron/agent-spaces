@@ -1,4 +1,13 @@
 import type { PermissionHandler } from 'spaces-runtime'
+import {
+  extractStructuredContent,
+  extractToolInput,
+  extractToolName,
+  forEachToolBlock,
+  isToolResultError,
+  normalizeToolResultBlocks,
+  resolveToolUseId,
+} from './sdk-message-decode.js'
 
 export interface HookPermissionResponse {
   decision: 'allow' | 'deny'
@@ -270,26 +279,10 @@ export function processSDKMessage(message: unknown, bridge: HooksBridge): void {
       : undefined
 
   // Handle assistant/user messages (may contain tool_use/tool_result blocks)
-  let sawToolResultBlock = false
-  if (content) {
-    const blocks = Array.isArray(content) ? content : [content]
-
-    for (const block of blocks) {
-      if (!block || typeof block !== 'object') continue
-      const blockObj = block as Record<string, unknown>
-      const blockType = typeof blockObj['type'] === 'string' ? blockObj['type'] : undefined
-
-      if (blockType === 'tool_use') {
-        processToolUseBlock(blockObj, bridge)
-        continue
-      }
-
-      if (blockType === 'tool_result') {
-        sawToolResultBlock = true
-        processToolResultBlock(blockObj, bridge)
-      }
-    }
-  }
+  const sawToolResultBlock = forEachToolBlock(content, {
+    onToolUse: (block) => processToolUseBlock(block, bridge),
+    onToolResult: (block) => processToolResultBlock(block, bridge),
+  })
 
   emitUserToolResultIfNeeded(msg, msgType, sawToolResultBlock, bridge)
 
@@ -299,18 +292,8 @@ export function processSDKMessage(message: unknown, bridge: HooksBridge): void {
 
 function processToolUseBlock(blockObj: Record<string, unknown>, bridge: HooksBridge): void {
   const toolUseId = resolveToolUseId(blockObj)
-  const toolName =
-    typeof blockObj['name'] === 'string'
-      ? blockObj['name']
-      : typeof blockObj['tool_name'] === 'string'
-        ? blockObj['tool_name']
-        : 'tool'
-  const toolInput =
-    'input' in blockObj
-      ? blockObj['input']
-      : 'tool_input' in blockObj
-        ? blockObj['tool_input']
-        : undefined
+  const toolName = extractToolName(blockObj)
+  const toolInput = extractToolInput(blockObj)
   if (toolUseId) {
     bridge.registerToolUse(toolUseId, toolName, toolInput)
   }
@@ -320,29 +303,16 @@ function processToolUseBlock(blockObj: Record<string, unknown>, bridge: HooksBri
 function processToolResultBlock(blockObj: Record<string, unknown>, bridge: HooksBridge): void {
   const toolUseId = resolveToolUseId(blockObj)
   const toolMeta = toolUseId ? bridge.getToolUse(toolUseId) : undefined
-  const toolName =
-    toolMeta?.name ??
-    (typeof blockObj['tool_name'] === 'string'
-      ? blockObj['tool_name']
-      : typeof blockObj['name'] === 'string'
-        ? blockObj['name']
-        : 'tool')
-  const toolInput =
-    toolMeta?.input ??
-    ('tool_input' in blockObj
-      ? blockObj['tool_input']
-      : 'input' in blockObj
-        ? blockObj['input']
-        : undefined)
-  const isError = blockObj['is_error'] === true || blockObj['isError'] === true ? true : undefined
+  const toolName = toolMeta?.name ?? extractToolName(blockObj)
+  const toolInput = toolMeta?.input ?? extractToolInput(blockObj)
+  const isError = isToolResultError(blockObj)
   const { blocks: resultBlocks, text } = normalizeToolResultBlocks(blockObj['content'])
   const toolResponse: Record<string, unknown> = {}
   if (resultBlocks.length > 0) toolResponse['content'] = resultBlocks
   if (text) toolResponse['stdout'] = text
-  if (blockObj['structuredContent'] !== undefined) {
-    toolResponse['structured_content'] = blockObj['structuredContent']
-  } else if (blockObj['structured_content'] !== undefined) {
-    toolResponse['structured_content'] = blockObj['structured_content']
+  const structuredContent = extractStructuredContent(blockObj)
+  if (structuredContent !== undefined) {
+    toolResponse['structured_content'] = structuredContent
   }
 
   bridge.emitPostToolUse(toolName, toolInput, toolResponse, toolUseId, isError)
@@ -370,94 +340,4 @@ function emitUserToolResultIfNeeded(
   const toolResponse = msg['tool_use_result'] as unknown
   bridge.emitPostToolUse(toolName, toolInput, toolResponse, toolUseId)
   bridge.clearToolUse(toolUseId)
-}
-
-function resolveToolUseId(blockObj: Record<string, unknown>): string | undefined {
-  if (typeof blockObj['tool_use_id'] === 'string') return blockObj['tool_use_id']
-  if (typeof blockObj['toolUseId'] === 'string') return blockObj['toolUseId']
-  if (typeof blockObj['id'] === 'string') return blockObj['id']
-  return undefined
-}
-
-type RexContentBlock =
-  | { type: 'text'; text: string }
-  | { type: 'image'; data: string; mimeType: string }
-  | { type: 'media_ref'; url: string; mimeType?: string; filename?: string; alt?: string }
-
-function normalizeToolResultBlocks(content: unknown): { blocks: RexContentBlock[]; text: string } {
-  const blocks: RexContentBlock[] = []
-  const textParts: string[] = []
-  if (content === undefined || content === null) {
-    return { blocks, text: '' }
-  }
-
-  const items = Array.isArray(content) ? content : [content]
-  for (const item of items) {
-    if (!item || typeof item !== 'object') {
-      const text = typeof item === 'string' ? item : String(item)
-      if (text) {
-        blocks.push({ type: 'text', text })
-        textParts.push(text)
-      }
-      continue
-    }
-
-    const block = item as Record<string, unknown>
-    const type = typeof block['type'] === 'string' ? block['type'] : undefined
-
-    if (type === 'text' && typeof block['text'] === 'string') {
-      blocks.push({ type: 'text', text: block['text'] })
-      textParts.push(block['text'])
-      continue
-    }
-
-    if (
-      type === 'image' &&
-      typeof block['data'] === 'string' &&
-      typeof block['mimeType'] === 'string'
-    ) {
-      blocks.push({ type: 'image', data: block['data'], mimeType: block['mimeType'] })
-      continue
-    }
-
-    if (type === 'media_ref' && typeof block['url'] === 'string') {
-      const entry: RexContentBlock = { type: 'media_ref', url: block['url'] }
-      if (typeof block['mimeType'] === 'string') entry.mimeType = block['mimeType']
-      if (typeof block['filename'] === 'string') entry.filename = block['filename']
-      if (typeof block['alt'] === 'string') entry.alt = block['alt']
-      blocks.push(entry)
-      continue
-    }
-
-    if (type === 'resource_link' && typeof block['uri'] === 'string') {
-      const entry: RexContentBlock = { type: 'media_ref', url: block['uri'] }
-      if (typeof block['mimeType'] === 'string') entry.mimeType = block['mimeType']
-      if (typeof block['filename'] === 'string') entry.filename = block['filename']
-      if (typeof block['alt'] === 'string') entry.alt = block['alt']
-      blocks.push(entry)
-      continue
-    }
-
-    if (type === 'resource' && block['resource'] && typeof block['resource'] === 'object') {
-      const resource = block['resource'] as Record<string, unknown>
-      if (typeof resource['text'] === 'string') {
-        blocks.push({ type: 'text', text: resource['text'] })
-        textParts.push(resource['text'])
-        continue
-      }
-      if (
-        typeof resource['blob'] === 'string' &&
-        typeof block['mimeType'] === 'string' &&
-        block['mimeType'].startsWith('image/')
-      ) {
-        blocks.push({
-          type: 'image',
-          data: resource['blob'],
-          mimeType: block['mimeType'],
-        })
-      }
-    }
-  }
-
-  return { blocks, text: textParts.join('') }
 }

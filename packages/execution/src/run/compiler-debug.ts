@@ -11,8 +11,9 @@
  * the emitted shape.
  */
 
-import { type HarnessId, getHarnessCatalogEntry } from 'spaces-config'
+import { type HarnessId, getHarnessCatalogEntry, isHarnessId } from 'spaces-config'
 
+import type { CompileRuntimeFn, LaunchShape, RunCompileOutcome } from './types.js'
 import type { RunCompilerDebugContext } from './types.js'
 
 export function harnessFamilyForHarness(
@@ -49,8 +50,11 @@ export function compileInteractionMode(
   // so a `--no-interactive` run compiles to the nonInteractive interaction mode
   // that routes to the embedded-sdk controller — NOT the headless broker mode
   // used by the spawned codex app-server. Without this distinction the real
-  // `asp run` pi-sdk path would never reach the embedded branch.
-  if (harnessId === 'pi-sdk' || harnessId === 'claude-agent-sdk') return 'nonInteractive'
+  // `asp run` pi-sdk path would never reach the embedded branch. The set of
+  // embedded runtimes is exactly the catalog's `transport: 'sdk'` harnesses.
+  if (harnessId !== undefined && isHarnessId(harnessId)) {
+    if (getHarnessCatalogEntry(harnessId).transport === 'sdk') return 'nonInteractive'
+  }
   return 'headless'
 }
 
@@ -65,6 +69,45 @@ export interface BuildCompilerDebugContextArgs {
   initialPrompt?: string | undefined
   resolvedBundleHint: RunCompilerDebugContext['materialization']['resolvedBundleHint']
   correlation: RunCompilerDebugContext['correlation']
+}
+
+export interface MaybeCompileForRunArgs {
+  compileRuntime: CompileRuntimeFn | undefined
+  /** Whether the foreground spawn should be driven from the compiled plan (ASP_RUN_VIA_COMPILER). */
+  viaCompiler: boolean
+  /** Whether a `--dry-run --debug` plan dump is requested. */
+  wantDebugDump: boolean
+  /**
+   * Lazily build the run-mode-specific compiler debug context. Only invoked when
+   * the gate is open, so callers that never compile pay nothing.
+   */
+  buildContext: () => BuildCompilerDebugContextArgs
+}
+
+export interface MaybeCompileForRunResult {
+  compileOutcome?: RunCompileOutcome | undefined
+  compiledLaunch?: LaunchShape | undefined
+}
+
+/**
+ * Shared compiler gate for both run modes (project-target and space).
+ *
+ * Consolidates the previously copy-pasted `viaCompiler/wantDebugDump` gate +
+ * `compileRuntime(...)` invoke + `compiledLaunch` derivation. Callers differ only
+ * in how they build the placement/correlation context, passed via `buildContext`.
+ */
+export async function maybeCompileForRun(
+  args: MaybeCompileForRunArgs
+): Promise<MaybeCompileForRunResult> {
+  if (!args.compileRuntime || (!args.viaCompiler && !args.wantDebugDump)) {
+    return {}
+  }
+
+  const compileOutcome = await args.compileRuntime(buildCompilerDebugContext(args.buildContext()))
+  const compiledLaunch =
+    args.viaCompiler && compileOutcome.foreground ? compileOutcome.foreground : undefined
+
+  return { compileOutcome, ...(compiledLaunch ? { compiledLaunch } : {}) }
 }
 
 export function buildCompilerDebugContext(

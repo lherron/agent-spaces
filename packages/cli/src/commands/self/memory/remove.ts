@@ -4,15 +4,17 @@
 
 import type { Command } from 'commander'
 
-import { MemoryStore, type MemoryTargetName, type StoreResult } from 'spaces-runtime'
+import type { MemoryTargetName } from 'spaces-runtime'
 
-import { resolveSelfContext } from '../lib.js'
+import { type StoreFailure, validateTarget, withMemoryStore } from './lib.js'
 
 interface RemoveOptions {
   json?: boolean
   target?: string
   match?: string
 }
+
+const COMMAND_NAME = 'self memory remove'
 
 export function registerMemoryRemoveCommand(parent: Command): void {
   parent
@@ -22,28 +24,17 @@ export function registerMemoryRemoveCommand(parent: Command): void {
     .option('--target <name>', 'Target: memory|user|persona')
     .option('--match <text>', 'Substring to locate the entry to remove')
     .action(async (options: RemoveOptions) => {
-      try {
-        const ctx = resolveSelfContext()
-        if (!ctx.agentName) {
-          process.stderr.write('self memory remove: cannot determine agent name\n')
-          process.exit(1)
-        }
-
+      await withMemoryStore(COMMAND_NAME, async (store) => {
         if (!options.target) {
-          process.stderr.write('self memory remove: --target is required\n')
+          process.stderr.write(`${COMMAND_NAME}: --target is required\n`)
           process.exit(1)
         }
-        validateTarget(options.target)
+        validateTarget(COMMAND_NAME, options.target)
 
         if (!options.match) {
-          process.stderr.write('self memory remove: --match is required\n')
+          process.stderr.write(`${COMMAND_NAME}: --match is required\n`)
           process.exit(1)
         }
-
-        const store = new MemoryStore({
-          agentName: ctx.agentName,
-          agentsRoot: ctx.agentsRoot,
-        })
 
         const result = await store.remove({
           target: options.target as MemoryTargetName,
@@ -65,27 +56,14 @@ export function registerMemoryRemoveCommand(parent: Command): void {
         if (options.json) {
           process.stdout.write(`${JSON.stringify(output, null, 2)}\n`)
         } else {
-          process.stderr.write(`self memory remove: ${output.error}\n`)
+          process.stderr.write(`${COMMAND_NAME}: ${output.error}\n`)
         }
         process.exit(1)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        process.stderr.write(`self memory remove: ${message}\n`)
-        process.exit(1)
-      }
+      })
     })
 }
 
-function validateTarget(value: string): asserts value is MemoryTargetName {
-  if (value !== 'memory' && value !== 'user' && value !== 'persona') {
-    process.stderr.write(
-      `self memory remove: invalid --target '${value}' (expected: memory, user, persona)\n`
-    )
-    process.exit(1)
-  }
-}
-
-function mapRemoveError(result: Extract<StoreResult, { ok: false }>): {
+function mapRemoveError(result: StoreFailure): {
   ok: false
   error: string
   [key: string]: unknown

@@ -12,11 +12,7 @@ function mapSequence(notes: Array<ReturnType<typeof note>>) {
   return notes.flatMap((notification) => mapCodexNotification(notification))
 }
 
-function agentMessageCompleted(
-  id: string,
-  text: string,
-  extra: Record<string, unknown> = {}
-) {
+function agentMessageCompleted(id: string, text: string, extra: Record<string, unknown> = {}) {
   return note('item/completed', {
     turnId: 'turn_1',
     item: {

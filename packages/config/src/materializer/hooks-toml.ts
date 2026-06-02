@@ -355,6 +355,52 @@ export interface ReadHooksResult {
  * @param hooksDir - Path to the hooks directory
  * @returns Parsed hooks with source information
  */
+/**
+ * Convert a Claude command path to a relative script path.
+ * `${CLAUDE_PLUGIN_ROOT}/hooks/script.sh` -> `hooks/script.sh`
+ */
+function claudeCommandToScript(command: string): string {
+  return command.replace(/^\$\{CLAUDE_PLUGIN_ROOT\}\//, '')
+}
+
+/** Normalize a Claude PascalCase event name (e.g. `PreToolUse`) to `pre_tool_use`. */
+function claudeEventToCanonical(eventName: string): string {
+  return eventName
+    .toLowerCase()
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+}
+
+/**
+ * Flatten Claude's native nested hooks format into canonical definitions.
+ *
+ * Native shape: `{ PreToolUse: [{ matcher, hooks: [{ type, command }] }] }`.
+ */
+function flattenClaudeNativeHooks(hooksValue: Record<string, unknown>): CanonicalHookDefinition[] {
+  const hooks: CanonicalHookDefinition[] = []
+
+  for (const [eventName, eventHooks] of Object.entries(hooksValue)) {
+    if (!Array.isArray(eventHooks)) continue
+
+    const event = claudeEventToCanonical(eventName)
+    for (const hookDef of eventHooks as Array<{
+      matcher?: string
+      hooks?: Array<{ command?: string; type?: string }>
+    }>) {
+      for (const cmd of hookDef.hooks ?? []) {
+        if (!cmd.command) continue
+        hooks.push({
+          event,
+          script: claudeCommandToScript(cmd.command),
+          tools: hookDef.matcher ? [hookDef.matcher] : undefined,
+        })
+      }
+    }
+  }
+
+  return hooks
+}
+
 export async function readHooksWithPrecedence(hooksDir: string): Promise<ReadHooksResult> {
   // Try hooks.toml first
   const tomlConfig = await readHooksToml(hooksDir)
@@ -396,35 +442,7 @@ export async function readHooksWithPrecedence(hooksDir: string): Promise<ReadHoo
 
       // Claude's native format: {hooks: {PreToolUse: [{matcher, hooks: [{type, command}]}]}}
       if (hooksValue && typeof hooksValue === 'object' && !Array.isArray(hooksValue)) {
-        const hooks: CanonicalHookDefinition[] = []
-        for (const [eventName, eventHooks] of Object.entries(
-          hooksValue as Record<string, unknown>
-        )) {
-          if (Array.isArray(eventHooks)) {
-            for (const hookDef of eventHooks as Array<{
-              matcher?: string
-              hooks?: Array<{ command?: string; type?: string }>
-            }>) {
-              // Extract command from nested hooks array
-              const commands = hookDef.hooks ?? []
-              for (const cmd of commands) {
-                if (cmd.command) {
-                  // Convert Claude command path to script path
-                  // ${CLAUDE_PLUGIN_ROOT}/hooks/script.sh -> hooks/script.sh
-                  const script = cmd.command.replace(/^\$\{CLAUDE_PLUGIN_ROOT\}\//, '')
-                  hooks.push({
-                    event: eventName
-                      .toLowerCase()
-                      .replace(/([a-z])([A-Z])/g, '$1_$2')
-                      .toLowerCase(),
-                    script,
-                    tools: hookDef.matcher ? [hookDef.matcher] : undefined,
-                  })
-                }
-              }
-            }
-          }
-        }
+        const hooks = flattenClaudeNativeHooks(hooksValue as Record<string, unknown>)
         if (hooks.length > 0) {
           return {
             hooks,

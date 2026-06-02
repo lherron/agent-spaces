@@ -19,14 +19,12 @@ import {
   getAgentsRoot,
   getAspHome,
   getRegistryPath,
-  inferProjectIdFromCwd,
   isSpaceRefString,
   loadProjectManifest,
   lockFileExists,
   materializeFromRefs,
   readLockJson,
 } from 'spaces-config'
-import { expandTemplate, materializeSystemPrompt } from 'spaces-runtime'
 
 import { migrateLegacyProjectCodexRuntimeHome } from './run-codex.js'
 export {
@@ -52,8 +50,13 @@ export {
   type AgentToolEnvResult,
   type AgentToolRuntimeContext,
 } from './run/agent-tools.js'
-import { buildCompilerDebugContext } from './run/compiler-debug.js'
-import { type MaterializedPromptResult, executeHarnessRun } from './run/execute.js'
+import { maybeCompileForRun } from './run/compiler-debug.js'
+import { executeHarnessRun } from './run/execute.js'
+import {
+  type RunSystemPromptBudget,
+  materializeRunSystemPrompt,
+  resolveRunIdentity,
+} from './run/identity.js'
 import {
   type PlacementRuntimeModelResolution,
   type PlacementRuntimePlan,
@@ -73,14 +76,12 @@ import type {
   RunResult,
 } from './run/types.js'
 import {
-  combinePrompts,
   composeArraysMatch,
   mergeDefined,
   pathExists,
-  resolveInteractive,
+  resolveRunEnvFlags,
+  toHarnessRunOptions,
 } from './run/util.js'
-
-const DEFAULT_RUN_TASK_ID = 'primary'
 
 export {
   detectAgentLocalComponents,
@@ -102,7 +103,7 @@ export {
 }
 
 export async function run(targetName: string, options: RunOptions): Promise<RunResult> {
-  const debug = process.env['ASP_DEBUG_RUN'] === '1'
+  const { debugRun: debug, viaCompiler } = resolveRunEnvFlags()
   const runStart = performance.now()
   let lastMark = runStart
   const debugLog = (...args: unknown[]) => {
@@ -208,84 +209,45 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
 
   const bundle = await adapter.loadTargetBundle(harnessOutputPath, targetName)
   debugLog('loadTargetBundle ok')
-  const combinedPrompt = combinePrompts(defaultPrompt, options.prompt)
-  const agentId = agentProfile ? basename(agentProfile.agentRoot) : undefined
-  const projectId =
-    options.projectId ??
-    process.env['ASP_PROJECT'] ??
-    inferProjectIdFromCwd({
-      cwd: options.projectPath,
-      ...(options.aspHome !== undefined ? { aspHome: options.aspHome } : {}),
-    }) ??
-    basename(options.projectPath)
-  const taskId = options.taskId ?? process.env['ASP_TASK_ID'] ?? DEFAULT_RUN_TASK_ID
-  const expansionContext = agentProfile
-    ? {
-        agentRoot: agentProfile.agentRoot,
-        agentsRoot: dirname(agentProfile.agentRoot),
-        agentId,
-        agentName: agentId,
-        projectRoot: options.projectPath,
-        projectId,
-        taskId,
-        runMode: 'query',
-      }
-    : undefined
-  const effectivePrompt =
-    combinedPrompt !== undefined && expansionContext !== undefined
-      ? expandTemplate(combinedPrompt, expansionContext)
-      : combinedPrompt
-  const cliRunOptions: HarnessRunOptions = {
+
+  const { agentId, projectId, taskId, effectivePrompt } = resolveRunIdentity({
+    agentProfile,
+    projectPath: options.projectPath,
+    aspHome: options.aspHome,
+    defaultPrompt,
+    userPrompt: options.prompt,
+    projectId: options.projectId,
+    taskId: options.taskId,
+  })
+
+  const cliRunOptions: HarnessRunOptions = toHarnessRunOptions(options, {
     aspHome,
-    model: options.model,
-    modelReasoningEffort: options.modelReasoningEffort,
-    extraArgs: options.extraArgs,
-    interactive: resolveInteractive(options.interactive),
-    prompt: effectivePrompt,
-    settingSources: options.settingSources,
-    permissionMode: options.permissionMode,
-    settings: options.settings,
-    yolo: options.yolo,
-    debug: options.debug,
     projectPath: options.projectPath,
     cwd: options.cwd,
-    artifactDir: options.artifactDir,
-    continuationKey: options.continuationKey,
-    remoteControl: options.remoteControl,
-    sessionNamePrefix: options.sessionNamePrefix,
-  }
+    prompt: effectivePrompt,
+  })
+
+  let budget: RunSystemPromptBudget = {}
   let reminderContent: string | undefined
-  let maxChars: number | undefined
-  let promptSectionSizes: string[] | undefined
-  let reminderSectionSizes: string[] | undefined
-  let totalContextChars: number | undefined
-  let nearMaxChars: boolean | undefined
   if (agentProfile) {
     debugLog('materializeSystemPrompt start')
-    const systemPrompt = await materializeSystemPrompt(harnessOutputPath, {
-      agentRoot: agentProfile.agentRoot,
-      ...(agentId !== undefined ? { agentId } : {}),
-      projectRoot: options.projectPath,
+    const materialized = await materializeRunSystemPrompt({
+      agentProfile,
+      harnessOutputPath,
+      agentId,
+      projectPath: options.projectPath,
       projectId,
       taskId,
-      runMode: 'query',
     })
     debugLog('materializeSystemPrompt ok')
-    if (systemPrompt) {
-      const materializedPrompt = systemPrompt as MaterializedPromptResult
-      reminderContent = materializedPrompt.reminderContent
-      maxChars = materializedPrompt.maxChars
-      promptSectionSizes = materializedPrompt.promptSectionSizes
-      reminderSectionSizes = materializedPrompt.reminderSectionSizes
-      totalContextChars = materializedPrompt.totalContextChars
-      nearMaxChars = materializedPrompt.nearMaxChars
-      if (materializedPrompt.content.length > 0) {
-        cliRunOptions.systemPrompt = materializedPrompt.content
-        cliRunOptions.systemPromptMode = materializedPrompt.mode
-      }
-      if (reminderContent) {
-        cliRunOptions.reminderContent = reminderContent
-      }
+    budget = materialized.budget
+    reminderContent = materialized.reminderContent
+    if (materialized.systemPrompt !== undefined) {
+      cliRunOptions.systemPrompt = materialized.systemPrompt
+      cliRunOptions.systemPromptMode = materialized.systemPromptMode
+    }
+    if (materialized.reminderContent !== undefined) {
+      cliRunOptions.reminderContent = materialized.reminderContent
     }
   }
 
@@ -307,69 +269,67 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   // `--debug`, and/or — behind the ASP_RUN_VIA_COMPILER gate — to drive the
   // foreground inherit-spawn from the compiled TerminalExecutionProfile instead
   // of the legacy adapter argv path. ONE compile, no synthetic identities.
-  const viaCompiler =
-    process.env['ASP_RUN_VIA_COMPILER'] === '1' || process.env['ASP_RUN_VIA_COMPILER'] === 'true'
   const wantDebugDump = options.dryRun === true && options.debug === true
-  let compileOutcome: RunCompileOutcome | undefined
-  if (options.compileRuntime && (viaCompiler || wantDebugDump)) {
-    const placementAgentRoot =
-      agentProfile?.agentRoot ??
-      join(getAgentsRoot({ aspHome }) ?? dirname(options.projectPath), targetName)
-    const compilerCwd = runOptions.cwd ?? options.cwd ?? options.projectPath
-    const placement =
-      agentProfile !== undefined
-        ? {
-            agentRoot: placementAgentRoot,
-            projectRoot: options.projectPath,
-            cwd: compilerCwd,
-            runMode: 'query',
-            bundle: {
-              kind: 'agent-project',
-              agentName: targetName,
+  debugLog('compileRuntime start')
+  const { compileOutcome, compiledLaunch } = await maybeCompileForRun({
+    compileRuntime: options.compileRuntime,
+    viaCompiler,
+    wantDebugDump,
+    buildContext: () => {
+      const placementAgentRoot =
+        agentProfile?.agentRoot ??
+        join(getAgentsRoot({ aspHome }) ?? dirname(options.projectPath), targetName)
+      const compilerCwd = runOptions.cwd ?? options.cwd ?? options.projectPath
+      const placement =
+        agentProfile !== undefined
+          ? {
+              agentRoot: placementAgentRoot,
               projectRoot: options.projectPath,
-            },
-            dryRun: options.dryRun === true,
-            ...(options.env !== undefined ? { env: options.env } : {}),
-          }
-        : {
-            agentRoot: placementAgentRoot,
-            projectRoot: options.projectPath,
-            cwd: compilerCwd,
-            runMode: 'query',
-            bundle: { kind: 'compose', compose: lock.targets[targetName]?.compose ?? [] },
-            dryRun: options.dryRun === true,
-            ...(options.env !== undefined ? { env: options.env } : {}),
-          }
-    const scopeRef = `${targetName}@${projectId}${taskId ? `:${taskId}` : ''}`
-    const compilerContext = buildCompilerDebugContext({
-      aspHome,
-      harnessId,
-      model: runOptions.model,
-      reasoningEffort: runOptions.modelReasoningEffort,
-      interactive: runOptions.interactive,
-      yolo: runOptions.yolo,
-      placement,
-      initialPrompt: effectivePrompt,
-      resolvedBundleHint: {
-        bundleIdentity: `asp-run:${options.projectPath}:${targetName}:${harnessId}`,
-        root: bundle.rootDir,
-        targetName,
-        targetDir: harnessOutputPath,
-        lockHash: lock.targets[targetName]?.envHash,
-      },
-      correlation: {
-        appSessionKey: `${projectId}:${taskId}`,
-        scopeRef,
-        laneRef: 'main',
-      },
-    })
-    debugLog('compileRuntime start')
-    compileOutcome = await options.compileRuntime(compilerContext)
-    debugLog('compileRuntime ok', compileOutcome.ok)
-  }
-
-  const compiledLaunch =
-    viaCompiler && compileOutcome?.foreground ? compileOutcome.foreground : undefined
+              cwd: compilerCwd,
+              runMode: 'query',
+              bundle: {
+                kind: 'agent-project',
+                agentName: targetName,
+                projectRoot: options.projectPath,
+              },
+              dryRun: options.dryRun === true,
+              ...(options.env !== undefined ? { env: options.env } : {}),
+            }
+          : {
+              agentRoot: placementAgentRoot,
+              projectRoot: options.projectPath,
+              cwd: compilerCwd,
+              runMode: 'query',
+              bundle: { kind: 'compose', compose: lock.targets[targetName]?.compose ?? [] },
+              dryRun: options.dryRun === true,
+              ...(options.env !== undefined ? { env: options.env } : {}),
+            }
+      const scopeRef = `${targetName}@${projectId}${taskId ? `:${taskId}` : ''}`
+      return {
+        aspHome,
+        harnessId,
+        model: runOptions.model,
+        reasoningEffort: runOptions.modelReasoningEffort,
+        interactive: runOptions.interactive,
+        yolo: runOptions.yolo,
+        placement,
+        initialPrompt: effectivePrompt,
+        resolvedBundleHint: {
+          bundleIdentity: `asp-run:${options.projectPath}:${targetName}:${harnessId}`,
+          root: bundle.rootDir,
+          targetName,
+          targetDir: harnessOutputPath,
+          lockHash: lock.targets[targetName]?.envHash,
+        },
+        correlation: {
+          appSessionKey: `${projectId}:${taskId}`,
+          scopeRef,
+          laneRef: 'main',
+        },
+      }
+    },
+  })
+  debugLog('compileRuntime ok', compileOutcome?.ok)
 
   debugLog('executeHarnessRun start', compiledLaunch ? '(via compiler)' : '(legacy)')
   const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
@@ -420,11 +380,11 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     systemPrompt: execution.systemPrompt,
     systemPromptMode: execution.systemPromptMode,
     reminderContent,
-    maxChars,
-    promptSectionSizes,
-    reminderSectionSizes,
-    totalContextChars,
-    nearMaxChars,
+    maxChars: budget.maxChars,
+    promptSectionSizes: budget.promptSectionSizes,
+    reminderSectionSizes: budget.reminderSectionSizes,
+    totalContextChars: budget.totalContextChars,
+    nearMaxChars: budget.nearMaxChars,
     primingPrompt: effectivePrompt,
     ...(compileOutcome
       ? { runtimeCompile: { request: compileOutcome.request, response: compileOutcome.response } }
