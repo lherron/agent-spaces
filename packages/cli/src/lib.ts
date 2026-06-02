@@ -5,30 +5,19 @@
  * testing without running the CLI.
  */
 
+import { findProjectMarker, getAgentsRoot } from 'spaces-config'
+
 /**
- * Find project root by walking up looking for asp-targets.toml.
+ * Find project root by walking up from `startDir`.
+ *
+ * Delegates to `findProjectMarker`, which honors the per-repo project model:
+ * the first `asp-targets.toml` wins, but the walk is bounded by the containing
+ * git repo, and a git repo without an explicit marker is itself a project root.
+ * This is what keeps `asp run` from a sibling repo (e.g. `hrc-runtime`) from
+ * escaping its own repo and binding to the parent's `asp-targets.toml`.
  */
 export async function findProjectRoot(startDir: string = process.cwd()): Promise<string | null> {
-  let dir = startDir
-  const root = '/'
-
-  while (dir !== root) {
-    const targetsPath = `${dir}/asp-targets.toml`
-    try {
-      const exists = await Bun.file(targetsPath).exists()
-      if (exists) {
-        return dir
-      }
-    } catch {
-      // Continue searching
-    }
-    // Move to parent directory
-    const parent = dir.split('/').slice(0, -1).join('/')
-    if (parent === dir || parent === '') {
-      break
-    }
-    dir = parent || '/'
-  }
-
-  return null
+  const agentsRoot = getAgentsRoot()
+  const marker = findProjectMarker(startDir, { agentsRoot })
+  return marker?.dir ?? null
 }
