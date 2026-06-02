@@ -212,6 +212,19 @@ export class BrokerClient {
     return this.#transport.request('broker.attach', req)
   }
 
+  /**
+   * Live event stream for an ALREADY-ATTACHED invocation (durability reattach).
+   * `startInvocationFromRequest` returns its own stream for an invocation it
+   * launched; a controller that re-attached over `broker.attach` has none, so
+   * this exposes the per-invocation `EventIterator`. Opening it drains any live
+   * notifications buffered since the attach (held in `#pendingEvents`) and then
+   * yields all future ones, de-duped by `(invocationId, seq)` in `#ingestEvent`.
+   * Closed on transport close / dispose with the rest of the streams.
+   */
+  streamInvocationEvents(invocationId: string): AsyncIterable<InvocationEventEnvelope> {
+    return this.#eventStream(invocationId)
+  }
+
   eventsSince(req: InvocationEventsSinceRequest): Promise<InvocationEventsSinceResponse> {
     return this.#transport.request('invocation.eventsSince', req)
   }
