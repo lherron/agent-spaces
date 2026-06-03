@@ -411,6 +411,16 @@ describe('project-target runtime planner (T-01099)', () => {
     expect(combinePrompts(undefined, 'user')).toBe('user')
     expect(combinePrompts(undefined, undefined)).toBeUndefined()
   })
+
+  test('resolveRunEnvFlags enables compiler by default with explicit escape hatch', async () => {
+    const { resolveRunEnvFlags } = await import('./run/util.js')
+
+    expect(resolveRunEnvFlags({}).viaCompiler).toBe(true)
+    expect(resolveRunEnvFlags({ ASP_RUN_VIA_COMPILER: '0' }).viaCompiler).toBe(false)
+    expect(resolveRunEnvFlags({ ASP_RUN_VIA_COMPILER: 'false' }).viaCompiler).toBe(false)
+    expect(resolveRunEnvFlags({ ASP_RUN_VIA_COMPILER: '1' }).viaCompiler).toBe(true)
+    expect(resolveRunEnvFlags({ ASP_RUN_VIA_COMPILER: 'true' }).viaCompiler).toBe(true)
+  })
 })
 
 // ---------------------------------------------------------------------------
