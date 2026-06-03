@@ -106,6 +106,8 @@ describe('harness-broker CLI', () => {
     ['invocation.stop', { reason: 'test' }],
     ['invocation.status', {}],
     ['invocation.dispose', {}],
+    ['invocation.snapshot', {}],
+    ['invocation.eventsSince', {}],
   ])('run --transport stdio validates %s params before dispatch', async (method, params) => {
     const [frame] = await exchange(request(`invalid-${method}`, method, params))
     const response = expectError(frame, `invalid-${method}`, -32602)
@@ -126,19 +128,15 @@ describe('harness-broker CLI', () => {
     expect(Array.isArray((response.error.data as { issues?: unknown }).issues)).toBe(true)
   })
 
-  // broker.listInvocations is part of the shared method surface (T-01851), so it
-  // is answered on stdio too — only the durability/replay methods below remain
-  // unix-transport-only and method-not-found on stdio.
-  test.each([
-    'broker.attach',
-    'invocation.eventsSince',
-    'invocation.ackEvents',
-    'invocation.snapshot',
-    'invocation.permission.respond',
-  ])('run --transport stdio answers v2 method %s with method-not-found', async (method) => {
-    const [frame] = await exchange(request(`v2-${method}`, method, {}))
-    expectError(frame, `v2-${method}`, -32601)
-  })
+  // broker.listInvocations plus inspection reads are part of the shared stdio
+  // method surface; controller attach/fencing methods remain unix-only.
+  test.each(['broker.attach', 'invocation.ackEvents', 'invocation.permission.respond'])(
+    'run --transport stdio answers v2 method %s with method-not-found',
+    async (method) => {
+      const [frame] = await exchange(request(`v2-${method}`, method, {}))
+      expectError(frame, `v2-${method}`, -32601)
+    }
+  )
 
   test('broker.hello capabilities advertise no v1 attach/replay', async () => {
     const [frame] = await exchange(
@@ -149,7 +147,14 @@ describe('harness-broker CLI', () => {
     )
 
     const response = expectResult<BrokerHelloResponse>(frame, 'hello-caps')
-    // v1 broker exposes no attach/replay control surface.
+    // Stdio exposes inspection reads, but not controller attach/replay.
+    expect(response.result.capabilities.inspection).toEqual({
+      listInvocations: true,
+      timestamps: true,
+      lifecycleView: true,
+      liveness: 'cached',
+      eventTypeFilter: true,
+    })
     expect(response.result.capabilities.attachReplay ?? false).toBe(false)
   })
 

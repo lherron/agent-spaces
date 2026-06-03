@@ -6,6 +6,8 @@ import type {
   BrokerHelloRequest,
   BrokerHelloResponse,
   BrokerLifecyclePolicyOverlay,
+  BrokerListInvocationsRequest,
+  BrokerListInvocationsResponse,
   HarnessInvocationSpec,
   InvocationAckEventsRequest,
   InvocationAckEventsResponse,
@@ -113,6 +115,10 @@ export class BrokerClient {
 
   health(req: BrokerHealthRequest = {}): Promise<BrokerHealthResponse> {
     return this.#transport.request('broker.health', req)
+  }
+
+  listInvocations(req: BrokerListInvocationsRequest): Promise<BrokerListInvocationsResponse> {
+    return this.#transport.request('broker.listInvocations', req)
   }
 
   async startInvocation(

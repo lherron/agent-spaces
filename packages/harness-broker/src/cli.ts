@@ -92,8 +92,13 @@ function runStdio(): void {
   }
 
   // Wire ask-client permission decisions to the broker→client request transport.
-  const broker = createDefaultBroker(emitEvent, (params) =>
-    server.request<PermissionDecision>('invocation.permission.request', params)
+  const broker = createDefaultBroker(
+    emitEvent,
+    (params) => server.request<PermissionDecision>('invocation.permission.request', params),
+    // Stdio broker event replay is ephemeral and process-local: it backs
+    // inspection reads only. The path-backed, controller-fenced durable ledger
+    // remains exclusive to the unix transport.
+    { eventLedger: createEventLedger() }
   )
 
   registerBrokerMethods(server, broker)
@@ -167,6 +172,16 @@ function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
   server.register('broker.listInvocations', async ({ id, method, params }) => {
     validateParams(method, id, (params ?? {}) as unknown)
     return broker.listInvocations((params ?? {}) as Parameters<typeof broker.listInvocations>[0])
+  })
+
+  server.register('invocation.snapshot', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.snapshot(params as Parameters<typeof broker.snapshot>[0])
+  })
+
+  server.register('invocation.eventsSince', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.eventsSince(params as Parameters<typeof broker.eventsSince>[0])
   })
 }
 
