@@ -1,0 +1,2209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ASPC + Harness Broker JSON-RPC Contract</title>
+    <style>
+      :root {
+        --paper: #fafaf7;
+        --ink: #151515;
+        --muted: #5f6567;
+        --quiet: #8b9190;
+        --line: #d6dbd9;
+        --line-strong: #aeb8b6;
+        --panel: #ffffff;
+        --compiler: #b1281e;
+        --compiler-soft: #ffe8e4;
+        --control: #007274;
+        --control-soft: #dff5f2;
+        --broker: #a06d00;
+        --broker-soft: #fff2c9;
+        --runtime: #5b5f97;
+        --runtime-soft: #ededff;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+        --sans: "Avenir Next", "Gill Sans", "Trebuchet MS", Verdana, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(90deg, rgba(21, 21, 21, 0.035) 1px, transparent 1px) 0 0 / 28px 28px,
+          linear-gradient(0deg, rgba(21, 21, 21, 0.026) 1px, transparent 1px) 0 0 / 28px 28px,
+          var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.55;
+      }
+
+      a {
+        color: var(--control);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      code,
+      pre {
+        font-family: var(--mono);
+      }
+
+      .page {
+        display: grid;
+        grid-template-columns: 292px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        height: 100vh;
+        overflow: auto;
+        border-right: 1px solid var(--line);
+        background: rgba(250, 250, 247, 0.94);
+        backdrop-filter: blur(14px);
+        padding: 28px 20px;
+      }
+
+      .brand {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 26px;
+      }
+
+      .brand-kicker {
+        color: var(--compiler);
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .brand-title {
+        font-family: var(--serif);
+        font-size: 29px;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .brand-subtitle,
+      .sidebar-note,
+      .section-intro,
+      .minor,
+      .source-note {
+        color: var(--muted);
+      }
+
+      .brand-subtitle,
+      .sidebar-note {
+        font-size: 13px;
+      }
+
+      .nav {
+        display: grid;
+        gap: 7px;
+        margin: 0 0 28px;
+      }
+
+      .nav a {
+        border: 1px solid transparent;
+        border-radius: 8px;
+        color: var(--ink);
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.2;
+        padding: 10px 11px;
+        text-decoration: none;
+      }
+
+      .nav a:hover,
+      .nav a:focus {
+        border-color: var(--line-strong);
+        background: var(--panel);
+      }
+
+      .sidebar-note {
+        border-top: 1px solid var(--line);
+        padding-top: 18px;
+      }
+
+      main {
+        min-width: 0;
+      }
+
+      .content {
+        width: min(1220px, calc(100vw - 292px));
+        max-width: 100%;
+        padding: 42px 48px 76px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(280px, 0.48fr);
+        gap: 28px;
+        align-items: stretch;
+        margin-bottom: 28px;
+      }
+
+      .hero-copy {
+        border-top: 10px solid var(--compiler);
+        padding-top: 26px;
+      }
+
+      .eyebrow {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0.09em;
+        margin-bottom: 12px;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3 {
+        letter-spacing: 0;
+      }
+
+      h1 {
+        font-family: var(--serif);
+        font-size: clamp(42px, 5.6vw, 68px);
+        line-height: 0.95;
+        margin: 0 0 18px;
+        max-width: 900px;
+      }
+
+      h2 {
+        align-items: end;
+        border-top: 2px solid var(--ink);
+        display: flex;
+        font-family: var(--serif);
+        font-size: clamp(30px, 4vw, 45px);
+        gap: 14px;
+        line-height: 1;
+        margin: 44px 0 20px;
+        padding-top: 18px;
+      }
+
+      h2 .section-num {
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h3 {
+        font-family: var(--serif);
+        font-size: 23px;
+        line-height: 1.12;
+        margin: 0 0 10px;
+      }
+
+      p {
+        margin: 0 0 14px;
+      }
+
+      .lead {
+        color: #323637;
+        font-family: var(--serif);
+        font-size: clamp(21px, 2.4vw, 28px);
+        line-height: 1.2;
+        max-width: 860px;
+      }
+
+      .hero-board {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-top: 10px solid var(--control);
+        border-radius: 8px;
+        display: grid;
+        gap: 0;
+        overflow: hidden;
+      }
+
+      .route-card {
+        padding: 19px 20px;
+      }
+
+      .route-card + .route-card {
+        border-top: 1px solid var(--line);
+      }
+
+      .route-label {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+      }
+
+      .route-title {
+        font-family: var(--serif);
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1.08;
+        margin-bottom: 7px;
+      }
+
+      .route-copy {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .inline-code {
+        background: rgba(0, 0, 0, 0.055);
+        border: 1px solid rgba(0, 0, 0, 0.06);
+        border-radius: 4px;
+        font-family: var(--mono);
+        font-size: 0.92em;
+        overflow-wrap: anywhere;
+        padding: 0.04em 0.3em;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .panel,
+      .callout {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: auto;
+        padding: 20px;
+      }
+
+      .panel {
+        border-top: 10px solid var(--line-strong);
+        box-shadow: 0 8px 22px rgba(27, 31, 33, 0.045);
+      }
+
+      .callout {
+        border-left: 8px solid var(--compiler);
+        margin: 22px 0;
+      }
+
+      .callout strong {
+        display: block;
+        margin-bottom: 5px;
+      }
+
+      .badge {
+        align-items: center;
+        border-radius: 999px;
+        display: inline-flex;
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        line-height: 1;
+        padding: 7px 9px;
+        text-transform: uppercase;
+      }
+
+      .badge.compiler {
+        background: var(--compiler-soft);
+        color: var(--compiler);
+      }
+
+      .badge.control {
+        background: var(--control-soft);
+        color: var(--control);
+      }
+
+      .badge.broker {
+        background: var(--broker-soft);
+        color: var(--broker);
+      }
+
+      .badge.runtime {
+        background: var(--runtime-soft);
+        color: var(--runtime);
+      }
+
+      .matrix {
+        border-collapse: collapse;
+        table-layout: fixed;
+        width: 100%;
+      }
+
+      .matrix th,
+      .matrix td {
+        border-bottom: 1px solid var(--line);
+        overflow-wrap: anywhere;
+        padding: 12px 10px;
+        text-align: left;
+        vertical-align: top;
+        word-break: break-word;
+      }
+
+      .matrix th {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .method-ledger {
+        border-top: 1px solid var(--line);
+        display: grid;
+      }
+
+      .method-row {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: minmax(170px, 0.7fr) minmax(190px, 0.8fr) minmax(190px, 0.9fr) minmax(240px, 1.2fr);
+        min-width: 0;
+        padding: 15px 18px;
+      }
+
+      .method-row > * {
+        min-width: 0;
+      }
+
+      .method-row.two-col {
+        grid-template-columns: minmax(190px, 0.7fr) minmax(0, 1.3fr);
+      }
+
+      .method-row.three-col {
+        grid-template-columns: minmax(190px, 0.7fr) minmax(260px, 0.9fr) minmax(0, 1.25fr);
+      }
+
+      .method-row + .method-row {
+        border-top: 1px solid var(--line);
+      }
+
+      .method-row:hover {
+        background: rgba(var(--contract-accent-rgb), 0.045);
+      }
+
+      .method-row.header {
+        background: linear-gradient(90deg, rgba(var(--contract-accent-rgb), 0.075), transparent 52%);
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .method-name {
+        color: var(--ink);
+        font-family: var(--mono);
+        font-weight: 800;
+        overflow-wrap: anywhere;
+      }
+
+      .method-copy {
+        color: #333839;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .contract-pair {
+        display: grid;
+        gap: 6px;
+      }
+
+      .pair-line {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: 62px minmax(0, 1fr);
+      }
+
+      .pair-label {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        padding-top: 2px;
+        text-transform: uppercase;
+      }
+
+      .protocol-callout {
+        --contract-accent: var(--compiler);
+        --contract-accent-rgb: 177, 40, 30;
+        background:
+          linear-gradient(90deg, rgba(var(--contract-accent-rgb), 0.055), transparent 44%),
+          var(--panel);
+        border: 1px solid var(--line);
+        border-left: 10px solid var(--contract-accent);
+        border-radius: 8px;
+        box-shadow: 0 8px 22px rgba(27, 31, 33, 0.045);
+        margin: 26px 0 4px;
+        padding: 22px 24px;
+      }
+
+      .protocol-callout strong {
+        display: block;
+        font-family: var(--serif);
+        font-size: 23px;
+        line-height: 1.12;
+        margin-bottom: 8px;
+      }
+
+      .source-card {
+        margin-top: 0;
+      }
+
+      .source-card .contract-object-head {
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 0;
+      }
+
+      .contract-object {
+        --contract-accent: var(--control);
+        --contract-accent-rgb: 0, 114, 116;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: 0 8px 22px rgba(27, 31, 33, 0.055);
+        margin-top: 28px;
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      .contract-object.compiler {
+        --contract-accent: var(--compiler);
+        --contract-accent-rgb: 177, 40, 30;
+        border-top: 10px solid var(--contract-accent);
+      }
+
+      .contract-object.broker {
+        --contract-accent: var(--broker);
+        --contract-accent-rgb: 160, 109, 0;
+        border-top: 10px solid var(--contract-accent);
+      }
+
+      .contract-object.runtime {
+        --contract-accent: var(--runtime);
+        --contract-accent-rgb: 91, 95, 151;
+        border-top: 10px solid var(--contract-accent);
+      }
+
+      .contract-object-head {
+        align-items: start;
+        background:
+          linear-gradient(90deg, rgba(var(--contract-accent-rgb), 0.055), transparent 38%),
+          linear-gradient(180deg, #ffffff 0%, #fbfcfa 100%);
+        display: grid;
+        gap: 28px;
+        grid-template-columns: minmax(0, 0.72fr) minmax(190px, 0.28fr);
+        min-height: 128px;
+        padding: 30px 28px 28px;
+      }
+
+      .contract-object-head > div:first-child {
+        max-width: 760px;
+      }
+
+      .contract-object-head .badge {
+        margin-bottom: 14px;
+      }
+
+      .contract-object-head p {
+        color: var(--muted);
+        line-height: 1.55;
+        margin: 0;
+        max-width: 760px;
+      }
+
+      .object-chip-row {
+        align-content: start;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+        padding-top: 2px;
+      }
+
+      .code-panel {
+        background:
+          linear-gradient(90deg, rgba(var(--contract-accent-rgb), 0.075) 0 54px, transparent 54px),
+          linear-gradient(180deg, #fffdf7 0%, #f8fbfa 100%);
+        border-top: 1px solid var(--line);
+        color: #18201f;
+        overflow: auto;
+        padding: 0;
+      }
+
+      pre {
+        margin: 0;
+        min-width: 0;
+        overflow: auto;
+        padding: 18px 22px 20px 72px;
+        white-space: pre;
+      }
+
+      pre code {
+        display: block;
+        font-size: 13px;
+        line-height: 1.52;
+      }
+
+      .contract-object .code-panel {
+        overflow: visible;
+      }
+
+      .contract-object .code-panel pre {
+        font-size: 13px;
+        line-height: 1.52;
+        overflow: visible;
+        padding: 0;
+        white-space: normal;
+      }
+
+      .contract-object .code-panel code {
+        display: block;
+      }
+
+      .schema-line {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: 42px minmax(0, 1fr);
+        min-width: 0;
+        padding: 2px 18px 2px 0;
+      }
+
+      .schema-line:hover {
+        background: rgba(177, 40, 30, 0.06);
+      }
+
+      .schema-line-no {
+        color: #8c9a98;
+        font-family: var(--mono);
+        font-size: 11px;
+        padding-top: 1px;
+        text-align: right;
+        user-select: none;
+      }
+
+      .schema-code {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: minmax(330px, 0.92fr) minmax(260px, 1.08fr);
+        min-width: 0;
+      }
+
+      .schema-code.no-comment {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .schema-code-text {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+
+      .schema-code.has-comment .schema-code-text {
+        padding-right: 4px;
+      }
+
+      .schema-comment {
+        border-left: 2px solid rgba(0, 114, 116, 0.18);
+        color: #5f6d68;
+        font-family: var(--sans);
+        font-size: 13px;
+        font-style: italic;
+        line-height: 1.45;
+        min-width: 0;
+        padding-left: 12px;
+        white-space: normal;
+      }
+
+      .schema-comment.block-comment {
+        border-left-color: rgba(177, 40, 30, 0.72);
+        color: #7e2d28;
+        font-style: normal;
+        font-weight: 400;
+      }
+
+      .comment-marker {
+        color: #9bacaa;
+        font-family: var(--mono);
+        font-style: normal;
+        font-weight: 800;
+        margin-right: 8px;
+      }
+
+      .syntax-field {
+        color: var(--control);
+        font-weight: 800;
+      }
+
+      .syntax-keyword {
+        color: var(--compiler);
+        font-weight: 800;
+      }
+
+      .syntax-string {
+        color: #8b5d00;
+        font-weight: 700;
+      }
+
+      .contract-legend {
+        align-items: center;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        padding: 12px 18px;
+      }
+
+      .legend-item {
+        align-items: center;
+        display: inline-flex;
+        font-family: var(--mono);
+        font-size: 11px;
+        gap: 6px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .legend-swatch {
+        border-radius: 999px;
+        display: inline-block;
+        height: 9px;
+        width: 9px;
+      }
+
+      .legend-swatch.field {
+        background: var(--control);
+      }
+
+      .legend-swatch.comment {
+        background: #7f918d;
+      }
+
+      .legend-swatch.type {
+        background: var(--compiler);
+      }
+
+      .legend-swatch.literal {
+        background: var(--broker);
+      }
+
+      .source-note {
+        border-top: 1px solid var(--line);
+        font-size: 12px;
+        padding: 12px 18px;
+      }
+
+      .footer {
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 48px;
+        padding-top: 18px;
+      }
+
+      @media (max-width: 900px) {
+        .page {
+          display: block;
+        }
+
+        .sidebar {
+          height: auto;
+          position: relative;
+        }
+
+        .content {
+          width: 100%;
+          padding: 28px 18px 56px;
+        }
+
+        .hero,
+        .grid.two,
+        .grid.three,
+        .contract-object-head {
+          grid-template-columns: 1fr;
+        }
+
+        .schema-line {
+          gap: 9px;
+          grid-template-columns: 32px minmax(0, 1fr);
+          padding-right: 12px;
+        }
+
+        .schema-code {
+          gap: 5px;
+          grid-template-columns: 1fr;
+        }
+
+        .schema-comment {
+          border-left: 2px solid rgba(0, 114, 116, 0.2);
+          margin-left: 1.5ch;
+          padding-left: 10px;
+        }
+
+        .method-row,
+        .method-row.three-col,
+        .method-row.two-col {
+          grid-template-columns: 1fr;
+          gap: 5px;
+          padding: 13px 16px;
+        }
+
+        .pair-line {
+          grid-template-columns: 1fr;
+          gap: 1px;
+        }
+
+        .method-row.header {
+          display: none;
+        }
+
+        .object-chip-row {
+          justify-content: flex-start;
+        }
+
+        pre {
+          padding-left: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar" aria-label="JSON-RPC contract navigation">
+        <div class="brand">
+          <div class="brand-kicker">Standalone contract</div>
+          <div class="brand-title">ASPC + Broker RPC</div>
+          <div class="brand-subtitle">Compiler facade and broker runtime protocol</div>
+        </div>
+        <nav class="nav" aria-label="Page sections">
+          <a href="#summary">Summary</a>
+          <a href="#jsonrpc-envelope">Envelope</a>
+          <a href="#aspc-methods">ASPC Methods</a>
+          <a href="#broker-methods">Broker Methods</a>
+          <a href="#compiler-objects">Compiler Objects</a>
+          <a href="#broker-runtime-objects">Broker Runtime Objects</a>
+          <a href="#broker-events">Broker Events</a>
+          <a href="#source-map">Source Map</a>
+        </nav>
+        <div class="sidebar-note">
+          Standalone extraction from existing contract HTML and current protocol source. No runtime behavior is defined here beyond the copied DTO shapes.
+        </div>
+      </aside>
+
+      <main>
+        <div class="content">
+          <section class="hero" id="summary" aria-labelledby="page-title">
+            <div class="hero-copy">
+              <div class="eyebrow">ASP compiler plane -> Harness Broker execution plane</div>
+              <h1 id="page-title">JSON-RPC contract for compile and runtime control.</h1>
+              <p class="lead">
+                ASPC exposes compiler products over <span class="inline-code">aspc/0.1</span>. Harness Broker exposes runtime control over <span class="inline-code">harness-broker/0.1</span> and <span class="inline-code">harness-broker/0.2</span>. The boundary rule stays the same: ASP compiles, HRC selects and dispatches, broker executes.
+              </p>
+            </div>
+            <div class="hero-board" aria-label="Protocol boundary summary">
+              <div class="route-card">
+                <div class="route-label">Compiler facade</div>
+                <div class="route-title"><span class="inline-code">aspc.*</span></div>
+                <div class="route-copy">Compile runtime plans, select broker profiles, optionally compile and start through a co-hosted broker facade.</div>
+              </div>
+              <div class="route-card">
+                <div class="route-label">Broker runtime</div>
+                <div class="route-title"><span class="inline-code">broker.*</span> and <span class="inline-code">invocation.*</span></div>
+                <div class="route-copy">Negotiate capabilities, start compiled invocations, route input/control, attach after reconnect, replay events, and resolve permissions.</div>
+              </div>
+              <div class="route-card">
+                <div class="route-label">Shared object handoff</div>
+                <div class="route-title"><span class="inline-code">InvocationDispatchRequest</span></div>
+                <div class="route-copy">The selected compiled <span class="inline-code">InvocationStartRequest</span> travels unchanged, with dispatch/runtime/lifecycle overlays outside hash material.</div>
+              </div>
+            </div>
+          </section>
+
+          <section id="jsonrpc-envelope" aria-labelledby="jsonrpc-envelope-title">
+            <h2 id="jsonrpc-envelope-title"><span class="section-num">01</span> JSON-RPC Envelope</h2>
+            <p class="section-intro">
+              Both protocol namespaces use JSON-RPC 2.0 request/response messages. Broker runtime also uses JSON-RPC notifications for event delivery.
+            </p>
+
+            <article class="contract-object runtime">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge runtime">Shared</span>
+                  <h3><span class="inline-code">JsonRpcRequest</span> and responses</h3>
+                  <p>Copied from the current broker JSON-RPC transport shape, which the ASPC facade imports for request typing.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge runtime">2.0</span>
+                  <span class="badge control">request</span>
+                  <span class="badge broker">notification</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>export type JsonRpcId = string | number | null // Request/response correlation token; null is allowed by JSON-RPC 2.0.
+
+export interface JsonRpcRequest&lt;TMethod extends string = string, TParams = unknown&gt; { // Client-to-server command envelope.
+  jsonrpc: '2.0' // Fixed JSON-RPC protocol version marker.
+  id: JsonRpcId // Correlates the response with this request.
+  method: TMethod // Fully-qualified method name, such as aspc.hello or invocation.start.
+  params?: TParams | undefined // Method-specific request payload; omitted only when the method permits no params.
+}
+
+export interface JsonRpcNotification&lt;TMethod extends string = string, TParams = unknown&gt; { // One-way JSON-RPC message with no response.
+  jsonrpc: '2.0' // Fixed JSON-RPC protocol version marker.
+  method: TMethod // Notification method name.
+  params?: TParams | undefined // Notification payload; broker events use this path.
+}
+
+export interface JsonRpcError { // Standard JSON-RPC error object.
+  code: number // Numeric JSON-RPC error code.
+  message: string // Human-readable error summary.
+  data?: unknown // Optional structured diagnostic payload.
+}
+
+export interface JsonRpcResultResponse&lt;TResult = unknown&gt; { // Successful response envelope.
+  jsonrpc: '2.0' // Fixed JSON-RPC protocol version marker.
+  id: JsonRpcId // Echoes the request id.
+  result: TResult // Method-specific success payload.
+}
+
+export interface JsonRpcErrorResponse { // Failed response envelope.
+  jsonrpc: '2.0' // Fixed JSON-RPC protocol version marker.
+  id: JsonRpcId // Echoes the request id when known.
+  error: JsonRpcError // Structured failure payload.
+}
+
+export type JsonRpcResponse&lt;TResult = unknown&gt; = // Complete response union for request/response methods.
+  | JsonRpcResultResponse&lt;TResult&gt; // Success branch.
+  | JsonRpcErrorResponse // Error branch.</code></pre>
+              </div>
+              <div class="source-note">Source: <span class="inline-code">packages/harness-broker-protocol/src/jsonrpc.ts</span></div>
+            </article>
+          </section>
+
+          <section id="aspc-methods" aria-labelledby="aspc-methods-title">
+            <h2 id="aspc-methods-title"><span class="section-num">02</span> ASPC Methods</h2>
+            <p class="section-intro">
+              ASPC is additive compiler access. It returns the same compiler products as the SDK path and keeps broker runtime methods in the broker namespace.
+            </p>
+
+            <article class="contract-object compiler" id="aspc-method-surface">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge compiler">Compiler facade</span>
+                  <h3>ASPC method surface</h3>
+                  <p>The compiler RPC surface is small on purpose: negotiate, compile a plan, select a broker-ready start request, or use the optional co-hosted convenience path.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge compiler">aspc/0.1</span>
+                  <span class="badge control">compile</span>
+                  <span class="badge broker">start facade</span>
+                </div>
+              </div>
+              <div class="method-ledger">
+                <div class="method-row header three-col">
+                  <span>Method</span>
+                  <span>Contract</span>
+                  <span>Purpose</span>
+                </div>
+                <div class="method-row three-col">
+                  <span class="method-name">aspc.hello</span>
+                  <span class="method-copy contract-pair">
+                    <span class="pair-line"><span class="pair-label">params</span><span>AspcHelloRequest</span></span>
+                    <span class="pair-line"><span class="pair-label">result</span><span>AspcHelloResponse</span></span>
+                  </span>
+                  <span class="method-copy">Negotiate <span class="inline-code">aspc/0.1</span> and expose facade capabilities.</span>
+                </div>
+                <div class="method-row three-col">
+                  <span class="method-name">aspc.compileRuntimePlan</span>
+                  <span class="method-copy contract-pair">
+                    <span class="pair-line"><span class="pair-label">params</span><span>AspcCompileRuntimePlanRequest</span></span>
+                    <span class="pair-line"><span class="pair-label">result</span><span>RuntimeCompileResponse</span></span>
+                  </span>
+                  <span class="method-copy">Compile a closed <span class="inline-code">CompiledRuntimePlan</span> without selecting or starting a broker invocation.</span>
+                </div>
+                <div class="method-row three-col">
+                  <span class="method-name">aspc.compileHarnessInvocation</span>
+                  <span class="method-copy contract-pair">
+                    <span class="pair-line"><span class="pair-label">params</span><span>AspcCompileHarnessInvocationRequest</span></span>
+                    <span class="pair-line"><span class="pair-label">result</span><span>AspcCompileHarnessInvocationResponse</span></span>
+                  </span>
+                  <span class="method-copy">Compile, select an existing broker profile, and return its exact <span class="inline-code">InvocationStartRequest</span> plus dispatch wrapper.</span>
+                </div>
+                <div class="method-row three-col">
+                  <span class="method-name">aspc.compileAndStart</span>
+                  <span class="method-copy contract-pair">
+                    <span class="pair-line"><span class="pair-label">params</span><span>AspcCompileAndStartRequest</span></span>
+                    <span class="pair-line"><span class="pair-label">result</span><span>AspcCompileAndStartResponse</span></span>
+                  </span>
+                  <span class="method-copy">Convenience facade over compile/select followed by broker <span class="inline-code">invocation.start</span> when a broker is co-hosted.</span>
+                </div>
+              </div>
+            </article>
+
+            <article class="contract-object compiler">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge compiler">ASPC protocol</span>
+                  <h3><span class="inline-code">AspcCommand</span></h3>
+                  <p>Current implemented ASPC command and facade DTO shapes.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge compiler">aspc/0.1</span>
+                  <span class="badge control">compile</span>
+                  <span class="badge broker">co-hosted broker</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>export const ASPC_PROTOCOL_VERSION = 'aspc/0.1' as const // Current ASP compiler facade protocol version.
+
+export type AspcProtocolVersion = typeof ASPC_PROTOCOL_VERSION // Narrow protocol version type.
+
+export const ASPC_METHODS = [ // Single source of truth for compiler facade methods.
+  'aspc.hello', // Negotiates protocol version and facade capabilities.
+  'aspc.compileRuntimePlan', // Compiles a closed runtime plan without broker start.
+  'aspc.compileHarnessInvocation', // Compiles and selects a broker-ready invocation request.
+  'aspc.compileAndStart', // Optional co-hosted facade that compiles then starts through broker.
+] as const
+
+export type AspcMethod = (typeof ASPC_METHODS)[number] // Union of supported aspc.* method names.
+
+export type AspcCommand = // JSON-RPC request union accepted by the ASPC facade.
+  | JsonRpcRequest&lt;'aspc.hello', AspcHelloRequest&gt; // Hello negotiation request.
+  | JsonRpcRequest&lt;'aspc.compileRuntimePlan', AspcCompileRuntimePlanRequest&gt; // Compile-only request.
+  | JsonRpcRequest&lt;'aspc.compileHarnessInvocation', AspcCompileHarnessInvocationRequest&gt; // Compile/select request.
+  | JsonRpcRequest&lt;'aspc.compileAndStart', AspcCompileAndStartRequest&gt; // Compile/select/start request.
+
+export interface AspcHelloRequest { // Client negotiation input for the compiler facade.
+  clientInfo: { // Calling client identity.
+    name: string // Client name used for diagnostics.
+    version?: string | undefined // Optional client version string.
+  }
+  protocolVersions: string[] // Protocol versions the client can speak.
+  capabilities?: // Optional client-desired facade features.
+    | {
+        compileRuntimePlan?: boolean | undefined // Client can call compileRuntimePlan.
+        compileHarnessInvocation?: boolean | undefined // Client can call compileHarnessInvocation.
+        compileAndStart?: boolean | undefined // Client can use the co-hosted compile/start facade.
+      }
+    | undefined
+}
+
+export interface AspcHelloResponse { // Negotiated compiler facade capabilities.
+  facadeInfo: { // Facade implementation identity.
+    name: 'aspc-facade' // Stable facade name.
+    version: string // Facade implementation version.
+  }
+  protocolVersion: AspcProtocolVersion // Selected protocol version.
+  capabilities: { // Facade capabilities available for this connection.
+    compileRuntimePlan: true // Compile-only API is always supported.
+    compileHarnessInvocation: true // Broker-profile selection API is always supported.
+    compileAndStart: boolean // True only when a broker is co-hosted.
+    cohostedBroker: boolean // Whether broker methods are available in the same process.
+    transports: ['stdio-jsonrpc-ndjson'] // Supported ASPC transport names.
+  }
+  brokerProtocol?: 'harness-broker/0.1' | undefined // Descriptive broker protocol when co-hosted.
+}
+
+export interface AspcCompileRuntimePlanRequest { // Params for aspc.compileRuntimePlan.
+  compileRequest: RuntimeCompileRequest // Compiler request forwarded to the ASP compiler implementation.
+  aspHome?: string | undefined // Optional ASP home override for standalone service callers.
+}
+
+export type AspcProfileSelector = { // Optional selector over compiled broker execution profiles.
+  profileId?: string | undefined // Select a specific profile id.
+  profileHash?: string | undefined // Select a specific profile hash.
+  brokerDriver?: string | undefined // Select by broker driver kind.
+}
+
+export interface AspcCompileHarnessInvocationRequest extends AspcCompileRuntimePlanRequest { // Params for compile/select.
+  profileSelector?: AspcProfileSelector | undefined // Profile selection constraints for broker-capable profiles.
+  dispatchEnv?: Record&lt;string, string&gt; | undefined // Optional dispatch overlay copied into InvocationDispatchRequest.
+  runtime?: InvocationRuntimeContext | undefined // Optional runtime resource handles for dispatch.
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined // HRC-owned lifecycle policy overlay outside compiled hashes.
+}
+
+export type AspcCompileHarnessInvocationResponse = // Response for compile/select.
+  | {
+      schemaVersion: 'aspc-compile-harness-invocation-response/v1' // Response schema marker.
+      ok: true // Compile and broker-profile selection succeeded.
+      compileResponse: Extract&lt;RuntimeCompileResponse, { ok: true }&gt; // Original successful compiler response.
+      plan: CompiledRuntimePlan // Closed runtime plan from the compiler.
+      selectedProfile: BrokerExecutionProfile // Selected broker execution profile.
+      startRequest: BrokerExecutionProfile['harnessInvocation']['startRequest'] // Exact compiled start request.
+      dispatchRequest: InvocationDispatchRequest // Broker dispatch wrapper with optional overlays.
+      diagnostics: CompileDiagnostic[] // Compiler diagnostics retained for callers.
+    }
+  | {
+      schemaVersion: 'aspc-compile-harness-invocation-response/v1' // Response schema marker.
+      ok: false // Compile or profile selection failed.
+      compileResponse: RuntimeCompileResponse // Compiler response, possibly failed.
+      diagnostics: CompileDiagnostic[] // Diagnostics explaining the failure.
+    }
+
+export type AspcCompileAndStartRequest = AspcCompileHarnessInvocationRequest // Same params plus co-hosted broker start.
+
+export type AspcCompileAndStartResponse = // Response for co-hosted compile/select/start.
+  | {
+      schemaVersion: 'aspc-compile-and-start-response/v1' // Response schema marker.
+      ok: true // Compile/select and broker start succeeded.
+      compile: Extract&lt;AspcCompileHarnessInvocationResponse, { ok: true }&gt; // Successful compile/select result.
+      startResponse: InvocationStartResponse // Broker invocation.start response.
+    }
+  | {
+      schemaVersion: 'aspc-compile-and-start-response/v1' // Response schema marker.
+      ok: false // Compile/select failed before broker start.
+      compile: Extract&lt;AspcCompileHarnessInvocationResponse, { ok: false }&gt; // Failed compile/select result.
+      diagnostics: CompileDiagnostic[] // Diagnostics explaining the failure.
+    }</code></pre>
+              </div>
+              <div class="source-note">Source: <span class="inline-code">packages/aspc-protocol/src/types.ts</span></div>
+            </article>
+          </section>
+
+          <section id="broker-methods" aria-labelledby="broker-methods-title">
+            <h2 id="broker-methods-title"><span class="section-num">03</span> Broker Methods</h2>
+            <p class="section-intro">
+              Broker methods control an already-compiled invocation. They do not compile, materialize, resolve placement, choose a harness, or prepare the compiled process shape.
+            </p>
+
+            <div class="grid two">
+              <article class="contract-object broker" id="broker-v1-methods">
+                <div class="contract-object-head">
+                  <div>
+                    <span class="badge broker">Broker v1</span>
+                    <h3>V1 runtime surface</h3>
+                    <p>Baseline runtime control once HRC already has a compiled broker invocation request.</p>
+                  </div>
+                  <div class="object-chip-row">
+                    <span class="badge broker">start</span>
+                    <span class="badge control">input</span>
+                    <span class="badge runtime">status</span>
+                  </div>
+                </div>
+                <div class="method-ledger">
+                  <div class="method-row header two-col"><span>Method</span><span>Purpose</span></div>
+                  <div class="method-row two-col"><span class="method-name">broker.hello</span><span class="method-copy">Protocol/version/capability negotiation.</span></div>
+                  <div class="method-row two-col"><span class="method-name">broker.health</span><span class="method-copy">Health and optional driver probing.</span></div>
+                  <div class="method-row two-col"><span class="method-name">invocation.start</span><span class="method-copy">Start a compiled invocation from an <span class="inline-code">InvocationDispatchRequest</span>.</span></div>
+                  <div class="method-row two-col"><span class="method-name">invocation.input</span><span class="method-copy">Submit user input, context append, or steering correction.</span></div>
+                  <div class="method-row two-col"><span class="method-name">invocation.interrupt</span><span class="method-copy">Interrupt a turn or invocation if supported by the driver.</span></div>
+                  <div class="method-row two-col"><span class="method-name">invocation.stop</span><span class="method-copy">Request broker-controlled stop.</span></div>
+                  <div class="method-row two-col"><span class="method-name">invocation.status</span><span class="method-copy">Read current invocation state.</span></div>
+                  <div class="method-row two-col"><span class="method-name">invocation.dispose</span><span class="method-copy">Release broker state for an invocation.</span></div>
+                </div>
+              </article>
+              <article class="contract-object broker" id="broker-v2-methods">
+                <div class="contract-object-head">
+                  <div>
+                    <span class="badge broker">Broker v2</span>
+                    <h3>V2 attach and replay additions</h3>
+                    <p>Reconnect-safe control for durable broker sessions, replayed events, and pending permission settlement.</p>
+                  </div>
+                  <div class="object-chip-row">
+                    <span class="badge broker">attach</span>
+                    <span class="badge control">replay</span>
+                    <span class="badge runtime">permissions</span>
+                  </div>
+                </div>
+                <div class="method-ledger">
+                  <div class="method-row header two-col"><span>Method</span><span>Purpose</span></div>
+                  <div class="method-row two-col"><span class="method-name">broker.attach</span><span class="method-copy">Attach a fresh controller to a broker invocation after reconnect/restart.</span></div>
+                  <div class="method-row two-col"><span class="method-name">invocation.eventsSince</span><span class="method-copy">Replay ordered broker events after a sequence number, optionally live.</span></div>
+                  <div class="method-row two-col"><span class="method-name">invocation.ackEvents</span><span class="method-copy">Acknowledge durable event projection through a sequence number.</span></div>
+                  <div class="method-row two-col"><span class="method-name">invocation.snapshot</span><span class="method-copy">Read broker-owned invocation snapshot, including pending permissions.</span></div>
+                  <div class="method-row two-col"><span class="method-name">invocation.permission.respond</span><span class="method-copy">Resolve a broker-to-client permission request.</span></div>
+                </div>
+              </article>
+            </div>
+
+            <div class="protocol-callout">
+              <strong>Separated protocol namespaces</strong>
+              <p><span class="inline-code">aspc.*</span> methods are never part of <span class="inline-code">harness-broker/0.1</span>. A co-hosted ASPC+broker facade may multiplex both protocols on one transport, but method namespaces, validators, errors, and failure domains remain separate.</p>
+            </div>
+
+            <article class="contract-object broker">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge broker">Broker protocol</span>
+                  <h3><span class="inline-code">BrokerCommand</span></h3>
+                  <p>Current implemented broker command union, including v2 attach/replay and permission response methods.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge broker">harness-broker/0.1</span>
+                  <span class="badge broker">harness-broker/0.2</span>
+                  <span class="badge control">runtime control</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>export type BrokerMethodV1 = // Baseline broker runtime command set.
+  | 'broker.hello' // Negotiate protocol version and capabilities.
+  | 'broker.health' // Read broker health and driver availability.
+  | 'invocation.start' // Start a compiled invocation.
+  | 'invocation.input' // Submit user input, context append, or steering input.
+  | 'invocation.interrupt' // Interrupt an active turn or invocation.
+  | 'invocation.stop' // Request broker-controlled stop.
+  | 'invocation.status' // Read current invocation state.
+  | 'invocation.dispose' // Release broker invocation state.
+
+export type BrokerMethodV2 = // Reconnect, replay, and permission extensions.
+  | BrokerMethodV1 // Includes the full v1 command set.
+  | 'broker.attach' // Attach a new controller to an existing broker invocation.
+  | 'invocation.eventsSince' // Replay broker events after a sequence number.
+  | 'invocation.ackEvents' // Acknowledge projected events through a sequence number.
+  | 'invocation.snapshot' // Read broker-owned invocation snapshot state.
+  | 'invocation.permission.respond' // Resolve a pending broker-to-client permission request.
+
+// Reserved for a future milestone; intentionally excluded from Phase A.
+// | 'broker.listInvocations'
+export type BrokerMethod = BrokerMethodV2 // Current complete broker method union.
+
+export type BrokerToClientRequestMethod = 'invocation.permission.request' // Broker-initiated JSON-RPC request method.
+export type BrokerNotificationMethod = 'invocation.event' // Broker event notification method.
+
+export type BrokerCommand = // JSON-RPC request union accepted by Harness Broker.
+  | JsonRpcRequest&lt;'broker.hello', BrokerHelloRequest&gt; // Negotiation request.
+  | JsonRpcRequest&lt;'broker.health', BrokerHealthRequest&gt; // Health request.
+  | JsonRpcRequest&lt;'invocation.start', InvocationDispatchRequest&gt; // Start request using compiled dispatch DTO.
+  | JsonRpcRequest&lt;'invocation.input', InvocationInputRequest&gt; // Input submission request.
+  | JsonRpcRequest&lt;'invocation.interrupt', InvocationInterruptRequest&gt; // Interrupt request.
+  | JsonRpcRequest&lt;'invocation.stop', InvocationStopRequest&gt; // Stop request.
+  | JsonRpcRequest&lt;'invocation.status', InvocationStatusRequest&gt; // Status request.
+  | JsonRpcRequest&lt;'invocation.dispose', InvocationDisposeRequest&gt; // Dispose request.
+  | JsonRpcRequest&lt;'broker.attach', BrokerAttachRequest&gt; // Reconnect attach request.
+  | JsonRpcRequest&lt;'invocation.eventsSince', InvocationEventsSinceRequest&gt; // Event replay request.
+  | JsonRpcRequest&lt;'invocation.ackEvents', InvocationAckEventsRequest&gt; // Event acknowledgement request.
+  | JsonRpcRequest&lt;'invocation.snapshot', InvocationSnapshotRequest&gt; // Snapshot request.
+  | JsonRpcRequest&lt;'invocation.permission.respond', InvocationPermissionRespondRequest&gt; // Permission response request.</code></pre>
+              </div>
+              <div class="source-note">Source: <span class="inline-code">packages/harness-broker-protocol/src/commands.ts</span></div>
+            </article>
+
+            <article class="contract-object broker">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge broker">Broker negotiation</span>
+                  <h3>Hello, health, capabilities</h3>
+                  <p>Runtime negotiation and capability summaries exposed before or during invocation control.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge broker">drivers</span>
+                  <span class="badge runtime">transport</span>
+                  <span class="badge control">permissions</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>export type BrokerProtocolVersion = 'harness-broker/0.1' | 'harness-broker/0.2' // Negotiated broker protocol version.
+
+export interface BrokerHelloRequest { // Client negotiation input for Harness Broker.
+  clientInfo: { // Calling controller/client identity.
+    name: string // Client name used for diagnostics and audit.
+    version?: string | undefined // Optional client version string.
+  }
+  protocolVersions: string[] // Broker protocol versions the client can speak.
+  capabilities?: ClientCapabilities | undefined // Optional client-side features, such as permission request handling.
+}
+
+export interface BrokerHelloResponse { // Negotiated broker identity and capability response.
+  brokerInfo: { // Broker implementation identity.
+    name: 'harness-broker' // Stable broker name.
+    version: string // Broker implementation version.
+  }
+  protocolVersion: BrokerProtocolVersion // Selected broker protocol version.
+  capabilities: BrokerCapabilities // Broker-wide capabilities for this connection.
+  drivers: DriverSummary[] // Driver availability and capability summaries.
+}
+
+export interface BrokerHealthRequest { // Health check request.
+  probeDrivers?: boolean | undefined // When true, include fresh driver availability probes.
+}
+
+export interface BrokerHealthResponse { // Broker liveness and current load.
+  status: 'ok' | 'degraded' | 'shutting_down' // Broker service health state.
+  activeInvocations: number // Count of invocations currently retained by the broker.
+  drivers?: DriverSummary[] | undefined // Optional driver summaries when requested.
+}
+
+export type BrokerTransportKind = 'stdio-jsonrpc-ndjson' | 'unix-jsonrpc-ndjson' // Supported broker transport names.
+
+export interface BrokerCapabilities { // Broker-wide capability set.
+  multiInvocation: boolean // Whether one broker can retain multiple invocations.
+  transports: BrokerTransportKind[] // Transport protocols this broker supports.
+  eventNotifications: true // Broker emits invocation.event notifications.
+  brokerToClientRequests: boolean // Broker may send permission or other requests to the client.
+  attachReplay?: boolean | undefined // Broker supports attach plus replay after reconnect.
+}
+
+export interface ClientCapabilities { // Client-side feature declarations.
+  permissionRequests?: boolean | undefined // Client can handle broker-to-client permission requests.
+  eventAcks?: boolean | undefined // Client can acknowledge replayed/projected events.
+}</code></pre>
+              </div>
+              <div class="source-note">Sources: <span class="inline-code">packages/harness-broker-protocol/src/commands.ts</span>, <span class="inline-code">packages/harness-broker-protocol/src/invocation.ts</span>, <span class="inline-code">packages/harness-broker-protocol/src/capabilities.ts</span></div>
+            </article>
+          </section>
+
+          <section id="compiler-objects" aria-labelledby="compiler-objects-title">
+            <h2 id="compiler-objects-title"><span class="section-num">04</span> Compiler Objects</h2>
+            <p class="section-intro">
+              These code panels are mechanically copied from the existing compiler rewrite HTML, preserving the inline contract comments used for review.
+            </p>
+
+            <article class="contract-object compiler">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge compiler">HRC -> ASP</span>
+                  <h3><span class="inline-code">RuntimeCompileRequest</span></h3>
+                  <p>Everything HRC is allowed to say before compiled execution mechanics become immutable.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge control">identity</span>
+                  <span class="badge compiler">intent</span>
+                  <span class="badge broker">policy</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>type RuntimeCompileRequest = {
+  schemaVersion: 'agent-runtime-compile-request/v1' // Selects the compile request wire contract.
+
+  identity: { // HRC-allocated IDs that make the compiled plan auditable and replayable.
+    requestId: RequestId // Correlates this compiler call with the original HRC request.
+    operationId: RuntimeOperationId // Names the HRC control-plane operation being compiled.
+    hostSessionId: HostSessionId // Identifies the user-visible session or conversation continuity.
+    generation: number // Guards against stale runtime/session callbacks after rotation.
+    runtimeId: RuntimeId // Names the reusable runtime HRC will control if admitted.
+    invocationId?: InvocationId // Preallocates broker invocation identity for broker profiles.
+    initialInputId?: InputId // Preallocates the first input ID when an initial prompt exists.
+    runId?: RunId // Preallocates the user-visible run or turn identity.
+    traceId?: TraceId // Carries distributed trace correlation across planes.
+    idempotencyKey?: string // Lets HRC retry compilation without creating a different semantic request.
+  }
+
+  placement: { // Requested workspace/target placement; ASP resolves the bundle from here.
+    kind?: string // Placement strategy or shape identifier from the ASP request/registry.
+    root?: string // Filesystem or workspace root used to resolve the runtime target.
+    targetName?: string // Logical target name when placement points at an ASP target.
+    targetDir?: string // Concrete target directory when already resolved or explicitly supplied.
+    [key: string]: unknown // Extension fields preserved for placement implementations outside this DTO.
+  }
+
+  requested: { // User or route preference before ASP resolves concrete runtime facts.
+    modelProvider?: ProviderDomain // Preferred model provider family, such as anthropic or openai.
+    model?: string // Requested model alias or provider model ID before compiler normalization.
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' // Requested reasoning tier when supported.
+    harnessFamily?: HarnessFamily // Requested harness family, such as claude-code, codex, or pi.
+    preferredHarnessRuntime?: HarnessRuntime // Preferred materialized runtime, such as codex-cli or pi-sdk.
+    interactionMode?: InteractionMode // Requested interaction shape: interactive, headless, or nonInteractive.
+  }
+
+  materialization: { // Inputs ASP may turn into files, prompt material, or broker input.
+    initialPrompt?: string // Initial user prompt or launch input to compile into the selected profile.
+    attachments?: AttachmentRef[] // Local files/images/opaque refs ASP validates and materializes.
+    taskContext?: HrcTaskContext // Task metadata, role, evidence requirements, and hints from HRC.
+    resolvedBundleHint?: ResolvedRuntimeBundle // Optional prior bundle resolution to reuse or validate.
+  }
+
+  hrcPolicy: { // HRC product/security overlays that ASP compiles into explicit profile policy.
+    permissionPolicy?: BrokerPermissionPolicy // Permission posture: deny, allow with provenance, or ask-client.
+    inputPolicy?: BrokerInputPolicy // Runtime input behavior such as ready input and busy handling.
+    exposurePolicy?: AgentchatExposurePolicy // Whether the runtime is exposed to Agentchat targets.
+    resourceLimits?: RuntimeResourceLimits // Startup, turn, stop, queue, event, and age limits.
+    observability?: RuntimeObservabilityInput // Trace and telemetry inputs that may affect driver config.
+    capabilityPolicy?: HrcCapabilityPolicy // Whether degradation is allowed and which capabilities are required.
+  }
+
+  continuation?: { // Existing HRC/broker continuation key to encode into the new profile.
+    schemaVersion: 'runtime-continuation/v1' // Selects the continuation reference contract.
+    hrc: { // HRC-owned continuation identity used for product/API compatibility.
+      provider: ProviderDomain // Provider that owns the continuation key, such as anthropic or openai.
+      continuationId: string // Stable continuation identity for matching, diagnostics, and compatibility.
+      key?: string // Raw key only while needed in memory; projections omit credential material.
+    }
+    broker?: { // Broker/native continuation identity when the execution plane has its own key.
+      provider: string // Broker or driver provider name that produced the continuation.
+      kind?: 'thread' | 'session' | 'conversation' | string // Native continuation category.
+      continuationId: string // Stable broker continuation identity.
+      key?: string // Raw broker key only while needed in memory to resume or dispatch.
+    }
+    source: 'embedded-sdk' | 'harness-broker' | 'legacy-exec' | 'terminal-hook' // Where the continuation was observed.
+    sourceEvent?: { // Event evidence tying the continuation back to a broker/controller fact.
+      invocationId?: InvocationId // Broker invocation that reported the continuation.
+      eventSeq?: number // Ordered broker event sequence where the continuation was seen.
+      eventType?: string // Event type that carried the continuation payload.
+    }
+    observedAt: IsoTimestamp // When HRC observed or persisted this continuation reference.
+  }
+
+  correlation: { // Non-authoritative correlation copied into diagnostics, artifacts, and broker observability.
+    requestId: RequestId // Repeats request correlation for consumers that do not inspect identity.
+    operationId?: RuntimeOperationId // Optional operation correlation for follow-up inputs or inspections.
+    hostSessionId: HostSessionId // Session continuity for logs, public views, and artifacts.
+    generation: number // Generation correlation used during stale callback/reconcile checks.
+    runtimeId?: RuntimeId // Runtime correlation when the target runtime already exists.
+    runId?: RunId // Run correlation when this compile belongs to a user-visible turn.
+    invocationId?: InvocationId // Broker invocation correlation when one is already allocated.
+    traceId?: TraceId // Distributed trace ID for observability backends.
+    appId?: string // Optional application/client identifier for public API consumers.
+    appSessionKey?: string // Optional app-specific session key for client-side grouping.
+    scopeRef?: string // Optional agent scope reference, such as cody@agent-spaces.
+    laneRef?: string // Optional parallel lane identifier within the scope.
+  }
+}</code></pre>
+              </div>
+              <div class="source-note">Source HTML: <span class="inline-code">docs/html/compiler-rewrite.html</span></div>
+            </article>
+
+            <article class="contract-object compiler">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge compiler">ASP -> HRC</span>
+                  <h3><span class="inline-code">RuntimeCompileResponse</span> and <span class="inline-code">CompiledRuntimePlan</span></h3>
+                  <p>The immutable compiler product HRC may select, persist, reject, or send unchanged to the broker.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge compiler">plan</span>
+                  <span class="badge control">profiles</span>
+                  <span class="badge broker">hashes</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>type RuntimeCompileResponse =
+  | {
+      schemaVersion: 'agent-runtime-compile-response/v1' // Selects the compile response wire contract.
+      ok: true // Means ASP produced a complete plan HRC may route over.
+      plan: CompiledRuntimePlan // The closed compiler product; HRC must not fill in missing mechanics.
+      diagnostics: CompileDiagnostic[] // Structured warnings/info that remain useful even when compilation succeeds.
+    }
+  | {
+      schemaVersion: 'agent-runtime-compile-response/v1' // Same response schema for failed compilation.
+      ok: false // Means HRC must reject or recompile; it cannot patch missing mechanics.
+      diagnostics: CompileDiagnostic[] // Structured errors/warnings explaining why no usable plan was emitted.
+    }
+
+type CompiledRuntimePlan = {
+  schemaVersion: 'agent-runtime-plan/v1' // Selects the immutable runtime plan schema.
+  compiler: { // Identifies the compiler implementation that produced the plan.
+    name: 'agent-spaces' // Compiler owner; keeps the plan attributable to ASP.
+    version: string // Compiler version used for diagnostics, hashing, and migration checks.
+  }
+  compileId: CompileId // Unique compiler attempt ID for artifacts, route decisions, and operations.
+  planHash: PlanHash // Semantic hash of the named plan projection; includes canonical lockedEnv.
+  createdAt: IsoTimestamp // Compile timestamp; audit evidence excluded from semantic hashes.
+
+  identity: RuntimeIdentityAllocation // Echoes HRC-allocated IDs embedded into profiles and start requests.
+  placement: { // Placement request ASP compiled from.
+    kind?: string // Placement strategy or shape identifier from the ASP request/registry.
+    root?: string // Filesystem or workspace root used to resolve the runtime target.
+    targetName?: string // Logical target name when placement points at an ASP target.
+    targetDir?: string // Concrete target directory when already resolved or explicitly supplied.
+    [key: string]: unknown // Extension fields preserved for placement implementations outside this DTO.
+  }
+  resolvedBundle: ResolvedRuntimeBundle // Concrete bundle/materialization result ASP selected.
+
+  harness: { // Resolved harness identity after ASP catalog and placement decisions.
+    family: HarnessFamily // Harness family, such as codex, pi, or claude-code.
+    runtime: HarnessRuntime // Concrete runtime implementation, such as codex-cli or claude-agent-sdk.
+    provider: ProviderDomain // Model provider domain for credentials and continuation compatibility.
+  }
+
+  model: { // Resolved model selection that the selected runtime will use.
+    provider: ProviderDomain // Provider domain after normalization.
+    modelId: string // Authoritative provider model ID emitted by ASP.
+    requestedModel?: string // Original user/API model value when it differs from modelId.
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' // Resolved reasoning tier when present.
+  }
+
+  executionProfiles: RuntimeExecutionProfile[] // Complete strategies HRC can select; HRC may not complete them.
+
+  artifacts: { // File/bundle artifacts that let HRC persist evidence without owning construction.
+    materializedBundleRoot?: string // Filesystem root of the resolved runtime bundle.
+    systemPromptFile?: string // Materialized system prompt path when ASP writes one.
+    userPromptFile?: string // Materialized user prompt path when ASP writes one.
+    lockHash?: string // Bundle lock hash used to reason about reproducibility.
+    bundleIdentity: string // Stable identity of the resolved bundle.
+  }
+
+  lockedEnv: { // Inventory of ASP-declared non-secret config keys projected into profiles.
+    lockedEnvKeys: string[] // Must come from resolved space/agent/target config, never process.env.
+  }
+
+  diagnostics: CompileDiagnostic[] // Plan-scoped compiler facts, warnings, or errors.
+}
+
+type CompileDiagnostic = {
+  level: 'info' | 'warning' | 'error' // Severity HRC uses for admission and public warnings.
+  code: string // Stable machine-readable diagnostic code.
+  message: string // Human-readable explanation for logs and review; must omit credential material.
+  plane: 'asp-compiler' // Names the source plane; compiler diagnostics are not runtime events.
+  profileId?: ProfileId // Optional profile-specific target for the diagnostic.
+  details?: unknown // Structured details; must omit secret/credential material.
+}</code></pre>
+              </div>
+              <div class="source-note">Source HTML: <span class="inline-code">docs/html/compiler-rewrite.html</span></div>
+            </article>
+          </section>
+
+          <section id="broker-runtime-objects" aria-labelledby="broker-runtime-objects-title">
+            <h2 id="broker-runtime-objects-title"><span class="section-num">05</span> Broker Runtime Objects</h2>
+            <p class="section-intro">
+              Broker profiles and dispatch objects bridge the compiler product to the live broker runtime. The copied HTML block below preserves the closure rule comments.
+            </p>
+
+            <article class="contract-object broker">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge broker">Profile DTOs</span>
+                  <h3><span class="inline-code">BrokerExecutionProfile</span></h3>
+                  <p>Profiles are closed compiler products. The live profile carries raw launch material needed to execute; persist/display artifacts are separate projections.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge compiler">lockedEnv</span>
+                  <span class="badge broker">tmux broker</span>
+                  <span class="badge control">projection boundary</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>type RuntimeExecutionProfileBase = { // Common fields on every compiler-emitted execution profile.
+  schemaVersion: 'agent-runtime-profile/v1' // Selects the runtime profile schema.
+  profileId: ProfileId // Stable identity used by HRC route decisions.
+  profileHash: ProfileHash // Semantic hash of this execution profile.
+  compatibilityHash: CompatibilityHash // Reuse compatibility hash for runtime matching.
+  kind: RuntimeExecutionProfileKind // Profile category, such as harness-broker or embedded-sdk.
+  interactionMode: InteractionMode // Headless, interactive, or nonInteractive execution shape.
+  expectedCapabilities: CapabilityRequirements // Capabilities HRC can use for admission and UI affordances.
+  diagnostics?: CompileDiagnostic[] // Profile-scoped compiler diagnostics.
+}
+
+type BrokerTerminalSurface = { // Compiler-selected operator attach surface metadata.
+  host: 'tmux' // Terminal host kind reported for this broker profile.
+  startupMethod: 'create-terminal' | 'reuse-existing' | 'adopt-terminal' // How HRC/runtime obtains the terminal surface.
+  turnDelivery: 'terminal-literal-input' // How operator text reaches the terminal surface.
+  operatorAttach: true // Indicates the surface is intended for operator attach.
+  exposurePolicy: { mode: 'broker-reports-target'; targetKind: 'tmux-session' } // Broker reports the concrete attach target.
+}
+
+type BrokerExecutionProfile = RuntimeExecutionProfileBase &amp; { // Compiler product for broker-capable routes.
+  kind: 'harness-broker' // Profile kind consumed by the broker runtime controller.
+  interactionMode: 'headless' | 'interactive' // Broker route interaction mode.
+  brokerProtocol: 'harness-broker/0.1' // Broker protocol expected by this profile.
+  brokerDriver: 'codex-app-server' | 'claude-code-tmux' | string // Driver kind the broker will instantiate.
+  brokerOwnership: 'hrc-owned-process' // HRC owns the broker process lifecycle.
+  brokerTerminal?: BrokerTerminalSurface // Selection/exposure metadata only, not launch truth.
+  harnessInvocation: { // Compiled broker invocation payload and hashes.
+    startRequest: InvocationStartRequest // Exact start request HRC must forward unchanged.
+    specHash: SpecHash // Semantic hash of HarnessInvocationSpec.
+    startRequestHash: StartRequestHash // Semantic hash of InvocationStartRequest.
+    initialInputHash?: string // Optional semantic hash of initial broker input.
+  }
+  policy: { // Compiler-emitted policy defaults for this broker route.
+    permissionPolicy: BrokerPermissionPolicy // Permission posture for driver/tool requests.
+    inputPolicy: BrokerInputPolicy // Input behavior and busy handling policy.
+    exposurePolicy: AgentchatExposurePolicy // Product/UI exposure policy.
+    resourceLimits?: RuntimeResourceLimits // Optional resource/time limits.
+  }
+  continuation?: { hrc?: RuntimeContinuationRef; broker?: BrokerContinuationRef } // Optional continuation references.
+  observability: BrokerObservabilityContract // Trace and telemetry contract for broker execution.
+}</code></pre>
+              </div>
+              <div class="source-note">Source HTML: <span class="inline-code">docs/html/compiler-rewrite.html</span></div>
+            </article>
+
+            <article class="contract-object broker">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge broker">Dispatch DTOs</span>
+                  <h3><span class="inline-code">InvocationDispatchRequest</span></h3>
+                  <p>HRC owns dispatchEnv, runtime resource handles, and lifecycle overlays. The compiled start request is forwarded unchanged.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge compiler">startRequest</span>
+                  <span class="badge control">dispatchEnv</span>
+                  <span class="badge runtime">runtime overlay</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>export interface InvocationStartRequest { // Compiled broker start payload.
+  spec: HarnessInvocationSpec // Hash-covered invocation spec emitted by ASP.
+  initialInput?: InvocationInput | undefined // Optional first input compiled into the broker start.
+}
+
+export interface InvocationDispatchRequest { // HRC-owned wrapper sent to broker invocation.start.
+  startRequest: InvocationStartRequest // Forwarded unchanged; the only compiled/hash-covered dispatch payload.
+  dispatchEnv?: Record&lt;string, string&gt; | undefined // HRC per-invocation env overlay; never compiled or hashed.
+  runtime?: InvocationRuntimeContext | undefined // Dispatch-time runtime resource handles, such as tmux pane leases.
+  lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined // HRC-owned lifecycle policy outside startRequestHash material.
+}
+
+export interface InvocationRuntimeContext { // Runtime resources supplied after profile selection.
+  tmux?: // Legacy tmux context boundary shim.
+    | {
+        socketPath: string // Legacy tmux socket path boundary shim.
+      }
+    | undefined
+  terminalSurface?: // Runtime-owned terminal surface lease supplied at dispatch time.
+    | {
+        kind: 'tmux-pane' // Runtime surface kind.
+        ownership: 'hrc' // HRC/runtime owns the pane lease, not the driver.
+        socketPath: string // tmux server socket path.
+        sessionId: string // tmux session id, such as $3.
+        windowId: string // tmux window id, such as @7.
+        paneId: string // tmux pane id, such as %12.
+        sessionName?: string | undefined // Optional human-readable session name.
+        windowName?: string | undefined // Optional human-readable window name.
+        allowedOps: { // Capability scope granted to the driver for this pane.
+          inspect: true // Driver may inspect/capture pane state.
+          sendInput: true // Driver may send input to the pane.
+          sendInterrupt: true // Driver may send interrupt/control input.
+          capture?: boolean | undefined // Optional explicit capture permission.
+          resize?: boolean | undefined // Optional explicit resize permission.
+        }
+      }
+    | undefined
+}</code></pre>
+              </div>
+              <div class="source-note">Source: <span class="inline-code">packages/harness-broker-protocol/src/commands.ts</span></div>
+            </article>
+
+            <article class="contract-object broker">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge broker">Invocation spec</span>
+                  <h3><span class="inline-code">HarnessInvocationSpec</span></h3>
+                  <p>The broker consumes this spec inside the compiled start request. It is compiler-owned launch shape, including process, transport, driver, launch material, and correlation.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge broker">process</span>
+                  <span class="badge runtime">driver</span>
+                  <span class="badge compiler">hash material</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>export interface HarnessInvocationSpec { // Compiler-owned broker launch spec.
+  specVersion: 'harness-broker.invocation/v1' // Selects the invocation spec schema.
+  invocationId?: InvocationId | undefined // Optional preallocated broker invocation identity.
+  labels?: Record&lt;string, string&gt; | undefined // Non-secret labels for audit and diagnostics.
+  harness: HarnessDescriptor // Harness frontend/provider/driver identity.
+  process: HarnessProcessSpec // Process launch shape consumed by the broker driver.
+  interaction?: InteractionSpec | undefined // Interaction mode and input queue hints.
+  continuation?: ContinuationSpec | undefined // Native continuation key for resume flows.
+  driver: CodexAppServerDriverSpec | UnknownDriverSpec // Driver-specific configuration payload.
+  launch?: HarnessLaunchSpec | undefined // Startup prompt/header material used before protocol readiness.
+  correlation?: Record&lt;string, string&gt; | undefined // Opaque non-authoritative correlation echoed into events.
+}
+
+export interface HarnessLaunchSpec { // Harness startup material.
+  systemPromptFile?: string | undefined // Materialized system prompt file path.
+  systemPromptMode?: 'append' | 'replace' | undefined // How the harness applies the system prompt.
+  initialPrompt?: string | undefined // Startup priming text used at launch.
+}
+
+export interface HarnessDescriptor { // Harness identity selected by ASP.
+  frontend: string // User-facing harness frontend name.
+  provider?: string | undefined // Optional model/provider domain.
+  driver: 'codex-app-server' | string // Broker driver kind.
+}
+
+export interface HarnessProcessSpec { // Process execution shape for process-backed drivers.
+  command: string // Executable path or command name.
+  args: string[] // Argument vector emitted by ASP.
+  cwd: string // Working directory for the harness process.
+  lockedEnv?: Record&lt;string, string&gt; | undefined // ASP-declared non-secret env; hash-covered and HRC-immutable.
+  pathPrepend?: string[] | undefined // Hash-covered PATH prefix entries applied by execution owner.
+  harnessTransport: HarnessTransportSpec // How broker communicates with the harness process.
+  limits?: ProcessLimits | undefined // Optional process and turn limits.
+}
+
+export type HarnessTransportSpec = // Harness process I/O contract.
+  | { kind: 'jsonrpc-stdio' } // JSON-RPC over stdio.
+  | { kind: 'pipes' } // Raw process pipes.
+  | { kind: 'pty'; cols?: number | undefined; rows?: number | undefined } // PTY transport and optional size.
+
+export interface InteractionSpec { // Runtime interaction semantics.
+  mode: 'headless' | 'interactive' | 'service' // Interaction mode for this invocation.
+  turnConcurrency?: 'single' | undefined // Turn concurrency policy.
+  inputQueue?: 'none' | 'fifo' | undefined // Input queue policy exposed to broker.
+}
+
+export interface ContinuationSpec { // Native continuation identity.
+  provider: string // Provider or driver namespace.
+  key: string // Native continuation key used for resume.
+  kind?: 'thread' | 'session' | 'conversation' | string | undefined // Continuation category.
+}
+
+export interface ProcessLimits { // Process lifecycle and event limits.
+  startupTimeoutMs?: number | undefined // Max time allowed for startup readiness.
+  turnTimeoutMs?: number | undefined // Max time allowed for one turn.
+  stopGraceMs?: number | undefined // Grace period before hard stop.
+  maxEventBytes?: number | undefined // Maximum event payload size.
+}
+
+export interface CodexAppServerDriverSpec { // Driver config for Codex app-server routes.
+  kind: 'codex-app-server' // Discriminant selecting the Codex app-server broker driver.
+  resumeThreadId?: string | undefined // Optional Codex thread id to resume.
+  model?: string | undefined // Provider model id selected by ASP.
+  modelReasoningEffort?: string | undefined // Optional reasoning effort setting.
+  approvalPolicy?: 'untrusted' | 'on-failure' | 'on-request' | 'never' | undefined // Codex approval policy.
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access' | undefined // Codex sandbox mode.
+  profile?: string | undefined // Optional Codex profile name.
+  defaultImageAttachments?: string[] | undefined // Default image attachment paths for initial input.
+  permissionPolicy?: DriverPermissionPolicy | undefined // Driver-level permission handling policy.
+  resumeFallback?: 'start-fresh' | 'fail' | undefined // Behavior when requested resume cannot be used.
+}
+
+export interface UnknownDriverSpec { // Forward-compatible driver config.
+  kind: string // Driver kind discriminator.
+  [key: string]: unknown // Driver-specific extension fields.
+}</code></pre>
+              </div>
+              <div class="source-note">Source: <span class="inline-code">packages/harness-broker-protocol/src/invocation.ts</span></div>
+            </article>
+
+            <article class="contract-object broker">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge broker">Invocation control</span>
+                  <h3>Start, input, interrupt, stop, status, dispose</h3>
+                  <p>Runtime request/response DTOs for a broker-owned invocation after the compiled start request is admitted.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge control">input</span>
+                  <span class="badge broker">state</span>
+                  <span class="badge runtime">continuation</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>export interface InvocationStartResponse { // Broker response after invocation.start.
+  invocationId: InvocationId // Broker invocation identity.
+  state: InvocationState // Initial invocation state after start handling.
+  capabilities: InvocationCapabilities // Effective invocation capabilities.
+  acceptedLifecyclePolicy?: AcceptedLifecyclePolicy | undefined // Lifecycle overlay accepted at dispatch.
+}
+
+export type InvocationState = // Broker invocation lifecycle state.
+  | 'starting' // Broker has accepted start and is launching.
+  | 'ready' // Invocation is ready for input.
+  | 'turn_active' // A turn is currently running.
+  | 'stopping' // Stop/interrupt lifecycle is in progress.
+  | 'exited' // Invocation exited normally.
+  | 'failed' // Invocation failed.
+  | 'disposed' // Broker state has been released.
+
+export interface InvocationInputRequest { // Input command params.
+  invocationId: InvocationId // Invocation receiving the input.
+  input: InvocationInput // Input payload to apply.
+  policy?: InputPolicy | undefined // Optional busy-handling policy.
+}
+
+export interface InvocationInput { // User or control input payload.
+  inputId?: InputId | undefined // Optional preallocated input identity.
+  kind: 'user' | 'steer' | 'append_context' // Semantic input kind.
+  content: InputContent[] // Ordered input content parts.
+  metadata?: Record&lt;string, string&gt; | undefined // Optional non-secret input metadata.
+}
+
+export type InputContent = // Supported input content part shapes.
+  | { type: 'text'; text: string } // Plain text content.
+  | { type: 'local_image'; path: string } // Local image path.
+  | { type: 'file_ref'; path: string; mimeType?: string | undefined } // Local file reference and optional MIME type.
+
+export interface InputPolicy { // Input handling policy when invocation is busy.
+  whenBusy: 'reject' | 'queue' | 'interrupt_then_apply' // Busy behavior.
+  timeoutMs?: number | undefined // Optional timeout for applying input.
+}
+
+export interface InvocationInputResponse { // Broker input acceptance result.
+  inputId: InputId // Effective input identity.
+  accepted: boolean // Whether broker accepted the input.
+  disposition: 'started' | 'queued' | 'attempted_steer' | 'rejected' // Effective handling outcome.
+  reason?: string | undefined // Optional rejection or coercion reason.
+  turnId?: TurnId | undefined // Turn id when input started a turn.
+}
+
+export interface InvocationInterruptRequest { // Interrupt command params.
+  invocationId: InvocationId // Invocation to interrupt.
+  scope: 'turn' | 'invocation' // Interrupt only active turn or the whole invocation.
+  reason?: string | undefined // Optional human-readable reason.
+  graceMs?: number | undefined // Optional grace period for interrupt handling.
+}
+
+export interface InvocationInterruptResponse { // Broker interrupt result.
+  accepted: boolean // Whether broker accepted the interrupt request.
+  effect: 'turn_interrupted' | 'invocation_stopping' | 'unsupported' | 'no_active_turn' // Effective interrupt result.
+  reason?: string | undefined // Optional explanation.
+}
+
+export interface InvocationStopRequest { // Stop command params.
+  invocationId: InvocationId // Invocation to stop.
+  reason?: string | undefined // Optional stop reason.
+  graceMs?: number | undefined // Optional graceful stop window.
+}
+
+export interface InvocationStopResponse { // Stop command result.
+  accepted: boolean // Whether broker accepted the stop request.
+  state: InvocationState // Invocation state after stop handling.
+}
+
+export interface InvocationStatusRequest { // Status command params.
+  invocationId: InvocationId // Invocation to inspect.
+}
+
+export interface InvocationStatusResponse { // Current invocation snapshot for status calls.
+  invocationId: InvocationId // Invocation identity.
+  state: InvocationState // Current broker state.
+  currentTurnId?: TurnId | undefined // Active turn id when a turn is running.
+  continuation?: ContinuationUpdate | undefined // Latest continuation update if known.
+  capabilities: InvocationCapabilities // Effective invocation capabilities.
+  process?: // Process details when the invocation is process-backed.
+    | {
+        pid?: number | undefined // Child process pid when process-backed.
+        exitCode?: number | null | undefined // Exit code when process has exited.
+        signal?: string | null | undefined // Exit signal when process was signaled.
+      }
+    | undefined
+}
+
+export interface InvocationDisposeRequest { // Dispose command params.
+  invocationId: InvocationId // Invocation state to release.
+}
+
+export interface InvocationDisposeResponse { // Dispose command result.
+  disposed: true // Confirms broker released invocation state.
+}</code></pre>
+              </div>
+              <div class="source-note">Source: <span class="inline-code">packages/harness-broker-protocol/src/commands.ts</span></div>
+            </article>
+
+            <article class="contract-object broker">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge broker">Attach and replay</span>
+                  <h3>Reconnect runtime DTOs</h3>
+                  <p>V2 broker methods for controller attach, snapshot, event replay, acknowledgements, and permission response.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge broker">v2</span>
+                  <span class="badge control">replay</span>
+                  <span class="badge runtime">permissions</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>export interface BrokerAttachRequest { // Reconnect attach request from HRC/controller to broker.
+  runtimeId: string // HRC runtime identity being reattached.
+  hostSessionId: string // User-visible host session identity.
+  generation: number // HRC runtime generation used for stale fencing.
+  invocationId: InvocationId // Broker invocation to attach.
+  startRequestHash: string // Hash of the compiled start request expected by the controller.
+  selectedProfileHash: string // Hash of the selected compiled profile expected by the controller.
+  controllerInstanceId: string // Fresh controller instance identity for this attach attempt.
+  attachToken: string // Attach authorization/fencing token.
+  lastProjectedSeq?: number | undefined // Last event sequence the controller has durably projected.
+  clientCapabilities?: ClientCapabilities | undefined // Reattaching client capabilities.
+}
+
+export interface BrokerAttachResponse { // Successful attach result.
+  attached: true // Confirms attach was accepted.
+  brokerInstanceId: string // Broker process/instance identity.
+  runtimeId: string // Echoed runtime identity.
+  generation: number // Echoed runtime generation.
+  invocationId: InvocationId // Echoed broker invocation identity.
+  activeControllerInstanceId: string // Controller instance now fenced as active.
+  currentSeq: number // Latest broker event sequence.
+  retentionFloorSeq: number // Oldest event sequence retained for replay.
+  snapshot: InvocationSnapshot // Broker-owned invocation snapshot at attach time.
+}
+
+export interface InvocationSnapshotRequest { // Snapshot command params.
+  invocationId: InvocationId // Invocation to snapshot.
+}
+
+export interface PendingPermissionRequest extends PermissionRequestParams { // Pending broker permission request surfaced in snapshots.
+  deadlineAt: string // Absolute ISO deadline when broker will apply defaultDecision.
+}
+
+export interface InvocationSnapshot { // Broker-owned durable invocation state.
+  invocationId: InvocationId // Invocation identity.
+  state: InvocationState // Current broker state.
+  currentTurnId?: TurnId | undefined // Active turn id when present.
+  continuation?: ContinuationUpdate | undefined // Latest continuation update if known.
+  capabilities: InvocationCapabilities // Effective invocation capabilities.
+  pendingInputIds: InputId[] // Inputs accepted but not yet completed.
+  inputDispositions: Record&lt;string, InvocationInputResponse&gt; // Broker-owned input disposition map.
+  pendingPermissionRequests: PendingPermissionRequest[] // Permission requests awaiting client response.
+  terminalSurface?: BrokerTerminalSurfaceReport | undefined // Broker-reported terminal attach surface.
+  process?: // Broker and child process details when the invocation is process-backed.
+    | {
+        brokerPid?: number | undefined // Broker process pid.
+        childPid?: number | undefined // Harness child process pid when process-backed.
+        exitCode?: number | null | undefined // Child exit code when exited.
+        signal?: string | null | undefined // Child signal when signaled.
+      }
+    | undefined
+  currentSeq: number // Latest broker event sequence.
+  retentionFloorSeq: number // Oldest retained sequence available for replay.
+}
+
+export interface InvocationEventsSinceRequest { // Event replay request.
+  invocationId: InvocationId // Invocation whose events should be replayed.
+  afterSeq: number // Return events with sequence greater than this value.
+  live?: boolean | undefined // Optionally attach live stream after replay.
+}
+
+export interface InvocationEventsSinceResponse { // Event replay result.
+  events: InvocationEventEnvelope[] // Ordered replayed broker events.
+  currentSeq: number // Latest broker sequence after replay.
+  retentionFloorSeq: number // Oldest retained sequence still available.
+  liveStreamAttached?: boolean | undefined // True when live streaming was attached.
+}
+
+export interface InvocationAckEventsRequest { // Event acknowledgement request.
+  invocationId: InvocationId // Invocation whose events were projected.
+  throughSeq: number // Highest durably projected event sequence.
+  controllerInstanceId: string // Controller instance making the acknowledgement.
+}
+
+export interface InvocationAckEventsResponse { // Event acknowledgement result.
+  ackedThroughSeq: number // Sequence accepted as durably acknowledged.
+}
+
+export interface InvocationPermissionRespondRequest { // Client response to broker permission request.
+  invocationId: InvocationId // Invocation that owns the permission request.
+  permissionRequestId: PermissionRequestId // Permission request being resolved.
+  decision: 'allow' | 'deny' // Client decision.
+  message?: string | undefined // Optional human-facing decision message.
+  controllerInstanceId?: string | undefined // Controller instance resolving the request.
+}
+
+export type InvocationPermissionRespondResponse = // Broker result for permission response.
+  | {
+      status: 'accepted' // Decision was accepted and applied.
+      permissionRequestId: PermissionRequestId // Resolved permission request.
+      decision: 'allow' | 'deny' // Applied decision.
+    }
+  | {
+      status: 'duplicate' // Same decision was already applied.
+      permissionRequestId: PermissionRequestId // Permission request id.
+      originalDecision: 'allow' | 'deny' // Previously applied decision.
+    }
+  | {
+      status: 'conflict' // A different decision was already applied.
+      permissionRequestId: PermissionRequestId // Permission request id.
+      originalDecision: 'allow' | 'deny' // Previously applied decision.
+      attemptedDecision: 'allow' | 'deny' // Conflicting decision from this request.
+    }
+  | {
+      status: 'expired' | 'unknown' // Request expired or no longer exists.
+      permissionRequestId: PermissionRequestId // Permission request id.
+    }</code></pre>
+              </div>
+              <div class="source-note">Source: <span class="inline-code">packages/harness-broker-protocol/src/invocation.ts</span></div>
+            </article>
+          </section>
+
+          <section id="broker-events" aria-labelledby="broker-events-title">
+            <h2 id="broker-events-title"><span class="section-num">06</span> Broker Events</h2>
+            <p class="section-intro">
+              Broker runtime events are ordered by <span class="inline-code">seq</span>, replayed through <span class="inline-code">invocation.eventsSince</span>, and delivered live as <span class="inline-code">invocation.event</span> notifications.
+            </p>
+
+            <article class="contract-object broker">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge broker">Event stream</span>
+                  <h3><span class="inline-code">InvocationEventEnvelope</span></h3>
+                  <p>Core broker event envelope and normalized event vocabulary.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge broker">seq</span>
+                  <span class="badge runtime">replay</span>
+                  <span class="badge control">permission audit</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>export interface InvocationEventEnvelope&lt;TPayload = InvocationEventPayload&gt; { // Ordered broker event envelope.
+  invocationId: InvocationId // Invocation that emitted the event.
+  seq: number // Strictly monotonic sequence within the invocation.
+  time: IsoTimestamp // Event timestamp.
+  type: InvocationEventType // Normalized broker event type.
+  payload: TPayload // Event-specific payload.
+  turnId?: TurnId | undefined // Turn correlation when event belongs to a turn.
+  inputId?: InputId | undefined // Input correlation when event belongs to an input.
+  itemId?: string | undefined // Optional provider item/message/tool correlation.
+  correlation?: Record&lt;string, string&gt; | undefined // Opaque caller correlation echoed by broker.
+  driver?: // Native driver provenance for diagnostics and raw-event correlation.
+    | {
+        kind: string // Driver kind that produced the raw event.
+        rawType?: string | undefined // Optional native driver event type.
+      }
+    | undefined
+  harnessGeneration?: number | undefined // Broker-owned harness child generation.
+  turnAttempt?: number | undefined // Attempt number for the logical turn.
+}
+
+export type InvocationEventType = // Normalized broker event vocabulary.
+  | 'invocation.started' // Invocation process/session started.
+  | 'invocation.ready' // Invocation is ready for input.
+  | 'invocation.stopping' // Invocation stop is in progress.
+  | 'invocation.exited' // Invocation exited normally.
+  | 'invocation.failed' // Invocation failed.
+  | 'invocation.disposed' // Broker disposed invocation state.
+  | 'lifecycle.policy.accepted' // Dispatch lifecycle policy was accepted.
+  | 'lifecycle.escalation' // Lifecycle policy escalated an action.
+  | 'harness.started' // Harness child generation started.
+  | 'harness.exited' // Harness child generation exited.
+  | 'harness.recovery.started' // Harness recovery started.
+  | 'harness.recovery.completed' // Harness recovery completed.
+  | 'harness.recovery.failed' // Harness recovery failed.
+  | 'continuation.updated' // Continuation reference was updated.
+  | 'continuation.cleared' // Continuation reference was cleared.
+  | 'input.accepted' // Input was accepted.
+  | 'input.rejected' // Input was rejected.
+  | 'input.queued' // Input was queued.
+  | 'turn.started' // Turn started.
+  | 'turn.stalled' // Turn appears stalled.
+  | 'turn.retry' // Turn retry was attempted.
+  | 'turn.completed' // Turn completed.
+  | 'turn.failed' // Turn failed.
+  | 'turn.interrupted' // Turn was interrupted.
+  | 'assistant.message.started' // Assistant message started.
+  | 'assistant.message.delta' // Assistant message delta.
+  | 'assistant.message.completed' // Assistant message completed.
+  | 'tool.call.started' // Tool call started.
+  | 'tool.call.delta' // Tool call delta.
+  | 'tool.call.completed' // Tool call completed.
+  | 'tool.call.failed' // Tool call failed.
+  | 'usage.updated' // Usage counters updated.
+  | 'diagnostic' // Diagnostic event.
+  | 'driver.notice' // Driver notice event.
+  | 'terminal.surface.reported' // Terminal attach surface was reported.
+  | 'permission.requested' // Permission request was emitted.
+  | 'permission.resolved' // Permission request was resolved.
+  | 'permission.cancelled' // Permission request was cancelled.</code></pre>
+              </div>
+              <div class="source-note">Source: <span class="inline-code">packages/harness-broker-protocol/src/events.ts</span></div>
+            </article>
+
+            <article class="contract-object broker">
+              <div class="contract-object-head">
+                <div>
+                  <span class="badge broker">Event payloads</span>
+                  <h3>Common payload DTOs</h3>
+                  <p>Representative runtime payloads copied from the existing compiler rewrite HTML and current broker event source.</p>
+                </div>
+                <div class="object-chip-row">
+                  <span class="badge broker">started</span>
+                  <span class="badge control">content</span>
+                  <span class="badge runtime">diagnostic</span>
+                </div>
+              </div>
+              <div class="code-panel">
+                <pre><code>interface InvocationStartedPayload { // Payload for invocation.started.
+  pid?: number // Process id when invocation is process-backed.
+  command?: string // Present for process-backed invocations.
+  args?: string[] // SDK controllers must not fake spawned process args.
+  cwd: string // Working directory for the invocation.
+  controller?: RuntimeControllerKind // Runtime controller kind when known.
+  sdk?: { // SDK-backed invocation metadata when the controller is not process-backed.
+    runtime: 'claude-agent-sdk' | 'pi-sdk' // SDK runtime kind.
+    sessionKey?: string // SDK session key when available.
+  }
+}
+
+interface TurnCompletedPayload { // Payload for turn.completed.
+  turnId: TurnId // Turn identity.
+  status: 'completed' | 'failed' | 'interrupted' // Final turn status.
+  finalOutput?: string // Optional synthesized final assistant output.
+  producedContent?: boolean // True when assistant text, tools, or other content-bearing activity was observed.
+  usage?: unknown // Provider usage payload when available.
+}
+
+interface DiagnosticPayload { // Payload for diagnostic events.
+  level: 'debug' | 'info' | 'warn' | 'error' // Diagnostic severity.
+  message: string // Human-readable diagnostic message.
+  source?: 'controller' | 'broker' | 'harness' | 'driver' // Component that emitted the diagnostic.
+  data?: unknown // Optional structured diagnostic data.
+}
+
+export type TerminalSurfaceReportedPayload = // Payload for terminal.surface.reported.
+  | {
+      kind: 'tmux-session' // Legacy tmux session surface shape.
+      socketPath: string // tmux socket path.
+      sessionName: string // tmux session name.
+      paneId?: string | undefined // Optional pane id when observed.
+    }
+  | {
+      kind: 'tmux-pane' // Runtime-owned tmux pane lease shape.
+      socketPath: string // tmux socket path.
+      sessionId: string // tmux session id.
+      windowId: string // tmux window id.
+      paneId: string // tmux pane id.
+      sessionName?: string | undefined // Optional session name.
+      windowName?: string | undefined // Optional window name.
+    }
+
+export interface PermissionRequestedPayload { // Payload for permission.requested.
+  permissionRequestId: PermissionRequestId // Permission request identity.
+  kind: 'command' | 'file_change' | 'tool' | string // Permission category.
+  subjectDisplay: unknown // Client-renderable subject display payload.
+  defaultDecision: 'allow' | 'deny' // Decision broker applies at timeout.
+  deadlineMs?: number | undefined // Relative deadline duration from request emission.
+}
+
+export interface PermissionResolvedPayload { // Payload for permission.resolved.
+  permissionRequestId: PermissionRequestId // Permission request identity.
+  decision: 'allow' | 'deny' // Applied permission decision.
+}</code></pre>
+              </div>
+              <div class="source-note">Sources: <span class="inline-code">docs/html/compiler-rewrite.html</span>, <span class="inline-code">packages/harness-broker-protocol/src/events.ts</span></div>
+            </article>
+          </section>
+
+          <section id="source-map" aria-labelledby="source-map-title">
+            <h2 id="source-map-title"><span class="section-num">07</span> Source Map</h2>
+            <div class="grid three">
+              <article class="contract-object compiler source-card">
+                <div class="contract-object-head">
+                  <div>
+                    <span class="badge compiler">existing HTML</span>
+                    <h3>Compiler data objects</h3>
+                    <p>Copied from <span class="inline-code">docs/html/compiler-rewrite.html</span>, especially its compile object and broker dispatch sections.</p>
+                  </div>
+                </div>
+                <div class="source-note">Primary source for the annotated compiler contract object treatment.</div>
+              </article>
+              <article class="contract-object broker source-card">
+                <div class="contract-object-head">
+                  <div>
+                    <span class="badge broker">existing HTML</span>
+                    <h3>Broker protocol framing</h3>
+                    <p>The broker JSON-RPC framing follows <span class="inline-code">docs/harness-broker-proposal/04-protocol.html</span>, updated to current protocol method names.</p>
+                  </div>
+                </div>
+                <div class="source-note">Primary source for protocol purpose, command grouping, and namespace separation.</div>
+              </article>
+              <article class="contract-object runtime source-card">
+                <div class="contract-object-head">
+                  <div>
+                    <span class="badge runtime">current source</span>
+                    <h3>Implemented DTOs</h3>
+                    <p>ASPC and broker v2 snippets come from <span class="inline-code">packages/aspc-protocol</span> and <span class="inline-code">packages/harness-broker-protocol</span>.</p>
+                  </div>
+                </div>
+                <div class="source-note">Used where no existing HTML page contained the exact current implementation blocks.</div>
+              </article>
+            </div>
+          </section>
+
+          <div class="footer">
+            Standalone ASPC + Harness Broker JSON-RPC contract. Sources: docs/html/compiler-rewrite.html, docs/harness-broker-proposal/04-protocol.html, packages/aspc-protocol/src/types.ts, packages/harness-broker-protocol/src/*.ts.
+          </div>
+        </div>
+      </main>
+    </div>
+    <script>
+      ;(() => {
+        const escapeHtml = (value) =>
+          value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+
+        const keywords = [
+          'type',
+          'interface',
+          'export',
+          'const',
+          'extends',
+          'Promise',
+          'Record',
+          'Extract',
+          'RuntimeCompileRequest',
+          'RuntimeCompileResponse',
+          'CompiledRuntimePlan',
+          'CompileDiagnostic',
+          'JsonRpcRequest',
+          'InvocationDispatchRequest',
+          'InvocationStartRequest',
+          'HarnessInvocationSpec',
+          'BrokerExecutionProfile',
+          'InvocationEventEnvelope',
+        ]
+        const keywordPattern = new RegExp(`\\b(${keywords.join('|')})\\b`, 'g')
+
+        const highlightCode = (value) => {
+          let html = escapeHtml(value)
+          html = html.replace(
+            /\b([A-Za-z_][A-Za-z0-9_]*\??)(?=\s*:)/g,
+            '<span class="syntax-field">$1</span>'
+          )
+          html = html.replace(keywordPattern, '<span class="syntax-keyword">$1</span>')
+          html = html.replace(/'([^']*)'/g, '<span class="syntax-string">\'$1\'</span>')
+          return html || '&nbsp;'
+        }
+
+        const renderLine = (line, index) => {
+          const commentIndex = line.indexOf('//')
+          const hasComment = commentIndex >= 0
+          const codePart = hasComment ? line.slice(0, commentIndex).replace(/\s+$/, '') : line
+          const commentPart = hasComment ? line.slice(commentIndex + 2).trim() : ''
+          const codeClass = hasComment ? 'schema-code has-comment' : 'schema-code no-comment'
+          const trimmedCode = codePart.trim()
+          const isBlockComment =
+            hasComment &&
+            (trimmedCode.endsWith('{') ||
+              /^type\s+/.test(trimmedCode) ||
+              /^export\s+(interface|type)\s+/.test(trimmedCode) ||
+              /^interface\s+/.test(trimmedCode))
+          const commentClass = isBlockComment ? 'schema-comment block-comment' : 'schema-comment'
+          const markerHtml = isBlockComment ? '' : '<span class="comment-marker">//</span>'
+          const commentHtml = hasComment
+            ? `<span class="${commentClass}">${markerHtml}${escapeHtml(commentPart)}</span>`
+            : ''
+          return `<span class="schema-line"><span class="schema-line-no">${index + 1}</span><span class="${codeClass}"><span class="schema-code-text">${highlightCode(codePart)}</span>${commentHtml}</span></span>`
+        }
+
+        const legendHtml = `<div class="contract-legend" aria-label="Schema color legend">
+          <span class="legend-item"><span class="legend-swatch field"></span>fields</span>
+          <span class="legend-item"><span class="legend-swatch type"></span>types</span>
+          <span class="legend-item"><span class="legend-swatch literal"></span>literals</span>
+          <span class="legend-item"><span class="legend-swatch comment"></span>comments</span>
+        </div>`
+
+        document.querySelectorAll('.contract-object code').forEach((code) => {
+          if (code.dataset.highlighted === 'true') return
+          const raw = code.textContent || ''
+          code.innerHTML = raw.split('\n').map(renderLine).join('')
+          code.dataset.highlighted = 'true'
+        })
+
+        document.querySelectorAll('.contract-object').forEach((object) => {
+          if (!object.querySelector('code')) return
+          if (object.querySelector('.contract-legend')) return
+          const sourceNote = object.querySelector('.source-note')
+          if (sourceNote) {
+            sourceNote.insertAdjacentHTML('beforebegin', legendHtml)
+          }
+        })
+      })()
+    </script>
+  </body>
+</html>

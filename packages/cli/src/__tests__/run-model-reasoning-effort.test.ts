@@ -79,7 +79,7 @@ describe('asp run --print-command: model_reasoning_effort in codex invocation (T
       `schema = 1
 
 [targets.codex-target]
-compose = ["space:test@stable"]
+compose = []
 
 [targets.codex-target.codex]
 model = "gpt-5.5"
@@ -127,7 +127,7 @@ model = "gpt-5.5"
         spaces: {},
         targets: {
           'codex-target': {
-            compose: ['space:test@stable'],
+            compose: [],
             roots: [],
             loadOrder: [],
             envHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',

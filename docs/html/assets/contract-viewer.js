@@ -32,10 +32,10 @@
     return `<span class="schema-line"><span class="schema-line-no">${index + 1}</span><span class="${codeClass}"><span class="schema-code-text">${highlightCode(codePart)}</span>${commentHtml}</span></span>`
   }
 
-  document.querySelectorAll('.contract-object code').forEach((code) => {
-    if (code.dataset.highlighted === 'true') return
+  for (const code of document.querySelectorAll('.contract-object code')) {
+    if (code.dataset.highlighted === 'true') continue
     const raw = code.textContent || ''
     code.innerHTML = raw.split('\n').map(renderLine).join('')
     code.dataset.highlighted = 'true'
-  })
+  }
 })()

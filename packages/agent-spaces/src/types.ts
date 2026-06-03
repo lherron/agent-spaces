@@ -194,6 +194,7 @@ export interface BuildProcessInvocationSpecRequest {
   provider: ProviderDomain
   frontend: 'claude-code' | 'codex-cli' | 'pi-cli'
   model?: string | undefined
+  modelReasoningEffort?: string | undefined
   interactionMode: 'interactive' | 'headless'
   ioMode: 'pty' | 'inherit' | 'pipes'
   continuation?: HarnessContinuationRef | undefined
@@ -228,6 +229,7 @@ export interface BuildHarnessBrokerInvocationRequest {
   harnessTransport?: { kind: 'jsonrpc-stdio' | 'pty' } | undefined
   aspHome?: string | undefined
   model?: string | undefined
+  modelReasoningEffort?: string | undefined
   yolo?: boolean | undefined
   continuation?: HarnessContinuationRef | undefined
   prompt?: string | undefined

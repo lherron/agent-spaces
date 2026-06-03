@@ -43,6 +43,7 @@ export interface BaseRunOptions {
   harness?: HarnessId | undefined
   cwd?: string | undefined
   interactive?: boolean | undefined
+  launchSurface?: 'terminal' | 'codex-app' | undefined
   prompt?: string | undefined
   extraArgs?: string[] | undefined
   env?: Record<string, string> | undefined

@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Praesidium Accomplishments - 2026-06-02</title>
+    <style>
+      :root {
+        --bg: #f4f6f5;
+        --paper: #ffffff;
+        --ink: #15211c;
+        --muted: #58635d;
+        --quiet: #7b8680;
+        --line: #d7dfda;
+        --line-strong: #aab7b0;
+        --field: #edf3ef;
+        --asp: #a13f32;
+        --asp-soft: #fbe7e2;
+        --hrc: #0f6b61;
+        --hrc-soft: #dff2ed;
+        --tools: #936200;
+        --tools-soft: #fff1cf;
+        --ops: #365f98;
+        --ops-soft: #e5eefc;
+        --risk: #a3314c;
+        --risk-soft: #ffe6ed;
+        --ok: #236d46;
+        --ok-soft: #e3f3e8;
+        --shadow: 0 20px 48px rgba(21, 33, 28, 0.08);
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        --sans: "Avenir Next", "Gill Sans", "Trebuchet MS", Verdana, sans-serif;
+        --serif: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      html,
+      body {
+        margin: 0;
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      body {
+        background:
+          linear-gradient(90deg, rgba(21, 33, 28, 0.03) 1px, transparent 1px) 0 0 / 34px 34px,
+          linear-gradient(0deg, rgba(21, 33, 28, 0.024) 1px, transparent 1px) 0 0 / 34px 34px,
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      a {
+        color: var(--hrc);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+      }
+
+      .page {
+        display: grid;
+        grid-template-columns: 292px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        height: 100vh;
+        overflow: auto;
+        border-right: 1px solid var(--line);
+        background: rgba(244, 246, 245, 0.94);
+        backdrop-filter: blur(12px);
+        padding: 26px 20px;
+      }
+
+      .brand,
+      .nav,
+      .legend,
+      .sidebar-note {
+        display: grid;
+        gap: 10px;
+      }
+
+      .kicker,
+      .eyebrow,
+      .metric-label,
+      .chip,
+      .record-meta,
+      .footer,
+      .legend-item,
+      .nav a {
+        font-family: var(--mono);
+        letter-spacing: 0.055em;
+        text-transform: uppercase;
+      }
+
+      .kicker {
+        color: var(--asp);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .brand h1,
+      .hero h2,
+      .section-head h2,
+      .metric-value,
+      .workstream h3,
+      .task-card h3 {
+        font-family: var(--serif);
+        letter-spacing: 0;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 30px;
+        line-height: 1.02;
+      }
+
+      .brand p,
+      .sidebar-note,
+      .section-head p,
+      .task-card p,
+      .workstream p,
+      .note-card p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .nav {
+        margin: 18px 0;
+      }
+
+      .nav a {
+        display: block;
+        border-left: 3px solid transparent;
+        padding: 8px 10px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.25;
+        text-decoration: none;
+      }
+
+      .nav a:hover,
+      .nav a:focus {
+        border-left-color: var(--hrc);
+        background: var(--field);
+        color: var(--ink);
+      }
+
+      .legend {
+        padding: 16px 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        flex: 0 0 auto;
+      }
+
+      .hero {
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(90deg, rgba(15, 107, 97, 0.12), transparent 46%),
+          var(--paper);
+        padding: 46px min(5vw, 64px) 32px;
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+        gap: 30px;
+        max-width: 1180px;
+      }
+
+      .eyebrow {
+        color: var(--hrc);
+        font-size: 12px;
+        font-weight: 900;
+        margin-bottom: 12px;
+      }
+
+      .hero h2 {
+        margin: 0;
+        font-size: clamp(38px, 5.5vw, 74px);
+        line-height: 0.98;
+      }
+
+      .thesis {
+        max-width: 760px;
+        margin: 20px 0 0;
+        color: var(--muted);
+        font-size: clamp(17px, 1.8vw, 21px);
+      }
+
+      .scorecard {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .metric,
+      .workstream,
+      .task-card,
+      .note-card,
+      .repo-card {
+        min-width: 0;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: var(--shadow);
+      }
+
+      .metric {
+        padding: 16px;
+      }
+
+      .metric-value {
+        display: block;
+        font-size: 42px;
+        line-height: 0.94;
+      }
+
+      .metric-label {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      main {
+        min-width: 0;
+      }
+
+      .content {
+        display: grid;
+        gap: 42px;
+        max-width: 1180px;
+        padding: 42px min(5vw, 64px) 56px;
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 0.7fr) minmax(280px, 0.48fr);
+        gap: 28px;
+        align-items: end;
+        margin-bottom: 18px;
+      }
+
+      .section-head h2 {
+        margin: 0;
+        font-size: clamp(28px, 3vw, 42px);
+        line-height: 1.04;
+      }
+
+      .workstreams,
+      .task-grid,
+      .notes-grid,
+      .repo-grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .workstreams {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .workstream {
+        padding: 18px;
+      }
+
+      .workstream h3,
+      .task-card h3 {
+        margin: 0;
+        font-size: 28px;
+        line-height: 1.02;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 14px 0 12px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .chip.asp { background: var(--asp-soft); color: var(--asp); }
+      .chip.hrc { background: var(--hrc-soft); color: var(--hrc); }
+      .chip.tools { background: var(--tools-soft); color: var(--tools); }
+      .chip.ops { background: var(--ops-soft); color: var(--ops); }
+      .chip.risk { background: var(--risk-soft); color: var(--risk); }
+      .chip.ok { background: var(--ok-soft); color: var(--ok); }
+
+      .bullet-list {
+        margin: 12px 0 0;
+        padding-left: 18px;
+      }
+
+      .bullet-list li + li {
+        margin-top: 8px;
+      }
+
+      .task-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .task-card {
+        padding: 18px;
+      }
+
+      .record-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 10px;
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .note-card,
+      .repo-card {
+        padding: 18px;
+      }
+
+      .note-card h3,
+      .repo-card h3 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+
+      .repo-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .repo-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 10px 0 0;
+      }
+
+      .repo-stats span {
+        border: 1px solid var(--line);
+        background: var(--field);
+        border-radius: 999px;
+        padding: 5px 9px;
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .footer {
+        border-top: 1px solid var(--line);
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 700;
+        padding-top: 18px;
+      }
+
+      @media (max-width: 980px) {
+        .page {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .sidebar {
+          position: static;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .hero-grid,
+        .section-head,
+        .workstreams,
+        .task-grid,
+        .repo-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      @media (max-width: 640px) {
+        .hero,
+        .content {
+          padding-left: 18px;
+          padding-right: 18px;
+        }
+
+        .sidebar {
+          padding: 18px;
+        }
+
+        .scorecard {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="kicker">Praesidium Daily Brief</div>
+          <h1>Accomplishments in the last 24 hours.</h1>
+          <p>Window: 2026-06-01 05:02 CDT to 2026-06-02 05:02 CDT.</p>
+        </div>
+        <nav class="nav" aria-label="Sections">
+          <a href="#scorecard">Scorecard</a>
+          <a href="#workstreams">Workstreams</a>
+          <a href="#tasks">Completed Task Grid</a>
+          <a href="#validation">Validation Evidence</a>
+          <a href="#repo-state">Open Repo State</a>
+        </nav>
+        <div class="legend">
+          <div class="legend-item"><span class="dot" style="background: var(--hrc)"></span> HRC runtime and broker path</div>
+          <div class="legend-item"><span class="dot" style="background: var(--asp)"></span> ASP and harness surfaces</div>
+          <div class="legend-item"><span class="dot" style="background: var(--tools)"></span> Tooling and CLI improvements</div>
+          <div class="legend-item"><span class="dot" style="background: var(--risk)"></span> Dirty trees and carry-over state</div>
+        </div>
+        <div class="sidebar-note">
+          Source inputs: git history across Praesidium repos, `wrkq` completed tasks across all projects, unpushed branches, and visible unchecked-in work.
+        </div>
+      </aside>
+
+      <main>
+        <section class="hero" id="scorecard">
+          <div class="hero-grid">
+            <div>
+              <div class="eyebrow">Previous 24 Hours</div>
+              <h2>Durable broker work dominated the day, with release cuts and a smaller tooling tail.</h2>
+              <p class="thesis">
+                Most shipped work clustered around durable interactive broker routing between
+                <code>hrc-runtime</code> and <code>agent-spaces</code>: unix endpoint negotiation,
+                replay and attach flows, input-after-reattach, queueing for busy TUIs, and follow-on
+                packaging/release commits. Supporting accomplishments landed in <code>wrkq</code> and
+                <code>scriptable-ghostty</code>, while a broad set of repos remained visibly in progress.
+              </p>
+            </div>
+            <div class="scorecard" aria-label="At a glance scorecard">
+              <div class="metric">
+                <span class="metric-value">39</span>
+                <span class="metric-label">Commits In Window</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value">4</span>
+                <span class="metric-label">Repos With New Commits</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value">10</span>
+                <span class="metric-label">Completed wrkq Tasks</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value">21</span>
+                <span class="metric-label">Repos With Open Working State</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="content">
+          <section id="workstreams">
+            <div class="section-head">
+              <div>
+                <h2>Workstreams</h2>
+                <p>Grouped by what materially moved, not by raw commit order.</p>
+              </div>
+              <p>
+                Commit concentration: <code>hrc-runtime</code> 28, <code>agent-spaces</code> 9,
+                <code>scriptable-ghostty</code> 1, <code>wrkq</code> 1.
+              </p>
+            </div>
+            <div class="workstreams">
+              <article class="workstream">
+                <div class="chips">
+                  <span class="chip hrc">HRC Runtime</span>
+                  <span class="chip asp">ASP</span>
+                  <span class="chip ok">Shipped</span>
+                </div>
+                <h3>Durable broker route reached operational depth.</h3>
+                <p>
+                  The main thread was durable interactive broker routing: per-route unix negotiation,
+                  replay and retention, startup reattach reconciliation, inspect plus tmux surface work,
+                  route activation, admission overlay attach replay, and input-after-reattach completion.
+                </p>
+                <ul class="bullet-list">
+                  <li><code>hrc-runtime</code> landed the RED/GREEN chain for T-01809 through T-01816, plus the final durable attach/input fixes.</li>
+                  <li><code>agent-spaces</code> added FIFO input queue behavior for interactive tmux brokers and exposed reattach streaming from the broker client.</li>
+                  <li>Busy-TUI DM delivery now routes through the broker queue instead of degrading into fake completion paths.</li>
+                </ul>
+              </article>
+
+              <article class="workstream">
+                <div class="chips">
+                  <span class="chip asp">Agent Spaces</span>
+                  <span class="chip ok">Released</span>
+                </div>
+                <h3>Packaging, root detection, and release surfaces were tightened.</h3>
+                <p>
+                  The ASP side also got cleanup and release hygiene: a project-root boundary fix for
+                  <code>findProjectRoot</code>, a broad SOLID and code-smell cleanup pass, and the
+                  <code>@lherron/agent-spaces</code> 0.6.1 release bump.
+                </p>
+                <ul class="bullet-list">
+                  <li>Caller-supplied launch env plumbing was closed out as a completed task.</li>
+                  <li>Qualified scope resolution across ASP, HRC, and ACP was marked complete in <code>wrkq</code>.</li>
+                  <li>The prior 24-hour accomplishments artifact itself was committed as part of the reporting loop.</li>
+                </ul>
+              </article>
+
+              <article class="workstream">
+                <div class="chips">
+                  <span class="chip tools">Tools</span>
+                  <span class="chip ok">Small Surface Wins</span>
+                </div>
+                <h3>Supporting tools picked up one focused improvement each.</h3>
+                <p>
+                  Outside the broker-heavy core, <code>wrkq</code> added task reparenting through
+                  <code>wrkq set</code>, and <code>scriptable-ghostty</code> fixed an orphan window leak
+                  while improving <code>surface_not_realized</code> diagnostics.
+                </p>
+                <ul class="bullet-list">
+                  <li>These were isolated but meaningful quality-of-life changes rather than large feature branches.</li>
+                  <li>No additional repo besides those four showed committed work within the exact window.</li>
+                </ul>
+              </article>
+
+              <article class="workstream">
+                <div class="chips">
+                  <span class="chip risk">Carry-Over State</span>
+                  <span class="chip ops">Visible WIP</span>
+                </div>
+                <h3>The platform remains heavily active outside committed history.</h3>
+                <p>
+                  Twenty-one repos showed open working state. The largest visible carry-over clusters were
+                  in the root <code>praesidium</code> checkout, <code>workflow-spec</code>,
+                  <code>hrc-runtime</code>, <code>voice-control</code>, <code>media-ingest</code>,
+                  <code>llmkb</code>, and newly scaffolded repos such as <code>note-updater</code> and
+                  <code>hal-visualizer</code>.
+                </p>
+                <ul class="bullet-list">
+                  <li><code>acp-spec</code> and <code>agent-syndication</code> still carry older unpushed commits.</li>
+                  <li>The root monorepo checkout is especially noisy because it includes nested repo additions and broad untracked project material.</li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section id="tasks">
+            <div class="section-head">
+              <div>
+                <h2>Completed Task Grid</h2>
+                <p>All completed <code>wrkq</code> tasks whose completion timestamps fell inside the 24-hour window.</p>
+              </div>
+              <p>All 10 were in the <code>agent-spaces</code> project family and mostly closed broker-path and integration follow-up work.</p>
+            </div>
+            <div class="task-grid">
+              <article class="task-card">
+                <div class="record-meta"><span>T-01537</span><span>Task</span><span>18:16Z</span></div>
+                <h3>Launch env plumbing closed out.</h3>
+                <p>Threaded caller-supplied launch env through materialized system prompt generation.</p>
+              </article>
+              <article class="task-card">
+                <div class="record-meta"><span>T-01649</span><span>Task</span><span>18:14Z</span></div>
+                <h3>Interactive broker Path 2 marked complete.</h3>
+                <p>Tmux-hosted terminal runtime dispatch for HRC moved from active implementation into completed work.</p>
+              </article>
+              <article class="task-card">
+                <div class="record-meta"><span>T-01581</span><span>Review</span><span>18:14Z</span></div>
+                <h3>Thermo review package completed.</h3>
+                <p>Broker, smoke coverage, and client surface review work was explicitly closed in task tracking.</p>
+              </article>
+              <article class="task-card">
+                <div class="record-meta"><span>T-01555</span><span>Task</span><span>18:14Z</span></div>
+                <h3>Broker follow-up implementation bundle completed.</h3>
+                <p>The umbrella follow-up task for harness broker implementation was marked done.</p>
+              </article>
+              <article class="task-card">
+                <div class="record-meta"><span>T-01575</span><span>Task</span><span>18:13Z</span></div>
+                <h3>Qualified scope resolution shipped.</h3>
+                <p>Scope input resolution across ASP, HRC, and ACP is now tracked as complete.</p>
+              </article>
+              <article class="task-card">
+                <div class="record-meta"><span>T-01574</span><span>Task</span><span>18:13Z</span></div>
+                <h3>FIFO queue for busy invocations completed.</h3>
+                <p>Broker-owned input queue behavior for busy sessions was closed out in task tracking.</p>
+              </article>
+              <article class="task-card">
+                <div class="record-meta"><span>T-01557</span><span>Subtask</span><span>18:13Z</span></div>
+                <h3>RuntimePlacement to broker start mapping completed.</h3>
+                <p>ASP SDK broker descriptor flow plus real Codex e2e mapping work moved to done.</p>
+              </article>
+              <article class="task-card">
+                <div class="record-meta"><span>T-01556</span><span>Subtask</span><span>18:13Z</span></div>
+                <h3>Runtime command validation gap closed.</h3>
+                <p>The stdio dispatch validator defect was completed as part of the broker hardening pass.</p>
+              </article>
+              <article class="task-card">
+                <div class="record-meta"><span>T-01522</span><span>Bug</span><span>18:13Z</span></div>
+                <h3>Pi SDK tool-only turn false positive resolved.</h3>
+                <p><code>empty_response</code> misfires on tool-only turns were tracked to completed status.</p>
+              </article>
+              <article class="task-card">
+                <div class="record-meta"><span>T-01798</span><span>Task</span><span>14:56Z</span></div>
+                <h3>Cold-start zero-event tmux defect fixed.</h3>
+                <p>The real Codex tmux cold-start event loss defect was closed before the larger durable broker sequence continued.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="validation">
+            <div class="section-head">
+              <div>
+                <h2>Validation Evidence</h2>
+                <p>Concrete indicators that shipped work was exercised or driven through explicit test cycles.</p>
+              </div>
+              <p>The strongest evidence came from commit message sequencing: RED acceptance commits followed by GREEN implementation commits across the HRC durable broker phases.</p>
+            </div>
+            <div class="notes-grid">
+              <article class="note-card">
+                <h3>RED to GREEN acceptance cadence was explicit.</h3>
+                <p>
+                  <code>hrc-runtime</code> showed repeated pairs such as
+                  <code>test(hrc-server): RED acceptance for T-01810...</code> followed by
+                  <code>feat(hrc-server): GREEN T-01810...</code>, continuing through replay,
+                  unix windows, startup reattach, inspect plus tmux surface, route activation,
+                  and durable admission overlay work.
+                </p>
+              </article>
+              <article class="note-card">
+                <h3>Broker path fixes were reinforced on both sides of the seam.</h3>
+                <p>
+                  The HRC attach/input-after-reattach commits aligned with ASP-side commits for
+                  FIFO queueing, busy-TUI steer attempts, and streaming invocation events for reattached brokers.
+                </p>
+              </article>
+              <article class="note-card">
+                <h3>Release signals were present after the implementation wave.</h3>
+                <p>
+                  <code>@lherron/agent-spaces</code> was bumped to 0.6.1 and
+                  <code>hrc-runtime</code> to 0.5.13 inside the same reporting window, indicating
+                  the broker-path work had progressed from local iteration into releasable packaging.
+                </p>
+              </article>
+              <article class="note-card">
+                <h3>Current report validation</h3>
+                <p>
+                  This HTML artifact was generated as a standalone file with embedded CSS,
+                  responsive breakpoints, semantic section anchors, and explicit
+                  <code>overflow-x: hidden</code> plus single-column fallbacks for mobile widths.
+                </p>
+              </article>
+            </div>
+          </section>
+
+          <section id="repo-state">
+            <div class="section-head">
+              <div>
+                <h2>Open Repo State</h2>
+                <p>Unchecked-in work and unpushed history visible at report time.</p>
+              </div>
+              <p>Two repos had unpushed commits: <code>acp-spec</code> (1) and <code>agent-syndication</code> (10). The latter are older than this window but still operationally relevant.</p>
+            </div>
+            <div class="repo-grid">
+              <article class="repo-card">
+                <h3>Largest dirty clusters</h3>
+                <p>Visible work carried across the biggest trees rather than being isolated to one repo.</p>
+                <div class="repo-stats">
+                  <span>praesidium root: 34 tracked, 47 untracked</span>
+                  <span>workflow-spec: 31 tracked, 9 untracked</span>
+                  <span>voice-control: 15 tracked, 10 untracked</span>
+                  <span>llmkb: 17 tracked, 11 untracked</span>
+                  <span>media-ingest: 15 tracked, 5 untracked</span>
+                </div>
+              </article>
+              <article class="repo-card">
+                <h3>Committed repos still left open</h3>
+                <p>The repos that shipped work were not all left clean afterward.</p>
+                <div class="repo-stats">
+                  <span>agent-spaces: 1 untracked HTML artifact</span>
+                  <span>hrc-runtime: 22 tracked, 1 untracked</span>
+                  <span>wrkq: 1 tracked, 1 untracked</span>
+                  <span>scriptable-ghostty: 1 untracked dependency dir</span>
+                </div>
+              </article>
+              <article class="repo-card">
+                <h3>New or incubating surfaces</h3>
+                <p>Several repos look mid-bootstrap rather than merely half-committed.</p>
+                <div class="repo-stats">
+                  <span>note-updater: 15 untracked</span>
+                  <span>hal-visualizer: 15 untracked</span>
+                  <span>rex-throne: 1 tracked, 15 untracked</span>
+                  <span>agent-syndication: spec + e2e additions in progress</span>
+                </div>
+              </article>
+              <article class="repo-card">
+                <h3>Operational takeaway</h3>
+                <p>
+                  The platform shipped a high-value durable broker slice, but the broader workspace
+                  remains intentionally “hot.” The current risk is not lack of progress; it is the
+                  volume of simultaneous open state across repos, especially where nested roots and
+                  large untracked additions can obscure the next clean push boundary.
+                </p>
+              </article>
+            </div>
+          </section>
+
+          <div class="footer">
+            Source scope: Praesidium-wide git repositories under /Users/lherron/praesidium, completed wrkq tasks across all visible projects, unpushed branch history, and repo working-tree state. Generated for run date 2026-06-02.
+          </div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

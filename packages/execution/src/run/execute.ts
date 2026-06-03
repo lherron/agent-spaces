@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { basename, resolve } from 'node:path'
+import { mkdir } from 'node:fs/promises'
+import { basename, join, resolve } from 'node:path'
 
 import type {
   ComposedTargetBundle,
@@ -90,6 +91,52 @@ async function executeHarnessCommand(
   })
 }
 
+function resolveCodexAppSelectorArgs(): string[] {
+  const bundleId = process.env['ASP_CODEX_APP_BUNDLE']?.trim()
+  if (bundleId) {
+    return ['-b', bundleId]
+  }
+
+  return ['-a', process.env['ASP_CODEX_APP_NAME']?.trim() || 'Codex']
+}
+
+async function buildCodexAppLaunch(
+  launchCwd: string | undefined,
+  harnessEnv: Record<string, string>,
+  options: { dryRun?: boolean | undefined }
+): Promise<{ command: string; args: string[]; env: Record<string, string> }> {
+  const codexHome = harnessEnv['CODEX_HOME']
+  if (!codexHome) {
+    throw new Error('Codex app launch requires CODEX_HOME from the prepared Codex runtime home')
+  }
+
+  const userDataPath =
+    process.env['CODEX_ELECTRON_USER_DATA_PATH']?.trim() || join(codexHome, 'codex-app-profile')
+  if (!options.dryRun) {
+    await mkdir(userDataPath, { recursive: true })
+  }
+
+  const workspacePath = launchCwd ?? process.cwd()
+  return {
+    command: '/usr/bin/open',
+    args: [
+      '-n',
+      ...resolveCodexAppSelectorArgs(),
+      '--env',
+      `CODEX_HOME=${codexHome}`,
+      '--env',
+      `CODEX_ELECTRON_USER_DATA_PATH=${userDataPath}`,
+      workspacePath,
+      '--args',
+      `--user-data-dir=${userDataPath}`,
+    ],
+    env: {
+      ...harnessEnv,
+      CODEX_ELECTRON_USER_DATA_PATH: userDataPath,
+    },
+  }
+}
+
 export async function executeHarnessRun(
   adapter: HarnessAdapter,
   detection: HarnessDetection,
@@ -125,12 +172,20 @@ export async function executeHarnessRun(
   let launchCwd: string | undefined
 
   if (compiled) {
+    if (runOptions.launchSurface === 'codex-app') {
+      throw new Error('Codex app launch cannot use a compiled terminal launch')
+    }
     commandPath = compiled.command
     args = compiled.args
     harnessEnv = compiled.env
     launchCwd = compiled.cwd ?? preparedRunOptions.cwd ?? preparedRunOptions.projectPath
   } else {
-    args = adapter.buildRunArgs(bundle, preparedRunOptions)
+    const useCodexApp = preparedRunOptions.launchSurface === 'codex-app'
+    if (useCodexApp && adapter.id !== 'codex') {
+      throw new Error(`Launch surface "codex-app" is only supported by the codex harness`)
+    }
+
+    args = useCodexApp ? [] : adapter.buildRunArgs(bundle, preparedRunOptions)
     const projectEnv: Record<string, string> = {}
     const projectPath = preparedRunOptions.projectPath ?? runOptions.projectPath
     if (projectPath) {
@@ -154,6 +209,14 @@ export async function executeHarnessRun(
     }
     commandPath = detection.path ?? adapter.id
     launchCwd = preparedRunOptions.cwd ?? preparedRunOptions.projectPath
+    if (useCodexApp) {
+      const appLaunch = await buildCodexAppLaunch(launchCwd, harnessEnv, {
+        dryRun: options.dryRun,
+      })
+      commandPath = appLaunch.command
+      args = appLaunch.args
+      harnessEnv = appLaunch.env
+    }
   }
 
   const envPrefix = formatEnvPrefix(harnessEnv)
@@ -187,11 +250,18 @@ export async function executeHarnessRun(
     pagePrompts: options.pagePrompts,
   })
 
-  const { exitCode, stdout, stderr } = await executeHarnessCommand(commandPath, args, {
-    interactive: preparedRunOptions.interactive,
-    cwd: launchCwd,
-    env: harnessEnv,
-  })
+  const { exitCode, stdout, stderr } =
+    preparedRunOptions.launchSurface === 'codex-app'
+      ? await executeHarnessCommand(commandPath, args, {
+          interactive: false,
+          cwd: launchCwd,
+          env: harnessEnv,
+        })
+      : await executeHarnessCommand(commandPath, args, {
+          interactive: preparedRunOptions.interactive,
+          cwd: launchCwd,
+          env: harnessEnv,
+        })
 
   if (stdout) {
     process.stdout.write(stdout)

@@ -21,7 +21,6 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const clientSource = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
 const prepareCliRuntimeSource = readFileSync(
   join(import.meta.dirname, '..', 'prepare-cli-runtime.ts'),
   'utf8'

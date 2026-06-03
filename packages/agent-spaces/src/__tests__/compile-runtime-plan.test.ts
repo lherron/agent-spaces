@@ -322,6 +322,7 @@ function legacyBrokerRequest(
     frontend: 'codex-cli',
     interactionMode: 'headless',
     model: req.requested.model,
+    modelReasoningEffort: req.requested.reasoningEffort,
     continuation: { provider: 'openai', key: req.continuation?.hrc.key },
     prompt: req.materialization.initialPrompt,
     attachments: [{ kind: 'file', path: fixture.imagePath, contentType: 'image/png' }],

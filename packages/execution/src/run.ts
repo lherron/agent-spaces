@@ -376,12 +376,13 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   debugLog('compileRuntime ok', compileOutcome?.ok)
 
   debugLog('executeHarnessRun start', compiledLaunch ? '(via compiler)' : '(legacy)')
+  const executionLaunch = runOptions.launchSurface === 'codex-app' ? undefined : compiledLaunch
   const execution = await executeHarnessRun(adapter, detection, bundle, runOptions, {
     env: options.env,
     dryRun: options.dryRun,
     reminderContent,
     pagePrompts: options.pagePrompts,
-    ...(compiledLaunch ? { compiledLaunch } : {}),
+    ...(executionLaunch ? { compiledLaunch: executionLaunch } : {}),
     ...(agentProfile
       ? {
           agentBrainRuntime: {

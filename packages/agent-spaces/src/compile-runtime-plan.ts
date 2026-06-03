@@ -640,6 +640,7 @@ async function compileBrokerPlan(
     frontend: 'codex-cli',
     interactionMode: 'headless',
     model: req.requested.model,
+    modelReasoningEffort: req.requested.reasoningEffort,
     continuation:
       req.continuation?.hrc.key !== undefined
         ? { provider: 'openai', key: req.continuation.hrc.key }
@@ -834,6 +835,9 @@ async function compileForegroundPlan(
       frontend: route.frontend,
       interactionMode: 'interactive',
       ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
+      ...(req.requested.reasoningEffort !== undefined
+        ? { modelReasoningEffort: req.requested.reasoningEffort }
+        : {}),
       ...(req.continuation?.hrc.key !== undefined
         ? { continuation: { provider: route.provider, key: req.continuation.hrc.key } }
         : {}),
@@ -1375,6 +1379,9 @@ async function compileClaudeTmuxBrokerPlan(
       frontend: route.frontend,
       interactionMode: 'interactive',
       ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
+      ...(req.requested.reasoningEffort !== undefined
+        ? { modelReasoningEffort: req.requested.reasoningEffort }
+        : {}),
       ...(req.continuation?.hrc.key !== undefined
         ? { continuation: { provider: route.provider, key: req.continuation.hrc.key } }
         : {}),
@@ -1603,6 +1610,9 @@ async function compileCodexTmuxBrokerPlan(
       frontend: route.frontend,
       interactionMode: 'interactive',
       ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
+      ...(req.requested.reasoningEffort !== undefined
+        ? { modelReasoningEffort: req.requested.reasoningEffort }
+        : {}),
       ...(req.continuation?.hrc.key !== undefined
         ? { continuation: { provider: route.provider, key: req.continuation.hrc.key } }
         : {}),

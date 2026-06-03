@@ -257,6 +257,9 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
         const runOptions = {
           interactive: req.interactionMode === 'interactive',
           model: modelResolution.info.model,
+          ...(req.modelReasoningEffort !== undefined
+            ? { modelReasoningEffort: req.modelReasoningEffort }
+            : {}),
           projectPath: req.cwd,
           cwd: req.cwd,
           yolo: req.yolo,
@@ -764,9 +767,13 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
               session = piSession
             }
 
+            if (!session) {
+              throw new Error(`No session created for frontend ${frontendDef.frontend}`)
+            }
+            const activeSession = session
+
             const turnPromise = new Promise<void>((resolve, reject) => {
-              if (!session) return
-              session.onEvent((event: UnifiedSessionEvent) => {
+              activeSession.onEvent((event: UnifiedSessionEvent) => {
                 const result = mapUnifiedEvents(
                   event,
                   (mapped) => {
@@ -791,9 +798,9 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
               })
             })
 
-            await runSession(session!, req.prompt, req.attachments, req.runId)
+            await runSession(activeSession, req.prompt, req.attachments, req.runId)
             await turnPromise
-            await session!.stop('complete')
+            await activeSession.stop('complete')
             await eventEmitter.idle()
             finalOutput = assistantState.lastAssistantText
           } finally {

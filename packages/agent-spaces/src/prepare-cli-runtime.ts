@@ -67,6 +67,7 @@ interface PreparePlacementCliRuntimeRequest {
   frontend: HarnessFrontend
   interactionMode: InteractionMode
   model?: string | undefined
+  modelReasoningEffort?: string | undefined
   yolo?: boolean | undefined
   continuation?: HarnessContinuationRef | undefined
   prompt?: string | undefined
@@ -217,6 +218,9 @@ export async function preparePlacementCliRuntime(
   // Build run options for the adapter
   let runOptions: HarnessRunOptions = {
     ...runtimePlan.runOptions,
+    ...(req.modelReasoningEffort !== undefined
+      ? { modelReasoningEffort: req.modelReasoningEffort }
+      : {}),
     // Only push --model onto argv when the model came from an explicit source
     // (requested CLI/model, a default run-option model, or a supported
     // effective-config model). Falling back to the adapter default for plan

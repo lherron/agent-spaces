@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Praesidium Accomplishments - 2026-06-03</title>
+    <style>
+      :root {
+        --bg: #f3f1ec;
+        --paper: rgba(255, 255, 255, 0.94);
+        --ink: #15201d;
+        --muted: #5c6762;
+        --quiet: #7f8a84;
+        --line: #d7ddd7;
+        --line-strong: #abb6b0;
+        --shadow: 0 18px 44px rgba(21, 32, 29, 0.09);
+        --asp: #8f3324;
+        --asp-soft: #fae3dc;
+        --hrc: #0f665e;
+        --hrc-soft: #daf1eb;
+        --ops: #2e5d8d;
+        --ops-soft: #e4eefb;
+        --risk: #8e2343;
+        --risk-soft: #fde5ec;
+        --warn: #8a6200;
+        --warn-soft: #fff0c8;
+        --ok: #1d6a42;
+        --ok-soft: #e1f2e7;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        --sans: "Avenir Next", "Gill Sans", "Trebuchet MS", Verdana, sans-serif;
+        --serif: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      html,
+      body {
+        margin: 0;
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      body {
+        background:
+          linear-gradient(90deg, rgba(21, 32, 29, 0.028) 1px, transparent 1px) 0 0 / 32px 32px,
+          linear-gradient(0deg, rgba(21, 32, 29, 0.022) 1px, transparent 1px) 0 0 / 32px 32px,
+          radial-gradient(circle at top right, rgba(15, 102, 94, 0.1), transparent 28%),
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.55;
+      }
+
+      a {
+        color: var(--hrc);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+      }
+
+      .page {
+        display: grid;
+        grid-template-columns: 288px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        height: 100vh;
+        overflow: auto;
+        border-right: 1px solid var(--line);
+        background: rgba(243, 241, 236, 0.92);
+        backdrop-filter: blur(14px);
+        padding: 24px 20px 28px;
+      }
+
+      .brand,
+      .nav,
+      .sidebar-block,
+      .legend {
+        display: grid;
+        gap: 10px;
+      }
+
+      .kicker,
+      .eyebrow,
+      .metric-label,
+      .chip,
+      .mini-label,
+      .record-meta,
+      .footer,
+      .nav a {
+        font-family: var(--mono);
+        letter-spacing: 0.055em;
+        text-transform: uppercase;
+      }
+
+      .kicker {
+        color: var(--asp);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .brand h1,
+      .hero h2,
+      .section-title h2,
+      .metric-value,
+      .workstream h3,
+      .task-card h3,
+      .repo-card h3,
+      .evidence-card h3 {
+        font-family: var(--serif);
+        letter-spacing: 0;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 30px;
+        line-height: 1.03;
+      }
+
+      .brand p,
+      .sidebar-note,
+      .section-title p,
+      .workstream p,
+      .task-card p,
+      .repo-card p,
+      .evidence-card p,
+      .mini-note {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .nav {
+        margin: 18px 0;
+      }
+
+      .nav a {
+        display: block;
+        border-left: 3px solid transparent;
+        padding: 8px 10px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.28;
+        text-decoration: none;
+      }
+
+      .nav a:hover,
+      .nav a:focus {
+        border-left-color: var(--hrc);
+        background: rgba(255, 255, 255, 0.68);
+        color: var(--ink);
+      }
+
+      .sidebar-block {
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        flex: 0 0 auto;
+      }
+
+      main {
+        min-width: 0;
+      }
+
+      .hero {
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(90deg, rgba(15, 102, 94, 0.14), transparent 48%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.82)),
+          transparent;
+        padding: 44px min(5vw, 62px) 34px;
+      }
+
+      .hero-grid,
+      .content {
+        width: min(1180px, 100%);
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.1fr) minmax(310px, 0.9fr);
+        gap: 30px;
+      }
+
+      .eyebrow {
+        color: var(--hrc);
+        font-size: 12px;
+        font-weight: 900;
+        margin-bottom: 12px;
+      }
+
+      .hero h2 {
+        margin: 0;
+        font-size: clamp(39px, 5.8vw, 74px);
+        line-height: 0.97;
+      }
+
+      .thesis {
+        max-width: 760px;
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: clamp(17px, 1.8vw, 21px);
+      }
+
+      .hero-notes {
+        display: grid;
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      .note-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.82);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .scorecard {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .metric,
+      .workstream,
+      .task-card,
+      .repo-card,
+      .evidence-card,
+      .note-card {
+        min-width: 0;
+        border: 1px solid var(--line);
+        background: var(--paper);
+        box-shadow: var(--shadow);
+      }
+
+      .metric {
+        padding: 16px;
+      }
+
+      .metric-value {
+        display: block;
+        font-size: 42px;
+        line-height: 0.92;
+      }
+
+      .metric-label {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .metric-note {
+        margin-top: 8px;
+        color: var(--quiet);
+        font-size: 13px;
+      }
+
+      .content {
+        padding: 32px min(5vw, 62px) 72px;
+      }
+
+      section {
+        margin-top: 34px;
+      }
+
+      .section-title {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+
+      .section-title h2 {
+        margin: 0;
+        font-size: clamp(30px, 3.4vw, 48px);
+        line-height: 0.98;
+      }
+
+      .section-title p {
+        max-width: 860px;
+      }
+
+      .workstreams,
+      .task-grid,
+      .repo-grid,
+      .evidence-grid,
+      .notes-grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .workstreams,
+      .repo-grid,
+      .evidence-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .task-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .notes-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .workstream,
+      .task-card,
+      .repo-card,
+      .evidence-card,
+      .note-card {
+        padding: 18px 18px 20px;
+      }
+
+      .workstream {
+        border-top: 5px solid var(--asp);
+      }
+
+      .workstream.hrc {
+        border-top-color: var(--hrc);
+      }
+
+      .workstream.ops {
+        border-top-color: var(--ops);
+      }
+
+      .task-card {
+        display: grid;
+        gap: 10px;
+      }
+
+      .task-card h3,
+      .workstream h3,
+      .repo-card h3,
+      .evidence-card h3 {
+        margin: 0;
+        font-size: 24px;
+        line-height: 1.06;
+      }
+
+      .task-card h3 {
+        font-size: 21px;
+      }
+
+      .record-meta {
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .record-list,
+      .evidence-list,
+      .repo-list {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+      }
+
+      .record-list li,
+      .evidence-list li,
+      .repo-list li {
+        margin: 0 0 8px;
+      }
+
+      .repo-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+
+      .repo-table th,
+      .repo-table td {
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .repo-table th {
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .repo-table td:last-child,
+      .repo-table th:last-child {
+        padding-left: 14px;
+      }
+
+      .callout {
+        padding: 16px 18px;
+        border: 1px solid var(--line);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.78));
+      }
+
+      .callout strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 15px;
+      }
+
+      .mini-label {
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .footer {
+        margin-top: 30px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      @media (max-width: 1140px) {
+        .task-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .notes-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 960px) {
+        .page {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: static;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .hero-grid,
+        .workstreams,
+        .repo-grid,
+        .evidence-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .content,
+        .hero {
+          padding-left: 20px;
+          padding-right: 20px;
+        }
+      }
+
+      @media (max-width: 640px) {
+        body {
+          font-size: 15px;
+        }
+
+        .scorecard,
+        .task-grid,
+        .notes-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero h2 {
+          font-size: 42px;
+        }
+
+        .metric-value {
+          font-size: 36px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="kicker">Praesidium Daily Brief</div>
+          <h1>Accomplishments for 2026-06-03</h1>
+          <p>Previous 24 hours, local window 2026-06-02 05:02 CDT to 2026-06-03 05:02 CDT.</p>
+        </div>
+
+        <nav class="nav" aria-label="Sections">
+          <a href="#scorecard">Scorecard</a>
+          <a href="#workstreams">Workstreams</a>
+          <a href="#tasks">Completed Tasks</a>
+          <a href="#validation">Validation Evidence</a>
+          <a href="#repo-state">Open Repo State</a>
+        </nav>
+
+        <div class="sidebar-block legend">
+          <div class="legend-item"><span class="dot" style="background: var(--asp)"></span> ASP / agent launch surface</div>
+          <div class="legend-item"><span class="dot" style="background: var(--hrc)"></span> HRC runtime / broker work</div>
+          <div class="legend-item"><span class="dot" style="background: var(--ops)"></span> Unchecked-in operational drift</div>
+          <div class="legend-item"><span class="dot" style="background: var(--risk)"></span> Push/cleanup still outstanding</div>
+        </div>
+
+        <div class="sidebar-block sidebar-note">
+          The only `wrkq` completions in-window were in the `agent-spaces` project, but git and working-tree evidence spans the wider Praesidium repo set.
+        </div>
+      </aside>
+
+      <main>
+        <section class="hero" id="scorecard">
+          <div class="hero-grid">
+            <div>
+              <div class="eyebrow">Praesidium-wide previous 24 hours</div>
+              <h2>Compiler-default ASP rollout cleared its launch blockers while HRC gained durable attach and headless viewer support.</h2>
+              <p class="thesis">
+                The strongest completed thread was the `agent-spaces` cutover from legacy foreground launch handling toward compiler-default behavior, backed by scope-home convergence, migration checks, parity certification, and alias cleanup for Claude model pins. In parallel, `hrc-runtime` shipped broker attach/resume descriptors and Ghostty viewer spawning for headless Claude runs. The wider estate remains intentionally noisy: 22 repos show visible unchecked-in work, including active alias/config edits in `var/agents` and `spaces-repo`.
+              </p>
+              <div class="hero-notes">
+                <div class="note-strip">
+                  <span class="chip">7 committed git changes in-window</span>
+                  <span class="chip">8 completed `wrkq` tasks</span>
+                  <span class="chip">4 fresh unpushed commits in `agent-spaces`</span>
+                </div>
+                <div class="callout">
+                  <strong>Top takeaways</strong>
+                  `asp run` now defaults to the compiler path with a live legacy escape hatch, legacy scope state was migrated into unified `codex-homes`, real-binary parity caught and closed a Pi reminder gap, and HRC added durable attach plumbing plus Ghostty viewer support for headless Claude sessions.
+                </div>
+              </div>
+            </div>
+
+            <div class="scorecard" aria-label="Scorecard">
+              <article class="metric">
+                <span class="metric-value">7</span>
+                <span class="metric-label">Commits In Window</span>
+                <div class="metric-note">5 in `agent-spaces`, 2 in `hrc-runtime`.</div>
+              </article>
+              <article class="metric">
+                <span class="metric-value">8</span>
+                <span class="metric-label">Completed Tasks</span>
+                <div class="metric-note">All completed tasks landed in `agent-spaces`.</div>
+              </article>
+              <article class="metric">
+                <span class="metric-value">4</span>
+                <span class="metric-label">Unpushed Commits</span>
+                <div class="metric-note">Fresh and all in `agent-spaces` main.</div>
+              </article>
+              <article class="metric">
+                <span class="metric-value">22</span>
+                <span class="metric-label">Dirty Repos</span>
+                <div class="metric-note">304 visible modified or untracked paths across the tree.</div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <div class="content">
+          <section id="workstreams">
+            <div class="section-title">
+              <h2>Workstreams</h2>
+              <p>The report groups accomplishments by the story the changes tell, not by raw file count. The core throughput came from compiler-cutover hardening in ASP and runtime affordances in HRC.</p>
+            </div>
+
+            <div class="workstreams">
+              <article class="workstream">
+                <div class="record-meta">ASP / agent-spaces</div>
+                <h3>Compiler-default foreground launch is now live behind a retained escape hatch.</h3>
+                <p>`agent-spaces` produced five commits in-window, culminating in `be55899` which flipped `ASP_RUN_VIA_COMPILER` to default-on for `asp run` foreground flows without deleting the legacy path. Supporting commits unified scope-home materialization, carried session reminder content through the compiler launch shape, added Pi parity coverage, and threaded task IDs into Claude remote session names.</p>
+                <ul class="record-list">
+                  <li>`23e2193` converged bundle and runtime state under `codex-homes/&lt;project&gt;_&lt;agent&gt;`, replacing split hash-based legacy directories.</li>
+                  <li>`039b0e1` and `2fa3d29` expanded parity certification to Pi foreground flows and fixed the reminder propagation gap found during real-binary smoke.</li>
+                  <li>`2237955` added task-aware Claude remote session slugs, improving isolation and traceability for task-scoped sessions.</li>
+                </ul>
+              </article>
+
+              <article class="workstream hrc">
+                <div class="record-meta">HRC / runtime</div>
+                <h3>Broker attach became durable and headless Claude runs can now surface a live Ghostty viewer.</h3>
+                <p>`hrc-runtime` added two production commits in-window. `d47053b` introduced durable broker attach descriptors plus attached-run prepare/resume behavior across CLI, core contracts, SDK, and server controller layers. `fa9e576` layered Ghostty viewer spawning on top for headless Claude runs, with focused tests around the new viewer manager and handler integration.</p>
+                <ul class="record-list">
+                  <li>`d47053b` touched HRC contracts, CLI, SDK, and controller logic in one sweep, indicating a full-stack runtime-path addition rather than a local patch.</li>
+                  <li>`fa9e576` added 227 lines across HRC server and Ghostty management code to expose interactive visibility for otherwise headless sessions.</li>
+                </ul>
+              </article>
+
+              <article class="workstream ops">
+                <div class="record-meta">Ops / config / live state</div>
+                <h3>Model-pin cleanup and space config edits are visible, relevant, and still open in the working tree.</h3>
+                <p>The Claude catalog blocker for compiler-default rollout was resolved operationally by converting version-pinned Claude models to aliases such as `sonnet` and `opus`. That evidence is visible as unchecked-in edits in `var/agents` and `spaces-repo`, even though those repositories do not show new in-window commits from the current checkout state.</p>
+                <ul class="record-list">
+                  <li>`wrkq` task evidence for `T-01826` shows targeted real-binary dry-runs succeeded after alias conversion, with no catalog widening in source.</li>
+                  <li>`var/agents` currently shows modified profiles for `smokey`, `project-minder`, `heather`, `animan`, `larry`, and `animata`, plus onboarding/skill docs aligned to alias guidance.</li>
+                  <li>`spaces-repo` currently shows the corresponding `spaces/ui-concierge/space.toml` model-alias edit still present in the working tree.</li>
+                </ul>
+              </article>
+
+              <article class="workstream" style="border-top-color: var(--warn)">
+                <div class="record-meta">Net state</div>
+                <h3>The accomplishment signal is strong, but the wider tree still needs push and cleanup follow-through.</h3>
+                <p>Four fresh `agent-spaces` commits remain unpushed, and 22 repos across `/Users/lherron/praesidium` show modified or untracked files. This includes legitimate active development in `agent-control-plane`, `media-ingest`, `workflow-spec`, `voice-control`, `llmkb`, `taskboard`, and several greenfield or in-progress repos such as `note-updater` and `hal-visualizer`.</p>
+                <ul class="record-list">
+                  <li>The report treats those repos as open operational state, not as completed accomplishments.</li>
+                  <li>The root `praesidium` super-repo is especially noisy and should not be read as a clean source of completion evidence.</li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section id="tasks">
+            <div class="section-title">
+              <h2>Completed Tasks</h2>
+              <p>Eight `wrkq` tasks completed inside the window, all within `agent-spaces`. Together they map almost one-to-one onto the compiler-default cutover checklist and its validation blockers.</p>
+            </div>
+
+            <div class="task-grid">
+              <article class="task-card">
+                <div class="record-meta">T-01820 • 11:59 CDT</div>
+                <h3>Task-scoped Claude remote session names</h3>
+                <p>Added `taskId` to Claude remote session slugs so task-scoped runs stop collapsing into agent-project names.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">T-01822 • 20:09 CDT</div>
+                <h3>Shared scope identity helper</h3>
+                <p>Converged bundle materialization and runtime-home resolution onto a single `&lt;project&gt;_&lt;agent&gt;` identity key.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">T-01823 • 20:41 CDT</div>
+                <h3>Legacy scope-state migration verified</h3>
+                <p>Validated bundle/runtime migration into unified `codex-homes`, backed up stale Claude home state, and archived dead legacy directories.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">T-01824 • 21:08 CDT</div>
+                <h3>Compiler parity certification</h3>
+                <p>Certified byte-parity and cross-checkout scope invariants, then used real-binary smoke to catch the Pi reminder regression.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">T-01825 • 21:36 CDT</div>
+                <h3>Compiler default flip</h3>
+                <p>Turned compiler-mode on by default for foreground `asp run` while preserving `ASP_RUN_VIA_COMPILER=0` as the escape hatch.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">T-01826 • 21:26 CDT</div>
+                <h3>Claude model pin blocker cleared</h3>
+                <p>Resolved the compiler rejection of `claude-sonnet-4-6` by moving active profiles and spaces to alias models instead of widening the catalog.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">T-01827 • 21:10 CDT</div>
+                <h3>Duplicate blocker task closed</h3>
+                <p>Folded the duplicate model-catalog task into `T-01826` and kept the acceptance evidence consolidated in one place.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">T-01653 • 20:06 CDT</div>
+                <h3>Parent convergence task closed</h3>
+                <p>The broader materialization-identity effort was completed as a duplicate after the child tasks landed the actual work.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="validation">
+            <div class="section-title">
+              <h2>Validation Evidence</h2>
+              <p>The strongest evidence in this window was real-binary smoke and filesystem verification, not just unit coverage. The completed tasks include explicit command-level acceptance notes.</p>
+            </div>
+
+            <div class="evidence-grid">
+              <article class="evidence-card">
+                <div class="record-meta">T-01820 / task-aware Claude slugs</div>
+                <h3>Installed CLI dry-run proved the remote session rename.</h3>
+                <ul class="evidence-list">
+                  <li>Focused Claude adapter tests passed alongside compiler byte-parity, `bun run build`, `bun run typecheck`, and `just install`.</li>
+                  <li>Real installed `asp` dry-run produced session name `clod-agent-spaces-T-01820`, confirming the task slug reaches the foreground launch path.</li>
+                </ul>
+              </article>
+
+              <article class="evidence-card">
+                <div class="record-meta">T-01822 / T-01823 scope convergence</div>
+                <h3>Migration was checked on the real shared `var/spaces-repo` tree.</h3>
+                <ul class="evidence-list">
+                  <li>`asp run ... --dry-run --no-refresh` moved a legacy `projects/.../targets/smokey/codex` bundle into `codex-homes/agent-spaces_smokey/bundles/smokey/codex` with expected template files present.</li>
+                  <li>A stale workboard Codex runtime was migrated into `codex-homes/workboard_codex`, with `history.jsonl`, session JSONL, and shell snapshot still readable after the move.</li>
+                  <li>Backups and archive paths were recorded before mutation, including a `claude-homes` snapshot and a manifest of 16,275 legacy target entries.</li>
+                </ul>
+              </article>
+
+              <article class="evidence-card">
+                <div class="record-meta">T-01824 / T-01825 compiler parity and flip</div>
+                <h3>Real-binary smokes proved compiler default and legacy fallback both work.</h3>
+                <ul class="evidence-list">
+                  <li>Focused tests were green: `run.test.ts` 38/38, `run + agent-tools` 51/51, byte-parity 8/8, and `paths.test.ts` 16/16.</li>
+                  <li>`just install` succeeded and installed `asp` 0.6.1 before smoke.</li>
+                  <li>Default dry-run emitted the compiler marker `compileRuntimePlan`; `ASP_RUN_VIA_COMPILER=0` emitted the legacy launch path without that marker.</li>
+                  <li>The parity investigation also found and then closed a Pi-specific reminder propagation regression.</li>
+                </ul>
+              </article>
+
+              <article class="evidence-card">
+                <div class="record-meta">T-01826 alias conversion</div>
+                <h3>Targeted dry-runs succeeded after moving live configs off version pins.</h3>
+                <ul class="evidence-list">
+                  <li>Forced compiler dry-run for `smokey` with Claude exited successfully and foreground argv carried `--model sonnet`, not `claude-sonnet-4-6`.</li>
+                  <li>Legacy forced-Claude dry-run matched the same alias model shape.</li>
+                  <li>The task explicitly preserved compiler strictness by not adding new speculative Claude model identifiers to source catalogs.</li>
+                </ul>
+              </article>
+            </div>
+
+            <div class="notes-grid" style="margin-top: 16px">
+              <article class="note-card">
+                <div class="mini-label">Known repo-wide red</div>
+                <p>`just verify` still trips unrelated existing lint failures outside the current diff set.</p>
+              </article>
+              <article class="note-card">
+                <div class="mini-label">Known golden drift</div>
+                <p>`bun run test` still carries pre-existing Codex app-server golden mismatches where `input.accepted` now includes `disposition=started`.</p>
+              </article>
+              <article class="note-card">
+                <div class="mini-label">Validation style</div>
+                <p>This window’s strongest checks were installed binary dry-runs and real filesystem migration checks, not synthetic-only tests.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="repo-state">
+            <div class="section-title">
+              <h2>Open Repo State</h2>
+              <p>Visible non-committed work is part of the daily picture because it shows what is moving, what is staged for follow-through, and where accomplishment claims should stop.</p>
+            </div>
+
+            <div class="repo-grid">
+              <article class="repo-card">
+                <div class="record-meta">Unpushed commits</div>
+                <h3>`agent-spaces` has four fresh commits waiting to push.</h3>
+                <ul class="repo-list">
+                  <li>`be55899` `T-01825 flip ASP_RUN_VIA_COMPILER default on`</li>
+                  <li>`2fa3d29` `fix(asp-run): propagate session reminder to compiler launch shape`</li>
+                  <li>`039b0e1` `test(asp-run): add Pi foreground parity row + two-checkout-same-scope invariant`</li>
+                  <li>`23e2193` `Unify materialization scope homes`</li>
+                </ul>
+              </article>
+
+              <article class="repo-card">
+                <div class="record-meta">Highest-signal dirty repos</div>
+                <h3>Live edits remain open in configuration-heavy and product-heavy trees.</h3>
+                <table class="repo-table">
+                  <thead>
+                    <tr>
+                      <th>Repo</th>
+                      <th>State</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>var/agents</code></td>
+                      <td>Alias-model profile and doc edits remain modified alongside unrelated persona/platform work.</td>
+                    </tr>
+                    <tr>
+                      <td><code>spaces-repo</code></td>
+                      <td>`spaces/ui-concierge/space.toml` still reflects the model-alias change in the working tree.</td>
+                    </tr>
+                    <tr>
+                      <td><code>agent-control-plane</code></td>
+                      <td>Multiple package manifests and Verdaccio sync script modified; no new completed task evidence in-window.</td>
+                    </tr>
+                    <tr>
+                      <td><code>media-ingest</code></td>
+                      <td>CLI command reshaping and transcribe-path churn visible across source and tests.</td>
+                    </tr>
+                    <tr>
+                      <td><code>workflow-spec</code></td>
+                      <td>Broad proposal, schema, and explorer edits still open, plus new validation scripts.</td>
+                    </tr>
+                    <tr>
+                      <td><code>voice-control</code></td>
+                      <td>TTS/audio/server changes plus new artifacts and test additions remain unchecked in.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </article>
+            </div>
+
+            <div class="callout" style="margin-top: 16px">
+              <strong>State read</strong>
+              Across 28 git repos under `/Users/lherron/praesidium`, only 2 showed new commits inside the report window, 1 showed fresh unpushed commits, and 22 showed dirty status. That means the main accomplishment lane was concentrated, while the rest of the platform remains actively in flight rather than settled.
+            </div>
+          </section>
+
+          <div class="footer">
+            Sources: local git history and repo status under `/Users/lherron/praesidium`, plus `wrkq` completed-task metadata/comments gathered on 2026-06-03 for the previous 24-hour local window.
+          </div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

@@ -198,6 +198,31 @@ describe('asp codex harness', () => {
     expect(stdout).toContain('--model gpt-5.3-codex')
   })
 
+  test('gui --dry-run launches Codex.app with isolated Codex home and app profile', async () => {
+    const testEnv = getCodexTestEnv(aspHome)
+    const { stdout, exitCode } = await runCli(['gui', 'codex-target', '--dry-run'], {
+      env: testEnv,
+      cwd: projectDir,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('CODEX_HOME=')
+    expect(stdout).toContain('CODEX_ELECTRON_USER_DATA_PATH=')
+    expect(stdout).toContain(`${aspHome}/codex-homes/`)
+    expect(stdout).toContain('codex-app-profile')
+
+    const command = extractDryRunCommand(stdout)
+    expect(command).toContain('/usr/bin/open')
+    expect(command).toContain('-a Codex')
+    expect(command).toMatch(/--env ['"]CODEX_HOME=/)
+    expect(command).toMatch(/--env ['"]CODEX_ELECTRON_USER_DATA_PATH=/)
+    expect(command).toContain('--args')
+    expect(command).toMatch(/--user-data-dir=.*codex-app-profile/)
+    expect(command).toContain(projectDir)
+    expect(command).not.toContain('--enable goals')
+    expect(command).not.toContain('app-server')
+  })
+
   test('run --harness codex --dry-run emits model reasoning effort override', async () => {
     const testEnv = getCodexTestEnv(aspHome)
     const { stdout, exitCode } = await runCli(

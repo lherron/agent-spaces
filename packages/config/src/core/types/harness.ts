@@ -438,6 +438,8 @@ export interface HarnessRunOptions {
   featureFlags?: string[] | undefined
   /** Whether to run in interactive mode */
   interactive?: boolean | undefined
+  /** Host launch surface for interactive runs */
+  launchSurface?: 'terminal' | 'codex-app' | undefined
   /** Project directory */
   projectPath?: string | undefined
   /** Logical task id, used for session identity and display naming */

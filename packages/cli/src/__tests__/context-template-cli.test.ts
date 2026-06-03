@@ -81,7 +81,7 @@ display = "Smokey"
 schema = 1
 
 [targets.${targetName}]
-compose = ["space:test@stable"]
+compose = []
 
 [targets.${targetName}.codex]
 model = "gpt-5.5"
@@ -124,7 +124,7 @@ model = "gpt-5.5"
       spaces: {},
       targets: {
         [targetName]: {
-          compose: ['space:test@stable'],
+          compose: [],
           roots: [],
           loadOrder: [],
           envHash: 'sha256:0000000000000000000000000000000000000000000000000000000000000000',

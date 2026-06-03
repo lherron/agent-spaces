@@ -107,6 +107,7 @@ export function toHarnessRunOptions(
     modelReasoningEffort: options.modelReasoningEffort,
     extraArgs: options.extraArgs,
     interactive: options.interactive,
+    launchSurface: options.launchSurface,
     prompt: overrides.prompt,
     settingSources: options.settingSources,
     permissionMode: options.permissionMode,

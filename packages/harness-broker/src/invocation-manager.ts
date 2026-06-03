@@ -243,7 +243,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
   async function doDrain(inv: Invocation): Promise<void> {
     while (inv.pending.length > 0 && inv.state === 'ready') {
-      const head = inv.pending.shift()!
+      const head = inv.pending.shift()
+      if (head === undefined) return
       try {
         await applyAndEmit(inv, head.input)
       } catch (err) {
@@ -348,7 +349,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   // ---------------------------------------------------------------------------
   function evictQueue(inv: Invocation, reason: string): void {
     while (inv.pending.length > 0) {
-      const item = inv.pending.shift()!
+      const item = inv.pending.shift()
+      if (item === undefined) return
       emit(inv, 'input.rejected', { inputId: item.inputId, reason }, { inputId: item.inputId })
     }
   }

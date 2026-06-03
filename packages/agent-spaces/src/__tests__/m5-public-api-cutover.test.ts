@@ -789,14 +789,10 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
       const auditHasHeartbeat = auditRefs.some((r: string) => r.includes('heartbeat-monitor'))
       expect(auditHasHeartbeat).toBe(true)
 
-      // The materialized target hash must reflect both base-space AND
-      // heartbeat-monitor. Compute the expected hash from both refs.
-      const { createHash } = require('node:crypto')
-      const expectedHash = createHash('sha256')
-        .update(JSON.stringify(['space:agent:base-space', 'space:agent:heartbeat-monitor']))
-        .digest('hex')
-        .slice(0, 12)
-      expect(allEnvVals).toMatch(new RegExp(`spaces-${expectedHash}`))
+      // Agent-project materialization now uses the stable agent-name target
+      // path. The heartbeat inclusion is verified by resolvedBundle above; the
+      // process env should point at the materialized agent bundle.
+      expect(allEnvVals).toContain(join('bundles', 'alice', 'claude'))
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }

@@ -28,6 +28,7 @@ import { registerDiffCommand } from './commands/diff.js'
 import { registerDoctorCommand } from './commands/doctor.js'
 import { registerExplainCommand } from './commands/explain.js'
 import { registerGcCommand } from './commands/gc.js'
+import { registerGuiCommand } from './commands/gui.js'
 import { registerHarnessesCommand } from './commands/harnesses.js'
 import { registerInitCommand } from './commands/init.js'
 import { registerInstallCommand } from './commands/install.js'
@@ -81,6 +82,7 @@ function createProgram(): Command {
   registerPathCommand(program)
   registerDoctorCommand(program)
   registerGcCommand(program)
+  registerGuiCommand(program)
   registerAddCommand(program)
   registerRemoveCommand(program)
   registerUpgradeCommand(program)
