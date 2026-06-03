@@ -133,7 +133,10 @@ describe('broker inspection read model (T-01851 red)', () => {
     // as live work, but includeDisposed keeps them inspectable for postmortems.
     const broker = createBroker({
       drivers: [createNoopDriver()],
-      now: () => new Date('2026-06-03T20:00:00.000Z'),
+      // tickingClock (not a constant) so startedAt (first event) and
+      // lastActivityAt (latest event) project to distinct timestamps — a
+      // constant clock would make those two assertions indistinguishable.
+      now: tickingClock(),
     }) as InspectionBroker
 
     await expect(broker.listInvocations({})).resolves.toEqual({ invocations: [] })

@@ -126,9 +126,11 @@ describe('harness-broker CLI', () => {
     expect(Array.isArray((response.error.data as { issues?: unknown }).issues)).toBe(true)
   })
 
+  // broker.listInvocations is part of the shared method surface (T-01851), so it
+  // is answered on stdio too — only the durability/replay methods below remain
+  // unix-transport-only and method-not-found on stdio.
   test.each([
     'broker.attach',
-    'broker.listInvocations',
     'invocation.eventsSince',
     'invocation.ackEvents',
     'invocation.snapshot',

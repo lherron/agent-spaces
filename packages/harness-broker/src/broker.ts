@@ -6,6 +6,8 @@ import type {
   BrokerHelloRequest,
   BrokerHelloResponse,
   BrokerLifecyclePolicyOverlay,
+  BrokerListInvocationsRequest,
+  BrokerListInvocationsResponse,
   BrokerTransportKind,
   ClientCapabilities,
   InvocationAckEventsRequest,
@@ -112,6 +114,7 @@ export interface Broker {
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
   status(req: InvocationStatusRequest): Promise<InvocationStatusResponse>
+  listInvocations(req: BrokerListInvocationsRequest): Promise<BrokerListInvocationsResponse>
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
   // --- Durability control surface (durable/unix runtime only) ---
   attach(req: BrokerAttachRequest): Promise<BrokerAttachResponse>
@@ -166,9 +169,18 @@ export function createBroker(options: BrokerOptions): Broker {
     return inv
   }
 
-  async function buildSnapshot(invocationId: InvocationId): Promise<InvocationSnapshot> {
+  async function buildSnapshot(
+    invocationId: InvocationId,
+    opts?: { probeLiveness?: boolean | undefined }
+  ): Promise<InvocationSnapshot> {
     const inv = requireManagedInvocation(invocationId)
-    const currentSeq = eventLedger?.currentSeq(invocationId) ?? 0
+    // Snapshot delegates the shared inspection fields to the single read-model
+    // helper, then APPENDS reconnect-only state (pending inputs/permissions,
+    // input dispositions, retention floor). currentSeq comes from the durable
+    // ledger when present (the reconnect cursor), falling back to the projected
+    // seq for the stdio path.
+    const summary = manager.buildInspectionSummary(invocationId, opts)
+    const currentSeq = eventLedger?.currentSeq(invocationId) ?? summary.currentSeq ?? 0
     const retentionFloorSeq = eventLedger ? await eventLedger.retentionFloorSeq(invocationId) : 0
 
     const inputDispositions: Record<string, InvocationInputResponse> = {}
@@ -184,8 +196,7 @@ export function createBroker(options: BrokerOptions): Broker {
     }))
 
     return {
-      invocationId: inv.invocationId,
-      state: inv.state,
+      ...summary,
       capabilities: inv.capabilities,
       pendingInputIds: inv.pending.map((item) => item.inputId),
       inputDispositions,
@@ -234,6 +245,16 @@ export function createBroker(options: BrokerOptions): Broker {
           eventNotifications: true,
           brokerToClientRequests: hasPermissionRequests,
           ...(advertiseAttachReplay ? { attachReplay: true } : {}),
+          // Inspection read-model (T-01851): advertise truthfully. This phase
+          // implements listInvocations, timestamps, lifecycle view, cached
+          // liveness, and the eventsSince type filter.
+          inspection: {
+            listInvocations: true,
+            timestamps: true,
+            lifecycleView: true,
+            liveness: 'cached',
+            eventTypeFilter: true,
+          },
         },
         drivers: registry.summaries(),
       }
@@ -316,7 +337,17 @@ export function createBroker(options: BrokerOptions): Broker {
 
     async status(req: InvocationStatusRequest): Promise<InvocationStatusResponse> {
       validateBrokerParams('invocation.status', req)
-      return manager.status(req.invocationId)
+      return manager.status(
+        req.invocationId,
+        req.probeLiveness !== undefined ? { probeLiveness: req.probeLiveness } : undefined
+      )
+    },
+
+    async listInvocations(
+      req: BrokerListInvocationsRequest
+    ): Promise<BrokerListInvocationsResponse> {
+      validateBrokerParams('broker.listInvocations', req)
+      return manager.listInvocations(req)
     },
 
     async dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse> {
@@ -384,7 +415,10 @@ export function createBroker(options: BrokerOptions): Broker {
 
     async snapshot(req: InvocationSnapshotRequest): Promise<InvocationSnapshot> {
       validateBrokerParams('invocation.snapshot', req)
-      return buildSnapshot(req.invocationId)
+      return buildSnapshot(
+        req.invocationId,
+        req.probeLiveness !== undefined ? { probeLiveness: req.probeLiveness } : undefined
+      )
     },
 
     async eventsSince(req: InvocationEventsSinceRequest): Promise<InvocationEventsSinceResponse> {
@@ -397,7 +431,14 @@ export function createBroker(options: BrokerOptions): Broker {
         )
       }
       // eventsSince rejects below the retention floor (EventReplayUnavailable).
-      const events = await eventLedger.eventsSince(req.invocationId, req.afterSeq)
+      const replayed = await eventLedger.eventsSince(req.invocationId, req.afterSeq)
+      // request.types filters ONLY the returned events. currentSeq and the
+      // retention floor still describe the FULL ledger so a reconnecting client
+      // advances safely past event types it did not ask to render.
+      const events =
+        req.types !== undefined
+          ? replayed.filter((event) => req.types?.includes(event.type))
+          : replayed
       const currentSeq = eventLedger.currentSeq(req.invocationId)
       const retentionFloorSeq = await eventLedger.retentionFloorSeq(req.invocationId)
       return { events, currentSeq, retentionFloorSeq }

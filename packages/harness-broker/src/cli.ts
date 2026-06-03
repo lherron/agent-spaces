@@ -163,6 +163,11 @@ function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
     validateParams(method, id, params)
     return broker.dispose(params as Parameters<typeof broker.dispose>[0])
   })
+
+  server.register('broker.listInvocations', async ({ id, method, params }) => {
+    validateParams(method, id, (params ?? {}) as unknown)
+    return broker.listInvocations((params ?? {}) as Parameters<typeof broker.listInvocations>[0])
+  })
 }
 
 /**

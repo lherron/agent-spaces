@@ -1,11 +1,15 @@
 import type {
   BrokerLifecyclePolicyOverlay,
+  BrokerListInvocationsRequest,
+  BrokerListInvocationsResponse,
+  BrokerTerminalSurfaceReport,
   ClientCapabilities,
   ContinuationUpdate,
   HarnessInvocationSpec,
   InputId,
   InputPolicy,
   InvocationCapabilities,
+  InvocationCurrentTurnSummary,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
   InvocationEventEnvelope,
@@ -14,8 +18,11 @@ import type {
   InvocationInput,
   InvocationInputRequest,
   InvocationInputResponse,
+  InvocationInspectionSummary,
   InvocationInterruptRequest,
   InvocationInterruptResponse,
+  InvocationLifecycleView,
+  InvocationLivenessView,
   InvocationPermissionRespondRequest,
   InvocationPermissionRespondResponse,
   InvocationRuntimeContext,
@@ -141,6 +148,31 @@ export interface Invocation {
   childPid?: number | undefined
   exitCode?: number | null | undefined
   signal?: string | null | undefined
+  // --- Inspection read-model projection (T-01851) ---
+  /** Time of the first projected event (invocation creation activity). */
+  startedAt?: string | undefined
+  /** Time of the most recent projected event. */
+  lastActivityAt?: string | undefined
+  /** Seq of the most recent projected event. */
+  currentSeq?: number | undefined
+  /** Active turn start time, projected from turn.started event.time. */
+  currentTurnStartedAt?: string | undefined
+  /** Active turn attempt, projected from turn.started/turn.retry. */
+  currentTurnAttempt?: number | undefined
+  /** Current harness generation, projected from harness.started/recovery. */
+  currentHarnessGeneration?: number | undefined
+  /**
+   * Full accepted lifecycle overlay retained at start so the lifecycle view can
+   * report idleTtlMs/idleSince/computedRetireAt without reverse-engineering the
+   * accepted-policy event (which only carries the modes).
+   */
+  lifecycleOverlay?: BrokerLifecyclePolicyOverlay | undefined
+  /** Terminal reason, projected from terminal events. */
+  terminalReason?: string | undefined
+  /** Terminal surface facts, projected from terminal.surface.reported. */
+  terminalSurface?: BrokerTerminalSurfaceReport | undefined
+  /** True once a driver-owned harness.started has been observed. */
+  harnessStartedSeen?: boolean | undefined
   /** Per-invocation FIFO queue of pending inputs. */
   pending: QueuedInput[]
   /** Self-clearing drain lock: set while a drain is in flight, cleared in .finally(). */
@@ -187,6 +219,16 @@ export interface InvocationManagerOptions {
   now?: (() => Date) | undefined
 }
 
+/** Options for the shared inspection summary builder. */
+export interface InspectionSummaryOptions {
+  /**
+   * When true the caller asked for a liveness view. This phase only advertises
+   * cached liveness, so the summary returns projected facts with mode:'cached'
+   * even under a probe request (it never pretends to actively probe).
+   */
+  probeLiveness?: boolean | undefined
+}
+
 export interface InvocationManager {
   start(
     spec: HarnessInvocationSpec,
@@ -199,10 +241,20 @@ export interface InvocationManager {
   input(req: InvocationInputRequest): Promise<InvocationInputResponse>
   interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse>
   stop(req: InvocationStopRequest): Promise<InvocationStopResponse>
-  status(invocationId: InvocationId): InvocationStatusResponse
+  status(invocationId: InvocationId, opts?: InspectionSummaryOptions): InvocationStatusResponse
   dispose(req: InvocationDisposeRequest): Promise<InvocationDisposeResponse>
   permissionRespond(req: InvocationPermissionRespondRequest): InvocationPermissionRespondResponse
   get(invocationId: InvocationId): Invocation | undefined
+  /**
+   * Shared inspection read-model builder. status(), snapshot/buildSnapshot, and
+   * listInvocations all project through this single helper so their inspection
+   * fields cannot drift.
+   */
+  buildInspectionSummary(
+    invocationId: InvocationId,
+    opts?: InspectionSummaryOptions
+  ): InvocationInspectionSummary
+  listInvocations(req: BrokerListInvocationsRequest): BrokerListInvocationsResponse
   activeCount(): number
 }
 
@@ -429,6 +481,14 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   // Event state machine
   // ---------------------------------------------------------------------------
   function applyEventState(inv: Invocation, event: InvocationEventEnvelope): void {
+    // Inspection timestamps/seq project on EVERY event (T-01851): startedAt is
+    // the first event's time, lastActivityAt/currentSeq track the latest.
+    if (inv.startedAt === undefined) {
+      inv.startedAt = event.time
+    }
+    inv.lastActivityAt = event.time
+    inv.currentSeq = event.seq
+
     switch (event.type) {
       case 'invocation.started': {
         // Capture the child pid for the manager-owned status projection.
@@ -436,6 +496,44 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         if (typeof pid === 'number') {
           inv.childPid = pid
         }
+        return
+      }
+      case 'harness.started': {
+        // A real driver-owned harness.started supersedes the broker's synthetic
+        // invocation.started fallback and carries generation + child pid.
+        inv.harnessStartedSeen = true
+        const payload = event.payload as { generation?: unknown; pid?: unknown } | undefined
+        if (typeof payload?.generation === 'number') {
+          inv.currentHarnessGeneration = payload.generation
+        }
+        if (typeof payload?.pid === 'number') {
+          inv.childPid = payload.pid
+        }
+        return
+      }
+      case 'harness.recovery.completed': {
+        const payload = event.payload as { toGeneration?: unknown } | undefined
+        if (typeof payload?.toGeneration === 'number') {
+          inv.currentHarnessGeneration = payload.toGeneration
+        }
+        return
+      }
+      case 'turn.retry': {
+        const payload = event.payload as
+          | { toAttempt?: unknown; toHarnessGeneration?: unknown }
+          | undefined
+        const toAttempt = event.turnAttempt ?? payload?.toAttempt
+        if (typeof toAttempt === 'number') {
+          inv.currentTurnAttempt = toAttempt
+        }
+        const toGeneration = event.harnessGeneration ?? payload?.toHarnessGeneration
+        if (typeof toGeneration === 'number') {
+          inv.currentHarnessGeneration = toGeneration
+        }
+        return
+      }
+      case 'terminal.surface.reported': {
+        inv.terminalSurface = event.payload as BrokerTerminalSurfaceReport
         return
       }
       case 'invocation.ready':
@@ -453,17 +551,31 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           inv.currentInputId = event.inputId
         }
         return
-      case 'turn.started':
+      case 'turn.started': {
         inv.state = 'turn_active'
         if (event.turnId !== undefined) {
           inv.currentTurnId = event.turnId
         }
+        // Project the active-turn summary fields (event fields first, then
+        // payload, then manager-tracked fallbacks).
+        const payload = event.payload as
+          | { turnId?: unknown; inputId?: unknown; turnAttempt?: unknown }
+          | undefined
+        inv.currentTurnStartedAt = event.time
+        const attempt = event.turnAttempt ?? payload?.turnAttempt
+        inv.currentTurnAttempt = typeof attempt === 'number' ? attempt : 1
+        const generation = event.harnessGeneration
+        if (typeof generation === 'number') {
+          inv.currentHarnessGeneration = generation
+        }
         return
+      }
       case 'turn.completed':
       case 'turn.failed':
       case 'turn.interrupted':
         inv.currentTurnId = undefined
         inv.currentInputId = undefined
+        inv.currentTurnStartedAt = undefined
         if (inv.state !== 'exited' && inv.state !== 'failed' && inv.state !== 'disposed') {
           inv.state = 'ready'
         }
@@ -472,13 +584,16 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         return
       case 'invocation.stopping':
         inv.state = 'stopping'
+        inv.terminalReason = 'stopping'
         evictQueue(inv, REASON_INVOCATION_STOPPING)
         return
       case 'invocation.exited': {
         inv.state = 'exited'
         inv.terminalEmitted = true
+        inv.terminalReason = 'exited'
         inv.currentTurnId = undefined
         inv.currentInputId = undefined
+        inv.currentTurnStartedAt = undefined
         const payload = event.payload as { exitCode?: unknown; signal?: unknown } | undefined
         if (payload && 'exitCode' in payload) {
           inv.exitCode = payload.exitCode as number | null | undefined
@@ -492,15 +607,19 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       case 'invocation.failed':
         inv.state = 'failed'
         inv.terminalEmitted = true
+        inv.terminalReason = 'failed'
         inv.currentTurnId = undefined
         inv.currentInputId = undefined
+        inv.currentTurnStartedAt = undefined
         evictQueue(inv, REASON_INVOCATION_TERMINATED)
         return
       case 'invocation.disposed':
         inv.state = 'disposed'
         inv.disposedEmitted = true
+        inv.terminalReason = 'disposed'
         inv.currentTurnId = undefined
         inv.currentInputId = undefined
+        inv.currentTurnStartedAt = undefined
         return
       case 'continuation.updated':
         inv.continuation = event.payload as ContinuationUpdate
@@ -671,6 +790,149 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     })
   }
 
+  // ---------------------------------------------------------------------------
+  // Inspection read-model (T-01851) — ONE shared summary builder consumed by
+  // status(), snapshot/buildSnapshot, and listInvocations so they cannot drift.
+  // ---------------------------------------------------------------------------
+  function inferDriverHealth(
+    state: InvocationState
+  ): 'unknown' | 'healthy' | 'degraded' | 'unresponsive' | 'exited' {
+    switch (state) {
+      case 'ready':
+      case 'turn_active':
+        return 'healthy'
+      case 'stopping':
+        return 'degraded'
+      case 'exited':
+      case 'failed':
+      case 'disposed':
+        return 'exited'
+      default:
+        return 'unknown'
+    }
+  }
+
+  function isProcessAlive(state: InvocationState): boolean {
+    return state !== 'exited' && state !== 'failed' && state !== 'disposed'
+  }
+
+  /** Live-state retention blockers (which conditions hold off idle retirement). */
+  function computeRetentionBlockers(
+    inv: Invocation
+  ): Array<'active-turn' | 'pending-input' | 'pending-permission' | 'not-ready'> {
+    const blockers: Array<'active-turn' | 'pending-input' | 'pending-permission' | 'not-ready'> = []
+    if (inv.currentTurnId !== undefined) blockers.push('active-turn')
+    if (inv.pending.length > 0) blockers.push('pending-input')
+    if (inv.pendingPermissions.size > 0) blockers.push('pending-permission')
+    if (inv.state === 'starting' || inv.state === 'stopping') blockers.push('not-ready')
+    return blockers
+  }
+
+  function buildLifecycleView(inv: Invocation): InvocationLifecycleView | undefined {
+    const overlay = inv.lifecycleOverlay
+    if (overlay === undefined && inv.terminalReason === undefined) {
+      return undefined
+    }
+
+    const blockedBy = computeRetentionBlockers(inv)
+    const retention: InvocationLifecycleView['retention'] = {
+      mode: overlay?.retention.mode ?? 'unknown',
+    }
+    if (overlay?.retention.mode === 'idle-ttl') {
+      const { idleTtlMs } = overlay.retention
+      retention.idleTtlMs = idleTtlMs
+      const idleSince = inv.lastActivityAt
+      if (idleSince !== undefined) {
+        retention.idleSince = idleSince
+        // computedRetireAt is only meaningful while nothing blocks retirement.
+        if (blockedBy.length === 0) {
+          retention.computedRetireAt = new Date(Date.parse(idleSince) + idleTtlMs).toISOString()
+        }
+      }
+    }
+    if (blockedBy.length > 0) {
+      retention.blockedBy = blockedBy
+    }
+
+    const harnessRecovery: InvocationLifecycleView['harnessRecovery'] = {
+      mode: overlay?.harnessRecovery.mode ?? 'unknown',
+    }
+    if (inv.currentHarnessGeneration !== undefined) {
+      harnessRecovery.currentGeneration = inv.currentHarnessGeneration
+    }
+
+    const turnRetry: InvocationLifecycleView['turnRetry'] = {
+      mode: overlay?.turnRetry.mode ?? 'unknown',
+    }
+    if (inv.currentTurnAttempt !== undefined) {
+      turnRetry.currentAttempt = inv.currentTurnAttempt
+    }
+
+    const view: InvocationLifecycleView = { retention, harnessRecovery, turnRetry }
+    if (overlay !== undefined) {
+      view.policyId = overlay.policyId
+      view.policyHash = overlay.policyHash
+    }
+    if (inv.terminalReason !== undefined) {
+      view.terminalReason = inv.terminalReason
+    }
+    return view
+  }
+
+  function buildCurrentTurn(inv: Invocation): InvocationCurrentTurnSummary | undefined {
+    if (inv.currentTurnId === undefined) return undefined
+    const turn: InvocationCurrentTurnSummary = {
+      turnId: inv.currentTurnId,
+      startedAt: inv.currentTurnStartedAt ?? inv.lastActivityAt ?? inv.startedAt ?? '',
+    }
+    if (inv.currentInputId !== undefined) turn.inputId = inv.currentInputId
+    if (inv.currentTurnAttempt !== undefined) turn.attempt = inv.currentTurnAttempt
+    return turn
+  }
+
+  /**
+   * Cached liveness view. This phase advertises liveness:'cached' only, so even
+   * a probeLiveness request answers from projected facts with mode:'cached' (it
+   * never issues tmux/process probes it cannot truthfully perform).
+   */
+  function buildLivenessView(inv: Invocation): InvocationLivenessView {
+    return {
+      mode: 'cached',
+      checkedAt: inv.lastActivityAt ?? inv.startedAt ?? '',
+      driver: { state: inferDriverHealth(inv.state) },
+      process: {
+        brokerPid: process.pid,
+        ...(inv.childPid !== undefined ? { childPid: inv.childPid } : {}),
+        alive: isProcessAlive(inv.state),
+        ...(inv.exitCode !== undefined ? { exitCode: inv.exitCode } : {}),
+        ...(inv.signal !== undefined ? { signal: inv.signal } : {}),
+      },
+    }
+  }
+
+  function buildInspectionSummary(
+    inv: Invocation,
+    opts?: InspectionSummaryOptions
+  ): InvocationInspectionSummary {
+    const summary: InvocationInspectionSummary = {
+      invocationId: inv.invocationId,
+      state: inv.state,
+      driver: inv.driver.kind,
+      startedAt: inv.startedAt ?? inv.lastActivityAt ?? '',
+      lastActivityAt: inv.lastActivityAt ?? inv.startedAt ?? '',
+    }
+    if (inv.currentSeq !== undefined) summary.currentSeq = inv.currentSeq
+    // currentTurn is always present (undefined when no turn is active) so a
+    // cleared turn is observable as `currentTurn: undefined` rather than a
+    // missing key after a terminal transition.
+    summary.currentTurn = buildCurrentTurn(inv)
+    const lifecycle = buildLifecycleView(inv)
+    if (lifecycle !== undefined) summary.lifecycle = lifecycle
+    if (inv.terminalSurface !== undefined) summary.terminalSurface = inv.terminalSurface
+    if (opts?.probeLiveness === true) summary.liveness = buildLivenessView(inv)
+    return summary
+  }
+
   return {
     async start(
       spec: HarnessInvocationSpec,
@@ -754,6 +1016,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       }
 
       if (lifecyclePolicy !== undefined) {
+        // Retain the FULL accepted overlay on the record so the inspection
+        // lifecycle view can report idle-ttl details without reconstructing them
+        // from the accepted-policy event (which only carries the modes).
+        inv.lifecycleOverlay = lifecyclePolicy
         emit(inv, 'lifecycle.policy.accepted', acceptedLifecyclePolicy(lifecyclePolicy))
       }
 
@@ -768,7 +1034,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       }
 
       if (!inv.terminalEmitted) {
-        if (inv.state === 'starting') {
+        // Synthetic invocation.started is a fallback for drivers that do not emit
+        // their own harness.started; skip it when a real harness.started arrived.
+        if (inv.state === 'starting' && inv.harnessStartedSeen !== true) {
           emit(inv, 'invocation.started', {
             command: spec.process.command,
             args: spec.process.args,
@@ -932,16 +1200,23 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       return { accepted: true, state: inv.state }
     },
 
-    status(invocationId: InvocationId): InvocationStatusResponse {
+    status(invocationId: InvocationId, opts?: InspectionSummaryOptions): InvocationStatusResponse {
       const inv = requireInvocation(invocationId)
+      // status() projects through the shared inspection summary, then layers the
+      // status-only fields (capabilities/continuation/process + legacy ids).
       const response: InvocationStatusResponse = {
-        invocationId: inv.invocationId,
-        state: inv.state,
+        ...buildInspectionSummary(inv, opts),
         capabilities: inv.capabilities,
         continuation: inv.continuation,
       }
       if (inv.currentTurnId !== undefined) {
         response.currentTurnId = inv.currentTurnId
+      }
+      if (inv.currentHarnessGeneration !== undefined) {
+        response.currentHarnessGeneration = inv.currentHarnessGeneration
+      }
+      if (inv.currentTurnAttempt !== undefined) {
+        response.currentTurnAttempt = inv.currentTurnAttempt
       }
       // Project child-process info when any of pid/exitCode/signal is known.
       if (inv.childPid !== undefined || inv.exitCode !== undefined || inv.signal !== undefined) {
@@ -1035,6 +1310,26 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
     get(invocationId: InvocationId): Invocation | undefined {
       return invocations.get(invocationId)
+    },
+
+    buildInspectionSummary(
+      invocationId: InvocationId,
+      opts?: InspectionSummaryOptions
+    ): InvocationInspectionSummary {
+      return buildInspectionSummary(requireInvocation(invocationId), opts)
+    },
+
+    listInvocations(req: BrokerListInvocationsRequest): BrokerListInvocationsResponse {
+      const includeDisposed = req.includeDisposed === true
+      const opts: InspectionSummaryOptions = {
+        ...(req.probeLiveness !== undefined ? { probeLiveness: req.probeLiveness } : {}),
+      }
+      const invocationsOut: InvocationInspectionSummary[] = []
+      for (const inv of invocations.values()) {
+        if (inv.state === 'disposed' && !includeDisposed) continue
+        invocationsOut.push(buildInspectionSummary(inv, opts))
+      }
+      return { invocations: invocationsOut }
     },
 
     activeCount(): number {
