@@ -5,18 +5,24 @@
  * and verifies core reference parsing behavior relied on by CLI callers.
  */
 
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'bun:test'
-import { getProjectHarnessOutputPath, resolveEffectiveCompose } from 'spaces-config'
+import {
+  getLegacyProjectHarnessOutputPath,
+  getProjectHarnessOutputPath,
+  resolveEffectiveCompose,
+} from 'spaces-config'
 import type { AgentRuntimeProfile, SpaceRefString, TargetDefinition } from 'spaces-config'
 import {
   ensureCodexProjectTrust,
   getProjectCodexRuntimeHomePath,
   isSpaceReference,
   migrateLegacyProjectCodexRuntimeHome,
+  migrateLegacyProjectHarnessOutput,
   prepareCodexRuntimeHome,
 } from './run.js'
 import * as runModule from './run.js'
@@ -95,6 +101,24 @@ describe('migrateLegacyProjectCodexRuntimeHome', () => {
       'session-data\n'
     )
     await expect(stat(legacyRuntime)).rejects.toThrow()
+  })
+})
+
+describe('migrateLegacyProjectHarnessOutput', () => {
+  test('moves old path-hashed project target bundles into the shared scope home', async () => {
+    const root = await createTempDir('run-migrate-bundle-')
+    const aspHome = join(root, 'asp-home')
+    const projectPath = join(root, 'agent-spaces')
+    const legacyOutput = getLegacyProjectHarnessOutputPath(projectPath, 'larry', 'codex', aspHome)
+    const outputPath = getProjectHarnessOutputPath(projectPath, 'larry', 'codex', aspHome)
+
+    await mkdir(legacyOutput, { recursive: true })
+    await writeFile(join(legacyOutput, 'state.json'), 'legacy-state\n')
+
+    await migrateLegacyProjectHarnessOutput(aspHome, projectPath, 'larry', 'codex', outputPath)
+
+    expect(await readFile(join(outputPath, 'state.json'), 'utf-8')).toBe('legacy-state\n')
+    await expect(stat(legacyOutput)).rejects.toThrow()
   })
 })
 
@@ -229,6 +253,45 @@ describe('prepareCodexRuntimeHome', () => {
     expect(metadata.mode).toBe('project')
     expect(metadata.targetName).toBe('cody')
     expect(metadata.projectPath).toBe(projectPath)
+  })
+
+  test('keeps ad-hoc codex runtime home path keyed by cwd hash', async () => {
+    const root = await createTempDir('run-adhoc-runtime-')
+    const aspHome = join(root, 'asp-home')
+    const cwd = join(root, 'scratch')
+    const bundleRoot = join(aspHome, 'snapshots', 'abc123', 'codex')
+    const templateHome = join(bundleRoot, 'codex.home')
+    await mkdir(join(templateHome, 'skills'), { recursive: true })
+    await mkdir(join(templateHome, 'prompts'), { recursive: true })
+    await writeFile(join(templateHome, 'AGENTS.md'), 'fresh agents\n')
+    await writeFile(join(templateHome, 'config.toml'), 'model = "gpt-5.5"\n')
+    await writeFile(join(templateHome, 'manifest.json'), '{"name":"scratch"}\n')
+
+    const resolvedRuntime = await prepareCodexRuntimeHome(
+      {
+        harnessId: 'codex',
+        targetName: 'scratch',
+        rootDir: bundleRoot,
+        pluginDirs: [templateHome],
+        codex: {
+          homeTemplatePath: templateHome,
+          configPath: join(templateHome, 'config.toml'),
+          agentsPath: join(templateHome, 'AGENTS.md'),
+          skillsDir: join(templateHome, 'skills'),
+          promptsDir: join(templateHome, 'prompts'),
+        },
+      },
+      {
+        aspHome,
+        cwd,
+      }
+    )
+
+    const key = createHash('sha256')
+      .update(`codex-runtime-v1\0scratch\0${resolve(cwd)}`)
+      .digest('hex')
+      .slice(0, 24)
+    expect(resolvedRuntime).toBe(join(aspHome, 'codex-homes', key, 'home'))
   })
 })
 

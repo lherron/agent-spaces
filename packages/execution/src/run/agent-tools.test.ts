@@ -102,7 +102,7 @@ describe('prepareAgentToolRuntime', () => {
       projectRoot,
       components: components(agentRoot),
     })
-    const projectId = getProjectStorageId(projectRoot)
+    const projectId = getProjectStorageId(projectRoot, basename(agentRoot))
 
     expect(result.env['ASP_PROJECT_ROOT']).toBe(projectRoot)
     expect(result.env['ASP_PROJECT_ID']).toBe(projectId)

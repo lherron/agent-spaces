@@ -157,7 +157,7 @@ export function extractPrimingPrompt(argv: readonly string[]): string | null {
 /**
  * Infer the agent target name from ASP_PLUGIN_ROOT.
  *
- * Bundle layout: `<asp-home>/projects/<proj>/targets/<target>/<harness>/`.
+ * Bundle layout: `<asp-home>/codex-homes/<scope>/bundles/<target>/<harness>/`.
  * The directory two levels up from the bundle root is the target slug.
  */
 export function inferTargetFromBundleRoot(bundleRoot: string | undefined): string | null {

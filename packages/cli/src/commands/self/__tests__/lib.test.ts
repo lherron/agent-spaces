@@ -84,7 +84,7 @@ describe('extractPrimingPrompt', () => {
 
 describe('inferTargetFromBundleRoot', () => {
   test('extracts target from bundle path', () => {
-    const bundle = '/home/lherron/spaces/projects/proj-abc/targets/clod/claude'
+    const bundle = '/home/lherron/spaces/codex-homes/agent-spaces_clod/bundles/clod/claude'
     expect(inferTargetFromBundleRoot(bundle)).toBe('clod')
   })
 
@@ -237,7 +237,7 @@ describe('resolveSelfContext', () => {
       JSON.stringify({
         env: {
           AGENTCHAT_ID: 'explicit',
-          ASP_PLUGIN_ROOT: '/a/b/projects/p/targets/from-bundle/claude',
+          ASP_PLUGIN_ROOT: '/a/b/codex-homes/p_explicit/bundles/from-bundle/claude',
         },
       })
     )
@@ -255,7 +255,7 @@ describe('resolveSelfContext', () => {
     await writeFile(
       launchPath,
       JSON.stringify({
-        env: { ASP_PLUGIN_ROOT: '/a/b/projects/p/targets/inferred/claude' },
+        env: { ASP_PLUGIN_ROOT: '/a/b/codex-homes/p_inferred/bundles/inferred/claude' },
       })
     )
     const ctx = resolveSelfContext({

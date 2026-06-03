@@ -182,6 +182,9 @@ export async function preparePlacementCliRuntime(
   const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
     agentRoot: placement.agentRoot,
     projectRoot: placement.projectRoot,
+    ...(placement.bundle.kind === 'agent-project'
+      ? { materializationTargetName: placement.bundle.agentName }
+      : {}),
     agentLocalComponents,
   })
   const systemPrompt = await materializeSystemPrompt(materialized.materialization.outputPath, {
@@ -193,13 +196,10 @@ export async function preparePlacementCliRuntime(
   })
 
   // Bundle label = the LOGICAL target name (legacy `asp run` labels the bundle
-  // with the agent/target name). For agent-project placements the materialization
-  // cache dir is a synthesized name (e.g. `placement-empty` for empty compose),
-  // but that is a path-only artifact (the documented bundle-root follow-up) and
-  // must NOT leak into launch-shape VALUES like the claude remote-control session
-  // name (`<targetName>-<project>`). loadTargetBundle derives all paths from
-  // outputPath; targetName is purely the logical label, so threading the agent
-  // name here restores launch-shape parity without touching any materialized path.
+  // with the agent/target name). Agent-project placements materialize under the
+  // same agent-name target path, and loadTargetBundle uses the label for
+  // launch-shape values like the claude remote-control session name
+  // (`<targetName>-<project>`).
   const bundleLabel =
     placement.bundle.kind === 'agent-project' ? placement.bundle.agentName : materialized.targetName
   const bundle = await adapter.loadTargetBundle(

@@ -41,9 +41,10 @@ export function getAspHome(): string {
  * │   └── <cacheKey>/    # Keyed by pluginCacheKey
  * │       ├── .claude-plugin/
  * │       └── ...
- * ├── projects/          # Project-scoped composed target bundles
- * │   └── <project-id>/
- * │       └── targets/
+ * ├── codex-homes/       # Project+agent scope homes and composed bundles
+ * │   └── <projectSlug>_<agentSlug>/
+ * │       ├── sessions/  # Codex runtime state
+ * │       └── bundles/
  * │           └── <target>/<harness>/
  * └── tmp/               # Temporary files during operations
  */
@@ -144,35 +145,57 @@ export function getGlobalLockPath(): string {
   return join(getAspHome(), 'global-lock.json')
 }
 
-function sanitizeProjectSegment(value: string): string {
+export function sanitizeProjectAgentScopeSegment(value: string): string {
   const sanitized = value
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^[-_.]+|[-_.]+$/g, '')
-  return sanitized || 'project'
+  return sanitized || 'default'
 }
 
-export function getProjectStorageId(projectPath: string): string {
-  const normalizedProjectPath = resolve(projectPath)
-  const projectSlug = sanitizeProjectSegment(basename(normalizedProjectPath))
-  const projectHash = createHash('sha256').update(normalizedProjectPath).digest('hex').slice(0, 8)
-  return `${projectSlug}-${projectHash}`
+export function getProjectAgentScopeId(projectPath: string, targetName: string): string {
+  const projectSlug = sanitizeProjectAgentScopeSegment(basename(resolve(projectPath)))
+  const targetSlug = sanitizeProjectAgentScopeSegment(targetName)
+  return `${projectSlug}_${targetSlug}`
+}
+
+export function getProjectAgentScopePath(
+  aspHome: string,
+  projectPath: string,
+  targetName: string
+): string {
+  return join(aspHome, 'codex-homes', getProjectAgentScopeId(projectPath, targetName))
+}
+
+export function getProjectStorageId(projectPath: string, targetName?: string | undefined): string {
+  if (targetName !== undefined) {
+    return getProjectAgentScopeId(projectPath, targetName)
+  }
+  return sanitizeProjectAgentScopeSegment(basename(resolve(projectPath)))
 }
 
 /**
  * Get the root path for bundles associated with a project.
  */
 export function getProjectDataPath(projectPath: string, aspHome?: string | undefined): string {
-  return join(getProjectsPath(aspHome), getProjectStorageId(projectPath))
+  return join(aspHome ?? getAspHome(), 'codex-homes', getProjectStorageId(projectPath))
 }
 
 /**
  * Get the targets directory for a project bundle set.
  */
 export function getProjectTargetsPath(projectPath: string, aspHome?: string | undefined): string {
-  return join(getProjectDataPath(projectPath, aspHome), 'targets')
+  return join(getProjectDataPath(projectPath, aspHome), 'bundles')
+}
+
+export function getProjectHarnessBundleRootPath(
+  projectPath: string,
+  targetName: string,
+  aspHome?: string | undefined
+): string {
+  return join(getProjectAgentScopePath(aspHome ?? getAspHome(), projectPath, targetName), 'bundles')
 }
 
 /**
@@ -184,7 +207,33 @@ export function getProjectHarnessOutputPath(
   harnessId: string,
   aspHome?: string | undefined
 ): string {
-  return join(getProjectTargetsPath(projectPath, aspHome), targetName, harnessId)
+  return join(
+    getProjectHarnessBundleRootPath(projectPath, targetName, aspHome),
+    targetName,
+    harnessId
+  )
+}
+
+export function getLegacyProjectStorageId(projectPath: string): string {
+  const normalizedProjectPath = resolve(projectPath)
+  const projectSlug = sanitizeProjectAgentScopeSegment(basename(normalizedProjectPath))
+  const projectHash = createHash('sha256').update(normalizedProjectPath).digest('hex').slice(0, 8)
+  return `${projectSlug}-${projectHash}`
+}
+
+export function getLegacyProjectHarnessOutputPath(
+  projectPath: string,
+  targetName: string,
+  harnessId: string,
+  aspHome?: string | undefined
+): string {
+  return join(
+    getProjectsPath(aspHome),
+    getLegacyProjectStorageId(projectPath),
+    'targets',
+    targetName,
+    harnessId
+  )
 }
 
 /**
@@ -274,15 +323,19 @@ export class PathResolver {
   }
 
   projectData(projectPath: string): string {
-    return join(this.projects, getProjectStorageId(projectPath))
+    return getProjectDataPath(projectPath, this.aspHome)
   }
 
   projectTargets(projectPath: string): string {
-    return join(this.projectData(projectPath), 'targets')
+    return getProjectTargetsPath(projectPath, this.aspHome)
+  }
+
+  projectHarnessBundleRoot(projectPath: string, targetName: string): string {
+    return getProjectHarnessBundleRootPath(projectPath, targetName, this.aspHome)
   }
 
   projectHarnessOutput(projectPath: string, targetName: string, harnessId: string): string {
-    return join(this.projectTargets(projectPath), targetName, harnessId)
+    return getProjectHarnessOutputPath(projectPath, targetName, harnessId, this.aspHome)
   }
 
   snapshot(integrity: Sha256Integrity): string {

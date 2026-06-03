@@ -135,6 +135,7 @@ export async function materializeSpec(
     registryPathOverride?: string | undefined
     agentRoot?: string | undefined
     projectRoot?: string | undefined
+    materializationTargetName?: string | undefined
     agentLocalComponents?: AgentLocalComponents | undefined
   }
 ): Promise<MaterializedSpec> {
@@ -169,7 +170,7 @@ export async function materializeSpec(
 
   const refs = spec.spaces as string[]
   if (refs.length === 0) {
-    const targetName = 'placement-empty'
+    const targetName = options?.materializationTargetName ?? 'placement-empty'
     const paths = new PathResolver({ aspHome })
     const materialized = await materializeFromRefs({
       targetName,
@@ -178,6 +179,7 @@ export async function materializeSpec(
       aspHome,
       lockPath: paths.globalLock,
       harness: harnessId,
+      ...(options?.projectRoot ? { projectPath: options.projectRoot } : {}),
       ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
       ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
       ...(options?.agentLocalComponents
@@ -195,7 +197,7 @@ export async function materializeSpec(
     }
   }
 
-  const targetName = computeSpacesTargetName(refs)
+  const targetName = options?.materializationTargetName ?? computeSpacesTargetName(refs)
   const paths = new PathResolver({ aspHome })
   const registryPath = registryPathOverride ?? paths.repo
   const materialized = await materializeFromRefs({
@@ -205,6 +207,7 @@ export async function materializeSpec(
     aspHome,
     lockPath: paths.globalLock,
     harness: harnessId,
+    ...(options?.projectRoot ? { projectPath: options.projectRoot } : {}),
     ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
     ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
     ...(options?.agentLocalComponents

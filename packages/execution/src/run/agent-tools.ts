@@ -101,7 +101,7 @@ export async function prepareAgentToolRuntime(
   }
 
   if (projectRoot) {
-    const projectId = getProjectStorageId(projectRoot)
+    const projectId = getProjectStorageId(projectRoot, components.agentName)
     const projectStateDir = join(stateDir, 'projects', projectId)
     await mkdir(projectStateDir, { recursive: true })
     env['ASP_PROJECT_ROOT'] = projectRoot

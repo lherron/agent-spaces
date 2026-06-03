@@ -306,7 +306,7 @@ describe('asp install --harness', () => {
 
     expect(exitCode).toBe(0)
     expect(stdout).toContain('Installed')
-    expect(stdout).toContain(`${aspHome}/projects/`)
+    expect(stdout).toContain(`${aspHome}/codex-homes/`)
 
     const harnessOutputPath = extractHarnessPath(stdout)
     const exists = await fs

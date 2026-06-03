@@ -8,6 +8,7 @@
  * Helpers and global/dev modes live under ./run/.
  */
 
+import { cp, mkdir, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import {
   type BuildResult,
@@ -18,6 +19,7 @@ import {
   install as configInstall,
   getAgentsRoot,
   getAspHome,
+  getLegacyProjectHarnessOutputPath,
   getRegistryPath,
   isSpaceRefString,
   loadProjectManifest,
@@ -83,6 +85,39 @@ import {
   toHarnessRunOptions,
 } from './run/util.js'
 
+export async function migrateLegacyProjectHarnessOutput(
+  aspHome: string,
+  projectPath: string,
+  targetName: string,
+  harnessId: string,
+  outputPath: string
+): Promise<void> {
+  const legacyOutputPath = getLegacyProjectHarnessOutputPath(
+    projectPath,
+    targetName,
+    harnessId,
+    aspHome
+  )
+  if (outputPath === legacyOutputPath) {
+    return
+  }
+  if (await pathExists(outputPath)) {
+    return
+  }
+  if (!(await pathExists(legacyOutputPath))) {
+    return
+  }
+
+  await mkdir(dirname(outputPath), { recursive: true })
+  try {
+    await rename(legacyOutputPath, outputPath)
+  } catch {
+    await rm(outputPath, { recursive: true, force: true })
+    await cp(legacyOutputPath, outputPath, { recursive: true, force: true })
+    await rm(legacyOutputPath, { recursive: true, force: true })
+  }
+}
+
 export {
   detectAgentLocalComponents,
   resolveAgentRunDefaults,
@@ -146,10 +181,18 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
 
   const paths = new PathResolver({ aspHome })
   const harnessOutputPath = adapter.getTargetOutputPath(
-    paths.projectTargets(options.projectPath),
+    paths.projectHarnessBundleRoot(options.projectPath, targetName),
     targetName
   )
   debugLog('harness output path', harnessOutputPath)
+
+  await migrateLegacyProjectHarnessOutput(
+    aspHome,
+    options.projectPath,
+    targetName,
+    harnessId,
+    harnessOutputPath
+  )
 
   if (adapter.id === 'codex') {
     await migrateLegacyProjectCodexRuntimeHome(aspHome, options.projectPath, targetName)

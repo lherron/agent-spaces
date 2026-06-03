@@ -11,7 +11,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 
 import {
   type ComposedTargetBundle,
@@ -20,6 +20,7 @@ import {
   PathResolver,
   copyDir,
   getAspHome,
+  getProjectAgentScopePath,
 } from 'spaces-config'
 import {
   CODEX_INTERACTIVE_HOOK_EVENTS,
@@ -54,24 +55,12 @@ interface CodexRuntimeMetadata {
   cwd?: string | undefined
 }
 
-function sanitizeCodexRuntimeSegment(value: string): string {
-  const sanitized = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^[-_.]+|[-_.]+$/g, '')
-  return sanitized || 'default'
-}
-
 export function getProjectCodexRuntimeHomePath(
   aspHome: string,
   projectPath: string,
   targetName: string
 ): string {
-  const projectSlug = sanitizeCodexRuntimeSegment(basename(resolve(projectPath)))
-  const targetSlug = sanitizeCodexRuntimeSegment(targetName)
-  return join(aspHome, 'codex-homes', `${projectSlug}_${targetSlug}`)
+  return getProjectAgentScopePath(aspHome, projectPath, targetName)
 }
 
 function getLegacyProjectCodexRuntimeHomePath(projectPath: string, targetName: string): string {
@@ -97,11 +86,15 @@ function resolveCodexRuntimeHomePath(
   if (runOptions.projectPath) {
     const aspHome = runOptions.aspHome ?? getAspHome()
     const paths = new PathResolver({ aspHome })
+    const isProjectBundle =
+      bundle.rootDir ===
+        paths.projectHarnessOutput(runOptions.projectPath, bundle.targetName, bundle.harnessId) ||
+      isWithinPath(
+        bundle.rootDir,
+        paths.projectHarnessBundleRoot(runOptions.projectPath, bundle.targetName)
+      )
     const runtimeTargetName =
-      runOptions.codexRuntimeTargetName ??
-      (isWithinPath(bundle.rootDir, paths.projectTargets(runOptions.projectPath))
-        ? bundle.targetName
-        : undefined)
+      runOptions.codexRuntimeTargetName ?? (isProjectBundle ? bundle.targetName : undefined)
     if (runtimeTargetName) {
       return getProjectCodexRuntimeHomePath(aspHome, runOptions.projectPath, runtimeTargetName)
     }

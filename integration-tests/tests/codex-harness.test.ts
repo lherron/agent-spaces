@@ -148,7 +148,7 @@ describe('asp codex harness', () => {
 
     expect(exitCode).toBe(0)
     expect(stdout).toContain('Installed')
-    expect(stdout).toContain(`${aspHome}/projects/`)
+    expect(stdout).toContain(`${aspHome}/codex-homes/`)
 
     const codexHome = stdout.match(/CODEX_HOME=(\S+)/)?.[1]
     expect(codexHome).toBeDefined()

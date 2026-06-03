@@ -242,20 +242,6 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
   return profiles[0]
 }
 
-/**
- * Canonicalize the materialized-bundle-root segment of a path.
- *
- * `asp run` installs the project target to projects/<hash(projectRoot)>/targets/<agentName>,
- * while the compiler's placement materialization writes the same composed
- * content to a synthesized location (projects/<hash>/targets/{placement-empty,spaces-<hash>}).
- * Same content, different cache location. We normalize that segment so the diff
- * surfaces real launch-shape differences (flags, flag values, env keys) rather
- * than the (tracked, follow-up) materialization-location divergence.
- */
-function normalizeBundleRoot(value: string): string {
-  return value.replace(/\/projects\/[^/]+\/targets\/[^/]+\//g, '/projects/<P>/targets/<T>/')
-}
-
 function normalizeGeneratedSessionIds(value: string): string {
   return value.replace(
     /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g,
@@ -264,13 +250,13 @@ function normalizeGeneratedSessionIds(value: string): string {
 }
 
 function normalizeArgv(argv: string[]): string[] {
-  return argv.map((arg) => normalizeGeneratedSessionIds(normalizeBundleRoot(arg)))
+  return argv.map((arg) => normalizeGeneratedSessionIds(arg))
 }
 
 function normalizeEnv(env: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(env)) {
-    out[key] = normalizeBundleRoot(value)
+    out[key] = value
   }
   return out
 }
@@ -326,16 +312,16 @@ function renderSections(render: string): string {
 }
 
 /**
- * The command line as a normalized token multiset: bundle-root canonicalized,
- * ASP_HOME assignment dropped (the documented compiler-only addition), env-prefix
- * order canonicalized (insertion order is incidental). Token ORDER of argv is
- * asserted exactly by the byte-parity test above.
+ * The command line as a normalized token multiset: generated session ids and
+ * ASP_HOME assignment dropped, env-prefix order canonicalized (insertion order
+ * is incidental). Token ORDER of argv is asserted exactly by the byte-parity
+ * test above.
  */
 function canonicalCommandTokens(render: string): string[] {
   const idx = render.indexOf(COMMAND_MARKER)
   if (idx === -1) return []
   const commandLine = render.slice(idx + COMMAND_MARKER.length).trim()
-  return normalizeGeneratedSessionIds(normalizeBundleRoot(commandLine))
+  return normalizeGeneratedSessionIds(commandLine)
     .split(/\s+/)
     .filter((token) => token.length > 0 && !token.startsWith('ASP_HOME='))
     .sort()
@@ -363,6 +349,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
         aspHome: fixture.aspHome,
         harness: testCase.harness,
         ...(testCase.model !== undefined ? { model: testCase.model } : {}),
+        taskId: 'primary',
         interactive: true,
         dryRun: true,
       })
@@ -396,20 +383,14 @@ describe('asp run <-> compiler foreground byte-parity', () => {
         // The session-name VALUE (`<targetName>-<project>-<task>`) is a launch-shape value
         // and must match legacy exactly (NOT the materialized cache-dir name).
         expect(compiledArgv).toContain('parityagent-project-primary')
-        // Every legacy argv element is present, modulo the materialized bundle-root
-        // path segment (the accepted, separately-tracked convergence follow-up that
-        // line 341 also normalizes) — same normalization the byte-parity diff uses.
-        expect(normalizeArgv(compiledArgv)).toEqual(
-          expect.arrayContaining(normalizeArgv(legacyArgv))
-        )
       }
 
-      // argv: byte-identical modulo the materialized-bundle-root segment.
+      // argv: byte-identical except for generated session ids.
       expect(normalizeArgv(compiledArgv)).toEqual(normalizeArgv(legacyArgv))
 
-      // env: every key the legacy path sets is present with the same (normalized)
-      // value; the compiler additionally sets ASP_HOME explicitly (legacy inherits
-      // it from the ambient environment), which is the ONLY extra key.
+      // env: every key the legacy path sets is present with the same value; the
+      // compiler additionally sets ASP_HOME explicitly (legacy inherits it from
+      // the ambient environment), which is the ONLY extra key.
       const compiledEnv = normalizeEnv(foreground.env)
       const legacyEnv = normalizeEnv(legacyLaunch.env)
       const extraKeys = Object.keys(compiledEnv).filter((key) => !(key in legacyEnv))
@@ -428,6 +409,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
           aspHome: fixture.aspHome,
           harness: testCase.harness,
           ...(testCase.model !== undefined ? { model: testCase.model } : {}),
+          taskId: 'primary',
           interactive: true,
           dryRun: true,
           prompt,
@@ -452,7 +434,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
 
       // Framed prompt sections (system / reminder / priming) byte-identical.
       expect(renderSections(compiledRender)).toBe(renderSections(legacyRender))
-      // Command line identical modulo bundle-root + ASP_HOME + env-prefix order.
+      // Command line identical modulo ASP_HOME + env-prefix order.
       expect(canonicalCommandTokens(compiledRender)).toEqual(canonicalCommandTokens(legacyRender))
     })
   }

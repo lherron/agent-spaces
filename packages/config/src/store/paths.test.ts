@@ -14,6 +14,8 @@ import {
   getAspHome,
   getCachePath,
   getPluginCachePath,
+  getProjectAgentScopeId,
+  getProjectAgentScopePath,
   getProjectDataPath,
   getProjectHarnessOutputPath,
   getProjectStorageId,
@@ -99,13 +101,16 @@ describe('path functions', () => {
 
   it('should build project-scoped bundle paths', () => {
     const projectDataPath = getProjectDataPath('/work/My Project')
-    const projectStorageId = getProjectStorageId('/work/My Project')
-    expect(projectStorageId).toMatch(/^my-project-[0-9a-f]{8}$/)
-    expect(projectDataPath).toMatch(/^\/test\/asp\/projects\/my-project-[0-9a-f]{8}$/)
-    expect(projectDataPath).toBe(`/test/asp/projects/${projectStorageId}`)
-    expect(getProjectTargetsPath('/work/My Project')).toBe(`${projectDataPath}/targets`)
+    const projectStorageId = getProjectStorageId('/work/My Project', 'Code Review')
+    expect(projectStorageId).toBe('my-project_code-review')
+    expect(getProjectAgentScopeId('/other/path/My Project', 'Code Review')).toBe(projectStorageId)
+    expect(getProjectAgentScopePath('/test/asp', '/work/My Project', 'Code Review')).toBe(
+      '/test/asp/codex-homes/my-project_code-review'
+    )
+    expect(projectDataPath).toBe('/test/asp/codex-homes/my-project')
+    expect(getProjectTargetsPath('/work/My Project')).toBe(`${projectDataPath}/bundles`)
     expect(getProjectHarnessOutputPath('/work/My Project', 'dev', 'claude')).toBe(
-      `${projectDataPath}/targets/dev/claude`
+      '/test/asp/codex-homes/my-project_dev/bundles/dev/claude'
     )
   })
 })
@@ -135,8 +140,8 @@ describe('PathResolver', () => {
   it('should build project harness output path', () => {
     const resolver = new PathResolver({ aspHome: '/custom/home' })
     const outputPath = resolver.projectHarnessOutput('/work/Control Plane', 'Code Review', 'codex')
-    expect(outputPath).toMatch(
-      /^\/custom\/home\/projects\/control-plane-[0-9a-f]{8}\/targets\/Code Review\/codex$/
+    expect(outputPath).toBe(
+      '/custom/home/codex-homes/control-plane_code-review/bundles/Code Review/codex'
     )
   })
 

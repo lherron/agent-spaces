@@ -414,8 +414,9 @@ export async function materializeTarget(
   }
 
   // Get output paths using harness adapter.
-  // Returns: ~/.asp/projects/<project>/targets/<target>/claude for ClaudeAdapter.
-  const outputRoot = paths.projectTargets(options.projectPath)
+  // Returns: <ASP_HOME>/codex-homes/<project>_<target>/bundles/<target>/claude
+  // for ClaudeAdapter.
+  const outputRoot = paths.projectHarnessBundleRoot(options.projectPath, targetName)
   const outputPath = adapter.getTargetOutputPath(outputRoot, targetName)
 
   // Get spaces in load order for this target (from lock)
