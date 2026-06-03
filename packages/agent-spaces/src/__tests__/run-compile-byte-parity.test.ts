@@ -84,6 +84,28 @@ enabled = false
     'utf8'
   )
 
+  // Context template with a NON-EMPTY reminder. The reminder is what the pi
+  // adapter delivers on the launch argv via `--append-system-prompt`; an
+  // empty-reminder fixture hid the compiler dropping it (T-01824). Discovered
+  // from <agentsRoot>/context-template.toml (loadSystemPromptTemplate).
+  writeFileSync(
+    join(agentsRoot, 'context-template.toml'),
+    `schema_version = 2
+mode = "append"
+
+[[prompt]]
+name = "base-prompt"
+type = "inline"
+content = "You are the parity agent. Keep responses minimal."
+
+[[reminder]]
+name = "session-reminder"
+type = "inline"
+content = "REMINDER: this is the session reminder block that must ride the pi launch argv as --append-system-prompt, byte-identical between legacy and compiler."
+`,
+    'utf8'
+  )
+
   // asp-targets.toml declaring the agent target (empty compose).
   writeFileSync(
     join(projectRoot, 'asp-targets.toml'),
@@ -405,6 +427,24 @@ describe('asp run <-> compiler foreground byte-parity', () => {
         // The session-name VALUE (`<targetName>-<project>-<task>`) is a launch-shape value
         // and must match legacy exactly (NOT the materialized cache-dir name).
         expect(compiledArgv).toContain('parityagent-project-primary')
+      }
+
+      if (testCase.harness === 'pi') {
+        // Regression guard (T-01824): the pi adapter delivers the materialized
+        // session reminder on the launch argv via `--append-system-prompt`. The
+        // compiler foreground path was dropping reminderContent at the shared
+        // prepare-cli-runtime seam, so the flag was absent under the compiler.
+        // Assert BOTH paths emit it AND that the compiler's reminder VALUE is
+        // byte-identical to legacy (the byte-parity assertion below also covers
+        // this, but make the specific invariant explicit so an empty-reminder
+        // fixture can never silently re-hide it).
+        const reminderFlag = '--append-system-prompt'
+        expect(legacyArgv).toContain(reminderFlag)
+        expect(compiledArgv).toContain(reminderFlag)
+        const legacyReminder = legacyArgv[legacyArgv.indexOf(reminderFlag) + 1]
+        const compiledReminder = compiledArgv[compiledArgv.indexOf(reminderFlag) + 1]
+        expect(compiledReminder).toBe(legacyReminder)
+        expect(compiledReminder).toContain('session reminder block')
       }
 
       // argv: byte-identical except for generated session ids.

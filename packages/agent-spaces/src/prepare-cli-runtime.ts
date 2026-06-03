@@ -231,6 +231,14 @@ export async function preparePlacementCliRuntime(
       ? {
           systemPrompt: systemPrompt.content,
           systemPromptMode: systemPrompt.mode,
+          // Propagate the materialized session reminder so adapters that deliver
+          // it on the launch argv (pi: --append-system-prompt) match legacy
+          // `asp run`. The compiler materializes prompt+reminder from its own
+          // bundle (single source); the legacy seam copied only content+mode and
+          // silently dropped the reminder for pi (T-01824 real-binary divergence).
+          ...(systemPrompt.reminderContent !== undefined
+            ? { reminderContent: systemPrompt.reminderContent }
+            : {}),
         }
       : {}),
   }
