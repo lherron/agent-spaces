@@ -4,12 +4,19 @@ import { createCanonicalHasher } from 'spaces-runtime-contracts'
 import type {
   BrokerHelloResponse,
   BrokerLifecyclePolicyOverlay,
+  BrokerListInvocationsRequest,
+  BrokerListInvocationsResponse,
   InvocationCapabilities,
   InvocationEventEnvelope,
+  InvocationEventsSinceResponse,
   InvocationId,
+  InvocationInspectionSummary,
   InvocationRuntimeContext,
+  InvocationSnapshot,
   InvocationStartRequest,
   InvocationStartResponse,
+  InvocationStatusRequest,
+  InvocationStatusResponse,
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import type {
@@ -663,6 +670,207 @@ async function collectEventsUntilTerminalTurn(
   return []
 }
 
+type BrokerInspectionClient = BrokerClient & {
+  listInvocations(req: BrokerListInvocationsRequest): Promise<BrokerListInvocationsResponse>
+}
+
+const inspectionSummaryFields = [
+  'invocationId',
+  'state',
+  'driver',
+  'startedAt',
+  'lastActivityAt',
+  'currentTurn',
+  'currentSeq',
+  'lifecycle',
+  'liveness',
+  'terminalSurface',
+] as const satisfies readonly (keyof InvocationInspectionSummary)[]
+
+function pickInspectionSummary(
+  value: InvocationInspectionSummary | InvocationStatusResponse | InvocationSnapshot
+): Partial<InvocationInspectionSummary> {
+  const out: Partial<InvocationInspectionSummary> = {}
+  for (const field of inspectionSummaryFields) {
+    if (field in value) {
+      out[field] = value[field] as never
+    }
+  }
+  return out
+}
+
+function inspectionFailure(
+  message: string,
+  path: string,
+  redactedDetails?: unknown
+): ContractHarnessFailure {
+  return {
+    code: 'broker_inspection_surface_invalid',
+    message,
+    path,
+    redactedDetails,
+  }
+}
+
+async function assertBrokerInspectionSurface(input: {
+  brokerClient: BrokerInspectionClient
+  invocationId: InvocationId
+  terminalEventType: InvocationEventEnvelope['type']
+}): Promise<ContractHarnessFailure[]> {
+  const { brokerClient, invocationId, terminalEventType } = input
+  const failures: ContractHarnessFailure[] = []
+
+  const [status, snapshot, listed, listedWithLiveness, unfilteredEvents, filteredEvents] =
+    await Promise.all([
+      brokerClient.status({ invocationId, probeLiveness: true } satisfies InvocationStatusRequest),
+      brokerClient.snapshot({ invocationId }),
+      brokerClient.listInvocations({}),
+      brokerClient.listInvocations({ probeLiveness: true }),
+      brokerClient.eventsSince({ invocationId, afterSeq: 0 }),
+      brokerClient.eventsSince({ invocationId, afterSeq: 0, types: [terminalEventType] }),
+    ])
+
+  const listedSummary = listed.invocations.find(
+    (candidate) => candidate.invocationId === invocationId
+  )
+  if (listedSummary === undefined) {
+    failures.push(
+      inspectionFailure(
+        'broker.listInvocations must return the active invocation under certification.',
+        'broker.listInvocations.invocations',
+        { invocationId, invocations: listed.invocations }
+      )
+    )
+  }
+
+  const livenessSummary = listedWithLiveness.invocations.find(
+    (candidate) => candidate.invocationId === invocationId
+  )
+  if (livenessSummary?.liveness?.mode !== 'cached' || status.liveness?.mode !== 'cached') {
+    failures.push(
+      inspectionFailure(
+        "Inspection liveness must report mode:'cached' when probeLiveness is requested.",
+        'broker.listInvocations.probeLiveness',
+        {
+          listLiveness: livenessSummary?.liveness,
+          statusLiveness: status.liveness,
+        }
+      )
+    )
+  }
+
+  if (listedSummary !== undefined) {
+    const statusSummary = pickInspectionSummary(status)
+    const snapshotSummary = pickInspectionSummary(snapshot)
+    const listSummary = pickInspectionSummary(listedSummary)
+    for (const [surface, summary] of [
+      ['status', statusSummary],
+      ['snapshot', snapshotSummary],
+    ] as const) {
+      for (const field of inspectionSummaryFields) {
+        if (!(field in listSummary) || !(field in summary)) continue
+        expectInspectionFieldAgreement({
+          failures,
+          field,
+          surface,
+          expected: listSummary[field],
+          actual: summary[field],
+        })
+      }
+    }
+  }
+
+  assertFilteredEventsPreserveLedger({
+    failures,
+    invocationId,
+    terminalEventType,
+    unfilteredEvents,
+    filteredEvents,
+  })
+
+  return failures
+}
+
+function expectInspectionFieldAgreement(input: {
+  failures: ContractHarnessFailure[]
+  field: keyof InvocationInspectionSummary
+  surface: 'status' | 'snapshot'
+  expected: unknown
+  actual: unknown
+}): void {
+  const expected = JSON.stringify(input.expected)
+  const actual = JSON.stringify(input.actual)
+  if (expected === actual) return
+  input.failures.push(
+    inspectionFailure(
+      `Inspection summary field ${input.field} must agree between listInvocations and ${input.surface}.`,
+      `broker.${input.surface}.${input.field}`,
+      { expected: input.expected, actual: input.actual }
+    )
+  )
+}
+
+function assertFilteredEventsPreserveLedger(input: {
+  failures: ContractHarnessFailure[]
+  invocationId: InvocationId
+  terminalEventType: InvocationEventEnvelope['type']
+  unfilteredEvents: InvocationEventsSinceResponse
+  filteredEvents: InvocationEventsSinceResponse
+}): void {
+  if (input.filteredEvents.events.some((event) => event.type !== input.terminalEventType)) {
+    input.failures.push(
+      inspectionFailure(
+        'eventsSince(types) must return only requested event types.',
+        'invocation.eventsSince.events',
+        {
+          invocationId: input.invocationId,
+          requestedTypes: [input.terminalEventType],
+          returnedTypes: input.filteredEvents.events.map((event) => event.type),
+        }
+      )
+    )
+  }
+  const expectedTerminalCount = input.unfilteredEvents.events.filter(
+    (event) => event.type === input.terminalEventType
+  ).length
+  if (input.filteredEvents.events.length !== expectedTerminalCount) {
+    input.failures.push(
+      inspectionFailure(
+        'eventsSince(types) must not drop matching events.',
+        'invocation.eventsSince.events',
+        {
+          invocationId: input.invocationId,
+          terminalEventType: input.terminalEventType,
+          expectedTerminalCount,
+          actualCount: input.filteredEvents.events.length,
+        }
+      )
+    )
+  }
+  if (
+    input.filteredEvents.currentSeq !== input.unfilteredEvents.currentSeq ||
+    input.filteredEvents.retentionFloorSeq !== input.unfilteredEvents.retentionFloorSeq
+  ) {
+    input.failures.push(
+      inspectionFailure(
+        'eventsSince(types) must preserve full-ledger currentSeq and retentionFloorSeq.',
+        'invocation.eventsSince',
+        {
+          invocationId: input.invocationId,
+          unfiltered: {
+            currentSeq: input.unfilteredEvents.currentSeq,
+            retentionFloorSeq: input.unfilteredEvents.retentionFloorSeq,
+          },
+          filtered: {
+            currentSeq: input.filteredEvents.currentSeq,
+            retentionFloorSeq: input.filteredEvents.retentionFloorSeq,
+          },
+        }
+      )
+    )
+  }
+}
+
 async function startBrokerInvocation(
   profile: BrokerExecutionProfile,
   dispatchEnv: Record<string, string> | undefined,
@@ -736,6 +944,15 @@ async function startBrokerInvocation(
             },
           ]
         : []
+    const terminalTurn = ledger.terminalTurnEvent()
+    const inspectionFailures =
+      terminalTurn === undefined
+        ? []
+        : await assertBrokerInspectionSurface({
+            brokerClient: brokerClient as BrokerInspectionClient,
+            invocationId: startResult.invocationId as InvocationId,
+            terminalEventType: terminalTurn.type,
+          })
 
     if (startResult.response.capabilities.control.dispose === true) {
       await brokerClient
@@ -757,6 +974,7 @@ async function startBrokerInvocation(
         ...eventFailures,
         ...ledgerFailures,
         ...terminalFailures,
+        ...inspectionFailures,
       ],
     }
   } catch (error) {

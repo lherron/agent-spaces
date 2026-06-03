@@ -91,6 +91,7 @@ export type ContractHarnessFailureCode =
   | 'broker_input_queue_invalid'
   | 'broker_capability_missing'
   | 'broker_lifecycle_policy_invalid'
+  | 'broker_inspection_surface_invalid'
   | 'interactive_tmux_mode_invalid'
   | 'interactive_tmux_runtime_socket_missing'
   | 'interactive_tmux_surface_invalid'
