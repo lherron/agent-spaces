@@ -72,21 +72,22 @@ async function searchPath(): Promise<string | null> {
  * Find the Pi binary location.
  *
  * Priority:
- * 1. PI_PATH environment variable
- * 2. PATH environment variable
- * 3. Common installation locations
+ * 1. ASP_PI_PATH environment variable (canonical, mirrors ASP_CLAUDE_PATH/ASP_CODEX_PATH)
+ * 2. PI_PATH environment variable (legacy override)
+ * 3. PATH environment variable
+ * 4. Common installation locations
  */
 export async function findPiBinary(): Promise<string> {
   const searchedPaths: string[] = []
 
-  // 1. Check PI_PATH environment variable
-  const envPath = process.env['PI_PATH']
+  // 1. Check the explicit path overrides (ASP_PI_PATH preferred; PI_PATH legacy).
+  const envPath = process.env['ASP_PI_PATH'] ?? process.env['PI_PATH']
   if (envPath) {
     searchedPaths.push(envPath)
     if (await isExecutable(envPath)) {
       return envPath
     }
-    // If PI_PATH is set but not found, throw immediately
+    // If an explicit override is set but not found, throw immediately
     throw new PiNotFoundError(searchedPaths)
   }
 

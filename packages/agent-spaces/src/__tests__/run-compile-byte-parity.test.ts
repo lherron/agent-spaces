@@ -14,6 +14,11 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import {
+  getProjectAgentScopeId,
+  getProjectAgentScopePath,
+  getProjectHarnessBundleRootPath,
+} from 'spaces-config'
 import { type RunResult, displayPrompts, run } from 'spaces-execution'
 import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import type {
@@ -52,6 +57,7 @@ function createFixture(): {
   aspHome: string
   claudePath: string
   codexPath: string
+  piPath: string
   cleanup: () => void
 } {
   const base = mkdtempSync(join(tmpdir(), 'asp-run-compile-parity-'))
@@ -105,6 +111,14 @@ if [[ "$1" == "app-server" && "$2" == "--help" ]]; then echo "app-server"; exit 
 echo "codex shim"
 `
   )
+  const piPath = shim(
+    join(aspHome, 'pi'),
+    `#!/usr/bin/env bash
+if [[ "$1" == "--version" ]]; then echo "pi 0.9.0"; exit 0; fi
+if [[ "$1" == "--help" ]]; then echo "--extension --skills --no-context-files"; exit 0; fi
+echo "pi shim"
+`
+  )
 
   return {
     agentRoot,
@@ -113,6 +127,7 @@ echo "codex shim"
     aspHome,
     claudePath,
     codexPath,
+    piPath,
     cleanup: () => rmSync(base, { recursive: true, force: true }),
   }
 }
@@ -136,7 +151,7 @@ function createClient(): CompileClient {
 }
 
 interface HarnessCase {
-  harness: 'claude' | 'codex'
+  harness: 'claude' | 'codex' | 'pi'
   provider: ProviderDomain
   family: HarnessFamily
   runtime: HarnessRuntime
@@ -156,6 +171,12 @@ const CASES: HarnessCase[] = [
     provider: 'openai',
     family: 'codex',
     runtime: 'codex-cli',
+  },
+  {
+    harness: 'pi',
+    provider: 'openai',
+    family: 'pi',
+    runtime: 'pi-cli',
   },
 ]
 
@@ -333,6 +354,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     setEnv('ASP_AGENTS_ROOT', fixture.agentsRoot)
     setEnv('ASP_CLAUDE_PATH', fixture.claudePath)
     setEnv('ASP_CODEX_PATH', fixture.codexPath)
+    setEnv('ASP_PI_PATH', fixture.piPath)
     setEnv('ASP_CODEX_SKIP_COMMON_PATHS', '1')
   })
 
@@ -578,5 +600,40 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     // (delivered to claude at launch, not typed), while settings/hooks stay
     // pre-separator. Confirm the positional priming IS present.
     expect(launchCommand).toContain(promptSeparator)
+  })
+
+  // codex-homes worktree-share invariant: the per-(project, agent) scope dir is
+  // keyed on the project BASENAME, not the absolute checkout path. Two checkouts
+  // of the same project at different absolute paths (e.g. a primary repo and a
+  // worktree) MUST therefore resolve bundle root + CODEX_HOME to the SAME
+  // codex-homes/<project>_<agent>/ scope dir, so durable per-agent state (codex
+  // home, bundles) is shared across checkouts rather than forked per worktree.
+  test('two checkouts of the same project+agent share one codex-homes scope dir', () => {
+    const aspHome = fixture.aspHome
+    // Two distinct absolute checkout paths whose project basename is identical.
+    const checkoutA = join(fixture.aspHome, 'checkouts', 'primary', 'myproject')
+    const checkoutB = join(fixture.aspHome, 'under-construction', 'wt-1', 'myproject')
+    expect(checkoutA).not.toBe(checkoutB)
+
+    // Scope id is basename(project)_target — identical across the two checkouts.
+    const scopeIdA = getProjectAgentScopeId(checkoutA, AGENT_NAME)
+    const scopeIdB = getProjectAgentScopeId(checkoutB, AGENT_NAME)
+    expect(scopeIdA).toBe(scopeIdB)
+    expect(scopeIdA).toBe(`myproject_${AGENT_NAME}`)
+
+    // CODEX_HOME / scope dir: same absolute codex-homes/<scope>/ dir for both.
+    const scopeDirA = getProjectAgentScopePath(aspHome, checkoutA, AGENT_NAME)
+    const scopeDirB = getProjectAgentScopePath(aspHome, checkoutB, AGENT_NAME)
+    expect(scopeDirA).toBe(scopeDirB)
+    expect(scopeDirA).toBe(join(aspHome, 'codex-homes', `myproject_${AGENT_NAME}`))
+
+    // Bundle root: rooted at the same scope dir, hence identical across checkouts.
+    const bundleRootA = getProjectHarnessBundleRootPath(checkoutA, AGENT_NAME, aspHome)
+    const bundleRootB = getProjectHarnessBundleRootPath(checkoutB, AGENT_NAME, aspHome)
+    expect(bundleRootA).toBe(bundleRootB)
+    expect(bundleRootA.startsWith(scopeDirA)).toBe(true)
+
+    // A DIFFERENT agent in the same project must NOT collide onto that scope dir.
+    expect(getProjectAgentScopePath(aspHome, checkoutA, 'otheragent')).not.toBe(scopeDirA)
   })
 })

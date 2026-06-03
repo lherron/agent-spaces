@@ -165,6 +165,31 @@ exit 0
       expect(result.error).toBeDefined()
     })
 
+    test('ASP_PI_PATH takes precedence over PI_PATH', async () => {
+      await writeFile(
+        mockPiPath,
+        `#!/bin/bash
+if [[ "$1" == "--version" ]]; then echo "3.1.4"; exit 0; fi
+exit 0
+`
+      )
+      await chmod(mockPiPath, 0o755)
+      const originalAspPiPath = process.env['ASP_PI_PATH']
+      try {
+        // ASP_PI_PATH points at the real shim; PI_PATH at a bogus path. The
+        // canonical ASP_PI_PATH override must win (mirrors ASP_CLAUDE_PATH/ASP_CODEX_PATH).
+        process.env['ASP_PI_PATH'] = mockPiPath
+        process.env['PI_PATH'] = '/nonexistent/pi'
+        const result = await adapter.detect()
+        expect(result.available).toBe(true)
+        expect(result.path).toBe(mockPiPath)
+      } finally {
+        if (originalAspPiPath !== undefined) process.env['ASP_PI_PATH'] = originalAspPiPath
+        else Reflect.deleteProperty(process.env, 'ASP_PI_PATH')
+        clearPiCache()
+      }
+    })
+
     test('includes capabilities when available', async () => {
       await writeFile(
         mockPiPath,
