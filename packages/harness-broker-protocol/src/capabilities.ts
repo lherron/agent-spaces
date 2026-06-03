@@ -38,6 +38,10 @@ export interface InvocationCapabilities {
     dispose: boolean
     status?: boolean | undefined
     attach?: boolean | undefined
+    snapshot?: boolean | undefined
+    eventsSince?: boolean | undefined
+    eventTypeFilter?: boolean | undefined
+    liveness?: 'none' | 'cached' | 'probe' | undefined
     driverAttachExistingSurface?: boolean | undefined
   }
   permissions?:
@@ -55,6 +59,15 @@ export interface BrokerCapabilities {
   eventNotifications: true
   brokerToClientRequests: boolean
   attachReplay?: boolean | undefined
+  inspection?:
+    | {
+        listInvocations: boolean
+        timestamps: boolean
+        lifecycleView: boolean
+        liveness: 'none' | 'cached' | 'probe'
+        eventTypeFilter: boolean
+      }
+    | undefined
 }
 
 export interface DriverSummary {

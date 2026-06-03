@@ -15,6 +15,7 @@ import type {
   InvocationAckEventsResponse,
   InvocationEventsSinceRequest,
   InvocationEventsSinceResponse,
+  InvocationInspectionSummary,
   InvocationPermissionRespondRequest,
   InvocationPermissionRespondResponse,
   InvocationSnapshot,
@@ -40,9 +41,8 @@ export type BrokerMethodV2 =
   | 'invocation.ackEvents'
   | 'invocation.snapshot'
   | 'invocation.permission.respond'
+  | 'broker.listInvocations'
 
-// Reserved for a future milestone; intentionally excluded from Phase A.
-// | 'broker.listInvocations'
 export type BrokerMethod = BrokerMethodV2
 
 export type BrokerToClientRequestMethod = 'invocation.permission.request'
@@ -62,6 +62,15 @@ export type BrokerCommand =
   | JsonRpcRequest<'invocation.ackEvents', InvocationAckEventsRequest>
   | JsonRpcRequest<'invocation.snapshot', InvocationSnapshotRequest>
   | JsonRpcRequest<'invocation.permission.respond', InvocationPermissionRespondRequest>
+  | JsonRpcRequest<'broker.listInvocations', BrokerListInvocationsRequest>
+
+export type {
+  InvocationCurrentTurnSummary,
+  InvocationInspectionSummary,
+  InvocationLifecycleView,
+  InvocationLivenessView,
+  InvocationSnapshotResponse,
+} from './invocation'
 
 export interface BrokerHelloRequest {
   clientInfo: {
@@ -246,22 +255,24 @@ export interface InvocationStopResponse {
 
 export interface InvocationStatusRequest {
   invocationId: InvocationId
+  probeLiveness?: boolean | undefined
 }
 
-export interface InvocationStatusResponse {
-  invocationId: InvocationId
-  state: InvocationState
-  currentTurnId?: TurnId | undefined
-  continuation?: ContinuationUpdate | undefined
-  capabilities: InvocationCapabilities
-  process?:
-    | {
-        pid?: number | undefined
-        exitCode?: number | null | undefined
-        signal?: string | null | undefined
-      }
-    | undefined
-}
+export type InvocationStatusResponse = Pick<InvocationInspectionSummary, 'invocationId' | 'state'> &
+  Partial<Omit<InvocationInspectionSummary, 'invocationId' | 'state'>> & {
+    currentTurnId?: TurnId | undefined
+    currentHarnessGeneration?: number | undefined
+    currentTurnAttempt?: number | undefined
+    continuation?: ContinuationUpdate | undefined
+    capabilities: InvocationCapabilities
+    process?:
+      | {
+          pid?: number | undefined
+          exitCode?: number | null | undefined
+          signal?: string | null | undefined
+        }
+      | undefined
+  }
 
 export interface InvocationDisposeRequest {
   invocationId: InvocationId
@@ -269,6 +280,15 @@ export interface InvocationDisposeRequest {
 
 export interface InvocationDisposeResponse {
   disposed: true
+}
+
+export interface BrokerListInvocationsRequest {
+  includeDisposed?: boolean | undefined
+  probeLiveness?: boolean | undefined
+}
+
+export interface BrokerListInvocationsResponse {
+  invocations: InvocationInspectionSummary[]
 }
 
 export interface PermissionRequestParams {

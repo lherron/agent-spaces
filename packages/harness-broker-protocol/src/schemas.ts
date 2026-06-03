@@ -104,6 +104,7 @@ export type SchemaRecord = Record<string, unknown> & {
   policy?: unknown
   paneId?: unknown
   probeDrivers?: unknown
+  probeLiveness?: unknown
   process?: unknown
   profile?: unknown
   provider?: unknown
@@ -126,10 +127,12 @@ export type SchemaRecord = Record<string, unknown> & {
   turnConcurrency?: unknown
   turnTimeoutMs?: unknown
   type?: unknown
+  types?: unknown
   version?: unknown
   whenBusy?: unknown
   eventAcks?: unknown
   graceMs?: unknown
+  includeDisposed?: unknown
   initialInput?: unknown
   lifecyclePolicy?: unknown
   policyHash?: unknown
@@ -201,6 +204,7 @@ const BROKER_METHODS = [
   'broker.hello',
   'broker.health',
   'broker.attach',
+  'broker.listInvocations',
   'invocation.start',
   'invocation.input',
   'invocation.interrupt',
@@ -545,6 +549,10 @@ function validateCommandParams(
         issues
       )
       return
+    case 'broker.listInvocations':
+      optionalBoolean(commandParams.includeDisposed, 'params.includeDisposed', issues)
+      optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
+      return
     case 'invocation.start':
       validateInvocationDispatchRequestShape(commandParams, 'params', issues)
       return
@@ -565,6 +573,9 @@ function validateCommandParams(
       optionalNumber(commandParams.graceMs, 'params.graceMs', issues)
       return
     case 'invocation.status':
+      requireString(commandParams.invocationId, 'params.invocationId', issues)
+      optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
+      return
     case 'invocation.dispose':
       requireString(commandParams.invocationId, 'params.invocationId', issues)
       return
@@ -572,6 +583,7 @@ function validateCommandParams(
       requireString(commandParams.invocationId, 'params.invocationId', issues)
       requireNumber(commandParams.afterSeq, 'params.afterSeq', issues)
       optionalBoolean(commandParams.live, 'params.live', issues)
+      validateOptionalEventTypeArray(commandParams.types, 'params.types', issues)
       return
     case 'invocation.ackEvents':
       requireString(commandParams.invocationId, 'params.invocationId', issues)
@@ -580,6 +592,7 @@ function validateCommandParams(
       return
     case 'invocation.snapshot':
       requireString(commandParams.invocationId, 'params.invocationId', issues)
+      optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
       return
     case 'invocation.permission.respond':
       requireString(commandParams.invocationId, 'params.invocationId', issues)
@@ -1872,6 +1885,27 @@ function validateEnumArray(
           'invalid_literal',
           'array item has an unsupported value'
         )
+      )
+    }
+  })
+}
+
+function validateOptionalEventTypeArray(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  if (value === undefined) {
+    return
+  }
+  if (!Array.isArray(value)) {
+    issues.push(makeIssue(basePath, 'invalid_type', `${basePath} must be an array`))
+    return
+  }
+  value.forEach((item, index) => {
+    if (typeof item !== 'string' || !eventTypes.has(item as InvocationEventType)) {
+      issues.push(
+        makeIssue(joinPath(basePath, String(index)), 'invalid_event_type', 'Unsupported event type')
       )
     }
   })

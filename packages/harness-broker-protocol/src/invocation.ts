@@ -1,7 +1,8 @@
 import type { ClientCapabilities, InvocationCapabilities } from './capabilities'
 import type { InvocationInputResponse, InvocationState, PermissionRequestParams } from './commands'
-import type { ContinuationUpdate, InvocationEventEnvelope } from './events'
+import type { ContinuationUpdate, InvocationEventEnvelope, InvocationEventType } from './events'
 import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
+import type { IsoTimestamp } from './primitives'
 
 export type BrokerProtocolVersion = 'harness-broker/0.1' | 'harness-broker/0.2'
 
@@ -46,6 +47,78 @@ export interface BrokerAttachResponse {
 
 export interface InvocationSnapshotRequest {
   invocationId: InvocationId
+  probeLiveness?: boolean | undefined
+}
+
+export interface InvocationCurrentTurnSummary {
+  turnId: TurnId
+  inputId?: InputId | undefined
+  startedAt: IsoTimestamp
+  attempt?: number | undefined
+}
+
+export interface InvocationLifecycleView {
+  policyId?: string | undefined
+  policyHash?: string | undefined
+  retention: {
+    mode: string
+    idleTtlMs?: number | undefined
+    idleSince?: IsoTimestamp | undefined
+    computedRetireAt?: IsoTimestamp | undefined
+    blockedBy?:
+      | Array<'active-turn' | 'pending-input' | 'pending-permission' | 'not-ready'>
+      | undefined
+  }
+  harnessRecovery: {
+    mode: string
+    currentGeneration?: number | undefined
+  }
+  turnRetry: {
+    mode: string
+    currentAttempt?: number | undefined
+  }
+  terminalReason?: string | undefined
+}
+
+export interface InvocationLivenessView {
+  mode: 'cached' | 'probe'
+  checkedAt: IsoTimestamp
+  driver?:
+    | {
+        state: 'unknown' | 'healthy' | 'degraded' | 'unresponsive' | 'exited'
+        reason?: string | undefined
+        lastOutputAt?: IsoTimestamp | undefined
+      }
+    | undefined
+  terminalSurface?:
+    | {
+        state: 'unknown' | 'alive' | 'missing' | 'unresponsive'
+        checkedAt: IsoTimestamp
+        reason?: string | undefined
+      }
+    | undefined
+  process?:
+    | {
+        brokerPid?: number | undefined
+        childPid?: number | undefined
+        alive?: boolean | undefined
+        exitCode?: number | null | undefined
+        signal?: string | null | undefined
+      }
+    | undefined
+}
+
+export interface InvocationInspectionSummary {
+  invocationId: InvocationId
+  state: InvocationState
+  driver: string
+  startedAt: IsoTimestamp
+  lastActivityAt: IsoTimestamp
+  currentTurn?: InvocationCurrentTurnSummary | undefined
+  currentSeq?: number | undefined
+  lifecycle?: InvocationLifecycleView | undefined
+  liveness?: InvocationLivenessView | undefined
+  terminalSurface?: BrokerTerminalSurfaceReport | undefined
 }
 
 /**
@@ -60,32 +133,36 @@ export interface PendingPermissionRequest extends PermissionRequestParams {
   deadlineAt: string
 }
 
-export interface InvocationSnapshot {
-  invocationId: InvocationId
-  state: InvocationState
-  currentTurnId?: TurnId | undefined
-  continuation?: ContinuationUpdate | undefined
-  capabilities: InvocationCapabilities
-  pendingInputIds: InputId[]
-  inputDispositions: Record<string, InvocationInputResponse>
-  pendingPermissionRequests: PendingPermissionRequest[]
-  terminalSurface?: BrokerTerminalSurfaceReport | undefined
-  process?:
-    | {
-        brokerPid?: number | undefined
-        childPid?: number | undefined
-        exitCode?: number | null | undefined
-        signal?: string | null | undefined
-      }
-    | undefined
-  currentSeq: number
-  retentionFloorSeq: number
-}
+export type InvocationSnapshot = Pick<InvocationInspectionSummary, 'invocationId' | 'state'> &
+  Partial<Omit<InvocationInspectionSummary, 'invocationId' | 'state' | 'currentSeq'>> & {
+    invocationId: InvocationId
+    state: InvocationState
+    currentTurnId?: TurnId | undefined
+    continuation?: ContinuationUpdate | undefined
+    capabilities: InvocationCapabilities
+    pendingInputIds: InputId[]
+    inputDispositions: Record<string, InvocationInputResponse>
+    pendingPermissionRequests: PendingPermissionRequest[]
+    terminalSurface?: BrokerTerminalSurfaceReport | undefined
+    process?:
+      | {
+          brokerPid?: number | undefined
+          childPid?: number | undefined
+          exitCode?: number | null | undefined
+          signal?: string | null | undefined
+        }
+      | undefined
+    currentSeq: number
+    retentionFloorSeq: number
+  }
+
+export type InvocationSnapshotResponse = InvocationSnapshot
 
 export interface InvocationEventsSinceRequest {
   invocationId: InvocationId
   afterSeq: number
   live?: boolean | undefined
+  types?: InvocationEventType[] | undefined
 }
 
 export interface InvocationEventsSinceResponse {
