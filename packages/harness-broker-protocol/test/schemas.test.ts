@@ -789,9 +789,16 @@ describe('validateCommand', () => {
     ],
     [
       'invocation.eventsSince',
-      { invocationId: 'inv_1', afterSeq: 12, live: true },
-      { invocationId: 'inv_1', afterSeq: '12' },
-      { path: 'params.afterSeq', code: 'invalid_type' },
+      {
+        invocationId: 'inv_1',
+        afterSeq: 12,
+        live: true,
+        // T-01850/T-01845 §10 corrected target: event filters are accepted,
+        // but responses keep currentSeq/retentionFloorSeq and do not add limit.
+        types: ['invocation.ready', 'turn.completed'],
+      },
+      { invocationId: 'inv_1', afterSeq: 12, types: ['not.a.real.event'] },
+      { path: 'params.types.0', code: 'invalid_event_type' },
     ],
     [
       'invocation.ackEvents',
@@ -801,9 +808,15 @@ describe('validateCommand', () => {
     ],
     [
       'invocation.snapshot',
-      { invocationId: 'inv_1' },
-      {},
-      { path: 'params.invocationId', code: 'required' },
+      { invocationId: 'inv_1', probeLiveness: true },
+      { invocationId: 'inv_1', probeLiveness: 'yes' },
+      { path: 'params.probeLiveness', code: 'invalid_type' },
+    ],
+    [
+      'broker.listInvocations',
+      { includeDisposed: true, probeLiveness: true },
+      { includeDisposed: 'yes', probeLiveness: true },
+      { path: 'params.includeDisposed', code: 'invalid_type' },
     ],
     [
       'invocation.permission.respond',
@@ -831,11 +844,25 @@ describe('validateCommand', () => {
     }
   )
 
-  test('does not recognize broker.listInvocations in Phase A', () => {
-    // T-01791/C-03046: broker.listInvocations is reserved but out of this milestone.
+  test('invocation.status accepts an optional bounded liveness probe flag', () => {
+    // T-01850: status uses the same cached-by-default inspection surface as
+    // snapshot/list, with probeLiveness requesting a bounded active probe.
+    const command = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'invocation.status',
+      params: { invocationId: 'inv_1', probeLiveness: true },
+    }
+    expect(validateCommand(command)).toEqual(command)
+
     expectInvalidCommand(
-      { jsonrpc: '2.0', id: 1, method: 'broker.listInvocations', params: {} },
-      { path: 'method', code: 'unknown_method' }
+      {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'invocation.status',
+        params: { invocationId: 'inv_1', probeLiveness: 'yes' },
+      },
+      { path: 'params.probeLiveness', code: 'invalid_type' }
     )
   })
 })
