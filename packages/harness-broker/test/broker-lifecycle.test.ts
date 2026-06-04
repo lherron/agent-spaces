@@ -46,12 +46,12 @@ describe('broker lifecycle', () => {
     await expect(
       broker.hello({
         clientInfo: { name: 'phase-1-test' },
-        protocolVersions: ['harness-broker/0.1'],
+        protocolVersions: ['harness-broker/0.2'],
         capabilities: { permissionRequests: false },
       })
     ).resolves.toMatchObject({
       brokerInfo: { name: 'harness-broker' },
-      protocolVersion: 'harness-broker/0.1',
+      protocolVersion: 'harness-broker/0.2',
       capabilities: {
         multiInvocation: false,
         transports: ['stdio-jsonrpc-ndjson'],
@@ -70,16 +70,23 @@ describe('broker lifecycle', () => {
   test('broker.hello selects highest mutually supported protocol version', async () => {
     const broker = createTestBroker()
 
-    // T-01791/C-03046: broker.hello must negotiate across 0.1 and 0.2 instead
-    // of pinning old stdio-only clients or new attach/replay clients to 0.1.
+    // T-01867/Ph6: harness-broker/0.1 is decommissioned; broker.hello negotiates
+    // v0.2 only and rejects any hello that advertises the legacy v0.1 version.
     await expect(
       broker.hello({
         clientInfo: { name: 'phase-a-v2-negotiation' },
-        protocolVersions: ['harness-broker/0.1', 'harness-broker/0.2'],
+        protocolVersions: ['harness-broker/0.2'],
       })
     ).resolves.toMatchObject({
       protocolVersion: 'harness-broker/0.2',
     })
+
+    await expect(
+      broker.hello({
+        clientInfo: { name: 'phase-a-v1-rejected' },
+        protocolVersions: ['harness-broker/0.1'],
+      })
+    ).rejects.toThrow()
   })
 
   test('broker.health returns status and active invocation count', async () => {

@@ -696,15 +696,11 @@ async function compileBrokerPlan(
   const initialInputHash =
     startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
 
-  // T-01878 Ph4b: operator-visible, default-OFF activation override. Read from
-  // env at compile time — NOT hardwired, NOT a launchd/config-persisted default.
-  // When set, the headless codex profile emits the v0.2 durable markers together:
-  // brokerProtocol='harness-broker/0.2' AND control.attachReplay='optional'. Both
-  // flip as a pair — a half-impl that flips only one leaves the activation gap open.
-  // Without the flag, the rollback-safe v0.1 baseline is emitted unchanged.
-  // NOTE: this only SELECTS which profile is emitted; HRC's selector admits both
-  // and derives durability from brokerProtocol + persisted substrate, never the flag.
-  const durableHeadlessBroker = process.env['ASP_HEADLESS_DURABLE_BROKER'] === '1'
+  // T-01867 Ph6 cutover: harness-broker/0.1 is decommissioned. The headless codex
+  // profile emits the v0.2 durable markers UNCONDITIONALLY — brokerProtocol
+  // 'harness-broker/0.2' + control.attachReplay 'optional'. The temporary Ph4b
+  // activation env (ASP_HEADLESS_DURABLE_BROKER) is REMOVED entirely: a stale env
+  // var has no effect, and there is no v0.1 path to fall back to.
 
   const profileMaterial = {
     schemaVersion: 'agent-runtime-profile/v1' as const,
@@ -713,11 +709,9 @@ async function compileBrokerPlan(
     interactionMode: 'headless' as const,
     expectedCapabilities: expectedCapabilities(permissionPolicy, {
       inputQueue: 'required',
-      ...(durableHeadlessBroker ? { attachReplay: 'optional' as const } : {}),
+      attachReplay: 'optional' as const,
     }),
-    brokerProtocol: (durableHeadlessBroker
-      ? 'harness-broker/0.2'
-      : 'harness-broker/0.1') as BrokerExecutionProfile['brokerProtocol'],
+    brokerProtocol: 'harness-broker/0.2' as const,
     brokerDriver: 'codex-app-server',
     brokerOwnership: 'hrc-owned-process' as const,
     harnessInvocation: {
@@ -1495,7 +1489,7 @@ async function compileClaudeTmuxBrokerPlan(
     kind: 'harness-broker' as const,
     interactionMode: 'interactive' as const,
     expectedCapabilities: expectedCapabilities(permissionPolicy, { inputQueue: 'required' }),
-    brokerProtocol: 'harness-broker/0.1' as const,
+    brokerProtocol: 'harness-broker/0.2' as const,
     brokerDriver: 'claude-code-tmux' as const,
     brokerOwnership: 'hrc-owned-process' as const,
     brokerTerminal: CLAUDE_TMUX_BROKER_TERMINAL,
@@ -1723,7 +1717,7 @@ async function compileCodexTmuxBrokerPlan(
     kind: 'harness-broker' as const,
     interactionMode: 'interactive' as const,
     expectedCapabilities: expectedCapabilities(permissionPolicy, { inputQueue: 'required' }),
-    brokerProtocol: 'harness-broker/0.1' as const,
+    brokerProtocol: 'harness-broker/0.2' as const,
     brokerDriver: 'codex-cli-tmux' as const,
     brokerOwnership: 'hrc-owned-process' as const,
     brokerTerminal: CLAUDE_TMUX_BROKER_TERMINAL,

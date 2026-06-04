@@ -380,7 +380,7 @@ describe('compileRuntimePlan broker profile contract', () => {
 
     expect(profile.kind).toBe('harness-broker')
     expect(profile.interactionMode).toBe('headless')
-    expect(profile.brokerProtocol).toBe('harness-broker/0.1')
+    expect(profile.brokerProtocol).toBe('harness-broker/0.2')
     expect(profile.brokerDriver).toBe('codex-app-server')
     expect(profile.expectedCapabilities.input.queue).toBe('required')
     expect(validateInvocationStartRequest(profile.harnessInvocation.startRequest)).toEqual(

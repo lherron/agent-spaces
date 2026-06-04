@@ -9,7 +9,7 @@ import {
 describe('JSON-RPC 2.0 message parsing and discrimination', () => {
   test('parses and discriminates requests', () => {
     const message = parseJsonRpcMessage(
-      '{"jsonrpc":"2.0","id":"1","method":"broker.hello","params":{"clientInfo":{"name":"example-client"},"protocolVersions":["harness-broker/0.1"]}}'
+      '{"jsonrpc":"2.0","id":"1","method":"broker.hello","params":{"clientInfo":{"name":"example-client"},"protocolVersions":["harness-broker/0.2"]}}'
     )
 
     expect(isJsonRpcRequest(message)).toBe(true)

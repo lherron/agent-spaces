@@ -65,7 +65,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
           cohostedBroker: broker !== undefined,
           transports: ['stdio-jsonrpc-ndjson'],
         },
-        ...(broker !== undefined ? { brokerProtocol: 'harness-broker/0.1' } : {}),
+        ...(broker !== undefined ? { brokerProtocol: 'harness-broker/0.2' } : {}),
       }
     },
 

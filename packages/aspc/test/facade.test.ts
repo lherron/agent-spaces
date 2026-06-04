@@ -49,9 +49,9 @@ describe('ASPC combined facade', () => {
 
       const brokerHello = await client.request<BrokerHelloResponse>('broker.hello', {
         clientInfo: { name: 'aspc-facade-test' },
-        protocolVersions: ['harness-broker/0.1'],
+        protocolVersions: ['harness-broker/0.2'],
       })
-      expect(brokerHello.protocolVersion).toBe('harness-broker/0.1')
+      expect(brokerHello.protocolVersion).toBe('harness-broker/0.2')
       expect(brokerHello.drivers.length).toBeGreaterThan(0)
     } finally {
       await client.close()

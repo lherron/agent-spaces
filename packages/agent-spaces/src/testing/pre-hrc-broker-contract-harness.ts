@@ -894,7 +894,7 @@ async function startBrokerInvocation(
     })
     const hello = await brokerClient.hello({
       clientInfo: { name: 'pre-hrc-broker-contract-harness', version: '0.1.0' },
-      protocolVersions: ['harness-broker/0.1'],
+      protocolVersions: ['harness-broker/0.2'],
       capabilities: { permissionRequests: true },
     })
     const helloFailures = assertBrokerHelloCapabilities(profile, hello, hrcPolicy)

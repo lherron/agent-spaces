@@ -104,7 +104,7 @@ export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   kind: 'harness-broker'
   interactionMode: 'headless' | 'interactive'
 
-  brokerProtocol: 'harness-broker/0.1'
+  brokerProtocol: 'harness-broker/0.2'
   brokerDriver: 'codex-app-server' | 'claude-code-tmux' | string
   brokerOwnership: 'hrc-owned-process'
   brokerTerminal?: BrokerTerminalSurface | undefined
