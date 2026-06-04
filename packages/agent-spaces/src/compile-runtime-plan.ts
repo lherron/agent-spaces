@@ -435,7 +435,15 @@ function brokerObservability(
 
 function expectedCapabilities(
   policy: BrokerPermissionPolicy,
-  options?: { inputQueue?: CapabilityRequirements['input']['queue'] | undefined }
+  options?: {
+    inputQueue?: CapabilityRequirements['input']['queue'] | undefined
+    /**
+     * Durable-attach/replay capability shape (T-01878 Ph4b). Defaults to
+     * 'forbidden' (the v0.1-style legacy sentinel). The headless v0.2 path passes
+     * 'optional' so HRC's route-specific overlay can require attach+replay.
+     */
+    attachReplay?: CapabilityRequirements['control']['attachReplay'] | undefined
+  }
 ): CapabilityRequirements {
   return {
     input: {
@@ -462,7 +470,7 @@ function expectedCapabilities(
       stop: 'optional',
       dispose: 'optional',
       reconcile: 'optional',
-      attachReplay: 'forbidden',
+      attachReplay: options?.attachReplay ?? 'forbidden',
     },
     lifecycle: lifecycleCapabilityBaseline('broker'),
   }
@@ -688,13 +696,28 @@ async function compileBrokerPlan(
   const initialInputHash =
     startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
 
+  // T-01878 Ph4b: operator-visible, default-OFF activation override. Read from
+  // env at compile time — NOT hardwired, NOT a launchd/config-persisted default.
+  // When set, the headless codex profile emits the v0.2 durable markers together:
+  // brokerProtocol='harness-broker/0.2' AND control.attachReplay='optional'. Both
+  // flip as a pair — a half-impl that flips only one leaves the activation gap open.
+  // Without the flag, the rollback-safe v0.1 baseline is emitted unchanged.
+  // NOTE: this only SELECTS which profile is emitted; HRC's selector admits both
+  // and derives durability from brokerProtocol + persisted substrate, never the flag.
+  const durableHeadlessBroker = process.env['ASP_HEADLESS_DURABLE_BROKER'] === '1'
+
   const profileMaterial = {
     schemaVersion: 'agent-runtime-profile/v1' as const,
     profileId,
     kind: 'harness-broker' as const,
     interactionMode: 'headless' as const,
-    expectedCapabilities: expectedCapabilities(permissionPolicy, { inputQueue: 'required' }),
-    brokerProtocol: 'harness-broker/0.1' as const,
+    expectedCapabilities: expectedCapabilities(permissionPolicy, {
+      inputQueue: 'required',
+      ...(durableHeadlessBroker ? { attachReplay: 'optional' as const } : {}),
+    }),
+    brokerProtocol: (durableHeadlessBroker
+      ? 'harness-broker/0.2'
+      : 'harness-broker/0.1') as BrokerExecutionProfile['brokerProtocol'],
     brokerDriver: 'codex-app-server',
     brokerOwnership: 'hrc-owned-process' as const,
     harnessInvocation: {
