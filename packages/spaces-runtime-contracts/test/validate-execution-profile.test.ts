@@ -102,7 +102,7 @@ const baseBrokerProfile = {
   compatibilityHash: 'compatibility-hash',
   kind: 'harness-broker',
   interactionMode: 'interactive',
-  brokerProtocol: 'harness-broker/0.1',
+  brokerProtocol: 'harness-broker/0.2',
   brokerDriver: 'claude-code-tmux',
   brokerOwnership: 'hrc-owned-process',
   brokerTerminal: {
@@ -676,7 +676,7 @@ describe('validateEmbeddedSdkExecutionProfile', () => {
   test('rejects broker/process/transport/terminal fields on embedded profiles', () => {
     const diagnostics = validateEmbeddedSdkExecutionProfile(
       embeddedSdkProfile({
-        brokerProtocol: 'harness-broker/0.1',
+        brokerProtocol: 'harness-broker/0.2',
         brokerDriver: 'codex-app-server',
         process: {
           command: 'pi',

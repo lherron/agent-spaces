@@ -48,7 +48,7 @@ export type RuntimeExecutionView = {
     | {
         kind: 'harness-broker'
         brokerDriver: string
-        brokerProtocol: 'harness-broker/0.1'
+        brokerProtocol: 'harness-broker/0.2'
         brokerTerminal?: { host: 'tmux' } | undefined
       }
     | { kind: 'command-process' }

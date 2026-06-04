@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     const broker = createDefaultBroker()
     const hello = await broker.hello({
       clientInfo: { name: 'harness-broker-cli' },
-      protocolVersions: ['harness-broker/0.1'],
+      protocolVersions: ['harness-broker/0.2'],
     })
     if (json) {
       process.stdout.write(`${JSON.stringify(hello.drivers, null, 2)}\n`)

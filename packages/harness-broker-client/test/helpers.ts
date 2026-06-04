@@ -22,7 +22,7 @@ export const helloRequest = (
   capabilities: BrokerHelloRequest['capabilities'] = {}
 ): BrokerHelloRequest => ({
   clientInfo: { name: 'harness-broker-client-test', version: '0.1.0' },
-  protocolVersions: ['harness-broker/0.1'],
+  protocolVersions: ['harness-broker/0.2'],
   capabilities,
 })
 

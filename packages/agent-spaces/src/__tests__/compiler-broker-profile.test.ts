@@ -422,7 +422,7 @@ describe('compiled broker profile field mapping', () => {
     expect(profile.kind).toBe('harness-broker')
     expect(profile.interactionMode).toBe('interactive')
     expect(profile.brokerDriver).toBe('claude-code-tmux')
-    expect(profile.brokerProtocol).toBe('harness-broker/0.1')
+    expect(profile.brokerProtocol).toBe('harness-broker/0.2')
     expect(profile.brokerTerminal).toEqual({
       host: 'tmux',
       startupMethod: 'create-terminal',

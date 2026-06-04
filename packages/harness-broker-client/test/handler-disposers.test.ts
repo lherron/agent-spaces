@@ -35,7 +35,7 @@ rl.on('line', (line) => {
   if (message.method === 'broker.hello') {
     response(message.id, {
       brokerInfo: { name: 'fake-disposer-broker', version: '0.1.0' },
-      protocolVersion: 'harness-broker/0.1',
+      protocolVersion: 'harness-broker/0.2',
       capabilities: {
         multiInvocation: false,
         transports: ['stdio-jsonrpc-ndjson'],
@@ -93,7 +93,7 @@ async function runDecisionScenario(
   try {
     await client.hello({
       clientInfo: { name: 'handler-disposer-test', version: '0.1.0' },
-      protocolVersions: ['harness-broker/0.1'],
+      protocolVersions: ['harness-broker/0.2'],
       capabilities: { permissionRequests: true },
     })
     const { invocationId, events } = await client.startInvocation({

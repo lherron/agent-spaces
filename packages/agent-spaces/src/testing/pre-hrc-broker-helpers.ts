@@ -169,10 +169,10 @@ function brokerProfileIncompatibility(
       redactedDetails: { interactionMode: profile.interactionMode },
     }
   }
-  if (profile.brokerProtocol !== 'harness-broker/0.1') {
+  if (profile.brokerProtocol !== 'harness-broker/0.2') {
     return {
       code: 'broker_protocol_invalid',
-      message: 'Selected broker profile does not target harness-broker/0.1.',
+      message: 'Selected broker profile does not target harness-broker/0.2.',
       path: 'selectedProfile.brokerProtocol',
       redactedDetails: { brokerProtocol: profile.brokerProtocol },
     }
@@ -231,7 +231,7 @@ function brokerProfileIncompatibility(
  * Select the single compatible harness-broker profile from a compiled plan.
  *
  * Requires kind `harness-broker`, interactionMode `headless`, brokerProtocol
- * `harness-broker/0.1`, brokerDriver `codex-app-server`, a start request whose
+ * `harness-broker/0.2`, brokerDriver `codex-app-server`, a start request whose
  * `spec.invocationId` matches the plan identity, and (when an initial input is
  * present) a matching `initialInput.inputId`. Selection can be narrowed by
  * `profileId` / `profileHash`. Throws a {@link ContractHarnessFailureError} when

@@ -34,6 +34,7 @@ import type {
   InvocationStopResponse,
   JsonRpcNotification,
 } from 'spaces-harness-broker-protocol'
+import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
 import { InvocationEventHub } from './invocation-event-hub'
 import { type PermissionRequestHandler, PermissionRouter } from './permission-router'
 import { StdioTransport, type StdioTransportStartOptions } from './stdio-transport'
@@ -109,8 +110,17 @@ export class BrokerClient {
     return new BrokerClient(transport)
   }
 
-  hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse> {
-    return this.#transport.request('broker.hello', req)
+  async hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse> {
+    const response = await this.#transport.request<BrokerHelloResponse>('broker.hello', req)
+    const negotiated = response.protocolVersion
+    if (!(SUPPORTED_BROKER_PROTOCOL_VERSIONS as readonly string[]).includes(negotiated)) {
+      throw new Error(
+        `broker selected unsupported protocol version: ${negotiated} (supported: ${SUPPORTED_BROKER_PROTOCOL_VERSIONS.join(
+          ', '
+        )})`
+      )
+    }
+    return response
   }
 
   health(req: BrokerHealthRequest = {}): Promise<BrokerHealthResponse> {

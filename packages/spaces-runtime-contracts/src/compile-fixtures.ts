@@ -196,7 +196,7 @@ export const compileOnlyBrokerRuntimeState = {
     startRequestHash: 'start-request-hash' as StartRequestHash,
   },
   broker: {
-    protocolVersion: 'harness-broker/0.1',
+    protocolVersion: 'harness-broker/0.2',
     endpoint: { kind: 'stdio-jsonrpc-ndjson' },
     multiInvocation: false,
     startedAt: '2026-05-24T00:00:00.000Z',
