@@ -303,4 +303,50 @@ describe('Ph4b red: compileRuntimePlan v0.2 headless activation flag (T-01878)',
       expect(profileWithoutFlag.expectedCapabilities.control.attachReplay).toBe('forbidden')
     }
   )
+
+  test(
+    'with ASP_HEADLESS_DURABLE_BROKER=1 → headless codex profile has brokerProtocol === "harness-broker/0.2" (the HRC durable-route selector marker) (RED)',
+    async () => {
+      // RED today: compile-runtime-plan.ts has no ASP_HEADLESS_DURABLE_BROKER flag logic.
+      // The headless codex profile always emits brokerProtocol: 'harness-broker/0.1' — the
+      // default that HRC's broker-headless-handlers.ts uses to SKIP the durable route
+      // (durable route requires String(compiled.profile.brokerProtocol) === 'harness-broker/0.2').
+      // Without this marker, HRC never reaches the leased-tmux + Unix v0.2 IPC allocation,
+      // so the durable path stays dead even if control.attachReplay is set correctly.
+      //
+      // After Ph4b impl: the flag must flip BOTH brokerProtocol AND control.attachReplay
+      // together — a half-impl that sets only one leaves the activation gap open.
+      //
+      // Baseline: brokerProtocol stays 'harness-broker/0.1' by default (6fc8be2 revert
+      // restored the stable v0.1 baseline; the Ph6 v0.1-removal revert is parked).
+      process.env[ACTIVATION_FLAG] = '1'
+      try {
+        const response = await createClient().compileRuntimePlan(headlessCodexRequest())
+        const profile = extractBrokerProfile(response)
+        // The HRC durable-route selector gates on this exact string value.
+        expect(profile.brokerProtocol).toBe('harness-broker/0.2')
+      } finally {
+        delete process.env[ACTIVATION_FLAG]
+      }
+    }
+  )
+
+  test(
+    'without ASP_HEADLESS_DURABLE_BROKER → headless codex profile has brokerProtocol === "harness-broker/0.1" (stable v0.1-default, GREEN guard)',
+    async () => {
+      // GREEN guard — confirms the default-OFF baseline so a partial impl that
+      // unconditionally flips brokerProtocol to v0.2 cannot silently pass all reds.
+      // This MUST pass both before and after Ph4b impl (default is OFF).
+      // It also verifies the Ph6 GREEN/revert did not leave v0.2 hardwired.
+      const savedFlag = process.env[ACTIVATION_FLAG]
+      delete process.env[ACTIVATION_FLAG]
+      try {
+        const response = await createClient().compileRuntimePlan(headlessCodexRequest())
+        const profile = extractBrokerProfile(response)
+        expect(profile.brokerProtocol).toBe('harness-broker/0.1')
+      } finally {
+        if (savedFlag !== undefined) process.env[ACTIVATION_FLAG] = savedFlag
+      }
+    }
+  )
 })
