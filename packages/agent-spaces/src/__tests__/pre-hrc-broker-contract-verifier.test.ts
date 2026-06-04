@@ -338,7 +338,7 @@ function fakeBrokerProfile(
     kind: 'harness-broker',
     interactionMode: 'headless',
     expectedCapabilities: {},
-    brokerProtocol: 'harness-broker/0.2',
+    brokerProtocol: 'harness-broker/0.1',
     brokerDriver: 'codex-app-server',
     brokerOwnership: 'hrc-owned-process',
     harnessInvocation: {

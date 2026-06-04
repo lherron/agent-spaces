@@ -115,7 +115,7 @@ const attachRequest = (
 const helloWithPermissions = (client: BrokerClient): Promise<unknown> =>
   client.hello({
     clientInfo: { name: 'permission-reconnect-red-test', version: '0.1.0' },
-    protocolVersions: ['harness-broker/0.2'],
+    protocolVersions: ['harness-broker/0.2', 'harness-broker/0.1'],
     capabilities: { eventReplay: true, permissionRequests: true },
   })
 

@@ -66,14 +66,14 @@ describe('harness-broker CLI', () => {
     const [frame] = await exchange(
       request('hello-1', 'broker.hello', {
         clientInfo: { name: 'cli-smoke' },
-        protocolVersions: ['harness-broker/0.2'],
+        protocolVersions: ['harness-broker/0.1'],
       })
     )
 
     const response = expectResult<BrokerHelloResponse>(frame, 'hello-1')
     expect(response.result).toMatchObject({
       brokerInfo: { name: 'harness-broker' },
-      protocolVersion: 'harness-broker/0.2',
+      protocolVersion: 'harness-broker/0.1',
       capabilities: {
         multiInvocation: false,
         transports: ['stdio-jsonrpc-ndjson'],
@@ -142,7 +142,7 @@ describe('harness-broker CLI', () => {
     const [frame] = await exchange(
       request('hello-caps', 'broker.hello', {
         clientInfo: { name: 'cli-caps' },
-        protocolVersions: ['harness-broker/0.2'],
+        protocolVersions: ['harness-broker/0.1'],
       })
     )
 

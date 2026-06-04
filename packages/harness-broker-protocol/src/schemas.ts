@@ -17,7 +17,6 @@ import {
 } from './errors.js'
 import type { InvocationEventEnvelope, InvocationEventType } from './events'
 import type { HarnessInvocationSpec } from './invocation'
-import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from './invocation'
 import { isJsonRpcRequest } from './jsonrpc'
 import type { BrokerLifecyclePolicyOverlay, LifecyclePolicyHash } from './lifecycle.js'
 import { lifecyclePolicyHash } from './lifecycle.js'
@@ -1532,22 +1531,6 @@ function validateBrokerHelloParams(params: SchemaRecord, issues: ValidationIssue
   }
 
   requireStringArray(params.protocolVersions, 'params.protocolVersions', issues)
-  if (Array.isArray(params.protocolVersions)) {
-    params.protocolVersions.forEach((version, index) => {
-      if (
-        typeof version === 'string' &&
-        !(SUPPORTED_BROKER_PROTOCOL_VERSIONS as readonly string[]).includes(version)
-      ) {
-        issues.push(
-          makeIssue(
-            `params.protocolVersions.${index}`,
-            'unsupported_broker_protocol',
-            `unsupported broker protocol version: ${version}`
-          )
-        )
-      }
-    })
-  }
 
   if (params.capabilities !== undefined) {
     validateClientCapabilities(params.capabilities, 'params.capabilities', issues)

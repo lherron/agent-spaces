@@ -21,7 +21,7 @@ export type RuntimeRouteCatalogEntry = {
   lifecycle: InvocationLifecycleCapabilities
   broker?:
     | {
-        protocolVersion: 'harness-broker/0.2'
+        protocolVersion: 'harness-broker/0.1'
         driver: 'codex-app-server' | string
         processTransport: 'jsonrpc-stdio' | 'pty'
       }
@@ -64,7 +64,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     turnDeliveries: ['broker-input', 'terminal-literal-input'],
     lifecycle: BROKER_LIFECYCLE_BASELINE,
     broker: {
-      protocolVersion: 'harness-broker/0.2',
+      protocolVersion: 'harness-broker/0.1',
       driver: 'claude-code-tmux',
       processTransport: 'pty',
     },
@@ -95,7 +95,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     turnDeliveries: ['broker-input', 'terminal-literal-input'],
     lifecycle: BROKER_LIFECYCLE_BASELINE,
     broker: {
-      protocolVersion: 'harness-broker/0.2',
+      protocolVersion: 'harness-broker/0.1',
       driver: 'codex-cli-tmux',
       processTransport: 'pty',
     },
@@ -146,7 +146,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     turnDeliveries: ['broker-input'],
     lifecycle: BROKER_LIFECYCLE_BASELINE,
     broker: {
-      protocolVersion: 'harness-broker/0.2',
+      protocolVersion: 'harness-broker/0.1',
       driver: 'codex-app-server',
       processTransport: 'jsonrpc-stdio',
     },

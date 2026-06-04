@@ -60,7 +60,7 @@ describe('legacyTransportAlias', () => {
         view({
           kind: 'harness-broker',
           brokerDriver: 'claude-code-tmux',
-          brokerProtocol: 'harness-broker/0.2',
+          brokerProtocol: 'harness-broker/0.1',
           brokerTerminal: { host: 'tmux' },
         })
       )
@@ -73,7 +73,7 @@ describe('legacyTransportAlias', () => {
         view({
           kind: 'harness-broker',
           brokerDriver: 'codex-app-server',
-          brokerProtocol: 'harness-broker/0.2',
+          brokerProtocol: 'harness-broker/0.1',
         })
       )
     ).toBe('headless')

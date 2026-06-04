@@ -64,7 +64,7 @@ export type BrokerInvocationRecord = {
   operationId: RuntimeOperationId
   runtimeId: RuntimeId
   runId?: RunId | undefined
-  brokerProtocol: 'harness-broker/0.2'
+  brokerProtocol: 'harness-broker/0.1'
   brokerDriver: string
   brokerPid?: number | undefined
   childPid?: number | undefined

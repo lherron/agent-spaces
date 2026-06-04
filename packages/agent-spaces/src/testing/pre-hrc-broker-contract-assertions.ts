@@ -130,10 +130,10 @@ export function assertBrokerProfileClosure(
       redactedDetails: { kind: profile.kind },
     })
   }
-  if (profile.brokerProtocol !== 'harness-broker/0.2') {
+  if (profile.brokerProtocol !== 'harness-broker/0.1') {
     failures.push({
       code: 'broker_protocol_invalid',
-      message: 'Selected broker profile does not target harness-broker/0.2.',
+      message: 'Selected broker profile does not target harness-broker/0.1.',
       path: 'selectedProfile.brokerProtocol',
       redactedDetails: { brokerProtocol: profile.brokerProtocol },
     })

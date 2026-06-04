@@ -7,7 +7,6 @@ import type {
   TerminalExecutionProfile,
 } from './execution-profile'
 import type { AgentchatExposurePolicy } from './exposure'
-import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
 
 function executionProfileDiagnostic(
   profile: RuntimeExecutionProfileBase,
@@ -172,25 +171,6 @@ type BrokerLegalityRule = (
   facts: BrokerProfileFacts
 ) => CompileDiagnostic | undefined
 
-const BROKER_PROTOCOL_RULES: BrokerLegalityRule[] = [
-  (profile) => {
-    const declared = (profile as { brokerProtocol?: unknown }).brokerProtocol
-    if (
-      typeof declared === 'string' &&
-      !(SUPPORTED_BROKER_PROTOCOL_VERSIONS as readonly string[]).includes(declared)
-    ) {
-      return executionProfileDiagnostic(
-        profile,
-        'broker_protocol_version_unsupported',
-        `Broker profiles must declare a supported brokerProtocol (got ${declared}; supported: ${SUPPORTED_BROKER_PROTOCOL_VERSIONS.join(
-          ', '
-        )}).`
-      )
-    }
-    return undefined
-  },
-]
-
 const CODEX_APP_SERVER_RULES: BrokerLegalityRule[] = [
   (profile, facts) =>
     facts.isCodexAppServer &&
@@ -338,7 +318,6 @@ const INTERACTIVE_TMUX_RULES: BrokerLegalityRule[] = [
 // assert. Each driver's gates are co-located so a new broker driver appends an
 // array rather than editing a sibling branch.
 const BROKER_RULES: BrokerLegalityRule[] = [
-  ...BROKER_PROTOCOL_RULES,
   ...CODEX_APP_SERVER_RULES,
   ...EXPOSURE_RULES,
   ...CLAUDE_CODE_TMUX_RULES,

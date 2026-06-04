@@ -66,7 +66,7 @@ rl.on('line', (line) => {
   if (message.method === 'broker.hello') {
     response(message.id, {
       brokerInfo: { name: 'fake-start-request-broker', version: '0.1.0' },
-      protocolVersion: 'harness-broker/0.2',
+      protocolVersion: 'harness-broker/0.1',
       capabilities: {
         multiInvocation: false,
         transports: ['stdio-jsonrpc-ndjson'],

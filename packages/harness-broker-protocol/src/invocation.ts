@@ -4,9 +4,10 @@ import type { ContinuationUpdate, InvocationEventEnvelope, InvocationEventType }
 import type { InputId, InvocationId, PermissionRequestId, TurnId } from './ids'
 import type { IsoTimestamp } from './primitives'
 
-export type BrokerProtocolVersion = 'harness-broker/0.2'
+export type BrokerProtocolVersion = 'harness-broker/0.1' | 'harness-broker/0.2'
 
 export const SUPPORTED_BROKER_PROTOCOL_VERSIONS = [
+  'harness-broker/0.1',
   'harness-broker/0.2',
 ] as const satisfies readonly BrokerProtocolVersion[]
 

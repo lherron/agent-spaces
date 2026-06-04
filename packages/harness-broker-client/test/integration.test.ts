@@ -21,7 +21,7 @@ describe('BrokerClient integration', () => {
 
     try {
       const hello: BrokerHelloResponse = await client.hello(helloRequest())
-      expect(hello.protocolVersion).toBe('harness-broker/0.2')
+      expect(hello.protocolVersion).toBe('harness-broker/0.1')
       expect(hello.capabilities).toMatchObject({
         transports: ['stdio-jsonrpc-ndjson'],
         eventNotifications: true,
