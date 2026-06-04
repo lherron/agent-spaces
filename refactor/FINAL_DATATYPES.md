@@ -1410,6 +1410,10 @@ export interface InvocationCapabilities {
     dispose: boolean
     status?: boolean | undefined
     attach?: boolean | undefined
+    snapshot?: boolean | undefined
+    eventsSince?: boolean | undefined
+    eventTypeFilter?: boolean | undefined
+    liveness?: 'none' | 'cached' | 'probe' | undefined
   }
   lifecycle?: InvocationLifecycleCapabilities | undefined
   permissions?:
@@ -1427,6 +1431,15 @@ export interface BrokerCapabilities {
   brokerToClientRequests: boolean
   attachReplay?: boolean | undefined
   lifecyclePolicy?: boolean | undefined
+  inspection?:
+    | {
+        listInvocations: boolean
+        timestamps: boolean
+        lifecycleView: boolean
+        liveness: 'none' | 'cached' | 'probe'
+        eventTypeFilter: boolean
+      }
+    | undefined
 }
 
 export interface DriverSummary {
@@ -1477,6 +1490,12 @@ export type BrokerCommand =
   | JsonRpcRequest<'invocation.stop', InvocationStopRequest>
   | JsonRpcRequest<'invocation.status', InvocationStatusRequest>
   | JsonRpcRequest<'invocation.dispose', InvocationDisposeRequest>
+  | JsonRpcRequest<'broker.attach', BrokerAttachRequest>
+  | JsonRpcRequest<'broker.listInvocations', BrokerListInvocationsRequest>
+  | JsonRpcRequest<'invocation.eventsSince', InvocationEventsSinceRequest>
+  | JsonRpcRequest<'invocation.ackEvents', InvocationAckEventsRequest>
+  | JsonRpcRequest<'invocation.snapshot', InvocationSnapshotRequest>
+  | JsonRpcRequest<'invocation.permission.respond', InvocationPermissionRespondRequest>
 
 export interface BrokerHelloRequest {
   clientInfo: {
@@ -1630,13 +1649,77 @@ export interface InvocationStopResponse {
   state: InvocationState
 }
 
-export interface InvocationStatusRequest {
-  invocationId: InvocationId
+export interface InvocationCurrentTurnSummary {
+  turnId: TurnId
+  inputId?: InputId | undefined
+  startedAt: IsoTimestamp
+  attempt?: number | undefined
 }
 
-export interface InvocationStatusResponse {
+export interface InvocationLifecycleView {
+  policyId?: LifecyclePolicyId | undefined
+  policyHash?: LifecyclePolicyHash | undefined
+  retention: {
+    mode: RuntimeRetentionPolicy['mode']
+    idleTtlMs?: number | undefined
+    idleSince?: IsoTimestamp | undefined
+    computedRetireAt?: IsoTimestamp | undefined
+    blockedBy?: Array<'active-turn' | 'pending-input' | 'pending-permission' | 'not-ready'> | undefined
+  }
+  harnessRecovery: {
+    mode: HarnessRecoveryPolicy['mode']
+    currentGeneration?: number | undefined
+  }
+  turnRetry: {
+    mode: TurnRetryPolicy['mode']
+    currentAttempt?: number | undefined
+  }
+  terminalReason?: string | undefined
+}
+
+export interface InvocationLivenessView {
+  mode: 'cached' | 'probe'
+  checkedAt: IsoTimestamp
+  driver?: {
+    state: 'unknown' | 'healthy' | 'degraded' | 'unresponsive' | 'exited'
+    reason?: string | undefined
+    lastOutputAt?: IsoTimestamp | undefined
+  } | undefined
+  terminalSurface?: {
+    state: 'unknown' | 'alive' | 'missing' | 'unresponsive'
+    checkedAt: IsoTimestamp
+    reason?: string | undefined
+  } | undefined
+  process?: {
+    brokerPid?: number | undefined
+    childPid?: number | undefined
+    alive?: boolean | undefined
+    exitCode?: number | null | undefined
+    signal?: string | null | undefined
+  } | undefined
+}
+
+export interface InvocationInspectionSummary {
   invocationId: InvocationId
   state: InvocationState
+  driver: string
+  startedAt: IsoTimestamp
+  lastActivityAt: IsoTimestamp
+  currentTurn?: InvocationCurrentTurnSummary | undefined
+  currentSeq?: number | undefined
+  lifecycle?: InvocationLifecycleView | undefined
+  liveness?: InvocationLivenessView | undefined
+  terminalSurface?: BrokerTerminalSurfaceReport | undefined
+}
+
+export interface InvocationStatusRequest {
+  invocationId: InvocationId
+  /** Optional bounded driver/surface probe. Omitted responses use cached broker facts only. */
+  probeLiveness?: boolean | undefined
+}
+
+export interface InvocationStatusResponse extends InvocationInspectionSummary {
+  /** Legacy convenience alias; `currentTurn.turnId` is the canonical inspection field. */
   currentTurnId?: TurnId | undefined
   currentHarnessGeneration?: number | undefined
   currentTurnAttempt?: number | undefined
@@ -2084,21 +2167,22 @@ export interface BrokerAttachResponse {
 
 export interface BrokerListInvocationsRequest {
   includeDisposed?: boolean | undefined
+  probeLiveness?: boolean | undefined
 }
 
 export interface BrokerListInvocationsResponse {
-  invocations: Array<{
-    invocationId: InvocationId
-    state: InvocationState
-    driver: string
-    currentTurnId?: TurnId | undefined
-    lastSeq?: number | undefined
-  }>
+  invocations: InvocationInspectionSummary[]
 }
 
 export interface InvocationEventsSinceRequest {
   invocationId: InvocationId
   afterSeq: number
+  /**
+   * Optional filter over InvocationEventEnvelope.type. The response cursor fields
+   * are still computed over the full event ledger, so clients can advance safely
+   * past non-matching events.
+   */
+  types?: InvocationEventType[] | undefined
   limit?: number | undefined
 }
 
@@ -2120,21 +2204,63 @@ export interface InvocationAckEventsResponse {
 
 export interface InvocationSnapshotRequest {
   invocationId: InvocationId
+  /** Optional bounded driver/surface probe. Omitted responses use cached broker facts only. */
+  probeLiveness?: boolean | undefined
 }
 
-export interface InvocationSnapshotResponse {
-  invocationId: InvocationId
-  state: InvocationState
+export interface PendingPermissionRequest extends PermissionRequestParams {
+  /** Absolute instant when the broker applies the request's defaultDecision. */
+  deadlineAt: IsoTimestamp
+}
+
+export interface InvocationSnapshotResponse extends InvocationInspectionSummary {
+  /** Legacy convenience alias; `currentTurn.turnId` is the canonical inspection field. */
   currentTurnId?: TurnId | undefined
   lastSeq: number
   continuation?: ContinuationUpdate | undefined
   capabilities: InvocationCapabilities
+  pendingInputIds: InputId[]
+  inputDispositions: Record<string, InvocationInputResponse>
+  pendingPermissionRequests: PendingPermissionRequest[]
+  retentionFloorSeq?: number | undefined
   process?: {
+    brokerPid?: number | undefined
     pid?: number | undefined
+    childPid?: number | undefined
     exitCode?: number | null | undefined
     signal?: string | null | undefined
   }
 }
+
+export interface InvocationPermissionRespondRequest {
+  invocationId: InvocationId
+  permissionRequestId: PermissionRequestId
+  decision: 'allow' | 'deny'
+  message?: string | undefined
+  controllerInstanceId?: string | undefined
+}
+
+export type InvocationPermissionRespondResponse =
+  | {
+      status: 'accepted'
+      permissionRequestId: PermissionRequestId
+      decision: 'allow' | 'deny'
+    }
+  | {
+      status: 'duplicate'
+      permissionRequestId: PermissionRequestId
+      originalDecision: 'allow' | 'deny'
+    }
+  | {
+      status: 'conflict'
+      permissionRequestId: PermissionRequestId
+      originalDecision: 'allow' | 'deny'
+      attemptedDecision: 'allow' | 'deny'
+    }
+  | {
+      status: 'expired' | 'unknown'
+      permissionRequestId: PermissionRequestId
+    }
 ```
 
 ---

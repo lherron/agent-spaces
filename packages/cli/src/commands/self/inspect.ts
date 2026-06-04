@@ -79,6 +79,7 @@ function renderHuman(ctx: ReturnType<typeof resolveSelfContext>, counts: Derived
   out.push('')
 
   out.push(bold('injected env'))
+  out.push(dim(`  source:      ${ctx.envSource}`))
   out.push(dim(`  agent:       ${ctx.agentName ?? '(none)'}`))
   out.push(dim(`  project:     ${ctx.projectId ?? '(none)'}`))
   const injectedEntries = Object.entries(ctx.injectedEnv)

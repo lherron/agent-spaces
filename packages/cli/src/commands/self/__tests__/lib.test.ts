@@ -137,27 +137,37 @@ describe('readLaunchArtifactLite', () => {
 })
 
 describe('resolveSelfContext', () => {
-  test('uses empty injected env when no launch file is available', async () => {
+  test('uses live self env when no launch file is available', async () => {
     const dir = await makeTempDir('asp-self-ctx-')
     const agentsDir = join(dir, 'agents')
     await mkdir(agentsDir, { recursive: true })
     const ctx = resolveSelfContext({
       env: {
-        AGENTCHAT_ID: 'smokey',
+        ASP_AGENT_ID: 'smokey',
         ASP_PROJECT: 'test-proj',
+        ASP_SCOPE_REF: 'agent:smokey:project:test-proj:task:codex-test',
+        HRC_SESSION_REF: 'agent:smokey:project:test-proj:task:codex-test/lane:main',
         ASP_PRIMING_PROMPT: 'go',
+        PATH: '/bin',
       },
       cwd: dir,
       aspHome: dir,
       agentsRoot: agentsDir,
     })
-    expect(ctx.agentName).toBeNull()
-    expect(ctx.projectId).toBeNull()
-    expect(ctx.primingPrompt).toBeNull()
-    expect(ctx.injectedEnv).toEqual({})
+    expect(ctx.agentName).toBe('smokey')
+    expect(ctx.projectId).toBe('test-proj')
+    expect(ctx.envSource).toBe('live-env')
+    expect(ctx.primingPrompt).toBe('go')
+    expect(ctx.injectedEnv).toEqual({
+      ASP_AGENT_ID: 'smokey',
+      ASP_PRIMING_PROMPT: 'go',
+      ASP_PROJECT: 'test-proj',
+      ASP_SCOPE_REF: 'agent:smokey:project:test-proj:task:codex-test',
+      HRC_SESSION_REF: 'agent:smokey:project:test-proj:task:codex-test/lane:main',
+    })
     expect(ctx.lookup('missing')).toBeNull()
     expect(ctx.launch).toBeNull()
-    expect(ctx.agentRoot).toBeNull()
+    expect(ctx.agentRoot).toBe(join(agentsDir, 'smokey'))
   })
 
   test('filters injected env with generic shell noise rules', () => {
@@ -205,6 +215,7 @@ describe('resolveSelfContext', () => {
     })
     expect(ctx.agentName).toBe('agent')
     expect(ctx.projectId).toBe('test-proj')
+    expect(ctx.envSource).toBe('launch-artifact')
     expect(ctx.systemPrompt).toEqual({ content: 'SYS-CONTENT', mode: 'append' })
     expect(ctx.primingPrompt).toBe('PRIME-CONTENT')
     expect(ctx.harness).toBe('claude-code')
@@ -304,6 +315,18 @@ describe('resolveSelfContext', () => {
 
     expect(ctx.injectedEnv[`${SAMPLE_PREFIX}RUNTIME_ID`]).toBe('rt-artifact')
     expect(Object.values(ctx.injectedEnv)).not.toContain('rt-process')
+  })
+
+  test('reports no env source when no launch or live self env is available', () => {
+    const ctx = resolveSelfContext({
+      env: { PATH: '/bin' },
+      aspHome: '/tmp',
+      agentsRoot: '/tmp',
+    })
+    expect(ctx.envSource).toBe('none')
+    expect(ctx.agentName).toBeNull()
+    expect(ctx.projectId).toBeNull()
+    expect(ctx.injectedEnv).toEqual({})
   })
 })
 

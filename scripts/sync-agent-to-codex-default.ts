@@ -16,6 +16,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import type { AgentRuntimeProfile, RunMode, SpaceRefString } from 'spaces-config'
 import { PathResolver, parseAgentProfile } from 'spaces-config'
 import { detectAgentLocalComponents, materializeFromRefs } from 'spaces-execution'
+import { buildCodexHookTrustState } from 'spaces-harness-codex'
 import { materializeSystemPrompt } from 'spaces-runtime'
 
 const PROJECT_ID = 'praesidium'
@@ -27,6 +28,10 @@ const DEFAULT_ASP_HOME = join(homedir(), 'praesidium/var/spaces-repo')
 const DEFAULT_AGENTS_ROOT = join(homedir(), 'praesidium/var/agents')
 const AGENT_BLOCK_PREFIX = 'agent-spaces:codex-default'
 const SKILL_MARKER_FILE = '.asp-agent-sync.json'
+const CODEX_HOOKS_FILE = 'hooks.json'
+const CODEX_CONFIG_FILE = 'config.toml'
+const PRE_TOOL_USE_HOOK_FILENAME = 'pre-tool-use-praesidium-env.mjs'
+const PRE_TOOL_USE_STATUS = 'injecting Praesidium command env'
 
 export interface SyncAgentToCodexDefaultOptions {
   agentId: string
@@ -36,6 +41,7 @@ export interface SyncAgentToCodexDefaultOptions {
   projectRoot: string
   apply: boolean
   fetchRegistry: boolean
+  installHooks: boolean
 }
 
 interface CliArgs extends SyncAgentToCodexDefaultOptions {
@@ -54,6 +60,16 @@ export interface SkillPlan {
 export interface AgentsPlan {
   path: string
   action: 'create' | 'update' | 'unchanged'
+}
+
+export interface HooksPlan {
+  enabled: boolean
+  hooksPath: string
+  configPath: string
+  scriptPath: string
+  hooksAction: 'create' | 'update' | 'unchanged' | 'skip'
+  configAction: 'create' | 'update' | 'unchanged' | 'skip'
+  scriptAction: 'create' | 'update' | 'unchanged' | 'skip'
 }
 
 export interface SyncManifest {
@@ -81,6 +97,7 @@ export interface SyncPlan {
   materializedHome: string
   agents: AgentsPlan
   skills: SkillPlan[]
+  hooks: HooksPlan
   staleManagedSkills: string[]
   warnings: string[]
 }
@@ -105,6 +122,7 @@ function printUsage(): void {
       `  --agents-root <p>   Agents root (default: ${DEFAULT_AGENTS_ROOT})`,
       `  --project-root <p>  Project root used in prompt context (default: ${DEFAULT_PROJECT_ROOT})`,
       '  --fetch            Fetch registry before materializing (default: false)',
+      '  --install-hooks    Install managed Codex PreToolUse hook for Praesidium CLI env injection',
       '  --apply            Write changes. Without this, dry-run only.',
       '  --json             Emit JSON summary.',
       '  --help             Show this help.',
@@ -115,7 +133,7 @@ function printUsage(): void {
       `  runMode=${RUN_MODE}`,
       '',
       'Safety:',
-      '  ~/.codex/config.toml is never modified.',
+      '  ~/.codex/config.toml is modified only with --install-hooks.',
       '  Skill collisions warn and skip; they are not namespaced.',
     ].join('\n')
   )
@@ -130,6 +148,7 @@ function parseArgs(argv: string[]): CliArgs {
     projectRoot: DEFAULT_PROJECT_ROOT,
     apply: false,
     fetchRegistry: false,
+    installHooks: false,
     json: false,
     help: false,
   }
@@ -159,6 +178,9 @@ function parseArgs(argv: string[]): CliArgs {
         break
       case '--fetch':
         args.fetchRegistry = true
+        break
+      case '--install-hooks':
+        args.installHooks = true
         break
       case '--apply':
         args.apply = true
@@ -287,6 +309,490 @@ function replaceManagedBlock(existing: string, block: string, agentId: string): 
   const before = existing.slice(0, beginIndex).trimEnd()
   const after = existing.slice(afterEnd).trimStart()
   return `${[before, block.trimEnd(), after].filter((part) => part.length > 0).join('\n\n')}\n`
+}
+
+function hookCommand(scriptPath: string): string {
+  return `node ${shellQuote(scriptPath)}`
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+function buildPreToolUseHookScript(agentId: string): string {
+  const escapedAgentId = JSON.stringify(agentId)
+  return `#!/usr/bin/env node
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+
+const AGENT_ID = ${escapedAgentId}
+const PRAESIDIUM_COMMANDS = new Set(['asp', 'wrkq', 'wrkf', 'hrc', 'hrcchat', 'acp'])
+
+function readStdin() {
+  return new Promise((resolveText) => {
+    let data = ''
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', (chunk) => {
+      data += chunk
+    })
+    process.stdin.on('end', () => resolveText(data))
+  })
+}
+
+function shellQuote(value) {
+  return \`'\${String(value).replace(/'/g, "'\\\\''")}'\`
+}
+
+function readEnvLocalProject(startDir) {
+  let dir = resolve(startDir || process.cwd())
+  while (true) {
+    const candidate = join(dir, '.env.local')
+    if (existsSync(candidate)) {
+      const lines = readFileSync(candidate, 'utf8').split(/\\r?\\n/u)
+      for (const line of lines) {
+        const match = /^\\s*(?:export\\s+)?WRKQ_PROJECT_ROOT\\s*=\\s*(.+?)\\s*$/u.exec(line)
+        if (match) {
+          return match[1].replace(/^['"]|['"]$/g, '')
+        }
+      }
+    }
+    const parent = dirname(dir)
+    if (parent === dir) return undefined
+    dir = parent
+  }
+}
+
+function projectFromPraesidiumPath(cwd) {
+  const root = join(homedir(), 'praesidium')
+  const resolved = resolve(cwd || process.cwd())
+  if (resolved === root) return 'praesidium'
+  if (!resolved.startsWith(root + '/')) return undefined
+  const rest = resolved.slice(root.length + 1)
+  const first = rest.split('/')[0]
+  return first || undefined
+}
+
+function projectFromWrkqProjects(cwd) {
+  try {
+    const raw = execFileSync('wrkq', ['projects', '--json'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const rows = JSON.parse(raw)
+    const resolved = resolve(cwd)
+    const root = join(homedir(), 'praesidium')
+    for (const row of Array.isArray(rows) ? rows : []) {
+      if (typeof row?.path !== 'string' || typeof row?.slug !== 'string') continue
+      const path = row.path.startsWith('/') ? row.path : join(root, row.path)
+      if (resolved === path || resolved.startsWith(path + '/')) {
+        return row.slug
+      }
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+function projectFromGitRemote(cwd) {
+  try {
+    const raw = execFileSync('git', ['-C', cwd, 'remote', 'get-url', 'origin'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    const tail = raw.split(/[/:]/u).pop() || ''
+    return tail.replace(/\\.git$/u, '') || undefined
+  } catch {
+    return undefined
+  }
+}
+
+function resolveProject(cwd) {
+  return (
+    process.env.ASP_PROJECT ||
+    readEnvLocalProject(cwd) ||
+    projectFromPraesidiumPath(cwd) ||
+    projectFromWrkqProjects(cwd) ||
+    projectFromGitRemote(cwd) ||
+    basename(resolve(cwd || process.cwd()))
+  )
+}
+
+function splitShellSegments(command) {
+  const segments = []
+  let current = ''
+  let quote = undefined
+  let escaped = false
+
+  for (let i = 0; i < command.length; i += 1) {
+    const char = command[i]
+    const next = command[i + 1]
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+    if (char === '\\\\' && quote !== "'") {
+      current += char
+      escaped = true
+      continue
+    }
+    if (quote) {
+      current += char
+      if (char === quote) quote = undefined
+      continue
+    }
+    if (char === "'" || char === '"') {
+      current += char
+      quote = char
+      continue
+    }
+    if (char === '&' && next === '&') {
+      segments.push(current)
+      current = ''
+      i += 1
+      continue
+    }
+    if (char === '|' && next === '|') {
+      segments.push(current)
+      current = ''
+      i += 1
+      continue
+    }
+    if (char === ';' || char === '|' || char === '(' || char === ')' || char === '\\n') {
+      segments.push(current)
+      current = ''
+      continue
+    }
+    current += char
+  }
+  segments.push(current)
+  return segments
+}
+
+function tokenizeShellWords(segment) {
+  const words = []
+  let current = ''
+  let quote = undefined
+  let escaped = false
+
+  for (let i = 0; i < segment.length; i += 1) {
+    const char = segment[i]
+    if (escaped) {
+      current += char
+      escaped = false
+      continue
+    }
+    if (char === '\\\\' && quote !== "'") {
+      escaped = true
+      continue
+    }
+    if (quote) {
+      if (char === quote) {
+        quote = undefined
+      } else {
+        current += char
+      }
+      continue
+    }
+    if (char === "'" || char === '"') {
+      quote = char
+      continue
+    }
+    if (/\\s/u.test(char)) {
+      if (current.length > 0) {
+        words.push(current)
+        current = ''
+      }
+      continue
+    }
+    current += char
+  }
+  if (current.length > 0) words.push(current)
+  return words
+}
+
+function isAssignment(word) {
+  return /^[A-Za-z_][A-Za-z0-9_]*=/u.test(word)
+}
+
+function commandName(word) {
+  return basename(word)
+}
+
+function firstCommandWord(words) {
+  let index = 0
+  while (index < words.length && isAssignment(words[index])) index += 1
+  if (words[index] === 'command' || words[index] === 'exec') index += 1
+  if (words[index] === 'env') {
+    index += 1
+    while (index < words.length && (words[index].startsWith('-') || isAssignment(words[index]))) {
+      index += 1
+    }
+  }
+  return words[index]
+}
+
+function usesPraesidiumCommand(command) {
+  for (const segment of splitShellSegments(command)) {
+    const words = tokenizeShellWords(segment)
+    const first = firstCommandWord(words)
+    if (first && PRAESIDIUM_COMMANDS.has(commandName(first))) {
+      return true
+    }
+  }
+  return false
+}
+
+function resolvedScope(input) {
+  const cwd = input.cwd || process.cwd()
+  const project = resolveProject(cwd)
+  const turnId = input.turn_id || input.session_id || 'primary'
+  const taskId = \`codex-\${turnId}\`
+  const scopeRef = \`agent:\${AGENT_ID}:project:\${project}:task:\${taskId}\`
+  const sessionRef = \`\${scopeRef}/lane:main\`
+  const entries = {
+    ASP_AGENT_ID: AGENT_ID,
+    ASP_PROJECT: project,
+    ASP_TASK_ID: taskId,
+    ASP_SCOPE_REF: scopeRef,
+    HRC_SESSION_REF: sessionRef,
+  }
+  const exportsLine =
+    'export ' +
+    Object.entries(entries)
+      .map(([key, value]) => \`\${key}=\${shellQuote(value)}\`)
+      .join(' ')
+  return { project, taskId, scopeRef, sessionRef, exportsLine }
+}
+
+const raw = await readStdin()
+if (raw.trim().length === 0) process.exit(0)
+
+let input
+try {
+  input = JSON.parse(raw)
+} catch {
+  process.exit(0)
+}
+
+if (input.hook_event_name !== 'PreToolUse') process.exit(0)
+if (input.tool_name !== 'Bash') process.exit(0)
+
+const command = input.tool_input?.command
+if (typeof command !== 'string' || command.trim().length === 0) process.exit(0)
+if (!usesPraesidiumCommand(command)) process.exit(0)
+
+const scope = resolvedScope(input)
+const updatedCommand = \`\${scope.exportsLine}
+\${command}\`
+
+process.stdout.write(
+  JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'allow',
+      additionalContext: \`Praesidium env: ASP_PROJECT=\${scope.project}, ASP_SCOPE_REF=\${scope.scopeRef}\`,
+      updatedInput: { command: updatedCommand },
+    },
+  })
+)
+`
+}
+
+function buildManagedPreToolUseHookGroup(scriptPath: string): Record<string, unknown> {
+  return {
+    matcher: '',
+    hooks: [
+      {
+        type: 'command',
+        command: hookCommand(scriptPath),
+        statusMessage: PRE_TOOL_USE_STATUS,
+      },
+    ],
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function normalizeHooksConfig(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) {
+    return { hooks: {} }
+  }
+  const hooks = isRecord(value['hooks']) ? value['hooks'] : {}
+  return { ...value, hooks: { ...hooks } }
+}
+
+function handlerCommand(handler: unknown): string | undefined {
+  return isRecord(handler) && typeof handler['command'] === 'string'
+    ? handler['command']
+    : undefined
+}
+
+function removeManagedPreToolUseHook(
+  groups: unknown,
+  managedCommand: string
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(groups)) {
+    return []
+  }
+
+  const nextGroups: Array<Record<string, unknown>> = []
+  for (const group of groups) {
+    if (!isRecord(group)) continue
+    const handlers = Array.isArray(group['hooks']) ? group['hooks'] : []
+    const nextHandlers = handlers.filter((handler) => handlerCommand(handler) !== managedCommand)
+    if (nextHandlers.length === 0) continue
+    nextGroups.push({ ...group, hooks: nextHandlers })
+  }
+  return nextGroups
+}
+
+function mergeManagedHooksConfig(existing: string, scriptPath: string): string {
+  let parsed: unknown = {}
+  if (existing.trim().length > 0) {
+    parsed = JSON.parse(existing) as unknown
+  }
+  const config = normalizeHooksConfig(parsed)
+  const hooks = config['hooks'] as Record<string, unknown>
+  const managedCommand = hookCommand(scriptPath)
+  hooks['PreToolUse'] = [
+    ...removeManagedPreToolUseHook(hooks['PreToolUse'], managedCommand),
+    buildManagedPreToolUseHookGroup(scriptPath),
+  ]
+  return `${JSON.stringify(config, null, 2)}\n`
+}
+
+function ensureHooksFeature(configToml: string): string {
+  const lines = configToml.split('\n')
+  let featuresStart = -1
+  let featuresEnd = lines.length
+  for (let i = 0; i < lines.length; i += 1) {
+    if (/^\s*\[features\]\s*$/u.test(lines[i])) {
+      featuresStart = i
+      continue
+    }
+    if (featuresStart !== -1 && i > featuresStart && /^\s*\[.*\]\s*$/u.test(lines[i])) {
+      featuresEnd = i
+      break
+    }
+  }
+
+  if (featuresStart === -1) {
+    const suffix = configToml.endsWith('\n') || configToml.length === 0 ? '' : '\n'
+    return `${configToml}${suffix}\n[features]\nhooks = true\n`
+  }
+
+  for (let i = featuresStart + 1; i < featuresEnd; i += 1) {
+    if (/^\s*hooks\s*=/u.test(lines[i])) {
+      if (/^\s*hooks\s*=\s*true\s*(?:#.*)?$/u.test(lines[i])) {
+        return configToml
+      }
+      lines[i] = 'hooks = true'
+      return lines.join('\n')
+    }
+  }
+
+  lines.splice(featuresStart + 1, 0, 'hooks = true')
+  return lines.join('\n')
+}
+
+function upsertTrustedHookState(
+  configToml: string,
+  hooksPath: string,
+  hooksConfigJson: string
+): string {
+  const hooksConfig = JSON.parse(hooksConfigJson) as Record<string, unknown>
+  const trustState = buildCodexHookTrustState(hooksPath, hooksConfig)
+  let next = ensureHooksFeature(configToml)
+
+  for (const [key, value] of Object.entries(trustState)) {
+    const table = `[hooks.state.${JSON.stringify(key)}]`
+    const lines = next.split('\n')
+    const start = lines.findIndex((line) => line.trim() === table)
+    if (start === -1) {
+      const suffix = next.endsWith('\n') || next.length === 0 ? '' : '\n'
+      next = `${next}${suffix}\n${table}\ntrusted_hash = ${JSON.stringify(value.trusted_hash)}\n`
+      continue
+    }
+
+    let end = lines.length
+    for (let i = start + 1; i < lines.length; i += 1) {
+      if (/^\s*\[.*\]\s*$/u.test(lines[i])) {
+        end = i
+        break
+      }
+    }
+    let found = false
+    for (let i = start + 1; i < end; i += 1) {
+      if (/^\s*trusted_hash\s*=/u.test(lines[i])) {
+        lines[i] = `trusted_hash = ${JSON.stringify(value.trusted_hash)}`
+        found = true
+        break
+      }
+    }
+    if (!found) {
+      lines.splice(start + 1, 0, `trusted_hash = ${JSON.stringify(value.trusted_hash)}`)
+    }
+    next = lines.join('\n')
+  }
+
+  return next.endsWith('\n') ? next : `${next}\n`
+}
+
+async function buildHooksPlan(input: {
+  codexHome: string
+  agentId: string
+  installHooks: boolean
+}): Promise<HooksPlan> {
+  const hooksPath = join(input.codexHome, CODEX_HOOKS_FILE)
+  const configPath = join(input.codexHome, CODEX_CONFIG_FILE)
+  const scriptPath = join(input.codexHome, '.asp-agent-sync', PRE_TOOL_USE_HOOK_FILENAME)
+
+  if (!input.installHooks) {
+    return {
+      enabled: false,
+      hooksPath,
+      configPath,
+      scriptPath,
+      hooksAction: 'skip',
+      configAction: 'skip',
+      scriptAction: 'skip',
+    }
+  }
+
+  const existingHooks = (await pathExists(hooksPath)) ? await readFile(hooksPath, 'utf8') : ''
+  const nextHooks = mergeManagedHooksConfig(existingHooks, scriptPath)
+  const existingScript = (await pathExists(scriptPath)) ? await readFile(scriptPath, 'utf8') : ''
+  const nextScript = buildPreToolUseHookScript(input.agentId)
+  const existingConfig = (await pathExists(configPath)) ? await readFile(configPath, 'utf8') : ''
+  const nextConfig = upsertTrustedHookState(existingConfig, hooksPath, nextHooks)
+
+  return {
+    enabled: true,
+    hooksPath,
+    configPath,
+    scriptPath,
+    hooksAction:
+      existingHooks.length === 0 ? 'create' : existingHooks === nextHooks ? 'unchanged' : 'update',
+    configAction:
+      existingConfig.length === 0
+        ? 'create'
+        : existingConfig === nextConfig
+          ? 'unchanged'
+          : 'update',
+    scriptAction:
+      existingScript.length === 0
+        ? 'create'
+        : existingScript === nextScript
+          ? 'unchanged'
+          : 'update',
+  }
 }
 
 function hashString(content: string): string {
@@ -466,6 +972,11 @@ async function buildPlan(args: SyncAgentToCodexDefaultOptions): Promise<SyncPlan
     agentId: args.agentId,
     previousManifest,
   })
+  const hooksPlan = await buildHooksPlan({
+    codexHome: args.codexHome,
+    agentId: args.agentId,
+    installHooks: args.installHooks,
+  })
 
   return {
     agentId: args.agentId,
@@ -482,6 +993,7 @@ async function buildPlan(args: SyncAgentToCodexDefaultOptions): Promise<SyncPlan
       action: agentsAction,
     },
     skills: skillPlan.skills,
+    hooks: hooksPlan,
     staleManagedSkills: skillPlan.staleManagedSkills,
     warnings: skillPlan.warnings,
   }
@@ -502,6 +1014,30 @@ async function writeSkill(plan: SkillPlan, agentId: string): Promise<void> {
   await mkdir(dirname(plan.destPath), { recursive: true })
   await cp(plan.sourcePath, plan.destPath, { recursive: true })
   await writeFile(join(plan.destPath, SKILL_MARKER_FILE), skillMarker(agentId, plan.sourcePath))
+}
+
+async function applyHooksPlan(plan: SyncPlan): Promise<void> {
+  if (!plan.hooks.enabled) {
+    return
+  }
+
+  const hookScript = buildPreToolUseHookScript(plan.agentId)
+  const existingHooks = (await pathExists(plan.hooks.hooksPath))
+    ? await readFile(plan.hooks.hooksPath, 'utf8')
+    : ''
+  const hooksJson = mergeManagedHooksConfig(existingHooks, plan.hooks.scriptPath)
+  const existingConfig = (await pathExists(plan.hooks.configPath))
+    ? await readFile(plan.hooks.configPath, 'utf8')
+    : ''
+  const configToml = upsertTrustedHookState(existingConfig, plan.hooks.hooksPath, hooksJson)
+
+  await assertWritableTarget(plan.hooks.scriptPath, plan.codexHome)
+  await assertWritableTarget(plan.hooks.hooksPath, plan.codexHome)
+  await assertWritableTarget(plan.hooks.configPath, plan.codexHome)
+  await mkdir(dirname(plan.hooks.scriptPath), { recursive: true })
+  await writeFile(plan.hooks.scriptPath, hookScript, { mode: 0o755 })
+  await writeFile(plan.hooks.hooksPath, hooksJson)
+  await writeFile(plan.hooks.configPath, configToml)
 }
 
 async function assertWritableTarget(path: string, codexHome: string): Promise<void> {
@@ -552,6 +1088,8 @@ async function applyPlan(plan: SyncPlan): Promise<void> {
     await writeSkill(skill, plan.agentId)
   }
 
+  await applyHooksPlan(plan)
+
   const managedSkills = plan.skills
     .filter((skill) => skill.action !== 'skip-collision')
     .map((skill) => skill.name)
@@ -593,7 +1131,7 @@ function renderHuman(result: SyncResult): void {
   console.log(`project/task: ${plan.projectId}/${plan.taskId}`)
   console.log(`codex home:   ${plan.codexHome}`)
   console.log(`source home:  ${plan.materializedHome}`)
-  console.log('config.toml:  untouched')
+  console.log(`config.toml:  ${plan.hooks.enabled ? plan.hooks.configAction : 'untouched'}`)
   console.log(`AGENTS.md:    ${plan.agents.action}`)
   console.log(`spaces:       ${plan.refs.length > 0 ? plan.refs.join(', ') : '(none)'}`)
 
@@ -602,6 +1140,11 @@ function renderHuman(result: SyncResult): void {
   const skipped = plan.skills.filter((skill) => skill.action === 'skip-collision')
   console.log(
     `skills:       copy=${copied.length} update=${updated.length} skipped=${skipped.length}`
+  )
+  console.log(
+    plan.hooks.enabled
+      ? `hooks:        hooks.json=${plan.hooks.hooksAction} script=${plan.hooks.scriptAction}`
+      : 'hooks:        skipped'
   )
   if (plan.staleManagedSkills.length > 0) {
     console.log(`stale:        ${plan.staleManagedSkills.join(', ')}`)

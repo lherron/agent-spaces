@@ -1286,7 +1286,7 @@ export interface ClientCapabilities { // Client-side feature declarations.
                 </div>
               </div>
               <div class="code-panel">
-                <pre><code>type RuntimeCompileRequest = {
+                <pre><code>type RuntimeCompileRequest = { // Compile request DTO emitted by HRC and admitted by ASP.
   schemaVersion: 'agent-runtime-compile-request/v1' // Selects the compile request wire contract.
 
   identity: { // HRC-allocated IDs that make the compiled plan auditable and replayable.
@@ -1390,7 +1390,7 @@ export interface ClientCapabilities { // Client-side feature declarations.
                 </div>
               </div>
               <div class="code-panel">
-                <pre><code>type RuntimeCompileResponse =
+                <pre><code>type RuntimeCompileResponse = // Compiler response union returned by ASP.
   | {
       schemaVersion: 'agent-runtime-compile-response/v1' // Selects the compile response wire contract.
       ok: true // Means ASP produced a complete plan HRC may route over.
@@ -1403,7 +1403,7 @@ export interface ClientCapabilities { // Client-side feature declarations.
       diagnostics: CompileDiagnostic[] // Structured errors/warnings explaining why no usable plan was emitted.
     }
 
-type CompiledRuntimePlan = {
+type CompiledRuntimePlan = { // Immutable compiler product HRC can select, persist, reject, or dispatch.
   schemaVersion: 'agent-runtime-plan/v1' // Selects the immutable runtime plan schema.
   compiler: { // Identifies the compiler implementation that produced the plan.
     name: 'agent-spaces' // Compiler owner; keeps the plan attributable to ASP.
@@ -1453,7 +1453,7 @@ type CompiledRuntimePlan = {
   diagnostics: CompileDiagnostic[] // Plan-scoped compiler facts, warnings, or errors.
 }
 
-type CompileDiagnostic = {
+type CompileDiagnostic = { // Structured compiler diagnostic emitted by ASP.
   level: 'info' | 'warning' | 'error' // Severity HRC uses for admission and public warnings.
   code: string // Stable machine-readable diagnostic code.
   message: string // Human-readable explanation for logs and review; must omit credential material.

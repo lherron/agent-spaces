@@ -126,6 +126,7 @@ describe('asp self inspect', () => {
     const result = runAsp(['self', 'inspect'], fixture.env)
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain('asp self inspect — clod')
+    expect(result.stdout).toContain('source:      launch-artifact')
     expect(result.stdout).toContain('agent:       clod')
     expect(result.stdout).toContain('project:     test-proj')
     expect(result.stdout).toContain(`${SAMPLE_PREFIX}RUNTIME_ID`)
@@ -144,12 +145,14 @@ describe('asp self inspect', () => {
     expect(result.exitCode).toBe(0)
     const parsed = JSON.parse(result.stdout) as {
       agentName: string
+      envSource: string
       harness: string
       injectedEnv: Record<string, string>
       systemPrompt: { content: string; mode: string }
       derived: { systemPromptChars: number; primingPromptChars: number }
     }
     expect(parsed.agentName).toBe('clod')
+    expect(parsed.envSource).toBe('launch-artifact')
     expect(parsed.harness).toBe('claude-code')
     expect(parsed.injectedEnv[`${SAMPLE_PREFIX}RUNTIME_ID`]).toBe('rt-TEST')
     expect(parsed.injectedEnv.PATH).toBeUndefined()
@@ -163,6 +166,32 @@ describe('asp self inspect', () => {
     const result = runAsp(['self', 'inspect', '--target', 'overridden'], fixture.env)
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain('asp self inspect — overridden')
+  })
+
+  test('renders hook-injected live env without launch artifact', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'asp-self-live-'))
+    tempDirs.push(dir)
+    const agentsRoot = join(dir, 'agents')
+    await mkdir(join(agentsRoot, 'cody'), { recursive: true })
+
+    const result = runAsp(['self', 'inspect'], {
+      ASP_AGENT_ID: 'cody',
+      ASP_AGENTS_ROOT: agentsRoot,
+      ASP_HOME: dir,
+      ASP_PROJECT: 'agent-spaces',
+      ASP_SCOPE_REF: 'agent:cody:project:agent-spaces:task:codex-test',
+      ASP_TASK_ID: 'codex-test',
+      HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:codex-test/lane:main',
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain('asp self inspect — cody')
+    expect(result.stdout).toContain('source:      live-env')
+    expect(result.stdout).toContain('project:     agent-spaces')
+    expect(result.stdout).toContain('ASP_SCOPE_REF')
+    expect(result.stdout).toContain('HRC_SESSION_REF')
+    expect(result.stdout).toContain('agent-root:')
+    expect(result.stdout).toContain(join(agentsRoot, 'cody'))
   })
 })
 

@@ -56,6 +56,7 @@ export interface SelfContext {
   /** Agent slug (e.g. "clod"). */
   agentName: string | null
   projectId: string | null
+  envSource: 'launch-artifact' | 'live-env' | 'none'
   injectedEnv: Record<string, string>
   lookup: (key: string) => string | null
 
@@ -212,6 +213,18 @@ export function filterInjectedEnv(env: Record<string, string> | undefined): Reco
   return Object.fromEntries(entries)
 }
 
+function filterLiveSelfEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  return filterInjectedEnv(
+    Object.fromEntries(
+      Object.entries(env).filter(
+        ([key, value]) =>
+          typeof value === 'string' &&
+          (key.startsWith('ASP_') || key.startsWith('AGENT_') || key.startsWith('HRC_'))
+      )
+    ) as Record<string, string>
+  )
+}
+
 function readAgentProfile(agentRoot: string | null): Record<string, unknown> | null {
   if (!agentRoot) {
     return null
@@ -284,7 +297,14 @@ export function resolveSelfContext(options: ResolveSelfContextOptions = {}): Sel
           error: launchFilePath ? `launch file not found: ${launchFilePath}` : null,
         }
 
-  const injectedEnv = filterInjectedEnv(launch?.env)
+  const artifactEnv = filterInjectedEnv(launch?.env)
+  const liveEnv = launch ? {} : filterLiveSelfEnv(env)
+  const injectedEnv = launch ? artifactEnv : liveEnv
+  const envSource = launch
+    ? 'launch-artifact'
+    : Object.keys(liveEnv).length > 0
+      ? 'live-env'
+      : 'none'
   const lookup = (key: string): string | null => injectedEnv[key] ?? null
   const aspHome = options.aspHome ?? lookup('ASP_HOME') ?? getAspHome()
   const agentsRoot = options.agentsRoot ?? lookup('ASP_AGENTS_ROOT') ?? getAgentsRoot() ?? aspHome
@@ -292,7 +312,10 @@ export function resolveSelfContext(options: ResolveSelfContextOptions = {}): Sel
   const primingPromptEnv = lookup('ASP_PRIMING_PROMPT')
 
   const agentName =
-    options.target ?? lookup('AGENTCHAT_ID') ?? inferTargetFromBundleRoot(bundleRoot ?? undefined)
+    options.target ??
+    lookup('AGENTCHAT_ID') ??
+    lookup('ASP_AGENT_ID') ??
+    inferTargetFromBundleRoot(bundleRoot ?? undefined)
 
   const agentRoot = agentName ? join(agentsRoot, agentName) : null
 
@@ -304,6 +327,7 @@ export function resolveSelfContext(options: ResolveSelfContextOptions = {}): Sel
   return {
     agentName: agentName ?? null,
     projectId: lookup('ASP_PROJECT'),
+    envSource,
     injectedEnv,
     lookup,
 

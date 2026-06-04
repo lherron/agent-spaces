@@ -55,6 +55,10 @@ check:
     bun scripts/check-runtime-contract-harness-boundaries.ts
     bun scripts/check-manifest-edges.ts
 
+# Overlay Cody into the default Codex home and install managed Praesidium CLI hooks
+overlay-codex *args:
+    bun scripts/sync-agent-to-codex-default.ts --install-hooks --apply {{args}}
+
 # Run all verification (check + lint + typecheck + test)
 verify: check lint typecheck test
 
