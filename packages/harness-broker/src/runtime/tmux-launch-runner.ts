@@ -13,6 +13,7 @@
  */
 import { type ChildProcess, spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
+import { connect } from 'node:net'
 
 import type { TmuxLaunchExecArtifact, TmuxLaunchExecPrompts } from './tmux-launch-exec'
 
@@ -95,6 +96,78 @@ function envFromArtifact(artifact: TmuxLaunchExecArtifact): Record<string, strin
   return env
 }
 
+/**
+ * Best-effort: post one synthetic `SessionEnd` envelope to the broker's hook
+ * callback socket when the harness process exits.
+ *
+ * Codex CLI emits NO upstream signal on `/quit` — no SessionEnd hook, no
+ * session-end OTEL event; `/quit` is a shutdown-first clean process exit. The
+ * Claude tmux driver gets its teardown from Claude's own SessionEnd hook
+ * (→ continuation.cleared → HRC reaps the broker-tmux lease → operator detaches).
+ * To give codex the same teardown without a pane-death watcher, we stand on the
+ * one signal codex DOES give — its process exiting — which the launch runner
+ * already holds via `child.on('exit')`. We synthesize the SessionEnd here and
+ * post it on the SAME per-invocation callback socket the codex hook bridge uses,
+ * carrying the identity fields (invocation/runtime/generation/socket) so the
+ * driver's durable-identity fence accepts it. Reason mirrors Claude's semantics:
+ * a clean exit (`/quit`) is `prompt_input_exit` (drop continuation, reap); a
+ * crash/signal is `other` (keep the continuation so resume durability survives —
+ * T-01761). Gated by HARNESS_BROKER_SYNTH_SESSION_END so only the codex driver
+ * opts in; the claude driver, which fires a real SessionEnd, is untouched.
+ */
+export async function postSyntheticSessionEnd(
+  env: Record<string, string>,
+  code: number | null,
+  signal: NodeJS.Signals | null
+): Promise<void> {
+  const socketPath = env['HARNESS_BROKER_CALLBACK_SOCKET']
+  const invocationId = env['HARNESS_BROKER_INVOCATION_ID']
+  if (!socketPath || !invocationId) {
+    return
+  }
+  const reason = signal === null && code === 0 ? 'prompt_input_exit' : 'other'
+  const generationRaw = env['HARNESS_BROKER_HOOK_GENERATION']
+  const generation =
+    generationRaw !== undefined && generationRaw !== '' && Number.isFinite(Number(generationRaw))
+      ? Number(generationRaw)
+      : undefined
+  const runtimeId = env['HARNESS_BROKER_RUNTIME_ID']
+  const envelope = {
+    invocationId,
+    ...(runtimeId ? { runtimeId } : {}),
+    ...(generation !== undefined ? { generation } : {}),
+    callbackSocket: socketPath,
+    hookData: { hook_event_name: 'SessionEnd', reason },
+  }
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const done = (): void => {
+      if (!settled) {
+        settled = true
+        resolve()
+      }
+    }
+    const timer = setTimeout(done, 1000)
+    timer.unref?.()
+    try {
+      const conn = connect(socketPath, () => {
+        conn.end(JSON.stringify(envelope))
+      })
+      conn.on('error', () => {
+        clearTimeout(timer)
+        done()
+      })
+      conn.on('close', () => {
+        clearTimeout(timer)
+        done()
+      })
+    } catch {
+      clearTimeout(timer)
+      done()
+    }
+  })
+}
+
 /** Read the launch artifact, print the header, spawn the harness, and mirror its exit. */
 export async function runTmuxLaunch(launchFilePath: string): Promise<never> {
   const artifact = JSON.parse(await readFile(launchFilePath, 'utf8')) as TmuxLaunchExecArtifact
@@ -122,11 +195,19 @@ export async function runTmuxLaunch(launchFilePath: string): Promise<never> {
       process.exit(1)
     })
     child.on('exit', (code, signal) => {
-      if (signal) {
-        process.kill(process.pid, signal)
-      } else {
-        process.exit(code ?? 0)
-      }
+      void (async () => {
+        // Synthesize the harness-exit teardown signal for drivers that opt in
+        // (codex, which emits no SessionEnd hook of its own). Awaited so the
+        // envelope flushes to the broker socket before we mirror the exit.
+        if (env['HARNESS_BROKER_SYNTH_SESSION_END']) {
+          await postSyntheticSessionEnd(env, code, signal)
+        }
+        if (signal) {
+          process.kill(process.pid, signal)
+        } else {
+          process.exit(code ?? 0)
+        }
+      })()
     })
   })
 }

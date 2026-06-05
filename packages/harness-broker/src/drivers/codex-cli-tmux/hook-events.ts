@@ -11,6 +11,17 @@ import { createInvocationEventSequencer } from '../../events'
 
 export const CODEX_CLI_TMUX_DRIVER_KIND = 'codex-cli-tmux'
 
+/**
+ * SessionEnd reasons that mean the OPERATOR deliberately ended the session, so
+ * the captured continuation must be dropped (next launch is fresh). Codex CLI
+ * does not emit SessionEnd natively; the shared tmux launch runner synthesizes
+ * one on harness exit (postSyntheticSessionEnd) with reason `prompt_input_exit`
+ * for a clean `/quit` exit and `other` for a crash/signal. Mirrors the claude
+ * driver's USER_INITIATED_END_REASONS so HRC's continuation.cleared → broker-tmux
+ * lease reap fires identically for both drivers.
+ */
+const USER_INITIATED_END_REASONS = new Set(['prompt_input_exit', 'logout', 'clear'])
+
 export type CodexCliTmuxHookEventNormalizer = {
   normalizeHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
 }
@@ -224,6 +235,24 @@ export function createCodexCliTmuxHookEventNormalizer(
           )
         }
         return events
+      }
+
+      if (rawType === 'SessionEnd') {
+        // Synthetic SessionEnd from the launch runner on harness exit. A
+        // user-initiated end (`/quit` → clean exit → prompt_input_exit) drops the
+        // continuation, which HRC's afterMappedEvent turns into the broker-tmux
+        // lease reap that detaches the operator. A crash/external-kill reports
+        // `other`, which we ignore so resume durability survives pane recreation.
+        const endReason = getString(unwrapped, 'reason')
+        if (endReason !== undefined && USER_INITIATED_END_REASONS.has(endReason)) {
+          return [
+            emit(rawType, {
+              type: 'continuation.cleared',
+              payload: { reason: endReason },
+            }),
+          ]
+        }
+        return []
       }
 
       return []

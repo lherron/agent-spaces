@@ -423,6 +423,12 @@ async function buildLaunchCommandLine(
     HARNESS_BROKER_INVOCATION_ID: ctx.invocationId,
     HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
     HARNESS_BROKER_HOOK_GENERATION: String(CODEX_HOOK_GENERATION),
+    // Codex CLI emits no SessionEnd hook (and no session-end OTEL) on /quit — it
+    // just exits cleanly. Opt the shared tmux launch runner into synthesizing a
+    // SessionEnd on harness exit so this driver gets the continuation.cleared
+    // teardown the claude driver gets from its native SessionEnd hook. The runner
+    // posts to HARNESS_BROKER_CALLBACK_SOCKET above; see postSyntheticSessionEnd.
+    HARNESS_BROKER_SYNTH_SESSION_END: '1',
     // Authoritatively stamp the invocation's runtimeId so an inherited/leaked
     // HARNESS_BROKER_RUNTIME_ID from an outer broker session (the launch runner
     // spreads `process.env`) cannot poison the hook envelope and trip the

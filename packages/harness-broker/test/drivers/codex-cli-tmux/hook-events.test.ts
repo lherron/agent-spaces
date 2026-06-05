@@ -148,4 +148,27 @@ describe('codex-cli-tmux hook event normalization', () => {
     })
     expect(eventTypes(events)).not.toContain('assistant.message.completed')
   })
+
+  test('synthetic SessionEnd reason=prompt_input_exit emits continuation.cleared (operator /quit)', async () => {
+    const events = (await createNormalizer()).normalizeHook({
+      hook_event_name: 'SessionEnd',
+      reason: 'prompt_input_exit',
+    })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({
+      type: 'continuation.cleared',
+      payload: { reason: 'prompt_input_exit' },
+      driver: { kind: 'codex-cli-tmux', rawType: 'SessionEnd' },
+    })
+  })
+
+  test('synthetic SessionEnd reason=other (crash/external kill) keeps the continuation', async () => {
+    const events = (await createNormalizer()).normalizeHook({
+      hook_event_name: 'SessionEnd',
+      reason: 'other',
+    })
+
+    expect(events).toHaveLength(0)
+  })
 })
