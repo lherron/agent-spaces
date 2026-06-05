@@ -357,4 +357,43 @@ describe('broker lifecycle', () => {
     const status = await broker.status({ invocationId: 'inv_pid' })
     expect(status.process).toMatchObject({ pid: 4242 })
   })
+
+  test('pushes a single invocation.summary on user-exit continuation.cleared with turnsCompleted', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const { driver, controller } = createTestDriver()
+    const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
+
+    await broker.start({ spec: testDriverSpec('inv_summary') })
+    await broker.input({ invocationId: 'inv_summary', input: userInput('in_1') })
+    controller.completeActiveTurn()
+
+    // /quit → user-exit continuation.cleared → broker pushes the session summary.
+    controller.clearContinuation('prompt_input_exit')
+
+    const summaries = events.filter((event) => event.type === 'invocation.summary')
+    expect(summaries).toHaveLength(1)
+    // The summary lands AFTER the continuation.cleared that triggered it.
+    const clearedIdx = events.findIndex((event) => event.type === 'continuation.cleared')
+    const summaryIdx = events.findIndex((event) => event.type === 'invocation.summary')
+    expect(summaryIdx).toBeGreaterThan(clearedIdx)
+    expect(summaries[0]?.payload).toMatchObject({
+      reason: 'prompt_input_exit',
+      summary: { driver: 'test-driver', turnsCompleted: 1 },
+    })
+
+    // Idempotent: a second user-exit clear does not double-push.
+    controller.clearContinuation('logout')
+    expect(events.filter((event) => event.type === 'invocation.summary')).toHaveLength(1)
+  })
+
+  test('does NOT push invocation.summary on continuation.cleared reason=clear (session kept)', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const { driver, controller } = createTestDriver()
+    const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
+
+    await broker.start({ spec: testDriverSpec('inv_clear') })
+    controller.clearContinuation('clear')
+
+    expect(events.some((event) => event.type === 'invocation.summary')).toBe(false)
+  })
 })

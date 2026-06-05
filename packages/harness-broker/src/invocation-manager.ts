@@ -64,6 +64,14 @@ type PermissionDecidedBy = 'policy' | 'user' | 'api' | 'timeout'
 /** Terminal states that allow dispose. */
 const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
 
+/**
+ * continuation.cleared reasons that mean the operator LEFT the session (vs.
+ * `clear`, which keeps it). On these the broker pushes a final invocation.summary
+ * so a shutdown report is recorded on the durable stream before the lease reap.
+ * Mirrors HRC's BROKER_TMUX_PROMPT_EXIT_REASONS.
+ */
+const SESSION_LEAVE_REASONS = new Set(['prompt_input_exit', 'logout'])
+
 function assertLifecyclePolicySupported(
   policy: BrokerLifecyclePolicyOverlay | undefined,
   capabilities: InvocationCapabilities
@@ -155,6 +163,10 @@ export interface Invocation {
   lastActivityAt?: string | undefined
   /** Seq of the most recent projected event. */
   currentSeq?: number | undefined
+  /** Count of turns that reached turn.completed over the invocation's life. */
+  turnsCompleted?: number | undefined
+  /** True once the graceful-exit invocation.summary has been pushed (idempotent). */
+  summaryEmitted?: boolean | undefined
   /** Active turn start time, projected from turn.started event.time. */
   currentTurnStartedAt?: string | undefined
   /** Active turn attempt, projected from turn.started/turn.retry. */
@@ -571,6 +583,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         return
       }
       case 'turn.completed':
+        inv.turnsCompleted = (inv.turnsCompleted ?? 0) + 1
+      // falls through to the shared turn-end projection below
       case 'turn.failed':
       case 'turn.interrupted':
         inv.currentTurnId = undefined
@@ -666,6 +680,22 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     if (diagnostics) {
       for (const diagnostic of diagnostics) {
         emit(inv, 'diagnostic', diagnostic, extra)
+      }
+    }
+
+    // Graceful-exit summary push: on the user-exit continuation.cleared, push one
+    // authoritative invocation.summary on the SAME ordered stream — recorded
+    // downstream BEFORE the lease is reaped, so the operator shutdown report reads
+    // a pushed-and-recorded summary instead of pulling the (by-then gone) live
+    // broker read model. Guarded so it fires exactly once per invocation.
+    if (type === 'continuation.cleared' && !inv.summaryEmitted) {
+      const reason = (safePayload as { reason?: unknown } | undefined)?.reason
+      if (typeof reason === 'string' && SESSION_LEAVE_REASONS.has(reason)) {
+        inv.summaryEmitted = true
+        emit(inv, 'invocation.summary', {
+          summary: buildInspectionSummary(inv),
+          reason,
+        })
       }
     }
 
@@ -921,6 +951,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       startedAt: inv.startedAt ?? inv.lastActivityAt ?? '',
       lastActivityAt: inv.lastActivityAt ?? inv.startedAt ?? '',
     }
+    if (inv.turnsCompleted !== undefined) summary.turnsCompleted = inv.turnsCompleted
     if (inv.currentSeq !== undefined) summary.currentSeq = inv.currentSeq
     // currentTurn is always present (undefined when no turn is active) so a
     // cleared turn is observable as `currentTurn: undefined` rather than a

@@ -113,6 +113,8 @@ export interface InvocationInspectionSummary {
   driver: string
   startedAt: IsoTimestamp
   lastActivityAt: IsoTimestamp
+  /** Count of turns that reached `turn.completed` over the invocation's life. */
+  turnsCompleted?: number | undefined
   currentTurn?: InvocationCurrentTurnSummary | undefined
   currentSeq?: number | undefined
   lifecycle?: InvocationLifecycleView | undefined

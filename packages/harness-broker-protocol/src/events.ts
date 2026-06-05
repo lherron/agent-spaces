@@ -18,6 +18,7 @@ import type {
   TurnRetryPayload,
   TurnStalledPayload,
 } from './lifecycle'
+import type { InvocationInspectionSummary } from './invocation'
 import type { IsoTimestamp } from './primitives'
 
 export interface InvocationEventEnvelope<TPayload = InvocationEventPayload> {
@@ -47,6 +48,7 @@ export type InvocationEventType =
   | 'invocation.exited'
   | 'invocation.failed'
   | 'invocation.disposed'
+  | 'invocation.summary'
   | 'lifecycle.policy.accepted'
   | 'lifecycle.escalation'
   | 'harness.started'
@@ -80,8 +82,22 @@ export type InvocationEventType =
   | 'permission.resolved'
   | 'permission.cancelled'
 
+/**
+ * Pushed by the broker on a graceful session end (the user-exit
+ * `continuation.cleared`) so a final, authoritative session summary is recorded
+ * on the durable event stream BEFORE the lease is reaped — consumed downstream to
+ * render an operator shutdown report without pulling the (by-then gone) live
+ * broker read model.
+ */
+export interface InvocationSummaryPayload {
+  summary: InvocationInspectionSummary
+  /** The terminal reason that triggered the summary (e.g. `prompt_input_exit`). */
+  reason?: string | undefined
+}
+
 export type InvocationEventPayload =
   | InvocationStartedPayload
+  | InvocationSummaryPayload
   | InvocationReadyPayload
   | InvocationStoppingPayload
   | InvocationExitedPayload

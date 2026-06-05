@@ -24,6 +24,8 @@ export interface TestDriverController {
   completeActiveTurn(finalOutput?: string): void
   failActiveTurn(message?: string): void
   interruptActiveTurn(reason?: string): void
+  /** Emit a continuation.cleared with the given reason (simulates /quit, /clear). */
+  clearContinuation(reason: string): void
 }
 
 export interface TestDriverOptions {
@@ -141,6 +143,10 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
         { turnId: active.turnId, status: 'interrupted', reason },
         { turnId: active.turnId, inputId: active.input.inputId }
       )
+    },
+
+    clearContinuation(reason: string): void {
+      requireCtx().emit('continuation.cleared', { reason })
     },
   }
 

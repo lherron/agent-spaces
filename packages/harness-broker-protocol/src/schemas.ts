@@ -225,6 +225,7 @@ const EVENT_TYPES = [
   'invocation.exited',
   'invocation.failed',
   'invocation.disposed',
+  'invocation.summary',
   'lifecycle.policy.accepted',
   'lifecycle.escalation',
   'harness.started',
