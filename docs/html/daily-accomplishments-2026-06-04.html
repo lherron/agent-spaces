@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Praesidium Accomplishments - 2026-06-04</title>
+    <style>
+      :root {
+        --bg: #f4f1ea;
+        --paper: rgba(255, 255, 255, 0.95);
+        --ink: #17211d;
+        --muted: #5b6762;
+        --quiet: #7f8a84;
+        --line: #d7ddd6;
+        --line-strong: #a9b5af;
+        --shadow: 0 18px 44px rgba(23, 33, 29, 0.09);
+        --asp: #8f3324;
+        --asp-soft: #fae1d8;
+        --hrc: #0f665e;
+        --hrc-soft: #d9f0ea;
+        --wrkq: #245a8a;
+        --wrkq-soft: #e1edf9;
+        --ops: #7a5522;
+        --ops-soft: #faebd2;
+        --risk: #8b2443;
+        --risk-soft: #fde6ed;
+        --ok: #1d6a42;
+        --ok-soft: #e2f2e7;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        --sans: "Avenir Next", "Gill Sans", "Trebuchet MS", Verdana, sans-serif;
+        --serif: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      html,
+      body {
+        margin: 0;
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      body {
+        background:
+          linear-gradient(90deg, rgba(23, 33, 29, 0.03) 1px, transparent 1px) 0 0 / 32px 32px,
+          linear-gradient(0deg, rgba(23, 33, 29, 0.024) 1px, transparent 1px) 0 0 / 32px 32px,
+          radial-gradient(circle at top right, rgba(36, 90, 138, 0.1), transparent 28%),
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.56;
+      }
+
+      a {
+        color: var(--hrc);
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+
+      code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+      }
+
+      .page {
+        display: grid;
+        grid-template-columns: 288px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        height: 100vh;
+        overflow: auto;
+        border-right: 1px solid var(--line);
+        background: rgba(244, 241, 234, 0.92);
+        backdrop-filter: blur(14px);
+        padding: 24px 20px 28px;
+      }
+
+      .brand,
+      .nav,
+      .sidebar-block,
+      .legend {
+        display: grid;
+        gap: 10px;
+      }
+
+      .kicker,
+      .eyebrow,
+      .metric-label,
+      .chip,
+      .mini-label,
+      .record-meta,
+      .footer,
+      .nav a {
+        font-family: var(--mono);
+        letter-spacing: 0.055em;
+        text-transform: uppercase;
+      }
+
+      .kicker {
+        color: var(--asp);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .brand h1,
+      .hero h2,
+      .section-title h2,
+      .metric-value,
+      .workstream h3,
+      .task-card h3,
+      .repo-card h3,
+      .evidence-card h3,
+      .callout strong {
+        font-family: var(--serif);
+        letter-spacing: 0;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 30px;
+        line-height: 1.03;
+      }
+
+      .brand p,
+      .sidebar-note,
+      .section-title p,
+      .workstream p,
+      .task-card p,
+      .repo-card p,
+      .evidence-card p,
+      .mini-note {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .nav {
+        margin: 18px 0;
+      }
+
+      .nav a {
+        display: block;
+        border-left: 3px solid transparent;
+        padding: 8px 10px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.28;
+        text-decoration: none;
+      }
+
+      .nav a:hover,
+      .nav a:focus {
+        border-left-color: var(--hrc);
+        background: rgba(255, 255, 255, 0.7);
+        color: var(--ink);
+      }
+
+      .sidebar-block {
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        flex: 0 0 auto;
+      }
+
+      main {
+        min-width: 0;
+      }
+
+      .hero {
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(90deg, rgba(15, 102, 94, 0.16), transparent 48%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.84)),
+          transparent;
+        padding: 44px min(5vw, 62px) 34px;
+      }
+
+      .hero-grid,
+      .content {
+        width: min(1180px, 100%);
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.12fr) minmax(310px, 0.88fr);
+        gap: 30px;
+      }
+
+      .eyebrow {
+        color: var(--hrc);
+        font-size: 12px;
+        font-weight: 900;
+        margin-bottom: 12px;
+      }
+
+      .hero h2 {
+        margin: 0;
+        font-size: clamp(38px, 5.6vw, 70px);
+        line-height: 0.97;
+      }
+
+      .thesis {
+        max-width: 760px;
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: clamp(17px, 1.8vw, 21px);
+      }
+
+      .hero-notes {
+        display: grid;
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      .note-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.84);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .scorecard,
+      .workstreams,
+      .task-grid,
+      .evidence-grid,
+      .repo-grid,
+      .notes-grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .scorecard {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-content: start;
+      }
+
+      .metric,
+      .workstream,
+      .task-card,
+      .repo-card,
+      .evidence-card,
+      .note-card,
+      .callout {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: var(--paper);
+        box-shadow: var(--shadow);
+      }
+
+      .metric {
+        padding: 18px 18px 16px;
+      }
+
+      .metric-value {
+        display: block;
+        font-size: clamp(34px, 5vw, 56px);
+        line-height: 0.92;
+      }
+
+      .metric-label {
+        display: block;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .metric-note {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .callout {
+        padding: 18px 20px;
+        background: linear-gradient(135deg, rgba(143, 51, 36, 0.08), rgba(15, 102, 94, 0.08));
+      }
+
+      .content {
+        padding: 26px min(5vw, 62px) 52px;
+      }
+
+      section + section {
+        margin-top: 32px;
+      }
+
+      .section-title {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+
+      .section-title h2 {
+        margin: 0;
+        font-size: clamp(28px, 3.2vw, 44px);
+        line-height: 1;
+      }
+
+      .record-meta {
+        color: var(--quiet);
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .workstreams {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .task-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .evidence-grid,
+      .repo-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .notes-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .workstream,
+      .task-card,
+      .repo-card,
+      .evidence-card,
+      .note-card {
+        padding: 18px 18px 16px;
+      }
+
+      .workstream {
+        border-top: 5px solid var(--asp);
+      }
+
+      .workstream.hrc {
+        border-top-color: var(--hrc);
+      }
+
+      .workstream.wrkq {
+        border-top-color: var(--wrkq);
+      }
+
+      .workstream.ops {
+        border-top-color: var(--ops);
+      }
+
+      .workstream h3,
+      .task-card h3,
+      .repo-card h3,
+      .evidence-card h3 {
+        margin: 10px 0 8px;
+        font-size: 25px;
+        line-height: 1.08;
+      }
+
+      .task-card h3 {
+        font-size: 21px;
+      }
+
+      ul,
+      ol {
+        margin: 12px 0 0;
+        padding-left: 18px;
+      }
+
+      li + li {
+        margin-top: 8px;
+      }
+
+      .record-list,
+      .evidence-list,
+      .repo-list {
+        color: var(--ink);
+      }
+
+      .repo-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+        font-size: 14px;
+      }
+
+      .repo-table th,
+      .repo-table td {
+        padding: 10px 0;
+        border-top: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .repo-table th {
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .footer {
+        margin-top: 28px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      @media (max-width: 1120px) {
+        .page {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: static;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .hero-grid,
+        .workstreams,
+        .task-grid,
+        .evidence-grid,
+        .repo-grid,
+        .notes-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .scorecard {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 720px) {
+        .hero,
+        .content {
+          padding-left: 18px;
+          padding-right: 18px;
+        }
+
+        .scorecard {
+          grid-template-columns: 1fr;
+        }
+
+        .hero h2 {
+          font-size: clamp(34px, 12vw, 54px);
+        }
+
+        .section-title h2 {
+          font-size: 30px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="kicker">Praesidium Daily Brief</div>
+          <h1>Accomplishments for 2026-06-04</h1>
+          <p>Previous 24 hours, local window 2026-06-03 05:04 CDT to 2026-06-04 05:04 CDT.</p>
+        </div>
+
+        <nav class="nav" aria-label="Sections">
+          <a href="#scorecard">Scorecard</a>
+          <a href="#workstreams">Workstreams</a>
+          <a href="#tasks">Completed Tasks</a>
+          <a href="#validation">Validation Evidence</a>
+          <a href="#repo-state">Open Repo State</a>
+        </nav>
+
+        <div class="sidebar-block legend">
+          <div class="legend-item"><span class="dot" style="background: var(--asp)"></span> ASP and launch-surface work</div>
+          <div class="legend-item"><span class="dot" style="background: var(--hrc)"></span> HRC broker and session inspection</div>
+          <div class="legend-item"><span class="dot" style="background: var(--wrkq)"></span> wrkq and wrkf workflow surface</div>
+          <div class="legend-item"><span class="dot" style="background: var(--ops)"></span> Active unchecked-in repo motion</div>
+        </div>
+
+        <div class="sidebar-block sidebar-note">
+          This window is genuinely Praesidium-wide: four repos produced commits, four projects closed tasks, three repos remain ahead of origin, and nineteen repos still show visible local work.
+        </div>
+      </aside>
+
+      <main>
+        <section class="hero" id="scorecard">
+          <div class="hero-grid">
+            <div>
+              <div class="eyebrow">Praesidium-wide previous 24 hours</div>
+              <h2>Broker inspection crossed the ASP to HRC seam while wrkq shipped a heavier evidence and validation layer.</h2>
+              <p class="thesis">
+                The main shipped arc ran through `agent-spaces` and `hrc-runtime`: broker inspection contracts, read models, client conformance, read-only session resolution, and operator-facing inspect surfaces all landed in sequence. In parallel, `wrkq` advanced from workflow presets and docs into structured evidence facts, offline Go 1.23.2 builds, no-network agent checks, and verified HTML contract artifacts. The repo estate is still noisy, but the accomplishment signal is concentrated and well-evidenced.
+              </p>
+              <div class="hero-notes">
+                <div class="note-strip">
+                  <span class="chip">22 commits in window</span>
+                  <span class="chip">21 completed `wrkq` tasks</span>
+                  <span class="chip">6 fresh unpushed commits in `hrc-runtime`</span>
+                </div>
+                <div class="callout">
+                  <strong>Top accomplishments</strong>
+                  `agent-spaces` finished the broker inspection protocol and client integration, `hrc-runtime` exposed live and fallback inspection surfaces without write-on-read session pollution, `wrkq` landed structured evidence facts plus offline and sandbox validation flows, and Ghostty flake work tightened the understanding of matrix-only surface-realization failures.
+                </div>
+              </div>
+            </div>
+
+            <div class="scorecard" aria-label="Scorecard">
+              <article class="metric">
+                <span class="metric-value">22</span>
+                <span class="metric-label">Commits In Window</span>
+                <div class="metric-note">9 in `agent-spaces`, 7 in `hrc-runtime`, 4 in `wrkq`, 2 in `scriptable-ghostty`.</div>
+              </article>
+              <article class="metric">
+                <span class="metric-value">21</span>
+                <span class="metric-label">Completed Tasks</span>
+                <div class="metric-note">11 in `wrkq`, 6 in `agent-spaces`, 3 in `hrc-runtime`, 1 in `ghostmux`.</div>
+              </article>
+              <article class="metric">
+                <span class="metric-value">3</span>
+                <span class="metric-label">Ahead Repos</span>
+                <div class="metric-note">Only `hrc-runtime` is freshly ahead; `acp-spec` and `agent-syndication` are older carry-over leads.</div>
+              </article>
+              <article class="metric">
+                <span class="metric-value">19</span>
+                <span class="metric-label">Dirty Repos</span>
+                <div class="metric-note">The widest active work shows in the root super-repo, `workflow-spec`, `voice-control`, `wrkq`, and `llmkb`.</div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <div class="content">
+          <section id="workstreams">
+            <div class="section-title">
+              <h2>Workstreams</h2>
+              <p>The day broke cleanly into one cross-repo platform seam, one workflow/evidence wave, one Codex launch-surface lane, and one open operational state story.</p>
+            </div>
+
+            <div class="workstreams">
+              <article class="workstream">
+                <div class="record-meta">ASP / agent-spaces</div>
+                <h3>Broker inspection became a first-class client contract instead of an internal broker detail.</h3>
+                <p>`agent-spaces` committed nine times in-window, covering the full protocol-to-client stack for broker inspection. The sequence started with red tests and type contracts, moved through broker read-model projection, and ended with client conformance plus documentation sync.</p>
+                <ul class="record-list">
+                  <li>`T-01850`, `T-01851`, and `T-01852` landed the protocol, broker projection, and consumer/conformance layers.</li>
+                  <li>`5802ae0` synchronized self-inspection and broker contract docs after the implementation commits landed.</li>
+                  <li>Earlier in the day, `T-01831`, `T-01832`, and `T-01833` improved Codex.app launch isolation and cleared branch validation blockers.</li>
+                </ul>
+              </article>
+
+              <article class="workstream hrc">
+                <div class="record-meta">HRC / runtime</div>
+                <h3>HRC closed the loop with read-only session resolve and operator-facing broker inspection.</h3>
+                <p>`hrc-runtime` produced seven commits in-window and closed the three HRC tasks that made the inspection stack operator-usable. The biggest behavior change was making `session resolve` read-only by default so inspection commands stop creating phantom sessions.</p>
+                <ul class="record-list">
+                  <li>`T-01854` changed resolve semantics to require explicit create intent, with a discriminated read-miss response and zero write-on-read events.</li>
+                  <li>`T-01855` taught the broker controller to consume the shared inspection read model and negotiate capabilities cleanly.</li>
+                  <li>`T-01856` exposed `hrc broker inspect` plus `session get --live`, including honest labeling for HRC-derived fallback lifecycle data.</li>
+                </ul>
+              </article>
+
+              <article class="workstream wrkq">
+                <div class="record-meta">wrkq / workflow engine</div>
+                <h3>wrkq and wrkf moved from proposals into evidence facts, offline builds, and browser-verified public docs.</h3>
+                <p>`wrkq` was the highest task-throughput project in the window with eleven completions. The first half focused on PBC workflow presets and pre-interview evidence, while the second half hardened public docs, no-network validation, and finally landed structured evidence facts in the engine.</p>
+                <ul class="record-list">
+                  <li>`T-01842` lowered the build floor to offline Go 1.23.2 with vendored deps and an installed-binary smoke.</li>
+                  <li>`T-01846` and `T-01848` established `docs/html` conventions and verified HTML explainers at desktop and mobile widths.</li>
+                  <li>`T-01857` completed the structured evidence implementation with migration `000019`, CLI flags, tests, `just verify`, `just install`, and real-config smoke.</li>
+                </ul>
+              </article>
+
+              <article class="workstream ops">
+                <div class="record-meta">Ops / open state</div>
+                <h3>Active repo motion is broad, but most of it is still clearly in-flight rather than accomplishment evidence.</h3>
+                <p>Nineteen repos show unchecked-in changes. The highest-signal ones are rooted in active product work or infrastructure drift, including the top-level `praesidium` umbrella tree, `agent-control-plane` package/version churn, `workflow-spec` proposal edits, `voice-control` TTS/server work, and `rex-throne` heartbeat scripts.</p>
+                <ul class="record-list">
+                  <li>The only fresh unpushed completed work is `hrc-runtime` with six commits from the inspection stack.</li>
+                  <li>`acp-spec` and `agent-syndication` are also ahead of origin, but those commits predate this window and are reported as carry-over state, not new accomplishments.</li>
+                  <li>`scriptable-ghostty` added two commits shortening and surfacing realize-failure diagnostics in support of the closed Ghostmux flake task.</li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <section id="tasks">
+            <div class="section-title">
+              <h2>Completed Tasks</h2>
+              <p>Twenty-one tasks closed in the window. The grid stays compact, but the distribution makes the day legible: HRC inspection, ASP integration, wrkf workflow hardening, and one Ghostmux defect closure.</p>
+            </div>
+
+            <div class="task-grid">
+              <article class="task-card">
+                <div class="record-meta">agent-spaces • T-01831 • 06:58 CDT</div>
+                <h3>`asp gui` for Codex.app</h3>
+                <p>Added a Codex.app GUI launch surface using isolated `CODEX_HOME`, Electron profile, and `--user-data-dir` handling.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">agent-spaces • T-01833 • 07:33 CDT</div>
+                <h3>Multiple Codex.app instances investigation</h3>
+                <p>Verified separate local Codex desktop sessions are possible on one macOS user with distinct Chromium profile dirs.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">agent-spaces • T-01832 • 07:36 CDT</div>
+                <h3>Lint and test blockers cleared</h3>
+                <p>Closed branch validation issues and documented the remaining Ghostmux flake behavior after retries.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">ghostmux • T-01799 • 08:51 CDT</div>
+                <h3>Ghostty realize flake diagnosis</h3>
+                <p>Closed the defect thread with an isolation matrix showing the failure is rare, load-correlated, and likely libghostty-side.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01838 • 09:36 CDT</div>
+                <h3>PBC refinement preset</h3>
+                <p>Added a reusable PBC workflow preset, templates, skill docs, and validated it through a full installed `wrkf` flow.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01839 • 09:35 CDT</div>
+                <h3>PBC smoke run</h3>
+                <p>Closed the first progressive-refinement smoke with a finalized workflow instance and behavior-note chain.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01840 • 10:30 CDT</div>
+                <h3>Pre-interview analysis evidence</h3>
+                <p>Required analysis evidence before clarification or PBC drafting and validated the gating behavior against a second smoke.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01841 • 10:29 CDT</div>
+                <h3>PBC v2 smoke</h3>
+                <p>Verified the revised preset reaches `closed/finalized` only after the new evidence requirement is satisfied.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01842 • 14:21 CDT</div>
+                <h3>Offline Go 1.23.2 compile</h3>
+                <p>Lowered the toolchain floor, vendored modules, and proved offline build, test, install, and fresh-DB smoke with local Go 1.23.2.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01843 • 14:29 CDT</div>
+                <h3>Refined structured-evidence spec</h3>
+                <p>Captured the full design for evidence facts, validation, matching, CLI shape, and implementation order in `REFINED_WRKF.md`.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01847 • 15:09 CDT</div>
+                <h3>Deterministic sandbox checks</h3>
+                <p>Added repo-owned no-network validation scripts and recipes so agent checks stay deterministic in restricted environments.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01846 • 15:12 CDT</div>
+                <h3>REFINED_WRKF HTML explainer</h3>
+                <p>Generated and browser-verified a standalone explainer, then standardized `docs/html` serving on `0.0.0.0:18491`.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01849 • 15:39 CDT</div>
+                <h3>Cold-compile progress output</h3>
+                <p>Made no-network agent checks emit per-package heartbeat progress during slower offline compiles.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01848 • 15:54 CDT</div>
+                <h3>wrkq and wrkf contracts HTML</h3>
+                <p>Produced the public contract page with DTO cards and verified it across desktop and mobile without overflow.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">agent-spaces • T-01850 • 16:12 CDT</div>
+                <h3>Broker inspection protocol contracts</h3>
+                <p>Added the shared inspection protocol layer that HRC and ASP now speak across the broker boundary.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">agent-spaces • T-01851 • 16:40 CDT</div>
+                <h3>Broker read model and projection</h3>
+                <p>Implemented the harness-broker read model and inspection projection used by downstream clients.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">agent-spaces • T-01852 • 17:02 CDT</div>
+                <h3>Client and conformance wiring</h3>
+                <p>Finished broker client adoption in consumers and locked behavior with conformance coverage.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">hrc-runtime • T-01855 • 20:18 CDT</div>
+                <h3>Controller inspection read model</h3>
+                <p>Made HRC consume broker inspection summaries with capability negotiation and no state mutation.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">hrc-runtime • T-01854 • 23:18 CDT</div>
+                <h3>Read-only session resolve</h3>
+                <p>Stopped plain resolve from creating sessions or emitting read-side events, and defaulted lane resolution to `main`.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">hrc-runtime • T-01856 • 23:45 CDT</div>
+                <h3>Operator inspect surfaces</h3>
+                <p>Added `hrc broker inspect` and `session get --live` with truthful fallback labeling for non-broker runtimes.</p>
+              </article>
+
+              <article class="task-card">
+                <div class="record-meta">wrkq • T-01857 • 23:14 CDT</div>
+                <h3>Structured evidence facts implementation</h3>
+                <p>Landed evidence fact storage, matching, CLI flags, tests, install, migration, and real-config smoke.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="validation">
+            <div class="section-title">
+              <h2>Validation Evidence</h2>
+              <p>The best evidence today was explicit: installed binary smoke, browser verification, offline/no-network runs, and red-to-green test counts recorded in task comments.</p>
+            </div>
+
+            <div class="evidence-grid">
+              <article class="evidence-card">
+                <div class="record-meta">agent-spaces</div>
+                <h3>Codex launch and branch validation were checked against real installed surfaces.</h3>
+                <ul class="evidence-list">
+                  <li>`T-01831` ran `just install`; installed `asp gui cody --print-command` emitted the expected `/usr/bin/open` command with isolated environment.</li>
+                  <li>`T-01833` manually launched a second Codex main process alongside the default app using a distinct `--user-data-dir`, then cleaned it up.</li>
+                  <li>`T-01832` recorded a full validation pass across `bun run test`, `lint`, `typecheck`, `build`, `check:boundaries`, `check:manifests`, and `smoke:matrix`, with the Ghostmux rows passing after backoff.</li>
+                </ul>
+              </article>
+
+              <article class="evidence-card">
+                <div class="record-meta">hrc-runtime</div>
+                <h3>HRC changes were pinned by red suites, focused greens, and clean typechecking.</h3>
+                <ul class="evidence-list">
+                  <li>`T-01854` ended with `session-resolve-readonly.red.test.ts` at 13/13, broker-controller 30/30, and `tsc --noEmit` clean.</li>
+                  <li>`T-01856` started from explicit 404 red failures on the missing inspect endpoint and greened after wiring server/CLI surfaces and fallback guards.</li>
+                  <li>The task comments distinguish broker-reported lifecycle truth from HRC-derived fallback synthesis so the new operator output does not mislead.</li>
+                </ul>
+              </article>
+
+              <article class="evidence-card">
+                <div class="record-meta">wrkq / wrkf</div>
+                <h3>Workflow and documentation work was verified in browser, offline, and installed-binary paths.</h3>
+                <ul class="evidence-list">
+                  <li>`T-01842` proved exact Go 1.23.2 build/test/install smoke with `GOTOOLCHAIN=local`, `GOPROXY=off`, `GOSUMDB=off`, an empty module cache, and vendored deps.</li>
+                  <li>`T-01846` and `T-01848` browser-verified HTML artifacts at desktop and mobile widths with anchor counts and no horizontal overflow.</li>
+                  <li>`T-01857` passed `just verify`, `test/smoke-wrkf.sh`, `just install`, and a real-config installed `wrkf` PBC v3 smoke after migration `000019`.</li>
+                </ul>
+              </article>
+
+              <article class="evidence-card">
+                <div class="record-meta">ghostmux / scriptable-ghostty</div>
+                <h3>Ghostty realize-flake closure rests on reproduced negative evidence, not guesswork.</h3>
+                <ul class="evidence-list">
+                  <li>`T-01799` documents 144 probe `ghostmux new` calls across seven escalating scenarios with zero realize-signature failures.</li>
+                  <li>The conclusion narrowed the bug to sustained full-matrix orchestration, making retry/backoff strengthening the highest-ROI mitigation.</li>
+                  <li>`scriptable-ghostty` then committed message-shortening and wake-before-realize changes to improve diagnosis around the flake path.</li>
+                </ul>
+              </article>
+            </div>
+
+            <div class="notes-grid" style="margin-top: 16px">
+              <article class="note-card">
+                <div class="mini-label">Freshest install smoke</div>
+                <p>`wrkq` has the newest explicit installed-binary smoke in-window because `T-01857` completed after `just install` plus real-config workflow validation.</p>
+              </article>
+              <article class="note-card">
+                <div class="mini-label">Browser verification</div>
+                <p>Today’s strongest rendered artifacts were `REFINED_WRKF.html` and `Contracts.html`, each checked at both desktop and mobile widths with no overflow.</p>
+              </article>
+              <article class="note-card">
+                <div class="mini-label">Known limits</div>
+                <p>This brief itself was statically checked for anchors and responsive-safe CSS rather than opened in a browser during generation.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="repo-state">
+            <div class="section-title">
+              <h2>Open Repo State</h2>
+              <p>Unchecked-in and unpushed work matters because it shows where today’s accomplishment claims should stop and where tomorrow’s continuity likely starts.</p>
+            </div>
+
+            <div class="repo-grid">
+              <article class="repo-card">
+                <div class="record-meta">Ahead of origin</div>
+                <h3>`hrc-runtime` holds the only fresh unpushed commit stack in this window.</h3>
+                <ul class="repo-list">
+                  <li>`hrc-runtime` is ahead by 6 with the `T-01854` / `T-01855` / `T-01856` inspection stack commits from the evening window.</li>
+                  <li>`acp-spec` is ahead by 1, but that commit dates to 2026-05-12 and is carried forward state.</li>
+                  <li>`agent-syndication` is ahead by 10, all from 2026-04-08 through 2026-04-09, and should be read as backlog-to-push rather than new work.</li>
+                </ul>
+              </article>
+
+              <article class="repo-card">
+                <div class="record-meta">Highest-signal dirty repos</div>
+                <h3>Live edits remain broad across product, platform, and spec repos.</h3>
+                <table class="repo-table">
+                  <thead>
+                    <tr>
+                      <th>Repo</th>
+                      <th>State</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>praesidium</code></td>
+                      <td>34 tracked and 47 untracked paths, largely centered on `animata` plus deleted `agents/hannibal` files inside the umbrella tree.</td>
+                    </tr>
+                    <tr>
+                      <td><code>agent-control-plane</code></td>
+                      <td>Manifest and lockfile churn across core packages suggests dependency or publish-shape work still in motion.</td>
+                    </tr>
+                    <tr>
+                      <td><code>wrkq</code></td>
+                      <td>Post-commit local changes remain open around workflow service/types, docs HTML, and migration-backed evidence facts.</td>
+                    </tr>
+                    <tr>
+                      <td><code>workflow-spec</code></td>
+                      <td>31 tracked and 9 untracked changes across proposal docs, schemas, workflow JSON, and the explorer surface.</td>
+                    </tr>
+                    <tr>
+                      <td><code>voice-control</code></td>
+                      <td>TTS, config, server, CLI, and test edits remain unchecked in, along with new artifacts and ASP materialization files.</td>
+                    </tr>
+                    <tr>
+                      <td><code>llmkb</code></td>
+                      <td>Broad concept-doc refresh plus new ACP and evidence-bundle source pages remain open in the working tree.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </article>
+            </div>
+
+            <div class="callout" style="margin-top: 16px">
+              <strong>State read</strong>
+              Across 27 git repos under `/Users/lherron/praesidium`, only 4 repos showed new commits in the window, 3 repos were ahead of origin, and 19 repos were dirty. The completion lane was narrow and strong; the broader platform is still actively moving.
+            </div>
+          </section>
+
+          <div class="footer">
+            Sources: local git history and repo status under `/Users/lherron/praesidium`, plus `wrkq` completed-task metadata and comments gathered on 2026-06-04 for the previous 24-hour local window.
+          </div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

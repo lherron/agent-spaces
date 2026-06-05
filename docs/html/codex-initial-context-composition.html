@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Codex Initial Context Composition</title>
+    <style>
+      :root {
+        --paper: #f7f5ef;
+        --ink: #171916;
+        --muted: #5e665f;
+        --quiet: #828a84;
+        --panel: #fffdfa;
+        --line: #d8d4c7;
+        --line-strong: #aaa393;
+        --developer: #27666f;
+        --developer-soft: #dff0f1;
+        --user: #7a4d13;
+        --user-soft: #f6ead6;
+        --system: #6f496f;
+        --system-soft: #efe4ef;
+        --runtime: #3b6b35;
+        --runtime-soft: #e5f0dd;
+        --warn: #b84b35;
+        --warn-soft: #f8dfd8;
+        --shadow: 0 18px 42px rgba(41, 37, 28, 0.09);
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        --sans: "Avenir Next", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+
+      body {
+        background:
+          linear-gradient(90deg, rgba(23, 25, 22, 0.035) 1px, transparent 1px) 0 0 / 32px 32px,
+          linear-gradient(0deg, rgba(23, 25, 22, 0.026) 1px, transparent 1px) 0 0 / 32px 32px,
+          var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.55;
+      }
+
+      p,
+      h1,
+      h2,
+      h3,
+      code,
+      .lead,
+      .eyebrow,
+      .brand-copy,
+      .sidebar-note,
+      .tile-copy,
+      .section-copy,
+      .callout,
+      .stack-row span,
+      .bucket-list span {
+        overflow-wrap: anywhere;
+      }
+
+      a {
+        color: var(--developer);
+        text-underline-offset: 3px;
+      }
+
+      code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+      }
+
+      .page {
+        display: grid;
+        grid-template-columns: 286px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        align-self: start;
+        height: 100vh;
+        padding: 28px 24px;
+        border-right: 1px solid var(--line);
+        background: rgba(247, 245, 239, 0.9);
+        backdrop-filter: blur(8px);
+      }
+
+      .brand-kicker {
+        color: var(--quiet);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .brand-title {
+        margin-top: 8px;
+        font-size: 1.55rem;
+        font-weight: 850;
+        line-height: 1.05;
+      }
+
+      .brand-copy {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      nav {
+        display: grid;
+        gap: 6px;
+        margin-top: 30px;
+      }
+
+      nav a {
+        padding: 7px 0;
+        border-bottom: 1px solid rgba(216, 212, 199, 0.7);
+        color: var(--ink);
+        font-size: 0.9rem;
+        text-decoration: none;
+      }
+
+      .sidebar-note {
+        margin-top: 28px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+
+      main {
+        min-width: 0;
+      }
+
+      .content {
+        width: min(1180px, calc(100vw - 286px));
+        margin: 0 auto;
+        padding: 36px 44px 70px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 410px;
+        gap: 28px;
+        align-items: stretch;
+        min-height: 430px;
+        padding-bottom: 28px;
+      }
+
+      .eyebrow {
+        color: var(--developer);
+        font-size: 0.74rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 780px;
+        margin: 12px 0 16px;
+        font-size: clamp(2.4rem, 5vw, 5rem);
+        line-height: 0.96;
+        letter-spacing: 0;
+      }
+
+      .lead {
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 1.18rem;
+      }
+
+      .thesis-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 30px;
+      }
+
+      .thesis-tile {
+        min-height: 118px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 253, 250, 0.78);
+      }
+
+      .tile-number {
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 0.76rem;
+      }
+
+      .tile-title {
+        margin-top: 8px;
+        font-weight: 850;
+      }
+
+      .tile-copy {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .hero-panel {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        padding: 18px;
+        border: 1px solid var(--line-strong);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .panel-title {
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .stack-row {
+        display: grid;
+        grid-template-columns: 86px minmax(0, 1fr);
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .role-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 28px;
+        padding: 2px 8px;
+        border: 1px solid currentColor;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        font-weight: 800;
+      }
+
+      .system {
+        color: var(--system);
+        background: var(--system-soft);
+      }
+
+      .developer {
+        color: var(--developer);
+        background: var(--developer-soft);
+      }
+
+      .user {
+        color: var(--user);
+        background: var(--user-soft);
+      }
+
+      .runtime {
+        color: var(--runtime);
+        background: var(--runtime-soft);
+      }
+
+      .stack-row strong {
+        display: block;
+        margin-bottom: 2px;
+      }
+
+      .stack-row span {
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      section {
+        margin-top: 46px;
+      }
+
+      h2 {
+        margin: 0 0 14px;
+        font-size: 1.85rem;
+        line-height: 1.08;
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 680px) minmax(230px, 1fr);
+        gap: 22px;
+        align-items: end;
+        margin-bottom: 18px;
+      }
+
+      .section-copy {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .callout {
+        padding: 14px 16px;
+        border-left: 4px solid var(--developer);
+        background: var(--panel);
+        color: var(--muted);
+        box-shadow: 0 10px 24px rgba(41, 37, 28, 0.05);
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .flow-card,
+      .bucket-card,
+      .evidence-card,
+      .rule-card {
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .flow-card {
+        min-height: 198px;
+        padding: 16px;
+      }
+
+      .step {
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 0.78rem;
+      }
+
+      .flow-card h3,
+      .bucket-card h3,
+      .rule-card h3 {
+        margin: 8px 0 8px;
+        font-size: 1.05rem;
+        line-height: 1.2;
+      }
+
+      .flow-card p,
+      .bucket-card p,
+      .rule-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.93rem;
+      }
+
+      .composition {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 16px;
+      }
+
+      .bucket-card {
+        padding: 0;
+        overflow: hidden;
+      }
+
+      .bucket-head {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .bucket-head h3 {
+        margin: 0;
+      }
+
+      .bucket-list {
+        display: grid;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .bucket-list li {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 10px;
+        padding: 12px 16px;
+        border-top: 1px solid rgba(216, 212, 199, 0.62);
+      }
+
+      .bucket-list li:first-child {
+        border-top: 0;
+      }
+
+      .ordinal {
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line-strong);
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 0.74rem;
+      }
+
+      .bucket-list strong {
+        display: block;
+        margin-bottom: 2px;
+      }
+
+      .bucket-list span {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .agents-model {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) 54px minmax(0, 1.05fr);
+        gap: 12px;
+        align-items: stretch;
+      }
+
+      .source-panel,
+      .output-panel {
+        padding: 16px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .source-panel h3,
+      .output-panel h3 {
+        margin: 0 0 12px;
+        font-size: 1rem;
+      }
+
+      .file-stack {
+        display: grid;
+        gap: 8px;
+      }
+
+      .file-row {
+        display: grid;
+        grid-template-columns: 90px minmax(0, 1fr);
+        gap: 10px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .file-row .scope {
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 0.73rem;
+      }
+
+      .arrow {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--quiet);
+        font-family: var(--mono);
+        font-size: 1.45rem;
+      }
+
+      .rendered {
+        padding: 14px;
+        border: 1px solid var(--user);
+        background: var(--user-soft);
+        font-family: var(--mono);
+        font-size: 0.82rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .compaction-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .rule-card {
+        min-height: 172px;
+        padding: 16px;
+      }
+
+      .rule-card.warning {
+        border-color: rgba(184, 75, 53, 0.55);
+        background: linear-gradient(180deg, var(--warn-soft), var(--panel));
+      }
+
+      .evidence-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .evidence-card {
+        padding: 14px;
+      }
+
+      .evidence-card h3 {
+        margin: 0 0 10px;
+        font-size: 0.95rem;
+      }
+
+      .path-list {
+        display: grid;
+        gap: 7px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .path-list li {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        overflow-wrap: anywhere;
+      }
+
+      footer {
+        margin-top: 54px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        color: var(--quiet);
+        font-size: 0.84rem;
+      }
+
+      @media (max-width: 980px) {
+        .page {
+          display: block;
+        }
+
+        .sidebar {
+          position: relative;
+          height: auto;
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+
+        nav {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .content {
+          width: 100vw;
+          max-width: 100%;
+          padding: 28px 22px 52px;
+        }
+
+        .hero,
+        .section-head,
+        .composition,
+        .agents-model {
+          grid-template-columns: 1fr;
+        }
+
+        .arrow {
+          min-height: 32px;
+          transform: rotate(90deg);
+        }
+
+        .flow,
+        .thesis-grid,
+        .compaction-grid,
+        .evidence-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero,
+        .hero-panel,
+        .source-panel,
+        .output-panel,
+        .bucket-card,
+        .rule-card,
+        .evidence-card {
+          min-width: 0;
+        }
+      }
+
+      @media (max-width: 560px) {
+        h1 {
+          font-size: 2.5rem;
+        }
+
+        nav {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .stack-row,
+        .file-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar" aria-label="Initial context navigation">
+        <div class="brand">
+          <div class="brand-kicker">Codex CLI internals</div>
+          <div class="brand-title">Initial Context Composition</div>
+          <div class="brand-copy">
+            A source-backed map of what gets injected into thread history, how AGENTS.md is assembled, and what compaction preserves.
+          </div>
+        </div>
+        <nav aria-label="Page sections">
+          <a href="#model">Mental Model</a>
+          <a href="#agents">AGENTS Chain</a>
+          <a href="#buckets">Buckets</a>
+          <a href="#compaction">Compaction</a>
+          <a href="#evidence">Source Map</a>
+        </nav>
+        <div class="sidebar-note">
+          Scope: <code>~/tools/codex/codex-rs/core</code> and app-server paths inspected on 2026-06-04.
+        </div>
+      </aside>
+
+      <main>
+        <div class="content">
+          <section class="hero" id="model" aria-labelledby="title">
+            <div>
+              <div class="eyebrow">Base instructions, generated context, user turn</div>
+              <h1 id="title">Initial context is a generated prefix, not a pile of old reminders.</h1>
+              <p class="lead">
+                Codex separates immutable model instructions from model-visible history items. AGENTS.md is loaded into session user instructions, rendered as a contextual user block, and re-injected when the runtime needs a fresh context baseline.
+              </p>
+              <div class="thesis-grid" aria-label="Three primary rules">
+                <div class="thesis-tile">
+                  <div class="tile-number">01</div>
+                  <div class="tile-title">Base instructions are outside history.</div>
+                  <div class="tile-copy">They travel as the Responses API instruction field, resolved from config, resume metadata, or model defaults.</div>
+                </div>
+                <div class="thesis-tile">
+                  <div class="tile-number">02</div>
+                  <div class="tile-title">Initial context is history.</div>
+                  <div class="tile-copy">It is emitted as developer and user messages before the real user turn when the context baseline is missing.</div>
+                </div>
+                <div class="thesis-tile">
+                  <div class="tile-number">03</div>
+                  <div class="tile-title">Compaction regenerates context.</div>
+                  <div class="tile-copy">Old prefix entries are dropped; the current session context is injected again on the next suitable boundary.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="hero-panel" aria-label="Model-visible stack">
+              <div class="panel-title">Prompt Stack</div>
+              <div class="stack-row">
+                <span class="role-chip system">base</span>
+                <div>
+                  <strong>Prompt.base_instructions</strong>
+                  <span>System-like model instructions, not a retained conversation item.</span>
+                </div>
+              </div>
+              <div class="stack-row">
+                <span class="role-chip developer">dev</span>
+                <div>
+                  <strong>Aggregated developer message</strong>
+                  <span>Permissions, developer config, collaboration mode, realtime, personality, apps, skills, plugins, extension policy.</span>
+                </div>
+              </div>
+              <div class="stack-row">
+                <span class="role-chip developer">dev+</span>
+                <div>
+                  <strong>Separate developer messages</strong>
+                  <span>Extension separate-developer fragments, multi-agent hint, guardian policy when applicable.</span>
+                </div>
+              </div>
+              <div class="stack-row">
+                <span class="role-chip user">user</span>
+                <div>
+                  <strong>Contextual user message</strong>
+                  <span>Extension contextual fragments, AGENTS/user instructions, and environment context.</span>
+                </div>
+              </div>
+              <div class="stack-row">
+                <span class="role-chip runtime">turn</span>
+                <div>
+                  <strong>Real user input</strong>
+                  <span>The request that follows the generated initial-context prefix.</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="agents" aria-labelledby="agents-title">
+            <div class="section-head">
+              <div>
+                <h2 id="agents-title">AGENTS.md Assembly Chain</h2>
+                <p class="section-copy">
+                  AGENTS.md content is preassembled into <code>SessionConfiguration.user_instructions</code>. Project docs are discovered along the cwd path and concatenated root-to-leaf.
+                </p>
+              </div>
+              <div class="callout">
+                Per directory, Codex prefers <code>AGENTS.override.md</code>, then <code>AGENTS.md</code>, then configured fallback names. The first matching regular file in each directory wins.
+              </div>
+            </div>
+
+            <div class="agents-model">
+              <div class="source-panel">
+                <h3>Instruction Sources</h3>
+                <div class="file-stack">
+                  <div class="file-row">
+                    <div class="scope">global</div>
+                    <div><code>$CODEX_HOME/AGENTS.override.md</code> or <code>AGENTS.md</code></div>
+                  </div>
+                  <div class="file-row">
+                    <div class="scope">project</div>
+                    <div>Project root AGENTS file, bounded by project root markers such as <code>.git</code>.</div>
+                  </div>
+                  <div class="file-row">
+                    <div class="scope">nested</div>
+                    <div>Every matching AGENTS file from root down to the current working directory.</div>
+                  </div>
+                  <div class="file-row">
+                    <div class="scope">feature</div>
+                    <div>Optional hierarchical AGENTS message when <code>ChildAgentsMd</code> is enabled.</div>
+                  </div>
+                </div>
+              </div>
+              <div class="arrow" aria-hidden="true">-&gt;</div>
+              <div class="output-panel">
+                <h3>Rendered Contextual User Block</h3>
+                <div class="rendered"># AGENTS.md instructions for /current/cwd
+
+&lt;INSTRUCTIONS&gt;
+global instructions
+
+--- project-doc ---
+
+root AGENTS.md
+
+nested AGENTS.md
+&lt;/INSTRUCTIONS&gt;</div>
+              </div>
+            </div>
+          </section>
+
+          <section id="buckets" aria-labelledby="buckets-title">
+            <div class="section-head">
+              <div>
+                <h2 id="buckets-title">Initial Context Buckets</h2>
+                <p class="section-copy">
+                  <code>build_initial_context()</code> builds three visible buckets: one aggregated developer item, optional separate developer items, and one aggregated contextual user item.
+                </p>
+              </div>
+              <div class="callout">
+                The developer and user buckets are multi-content messages. Each section becomes its own content item inside the same role message.
+              </div>
+            </div>
+
+            <div class="composition">
+              <article class="bucket-card">
+                <div class="bucket-head">
+                  <span class="role-chip developer">developer</span>
+                  <h3>Aggregated Developer Sections</h3>
+                </div>
+                <ol class="bucket-list">
+                  <li><span class="ordinal">01</span><div><strong>Model switch</strong><span>Restates model-specific instructions when the active model changed.</span></div></li>
+                  <li><span class="ordinal">02</span><div><strong>Permissions</strong><span>Approval policy, sandbox, permission profile, exec policy, cwd-sensitive permission text.</span></div></li>
+                  <li><span class="ordinal">03</span><div><strong>Developer instructions</strong><span>Configured developer instructions, except guardian sessions keep them separate.</span></div></li>
+                  <li><span class="ordinal">04</span><div><strong>Collaboration mode</strong><span>Mode-specific developer guidance when enabled and available.</span></div></li>
+                  <li><span class="ordinal">05</span><div><strong>Realtime</strong><span>Realtime start/end instructions or custom realtime start text.</span></div></li>
+                  <li><span class="ordinal">06</span><div><strong>Personality</strong><span>Injected only when enabled, selected, and not already baked into base instructions.</span></div></li>
+                  <li><span class="ordinal">07</span><div><strong>Apps</strong><span>Accessible and enabled connector instructions.</span></div></li>
+                  <li><span class="ordinal">08</span><div><strong>Skills</strong><span>Available skill metadata under a context-window budget.</span></div></li>
+                  <li><span class="ordinal">09</span><div><strong>Plugins</strong><span>Loaded plugin capability summaries.</span></div></li>
+                  <li><span class="ordinal">10</span><div><strong>Extension policy/capabilities</strong><span>Fragments contributed through developer prompt slots.</span></div></li>
+                </ol>
+              </article>
+
+              <article class="bucket-card">
+                <div class="bucket-head">
+                  <span class="role-chip user">user</span>
+                  <h3>Contextual User Sections</h3>
+                </div>
+                <ol class="bucket-list">
+                  <li><span class="ordinal">01</span><div><strong>Extension contextual fragments</strong><span>Extension-provided context that should be visible as user-context, not developer policy.</span></div></li>
+                  <li><span class="ordinal">02</span><div><strong>AGENTS/user instructions</strong><span>Global user instructions plus project AGENTS docs rendered with <code># AGENTS.md instructions for</code> markers.</span></div></li>
+                  <li><span class="ordinal">03</span><div><strong>Environment context</strong><span>Cwd, shell, date/time, sandbox, network, and subagent environment metadata when enabled.</span></div></li>
+                </ol>
+                <div class="bucket-head">
+                  <span class="role-chip developer">separate</span>
+                  <h3>Separate Developer Items</h3>
+                </div>
+                <ol class="bucket-list">
+                  <li><span class="ordinal">01</span><div><strong>SeparateDeveloper extension fragments</strong><span>Each fragment becomes its own developer message.</span></div></li>
+                  <li><span class="ordinal">02</span><div><strong>Multi-agent v2 hint</strong><span>Usage hint becomes its own developer message when present.</span></div></li>
+                  <li><span class="ordinal">03</span><div><strong>Guardian policy</strong><span>Guardian reviewer sessions emit developer instructions as a final separate developer message.</span></div></li>
+                </ol>
+              </article>
+            </div>
+          </section>
+
+          <section id="compaction" aria-labelledby="compaction-title">
+            <div class="section-head">
+              <div>
+                <h2 id="compaction-title">What Compaction Does To These Buckets</h2>
+                <p class="section-copy">
+                  Prefix context is treated as generated inventory. Compaction drops old generated blocks and installs compacted history; fresh context is then injected at the next controlled boundary.
+                </p>
+              </div>
+              <div class="callout">
+                This is why AGENTS.md appears to survive: the old contextual user message is filtered out, but the session’s loaded AGENTS/user-instruction string is rendered again.
+              </div>
+            </div>
+
+            <div class="compaction-grid">
+              <article class="rule-card">
+                <span class="role-chip runtime">local</span>
+                <h3>Local compaction</h3>
+                <p>Collects real user messages and the summary. AGENTS and environment prefix entries are filtered as non-real user content.</p>
+              </article>
+              <article class="rule-card">
+                <span class="role-chip runtime">remote</span>
+                <h3>Remote compaction</h3>
+                <p>Retains only installed retention shape. Raw system and developer messages are not installed as retained history.</p>
+              </article>
+              <article class="rule-card warning">
+                <span class="role-chip user">AGENTS</span>
+                <h3>Reread caveat</h3>
+                <p>Compaction reuses the session-loaded AGENTS content. It is not evidence that edited AGENTS files were reread from disk mid-thread.</p>
+              </article>
+            </div>
+          </section>
+
+          <section id="evidence" aria-labelledby="evidence-title">
+            <div class="section-head">
+              <div>
+                <h2 id="evidence-title">Source Map</h2>
+                <p class="section-copy">
+                  The page is based on local Codex source inspection, with paths grouped by the mechanism they define.
+                </p>
+              </div>
+            </div>
+
+            <div class="evidence-grid">
+              <article class="evidence-card">
+                <h3>AGENTS discovery and assembly</h3>
+                <ul class="path-list">
+                  <li>~/tools/codex/codex-rs/core/src/agents_md.rs</li>
+                  <li>~/tools/codex/codex-rs/core/src/agents_md_tests.rs</li>
+                  <li>~/tools/codex/codex-rs/core/src/config/mod.rs</li>
+                </ul>
+              </article>
+              <article class="evidence-card">
+                <h3>Initial context construction</h3>
+                <ul class="path-list">
+                  <li>~/tools/codex/codex-rs/core/src/session/mod.rs</li>
+                  <li>~/tools/codex/codex-rs/core/src/context_manager/updates.rs</li>
+                  <li>~/tools/codex/codex-rs/core/src/context/user_instructions.rs</li>
+                </ul>
+              </article>
+              <article class="evidence-card">
+                <h3>Compaction filters</h3>
+                <ul class="path-list">
+                  <li>~/tools/codex/codex-rs/core/src/compact.rs</li>
+                  <li>~/tools/codex/codex-rs/core/src/compact_remote.rs</li>
+                  <li>~/tools/codex/codex-rs/core/src/compact_remote_v2.rs</li>
+                </ul>
+              </article>
+              <article class="evidence-card">
+                <h3>Runtime reinjection baseline</h3>
+                <ul class="path-list">
+                  <li>~/tools/codex/codex-rs/core/src/session/turn.rs</li>
+                  <li>~/tools/codex/codex-rs/core/src/session/turn_context.rs</li>
+                  <li>~/tools/codex/codex-rs/core/src/session/tests.rs</li>
+                </ul>
+              </article>
+            </div>
+          </section>
+
+          <footer>
+            Generated with the <code>wrkq-to-html</code> skill from source analysis, not from a wrkq task. Artifact: Codex initial-context composition explainer.
+          </footer>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

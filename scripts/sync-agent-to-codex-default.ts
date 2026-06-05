@@ -5,11 +5,22 @@
  * This is intentionally an overlay, not a home replacement:
  * - ~/.codex/config.toml is never modified.
  * - ~/.codex/AGENTS.md is updated only inside this script's managed block.
- * - Existing skill directories win. Collisions warn and are skipped.
+ * - Existing unmanaged skill directories win. Collisions warn and are skipped.
+ * - Managed skill directories carry a marker and are replaced only when clean.
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { cp, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  cp,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 
@@ -53,7 +64,7 @@ export interface SkillPlan {
   name: string
   sourcePath: string
   destPath: string
-  action: 'copy' | 'update' | 'skip-collision'
+  action: 'copy' | 'update' | 'skip-collision' | 'skip-dirty-managed'
   reason?: string | undefined
 }
 
@@ -134,7 +145,8 @@ function printUsage(): void {
       '',
       'Safety:',
       '  ~/.codex/config.toml is modified only with --install-hooks.',
-      '  Skill collisions warn and skip; they are not namespaced.',
+      '  Markerless skill collisions warn and skip; they are not namespaced.',
+      '  Managed skills are overwritten only when their marker hash still matches.',
     ].join('\n')
   )
 }
@@ -807,27 +819,105 @@ async function loadManifest(manifestPath: string): Promise<SyncManifest | undefi
   }
 }
 
-function skillMarker(agentId: string, sourcePath: string): string {
+interface SkillMarker {
+  schemaVersion: 1
+  owner: 'agent-spaces'
+  kind: 'codex-skill' | 'skill'
+  agentId: string
+  skillName?: string | undefined
+  contentHash?: string | undefined
+}
+
+interface ManagedSkillState {
+  marker: SkillMarker
+  dirty: boolean
+  currentHash?: string | undefined
+}
+
+async function hashSkillDirectory(skillDir: string): Promise<string> {
+  const hash = createHash('sha256')
+
+  async function walk(dir: string, relDir: string): Promise<void> {
+    const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    )
+
+    for (const entry of entries) {
+      const relPath = relDir ? `${relDir}/${entry.name}` : entry.name
+      if (relPath === SKILL_MARKER_FILE) continue
+
+      const path = join(dir, entry.name)
+      const stats = await lstat(path)
+
+      if (stats.isDirectory()) {
+        hash.update(`dir\u0000${relPath}\u0000`)
+        await walk(path, relPath)
+        continue
+      }
+
+      if (stats.isSymbolicLink()) {
+        hash.update(`symlink\u0000${relPath}\u0000${await readlink(path)}\u0000`)
+        continue
+      }
+
+      if (stats.isFile()) {
+        hash.update(`file\u0000${relPath}\u0000`)
+        hash.update(await readFile(path))
+        hash.update('\u0000')
+        continue
+      }
+
+      hash.update(`other\u0000${relPath}\u0000${stats.mode}\u0000${stats.size}\u0000`)
+    }
+  }
+
+  await walk(skillDir, '')
+  return `sha256:${hash.digest('hex')}`
+}
+
+function skillMarker(agentId: string, skillName: string, contentHash: string): string {
   return `${JSON.stringify(
     {
       schemaVersion: 1,
       owner: 'agent-spaces',
       agentId,
-      kind: 'skill',
-      sourcePath,
+      kind: 'codex-skill',
+      skillName,
+      contentHash,
     },
     null,
     2
   )}\n`
 }
 
-async function hasManagedSkillMarker(skillDir: string, agentId: string): Promise<boolean> {
+async function readManagedSkillState(
+  skillDir: string,
+  agentId: string
+): Promise<ManagedSkillState | undefined> {
   const markerPath = join(skillDir, SKILL_MARKER_FILE)
   try {
     const parsed = JSON.parse(await readFile(markerPath, 'utf8')) as Record<string, unknown>
-    return parsed['owner'] === 'agent-spaces' && parsed['agentId'] === agentId
+    if (parsed['owner'] !== 'agent-spaces') return undefined
+    if (parsed['agentId'] !== agentId) return undefined
+    if (parsed['kind'] !== 'codex-skill' && parsed['kind'] !== 'skill') return undefined
+
+    const marker: SkillMarker = {
+      schemaVersion: 1,
+      owner: 'agent-spaces',
+      kind: parsed['kind'],
+      agentId,
+      ...(typeof parsed['skillName'] === 'string' ? { skillName: parsed['skillName'] } : {}),
+      ...(typeof parsed['contentHash'] === 'string' ? { contentHash: parsed['contentHash'] } : {}),
+    }
+
+    if (marker.contentHash === undefined) {
+      return { marker, dirty: false }
+    }
+
+    const currentHash = await hashSkillDirectory(skillDir)
+    return { marker, dirty: currentHash !== marker.contentHash, currentHash }
   } catch {
-    return false
+    return undefined
   }
 }
 
@@ -862,10 +952,16 @@ async function planSkills(input: {
       continue
     }
 
-    const managed =
-      previousManaged.has(name) || (await hasManagedSkillMarker(destPath, input.agentId))
-    if (managed) {
+    const managed = await readManagedSkillState(destPath, input.agentId)
+    if (managed && !managed.dirty) {
       skills.push({ name, sourcePath, destPath, action: 'update' })
+      continue
+    }
+
+    if (managed?.dirty) {
+      const reason = `skill "${name}" has local edits since the last overlay; leaving existing skill unchanged`
+      warnings.push(reason)
+      skills.push({ name, sourcePath, destPath, action: 'skip-dirty-managed', reason })
       continue
     }
 
@@ -1005,7 +1101,8 @@ async function removeManagedSkillIfSafe(
   name: string
 ): Promise<void> {
   const destPath = join(codexHome, 'skills', name)
-  if (!(await hasManagedSkillMarker(destPath, agentId))) return
+  const managed = await readManagedSkillState(destPath, agentId)
+  if (!managed || managed.dirty) return
   await rm(destPath, { recursive: true, force: true })
 }
 
@@ -1013,7 +1110,11 @@ async function writeSkill(plan: SkillPlan, agentId: string): Promise<void> {
   await rm(plan.destPath, { recursive: true, force: true })
   await mkdir(dirname(plan.destPath), { recursive: true })
   await cp(plan.sourcePath, plan.destPath, { recursive: true })
-  await writeFile(join(plan.destPath, SKILL_MARKER_FILE), skillMarker(agentId, plan.sourcePath))
+  const contentHash = await hashSkillDirectory(plan.destPath)
+  await writeFile(
+    join(plan.destPath, SKILL_MARKER_FILE),
+    skillMarker(agentId, plan.name, contentHash)
+  )
 }
 
 async function applyHooksPlan(plan: SyncPlan): Promise<void> {
@@ -1083,7 +1184,7 @@ async function applyPlan(plan: SyncPlan): Promise<void> {
   }
 
   for (const skill of plan.skills) {
-    if (skill.action === 'skip-collision') continue
+    if (skill.action === 'skip-collision' || skill.action === 'skip-dirty-managed') continue
     await assertWritableTarget(skill.destPath, plan.codexHome)
     await writeSkill(skill, plan.agentId)
   }
@@ -1091,7 +1192,7 @@ async function applyPlan(plan: SyncPlan): Promise<void> {
   await applyHooksPlan(plan)
 
   const managedSkills = plan.skills
-    .filter((skill) => skill.action !== 'skip-collision')
+    .filter((skill) => skill.action === 'copy' || skill.action === 'update')
     .map((skill) => skill.name)
     .sort()
   const manifest: SyncManifest = {
@@ -1137,7 +1238,9 @@ function renderHuman(result: SyncResult): void {
 
   const copied = plan.skills.filter((skill) => skill.action === 'copy')
   const updated = plan.skills.filter((skill) => skill.action === 'update')
-  const skipped = plan.skills.filter((skill) => skill.action === 'skip-collision')
+  const skipped = plan.skills.filter(
+    (skill) => skill.action === 'skip-collision' || skill.action === 'skip-dirty-managed'
+  )
   console.log(
     `skills:       copy=${copied.length} update=${updated.length} skipped=${skipped.length}`
   )
