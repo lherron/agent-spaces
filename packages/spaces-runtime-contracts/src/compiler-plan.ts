@@ -64,6 +64,14 @@ export type RuntimeCompileRequest = {
     resourceLimits?: RuntimeResourceLimits | undefined
     observability?: RuntimeObservabilityInput | undefined
     capabilityPolicy?: HrcCapabilityPolicy | undefined
+    /**
+     * Selected-harness tool identifiers the caller asks the chosen driver to
+     * deny before tool execution. These are NOT portable platform tool ids
+     * (`AskUserQuestion` is a Claude tool name, for example). The compiler does
+     * not supply a default; absence preserves the selected harness' normal tool
+     * surface.
+     */
+    disallowedTools?: string[] | undefined
   }
 
   continuation?: RuntimeContinuationRef | undefined

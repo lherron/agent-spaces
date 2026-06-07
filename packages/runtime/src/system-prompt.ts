@@ -26,6 +26,7 @@ export interface MaterializeSystemPromptInput {
   lane?: string | undefined
   runMode: RunMode
   scaffoldPackets?: RunScaffoldPacket[] | undefined
+  env?: Record<string, string | undefined> | undefined
 }
 
 export interface MaterializeResult {
@@ -186,6 +187,7 @@ export async function inspectAgentSystemPrompt(
     lane: input.lane,
     runMode: input.runMode,
     scaffoldPackets: input.scaffoldPackets,
+    env: input.env,
     ...(templateSource
       ? { agentProfile: profile.rawProfile }
       : profile.additionalBase

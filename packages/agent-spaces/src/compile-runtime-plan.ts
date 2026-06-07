@@ -123,6 +123,28 @@ function compileError(code: string, message: string, details?: unknown): Compile
   }
 }
 
+function requestedDisallowedTools(req: RuntimeCompileRequest): string[] | undefined {
+  const tools = req.hrcPolicy.disallowedTools
+  return tools !== undefined && tools.length > 0 ? [...tools] : undefined
+}
+
+function disallowedToolsUnsupportedDiagnostic(
+  req: RuntimeCompileRequest,
+  selectedDriver: string,
+  profileId?: ProfileId | undefined
+): CompileDiagnostic | undefined {
+  const disallowedTools = requestedDisallowedTools(req)
+  if (disallowedTools === undefined) return undefined
+  return {
+    level: 'warning',
+    code: 'disallowed_tools_unsupported_driver',
+    message: `hrcPolicy.disallowedTools was not applied for ${selectedDriver}; only claude-code-tmux currently supports compiler-enforced tool denial.`,
+    plane: 'asp-compiler',
+    ...(profileId !== undefined ? { profileId } : {}),
+    details: { selectedDriver, disallowedTools, applied: false },
+  }
+}
+
 /**
  * Validate the headless broker route (openai / codex / codex-cli / headless).
  * The foreground branch has its own route resolver (resolveForegroundRoute).
@@ -756,6 +778,12 @@ async function compileBrokerPlan(
     plane: 'asp-compiler',
     profileId,
   }))
+  const disallowedToolsDiagnostic = disallowedToolsUnsupportedDiagnostic(
+    req,
+    'codex-app-server',
+    profileId
+  )
+  if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
   const compileId = stableId('compile', {
     requestId: req.identity.requestId,
     operationId: req.identity.operationId,
@@ -941,6 +969,12 @@ async function compileForegroundPlan(
     plane: 'asp-compiler',
     profileId,
   }))
+  const disallowedToolsDiagnostic = disallowedToolsUnsupportedDiagnostic(
+    req,
+    `${route.frontend}:foreground-terminal`,
+    profileId
+  )
+  if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
   const compileId = stableId('compile', {
     requestId: req.identity.requestId,
     operationId: req.identity.operationId,
@@ -1256,6 +1290,8 @@ async function compileEmbeddedSdkPlan(
     plane: 'asp-compiler',
     profileId,
   }))
+  const disallowedToolsDiagnostic = disallowedToolsUnsupportedDiagnostic(req, 'pi-sdk', profileId)
+  if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
   const compileId = stableId('compile', {
     requestId: req.identity.requestId,
     operationId: req.identity.operationId,
@@ -1390,6 +1426,7 @@ async function compileClaudeTmuxBrokerPlan(
   resolveFrontend(route.frontend)
 
   const attachments = toBrokerAttachments(req.materialization.attachments)
+  const disallowedTools = requestedDisallowedTools(req)
   const prepared = await preparePlacementCliRuntime(
     {
       provider: route.provider,
@@ -1405,6 +1442,7 @@ async function compileClaudeTmuxBrokerPlan(
       ...(req.materialization.initialPrompt !== undefined
         ? { prompt: req.materialization.initialPrompt }
         : {}),
+      ...(disallowedTools !== undefined ? { disallowedTools } : {}),
       ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
       ...(placement.env !== undefined ? { env: placement.env } : {}),
       ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),
@@ -1505,6 +1543,7 @@ async function compileClaudeTmuxBrokerPlan(
       ...(req.hrcPolicy.resourceLimits !== undefined
         ? { resourceLimits: req.hrcPolicy.resourceLimits }
         : {}),
+      ...(disallowedTools !== undefined ? { disallowedTools } : {}),
     },
     ...(req.continuation !== undefined
       ? { continuation: { hrc: req.continuation, broker: req.continuation.broker } }
@@ -1770,6 +1809,12 @@ async function compileCodexTmuxBrokerPlan(
     plane: 'asp-compiler',
     profileId,
   }))
+  const disallowedToolsDiagnostic = disallowedToolsUnsupportedDiagnostic(
+    req,
+    'codex-cli-tmux',
+    profileId
+  )
+  if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
   const compileId = stableId('compile', {
     requestId: req.identity.requestId,
     operationId: req.identity.operationId,

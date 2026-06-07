@@ -55,6 +55,13 @@ describe('buildClaudeArgs', () => {
     expect(args).toEqual(['--permission-mode', 'full'])
   })
 
+  test('adds disallowed tools', () => {
+    const args = buildClaudeArgs({
+      disallowedTools: ['AskUserQuestion', 'WebFetch'],
+    })
+    expect(args).toEqual(['--disallowedTools', 'AskUserQuestion', 'WebFetch'])
+  })
+
   test('adds pass-through args', () => {
     const args = buildClaudeArgs({
       args: ['--print', 'hello'],

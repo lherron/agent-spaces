@@ -323,6 +323,13 @@ function matchesWhenPredicate(section: ContextSection, context: ContextResolverC
     }
   }
 
+  if (when.envNotEquals !== undefined) {
+    const value = env[when.envNotEquals.name]
+    if (value === when.envNotEquals.value) {
+      return false
+    }
+  }
+
   return true
 }
 

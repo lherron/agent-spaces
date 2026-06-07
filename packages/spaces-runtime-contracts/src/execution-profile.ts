@@ -121,6 +121,12 @@ export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
     inputPolicy: BrokerInputPolicy
     exposurePolicy: AgentchatExposurePolicy
     resourceLimits?: RuntimeResourceLimits | undefined
+    /**
+     * Selected-harness tool identifiers the compiler actually applied for this
+     * profile. Absent means no tool deny-list was enforced by the selected
+     * driver.
+     */
+    disallowedTools?: string[] | undefined
   }
 
   continuation?:

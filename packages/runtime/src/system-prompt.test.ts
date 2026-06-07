@@ -153,6 +153,45 @@ content = "append me"
     })
   })
 
+  test('passes materialization env into context template predicates', async () => {
+    await writeAgentProfile(`
+schemaVersion = 2
+
+[instructions]
+template = "overlay-template.toml"
+`)
+    await writeFile(
+      join(agentRoot, 'overlay-template.toml'),
+      `
+schema_version = 2
+mode = "append"
+
+[[prompt]]
+name = "static-scope"
+type = "inline"
+content = "static scope"
+when = { envNotEquals = { name = "ASP_CODEX_APP_OVERLAY", value = "1" } }
+
+[[prompt]]
+name = "overlay-instruction"
+type = "inline"
+content = "run asp self inspect"
+when = { envEquals = { name = "ASP_CODEX_APP_OVERLAY", value = "1" } }
+`
+    )
+
+    const result = await materializeSystemPrompt(outputRoot, {
+      agentRoot,
+      agentsRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'task',
+      env: { ASP_CODEX_APP_OVERLAY: '1' },
+    })
+
+    expect(result?.content).toBe('run asp self inspect')
+  })
+
   test('prefers agent-profile instructions.template over agentsRoot and built-in fallbacks', async () => {
     await writeAgentProfile(`
 schemaVersion = 2
@@ -461,6 +500,7 @@ interface MaterializeSystemPromptTestInput {
   projectId?: string | undefined
   runMode: RunMode
   scaffoldPackets?: RunScaffoldPacket[] | undefined
+  env?: Record<string, string | undefined> | undefined
 }
 
 interface MaterializedSystemPrompt {

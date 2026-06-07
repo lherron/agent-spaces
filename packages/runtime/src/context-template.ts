@@ -14,6 +14,7 @@ export interface WhenPredicate {
   exists?: string | undefined
   envSet?: string | undefined
   envEquals?: EnvEqualsPredicate | undefined
+  envNotEquals?: EnvEqualsPredicate | undefined
 }
 
 export interface SectionWrap {
@@ -284,7 +285,7 @@ function parseSectionType(input: unknown, fieldName: string): ContextSectionType
   return input
 }
 
-const SUPPORTED_WHEN_KEYS = ['runMode', 'exists', 'envSet', 'envEquals'] as const
+const SUPPORTED_WHEN_KEYS = ['runMode', 'exists', 'envSet', 'envEquals', 'envNotEquals'] as const
 
 function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | undefined {
   if (input === undefined) {
@@ -308,6 +309,7 @@ function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | 
   const exists = parseOptionalString(input['exists'], `${fieldName}.exists`)
   const envSet = parseOptionalString(input['envSet'], `${fieldName}.envSet`)
   const envEquals = parseEnvEqualsPredicate(input['envEquals'], `${fieldName}.envEquals`)
+  const envNotEquals = parseEnvEqualsPredicate(input['envNotEquals'], `${fieldName}.envNotEquals`)
 
   if (envSet !== undefined && envSet.length === 0) {
     throw new Error(`${fieldName}.envSet must be a non-empty env var name`)
@@ -317,7 +319,8 @@ function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | 
     runMode === undefined &&
     exists === undefined &&
     envSet === undefined &&
-    envEquals === undefined
+    envEquals === undefined &&
+    envNotEquals === undefined
   ) {
     return {}
   }
@@ -327,6 +330,7 @@ function parseWhenPredicate(input: unknown, fieldName: string): WhenPredicate | 
     ...(exists !== undefined ? { exists } : {}),
     ...(envSet !== undefined ? { envSet } : {}),
     ...(envEquals !== undefined ? { envEquals } : {}),
+    ...(envNotEquals !== undefined ? { envNotEquals } : {}),
   }
 }
 

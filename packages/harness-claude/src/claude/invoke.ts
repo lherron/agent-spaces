@@ -36,6 +36,8 @@ export interface ClaudeInvokeOptions {
   model?: string | undefined
   /** Permission mode (--permission-mode flag) */
   permissionMode?: string | undefined
+  /** Tool names to deny before execution (--disallowedTools <tools...>) */
+  disallowedTools?: string[] | undefined
   /** Setting sources to load (--setting-sources flag). Empty string for isolation. */
   settingSources?: string | undefined
   /** Path to settings JSON file or JSON string (--settings flag) */
@@ -100,6 +102,11 @@ export function buildClaudeArgs(options: ClaudeInvokeOptions): string[] {
   // Add permission mode
   if (options.permissionMode) {
     args.push('--permission-mode', options.permissionMode)
+  }
+
+  // Add tool deny-list
+  if (options.disallowedTools && options.disallowedTools.length > 0) {
+    args.push('--disallowedTools', ...options.disallowedTools)
   }
 
   // Add setting sources for isolation

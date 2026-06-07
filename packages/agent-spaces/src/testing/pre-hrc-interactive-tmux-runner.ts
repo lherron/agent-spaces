@@ -124,6 +124,8 @@ export type InteractiveTmuxRunOptions = {
   /** Defaults to deny (the signed phase5 default). The matrix command-turn row
    * passes allow so the real Bash tool can execute the marker command. */
   permissionPolicy?: BrokerPermissionPolicy | undefined
+  /** Selected Claude tool names to deny before execution in the compiled tmux launch. */
+  disallowedTools?: string[] | undefined
   /** Override artifact basenames (matrix rows write row-scoped artifacts). */
   artifactNames?: { ledgerJson?: string; eventsJsonl?: string; summaryJson?: string } | undefined
   taskId?: string | undefined
@@ -280,6 +282,9 @@ function compileRequest(options: InteractiveTmuxRunOptions): RuntimeCompileReque
         allowDegrade: false,
         requireBrokerDefaultForCodexHeadless: true,
       },
+      ...(options.disallowedTools !== undefined
+        ? { disallowedTools: options.disallowedTools }
+        : {}),
     },
     correlation: {
       requestId: identity.requestId,

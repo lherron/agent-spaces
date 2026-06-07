@@ -43,6 +43,7 @@ const CODEX_HOOKS_FILE = 'hooks.json'
 const CODEX_CONFIG_FILE = 'config.toml'
 const PRE_TOOL_USE_HOOK_FILENAME = 'pre-tool-use-praesidium-env.mjs'
 const PRE_TOOL_USE_STATUS = 'injecting Praesidium command env'
+const CODEX_APP_OVERLAY_ENV = 'ASP_CODEX_APP_OVERLAY'
 
 export interface SyncAgentToCodexDefaultOptions {
   agentId: string
@@ -331,8 +332,9 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`
 }
 
-function buildPreToolUseHookScript(agentId: string): string {
+function buildPreToolUseHookScript(agentId: string, aspHome: string): string {
   const escapedAgentId = JSON.stringify(agentId)
+  const escapedAspHome = JSON.stringify(aspHome)
   return `#!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -340,6 +342,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 
 const AGENT_ID = ${escapedAgentId}
+const DEFAULT_ASP_HOME = ${escapedAspHome}
 const PRAESIDIUM_COMMANDS = new Set(['asp', 'wrkq', 'wrkf', 'hrc', 'hrcchat', 'acp'])
 
 function readStdin() {
@@ -357,23 +360,35 @@ function shellQuote(value) {
   return \`'\${String(value).replace(/'/g, "'\\\\''")}'\`
 }
 
-function readEnvLocalProject(startDir) {
+function readEnvLocalValue(startDir, names) {
+  const wanted = new Set(names)
   let dir = resolve(startDir || process.cwd())
   while (true) {
     const candidate = join(dir, '.env.local')
     if (existsSync(candidate)) {
       const lines = readFileSync(candidate, 'utf8').split(/\\r?\\n/u)
+      const values = new Map()
       for (const line of lines) {
-        const match = /^\\s*(?:export\\s+)?WRKQ_PROJECT_ROOT\\s*=\\s*(.+?)\\s*$/u.exec(line)
-        if (match) {
-          return match[1].replace(/^['"]|['"]$/g, '')
-        }
+        const match = /^\\s*(?:export\\s+)?([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.+?)\\s*$/u.exec(line)
+        if (!match || !wanted.has(match[1])) continue
+        values.set(match[1], match[2].replace(/^['"]|['"]$/g, ''))
+      }
+      for (const name of names) {
+        if (values.has(name)) return values.get(name)
       }
     }
     const parent = dirname(dir)
     if (parent === dir) return undefined
     dir = parent
   }
+}
+
+function readEnvLocalProject(startDir) {
+  return readEnvLocalValue(startDir, ['WRKQ_PROJECT_ROOT'])
+}
+
+function readEnvLocalAspHome(startDir) {
+  return readEnvLocalValue(startDir, ['ASP_HOME', 'ASP_ROOT_DIR'])
 }
 
 function projectFromPraesidiumPath(cwd) {
@@ -424,13 +439,16 @@ function projectFromGitRemote(cwd) {
 
 function resolveProject(cwd) {
   return (
-    process.env.ASP_PROJECT ||
     readEnvLocalProject(cwd) ||
     projectFromPraesidiumPath(cwd) ||
     projectFromWrkqProjects(cwd) ||
     projectFromGitRemote(cwd) ||
     basename(resolve(cwd || process.cwd()))
   )
+}
+
+function resolveAspHome(cwd) {
+  return readEnvLocalAspHome(cwd) || process.env.ASP_HOME || DEFAULT_ASP_HOME
 }
 
 function splitShellSegments(command) {
@@ -562,12 +580,14 @@ function usesPraesidiumCommand(command) {
 function resolvedScope(input) {
   const cwd = input.cwd || process.cwd()
   const project = resolveProject(cwd)
-  const turnId = input.turn_id || input.session_id || 'primary'
-  const taskId = \`codex-\${turnId}\`
+  const aspHome = resolveAspHome(cwd)
+  const sessionId = String(input.session_id || 'codex-app')
+  const taskId = sessionId.startsWith('codex-') ? sessionId : \`codex-\${sessionId}\`
   const scopeRef = \`agent:\${AGENT_ID}:project:\${project}:task:\${taskId}\`
   const sessionRef = \`\${scopeRef}/lane:main\`
   const entries = {
     ASP_AGENT_ID: AGENT_ID,
+    ASP_HOME: aspHome,
     ASP_PROJECT: project,
     ASP_TASK_ID: taskId,
     ASP_SCOPE_REF: scopeRef,
@@ -578,7 +598,7 @@ function resolvedScope(input) {
     Object.entries(entries)
       .map(([key, value]) => \`\${key}=\${shellQuote(value)}\`)
       .join(' ')
-  return { project, taskId, scopeRef, sessionRef, exportsLine }
+  return { project, aspHome, taskId, scopeRef, sessionRef, exportsLine }
 }
 
 const raw = await readStdin()
@@ -607,7 +627,7 @@ process.stdout.write(
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
       permissionDecision: 'allow',
-      additionalContext: \`Praesidium env: ASP_PROJECT=\${scope.project}, ASP_SCOPE_REF=\${scope.scopeRef}\`,
+      additionalContext: \`Praesidium env: ASP_PROJECT=\${scope.project}, ASP_HOME=\${scope.aspHome}, ASP_SCOPE_REF=\${scope.scopeRef}\`,
       updatedInput: { command: updatedCommand },
     },
   })
@@ -760,6 +780,7 @@ function upsertTrustedHookState(
 async function buildHooksPlan(input: {
   codexHome: string
   agentId: string
+  aspHome: string
   installHooks: boolean
 }): Promise<HooksPlan> {
   const hooksPath = join(input.codexHome, CODEX_HOOKS_FILE)
@@ -781,7 +802,7 @@ async function buildHooksPlan(input: {
   const existingHooks = (await pathExists(hooksPath)) ? await readFile(hooksPath, 'utf8') : ''
   const nextHooks = mergeManagedHooksConfig(existingHooks, scriptPath)
   const existingScript = (await pathExists(scriptPath)) ? await readFile(scriptPath, 'utf8') : ''
-  const nextScript = buildPreToolUseHookScript(input.agentId)
+  const nextScript = buildPreToolUseHookScript(input.agentId, input.aspHome)
   const existingConfig = (await pathExists(configPath)) ? await readFile(configPath, 'utf8') : ''
   const nextConfig = upsertTrustedHookState(existingConfig, hooksPath, nextHooks)
 
@@ -1018,6 +1039,7 @@ async function materializeAgent(input: {
     projectId: PROJECT_ID,
     taskId: TASK_ID,
     runMode: RUN_MODE,
+    env: { ...process.env, [CODEX_APP_OVERLAY_ENV]: '1' },
   })
 
   return {
@@ -1071,6 +1093,7 @@ async function buildPlan(args: SyncAgentToCodexDefaultOptions): Promise<SyncPlan
   const hooksPlan = await buildHooksPlan({
     codexHome: args.codexHome,
     agentId: args.agentId,
+    aspHome: args.aspHome,
     installHooks: args.installHooks,
   })
 
@@ -1122,7 +1145,7 @@ async function applyHooksPlan(plan: SyncPlan): Promise<void> {
     return
   }
 
-  const hookScript = buildPreToolUseHookScript(plan.agentId)
+  const hookScript = buildPreToolUseHookScript(plan.agentId, plan.aspHome)
   const existingHooks = (await pathExists(plan.hooks.hooksPath))
     ? await readFile(plan.hooks.hooksPath, 'utf8')
     : ''

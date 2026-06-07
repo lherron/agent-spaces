@@ -69,6 +69,7 @@ interface PreparePlacementCliRuntimeRequest {
   model?: string | undefined
   modelReasoningEffort?: string | undefined
   yolo?: boolean | undefined
+  disallowedTools?: string[] | undefined
   continuation?: HarnessContinuationRef | undefined
   prompt?: string | undefined
   attachments?: AttachmentRef[] | undefined
@@ -229,6 +230,7 @@ export async function preparePlacementCliRuntime(
     ...(runtimePlan.model.info.explicit ? { model: runtimePlan.model.info.model } : {}),
     ...(expandedPrompt !== undefined ? { prompt: expandedPrompt } : {}),
     ...(runtimePlan.yolo !== undefined ? { yolo: runtimePlan.yolo } : {}),
+    ...(req.disallowedTools ? { disallowedTools: req.disallowedTools } : {}),
     ...(handleParts.taskId !== undefined ? { taskId: handleParts.taskId } : {}),
     ...(imageAttachmentPaths.length > 0 ? { imageAttachments: imageAttachmentPaths } : {}),
     ...(systemPrompt

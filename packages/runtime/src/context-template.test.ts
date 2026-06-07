@@ -287,6 +287,12 @@ name = "project-tooling"
 type = "exec"
 command = "just info"
 when = { exists = "justfile" }
+
+[[prompt]]
+name = "not-overlay"
+type = "inline"
+content = "static scope"
+when = { envNotEquals = { name = "ASP_CODEX_APP_OVERLAY", value = "1" } }
 `)
 
     expect(template.promptSections).toEqual([
@@ -296,6 +302,17 @@ when = { exists = "justfile" }
         path: 'agent-root:///HEARTBEAT.md',
         when: {
           runMode: 'heartbeat',
+        },
+      },
+      {
+        name: 'not-overlay',
+        type: 'inline',
+        content: 'static scope',
+        when: {
+          envNotEquals: {
+            name: 'ASP_CODEX_APP_OVERLAY',
+            value: '1',
+          },
         },
       },
     ])

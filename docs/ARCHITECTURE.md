@@ -162,6 +162,30 @@ Representative sub-exports:
 - `spaces-config/materializer`
 - `spaces-config/lint`
 
+## Space Sources and Locality
+
+A space ref carries both an identity and a source locality. Four kinds exist (`packages/config/src/resolver/space-classification.ts`):
+
+| Kind | Ref form | Source | Lock commit marker |
+| --- | --- | --- | --- |
+| registry | `space:<id>@<selector>` | content-addressed store, resolved from git tag / dist-tag / sha | real git sha |
+| dev | `space:<id>@dev` | registry working directory | `dev` |
+| project | `space:project:<id>[@dev]` | `<projectRoot>/spaces/<id>/` | `project` |
+| agent | `space:agent:<id>[@dev]` | `<agentRoot>/spaces/<id>/` | `agent` |
+
+Project- and agent-local spaces use the same `space.toml` schema and directory layout as registry spaces. They are read directly from the filesystem (no git resolution); only `@dev` is meaningful as a selector. Integrity is computed from directory content, and the lock entry records the marker commit plus a relative `path` (`spaces/<id>`) — see `closure.ts` and `integrity.ts`.
+
+### Dependency Edge Rules
+
+Locality constrains which spaces may depend on which (`closure.ts`, enforced at closure time). Disallowed edges:
+
+- registry → agent
+- registry → project
+- agent → project
+- project → agent
+
+Registry spaces must stay standalone (no dependency on local spaces). Local spaces may depend on registry spaces and on same-locality local spaces (project → project, agent → agent). Violations throw at resolution with a `Disallowed dependency edge` error.
+
 ## Runtime and Execution
 
 ### `UnifiedSession` and `UnifiedSessionEvent`

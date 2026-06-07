@@ -84,6 +84,18 @@ describe('ASPC protocol validators', () => {
     ).toMatchObject({ method: 'aspc.compileRuntimePlan' })
   })
 
+  test('accepts compile requests carrying hrcPolicy.disallowedTools', () => {
+    const request = {
+      compileRequest: {
+        ...compileRequest,
+        hrcPolicy: { disallowedTools: ['AskUserQuestion'] },
+      },
+      aspHome: '/tmp/asp-home',
+    }
+
+    expect(validateAspcCompileRuntimePlanRequest(request)).toEqual(request)
+  })
+
   test('validates compileHarnessInvocation params with dispatch extras', () => {
     const request = {
       compileRequest,

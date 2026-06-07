@@ -313,6 +313,16 @@ function explicitTerminalCompileRequest(
   } as unknown as RuntimeCompileRequest['requested'])
 }
 
+function withDisallowedTools(req: RuntimeCompileRequest): RuntimeCompileRequest {
+  return {
+    ...req,
+    hrcPolicy: {
+      ...req.hrcPolicy,
+      disallowedTools: ['AskUserQuestion'],
+    },
+  }
+}
+
 function legacyBrokerRequest(
   req: RuntimeCompileRequest
 ): BuildHarnessBrokerInvocationRequest & { initialInputId?: InputId | undefined } {
@@ -564,8 +574,36 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.harnessInvocation.startRequest.spec.process.args).toEqual(
       expect.arrayContaining(['--', 'hello foreground terminal'])
     )
+    expect(profile.harnessInvocation.startRequest.spec.process.args).not.toContain(
+      '--disallowedTools'
+    )
+    expect(profile.policy.disallowedTools).toBeUndefined()
     expect(profile.harnessInvocation.startRequest.initialInput).toBeUndefined()
     expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
+  })
+
+  test('applies hrcPolicy.disallowedTools to claude-code-tmux argv and profile policy', async () => {
+    const response = await createClient().compileRuntimePlan(
+      withDisallowedTools(
+        interactiveCompileRequest({
+          modelProvider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          harnessFamily: 'claude-code',
+          preferredHarnessRuntime: 'claude-code-cli',
+          interactionMode: 'interactive',
+        })
+      )
+    )
+    const profile = brokerProfile(response)
+    const args = profile.harnessInvocation.startRequest.spec.process.args
+    const flagIndex = args.indexOf('--disallowedTools')
+
+    expect(response.diagnostics).not.toContainEqual(
+      expect.objectContaining({ code: 'disallowed_tools_unsupported_driver' })
+    )
+    expect(flagIndex).toBeGreaterThan(-1)
+    expect(args[flagIndex + 1]).toBe('AskUserQuestion')
+    expect(profile.policy.disallowedTools).toEqual(['AskUserQuestion'])
   })
 
   test('selects the foreground terminal only when compiler intent explicitly requests it', async () => {
@@ -589,6 +627,72 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.process.io.kind).toBe('inherit')
     expect(profile.policy.exposurePolicy.mode).toBe('none')
   })
+
+  test.each([
+    ['codex-app-server', () => withDisallowedTools(baseCompileRequest()), 'codex-app-server'],
+    [
+      'codex-cli-tmux',
+      () =>
+        withDisallowedTools(
+          interactiveCompileRequest({
+            modelProvider: 'openai',
+            model: 'gpt-5.5',
+            reasoningEffort: 'medium',
+            harnessFamily: 'codex',
+            preferredHarnessRuntime: 'codex-cli',
+            interactionMode: 'interactive',
+          })
+        ),
+      'codex-cli-tmux',
+    ],
+    [
+      'foreground terminal',
+      () =>
+        withDisallowedTools(
+          explicitTerminalCompileRequest({
+            modelProvider: 'anthropic',
+            model: 'claude-sonnet-4-5',
+            harnessFamily: 'claude-code',
+            preferredHarnessRuntime: 'claude-code-cli',
+            interactionMode: 'interactive',
+          })
+        ),
+      'claude-code:foreground-terminal',
+    ],
+  ])(
+    'warns and leaves disallowedTools unapplied for %s',
+    async (_name, buildReq, selectedDriver) => {
+      const response = await createClient().compileRuntimePlan(buildReq())
+      expect(response.ok).toBe(true)
+      if (!response.ok) throw new Error('unreachable')
+
+      const profile = response.plan.executionProfiles[0]
+      expect(response.diagnostics).toContainEqual(
+        expect.objectContaining({
+          level: 'warning',
+          code: 'disallowed_tools_unsupported_driver',
+          plane: 'asp-compiler',
+          details: expect.objectContaining({
+            selectedDriver,
+            disallowedTools: ['AskUserQuestion'],
+            applied: false,
+          }),
+        })
+      )
+
+      if (profile.kind === 'harness-broker') {
+        expect(profile.harnessInvocation.startRequest.spec.process.args).not.toContain(
+          '--disallowedTools'
+        )
+        expect(profile.policy.disallowedTools).toBeUndefined()
+      } else if (profile.kind === 'terminal') {
+        expect(profile.process.args).not.toContain('--disallowedTools')
+        expect(JSON.stringify(profile.policy)).not.toContain('disallowedTools')
+      } else {
+        throw new Error(`unexpected profile kind ${profile.kind}`)
+      }
+    }
+  )
 
   test('dry compile of claude-code-tmux creates no tmux session and emits no synthetic terminal ids', async () => {
     const marker = join(fixture.aspHome, 'tmux-was-invoked')

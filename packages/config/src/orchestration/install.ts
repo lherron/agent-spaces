@@ -540,12 +540,18 @@ export async function materializeAgentLocalComponents(
 
   // Copy skills/ if present (forceCopy — mutable source files)
   if (components.hasSkills) {
-    await linkDirectory(components.skillsDir, join(tmpDir, 'skills'), { forceCopy: true })
+    await linkDirectory(components.skillsDir, join(tmpDir, 'skills'), {
+      forceCopy: true,
+      followSymlinks: true,
+    })
   }
 
   // Copy commands/ if present
   if (components.hasCommands) {
-    await linkDirectory(components.commandsDir, join(tmpDir, 'commands'), { forceCopy: true })
+    await linkDirectory(components.commandsDir, join(tmpDir, 'commands'), {
+      forceCopy: true,
+      followSymlinks: true,
+    })
   }
 
   return {

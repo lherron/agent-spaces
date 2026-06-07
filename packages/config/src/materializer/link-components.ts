@@ -6,7 +6,16 @@
  * duplicating data while providing independent file entries.
  */
 
-import { access, copyFile, mkdir, readdir, readlink, stat, symlink } from 'node:fs/promises'
+import {
+  access,
+  copyFile,
+  mkdir,
+  readdir,
+  readlink,
+  realpath,
+  stat,
+  symlink,
+} from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { linkOrCopy } from '../core/index.js'
 import type { HarnessId } from '../core/types/harness.js'
@@ -34,6 +43,8 @@ export type ComponentDir = (typeof COMPONENT_DIRS)[number]
 export interface LinkOptions {
   /** Use copy instead of hardlink (for cross-device) */
   forceCopy?: boolean | undefined
+  /** Copy symlink targets instead of preserving symlink entries */
+  followSymlinks?: boolean | undefined
 }
 
 /**
@@ -68,8 +79,19 @@ export async function linkFile(
 export async function linkDirectory(
   srcDir: string,
   destDir: string,
-  options: LinkOptions = {}
+  options: LinkOptions = {},
+  ancestorRealDirs: Set<string> = new Set()
 ): Promise<void> {
+  let nextAncestorRealDirs = ancestorRealDirs
+  if (options.followSymlinks) {
+    const realSrcDir = await realpath(srcDir)
+    if (ancestorRealDirs.has(realSrcDir)) {
+      throw new Error(`Symlink cycle detected while materializing directory: ${srcDir}`)
+    }
+    nextAncestorRealDirs = new Set(ancestorRealDirs)
+    nextAncestorRealDirs.add(realSrcDir)
+  }
+
   await mkdir(destDir, { recursive: true })
 
   const entries = await readdir(srcDir, { withFileTypes: true })
@@ -79,10 +101,20 @@ export async function linkDirectory(
     const destPath = join(destDir, entry.name)
 
     if (entry.isDirectory()) {
-      await linkDirectory(srcPath, destPath, options)
+      await linkDirectory(srcPath, destPath, options, nextAncestorRealDirs)
     } else if (entry.isFile()) {
       await linkFile(srcPath, destPath, options)
     } else if (entry.isSymbolicLink()) {
+      if (options.followSymlinks) {
+        const targetStats = await stat(srcPath)
+        if (targetStats.isDirectory()) {
+          await linkDirectory(srcPath, destPath, options, nextAncestorRealDirs)
+        } else if (targetStats.isFile()) {
+          await linkFile(srcPath, destPath, options)
+        }
+        continue
+      }
+
       // Preserve symlinks
       const target = await readlink(srcPath)
       await symlink(target, destPath)

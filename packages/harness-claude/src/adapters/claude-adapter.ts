@@ -401,6 +401,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       mcpConfig: bundle.mcpConfigPath,
       settings: options.settings ?? bundle.settingsPath,
       permissionMode: options.permissionMode,
+      ...(options.disallowedTools ? { disallowedTools: options.disallowedTools } : {}),
       settingSources,
       debug: options.debug,
       model: options.model ?? DEFAULT_CLAUDE_CODE_MODEL,

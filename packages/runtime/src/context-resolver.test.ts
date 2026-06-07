@@ -228,6 +228,40 @@ when = { envEquals = { name = "ASP_TEST_PADDED", value = "yes" } }
     expect(resolved.prompt?.content).toBe('match body')
   })
 
+  test('gates sections on when.envNotEquals with exact untrimmed match', async () => {
+    const resolved = await resolve(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "absent"
+type = "inline"
+content = "absent body"
+when = { envNotEquals = { name = "ASP_MISSING", value = "1" } }
+
+[[prompt]]
+name = "different"
+type = "inline"
+content = "different body"
+when = { envNotEquals = { name = "ASP_OTHER", value = "1" } }
+
+[[prompt]]
+name = "matching"
+type = "inline"
+content = "matching body"
+when = { envNotEquals = { name = "ASP_OVERLAY", value = "1" } }
+`),
+      {
+        env: {
+          ASP_OVERLAY: '1',
+          ASP_OTHER: '0',
+        },
+      }
+    )
+
+    expect(resolved.prompt?.content).toBe(`absent body${SECTION_SEPARATOR}different body`)
+  })
+
   test('resolves open-ended slot dot-paths for file refs and exec arrays', async () => {
     await writeFile(join(agentRoot, 'base-agent.md'), 'Agent base')
     await writeFile(join(projectRoot, 'base-project.md'), 'Project base')

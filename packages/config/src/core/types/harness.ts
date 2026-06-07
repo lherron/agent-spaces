@@ -426,6 +426,8 @@ export interface HarnessRunOptions {
   profile?: string | undefined
   /** Claude permission mode override */
   permissionMode?: string | undefined
+  /** Claude tool deny-list (`--disallowedTools <tools...>`) */
+  disallowedTools?: string[] | undefined
   /** Path to settings JSON file or JSON string (--settings flag) */
   settings?: string | undefined
   /** Debug mode - enable hook debugging (--debug hooks) */

@@ -20,6 +20,7 @@ interface InspectOptions {
 export function registerSelfInspectCommand(self: Command): void {
   self
     .command('inspect')
+    .alias('introspect')
     .description("Show a zero-arg overview of this agent's runtime launch")
     .option('--json', 'Emit machine-readable JSON')
     .option('--target <name>', 'Override inferred agent slug')
