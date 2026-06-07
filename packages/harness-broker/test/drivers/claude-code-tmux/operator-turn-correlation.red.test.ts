@@ -65,8 +65,10 @@ describe('claude-code-tmux operator turn correlation RED', () => {
 
     expect(eventShapes(events)).toEqual([
       { invocationId, type: 'turn.started', turnId: 'turn_inv_1' },
+      { invocationId, type: 'user.message', turnId: 'turn_inv_1' },
       { invocationId, type: 'turn.completed', turnId: 'turn_inv_1' },
       { invocationId, type: 'turn.started', turnId: 'turn_inv_2' },
+      { invocationId, type: 'user.message', turnId: 'turn_inv_2' },
       { invocationId, type: 'turn.completed', turnId: 'turn_inv_2' },
     ])
   })
@@ -82,6 +84,7 @@ describe('claude-code-tmux operator turn correlation RED', () => {
 
     expect(eventShapes(events)).toEqual([
       { invocationId, type: 'turn.started', turnId: 'turn_inv_1' },
+      { invocationId, type: 'user.message', turnId: 'turn_inv_1' },
     ])
   })
 
@@ -102,6 +105,7 @@ describe('claude-code-tmux operator turn correlation RED', () => {
 
     expect(eventShapes(events)).toEqual([
       { invocationId, type: 'turn.started', turnId: applyInputTurnId },
+      { invocationId, type: 'user.message', turnId: applyInputTurnId },
       { invocationId, type: 'turn.completed', turnId: applyInputTurnId },
     ])
   })

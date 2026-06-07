@@ -96,6 +96,8 @@ export type ContractHarnessFailureCode =
   | 'interactive_tmux_runtime_socket_missing'
   | 'interactive_tmux_surface_invalid'
   | 'interactive_tmux_turn_correlation_invalid'
+  | 'interactive_tmux_user_prompt_missing'
+  | 'interactive_tmux_user_prompt_invalid'
   | 'interactive_tmux_event_sequence_invalid'
   | 'interactive_tmux_tool_mapping_invalid'
   | 'interactive_tmux_clean_exit_invalid'

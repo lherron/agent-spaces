@@ -247,6 +247,7 @@ const EVENT_TYPES = [
   'assistant.message.started',
   'assistant.message.delta',
   'assistant.message.completed',
+  'user.message',
   'tool.call.started',
   'tool.call.delta',
   'tool.call.completed',

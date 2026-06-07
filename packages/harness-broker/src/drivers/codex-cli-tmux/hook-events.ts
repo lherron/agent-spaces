@@ -115,17 +115,31 @@ export function createCodexCliTmuxHookEventNormalizer(
 
       if (rawType === 'UserPromptSubmit') {
         if (turnIdText === undefined || turnId === undefined) return []
-        return [
+        const promptText = getString(unwrapped, 'prompt')
+        const events: InvocationEventEnvelope[] = [
           emit(rawType, {
             type: 'turn.started',
             payload: {
               turnId: turnIdText,
               ...(sessionId !== undefined ? { sessionId } : {}),
-              ...(typeof unwrapped['prompt'] === 'string' ? { prompt: unwrapped['prompt'] } : {}),
+              ...(promptText !== undefined ? { prompt: promptText } : {}),
             },
             turnId,
           }),
         ]
+        // Carry the operator-typed prompt on a dedicated channel (T-02026) so
+        // HRC records `turn.user_prompt` for interactive turns and the viewer
+        // renders the typed text. Skip empty prompts.
+        if (promptText !== undefined && promptText.length > 0) {
+          events.push(
+            emit(rawType, {
+              type: 'user.message',
+              payload: { content: promptText, turnId },
+              turnId,
+            })
+          )
+        }
+        return events
       }
 
       if (rawType === 'PreToolUse') {

@@ -31,11 +31,11 @@ const eventTypes = (events: InvocationEventEnvelope[]): InvocationEventType[] =>
   events.map((event) => event.type)
 
 describe('codex-cli-tmux hook event normalization', () => {
-  test('UserPromptSubmit emits turn.started with Codex turn and prompt fields preserved', async () => {
+  test('UserPromptSubmit emits turn.started then user.message with Codex turn and prompt fields preserved', async () => {
     const hook = await readPayload('UserPromptSubmit-mpo5qmxg103.json')
     const events = (await createNormalizer()).normalizeHook(hook)
 
-    expect(events).toHaveLength(1)
+    expect(events.map((event) => event.type)).toEqual(['turn.started', 'user.message'])
     expect(events[0]).toMatchObject({
       invocationId,
       turnId: hook.turn_id,
@@ -45,6 +45,16 @@ describe('codex-cli-tmux hook event normalization', () => {
         turnId: hook.turn_id,
         sessionId: hook.session_id,
         prompt: hook.prompt,
+      },
+    })
+    expect(events[1]).toMatchObject({
+      invocationId,
+      turnId: hook.turn_id,
+      type: 'user.message',
+      driver: { kind: 'codex-cli-tmux', rawType: 'UserPromptSubmit' },
+      payload: {
+        content: hook.prompt,
+        turnId: hook.turn_id,
       },
     })
   })

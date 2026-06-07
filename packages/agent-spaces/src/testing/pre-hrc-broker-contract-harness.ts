@@ -506,6 +506,38 @@ export function assertInteractiveTmuxEvents(input: {
     })
   }
 
+  // T-02026: the operator-typed prompt must be captured on the durable stream as
+  // a `user.message` correlated to the turn, carrying non-empty content, ordered
+  // after the turn opened. Required contract for ALL interactive-tmux drivers —
+  // previously the prompt text was dropped and never recorded.
+  const userMessage = events.find(
+    (event) => event.type === 'user.message' && event.turnId === inputTurnId
+  )
+  if (userMessage === undefined) {
+    failures.push({
+      code: 'interactive_tmux_user_prompt_missing',
+      message: 'interactive-tmux ledger must carry a user.message correlated to the input turn id.',
+      path: 'brokerEvents',
+      redactedDetails: { inputTurnId },
+    })
+  } else {
+    const content = asRecord(userMessage.payload)?.['content']
+    if (typeof content !== 'string' || content.length === 0) {
+      failures.push({
+        code: 'interactive_tmux_user_prompt_invalid',
+        message: 'user.message must carry the typed prompt as non-empty string content.',
+        path: `brokerEvents.${userMessage.invocationId}.${userMessage.seq}.payload`,
+      })
+    }
+    if (turnStarted !== undefined && events.indexOf(userMessage) < events.indexOf(turnStarted)) {
+      failures.push({
+        code: 'interactive_tmux_event_sequence_invalid',
+        message: 'user.message must appear after turn.started for the same turn.',
+        path: `brokerEvents.${userMessage.invocationId}.${userMessage.seq}`,
+      })
+    }
+  }
+
   const matchingTerminalTurns = terminalTurns.filter((event) => event.turnId === inputTurnId)
   if (matchingTerminalTurns.length !== 1) {
     failures.push({

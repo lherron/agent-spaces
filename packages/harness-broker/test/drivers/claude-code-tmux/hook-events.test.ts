@@ -80,20 +80,36 @@ describe('claude-code-tmux hook event normalization', () => {
     })
   })
 
-  test('UserPromptSubmit emits turn.started with turnId in the envelope and payload', async () => {
-    const event = await single({
+  test('UserPromptSubmit emits turn.started then user.message carrying the typed prompt', async () => {
+    const events = (await createNormalizer()).normalizeHook({
       hook_event_name: 'UserPromptSubmit',
       turn_id: turnId,
       prompt: 'implement the broker hook substrate',
     })
 
-    expect(event).toMatchObject({
+    expect(eventTypes(events)).toEqual(['turn.started', 'user.message'])
+    expect(events[0]).toMatchObject({
       invocationId,
       turnId,
       type: 'turn.started',
       payload: { turnId },
     })
-    expect(eventTypes([event])).not.toContain('assistant.message.delta')
+    expect(events[1]).toMatchObject({
+      invocationId,
+      turnId,
+      type: 'user.message',
+      payload: { content: 'implement the broker hook substrate', turnId },
+    })
+    expect(eventTypes(events)).not.toContain('assistant.message.delta')
+  })
+
+  test('UserPromptSubmit without a prompt emits only turn.started', async () => {
+    const events = (await createNormalizer()).normalizeHook({
+      hook_event_name: 'UserPromptSubmit',
+      turn_id: turnId,
+    })
+
+    expect(eventTypes(events)).toEqual(['turn.started'])
   })
 
   test('PreToolUse emits tool.call.started with Claude tool fields mapped to broker fields', async () => {

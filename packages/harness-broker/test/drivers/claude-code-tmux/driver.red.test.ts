@@ -538,7 +538,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     )
     expect(
       events.filter((event) => event.turnId === 'turn_driver_envelope_1').map((event) => event.type)
-    ).toEqual(['turn.started', 'tool.call.started', 'turn.completed'])
+    ).toEqual(['turn.started', 'user.message', 'tool.call.started', 'turn.completed'])
   })
 
   test('durable hook envelopes reject mismatched generation but accept matching identity', async () => {
@@ -587,7 +587,10 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       turnId: 'turn_driver_generation_match',
       hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'live generation' },
     })
-    expect(events.slice(baseline).map((event) => event.type)).toEqual(['turn.started'])
+    expect(events.slice(baseline).map((event) => event.type)).toEqual([
+      'turn.started',
+      'user.message',
+    ])
   })
 
   test('second concurrent hook listener ignores stale envelopes from the first invocation', async () => {

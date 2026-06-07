@@ -250,13 +250,29 @@ export function createClaudeCodeHookEventNormalizer(
           resolvedText = allocateTurnId()
         }
         activeTurnId = resolvedText
-        return [
+        const events: InvocationEventEnvelope[] = [
           emit(rawType, {
             type: 'turn.started',
             payload: { turnId: resolvedText },
             turnId: asTurnId(resolvedText),
           }),
         ]
+        // Carry the prompt the operator typed directly into the TUI (T-02026):
+        // the hook payload's `prompt` is the only place it appears, and without
+        // a dedicated channel it was dropped for interactive turns. Emit it as a
+        // `user.message` so HRC can record `turn.user_prompt` and the viewer can
+        // render the typed text. Skip empty prompts (no text to surface).
+        const promptText = getString(unwrapped, 'prompt')
+        if (promptText !== undefined && promptText.length > 0) {
+          events.push(
+            emit(rawType, {
+              type: 'user.message',
+              payload: { content: promptText, turnId: asTurnId(resolvedText) },
+              turnId: asTurnId(resolvedText),
+            })
+          )
+        }
+        return events
       }
 
       if (rawType === 'PreToolUse') {

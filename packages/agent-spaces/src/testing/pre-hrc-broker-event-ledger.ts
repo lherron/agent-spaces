@@ -31,6 +31,7 @@ const NORMALIZED_EVENT_TYPES = new Set<InvocationEventType>([
   'assistant.message.started',
   'assistant.message.delta',
   'assistant.message.completed',
+  'user.message',
   'tool.call.started',
   'tool.call.delta',
   'tool.call.completed',

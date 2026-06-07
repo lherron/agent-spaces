@@ -489,7 +489,10 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     expect(events).toHaveLength(baseline)
 
     await hookHandler(envelope())
-    expect(events.slice(baseline).map((event) => event.type)).toEqual(['turn.started'])
+    expect(events.slice(baseline).map((event) => event.type)).toEqual([
+      'turn.started',
+      'user.message',
+    ])
   })
 
   test('legacy hook envelope without durable generation is still accepted', async () => {
@@ -527,7 +530,10 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
       hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'legacy go' },
     })
 
-    expect(events.slice(baseline).map((event) => event.type)).toEqual(['turn.started'])
+    expect(events.slice(baseline).map((event) => event.type)).toEqual([
+      'turn.started',
+      'user.message',
+    ])
   })
 })
 

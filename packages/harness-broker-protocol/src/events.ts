@@ -70,6 +70,7 @@ export type InvocationEventType =
   | 'assistant.message.started'
   | 'assistant.message.delta'
   | 'assistant.message.completed'
+  | 'user.message'
   | 'tool.call.started'
   | 'tool.call.delta'
   | 'tool.call.completed'
@@ -122,6 +123,7 @@ export type InvocationEventPayload =
   | AssistantMessageStartedPayload
   | AssistantMessageDeltaPayload
   | AssistantMessageCompletedPayload
+  | UserMessagePayload
   | ToolCallStartedPayload
   | ToolCallDeltaPayload
   | ToolCallCompletedPayload
@@ -174,6 +176,18 @@ export interface TurnStartedPayload {
   turnId: TurnId
   inputId?: InputId | undefined
   turnAttempt?: number | undefined
+}
+
+/**
+ * A user-typed prompt captured at submit time. Emitted by interactive tmux
+ * drivers (claude-code-tmux / codex-cli-tmux) alongside `turn.started` so the
+ * prompt text the operator typed directly into the harness TUI flows onto the
+ * durable event stream — previously dropped for non-headless turns. `content`
+ * is the raw prompt string (role is implicitly `user`).
+ */
+export interface UserMessagePayload {
+  content: string
+  turnId?: TurnId | undefined
 }
 
 export interface AssistantMessageStartedPayload {
