@@ -33,6 +33,10 @@ import {
   createClaudeCodeHookEventNormalizer,
   normalizeHookEnvelope,
 } from './hook-events'
+import {
+  type ClaudeHookTranscriptReader,
+  createClaudeHookTranscriptReader,
+} from './hook-transcript'
 
 const CLAUDE_CODE_TMUX_DRIVER_VERSION = '0.1.0'
 
@@ -145,6 +149,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let ctx: DriverContext | undefined
   let surface: SurfaceState | undefined
   let hookListener: HookListenerHandle | undefined
+  let transcriptReader: ClaudeHookTranscriptReader | undefined
   let hookDrain: Promise<void> = Promise.resolve()
   // The runtime hands the driver a pane LEASE — `runtime.terminalSurface`
   // (kind: 'tmux-pane', ownership: 'hrc', T-01723 Phase A). The driver
@@ -228,6 +233,16 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       })
       const expectedRuntimeId = getInvocationRuntimeId(spec)
       hookDrain = Promise.resolve()
+      // Hook-driven session-transcript reader (T-02027): captures the mid-turn /
+      // steered prompts that fire NO UserPromptSubmit. Reads newly appended
+      // transcript bytes synchronously in hook order, attributes each
+      // `queue-operation`/`enqueue` line to the live broker turn (activeTurnId).
+      const reader = createClaudeHookTranscriptReader({
+        invocationId: driverCtx.invocationId,
+        now,
+        getCurrentTurnId: () => activeTurnId,
+      })
+      transcriptReader = reader
       const handleHookEnvelope = async (envelope: ClaudeCodeHookEnvelope): Promise<void> => {
         if (envelope.invocationId !== driverCtx.invocationId) {
           return
@@ -260,6 +275,17 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           envelope.turnId === undefined && activeTurnId !== undefined
             ? { ...envelope, turnId: activeTurnId }
             : envelope
+        // T-02027: read the session transcript BEFORE normalizing the triggering
+        // hook so a mid-turn/steered prompt's `user.message` lands in hook order
+        // ahead of this hook's normalized events. SessionStart captures the
+        // transcript path; every other hook reads newly appended bytes.
+        for (const event of reader.handleHook(asHookRecord(effectiveEnvelope.hookData))) {
+          driverCtx.emit(event.type, event.payload, {
+            ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+            ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
+            ...(event.driver !== undefined ? { driver: event.driver } : {}),
+          })
+        }
         for (const event of normalizeHookEnvelope(effectiveEnvelope, { normalizer })) {
           driverCtx.emit(event.type, event.payload, {
             ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
@@ -375,6 +401,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // interrupt/applyInputNow observe a not-live driver (codex parity); the
       // pane controller ref is retained until dispose, like codex-cli-tmux.
       await closeHookListener()
+      transcriptReader?.reset()
+      transcriptReader = undefined
       surface = undefined
       return { accepted: true, state: 'exited' }
     },
@@ -384,6 +412,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // listener and the in-memory pane controller. tmux server / session
       // lifecycle stays with the runtime control plane.
       await closeHookListener()
+      transcriptReader?.reset()
+      transcriptReader = undefined
       ctx = undefined
       surface = undefined
       paneController = undefined
@@ -399,6 +429,13 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       await handle.close()
     }
   }
+}
+
+function asHookRecord(value: unknown): Record<string, unknown> {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return {}
 }
 
 /** Claude Code hook events the broker overlay subscribes to. */

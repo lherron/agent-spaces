@@ -145,6 +145,17 @@ export type InteractiveTmuxRunOptions = {
    * unasserted on an operator row). Only invoked when keepAlive is false.
    */
   afterTurns?: ((live: InteractiveTmuxLiveSession) => Promise<void>) | undefined
+  /**
+   * Mid-turn / steered-prompt injection (matrix `real-claude-tmux-midturn` row,
+   * T-02027). Reproduces "typed while the agent is BUSY": after turn 1's input is
+   * applied, the runner watches the live event stream for the first `afterEvent`
+   * (default `tool.call.started`) on turn 1, then types `marker` DIRECTLY into the
+   * tmux pane via `send-keys` (NOT broker `manager.input`). Claude enqueues the
+   * busy-window prompt as a `queue-operation/enqueue` transcript record (no
+   * `UserPromptSubmit`), which the driver's transcript reader surfaces as a
+   * `user.message`. Only fires once, during the first turn.
+   */
+  midTurnInjection?: { marker: string; afterEvent?: 'tool.call.started' } | undefined
 }
 
 export type InteractiveTmuxLiveSession = {
@@ -548,6 +559,58 @@ async function waitForTerminalTurn(
   return terminalTurnFor(events, turnId)
 }
 
+/**
+ * Type a steered prompt DIRECTLY into the live tmux pane (T-02027). Waits for the
+ * first `afterEventType` on `turnId` (the turn's busy window opening) — falling
+ * back to ~800ms after `turn.started` if no such event arrives — then send-keys
+ * the literal marker and a separate Enter. This is the operator-typing path, NOT
+ * broker `manager.input`, so Claude enqueues it mid-turn (`queue-operation`).
+ */
+async function injectMidTurnPrompt(opts: {
+  events: InvocationEventEnvelope[]
+  turnId: string
+  tmuxBin: string
+  socketPath: string
+  paneId?: string | undefined
+  marker: string
+  afterEventType: 'tool.call.started'
+  timeoutMs: number
+  serverEnv: Record<string, string | undefined>
+}): Promise<void> {
+  const deadline = Date.now() + opts.timeoutMs
+  let triggered = false
+  while (Date.now() < deadline) {
+    if (opts.events.some((e) => e.turnId === opts.turnId && e.type === opts.afterEventType)) {
+      triggered = true
+      break
+    }
+    await delay(150)
+  }
+  if (!triggered) {
+    // Fallback: the turn opened but no tool fired yet — give the busy window a
+    // beat to establish before typing so the prompt is enqueued, not dropped.
+    const turnStarted = opts.events.some(
+      (e) => e.turnId === opts.turnId && e.type === 'turn.started'
+    )
+    if (!turnStarted) return
+    await delay(800)
+  }
+  const target = opts.paneId !== undefined ? ['-t', opts.paneId] : []
+  await runTmux(
+    opts.tmuxBin,
+    ['-S', opts.socketPath, 'send-keys', ...target, '-l', opts.marker],
+    opts.serverEnv
+  )
+  // Separate Enter after a short settle so the TUI registers the line before
+  // submit (queues it into the active turn rather than swallowing a partial).
+  await delay(400)
+  await runTmux(
+    opts.tmuxBin,
+    ['-S', opts.socketPath, 'send-keys', ...target, 'Enter'],
+    opts.serverEnv
+  )
+}
+
 export function resolveTmuxBin(): string {
   for (const candidate of [
     '/opt/homebrew/bin/tmux',
@@ -837,7 +900,27 @@ export async function runInteractiveClaudeTmuxSession(
         })
       }
 
+      // Mid-turn injection (T-02027): while turn 1 is in-flight, type a SECOND
+      // prompt directly into the tmux pane so Claude enqueues it (no
+      // UserPromptSubmit). Run it concurrently with the terminal-turn wait so the
+      // injection lands DURING the busy window, not after it.
+      const midTurnPromise =
+        i === 0 && options.midTurnInjection !== undefined && !options.mockClaude
+          ? injectMidTurnPrompt({
+              events,
+              turnId,
+              tmuxBin: options.tmuxBin,
+              socketPath: options.socketPath,
+              paneId: result.surface?.paneId,
+              marker: options.midTurnInjection.marker,
+              afterEventType: options.midTurnInjection.afterEvent ?? 'tool.call.started',
+              timeoutMs: options.turnTimeoutMs,
+              serverEnv,
+            })
+          : undefined
+
       const observed = await waitForTerminalTurn(events, turnId, options.turnTimeoutMs)
+      if (midTurnPromise !== undefined) await midTurnPromise.catch(() => undefined)
       turns.push({ index: i + 1, turnId, prompt, terminalTurnObserved: observed })
 
       // Let real Claude return its TUI to the prompt before the next send-keys,

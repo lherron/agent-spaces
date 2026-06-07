@@ -142,6 +142,7 @@ type RowName =
   | 'real-codex-tmux'
   | 'codex-tmux-ghostmux'
   | 'real-claude-tmux'
+  | 'real-claude-tmux-midturn'
   | 'claude-tmux-ghostmux'
   | 'real-pi-sdk-embedded'
 
@@ -153,6 +154,7 @@ const ALL_ROWS: RowName[] = [
   'real-codex-tmux',
   'codex-tmux-ghostmux',
   'real-claude-tmux',
+  'real-claude-tmux-midturn',
   'claude-tmux-ghostmux',
   'real-pi-sdk-embedded',
 ]
@@ -2988,6 +2990,210 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         .map((t) => t.turnId)
       result.notes['narrationTurnIds'] = narrationTurnIds
       result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
+
+      if (!ctx.keepArtifacts) rmSync(aspHome, { recursive: true, force: true })
+
+      const allFailed =
+        result.floorFailures.length + result.contractFailures.length + result.extraFailures.length
+      result.status = allFailed === 0 ? 'OK' : 'FAIL'
+      return result
+    },
+  },
+  {
+    name: 'real-claude-tmux-midturn',
+    description:
+      'claude-code-tmux mid-turn/steered prompt capture (queue-operation/enqueue → user.message, T-02027)',
+    probe: async () => {
+      const claude = resolveClaudeBin()
+      if (claude === undefined) {
+        return { available: false, reason: 'claude binary not found (set ASP_CLAUDE_PATH)' }
+      }
+      if (!existsSync(resolveTmuxBin()) && resolveTmuxBin() === 'tmux') {
+        return { available: false, reason: 'tmux not found' }
+      }
+      return { available: true, reason: `real claude at ${claude}` }
+    },
+    run: async (ctx) => {
+      const aspHome = mkdtempSync(join(tmpdir(), 'asp-matrix-claude-midturn-'))
+      const artifactDir = join(aspHome, 'matrix-claude-midturn-artifacts')
+      const socketPath = join(tmpdir(), `matrix-claude-midturn-${process.pid}.sock`)
+      // turn1 = a real Bash tool with a multi-second BUSY window (sleep 3) that
+      // also prints the marker (shared floor). While it's in-flight the runner
+      // types a SECOND prompt DIRECTLY into the tmux pane (tmux send-keys, NOT
+      // broker manager.input) carrying MIDTURN_<marker>; Claude enqueues it
+      // (queue-operation/enqueue, no UserPromptSubmit) and the driver's
+      // transcript reader surfaces it as user.message. turn2 = the SHARED
+      // narration scenario so assertIntermediateMessages runs on this row too.
+      const midTurnMarker = `MIDTURN_${ctx.marker}`
+      const prompts = [
+        `Run the Bash command: sleep 3 && printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
+        NARRATION_PROMPT,
+      ]
+      const result: RowResult = {
+        name: 'real-claude-tmux-midturn',
+        status: 'FAIL',
+        marker: ctx.marker,
+        prompt: prompts[0],
+        observedTurnIds: [],
+        compile: {},
+        floorFailures: [],
+        contractFailures: [],
+        extraFailures: [],
+        notes: {},
+      }
+      const { result: run, events } = await runInteractiveClaudeTmuxSession(
+        {
+          repoRoot: ctx.repoRoot,
+          scopeRef: 'curly@agent-spaces',
+          projectRoot: ctx.repoRoot,
+          cwd: ctx.repoRoot,
+          aspHome,
+          artifactDir,
+          socketPath,
+          tmuxBin: ctx.tmuxBin,
+          model: 'claude-sonnet-4-5',
+          prompts,
+          bootWaitMs: ctx.bootWaitMs,
+          turnTimeoutMs: ctx.turnTimeoutMs,
+          interTurnSettleMs: 3000,
+          keepAlive: false,
+          mockClaude: false,
+          anthropicKeySource: 'inherit',
+          permissionPolicy: allowPermissionPolicy(),
+          identityNamespace: 'matrix_claude_midturn',
+          invocationId: `inv_matrix_claude_midturn_${ctx.marker}`,
+          initialInputId: `input_matrix_claude_midturn_${ctx.marker}`,
+          idempotencyKey: `matrix-claude-midturn-${ctx.marker}`,
+          appSessionKey: `matrix-claude-midturn-${ctx.marker}`,
+          taskId: 'T-02027',
+          midTurnInjection: {
+            marker: `${midTurnMarker} please reply with exactly OK and nothing else.`,
+            afterEvent: 'tool.call.started',
+          },
+        },
+        interactiveDeps()
+      )
+
+      const commandTurnId =
+        findTurnWithToolCommandMarker(events, ctx.marker) ??
+        run.turns[0]?.turnId ??
+        deriveCommandTurnId(events)
+      result.commandTurnId = commandTurnId
+      result.observedTurnIds = observedTurnIds(events)
+      result.compile = {
+        compileId: run.compile.compileId,
+        planHash: run.compile.planHash,
+        selectedProfileHash: run.compile.selectedProfileHash,
+        startRequestHash: run.compile.startRequestHash,
+      }
+      result.notes['turns'] = run.turns.map((t) => ({
+        index: t.index,
+        turnId: t.turnId,
+        terminalTurnObserved: t.terminalTurnObserved,
+      }))
+      result.notes['ledgerEventTypes'] = run.ledgerEventTypes
+      result.notes['surface'] = run.surface ?? null
+
+      result.contractFailures = run.assertionFailures.map((f) => ({
+        code: f.code,
+        message: f.message,
+        path: f.path,
+      }))
+      if (!run.contractVerification.ok) {
+        result.contractFailures.push({
+          code: 'broker_start_contract_unverifiable',
+          message: 'interactive broker-start contract verification failed',
+        })
+      }
+
+      result.floorFailures = runSharedFloor(
+        events,
+        ctx.marker,
+        commandTurnId,
+        ctx.allowLegacyPermissionEvent,
+        CLAUDE_MARKER_SOURCES
+      )
+      result.notes['markerSatisfiedBy'] = markerSatisfiedBy(
+        events,
+        commandTurnId,
+        ctx.marker,
+        CLAUDE_MARKER_SOURCES
+      )
+
+      if (run.turns.length < 2) {
+        result.extraFailures.push({
+          code: 'claude_tmux_turn_count',
+          message: `expected >=2 broker-applied turns, got ${run.turns.length}`,
+        })
+      }
+      if (!run.turns.every((t) => t.terminalTurnObserved)) {
+        result.extraFailures.push({
+          code: 'claude_tmux_turn_terminal',
+          message: 'not every scripted turn reached a terminal turn',
+        })
+      }
+
+      // Uniform intermediate-message contract, scoped to the narration turn.
+      const narrationTurnIds = run.turns
+        .filter((t) => t.prompt === NARRATION_PROMPT)
+        .map((t) => t.turnId)
+      result.notes['narrationTurnIds'] = narrationTurnIds
+      result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
+
+      // CORE midturn signal (T-02027): the steered prompt typed mid-turn fires
+      // NO UserPromptSubmit — its ONLY transcript record is a
+      // queue-operation/enqueue line. The driver's hook-transcript reader is the
+      // sole emitter of `user.message` events whose driver.rawType is
+      // 'queue-operation'. Assert EXACTLY ONE such reader-sourced user.message,
+      // carrying the MIDTURN marker and correlated to a turn. RED until the
+      // reader lands — that red IS the worklist signal; greened by this commit.
+      const userMessageContent = (e: InvocationEventEnvelope): string =>
+        String(asRecord(e.payload)?.['content'] ?? '')
+      const userMessages = events.filter((e) => e.type === 'user.message')
+      const queueSourced = userMessages.filter((e) => e.driver?.rawType === 'queue-operation')
+      result.notes['userMessageCount'] = userMessages.length
+      result.notes['queueSourcedUserMessageCount'] = queueSourced.length
+      if (queueSourced.length !== 1) {
+        // 0 = reader not emitting (RED worklist signal); >1 = reader over-emitting
+        // (e.g. dequeue/remove or idle lines leaking) — the disjoint-channel
+        // no-double-count guarantee broken.
+        result.extraFailures.push({
+          code: 'midturn_user_prompt_capture',
+          message: `expected exactly one queue-operation-sourced user.message (mid-turn/steered prompt capture), got ${queueSourced.length}`,
+        })
+      } else {
+        const captured = queueSourced[0]!
+        if (!userMessageContent(captured).includes(midTurnMarker)) {
+          result.extraFailures.push({
+            code: 'midturn_user_prompt_content',
+            message: `captured mid-turn user.message must contain "${midTurnMarker}", got "${userMessageContent(captured).slice(0, 80)}"`,
+          })
+        }
+        if (captured.turnId === undefined) {
+          result.extraFailures.push({
+            code: 'midturn_user_prompt_uncorrelated',
+            message: 'captured mid-turn user.message must be correlated to a turn (turnId present)',
+          })
+        }
+      }
+
+      // No double-count of IDLE prompts: the reader must NEVER re-emit a prompt
+      // that fired UserPromptSubmit. Channels are disjoint (idle → type:user +
+      // UserPromptSubmit; steered → queue-operation/enqueue), so NO
+      // queue-operation-sourced user.message may carry the idle turn-1 prompt
+      // text. (Real Claude may itself re-submit a prompt as a fresh turn — that
+      // is a model behaviour producing a real UserPromptSubmit, not a reader
+      // double-count, so this guards the reader specifically.)
+      const idleText = "Run the Bash command: sleep 3"
+      const readerLeakedIdle = queueSourced.filter((e) =>
+        userMessageContent(e).includes(idleText)
+      )
+      if (readerLeakedIdle.length > 0) {
+        result.extraFailures.push({
+          code: 'midturn_idle_double_count',
+          message: `transcript reader must not re-emit idle prompts; ${readerLeakedIdle.length} queue-operation user.message(s) carried the idle turn-1 prompt`,
+        })
+      }
 
       if (!ctx.keepArtifacts) rmSync(aspHome, { recursive: true, force: true })
 
