@@ -56,10 +56,23 @@ export class UnixSocketTransport extends JsonRpcFramedChannel {
     assertSocketPathWithinBudget(options.socketPath)
 
     const socket = connect({ path: options.socketPath })
+    await UnixSocketTransport.#awaitConnect(socket, options.socketPath, options.timeoutMs)
 
-    await new Promise<void>((resolve, reject) => {
+    return new UnixSocketTransport(socket, options.debug)
+  }
+
+  /**
+   * Resolve once the socket connects; reject (and destroy the socket) on a
+   * connect error or, when `timeoutMs > 0`, after the deadline. A `settled`
+   * latch makes the first outcome win and stops the others from firing.
+   */
+  static #awaitConnect(
+    socket: Socket,
+    socketPath: string,
+    timeoutMs: number | undefined
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
       let settled = false
-      const timeoutMs = options.timeoutMs
       const timer =
         timeoutMs !== undefined && timeoutMs > 0
           ? setTimeout(() => {
@@ -67,9 +80,7 @@ export class UnixSocketTransport extends JsonRpcFramedChannel {
               settled = true
               socket.destroy()
               reject(
-                new BrokerTransportError(
-                  `Timed out connecting to broker unix socket ${options.socketPath}`
-                )
+                new BrokerTransportError(`Timed out connecting to broker unix socket ${socketPath}`)
               )
             }, timeoutMs)
           : undefined
@@ -87,8 +98,6 @@ export class UnixSocketTransport extends JsonRpcFramedChannel {
         reject(new BrokerTransportError('Failed to connect to broker unix socket', error))
       })
     })
-
-    return new UnixSocketTransport(socket, options.debug)
   }
 
   /**

@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { loadSkills } from '@mariozechner/pi-coding-agent'
 import type { ExtensionFactory, Skill } from '@mariozechner/pi-coding-agent'
 import type { PiSdkBundleManifest } from './bundle-manifest-types.js'
-import { buildHookExtension, loadBundleManifest } from './hook-runtime.js'
+import { buildHookExtension, collectBundleSpaceIds, loadBundleManifest } from './hook-runtime.js'
 
 export type {
   PiSdkBundleHookEntry,
@@ -46,12 +46,7 @@ export async function loadPiSdkBundle(
 
   const hooks = noExtensions ? [] : (manifest.hooks ?? [])
   if (hooks.length > 0) {
-    const spaceIds = Array.from(
-      new Set([
-        ...manifest.extensions.map((entry) => entry.spaceId),
-        ...(manifest.contextFiles ?? []).map((entry) => entry.spaceId),
-      ])
-    )
+    const spaceIds = collectBundleSpaceIds(manifest)
     extensionFactories.push(
       buildHookExtension({
         hooks,

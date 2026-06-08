@@ -507,22 +507,98 @@ function validateLaunch(value: unknown, prefix: string, issues: ValidationIssue[
   }
 }
 
+/**
+ * Per-method validators for broker methods whose params MUST be an object. The
+ * `asRecord` guard is applied once in {@link validateCommandParams} before
+ * dispatch, so each entry receives the already-unwrapped params record. This
+ * registry replaces the former per-method `switch`; adding a broker method is
+ * now a single table entry (OCP) instead of a new `case`. `broker.health` is
+ * intentionally absent — it permits `params === undefined` and so is handled by
+ * a dedicated branch ahead of the record guard.
+ */
+const COMMAND_PARAM_VALIDATORS: Partial<
+  Record<BrokerMethod, (commandParams: SchemaRecord, issues: ValidationIssue[]) => void>
+> = {
+  'broker.hello': (commandParams, issues) => {
+    validateBrokerHelloParams(commandParams, issues)
+  },
+  'broker.attach': (commandParams, issues) => {
+    requireString(commandParams.runtimeId, 'params.runtimeId', issues)
+    requireString(commandParams.hostSessionId, 'params.hostSessionId', issues)
+    requireNumber(commandParams.generation, 'params.generation', issues)
+    requireString(commandParams.invocationId, 'params.invocationId', issues)
+    requireString(commandParams.startRequestHash, 'params.startRequestHash', issues)
+    requireString(commandParams.selectedProfileHash, 'params.selectedProfileHash', issues)
+    requireString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
+    requireString(commandParams.attachToken, 'params.attachToken', issues)
+    optionalNumber(commandParams.lastProjectedSeq, 'params.lastProjectedSeq', issues)
+    validateClientCapabilities(
+      commandParams.clientCapabilities,
+      'params.clientCapabilities',
+      issues
+    )
+  },
+  'broker.listInvocations': (commandParams, issues) => {
+    optionalBoolean(commandParams.includeDisposed, 'params.includeDisposed', issues)
+    optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
+  },
+  'invocation.start': (commandParams, issues) => {
+    validateInvocationDispatchRequestShape(commandParams, 'params', issues)
+  },
+  'invocation.input': (commandParams, issues) => {
+    requireString(commandParams.invocationId, 'params.invocationId', issues)
+    validateInvocationInputShape(commandParams.input, 'params.input', issues)
+    validateInputPolicy(commandParams.policy, 'params.policy', issues)
+  },
+  'invocation.interrupt': (commandParams, issues) => {
+    requireString(commandParams.invocationId, 'params.invocationId', issues)
+    optionalEnum(commandParams.scope, ['turn', 'invocation'], 'params.scope', issues, true)
+    optionalString(commandParams.reason, 'params.reason', issues)
+    optionalNumber(commandParams.graceMs, 'params.graceMs', issues)
+  },
+  'invocation.stop': (commandParams, issues) => {
+    requireString(commandParams.invocationId, 'params.invocationId', issues)
+    optionalString(commandParams.reason, 'params.reason', issues)
+    optionalNumber(commandParams.graceMs, 'params.graceMs', issues)
+  },
+  'invocation.status': (commandParams, issues) => {
+    requireString(commandParams.invocationId, 'params.invocationId', issues)
+    optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
+  },
+  'invocation.dispose': (commandParams, issues) => {
+    requireString(commandParams.invocationId, 'params.invocationId', issues)
+  },
+  'invocation.eventsSince': (commandParams, issues) => {
+    requireString(commandParams.invocationId, 'params.invocationId', issues)
+    requireNumber(commandParams.afterSeq, 'params.afterSeq', issues)
+    optionalBoolean(commandParams.live, 'params.live', issues)
+    validateOptionalEventTypeArray(commandParams.types, 'params.types', issues)
+  },
+  'invocation.ackEvents': (commandParams, issues) => {
+    requireString(commandParams.invocationId, 'params.invocationId', issues)
+    requireNumber(commandParams.throughSeq, 'params.throughSeq', issues)
+    requireString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
+  },
+  'invocation.snapshot': (commandParams, issues) => {
+    requireString(commandParams.invocationId, 'params.invocationId', issues)
+    optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
+  },
+  'invocation.permission.respond': (commandParams, issues) => {
+    requireString(commandParams.invocationId, 'params.invocationId', issues)
+    requireString(commandParams.permissionRequestId, 'params.permissionRequestId', issues)
+    optionalEnum(commandParams.decision, ['allow', 'deny'], 'params.decision', issues, true)
+    optionalString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
+    optionalString(commandParams.message, 'params.message', issues)
+  },
+}
+
 function validateCommandParams(
   method: BrokerMethod,
   params: unknown,
   issues: ValidationIssue[]
 ): void {
   if (method === 'broker.health') {
-    if (params !== undefined) {
-      const health = asRecord(params)
-      if (!health) {
-        issues.push(makeIssue('params', 'invalid_type', 'params must be an object'))
-      } else if (health.probeDrivers !== undefined && typeof health.probeDrivers !== 'boolean') {
-        issues.push(
-          makeIssue('params.probeDrivers', 'invalid_type', 'probeDrivers must be a boolean')
-        )
-      }
-    }
+    validateBrokerHealthParams(params, issues)
     return
   }
 
@@ -532,78 +608,25 @@ function validateCommandParams(
     return
   }
 
-  switch (method) {
-    case 'broker.hello':
-      validateBrokerHelloParams(commandParams, issues)
-      return
-    case 'broker.attach':
-      requireString(commandParams.runtimeId, 'params.runtimeId', issues)
-      requireString(commandParams.hostSessionId, 'params.hostSessionId', issues)
-      requireNumber(commandParams.generation, 'params.generation', issues)
-      requireString(commandParams.invocationId, 'params.invocationId', issues)
-      requireString(commandParams.startRequestHash, 'params.startRequestHash', issues)
-      requireString(commandParams.selectedProfileHash, 'params.selectedProfileHash', issues)
-      requireString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
-      requireString(commandParams.attachToken, 'params.attachToken', issues)
-      optionalNumber(commandParams.lastProjectedSeq, 'params.lastProjectedSeq', issues)
-      validateClientCapabilities(
-        commandParams.clientCapabilities,
-        'params.clientCapabilities',
-        issues
-      )
-      return
-    case 'broker.listInvocations':
-      optionalBoolean(commandParams.includeDisposed, 'params.includeDisposed', issues)
-      optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
-      return
-    case 'invocation.start':
-      validateInvocationDispatchRequestShape(commandParams, 'params', issues)
-      return
-    case 'invocation.input':
-      requireString(commandParams.invocationId, 'params.invocationId', issues)
-      validateInvocationInputShape(commandParams.input, 'params.input', issues)
-      validateInputPolicy(commandParams.policy, 'params.policy', issues)
-      return
-    case 'invocation.interrupt':
-      requireString(commandParams.invocationId, 'params.invocationId', issues)
-      optionalEnum(commandParams.scope, ['turn', 'invocation'], 'params.scope', issues, true)
-      optionalString(commandParams.reason, 'params.reason', issues)
-      optionalNumber(commandParams.graceMs, 'params.graceMs', issues)
-      return
-    case 'invocation.stop':
-      requireString(commandParams.invocationId, 'params.invocationId', issues)
-      optionalString(commandParams.reason, 'params.reason', issues)
-      optionalNumber(commandParams.graceMs, 'params.graceMs', issues)
-      return
-    case 'invocation.status':
-      requireString(commandParams.invocationId, 'params.invocationId', issues)
-      optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
-      return
-    case 'invocation.dispose':
-      requireString(commandParams.invocationId, 'params.invocationId', issues)
-      return
-    case 'invocation.eventsSince':
-      requireString(commandParams.invocationId, 'params.invocationId', issues)
-      requireNumber(commandParams.afterSeq, 'params.afterSeq', issues)
-      optionalBoolean(commandParams.live, 'params.live', issues)
-      validateOptionalEventTypeArray(commandParams.types, 'params.types', issues)
-      return
-    case 'invocation.ackEvents':
-      requireString(commandParams.invocationId, 'params.invocationId', issues)
-      requireNumber(commandParams.throughSeq, 'params.throughSeq', issues)
-      requireString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
-      return
-    case 'invocation.snapshot':
-      requireString(commandParams.invocationId, 'params.invocationId', issues)
-      optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
-      return
-    case 'invocation.permission.respond':
-      requireString(commandParams.invocationId, 'params.invocationId', issues)
-      requireString(commandParams.permissionRequestId, 'params.permissionRequestId', issues)
-      optionalEnum(commandParams.decision, ['allow', 'deny'], 'params.decision', issues, true)
-      optionalString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
-      optionalString(commandParams.message, 'params.message', issues)
-      return
+  const validator = COMMAND_PARAM_VALIDATORS[method]
+  validator?.(commandParams, issues)
+}
+
+/**
+ * `broker.health` params are optional; when present they must be an object with
+ * an optional boolean `probeDrivers`. Handled separately from
+ * {@link COMMAND_PARAM_VALIDATORS} because every other method requires a params
+ * record.
+ */
+function validateBrokerHealthParams(params: unknown, issues: ValidationIssue[]): void {
+  if (params === undefined) {
+    return
+  }
+  const health = asRecord(params)
+  if (!health) {
+    issues.push(makeIssue('params', 'invalid_type', 'params must be an object'))
+  } else if (health.probeDrivers !== undefined && typeof health.probeDrivers !== 'boolean') {
+    issues.push(makeIssue('params.probeDrivers', 'invalid_type', 'probeDrivers must be a boolean'))
   }
 }
 
@@ -1089,8 +1112,12 @@ function validateDispatchRuntime(
     return
   }
 
+  // `tmux` is computed once: when present-but-not-an-object the legacy block
+  // emits its issue and returns; past that point `tmux` is either undefined or
+  // a valid record, so the driver-kind shim check below can reuse it.
+  let tmux: SchemaRecord | undefined
   if (runtime?.['tmux'] !== undefined) {
-    const tmux = asRecord(runtime['tmux'])
+    tmux = asRecord(runtime['tmux'])
     if (!tmux) {
       issues.push(
         makeIssue(joinPath(runtimePath, 'tmux'), 'invalid_type', 'tmux must be an object')
@@ -1124,7 +1151,6 @@ function validateDispatchRuntime(
     return
   }
 
-  const tmux = runtime ? asRecord(runtime['tmux']) : undefined
   const legacyShimSatisfied =
     !!tmux && typeof tmux['socketPath'] === 'string' && tmux['socketPath'].length > 0
 

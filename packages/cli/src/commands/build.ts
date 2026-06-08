@@ -8,15 +8,9 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import {
-  type BuildResult,
-  type HarnessId,
-  build,
-  buildAll,
-  harnessRegistry,
-  isHarnessId,
-} from 'spaces-execution'
+import { type BuildResult, build, buildAll } from 'spaces-execution'
 
+import { validateHarness } from '../harness-validator.js'
 import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 interface BuildOptions extends CommonOptions {
@@ -25,25 +19,6 @@ interface BuildOptions extends CommonOptions {
   install: boolean
   lint: boolean
   harness?: string
-}
-
-/**
- * Validate harness option and return the harness ID.
- */
-function validateHarness(harness: string | undefined): HarnessId {
-  const harnessId = harness ?? 'claude'
-
-  if (!isHarnessId(harnessId)) {
-    console.error(chalk.red(`Error: Unknown harness "${harnessId}"`))
-    console.error(chalk.gray(''))
-    console.error(chalk.gray('Available harnesses:'))
-    for (const adapter of harnessRegistry.getAll()) {
-      console.error(chalk.gray(`  - ${adapter.id}`))
-    }
-    process.exit(1)
-  }
-
-  return harnessId
 }
 
 /**

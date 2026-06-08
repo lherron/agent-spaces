@@ -115,6 +115,20 @@ function safeJsonStringify(value: unknown): string {
   }
 }
 
+/**
+ * Collect the de-duplicated set of spaceIds contributing to a bundle, drawn
+ * from both its extensions and its context files. Shared by every
+ * `buildHookExtension` caller so the space-id provenance stays consistent.
+ */
+export function collectBundleSpaceIds(manifest: PiSdkBundleManifest): string[] {
+  return Array.from(
+    new Set([
+      ...manifest.extensions.map((entry) => entry.spaceId),
+      ...(manifest.contextFiles ?? []).map((entry) => entry.spaceId),
+    ])
+  )
+}
+
 export interface BuildHookExtensionOptions {
   hooks: PiSdkBundleHookEntry[]
   bundleRoot: string

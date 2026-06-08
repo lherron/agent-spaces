@@ -1,4 +1,5 @@
 import type { ContextResolverContext } from './context-resolver.js'
+import { isRecord } from './type-guards.js'
 
 const ENV_PREFIX = 'env.'
 
@@ -102,10 +103,6 @@ function getAgentNameFromProfile(profile: Record<string, unknown> | undefined): 
     return undefined
   }
   return typeof agent['name'] === 'string' ? agent['name'] : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export function interpolateVariables(content: string, context: ContextResolverContext): string {

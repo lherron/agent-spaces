@@ -6,6 +6,7 @@ import type {
   ToolCallId,
   TurnId,
 } from './ids'
+import type { InvocationInspectionSummary } from './invocation'
 import type {
   HarnessExitedPayload,
   HarnessRecoveryCompletedPayload,
@@ -18,7 +19,6 @@ import type {
   TurnRetryPayload,
   TurnStalledPayload,
 } from './lifecycle'
-import type { InvocationInspectionSummary } from './invocation'
 import type { IsoTimestamp } from './primitives'
 
 export interface InvocationEventEnvelope<TPayload = InvocationEventPayload> {

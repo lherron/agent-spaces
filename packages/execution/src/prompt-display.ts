@@ -12,8 +12,13 @@ import chalk from 'chalk'
 import { paginate } from './pager.js'
 import { shellQuote } from './run/util.js'
 
+/** Inner width of the framed prompt sections — fits a conventional 72-column terminal. */
 const FRAME_WIDTH = 72
 const PROMPT_FLAGS = new Set(['--system-prompt', '--append-system-prompt'])
+/**
+ * Args past the `--` separator longer than this many chars are elided to
+ * `'<N chars>'` so a long inlined prompt doesn't flood the displayed command.
+ */
 const LONG_ARG_THRESHOLD = 200
 
 export interface PromptSection {

@@ -11,14 +11,12 @@ import type {
   InvocationStopResponse,
   TurnId,
 } from 'spaces-harness-broker-protocol'
-import {
-  BrokerErrorCode,
-  CONSERVATIVE_LIFECYCLE_CAPABILITIES,
-} from 'spaces-harness-broker-protocol'
+import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import { spawnHarnessProcess } from '../../runtime/process-runner'
 import { terminateProcess } from '../../runtime/signals'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import { CODEX_CAPABILITIES } from './capabilities'
 import { createCodexNotificationMapper, parseCodexError } from './event-map'
 import { buildTurnStartParams } from './input'
 import {
@@ -35,37 +33,6 @@ if (bunRuntime !== undefined && bunRuntime.execPath === undefined) {
     value: process.execPath,
     configurable: true,
   })
-}
-
-const CODEX_CAPABILITIES: InvocationCapabilities = {
-  input: {
-    user: true,
-    steer: false,
-    appendContext: false,
-    localImages: true,
-    fileRefs: false,
-    queue: true,
-  },
-  turns: {
-    concurrency: 'single',
-    interrupt: 'unsupported',
-  },
-  continuation: {
-    supported: true,
-    provider: 'codex',
-    keyKind: 'thread',
-  },
-  events: {
-    assistantDeltas: true,
-    toolCalls: true,
-    usage: true,
-    diagnostics: true,
-  },
-  control: {
-    stop: true,
-    dispose: true,
-  },
-  lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }
 
 interface ThreadResponse {

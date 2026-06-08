@@ -22,6 +22,20 @@ export function validateToken(value: string, label: string): string | undefined 
   return undefined
 }
 
+/**
+ * Validate a single identifier token and lift the result into a
+ * `ValidationResult`. Returns `{ ok: true }` when the token is valid, otherwise
+ * `{ ok: false, error }` with the same message produced by `validateToken`.
+ *
+ * Convenience wrapper that removes the repetitive
+ * `const err = validateToken(...); if (err) return { ok: false, error: err }`
+ * boilerplate in the scope-ref / scope-handle validators.
+ */
+export function validateTokenField(value: string, label: string): ValidationResult {
+  const error = validateToken(value, label)
+  return error ? { ok: false, error } : { ok: true }
+}
+
 export type ScopeKind = 'agent' | 'project' | 'project-role' | 'project-task' | 'project-task-role'
 
 export type ParsedScopeRef = {

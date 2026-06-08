@@ -156,6 +156,21 @@ function readBody(
 const EXIT_CODE_USAGE = 2
 const EXIT_CODE_INTERNAL = 1
 
+// Renders the stderr line for an error. Kept separate from `exitWithError` so
+// the formatting (JSON envelope vs. `bin: message`) is decoupled from the
+// exit-code / write / exit orchestration. Behaviour is identical to the inline
+// branches it replaces.
+function formatErrorLine(
+  message: string,
+  usage: boolean,
+  opts: { json?: boolean; binName: string }
+): string {
+  if (opts.json) {
+    return `${JSON.stringify({ error: { message, usage } })}\n`
+  }
+  return `${opts.binName}: ${message}\n`
+}
+
 export function exitWithError(
   err: unknown,
   opts: { json?: boolean; binName: string },
@@ -170,11 +185,7 @@ export function exitWithError(
   const usage = err instanceof CliUsageError
   const exitCode = usage ? EXIT_CODE_USAGE : EXIT_CODE_INTERNAL
 
-  if (opts.json) {
-    write(`${JSON.stringify({ error: { message, usage } })}\n`)
-  } else {
-    write(`${opts.binName}: ${message}\n`)
-  }
+  write(formatErrorLine(message, usage, opts))
 
   return exit(exitCode)
 }

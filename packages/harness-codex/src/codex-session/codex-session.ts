@@ -438,41 +438,36 @@ export class CodexSession implements UnifiedSession {
   }
 
   private async handleRequest(request: JsonRpcRequest): Promise<unknown> {
-    switch (request.method) {
-      case 'item/commandExecution/requestApproval': {
-        const params = request.params as CommandExecutionRequestApprovalParams
-        const item = params.itemId ? this.items.get(params.itemId) : undefined
-        const requestInput = {
-          ...(item ? { item } : {}),
-          ...(params.reason ? { reason: params.reason } : {}),
-        }
-        const decision = await this.resolvePermission({
-          toolName: 'command_execution',
-          toolUseId: params.itemId,
-          input: requestInput,
-          ...(params.reason ? { summary: params.reason } : {}),
-        })
-        return { decision }
-      }
-      case 'item/fileChange/requestApproval': {
-        const params = request.params as FileChangeRequestApprovalParams
-        const item = params.itemId ? this.items.get(params.itemId) : undefined
-        const requestInput = {
-          ...(item ? { item } : {}),
-          ...(params.grantRoot ? { grantRoot: params.grantRoot } : {}),
-          ...(params.reason ? { reason: params.reason } : {}),
-        }
-        const decision = await this.resolvePermission({
-          toolName: 'file_change',
-          toolUseId: params.itemId,
-          input: requestInput,
-          ...(params.reason ? { summary: params.reason } : {}),
-        })
-        return { decision }
-      }
+    if (request.method === 'item/commandExecution/requestApproval') {
+      const params = request.params as CommandExecutionRequestApprovalParams
+      return this.approveItemRequest('command_execution', params)
+    }
+    if (request.method === 'item/fileChange/requestApproval') {
+      const params = request.params as FileChangeRequestApprovalParams
+      return this.approveItemRequest('file_change', params, params.grantRoot)
     }
 
     throw new Error(`Unhandled Codex request: ${request.method}`)
+  }
+
+  private async approveItemRequest(
+    toolName: 'command_execution' | 'file_change',
+    params: { itemId: string; reason: string | null },
+    grantRoot?: string | null
+  ): Promise<{ decision: 'acceptForSession' | 'decline' }> {
+    const item = params.itemId ? this.items.get(params.itemId) : undefined
+    const requestInput = {
+      ...(item ? { item } : {}),
+      ...(grantRoot ? { grantRoot } : {}),
+      ...(params.reason ? { reason: params.reason } : {}),
+    }
+    const decision = await this.resolvePermission({
+      toolName,
+      toolUseId: params.itemId,
+      input: requestInput,
+      ...(params.reason ? { summary: params.reason } : {}),
+    })
+    return { decision }
   }
 
   private async resolvePermission(

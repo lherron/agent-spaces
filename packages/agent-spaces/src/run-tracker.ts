@@ -1,8 +1,7 @@
-import { basename } from 'node:path'
-
 import type { AttachmentRef, UnifiedSession } from 'spaces-execution'
 
-import type { EventEmitter, EventPayload } from './session-events.js'
+import { toAgentSpacesError } from './run-turn-helpers.js'
+import { type EventEmitter, type EventPayload, normalizeAttachmentRefs } from './session-events.js'
 
 import type {
   AgentSpacesError,
@@ -52,20 +51,6 @@ export function createInFlightRunMap(): Map<string, InFlightRunContext> {
 // ---------------------------------------------------------------------------
 // In-flight closure helpers
 // ---------------------------------------------------------------------------
-
-function toAgentSpacesError(error: unknown, code?: AgentSpacesError['code']): AgentSpacesError {
-  const message = error instanceof Error ? error.message : String(error)
-  const errorCode = code ?? undefined
-  const details: Record<string, unknown> = {}
-  if (error instanceof Error && error.stack) {
-    details['stack'] = error.stack
-  }
-  return {
-    message,
-    ...(errorCode ? { code: errorCode } : {}),
-    ...(Object.keys(details).length > 0 ? { details } : {}),
-  }
-}
 
 export function buildInFlightResponse(
   context: InFlightRunContext,
@@ -148,18 +133,4 @@ export function enqueueInFlightPrompt(
   })
 
   return context.sendChain
-}
-
-function normalizeAttachmentRefs(
-  attachments: Array<string | AttachmentRef> | undefined
-): AttachmentRef[] | undefined {
-  return attachments?.map((attachment) =>
-    typeof attachment === 'string'
-      ? {
-          kind: 'file' as const,
-          path: attachment,
-          filename: basename(attachment),
-        }
-      : attachment
-  )
 }

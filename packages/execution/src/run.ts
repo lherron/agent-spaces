@@ -324,30 +324,23 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         agentProfile?.agentRoot ??
         join(getAgentsRoot({ aspHome }) ?? dirname(options.projectPath), targetName)
       const compilerCwd = runOptions.cwd ?? options.cwd ?? options.projectPath
-      const placement =
+      const placementBase = {
+        agentRoot: placementAgentRoot,
+        projectRoot: options.projectPath,
+        cwd: compilerCwd,
+        runMode: 'query',
+        dryRun: options.dryRun === true,
+        ...(options.env !== undefined ? { env: options.env } : {}),
+      }
+      const placementBundle =
         agentProfile !== undefined
           ? {
-              agentRoot: placementAgentRoot,
+              kind: 'agent-project',
+              agentName: targetName,
               projectRoot: options.projectPath,
-              cwd: compilerCwd,
-              runMode: 'query',
-              bundle: {
-                kind: 'agent-project',
-                agentName: targetName,
-                projectRoot: options.projectPath,
-              },
-              dryRun: options.dryRun === true,
-              ...(options.env !== undefined ? { env: options.env } : {}),
             }
-          : {
-              agentRoot: placementAgentRoot,
-              projectRoot: options.projectPath,
-              cwd: compilerCwd,
-              runMode: 'query',
-              bundle: { kind: 'compose', compose: lock.targets[targetName]?.compose ?? [] },
-              dryRun: options.dryRun === true,
-              ...(options.env !== undefined ? { env: options.env } : {}),
-            }
+          : { kind: 'compose', compose: lock.targets[targetName]?.compose ?? [] }
+      const placement = { ...placementBase, bundle: placementBundle }
       const scopeRef = `agent:${targetName}:project:${projectId}${taskId ? `:task:${taskId}` : ''}`
       return {
         aspHome,

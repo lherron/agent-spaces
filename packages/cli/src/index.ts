@@ -20,28 +20,7 @@ const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'
   version: string
 }
 
-import { registerAddCommand } from './commands/add.js'
-import { registerAgentCommands } from './commands/agent/index.js'
-import { registerBuildCommand } from './commands/build.js'
-import { registerDescribeCommand } from './commands/describe.js'
-import { registerDiffCommand } from './commands/diff.js'
-import { registerDoctorCommand } from './commands/doctor.js'
-import { registerExplainCommand } from './commands/explain.js'
-import { registerGcCommand } from './commands/gc.js'
-import { registerGuiCommand } from './commands/gui.js'
-import { registerHarnessesCommand } from './commands/harnesses.js'
-import { registerInitCommand } from './commands/init.js'
-import { registerInstallCommand } from './commands/install.js'
-import { registerLintCommand } from './commands/lint.js'
-import { registerListCommand } from './commands/list.js'
-import { registerPathCommand } from './commands/path.js'
-import { registerRemoveCommand } from './commands/remove.js'
-import { registerRepoCommands } from './commands/repo/index.js'
-import { registerResolveReminderCommand } from './commands/resolve-reminder.js'
-import { registerRunCommand } from './commands/run.js'
-import { registerSelfCommands } from './commands/self/index.js'
-import { registerSpacesCommands } from './commands/spaces/index.js'
-import { registerUpgradeCommand } from './commands/upgrade.js'
+import { registerAllCommands } from './command-registry.js'
 import { exitWithAspError } from './helpers.js'
 
 export { findProjectRoot } from './lib.js'
@@ -71,28 +50,7 @@ function createProgram(): Command {
     })
 
   // Register all commands
-  registerRunCommand(program)
-  registerInitCommand(program)
-  registerInstallCommand(program)
-  registerBuildCommand(program)
-  registerDescribeCommand(program)
-  registerExplainCommand(program)
-  registerLintCommand(program)
-  registerListCommand(program)
-  registerPathCommand(program)
-  registerDoctorCommand(program)
-  registerGcCommand(program)
-  registerGuiCommand(program)
-  registerAddCommand(program)
-  registerRemoveCommand(program)
-  registerUpgradeCommand(program)
-  registerDiffCommand(program)
-  registerHarnessesCommand(program)
-  registerResolveReminderCommand(program)
-  registerSelfCommands(program)
-  registerRepoCommands(program)
-  registerSpacesCommands(program)
-  registerAgentCommands(program)
+  registerAllCommands(program)
 
   return program
 }

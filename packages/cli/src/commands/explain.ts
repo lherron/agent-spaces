@@ -10,28 +10,9 @@ import chalk from 'chalk'
 import type { Command } from 'commander'
 
 import { explain, formatExplainJson, formatExplainText } from 'spaces-config'
-import { type HarnessId, harnessRegistry, isHarnessId } from 'spaces-execution'
 
+import { validateHarness } from '../harness-validator.js'
 import { findProjectRoot } from '../lib.js'
-
-/**
- * Validate harness option and return the harness ID.
- */
-function validateHarness(harness: string | undefined): HarnessId {
-  const harnessId = harness ?? 'claude'
-
-  if (!isHarnessId(harnessId)) {
-    console.error(chalk.red(`Error: Unknown harness "${harnessId}"`))
-    console.error(chalk.gray(''))
-    console.error(chalk.gray('Available harnesses:'))
-    for (const adapter of harnessRegistry.getAll()) {
-      console.error(chalk.gray(`  - ${adapter.id}`))
-    }
-    process.exit(1)
-  }
-
-  return harnessId
-}
 
 /**
  * Register the explain command.

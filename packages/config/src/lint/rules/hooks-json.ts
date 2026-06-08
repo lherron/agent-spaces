@@ -56,6 +56,67 @@ export async function readHooksJson(pluginPath: string): Promise<HooksJsonParsed
   return parseHooksContent(content, hooksJsonPath)
 }
 
+/**
+ * Collect `command` strings from a Claude-style `hooks: [{ command }]` array,
+ * appending each as a {@link HooksJsonCommand} tagged with `event`.
+ */
+function collectNestedCommands(
+  nestedHooks: unknown[],
+  event: string | undefined,
+  commands: HooksJsonCommand[]
+): void {
+  for (const nested of nestedHooks) {
+    if (!isRecord(nested)) continue
+    const command = nested['command']
+    if (typeof command === 'string') {
+      commands.push({ command, event })
+    }
+  }
+}
+
+/**
+ * Parse the array hooks format:
+ * - simple entries `{ event, script }`, and
+ * - Claude-array entries `{ matcher, hooks: [{ command }] }`.
+ */
+function parseArrayFormat(
+  hooks: unknown[],
+  scripts: HooksJsonScript[],
+  commands: HooksJsonCommand[]
+): void {
+  for (const entry of hooks) {
+    if (!isRecord(entry)) continue
+
+    const script = entry['script']
+    if (typeof script === 'string') {
+      const event = typeof entry['event'] === 'string' ? entry['event'] : undefined
+      scripts.push({ script, event })
+    }
+
+    const nestedHooks = entry['hooks']
+    if (Array.isArray(nestedHooks)) {
+      const event = typeof entry['matcher'] === 'string' ? entry['matcher'] : undefined
+      collectNestedCommands(nestedHooks, event, commands)
+    }
+  }
+}
+
+/**
+ * Parse the Claude object hooks format:
+ * `{ PreToolUse: [{ matcher, hooks: [{ command }] }], ... }`.
+ */
+function parseObjectFormat(hooks: Record<string, unknown>, commands: HooksJsonCommand[]): void {
+  for (const [eventName, eventHooks] of Object.entries(hooks)) {
+    if (!Array.isArray(eventHooks)) continue
+    for (const hookDef of eventHooks) {
+      if (!isRecord(hookDef)) continue
+      const nestedHooks = hookDef['hooks']
+      if (!Array.isArray(nestedHooks)) continue
+      collectNestedCommands(nestedHooks, eventName, commands)
+    }
+  }
+}
+
 function parseHooksContent(content: unknown, sourcePath: string): HooksJsonParsed | null {
   if (!isRecord(content)) {
     return null
@@ -70,43 +131,9 @@ function parseHooksContent(content: unknown, sourcePath: string): HooksJsonParse
   const commands: HooksJsonCommand[] = []
 
   if (Array.isArray(hooks)) {
-    for (const entry of hooks) {
-      if (!isRecord(entry)) continue
-
-      const script = entry['script']
-      if (typeof script === 'string') {
-        const event = typeof entry['event'] === 'string' ? entry['event'] : undefined
-        scripts.push({ script, event })
-      }
-
-      const nestedHooks = entry['hooks']
-      if (Array.isArray(nestedHooks)) {
-        const event = typeof entry['matcher'] === 'string' ? entry['matcher'] : undefined
-        for (const nested of nestedHooks) {
-          if (!isRecord(nested)) continue
-          const command = nested['command']
-          if (typeof command === 'string') {
-            commands.push({ command, event })
-          }
-        }
-      }
-    }
+    parseArrayFormat(hooks, scripts, commands)
   } else if (isRecord(hooks)) {
-    for (const [eventName, eventHooks] of Object.entries(hooks)) {
-      if (!Array.isArray(eventHooks)) continue
-      for (const hookDef of eventHooks) {
-        if (!isRecord(hookDef)) continue
-        const nestedHooks = hookDef['hooks']
-        if (!Array.isArray(nestedHooks)) continue
-        for (const nested of nestedHooks) {
-          if (!isRecord(nested)) continue
-          const command = nested['command']
-          if (typeof command === 'string') {
-            commands.push({ command, event: eventName })
-          }
-        }
-      }
-    }
+    parseObjectFormat(hooks, commands)
   } else {
     return null
   }

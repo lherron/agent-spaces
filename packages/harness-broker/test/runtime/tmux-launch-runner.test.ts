@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { createServer } from 'node:net'
 import { mkdtemp, rm } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 

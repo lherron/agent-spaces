@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url'
 import {
   type ExtensionApi,
   buildHookExtension,
+  collectBundleSpaceIds,
   loadBundleManifest,
 } from '../../pi-session/hook-runtime.js'
 
@@ -209,12 +210,7 @@ async function main(): Promise<void> {
 
   const hooks = args.noExtensions ? [] : (manifest.hooks ?? [])
   if (hooks.length > 0) {
-    const spaceIds = Array.from(
-      new Set([
-        ...manifest.extensions.map((entry) => entry.spaceId),
-        ...(manifest.contextFiles ?? []).map((entry) => entry.spaceId),
-      ])
-    )
+    const spaceIds = collectBundleSpaceIds(manifest)
     extensionFactories.push(
       buildHookExtension({
         hooks,

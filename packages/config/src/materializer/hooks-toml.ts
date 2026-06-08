@@ -254,11 +254,15 @@ export function translateToPiEvent(abstractEvent: string): string {
  * @param hooks - Array of canonical hook definitions
  * @returns Claude hooks.json configuration
  */
-export function toClaudeHooksConfig(hooks: CanonicalHookDefinition[]): ClaudeHooksConfig {
-  // Filter for Claude-applicable hooks
-  const claudeHooks = filterHooksForHarness(hooks, 'claude')
-
-  // Group hooks by Claude event and matcher
+/**
+ * Group Claude-applicable hooks by Claude event name, then by matcher.
+ *
+ * Hooks whose abstract event has no Claude mapping are skipped. Tool events
+ * derive their matcher from `hook.tools`; other events use `hook.matcher`.
+ */
+function groupHooksByEventAndMatcher(
+  claudeHooks: CanonicalHookDefinition[]
+): Map<string, Map<string | undefined, CanonicalHookDefinition[]>> {
   const hooksByEvent = new Map<string, Map<string | undefined, CanonicalHookDefinition[]>>()
 
   for (const hook of claudeHooks) {
@@ -279,23 +283,41 @@ export function toClaudeHooksConfig(hooks: CanonicalHookDefinition[]): ClaudeHoo
     hooksByEvent.set(claudeEvent, eventMap)
   }
 
+  return hooksByEvent
+}
+
+/**
+ * Build the Claude hook definition entry for a single matcher group.
+ */
+function buildClaudeEventEntry(
+  matcher: string | undefined,
+  eventHooks: CanonicalHookDefinition[]
+): ClaudeHookDefinition {
+  const entry: ClaudeHookDefinition = {
+    hooks: eventHooks.map((h) => ({
+      type: 'command',
+      // Use ${CLAUDE_PLUGIN_ROOT} for portable script paths
+      command: `\${CLAUDE_PLUGIN_ROOT}/${h.script}`,
+    })),
+  }
+  if (matcher) {
+    entry.matcher = matcher
+  }
+  return entry
+}
+
+export function toClaudeHooksConfig(hooks: CanonicalHookDefinition[]): ClaudeHooksConfig {
+  // Filter for Claude-applicable hooks, then group by event and matcher.
+  const claudeHooks = filterHooksForHarness(hooks, 'claude')
+  const hooksByEvent = groupHooksByEventAndMatcher(claudeHooks)
+
   // Convert to Claude hooks.json format
   const result: ClaudeHooksConfig = { hooks: {} }
 
   for (const [eventName, matcherHooks] of hooksByEvent) {
     const eventEntries: ClaudeHookDefinition[] = []
     for (const [matcher, eventHooks] of matcherHooks) {
-      const entry: ClaudeHookDefinition = {
-        hooks: eventHooks.map((h) => ({
-          type: 'command',
-          // Use ${CLAUDE_PLUGIN_ROOT} for portable script paths
-          command: `\${CLAUDE_PLUGIN_ROOT}/${h.script}`,
-        })),
-      }
-      if (matcher) {
-        entry.matcher = matcher
-      }
-      eventEntries.push(entry)
+      eventEntries.push(buildClaudeEventEntry(matcher, eventHooks))
     }
     result.hooks[eventName] = eventEntries
   }

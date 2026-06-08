@@ -250,18 +250,15 @@ export async function executeHarnessRun(
     pagePrompts: options.pagePrompts,
   })
 
-  const { exitCode, stdout, stderr } =
-    preparedRunOptions.launchSurface === 'codex-app'
-      ? await executeHarnessCommand(commandPath, args, {
-          interactive: false,
-          cwd: launchCwd,
-          env: harnessEnv,
-        })
-      : await executeHarnessCommand(commandPath, args, {
-          interactive: preparedRunOptions.interactive,
-          cwd: launchCwd,
-          env: harnessEnv,
-        })
+  // The codex-app surface always captures output (non-interactive); every other
+  // surface honours the prepared interactive flag. Otherwise the spawn is identical.
+  const interactive =
+    preparedRunOptions.launchSurface === 'codex-app' ? false : preparedRunOptions.interactive
+  const { exitCode, stdout, stderr } = await executeHarnessCommand(commandPath, args, {
+    interactive,
+    cwd: launchCwd,
+    env: harnessEnv,
+  })
 
   if (stdout) {
     process.stdout.write(stdout)

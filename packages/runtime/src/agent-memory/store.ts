@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
-import { mkdir, open, readFile, rename, stat } from 'node:fs/promises'
+import { mkdir, open, rename, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { readFileOrEmpty } from '../file-reader.js'
 import { type MemoryTargetConfig, type MemoryTargetName, resolveMemoryPaths } from './paths.js'
 import { ENTRY_DELIMITER, type ScanResult, scan } from './scan.js'
 
@@ -89,12 +90,7 @@ export class MemoryStore {
 
   async read(target: MemoryTargetName): Promise<string> {
     const config = this.targetConfig(target)
-    try {
-      return await readFile(config.path, 'utf8')
-    } catch (error) {
-      if (isNotFound(error)) return ''
-      throw error
-    }
+    return readFileOrEmpty(config.path)
   }
 
   async add(input: { target: MemoryTargetName; content: string }): Promise<StoreResult> {
@@ -204,12 +200,7 @@ export class MemoryStore {
 }
 
 async function readTargetContent(config: MemoryTargetConfig): Promise<string> {
-  try {
-    return await readFile(config.path, 'utf8')
-  } catch (error) {
-    if (isNotFound(error)) return ''
-    throw error
-  }
+  return readFileOrEmpty(config.path)
 }
 
 function splitEntries(content: string): string[] {
@@ -296,13 +287,4 @@ async function acquireProcessLock(lockPath: string): Promise<LockRelease> {
     }
     releaseCurrent()
   }
-}
-
-function isNotFound(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: string }).code === 'ENOENT'
-  )
 }

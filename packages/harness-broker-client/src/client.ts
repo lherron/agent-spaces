@@ -152,12 +152,17 @@ export class BrokerClient {
     runtime?: InvocationRuntimeContext
   ): Promise<InvocationStartResult> {
     const expectedInvocationId = request.spec.invocationId
-    const expectedEvents =
-      expectedInvocationId !== undefined ? this.#eventHub.stream(expectedInvocationId) : undefined
-    const options = this.#normalizeDispatchOptions(dispatchEnvOrOptions, runtime)
-    const dispatch = this.#buildDispatch(request, options)
+    let expectedEvents: ReturnType<InvocationEventHub['stream']> | undefined
 
     try {
+      // Open the stream before dispatching so early events for a known
+      // invocationId are not lost; any throw between here and the broker ack is
+      // caught below so the stream is never leaked.
+      expectedEvents =
+        expectedInvocationId !== undefined ? this.#eventHub.stream(expectedInvocationId) : undefined
+      const options = this.#normalizeDispatchOptions(dispatchEnvOrOptions, runtime)
+      const dispatch = this.#buildDispatch(request, options)
+
       // `dispatch` was just assembled from caller-owned fragments and is not
       // mutated below; the transport serializes it to NDJSON rather than
       // retaining it, so no defensive copy is needed here.

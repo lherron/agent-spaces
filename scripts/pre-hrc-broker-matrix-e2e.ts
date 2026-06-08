@@ -3184,10 +3184,8 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       // text. (Real Claude may itself re-submit a prompt as a fresh turn — that
       // is a model behaviour producing a real UserPromptSubmit, not a reader
       // double-count, so this guards the reader specifically.)
-      const idleText = "Run the Bash command: sleep 3"
-      const readerLeakedIdle = queueSourced.filter((e) =>
-        userMessageContent(e).includes(idleText)
-      )
+      const idleText = 'Run the Bash command: sleep 3'
+      const readerLeakedIdle = queueSourced.filter((e) => userMessageContent(e).includes(idleText))
       if (readerLeakedIdle.length > 0) {
         result.extraFailures.push({
           code: 'midturn_idle_double_count',

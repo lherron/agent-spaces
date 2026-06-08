@@ -355,6 +355,11 @@ function findSourcePathFromJson(stdout: string, sourceName: string): string | un
   return findSourcePathInJsonValue(parsed, sourceName)
 }
 
+/**
+ * Recursively search a `gbrain sources list --json` value for the path of
+ * `sourceName`. The input is always the product of `JSON.parse`, so it is
+ * acyclic — no visited-set guard against cycles is required.
+ */
 function findSourcePathInJsonValue(value: unknown, sourceName: string): string | undefined {
   if (Array.isArray(value)) {
     for (const item of value) {

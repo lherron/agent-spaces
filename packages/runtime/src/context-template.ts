@@ -1,4 +1,5 @@
 import { parse as parseToml } from '@iarna/toml'
+import { isRecord } from './type-guards.js'
 
 export type SystemPromptMode = 'replace' | 'append'
 export type ContextTemplateSchemaVersion = 2
@@ -446,10 +447,6 @@ function parseOptionalPositiveInteger(input: unknown, fieldName: string): number
 
 function describeSection(index: number, tableName: 'prompt' | 'reminder'): string {
   return `Context template ${tableName}[${index + 1}]`
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isOneOf<const T extends readonly string[]>(value: unknown, values: T): value is T[number] {

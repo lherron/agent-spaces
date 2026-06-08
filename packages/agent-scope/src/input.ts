@@ -1,4 +1,4 @@
-import { laneIdFromRef, normalizeLaneRef } from './lane-ref.js'
+import { DEFAULT_LANE_ID, laneIdFromRef, normalizeLaneRef } from './lane-ref.js'
 import { parseScopeHandle, validateScopeHandle } from './scope-handle.js'
 import { buildScopeRef, formatScopeRef, parseScopeRef, validateScopeRef } from './scope-ref.js'
 import { parseSessionHandle } from './session-handle.js'
@@ -36,10 +36,12 @@ export type ResolveQualifiedScopeOptions = {
 }
 
 function toLaneRef(defaultLaneId?: string): LaneRef {
-  if (!defaultLaneId || defaultLaneId === 'main') {
+  if (!defaultLaneId || defaultLaneId === DEFAULT_LANE_ID) {
     return 'main'
   }
 
+  // Accept either a bare lane id or an already-prefixed `lane:<id>` form;
+  // `normalizeLaneRef` validates the canonical result.
   return normalizeLaneRef(
     defaultLaneId.startsWith('lane:') ? defaultLaneId : `lane:${defaultLaneId}`
   )

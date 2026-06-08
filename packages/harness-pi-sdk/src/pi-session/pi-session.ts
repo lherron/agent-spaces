@@ -19,6 +19,7 @@ import type {
   UnifiedSessionEvent,
   UnifiedSessionState,
 } from 'spaces-runtime'
+import { HOOK_EVENT, PI_EVENT } from './event-types.js'
 import type {
   PiAgentSessionEvent,
   PiSessionConfig,
@@ -130,6 +131,7 @@ export class PiSession implements UnifiedSession {
       this.state = 'running'
       this.lastActivityAt = Date.now()
     } catch (error) {
+      console.error('[pi-session] Start failed:', error)
       this.state = 'error'
       throw error
     }
@@ -168,7 +170,7 @@ export class PiSession implements UnifiedSession {
 
     if (this.config.hookEventBus) {
       this.config.hookEventBus.emitHook(this.config.ownerId, {
-        hook_event_name: 'SessionEnd',
+        hook_event_name: HOOK_EVENT.SESSION_END,
         reason,
         cwd: this.config.cwd,
       })
@@ -267,9 +269,9 @@ export class PiSession implements UnifiedSession {
     if (!this.config.hookEventBus) return
 
     switch (event.type) {
-      case 'tool_execution_start':
+      case PI_EVENT.TOOL_EXECUTION_START:
         this.config.hookEventBus.emitHook(this.config.ownerId, {
-          hook_event_name: 'PreToolUse',
+          hook_event_name: HOOK_EVENT.PRE_TOOL_USE,
           tool_name: event.toolName,
           tool_input: event.args,
           tool_use_id: event.toolCallId,
@@ -278,9 +280,9 @@ export class PiSession implements UnifiedSession {
         })
         break
 
-      case 'tool_execution_end':
+      case PI_EVENT.TOOL_EXECUTION_END:
         this.config.hookEventBus.emitHook(this.config.ownerId, {
-          hook_event_name: 'PostToolUse',
+          hook_event_name: HOOK_EVENT.POST_TOOL_USE,
           tool_name: event.toolName,
           tool_input: event.args,
           tool_response: event.result,
@@ -291,9 +293,9 @@ export class PiSession implements UnifiedSession {
         })
         break
 
-      case 'agent_end':
+      case PI_EVENT.AGENT_END:
         this.config.hookEventBus.emitHook(this.config.ownerId, {
-          hook_event_name: 'Stop',
+          hook_event_name: HOOK_EVENT.STOP,
           cwd: this.config.cwd,
           session_id: this.sessionId,
         })
@@ -553,13 +555,13 @@ export function mapPiEventToUnified(
   state: PiEventMappingState = createPiEventMappingState()
 ): UnifiedSessionEvent[] {
   switch (piEvent.type) {
-    case 'agent_start':
+    case PI_EVENT.AGENT_START:
       state.agentActive = true
       state.held = undefined
       return [{ type: 'agent_start', sessionId }]
-    case 'agent_end':
+    case PI_EVENT.AGENT_END:
       return handleAgentEnd(piEvent, sessionId, state)
-    case 'turn_start': {
+    case PI_EVENT.TURN_START: {
       const turnId = typeof piEvent.turnId === 'string' ? piEvent.turnId : undefined
       return [
         {
@@ -568,9 +570,9 @@ export function mapPiEventToUnified(
         },
       ]
     }
-    case 'turn_end':
+    case PI_EVENT.TURN_END:
       return handleTurnEnd(piEvent, state)
-    case 'message_start': {
+    case PI_EVENT.MESSAGE_START: {
       const message = mapPiMessage(piEvent.message as PiMessage | undefined)
       if (!message) return []
       const messageId = typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
@@ -582,7 +584,7 @@ export function mapPiEventToUnified(
         },
       ]
     }
-    case 'message_update': {
+    case PI_EVENT.MESSAGE_UPDATE: {
       const messageId = typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
       const event: UnifiedSessionEvent = {
         type: 'message_update',
@@ -602,9 +604,9 @@ export function mapPiEventToUnified(
 
       return [event as UnifiedSessionEvent]
     }
-    case 'message_end':
+    case PI_EVENT.MESSAGE_END:
       return handleMessageEnd(piEvent, state)
-    case 'tool_execution_start':
+    case PI_EVENT.TOOL_EXECUTION_START:
       return [
         {
           type: 'tool_execution_start',
@@ -613,7 +615,7 @@ export function mapPiEventToUnified(
           input: normalizeToolInput(piEvent.args),
         },
       ]
-    case 'tool_execution_update':
+    case PI_EVENT.TOOL_EXECUTION_UPDATE:
       return [
         {
           type: 'tool_execution_update',
@@ -623,7 +625,7 @@ export function mapPiEventToUnified(
             : {}),
         },
       ]
-    case 'tool_execution_end':
+    case PI_EVENT.TOOL_EXECUTION_END:
       return [
         {
           type: 'tool_execution_end',

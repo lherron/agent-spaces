@@ -15,7 +15,6 @@ import { existsSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
-import { parseScopeHandle } from 'agent-scope'
 import { createCompileRuntimeFn } from 'agent-spaces'
 import chalk from 'chalk'
 import type { Command } from 'commander'
@@ -24,17 +23,18 @@ import { getAgentsRoot, parseSpaceRef } from 'spaces-config'
 import {
   type HarnessId,
   type RunResult,
-  harnessRegistry,
-  isHarnessId,
   isSpaceReference,
   run,
   runGlobalSpace,
   runLocalSpace,
 } from 'spaces-execution'
 
+import { validateOptionalHarness } from '../harness-validator.js'
 import { exitWithAspError, logInvocationOutput } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 import { displayPrompts } from '../prompt-display.js'
+import { type ResolvedRunTarget, resolveRunTarget } from '../scope-target-resolver.js'
+import { buildSettingSources } from '../settings-helper.js'
 
 /**
  * Run modes for the command.
@@ -68,63 +68,6 @@ interface RunOptions {
   remoteControl?: boolean
   namePrefix?: string
   pagePrompts?: boolean
-}
-
-interface ProjectRunTarget {
-  targetName: string
-  displayTarget: string
-  projectId?: string | undefined
-  taskId?: string | undefined
-}
-
-function resolveProjectRunTarget(target: string): ProjectRunTarget {
-  if (!target.includes('@')) {
-    return { targetName: target, displayTarget: target }
-  }
-
-  try {
-    const parsed = parseScopeHandle(target)
-    if (parsed.projectId === undefined) {
-      return { targetName: target, displayTarget: target }
-    }
-
-    return {
-      targetName: parsed.agentId,
-      displayTarget: target,
-      projectId: parsed.projectId,
-      taskId: parsed.taskId,
-    }
-  } catch {
-    return { targetName: target, displayTarget: target }
-  }
-}
-
-/**
- * Build setting sources value from inherit flags.
- *
- * Returns:
- * - null: inherit all settings (--inherit-all)
- * - string: specific sources to inherit ('user,project')
- * - undefined: use default behavior (isolated mode)
- */
-function buildSettingSources(options: RunOptions): string | null | undefined {
-  // --inherit-all means use all sources (don't pass --setting-sources at all)
-  if (options.inheritAll) {
-    return null
-  }
-
-  const sources: string[] = []
-  if (options.inheritProject) sources.push('project')
-  if (options.inheritUser) sources.push('user')
-  if (options.inheritLocal) sources.push('local')
-
-  // If any inherit flags specified, return the combined string
-  if (sources.length > 0) {
-    return sources.join(',')
-  }
-
-  // Default: isolated mode (undefined means "use default" which is isolated)
-  return undefined
 }
 
 /**
@@ -242,7 +185,7 @@ async function runProjectMode(
   projectPath: string,
   options: RunOptions
 ): Promise<RunResult> {
-  const resolvedTarget = resolveProjectRunTarget(target)
+  const resolvedTarget: ResolvedRunTarget = resolveRunTarget(target)
   const runOptions = {
     ...buildCommonRunOptions(options),
     projectPath,
@@ -380,27 +323,6 @@ function showInvalidModeHelp(): never {
 }
 
 /**
- * Validate harness option and return the harness ID.
- */
-function validateHarness(harness: string | undefined): HarnessId | undefined {
-  if (harness === undefined) {
-    return undefined
-  }
-
-  if (!isHarnessId(harness)) {
-    console.error(chalk.red(`Error: Unknown harness "${harness}"`))
-    console.error(chalk.gray(''))
-    console.error(chalk.gray('Available harnesses:'))
-    for (const adapter of harnessRegistry.getAll()) {
-      console.error(chalk.gray(`  - ${adapter.id}`))
-    }
-    process.exit(1)
-  }
-
-  return harness
-}
-
-/**
  * Register the run command.
  */
 export function registerRunCommand(program: Command): void {
@@ -437,7 +359,7 @@ export function registerRunCommand(program: Command): void {
     .option('--extra-args <args...>', 'Additional harness CLI arguments')
     .action(async (target: string, prompt: string | undefined, options: RunOptions) => {
       // Validate harness option
-      const _harness = validateHarness(options.harness)
+      const _harness = validateOptionalHarness(options.harness)
       options.harness = _harness
       const projectPath = options.project ?? (await findProjectRoot())
 

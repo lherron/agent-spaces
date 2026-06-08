@@ -26,6 +26,27 @@ export interface AspcFacadeOptions {
   compiler?: AspcCompiler | undefined
 }
 
+// Single source of truth for the JSON-RPC method names this facade serves, so
+// the wire strings live in one place rather than scattered across registration
+// sites.
+const ASPC_METHODS = {
+  hello: 'aspc.hello',
+  compileRuntimePlan: 'aspc.compileRuntimePlan',
+  compileHarnessInvocation: 'aspc.compileHarnessInvocation',
+  compileAndStart: 'aspc.compileAndStart',
+} as const
+
+const BROKER_METHODS = {
+  hello: 'broker.hello',
+  health: 'broker.health',
+  start: 'invocation.start',
+  input: 'invocation.input',
+  interrupt: 'invocation.interrupt',
+  stop: 'invocation.stop',
+  status: 'invocation.status',
+  dispose: 'invocation.dispose',
+} as const
+
 export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServer {
   const server = createProtocolServer({
     stdin: options.stdin,
@@ -64,16 +85,18 @@ export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServ
     })
   }
 
-  registerAspcMethod('aspc.hello', validateAspcHelloRequest, (req) => aspc.hello(req))
-  registerAspcMethod('aspc.compileRuntimePlan', validateAspcCompileRuntimePlanRequest, (req) =>
-    aspc.compileRuntimePlan(req)
+  registerAspcMethod(ASPC_METHODS.hello, validateAspcHelloRequest, (req) => aspc.hello(req))
+  registerAspcMethod(
+    ASPC_METHODS.compileRuntimePlan,
+    validateAspcCompileRuntimePlanRequest,
+    (req) => aspc.compileRuntimePlan(req)
   )
   registerAspcMethod(
-    'aspc.compileHarnessInvocation',
+    ASPC_METHODS.compileHarnessInvocation,
     validateAspcCompileHarnessInvocationRequest,
     (req) => aspc.compileHarnessInvocation(req)
   )
-  registerAspcMethod('aspc.compileAndStart', validateAspcCompileAndStartRequest, (req) =>
+  registerAspcMethod(ASPC_METHODS.compileAndStart, validateAspcCompileAndStartRequest, (req) =>
     aspc.compileAndStart(req)
   )
 
@@ -111,15 +134,15 @@ function brokerMethodTable(broker: Broker): ReadonlyArray<{
 }> {
   return [
     {
-      method: 'broker.hello',
+      method: BROKER_METHODS.hello,
       invoke: (params) => broker.hello(params as Parameters<typeof broker.hello>[0]),
     },
     {
-      method: 'broker.health',
+      method: BROKER_METHODS.health,
       invoke: (params) => broker.health((params ?? {}) as Parameters<typeof broker.health>[0]),
     },
     {
-      method: 'invocation.start',
+      method: BROKER_METHODS.start,
       invoke: (params) => {
         const dispatch = params as InvocationDispatchRequest
         return broker.start(
@@ -131,23 +154,23 @@ function brokerMethodTable(broker: Broker): ReadonlyArray<{
       },
     },
     {
-      method: 'invocation.input',
+      method: BROKER_METHODS.input,
       invoke: (params) => broker.input(params as Parameters<typeof broker.input>[0]),
     },
     {
-      method: 'invocation.interrupt',
+      method: BROKER_METHODS.interrupt,
       invoke: (params) => broker.interrupt(params as Parameters<typeof broker.interrupt>[0]),
     },
     {
-      method: 'invocation.stop',
+      method: BROKER_METHODS.stop,
       invoke: (params) => broker.stop(params as Parameters<typeof broker.stop>[0]),
     },
     {
-      method: 'invocation.status',
+      method: BROKER_METHODS.status,
       invoke: (params) => broker.status(params as Parameters<typeof broker.status>[0]),
     },
     {
-      method: 'invocation.dispose',
+      method: BROKER_METHODS.dispose,
       invoke: (params) => broker.dispose(params as Parameters<typeof broker.dispose>[0]),
     },
   ]

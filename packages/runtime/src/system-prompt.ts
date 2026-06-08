@@ -14,6 +14,7 @@ import {
 } from './context-template.js'
 import type { SystemPromptMode } from './context-template.js'
 import { writeMaterializedContext, writeMaterializedPrompt } from './materialize-io.js'
+import { isRecord } from './type-guards.js'
 
 export interface MaterializeSystemPromptInput {
   agentRoot: string
@@ -317,10 +318,6 @@ function parseStringArray(input: unknown): string[] | undefined {
   }
 
   return [...input]
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**

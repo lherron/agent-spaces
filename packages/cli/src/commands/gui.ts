@@ -5,7 +5,6 @@
  * same run() entry point as `asp run`; only the final launch surface changes.
  */
 
-import { parseScopeHandle } from 'agent-scope'
 import { createCompileRuntimeFn } from 'agent-spaces'
 import chalk from 'chalk'
 import type { Command } from 'commander'
@@ -15,6 +14,8 @@ import { type RunResult, run } from 'spaces-execution'
 import { exitWithAspError } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 import { displayPrompts } from '../prompt-display.js'
+import { resolveRunTarget } from '../scope-target-resolver.js'
+import { buildSettingSources } from '../settings-helper.js'
 
 interface GuiOptions {
   project?: string
@@ -31,51 +32,9 @@ interface GuiOptions {
   pagePrompts?: boolean
 }
 
-interface GuiTarget {
-  targetName: string
-  displayTarget: string
-  projectId?: string | undefined
-  taskId?: string | undefined
-}
-
-function resolveGuiTarget(target: string): GuiTarget {
-  if (!target.includes('@')) {
-    return { targetName: target, displayTarget: target }
-  }
-
-  try {
-    const parsed = parseScopeHandle(target)
-    if (parsed.projectId === undefined) {
-      return { targetName: target, displayTarget: target }
-    }
-
-    return {
-      targetName: parsed.agentId,
-      displayTarget: target,
-      projectId: parsed.projectId,
-      taskId: parsed.taskId,
-    }
-  } catch {
-    return { targetName: target, displayTarget: target }
-  }
-}
-
-function buildSettingSources(options: GuiOptions): string | null | undefined {
-  if (options.inheritAll) {
-    return null
-  }
-
-  const sources: string[] = []
-  if (options.inheritProject) sources.push('project')
-  if (options.inheritUser) sources.push('user')
-  if (options.inheritLocal) sources.push('local')
-
-  return sources.length > 0 ? sources.join(',') : undefined
-}
-
 async function runGui(agentId: string, options: GuiOptions): Promise<RunResult> {
   const projectPath = options.project ?? (await findProjectRoot()) ?? process.cwd()
-  const target = resolveGuiTarget(agentId)
+  const target = resolveRunTarget(agentId)
 
   if (options.dryRun && !options.printCommand) {
     console.log(chalk.yellow('Dry run - building and showing Codex.app launch command...'))

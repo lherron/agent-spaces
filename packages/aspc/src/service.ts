@@ -17,6 +17,8 @@ import type {
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
+import { DIAGNOSTIC_CODES, compilerDiagnostic, errorDetails, formatError } from './diagnostics.js'
+import { selectBrokerProfile } from './profileSelector.js'
 
 // Keep in sync with package.json `version`. The build's rootDir is `./src`, so
 // the manifest cannot be imported directly without breaking emit; this single
@@ -123,7 +125,11 @@ async function compileRuntimePlanSafe(
     return await compiler(req, { aspHome })
   } catch (error) {
     return failRuntimeCompile([
-      compilerDiagnostic('compiler_exception', formatError(error), errorDetails(error)),
+      compilerDiagnostic(
+        DIAGNOSTIC_CODES.compilerException,
+        formatError(error),
+        errorDetails(error)
+      ),
     ])
   }
 }
@@ -155,72 +161,6 @@ async function compileHarnessInvocation(
     diagnostics: compileResponse.diagnostics,
   }
 }
-
-function selectBrokerProfile(
-  plan: Extract<RuntimeCompileResponse, { ok: true }>['plan'],
-  selector: AspcCompileHarnessInvocationRequest['profileSelector']
-): { ok: true; profile: BrokerExecutionProfile } | { ok: false; diagnostic: CompileDiagnostic } {
-  const brokerProfiles = plan.executionProfiles.filter(
-    (profile): profile is BrokerExecutionProfile => profile.kind === 'harness-broker'
-  )
-
-  // Driven by a table so a new selector dimension is added by appending one
-  // entry (Open/Closed): each criterion narrows the candidate list only when
-  // the corresponding selector key is provided.
-  const profiles = SELECTOR_CRITERIA.reduce((candidates, { field }) => {
-    const expected = selector?.[field]
-    if (expected === undefined) {
-      return candidates
-    }
-    return candidates.filter((profile) => profile[field] === expected)
-  }, brokerProfiles)
-
-  // A single matched profile is always returned. `profiles[0]` is non-undefined
-  // whenever `length === 1`, so rely on the length check directly rather than a
-  // redundant `!== undefined` guard that could otherwise let the single-match
-  // case fall through to the `broker_profile_missing` diagnostic below.
-  if (profiles.length === 1) {
-    return { ok: true, profile: profiles[0] as BrokerExecutionProfile }
-  }
-
-  if (profiles.length === 0) {
-    return {
-      ok: false,
-      diagnostic: compilerDiagnostic(
-        'broker_profile_missing',
-        'No harness-broker profile matched the ASPC selector',
-        {
-          selector,
-          profileCount: plan.executionProfiles.length,
-        }
-      ),
-    }
-  }
-
-  return {
-    ok: false,
-    diagnostic: compilerDiagnostic(
-      'broker_profile_ambiguous',
-      'Multiple harness-broker profiles matched the ASPC selector',
-      {
-        selector,
-        matchedProfiles: profiles.map((profile) => ({
-          profileId: profile.profileId,
-          profileHash: profile.profileHash,
-          brokerDriver: profile.brokerDriver,
-        })),
-      }
-    ),
-  }
-}
-
-type ProfileSelector = NonNullable<AspcCompileHarnessInvocationRequest['profileSelector']>
-
-// Selector key ↔ profile field pairs. The keys are intentionally shared so a
-// new dimension is one extra entry rather than another `if (...)` block.
-const SELECTOR_CRITERIA: ReadonlyArray<{
-  field: keyof ProfileSelector & keyof BrokerExecutionProfile
-}> = [{ field: 'profileId' }, { field: 'profileHash' }, { field: 'brokerDriver' }]
 
 function placementDispatchEnv(
   req: AspcCompileHarnessInvocationRequest
@@ -273,25 +213,4 @@ function failCompileAndStart(
     compile,
     diagnostics: compile.diagnostics,
   }
-}
-
-function compilerDiagnostic(code: string, message: string, details?: unknown): CompileDiagnostic {
-  return {
-    level: 'error',
-    code,
-    message,
-    plane: 'asp-compiler',
-    ...(details !== undefined ? { details } : {}),
-  }
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function errorDetails(error: unknown): unknown {
-  if (error instanceof Error) {
-    return { name: error.name, stack: error.stack }
-  }
-  return error
 }

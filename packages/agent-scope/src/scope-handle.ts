@@ -1,6 +1,6 @@
 import { buildScopeRef, parseScopeRef } from './scope-ref.js'
 import type { ParsedScopeRef, ValidationResult } from './types.js'
-import { validateToken } from './types.js'
+import { validateTokenField } from './types.js'
 
 /**
  * ScopeHandle grammar:
@@ -74,22 +74,22 @@ export function validateScopeHandle(handle: string): ValidationResult {
 
   const { agentId, projectId, taskId, roleName } = splitHandle(handle)
 
-  const agentErr = validateToken(agentId, 'agentId')
-  if (agentErr) return { ok: false, error: agentErr }
+  const agentResult = validateTokenField(agentId, 'agentId')
+  if (!agentResult.ok) return agentResult
 
   if (projectId !== undefined) {
-    const projErr = validateToken(projectId, 'projectId')
-    if (projErr) return { ok: false, error: projErr }
+    const projResult = validateTokenField(projectId, 'projectId')
+    if (!projResult.ok) return projResult
   }
 
   if (taskId !== undefined) {
-    const taskErr = validateToken(taskId, 'taskId')
-    if (taskErr) return { ok: false, error: taskErr }
+    const taskResult = validateTokenField(taskId, 'taskId')
+    if (!taskResult.ok) return taskResult
   }
 
   if (roleName !== undefined) {
-    const roleErr = validateToken(roleName, 'roleName')
-    if (roleErr) return { ok: false, error: roleErr }
+    const roleResult = validateTokenField(roleName, 'roleName')
+    if (!roleResult.ok) return roleResult
   }
 
   return { ok: true }

@@ -1,5 +1,5 @@
 import type { ParsedScopeRef, ValidationResult } from './types.js'
-import { validateToken } from './types.js'
+import { validateTokenField } from './types.js'
 
 function part(parts: string[], i: number): string {
   return parts[i] as string
@@ -46,9 +46,8 @@ export function validateScopeRef(scopeRef: string): ValidationResult {
     return { ok: false, error: 'ScopeRef must start with "agent:<agentId>"' }
   }
 
-  const agentId = part(parts, 1)
-  const agentErr = validateToken(agentId, 'agentId')
-  if (agentErr) return { ok: false, error: agentErr }
+  const agentResult = validateTokenField(part(parts, 1), 'agentId')
+  if (!agentResult.ok) return agentResult
 
   // agent:<agentId> — valid
   if (parts.length === 2) return { ok: true }
@@ -58,9 +57,8 @@ export function validateScopeRef(scopeRef: string): ValidationResult {
     return { ok: false, error: 'After "agent:<agentId>", expected "project:<projectId>"' }
   }
 
-  const projectId = part(parts, 3)
-  const projErr = validateToken(projectId, 'projectId')
-  if (projErr) return { ok: false, error: projErr }
+  const projectResult = validateTokenField(part(parts, 3), 'projectId')
+  if (!projectResult.ok) return projectResult
 
   // agent:<agentId>:project:<projectId> — valid
   if (parts.length === 4) return { ok: true }
@@ -72,19 +70,15 @@ export function validateScopeRef(scopeRef: string): ValidationResult {
     if (parts.length !== 6) {
       return { ok: false, error: 'Expected exactly "role:<roleName>" after project segment' }
     }
-    const roleName = part(parts, 5)
-    const roleErr = validateToken(roleName, 'roleName')
-    if (roleErr) return { ok: false, error: roleErr }
-    return { ok: true }
+    return validateTokenField(part(parts, 5), 'roleName')
   }
 
   if (nextKey === 'task') {
     if (parts.length < 6) {
       return { ok: false, error: 'Expected "task:<taskId>" after project segment' }
     }
-    const taskId = part(parts, 5)
-    const taskErr = validateToken(taskId, 'taskId')
-    if (taskErr) return { ok: false, error: taskErr }
+    const taskResult = validateTokenField(part(parts, 5), 'taskId')
+    if (!taskResult.ok) return taskResult
 
     // agent:<agentId>:project:<projectId>:task:<taskId> — valid
     if (parts.length === 6) return { ok: true }
@@ -93,10 +87,7 @@ export function validateScopeRef(scopeRef: string): ValidationResult {
     if (parts.length !== 8 || parts[6] !== 'role') {
       return { ok: false, error: 'After "task:<taskId>", expected "role:<roleName>"' }
     }
-    const roleName = part(parts, 7)
-    const roleErr = validateToken(roleName, 'roleName')
-    if (roleErr) return { ok: false, error: roleErr }
-    return { ok: true }
+    return validateTokenField(part(parts, 7), 'roleName')
   }
 
   return {

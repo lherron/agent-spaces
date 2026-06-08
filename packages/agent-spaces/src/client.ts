@@ -83,6 +83,7 @@ import type {
   HarnessFrontend,
   InterruptInFlightTurnRequest,
   ProcessInvocationSpec,
+  ProviderDomain,
   QueueInFlightInputRequest,
   QueueInFlightInputResponse,
   ResolveRequest,
@@ -96,6 +97,18 @@ import type {
 // ---------------------------------------------------------------------------
 // Frontend definitions (provider-typed harness registry, spec §5.1)
 // ---------------------------------------------------------------------------
+
+/**
+ * Build a {@link HarnessContinuationRef} from a provider + optional key, or
+ * `undefined` when no key is present. Centralizes the repeated
+ * `key ? { provider, key } : undefined` ternary used across the turn paths.
+ */
+function buildContinuationRef(
+  provider: ProviderDomain,
+  key: string | undefined
+): HarnessContinuationRef | undefined {
+  return key ? { provider, key } : undefined
+}
 
 // ---------------------------------------------------------------------------
 // Client implementation
@@ -812,9 +825,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           await eventEmitter.emit({ type: 'complete', result } as EventPayload)
 
           // Build final continuation ref
-          const finalContinuation: HarnessContinuationRef | undefined = continuationKey
-            ? { provider: frontendDef.provider, key: continuationKey }
-            : undefined
+          const finalContinuation = buildContinuationRef(frontendDef.provider, continuationKey)
 
           return {
             ...(finalContinuation ? { continuation: finalContinuation } : {}),
@@ -832,9 +843,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
             }
           }
 
-          const finalContinuation: HarnessContinuationRef | undefined = continuationKey
-            ? { provider: frontendDef.provider, key: continuationKey }
-            : undefined
+          const finalContinuation = buildContinuationRef(frontendDef.provider, continuationKey)
 
           return emitTurnFailure(
             eventEmitter,

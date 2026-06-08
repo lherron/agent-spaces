@@ -9,19 +9,17 @@ import type {
   AspcMethod,
 } from './types.js'
 import { ASPC_METHODS, ASPC_PROTOCOL_VERSION } from './types.js'
-
-type SchemaRecord = Record<string, unknown>
-
-/**
- * Shared issue `code` literals so producers reference one canonical set instead
- * of repeating bare strings throughout the validators.
- */
-const ISSUE_CODE = {
-  required: 'required',
-  invalidType: 'invalid_type',
-  invalidLiteral: 'invalid_literal',
-  unsupportedProtocol: 'unsupported_protocol',
-} as const
+import type { SchemaRecord } from './validation-primitives.js'
+import {
+  path,
+  ISSUE_CODE,
+  issue,
+  optionalString,
+  requireLiteral,
+  requireRecord,
+  requireString,
+  requireStringArray,
+} from './validation-primitives.js'
 
 /**
  * Base for the package's request/command validation errors. Subclasses supply
@@ -245,134 +243,44 @@ function validateProfileSelector(
   optionalString(selector['brokerDriver'], path(basePath, 'brokerDriver'), issues)
 }
 
-function validateOptionalBooleanRecord(
+/**
+ * Validates that an optional `value` is a record whose entries all match the
+ * given primitive `typeof`. Absent values are accepted; a non-record records a
+ * single issue and skips entry checks; each off-type entry records its own
+ * indexed issue. Shared by the boolean- and string-valued record validators.
+ */
+function validateOptionalPrimitiveRecord(
   value: unknown,
   basePath: string,
-  issues: ValidationIssue[]
+  issues: ValidationIssue[],
+  itemType: 'boolean' | 'string'
 ): void {
   if (value === undefined) return
   const object = requireRecord(value, basePath, issues)
   if (object === undefined) return
   for (const [key, item] of Object.entries(object)) {
-    if (typeof item !== 'boolean') {
-      issues.push(
-        issue(
-          path(basePath, key),
-          ISSUE_CODE.invalidType,
-          `${path(basePath, key)} must be a boolean`
-        )
-      )
+    // biome-ignore lint/suspicious/useValidTypeof: itemType is constrained to the typeof-string union 'boolean' | 'string'
+    if (typeof item !== itemType) {
+      const itemPath = path(basePath, key)
+      issues.push(issue(itemPath, ISSUE_CODE.invalidType, `${itemPath} must be a ${itemType}`))
     }
   }
 }
 
+function validateOptionalBooleanRecord(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  validateOptionalPrimitiveRecord(value, basePath, issues, 'boolean')
+}
+
 function validateStringRecord(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value === undefined) return
-  const object = requireRecord(value, basePath, issues)
-  if (object === undefined) return
-  for (const [key, item] of Object.entries(object)) {
-    if (typeof item !== 'string') {
-      issues.push(
-        issue(
-          path(basePath, key),
-          ISSUE_CODE.invalidType,
-          `${path(basePath, key)} must be a string`
-        )
-      )
-    }
-  }
+  validateOptionalPrimitiveRecord(value, basePath, issues, 'string')
 }
 
 function optionalRecord(value: unknown, basePath: string, issues: ValidationIssue[]): void {
   if (value !== undefined) {
     requireRecord(value, basePath, issues)
   }
-}
-
-/**
- * Coerces `value` to a record, *pushing a validation issue* when it is not an
- * object. Contrast with {@link coerceRecord}, which is silent. Returns the
- * record on success, `undefined` (with an issue recorded) otherwise.
- */
-function requireRecord(
-  value: unknown,
-  basePath: string,
-  issues: ValidationIssue[]
-): SchemaRecord | undefined {
-  const object = coerceRecord(value)
-  if (object === undefined) {
-    issues.push(
-      issue(
-        basePath,
-        value === undefined ? ISSUE_CODE.required : ISSUE_CODE.invalidType,
-        `${basePath} must be an object`
-      )
-    )
-    return undefined
-  }
-  return object
-}
-
-/**
- * Silently coerces `value` to a record, returning `undefined` when it is not a
- * plain object. Contrast with {@link requireRecord}, which records an issue.
- */
-function coerceRecord(value: unknown): SchemaRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as SchemaRecord)
-    : undefined
-}
-
-function requireString(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value === undefined) {
-    issues.push(issue(basePath, ISSUE_CODE.required, `${basePath} is required`))
-  } else if (typeof value !== 'string') {
-    issues.push(issue(basePath, ISSUE_CODE.invalidType, `${basePath} must be a string`))
-  }
-}
-
-function optionalString(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (value !== undefined && typeof value !== 'string') {
-    issues.push(issue(basePath, ISSUE_CODE.invalidType, `${basePath} must be a string`))
-  }
-}
-
-function requireStringArray(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (!Array.isArray(value)) {
-    issues.push(
-      issue(
-        basePath,
-        value === undefined ? ISSUE_CODE.required : ISSUE_CODE.invalidType,
-        `${basePath} must be an array`
-      )
-    )
-    return
-  }
-  value.forEach((item, index) => {
-    if (typeof item !== 'string') {
-      const itemPath = path(basePath, String(index))
-      issues.push(issue(itemPath, ISSUE_CODE.invalidType, `${itemPath} must be a string`))
-    }
-  })
-}
-
-function requireLiteral(
-  value: unknown,
-  expected: string,
-  basePath: string,
-  issues: ValidationIssue[]
-): void {
-  if (value === undefined) {
-    issues.push(issue(basePath, ISSUE_CODE.required, `${basePath} is required`))
-  } else if (value !== expected) {
-    issues.push(issue(basePath, ISSUE_CODE.invalidLiteral, `${basePath} must be ${expected}`))
-  }
-}
-
-function path(prefix: string, suffix: string): string {
-  return prefix.length === 0 ? suffix : `${prefix}.${suffix}`
-}
-
-function issue(pathValue: string, code: string, message: string): ValidationIssue {
-  return { path: pathValue, code, message }
 }

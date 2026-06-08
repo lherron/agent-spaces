@@ -59,6 +59,7 @@ import {
 } from './codegen/hook-bridge.js'
 import { generateHrcEventsBridgeCode } from './codegen/hrc-events.js'
 import {
+  COMPONENT_DIR_NAMES,
   DEFAULT_PI_MODEL,
   HRC_RUNTIME_SESSIONS_SUBPATH,
   PI_AUTH_RELATIVE_PATH,
@@ -246,7 +247,7 @@ export class PiAdapter implements HarnessAdapter {
       external: manifestWithPi.pi?.build?.external,
     }
 
-    const extensionsDir = join(cacheDir, 'extensions')
+    const extensionsDir = join(cacheDir, COMPONENT_DIR_NAMES.EXTENSIONS)
     await mkdir(extensionsDir, { recursive: true })
 
     const sourceExtensions = await discoverExtensions(input.snapshotPath)
@@ -261,7 +262,7 @@ export class PiAdapter implements HarnessAdapter {
 
       try {
         await bundleExtension(srcPath, outPath, buildOpts)
-        files.push(`extensions/${outName}`)
+        files.push(`${COMPONENT_DIR_NAMES.EXTENSIONS}/${outName}`)
       } catch (err) {
         if (err instanceof PiBundleError) {
           warnings.push(`Failed to bundle ${srcBasename}: ${err.stderr}`)
@@ -283,26 +284,31 @@ export class PiAdapter implements HarnessAdapter {
     files: string[]
   ): Promise<void> {
     // Copy skills directory (Agent Skills standard - same as Claude)
-    const destSkillsDir = join(cacheDir, 'skills')
-    if (await copyComponentDir(join(input.snapshotPath, 'skills'), destSkillsDir)) {
+    const destSkillsDir = join(cacheDir, COMPONENT_DIR_NAMES.SKILLS)
+    if (
+      await copyComponentDir(join(input.snapshotPath, COMPONENT_DIR_NAMES.SKILLS), destSkillsDir)
+    ) {
       for (const entry of await listDirEntries(destSkillsDir)) {
-        files.push(`skills/${entry}`)
+        files.push(`${COMPONENT_DIR_NAMES.SKILLS}/${entry}`)
       }
     }
 
     // Copy hooks directory as hooks-scripts/ (Pi has incompatible hooks/ format)
-    const destHooksDir = join(cacheDir, 'hooks-scripts')
+    const destHooksDir = join(cacheDir, COMPONENT_DIR_NAMES.HOOKS)
     if (await copyComponentDir(join(input.snapshotPath, 'hooks'), destHooksDir)) {
       for (const entry of await listDirEntries(destHooksDir)) {
-        files.push(`hooks-scripts/${entry}`)
+        files.push(`${COMPONENT_DIR_NAMES.HOOKS}/${entry}`)
       }
     }
 
     // Copy shared directory (merged into the cache dir root)
-    await copyComponentDir(join(input.snapshotPath, 'shared'), cacheDir)
+    await copyComponentDir(join(input.snapshotPath, COMPONENT_DIR_NAMES.SHARED), cacheDir)
 
     // Copy scripts directory
-    await copyComponentDir(join(input.snapshotPath, 'scripts'), join(cacheDir, 'scripts'))
+    await copyComponentDir(
+      join(input.snapshotPath, COMPONENT_DIR_NAMES.SCRIPTS),
+      join(cacheDir, COMPONENT_DIR_NAMES.SCRIPTS)
+    )
   }
 
   /**
@@ -367,14 +373,14 @@ export class PiAdapter implements HarnessAdapter {
     outputDir: string,
     warnings: LockWarning[]
   ): Promise<string> {
-    const extensionsDir = join(outputDir, 'extensions')
+    const extensionsDir = join(outputDir, COMPONENT_DIR_NAMES.EXTENSIONS)
     await mkdir(extensionsDir, { recursive: true })
 
     // Track extension files for W303 collision detection: filename -> spaceId
     const extensionSources = new Map<string, string>()
 
     for (const artifact of input.artifacts) {
-      const srcExtDir = join(artifact.artifactPath, 'extensions')
+      const srcExtDir = join(artifact.artifactPath, COMPONENT_DIR_NAMES.EXTENSIONS)
       try {
         const stats = await stat(srcExtDir)
         if (stats.isDirectory()) {
@@ -409,11 +415,11 @@ export class PiAdapter implements HarnessAdapter {
    * Merge each artifact's skill subdirectories into the output skills dir.
    */
   private async mergeSkills(input: ComposeTargetInput, outputDir: string): Promise<string> {
-    const skillsDir = join(outputDir, 'skills')
+    const skillsDir = join(outputDir, COMPONENT_DIR_NAMES.SKILLS)
     await mkdir(skillsDir, { recursive: true })
 
     for (const artifact of input.artifacts) {
-      const srcSkillsDir = join(artifact.artifactPath, 'skills')
+      const srcSkillsDir = join(artifact.artifactPath, COMPONENT_DIR_NAMES.SKILLS)
       try {
         const stats = await stat(srcSkillsDir)
         if (stats.isDirectory()) {
@@ -446,12 +452,12 @@ export class PiAdapter implements HarnessAdapter {
     input: ComposeTargetInput,
     outputDir: string
   ): Promise<HookDefinition[]> {
-    const hooksDir = join(outputDir, 'hooks-scripts')
+    const hooksDir = join(outputDir, COMPONENT_DIR_NAMES.HOOKS)
     await mkdir(hooksDir, { recursive: true })
     const allHooks: HookDefinition[] = []
 
     for (const artifact of input.artifacts) {
-      const srcHooksDir = join(artifact.artifactPath, 'hooks-scripts')
+      const srcHooksDir = join(artifact.artifactPath, COMPONENT_DIR_NAMES.HOOKS)
       try {
         const stats = await stat(srcHooksDir)
         if (stats.isDirectory()) {
@@ -460,20 +466,15 @@ export class PiAdapter implements HarnessAdapter {
           // Read hooks with hooks.toml taking precedence over hooks.json
           const hooksResult = await readHooksWithPrecedence(srcHooksDir)
           if (hooksResult.hooks.length > 0) {
-            // Adjust script paths to be relative to composed hooks dir
+            // Adjust script paths to be relative to composed hooks dir.
+            // resolveHookScriptPath strips the ${CLAUDE_PLUGIN_ROOT}/ and hooks/
+            // prefixes (hooks/ was renamed to hooks-scripts/). Only the fields
+            // declared on HookDefinition are projected (the source's `matcher`
+            // is intentionally not forwarded to the Pi hook bridge).
             for (const hook of hooksResult.hooks) {
-              // Extract script path - handle both raw scripts and ${CLAUDE_PLUGIN_ROOT} paths
-              // 1. Strip ${CLAUDE_PLUGIN_ROOT}/ prefix
-              // 2. Strip hooks/ prefix since we renamed hooks/ to hooks-scripts/
-              const scriptPath = await resolveHookScriptPath(hook.script, hooksDir)
-
-              allHooks.push({
-                event: hook.event,
-                script: scriptPath,
-                tools: hook.tools,
-                blocking: hook.blocking,
-                harness: hook.harness,
-              })
+              const { event, tools, blocking, harness } = hook
+              const script = await resolveHookScriptPath(hook.script, hooksDir)
+              allHooks.push({ event, script, tools, blocking, harness })
             }
           }
         }
@@ -675,16 +676,7 @@ export class PiAdapter implements HarnessAdapter {
     if (options.continuationKey === true) {
       args.push('--resume')
     } else if (typeof options.continuationKey === 'string' && options.continuationKey) {
-      const runtimeId = (options as HarnessRunOptions & { runtimeId?: string | undefined })
-        .runtimeId
-      const sessionDir = runtimeId
-        ? join(
-            options.aspHome ?? join(homedir(), ...PRAESIDIUM_VAR_RELATIVE_DIR),
-            HRC_RUNTIME_SESSIONS_SUBPATH,
-            runtimeId,
-            'pi-sessions'
-          )
-        : join(bundle.rootDir, 'sessions')
+      const sessionDir = this.resolveSessionDir(bundle, options)
       args.push('--session', options.continuationKey, '--session-dir', sessionDir)
     }
 
@@ -704,6 +696,24 @@ export class PiAdapter implements HarnessAdapter {
   }
 
   /**
+   * Resolve the `--session-dir` for a named-session continuation.
+   *
+   * When the run is attached to an HRC runtime, sessions live under that
+   * runtime's state dir (`<aspHome>/<sessions-subpath>/<runtimeId>/pi-sessions`,
+   * falling back to the praesidium var dir under the home directory). Otherwise
+   * they live alongside the composed bundle.
+   */
+  private resolveSessionDir(bundle: ComposedTargetBundle, options: HarnessRunOptions): string {
+    const runtimeId = (options as HarnessRunOptions & { runtimeId?: string | undefined }).runtimeId
+    if (!runtimeId) {
+      return join(bundle.rootDir, COMPONENT_DIR_NAMES.SESSIONS)
+    }
+
+    const aspHome = options.aspHome ?? join(homedir(), ...PRAESIDIUM_VAR_RELATIVE_DIR)
+    return join(aspHome, HRC_RUNTIME_SESSIONS_SUBPATH, runtimeId, 'pi-sessions')
+  }
+
+  /**
    * Get the output directory path for a Pi target bundle.
    *
    * Returns: asp_modules/<targetName>/pi
@@ -713,8 +723,8 @@ export class PiAdapter implements HarnessAdapter {
   }
 
   async loadTargetBundle(outputDir: string, targetName: string): Promise<ComposedTargetBundle> {
-    const extensionsDir = join(outputDir, 'extensions')
-    const skillsDir = join(outputDir, 'skills')
+    const extensionsDir = join(outputDir, COMPONENT_DIR_NAMES.EXTENSIONS)
+    const skillsDir = join(outputDir, COMPONENT_DIR_NAMES.SKILLS)
     const hookBridgePath = join(outputDir, 'asp-hooks.bridge.js')
     const hrcEventsBridgePath = join(outputDir, 'asp-hrc-events.bridge.js')
 

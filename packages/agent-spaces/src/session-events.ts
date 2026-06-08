@@ -203,7 +203,7 @@ export async function runSession(
   })
 }
 
-function normalizeAttachmentRefs(
+export function normalizeAttachmentRefs(
   attachments: Array<string | AttachmentRef> | undefined
 ): AttachmentRef[] | undefined {
   return attachments?.map((attachment) =>

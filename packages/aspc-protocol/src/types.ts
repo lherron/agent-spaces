@@ -18,6 +18,15 @@ export const ASPC_PROTOCOL_VERSION = 'aspc/0.1' as const
 export type AspcProtocolVersion = typeof ASPC_PROTOCOL_VERSION
 
 /**
+ * `schemaVersion` discriminators for ASPC response envelopes. Named here so the
+ * literals are not copy-pasted across the success/failure branches of each
+ * response union below.
+ */
+export const ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION =
+  'aspc-compile-harness-invocation-response/v1' as const
+export const ASPC_COMPILE_AND_START_RESPONSE_VERSION = 'aspc-compile-and-start-response/v1' as const
+
+/**
  * Single source of truth for the set of `aspc.*` methods. `AspcMethod`, the
  * runtime predicate, and the validator dispatch table are all derived from this
  * tuple so a new method cannot drift out of sync across those surfaces.
@@ -88,7 +97,7 @@ export interface AspcCompileHarnessInvocationRequest extends AspcCompileRuntimeP
 
 export type AspcCompileHarnessInvocationResponse =
   | {
-      schemaVersion: 'aspc-compile-harness-invocation-response/v1'
+      schemaVersion: typeof ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION
       ok: true
       compileResponse: Extract<RuntimeCompileResponse, { ok: true }>
       plan: CompiledRuntimePlan
@@ -98,7 +107,7 @@ export type AspcCompileHarnessInvocationResponse =
       diagnostics: CompileDiagnostic[]
     }
   | {
-      schemaVersion: 'aspc-compile-harness-invocation-response/v1'
+      schemaVersion: typeof ASPC_COMPILE_HARNESS_INVOCATION_RESPONSE_VERSION
       ok: false
       compileResponse: RuntimeCompileResponse
       diagnostics: CompileDiagnostic[]
@@ -108,13 +117,13 @@ export type AspcCompileAndStartRequest = AspcCompileHarnessInvocationRequest
 
 export type AspcCompileAndStartResponse =
   | {
-      schemaVersion: 'aspc-compile-and-start-response/v1'
+      schemaVersion: typeof ASPC_COMPILE_AND_START_RESPONSE_VERSION
       ok: true
       compile: Extract<AspcCompileHarnessInvocationResponse, { ok: true }>
       startResponse: InvocationStartResponse
     }
   | {
-      schemaVersion: 'aspc-compile-and-start-response/v1'
+      schemaVersion: typeof ASPC_COMPILE_AND_START_RESPONSE_VERSION
       ok: false
       compile: Extract<AspcCompileHarnessInvocationResponse, { ok: false }>
       diagnostics: CompileDiagnostic[]

@@ -9,6 +9,20 @@ import { join } from 'node:path'
 export const DEFAULT_PI_MODEL = 'gpt-5.5'
 
 /**
+ * Component directory names used across materialize/compose. Hooks live under
+ * `hooks-scripts/` (not `hooks/`) to avoid clashing with Pi's incompatible
+ * native hooks format.
+ */
+export const COMPONENT_DIR_NAMES = {
+  EXTENSIONS: 'extensions',
+  SKILLS: 'skills',
+  HOOKS: 'hooks-scripts',
+  SCRIPTS: 'scripts',
+  SHARED: 'shared',
+  SESSIONS: 'sessions',
+} as const
+
+/**
  * Common locations to search for the Pi binary.
  */
 export const COMMON_PI_PATHS = [

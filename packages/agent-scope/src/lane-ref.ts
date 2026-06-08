@@ -4,11 +4,14 @@ import { validateToken } from './types.js'
 /** Canonical prefix used by the `lane:<laneId>` ref form. */
 const LANE_PREFIX = 'lane:'
 
+/** Canonical lane id/ref used when no lane is supplied. */
+export const DEFAULT_LANE_ID = 'main'
+
 /**
  * Validate a lane ref string. Returns { ok: true } or { ok: false, error }.
  */
 export function validateLaneRef(laneRef: string): ValidationResult {
-  if (laneRef === 'main') return { ok: true }
+  if (laneRef === DEFAULT_LANE_ID) return { ok: true }
 
   if (!laneRef.startsWith(LANE_PREFIX)) {
     return { ok: false, error: 'LaneRef must be "main" or "lane:<laneId>"' }
@@ -25,7 +28,7 @@ export function validateLaneRef(laneRef: string): ValidationResult {
  * Normalize a lane ref string. Omitted or undefined normalizes to "main".
  */
 export function normalizeLaneRef(laneRef?: string): LaneRef {
-  if (laneRef === undefined || laneRef === 'main') return 'main'
+  if (laneRef === undefined || laneRef === DEFAULT_LANE_ID) return 'main'
 
   const validation = validateLaneRef(laneRef)
   if (!validation.ok) {
@@ -40,7 +43,7 @@ export function normalizeLaneRef(laneRef?: string): LaneRef {
  * otherwise the portion after the "lane:" prefix.
  */
 export function laneIdFromRef(laneRef: LaneRef): string {
-  return laneRef === 'main' ? 'main' : laneRef.slice(LANE_PREFIX.length)
+  return laneRef === 'main' ? DEFAULT_LANE_ID : laneRef.slice(LANE_PREFIX.length)
 }
 
 /**
@@ -48,5 +51,5 @@ export function laneIdFromRef(laneRef: LaneRef): string {
  * id is wrapped as "lane:<laneId>".
  */
 export function laneRefFromId(laneId: string): LaneRef {
-  return laneId === 'main' ? 'main' : `${LANE_PREFIX}${laneId}`
+  return laneId === DEFAULT_LANE_ID ? 'main' : `${LANE_PREFIX}${laneId}`
 }

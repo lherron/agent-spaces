@@ -32,6 +32,11 @@ export class StdioTransport extends JsonRpcFramedChannel {
       this.#resolveExit = resolve
     })
 
+    this.#setupChildHandlers(child)
+  }
+
+  /** Wire the child stdio/lifecycle events to the channel's ingest/fail paths. */
+  #setupChildHandlers(child: ChildProcessWithoutNullStreams): void {
     child.stdout.on('data', (chunk: Buffer | string) => {
       this.ingest(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
     })

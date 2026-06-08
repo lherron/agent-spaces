@@ -61,6 +61,46 @@ export interface ClaudeInvokeOptions {
 }
 
 /**
+ * Spawn options shape shared by {@link invokeClaude} and {@link spawnClaude}.
+ * Mirrors the subset of Bun.spawn options this module sets.
+ */
+interface ClaudeSpawnOptions {
+  cwd?: string
+  env?: Record<string, string | undefined>
+  stdin: 'pipe' | 'inherit'
+  stdout: 'pipe' | 'inherit'
+  stderr: 'pipe' | 'inherit'
+}
+
+/**
+ * Build the Bun.spawn options object, applying the same stdio mode to all three
+ * streams and conditionally including cwd/env only when provided.
+ *
+ * @param stdio - stdio mode applied to stdin/stdout/stderr
+ * @param options - source of optional cwd/env overrides
+ */
+function buildSpawnOptions(
+  stdio: 'pipe' | 'inherit',
+  options: Pick<ClaudeInvokeOptions, 'cwd' | 'env'>
+): ClaudeSpawnOptions {
+  const spawnOptions: ClaudeSpawnOptions = {
+    stdin: stdio,
+    stdout: stdio,
+    stderr: stdio,
+  }
+
+  if (options.cwd !== undefined) {
+    spawnOptions.cwd = options.cwd
+  }
+
+  if (options.env !== undefined) {
+    spawnOptions.env = { ...process.env, ...options.env }
+  }
+
+  return spawnOptions
+}
+
+/**
  * Quote a string for shell if it contains special characters.
  * Uses single quotes for safety, escaping any embedded single quotes.
  */
@@ -212,26 +252,8 @@ export async function invokeClaude(
   const command = [claudePath, ...args]
 
   try {
-    // Build spawn options, only include cwd if defined
-    const spawnOptions: {
-      cwd?: string
-      env?: Record<string, string | undefined>
-      stdin: 'pipe' | 'inherit'
-      stdout: 'pipe' | 'inherit'
-      stderr: 'pipe' | 'inherit'
-    } = {
-      stdin: options.captureOutput ? 'pipe' : 'inherit',
-      stdout: options.captureOutput ? 'pipe' : 'inherit',
-      stderr: options.captureOutput ? 'pipe' : 'inherit',
-    }
-
-    if (options.cwd !== undefined) {
-      spawnOptions.cwd = options.cwd
-    }
-
-    if (options.env !== undefined) {
-      spawnOptions.env = { ...process.env, ...options.env }
-    }
+    const stdio = options.captureOutput ? 'pipe' : 'inherit'
+    const spawnOptions = buildSpawnOptions(stdio, options)
 
     const proc = Bun.spawn(command, spawnOptions)
 
@@ -354,27 +376,7 @@ export async function spawnClaude(options: SpawnClaudeOptions = {}): Promise<{
   const command = [claudePath, ...args]
 
   const stdio = options.inheritStdio ? 'inherit' : 'pipe'
-
-  // Build spawn options, only include cwd if defined
-  const spawnOptions: {
-    cwd?: string
-    env?: Record<string, string | undefined>
-    stdin: 'pipe' | 'inherit'
-    stdout: 'pipe' | 'inherit'
-    stderr: 'pipe' | 'inherit'
-  } = {
-    stdin: stdio,
-    stdout: stdio,
-    stderr: stdio,
-  }
-
-  if (options.cwd !== undefined) {
-    spawnOptions.cwd = options.cwd
-  }
-
-  if (options.env !== undefined) {
-    spawnOptions.env = { ...process.env, ...options.env }
-  }
+  const spawnOptions = buildSpawnOptions(stdio, options)
 
   const proc = Bun.spawn(command, spawnOptions)
 

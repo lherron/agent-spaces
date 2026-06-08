@@ -749,33 +749,26 @@ export class AgentSession implements UnifiedSession {
       return msg['result']
     }
 
-    // Handle assistant messages
-    if (msg['type'] === 'assistant' && msg['message']) {
-      const assistantMsg = msg['message'] as Record<string, unknown>
-      const content = assistantMsg['content']
+    // Only assistant messages carry response text beyond this point.
+    if (msg['type'] !== 'assistant' || !msg['message']) return undefined
 
-      if (typeof content === 'string') {
-        return content
-      }
+    const assistantMsg = msg['message'] as Record<string, unknown>
+    const content = assistantMsg['content']
 
-      if (Array.isArray(content)) {
-        // Extract text from content blocks
-        const textParts: string[] = []
-        for (const block of content) {
-          if (block && typeof block === 'object') {
-            const blockObj = block as Record<string, unknown>
-            if (blockObj['type'] === 'text' && typeof blockObj['text'] === 'string') {
-              textParts.push(blockObj['text'])
-            }
-          }
-        }
-        if (textParts.length > 0) {
-          return textParts.join('\n')
-        }
+    if (typeof content === 'string') return content
+    if (!Array.isArray(content)) return undefined
+
+    // Extract text from content blocks.
+    const textParts: string[] = []
+    for (const block of content) {
+      if (!block || typeof block !== 'object') continue
+      const blockObj = block as Record<string, unknown>
+      if (blockObj['type'] === 'text' && typeof blockObj['text'] === 'string') {
+        textParts.push(blockObj['text'])
       }
     }
 
-    return undefined
+    return textParts.length > 0 ? textParts.join('\n') : undefined
   }
 }
 

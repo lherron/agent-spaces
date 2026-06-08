@@ -77,65 +77,99 @@ export class HooksBridge {
         this.registerToolUse(toolUseId, toolName, toolInput)
       }
 
-      const permissionHandler = this.permissionHandler
-      if (permissionHandler) {
-        if (permissionHandler.isAutoAllowed(toolName)) {
-          this.emitPreToolUse(toolName, toolInput, toolUseId)
-          return { behavior: 'allow', updatedInput: toolInput }
-        }
+      return this.resolvePermission(toolName, toolInput, toolUseId)
+    }
+  }
 
-        this.emitPreToolUse(toolName, toolInput, toolUseId)
-        const response = await permissionHandler.requestPermission({
-          toolName,
-          toolUseId: toolUseId ?? '',
-          input: toolInput,
-        })
+  /**
+   * Resolve a tool permission decision.
+   *
+   * Resolution order:
+   * 1. An explicit {@link PermissionHandler}, if one is set.
+   * 2. The {@link HookEventBus} policy (auto-allow) and request flow.
+   * 3. Allow-by-default when neither is configured.
+   */
+  private async resolvePermission(
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    toolUseId?: string
+  ): Promise<CanUseToolResult> {
+    const permissionHandler = this.permissionHandler
+    if (permissionHandler) {
+      return this.resolveViaPermissionHandler(permissionHandler, toolName, toolInput, toolUseId)
+    }
 
-        if (response.allowed) {
-          return {
-            behavior: 'allow',
-            updatedInput: (response.modifiedInput as Record<string, unknown>) ?? toolInput,
-          }
-        }
+    if (!this.hookEventBus) {
+      return { behavior: 'allow', updatedInput: toolInput }
+    }
 
-        return {
-          behavior: 'deny',
-          message: response.reason ?? 'Permission denied',
-        }
+    return this.resolveViaHookEventBus(this.hookEventBus, toolName, toolInput, toolUseId)
+  }
+
+  private async resolveViaPermissionHandler(
+    permissionHandler: PermissionHandler,
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    toolUseId?: string
+  ): Promise<CanUseToolResult> {
+    this.emitPreToolUse(toolName, toolInput, toolUseId)
+
+    if (permissionHandler.isAutoAllowed(toolName)) {
+      return { behavior: 'allow', updatedInput: toolInput }
+    }
+
+    const response = await permissionHandler.requestPermission({
+      toolName,
+      toolUseId: toolUseId ?? '',
+      input: toolInput,
+    })
+
+    if (response.allowed) {
+      return {
+        behavior: 'allow',
+        updatedInput: (response.modifiedInput as Record<string, unknown>) ?? toolInput,
       }
+    }
 
-      if (!this.hookEventBus) {
-        return { behavior: 'allow', updatedInput: toolInput }
-      }
+    return {
+      behavior: 'deny',
+      message: response.reason ?? 'Permission denied',
+    }
+  }
 
-      // Check if tool is auto-allowed by policy
-      if (this.hookEventBus.isToolAutoAllowed(this.ownerId, toolName)) {
-        // Still emit PreToolUse for progress tracking
-        this.emitPreToolUse(toolName, toolInput, toolUseId)
-        return { behavior: 'allow', updatedInput: toolInput }
-      }
+  private async resolveViaHookEventBus(
+    hookEventBus: HookEventBusAdapter,
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    toolUseId?: string
+  ): Promise<CanUseToolResult> {
+    // Check if tool is auto-allowed by policy
+    if (hookEventBus.isToolAutoAllowed(this.ownerId, toolName)) {
+      // Still emit PreToolUse for progress tracking
+      this.emitPreToolUse(toolName, toolInput, toolUseId)
+      return { behavior: 'allow', updatedInput: toolInput }
+    }
 
-      // Request permission via HookEventBus
-      const hook = this.buildPreToolUseHook(toolName, toolInput, toolUseId)
-      const response = await this.hookEventBus.requestPermission(this.ownerId, hook)
+    // Request permission via HookEventBus
+    const hook = this.buildPreToolUseHook(toolName, toolInput, toolUseId)
+    const response = await hookEventBus.requestPermission(this.ownerId, hook)
 
-      if (response.decision === 'allow') {
-        return {
-          behavior: 'allow',
-          updatedInput: (response.updatedInput as Record<string, unknown>) ?? toolInput,
-        }
+    if (response.decision === 'allow') {
+      return {
+        behavior: 'allow',
+        updatedInput: (response.updatedInput as Record<string, unknown>) ?? toolInput,
       }
-      if (response.interrupt === undefined) {
-        return {
-          behavior: 'deny',
-          message: response.message ?? 'Permission denied',
-        }
-      }
+    }
+    if (response.interrupt === undefined) {
       return {
         behavior: 'deny',
         message: response.message ?? 'Permission denied',
-        interrupt: response.interrupt,
       }
+    }
+    return {
+      behavior: 'deny',
+      message: response.message ?? 'Permission denied',
+      interrupt: response.interrupt,
     }
   }
 

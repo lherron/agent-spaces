@@ -1,3 +1,4 @@
+import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
 import type { CompileDiagnostic } from './compiler-plan'
 import type {
   BrokerExecutionProfile,
@@ -7,7 +8,6 @@ import type {
   TerminalExecutionProfile,
 } from './execution-profile'
 import type { AgentchatExposurePolicy } from './exposure'
-import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
 
 function executionProfileDiagnostic(
   profile: RuntimeExecutionProfileBase,

@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveRootRelativeRef } from 'spaces-config'
@@ -11,16 +10,16 @@ import type {
   ExecSectionDef,
   FileSectionDef,
   SectionWrap,
-  ServiceProbeSectionDef,
   SystemPromptMode,
   WhenPredicate,
 } from './context-template.js'
-import { displayServiceEndpoint, probeServiceEndpoint } from './service-probe.js'
+import { readFileOrUndefined } from './file-reader.js'
+import { resolveServiceProbeSection } from './service-probe-resolver.js'
 import { interpolateVariables } from './template-vars.js'
+import { isRecord } from './type-guards.js'
 
 const execFileAsync = promisify(execFile)
 const DEFAULT_EXEC_TIMEOUT_MS = 5000
-const DEFAULT_SERVICE_PROBE_TIMEOUT_MS = 250
 const SECTION_SEPARATOR = '\n\n---\n\n'
 const SLOT_SEPARATOR = '\n\n'
 const COMMAND_SEPARATOR = '\n'
@@ -174,6 +173,60 @@ export async function resolveContextTemplateDetailed(
   }
 }
 
+type ResolvedSectionOutcome =
+  | { included: false; report: ResolvedContextSection }
+  | { included: true; report: ResolvedContextSection; content: string }
+
+/**
+ * Resolve a single section to either a "skipped" outcome (with the reason
+ * recorded on its inspection report) or an "included" outcome carrying the
+ * final, wrapped-and-truncated content. Pure with respect to zone aggregation —
+ * the caller owns joining and size accounting.
+ */
+async function resolveZoneSection(
+  section: ContextSection,
+  context: ContextResolverContext,
+  zoneName: ResolvedContextZoneName
+): Promise<ResolvedSectionOutcome> {
+  const base = sectionReportBase(section, context, zoneName)
+
+  if (!matchesWhenPredicate(section, context)) {
+    return { included: false, report: { ...base, skippedReason: 'when' } }
+  }
+
+  const content = await resolveSection(section, context)
+  if (content === undefined || content.length === 0) {
+    return { included: false, report: { ...base, skippedReason: 'empty' } }
+  }
+
+  const wrapResult = applyWrap(content, section.wrap, context)
+  const wasTruncated =
+    section.maxChars !== undefined && wrapResult.content.length > section.maxChars
+  const truncated = truncateSectionContent(wrapResult.content, section.maxChars)
+  if (truncated.length === 0) {
+    return { included: false, report: { ...base, skippedReason: 'empty' } }
+  }
+
+  return {
+    included: true,
+    content: truncated,
+    report: {
+      ...base,
+      included: true,
+      chars: truncated.length,
+      bytes: byteCount(truncated),
+      truncated: wasTruncated,
+      wrapped: wrapResult.wrapped,
+      content: truncated,
+    },
+  }
+}
+
+/**
+ * Resolve every section in a zone (prompt or reminder), accumulating included
+ * content, per-section size labels, and full inspection reports. Returns a zone
+ * with `content: undefined` when no section produced content.
+ */
 async function resolveZone(
   sections: ContextTemplate['promptSections'],
   context: ContextResolverContext,
@@ -184,46 +237,14 @@ async function resolveZone(
   const inspectedSections: ResolvedContextSection[] = []
 
   for (const section of sections) {
-    if (!matchesWhenPredicate(section, context)) {
-      inspectedSections.push({
-        ...sectionReportBase(section, context, zoneName),
-        skippedReason: 'when',
-      })
+    const outcome = await resolveZoneSection(section, context, zoneName)
+    inspectedSections.push(outcome.report)
+    if (!outcome.included) {
       continue
     }
 
-    const content = await resolveSection(section, context)
-    if (content === undefined || content.length === 0) {
-      inspectedSections.push({
-        ...sectionReportBase(section, context, zoneName),
-        skippedReason: 'empty',
-      })
-      continue
-    }
-
-    const wrapResult = applyWrap(content, section.wrap, context)
-    const wasTruncated =
-      section.maxChars !== undefined && wrapResult.content.length > section.maxChars
-    const truncated = truncateSectionContent(wrapResult.content, section.maxChars)
-    if (truncated.length === 0) {
-      inspectedSections.push({
-        ...sectionReportBase(section, context, zoneName),
-        skippedReason: 'empty',
-      })
-      continue
-    }
-
-    resolvedSections.push(truncated)
-    sectionSizes.push(`${zoneName}.${section.name}=${truncated.length}`)
-    inspectedSections.push({
-      ...sectionReportBase(section, context, zoneName),
-      included: true,
-      chars: truncated.length,
-      bytes: byteCount(truncated),
-      truncated: wasTruncated,
-      wrapped: wrapResult.wrapped,
-      content: truncated,
-    })
+    resolvedSections.push(outcome.content)
+    sectionSizes.push(`${zoneName}.${section.name}=${outcome.content.length}`)
   }
 
   if (resolvedSections.length === 0) {
@@ -293,6 +314,11 @@ function describeSectionSource(section: ContextSection, context: ContextResolver
   }
 }
 
+/**
+ * Evaluate a section's optional `when` predicate. A section is included only if
+ * ALL declared conditions hold (runMode match, path existence, and env
+ * set/equals/not-equals checks). A section without a predicate always matches.
+ */
 function matchesWhenPredicate(section: ContextSection, context: ContextResolverContext): boolean {
   const when = section.when
   if (when === undefined) {
@@ -358,7 +384,7 @@ async function resolveFileSection(
   context: ContextResolverContext
 ): Promise<string | undefined> {
   const filePath = resolveTemplateRef(section.path, context)
-  const content = await readOptionalFile(filePath)
+  const content = await readFileOrUndefined(filePath)
 
   if (content === undefined || content.length === 0) {
     if (section.required) {
@@ -394,38 +420,6 @@ async function resolveExecSection(
     // command) contributes no content rather than aborting prompt assembly.
     return undefined
   }
-}
-
-async function resolveServiceProbeSection(
-  section: ServiceProbeSectionDef,
-  context: ContextResolverContext
-): Promise<string | undefined> {
-  const timeout = section.timeout ?? DEFAULT_SERVICE_PROBE_TIMEOUT_MS
-  const services = section.services.map((spec) => ({
-    name: spec.name,
-    endpoint: interpolateVariables(spec.endpoint, context),
-  }))
-  if (services.length === 0) {
-    return undefined
-  }
-
-  const results = await Promise.all(
-    services.map(async (spec) => ({
-      spec,
-      up: await probeServiceEndpoint(spec.endpoint, timeout),
-    }))
-  )
-
-  const nameWidth = services.reduce((max, spec) => Math.max(max, spec.name.length), 0)
-  const lines: string[] = []
-  if (section.header !== undefined && section.header.length > 0) {
-    lines.push(interpolateVariables(section.header, context))
-  }
-  for (const { spec, up } of results) {
-    const mark = up ? '✅' : '❌'
-    lines.push(`  ${mark} ${spec.name.padEnd(nameWidth)}  ${displayServiceEndpoint(spec.endpoint)}`)
-  }
-  return lines.join('\n')
 }
 
 async function resolveSlotSection(
@@ -491,7 +485,7 @@ async function resolveScaffoldSlot(context: ContextResolverContext): Promise<str
 
     if (packet.ref) {
       const filePath = resolveTemplateRef(packet.ref, context)
-      const content = await readOptionalFile(filePath)
+      const content = await readFileOrUndefined(filePath)
       contents.push(content === undefined ? undefined : interpolateContent(content, context))
     }
   }
@@ -507,7 +501,7 @@ async function resolveFileRefSlot(
 
   for (const ref of refs) {
     const filePath = resolveTemplateRef(ref, context)
-    const content = await readOptionalFile(filePath)
+    const content = await readFileOrUndefined(filePath)
     contents.push(content === undefined ? undefined : interpolateContent(content, context))
   }
 
@@ -672,17 +666,6 @@ function resolveTemplateRef(ref: string, context: ContextResolverContext): strin
   return join(context.agentsRoot, interpolated)
 }
 
-async function readOptionalFile(filePath: string): Promise<string | undefined> {
-  try {
-    return await readFile(filePath, 'utf8')
-  } catch (error) {
-    if (isMissingFileError(error)) {
-      return undefined
-    }
-    throw error
-  }
-}
-
 function joinNonEmpty(contents: Array<string | undefined>, separator: string): string | undefined {
   const resolved = contents.filter((content): content is string =>
     Boolean(content && content.length > 0)
@@ -700,12 +683,4 @@ function joinResolvedContent(contents: Array<string | undefined>): string | unde
 
 function joinCommandContent(contents: Array<string | undefined>): string | undefined {
   return joinNonEmpty(contents, COMMAND_SEPARATOR)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }
