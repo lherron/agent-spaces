@@ -77,7 +77,7 @@ function createFixture(): Fixture {
   mkdirSync(aspHome, { recursive: true })
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `schemaVersion = 2\n[spaces]\nbase = []\n[brain]\nenabled = false\n`,
+    'schemaVersion = 2\n[spaces]\nbase = []\n[brain]\nenabled = false\n',
     'utf8'
   )
   createClaudeShim(aspHome)
@@ -240,7 +240,7 @@ function interactiveClaudeRequest(): RuntimeCompileRequest {
 
 function extractBrokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile {
   expect(response.ok).toBe(true)
-  if (!response.ok) throw new Error('compile failed: ' + JSON.stringify(response.diagnostics))
+  if (!response.ok) throw new Error(`compile failed: ${JSON.stringify(response.diagnostics)}`)
   const profiles = response.plan.executionProfiles.filter(
     (p): p is BrokerExecutionProfile => p.kind === 'harness-broker'
   )

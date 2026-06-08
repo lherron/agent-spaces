@@ -582,6 +582,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         }
         return
       }
+      // biome-ignore lint/suspicious/noFallthroughSwitchClause: intentional — turn.completed increments the counter then shares the turn-end projection below.
       case 'turn.completed':
         inv.turnsCompleted = (inv.turnsCompleted ?? 0) + 1
       // falls through to the shared turn-end projection below

@@ -3162,6 +3162,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
           message: `expected exactly one queue-operation-sourced user.message (mid-turn/steered prompt capture), got ${queueSourced.length}`,
         })
       } else {
+        // biome-ignore lint/style/noNonNullAssertion: the else-branch is reached only when queueSourced.length === 1, so index 0 is present.
         const captured = queueSourced[0]!
         if (!userMessageContent(captured).includes(midTurnMarker)) {
           result.extraFailures.push({
