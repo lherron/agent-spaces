@@ -1,140 +1,141 @@
-# Refactoring Analysis
-**Target:** packages/harness-broker/src
-**Lines analyzed:** 9971  ·  **Generated:** 2026-06-07  ·  **Focus:** all
+# harness-broker SOLID / code-smell audit
 
-## SOLID Scorecard
-| Principle | Status | Issues |
-|-----------|--------|--------|
-| **S**RP (Single Responsibility) | 🟡 | Large manager file (1377 lines); codex-app-server driver mixes lifecycle, RPC, and event mapping |
-| **O**CP (Open/Closed) | 🟡 | Busy-policy dispatch uses table-driven approach (good), but event-type switches in applyEventState (41 cases) |
-| **L**SP (Liskov Substitution) | 🟢 | Driver interface well-designed; no problematic overrides detected |
-| **I**SP (Interface Segregation) | 🟢 | DriverContext appropriately scoped; no fat interfaces |
-| **D**IP (Dependency Inversion) | 🟢 | Drivers injected; registry pattern used; no hardcoded singletons |
+Package: `packages/harness-broker/` (npm name `spaces-harness-broker`)
+Audited: every non-test `.ts` under `src/` (42 source files, ~10k LOC).
 
----
+## Overall assessment
 
-## Priority Refactorings
+This package was the subject of a deliberate SOLID/code-smell cleanup pass in the
+most recent commit (`e238805 refactor(packages): SOLID/code-smell cleanup pass
+across all 17 packages`). It shows: per-policy lookup tables instead of if-chains
+(`busyPolicyHandlers`, `inferDriverHealth`), pure parsers split out of stateful
+classes (`tmux-parse.ts`, `tmux-env.ts`), named constants with traceability
+comments, guard-clause de-nesting, and a single shared inspection-summary builder
+to prevent projection drift. Long functions that remain (e.g. the hook
+normalizers, `invocation-manager.applyEventState`) are genuinely irreducible
+dispatch tables over an external event vocabulary and are already factored into
+named helpers.
 
-### 1. Extract Event State Machine from Invocation Manager — **SRP**
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker/src/invocation-manager.ts:495–645`
-- **Current:** The `applyEventState()` function handles 41 distinct event types in a massive switch statement (140+ lines) within a 1377-line module that already manages queuing, draining, permissions, and inspection reads.
-- **Suggested:** Extract into a separate `event-state-machine.ts` module with a dedicated `EventStateMachine` interface. This module becomes the single source of truth for state transitions and projections. Replace the switch with a Map<EventType, StateTransformer> (OCP-friendly) so new event types extend the map, not the code.
-- **Risk:** Med  ·  **API-impact:** internal-only  ·  **Effort:** 2-3 hours  ·  **Tests:** All invocation-manager tests + new event-state-machine unit tests; verify state transitions remain idempotent
-- **Why Now:** Enables future event-type additions without touching the manager; simplifies testing of terminal/lifecycle logic separately.
-
-### 2. Extract Inspection Read-Model Builder — **SRP**
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker/src/invocation-manager.ts:827–965`
-- **Current:** Seven functions (`inferDriverHealth`, `isProcessAlive`, `computeRetentionBlockers`, `buildLifecycleView`, `buildCurrentTurn`, `buildLivenessView`, `buildInspectionSummary`) totaling ~140 lines of read-model logic are inlined in the manager, mixing query/projection concerns with command-side state mutation.
-- **Suggested:** Create `inspection-read-model.ts` exporting an `InspectionReadModel` class encapsulating all projection logic. The manager calls `.buildSummary(inv, opts)` once; this module owns liveness, lifecycle, and turn views. Enables isolated testing and future caching.
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 1-2 hours  ·  **Tests:** Unit tests for each projection function; snapshot tests for complete summaries
-- **Why Now:** The manager is at critical size; this extraction reclaims ~200 LOC and clarifies intent (query vs. command).
-
-### 3. Extract Permission Lifecycle State Machine — **SRP**
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker/src/invocation-manager.ts:767–821`
-- **Current:** `brokerRequestPermission()` manages pending/settled permissions, timers, driver resolution, and event emission—multiple concerns in ~55 lines. Coupled with Invocation state records (`pendingPermissions`, `settledPermissions`).
-- **Suggested:** Create `permission-lifecycle.ts` with a `PermissionLifecycleManager` that owns the pending/settled records and timer logic. The invocation manager passes a context; the lifecycle manager emits events back via callback. Simplifies the manager and makes permission logic unit-testable in isolation.
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 1-2 hours  ·  **Tests:** Unit tests for timeout, duplicate, and conflict scenarios; integration test with driver flow
-- **Why Now:** Permissions are a distinct subsystem (C2 spec); isolating them clarifies the contract and reduces manager complexity.
-
-### 4. Extract Input Queue and Drain Logic — **SRP**
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker/src/invocation-manager.ts:294–474`
-- **Current:** Queue scheduling (`scheduleDrain`), draining (`doDrain`), busy-policy dispatch (`handleQueueWhenBusy`), and policy handler table (~180 lines) live in the manager. While the policy-dispatch pattern is good (OCP-friendly), the queue lifecycle is mixed with the manager's responsibility.
-- **Suggested:** Extract into an `InputQueue` class with methods `enqueue()`, `drain()`, `evict()`, and a pluggable `BusyPolicyDispatcher`. The manager owns the queue instance and calls its public API; the queue owns draining promises and eviction logic.
-- **Risk:** Med  ·  **API-impact:** internal-only  ·  **Effort:** 2-3 hours  ·  **Tests:** All queue-related tests refactored to target InputQueue directly; integration tests with manager remain
-- **Why Now:** Makes queue policies independently testable and future-proof for new policies without touching the manager.
-
-### 5. Split Codex Driver into Domain Layers — **SRP**
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker/src/drivers/codex-app-server/driver.ts` (638 lines)
-- **Current:** Single driver file handles process spawning, RPC lifecycle, event notification handling, turn state tracking, startup timeouts, thread management, permission forwarding, and turn queuing. Highly cohesive but responsibilities are mixed.
-- **Suggested:** Reorganize as:
-  - `codex-driver-core.ts` (the public `Driver` interface impl)
-  - `codex-process-lifecycle.ts` (spawn, exit handling)
-  - `codex-rpc-lifecycle.ts` (client init, initialization handshake)
-  - `codex-turn-state.ts` (turn tracking, timeout management)
-  Then compose in the core driver. Keeps public surface unchanged but clarifies internal boundaries.
-- **Risk:** Med  ·  **API-impact:** internal-only  ·  **Effort:** 3-4 hours  ·  **Tests:** All existing driver tests pass unchanged; no new tests required if composition is correct
-- **Why Now:** Driver is large; this refactor enables easier future features (e.g., resume logic, turn retry) without ballooning further.
-
-### 6. Extract Codex Event Mapping Logic into Stateless Utilities — **SRP**
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker/src/drivers/codex-app-server/event-map.ts` (452 lines)
-- **Current:** `mapCodexNotificationInner()` is a 300+ line switch statement over native Codex notification types (>25 cases) that filters, transforms, and holds assistant-completion state. The stateful held-completions map is created-per-driver and passed through.
-- **Suggested:** Keep the switch but extract individual case handlers into a `Map<string, NotificationHandler>` table (OCP-friendly). Each handler becomes a pure function or closure over shared state. Enables testing handlers independently and adding new Codex notification types without touching the core switch.
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 2 hours  ·  **Tests:** Unit tests for each handler; existing integration tests pass
-- **Why Now:** Makes event mapping patterns clear and extension points obvious; reduces case-handler cognitive load.
-
-### 7. Extract Event Normalization into Dedicated Module — **SRP**
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker/src/runtime/event-normalize.ts` (currently imported from invocation-manager emit)
-- **Current:** Event safety (truncation, well-known payload constraints) is isolated but the emit helper in the manager still handles both safe and unsafe payloads; responsibility is split.
-- **Suggested:** Ensure the normalizer owns all event-payload validation. The manager's `emit()` becomes a pure adapter that calls the normalizer upfront, never handling unsafe payloads itself. Already mostly done; just formalize the boundary.
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 30 minutes  ·  **Tests:** Existing normalization tests + verify emit rejects oversized payloads at entry point
-- **Why Now:** Clarifies a key invariant and guards against future emit callers bypassing safety.
+Findings below are mostly cross-file micro-duplication of tiny private helpers.
+None are urgent. A few are deferred only because they touch the public `index.ts`
+surface or carry behavior-change risk.
 
 ---
 
-## Code Smells
+## Duplicated USER_INITIATED_END_REASONS set across the two tmux hook normalizers
+- File: packages/harness-broker/src/drivers/codex-cli-tmux/hook-events.ts:23
+- Risk: Low
+- API-impact: internal-only
+- Smell: `new Set(['prompt_input_exit', 'logout', 'clear'])` is byte-identical to
+  `USER_INITIATED_END_REASONS` in claude-code-tmux/hook-events.ts:22. Same literal
+  set maintained in two driver modules.
+- Proposed change: lift the set to a shared internal module (e.g.
+  `drivers/tmux-shared.ts`) as `USER_INITIATED_END_REASONS` and import it in both
+  normalizers. Behavior-preserving; the related `SESSION_LEAVE_REASONS` in
+  invocation-manager.ts:73 is a deliberately smaller set (no `clear`) and should
+  stay distinct.
 
-| Smell | Location | Severity |
-|-------|----------|----------|
-| **Long Method** | `invocation-manager.ts:495–645` (applyEventState, 150 lines) | High |
-| **Long Method** | `codex-app-server/driver.ts:280–393` (start, 113 lines) | High |
-| **Large Class** | `invocation-manager.ts` (1377 lines total) | High |
-| **Long Parameter List** | `codex-app-server/permissions.ts:200+` (multiple handlers with 4+ params) | Med |
-| **Deep Nesting** | `invocation-manager.ts:1163–1195` (input policy dispatch, 3+ levels) | Med |
-| **Duplicated Logic** | `invocation-manager.ts` emit + applyEventState pattern used 5+ times | Med |
-| **Magic Numbers** | `protocol-server.ts:55` (MAX_CONSECUTIVE_PARSE_ERRORS = 64, undocumented) | Low |
-| **Magic Numbers** | `invocation-manager.ts:57,60` (queue depth, permission timeout defaults) | Low |
-| **Type Checks Before Calls** | `driver.ts` (payload typecast checks via `instanceof`/`as` before property access) | Med |
-| **Primitive Obsession** | `invocation-manager.ts:62–73` (reason strings defined as constants, good start; extend to event type discriminators) | Low |
+## Duplicated JSON-poke helpers (getString/getNumber/asHookRecord/unwrapHookPayload/asRecord)
+- File: packages/harness-broker/src/drivers/claude-code-tmux/hook-events.ts:682
+- Risk: Low
+- API-impact: internal-only
+- Smell: `getString`, `getNumber`, `unwrapHookPayload`, `asHookRecord`/`asRecord`
+  are re-declared with identical bodies across claude-code-tmux/hook-events.ts,
+  claude-code-tmux/hook-transcript.ts:169/179, codex-cli-tmux/hook-events.ts:277/335,
+  codex-cli-tmux/hook-transcript.ts:341/346, and codex-cli-tmux/driver.ts:402/409.
+- Proposed change: extract a single internal `hook-json.ts` (or add to
+  `tmux-shared.ts`) exporting `getString`/`getNumber`/`asRecord`/`unwrapHookPayload`
+  and import everywhere. Pure functions; no behavior change.
+
+## Duplicated `sleep` helper and inline setTimeout-promises
+- File: packages/harness-broker/src/runtime/tmux.ts:535
+- Risk: Low
+- API-impact: internal-only
+- Smell: `sleep(ms)` is defined locally in tmux.ts:535 and again in
+  tmux-shared.ts:21; tmux.ts:240 (`sendPastedLine`) also open-codes the same
+  `new Promise((resolve) => setTimeout(resolve, 1_000))` inline instead of calling
+  the local `sleep`.
+- Proposed change: have tmux.ts use a single `sleep` (import from a shared runtime
+  util or reuse the local one at line 240). Behavior-preserving.
+
+## Unnamed submit-gap magic literal in TmuxManager send paths
+- File: packages/harness-broker/src/runtime/tmux.ts:232
+- Risk: Low
+- API-impact: internal-only
+- Smell: `TmuxManager.sendKeys` (line 233) and `sendPastedLine` (line 240) use a
+  bare `1_000`/`1000` ms gap, while the controller path names the analogous value
+  `LEGACY_PASTE_GAP_MS` (line 106) and the codex driver names it
+  `INPUT_SUBMIT_GAP_MS`. The raw literal in `TmuxManager` is the odd one out.
+- Proposed change: introduce a module-level named constant (e.g.
+  `MANAGER_SEND_KEYS_GAP_MS = 1_000`) and reference it in both `TmuxManager`
+  methods. Value-identical, no behavior change.
+
+## Collapsible duplicate `unsupported` branches in codex interrupt()
+- File: packages/harness-broker/src/drivers/codex-app-server/driver.ts:438
+- Risk: Low
+- API-impact: internal-only
+- Smell: `interrupt()` returns two nearly identical
+  `{ accepted: false, effect: 'unsupported', reason: '...' }` objects, branching
+  only on `req.scope === 'turn'` to vary the reason string — an if/else where the
+  shape is constant.
+- Proposed change: compute the `reason` string from `req.scope` and return a single
+  response object. The two reason strings are internal/diagnostic (not asserted by
+  the protocol contract), so keep the wording byte-identical to preserve behavior.
+
+## `broker_${process.pid}` instance-id computed in two places
+- File: packages/harness-broker/src/cli.ts:235
+- Risk: Low
+- API-impact: internal-only
+- Smell: `brokerInstanceId = broker_${process.pid}` is computed in cli.ts:235 and
+  independently defaulted in broker.ts:135 (`options.brokerInstanceId ?? broker_${process.pid}`).
+  The cli passes its own copy into the broker, duplicating the format string.
+- Proposed change: let `runUnix` omit `brokerInstanceId` and rely on the broker's
+  own default (already `broker_${process.pid}`), or export a tiny
+  `defaultBrokerInstanceId()` helper. Behavior-identical (same pid, same format).
+
+## `applyEventState` switch is a long multi-responsibility function
+- File: packages/harness-broker/src/invocation-manager.ts:495
+- Risk: Med
+- API-impact: internal-only
+- Smell: ~150-line switch projecting every event type into many `inv.*` fields —
+  multiple concerns (pid capture, turn lifecycle, terminal handling, queue
+  eviction) in one function. Already partly factored, but large.
+- Proposed change: OPTIONAL split into per-group private helpers
+  (`applyHarnessLifecycle`, `applyTurnLifecycle`, `applyTerminal`) dispatched from
+  the switch. Med risk because it restructures the manager's central state-machine
+  flow and the `turn.completed` fall-through to the shared turn-end case is subtle;
+  worth a careful diff + full manager test run if attempted. Not auto-applied.
 
 ---
 
-## Quick Wins (low risk, high value)
+## Deferred (High-risk OR public-surface)
 
-1. **Extract Busy-Policy Handlers Table** (`invocation-manager.ts:476–490`)
-   - Already table-driven; just comment it as the OCP-pattern exemplar for future extension.
-   - **Effort:** 15 min  ·  **Risk:** None
+## index.ts exports an internal hook-normalizer factory asymmetrically
+- File: packages/harness-broker/src/index.ts:31
+- Risk: High
+- API-impact: public-surface
+- Smell: `index.ts` re-exports `createCodexCliTmuxHookEventNormalizer` and
+  `CODEX_CLI_TMUX_DRIVER_KIND` from the codex-cli driver but does NOT export the
+  symmetric `createClaudeCodeHookEventNormalizer` / `CLAUDE_CODE_TMUX_DRIVER_KIND`
+  nor `createCodexAppServerDriver` — an asymmetric public surface that looks like
+  it may be an oversight rather than intent.
+- Proposed change: DEFER. Either adding or removing exports changes the package's
+  public API; a human must decide which symbols are meant to be public.
 
-2. **Document MAX_CONSECUTIVE_PARSE_ERRORS** (`protocol-server.ts:55`)
-   - Add a comment explaining the DoS mitigation. Mention the non-exponential amplification bound.
-   - **Effort:** 10 min  ·  **Risk:** None
-
-3. **Extract Reason-String Constants** (`invocation-manager.ts:49–55`)
-   - Already done; ensure they're exported as `INVOCATION_REJECTION_REASONS` enum or constant map for client reference.
-   - **Effort:** 20 min  ·  **Risk:** None
-
-4. **Split Driver Capabilities into Separate Module** (`drivers/codex-app-server/driver.ts:40–69`)
-   - Capabilities are static; move `CODEX_CAPABILITIES` to a `codex-capabilities.ts` file.
-   - **Effort:** 20 min  ·  **Risk:** None (internal refactor)
-
-5. **Extract Startup Timer Logic** (`codex-app-server/driver.ts:342–353`)
-   - `armStartupTimer()` is a helper; extract to a `StartupTimer` class or utility.
-   - **Effort:** 30 min  ·  **Risk:** Low
-
----
-
-## Technical Debt Notes
-
-### Architectural
-- **Invocation Manager is the Critical Path:** At 1377 lines, it's the system's heart. Its size limits cognitive load and testability. The priority refactorings (1–4) are highest-leverage for keeping it maintainable as features grow.
-- **Driver-Specific Logic is Consolidated:** Good—codex-app-server, claude-code-tmux, codex-cli-tmux, and noop-driver are distinct. However, codex-app-server is notably the largest (638 lines). Refactoring #5 keeps it from becoming a god object.
-- **Event-Type Switch is a Future Hotspot:** As more harnesses and drivers attach, the 41-case switch in `applyEventState` will grow. Extracting it now (refactor #1) is cheaper than refactoring when it hits 60+ cases.
-
-### Testing Gaps
-- **Permission Lifecycle Not Unit-Tested in Isolation:** The `brokerRequestPermission()` function is tested indirectly through the manager. Extracting it (refactor #3) enables direct tests for timeout, duplicate, and conflict edge cases.
-- **Event State Transitions Lack Focused Tests:** Verifying that every `event.type` correctly projects state is scattered across integration tests. A dedicated state-machine test suite (refactor #1) would improve coverage clarity.
-
-### Patterns to Adopt
-- **Policy Dispatch Tables:** The `busyPolicyHandlers` table (invocation-manager.ts:476) is a good OCP pattern. Apply it to event mapping (codex-app-server/event-map.ts) and Codex notification handlers.
-- **Stateless Handlers:** The permission handler context (codex-app-server/permissions.ts:200+) shows good closure discipline. Extend this to event mappers.
-
-### Known Risks
-- **State Mutation Sequencing:** The manager's event-apply-project sequence (`applyEventState` → `onEvent` → project for next call) is fragile if a handler expects prior projections to be complete. Refactoring #1 + #2 mitigates by isolating state transitions.
-- **Driver Startup Timeout Overlaps:** The codex driver's startup timer is armed/re-armed multiple times during initialization. A dedicated timer manager (refactor #5 substep) reduces race conditions.
+## buildThreadStartParams / buildTurnStartParams duplicate the codex spec defaults
+- File: packages/harness-broker/src/drivers/codex-app-server/driver.ts:558
+- Risk: Med
+- API-impact: public-surface
+- Smell: `buildThreadStartParams` (driver.ts) and `buildTurnStartParams` (input.ts)
+  independently derive `approvalPolicy ?? 'never'`, `model ?? null`, and the
+  sandbox encoding from the same `CodexAppServerDriverSpec`. Both are `export`ed.
+- Proposed change: DEFER. Both functions are exported (public-surface) and feed the
+  native Codex RPC wire shape; consolidating the defaults risks altering one call's
+  params. A human should confirm the two native calls truly want identical defaults
+  before deduping.
 
 ---
 
-## Scoring Summary
-- **High-Impact Refactorings:** 3 (manager extraction, event state, inspection reads)
-- **Medium-Impact Refactorings:** 2 (driver split, input queue)
-- **Low-Impact Quick Wins:** 5
-- **Auto-Applicable (Low/Med + internal-only):** 6 of 7 priority refactorings qualify
+## Summary counts
+- Auto-applicable (Low/Med AND internal-only): 7
+- Deferred (High-risk OR public-surface): 2

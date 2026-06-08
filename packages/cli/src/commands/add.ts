@@ -5,17 +5,20 @@
  * editing TOML files. Automatically runs install after.
  */
 
+import { join } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
 import {
   type SpaceRefString,
+  TARGETS_FILENAME,
   atomicWrite,
   readTargetsToml,
   serializeTargetsToml,
 } from 'spaces-config'
 import { install } from 'spaces-execution'
 
+import { errorMessage, printNoProjectError } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 
 /**
@@ -35,13 +38,12 @@ export function registerAddCommand(program: Command): void {
       // Find project root
       const projectPath = options.project ?? (await findProjectRoot())
       if (!projectPath) {
-        console.error(chalk.red('Error: No asp-targets.toml found in current directory or parents'))
-        console.error(chalk.gray('Run this command from a project directory or use --project'))
+        printNoProjectError()
         process.exit(1)
       }
 
       const targetName = options.target
-      const targetsPath = `${projectPath}/asp-targets.toml`
+      const targetsPath = join(projectPath, TARGETS_FILENAME)
 
       try {
         // Load current manifest
@@ -90,11 +92,7 @@ export function registerAddCommand(program: Command): void {
           console.log(`  Snapshots created: ${result.snapshotsCreated}`)
         }
       } catch (error) {
-        if (error instanceof Error) {
-          console.error(chalk.red(`Error: ${error.message}`))
-        } else {
-          console.error(chalk.red(`Error: ${String(error)}`))
-        }
+        console.error(chalk.red(`Error: ${errorMessage(error)}`))
         process.exit(1)
       }
     })

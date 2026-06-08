@@ -13,6 +13,13 @@
 import type { ContentBlock } from 'spaces-runtime'
 
 /**
+ * Prefix for synthetic tool-use ids minted when the SDK message/block carries no
+ * resolvable id. Shared so the correlation sources in `agent-session.ts` and
+ * `hooks-bridge.ts` cannot drift on a rename.
+ */
+export const SDK_TOOL_ID_PREFIX = 'sdk-tool-'
+
+/**
  * Resolve a tool-use id from a block/message, tolerating the several casings
  * the SDK has used (`tool_use_id`, `toolUseId`, `id`).
  */
@@ -178,6 +185,25 @@ export function convertContentBlock(block: Record<string, unknown>): ContentBloc
   const handler = type ? TOOL_RESULT_BLOCK_HANDLERS[type] : undefined
   // textParts is unused by callers that only want the converted block.
   return handler?.(block, [])
+}
+
+/**
+ * Flatten the `text` blocks of an assistant message's content array into a
+ * single newline-joined string, or `undefined` when there is no text. Non-array
+ * input yields `undefined` so callers can handle the plain-string case
+ * separately.
+ */
+export function flattenAssistantText(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return undefined
+  const textParts: string[] = []
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue
+    const blockObj = block as Record<string, unknown>
+    if (blockObj['type'] === 'text' && typeof blockObj['text'] === 'string') {
+      textParts.push(blockObj['text'])
+    }
+  }
+  return textParts.length > 0 ? textParts.join('\n') : undefined
 }
 
 export interface ToolBlockVisitor {

@@ -120,11 +120,13 @@ function escapeJsonPointerToken(token: string): string {
   return token.replaceAll('~', '~0').replaceAll('/', '~1')
 }
 
+const LOCKED_ENV_POINTER = '/process/lockedEnv'
+
 function omitsLockedEnv(omitPath: string): boolean {
   return (
-    omitPath === '/process/lockedEnv' ||
-    omitPath.endsWith('/process/lockedEnv') ||
-    omitPath.includes('/process/lockedEnv/')
+    omitPath === LOCKED_ENV_POINTER ||
+    omitPath.endsWith(LOCKED_ENV_POINTER) ||
+    omitPath.includes(`${LOCKED_ENV_POINTER}/`)
   )
 }
 

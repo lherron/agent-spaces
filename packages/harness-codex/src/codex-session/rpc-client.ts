@@ -3,6 +3,13 @@ import { once } from 'node:events'
 import { createInterface } from 'node:readline'
 import { errorMessage, toError } from '../errors.js'
 
+/**
+ * Prefix of the `Error.message` produced for a JSON-RPC error response (see
+ * `handleResponse`). Consumers that match on the error text (e.g. the
+ * resume-recovery guard) reference this so producer and matcher cannot drift.
+ */
+export const JSON_RPC_ERROR_PREFIX = 'JSON-RPC error'
+
 export type JsonRpcId = number | string
 
 export interface JsonRpcRequest {
@@ -151,7 +158,7 @@ export class CodexRpcClient {
     if (message.error) {
       pending.reject(
         new Error(
-          `JSON-RPC error ${message.error.code}: ${message.error.message}${
+          `${JSON_RPC_ERROR_PREFIX} ${message.error.code}: ${message.error.message}${
             message.error.data ? ` (${JSON.stringify(message.error.data)})` : ''
           }`
         )

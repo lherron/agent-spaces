@@ -217,6 +217,11 @@ export const PI_ENFORCEMENT: Record<PermissionFacetKey, EnforcementLevel> = {
  * @returns Parsed canonical permissions
  * @throws Error if parsing fails
  */
+/** Narrow a TOML value to a string array, or undefined when not an array. */
+function asStringArray(v: unknown): string[] | undefined {
+  return Array.isArray(v) ? (v as string[]) : undefined
+}
+
 export function parsePermissionsToml(content: string): CanonicalPermissions {
   const parsed = TOML.parse(content) as unknown as Record<string, unknown>
 
@@ -226,7 +231,7 @@ export function parsePermissionsToml(content: string): CanonicalPermissions {
   if (parsed['read'] && typeof parsed['read'] === 'object') {
     const read = parsed['read'] as Record<string, unknown>
     result.read = {
-      paths: Array.isArray(read['paths']) ? (read['paths'] as string[]) : undefined,
+      paths: asStringArray(read['paths']),
     }
   }
 
@@ -234,7 +239,7 @@ export function parsePermissionsToml(content: string): CanonicalPermissions {
   if (parsed['write'] && typeof parsed['write'] === 'object') {
     const write = parsed['write'] as Record<string, unknown>
     result.write = {
-      paths: Array.isArray(write['paths']) ? (write['paths'] as string[]) : undefined,
+      paths: asStringArray(write['paths']),
     }
   }
 
@@ -242,8 +247,8 @@ export function parsePermissionsToml(content: string): CanonicalPermissions {
   if (parsed['exec'] && typeof parsed['exec'] === 'object') {
     const exec = parsed['exec'] as Record<string, unknown>
     result.exec = {
-      commands: Array.isArray(exec['commands']) ? (exec['commands'] as string[]) : undefined,
-      patterns: Array.isArray(exec['patterns']) ? (exec['patterns'] as string[]) : undefined,
+      commands: asStringArray(exec['commands']),
+      patterns: asStringArray(exec['patterns']),
     }
   }
 
@@ -251,7 +256,7 @@ export function parsePermissionsToml(content: string): CanonicalPermissions {
   if (parsed['network'] && typeof parsed['network'] === 'object') {
     const network = parsed['network'] as Record<string, unknown>
     result.network = {
-      hosts: Array.isArray(network['hosts']) ? (network['hosts'] as string[]) : undefined,
+      hosts: asStringArray(network['hosts']),
     }
   }
 
@@ -259,10 +264,10 @@ export function parsePermissionsToml(content: string): CanonicalPermissions {
   if (parsed['deny'] && typeof parsed['deny'] === 'object') {
     const deny = parsed['deny'] as Record<string, unknown>
     result.deny = {
-      read: Array.isArray(deny['read']) ? (deny['read'] as string[]) : undefined,
-      write: Array.isArray(deny['write']) ? (deny['write'] as string[]) : undefined,
-      exec: Array.isArray(deny['exec']) ? (deny['exec'] as string[]) : undefined,
-      network: Array.isArray(deny['network']) ? (deny['network'] as string[]) : undefined,
+      read: asStringArray(deny['read']),
+      write: asStringArray(deny['write']),
+      exec: asStringArray(deny['exec']),
+      network: asStringArray(deny['network']),
     }
   }
 

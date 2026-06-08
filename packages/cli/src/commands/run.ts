@@ -359,8 +359,7 @@ export function registerRunCommand(program: Command): void {
     .option('--extra-args <args...>', 'Additional harness CLI arguments')
     .action(async (target: string, prompt: string | undefined, options: RunOptions) => {
       // Validate harness option
-      const _harness = validateOptionalHarness(options.harness)
-      options.harness = _harness
+      options.harness = validateOptionalHarness(options.harness)
       const projectPath = options.project ?? (await findProjectRoot())
 
       // --print-command implies dry-run but with silent output

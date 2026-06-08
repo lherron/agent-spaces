@@ -1,6 +1,7 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs'
 import type { InvocationEventEnvelope, InvocationId, TurnId } from 'spaces-harness-broker-protocol'
 import { createInvocationEventSequencer } from '../../events'
+import { getString, unwrapHookPayload } from '../hook-json'
 import { CLAUDE_CODE_TMUX_DRIVER_KIND } from './hook-events'
 
 /**
@@ -164,19 +165,4 @@ export function createClaudeHookTranscriptReader(
       resetState()
     },
   }
-}
-
-function unwrapHookPayload(hook: Record<string, unknown>): Record<string, unknown> {
-  if (typeof hook['hook_event_name'] === 'string') return hook
-  const hookEvent = hook['hookEvent']
-  if (hookEvent !== null && typeof hookEvent === 'object' && !Array.isArray(hookEvent)) {
-    const inner = hookEvent as Record<string, unknown>
-    if (typeof inner['hook_event_name'] === 'string') return inner
-  }
-  return hook
-}
-
-function getString(obj: Record<string, unknown>, key: string): string | undefined {
-  const value = obj[key]
-  return typeof value === 'string' ? value : undefined
 }

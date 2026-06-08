@@ -395,7 +395,7 @@ async function resolveFileSection(
     return undefined
   }
 
-  return interpolateContent(content, context)
+  return interpolateVariables(content, context)
 }
 
 async function resolveExecSection(
@@ -480,13 +480,13 @@ async function resolveScaffoldSlot(context: ContextResolverContext): Promise<str
   const contents: Array<string | undefined> = []
   for (const packet of packets) {
     if (packet.content && packet.content.length > 0) {
-      contents.push(interpolateContent(packet.content, context))
+      contents.push(interpolateVariables(packet.content, context))
     }
 
     if (packet.ref) {
       const filePath = resolveTemplateRef(packet.ref, context)
       const content = await readFileOrUndefined(filePath)
-      contents.push(content === undefined ? undefined : interpolateContent(content, context))
+      contents.push(content === undefined ? undefined : interpolateVariables(content, context))
     }
   }
 
@@ -502,7 +502,7 @@ async function resolveFileRefSlot(
   for (const ref of refs) {
     const filePath = resolveTemplateRef(ref, context)
     const content = await readFileOrUndefined(filePath)
-    contents.push(content === undefined ? undefined : interpolateContent(content, context))
+    contents.push(content === undefined ? undefined : interpolateVariables(content, context))
   }
 
   return joinResolvedContent(contents)
@@ -579,10 +579,6 @@ function normalizeStringEntries(value: unknown): string[] | undefined {
  *   in the output, so authors can pass through literal mustache-like text.
  */
 export function expandTemplate(content: string, context: ContextResolverContext): string {
-  return interpolateVariables(content, context)
-}
-
-function interpolateContent(content: string, context: ContextResolverContext): string {
   return interpolateVariables(content, context)
 }
 

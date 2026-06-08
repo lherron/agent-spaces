@@ -13,6 +13,7 @@ import {
   LOCK_FILENAME,
   type LockFile,
   type ResolveOptions,
+  TARGETS_FILENAME,
   lockFileExists,
   readLockJson,
   readTargetsToml,
@@ -20,6 +21,9 @@ import {
 } from 'spaces-config'
 
 import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
+
+/** Display width (chars) for an abbreviated commit SHA in diff output. */
+const SHORT_SHA_LEN = 12
 
 /**
  * Represents a single change in a diff.
@@ -83,14 +87,14 @@ function computeDiffChanges(
       changes.push({
         spaceId: id,
         type: 'added',
-        to: fresh.version ?? fresh.commit.slice(0, 12),
+        to: fresh.version ?? fresh.commit.slice(0, SHORT_SHA_LEN),
       })
     } else if (current.commit !== fresh.commit) {
       changes.push({
         spaceId: id,
         type: 'updated',
-        from: current.version ?? current.commit.slice(0, 12),
-        to: fresh.version ?? fresh.commit.slice(0, 12),
+        from: current.version ?? current.commit.slice(0, SHORT_SHA_LEN),
+        to: fresh.version ?? fresh.commit.slice(0, SHORT_SHA_LEN),
       })
     }
   }
@@ -101,7 +105,7 @@ function computeDiffChanges(
       changes.push({
         spaceId: id,
         type: 'removed',
-        from: current.version ?? current.commit.slice(0, 12),
+        from: current.version ?? current.commit.slice(0, SHORT_SHA_LEN),
       })
     }
   }
@@ -180,7 +184,7 @@ async function computeAllDiffs(
   const currentLock = hasLock ? await readLockJson(lockPath) : null
 
   // Load manifest
-  const manifest = await readTargetsToml(`${ctx.projectPath}/asp-targets.toml`)
+  const manifest = await readTargetsToml(join(ctx.projectPath, TARGETS_FILENAME))
   const targetNames = options.target ? [options.target] : Object.keys(manifest.targets)
 
   // Validate target exists

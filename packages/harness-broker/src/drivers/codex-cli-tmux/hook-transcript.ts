@@ -6,6 +6,7 @@ import type {
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import { createInvocationEventSequencer } from '../../events'
+import { getNumber, getString } from '../hook-json'
 import { CODEX_CLI_TMUX_DRIVER_KIND } from './hook-events'
 
 /**
@@ -336,14 +337,4 @@ export function createCodexHookTranscriptReader(
       resetState()
     },
   }
-}
-
-function getString(obj: Record<string, unknown>, key: string): string | undefined {
-  const value = obj[key]
-  return typeof value === 'string' ? value : undefined
-}
-
-function getNumber(obj: Record<string, unknown>, key: string): number | undefined {
-  const value = obj[key]
-  return typeof value === 'number' && Number.isInteger(value) ? value : undefined
 }

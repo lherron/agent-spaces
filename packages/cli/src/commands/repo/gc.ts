@@ -18,7 +18,7 @@ import {
   runGC,
 } from 'spaces-config'
 
-import { exitWithAspError, resolvePaths } from '../../helpers.js'
+import { exitWithAspError, formatBytes, resolvePaths } from '../../helpers.js'
 
 interface RepoGcOptions {
   dryRun?: boolean | undefined
@@ -82,20 +82,6 @@ async function collectLockFiles(globalLockPath: string): Promise<LockFile[]> {
     }
   }
   return lockFiles
-}
-
-/**
- * Format bytes as human-readable string.
- */
-function formatBytes(bytes: number): string {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let value = bytes
-  let unitIndex = 0
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024
-    unitIndex++
-  }
-  return `${value.toFixed(1)} ${units[unitIndex]}`
 }
 
 /**

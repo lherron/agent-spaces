@@ -42,6 +42,14 @@ import {
   toHarnessRunOptions,
 } from './util.js'
 
+/**
+ * Synthetic snapshot integrity used when a lock entry carries no known
+ * integrity. The 64-zero hex digest is sha256's hex length and denotes
+ * "no integrity computed". Distinct from the dev-mode `'sha256:dev'` marker
+ * used by `runLocalSpace`.
+ */
+const PLACEHOLDER_SNAPSHOT_INTEGRITY = `sha256:${'0'.repeat(64)}` as `sha256:${string}`
+
 async function persistGlobalLock(newLock: LockFile, globalLockPath: string): Promise<void> {
   let existingLock: LockFile | undefined
 
@@ -222,7 +230,7 @@ async function materializeClosureArtifacts(
     const pluginName =
       lockEntry?.plugin?.name ?? space.manifest.plugin?.name ?? (space.id as string)
     const pluginVersion = lockEntry?.plugin?.version ?? space.manifest.plugin?.version
-    const snapshotIntegrity = lockEntry?.integrity ?? `sha256:${'0'.repeat(64)}`
+    const snapshotIntegrity = lockEntry?.integrity ?? PLACEHOLDER_SNAPSHOT_INTEGRITY
     const snapshotPath = paths.snapshot(snapshotIntegrity)
 
     const manifest = {

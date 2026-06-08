@@ -91,13 +91,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
         return failCompileAndStart(compile)
       }
 
-      const dispatch = compile.dispatchRequest
-      const startResponse = await broker.start(
-        dispatch.startRequest,
-        dispatch.dispatchEnv,
-        dispatch.runtime,
-        dispatch.lifecyclePolicy
-      )
+      const startResponse = await startFromDispatch(broker, compile.dispatchRequest)
       return {
         schemaVersion: ASPC_COMPILE_AND_START_SCHEMA,
         ok: true,
@@ -106,6 +100,23 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
       }
     },
   }
+}
+
+/**
+ * Spreads an `InvocationDispatchRequest` into the positional `Broker.start`
+ * call shape. Single source for the arg order so the facade's broker-start row
+ * and `compileAndStart` cannot drift apart. Internal-only — not re-exported.
+ */
+export function startFromDispatch(
+  broker: Broker,
+  dispatch: InvocationDispatchRequest
+): ReturnType<Broker['start']> {
+  return broker.start(
+    dispatch.startRequest,
+    dispatch.dispatchEnv,
+    dispatch.runtime,
+    dispatch.lifecyclePolicy
+  )
 }
 
 async function defaultCompiler(
@@ -162,11 +173,14 @@ async function compileHarnessInvocation(
   }
 }
 
+// The typed `placement` contract in spaces-runtime-contracts does not expose
+// an optional `dispatchEnv`, so reach it through this named structural view.
+type PlacementWithDispatchEnv = { dispatchEnv?: Record<string, string> | undefined }
+
 function placementDispatchEnv(
   req: AspcCompileHarnessInvocationRequest
 ): Record<string, string> | undefined {
-  return (req.compileRequest.placement as { dispatchEnv?: Record<string, string> | undefined })
-    .dispatchEnv
+  return (req.compileRequest.placement as PlacementWithDispatchEnv).dispatchEnv
 }
 
 function buildDispatchRequest(

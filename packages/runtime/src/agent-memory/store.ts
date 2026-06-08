@@ -98,7 +98,7 @@ export class MemoryStore {
     if (!scanResult.ok) return this.storeScanFailure(scanResult)
 
     return this.withTargetLock(input.target, async (config) => {
-      const existing = await readTargetContent(config)
+      const existing = await readFileOrEmpty(config.path)
       const next =
         existing.length === 0 ? input.content : `${existing}${ENTRY_DELIMITER}${input.content}`
       const capResult = checkCap(config, next)
@@ -118,7 +118,7 @@ export class MemoryStore {
     if (!scanResult.ok) return this.storeScanFailure(scanResult)
 
     return this.withTargetLock(input.target, async (config) => {
-      const existing = await readTargetContent(config)
+      const existing = await readFileOrEmpty(config.path)
       const entries = splitEntries(existing)
       const matchResult = findMatches(entries, input.old)
       if (!matchResult.ok) return matchResult
@@ -135,7 +135,7 @@ export class MemoryStore {
 
   async remove(input: { target: MemoryTargetName; old: string }): Promise<StoreResult> {
     return this.withTargetLock(input.target, async (config) => {
-      const existing = await readTargetContent(config)
+      const existing = await readFileOrEmpty(config.path)
       const entries = splitEntries(existing)
       const matchResult = findMatches(entries, input.old)
       if (!matchResult.ok) return matchResult
@@ -199,10 +199,6 @@ export class MemoryStore {
   }
 }
 
-async function readTargetContent(config: MemoryTargetConfig): Promise<string> {
-  return readFileOrEmpty(config.path)
-}
-
 function splitEntries(content: string): string[] {
   if (content.length === 0) return []
   return content.split(ENTRY_DELIMITER)
@@ -227,10 +223,16 @@ function findMatches(
   entries: string[],
   oldSubstr: string
 ): { ok: true; index: number } | Extract<StoreResult, { error: 'not_found' | 'ambiguous_match' }> {
-  const matches = entries.filter((entry) => entry.includes(oldSubstr))
-  if (matches.length === 0) return { ok: false, error: 'not_found', matches: [] }
-  if (matches.length > 1) return { ok: false, error: 'ambiguous_match', matches }
-  return { ok: true, index: entries.findIndex((entry) => entry.includes(oldSubstr)) }
+  const matches: Array<{ index: number; entry: string }> = []
+  entries.forEach((entry, index) => {
+    if (entry.includes(oldSubstr)) matches.push({ index, entry })
+  })
+  const first = matches[0]
+  if (first === undefined) return { ok: false, error: 'not_found', matches: [] }
+  if (matches.length > 1) {
+    return { ok: false, error: 'ambiguous_match', matches: matches.map((m) => m.entry) }
+  }
+  return { ok: true, index: first.index }
 }
 
 async function acquireAdvisoryLock(lockPath: string): Promise<LockRelease> {

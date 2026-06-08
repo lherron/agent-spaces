@@ -55,6 +55,7 @@ import {
   optionalNumber,
   optionalString,
   optionalStringArray,
+  requireArray,
   requireNumber,
   requirePayloadRecord,
   requireString,
@@ -695,10 +696,9 @@ function validateInvocationDispatchRequestShape(
     rejectStaleStartRequestRuntime(startRequest, startPath, issues)
   }
 
-  const lockedEnv =
-    asRecord(startRequest?.spec)?.process !== undefined
-      ? asRecord(asRecord(startRequest?.spec)?.process)?.lockedEnv
-      : undefined
+  const specRecord = asRecord(startRequest?.spec)
+  const processRecord = asRecord(specRecord?.process)
+  const lockedEnv = processRecord?.lockedEnv
   validateEnv(
     request.dispatchEnv,
     joinPath(basePath, 'dispatchEnv'),
@@ -1627,18 +1627,12 @@ function validateInvocationInputShape(
 }
 
 function validateInputContent(value: unknown, basePath: string, issues: ValidationIssue[]): void {
-  if (!Array.isArray(value)) {
-    issues.push(
-      makeIssue(
-        basePath,
-        value === undefined ? 'required' : 'invalid_type',
-        'content must be an array'
-      )
-    )
+  const items = requireArray(value, basePath, issues, 'content must be an array')
+  if (!items) {
     return
   }
 
-  value.forEach((item, index) => {
+  items.forEach((item, index) => {
     const itemPath = joinPath(basePath, String(index))
     const content = asRecord(item)
     if (!content) {
@@ -1912,17 +1906,11 @@ function validateEnumArray(
   basePath: string,
   issues: ValidationIssue[]
 ): void {
-  if (!Array.isArray(value)) {
-    issues.push(
-      makeIssue(
-        basePath,
-        value === undefined ? 'required' : 'invalid_type',
-        `${basePath} must be an array`
-      )
-    )
+  const items = requireArray(value, basePath, issues)
+  if (!items) {
     return
   }
-  value.forEach((item, index) => {
+  items.forEach((item, index) => {
     if (typeof item !== 'string' || !allowed.includes(item)) {
       issues.push(
         makeIssue(
@@ -1943,11 +1931,11 @@ function validateOptionalEventTypeArray(
   if (value === undefined) {
     return
   }
-  if (!Array.isArray(value)) {
-    issues.push(makeIssue(basePath, 'invalid_type', `${basePath} must be an array`))
+  const items = requireArray(value, basePath, issues)
+  if (!items) {
     return
   }
-  value.forEach((item, index) => {
+  items.forEach((item, index) => {
     if (typeof item !== 'string' || !eventTypes.has(item as InvocationEventType)) {
       issues.push(
         makeIssue(joinPath(basePath, String(index)), 'invalid_event_type', 'Unsupported event type')

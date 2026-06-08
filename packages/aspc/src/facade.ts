@@ -16,7 +16,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { validateCommand } from 'spaces-harness-broker-protocol'
 import type { AspcCompiler } from './service.js'
-import { createAspcService } from './service.js'
+import { createAspcService, startFromDispatch } from './service.js'
 
 export interface AspcFacadeOptions {
   stdin: Readable
@@ -29,6 +29,8 @@ export interface AspcFacadeOptions {
 // Single source of truth for the JSON-RPC method names this facade serves, so
 // the wire strings live in one place rather than scattered across registration
 // sites.
+const JSONRPC_VERSION = '2.0'
+
 const ASPC_METHODS = {
   hello: 'aspc.hello',
   compileRuntimePlan: 'aspc.compileRuntimePlan',
@@ -56,7 +58,7 @@ export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServ
 
   function emitEvent(event: InvocationEventEnvelope): void {
     const notification: JsonRpcNotification = {
-      jsonrpc: '2.0',
+      jsonrpc: JSONRPC_VERSION,
       method: 'invocation.event',
       params: event,
     }
@@ -80,7 +82,7 @@ export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServ
     handle: (req: Params) => Promise<Result>
   ): void {
     server.register(method, async ({ id, params }) => {
-      validateAspcCommand({ jsonrpc: '2.0', id, method, params })
+      validateAspcCommand({ jsonrpc: JSONRPC_VERSION, id, method, params })
       return handle(validateRequest(params))
     })
   }
@@ -143,15 +145,7 @@ function brokerMethodTable(broker: Broker): ReadonlyArray<{
     },
     {
       method: BROKER_METHODS.start,
-      invoke: (params) => {
-        const dispatch = params as InvocationDispatchRequest
-        return broker.start(
-          dispatch.startRequest,
-          dispatch.dispatchEnv,
-          dispatch.runtime,
-          dispatch.lifecyclePolicy
-        )
-      },
+      invoke: (params) => startFromDispatch(broker, params as InvocationDispatchRequest),
     },
     {
       method: BROKER_METHODS.input,
@@ -179,7 +173,7 @@ function brokerMethodTable(broker: Broker): ReadonlyArray<{
 function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
   for (const { method, invoke } of brokerMethodTable(broker)) {
     server.register(method, async ({ id, params }) => {
-      validateCommand({ jsonrpc: '2.0', id, method, params })
+      validateCommand({ jsonrpc: JSONRPC_VERSION, id, method, params })
       return invoke(params)
     })
   }

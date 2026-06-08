@@ -14,6 +14,9 @@ import { detectClaude } from 'spaces-execution'
 import { errorMessage, formatCheckResults, outputDoctorSummary, resolvePaths } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 
+/** Timeout for the registry-remote `git ls-remote` reachability probe. */
+const REGISTRY_REMOTE_TIMEOUT_MS = 10_000
+
 interface CheckResult {
   name: string
   status: 'ok' | 'warning' | 'error'
@@ -142,7 +145,7 @@ async function checkRegistryRemote(repoPath: string): Promise<CheckResult> {
     // Try to connect to remote using ls-remote (with timeout)
     const result = await gitExec(['ls-remote', '--heads', origin.fetchUrl], {
       cwd: repoPath,
-      timeout: 10000, // 10 second timeout
+      timeout: REGISTRY_REMOTE_TIMEOUT_MS,
       ignoreExitCode: true,
     })
 

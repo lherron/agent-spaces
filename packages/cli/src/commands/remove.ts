@@ -5,10 +5,11 @@
  * editing TOML files. Automatically runs install after.
  */
 
+import { join } from 'node:path'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { atomicWrite, readTargetsToml, serializeTargetsToml } from 'spaces-config'
+import { TARGETS_FILENAME, atomicWrite, readTargetsToml, serializeTargetsToml } from 'spaces-config'
 import { install } from 'spaces-execution'
 
 import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
@@ -42,7 +43,7 @@ export function registerRemoveCommand(program: Command): void {
     .action(async (spaceId: string, options: RemoveOptions) => {
       try {
         const ctx = await getProjectContext(options)
-        const targetsPath = `${ctx.projectPath}/asp-targets.toml`
+        const targetsPath = join(ctx.projectPath, TARGETS_FILENAME)
         const manifest = await readTargetsToml(targetsPath)
 
         const targetName = options.target

@@ -2,7 +2,7 @@ import type { LaneRef, ValidationResult } from './types.js'
 import { validateToken } from './types.js'
 
 /** Canonical prefix used by the `lane:<laneId>` ref form. */
-const LANE_PREFIX = 'lane:'
+export const LANE_PREFIX = 'lane:'
 
 /** Canonical lane id/ref used when no lane is supplied. */
 export const DEFAULT_LANE_ID = 'main'

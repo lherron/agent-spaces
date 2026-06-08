@@ -1,10 +1,9 @@
-import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { loadSkills } from '@mariozechner/pi-coding-agent'
 import type { ExtensionFactory, Skill } from '@mariozechner/pi-coding-agent'
 import type { PiSdkBundleManifest } from './bundle-manifest-types.js'
 import { buildHookExtension, collectBundleSpaceIds, loadBundleManifest } from './hook-runtime.js'
+import { loadManifestContextFiles, loadManifestExtensionFactories } from './manifest-loading.js'
 
 export type {
   PiSdkBundleHookEntry,
@@ -60,24 +59,11 @@ export async function loadPiSdkBundle(
   }
 
   if (!noExtensions) {
-    for (const extension of manifest.extensions) {
-      const extensionPath = resolve(bundleRoot, extension.path)
-      const module = await import(pathToFileURL(extensionPath).href)
-      const factory = module.default ?? module
-      if (typeof factory !== 'function') {
-        throw new Error(`Extension ${extensionPath} does not export a default function`)
-      }
-      extensionFactories.push(factory)
-    }
+    const loaded = await loadManifestExtensionFactories(manifest, bundleRoot)
+    extensionFactories.push(...(loaded as ExtensionFactory[]))
   }
 
-  const contextFiles = await Promise.all(
-    (manifest.contextFiles ?? []).map(async (entry) => {
-      const filePath = resolve(bundleRoot, entry.path)
-      const content = await readFile(filePath, 'utf-8')
-      return { path: filePath, content, label: entry.label }
-    })
-  )
+  const contextFiles = await loadManifestContextFiles(manifest, bundleRoot)
 
   let skills: Skill[] = []
   if (!noSkills && manifest.skillsDir) {

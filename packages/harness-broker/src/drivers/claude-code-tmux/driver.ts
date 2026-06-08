@@ -17,6 +17,7 @@ import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import { asRecord as asHookRecord } from '../hook-json'
 import {
   type HookListenerHandle,
   buildHookSocketPath,
@@ -429,13 +430,6 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       await handle.close()
     }
   }
-}
-
-function asHookRecord(value: unknown): Record<string, unknown> {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
 }
 
 /** Claude Code hook events the broker overlay subscribes to. */

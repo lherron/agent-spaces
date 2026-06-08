@@ -1,9 +1,6 @@
-import { laneIdFromRef, laneRefFromId, normalizeLaneRef } from './lane-ref.js'
+import { LANE_PREFIX, laneIdFromRef, laneRefFromId, normalizeLaneRef } from './lane-ref.js'
 import { validateScopeRef } from './scope-ref.js'
 import type { SessionRef } from './types.js'
-
-/** Canonical prefix used by the `lane:<laneId>` ref form. */
-const LANE_PREFIX = 'lane:'
 
 /**
  * Normalize a session ref from scope + optional lane inputs.

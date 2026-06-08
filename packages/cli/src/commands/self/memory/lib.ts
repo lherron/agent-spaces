@@ -33,6 +33,23 @@ export type MemoryStoreFactory = (config: { agentName: string; agentsRoot: strin
 const defaultMemoryStoreFactory: MemoryStoreFactory = (config) => new MemoryStore(config)
 
 /**
+ * Require a string option, exiting with the shared usage message on failure.
+ *
+ * Centralizes the `if (!options.X) { stderr ...; process.exit(1) }` guard
+ * repeated across the memory subcommands for `--target`, `--content`, `--match`.
+ */
+export function requireOption(
+  commandName: string,
+  flag: string,
+  value: string | undefined
+): asserts value is string {
+  if (!value) {
+    process.stderr.write(`${commandName}: --${flag} is required\n`)
+    process.exit(1)
+  }
+}
+
+/**
  * Validate a `--target` value, exiting with the shared usage message on failure.
  */
 export function validateTarget(

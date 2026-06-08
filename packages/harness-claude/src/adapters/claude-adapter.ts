@@ -542,11 +542,16 @@ function buildRemoteControlArgs(
   bundle: ComposedTargetBundle,
   options: HarnessRunOptions
 ): string[] {
-  const nameParts = [
-    bundle.targetName,
-    basename(options.projectPath ?? options.cwd ?? process.cwd()),
-    options.taskId,
-  ].filter((part): part is string => part !== undefined && part.length > 0)
+  // Prefer the canonical project id from the handle/scopeRef for the project
+  // segment; fall back to the cwd basename only when no projectId is threaded.
+  // Headless dispatch can resolve a runtime cwd of the agent root (no
+  // projectRoot), which would otherwise mislabel the session as
+  // `<agent>-<agent>-<task>` instead of `<agent>-<project>-<task>`.
+  const projectSegment =
+    options.projectId ?? basename(options.projectPath ?? options.cwd ?? process.cwd())
+  const nameParts = [bundle.targetName, projectSegment, options.taskId].filter(
+    (part): part is string => part !== undefined && part.length > 0
+  )
   const autoName = nameParts.join('-')
   const name = options.sessionNamePrefix ? `${options.sessionNamePrefix}-${autoName}` : autoName
   return ['--remote-control', '--remote-control-session-name-prefix', name, '--name', name]

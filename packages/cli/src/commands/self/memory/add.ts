@@ -9,6 +9,7 @@ import type { MemoryTargetName } from 'spaces-runtime'
 import {
   type StoreFailure,
   mapWriteFailureToExitCode,
+  requireOption,
   validateTarget,
   withMemoryStore,
 } from './lib.js'
@@ -30,16 +31,10 @@ export function registerMemoryAddCommand(parent: Command): void {
     .option('--content <text>', 'Content to add')
     .action(async (options: AddOptions) => {
       await withMemoryStore(COMMAND_NAME, async (store) => {
-        if (!options.target) {
-          process.stderr.write(`${COMMAND_NAME}: --target is required\n`)
-          process.exit(1)
-        }
+        requireOption(COMMAND_NAME, 'target', options.target)
         validateTarget(COMMAND_NAME, options.target)
 
-        if (!options.content) {
-          process.stderr.write(`${COMMAND_NAME}: --content is required\n`)
-          process.exit(1)
-        }
+        requireOption(COMMAND_NAME, 'content', options.content)
 
         const result = await store.add({
           target: options.target as MemoryTargetName,

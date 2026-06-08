@@ -623,7 +623,34 @@ export class PiAdapter implements HarnessAdapter {
     // Keep Pi from loading native context files; Agent Spaces owns prompt context.
     args.push('--no-context-files')
 
-    // Add extensions from the extensions directory
+    this.pushExtensionArgs(args, piBundle)
+    this.pushSkillArgs(args, piBundle)
+    this.pushModelArgs(args, options)
+    this.pushContinuationArgs(args, bundle, options)
+
+    // Add extra args
+    if (options.extraArgs) {
+      args.push(...options.extraArgs)
+    }
+
+    // Add prompt as positional argument (Pi takes prompt after flags)
+    if (options.prompt) {
+      args.push(options.prompt)
+    }
+
+    // Note: Pi uses cwd for project path, not a positional argument
+
+    return args
+  }
+
+  /**
+   * Push extension flags (discovered `.js` extensions + hook/HRC bridges), or
+   * `--no-extensions` when none are present.
+   */
+  private pushExtensionArgs(
+    args: string[],
+    piBundle: NonNullable<ComposedTargetBundle['pi']> & { hrcEventsBridgePath?: string | undefined }
+  ): void {
     const extensionsDir = piBundle.extensionsDir
     let hasExtensions = false
 
@@ -651,13 +678,23 @@ export class PiAdapter implements HarnessAdapter {
     if (!hasExtensions) {
       args.push('--no-extensions')
     }
+  }
 
+  /**
+   * Disable default skill loading and add the bundle's skills directory when present.
+   */
+  private pushSkillArgs(args: string[], piBundle: NonNullable<ComposedTargetBundle['pi']>): void {
     // Disable default skill loading from local/user directories.
     args.push('--no-skills')
     if (piBundle.skillsDir) {
       args.push('--skill', piBundle.skillsDir)
     }
+  }
 
+  /**
+   * Push model/provider flags plus `--print` for non-interactive runs.
+   */
+  private pushModelArgs(args: string[], options: HarnessRunOptions): void {
     // Model translation (sonnet -> claude-sonnet, etc.)
     // Default to gpt-5.5 with openai-codex provider if no model specified
     const model = options.model || DEFAULT_PI_MODEL
@@ -671,7 +708,17 @@ export class PiAdapter implements HarnessAdapter {
     if (options.interactive === false) {
       args.push('--print')
     }
+  }
 
+  /**
+   * Push continuation flags: `--resume` opens Pi's picker; a string key uses a
+   * named session under the resolved session dir.
+   */
+  private pushContinuationArgs(
+    args: string[],
+    bundle: ComposedTargetBundle,
+    options: HarnessRunOptions
+  ): void {
     // Handle continuation: true opens Pi's picker; string uses a named session.
     if (options.continuationKey === true) {
       args.push('--resume')
@@ -679,20 +726,6 @@ export class PiAdapter implements HarnessAdapter {
       const sessionDir = this.resolveSessionDir(bundle, options)
       args.push('--session', options.continuationKey, '--session-dir', sessionDir)
     }
-
-    // Add extra args
-    if (options.extraArgs) {
-      args.push(...options.extraArgs)
-    }
-
-    // Add prompt as positional argument (Pi takes prompt after flags)
-    if (options.prompt) {
-      args.push(options.prompt)
-    }
-
-    // Note: Pi uses cwd for project path, not a positional argument
-
-    return args
   }
 
   /**

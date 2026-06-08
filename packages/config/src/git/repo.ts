@@ -1,5 +1,10 @@
 import { gitExec, gitExecLines, gitExecStdout } from './exec.js'
 
+/** Timeout for a full clone (large repos can take a while). */
+const CLONE_TIMEOUT_MS = 5 * 60_000
+/** Timeout for network operations (fetch/pull/push). */
+const NETWORK_OP_TIMEOUT_MS = 2 * 60_000
+
 /**
  * Repository status information.
  */
@@ -153,7 +158,7 @@ export async function cloneRepo(
 
   args.push(url, destPath)
 
-  await gitExec(args, { timeout: 300000 }) // 5 minute timeout for clone
+  await gitExec(args, { timeout: CLONE_TIMEOUT_MS })
 }
 
 /**
@@ -188,7 +193,7 @@ export async function fetch(
     args.push('--tags')
   }
 
-  await gitExec(args, { cwd: options.cwd, timeout: 120000 }) // 2 minute timeout
+  await gitExec(args, { cwd: options.cwd, timeout: NETWORK_OP_TIMEOUT_MS })
 }
 
 /**
@@ -219,7 +224,7 @@ export async function pull(
     args.push(branch)
   }
 
-  await gitExec(args, { cwd: options.cwd, timeout: 120000 })
+  await gitExec(args, { cwd: options.cwd, timeout: NETWORK_OP_TIMEOUT_MS })
 }
 
 /**
@@ -608,5 +613,5 @@ export async function push(
     args.push(branch)
   }
 
-  await gitExec(args, { cwd: options.cwd, timeout: 120000 })
+  await gitExec(args, { cwd: options.cwd, timeout: NETWORK_OP_TIMEOUT_MS })
 }

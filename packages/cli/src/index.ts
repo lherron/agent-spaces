@@ -13,27 +13,18 @@ import { fileURLToPath } from 'node:url'
 import { CliUsageError, exitWithError } from 'cli-kit'
 import { Command, CommanderError } from 'commander'
 
-import { isAspError } from 'spaces-config'
-
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')) as {
   version: string
 }
 
 import { registerAllCommands } from './command-registry.js'
-import { exitWithAspError } from './helpers.js'
+import { exitWithAspError, formatAspErrorCause } from './helpers.js'
 
 export { findProjectRoot } from './lib.js'
 
 function normalizeMainError(error: unknown): unknown {
-  if (isAspError(error)) {
-    if (error.cause && error.cause instanceof Error) {
-      return new Error(`${error.message}\n  Cause: ${error.cause.message}`)
-    }
-    return error
-  }
-
-  return error
+  return formatAspErrorCause(error)
 }
 
 /**

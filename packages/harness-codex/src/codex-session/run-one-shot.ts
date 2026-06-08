@@ -4,6 +4,7 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 import { toError } from '../errors.js'
 import {
   type AgentMessageDeltaNotification,
+  CLIENT_INFO,
   type CodexThreadItem,
   type CommandExecutionOutputDeltaNotification,
   type ErrorNotification,
@@ -14,16 +15,18 @@ import {
   type ThreadResumeResponse,
   type ThreadStartResponse,
   type TurnStartResponse,
+  formatCodexErrorBody,
+  mapDeltaNotification,
   mapItemCompleted,
   mapItemStarted,
 } from './event-mapping.js'
-import { CodexRpcClient, type JsonRpcNotification, type JsonRpcRequest } from './rpc-client.js'
+import {
+  CodexRpcClient,
+  JSON_RPC_ERROR_PREFIX,
+  type JsonRpcNotification,
+  type JsonRpcRequest,
+} from './rpc-client.js'
 import { type CodexApprovalPolicy, type CodexSandboxMode, toCodexSandboxPolicy } from './types.js'
-
-const CLIENT_INFO = {
-  name: 'agent-spaces',
-  version: process.env['npm_package_version'] ?? 'unknown',
-}
 
 interface TurnCompletedNotification {
   turn: {
@@ -157,34 +160,19 @@ export async function runCodexAppServerOneShot(
         })
         return
       }
-      case 'item/commandExecution/outputDelta': {
-        const params = notification.params as CommandExecutionOutputDeltaNotification
-        await emitEvent({
-          type: 'tool_execution_update',
-          toolUseId: params.itemId,
-          partialOutput: params.delta,
-          payload: params,
-        })
-        return
-      }
-      case 'item/fileChange/outputDelta': {
-        const params = notification.params as FileChangeOutputDeltaNotification
-        await emitEvent({
-          type: 'tool_execution_update',
-          toolUseId: params.itemId,
-          partialOutput: params.delta,
-          payload: params,
-        })
-        return
-      }
+      case 'item/commandExecution/outputDelta':
+      case 'item/fileChange/outputDelta':
       case 'item/mcpToolCall/progress': {
-        const params = notification.params as McpToolCallProgressNotification
-        await emitEvent({
-          type: 'tool_execution_update',
-          toolUseId: params.itemId,
-          message: params.message,
-          payload: params,
-        })
+        const event = mapDeltaNotification(
+          notification.method,
+          notification.params as
+            | CommandExecutionOutputDeltaNotification
+            | FileChangeOutputDeltaNotification
+            | McpToolCallProgressNotification
+        )
+        if (event) {
+          await emitEvent(event)
+        }
         return
       }
       case 'turn/completed': {
@@ -319,7 +307,8 @@ function isNoRolloutFoundResumeError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false
   }
-  return /^JSON-RPC error -32600:/i.test(error.message) && /no rollout found/i.test(error.message)
+  const noRolloutHeader = new RegExp(`^${JSON_RPC_ERROR_PREFIX} -32600:`, 'i')
+  return noRolloutHeader.test(error.message) && /no rollout found/i.test(error.message)
 }
 
 function buildUserInputs(
@@ -348,8 +337,5 @@ function resolveFinalOutput(items: CodexThreadItem[] | undefined): string | unde
 }
 
 function formatCodexError(params: ErrorNotification): string {
-  const message = params.error?.message ?? 'Unknown error'
-  const details = params.error?.additionalDetails ? ` (${params.error.additionalDetails})` : ''
-  const info = params.error?.codexErrorInfo ? ` ${JSON.stringify(params.error.codexErrorInfo)}` : ''
-  return `Codex app-server error: ${message}${details}${info}`
+  return `Codex app-server error: ${formatCodexErrorBody(params)}`
 }

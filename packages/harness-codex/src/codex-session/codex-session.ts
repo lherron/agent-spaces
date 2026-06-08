@@ -15,6 +15,7 @@ import type {
 import { toError } from '../errors.js'
 import {
   type AgentMessageDeltaNotification,
+  CLIENT_INFO,
   type CodexThreadItem,
   type CommandExecutionOutputDeltaNotification,
   type ErrorNotification,
@@ -22,8 +23,12 @@ import {
   type ItemCompletedNotification,
   type ItemStartedNotification,
   type McpToolCallProgressNotification,
+  type ThreadResumeResponse,
+  type ThreadStartResponse,
   type TurnStartResponse,
   type TurnStartedNotification,
+  formatCodexErrorBody,
+  mapDeltaNotification,
   mapItemCompleted,
   mapItemStarted,
 } from './event-mapping.js'
@@ -37,19 +42,6 @@ import { type CodexSessionConfig, type CodexTurnArtifacts, toCodexSandboxPolicy 
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif'])
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
-
-const CLIENT_INFO = {
-  name: 'agent-spaces',
-  version: process.env['npm_package_version'] ?? 'unknown',
-}
-
-interface ThreadStartResponse {
-  thread?: { id?: string | undefined } | undefined
-}
-
-interface ThreadResumeResponse {
-  thread?: { id?: string | undefined } | undefined
-}
 
 interface TurnCompletedNotification {
   turn: { id: string }
@@ -377,34 +369,19 @@ export class CodexSession implements UnifiedSession {
         })
         return
       }
-      case 'item/commandExecution/outputDelta': {
-        const params = notification.params as CommandExecutionOutputDeltaNotification
-        this.emitEvent({
-          type: 'tool_execution_update',
-          toolUseId: params.itemId,
-          partialOutput: params.delta,
-          payload: params,
-        })
-        return
-      }
-      case 'item/fileChange/outputDelta': {
-        const params = notification.params as FileChangeOutputDeltaNotification
-        this.emitEvent({
-          type: 'tool_execution_update',
-          toolUseId: params.itemId,
-          partialOutput: params.delta,
-          payload: params,
-        })
-        return
-      }
+      case 'item/commandExecution/outputDelta':
+      case 'item/fileChange/outputDelta':
       case 'item/mcpToolCall/progress': {
-        const params = notification.params as McpToolCallProgressNotification
-        this.emitEvent({
-          type: 'tool_execution_update',
-          toolUseId: params.itemId,
-          message: params.message,
-          payload: params,
-        })
+        const event = mapDeltaNotification(
+          notification.method,
+          notification.params as
+            | CommandExecutionOutputDeltaNotification
+            | FileChangeOutputDeltaNotification
+            | McpToolCallProgressNotification
+        )
+        if (event) {
+          this.emitEvent(event)
+        }
         return
       }
     }
@@ -505,10 +482,7 @@ function formatCodexError(params: ErrorNotification): string {
     headerParts.push('will retry')
   }
   const header = headerParts.join(' - ')
-  const message = params.error?.message ?? 'Unknown error'
-  const details = params.error?.additionalDetails ? ` (${params.error.additionalDetails})` : ''
-  const info = params.error?.codexErrorInfo ? ` ${JSON.stringify(params.error.codexErrorInfo)}` : ''
-  return `${header}: ${message}${details}${info}`
+  return `${header}: ${formatCodexErrorBody(params)}`
 }
 
 async function buildUserInputs(

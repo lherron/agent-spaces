@@ -24,14 +24,14 @@ function parseSemver(version: string): [number, number, number] | null {
 
 export function isVersionAtLeast(version: string, minVersion: string): boolean {
   const parsed = parseSemver(version)
-  const min = parseSemver(minVersion)
-  if (!parsed || !min) return false
-  for (let i = 0; i < 3; i++) {
-    const p = parsed[i]
-    const m = min[i]
-    if (p === undefined || m === undefined) return false
-    if (p > m) return true
-    if (p < m) return false
+  const minimum = parseSemver(minVersion)
+  if (!parsed || !minimum) return false
+  for (let index = 0; index < 3; index++) {
+    const current = parsed[index]
+    const min = minimum[index]
+    if (current === undefined || min === undefined) return false
+    if (current > min) return true
+    if (current < min) return false
   }
   return true
 }

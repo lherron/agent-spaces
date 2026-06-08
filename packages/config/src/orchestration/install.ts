@@ -181,13 +181,17 @@ export async function ensureRegistry(options: InstallOptions): Promise<string> {
 }
 
 /**
- * Populate store with space snapshots from lock.
+ * Populate store with the registry-backed snapshots referenced by a lock.
+ *
+ * Shared core behind both {@link populateStore} (install path) and the
+ * materialize-from-refs path; returns the number of snapshots created.
  */
-export async function populateStore(lock: LockFile, options: InstallOptions): Promise<number> {
-  const aspHome = options.aspHome ?? getAspHome()
+export async function populateSnapshotsFromLock(
+  lock: LockFile,
+  registryPath: string,
+  aspHome: string
+): Promise<number> {
   const paths = new PathResolver({ aspHome })
-  const registryPath = getRegistryPath(options)
-
   const snapshotOptions: SnapshotOptions = {
     paths,
     cwd: registryPath,
@@ -195,7 +199,7 @@ export async function populateStore(lock: LockFile, options: InstallOptions): Pr
 
   let created = 0
 
-  for (const [_key, entry] of Object.entries(lock.spaces)) {
+  for (const entry of Object.values(lock.spaces)) {
     // Skip filesystem-backed entries (@dev / project / agent) — no snapshot needed
     if (classifySpaceEntry(entry) !== 'registry') {
       continue
@@ -213,6 +217,15 @@ export async function populateStore(lock: LockFile, options: InstallOptions): Pr
   }
 
   return created
+}
+
+/**
+ * Populate store with space snapshots from lock.
+ */
+export async function populateStore(lock: LockFile, options: InstallOptions): Promise<number> {
+  const aspHome = options.aspHome ?? getAspHome()
+  const registryPath = getRegistryPath(options)
+  return populateSnapshotsFromLock(lock, registryPath, aspHome)
 }
 
 /**

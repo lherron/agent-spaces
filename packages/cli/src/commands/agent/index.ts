@@ -14,6 +14,7 @@ import { type AgentEvent, createAgentSpacesClient } from 'agent-spaces'
 import type { Command } from 'commander'
 import {
   type RuntimePlacement,
+  TARGETS_FILENAME,
   type TargetDefinition,
   buildRuntimeBundleRef,
   mergeAgentWithProjectTarget,
@@ -55,7 +56,7 @@ function loadProjectTarget(
     return undefined
   }
 
-  const targetsPath = join(projectRoot, 'asp-targets.toml')
+  const targetsPath = join(projectRoot, TARGETS_FILENAME)
   if (!existsSync(targetsPath)) {
     return undefined
   }

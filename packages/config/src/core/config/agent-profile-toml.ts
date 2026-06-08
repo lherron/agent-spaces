@@ -67,6 +67,39 @@ function parseStringArray(value: unknown, source: string, path: string): string[
   return [...value]
 }
 
+function parseOptionalString(
+  value: Record<string, unknown>,
+  key: string,
+  source: string,
+  path: string
+): string | undefined {
+  if (value[key] === undefined) {
+    return undefined
+  }
+  if (typeof value[key] !== 'string') {
+    fail(source, `${path}/${key}`, 'must be a string', 'type')
+  }
+  return value[key]
+}
+
+function parseOptionalEnum(
+  value: Record<string, unknown>,
+  key: string,
+  allowed: ReadonlySet<string>,
+  label: string,
+  source: string,
+  path: string
+): string | undefined {
+  const parsed = parseOptionalString(value, key, source, path)
+  if (parsed === undefined) {
+    return undefined
+  }
+  if (!allowed.has(parsed)) {
+    fail(source, `${path}/${key}`, `unsupported ${label} "${parsed}"`, 'enum')
+  }
+  return parsed
+}
+
 function parseSpaceRefArray(
   value: unknown,
   source: string,
@@ -297,28 +330,21 @@ function parseBrain(value: unknown, source: string, path: string): AgentProfileB
     brain.injection = value['injection']
   }
 
-  if (value['search_mode'] !== undefined) {
-    if (typeof value['search_mode'] !== 'string') {
-      fail(source, `${path}/search_mode`, 'must be a string', 'type')
-    }
-    if (
-      !BRAIN_SEARCH_MODES.has(value['search_mode'] as NonNullable<AgentProfileBrain['search_mode']>)
-    ) {
-      fail(
-        source,
-        `${path}/search_mode`,
-        `unsupported search mode "${value['search_mode']}"`,
-        'enum'
-      )
-    }
-    brain.search_mode = value['search_mode'] as AgentProfileBrain['search_mode']
+  const searchMode = parseOptionalEnum(
+    value,
+    'search_mode',
+    BRAIN_SEARCH_MODES as ReadonlySet<string>,
+    'search mode',
+    source,
+    path
+  )
+  if (searchMode !== undefined) {
+    brain.search_mode = searchMode as AgentProfileBrain['search_mode']
   }
 
-  if (value['resolver'] !== undefined) {
-    if (typeof value['resolver'] !== 'string') {
-      fail(source, `${path}/resolver`, 'must be a string', 'type')
-    }
-    brain.resolver = value['resolver']
+  const resolver = parseOptionalString(value, 'resolver', source, path)
+  if (resolver !== undefined) {
+    brain.resolver = resolver
   }
 
   return brain
@@ -339,17 +365,13 @@ function parseClaudeOptions(
   assertOnlyKeys(value, ['model', 'permission_mode', 'args'], source, path)
 
   const options: ClaudeOptions = {}
-  if (value['model'] !== undefined) {
-    if (typeof value['model'] !== 'string') {
-      fail(source, `${path}/model`, 'must be a string', 'type')
-    }
-    options.model = value['model']
+  const model = parseOptionalString(value, 'model', source, path)
+  if (model !== undefined) {
+    options.model = model
   }
-  if (value['permission_mode'] !== undefined) {
-    if (typeof value['permission_mode'] !== 'string') {
-      fail(source, `${path}/permission_mode`, 'must be a string', 'type')
-    }
-    options.permission_mode = value['permission_mode']
+  const permissionMode = parseOptionalString(value, 'permission_mode', source, path)
+  if (permissionMode !== undefined) {
+    options.permission_mode = permissionMode
   }
   if (value['args'] !== undefined) {
     const args = parseStringArray(value['args'], source, `${path}/args`)
@@ -383,17 +405,13 @@ function parseCodexOptions(value: unknown, source: string, path: string): CodexO
   )
 
   const options: CodexOptions = {}
-  if (value['model'] !== undefined) {
-    if (typeof value['model'] !== 'string') {
-      fail(source, `${path}/model`, 'must be a string', 'type')
-    }
-    options.model = value['model']
+  const model = parseOptionalString(value, 'model', source, path)
+  if (model !== undefined) {
+    options.model = model
   }
-  if (value['model_reasoning_effort'] !== undefined) {
-    if (typeof value['model_reasoning_effort'] !== 'string') {
-      fail(source, `${path}/model_reasoning_effort`, 'must be a string', 'type')
-    }
-    options.model_reasoning_effort = value['model_reasoning_effort']
+  const reasoningEffort = parseOptionalString(value, 'model_reasoning_effort', source, path)
+  if (reasoningEffort !== undefined) {
+    options.model_reasoning_effort = reasoningEffort
   }
   if (value['status_line'] !== undefined) {
     const statusLine = parseStringArray(value['status_line'], source, `${path}/status_line`)
@@ -401,39 +419,31 @@ function parseCodexOptions(value: unknown, source: string, path: string): CodexO
       options.status_line = statusLine
     }
   }
-  if (value['approval_policy'] !== undefined) {
-    if (typeof value['approval_policy'] !== 'string') {
-      fail(source, `${path}/approval_policy`, 'must be a string', 'type')
-    }
-    if (!CODEX_APPROVAL_POLICIES.has(value['approval_policy'])) {
-      fail(
-        source,
-        `${path}/approval_policy`,
-        `unsupported approval policy "${value['approval_policy']}"`,
-        'enum'
-      )
-    }
-    options.approval_policy = value['approval_policy'] as CodexOptions['approval_policy']
+  const approvalPolicy = parseOptionalEnum(
+    value,
+    'approval_policy',
+    CODEX_APPROVAL_POLICIES,
+    'approval policy',
+    source,
+    path
+  )
+  if (approvalPolicy !== undefined) {
+    options.approval_policy = approvalPolicy as CodexOptions['approval_policy']
   }
-  if (value['sandbox_mode'] !== undefined) {
-    if (typeof value['sandbox_mode'] !== 'string') {
-      fail(source, `${path}/sandbox_mode`, 'must be a string', 'type')
-    }
-    if (!CODEX_SANDBOX_MODES.has(value['sandbox_mode'])) {
-      fail(
-        source,
-        `${path}/sandbox_mode`,
-        `unsupported sandbox mode "${value['sandbox_mode']}"`,
-        'enum'
-      )
-    }
-    options.sandbox_mode = value['sandbox_mode'] as CodexOptions['sandbox_mode']
+  const sandboxMode = parseOptionalEnum(
+    value,
+    'sandbox_mode',
+    CODEX_SANDBOX_MODES,
+    'sandbox mode',
+    source,
+    path
+  )
+  if (sandboxMode !== undefined) {
+    options.sandbox_mode = sandboxMode as CodexOptions['sandbox_mode']
   }
-  if (value['profile'] !== undefined) {
-    if (typeof value['profile'] !== 'string') {
-      fail(source, `${path}/profile`, 'must be a string', 'type')
-    }
-    options.profile = value['profile']
+  const profile = parseOptionalString(value, 'profile', source, path)
+  if (profile !== undefined) {
+    options.profile = profile
   }
   return options
 }

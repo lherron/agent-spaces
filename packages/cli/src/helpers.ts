@@ -80,6 +80,37 @@ export function errorMessage(error: unknown): string {
 }
 
 /**
+ * Format a byte count as a human-readable string (e.g. "1.5 MB").
+ *
+ * Shared by the project-level (`asp gc`) and registry-level (`asp repo gc`)
+ * garbage-collection commands, which previously carried byte-for-byte copies.
+ */
+export function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let unitIndex = 0
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex++
+  }
+
+  return `${value.toFixed(1)} ${units[unitIndex]}`
+}
+
+/**
+ * Print the standard "no project found" error block (chalk variant).
+ *
+ * Shared by the chalk-based commands (`asp explain`, `asp add`) that do their
+ * own `findProjectRoot` lookup instead of routing through `getProjectContext`
+ * / `ProjectNotFoundError`. The message text matches that error contract.
+ */
+export function printNoProjectError(): void {
+  console.error(chalk.red('Error: No asp-targets.toml found in current directory or parents'))
+  console.error(chalk.gray('Run this command from a project directory or use --project'))
+}
+
+/**
  * Error thrown when no project root can be found.
  */
 export class ProjectNotFoundError extends Error {
@@ -89,6 +120,21 @@ export class ProjectNotFoundError extends Error {
   }
 }
 
+/**
+ * Wrap an `AspError` that carries an `Error` cause into a flattened
+ * `Error` whose message appends the cause. Non-asp errors (and asp errors
+ * without an `Error` cause) are returned unchanged.
+ *
+ * Shared by the `helpers`/`index` error-normalization paths, which both
+ * applied this identical formatting branch.
+ */
+export function formatAspErrorCause(error: unknown): unknown {
+  if (isAspError(error) && error.cause instanceof Error) {
+    return new Error(`${error.message}\n  Cause: ${error.cause.message}`)
+  }
+  return error
+}
+
 function normalizeCliError(error: unknown): unknown {
   if (error instanceof ProjectNotFoundError) {
     return new CliUsageError(
@@ -96,11 +142,7 @@ function normalizeCliError(error: unknown): unknown {
     )
   }
 
-  if (isAspError(error) && error.cause instanceof Error) {
-    return new Error(`${error.message}\n  Cause: ${error.cause.message}`)
-  }
-
-  return error
+  return formatAspErrorCause(error)
 }
 
 /**

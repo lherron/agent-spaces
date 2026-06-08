@@ -232,6 +232,7 @@ export async function preparePlacementCliRuntime(
     ...(runtimePlan.yolo !== undefined ? { yolo: runtimePlan.yolo } : {}),
     ...(req.disallowedTools ? { disallowedTools: req.disallowedTools } : {}),
     ...(handleParts.taskId !== undefined ? { taskId: handleParts.taskId } : {}),
+    ...(handleParts.projectId !== undefined ? { projectId: handleParts.projectId } : {}),
     ...(imageAttachmentPaths.length > 0 ? { imageAttachments: imageAttachmentPaths } : {}),
     ...(systemPrompt
       ? {

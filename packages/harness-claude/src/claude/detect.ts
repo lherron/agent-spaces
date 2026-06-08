@@ -45,11 +45,10 @@ function getHomeDir(): string {
 const COMMON_CLAUDE_PATHS = [
   // Homebrew on macOS (Apple Silicon)
   '/opt/homebrew/bin/claude',
-  // Homebrew on macOS (Intel)
+  // Homebrew on macOS (Intel) / Linux standard /usr/local
   '/usr/local/bin/claude',
   // Linux standard locations
   '/usr/bin/claude',
-  '/usr/local/bin/claude',
   // User-local installations
   join(getHomeDir(), '.local/bin/claude'),
   join(getHomeDir(), 'bin/claude'),
@@ -134,6 +133,22 @@ export async function findClaudeBinary(): Promise<string> {
 }
 
 /**
+ * Sentinel returned when the Claude version cannot be determined.
+ */
+const UNKNOWN_VERSION = 'unknown'
+
+/**
+ * Parse a semver version string from `claude --version` output.
+ *
+ * Common formats: "claude 1.0.0", "Claude Code 1.0.0", etc. Falls back to the
+ * trimmed raw output, then to {@link UNKNOWN_VERSION}.
+ */
+function parseClaudeVersion(stdout: string): string {
+  const match = stdout.match(/(\d+\.\d+\.\d+)/)
+  return match?.[1] ?? (stdout.trim() || UNKNOWN_VERSION)
+}
+
+/**
  * Query Claude version by running `claude --version`.
  *
  * @param claudePath - Path to the claude binary
@@ -150,15 +165,12 @@ async function queryVersion(claudePath: string): Promise<string> {
     const stdout = await new Response(proc.stdout).text()
 
     if (exitCode !== 0) {
-      return 'unknown'
+      return UNKNOWN_VERSION
     }
 
-    // Parse version from output (format may vary)
-    // Common formats: "claude 1.0.0", "Claude Code 1.0.0", etc.
-    const match = stdout.match(/(\d+\.\d+\.\d+)/)
-    return match?.[1] ?? (stdout.trim() || 'unknown')
+    return parseClaudeVersion(stdout)
   } catch {
-    return 'unknown'
+    return UNKNOWN_VERSION
   }
 }
 

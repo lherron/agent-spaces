@@ -46,6 +46,21 @@ import { resolveSpaceComposition } from './space-composition.js'
 /** Hex length of the truncated bundle-identity audit hash. */
 const BUNDLE_IDENTITY_HASH_LEN = 16
 
+/** Filename of the agent's persona/soul instruction file (required in agent root). */
+const SOUL_FILENAME = 'SOUL.md'
+/** Filename of the optional heartbeat-mode instruction file. */
+const HEARTBEAT_FILENAME = 'HEARTBEAT.md'
+/** Filename of the agent runtime profile. */
+const AGENT_PROFILE_FILENAME = 'agent-profile.toml'
+/** Filename of the per-project targets manifest. */
+const ASP_TARGETS_FILENAME = 'asp-targets.toml'
+/** Directory under a root that holds filesystem-based spaces. */
+const SPACES_DIRNAME = 'spaces'
+/** Ref prefix for files resolved relative to the agent root. */
+const AGENT_ROOT_REF_PREFIX = 'agent-root:///'
+/** Ref prefix for files resolved relative to the project root. */
+const PROJECT_ROOT_REF_PREFIX = 'project-root:///'
+
 /**
  * Resolve a RuntimePlacement into a ResolvedRuntimeBundle plus
  * materialization context for downstream runtime planning.
@@ -221,22 +236,31 @@ function deriveSpaceKey(ref: string): string {
  * For filesystem-based spaces (agent/project), use a marker.
  * For registry spaces, use a placeholder (full integrity computed during install).
  */
+function integrityForFilesystemSpace(
+  ref: string,
+  root: string,
+  idPrefix: RegExp,
+  marker: string
+): string {
+  const id = ref.replace(idPrefix, '').replace(/@.*$/, '')
+  const spacePath = join(root, SPACES_DIRNAME, id)
+  if (existsSync(spacePath)) {
+    return computeDirectoryHash(spacePath)
+  }
+  return marker
+}
+
 function computeSpaceIntegrity(ref: string, placement: RuntimePlacement): string {
   if (ref.includes('agent:')) {
-    const id = ref.replace(/^space:agent:/, '').replace(/@.*$/, '')
-    const spacePath = join(placement.agentRoot, 'spaces', id)
-    if (existsSync(spacePath)) {
-      return computeDirectoryHash(spacePath)
-    }
-    return 'sha256:agent'
+    return integrityForFilesystemSpace(ref, placement.agentRoot, /^space:agent:/, 'sha256:agent')
   }
   if (ref.includes('project:') && placement.projectRoot) {
-    const id = ref.replace(/^space:project:/, '').replace(/@.*$/, '')
-    const spacePath = join(placement.projectRoot, 'spaces', id)
-    if (existsSync(spacePath)) {
-      return computeDirectoryHash(spacePath)
-    }
-    return 'sha256:project'
+    return integrityForFilesystemSpace(
+      ref,
+      placement.projectRoot,
+      /^space:project:/,
+      'sha256:project'
+    )
   }
   return 'sha256:pending'
 }
@@ -295,19 +319,19 @@ interface PlacementInstructionSlot {
 }
 
 function resolvePlacementInstructions(placement: RuntimePlacement): ResolvedInstruction[] {
-  const soulPath = join(placement.agentRoot, 'SOUL.md')
+  const soulPath = join(placement.agentRoot, SOUL_FILENAME)
   if (!existsSync(soulPath)) {
     if (placement.dryRun) {
       return []
     }
-    throw new Error(`SOUL.md is required in agent root: ${placement.agentRoot}`)
+    throw new Error(`${SOUL_FILENAME} is required in agent root: ${placement.agentRoot}`)
   }
 
   const slots: PlacementInstructionSlot[] = [
     {
       slot: 'soul',
       content: readFileSync(soulPath, 'utf8'),
-      ref: 'agent-root:///SOUL.md',
+      ref: `${AGENT_ROOT_REF_PREFIX}${SOUL_FILENAME}`,
     },
   ]
   const instructions = loadAgentProfile(placement.agentRoot).instructions
@@ -320,13 +344,13 @@ function resolvePlacementInstructions(placement: RuntimePlacement): ResolvedInst
   }
 
   if (placement.runMode === 'heartbeat') {
-    const heartbeatPath = join(placement.agentRoot, 'HEARTBEAT.md')
+    const heartbeatPath = join(placement.agentRoot, HEARTBEAT_FILENAME)
     const heartbeatContent = readFileIfExists(heartbeatPath)
     if (heartbeatContent !== undefined) {
       slots.push({
         slot: 'heartbeat',
         content: heartbeatContent,
-        ref: 'agent-root:///HEARTBEAT.md',
+        ref: `${AGENT_ROOT_REF_PREFIX}${HEARTBEAT_FILENAME}`,
       })
     }
   }
@@ -374,7 +398,7 @@ function resolveScaffoldPacket(
 function resolveInstructionRef(ref: string, placement: RuntimePlacement): string | undefined {
   try {
     const filePath =
-      ref.startsWith('agent-root:///') || ref.startsWith('project-root:///')
+      ref.startsWith(AGENT_ROOT_REF_PREFIX) || ref.startsWith(PROJECT_ROOT_REF_PREFIX)
         ? resolveRootRelativeRef(ref, {
             agentRoot: placement.agentRoot,
             projectRoot: placement.projectRoot,
@@ -388,7 +412,7 @@ function resolveInstructionRef(ref: string, placement: RuntimePlacement): string
 }
 
 function loadAgentProfile(agentRoot: string): AgentRuntimeProfile {
-  const profilePath = join(agentRoot, 'agent-profile.toml')
+  const profilePath = join(agentRoot, AGENT_PROFILE_FILENAME)
   const content = readFileIfExists(profilePath)
   if (content === undefined) {
     return { schemaVersion: 1 }
@@ -404,7 +428,7 @@ function loadProjectTargetOptional(
     return undefined
   }
 
-  const targetsPath = join(projectRoot, 'asp-targets.toml')
+  const targetsPath = join(projectRoot, ASP_TARGETS_FILENAME)
   const content = readFileIfExists(targetsPath)
   if (content === undefined) {
     return undefined

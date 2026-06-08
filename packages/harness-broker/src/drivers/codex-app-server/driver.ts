@@ -436,17 +436,14 @@ export function createCodexAppServerDriver(): Driver {
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
-      if (req.scope === 'turn') {
-        return {
-          accepted: false,
-          effect: 'unsupported',
-          reason: 'Codex app-server v0 does not support turn interrupt',
-        }
-      }
+      const reason =
+        req.scope === 'turn'
+          ? 'Codex app-server v0 does not support turn interrupt'
+          : 'Codex app-server v0 interrupt unsupported'
       return {
         accepted: false,
         effect: 'unsupported',
-        reason: 'Codex app-server v0 interrupt unsupported',
+        reason,
       }
     },
 

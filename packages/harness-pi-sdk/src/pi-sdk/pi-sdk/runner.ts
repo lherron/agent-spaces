@@ -2,8 +2,7 @@
  * Pi SDK runner for Agent Spaces
  */
 
-import { constants, access, readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   type ExtensionApi,
@@ -11,6 +10,11 @@ import {
   collectBundleSpaceIds,
   loadBundleManifest,
 } from '../../pi-session/hook-runtime.js'
+import {
+  loadManifestContextFiles,
+  loadManifestExtensionFactories,
+} from '../../pi-session/manifest-loading.js'
+import { resolveSdkEntry } from '../../pi-session/sdk-entry.js'
 
 interface RunnerArgs {
   bundle: string
@@ -27,11 +31,6 @@ interface RunnerArgs {
 }
 
 type ExtensionFactory = (pi: ExtensionApi) => void | Promise<void>
-
-const SDK_ENTRY_CANDIDATES = [
-  'packages/coding-agent/dist/index.js',
-  'packages/coding-agent/src/index.ts',
-]
 
 function parseArgs(argv: string[]): RunnerArgs {
   const args: RunnerArgs = {
@@ -108,20 +107,6 @@ function parseArgs(argv: string[]): RunnerArgs {
   }
 
   return args
-}
-
-async function resolveSdkEntry(sdkRoot: string): Promise<string | null> {
-  for (const candidate of SDK_ENTRY_CANDIDATES) {
-    const entryPath = join(sdkRoot, candidate)
-    try {
-      await access(entryPath, constants.F_OK)
-      return entryPath
-    } catch {
-      // Candidate does not exist; try the next one.
-    }
-  }
-
-  return null
 }
 
 async function loadSdkModule(sdkRoot?: string | undefined) {
@@ -224,24 +209,11 @@ async function main(): Promise<void> {
   }
 
   if (!args.noExtensions) {
-    for (const extension of manifest.extensions) {
-      const extensionPath = resolve(bundleRoot, extension.path)
-      const module = await import(pathToFileURL(extensionPath).href)
-      const factory = module.default ?? module
-      if (typeof factory !== 'function') {
-        throw new Error(`Extension ${extensionPath} does not export a default function`)
-      }
-      extensionFactories.push(factory)
-    }
+    const loaded = await loadManifestExtensionFactories(manifest, bundleRoot)
+    extensionFactories.push(...(loaded as ExtensionFactory[]))
   }
 
-  const contextFiles = await Promise.all(
-    (manifest.contextFiles ?? []).map(async (entry) => {
-      const filePath = resolve(bundleRoot, entry.path)
-      const content = await readFile(filePath, 'utf-8')
-      return { path: filePath, content }
-    })
-  )
+  const contextFiles = await loadManifestContextFiles(manifest, bundleRoot)
 
   let skills: unknown[] = []
   if (!args.noSkills && manifest.skillsDir) {

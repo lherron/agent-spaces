@@ -227,35 +227,27 @@ async function explainReminder(
     templateCtx.discovered.templateSource?.path ?? null
   )
 
-  findings.push({
-    level: 'info',
-    message: formatTemplateWinnerMessage(templateSource),
+  const info = (message: string): void => {
+    findings.push({ level: 'info', message })
+  }
+  const payload = (sections?: ExplainSectionReport[]): ExplainPayload => ({
+    topic: 'reminder',
+    templateSource,
+    runModeAssumed: templateCtx.runMode,
+    findings,
+    ...(sections ? { sections } : {}),
   })
 
+  info(formatTemplateWinnerMessage(templateSource))
+
   if (!templateCtx.template) {
-    findings.push({
-      level: 'info',
-      message: 'No context template was discovered, so reminder recompute is unavailable.',
-    })
-    return {
-      topic: 'reminder',
-      templateSource,
-      runModeAssumed: templateCtx.runMode,
-      findings,
-    }
+    info('No context template was discovered, so reminder recompute is unavailable.')
+    return payload()
   }
 
   if (templateCtx.template.reminderSections.length === 0) {
-    findings.push({
-      level: 'info',
-      message: 'The active context template defines no reminder sections.',
-    })
-    return {
-      topic: 'reminder',
-      templateSource,
-      runModeAssumed: templateCtx.runMode,
-      findings,
-    }
+    info('The active context template defines no reminder sections.')
+    return payload()
   }
 
   const resolved = await resolveContextTemplateDetailed(
@@ -345,13 +337,7 @@ async function explainReminder(
     wrapped: section.wrapped ?? false,
   }))
 
-  return {
-    topic: 'reminder',
-    templateSource,
-    runModeAssumed: templateCtx.runMode,
-    findings,
-    sections,
-  }
+  return payload(sections)
 }
 
 async function explainLaunch(ctx: ReturnType<typeof resolveSelfContext>): Promise<ExplainPayload> {

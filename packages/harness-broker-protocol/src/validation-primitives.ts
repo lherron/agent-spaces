@@ -45,22 +45,37 @@ export function requirePayloadRecord(
   return payload
 }
 
+/**
+ * Guard that `value` is an array, pushing a `required` (when `undefined`) or
+ * `invalid_type` issue otherwise. Returns the array on success, or `undefined`
+ * so callers can early-return. The "required vs invalid_type" distinction and
+ * `must be an array` message wording match the per-validator copies this
+ * deduplicates; the message is parameterized because one caller wants a fixed
+ * literal rather than the `basePath`-derived form.
+ */
+export function requireArray(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[],
+  message = `${basePath} must be an array`
+): unknown[] | undefined {
+  if (!Array.isArray(value)) {
+    issues.push(makeIssue(basePath, value === undefined ? 'required' : 'invalid_type', message))
+    return undefined
+  }
+  return value
+}
+
 export function requireStringArray(
   value: unknown,
   basePath: string,
   issues: ValidationIssue[]
 ): void {
-  if (!Array.isArray(value)) {
-    issues.push(
-      makeIssue(
-        basePath,
-        value === undefined ? 'required' : 'invalid_type',
-        `${basePath} must be an array`
-      )
-    )
+  const items = requireArray(value, basePath, issues)
+  if (!items) {
     return
   }
-  value.forEach((item, index) => {
+  items.forEach((item, index) => {
     if (typeof item !== 'string') {
       issues.push(
         makeIssue(joinPath(basePath, String(index)), 'invalid_type', 'array item must be a string')
@@ -95,11 +110,11 @@ export function optionalStringArray(
   if (value === undefined) {
     return
   }
-  if (!Array.isArray(value)) {
-    issues.push(makeIssue(basePath, 'invalid_type', `${basePath} must be an array`))
+  const items = requireArray(value, basePath, issues)
+  if (!items) {
     return
   }
-  value.forEach((item, index) => {
+  items.forEach((item, index) => {
     if (typeof item !== 'string') {
       issues.push(
         makeIssue(joinPath(basePath, String(index)), 'invalid_type', 'array item must be a string')

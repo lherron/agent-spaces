@@ -15,6 +15,14 @@ import chalk from 'chalk'
 import { type HarnessId, harnessRegistry, isHarnessId } from 'spaces-execution'
 
 /**
+ * Default harness id used when `--harness` is omitted.
+ *
+ * Centralizes the literal previously hard-coded in `validateHarness`,
+ * `install.ts`, and the `harnesses` command's `defaultHarness` field.
+ */
+export const DEFAULT_HARNESS_ID = 'claude'
+
+/**
  * Print the standard "unknown harness" error block and exit.
  */
 function exitWithUnknownHarness(harnessId: string): never {
@@ -33,7 +41,7 @@ function exitWithUnknownHarness(harnessId: string): never {
  * Exits with the standard error block if the harness id is unknown.
  */
 export function validateHarness(harness: string | undefined): HarnessId {
-  const harnessId = harness ?? 'claude'
+  const harnessId = harness ?? DEFAULT_HARNESS_ID
 
   if (!isHarnessId(harnessId)) {
     exitWithUnknownHarness(harnessId)

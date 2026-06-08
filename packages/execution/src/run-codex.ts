@@ -1,17 +1,15 @@
 import { createHash } from 'node:crypto'
 import {
   copyFile,
-  cp,
   lstat,
   mkdir,
   readFile,
   readlink,
-  rename,
   rm,
   symlink,
   writeFile,
 } from 'node:fs/promises'
-import { dirname, join, relative, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 
 import {
   type ComposedTargetBundle,
@@ -29,7 +27,7 @@ import {
   trustCodexHooksInConfigToml,
 } from 'spaces-harness-codex'
 
-import { pathExists } from './run/util.js'
+import { moveDirWithCopyFallback, pathExists } from './run/util.js'
 
 function isWithinPath(path: string, parent: string): boolean {
   const rel = relative(resolve(parent), resolve(path))
@@ -139,15 +137,7 @@ export async function migrateLegacyProjectCodexRuntimeHome(
     return runtimeHome
   }
 
-  await mkdir(dirname(runtimeHome), { recursive: true })
-  try {
-    await rm(runtimeHome, { recursive: true, force: true })
-    await rename(legacyRuntimeHome, runtimeHome)
-  } catch {
-    await rm(runtimeHome, { recursive: true, force: true })
-    await cp(legacyRuntimeHome, runtimeHome, { recursive: true, force: true })
-    await rm(legacyRuntimeHome, { recursive: true, force: true })
-  }
+  await moveDirWithCopyFallback(legacyRuntimeHome, runtimeHome, { clearDestFirst: true })
 
   return runtimeHome
 }

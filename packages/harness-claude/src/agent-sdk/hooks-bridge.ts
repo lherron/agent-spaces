@@ -1,5 +1,6 @@
 import type { PermissionHandler } from 'spaces-runtime'
 import {
+  SDK_TOOL_ID_PREFIX,
   extractStructuredContent,
   extractToolInput,
   extractToolName,
@@ -25,6 +26,12 @@ export interface HookEventBusAdapter {
   requestPermission(ownerId: string, hook: Record<string, unknown>): Promise<HookPermissionResponse>
   isToolAutoAllowed(ownerId: string, toolName: string): boolean
 }
+
+/**
+ * Default message used when a tool permission is denied without an explicit
+ * reason.
+ */
+const PERMISSION_DENIED_MESSAGE = 'Permission denied'
 
 /**
  * SDK tool use result for canUseTool callback.
@@ -133,7 +140,7 @@ export class HooksBridge {
 
     return {
       behavior: 'deny',
-      message: response.reason ?? 'Permission denied',
+      message: response.reason ?? PERMISSION_DENIED_MESSAGE,
     }
   }
 
@@ -160,16 +167,10 @@ export class HooksBridge {
         updatedInput: (response.updatedInput as Record<string, unknown>) ?? toolInput,
       }
     }
-    if (response.interrupt === undefined) {
-      return {
-        behavior: 'deny',
-        message: response.message ?? 'Permission denied',
-      }
-    }
     return {
       behavior: 'deny',
-      message: response.message ?? 'Permission denied',
-      interrupt: response.interrupt,
+      message: response.message ?? PERMISSION_DENIED_MESSAGE,
+      ...(response.interrupt !== undefined ? { interrupt: response.interrupt } : {}),
     }
   }
 
@@ -277,7 +278,7 @@ export class HooksBridge {
    * Generate a unique tool use ID for correlation.
    */
   private generateToolUseId(): string {
-    return `sdk-tool-${++this.currentToolUseId}`
+    return `${SDK_TOOL_ID_PREFIX}${++this.currentToolUseId}`
   }
 
   registerToolUse(toolUseId: string, toolName: string, toolInput: unknown): void {

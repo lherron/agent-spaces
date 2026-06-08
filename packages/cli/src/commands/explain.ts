@@ -12,6 +12,7 @@ import type { Command } from 'commander'
 import { explain, formatExplainJson, formatExplainText } from 'spaces-config'
 
 import { validateHarness } from '../harness-validator.js'
+import { errorMessage, printNoProjectError } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 
 /**
@@ -38,8 +39,7 @@ export function registerExplainCommand(program: Command): void {
       // Find project root
       const projectPath = options.project ?? (await findProjectRoot())
       if (!projectPath) {
-        console.error(chalk.red('Error: No asp-targets.toml found in current directory or parents'))
-        console.error(chalk.gray('Run this command from a project directory or use --project'))
+        printNoProjectError()
         process.exit(1)
       }
 
@@ -59,11 +59,7 @@ export function registerExplainCommand(program: Command): void {
           console.log(formatExplainText(result))
         }
       } catch (error) {
-        if (error instanceof Error) {
-          console.error(chalk.red(`Error: ${error.message}`))
-        } else {
-          console.error(chalk.red(`Error: ${String(error)}`))
-        }
+        console.error(chalk.red(`Error: ${errorMessage(error)}`))
         process.exit(1)
       }
     })

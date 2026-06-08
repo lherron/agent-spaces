@@ -421,6 +421,11 @@ function heldFromPiMessage(
   return { message, ...(messageId !== undefined ? { messageId } : {}) }
 }
 
+/** Narrow an unknown field to a string, or undefined when it is not one. */
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
 function messageEndEvent(held: HeldAssistantMessage, final: boolean): UnifiedSessionEvent {
   return {
     type: 'message_end',
@@ -458,7 +463,7 @@ function handleAgentEnd(
   sessionId: string,
   state: PiEventMappingState
 ): UnifiedSessionEvent[] {
-  const reason = typeof piEvent.reason === 'string' ? piEvent.reason : undefined
+  const reason = asString(piEvent.reason)
   // Operator terminal: finalize the last held assistant message as
   // final:true (falling back to the latest assistant message in the
   // agent_end payload when nothing is held).
@@ -481,7 +486,7 @@ function handleTurnEnd(
   piEvent: PiAgentSessionEvent,
   state: PiEventMappingState
 ): UnifiedSessionEvent[] {
-  const turnId = typeof piEvent.turnId === 'string' ? piEvent.turnId : undefined
+  const turnId = asString(piEvent.turnId)
   const rawToolResults = Array.isArray(piEvent.toolResults) ? piEvent.toolResults : []
   const toolResults = rawToolResults.map((tr: unknown) => {
     const result = tr as { toolUseId?: string; result?: unknown }
@@ -499,10 +504,7 @@ function handleTurnEnd(
     ? []
     : flushTerminal(
         state,
-        heldFromPiMessage(
-          piEvent.message as PiMessage | undefined,
-          typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
-        )
+        heldFromPiMessage(piEvent.message as PiMessage | undefined, asString(piEvent.messageId))
       )
   return [
     ...flush,
@@ -519,7 +521,7 @@ function handleMessageEnd(
   state: PiEventMappingState
 ): UnifiedSessionEvent[] {
   const piMessage = piEvent.message as PiMessage | undefined
-  const messageId = typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
+  const messageId = asString(piEvent.messageId)
   const newHeld = heldFromPiMessage(piMessage, messageId)
   if (newHeld) {
     // Held-latest: the SDK reports this assistant message as complete, but
@@ -562,7 +564,7 @@ export function mapPiEventToUnified(
     case PI_EVENT.AGENT_END:
       return handleAgentEnd(piEvent, sessionId, state)
     case PI_EVENT.TURN_START: {
-      const turnId = typeof piEvent.turnId === 'string' ? piEvent.turnId : undefined
+      const turnId = asString(piEvent.turnId)
       return [
         {
           type: 'turn_start',
@@ -575,7 +577,7 @@ export function mapPiEventToUnified(
     case PI_EVENT.MESSAGE_START: {
       const message = mapPiMessage(piEvent.message as PiMessage | undefined)
       if (!message) return []
-      const messageId = typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
+      const messageId = asString(piEvent.messageId)
       return [
         {
           type: 'message_start',
@@ -585,7 +587,7 @@ export function mapPiEventToUnified(
       ]
     }
     case PI_EVENT.MESSAGE_UPDATE: {
-      const messageId = typeof piEvent.messageId === 'string' ? piEvent.messageId : undefined
+      const messageId = asString(piEvent.messageId)
       const event: UnifiedSessionEvent = {
         type: 'message_update',
         ...(messageId !== undefined ? { messageId } : {}),
@@ -654,47 +656,48 @@ function mapPiMessage(piMessage: PiMessage | undefined): Message | undefined {
   }
 }
 
+/** Build a `media_ref` ContentBlock, including only the optional string fields. */
+function makeMediaRefBlock(block: {
+  url: string
+  mimeType?: unknown
+  filename?: unknown
+  alt?: unknown
+}): ContentBlock {
+  return {
+    type: 'media_ref',
+    url: block.url,
+    ...(typeof block.mimeType === 'string' ? { mimeType: block.mimeType } : {}),
+    ...(typeof block.filename === 'string' ? { filename: block.filename } : {}),
+    ...(typeof block.alt === 'string' ? { alt: block.alt } : {}),
+  }
+}
+
+function mapContentBlock(block: PiContentBlock): ContentBlock | undefined {
+  if (block.type === 'text') {
+    return { type: 'text', text: block.text }
+  }
+  if (block.type === 'image') {
+    return { type: 'image', data: block.data, mimeType: block.mimeType }
+  }
+  if (block.type === 'media_ref') {
+    return makeMediaRefBlock(block)
+  }
+  if (block.type === 'toolCall') {
+    return {
+      type: 'tool_use',
+      id: block.id,
+      name: block.name,
+      input: block.arguments,
+    }
+  }
+  return undefined
+}
+
 function mapContentBlocks(piBlocks: PiContentBlock[]): ContentBlock[] {
-  return piBlocks
-    .filter(
-      (
-        block
-      ): block is
-        | { type: 'text'; text: string }
-        | { type: 'image'; data: string; mimeType: string }
-        | { type: 'media_ref'; url: string; mimeType?: string; filename?: string; alt?: string }
-        | { type: 'toolCall'; id: string; name: string; arguments: Record<string, unknown> } => {
-        return (
-          block.type === 'text' ||
-          block.type === 'image' ||
-          block.type === 'media_ref' ||
-          block.type === 'toolCall'
-        )
-      }
-    )
-    .map((block): ContentBlock => {
-      if (block.type === 'text') {
-        return { type: 'text', text: block.text }
-      }
-      if (block.type === 'image') {
-        return { type: 'image', data: block.data, mimeType: block.mimeType }
-      }
-      if (block.type === 'media_ref') {
-        return {
-          type: 'media_ref',
-          url: block.url,
-          ...(typeof block.mimeType === 'string' ? { mimeType: block.mimeType } : {}),
-          ...(typeof block.filename === 'string' ? { filename: block.filename } : {}),
-          ...(typeof block.alt === 'string' ? { alt: block.alt } : {}),
-        }
-      }
-      return {
-        type: 'tool_use',
-        id: block.id,
-        name: block.name,
-        input: block.arguments,
-      }
-    })
+  return piBlocks.flatMap((block) => {
+    const mapped = mapContentBlock(block)
+    return mapped === undefined ? [] : [mapped]
+  })
 }
 
 interface RawContentBlock {
@@ -723,13 +726,7 @@ function mapToolResultItem(item: unknown): ContentBlock {
       return { type: 'image', data: block.data, mimeType: block.mimeType }
     }
     if (block.type === 'media_ref' && block.url) {
-      return {
-        type: 'media_ref',
-        url: block.url,
-        ...(typeof block.mimeType === 'string' ? { mimeType: block.mimeType } : {}),
-        ...(typeof block.filename === 'string' ? { filename: block.filename } : {}),
-        ...(typeof block.alt === 'string' ? { alt: block.alt } : {}),
-      }
+      return makeMediaRefBlock({ ...block, url: block.url })
     }
     if (block.type === 'text' && block.text !== undefined) {
       return { type: 'text', text: block.text }

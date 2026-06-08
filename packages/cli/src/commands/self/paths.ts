@@ -11,6 +11,7 @@ import chalk from 'chalk'
 import { CliUsageError } from 'cli-kit'
 import type { Command } from 'commander'
 
+import { errorMessage } from '../../helpers.js'
 import { type PathKind, enumeratePaths, resolveSelfContext } from './lib.js'
 
 interface PathsOptions {
@@ -75,8 +76,7 @@ export function registerSelfPathsCommand(self: Command): void {
         if (err instanceof CliUsageError) {
           throw err
         }
-        const message = err instanceof Error ? err.message : String(err)
-        process.stderr.write(`self paths: ${message}\n`)
+        process.stderr.write(`self paths: ${errorMessage(err)}\n`)
         process.exit(1)
       }
     })

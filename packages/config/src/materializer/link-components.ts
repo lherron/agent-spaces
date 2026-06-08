@@ -136,14 +136,10 @@ export async function linkComponents(
     const srcDir = join(snapshotDir, component)
     const destDir = join(pluginDir, component)
 
-    try {
-      const stats = await stat(srcDir)
-      if (stats.isDirectory()) {
-        await linkDirectory(srcDir, destDir, options)
-        linked.push(component)
-      }
-    } catch {
-      // Component doesn't exist in snapshot, skip
+    // Component may not exist in the snapshot; isDirectory() returns false then.
+    if (await isDirectory(srcDir)) {
+      await linkDirectory(srcDir, destDir, options)
+      linked.push(component)
     }
   }
 

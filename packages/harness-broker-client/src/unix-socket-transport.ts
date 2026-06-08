@@ -143,9 +143,7 @@ export class UnixSocketTransport extends JsonRpcFramedChannel {
   }
 
   protected writeFrame(message: JsonRpcMessage): void {
-    if (this.failure) {
-      throw this.failure
-    }
+    this.assertWritable()
     if (this.socket.destroyed) {
       throw new BrokerTransportError('Broker socket is closed')
     }

@@ -101,9 +101,7 @@ export class StdioTransport extends JsonRpcFramedChannel {
   }
 
   protected writeFrame(message: JsonRpcMessage): void {
-    if (this.failure) {
-      throw this.failure
-    }
+    this.assertWritable()
     if (this.child.stdin.destroyed) {
       throw new BrokerTransportError('Broker stdin is closed')
     }

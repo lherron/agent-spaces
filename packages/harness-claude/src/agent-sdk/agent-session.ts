@@ -15,10 +15,12 @@ import type { HookEventBusAdapter } from './hooks-bridge.js'
 import { HooksBridge, processSDKMessage } from './hooks-bridge.js'
 import { PromptQueue } from './prompt-queue.js'
 import {
+  SDK_TOOL_ID_PREFIX,
   convertContentBlock,
   extractStructuredContent,
   extractToolInput,
   extractToolName,
+  flattenAssistantText,
   forEachToolBlock,
   isToolResultError,
   normalizeToolInput,
@@ -515,6 +517,14 @@ export class AgentSession implements UnifiedSession {
       // Emit dedicated event for SDK session ID (used for resume)
       this.emitEvent({ type: 'sdk_session_id', sdkSessionId: sessionId })
     }
+    this.logInitPlugins(msg)
+  }
+
+  /**
+   * Log the plugin names discovered in a `system`/`init` message (diagnostics
+   * only; no effect on session identity).
+   */
+  private logInitPlugins(msg: Record<string, unknown>): void {
     const pluginList = Array.isArray(msg['plugins']) ? msg['plugins'] : []
     const pluginNames = pluginList
       .map((plugin) => {
@@ -578,29 +588,16 @@ export class AgentSession implements UnifiedSession {
     this.emitEvent({ type: 'turn_end', turnId })
   }
 
+  /**
+   * Mint a synthetic tool-use id for blocks/messages the SDK delivered without
+   * a resolvable id.
+   */
+  private nextSyntheticToolUseId(): string {
+    return `${SDK_TOOL_ID_PREFIX}${++this.toolUseCounter}`
+  }
+
   private handleSdkMessage(msg: Record<string, unknown>, msgType: string | undefined): void {
-    const message = mapSdkMessage(msgType, msg)
-    if (message) {
-      const messageId = resolveMessageId(msg)
-      const messageEventBase = messageId !== undefined ? { messageId } : {}
-      this.emitEvent({ type: 'message_start', message, ...messageEventBase, payload: msg })
-      if (Array.isArray(message.content)) {
-        this.emitEvent({
-          type: 'message_update',
-          contentBlocks: message.content,
-          ...messageEventBase,
-          payload: msg,
-        })
-      } else if (typeof message.content === 'string') {
-        this.emitEvent({
-          type: 'message_update',
-          textDelta: message.content,
-          ...messageEventBase,
-          payload: msg,
-        })
-      }
-      this.emitEvent({ type: 'message_end', message, ...messageEventBase, payload: msg })
-    }
+    this.emitMessageLifecycle(msg, msgType)
 
     // Track subagent context from user messages with parent_tool_use_id
     // This indicates we're inside a Task tool's subagent execution
@@ -615,31 +612,13 @@ export class AgentSession implements UnifiedSession {
     // For tool_use type messages (standalone tool calls), use current subagent context
     // These come from the subagent's assistant response
     if (msgType === 'tool_use') {
-      const toolUseId = resolveToolUseId(msg) ?? `sdk-tool-${++this.toolUseCounter}`
-      const toolName = extractToolName(msg)
-      const toolInput = extractToolInput(msg)
-
-      this.toolUses.set(toolUseId, { name: toolName, input: toolInput })
-      this.emitEvent({
-        type: 'tool_execution_start',
-        toolUseId,
-        toolName,
-        input: normalizeToolInput(toolInput),
-        payload: msg,
-        ...(this.currentSubagentContext ? { parentToolUseId: this.currentSubagentContext } : {}),
-      })
+      this.handleStandaloneToolUse(msg)
       return
     }
 
     // For tool_result type messages, use and potentially clear subagent context
     if (msgType === 'tool_result') {
-      const resultToolUseId = resolveToolUseId(msg)
-      const contextToUse = this.currentSubagentContext
-      // If this result is for the Task tool itself, clear the subagent context
-      if (resultToolUseId && resultToolUseId === this.currentSubagentContext) {
-        this.currentSubagentContext = undefined
-      }
-      this.processToolResultBlock(msg, contextToUse)
+      this.handleStandaloneToolResult(msg)
       return
     }
 
@@ -651,6 +630,69 @@ export class AgentSession implements UnifiedSession {
     this.emitUserToolResultIfNeeded(msg, msgType, sawToolResultBlock)
   }
 
+  /**
+   * Emit message_start / message_update / message_end for a mappable SDK
+   * assistant/user message.
+   */
+  private emitMessageLifecycle(msg: Record<string, unknown>, msgType: string | undefined): void {
+    const message = mapSdkMessage(msgType, msg)
+    if (!message) return
+
+    const messageId = resolveMessageId(msg)
+    const messageEventBase = messageId !== undefined ? { messageId } : {}
+    this.emitEvent({ type: 'message_start', message, ...messageEventBase, payload: msg })
+    if (Array.isArray(message.content)) {
+      this.emitEvent({
+        type: 'message_update',
+        contentBlocks: message.content,
+        ...messageEventBase,
+        payload: msg,
+      })
+    } else if (typeof message.content === 'string') {
+      this.emitEvent({
+        type: 'message_update',
+        textDelta: message.content,
+        ...messageEventBase,
+        payload: msg,
+      })
+    }
+    this.emitEvent({ type: 'message_end', message, ...messageEventBase, payload: msg })
+  }
+
+  /**
+   * Handle a standalone `tool_use` message (subagent assistant response),
+   * correlating it against the current subagent context.
+   */
+  private handleStandaloneToolUse(msg: Record<string, unknown>): void {
+    const toolUseId = resolveToolUseId(msg) ?? this.nextSyntheticToolUseId()
+    const toolName = extractToolName(msg)
+    const toolInput = extractToolInput(msg)
+
+    this.toolUses.set(toolUseId, { name: toolName, input: toolInput })
+    this.emitEvent({
+      type: 'tool_execution_start',
+      toolUseId,
+      toolName,
+      input: normalizeToolInput(toolInput),
+      payload: msg,
+      ...(this.currentSubagentContext ? { parentToolUseId: this.currentSubagentContext } : {}),
+    })
+  }
+
+  /**
+   * Handle a standalone `tool_result` message, clearing the subagent context
+   * when the result belongs to the Task tool that opened it.
+   */
+  private handleStandaloneToolResult(msg: Record<string, unknown>): void {
+    const resultToolUseId = resolveToolUseId(msg)
+    const contextToUse = this.currentSubagentContext
+    // If this result is for the Task tool itself, clear the subagent context
+    if (resultToolUseId && resultToolUseId === this.currentSubagentContext) {
+      this.currentSubagentContext = undefined
+    }
+    this.processToolResultBlock(msg, contextToUse)
+  }
+
   private handleToolBlocks(content: unknown, parentToolUseId?: string): boolean {
     return forEachToolBlock(content, {
       onToolUse: (block) => this.processToolUseBlock(block, parentToolUseId),
@@ -659,7 +701,7 @@ export class AgentSession implements UnifiedSession {
   }
 
   private processToolUseBlock(blockObj: Record<string, unknown>, parentToolUseId?: string): void {
-    const toolUseId = resolveToolUseId(blockObj) ?? `sdk-tool-${++this.toolUseCounter}`
+    const toolUseId = resolveToolUseId(blockObj) ?? this.nextSyntheticToolUseId()
     const toolName = extractToolName(blockObj)
     const toolInput = extractToolInput(blockObj)
 
@@ -679,7 +721,7 @@ export class AgentSession implements UnifiedSession {
     parentToolUseId?: string
   ): void {
     const toolUseId = resolveToolUseId(blockObj)
-    const resolvedToolUseId = toolUseId ?? `sdk-tool-${++this.toolUseCounter}`
+    const resolvedToolUseId = toolUseId ?? this.nextSyntheticToolUseId()
     const toolMeta = toolUseId ? this.toolUses.get(toolUseId) : undefined
     const toolName = toolMeta?.name ?? extractToolName(blockObj)
     const isError = isToolResultError(blockObj)
@@ -756,35 +798,29 @@ export class AgentSession implements UnifiedSession {
     const content = assistantMsg['content']
 
     if (typeof content === 'string') return content
-    if (!Array.isArray(content)) return undefined
 
-    // Extract text from content blocks.
-    const textParts: string[] = []
-    for (const block of content) {
-      if (!block || typeof block !== 'object') continue
-      const blockObj = block as Record<string, unknown>
-      if (blockObj['type'] === 'text' && typeof blockObj['text'] === 'string') {
-        textParts.push(blockObj['text'])
-      }
-    }
-
-    return textParts.length > 0 ? textParts.join('\n') : undefined
+    return flattenAssistantText(content)
   }
+}
+
+/**
+ * Return the inner `message` record of an SDK output message, or `undefined`
+ * when it is missing / not an object.
+ */
+function getSdkMessageObject(msg: Record<string, unknown>): Record<string, unknown> | undefined {
+  const message = msg['message']
+  if (!message || typeof message !== 'object') return undefined
+  return message as Record<string, unknown>
 }
 
 function getMessageContent(msgType: string | undefined, msg: Record<string, unknown>): unknown {
   if (msgType !== 'assistant' && msgType !== 'user') return undefined
-  const message = msg['message']
-  if (!message || typeof message !== 'object') return undefined
-  return (message as Record<string, unknown>)['content']
+  return getSdkMessageObject(msg)?.['content']
 }
 
 function resolveMessageId(msg: Record<string, unknown>): string | undefined {
-  const message = msg['message']
-  if (message && typeof message === 'object') {
-    const id = (message as Record<string, unknown>)['id']
-    if (typeof id === 'string') return id
-  }
+  const id = getSdkMessageObject(msg)?.['id']
+  if (typeof id === 'string') return id
   if (typeof msg['message_id'] === 'string') return msg['message_id']
   if (typeof msg['messageId'] === 'string') return msg['messageId']
   return undefined
@@ -792,9 +828,8 @@ function resolveMessageId(msg: Record<string, unknown>): string | undefined {
 
 function mapSdkMessage(msgType: string | undefined, msg: Record<string, unknown>): Message | null {
   if (msgType !== 'assistant' && msgType !== 'user') return null
-  const message = msg['message']
-  if (!message || typeof message !== 'object') return null
-  const messageObj = message as Record<string, unknown>
+  const messageObj = getSdkMessageObject(msg)
+  if (!messageObj) return null
   const content = mapSdkContent(messageObj['content'])
   if (content === undefined) return null
 

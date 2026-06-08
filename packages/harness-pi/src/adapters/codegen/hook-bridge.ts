@@ -10,6 +10,8 @@ import { stat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { AspError } from 'spaces-config'
 
+import { HOOK_LOG_RELATIVE_DIR } from '../constants.js'
+
 /**
  * Hook definition from hooks.toml or hooks.json.
  */
@@ -104,6 +106,9 @@ export async function resolveHookScriptPath(script: string, hooksDir: string): P
 export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string[]): string {
   // Filter hooks applicable to Pi
   const piHooks = hooks.filter((h) => !h.harness || h.harness === 'pi')
+
+  // Single source of truth for the host log dir, shared with constants.ts.
+  const logDirSegments = HOOK_LOG_RELATIVE_DIR.map((segment) => JSON.stringify(segment)).join(', ')
 
   const hookRegistrations = piHooks
     .map((hook) => {
@@ -207,7 +212,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const LOG_DIR = path.join(os.homedir(), 'praesidium', 'var', 'logs');
+const LOG_DIR = path.join(os.homedir(), ${logDirSegments});
 const LOG_FILE = path.join(LOG_DIR, 'asp-hooks.log');
 
 function log(level, message) {

@@ -446,6 +446,14 @@ export interface HarnessRunOptions {
   projectPath?: string | undefined
   /** Logical task id, used for session identity and display naming */
   taskId?: string | undefined
+  /**
+   * Logical project id from the canonical handle/scopeRef. Used for the
+   * remote-control session name's project segment. Preferred over the cwd
+   * basename so the session name reflects the handle even when the runtime cwd
+   * falls back to the agent root (e.g. headless dispatch without a resolvable
+   * projectRoot).
+   */
+  projectId?: string | undefined
   /** Working directory for harness execution */
   cwd?: string | undefined
   /** Initial prompt text for the harness session */

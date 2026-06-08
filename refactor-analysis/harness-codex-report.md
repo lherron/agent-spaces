@@ -1,122 +1,128 @@
-# Refactoring Analysis
-**Target:** packages/harness-codex/src
-**Lines analyzed:** 2889  ·  **Generated:** 2026-06-07  ·  **Focus:** all
+# harness-codex SOLID / code-smell audit
 
-## SOLID Scorecard
-| Principle | Status | Issues |
-|-----------|--------|--------|
-| SRP (Single Responsibility) | 🟡 | codex-session.ts mixes event marshalling + process lifecycle; run-one-shot.ts has deeply nested notification handlers |
-| OCP (Open/Closed) | 🟡 | Type/string-based notification dispatch in both codex-session.ts and run-one-shot.ts (switch chains keyed on method string) |
-| LSP (Liskov Substitution) | 🟢 | No violations observed |
-| ISP (Interface Segregation) | 🟡 | CodexRpcClient handlers interface is fat (onNotification, onRequest, onMessage, onError); CodexSessionConfig has 11 optional fields |
-| DIP (Dependency Injection) | 🟡 | Direct instantiation of CodexRpcClient and spawn() inside CodexSession; hardcoded magic strings for RPC methods |
+Package: `packages/harness-codex/` (npm: `spaces-harness-codex`)
+Audited: all non-test source under `src/` (adapters/, codex-session/, errors.ts, index.ts, register.ts).
 
-## Priority Refactorings
+## Overall
 
-### 1. Extract Event Handler Registry from CodexSession — OCP
-- **Location:** codex-session.ts:304-410 (handleNotification switch block)
-- **Current:** 9-case switch statement keyed on `notification.method` strings; adding new event types requires editing CodexSession
-- **Suggested:** Create NotificationHandler interface and a registry map: `Map<string, (params: unknown) => void>`. Abstract handler logic into methods on a dedicated EventDispatcher class.
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 2-3h  ·  **Tests:** codex-session.test.ts (test each handler in isolation)
-
-### 2. Extract Nested Notification Queue Logic — SRP/Readability
-- **Location:** run-one-shot.ts:75-202 (notification queue promise chaining + switch dispatch)
-- **Current:** Closure over notificationQueue, resolveTurn, rejectTurn, and 15+ variables; switch statement spans 100+ lines with complex nested type casts
-- **Suggested:** Extract to NotificationProcessor class handling queue/error semantics; extract switch into handler methods per notification type
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 3-4h  ·  **Tests:** run-one-shot.test.ts (mock RPC and verify each notification path)
-
-### 3. Replace String-Based RPC Method Dispatch — OCP + Type Safety
-- **Location:** codex-session.ts:305 + run-one-shot.ts:108 (switch on notification.method)
-- **Current:** `switch (notification.method) { case 'error': ... case 'turn/started': ... }` repeated in two files; string literals scattered
-- **Suggested:** Create NotificationMethod enum or discriminated union for type-safe dispatch; use as const tagged literals to allow exhaustiveness checking
-- **Risk:** Med  ·  **API-impact:** internal-only  ·  **Effort:** 2h  ·  **Tests:** Verify all notification types are still handled post-refactor
-
-### 4. Split CodexSession Responsibilities — SRP
-- **Location:** codex-session.ts:80-489 (540 lines: process lifecycle + RPC marshalling + event emission + permission handling)
-- **Current:** Single class owns proc spawn, RPC client lifecycle, state machine, event callback routing, permission resolution, file I/O for events
-- **Suggested:** 
-  - SessionLifecycleManager: start(), stop(), state transitions
-  - RpcEventBridge: handleNotification(), handleRequest() → emits UnifiedSessionEvent[]
-  - PermissionResolver: resolvePermission() (extract to strategy pattern)
-- **Risk:** Med  ·  **API-impact:** internal-only  ·  **Effort:** 4-5h  ·  **Tests:** All codex-session.test.ts suites; integration tests for start/stop flows
-
-### 5. Extract Common Event Mapping Logic — DRY
-- **Location:** event-mapping.ts:128-203 (mapItemStarted) & 211-318 (mapItemCompleted)
-- **Current:** Two massive switch statements (75 lines each) with nearly identical structure; same CodexThreadItem type guards duplicated
-- **Suggested:** Create unified EventMapper with shared type-guard + dispatch for both started/completed paths; factor discriminator extraction into helper
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 1.5h  ·  **Tests:** event-mapping.test.ts (parametric test each item type for both paths)
-
-### 6. Refactor buildCodexAppServerLaunchDescriptor to Reduce Boilerplate — Code Smell
-- **Location:** codex-adapter.ts:101-123 (22 lines of spread-if chains)
-- **Current:** 10x `...(condition ? { key: value } : {})` pattern; hard to extend without adding more lines
-- **Suggested:** Create helper `withProperty<K extends keyof T>(obj: T, key: K, value: T[K] | undefined)` and chain it; or use class-based builder
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 1h  ·  **Tests:** codex-adapter tests (verify descriptor shape stays same)
-
-### 7. Reduce CodexAdapter Method Size — SRP/Readability
-- **Location:** codex-adapter.ts:508-681 (composeTarget method, 174 lines)
-- **Current:** Single method owns: mkdir, symlinks, MCP composition, config assembly, manifest generation, bundle construction
-- **Suggested:** Extract sub-methods: composeSkillsAndPrompts(), composeMcpAndConfig(), writeManifest(), buildBundle()
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 2h  ·  **Tests:** composeTarget integration test (verify file outputs unchanged)
-
-### 8. Consolidate CodexSession + run-one-shot Duplicate Logic — DRY
-- **Location:** codex-session.ts lines 146-148, 210-220 vs run-one-shot.ts lines 206-218
-- **Current:** Thread initialization (RPC.sendRequest('initialize'), 'initialized' notification) duplicated; turn parameter objects duplicated
-- **Suggested:** Extract shared initialization as function; define TurnParams type once; share in both entry points
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 1.5h  ·  **Tests:** Run both paths; verify same RPC calls
-
-### 9. Extract Magic Constants to Named Module Exports — Code Smell
-- **Location:** codex-adapter.ts:71-78, codex-session.ts:38-39, codex-hooks.ts:10-11
-- **Current:** Constants like `IMAGE_EXTENSIONS`, `MAX_IMAGE_BYTES`, `DEFAULT_HOOK_TIMEOUT_SECONDS`, file names hardcoded in strings
-- **Suggested:** Create constants.ts exporting all magic numbers + extension sets; import into modules
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 0.5h  ·  **Tests:** Smoke test that constants match existing values
-
-### 10. Simplify Parallel Permission Handler Logic — Code Smell
-- **Location:** codex-session.ts:440-476 (handleRequest switch + dual permission approval paths)
-- **Current:** Two case branches (commandExecution, fileChange) with nearly identical structure; async permission flow repeated
-- **Suggested:** Create PermissionApprovalRequest type union; single handler method dispatching to shared approval logic
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 1h  ·  **Tests:** codex-session.test.ts permission suite
-
-## Code Smells
-
-| Smell | Location | Severity |
-|-------|----------|----------|
-| **Long Method** | codex-session.ts:304-410 (handleNotification) | Med — 107 lines, 9-case switch with nested type casts |
-| **Long Method** | run-one-shot.ts:107-202 (handleNotification) | Med — 96 lines, dense control flow, high nesting |
-| **Long Method** | codex-adapter.ts:508-681 (composeTarget) | Med — 174 lines, multiple concerns (I/O, composition, config) |
-| **Primitive Obsession** | codex-session.ts:305+ (notification.method: string keys) | Med — Untyped string dispatch; no exhaustiveness |
-| **Primitive Obsession** | run-one-shot.ts:108+ (same issue) | Med — Duplicated string-based switch; brittle to new events |
-| **Deep Nesting** | codex-adapter.ts:534-574 (nested loops in composeTarget) | Low — 4 levels; readable but extractable |
-| **Magic Numbers** | codex-session.ts:39 (MAX_IMAGE_BYTES = 10 * 1024 * 1024) | Low — Semantic but unexported |
-| **Duplicated Blocks** | codex-session.ts:305-410 vs run-one-shot.ts:107-202 | Med — Notification dispatch logic nearly identical |
-| **Duplicated Blocks** | codex-session.ts:442-455 vs 457-471 (permission handling) | Low — Parallel structures, minor differences |
-| **Duplicated Blocks** | codex-adapter.ts:237-241 & 313-322 (appendDefaultFeatureFlags + appendInteractiveCommonFlags calls) | Low — Feature flag building repeated |
-| **Long Parameter List** | CodexSessionConfig (11 optional fields) | Low — Not a function parameter; interface is segregable |
-| **Feature Envy** | CodexRpcClient.handleResponse (access to this.pending, this.closed) | Low — Cohesive; acceptable for RPC client internals |
-
-## Quick Wins (Low Risk, High Value)
-
-1. **Extract NotificationMethod enum** (~0.5h, Low risk) — Create discriminated union for `notification.method` strings; apply in both session paths. Enables TypeScript exhaustiveness checking.
-
-2. **Create constants.ts module** (~0.5h, Low risk) — Move IMAGE_EXTENSIONS, MAX_IMAGE_BYTES, DEFAULT_HOOK_TIMEOUT_SECONDS, INSTRUCTIONS_FILES to shared export; import everywhere.
-
-3. **Consolidate permission handler structure** (~1h, Low risk) — Merge commandExecution + fileChange approval cases in handleRequest using union type + single resolver.
-
-4. **Extract turn parameter builder** (~1h, Low risk) — DRY the turn/start params (model, cwd, approvalPolicy, sandbox, etc.) used in both CodexSession + run-one-shot.
-
-5. **Add JSDoc to notification handlers** (~0.5h, Low risk) — Document what each notification type represents; clarify state mutations (e.g., turn/completed vs turn/started).
-
-## Technical Debt Notes
-
-- **Event Dispatch Fragility:** String-keyed switch statements for RPC notifications are scattered and untyped. Adding new Codex event types requires edits in two places (codex-session.ts + run-one-shot.ts) with no compile-time safety. Priority: refactor to discriminated union + exhaustiveness checks.
-
-- **Process Lifecycle Coupling:** CodexSession entangles process spawning, RPC protocol, permission handling, and event marshalling. Difficult to test in isolation; harder to reuse RPC client logic. Consider extraction of SessionLifecycleManager.
-
-- **Type Safety Gaps:** CodexThreadItem is loosely typed (catch-all `{ type: string; id?: string }` at end of union). Event parameters passed as `unknown` and cast in handlers. Consider stricter notification type definitions.
-
-- **Duplicate Session Logic:** Both CodexSession and runCodexAppServerOneShot initialize threads, handle turn completion, and process items. Sharing reduces maintenance burden but currently requires code duplication for lifecycle differences.
-
-- **No Request/Response Validation:** RPC responses cast directly without validation (e.g., `response as ThreadStartResponse`). If Codex protocol changes, silent failures likely.
+This package was part of the repo-wide SOLID cleanup pass (commit e238805) and is in good
+shape. The adapter is already split into focused modules (`codex-config`, `codex-agents`,
+`codex-discovery`, `codex-hooks`), the shared app-server event mapping has already been
+deduped into `event-mapping.ts`, and helper extraction (`probeCodexCandidate`,
+`appendInteractiveCommonFlags`, `buildExecArgs`/`buildResumeArgs`/`buildInteractiveArgs`)
+is clean and well-commented. Findings below are mostly residual duplication between the two
+JSON-RPC consumers (`codex-session.ts` and `run-one-shot.ts`) that the dedupe pass did not
+fully collapse, plus a couple of small magic-value items. Nothing is a structural problem.
 
 ---
 
-**Summary:** The harness-codex package is well-structured at the module level but suffers from notification dispatch fragmentation (OCP violation), long methods mixing concerns (SRP), and code duplication between session paths. Priority fixes are event handler abstraction and session responsibility split. All identified refactorings are Low-Med risk, internal-only changes suitable for safe iterative cleanup.
+## Redundant local interface declarations duplicate event-mapping exports
+- File: packages/harness-codex/src/codex-session/codex-session.ts:46
+- Risk: Low
+- API-impact: internal-only
+- Smell: `ThreadStartResponse` (line 46) and `ThreadResumeResponse` (line 50) are declared
+  locally, but identical interfaces are already exported from `event-mapping.ts:60` and
+  consumed by `run-one-shot.ts`. The session file already imports many types from
+  `event-mapping.js`, so these two locals are duplicated definitions of the same shape.
+- Proposed change: delete the two local interfaces and add `ThreadStartResponse`,
+  `ThreadResumeResponse` to the existing `import type { ... } from './event-mapping.js'`
+  block. Purely internal; the casts on lines 163/176 stay structurally identical.
+
+## Duplicated `CLIENT_INFO` constant across both RPC consumers
+- File: packages/harness-codex/src/codex-session/run-one-shot.ts:23
+- Risk: Low
+- API-impact: internal-only
+- Smell: The `CLIENT_INFO = { name: 'agent-spaces', version: process.env['npm_package_version'] ?? 'unknown' }`
+  literal is identical in `codex-session.ts:41` and `run-one-shot.ts:23`.
+- Proposed change: define it once (e.g. export `const CLIENT_INFO` from `event-mapping.ts`
+  or a small `rpc-protocol.ts`) and import it into both files. Both are internal modules
+  (not re-exported), so this is behavior-preserving and internal-only.
+
+## Duplicated `formatCodexError` helper across both RPC consumers
+- File: packages/harness-codex/src/codex-session/run-one-shot.ts:350
+- Risk: Low
+- API-impact: internal-only
+- Smell: `formatCodexError` exists in both `codex-session.ts:496` and `run-one-shot.ts:350`.
+  The `details`/`info` tail-construction is byte-identical; only the header prefix differs
+  (session builds a `turn/thread/will retry` header, one-shot uses the fixed
+  `'Codex app-server error'`).
+- Proposed change: extract a shared `formatCodexErrorBody(params)` (the message+details+info
+  tail) into `event-mapping.ts` and have each file prepend its own header. Both call sites
+  are internal; the emitted error strings are unchanged.
+
+## Repeated `tool_execution_update` delta cases in the notification switch
+- File: packages/harness-codex/src/codex-session/codex-session.ts:380
+- Risk: Med
+- API-impact: internal-only
+- Smell: The `item/commandExecution/outputDelta` (380), `item/fileChange/outputDelta` (390)
+  and `item/mcpToolCall/progress` (400) cases each emit a near-identical
+  `tool_execution_update` event (toolUseId/partialOutput-or-message/payload). The same
+  triple is mirrored in `run-one-shot.ts:160/170/180`.
+- Proposed change: extract a small private helper `mapDeltaNotification(method, params)` in
+  `event-mapping.ts` that returns the unified `tool_execution_update` event for these
+  delta/progress methods, and call it from both switches. Tagged Med because it restructures
+  the internal notification-dispatch flow in two files; behavior-preserving.
+
+## Parallel notification-method switches not sharing a dispatch path
+- File: packages/harness-codex/src/codex-session/run-one-shot.ts:107
+- Risk: Med
+- API-impact: internal-only
+- Smell: `handleNotification` in `run-one-shot.ts:107` and `codex-session.ts:304` are large
+  parallel switches over the same `notification.method` set (`error`, `turn/started`,
+  `item/started`, `item/completed`, the three deltas, `turn/completed`). Item-started and
+  item-completed handling is already deduped via `mapItemStarted`/`mapItemCompleted`; the
+  surrounding `emitEvent` wiring is still copy-paste.
+- Proposed change: factor the shared item/delta-mapping arms into one pure mapper (see prior
+  finding) so each switch keeps only its own lifecycle glue (turn-completion resolution,
+  artifact accumulation). Med because it touches both consumers' control flow.
+
+## Magic JSON-RPC error code/string in resume-recovery guard
+- File: packages/harness-codex/src/codex-session/run-one-shot.ts:322
+- Risk: Low
+- API-impact: internal-only
+- Smell: `isNoRolloutFoundResumeError` hard-codes `/^JSON-RPC error -32600:/i` — the `-32600`
+  code and the `JSON-RPC error ` prefix are produced by `rpc-client.ts:154`. The coupling to
+  that prefix string is implicit and only enforced by a regex literal.
+- Proposed change: name the prefix/format once (or expose a `JSON_RPC_ERROR_PREFIX` constant
+  from `rpc-client.ts`) and reference it from the matcher, so the producer and the matcher
+  can't silently drift. Internal-only; behavior-preserving.
+
+## Repeated thread/start + thread/resume param objects
+- File: packages/harness-codex/src/codex-session/run-one-shot.ts:209
+- Risk: Low
+- API-impact: internal-only
+- Smell: The `thread/start` and `thread/resume` param objects (run-one-shot.ts:209 & 222) and
+  again in `codex-session.ts:151 & 166` repeat the same long list of `…: null` fields
+  (modelProvider/config/baseInstructions/developerInstructions, etc.). The defaults are
+  copy-pasted across four sites.
+- Proposed change: add small builders (e.g. `buildThreadStartParams(...)` /
+  `buildThreadResumeParams(...)`) co-located with the shared protocol types so the null-field
+  boilerplate lives once. Behavior-preserving; both files are internal.
+
+## Terse single-letter locals in version comparison loop
+- File: packages/harness-codex/src/adapters/codex-discovery.ts:29
+- Risk: Low
+- API-impact: internal-only
+- Smell: `isVersionAtLeast` uses `i`, `p`, `m` for index/parsed/min — terse locals in a
+  numeric-comparison loop. Minor readability only.
+- Proposed change: rename to `index`, `current`, `minimum` (locals only — the exported
+  function signature is untouched).
+
+---
+
+## Notes / non-findings
+
+- `event-mapping.ts` is the single source of truth for the `CodexThreadItem` union and the
+  item mappers; the `as Extract<...>` narrowing per case is verbose but type-safe and
+  intentional — not flagged.
+- `codex-hooks.ts` is dense (canonical-JSON hashing, trust-state keying) but each function has
+  one clear job and is well-named; its literals are already named constants
+  (`DEFAULT_HOOK_TIMEOUT_SECONDS`, label/matcher maps). No action.
+- `composeTarget` in `codex-adapter.ts` is long (~170 lines) but is a linear materialization
+  pipeline with already-extracted helpers; splitting it further risks obscuring the ordered
+  side-effect sequence. Not flagged (would be Med-at-best and low value).
+- `errors.ts`, `index.ts`, `register.ts`, `types.ts`, `codex-config.ts`, `codex-agents.ts` are
+  clean.
+
+No High-risk or public-surface findings: every item above is behavior-preserving and confined
+to non-exported internals.

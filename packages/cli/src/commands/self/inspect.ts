@@ -9,6 +9,7 @@
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
+import { errorMessage } from '../../helpers.js'
 import { byteCount, charCount, resolveSelfContext } from './lib.js'
 
 interface InspectOptions {
@@ -57,8 +58,7 @@ export function registerSelfInspectCommand(self: Command): void {
 
         renderHuman(ctx, { systemPromptChars, systemPromptBytes, primingChars })
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        process.stderr.write(`self inspect: ${message}\n`)
+        process.stderr.write(`self inspect: ${errorMessage(err)}\n`)
         process.exit(1)
       }
     })

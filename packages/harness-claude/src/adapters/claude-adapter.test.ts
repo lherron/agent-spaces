@@ -731,6 +731,44 @@ paths = ["/var/log"]
       expect(args).toContain('dev-agent-project-task')
     })
 
+    test('prefers handle projectId over cwd basename for the project segment', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'clod',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      // Headless dispatch: runtime cwd falls back to the agent root, but the
+      // canonical projectId from the handle is threaded through.
+      const args = adapter.buildRunArgs(bundle, {
+        projectId: 'wrkq',
+        projectPath: '/agents/clod',
+        taskId: 'blah-latent-spaces',
+        remoteControl: true,
+      })
+
+      expect(args).toContain('clod-wrkq-blah-latent-spaces')
+      expect(args).not.toContain('clod-clod-blah-latent-spaces')
+    })
+
+    test('falls back to cwd basename when no projectId is threaded', () => {
+      const bundle = {
+        harnessId: 'claude' as const,
+        targetName: 'agent',
+        rootDir: '/test',
+        pluginDirs: [],
+      }
+
+      const args = adapter.buildRunArgs(bundle, {
+        projectPath: '/work/project',
+        taskId: 'task',
+        remoteControl: true,
+      })
+
+      expect(args).toContain('agent-project-task')
+    })
+
     test('fresh launches include a generated session id and do not resume', () => {
       const bundle = {
         harnessId: 'claude' as const,

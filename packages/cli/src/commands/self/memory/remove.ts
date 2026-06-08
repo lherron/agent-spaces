@@ -6,7 +6,7 @@ import type { Command } from 'commander'
 
 import type { MemoryTargetName } from 'spaces-runtime'
 
-import { type StoreFailure, validateTarget, withMemoryStore } from './lib.js'
+import { type StoreFailure, requireOption, validateTarget, withMemoryStore } from './lib.js'
 
 interface RemoveOptions {
   json?: boolean
@@ -25,16 +25,10 @@ export function registerMemoryRemoveCommand(parent: Command): void {
     .option('--match <text>', 'Substring to locate the entry to remove')
     .action(async (options: RemoveOptions) => {
       await withMemoryStore(COMMAND_NAME, async (store) => {
-        if (!options.target) {
-          process.stderr.write(`${COMMAND_NAME}: --target is required\n`)
-          process.exit(1)
-        }
+        requireOption(COMMAND_NAME, 'target', options.target)
         validateTarget(COMMAND_NAME, options.target)
 
-        if (!options.match) {
-          process.stderr.write(`${COMMAND_NAME}: --match is required\n`)
-          process.exit(1)
-        }
+        requireOption(COMMAND_NAME, 'match', options.match)
 
         const result = await store.remove({
           target: options.target as MemoryTargetName,

@@ -121,7 +121,6 @@ export interface AgentSpacesClientOptions {
 
 export function createAgentSpacesClient(options?: AgentSpacesClientOptions): AgentSpacesClient {
   const clientAspHome = options?.aspHome
-  const _clientRegistryPath = options?.registryPath
   const inFlightRuns = createInFlightRunMap()
 
   return {

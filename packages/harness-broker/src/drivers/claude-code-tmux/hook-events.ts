@@ -8,18 +8,10 @@ import type {
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import { createInvocationEventSequencer } from '../../events'
+import { asRecord as asHookRecord, getNumber, getString, unwrapHookPayload } from '../hook-json'
+import { USER_INITIATED_END_REASONS } from '../tmux-shared'
 
 export const CLAUDE_CODE_TMUX_DRIVER_KIND = 'claude-code-tmux'
-
-/**
- * Claude `SessionEnd` reasons that mean the OPERATOR deliberately ended the
- * conversation, so the captured continuation must be dropped (next launch is
- * fresh). An external pane-kill / crash reports `other` (or fires no SessionEnd
- * at all) and is intentionally absent here, so `--resume` durability survives
- * pane recreation (T-01761 ariadne case). Verified against claude 2.1.158:
- * `/quit` -> `prompt_input_exit`; external tmux pane kill -> `other`.
- */
-const USER_INITIATED_END_REASONS = new Set(['prompt_input_exit', 'logout', 'clear'])
 
 export type ClaudeCodeHookEventNormalizer = {
   normalizeHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
@@ -97,13 +89,6 @@ export function normalizeHookEnvelope(
         : hook
 
   return normalizer.normalizeHook(merged)
-}
-
-function asHookRecord(value: unknown): Record<string, unknown> {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
 }
 
 type MappedHookEvent = {
@@ -569,18 +554,6 @@ export function createClaudeCodeHookEventNormalizer(
   }
 }
 
-function unwrapHookPayload(hook: Record<string, unknown>): Record<string, unknown> {
-  if (typeof hook['hook_event_name'] === 'string') return hook
-
-  const hookEvent = hook['hookEvent']
-  if (hookEvent !== null && typeof hookEvent === 'object' && !Array.isArray(hookEvent)) {
-    const inner = hookEvent as Record<string, unknown>
-    if (typeof inner['hook_event_name'] === 'string') return inner
-  }
-
-  return hook
-}
-
 function compactHookDetails(hook: Record<string, unknown>): Record<string, unknown> | undefined {
   const details: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(hook)) {
@@ -677,16 +650,6 @@ function stringifyToolValue(value: unknown): string | undefined {
 function asRecordOrUndefined(value: unknown): Record<string, unknown> | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
   return value as Record<string, unknown>
-}
-
-function getString(obj: Record<string, unknown>, key: string): string | undefined {
-  const value = obj[key]
-  return typeof value === 'string' ? value : undefined
-}
-
-function getNumber(obj: Record<string, unknown>, key: string): number | undefined {
-  const value = obj[key]
-  return typeof value === 'number' && Number.isInteger(value) ? value : undefined
 }
 
 function asTurnId(value: string): TurnId {

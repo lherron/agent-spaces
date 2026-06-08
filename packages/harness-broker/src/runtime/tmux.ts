@@ -104,6 +104,10 @@ const SUBMIT_POLL_INTERVAL_MS = 150
 const MAX_SUBMIT_ATTEMPTS = 5
 // Used only when the lease does not grant capture (we cannot observe the pane).
 const LEGACY_PASTE_GAP_MS = 1_000
+// Gap between delivering input and pressing Enter in the capture-unaware
+// TmuxManager send paths (sendKeys / sendPastedLine). Same value/role as
+// LEGACY_PASTE_GAP_MS and the codex driver's INPUT_SUBMIT_GAP_MS.
+const MANAGER_SEND_KEYS_GAP_MS = 1_000
 // Trailing window of the pasted command used as the present / still-unexecuted
 // needle (whitespace-stripped so terminal line-wrap inside the window never breaks
 // the match — capture-pane hard-wraps long commands at pane width).
@@ -229,7 +233,7 @@ export class TmuxManager {
 
   async sendKeys(paneId: string, keys: string): Promise<void> {
     await this.sendLiteral(paneId, keys)
-    await sleep(1_000)
+    await sleep(MANAGER_SEND_KEYS_GAP_MS)
     await this.sendEnter(paneId)
   }
 
@@ -237,7 +241,7 @@ export class TmuxManager {
     const bufferName = `harness-broker-${Date.now()}-${Math.random().toString(16).slice(2)}`
     await this.exec(['set-buffer', '-b', bufferName, text])
     await this.exec(['paste-buffer', '-d', '-b', bufferName, '-t', paneId])
-    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    await sleep(MANAGER_SEND_KEYS_GAP_MS)
     await this.sendEnter(paneId)
   }
 

@@ -4,9 +4,12 @@
 
 import type { Command } from 'commander'
 
-import { isConfigError, readTargetsToml } from 'spaces-config'
+import { join } from 'node:path'
+
+import { TARGETS_FILENAME, isConfigError, readTargetsToml } from 'spaces-config'
 import { type HarnessId, harnessRegistry, install, isHarnessId } from 'spaces-execution'
 
+import { DEFAULT_HARNESS_ID } from '../harness-validator.js'
 import { findProjectRoot } from '../lib.js'
 import {
   blank,
@@ -26,7 +29,7 @@ import {
  * Validate harness option and return the harness ID.
  */
 function validateHarness(harness: string | undefined): HarnessId {
-  const harnessId = harness ?? 'claude'
+  const harnessId = harness ?? DEFAULT_HARNESS_ID
 
   if (!isHarnessId(harnessId)) {
     blank()
@@ -74,8 +77,7 @@ export function registerInstallCommand(program: Command): void {
     .option('--asp-home <path>', 'ASP_HOME override')
     .action(async (options) => {
       // Validate harness option
-      const _harness = validateHarness(options.harness)
-      const harnessId = _harness
+      const harnessId = validateHarness(options.harness)
       const startTime = Date.now()
 
       // Find project root
@@ -117,7 +119,7 @@ export function registerInstallCommand(program: Command): void {
         info('lock', formatPath(result.lockPath))
 
         // Load manifest for claude options
-        const manifestPath = `${projectPath}/asp-targets.toml`
+        const manifestPath = join(projectPath, TARGETS_FILENAME)
         const manifest = await readTargetsToml(manifestPath)
 
         const adapter = harnessRegistry.getOrThrow(harnessId)

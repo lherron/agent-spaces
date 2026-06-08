@@ -1,131 +1,134 @@
-# Refactoring Analysis: packages/cli/src
+# SOLID / code-smell audit — `packages/cli/` (`@lherron/agent-spaces`)
 
-**Target:** packages/cli/src  
-**Lines analyzed:** 9,098  ·  **Generated:** 2026-06-07  ·  **Focus:** all
+Audited every non-test source file under `packages/cli/src/`. The package was
+recently put through a SOLID/code-smell cleanup pass (commit e238805), so the
+bulk of it is already in good shape: long handlers are split into named private
+helpers, the run-option literals are spread from a single `buildCommonRunOptions`,
+harness validation / setting-source / scope-target resolution are centralized,
+and the memory subcommands share a `withMemoryStore`/`withMemoryCommand` scaffold.
 
----
-
-## SOLID Scorecard
-
-| Principle | Status | Issues |
-|-----------|--------|--------|
-| **SRP** (Single Responsibility) | 🟡 | 4 large command files (>300 LOC) mix argument parsing, domain logic, and formatting |
-| **OCP** (Open/Closed) | 🟡 | Type/enum-based dispatch in `run.ts` (detectRunMode, buildSettingSources chains) |
-| **LSP** (Liskov Substitution) | 🟢 | No violations detected; clean interface contracts |
-| **ISP** (Interface Segregation) | 🟢 | Interfaces are focused; options interfaces are narrow |
-| **DIP** (Dependency Inversion) | 🟡 | Direct new PathResolver() calls; harness validation spreads across 5 commands |
+The findings below are the residual smells — mostly cross-file duplication that
+the cleanup pass did not consolidate, plus a handful of magic numbers/strings and
+dead local aliases. None are structural. The single largest file
+(`commands/repo/manager-space-content.ts`, 1425 lines) is entirely embedded
+markdown/TOML content strings with one trivial accessor — no logic to refactor.
 
 ---
 
-## Priority Refactorings
+## Duplicated `formatBytes` helper across two gc commands
+- File: packages/cli/src/commands/gc.ts:80
+- Risk: Low
+- API-impact: internal-only
+- Smell: `formatBytes` (the `units`/`1024` loop) is duplicated byte-for-byte in `commands/gc.ts:80` and `commands/repo/gc.ts:90`.
+- Proposed change: Hoist a single `formatBytes` into `helpers.ts` (or `ui.ts`) and import it in both gc commands; delete the two local copies.
 
-### 1. Extract `validateHarness()` to shared utility module — DIP
-- **Location:** `/packages/cli/src/commands/build.ts:33`, `/packages/cli/src/commands/explain.ts:20`, `/packages/cli/src/commands/install.ts:28`, `/packages/cli/src/commands/run.ts:385`
-- **Current:** Four identical 10-line harness validators duplicated across commands; mix arg validation, error display, and process.exit()
-- **Suggested:** Create `src/harness-validator.ts` with a single exported function that accepts a harness ID and returns HarnessId or throws with a clean error message. Update callers to catch and handle errors via the existing `exitWithAspError()` pattern.
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 30 minutes  ·  **Tests:** `npm test packages/cli` (validate harness option error messages)
+## Duplicated registry-existence + dist-tags reads across repo/spaces commands
+- File: packages/cli/src/commands/repo/status.ts:33
+- Risk: Med
+- API-impact: internal-only
+- Smell: The `Bun.file(`${repoPath}/.git/HEAD`).exists()` registry guard appears in `repo/status.ts:33`, `repo/tags.ts:121`, `repo/publish.ts:33`, `repo/gc.ts:32` (via `stat`), `spaces/list.ts:32`, and `spaces/init.ts:107`. A near-identical `loadDistTags` reading `registry/dist-tags.json` is copy-pasted in `repo/status.ts:59`, `repo/tags.ts:63`, and `spaces/list.ts:40`.
+- Proposed change: Extract `registryExists(repoPath)` and `loadDistTags(repoPath)` into one shared module (e.g. `commands/repo/registry-fs.ts`) and route all callers through it. Keep each command's bespoke error message at the call site (behavior-preserving) since the messages differ slightly.
 
-### 2. Extract `buildSettingSources()` to shared utility — DIP + OCP
-- **Location:** `/packages/cli/src/commands/run.ts:110`, `/packages/cli/src/commands/gui.ts:63`
-- **Current:** Identical function in two files; conditional inherit logic (inheritAll → null, multiple flag combinations → comma string) is duplicated
-- **Suggested:** Create `src/settings-helper.ts` exporting `buildSettingSources(inherit: { all?: boolean; project?: boolean; user?: boolean; local?: boolean }): string | null | undefined`. Both commands import and call the shared function.
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 20 minutes  ·  **Tests:** Existing unit tests for run/gui commands (verify settings inheritance is still correct)
+## `inferTargetFromBundleRoot` duplicated between resolve-reminder and self/lib
+- File: packages/cli/src/commands/resolve-reminder.ts:111
+- Risk: Med
+- API-impact: internal-only
+- Smell: `inferTargetFromBundleRoot` exists in both `commands/resolve-reminder.ts:111` and `commands/self/lib.ts:164` with subtly different bodies (the resolve-reminder copy additionally computes `harnessName` only to null-check it). Divergent copies of the same "parse target slug from bundle path" logic risk drifting.
+- Proposed change: Keep the exported `self/lib.ts` version as the single source and import it into `resolve-reminder.ts` (or move both to a shared `bundle-path.ts`). Reconcile the one behavioral difference (harnessName presence check) deliberately rather than by accident.
 
-### 3. Extract `resolveProjectRunTarget()` and `resolveGuiTarget()` to shared utility — OCP + DIP
-- **Location:** `/packages/cli/src/commands/run.ts:80`, `/packages/cli/src/commands/gui.ts:41`
-- **Current:** Nearly identical scope-handle parsing logic (18 lines each); same try/catch parseScopeHandle pattern with same fallback behavior
-- **Suggested:** Create `src/scope-target-resolver.ts` with a generic function that accepts a target string and returns { targetName, displayTarget, projectId?, taskId? }. Both commands use it without change.
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 25 minutes  ·  **Tests:** `npm test packages/cli` (run/gui scope parsing edge cases)
+## Agent-profile TOML load duplicated (resolve-reminder vs self/lib)
+- File: packages/cli/src/commands/resolve-reminder.ts:193
+- Risk: Low
+- API-impact: internal-only
+- Smell: The "load `agent-profile.toml` if discovery did not include a rawProfile" fallback (lines 193-204) re-implements the `readAgentProfile` helper already present in `self/lib.ts:228` (existsSync + parseToml + record guard).
+- Proposed change: Export `readAgentProfile` from `self/lib.ts` (or a shared module) and reuse it in `resolve-reminder.ts`; drop the inline `parseToml(readFileSync(...))` block.
 
-### 4. Split `run.ts` into mode handlers + orchestrator — SRP
-- **Location:** `/packages/cli/src/commands/run.ts` (500 LOC)
-- **Current:** Single file mixes 7 concerns: mode detection (detectRunMode), project/global/dev mode handlers (3 async functions, ~220 LOC), common options builder, harness validation, error handling, CLI registration, prompt display, compiler debug dump. Functions are well-factored but tight coupling within one file.
-- **Suggested:** Create `src/commands/run/` subdirectory: 
-  - `modes.ts`: export `detectRunMode()`, `isLocalSpacePath()`, `hasAgentProfile()`
-  - `modes/project.ts`: export `runProjectMode()`
-  - `modes/global.ts`: export `runGlobalMode()`
-  - `modes/dev.ts`: export `runDevMode()`
-  - `index.ts`: imports all; contains CLI registration and orchestration only
-  - Move `buildCommonRunOptions()` to `src/run-options-builder.ts`
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 90 minutes  ·  **Tests:** All existing unit and integration tests (verify no behavior change)
+## Dead local alias + redundant computed var in `inferTargetFromBundleRoot`
+- File: packages/cli/src/commands/resolve-reminder.ts:116
+- Risk: Low
+- API-impact: internal-only
+- Smell: `const harnessDir = bundleRoot` is a pointless rename alias; `const harnessName = harnessDir.split('/').pop()` is computed only to be used in a single null check while `targetName` re-splits the same path again.
+- Proposed change: Inline `bundleRoot` directly, drop the `harnessDir` alias, compute `targetName` once, and collapse the null check.
 
-### 5. Reduce parameter count in `resolveContextTemplateDetailed()` and `resolveSelfContext()` calls — ISP + DIP
-- **Location:** `/packages/cli/src/commands/self/lib.ts:206` (resolveContextTemplateDetailed call passes 3 args), `/packages/cli/src/commands/self/explain.ts` (multiple dispatch patterns)
-- **Current:** Long call site argument lists; context is scattered across multiple variables before passing to resolver functions
-- **Suggested:** Build a single resolver options object once per command entry point and thread it through. Example: `const resolverOpts = buildResolverOpts(options, agentRoot, agentName); await resolveContextTemplateDetailed(contextTemplate, resolverOpts)`.
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 45 minutes  ·  **Tests:** `npm test packages/cli` (`asp self` commands)
+## Inline `error instanceof Error ? .message : String(error)` despite `errorMessage()` existing
+- File: packages/cli/src/commands/explain.ts:62
+- Risk: Low
+- API-impact: internal-only
+- Smell: `helpers.ts` exports `errorMessage()` precisely to kill this idiom, but it is still hand-rolled inline in catch blocks: `explain.ts:62-66`, `gc.ts:67-71`, `add.ts:93-97`, and `self/inspect.ts:60` / `self/paths.ts:78` (`err instanceof Error ? err.message : String(err)`).
+- Proposed change: Replace each inline ternary with `errorMessage(error)`. Behavior-preserving; the produced string is identical.
 
-### 6. Create a command registration factory to reduce boilerplate — SRP + OCP
-- **Location:** `/packages/cli/src/index.ts:63-98` (18 similar register calls)
-- **Current:** 18 nearly identical command registrations (e.g., `registerRunCommand(program)`, `registerInitCommand(program)`, ...) in `createProgram()`. If adding a new command, 3 places need updating: import, register call, index file.
-- **Suggested:** Create `src/command-registry.ts` exporting `registerAllCommands(program: Command): void` that imports all register functions and calls them. Update `createProgram()` to call one function. Reduces coupling between index.ts and individual command modules.
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 40 minutes  ·  **Tests:** Existing CLI smoke tests (verify all commands still register)
+## Duplicated "No asp-targets.toml found" error block
+- File: packages/cli/src/commands/explain.ts:40
+- Risk: Low
+- API-impact: internal-only
+- Smell: The two-line red+gray "No asp-targets.toml found in current directory or parents / Run this command from a project directory or use --project" block is duplicated verbatim in `explain.ts:41-43` and `add.ts:38-40`; `install.ts:85-87` prints a near-identical variant via the ui helpers.
+- Proposed change: Extract a `printNoProjectError()` (chalk variant) into `helpers.ts` and call it from both chalk-based commands. (Commands that use `getProjectContext` already get this via `ProjectNotFoundError`/`exitWithAspError`; `explain.ts` and `add.ts` are the holdouts doing their own project lookup.)
+
+## `normalizeMainError` and `normalizeCliError` overlap
+- File: packages/cli/src/index.ts:28
+- Risk: Med
+- API-impact: internal-only
+- Smell: `index.ts:28 normalizeMainError` and `helpers.ts:92 normalizeCliError` both contain the same `isAspError(error) && error.cause instanceof Error → new Error(`${msg}\n  Cause: ${cause.message}`)` formatting branch.
+- Proposed change: Have `normalizeMainError` delegate the asp-error-cause formatting to a shared private helper (or fold it into `normalizeCliError` and call that from `index.ts`). Keep the `ProjectNotFoundError` branch exclusive to the helpers path.
+
+## Repeated required-option guards in memory subcommands
+- File: packages/cli/src/commands/self/memory/add.ts:33
+- Risk: Low
+- API-impact: internal-only
+- Smell: `if (!options.X) { stderr.write(`${COMMAND_NAME}: --X is required\n`); process.exit(1) }` is repeated for `--target`, `--content`, `--match` across `memory/add.ts:33,39`, `memory/replace.ts:35,41,45`, and `memory/remove.ts:28,34` (6+ identical blocks).
+- Proposed change: Add a `requireOption(commandName, flag, value): asserts value is string` helper to `memory/lib.ts` alongside the existing `validateTarget`; replace the inline blocks. Message text and exit-1 behavior preserved.
+
+## Magic timeout literal in doctor remote check
+- File: packages/cli/src/commands/doctor.ts:145
+- Risk: Low
+- API-impact: internal-only
+- Smell: `timeout: 10000, // 10 second timeout` — magic number with an explanatory comment, the textbook named-constant case.
+- Proposed change: `const REGISTRY_REMOTE_TIMEOUT_MS = 10_000` at module scope; reference it and drop the comment.
+
+## Repeated commit short-SHA slice length in diff
+- File: packages/cli/src/commands/diff.ts:86
+- Risk: Low
+- API-impact: internal-only
+- Smell: `.commit.slice(0, 12)` (short-SHA display width) is repeated 4 times in `computeDiffChanges` (lines 86, 92, 93, 104).
+- Proposed change: `const SHORT_SHA_LEN = 12` constant (or a tiny `shortSha(commit)` local) referenced in all four spots.
+
+## Experimental-harness set and default-harness string are inline magic literals
+- File: packages/cli/src/commands/harnesses.ts:117
+- Risk: Low
+- API-impact: internal-only
+- Smell: `const experimentalHarnesses = new Set(['codex'])` and `defaultHarness: 'claude'` are inline literals; `'claude'` as the default harness id is also hard-coded in `harness-validator.ts:36` and `install.ts:29`.
+- Proposed change: Introduce a same-package constant for the default harness id (and, if it belongs to the registry, source the "experimental" flag from the adapter rather than a local set). Do NOT change the public default value — pure rename of the literal.
+
+## `asp-targets.toml` filename built as inline literal in some commands
+- File: packages/cli/src/commands/add.ts:44
+- Risk: Low
+- API-impact: internal-only
+- Smell: `${projectPath}/asp-targets.toml` is hand-built in `add.ts:44`, `remove.ts:45`, `diff.ts:183`, `install.ts:120`, `agent/index.ts:58`, while `TARGETS_FILENAME` (from `spaces-config`) is used in `init.ts` and `describe.ts`. Inconsistent — a rename would miss the literal sites.
+- Proposed change: Use `join(projectPath, TARGETS_FILENAME)` everywhere the targets file path is constructed.
+
+## `explainReminder` has two near-identical early-return payloads
+- File: packages/cli/src/commands/self/explain.ts:235
+- Risk: Low
+- API-impact: internal-only
+- Smell: In `explainReminder`, the "no template" (235-246) and "no reminder sections" (248-259) branches each push one finding then return the same `{ topic, templateSource, runModeAssumed, findings }` shape; the per-finding `findings.push({ level, message })` calls are verbose throughout the file.
+- Proposed change: Add tiny local `info(msg)` / `warn(msg)` push helpers (or a `makeReminderPayload(findings, sections?)` closure) to remove the repeated object literals and the duplicated return shape. Purely local, behavior-preserving.
+
+## Redundant `_harness` → re-bind double assignment
+- File: packages/cli/src/commands/run.ts:362
+- Risk: Low
+- API-impact: internal-only
+- Smell: `const _harness = validateOptionalHarness(...); options.harness = _harness` (run.ts:362-363) and `const _harness = validateHarness(...); const harnessId = _harness` (install.ts:77-78) introduce a throwaway `_harness` local that is immediately re-bound — leftover noise from a prior refactor.
+- Proposed change: Assign directly (`options.harness = validateOptionalHarness(options.harness)` / `const harnessId = validateHarness(options.harness)`); drop the `_harness` intermediary.
 
 ---
 
-## Code Smells
+## Summary of risk classification
 
-| Smell | Location | Severity |
-|-------|----------|----------|
-| **Duplicated block** | `validateHarness()` in build.ts, explain.ts, install.ts, run.ts | Medium |
-| **Duplicated block** | `buildSettingSources()` in run.ts, gui.ts | Low |
-| **Duplicated block** | `resolveProjectRunTarget()` vs `resolveGuiTarget()` | Low |
-| **Type-based dispatch chain** | `detectRunMode()` → 4 conditions + 1 invalid state (run.ts:211-234) | Low |
-| **Long method** | `createProgram()` in index.ts (35 LOC; all register calls) | Low |
-| **Magic numbers** | `timeout: 10000` (doctor.ts:145), hardcoded maxWidth 76 (ui.ts:121) | Low |
-| **Type-based switch in format** | `formatChangeText()` in diff.ts; `computeDiffChanges()` (switch on type 'added'/'removed'/'updated') | Low |
-| **Primitive obsession** | Strings used for enum-like values (runMode: 'project'|'global'|'dev'|'invalid') instead of type-safe enum | Low |
-| **Feature envy** | `run.ts` calls many `spaces-execution` and `spaces-config` functions; tight coupling to orchestration layer | Low |
+All findings above are **Low** or **Med** risk and **internal-only** — they touch
+private helpers, local variables, inline literals, and same-package constants.
+None change anything exported from the package, any CLI flag, any user-visible
+output string, or any thrown-error contract. There are **no High-risk or
+public-surface findings** to defer.
 
----
-
-## Quick Wins (low risk, high value)
-
-1. **Extract shared `validateHarness()` → 30 min**: Eliminates 40 LOC of duplication across 4 files. High visibility, zero behavior change.
-2. **Extract shared `buildSettingSources()` → 20 min**: Reduces duplication in run/gui commands. Test coverage already present.
-3. **Move command registration to factory → 40 min**: Reduces long import list in index.ts; makes adding new commands a two-step process (register + export).
-4. **Define `RunMode` as const assertion or enum in run.ts → 10 min**: Replace string literals ('project'|'global'|'dev'|'invalid') with `as const` type guard for type safety.
-
----
-
-## Technical Debt Notes
-
-### Distributed Concern: Harness Validation
-Five commands (build, explain, install, run, gui) validate harness IDs with identical logic but no shared utility. Each repeats the same error message formatting and process.exit() call. This is maintainability debt—if the harness registry API changes, 5 places need updating.
-
-### Distributed Concern: Settings Source Building
-Two commands (run, gui) have identical `buildSettingSources()` functions with no shared home. If a new inherit flag is added (e.g., --inherit-workspace), both need updating independently.
-
-### Tight Coupling in run.ts
-The `run` command orchestrates three different execution modes (project/global/dev) and several option-builder functions. While each function is clean, the file is 500 LOC and mixing concerns. Future changes to mode detection or option building will likely touch this file.
-
-### Long Promise Chain in index.ts
-The `normalizeMainError()` function (lines 49-58) appears twice in index.ts (line 52 and line 131). Small candidate for extraction but low priority given the brevity.
-
-### Minimal Test Coverage for Utilities
-Files like `ui.ts` (command wrapping, path formatting) and `helpers.ts` (path context resolution) have no unit tests. Integration tests via CLI commands provide some coverage, but unit tests would catch regressions faster.
-
-### Parameter List Growth in Resolver Functions
-Commands like `resolveContextTemplateDetailed()` and `resolveSelfContext()` accept options objects, but call sites are often verbose (e.g., resolve-reminder.ts:184-190). A builder pattern or options normalization could reduce call-site complexity.
-
----
-
-### Summary
-
-**Key Violations:**
-- **SRP**: run.ts (500 LOC) mixes orchestration, mode handling, and formatting
-- **OCP**: Harness validation, settings source building spread across commands without factory/shared utility
-- **DIP**: Direct PathResolver instantiation; no injection seam for shared validation logic
-
-**Easiest Wins:**
-1. Extract validateHarness() → shared utility (DIP, 4 duplications)
-2. Extract buildSettingSources() → shared utility (DIP, 2 duplications)
-3. Reorganize run.ts as subdirectory with mode handlers (SRP, 500→250 LOC in index)
-4. Create command-registry factory (OCP, reduce coupling in index.ts)
-
-**Effort / Impact Ratio:**
-- Harness validation + settings sources: ~50 min work, eliminates ~40 LOC duplication, high maintainability gain
-- Run.ts reorganization: ~90 min work, improves readability + SRP, no behavior change
-- Command registry: ~40 min work, future-proofs command registration
-
-All identified refactorings are **low risk** and **internal-only** (no public API changes).
+The package is in good post-refactor shape; these are incremental dedupe/cleanup
+items, not structural problems.

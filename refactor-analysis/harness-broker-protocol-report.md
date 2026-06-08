@@ -1,167 +1,63 @@
-# Refactoring Analysis
+# SOLID / code-smell audit — `spaces-harness-broker-protocol`
 
-**Target:** packages/harness-broker-protocol/src  
-**Lines analyzed:** 3,969  
-**Generated:** 2026-06-07  
-**Focus:** all
+Package dir: `packages/harness-broker-protocol/`
 
-## SOLID Scorecard
+## Overall assessment
 
-| Principle | Status | Issues |
-|-----------|--------|--------|
-| **S**RP | 🔴 | schemas.ts (1957 lines) mixes validation dispatch, payload validators, command dispatch, and env policy in one module |
-| **O**CP | 🟡 | validateCommandParams switch (535 lines) must be extended per new broker method; uses manual dispatch instead of registry pattern |
-| **L**SP | 🟢 | Error class hierarchy properly preserves base behavior; no breaking overrides |
-| **I**SP | 🟡 | SchemaRecord has 150+ optional fields; fat interface invites misuse and tight coupling |
-| **D**IP | 🟡 | lifecyclePolicyHash hardcoded as default arg; env key classification functions scattered; validation primitives tightly coupled |
+This package was just refactored in the most recent commit (`e238805 — SOLID/code-smell
+cleanup pass across all 17 packages (T-02028)`) and the cleanup is visible and high quality:
 
-## Priority Refactorings
+- Cross-cutting validation primitives extracted to `validation-primitives.ts`, env policy to
+  `env-keys.ts`, tmux id rules to `tmux-ids.ts` — all documented as behavior-preserving extractions
+  that preserve the public surface.
+- The former per-method/per-event `switch` chains were replaced by lookup tables
+  (`COMMAND_PARAM_VALIDATORS`, `EVENT_PAYLOAD_VALIDATORS`, `HARNESS_RECOVERY_MODE_VALIDATORS`) with
+  documented OCP rationale.
+- A shared `ProtocolError` / `ProtocolValidationError` base removes constructor boilerplate across
+  the error family.
+- Compile-time exhaustiveness guards (`AssertExhaustive`) close the registry-vs-union drift gap.
+- The `void _brokerMethodsExhaustive` / `void _eventTypesExhaustive` lines look like dead code but
+  are intentional compile-time guards with an explanatory comment — NOT a finding.
 
-### 1. Extract validators from schemas.ts into focused modules — SRP
+Most files (`capabilities.ts`, `commands.ts`, `events.ts`, `invocation.ts`, `ids.ts`,
+`primitives.ts`, `index.ts`, `jsonrpc.ts`, `ndjson.ts`, `errors.ts`) are pure type declarations or
+already-tight logic with nothing actionable.
 
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker-protocol/src/schemas.ts` (entire file)
-- **Current:** Single 1957-line file contains:
-  - Command parameter dispatch and validation (lines 510–608)
-  - Event payload validators registry and dispatchers (lines 1253–1525)
-  - Harness recovery mode dispatch table (lines 798–827)
-  - Invocation input/spec shape validators (lines 385–467)
-  - Environment key validation (lines 1659–1710)
-- **Suggested:** 
-  - Create `src/validators/command-params.ts` for broker method validators
-  - Create `src/validators/event-payloads.ts` for event payload validator registry
-  - Create `src/validators/invocation-shape.ts` for spec/input/dispatch shape validation
-  - Leave schemas.ts as thin orchestrator re-exporting public surface
-- **Risk:** Med  
-- **API-impact:** internal-only  
-- **Effort:** 3–4 hours (move + adjust imports + minimal refactor)  
-- **Tests:** All existing validation error tests pass; no signature changes to public exports
+Only a handful of small, low-value internal cleanups remain in `schemas.ts`. None are required;
+they are listed for completeness.
 
-### 2. Replace validateCommandParams switch with registry dispatch — OCP
+---
 
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker-protocol/src/schemas.ts:510–608`
-- **Current:** 73-line switch statement on `method` enum; each new broker method requires adding a case
-- **Suggested:** 
-  ```typescript
-  const COMMAND_PARAM_VALIDATORS: Record<BrokerMethod, (params: SchemaRecord, issues: ValidationIssue[]) => void> = {
-    'broker.hello': validateBrokerHelloParams,
-    'broker.health': validateBrokerHealthParams,
-    // ... one entry per method
-  }
-  // Then: const validator = COMMAND_PARAM_VALIDATORS[method]; validator?.(commandParams, issues);
-  ```
-- **Risk:** Low  
-- **API-impact:** internal-only  
-- **Effort:** 1–2 hours (extract validators, wire registry)  
-- **Tests:** Reuse all existing command validation tests; no behavior change
+## Repeated "array shape" guard duplicated across five validators
+- File: packages/harness-broker-protocol/src/schemas.ts:1925
+- Risk: Low
+- API-impact: internal-only
+- Smell: The `if (!Array.isArray(value)) { push(value === undefined ? 'required' : 'invalid_type', '... must be an array') ; return }` preamble is copy-pasted in `requireStringArray`, `optionalStringArray` (validation-primitives.ts:48,90) and `validateInputContent`, `validateEnumArray`, `validateOptionalEventTypeArray` (schemas.ts). The "required vs invalid_type" ternary + "must be an array" literal repeat verbatim.
+- Proposed change: Add a private helper `requireArray(value, basePath, issues): unknown[] | undefined` in `validation-primitives.ts` that performs the guard and returns the array (or undefined). Have the call sites use it, then `.forEach` over the returned array. Pure dedupe; same issue codes/messages emitted.
 
-### 3. Reduce SchemaRecord interface bloat — ISP
+## Nested triple `asRecord(startRequest?.spec)` in dispatch lockedEnv lookup
+- File: packages/harness-broker-protocol/src/schemas.ts:698
+- Risk: Low
+- API-impact: internal-only
+- Smell: `validateInvocationDispatchRequestShape` derives `lockedEnv` with `asRecord(startRequest?.spec)?.process !== undefined ? asRecord(asRecord(startRequest?.spec)?.process)?.lockedEnv : undefined` — `asRecord(startRequest?.spec)` is evaluated three times and the ternary's false branch is already `undefined` (a no-op).
+- Proposed change: Compute once: `const specRecord = asRecord(startRequest?.spec); const processRecord = asRecord(specRecord?.process); const lockedEnv = processRecord?.lockedEnv`. Behavior-identical, removes the redundant evaluations and the no-op ternary.
 
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker-protocol/src/schemas.ts:65–195`
-- **Current:** Single record with 150+ optional fields listing every DTO field ever used in a schema
-- **Suggested:** 
-  - Keep SchemaRecord as `Record<string, unknown> & { [k: string]: unknown }` (minimal anchor)
-  - Document the "grab bag" intent in comments
-  - Consumers cast to specific DTO types after validation
-  - If type safety is needed: use discriminated unions or narrow asRecord() to return type-specific records
-- **Risk:** Low  
-- **API-impact:** internal-only  
-- **Effort:** 1 hour (update SchemaRecord definition + add comment)  
-- **Tests:** No test changes; purely a type-hygiene refactor
+## `validateEnumArray` and `validateOptionalEventTypeArray` share enum-membership-per-item logic
+- File: packages/harness-broker-protocol/src/schemas.ts:1909
+- Risk: Low
+- API-impact: internal-only
+- Smell: Both iterate an array pushing an `invalid_*` issue when an item is not a string or not in the allowed set. They differ only in the membership source (a literal `allowed[]` array vs the `eventTypes` Set) and the issue code/message — near-duplicate bodies.
+- Proposed change: Route both through a shared private `forEachArrayItem(value, basePath, issues, predicate, code, message)` helper (best done alongside the array-guard dedupe above, sharing the same helper). Behavior-preserving.
 
-### 4. Extract env-key classification logic into focused functions — DIP
+## `SchemaRecord` is a hand-maintained ~130-key optional-`unknown` index type
+- File: packages/harness-broker-protocol/src/schemas.ts:65
+- Risk: Med
+- API-impact: public-surface
+- Smell: `SchemaRecord` is exported and is a ~130-line manually-curated map of every DTO field name to `unknown`. It is essentially `Record<string, unknown>` with documentation-only key hints; new fields must be remembered here or property access reverts to bracket strings (the file already mixes `payload.kind` dotted access and `payload['kind']` bracket access inconsistently because of this). It is a mild god-type and a drift risk.
+- Proposed change (DEFER — do not auto-apply): Consider collapsing to `type SchemaRecord = Record<string, unknown>` (uniform bracket access) OR generating the key union from the DTO types. Either changes an exported type's shape and the access pattern throughout the file, so it needs human review and a typecheck/test gate. Documented only.
 
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker-protocol/src/schemas.ts:1659–1710` calls env-keys functions; env-keys.ts already separated
-- **Current:** Validation imports and calls `isAmbientEnvKey`, `isCredentialEnvKey`, `isReservedEnvKey` inline; policy is scattered across two modules
-- **Suggested:** 
-  - Create `src/validators/env-classification.ts` exporting a single `classifyEnvKey()` function returning an enum (ambient | credential | reserved | ok)
-  - Callers invoke this once per key, not four separate predicates
-  - Reduces call sites and centralizes error messages
-- **Risk:** Low  
-- **API-impact:** internal-only  
-- **Effort:** 1 hour  
-- **Tests:** Reuse env-keys tests; add validation test for the new enum classifier
+---
 
-### 5. Inject lifecyclePolicyHash hasher into validators — DIP
-
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker-protocol/src/schemas.ts:704–750`
-- **Current:** `validateLifecyclePolicyOverlay` takes optional `computeHash` param defaulting to `lifecyclePolicyHash`, hardcoding the crypto implementation
-- **Suggested:** 
-  - Change signature to require the hasher (no default), forcing callers to supply it
-  - Add a factory function `createValidators(hasher)` that returns the validator suite
-  - This allows test code and alternate hash algorithms to inject mocks without mutation
-- **Risk:** Low  
-- **API-impact:** internal-only  
-- **Effort:** 1–2 hours (update signature + audit call sites)  
-- **Tests:** Update tests that validate the policyHash to pass explicit mock hashers
-
-### 6. Consolidate duplicated validation patterns — DRY (Code Smell)
-
-- **Location:** Multiple functions in schemas.ts:
-  - `validateEnv` (1659), `validateStringRecord` (1859) both loop `Object.entries(record)` validating field types
-  - `validateOptionalPositiveInteger` (1933), `validateRequiredPositiveInteger` (1946) duplicate the number check logic
-  - `validateInputContent` (1603), `validateTerminalSurfaceReportedPayload` (1483) both iterate arrays with pattern matching
-- **Suggested:** 
-  - Extract `validateRecord(value, basePath, fieldValidator)` that handles looping + issues collection
-  - Combine positive integer validators: `function validateInteger(value, basePath, issues, { required, positive, message })` with options
-  - Extract discriminated union validator `matchOnField(value, basePath, discriminator, handlers)`
-- **Risk:** Low  
-- **API-impact:** internal-only  
-- **Effort:** 2–3 hours (extract + rewire call sites)  
-- **Tests:** All existing tests pass; purely internal refactor
-
-### 7. Break nested if-chains into early returns — Readability
-
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-broker-protocol/src/schemas.ts:1078–1146` (validateDispatchRuntime)
-- **Current:** Function has 4-level nesting (lines 1092–1145); checks for `runtime.tmux`, `terminalSurface`, driver kind all interleaved
-- **Suggested:** 
-  ```typescript
-  function validateDispatchRuntime(...) {
-    const runtime = asRecord(dispatchRequest['runtime']);
-    if (!runtime && !needsRuntime(driverKind)) return; // early exit
-    
-    if (runtime?.tmux) validateTmuxLegacy(runtime.tmux, ...);
-    if (runtime?.terminalSurface) validateTerminalSurface(runtime.terminalSurface, ...);
-    
-    if (needsRuntime(driverKind)) {
-      enforceTerminalSurfaceOrLegacy(...);
-    }
-  }
-  ```
-- **Risk:** Low  
-- **API-impact:** internal-only  
-- **Effort:** 1–2 hours (refactor + test verification)  
-- **Tests:** Reuse all validation test cases; no behavior change
-
-## Code Smells
-
-| Smell | Location | Severity |
-|-------|----------|----------|
-| **Long function** | `validateCommandParams` (lines 510–608, 98 lines) | Medium — dispatcher growing with each method; candidate for split |
-| **Long function** | `validateSpec` (lines 385–467, 82 lines) | Medium — mixes harness, process, driver, launch sub-spec validation |
-| **Long function** | `validateLifecyclePolicyOverlay` + mode validators (lines 704–876) | Medium — lifecycle policy dispatch + mode-specific validators interleaved |
-| **Duplicated logic** | `validateEnv`, `validateStringRecord` (both `Object.entries` + validation loop) | Medium |
-| **Duplicated logic** | `validateOptionalPositiveInteger`, `validateRequiredPositiveInteger` | Low — simple numeric check, minimal duplication |
-| **Duplicated logic** | Array-item iteration pattern (lines 1615, 1899, 1924) | Low — forEach with per-item path construction, copy-paste candidate |
-| **Deep nesting** | `validateDispatchRuntime` (4 levels, lines 1087–1145) | Medium — makes control flow hard to follow |
-| **Deep nesting** | `validateRuntimeRetentionPolicy` (3–4 levels, mode-specific behavior hidden) | Low — not excessive but mode dispatch could be clearer |
-| **Magic strings** | Event type literals scattered in EVENT_PAYLOAD_VALIDATORS object literal (lines 1296–1451) | Low — self-documenting in context, but no DRY enforcement |
-| **Parameter overload** | `validateEnv(value, basePath, issues, channel, lockedEnv?)` | Low — 5 params; `channel` could be enum, `lockedEnv` could be context object |
-| **Wide catch** | `lifecyclePolicyHash` try-catch (lines 735–739) silently swallows hash errors | Medium — masks crypto failures; should log or re-throw |
-
-## Quick Wins (low risk, high value)
-
-1. **Consolidate numeric validators** (1 hour) — Combine `validateOptionalPositiveInteger` / `validateRequiredPositiveInteger` into single `validateInteger(value, basePath, issues, { required, positive })` function. Eliminates 20 lines of duplication with zero behavior change.
-
-2. **Extract `validateRecord` helper** (1 hour) — Pull out the `Object.entries` loop pattern used in `validateEnv` and `validateStringRecord`. Callers pass a field validator callback. Reduces code smell, improves readability.
-
-3. **Create `EnvKeyClassification` enum** (1 hour) — Replace four separate `isAmbientEnvKey()` / `isCredentialEnvKey()` / etc. calls with single `classifyEnvKey(key)` returning enum. One call per key, cleaner error messages.
-
-4. **Add early-exit guards in nested validators** (1 hour) — `validateDispatchRuntime`, `validateRuntimeRetentionPolicy`, and lifecycle mode dispatchers: hoist checks, return early, flatten nesting. No behavior change; pure readability.
-
-## Technical Debt Notes
-
-- **Event type drift risk:** EVENT_TYPES and EVENT_PAYLOAD_VALIDATORS tuples are maintained manually. Consider a single union-driven registry keyed by event type to prevent future misalignment.
-- **Validation primitive asymmetry:** `optionalX` and `requireX` functions duplicate the "required vs invalid_type" distinction. A unified `validate(value, basePath, issues, { type, required })` helper would reduce this pattern across the codebase.
-- **Hardcoded protocol versions:** SUPPORTED_BROKER_PROTOCOL_VERSIONS is imported into schemas.ts but defined in invocation.ts. Consider a central constants module.
-- **Test coverage:** No test file visible in the exploration; ensure all validators have unit tests for both happy path and all error code branches (at least 3 test cases per validator function).
-
+## Summary counts
+- Auto-applicable (Low/Med AND internal-only): 3
+- Deferred (High-risk OR public-surface): 1

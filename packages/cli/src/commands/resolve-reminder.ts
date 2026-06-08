@@ -113,9 +113,8 @@ function inferTargetFromBundleRoot(bundleRoot: string | undefined): string | und
     return undefined
   }
 
-  const harnessDir = bundleRoot
-  const targetDir = dirname(harnessDir)
-  const harnessName = harnessDir.split('/').pop()
+  const targetDir = dirname(bundleRoot)
+  const harnessName = bundleRoot.split('/').pop()
   if (!harnessName || dirname(targetDir) === targetDir) {
     return undefined
   }

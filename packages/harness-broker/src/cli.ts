@@ -232,8 +232,6 @@ async function runUnix(args: string[]): Promise<void> {
     }
   }
 
-  const brokerInstanceId = `broker_${process.pid}`
-
   await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 })
 
   // Hazard (b): conservative stale-socket cleanup — only unlink a socket node
@@ -269,7 +267,8 @@ async function runUnix(args: string[]): Promise<void> {
     {
       advertisedTransports: ['stdio-jsonrpc-ndjson', 'unix-jsonrpc-ndjson'],
       advertiseAttachReplay: true,
-      brokerInstanceId,
+      // brokerInstanceId intentionally omitted: createBroker defaults it to
+      // `broker_${process.pid}`, computed in this same process (identical value).
       // T-01794 Phase D: runtime-scoped hook IPC dir derived from this durable
       // broker's --socket parent, so its tmux drivers bind per-invocation hook
       // sockets under it (never the global tmpdir socket two runtimes share).

@@ -17,6 +17,22 @@ import type { PiSdkBundleHookEntry, PiSdkBundleManifest } from './bundle-manifes
 export const PI_SDK_HARNESS_ID = 'pi-sdk'
 export const PI_SDK_BUNDLE_SCHEMA_VERSION = 1
 
+/** Hook-event names matched against bundle hook entries (`hook.event`). */
+const HOOK_RUNTIME_EVENT = {
+  PRE_TOOL_USE: 'pre_tool_use',
+  POST_TOOL_USE: 'post_tool_use',
+  SESSION_START: 'session_start',
+  SESSION_END: 'session_end',
+} as const
+
+/** Pi lifecycle event names this runtime registers `pi.on(...)` handlers for. */
+const PI_LIFECYCLE_EVENT = {
+  TOOL_CALL: 'tool_call',
+  TOOL_RESULT: 'tool_result',
+  SESSION_START: 'session_start',
+  SESSION_SHUTDOWN: 'session_shutdown',
+} as const
+
 /** Minimal Pi extension API surface this runtime depends on. */
 export interface ExtensionApi {
   on: <Args extends unknown[]>(event: string, handler: (...args: Args) => unknown) => unknown
@@ -196,7 +212,7 @@ export function buildHookExtension(options: BuildHookExtensionOptions): (pi: Ext
             display: true,
             details: { event: hook.event, script: hook.script, exitCode: 1 },
           })
-          if (hook.blocking && !yolo && hookEvent === 'pre_tool_use') {
+          if (hook.blocking && !yolo && hookEvent === HOOK_RUNTIME_EVENT.PRE_TOOL_USE) {
             return { blocked: true, reason: message }
           }
           continue
@@ -222,7 +238,12 @@ export function buildHookExtension(options: BuildHookExtensionOptions): (pi: Ext
           })
         }
 
-        if (hook.blocking && !yolo && hookEvent === 'pre_tool_use' && result.exitCode !== 0) {
+        if (
+          hook.blocking &&
+          !yolo &&
+          hookEvent === HOOK_RUNTIME_EVENT.PRE_TOOL_USE &&
+          result.exitCode !== 0
+        ) {
           return {
             blocked: true,
             reason: `Hook ${hook.event} blocked tool ${toolName ?? ''}`,
@@ -237,9 +258,9 @@ export function buildHookExtension(options: BuildHookExtensionOptions): (pi: Ext
       return
     }
 
-    pi.on('tool_call', async (event: Record<string, unknown>, ctx: unknown) => {
+    pi.on(PI_LIFECYCLE_EVENT.TOOL_CALL, async (event: Record<string, unknown>, ctx: unknown) => {
       const result = await runHooks(
-        'pre_tool_use',
+        HOOK_RUNTIME_EVENT.PRE_TOOL_USE,
         event,
         ctx as HookRunContext,
         event['toolName'] as string | undefined
@@ -250,9 +271,9 @@ export function buildHookExtension(options: BuildHookExtensionOptions): (pi: Ext
       return undefined
     })
 
-    pi.on('tool_result', async (event: Record<string, unknown>, ctx: unknown) => {
+    pi.on(PI_LIFECYCLE_EVENT.TOOL_RESULT, async (event: Record<string, unknown>, ctx: unknown) => {
       await runHooks(
-        'post_tool_use',
+        HOOK_RUNTIME_EVENT.POST_TOOL_USE,
         event,
         ctx as HookRunContext,
         event['toolName'] as string | undefined
@@ -260,14 +281,20 @@ export function buildHookExtension(options: BuildHookExtensionOptions): (pi: Ext
       return undefined
     })
 
-    pi.on('session_start', async (event: Record<string, unknown>, ctx: unknown) => {
-      await runHooks('session_start', event, ctx as HookRunContext)
-      return undefined
-    })
+    pi.on(
+      PI_LIFECYCLE_EVENT.SESSION_START,
+      async (event: Record<string, unknown>, ctx: unknown) => {
+        await runHooks(HOOK_RUNTIME_EVENT.SESSION_START, event, ctx as HookRunContext)
+        return undefined
+      }
+    )
 
-    pi.on('session_shutdown', async (event: Record<string, unknown>, ctx: unknown) => {
-      await runHooks('session_end', event, ctx as HookRunContext)
-      return undefined
-    })
+    pi.on(
+      PI_LIFECYCLE_EVENT.SESSION_SHUTDOWN,
+      async (event: Record<string, unknown>, ctx: unknown) => {
+        await runHooks(HOOK_RUNTIME_EVENT.SESSION_END, event, ctx as HookRunContext)
+        return undefined
+      }
+    )
   }
 }

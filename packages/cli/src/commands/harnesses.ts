@@ -12,7 +12,11 @@ import figures from 'figures'
 
 import { type HarnessDetection, type HarnessModelInfo, harnessRegistry } from 'spaces-execution'
 
+import { DEFAULT_HARNESS_ID } from '../harness-validator.js'
 import { errorMessage } from '../helpers.js'
+
+/** Harness ids surfaced as "experimental" in the `harnesses` listing. */
+const EXPERIMENTAL_HARNESS_IDS = new Set(['codex'])
 
 interface HarnessInfo {
   id: string
@@ -114,7 +118,6 @@ export function registerHarnessesCommand(program: Command): void {
         // Detect all harnesses
         const detections = await harnessRegistry.detectAvailable()
         const adapters = harnessRegistry.getAll()
-        const experimentalHarnesses = new Set(['codex'])
 
         const harnesses: HarnessInfo[] = adapters.map((adapter) => ({
           id: adapter.id,
@@ -124,12 +127,12 @@ export function registerHarnessesCommand(program: Command): void {
             error: 'Detection not run',
           },
           models: adapter.models,
-          experimental: experimentalHarnesses.has(adapter.id),
+          experimental: EXPERIMENTAL_HARNESS_IDS.has(adapter.id),
         }))
 
         const output: HarnessesOutput = {
           harnesses,
-          defaultHarness: 'claude',
+          defaultHarness: DEFAULT_HARNESS_ID,
         }
 
         if (options.json) {

@@ -8,7 +8,6 @@
  * Helpers and global/dev modes live under ./run/.
  */
 
-import { cp, mkdir, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import {
   type BuildResult,
@@ -80,10 +79,14 @@ import type {
 import {
   composeArraysMatch,
   mergeDefined,
+  moveDirWithCopyFallback,
   pathExists,
   resolveRunEnvFlags,
   toHarnessRunOptions,
 } from './run/util.js'
+
+/** Warning code emitted for execution-time (post-compile) run warnings. */
+const RUN_WARNING_CODE = 'W401'
 
 export async function migrateLegacyProjectHarnessOutput(
   aspHome: string,
@@ -108,14 +111,7 @@ export async function migrateLegacyProjectHarnessOutput(
     return
   }
 
-  await mkdir(dirname(outputPath), { recursive: true })
-  try {
-    await rename(legacyOutputPath, outputPath)
-  } catch {
-    await rm(outputPath, { recursive: true, force: true })
-    await cp(legacyOutputPath, outputPath, { recursive: true, force: true })
-    await rm(legacyOutputPath, { recursive: true, force: true })
-  }
+  await moveDirWithCopyFallback(legacyOutputPath, outputPath)
 }
 
 export {
@@ -402,7 +398,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     mcpConfigPath: bundle.mcpConfigPath,
     settingsPath: bundle.settingsPath,
     warnings: execution.warnings.map((message) => ({
-      code: 'W401',
+      code: RUN_WARNING_CODE,
       severity: 'warning',
       message,
     })),

@@ -47,6 +47,7 @@ import {
   INSTRUCTIONS_FILE_CLAUDE,
   readHooksWithPrecedence,
 } from 'spaces-config'
+import { resolveSdkEntry } from '../pi-session/sdk-entry.js'
 import {
   type ExtensionBuildOptions,
   PiBundleError,
@@ -61,10 +62,6 @@ import {
 const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.5'
 
 const RUNNER_PATH = fileURLToPath(new URL('../pi-sdk/pi-sdk/runner.js', import.meta.url))
-const SDK_ENTRY_CANDIDATES = [
-  'packages/coding-agent/dist/index.js',
-  'packages/coding-agent/src/index.ts',
-]
 
 interface PiSdkBundleExtensionEntry {
   spaceId: string
@@ -147,16 +144,6 @@ async function dirHasEntries(dir: string): Promise<boolean> {
 
 function normalizeBundlePath(path: string): string {
   return path.replaceAll('\\', '/')
-}
-
-async function resolveSdkEntry(sdkRoot: string): Promise<string | null> {
-  for (const candidate of SDK_ENTRY_CANDIDATES) {
-    const entryPath = join(sdkRoot, candidate)
-    if (await fileExists(entryPath)) {
-      return entryPath
-    }
-  }
-  return null
 }
 
 async function resolveInstructionFile(snapshotPath: string): Promise<string | null> {
@@ -264,13 +251,10 @@ export class PiSdkAdapter implements HarnessAdapter {
   }
 
   validateSpace(_input: MaterializeSpaceInput): HarnessValidationResult {
-    const errors: string[] = []
-    const warnings: string[] = []
-
     return {
-      valid: errors.length === 0,
-      errors,
-      warnings,
+      valid: true,
+      errors: [],
+      warnings: [],
     }
   }
 

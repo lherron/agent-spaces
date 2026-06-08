@@ -55,11 +55,6 @@ export class InvocationEventHub {
     return stream
   }
 
-  /** Whether a live stream currently exists for the invocation. */
-  hasStream(invocationId: string): boolean {
-    return this.#events.has(invocationId)
-  }
-
   /** Close and forget the stream for a single invocation (start-rollback path). */
   drop(invocationId: string): void {
     this.#events.delete(invocationId)

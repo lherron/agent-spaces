@@ -16,6 +16,7 @@ import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import { asRecord } from '../hook-json'
 import {
   type HookListenerHandle,
   buildHookSocketPath,
@@ -397,13 +398,6 @@ function extractHookRecord(envelope: CodexCliTmuxHookEnvelope): Record<string, u
   const hook = asRecord(envelope.hookData ?? envelope.hookEvent ?? envelope.payload ?? envelope)
   const nested = asRecord(hook['hookEvent'])
   return nested['hook_event_name'] !== undefined ? nested : hook
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
 }
 
 function getHookString(obj: Record<string, unknown>, key: string): string | undefined {

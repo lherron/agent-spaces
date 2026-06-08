@@ -22,6 +22,13 @@ import {
 } from './validation-primitives.js'
 
 /**
+ * Canonical `schemaVersion` literal of the runtime compile request. Authoritative
+ * home is `spaces-runtime-contracts`; mirrored here as a single point of reference
+ * for the validator so the literal isn't repeated inline.
+ */
+const RUNTIME_COMPILE_REQUEST_SCHEMA_VERSION = 'agent-runtime-compile-request/v1'
+
+/**
  * Base for the package's request/command validation errors. Subclasses supply
  * their own `code`/`name`/message via the constructor; the shared body carries
  * the `issues` payload. The exported subclasses below keep their concrete names
@@ -204,7 +211,7 @@ function validateCompileHarnessInvocation(
   const request = validateCompileRuntimePlan(value, basePath, issues)
   if (request === undefined) return
   validateProfileSelector(request['profileSelector'], path(basePath, 'profileSelector'), issues)
-  validateStringRecord(request['dispatchEnv'], path(basePath, 'dispatchEnv'), issues)
+  validateOptionalStringRecord(request['dispatchEnv'], path(basePath, 'dispatchEnv'), issues)
   optionalRecord(request['runtime'], path(basePath, 'runtime'), issues)
   optionalRecord(request['lifecyclePolicy'], path(basePath, 'lifecyclePolicy'), issues)
 }
@@ -218,7 +225,7 @@ function validateRuntimeCompileRequest(
   if (request === undefined) return
   requireLiteral(
     request['schemaVersion'],
-    'agent-runtime-compile-request/v1',
+    RUNTIME_COMPILE_REQUEST_SCHEMA_VERSION,
     path(basePath, 'schemaVersion'),
     issues
   )
@@ -275,7 +282,11 @@ function validateOptionalBooleanRecord(
   validateOptionalPrimitiveRecord(value, basePath, issues, 'boolean')
 }
 
-function validateStringRecord(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+function validateOptionalStringRecord(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
   validateOptionalPrimitiveRecord(value, basePath, issues, 'string')
 }
 

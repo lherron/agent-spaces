@@ -130,6 +130,11 @@ function buildClaudeMatcher(tools?: string[] | undefined): string {
 // Parsing
 // ============================================================================
 
+/** Narrow a parsed value to a string array, or undefined when not an array. */
+function asStringArray(v: unknown): string[] | undefined {
+  return Array.isArray(v) ? (v as string[]) : undefined
+}
+
 /**
  * Parse hooks.toml content.
  *
@@ -149,7 +154,7 @@ export function parseHooksToml(content: string): HooksTomlConfig {
       return {
         event: String(hook['event'] ?? ''),
         script: String(hook['script'] ?? ''),
-        tools: Array.isArray(hook['tools']) ? (hook['tools'] as string[]) : undefined,
+        tools: asStringArray(hook['tools']),
         matcher: typeof hook['matcher'] === 'string' ? hook['matcher'] : undefined,
         blocking: typeof hook['blocking'] === 'boolean' ? hook['blocking'] : undefined,
         harness: typeof hook['harness'] === 'string' ? hook['harness'] : undefined,
@@ -451,7 +456,7 @@ export async function readHooksWithPrecedence(hooksDir: string): Promise<ReadHoo
           return {
             event: String(entry['event'] ?? entry['matcher'] ?? ''),
             script: String(entry['script'] ?? ''),
-            tools: Array.isArray(entry['tools']) ? (entry['tools'] as string[]) : undefined,
+            tools: asStringArray(entry['tools']),
             blocking: typeof entry['blocking'] === 'boolean' ? entry['blocking'] : undefined,
           }
         })

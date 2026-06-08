@@ -1,104 +1,60 @@
-# Refactoring Analysis
-**Target:** packages/aspc/src
-**Lines analyzed:** 585  ·  **Generated:** 2026-06-07  ·  **Focus:** all
+# aspc (spaces-aspc) — SOLID / code-smell audit
 
-## SOLID Scorecard
-| Principle | Status | Issues |
-|-----------|--------|--------|
-| **S** (SRP) | 🟡 | service.ts mixes compilation, error handling, and profile selection; facade.ts combines server setup, route registration, and stream management |
-| **O** (OCP) | 🟢 | Table-driven patterns in service.ts and facade.ts enable extension without modification |
-| **L** (LSP) | 🟢 | No type-checking anti-patterns or broken contracts detected |
-| **I** (ISP) | 🟢 | Minimal, focused interfaces; no fat service classes or stub implementations |
-| **D** (DIP) | 🟡 | Hardcoded instantiation of `createAgentSpacesClient` and `createDefaultBroker` break inversion of control |
+Scope: all non-test source under `packages/aspc/src/` — cli.ts, client.ts, diagnostics.ts,
+facade.ts, index.ts, profileSelector.ts, service.ts (639 LOC total).
 
----
+Note: a prior report existed at this path with stale line references (e.g. it lists
+"Extract Profile Selection Logic into profileSelector.ts" as a TODO, but that module already
+exists; it points at service.ts:159-223 for selection code that has since been moved out). That
+report predates the recent cleanup and has been replaced by this current audit.
 
-## Priority Refactorings
+## Overall assessment
 
-### 1. Extract Compiler Dependency Injection in service.ts — DIP
-- **Location:** /Users/lherron/praesidium/agent-spaces/packages/aspc/src/service.ts:109-115
-- **Current:** `defaultCompiler` directly instantiates `createAgentSpacesClient`, hardcoding the compiler factory
-- **Suggested:** Move `defaultCompiler` into `AspcServiceOptions` as an injected factory or optional default, allowing callers to supply their own compiler implementation without modifying service.ts
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 15 min  ·  **Tests:** existing unit tests for `createAspcService` should verify default compiler fallback and custom compiler override
-- **Rationale:** Enables testing with mock compilers and decouples from agent-spaces client library
+This package was put through the SOLID/code-smell cleanup pass (commit `e238805`) and the evidence
+is visible throughout: diagnostic codes hoisted into a single `DIAGNOSTIC_CODES` constant
+(`diagnostics.ts`), JSON-RPC method names in `ASPC_METHODS`/`BROKER_METHODS` tables (`facade.ts`),
+a table-driven `SELECTOR_CRITERIA` profile selector already extracted into its own `profileSelector.ts`,
+broker routes expressed as a `brokerMethodTable` lookup rather than copy-pasted `server.register`
+blocks, and extracted `fail*` response builders in `service.ts`. The compiler dependency is already
+injectable via `AspcServiceOptions.compiler`. Functions are short (largest is `brokerMethodTable` at
+~46 lines, but it is a flat data table, not branching logic). Nesting is shallow, guard clauses are
+used, and there is no dead code, no commented-out blocks, and no god object.
 
-### 2. Reduce Hardcoded Type Casts in brokerMethodTable — ISP + Type Safety
-- **Location:** /Users/lherron/praesidium/agent-spaces/packages/aspc/src/facade.ts:112-154
-- **Current:** Repeated `as` type casts in brokerMethodTable entries (lines 115, 119, 124, 135, 139, 143, 147, 151); 9 casts create drift risk
-- **Suggested:** Create a typed route registry interface with discriminated unions per method signature, eliminating unsafe casts
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 30 min  ·  **Tests:** verify registerBrokerMethods dispatches correct payloads; add type-level tests if feasible
-- **Rationale:** Catches method signature mismatches at compile time; improves maintainability when Broker interface evolves
+The findings below are minor and low value. This is an honest "already clean" result.
 
-### 3. Extract Broker Setup from createAspcFacadeServer — SRP
-- **Location:** /Users/lherron/praesidium/agent-spaces/packages/aspc/src/facade.ts:45-51
-- **Current:** Broker instantiation logic nested in facade factory; couples facade creation to broker setup
-- **Suggested:** Extract broker creation (including emitEvent + permission callbacks) into separate `createBrokerWithCallbacks()` function; pass result to facade factory
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 20 min  ·  **Tests:** test broker setup in isolation; verify callbacks wired correctly
-- **Rationale:** Separates concerns—broker setup from facade routing; easier to test and reuse broker creation
+## Duplicated broker.start dispatch-spreading
 
-### 4. Extract Error Response Builders into Factory — SRP + DRY
-- **Location:** /Users/lherron/praesidium/agent-spaces/packages/aspc/src/service.ts:245-276
-- **Current:** Three near-identical error response builders (`failRuntimeCompile`, `failHarnessInvocation`, `failCompileAndStart`) duplicate schema versioning and ok:false pattern
-- **Suggested:** Create a generic error factory `failWith(schema, compileResponse?, diagnostics)` and refactor calls to use it
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 20 min  ·  **Tests:** existing error path tests should continue to pass; add unit test for factory with each schema type
-- **Rationale:** Eliminates duplication; centralizes error response shape logic; reduces maintenance burden
+- File: packages/aspc/src/service.ts:95
+- Risk: Low
+- API-impact: internal-only
+- Smell: The four-arg call shape `broker.start(dispatch.startRequest, dispatch.dispatchEnv, dispatch.runtime, dispatch.lifecyclePolicy)` is duplicated verbatim between `service.ts:95-100` (`compileAndStart`) and `facade.ts:148-153` (`brokerMethodTable` start row). If `Broker.start`'s positional arg order changes, both sites must change in lockstep.
+- Proposed change: Extract a small internal helper `startFromDispatch(broker, dispatch: InvocationDispatchRequest)` that spreads the dispatch fields, and call it from both sites. The two callers live in different files, so a true single-source dedupe needs a new shared internal function — keep it internal-only (do not widen any export). Marginal; only worth doing while already touching this area.
 
-### 5. Extract Profile Selection Logic into Dedicated Module — SRP
-- **Location:** /Users/lherron/praesidium/agent-spaces/packages/aspc/src/service.ts:159-223
-- **Current:** `selectBrokerProfile` and `SELECTOR_CRITERIA` live in service.ts alongside compilation and dispatch building; 65 lines of selection-specific code
-- **Suggested:** Move profile selection into a separate file/module `profileSelector.ts` with criteria table, selection logic, and diagnostics; export factory for testing
-- **Risk:** Med  ·  **API-impact:** internal-only  ·  **Effort:** 45 min  ·  **Tests:** add isolated unit tests for each selector dimension; verify existing harness invocation tests still pass
-- **Rationale:** Single responsibility—profile selection deserves its own module; improves testability; clarifies intent
+## Repeated `jsonrpc: '2.0'` envelope literal
 
-### 6. Parameterize Magic Strings (Schemas, Methods) — Code Smell
-- **Location:** /Users/lherron/praesidium/agent-spaces/packages/aspc/src/service.ts:26-28; facade.ts:114-152
-- **Current:** Schema versions and method names hardcoded as string literals scattered across files (e.g., `'aspc-compile-and-start-response/v1'`, `'broker.hello'`)
-- **Suggested:** Create an `AspcRoutes` enum or const object with all method names and schema versions; import and reference throughout
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 25 min  ·  **Tests:** no behavioral change; grep existing tests to verify method name strings still match after refactor
-- **Rationale:** Single source of truth; prevents typos; simplifies version bumps
+- File: packages/aspc/src/facade.ts:83
+- Risk: Low
+- API-impact: internal-only
+- Smell: The literal `'2.0'` for the JSON-RPC version is repeated three times within the file: `emitEvent` (line 59), `registerAspcMethod` (line 83), and `registerBrokerMethods` (line 182). Magic string.
+- Proposed change: Introduce a file-local `const JSONRPC_VERSION = '2.0'` and reference it at the three construction sites. Cosmetic and behavior-preserving.
 
-### 7. Flatten Nested Conditionals in compileAndStart — Readability
-- **Location:** /Users/lherron/praesidium/agent-spaces/packages/aspc/src/service.ts:82-105
-- **Current:** Three levels of nesting (if broker, if !compile.ok, if error); difficult to follow execution path
-- **Suggested:** Use early returns: validate broker at top, return if compile fails before broker.start call
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 10 min  ·  **Tests:** existing compileAndStart tests should pass unchanged
-- **Rationale:** Improves readability; reduces cognitive load; follows "fail fast" pattern
+## Anonymous inline cast in `placementDispatchEnv`
 
----
+- File: packages/aspc/src/service.ts:168
+- Risk: Low
+- API-impact: internal-only
+- Smell: `req.compileRequest.placement as { dispatchEnv?: Record<string, string> | undefined }` is an inline structural cast to an anonymous type to reach an optional field the typed `placement` does not expose. Opaque and not named/reused.
+- Proposed change: Hoist the cast target to a named file-local type, e.g. `type PlacementWithDispatchEnv = { dispatchEnv?: Record<string, string> | undefined }`, and cast to that. Readability only. The real gap is a missing field on the upstream `placement` contract in `spaces-runtime-contracts`; do not chase that from here — keep the edit cosmetic and internal-only.
 
-## Code Smells
-| Smell | Location | Severity |
-|-------|----------|----------|
-| **Type casting chains** | facade.ts:115–151 (9× `as` casts in brokerMethodTable) | 🟡 Med |
-| **Magic strings** | service.ts:26-28, facade.ts:114-152 (schema versions, method names) | 🟡 Med |
-| **Long parameter list** | service.ts:93-97 (`broker.start(…, …, …, ...)` with 4 args) | 🟡 Med |
-| **Duplicated error builders** | service.ts:245-276 (3 near-identical fail* functions) | 🟡 Med |
-| **Nested conditionals** | service.ts:82-105 (3 levels: broker check → compile check → error handling) | 🟡 Med |
-| **Hardcoded dependencies** | service.ts:109-115 (defaultCompiler), facade.ts:47 (createDefaultBroker) | 🟡 Med |
-| **God function** | service.ts lines 131-157 (compileHarnessInvocation handles 5+ concerns) | 🟡 Med |
+## Facade version constant hand-synced with package.json
 
----
+- File: packages/aspc/src/service.ts:26
+- Risk: Med
+- API-impact: public-surface
+- Smell: `ASPC_FACADE_VERSION = '0.1.1'` is hand-duplicated from `package.json`'s `version` and surfaced over the wire by `aspc.hello`. The inline comment already documents the build constraint (rootDir is `./src`, so the manifest can't be imported without breaking emit) — this is a deliberate trade-off, but a drift hazard: bumping package.json without editing this constant silently ships a wrong version on the hello response.
+- Proposed change: DEFER — needs a human / build decision and the value is part of the public `aspc.hello` protocol response. Options all touch build or public output (build-time generated `version.ts`, or a bundler `define`/replace). Documenting only; not auto-applied.
 
-## Quick Wins (low risk, high value)
+## Summary of counts
 
-1. **Extract Routes Constants** (5 min): Move `'aspc.hello'`, `'aspc.compileRuntimePlan'`, etc. into a `const ASPC_METHODS = { ... }` object; reference throughout facade.ts and service.ts. Zero API change.
-
-2. **Flatten compileAndStart** (10 min): Replace nested ifs with early returns in service.ts:82-105. Improves readability, no behavioral change.
-
-3. **Add Parameter Docs** (10 min): Document `profileSelector` parameter in `AspcCompileHarnessInvocationRequest`; clarify how selector dimensions compose. Aids onboarding.
-
-4. **Extract compilerDiagnostic Usage** (15 min): Consolidate all `compilerDiagnostic()` calls in service.ts into a diagnostics module with named code constants (`COMPILER_EXCEPTION`, `BROKER_PROFILE_MISSING`, etc.). Reduces string duplication.
-
----
-
-## Technical Debt Notes
-
-- **Broker Type Casting Risk**: The `brokerMethodTable` design leans on runtime type safety (caller must pass correct param shape). Consider a discriminated-union routing pattern or a method registry with static type guarantees.
-
-- **Error Aggregation**: Multiple error paths return diagnostics arrays, but error context (where the error originated, stack traces) could be richer. Consider adding a Diagnostics Builder with context tracking.
-
-- **Testing Barriers**: Hardcoded compiler and broker factories make unit testing difficult. Injecting them via options (already done for compiler) would improve testability of edge cases.
-
-- **No Structured Logging**: Errors are formatted to strings for `stderr`; consider structured error logging with codes and metadata for operational insight.
-
-- **Future Extension**: If new compiler backends or transport types are added, the table-driven design in `facade.ts` and `service.ts` can absorb them, but CLI parsing (cli.ts:7-15) will grow linearly. Consider a CLI command registry to follow OCP.
+- Applicable (Low/Med AND internal-only, safe to auto-apply): 3
+- Deferred (High-risk OR public-surface): 1

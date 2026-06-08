@@ -9,6 +9,15 @@
  */
 import type { ToolResult, UnifiedSessionEvent } from 'spaces-runtime'
 
+/**
+ * Identifies the JSON-RPC client to the codex app-server on `initialize`.
+ * Shared by the long-lived session and the headless one-shot consumer.
+ */
+export const CLIENT_INFO = {
+  name: 'agent-spaces',
+  version: process.env['npm_package_version'] ?? 'unknown',
+}
+
 export type CodexThreadItem =
   | {
       type: 'agentMessage'
@@ -118,6 +127,57 @@ export function buildToolResult(content: string, details?: Record<string, unknow
   return {
     content: [{ type: 'text', text: content }],
     ...(details ? { details } : {}),
+  }
+}
+
+/**
+ * Render the message + details + info tail shared by both RPC consumers'
+ * `formatCodexError` headers. Each caller prepends its own header prefix.
+ */
+export function formatCodexErrorBody(params: ErrorNotification): string {
+  const message = params.error?.message ?? 'Unknown error'
+  const details = params.error?.additionalDetails ? ` (${params.error.additionalDetails})` : ''
+  const info = params.error?.codexErrorInfo ? ` ${JSON.stringify(params.error.codexErrorInfo)}` : ''
+  return `${message}${details}${info}`
+}
+
+/**
+ * Map one of the streaming delta/progress notifications
+ * (`item/commandExecution/outputDelta`, `item/fileChange/outputDelta`,
+ * `item/mcpToolCall/progress`) to the unified `tool_execution_update` event
+ * both RPC consumers emit. Returns `null` for any other method.
+ */
+export function mapDeltaNotification(
+  method: string,
+  params:
+    | CommandExecutionOutputDeltaNotification
+    | FileChangeOutputDeltaNotification
+    | McpToolCallProgressNotification
+): UnifiedSessionEvent | null {
+  switch (method) {
+    case 'item/commandExecution/outputDelta':
+    case 'item/fileChange/outputDelta': {
+      const deltaParams = params as
+        | CommandExecutionOutputDeltaNotification
+        | FileChangeOutputDeltaNotification
+      return {
+        type: 'tool_execution_update',
+        toolUseId: deltaParams.itemId,
+        partialOutput: deltaParams.delta,
+        payload: deltaParams,
+      }
+    }
+    case 'item/mcpToolCall/progress': {
+      const progressParams = params as McpToolCallProgressNotification
+      return {
+        type: 'tool_execution_update',
+        toolUseId: progressParams.itemId,
+        message: progressParams.message,
+        payload: progressParams,
+      }
+    }
+    default:
+      return null
   }
 }
 

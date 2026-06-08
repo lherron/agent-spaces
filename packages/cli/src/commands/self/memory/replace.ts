@@ -9,6 +9,7 @@ import type { MemoryTargetName } from 'spaces-runtime'
 import {
   type StoreFailure,
   mapWriteFailureToExitCode,
+  requireOption,
   validateTarget,
   withMemoryStore,
 } from './lib.js'
@@ -32,20 +33,11 @@ export function registerMemoryReplaceCommand(parent: Command): void {
     .option('--content <text>', 'Replacement content')
     .action(async (options: ReplaceOptions) => {
       await withMemoryStore(COMMAND_NAME, async (store) => {
-        if (!options.target) {
-          process.stderr.write(`${COMMAND_NAME}: --target is required\n`)
-          process.exit(1)
-        }
+        requireOption(COMMAND_NAME, 'target', options.target)
         validateTarget(COMMAND_NAME, options.target)
 
-        if (!options.match) {
-          process.stderr.write(`${COMMAND_NAME}: --match is required\n`)
-          process.exit(1)
-        }
-        if (!options.content) {
-          process.stderr.write(`${COMMAND_NAME}: --content is required\n`)
-          process.exit(1)
-        }
+        requireOption(COMMAND_NAME, 'match', options.match)
+        requireOption(COMMAND_NAME, 'content', options.content)
 
         const result = await store.replace({
           target: options.target as MemoryTargetName,

@@ -8,19 +8,10 @@ import type {
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import { createInvocationEventSequencer } from '../../events'
+import { asRecord as asHookRecord, getString, unwrapHookPayload } from '../hook-json'
+import { USER_INITIATED_END_REASONS } from '../tmux-shared'
 
 export const CODEX_CLI_TMUX_DRIVER_KIND = 'codex-cli-tmux'
-
-/**
- * SessionEnd reasons that mean the OPERATOR deliberately ended the session, so
- * the captured continuation must be dropped (next launch is fresh). Codex CLI
- * does not emit SessionEnd natively; the shared tmux launch runner synthesizes
- * one on harness exit (postSyntheticSessionEnd) with reason `prompt_input_exit`
- * for a clean `/quit` exit and `other` for a crash/signal. Mirrors the claude
- * driver's USER_INITIATED_END_REASONS so HRC's continuation.cleared → broker-tmux
- * lease reap fires identically for both drivers.
- */
-const USER_INITIATED_END_REASONS = new Set(['prompt_input_exit', 'logout', 'clear'])
 
 export type CodexCliTmuxHookEventNormalizer = {
   normalizeHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
@@ -274,23 +265,6 @@ export function createCodexCliTmuxHookEventNormalizer(
   }
 }
 
-function unwrapHookPayload(hook: Record<string, unknown>): Record<string, unknown> {
-  if (typeof hook['hook_event_name'] === 'string') return hook
-  const hookEvent = hook['hookEvent']
-  if (hookEvent !== null && typeof hookEvent === 'object' && !Array.isArray(hookEvent)) {
-    const inner = hookEvent as Record<string, unknown>
-    if (typeof inner['hook_event_name'] === 'string') return inner
-  }
-  return hook
-}
-
-function asHookRecord(value: unknown): Record<string, unknown> {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>
-  }
-  return {}
-}
-
 function formatToolResult(
   toolInput: unknown,
   toolResponse: unknown
@@ -330,9 +304,4 @@ function commandFromToolInput(value: unknown): string | undefined {
 
 function toolKey(turnId: string, command: string): string {
   return `${turnId}\0${command}`
-}
-
-function getString(obj: Record<string, unknown>, key: string): string | undefined {
-  const value = obj[key]
-  return typeof value === 'string' ? value : undefined
 }

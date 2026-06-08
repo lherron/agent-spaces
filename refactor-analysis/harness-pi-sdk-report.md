@@ -1,191 +1,94 @@
-# Refactoring Analysis
+# harness-pi-sdk SOLID / code-smell audit
 
-**Target:** packages/harness-pi-sdk/src
-**Lines analyzed:** 2,474  ·  **Generated:** 2026-06-07  ·  **Focus:** all
+Package: `spaces-harness-pi-sdk` (`packages/harness-pi-sdk/`)
+Scope: all non-test source under `src/`.
 
-## SOLID Scorecard
-
-| Principle | Status | Issues |
-|-----------|--------|--------|
-| **S** (SRP) | 🟡 | Two classes exceed 300 lines; event mapping mixes concerns |
-| **O** (OCP) | 🔴 | Large switch statements on event types; hard to extend with new event types |
-| **L** (LSP) | 🟢 | No detected override violations |
-| **I** (ISP) | 🟡 | Fat config interfaces; PiSessionConfig has 12+ properties |
-| **D** (DIP) | 🟡 | Direct new of classes (SessionManager); some implicit dependencies |
-
----
-
-## Priority Refactorings
-
-### 1. Extract Event Mapping Concerns from PiSession — **SRP**
-
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-pi-sdk/src/pi-session/pi-session.ts:246–302` (emitHookForEvent), lines 550–639 (mapPiEventToUnified)
-- **Current:** `PiSession.emitHookForEvent()` handles 3 event types with a 33-line switch statement; `mapPiEventToUnified()` is a 90-line function with a 10-case switch; both live in the main session class
-- **Problem:** PiSession mixes session lifecycle management with event transformation and hook dispatch. The `emitHookForEvent` switch couples session logic to hook event routing, and `mapPiEventToUnified` is a standalone translation layer that's conceptually separate but tightly bound to PiSession
-- **Suggested:**
-  - Extract `emitHookForEvent` into a `PiHookDispatcher` class that accepts HookEventBus and owns the switch logic
-  - Move event mapping helpers (`mapPiEventToUnified`, handler functions) into a separate `PiEventMapper` module
-  - PiSession calls these services; does not own the mapping logic
-- **Risk:** Medium  ·  **API-impact:** internal-only  ·  **Effort:** 2–3 hours  ·  **Tests:** Update pi-session.test.ts to mock PiHookDispatcher and PiEventMapper; ensure event flow still passes through without breaking the stream
-
-### 2. Decouple Event Type Switch Statement — **OCP**
-
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-pi-sdk/src/pi-session/pi-session.ts:550–639` (mapPiEventToUnified)
-- **Current:** A 10-case switch statement (`agent_start`, `agent_end`, `turn_start`, `turn_end`, `message_start`, `message_update`, `message_end`, `tool_execution_start`, `tool_execution_update`, `tool_execution_end`) directly handles each event type. Adding a new Pi SDK event type requires editing this central function
-- **Problem:** Violates OCP; the mapping function grows with each new event type. No extensibility seam for plugins or new event handlers
-- **Suggested:**
-  - Replace the switch with a `Map<string, (event: PiAgentSessionEvent, ...) => UnifiedSessionEvent[]>` dispatch table
-  - Register default handlers; allow callers to inject custom handlers for new event types
-  - Each handler is a small, focused function (e.g., `handleMessageStart()`, `handleToolExecutionEnd()`)
-- **Risk:** Medium  ·  **API-impact:** internal-only  ·  **Effort:** 2–3 hours  ·  **Tests:** pi-session.test.ts already has good coverage; refactor dispatch without changing behavior; add test for custom handler injection
-
-### 3. Split PiSession Class (Too Large, Mixed Concerns) — **SRP**
-
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-pi-sdk/src/pi-session/pi-session.ts:68–303`
-- **Current:** PiSession (768 lines) handles:
-  - Session lifecycle (start, stop, sendPrompt, state management)
-  - Event subscription and forwarding
-  - Hook event emission
-  - Event mapping and transformation (held message state, final flags)
-  - Permission handling setup
-  - Session metadata
-- **Problem:** SRP violation; PiSession has too many reasons to change (lifecycle changes, new hook types, event schema changes, new metadata fields, permission logic changes). Line count > 300 indicates complexity
-- **Suggested:**
-  - Keep PiSession as a minimal UnifiedSession implementation (lifecycle, subscription, state)
-  - Extract held-message state into a `PiMessageBuffer` class
-  - Move event subscription/mapping into a `PiEventRouter` service (takes agent session, emits unified events)
-  - Move hook emission into `PiHookDispatcher`
-- **Risk:** High  ·  **API-impact:** internal-only  ·  **Effort:** 4–6 hours  ·  **Tests:** Comprehensive suite of integration tests; ensure UnifiedSession contract still holds; test backward compatibility of event ordering
-
-### 4. PiSdkAdapter: Extract Artifact Merging Logic — **SRP**
-
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-pi-sdk/src/adapters/pi-sdk-adapter.ts:369–436` (composeTarget method) and private merge methods (lines 437–533)
-- **Current:** PiSdkAdapter.composeTarget() orchestrates extension, skills, hooks, and context merging in a 67-line method. Four private merge methods handle artifact-type-specific logic
-- **Problem:** composeTarget mixes orchestration with file I/O and manifest building; too many levels of indentation (deep nesting in loops); 698-line class has too many concerns (adaptation, bundling coordination, manifest generation)
-- **Suggested:**
-  - Extract a `PiSdkBundleComposer` class that handles merging, ordering, and manifest building
-  - Replace four `mergeArtifact*` methods with a more generic `mergeArtifact(type: 'extensions' | 'skills' | 'hooks' | 'context')` pattern using a config map
-  - PiSdkAdapter delegates composition and calls the composer; does not own merge logic
-- **Risk:** Medium  ·  **API-impact:** internal-only  ·  **Effort:** 2–3 hours  ·  **Tests:** pi-sdk-adapter.test.ts; ensure artifacts still merge in correct order; check manifest structure is identical
-
-### 5. Permission Hook: Duplicate Logic Across Two Paths — **DRY**
-
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-pi-sdk/src/pi-session/permission-hook.ts:15–67`
-- **Current:** Two separate if-else branches:
-  - Lines 27–48: If `permissionHandler` exists, emit hook, check auto-allow, request permission
-  - Lines 50–67: If only `hookEventBus` exists, emit hook, check auto-allow, request permission
-- **Problem:** Nearly identical logic (emit, auto-allow check, request decision) is duplicated. If permission logic changes, both paths must be updated. Hard to test both paths thoroughly
-- **Suggested:**
-  - Extract a `ToolPermissionResolver` interface/class with a method `resolvePermission(toolName, input): Promise<PermissionDecision>`
-  - Implement two adapters: `PermissionHandlerResolver` and `HookEventBusResolver` 
-  - Single code path calls the resolver; strategy pattern decouples the two sources
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 1–2 hours  ·  **Tests:** permission-hook.test.ts; ensure both paths still work; add parametrized tests for both resolver strategies
-
-### 6. PiSessionConfig: Fat Config Interface — **ISP**
-
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-pi-sdk/src/pi-session/types.ts:35–53`
-- **Current:** PiSessionConfig has 12 properties, mixing:
-  - Core identity (ownerId, cwd)
-  - Optional model config (model, provider, thinkingLevel)
-  - Persistence (persistSessions, sessionPath)
-  - Extensions (extensions, skills, contextFiles, additionalExtensionPaths)
-  - Hooks (hookEventBus, onEvent)
-- **Problem:** Callers must understand and pass all these options; fat interface makes testing harder; some properties are only used in specific code paths (e.g., onEvent is only used in subscribeToEvents)
-- **Suggested:**
-  - Extract model config into `PiModelConfig { model, provider, thinkingLevel }`
-  - Extract persistence into `PiPersistenceConfig { persist: boolean, sessionPath?: string }`
-  - Extract extensions into `PiExtensionsConfig { extensions?, skills?, contextFiles?, additionalExtensionPaths? }`
-  - PiSessionConfig composes these; callers build targeted sub-configs
-- **Risk:** Medium  ·  **API-impact:** internal-only (may affect constructors)  ·  **Effort:** 2 hours  ·  **Tests:** Ensure all existing tests still pass; parametrize tests to validate each sub-config
-
-### 7. Hook Runtime: Duplicate Hook Loading Logic — **DRY**
-
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/harness-pi-sdk/src/pi-session/hook-runtime.ts:132–259` (buildHookExtension) and `/Users/lherron/praesidium/agent-spaces/packages/harness-pi-sdk/src/pi-sdk/pi-sdk/runner.ts:210–228`
-- **Current:** Both `hook-runtime.ts` (buildHookExtension) and runner.ts have nearly identical code:
-  - Load hooks from manifest
-  - Filter by hook.harness (if needed)
-  - Build spaceIds set
-  - Call buildHookExtension with same params
-- **Problem:** Copy-paste code; any bug fix in hook registration must be made in two places
-- **Suggested:**
-  - Extract hook loading into a shared utility `loadManifestHooks(manifest, noExtensions, bundleRoot, targetName, spaceIds, yolo, cwd)`
-  - Both buildHookExtension callers use this utility
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 1 hour  ·  **Tests:** Existing tests cover both code paths; refactor should not change behavior
+Overall this package is in good shape — it was clearly part of the recent SOLID
+cleanup pass (T-02028). Event mapping in `pi-session.ts` is already decomposed
+into small named helpers (`flushHeld`, `flushTerminal`, `handleAgentEnd`,
+`handleTurnEnd`, `handleMessageEnd`), event-type strings are centralized in
+`event-types.ts`, and the bundle/hook runtime is deduped into `hook-runtime.ts`.
+The findings below are mostly residual cross-file duplication and a couple of
+latent correctness smells that must be deferred because they would change
+behavior or public surface.
 
 ---
 
-## Code Smells
+## Duplicated SDK-entry resolution (constant + function)
+- File: packages/harness-pi-sdk/src/adapters/pi-sdk-adapter.ts:64
+- Risk: Med
+- API-impact: internal-only
+- Smell: `SDK_ENTRY_CANDIDATES` and `resolveSdkEntry(sdkRoot)` are copy-pasted into `packages/harness-pi-sdk/src/pi-sdk/pi-sdk/runner.ts:31` (the runner's version uses `access` instead of the adapter's `fileExists`, but the logic is identical). Same candidate list, same loop, same null fallback.
+- Proposed change: Extract the candidate list + resolver into a single internal module (e.g. `pi-session/sdk-entry.ts`) and import from both sites. Behavior-preserving since both iterate the same candidates and return the first that exists. (Cross-file move, hence Med.)
 
-| Smell | Location | Severity |
-|-------|----------|----------|
-| **Long Function** | `mapPiEventToUnified` (90 lines) | Medium |
-| **Long Function** | `PiSession` class (768 lines) | High |
-| **Long Function** | `PiSdkAdapter` class (698 lines) | High |
-| **Nested If-Else** | permission-hook.ts lines 27–67 (duplication + 3 levels) | Medium |
-| **Large Switch Statement** | pi-session.ts line 269–301 (3 event types) | Low |
-| **Large Switch Statement** | pi-session.ts line 555–638 (10 event types) | Medium |
-| **Duplicated Code** | permission-hook.ts: two parallel permission resolution paths | Medium |
-| **Duplicated Code** | hook-runtime.ts + runner.ts: hook loading + registration | Low |
-| **Magic Strings** | Event type strings ('agent_start', 'tool_execution_end', etc.) scattered through code | Low |
-| **Type Casting** | Multiple `as Record<string, unknown>` and `as PiMessage | undefined` casts | Low |
-| **Incomplete Error Handling** | PiSession.start() sets state to 'error' but does not log details (line 133–134) | Low |
+## Near-duplicate manifest extension/context loading in bundle.ts vs runner.ts
+- File: packages/harness-pi-sdk/src/pi-session/bundle.ts:42
+- Risk: Med
+- API-impact: internal-only
+- Smell: The block that builds `extensionFactories` (hook-extension push + the `for (const extension of manifest.extensions)` dynamic-import loop with the "does not export a default function" throw) and the `contextFiles = await Promise.all(...)` loop are duplicated almost line-for-line in `runner.ts:199`-`244`. The `hook-runtime.ts` header comment claims this machinery is centralized, but the extension-import + context-read portions are not.
+- Proposed change: Extract two internal helpers (e.g. in `hook-runtime.ts` or a sibling) — `loadManifestExtensionFactories(manifest, bundleRoot)` and `loadManifestContextFiles(manifest, bundleRoot)` — and call them from both `bundle.ts` and `runner.ts`. Behavior-preserving; both call sites already resolve paths and import identically.
 
----
+## Magic hook-event strings in hook-runtime.ts not centralized
+- File: packages/harness-pi-sdk/src/pi-session/hook-runtime.ts:199
+- Risk: Low
+- API-impact: internal-only
+- Smell: String literals `'pre_tool_use'`, `'post_tool_use'`, `'session_start'`, `'session_end'`, and the Pi lifecycle names `'tool_call'`, `'tool_result'`, `'session_start'`, `'session_shutdown'` are scattered across `runHooks` calls and `pi.on(...)` registrations (lines 199, 225, 240, 253, 263, 268). `event-types.ts` already establishes the pattern of centralizing such strings (`PI_EVENT`, `HOOK_EVENT`) but does not cover these.
+- Proposed change: Add named constant objects (e.g. `HOOK_RUNTIME_EVENT` / `PI_LIFECYCLE_EVENT`) local to this module (or in `event-types.ts`) and reference them. Internal-only, behavior-preserving (same literal values).
 
-## Quick Wins (Low Risk, High Value)
+## Redundant type-guard duplicated with map branches in mapContentBlocks
+- File: packages/harness-pi-sdk/src/pi-session/pi-session.ts:657
+- Risk: Low
+- API-impact: internal-only
+- Smell: `mapContentBlocks` does a `.filter(...)` with a 4-arm type predicate (`text | image | media_ref | toolCall`) and then a `.map(...)` that re-discriminates the same four arms. The `block.type === ...` checks are duplicated.
+- Proposed change: Collapse into a single `.flatMap((block) => mapContentBlock(block))` where one private `mapContentBlock` returns `ContentBlock | undefined` and undefined entries are dropped. Removes the duplicated discrimination. Behavior-preserving.
 
-1. **Extract magic event strings into constants** (10 min)
-   - Create `src/pi-session/event-types.ts` with `const PI_EVENT = { AGENT_START: 'agent_start', ... }`
-   - Replace all hardcoded strings in pi-session.ts and hook-runtime.ts
-   - Reduces typos, improves IDE autocomplete
+## Duplicated media_ref construction
+- File: packages/harness-pi-sdk/src/pi-session/pi-session.ts:682
+- Risk: Low
+- API-impact: internal-only
+- Smell: The `media_ref` construction `{ type:'media_ref', url, ...(typeof mimeType==='string'?...), ...(filename), ...(alt) }` appears twice — in `mapContentBlocks` (line 682) and in `mapToolResultItem` (line 725).
+- Proposed change: Extract a private `makeMediaRefBlock(block)` helper returning the `media_ref` ContentBlock and call from both sites. Behavior-preserving.
 
-2. **Add debug logging in PiSession.start() error path** (15 min)
-   - Line 133: Add `console.error('[pi-session] Start failed:', error)` before setting state to 'error'
-   - Improves observability for support/debugging
+## Duplicated string-coercion ternary across event handlers
+- File: packages/harness-pi-sdk/src/pi-session/pi-session.ts:484
+- Risk: Low
+- API-impact: internal-only
+- Smell: The pattern `typeof piEvent.<field> === 'string' ? piEvent.<field> : undefined` is repeated for `turnId`, `messageId`, `reason` across `handleAgentEnd`, `handleTurnEnd`, `handleMessageEnd`, and the `mapPiEventToUnified` switch (lines 461, 484, 504, 522, 565, 578, 588).
+- Proposed change: Add a tiny private `asString(value: unknown): string | undefined` helper and replace the inline ternaries. Behavior-preserving, internal-only.
 
-3. **Extract `heldFromPiMessage` helper into a reusable factory** (20 min)
-   - Currently used in 2 places; move to a utility function with clear contract
-   - Reduces duplication in handleMessageEnd and handleAgentEnd
+## Empty validateSpace with dead accumulators
+- File: packages/harness-pi-sdk/src/adapters/pi-sdk-adapter.ts:266
+- Risk: Low
+- API-impact: internal-only
+- Smell: `validateSpace` builds `const errors: string[] = []` and `const warnings: string[] = []`, never pushes to either, then returns `{ valid: errors.length === 0, errors, warnings }` (always valid, always empty). The local accumulators are dead.
+- Proposed change: Simplify the body to `return { valid: true, errors: [], warnings: [] }` (same return shape / `HarnessValidationResult` contract). The method signature (part of the `HarnessAdapter` interface) is untouched, so this is internal-only. Behavior-preserving.
 
-4. **Replace 7 utility functions at file level with a `PiEventUtils` class** (1 hour)
-   - Functions: `assistantTextFromPiMessage`, `latestAssistantMessage`, `heldFromPiMessage`, `mapPiMessage`, `mapContentBlocks`, `mapToolResultItem`, `mapToolResultContent`, `normalizeToolInput`
-   - Organize as static methods; easier to test, document, and extend
-   - (Lower priority if you prefer functional style; ergonomic, not essential)
+## Model-separator mismatch between adapter args and runner parsing
+- File: packages/harness-pi-sdk/src/pi-sdk/pi-sdk/runner.ts:273
+- Risk: High
+- API-impact: internal-only
+- Smell: Adapter model ids and the `--model` default use a `/` separator (`openai-codex/gpt-5.5`, `pi-sdk-adapter.ts:61`/`221`), and `buildRunArgs` forwards `--model <provider>/<model>`. But `runner.ts:273` parses with `args.model.split(':')` and throws `'Model must be specified as provider:model'` when there is no colon — so a `/`-separated id fails resolution. `pi-session.ts` instead takes separate `provider`/`model` fields, so the two paths disagree on wire format.
+- Proposed change: DEFER — reconciling the separator (or accepting both `:` and `/`) changes runtime model-resolution behavior and the thrown-error contract. Needs a human to confirm the canonical wire format and whether the runner path is exercised. Document only.
 
-5. **Parameterize test expectations in pi-session.test.ts** (30 min)
-   - Many test cases follow the same pattern (create event, call mapPiEventToUnified, assert)
-   - Use parametrized tests (Jest describe.each) to reduce duplication and improve coverage
-
----
-
-## Technical Debt Notes
-
-### Event Mapping State Machine
-The `PiEventMappingState` (lines 352–376) implements a held-message pattern to buffer assistant messages until a terminal event (turn_end or agent_end). The logic is sound but complex:
-- Held message carries across model rounds (turn_end)
-- Only finalized when agent_end or standalone turn_end arrives
-- Comments are thorough, but the state machine is hard to visualize
-
-**Recommendation:** Consider extracting state management into a `MessageBuffer` class with explicit `hold()`, `flush(final: boolean)`, and `canHold(message)` methods. Make the state machine testable in isolation.
-
-### Config Resolution Precedence
-`resolveGlobalAgentDir` (lines 56–66) and `resolveAuthStoragePath` (lines 41–49) have hardcoded precedence (options > config > env > home). This is OK, but consider documenting the precedence in a constant or enum to make it obvious to maintainers.
-
-### Runner Error Handling
-`runner.ts` (lines 312–315) catches errors and logs to stderr, then exits with code 1. This is minimal. Consider:
-- Distinguish between recoverable errors (e.g., missing bundle) and unrecoverable errors (e.g., I/O fail mid-stream)
-- Exit codes: 1 (general error), 2 (config error), 3 (SDK error)
-
-### Hook Script Execution
-`runHookScript` (lines 70–108 in hook-runtime.ts) uses `shell: true` and passes payload via stdin. This is intentional for script flexibility, but:
-- Payload escaping: `proc.stdin.write(payload)` assumes JSON is safe; use a dedicated serializer if format changes
-- Error handling: JSON parse errors in hook scripts are silently caught and logged; consider more structured error reporting
+## `--resume` continuation flag is wired but unhandled by the runner
+- File: packages/harness-pi-sdk/src/adapters/pi-sdk-adapter.ts:607
+- Risk: High
+- API-impact: public-surface
+- Smell: `buildRunArgs` pushes `--resume` when `options.continuationKey` is set, with an inline comment that the runner "may not implement resume yet". `runner.ts:parseArgs` has no `--resume` case, so it hits the `default` branch and throws `Unknown argument: --resume`. This is latent-broken wiring that would crash the runner if `continuationKey` is ever supplied.
+- Proposed change: DEFER — either drop the flag emission or implement `--resume` in the runner. Both alter run-launch behavior / the documented forward-compat contract, and the direction is a product call. Document only.
 
 ---
 
-## Summary
+### Summary of safe (auto-applyable) findings
+Low/Med + internal-only and behavior-preserving:
+1. Dedup SDK-entry resolution (Med)
+2. Dedup manifest extension/context loading (Med)
+3. Centralize hook-runtime event strings (Low)
+4. Collapse `mapContentBlocks` filter+map duplication (Low)
+5. Extract `makeMediaRefBlock` helper (Low)
+6. Extract `asString` coercion helper (Low)
+7. Simplify dead-accumulator `validateSpace` (Low)
 
-**Finding Count:** 7 refactorings + 11 code smells  
-**Applicable for Auto-Apply (Low/Med + internal-only):** 5 refactorings (#1, #2, #4, #5, #7) + 5 quick wins  
-**Risk Profile:** 3 Medium-risk, 1 High-risk (class splitting); recommend prioritizing #5 (permission hook) and #7 (hook loading) first for low-hanging fruit
-
+### Deferred (need a human)
+- Model-separator mismatch (High, behavior/error-contract change)
+- `--resume` latent-broken wiring (High, public run-launch surface)

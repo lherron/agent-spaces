@@ -33,17 +33,14 @@ import {
   mergeLockFiles,
 } from '../resolver/index.js'
 
-import {
-  PathResolver,
-  type SnapshotOptions,
-  createSnapshot,
-  ensureAspHome,
-  getAspHome,
-  snapshotExists,
-} from '../store/index.js'
+import { ensureAspHome, getAspHome } from '../store/index.js'
 
 import { fetch as gitFetch } from '../git/index.js'
-import { type TargetMaterializationResult, materializeTarget } from './install.js'
+import {
+  type TargetMaterializationResult,
+  materializeTarget,
+  populateSnapshotsFromLock,
+} from './install.js'
 
 /**
  * Skill metadata discovered from materialized plugins.
@@ -197,7 +194,7 @@ export async function materializeFromRefs(
   }
 
   // Populate store with snapshots
-  const snapshotsCreated = await populateSnapshots(mergedLock, registryPath, aspHome)
+  const snapshotsCreated = await populateSnapshotsFromLock(mergedLock, registryPath, aspHome)
 
   // Write lock file
   await ensureLockDir(lockPath)
@@ -271,38 +268,22 @@ async function ensureLockDir(lockPath: string): Promise<void> {
 }
 
 /**
- * Populate store with space snapshots from lock.
+ * Record an owner for `name` in `seen`, throwing on a second insert.
+ *
+ * The thrown message is produced by `conflictMessage(existingOwner)` so each
+ * caller keeps its exact wording (skill vs command).
  */
-async function populateSnapshots(
-  lock: LockFile,
-  registryPath: string,
-  aspHome: string
-): Promise<number> {
-  const paths = new PathResolver({ aspHome })
-  const snapshotOptions: SnapshotOptions = {
-    paths,
-    cwd: registryPath,
+function assertNoNameCollision<T>(
+  seen: Map<string, T>,
+  name: string,
+  owner: T,
+  conflictMessage: (existingOwner: T) => string
+): void {
+  const existing = seen.get(name)
+  if (existing !== undefined) {
+    throw new Error(conflictMessage(existing))
   }
-
-  let created = 0
-
-  for (const entry of Object.values(lock.spaces)) {
-    // Skip @dev, agent-local, and project-local entries - they use filesystem directly
-    if (classifySpaceEntry(entry) !== 'registry') {
-      continue
-    }
-
-    // Check if snapshot already exists
-    if (await snapshotExists(entry.integrity, snapshotOptions)) {
-      continue
-    }
-
-    // Create snapshot from registry
-    await createSnapshot(entry.id, entry.commit, snapshotOptions)
-    created++
-  }
-
-  return created
+  seen.set(name, owner)
 }
 
 /**
@@ -330,14 +311,14 @@ export async function discoverSkills(pluginDirs: string[]): Promise<SkillMetadat
   // Check for name collisions across plugins
   const seen = new Map<string, SkillMetadata>()
   for (const skill of skills) {
-    const existing = seen.get(skill.name)
-    if (existing) {
-      throw new Error(
+    assertNoNameCollision(
+      seen,
+      skill.name,
+      skill,
+      (existing) =>
         `Skill name conflict: "${skill.name}" exists in both ` +
-          `${basename(existing.pluginDir)} and ${basename(skill.pluginDir)}`
-      )
-    }
-    seen.set(skill.name, skill)
+        `${basename(existing.pluginDir)} and ${basename(skill.pluginDir)}`
+    )
   }
 
   return skills
@@ -360,14 +341,14 @@ export async function detectCommandConflicts(pluginDirs: string[]): Promise<void
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith('.md')) continue
       const name = entry.name.replace(/\.md$/, '')
-      const existing = seen.get(name)
-      if (existing) {
-        throw new Error(
+      assertNoNameCollision(
+        seen,
+        name,
+        basename(pluginDir),
+        (existing) =>
           `Command name conflict: "${name}" exists in both ` +
-            `${existing} and ${basename(pluginDir)}`
-        )
-      }
-      seen.set(name, basename(pluginDir))
+          `${existing} and ${basename(pluginDir)}`
+      )
     }
   }
 }

@@ -369,9 +369,21 @@ const EMBEDDED_SDK_TURN_DELIVERIES = new Set(['sdk-turn', 'sdk-inflight-input'])
  * EmbeddedSdkExecutionProfile type. This isolates the one unsafe structural cast
  * needed to detect an illegally-shaped profile, so the gate bodies stay typed.
  */
-function hasForbiddenProfileField(profile: EmbeddedSdkExecutionProfile, key: string): boolean {
+function hasForbiddenProfileField(
+  profile: EmbeddedSdkExecutionProfile,
+  key: (typeof FORBIDDEN_EMBEDDED_SDK_FIELDS)[number]
+): boolean {
   return key in (profile as unknown as Record<string, unknown>)
 }
+
+const FORBIDDEN_EMBEDDED_SDK_FIELDS = [
+  'brokerProtocol',
+  'brokerDriver',
+  'brokerTerminal',
+  'process',
+  'transport',
+  'terminal',
+] as const
 
 /**
  * Validate an embedded-sdk execution profile against the §7.3.2 / FINAL_CONTRACTS
@@ -381,105 +393,105 @@ function hasForbiddenProfileField(profile: EmbeddedSdkExecutionProfile, key: str
  * (never in session.lockedEnv), and startup/turn-delivery values stay inside the
  * SDK contract.
  */
+/**
+ * A single-purpose embedded-sdk legality gate. Returns a diagnostic when the
+ * profile violates the gate, otherwise `undefined`. Mirrors {@link BrokerLegalityRule}
+ * so the embedded-sdk validator iterates a declarative registry rather than a
+ * flat guard sequence.
+ */
+type EmbeddedSdkLegalityRule = (
+  profile: EmbeddedSdkExecutionProfile
+) => CompileDiagnostic | undefined
+
+// Ordered registry: diagnostics are emitted in this order, which existing tests
+// assert. Order is identical to the previous flat guard sequence.
+const EMBEDDED_SDK_RULES: EmbeddedSdkLegalityRule[] = [
+  (profile) =>
+    profile.interactionMode !== 'nonInteractive'
+      ? executionProfileDiagnostic(
+          profile,
+          'embedded_sdk_requires_non_interactive',
+          'Embedded-sdk profiles must use interactionMode nonInteractive (not headless).'
+        )
+      : undefined,
+  (profile) =>
+    profile.sdk.runtime === 'pi-sdk' && profile.session.provider !== 'openai'
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_sdk_requires_openai_provider',
+          'pi-sdk embedded profiles must use the openai provider.'
+        )
+      : undefined,
+  (profile) =>
+    Object.prototype.hasOwnProperty.call(profile.session.lockedEnv, 'PATH')
+      ? executionProfileDiagnostic(
+          profile,
+          'embedded_sdk_forbids_path_locked_env',
+          'Embedded-sdk profiles must carry PATH via the typed session.pathPrepend channel, never in session.lockedEnv.'
+        )
+      : undefined,
+  (profile) =>
+    hasForbiddenProfileField(profile, 'brokerProtocol') ||
+    hasForbiddenProfileField(profile, 'brokerDriver') ||
+    hasForbiddenProfileField(profile, 'brokerTerminal')
+      ? executionProfileDiagnostic(
+          profile,
+          'embedded_sdk_forbids_broker_fields',
+          'Embedded-sdk profiles must not declare broker fields.'
+        )
+      : undefined,
+  (profile) =>
+    hasForbiddenProfileField(profile, 'process')
+      ? executionProfileDiagnostic(
+          profile,
+          'embedded_sdk_forbids_process_fields',
+          'Embedded-sdk profiles run in-process and must not declare a launched process.'
+        )
+      : undefined,
+  (profile) =>
+    hasForbiddenProfileField(profile, 'transport')
+      ? executionProfileDiagnostic(
+          profile,
+          'embedded_sdk_forbids_transport_fields',
+          'Embedded-sdk profiles must not declare a process transport.'
+        )
+      : undefined,
+  (profile) =>
+    hasForbiddenProfileField(profile, 'terminal')
+      ? executionProfileDiagnostic(
+          profile,
+          'embedded_sdk_forbids_terminal_fields',
+          'Embedded-sdk profiles must not declare a terminal surface.'
+        )
+      : undefined,
+  (profile) =>
+    !EMBEDDED_SDK_STARTUP_METHODS.has(profile.sdk.startupMethod)
+      ? executionProfileDiagnostic(
+          profile,
+          'embedded_sdk_invalid_startup_method',
+          'Embedded-sdk startupMethod must be create-sdk-session or reuse-existing.'
+        )
+      : undefined,
+  (profile) =>
+    !EMBEDDED_SDK_TURN_DELIVERIES.has(profile.sdk.turnDelivery)
+      ? executionProfileDiagnostic(
+          profile,
+          'embedded_sdk_invalid_turn_delivery',
+          'Embedded-sdk turnDelivery must be sdk-turn or sdk-inflight-input.'
+        )
+      : undefined,
+]
+
 export function validateEmbeddedSdkExecutionProfile(
   profile: EmbeddedSdkExecutionProfile
 ): CompileDiagnostic[] {
   const diagnostics: CompileDiagnostic[] = []
-
-  if (profile.interactionMode !== 'nonInteractive') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'embedded_sdk_requires_non_interactive',
-        'Embedded-sdk profiles must use interactionMode nonInteractive (not headless).'
-      )
-    )
+  for (const rule of EMBEDDED_SDK_RULES) {
+    const diagnostic = rule(profile)
+    if (diagnostic !== undefined) {
+      diagnostics.push(diagnostic)
+    }
   }
-
-  if (profile.sdk.runtime === 'pi-sdk' && profile.session.provider !== 'openai') {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'pi_sdk_requires_openai_provider',
-        'pi-sdk embedded profiles must use the openai provider.'
-      )
-    )
-  }
-
-  if (Object.prototype.hasOwnProperty.call(profile.session.lockedEnv, 'PATH')) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'embedded_sdk_forbids_path_locked_env',
-        'Embedded-sdk profiles must carry PATH via the typed session.pathPrepend channel, never in session.lockedEnv.'
-      )
-    )
-  }
-
-  if (
-    hasForbiddenProfileField(profile, 'brokerProtocol') ||
-    hasForbiddenProfileField(profile, 'brokerDriver') ||
-    hasForbiddenProfileField(profile, 'brokerTerminal')
-  ) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'embedded_sdk_forbids_broker_fields',
-        'Embedded-sdk profiles must not declare broker fields.'
-      )
-    )
-  }
-
-  if (hasForbiddenProfileField(profile, 'process')) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'embedded_sdk_forbids_process_fields',
-        'Embedded-sdk profiles run in-process and must not declare a launched process.'
-      )
-    )
-  }
-
-  if (hasForbiddenProfileField(profile, 'transport')) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'embedded_sdk_forbids_transport_fields',
-        'Embedded-sdk profiles must not declare a process transport.'
-      )
-    )
-  }
-
-  if (hasForbiddenProfileField(profile, 'terminal')) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'embedded_sdk_forbids_terminal_fields',
-        'Embedded-sdk profiles must not declare a terminal surface.'
-      )
-    )
-  }
-
-  if (!EMBEDDED_SDK_STARTUP_METHODS.has(profile.sdk.startupMethod)) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'embedded_sdk_invalid_startup_method',
-        'Embedded-sdk startupMethod must be create-sdk-session or reuse-existing.'
-      )
-    )
-  }
-
-  if (!EMBEDDED_SDK_TURN_DELIVERIES.has(profile.sdk.turnDelivery)) {
-    diagnostics.push(
-      executionProfileDiagnostic(
-        profile,
-        'embedded_sdk_invalid_turn_delivery',
-        'Embedded-sdk turnDelivery must be sdk-turn or sdk-inflight-input.'
-      )
-    )
-  }
-
   return diagnostics
 }
 

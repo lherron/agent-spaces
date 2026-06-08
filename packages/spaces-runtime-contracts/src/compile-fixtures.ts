@@ -41,7 +41,7 @@ const BASE_CONTINUATION_CAPABILITIES = {
   keyKind: 'thread',
 } as const
 
-const runtimeCapabilities = {
+const RUNTIME_CAPABILITIES = {
   input: BASE_INPUT_CAPABILITIES,
   turns: BASE_TURNS_CAPABILITIES,
   continuation: BASE_CONTINUATION_CAPABILITIES,
@@ -105,7 +105,7 @@ const BASE_INPUT_STATE = {
   pendingDepth: 0,
 } satisfies BrokerInputRuntimeState
 
-const capabilityResolution = {
+const CAPABILITY_RESOLUTION = {
   selectedProfileHash: 'profile-hash' as ProfileHash,
   requirements: {
     input: {
@@ -148,7 +148,7 @@ const capabilityResolution = {
   },
   result: {
     status: 'compatible',
-    effective: runtimeCapabilities,
+    effective: RUNTIME_CAPABILITIES,
   },
 } satisfies CapabilityResolution
 
@@ -174,7 +174,7 @@ export const compileOnlyRuntimeRouteDecision = {
       audit: true,
     },
   },
-  capabilities: capabilityResolution,
+  capabilities: CAPABILITY_RESOLUTION,
   legacyTransportAlias: 'headless',
 } satisfies RuntimeRouteDecision
 

@@ -1,5 +1,5 @@
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { cp, mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 
 import { type HarnessRunOptions, PathResolver, type SpaceRefString } from 'spaces-config'
 
@@ -130,6 +130,37 @@ export async function pathExists(path: string): Promise<boolean> {
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * Move a directory from `src` to `dest`, falling back to copy+remove when a
+ * cross-device `rename` is not possible.
+ *
+ * Ensures `dest`'s parent exists, then attempts an atomic `rename`. On failure
+ * (e.g. EXDEV across filesystems) it clears `dest` and performs a recursive
+ * copy followed by removal of `src`. Set `clearDestFirst` to remove an existing
+ * `dest` before the rename attempt (needed when the destination may already
+ * hold partial state that would otherwise block the rename).
+ *
+ * Consolidates the previously-duplicated legacy-home migration dance shared by
+ * `run.ts` (harness output) and `run-codex.ts` (codex runtime home).
+ */
+export async function moveDirWithCopyFallback(
+  src: string,
+  dest: string,
+  options: { clearDestFirst?: boolean } = {}
+): Promise<void> {
+  await mkdir(dirname(dest), { recursive: true })
+  try {
+    if (options.clearDestFirst) {
+      await rm(dest, { recursive: true, force: true })
+    }
+    await rename(src, dest)
+  } catch {
+    await rm(dest, { recursive: true, force: true })
+    await cp(src, dest, { recursive: true, force: true })
+    await rm(src, { recursive: true, force: true })
   }
 }
 

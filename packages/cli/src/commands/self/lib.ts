@@ -163,8 +163,7 @@ export function extractPrimingPrompt(argv: readonly string[]): string | null {
  */
 export function inferTargetFromBundleRoot(bundleRoot: string | undefined): string | null {
   if (!bundleRoot) return null
-  const harnessDir = bundleRoot
-  const targetDir = dirname(harnessDir)
+  const targetDir = dirname(bundleRoot)
   if (dirname(targetDir) === targetDir) return null
   const targetName = targetDir.split('/').pop()
   return targetName && targetName.length > 0 ? targetName : null

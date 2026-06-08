@@ -22,6 +22,19 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * SessionEnd reasons that mean the OPERATOR deliberately ended the conversation,
+ * so the captured continuation must be dropped (next launch is fresh). An
+ * external pane-kill / crash reports `other` (or fires no SessionEnd at all) and
+ * is intentionally absent here, so `--resume` durability survives pane
+ * recreation (T-01761 ariadne case). Shared by both tmux drivers so HRC's
+ * continuation.cleared -> broker-tmux lease reap fires identically for each.
+ *
+ * NOTE: invocation-manager's SESSION_LEAVE_REASONS is a deliberately smaller set
+ * (no `clear`) and is intentionally NOT this constant.
+ */
+export const USER_INITIATED_END_REASONS = new Set(['prompt_input_exit', 'logout', 'clear'])
+
 /** Read the invocation's runtime id off the spec's correlation map, if present. */
 export function getInvocationRuntimeId(spec: HarnessInvocationSpec): string | undefined {
   return spec.correlation?.['runtimeId']

@@ -15,9 +15,9 @@ import type {
 } from './transport'
 
 /** JSON-RPC error code for an unrecognized method (`-32601`). */
-export const JSON_RPC_METHOD_NOT_FOUND = -32601
+const JSON_RPC_METHOD_NOT_FOUND = -32601
 /** JSON-RPC error code for an internal handler failure (`-32603`). */
-export const JSON_RPC_INTERNAL_ERROR = -32603
+const JSON_RPC_INTERNAL_ERROR = -32603
 
 type PendingRequest = {
   resolve: (value: unknown) => void
@@ -228,6 +228,13 @@ export abstract class JsonRpcFramedChannel implements BrokerJsonRpcTransport {
 
   #idKey(id: JsonRpcId): string {
     return String(id)
+  }
+
+  /** Throw the latched failure cause if the channel has already failed. */
+  protected assertWritable(): void {
+    if (this.failure) {
+      throw this.failure
+    }
   }
 
   /** Write a single frame to the underlying channel (child stdin / socket). */

@@ -1,162 +1,110 @@
-# 🔧 Refactoring Analysis
-**Target:** packages/config/src  
-**Lines analyzed:** 29,959  ·  **Generated:** 2026-06-07  ·  **Focus:** all
+# SOLID / code-smell audit — `packages/config` (spaces-config)
 
-## 📊 SOLID Scorecard
-| Principle | Status | Issues |
-|-----------|--------|--------|
-| **S (SRP)** | 🟡 | 4 files >300 lines with multiple responsibilities; `placement-resolver.ts` mixes resolution, instruction loading, and integrity computation |
-| **O (OCP)** | 🟡 | 2 type-keyed switch statements without extension seams; hardcoded rule lists in lint dispatcher |
-| **L (LSP)** | 🟢 | No violations detected |
-| **I (ISP)** | 🟡 | `LintContext` requires spaces array; type-heavy interfaces >15 members (harness.ts, permissions-toml.ts) |
-| **D (DIP)** | 🟡 | Direct instantiation of `PathResolver` in 10+ locations; hardcoded rule array in lint/rules/index.ts; `new Map()` coupling |
+## Overall assessment
 
----
+The package was recently refactored (commit `e238805`, "SOLID/code-smell cleanup pass
+across all 17 packages") and is in good shape. Most files already use guard-clause
+de-nesting, extracted private helpers, named constants for magic numbers, and `Record`
+lookup tables instead of switch chains. The findings below are modest, mostly Low-risk
+internal dedupe/constant extractions plus a handful of deferred public-surface or
+behavior-touching items. No god objects or large undecomposed functions were found.
 
-## 🎯 Priority Refactorings
-
-### 1. Split `placement-resolver.ts` — SRP violation
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/config/src/resolver/placement-resolver.ts:1–451`
-- **Current:** 450 lines; mixes 5 concerns: materialization resolution, instruction loading, space composition, integrity computation, cwd resolution
-- **Suggested:** Extract into separate modules: `placement-materialization.ts`, `placement-instructions.ts`, `placement-integrity.ts`; use composition in facade
-- **Risk:** Medium  ·  **API-impact:** internal-only  ·  **Effort:** 4 hours  ·  **Tests:** Update 15+ test imports
-- **Blast radius:** `orchestration/resolve.ts`, `orchestration/build.ts`, placement resolver tests
-
-### 2. Extract bundle resolution logic from `placement-resolver.ts` — OCP violation
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/config/src/resolver/placement-resolver.ts:139–171`
-- **Current:** Two switch statements on `bundle.kind` (lines 139, 275) that will grow with new bundle types
-- **Suggested:** Strategy pattern: `BundleResolverFactory` with `AgentProjectResolver`, `ComposeResolver` implementations
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 3 hours  ·  **Tests:** 8 unit tests
-- **Rationale:** New bundle types (e.g., `workspace`) can be added without modifying placement-resolver
-
-### 3. Extract lint rule dispatcher — OCP + DIP violation
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/config/src/lint/rules/index.ts:29–38`
-- **Current:** Hardcoded array of rule functions; requires file edits to add rules
-- **Suggested:** Dynamic rule registry: `LintRuleRegistry` with `.register()` API; rules self-register on import
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 2 hours  ·  **Tests:** 6 unit tests
-- **Impact:** 7 new rules can be added without touching dispatcher
-
-### 4. Centralize `PathResolver` instantiation — DIP violation
-- **Location:** 10+ files: `orchestration/install.ts:188`, `orchestration/explain/explain.ts:199`, `store/snapshot.ts`, `resolver/lock-generator.ts`
-- **Current:** Direct `new PathResolver({ aspHome })` in business logic
-- **Suggested:** Dependency injection container or service factory: `PathResolverFactory.create(aspHome?: string)` with singleton caching
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 2 hours  ·  **Tests:** 10 callers to update
-- **Rationale:** Enables test mocking; consolidates `aspHome` resolution logic
-
-### 5. Decompose `install.ts` — SRP + DIP violations
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/config/src/orchestration/install.ts:1–736` (736 lines)
-- **Current:** 12 responsibilities: registry management, store population, space materialization, linting, target building, harness dispatch
-- **Suggested:** Extract modules: `install-registry.ts`, `install-store.ts`, `install-materialization.ts`; use `InstallCoordinator` facade
-- **Risk:** Medium  ·  **API-impact:** internal-only  ·  **Effort:** 6 hours  ·  **Tests:** Update 50+ test assertions
-- **Blast radius:** `orchestration/build.ts`, `orchestration/index.ts`, CLI handlers
-
-### 6. Extract harness-specific logic from `install.ts` — OCP violation
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/config/src/orchestration/install.ts:380–450` (harness dispatch)
-- **Current:** Type checks on `harness` parameter; new harnesses require install.ts edits
-- **Suggested:** `HarnessAdapter` pattern: create `ClaudeAdapter`, `PiAdapter` with uniform interface; use factory
-- **Risk:** Medium  ·  **API-impact:** internal-only  ·  **Effort:** 3 hours  ·  **Tests:** 8 harness-specific tests
-- **Rationale:** Codex, Pi SDK support can be added without touching install.ts
-
-### 7. Extract permission translation logic — SRP violation
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/config/src/materializer/permissions-toml.ts:1–731` (731 lines)
-- **Current:** 3 responsibilities: TOML parsing, harness-specific translation (Claude vs Pi), enforcement annotation
-- **Suggested:** Extract `PermissionTranslator` interface with `ClaudeTranslator`, `PiTranslator` implementations; use strategy pattern
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 3 hours  ·  **Tests:** 20 translation test cases
-- **Rationale:** Future harness (Codex) permissions can reuse translators
-
-### 8. Simplify `hooks-toml.ts` hook format conversion — Code smell
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/config/src/materializer/hooks-toml.ts:150–300` (deep nesting, 6+ levels)
-- **Current:** 3-level nested loops + format conversions; multiple format branches (TOML → Claude array → Claude object)
-- **Suggested:** Extract format converters: `HooksFormatter` with `toClaudeArray()`, `toClaudeObject()` methods
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 2 hours  ·  **Tests:** 15 format conversion tests
-- **Rationale:** Reduces cyclomatic complexity; enables format validation per-converter
-
-### 9. Reduce `harness.ts` interface bloat — ISP violation
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/config/src/core/types/harness.ts:1–220` (642 lines total)
-- **Current:** `HarnessCatalogEntry` interface has 6 members; 4 lookup maps built inline (lines 99–115)
-- **Suggested:** Split into `HarnessMeta` (id, provider) + `HarnessRuntime` (transport, frontend); lazy-load lookup maps
-- **Risk:** Low  ·  **API-impact:** public-surface (type exports)  ·  **Effort:** 2 hours  ·  **Tests:** Update 25 type imports
-- **Rationale:** Clarifies harness identity vs. runtime concerns; reduces module initialization cost
-
-### 10. Extract `lint/rules/hooks-json.ts` format parsing — Code smell
-- **Location:** `/Users/lherron/praesidium/agent-spaces/packages/config/src/lint/rules/hooks-json.ts:59–119` (deep nesting, 4+ levels)
-- **Current:** `parseHooksContent()` has 3 branches + 6-level nesting (Array → entry → nestedHooks → nested → check)
-- **Suggested:** Extract format handlers: `SimpleHooksParser`, `ClaudeArrayParser`, `ClaudeObjectParser` with common interface
-- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** 1.5 hours  ·  **Tests:** 8 format-specific tests
-- **Rationale:** Improves readability; enables per-format validation rules
+Files read in full: `materializer/permissions-toml.ts`, `orchestration/install.ts`,
+`core/config/agent-profile-toml.ts`, `git/repo.ts`, `resolver/placement-resolver.ts`,
+`orchestration/explain/format-text.ts`, `orchestration/materialize-refs.ts`,
+`materializer/hooks-toml.ts`, `materializer/link-components.ts`,
+`resolver/validator.ts` (partial), `store/paths.ts` (relevant sections). Cross-package
+usage greps run for deprecated members.
 
 ---
 
-## 📝 Code Smells
+## Repeated TOML optional-string parse block in agent-profile-toml
+- File: packages/config/src/core/config/agent-profile-toml.ts:342
+- Risk: Low
+- API-impact: internal-only
+- Smell: The pattern `if (value['x'] !== undefined) { if (typeof value['x'] !== 'string') fail(...); options.x = value['x'] }` is copy-pasted ~10 times across `parseClaudeOptions`, `parseCodexOptions`, and `parseBrain` (lines 342-359, 386-438, 300-322).
+- Proposed change: Extract a private `parseOptionalString(value, key, source, path): string | undefined` helper (mirroring the existing `parseStringArray`) and call it from each site. Behavior-preserving — same `fail()` calls, same assignments.
 
-| Smell | Location | Severity | Count |
-|-------|----------|----------|-------|
-| **Long methods (>50 lines)** | `install.ts`, `placement-resolver.ts`, `hooks-toml.ts`, `permissions-toml.ts`, `lock-generator.ts` | Medium | 12 functions |
-| **Deep nesting (≥4 levels)** | `hooks-toml.ts` (6), `lint/rules/hooks-json.ts` (5), `closure.ts` (4), `materialize.ts` (4) | Low-Medium | 8 blocks |
-| **Type-keyed switch/if-else** | `placement-resolver.ts` lines 139, 275; `closure.ts` line 128; `config/agent-profile-toml.ts` | Medium | 3 locations |
-| **Hardcoded collections** | `lint/rules/index.ts:29–38`, `harness.ts:99–115`, `permissions-toml.ts:300–320` | Low | 3 locations |
-| **Magic numbers** | `placement-resolver.ts:47` (BUNDLE_IDENTITY_HASH_LEN=16), `lint/rules/hooks-json.ts`, `lock-generator.ts` | Low | 5 occurrences |
-| **Primitive obsession** | Strings used for bundle.kind, space types ('agent', 'project', 'registry'); wide use of `string[]` for refs | Low | 4 modules |
-| **Feature envy** | `install.ts` reaches into 8 modules (store, resolver, materializer, git); `placement-resolver.ts` loads files directly | Low | 2 locations |
-| **Duplicated logic** | Ref normalization in `space-composition.ts:102`, `closure.ts`, `lock-generator.ts` | Low | 3 patterns |
+## Repeated enum-validated string parse block in parseCodexOptions
+- File: packages/config/src/core/config/agent-profile-toml.ts:404
+- Risk: Low
+- API-impact: internal-only
+- Smell: `approval_policy` (404-417) and `sandbox_mode` (418-431) repeat an identical "must be a string → must be in Set → assign" block differing only in the Set and the property.
+- Proposed change: Extract a private `parseOptionalEnum(value, key, allowedSet, label, source, path)` helper. Behavior-preserving.
+
+## Duplicated `parseStringArray`-style array narrowing in TOML parsers
+- File: packages/config/src/materializer/permissions-toml.ts:226
+- Risk: Low
+- API-impact: internal-only
+- Smell: `parsePermissionsToml` repeats `Array.isArray(x['k']) ? (x['k'] as string[]) : undefined` for every field (lines 229, 237, 245-246, 254, 262-265); the same idiom recurs in `parseHooksToml` (hooks-toml.ts:152) and `readHooksWithPrecedence` (hooks-toml.ts:454).
+- Proposed change: Add a tiny private `asStringArray(v: unknown): string[] | undefined` helper inside each module and reuse. Purely internal, behavior-preserving.
+
+## `populateStore` / `populateSnapshots` are near-duplicate functions
+- File: packages/config/src/orchestration/materialize-refs.ts:276
+- Risk: Med
+- API-impact: internal-only
+- Smell: `populateSnapshots` (materialize-refs.ts:276-306) and `populateStore` (install.ts:186-216) are equivalent except `populateStore` reads `aspHome`/`registryPath` from options while `populateSnapshots` takes them as params. Both build a `PathResolver`, loop over `lock.spaces`, skip non-`registry` entries, skip existing snapshots, and `createSnapshot`.
+- Proposed change: Extract one shared private `populateSnapshotsFromLock(lock, registryPath, aspHome)` and call it from both. `populateStore` is exported, so keep its signature; only its body changes. Behavior-preserving.
+
+## Magic git timeout numbers repeated in repo.ts
+- File: packages/config/src/git/repo.ts:156
+- Risk: Low
+- API-impact: internal-only
+- Smell: Raw timeout literals `300000` (clone) and `120000` (fetch/pull/push, three sites: 191, 222, 611) with `// 5 minute` / `// 2 minute` comments.
+- Proposed change: Introduce module-private named constants `CLONE_TIMEOUT_MS = 5 * 60_000` and `NETWORK_OP_TIMEOUT_MS = 2 * 60_000` and reference them. Behavior-preserving.
+
+## Repeated try/catch stat-as-boolean helpers
+- File: packages/config/src/materializer/link-components.ts:139
+- Risk: Low
+- API-impact: internal-only
+- Smell: `isDirectory` (exported, 156-163) and `fileExists` (private, 184-191) are the same try/catch-around-`stat`/`access` shape; the `linkComponents` loop (139-147) re-implements the directory check inline.
+- Proposed change: Use the existing `isDirectory` helper inside `linkComponents` instead of the inline `stat` try/catch; keep `fileExists` as-is. Only call sites change, not `isDirectory`'s signature. Behavior-preserving.
+
+## Duplicated agent/project branch in computeSpaceIntegrity
+- File: packages/config/src/resolver/placement-resolver.ts:224
+- Risk: Low
+- API-impact: internal-only
+- Smell: The `agent:` branch (225-232) and `project:` branch (233-240) are structurally identical — strip prefix, join `<root>/spaces/<id>`, hash-if-exists-else-marker — differing only in prefix regex, root, and fallback marker string.
+- Proposed change: Extract a private `integrityForFilesystemSpace(root, idPrefixRegex, marker)` helper and call it for both branches. Behavior-preserving.
+
+## Magic literal file/ref names in placement-resolver
+- File: packages/config/src/resolver/placement-resolver.ts:298
+- Risk: Low
+- API-impact: internal-only
+- Smell: Bare string literals `'SOUL.md'`, `'HEARTBEAT.md'`, `'agent-profile.toml'`, `'asp-targets.toml'`, `'spaces'`, and ref prefixes `'agent-root:///'` / `'project-root:///'` appear inline (lines 298, 323, 391, 407, 226/233, 377).
+- Proposed change: Hoist module-private `const` names (e.g. `SOUL_FILENAME`, `HEARTBEAT_FILENAME`, `AGENT_PROFILE_FILENAME`, `AGENT_ROOT_REF_PREFIX`). Behavior-preserving.
+
+## Shared collision-detection map+throw pattern
+- File: packages/config/src/orchestration/materialize-refs.ts:330
+- Risk: Low
+- API-impact: internal-only
+- Smell: `discoverSkills` (330-341) and `detectCommandConflicts` (352-372) each build a `Map<name, owner>` and throw on a second insert; the dedupe shape is identical (only the error-message text differs).
+- Proposed change: Extract a private `assertNoNameCollision(...)` helper that owns the throw; pass a kind label so the existing message wording is preserved exactly. Behavior-preserving.
 
 ---
 
-## 🚀 Quick Wins (low risk, high value)
+## DEFERRED (High-risk or public-surface)
 
-1. **Extract `PathResolver` factory** (30 min, Low risk, internal-only)
-   - Consolidate `new PathResolver()` calls into single `createPathResolver(aspHome?)` function
-   - Enables mocking in tests; centralizes aspHome fallback logic
-   - Files: `orchestration/install.ts:188`, `orchestration/explain/explain.ts:199`, `store/snapshot.ts`, `resolver/lock-generator.ts`
+## `readHooksToml` silently swallows non-ENOENT errors
+- File: packages/config/src/materializer/hooks-toml.ts:173
+- Risk: High
+- API-impact: internal-only
+- Smell: The catch returns `null` on ENOENT (correct) but then has a second unconditional `return null` (line 177) that swallows TOML parse failures and real IO errors. This contradicts the repo's documented "never silently capture errors" policy that the sibling `readPermissionsToml` (permissions-toml.ts:284-292) follows by re-throwing non-ENOENT.
+- Proposed change: Re-throw non-ENOENT errors as `readPermissionsToml` does.
+- Reason it needs a human: Changing `return null` to `throw err` is a runtime behavior change — currently-tolerated malformed `hooks.toml` would become a hard install failure; needs confirmation of desired semantics + a test.
 
-2. **Extract lint rule factory** (45 min, Low risk, internal-only)
-   - Replace hardcoded `allRules` array with `LintRuleRegistry.register(rule)` API
-   - Allows new rules without touching dispatcher; improves modularity
-   - File: `lint/rules/index.ts:29–38`
+## Deprecated public export `getStorePath` appears unused outside its own test
+- File: packages/config/src/store/paths.ts:69
+- Risk: High
+- API-impact: public-surface
+- Smell: `getStorePath` is `@deprecated` and re-exported from `store/index.ts`. A repo-wide grep finds no consumers other than its own `paths.test.ts` — removable dead public surface.
+- Proposed change: Remove the export (and its test) after confirming no downstream pins.
+- Reason it needs a human: It is an exported package symbol (spaces-config public API); removal is a breaking change for external/hrc-runtime/ACP consumers not visible in this repo.
 
-3. **Extract hooks format converters** (1 hour, Low risk, internal-only)
-   - Split `hooks-toml.ts` format logic into `HooksFormatter.toClaudeArray()`, `toClaudeObject()`
-   - Reduces cyclomatic complexity; improves testability
-   - File: `materializer/hooks-toml.ts:150–300`
-
-4. **Name magic numbers** (30 min, Low risk, internal-only)
-   - Add constants: `BUNDLE_IDENTITY_HASH_LEN = 16`, `HOOKS_FORMAT_VERSION = 1`
-   - Improves code clarity; enables bulk edits
-   - Files: `placement-resolver.ts:47`, `hooks-toml.ts`, `lock-generator.ts`
-
-5. **Consolidate ref normalization** (45 min, Low risk, internal-only)
-   - Create `utils/ref-normalization.ts` with `normalizeRefForDedup()`, `normalizeRefKey()`
-   - DRY up 3 duplicate patterns across `space-composition.ts`, `closure.ts`, `lock-generator.ts`
-   - Reduces future bugs in ref handling
-
----
-
-## ⚠️ Technical Debt Notes
-
-### High Priority Debt
-- **Bundle type growth pending:** `placement-resolver.ts` will break with new bundle types (workspace, composite). Strategy pattern prevents this (Refactoring #2).
-- **Harness proliferation risk:** `install.ts` has inline harness dispatch; Codex + Pi SDK support will bloat this file. Adapter pattern needed (Refactoring #6).
-- **Install.ts is a god object:** 736 lines orchestrating 12 separate concerns. Risk of cascading changes as new features (harness support, cache modes) are added.
-
-### Medium Priority Debt
-- **Lint rule extensibility:** New rule additions require editing `lint/rules/index.ts`. Registry pattern (Refactoring #3) unblocks this.
-- **Permission translation complexity:** `permissions-toml.ts` (731 lines) mixes format parsing with 3 harness-specific translators. Will degrade with Codex support.
-- **Type inflation:** `harness.ts` (642 lines), `core/types/refs.ts` (340 lines) contain types + initialization logic. Split into types + factories.
-
-### Low Priority Debt (Cosmetic)
-- Hook format handling has 6-level nesting in `hooks-toml.ts`; extraction improves readability but no functional risk.
-- Magic numbers used for hash lengths and format markers; naming improves clarity without code changes.
-- Primitive obsession: bundle.kind, space type strings could be enums (internal-only refactor).
-
----
-
-## 🛠️ Refactoring Effort Estimate
-**Total effort:** ~27 hours  
-**Quick wins (auto-applicable):** 3 hours  
-**High-impact refactorings:** 18 hours  
-**Low-priority cleanup:** 6 hours  
-
-**Phase 1 (Week 1):** Refactorings #1–3 (Split placement-resolver, extract bundle strategy, extract lint dispatcher)  
-**Phase 2 (Week 2):** Refactorings #4–6 (PathResolver factory, decompose install.ts, harness adapters)  
-**Phase 3 (Week 3):** Refactorings #7–10 (Permissions translator, hooks formatter, harness type split, hooks-json parser)
-
+## Deprecated public member `PathResolver.store`
+- File: packages/config/src/store/paths.ts:305
+- Risk: High
+- API-impact: public-surface
+- Smell: `@deprecated` getter aliasing `snapshots`; still consumed by cli `doctor.ts`, `gc.ts`, `list.ts`.
+- Proposed change: Migrate callers to `.snapshots`, then drop the alias.
+- Reason it needs a human: Public class member still in use; migrating callers and removing the alias is a coordinated cross-package public-surface change requiring sign-off.
