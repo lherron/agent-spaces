@@ -43,7 +43,6 @@ export {
   type AgentBrainRuntimeContext,
   type BrainRuntimeResolution,
   type EnabledAgentBrainEnvResult,
-  type GbrainCommandRunner,
 } from './run/agent-brain.js'
 export {
   prepareAgentToolRuntime,

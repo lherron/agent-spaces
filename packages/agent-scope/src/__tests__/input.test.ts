@@ -133,4 +133,29 @@ describe('resolveQualifiedScopeInput', () => {
       scopeRef: 'agent:cody:project:agent-spaces:task:T-1:role:tester',
     })
   })
+
+  test('project-deferred shorthand fills projectId from opts', () => {
+    expect(resolveQualifiedScopeInput('cody:zed', { projectId: 'hrc-runtime' })).toMatchObject({
+      scopeRef: 'agent:cody:project:hrc-runtime:task:zed',
+      laneRef: 'main',
+    })
+  })
+
+  test('project-deferred shorthand preserves task-id-shaped tokens', () => {
+    expect(resolveQualifiedScopeInput('cody:T-02134', { projectId: 'agent-spaces' })).toMatchObject(
+      {
+        scopeRef: 'agent:cody:project:agent-spaces:task:T-02134',
+      }
+    )
+  })
+
+  test('project-deferred shorthand throws when no project can be resolved', () => {
+    expect(() => resolveQualifiedScopeInput('cody:zed')).toThrow(/requires a project/)
+  })
+
+  test('canonical agent ScopeRef wins over deferred-handle reading of agent:<id>', () => {
+    expect(resolveQualifiedScopeInput('agent:larry')).toMatchObject({
+      scopeRef: 'agent:larry',
+    })
+  })
 })

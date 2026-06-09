@@ -12,7 +12,7 @@
 | Open/Closed | 🟡 | Harness-id branching is duplicated across `compiler-debug.ts` (3 `switch`/`if` chains keyed on harness id), `placement-plan.ts` (claude-vs-codex model defaulting), and `prepareRunOptions` (`adapter.id !== 'codex'`). New harnesses touch several call sites. |
 | Liskov Substitution | 🟢 | No inheritance hierarchies, no `throw "not implemented"` overrides, no no-op base-dropping overrides. Adapter polymorphism is interface-based and uniform. |
 | Interface Segregation | 🟡 | `RunOptions` (types.ts:34–65, 24 members) and `GlobalRunOptions` (types.ts:134–161, 27 members) are near-duplicate fat option bags; `HarnessRunOptions` is rebuilt field-by-field in two places. `RunResult` carries 8 prompt-budget fields most callers ignore. |
-| Dependency Inversion | 🟡 | `run()` and `space-launch.ts` read `process.env['ASP_RUN_VIA_COMPILER']` / `ASP_DEBUG_RUN` directly; `defaultGbrainCommandRunner` and the harness registry are module singletons. The `compileRuntime` and `GbrainCommandRunner` seams are good DIP examples to extend. |
+| Dependency Inversion | 🟡 | `run()` and `space-launch.ts` read `process.env['ASP_RUN_VIA_COMPILER']` / `ASP_DEBUG_RUN` directly; the harness registry is a module singleton. The `compileRuntime` seam is a good DIP example to extend. |
 
 ## 🎯 Priority Refactorings
 
@@ -49,7 +49,7 @@
 ### 6. Replace direct `process.env` reads with an injected runtime config — Dependency Inversion
 - **Location:** `run.ts:105,215,221,310-311`; `run/space-launch.ts:111-112`; `run/agent-brain.ts:402`; `run/agent-tools.ts:104`
 - **Current:** Feature gates (`ASP_RUN_VIA_COMPILER`, `ASP_DEBUG_RUN`) and identity fallbacks (`ASP_PROJECT`, `ASP_TASK_ID`) are read inline from `process.env`, duplicating the `=== '1' || === 'true'` gate parse in two files and making the gate untestable without mutating global env.
-- **Suggested:** A small `resolveRunEnvFlags(env = process.env)` helper returning `{ viaCompiler, debugRun }`, threaded as a parameter (default `process.env`). The `GbrainCommandRunner` seam (agent-brain.ts:71) is the model — extend it.
+- **Suggested:** A small `resolveRunEnvFlags(env = process.env)` helper returning `{ viaCompiler, debugRun }`, threaded as a parameter (default `process.env`).
 - **Risk:** Low  ·  **Effort:** ~2 hrs  ·  **Tests:** Unit-test the flag parser; existing tests pass env explicitly.
 
 ### 7. Make the codex managed-home sync list data-driven — Open/Closed
@@ -68,7 +68,7 @@
 | Duplicated block — compiler gate + invoke + compiledLaunch | `run.ts:310-372` vs `space-launch.ts:109-149` | 🟠 |
 | Duplicated block — `HarnessRunOptions` literal | `run.ts:238-256` vs `space-launch.ts:84-102` | 🟠 |
 | Duplicated function — `shellQuote` defined twice | `prompt-display.ts:65` and `run/util.ts:6` | 🟡 |
-| Duplicated function — `pathExists` defined 4× | `run.ts` (imported), `run/util.ts:50`, `run-codex.ts:32`, `run/agent-brain.ts:293` | 🟡 |
+| Duplicated function — `pathExists` defined 3× | `run.ts` (imported), `run/util.ts:50`, `run-codex.ts:32` | 🟡 |
 | Mutable-state thread — 6 `let` budget vars | `run.ts:257-290` | 🟡 |
 | Near-duplicate option bags (24 vs 27 fields) | `types.ts:34-65` / `types.ts:134-161` | 🟡 |
 | Near-duplicate return shape (anonymous object type repeated) | `agent-profile.ts:119-130` vs `152-166` | 🟡 |
@@ -90,9 +90,8 @@
 
 - **Dual execution paths (legacy vs compiler).** `execute.ts:116-157` branches on `compiledLaunch`, and both `run.ts`/`space-launch.ts` carry the `ASP_RUN_VIA_COMPILER` gate. This is intentional transitional debt (per the in-code comments) but it is now duplicated across three files; consolidating (finding #2) reduces the blast radius when the legacy path is finally retired.
 - **`RunResult` prompt-budget fields** (`maxChars`, `promptSectionSizes`, `reminderSectionSizes`, `totalContextChars`, `nearMaxChars`, `reminderContent`) are populated only on the project-target path and left `undefined` for space runs. Consider a nested `budget?: PromptBudget` object (the `PromptBudget` type already exists in `prompt-display.ts:25`) to group them and signal optionality.
-- **`agent-brain.ts` gbrain source-registration retry logic** (lines 161–224) has subtle add/remove/verify-after-failure branching that is hard to follow; it is well-isolated and testable but would benefit from a short state-machine comment or a table of the (existingPath, brainRepo) cases it handles.
 - **`buildSyntheticRunManifest`** (placement-plan.ts:130–163) constructs a fake `ProjectManifest` purely to feed `adapter.getDefaultRunOptions`. This works around the adapter interface only accepting a manifest; a future adapter method that accepts resolved defaults directly would remove the synthetic-shape coupling.
-- **Test coverage is strong** for `run.ts` (run.test.ts, 922 lines) and `agent-tools.ts` (agent-tools.test.ts, 200 lines), which de-risks findings #1, #3, #4. No dedicated unit tests were observed for `space-launch.ts`, `run-codex.ts`, or `agent-brain.ts` source helpers — add characterization tests before refactoring #2/#5.
+- **Test coverage is strong** for `run.ts` (run.test.ts, 922 lines) and `agent-tools.ts` (agent-tools.test.ts, 200 lines), which de-risks findings #1, #3, #4. No dedicated unit tests were observed for `space-launch.ts` or `run-codex.ts` source helpers — add characterization tests before refactoring #2/#5.
 
 ## ✅ Safety Checklist (for whoever applies these)
 
@@ -110,8 +109,8 @@ Fresh-eyes pass focused on error-handling, async/cleanup correctness, dry-run si
 concurrency, contract/API asymmetry, and test gaps. Items below are NOT in the first report.
 
 ### A1. Dry-run performs filesystem side effects via the agent-tool runtime — Correctness / CLAUDE.md "dry-run must not launch"
-- **Location:** `run/execute.ts:150-154` (no `dryRun` guard) → `run/agent-tools.ts:80-102` (`mkdir` of state/cache/log + `projects/<id>` dirs).
-- **Issue:** The agent-brain runtime is correctly gated (`if (!options.dryRun && options.agentBrainRuntime)`, execute.ts:146), but the agent-tool runtime block immediately below has **no dry-run guard**. So `asp run --dry-run` for an agent that `hasTools` still creates `<agentVarDir>/state|cache|logs` and `state/projects/<projectId>`, and runs `validateAgentTools` (which can `throw` on a bad tool name / non-executable file). A dry-run is supposed to be inspection-only; it should not mutate the filesystem or fail on tool validation. CLAUDE.md explicitly mandates dry-run not have launch side effects.
+- **Location:** `run/execute.ts:150-154` (no `dryRun` guard) -> `run/agent-tools.ts:80-102` (`mkdir` of state/cache/log + `projects/<id>` dirs).
+- **Issue:** The agent-tool runtime block has **no dry-run guard**. So `asp run --dry-run` for an agent that `hasTools` still creates `<agentVarDir>/state|cache|logs` and `state/projects/<projectId>`, and runs `validateAgentTools` (which can `throw` on a bad tool name / non-executable file). A dry-run is supposed to be inspection-only; it should not mutate the filesystem or fail on tool validation. CLAUDE.md explicitly mandates dry-run not have launch side effects.
 - **Risk:** Med (silent FS writes + dry-run can now throw)  ·  **Effort:** ~1 hr (mirror the brain guard, or compute env from `components` without the `mkdir`s under dry-run)  ·  **Tests:** add a dry-run + `hasTools` case asserting no dirs are created and no throw on a tools dir; none exists today.
 
 ### A2. Non-interactive harness output is buffered to memory and withheld until process exit — Performance / UX
@@ -129,16 +128,6 @@ concurrency, contract/API asymmetry, and test gaps. Items below are NOT in the f
 - **Issue:** On `rename` failure the catch does `rm(runtimeHome, force) → cp(legacy → runtimeHome) → rm(legacy)`. If `cp` throws partway (disk full, EXDEV during copy, interrupt), the original `legacy` still exists but `runtimeHome` is now a partial copy, and a *re-run* sees `runtimeExists === true` (line 150) and returns the corrupt home, never retrying the migration — Codex auth/state is silently half-migrated. The pre-`rm(runtimeHome)` also destroys any concurrently-created runtime before the rename is even attempted.
 - **Risk:** Med (rare but data-losing)  ·  **Effort:** ~2-3 hrs (copy to a temp sibling then atomic rename into place; only `rm(legacy)` after success)  ·  **Tests:** existing migrate test covers the happy `rename` path only; add an EXDEV/`cp`-failure simulation.
 
-### A5. `findSourcePath` columnar parser collapses whitespace in paths — Edge-case bug
-- **Location:** `run/agent-brain.ts:337-342`.
-- **Issue:** The non-JSON fallback splits each line on `\s+` and rejoins path columns with a single space (`columns.slice(1).join(' ')`). A `BRAIN_REPO` path containing runs of spaces or tabs (e.g. `/Users/me/My  Agent/brain`) is normalized to a single space, so the subsequent `existingPath === brainRepo` comparison in `ensureSourceRegistered` (lines 168/182) fails and the source is needlessly removed+re-added every run. Tab-separated `gbrain sources list` output is also mis-split.
-- **Risk:** Low  ·  **Effort:** ~1 hr (prefer the JSON path; for columnar, split on first whitespace run only and keep the remainder verbatim)  ·  **Tests:** `findSourcePath` has no unit tests; add cases for spaced paths and JSON vs columnar.
-
-### A6. `ensureSourceRegistered` list→add is a TOCTOU race — Concurrency
-- **Location:** `run/agent-brain.ts:161-194`.
-- **Issue:** The function reads `sources list`, decides, then `sources add`/`remove` — non-atomic. Two concurrent runs of the **same** agent (or a run racing an external `gbrain`) can both observe "not registered" and both `add`, or one removes while the other adds. The elaborate `sourceMatchesAfterFailedAdd` / `findSourcePathAfterOperationFailure` recovery (a state machine the first report flagged only for *readability*) is really compensating for this missing mutual exclusion. The recovery also swallows the *list-after-failure* error (line 210-214) so a genuine gbrain failure during recovery is hidden behind "add failed" semantics.
-- **Risk:** Med (intermittent, hard to reproduce)  ·  **Effort:** ~3 hrs (serialize per-agent via a lockfile, or make registration idempotent with an `add --force`/upsert)  ·  **Tests:** none; add a concurrency characterization test driving two `ensureSourceRegistered` with a fake runner.
-
 ### A7. `paginate`/`waitForKey` hard-exits the process and mutates global stdin from a library — Leaky abstraction
 - **Location:** `pager.ts:27-29` (`process.exit(130)` on Ctrl-C) and `:13-22` (`setRawMode` / `resume` / `pause` on the shared `process.stdin`).
 - **Issue:** A reusable display utility (re-exported as public API, index.ts:96) calls `process.exit(130)` directly on Ctrl-C, so any host embedding `displayPrompts({ pagePrompts: true })` (e.g. `hrc launch exec`) is killed with no chance to clean up child processes / temp dirs. It also flips global `process.stdin` raw mode and resume/pause state; if the caller already manages stdin (an interactive harness), this races/corrupts that state. `wasRaw ?? false` silently coerces an undefined `isRaw` (non-TTY) to "cooked", which can leave the terminal in the wrong mode if `isTTY` flips. Prefer signalling quit/abort to the caller over `process.exit`.
@@ -154,10 +143,10 @@ concurrency, contract/API asymmetry, and test gaps. Items below are NOT in the f
 - **Issue:** The first report flagged `resolveInteractive` as a no-op smell. The sharper point: it is *imported in four places as if it normalized something*, so a future maintainer "fixing" interactive defaulting will edit one call site by hand and miss the others — the intended single seam is dead. Either delete it everywhere (pass the value through) or give it the real default logic and route all four sites through it. Leaving a no-op that *looks* like a policy hook is worse than no hook.
 - **Risk:** Low  ·  **Effort:** ~30 min  ·  **Tests:** existing.
 
-### A10. `child.on('error', ...)` can settle after `close` in the two spawn wrappers — Async correctness
-- **Location:** `run/execute.ts:83-89` and `run/agent-brain.ts:422-425`.
-- **Issue:** Both promise-wrapped spawns attach `error` (reject) and `close` (resolve) but never `removeListener`/guard against double-settle. A late `error` event after `close` is harmless to the already-settled promise, but the `agent-brain` runner has no spawn `timeout` and no `stdout`/`stderr` size cap, so a hung or runaway `gbrain` (e.g. `init --pglite` blocking) hangs the entire `asp run` with no diagnostics. Add a timeout + max-buffer and settle-once guard.
-- **Risk:** Low-Med  ·  **Effort:** ~1-2 hrs  ·  **Tests:** fake runner can't reproduce; needs the real spawn path — add a hung-binary fixture.
+### A10. `child.on('error', ...)` can settle after `close` in the spawn wrapper — Async correctness
+- **Location:** `run/execute.ts:83-89`.
+- **Issue:** The promise-wrapped spawn attaches `error` (reject) and `close` (resolve) but never `removeListener`/guard against double-settle. A late `error` event after `close` is harmless to the already-settled promise, but the wrapper should still use a settle-once guard for clarity.
+- **Risk:** Low  ·  **Effort:** ~30 min  ·  **Tests:** add a fixture binary for the real spawn path.
 
 ## 📝 Additional Code Smells (second pass)
 
@@ -167,16 +156,13 @@ concurrency, contract/API asymmetry, and test gaps. Items below are NOT in the f
 | Unbounded in-memory stdout/stderr buffering, no streaming | `execute.ts:68-89,196-201` | 🟠 |
 | Lock-free / non-atomic global-lock RMW | `space-launch.ts:38-61` | 🟠 |
 | Partial-failure data loss in legacy codex-home migration | `run-codex.ts:154-162` | 🟠 |
-| Whitespace-collapsing path parse | `agent-brain.ts:339-341` | 🟡 |
-| TOCTOU list→add for gbrain sources | `agent-brain.ts:161-194` | 🟡 |
 | `process.exit(130)` inside a reusable display lib | `pager.ts:28` | 🟠 |
 | Global `process.stdin` raw-mode mutation from a library | `pager.ts:14-22` | 🟡 |
-| No spawn timeout / output cap in gbrain runner | `agent-brain.ts:404-426` | 🟡 |
-| `chunk.toString()` may split multibyte UTF-8 at chunk boundary | `execute.ts:73,79`; `agent-brain.ts:417,420` | 🟡 |
+| `chunk.toString()` may split multibyte UTF-8 at chunk boundary | `execute.ts:73,79` | 🟡 |
 | `RunOptions` extends `ResolveOptions`, `GlobalRunOptions` does not | `types.ts:34,134` | 🟡 |
 
 ## ⚠️ Additional Technical Debt Notes (second pass)
 
-- **Test coverage is thinner than the first report implied for the *execution* path.** The two test files (`run.test.ts`, `agent-tools.test.ts`) cover planners, profile-defaulting, codex-home materialization, and `isSpaceReference`, but there are **no** tests exercising `executeHarnessCommand` (spawn/capture/streaming), `space-launch.ts` (`runGlobalSpace`/`runLocalSpace` closure + temp-dir cleanup + lock merge), the `findSourcePath`/`findSourcePathInJsonValue` parsers in `agent-brain.ts`, or `pager.ts`. Findings A2–A7 all land in untested code; add characterization tests before touching them.
-- **Pure-function parsers are buried in IO modules.** `findSourcePath`/`findSourcePathFromJson`/`findSourcePathInJsonValue` (agent-brain.ts:326-396) and `sanitizeCodexRuntimeSegment`/`ensureCodexProjectTrust`/`isWithinPath` (run-codex.ts) are deterministic and trivially unit-testable, but live alongside spawn/fs side effects, so they're not covered. Hoisting them to a `*-parse.ts` sibling would make the high-risk JSON/columnar branch (A5) testable in isolation with no fixtures.
+- **Test coverage is thinner than the first report implied for the *execution* path.** The two test files (`run.test.ts`, `agent-tools.test.ts`) cover planners, profile-defaulting, codex-home materialization, and `isSpaceReference`, but there are **no** tests exercising `executeHarnessCommand` (spawn/capture/streaming), `space-launch.ts` (`runGlobalSpace`/`runLocalSpace` closure + temp-dir cleanup + lock merge), or `pager.ts`. Findings A2–A7 all land in untested code; add characterization tests before touching them.
+- **Pure-function helpers are buried in IO modules.** `sanitizeCodexRuntimeSegment`/`ensureCodexProjectTrust`/`isWithinPath` (run-codex.ts) are deterministic and trivially unit-testable, but live alongside spawn/fs side effects, so they're not covered.
 - **`combinePrompts` ordering is an undocumented contract.** `run/util.ts:33-41` always concatenates `priming\n\nuser`; multiple call sites depend on this order but nothing asserts it. A one-line doc-comment + a unit test would lock the contract before any refactor reorders the bags.

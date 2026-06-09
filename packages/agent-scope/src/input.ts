@@ -1,6 +1,6 @@
 import { DEFAULT_LANE_ID, laneIdFromRef, normalizeLaneRef } from './lane-ref.js'
-import { parseScopeHandle, validateScopeHandle } from './scope-handle.js'
-import { buildScopeRef, formatScopeRef, parseScopeRef, validateScopeRef } from './scope-ref.js'
+import { splitHandle, validateScopeHandle } from './scope-handle.js'
+import { buildScopeRef, parseScopeRef, validateScopeRef } from './scope-ref.js'
 import { parseSessionHandle } from './session-handle.js'
 import type { LaneRef, ParsedScopeRef } from './types.js'
 
@@ -48,43 +48,63 @@ function toLaneRef(defaultLaneId?: string): LaneRef {
 }
 
 /**
- * Internal parser that returns the input's parsed form as-is — no canonical
- * task-qualification. Used by both `resolveScopeInput` and
- * `resolveQualifiedScopeInput` so the latter can run without recursing through
- * the exported, qualifying entrypoint.
+ * The component fields of a scope input, decomposed but not yet ref-built.
+ * `projectId`/`taskId` may be absent — the project-deferred shorthand
+ * (`alice:t1`) carries a task with no project, which is not a legal ScopeRef
+ * until `resolveQualifiedScopeInput` fills the project. Keeping the parts raw
+ * (rather than eagerly building a ref) is what lets that shorthand resolve.
  */
-function parseScopeInput(input: string, defaultLaneId?: string): ResolvedScopeInput {
+type ScopeInputParts = {
+  agentId: string
+  projectId?: string | undefined
+  taskId?: string | undefined
+  roleName?: string | undefined
+  laneId: string
+  laneRef: LaneRef
+}
+
+/**
+ * Internal parser that decomposes the input (ScopeHandle, SessionHandle, or
+ * canonical ScopeRef) into raw parts without canonical task-qualification and
+ * without building a ScopeRef. Used by `resolveQualifiedScopeInput`, which fills
+ * the project/task defaults and builds the ref once.
+ */
+function parseScopeInput(input: string, defaultLaneId?: string): ScopeInputParts {
   if (input.includes('~')) {
     const session = parseSessionHandle(input)
+    const parsed = parseScopeRef(session.scopeRef)
     return {
-      parsed: parseScopeRef(session.scopeRef),
-      scopeRef: session.scopeRef,
+      agentId: parsed.agentId,
+      projectId: parsed.projectId,
+      taskId: parsed.taskId,
+      roleName: parsed.roleName,
       laneId: laneIdFromRef(session.laneRef),
       laneRef: session.laneRef,
     }
   }
 
   const laneRef = toLaneRef(defaultLaneId)
+  const laneId = laneIdFromRef(laneRef)
 
-  const handleResult = validateScopeHandle(input)
-  if (handleResult.ok) {
-    const parsed = parseScopeHandle(input)
+  // ScopeRef is checked first: `agent:<id>` is a canonical ScopeRef (the agent
+  // scope), and it also matches the project-deferred handle shorthand
+  // (`<agentId>:<taskId>`). The ref meaning is the established one, so it wins.
+  const refResult = validateScopeRef(input)
+  if (refResult.ok) {
+    const parsed = parseScopeRef(input)
     return {
-      parsed,
-      scopeRef: formatScopeRef(parsed),
-      laneId: laneIdFromRef(laneRef),
+      agentId: parsed.agentId,
+      projectId: parsed.projectId,
+      taskId: parsed.taskId,
+      roleName: parsed.roleName,
+      laneId,
       laneRef,
     }
   }
 
-  const refResult = validateScopeRef(input)
-  if (refResult.ok) {
-    return {
-      parsed: parseScopeRef(input),
-      scopeRef: input,
-      laneId: laneIdFromRef(laneRef),
-      laneRef,
-    }
+  const handleResult = validateScopeHandle(input)
+  if (handleResult.ok) {
+    return { ...splitHandle(input), laneId, laneRef }
   }
 
   throw new Error(
@@ -129,9 +149,9 @@ export function resolveQualifiedScopeInput(
   opts: ResolveQualifiedScopeOptions = {}
 ): ResolvedScopeInput {
   const base = parseScopeInput(input, opts.defaultLaneId)
-  const { agentId, roleName } = base.parsed
-  let projectId = base.parsed.projectId
-  let taskId = base.parsed.taskId
+  const { agentId, roleName } = base
+  let projectId = base.projectId
+  let taskId = base.taskId
 
   if (projectId === undefined && opts.projectId !== undefined && opts.projectId !== '') {
     projectId = opts.projectId
@@ -139,6 +159,16 @@ export function resolveQualifiedScopeInput(
 
   if (taskId === undefined && projectId !== undefined) {
     taskId = opts.taskId ?? opts.defaultTaskId ?? DEFAULT_PRIMARY_TASK_ID
+  }
+
+  // A task with no project is not a legal scope. This is the project-deferred
+  // shorthand (`alice:t1`) with no project resolvable from the caller — fail
+  // loud with an actionable message rather than silently dropping the task.
+  if (taskId !== undefined && projectId === undefined) {
+    throw new Error(
+      `Invalid scope input "${input}": task "${taskId}" requires a project; ` +
+        `use "${agentId}@<project>:${taskId}", or set ASP_PROJECT / run from a project directory`
+    )
   }
 
   const scopeRef = buildScopeRef({ agentId, projectId, taskId, roleName })

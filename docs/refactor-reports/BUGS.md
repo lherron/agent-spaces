@@ -113,10 +113,7 @@ Severity: 🔴 High (production-affecting) · 🟠 Med · 🟡 Low.
 | A2 | 🟠 | live | non-interactive stdout buffered to memory, withheld until exit; UTF-8 chunk split | `run/execute.ts:51-91,196-201` | stream through / `StringDecoder` | 2h |
 | A3 | 🟠 | live | `persistGlobalLock` lock-free non-atomic read-modify-write (lost update) | `run/space-launch.ts:38-61` | temp+rename under advisory lock | 3h |
 | A4 | 🟠 | latent | legacy codex-home migration can lose runtime on partial `cp` failure | `run-codex.ts:154-162` | copy to temp sibling, atomic rename | 2-3h |
-| A5 | 🟡 | latent | `findSourcePath` collapses whitespace in paths | `run/agent-brain.ts:337-342` | prefer JSON; split on first ws run | 1h |
-| A6 | 🟠 | latent | `ensureSourceRegistered` list→add TOCTOU race | `run/agent-brain.ts:161-194` | serialize per-agent / idempotent upsert | 3h |
 | A7 | 🟠 | live | `paginate`/`waitForKey` `process.exit(130)` + mutates global stdin from a lib | `pager.ts:13-29` | signal quit to caller; inject streams | 2h |
-| A10 | 🟠 | latent | gbrain runner has no timeout/output cap; spawn wrappers can double-settle | `agent-brain.ts:422-425` | settle-once guard + timeout + max-buffer | 1-2h |
 
 ### harness-broker-client (6)
 

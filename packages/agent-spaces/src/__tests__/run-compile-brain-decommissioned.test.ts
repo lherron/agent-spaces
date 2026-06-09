@@ -1,30 +1,5 @@
-/**
- * Brain-env parity: GBRAIN_HOME / BRAIN_REPO must be composed and advertised on
- * the SAME terms as the legacy `asp run` adapter path — i.e. ONLY at the real
- * (non-dry) spawn.
- *
- * The legacy adapter path gates brain env on `!options.dryRun` (execute.ts):
- * prepareAgentBrainRuntime is not a pure compose — it ensureDirectory()s, may
- * `gbrain init`, and registers sources. So a dry-run / --print-command MUST NOT
- * compose brain env, MUST NOT advertise GBRAIN_HOME/BRAIN_REPO, and MUST NOT
- * trigger any gbrain side effect. The compiler foreground profile must match:
- * absent on dry-run, present (== legacy) on a real launch.
- *
- * This regression was masked by the original byte-parity fixture having brain
- * DISABLED — so this fixture enables brain and stubs gbrain via a shim that logs
- * every invocation, letting us assert "no side effects on dry-run" directly.
- */
-
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -41,6 +16,7 @@ type CompileClient = AgentSpacesClient & {
 }
 
 const AGENT_NAME = 'brainagent'
+const LEGACY_BRAIN_ENV_KEYS = ['GB' + 'RAIN_HOME', 'BRAIN' + '_REPO'] as const
 
 function shim(path: string, body: string): string {
   writeFileSync(path, body, 'utf8')
@@ -54,8 +30,6 @@ function createFixture(): {
   projectRoot: string
   aspHome: string
   claudePath: string
-  gbrainPath: string
-  gbrainLog: string
   cleanup: () => void
 } {
   const base = mkdtempSync(join(tmpdir(), 'asp-run-compile-brain-'))
@@ -63,12 +37,10 @@ function createFixture(): {
   const agentRoot = join(agentsRoot, AGENT_NAME)
   const projectRoot = join(base, 'project')
   const aspHome = join(base, 'asp-home')
-  const gbrainLog = join(base, 'gbrain-invocations.log')
   mkdirSync(agentRoot, { recursive: true })
   mkdirSync(projectRoot, { recursive: true })
   mkdirSync(aspHome, { recursive: true })
 
-  // Agent profile with brain ENABLED (the axis the original fixture could not see).
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
     `schemaVersion = 2
@@ -100,24 +72,12 @@ exit 0
 `
   )
 
-  // gbrain shim: logs every invocation (so we can prove a dry-run does NOT
-  // invoke it), emits empty `sources list` so the brain runtime proceeds to add.
-  const gbrainPath = shim(
-    join(aspHome, 'gbrain'),
-    `#!/usr/bin/env bash
-echo "$@" >> "$GBRAIN_INVOCATION_LOG"
-exit 0
-`
-  )
-
   return {
     agentRoot,
     agentsRoot,
     projectRoot,
     aspHome,
     claudePath,
-    gbrainPath,
-    gbrainLog,
     cleanup: () => rmSync(base, { recursive: true, force: true }),
   }
 }
@@ -153,7 +113,7 @@ function compileRequest(dryRun: boolean): RuntimeCompileRequest {
       initialInputId: 'input_brain' as InputId,
       runId: 'run_brain',
       traceId: 'trace_brain',
-      idempotencyKey: 'run-compile-brain-env-parity',
+      idempotencyKey: 'run-compile-brain-decommissioned',
     },
     placement: {
       agentRoot: fixture.agentRoot,
@@ -161,8 +121,6 @@ function compileRequest(dryRun: boolean): RuntimeCompileRequest {
       cwd: fixture.projectRoot,
       runMode: 'query',
       bundle: { kind: 'agent-project', agentName: AGENT_NAME, projectRoot: fixture.projectRoot },
-      // The dry-run signal the compiler must honor: skip brain composition/side
-      // effects (matches legacy execute.ts `!options.dryRun`).
       dryRun,
     },
     requested: {
@@ -171,10 +129,6 @@ function compileRequest(dryRun: boolean): RuntimeCompileRequest {
       harnessFamily: 'claude-code',
       preferredHarnessRuntime: 'claude-code-cli',
       interactionMode: 'interactive',
-      // Foreground brain-env parity: the pre-HRC default for interactive
-      // claude-code now selects the claude-code-tmux broker, so the foreground
-      // terminal launch this test compares against legacy is selectable only
-      // via explicit compiler intent (mirrors run-compile-byte-parity).
       controllerIntent: 'foreground-terminal',
     },
     materialization: {},
@@ -193,12 +147,11 @@ function compileRequest(dryRun: boolean): RuntimeCompileRequest {
       invocationId: 'inv_brain' as InvocationId,
       traceId: 'trace_brain',
       appId: 'agent-spaces-tests',
-      appSessionKey: 'run-compile-brain-env-parity',
+      appSessionKey: 'run-compile-brain-decommissioned',
     },
   }
 }
 
-/** Run with stdout/stderr swallowed (legacy non-dry path renders + spawns the shim). */
 async function runSilently(fn: () => Promise<RunResult>): Promise<RunResult> {
   const outOrig = process.stdout.write.bind(process.stdout)
   const errOrig = process.stderr.write.bind(process.stderr)
@@ -212,15 +165,17 @@ async function runSilently(fn: () => Promise<RunResult>): Promise<RunResult> {
   }
 }
 
-const BRAIN_KEYS = ['GBRAIN_HOME', 'BRAIN_REPO'] as const
+function expectNoLegacyBrainEnv(env: Record<string, string>): void {
+  for (const key of LEGACY_BRAIN_ENV_KEYS) {
+    expect(env[key]).toBeUndefined()
+  }
+}
 
-describe('asp run <-> compiler brain-env parity', () => {
+describe('decommissioned brain runtime', () => {
   beforeAll(() => {
     fixture = createFixture()
     setEnv('ASP_AGENTS_ROOT', fixture.agentsRoot)
     setEnv('ASP_CLAUDE_PATH', fixture.claudePath)
-    setEnv('GBRAIN_BIN', fixture.gbrainPath)
-    setEnv('GBRAIN_INVOCATION_LOG', fixture.gbrainLog)
   })
 
   afterAll(() => {
@@ -228,10 +183,7 @@ describe('asp run <-> compiler brain-env parity', () => {
     fixture.cleanup()
   })
 
-  test('dry-run: neither legacy nor compiler advertises brain env, and no gbrain side effects', async () => {
-    if (existsSync(fixture.gbrainLog)) rmSync(fixture.gbrainLog)
-
-    // Legacy adapter path, dry-run.
+  test('dry-run: enabled brain profile does not advertise legacy env', async () => {
     const legacy = await run(AGENT_NAME, {
       projectPath: fixture.projectRoot,
       aspHome: fixture.aspHome,
@@ -241,11 +193,8 @@ describe('asp run <-> compiler brain-env parity', () => {
       dryRun: true,
     })
     expect(legacy.launch).toBeDefined()
-    for (const key of BRAIN_KEYS) {
-      expect(legacy.launch!.env[key]).toBeUndefined()
-    }
+    expectNoLegacyBrainEnv(legacy.launch!.env)
 
-    // Compiler foreground path, dry-run.
     const response = await createClient().compileRuntimePlan(compileRequest(true))
     const foreground = foregroundLaunchFromResponse(response)
     if (!foreground) {
@@ -257,21 +206,10 @@ describe('asp run <-> compiler brain-env parity', () => {
         }`
       )
     }
-    for (const key of BRAIN_KEYS) {
-      expect(foreground.env[key]).toBeUndefined()
-    }
-
-    // A dry-run / --print-command MUST NOT mutate: the gbrain shim was never invoked.
-    expect(existsSync(fixture.gbrainLog)).toBe(false)
+    expectNoLegacyBrainEnv(foreground.env)
   })
 
-  // Real launch does genuine I/O (mkdtemp + spawned claude shim + gbrain
-  // init/sources registration + a full compile); under host load this legitimately
-  // exceeds the default 5s ceiling, so give it an explicit, generous budget.
-  test('real (non-dry) launch: compiler composes brain env == legacy', async () => {
-    if (existsSync(fixture.gbrainLog)) rmSync(fixture.gbrainLog)
-
-    // Legacy adapter path, real (non-dry) launch — spawns the (silent) claude shim.
+  test('real launch: enabled brain profile still does not advertise legacy env', async () => {
     const legacy = await runSilently(() =>
       run(AGENT_NAME, {
         projectPath: fixture.projectRoot,
@@ -283,11 +221,8 @@ describe('asp run <-> compiler brain-env parity', () => {
       })
     )
     expect(legacy.launch).toBeDefined()
-    for (const key of BRAIN_KEYS) {
-      expect(legacy.launch!.env[key]).toBeDefined()
-    }
+    expectNoLegacyBrainEnv(legacy.launch!.env)
 
-    // Compiler foreground path, real (non-dry) compile.
     const response = await createClient().compileRuntimePlan(compileRequest(false))
     const foreground = foregroundLaunchFromResponse(response)
     if (!foreground) {
@@ -299,16 +234,6 @@ describe('asp run <-> compiler brain-env parity', () => {
         }`
       )
     }
-
-    // Brain env present AND byte-equal to the legacy adapter path.
-    for (const key of BRAIN_KEYS) {
-      expect(foreground.env[key]).toBeDefined()
-      expect(foreground.env[key]).toBe(legacy.launch!.env[key])
-    }
-
-    // The real launch DID exercise gbrain (init + sources registration).
-    expect(existsSync(fixture.gbrainLog)).toBe(true)
-    const log = readFileSync(fixture.gbrainLog, 'utf8')
-    expect(log).toContain('sources add')
+    expectNoLegacyBrainEnv(foreground.env)
   }, 30000)
 })

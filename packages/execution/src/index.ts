@@ -89,7 +89,6 @@ export {
   type AgentBrainRuntimeContext,
   type BrainRuntimeResolution,
   type EnabledAgentBrainEnvResult,
-  type GbrainCommandRunner,
 } from './run.js'
 
 // Terminal pager

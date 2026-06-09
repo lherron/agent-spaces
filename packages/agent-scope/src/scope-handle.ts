@@ -4,10 +4,17 @@ import { validateTokenField } from './types.js'
 
 /**
  * ScopeHandle grammar:
- *   <agentId> ["@" <projectId> [":" <taskId>] ["/" <roleName>]]
+ *   <agentId> [":" <taskId>] | <agentId> "@" <projectId> [":" <taskId>] ["/" <roleName>]
+ *
+ * The bare `<agentId>:<taskId>` form (no "@") is the project-deferred shorthand:
+ * the project is filled later by `resolveQualifiedScopeInput` from the caller's
+ * ASP_PROJECT / cwd. A task with no project is not a legal ScopeRef on its own,
+ * so `parseScopeHandle("alice:t1")` throws — only the resolver, once it has a
+ * project, can complete it.
  *
  * Examples:
  *   alice                   → agent:alice
+ *   alice:t1                → (deferred) resolver fills project: agent:alice:project:<P>:task:t1
  *   alice@demo              → agent:alice:project:demo
  *   alice@demo:t1           → agent:alice:project:demo:task:t1
  *   alice@demo/reviewer     → agent:alice:project:demo:role:reviewer
@@ -27,27 +34,35 @@ type HandleParts = {
  * Single source of truth for the handle grammar, reused by both
  * `validateScopeHandle` and `parseScopeHandle`.
  */
-function splitHandle(handle: string): HandleParts {
-  // Split off role first: everything after the first "/" in the project portion.
-  // Role delimiter "/" is only meaningful after "@".
-  let main = handle
-  let roleName: string | undefined
-
+export function splitHandle(handle: string): HandleParts {
   const atIdx = handle.indexOf('@')
-  if (atIdx !== -1) {
-    const afterAt = handle.slice(atIdx + 1)
-    const slashIdx = afterAt.indexOf('/')
-    if (slashIdx !== -1) {
-      roleName = afterAt.slice(slashIdx + 1)
-      main = handle.slice(0, atIdx + 1 + slashIdx)
+
+  // No "@": agent-only, or the project-deferred `<agentId>:<taskId>` shorthand.
+  // Role ("/") is only meaningful after "@", so it is not parsed here — a "/"
+  // in this form lands in the token and is rejected by validation.
+  if (atIdx === -1) {
+    const colonIdx = handle.indexOf(':')
+    if (colonIdx === -1) {
+      return { agentId: handle }
+    }
+    return {
+      agentId: handle.slice(0, colonIdx),
+      taskId: handle.slice(colonIdx + 1),
     }
   }
 
-  // Parse main: agentId ["@" projectId [":" taskId]]
-  if (atIdx === -1) {
-    return { agentId: main, roleName }
+  // Split off role first: everything after the first "/" in the project portion.
+  let main = handle
+  let roleName: string | undefined
+
+  const afterAt = handle.slice(atIdx + 1)
+  const slashIdx = afterAt.indexOf('/')
+  if (slashIdx !== -1) {
+    roleName = afterAt.slice(slashIdx + 1)
+    main = handle.slice(0, atIdx + 1 + slashIdx)
   }
 
+  // Parse main: agentId "@" projectId [":" taskId]
   const agentId = main.slice(0, atIdx)
   const projectPart = main.slice(atIdx + 1)
 
