@@ -242,6 +242,14 @@ async function runUnix(args: string[]): Promise<void> {
   // the attached/fenced — controller. Event notifications and broker→client
   // permission requests route here.
   let liveServer: ProtocolServer | undefined
+  // `liveSocket` is NOT vestigial despite never having its value dereferenced:
+  // it is the cleanup identity key. Its sole read is the `liveSocket === socket`
+  // guard in the connection handler's cleanup() below, which clears `liveServer`
+  // ONLY when the closing socket is the current live one (a stale connection
+  // closing after a newer one became live must not wipe the live target). It is
+  // written in lockstep with `liveServer` (here on attach, and on each connect),
+  // and tracks a DIFFERENT lifetime than `activeController` (which is set only on
+  // a successful fenced attach), so it cannot be folded into the fencing record.
   let liveSocket: Socket | undefined
   // Fencing gate: set on a successful attach; only this controller may ack.
   let activeController: { server: ProtocolServer; socket: Socket; instanceId: string } | undefined
@@ -362,6 +370,9 @@ async function runUnix(args: string[]): Promise<void> {
     liveSocket = socket
 
     const cleanup = (): void => {
+      // Identity guard: only clear the live target when THIS connection's socket
+      // is the current one. A stale connection closing after a newer one became
+      // live must not wipe the live server.
       if (liveSocket === socket) {
         liveSocket = undefined
         liveServer = undefined

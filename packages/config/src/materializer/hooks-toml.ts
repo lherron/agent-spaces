@@ -176,10 +176,13 @@ export async function readHooksToml(hooksDir: string): Promise<HooksTomlConfig |
     const content = await readFile(hooksTomlPath, 'utf8')
     return parseHooksToml(content)
   } catch (err) {
+    // A missing hooks.toml is the common, optional case — treat as "none".
+    // Any other error (parse failure, IO error) is real and must surface per the
+    // repo's "never silently capture errors" policy (mirrors readPermissionsToml).
     if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
       return null
     }
-    return null
+    throw err
   }
 }
 

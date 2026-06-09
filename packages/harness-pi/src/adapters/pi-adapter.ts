@@ -68,7 +68,7 @@ import {
 } from './constants.js'
 import { detectPi } from './detect.js'
 import { PiBundleError } from './errors.js'
-import { copyComponentDir, listDirEntries } from './fs-helpers.js'
+import { copyComponentDir, dirExists, listDirEntries } from './fs-helpers.js'
 
 // Re-export the cohesive submodules so `./pi-adapter.js` remains the stable
 // public entrypoint for consumers and tests.
@@ -84,6 +84,16 @@ export { type HookDefinition, generateHookBridgeCode } from './codegen/hook-brid
 
 /** Pi permissions shape produced by `toPiPermissions`. */
 type PiPermissions = ReturnType<typeof toPiPermissions>
+
+/**
+ * The Pi sub-bundle plus the optional `hrcEventsBridgePath` field that this
+ * adapter carries alongside the shared `ComposedTargetBundle['pi']` contract.
+ * Kept local (not widened into `spaces-config`) to avoid changing the
+ * cross-adapter contract.
+ */
+type PiBundleWithHrc = NonNullable<ComposedTargetBundle['pi']> & {
+  hrcEventsBridgePath?: string | undefined
+}
 
 /**
  * Permission facets that Pi can only lint (not enforce). Each entry names a
@@ -358,7 +368,7 @@ export class PiAdapter implements HarnessAdapter {
         skillsDir: skillsDirPath,
         hookBridgePath,
         hrcEventsBridgePath,
-      } as ComposedTargetBundle['pi'] & { hrcEventsBridgePath: string },
+      } as PiBundleWithHrc & { hrcEventsBridgePath: string },
     }
 
     return { bundle, warnings }
@@ -381,30 +391,34 @@ export class PiAdapter implements HarnessAdapter {
 
     for (const artifact of input.artifacts) {
       const srcExtDir = join(artifact.artifactPath, COMPONENT_DIR_NAMES.EXTENSIONS)
-      try {
-        const stats = await stat(srcExtDir)
-        if (stats.isDirectory()) {
-          const entries = await readdir(srcExtDir)
-          for (const file of entries) {
-            // Files are already namespaced: spaceId__name.js
-            const srcPath = join(srcExtDir, file)
-            const destPath = join(extensionsDir, file)
+      // Skip when the artifact has no extensions dir (ENOENT); dirExists
+      // re-throws genuine IO faults (EACCES, EMFILE, ...) instead of the old
+      // bare catch{} that swallowed them as "doesn't exist".
+      if (!(await dirExists(srcExtDir))) {
+        continue
+      }
+      const entries = await readdir(srcExtDir)
+      for (const file of entries) {
+        // Files are already namespaced: spaceId__name.js
+        const srcPath = join(srcExtDir, file)
+        const destPath = join(extensionsDir, file)
 
-            // Check for W303: tool collision after namespacing
-            const existingSource = extensionSources.get(file)
-            if (existingSource && existingSource !== artifact.spaceId) {
-              warnings.push({
-                code: WARNING_CODES.PI_TOOL_COLLISION,
-                message: `Extension file collision: "${file}" from "${artifact.spaceId}" overwrites file from "${existingSource}"`,
-              })
-            }
-            extensionSources.set(file, artifact.spaceId)
-
-            await linkOrCopy(srcPath, destPath)
-          }
+        // Check for W303: tool collision after namespacing
+        const existingSource = extensionSources.get(file)
+        if (existingSource && existingSource !== artifact.spaceId) {
+          warnings.push({
+            code: WARNING_CODES.PI_TOOL_COLLISION,
+            message: `Extension file collision: "${file}" from "${artifact.spaceId}" overwrites file from "${existingSource}"`,
+          })
         }
-      } catch {
-        // Extensions directory doesn't exist in this artifact
+        extensionSources.set(file, artifact.spaceId)
+
+        // Clear any prior file at the dest so a colliding link succeeds
+        // (linkOrCopy throws EEXIST on an existing dest). Preserves the prior
+        // "overwrites file from ..." semantics the W303 message describes; the
+        // old broad try/catch silently swallowed the EEXIST here.
+        await rm(destPath, { force: true })
+        await linkOrCopy(srcPath, destPath)
       }
     }
 
@@ -420,21 +434,19 @@ export class PiAdapter implements HarnessAdapter {
 
     for (const artifact of input.artifacts) {
       const srcSkillsDir = join(artifact.artifactPath, COMPONENT_DIR_NAMES.SKILLS)
-      try {
-        const stats = await stat(srcSkillsDir)
-        if (stats.isDirectory()) {
-          // Copy each skill subdirectory
-          const skillEntries = await readdir(srcSkillsDir, { withFileTypes: true })
-          for (const entry of skillEntries) {
-            if (entry.isDirectory()) {
-              const srcPath = join(srcSkillsDir, entry.name)
-              const destPath = join(skillsDir, entry.name)
-              await copyDir(srcPath, destPath)
-            }
-          }
+      // Skip artifacts without a skills directory; non-ENOENT IO errors surface.
+      if (!(await dirExists(srcSkillsDir))) {
+        continue
+      }
+
+      // Copy each skill subdirectory
+      const skillEntries = await readdir(srcSkillsDir, { withFileTypes: true })
+      for (const entry of skillEntries) {
+        if (entry.isDirectory()) {
+          const srcPath = join(srcSkillsDir, entry.name)
+          const destPath = join(skillsDir, entry.name)
+          await copyDir(srcPath, destPath)
         }
-      } catch {
-        // Skills directory doesn't exist in this artifact
       }
     }
 
@@ -458,28 +470,26 @@ export class PiAdapter implements HarnessAdapter {
 
     for (const artifact of input.artifacts) {
       const srcHooksDir = join(artifact.artifactPath, COMPONENT_DIR_NAMES.HOOKS)
-      try {
-        const stats = await stat(srcHooksDir)
-        if (stats.isDirectory()) {
-          await copyDir(srcHooksDir, hooksDir)
+      // Skip artifacts without a hooks directory; non-ENOENT IO errors surface.
+      if (!(await dirExists(srcHooksDir))) {
+        continue
+      }
 
-          // Read hooks with hooks.toml taking precedence over hooks.json
-          const hooksResult = await readHooksWithPrecedence(srcHooksDir)
-          if (hooksResult.hooks.length > 0) {
-            // Adjust script paths to be relative to composed hooks dir.
-            // resolveHookScriptPath strips the ${CLAUDE_PLUGIN_ROOT}/ and hooks/
-            // prefixes (hooks/ was renamed to hooks-scripts/). Only the fields
-            // declared on HookDefinition are projected (the source's `matcher`
-            // is intentionally not forwarded to the Pi hook bridge).
-            for (const hook of hooksResult.hooks) {
-              const { event, tools, blocking, harness } = hook
-              const script = await resolveHookScriptPath(hook.script, hooksDir)
-              allHooks.push({ event, script, tools, blocking, harness })
-            }
-          }
+      await copyDir(srcHooksDir, hooksDir)
+
+      // Read hooks with hooks.toml taking precedence over hooks.json
+      const hooksResult = await readHooksWithPrecedence(srcHooksDir)
+      if (hooksResult.hooks.length > 0) {
+        // Adjust script paths to be relative to composed hooks dir.
+        // resolveHookScriptPath strips the ${CLAUDE_PLUGIN_ROOT}/ and hooks/
+        // prefixes (hooks/ was renamed to hooks-scripts/). Only the fields
+        // declared on HookDefinition are projected (the source's `matcher`
+        // is intentionally not forwarded to the Pi hook bridge).
+        for (const hook of hooksResult.hooks) {
+          const { event, tools, blocking, harness } = hook
+          const script = await resolveHookScriptPath(hook.script, hooksDir)
+          allHooks.push({ event, script, tools, blocking, harness })
         }
-      } catch {
-        // Hooks directory doesn't exist in this artifact
       }
     }
 
@@ -608,9 +618,7 @@ export class PiAdapter implements HarnessAdapter {
       throw new AspError('Pi bundle is missing - cannot build run args', 'PI_BUNDLE_MISSING')
     }
 
-    const piBundle = bundle.pi as typeof bundle.pi & {
-      hrcEventsBridgePath?: string | undefined
-    }
+    const piBundle = bundle.pi as PiBundleWithHrc
 
     // Add replacement system prompt and reminder paths before other runtime flags.
     if (options.systemPrompt) {
@@ -647,10 +655,7 @@ export class PiAdapter implements HarnessAdapter {
    * Push extension flags (discovered `.js` extensions + hook/HRC bridges), or
    * `--no-extensions` when none are present.
    */
-  private pushExtensionArgs(
-    args: string[],
-    piBundle: NonNullable<ComposedTargetBundle['pi']> & { hrcEventsBridgePath?: string | undefined }
-  ): void {
+  private pushExtensionArgs(args: string[], piBundle: PiBundleWithHrc): void {
     const extensionsDir = piBundle.extensionsDir
     let hasExtensions = false
 
@@ -800,7 +805,7 @@ export class PiAdapter implements HarnessAdapter {
         skillsDir: skillsDirPath,
         hookBridgePath: hookBridge,
         hrcEventsBridgePath: hrcEventsBridge,
-      } as ComposedTargetBundle['pi'] & { hrcEventsBridgePath?: string | undefined },
+      } as PiBundleWithHrc,
     }
   }
 

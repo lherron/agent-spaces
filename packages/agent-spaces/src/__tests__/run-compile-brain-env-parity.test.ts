@@ -265,6 +265,9 @@ describe('asp run <-> compiler brain-env parity', () => {
     expect(existsSync(fixture.gbrainLog)).toBe(false)
   })
 
+  // Real launch does genuine I/O (mkdtemp + spawned claude shim + gbrain
+  // init/sources registration + a full compile); under host load this legitimately
+  // exceeds the default 5s ceiling, so give it an explicit, generous budget.
   test('real (non-dry) launch: compiler composes brain env == legacy', async () => {
     if (existsSync(fixture.gbrainLog)) rmSync(fixture.gbrainLog)
 
@@ -307,5 +310,5 @@ describe('asp run <-> compiler brain-env parity', () => {
     expect(existsSync(fixture.gbrainLog)).toBe(true)
     const log = readFileSync(fixture.gbrainLog, 'utf8')
     expect(log).toContain('sources add')
-  })
+  }, 30000)
 })

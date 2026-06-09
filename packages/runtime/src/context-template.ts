@@ -95,8 +95,8 @@ export function parseContextTemplate(tomlContent: string): ContextTemplate {
     )
   }
 
-  const promptSections = parseSections(parsed['prompt'], 'prompt', schemaVersion)
-  const reminderSections = parseSections(parsed['reminder'], 'reminder', schemaVersion)
+  const promptSections = parseSections(parsed['prompt'], 'prompt')
+  const reminderSections = parseSections(parsed['reminder'], 'reminder')
 
   return {
     schemaVersion,
@@ -148,11 +148,7 @@ function parseMode(input: unknown): SystemPromptMode {
   return input
 }
 
-function parseSections(
-  input: unknown,
-  tableName: 'prompt' | 'reminder',
-  schemaVersion: ContextTemplateSchemaVersion
-): ContextSection[] {
+function parseSections(input: unknown, tableName: 'prompt' | 'reminder'): ContextSection[] {
   if (input === undefined) {
     return []
   }
@@ -161,14 +157,13 @@ function parseSections(
     throw new Error(`Context template ${tableName} must be an array of tables`)
   }
 
-  return input.map((section, index) => parseSection(section, index, tableName, schemaVersion))
+  return input.map((section, index) => parseSection(section, index, tableName))
 }
 
 function parseSection(
   input: unknown,
   index: number,
-  tableName: 'prompt' | 'reminder',
-  _schemaVersion: ContextTemplateSchemaVersion
+  tableName: 'prompt' | 'reminder'
 ): ContextSection {
   const location = describeSection(index, tableName)
   if (!isRecord(input)) {

@@ -23,6 +23,10 @@ interface RunnerArgs {
   mode: 'interactive' | 'print'
   prompt?: string | undefined
   model?: string | undefined
+  /** True when --resume was passed (with or without a session-path value). */
+  resume: boolean
+  /** Session-file path to resume from; undefined means "continue most recent". */
+  resumePath?: string | undefined
   yolo: boolean
   noExtensions: boolean
   noSkills: boolean
@@ -32,12 +36,13 @@ interface RunnerArgs {
 
 type ExtensionFactory = (pi: ExtensionApi) => void | Promise<void>
 
-function parseArgs(argv: string[]): RunnerArgs {
+export function parseArgs(argv: string[]): RunnerArgs {
   const args: RunnerArgs = {
     bundle: '',
     project: '',
     cwd: process.cwd(),
     mode: 'interactive',
+    resume: false,
     yolo: false,
     noExtensions: false,
     noSkills: false,
@@ -71,6 +76,18 @@ function parseArgs(argv: string[]): RunnerArgs {
         args.model = argv[i + 1] ?? ''
         i += 1
         break
+      case '--resume': {
+        // --resume may carry a session-file path (resume that exact session)
+        // or stand alone (continue the most recent session). Only consume the
+        // next token as a path when it is not itself a flag.
+        args.resume = true
+        const next = argv[i + 1]
+        if (next !== undefined && !next.startsWith('-')) {
+          args.resumePath = next
+          i += 1
+        }
+        break
+      }
       case '--yolo':
         args.yolo = true
         break
@@ -175,6 +192,7 @@ async function main(): Promise<void> {
   const {
     AuthStorage,
     ModelRegistry,
+    SessionManager,
     createAgentSession,
     loadSkills,
     InteractiveMode,
@@ -234,6 +252,7 @@ async function main(): Promise<void> {
     model?: unknown
     authStorage?: unknown
     modelRegistry?: unknown
+    sessionManager?: unknown
   } = {
     cwd: args.cwd,
     extensions: extensionFactories,
@@ -241,10 +260,24 @@ async function main(): Promise<void> {
     contextFiles,
   }
 
+  // Continuation: resume via SessionManager (mirrors how PiSession resumes
+  // from a sessionPath). A --resume <path> opens that exact session file;
+  // a bare --resume continues the most recent session for the cwd.
+  if (args.resume) {
+    sessionOptions.sessionManager = args.resumePath
+      ? SessionManager.open(args.resumePath)
+      : SessionManager.continueRecent(args.cwd)
+  }
+
   if (args.model) {
-    const [provider, modelId] = args.model.split(':')
+    // Model IDs use the project-wide slash convention: <provider>/<model>
+    // (e.g. 'openai-codex/gpt-5.5'). Split on the first '/' so model names
+    // containing further separators are preserved in modelId.
+    const slashIndex = args.model.indexOf('/')
+    const provider = slashIndex > 0 ? args.model.slice(0, slashIndex) : ''
+    const modelId = slashIndex > 0 ? args.model.slice(slashIndex + 1) : ''
     if (!provider || !modelId) {
-      throw new Error('Model must be specified as provider:model')
+      throw new Error('Model must be specified as provider/model')
     }
 
     const authStorage = AuthStorage.create()
@@ -252,7 +285,7 @@ async function main(): Promise<void> {
     const model = modelRegistry.find(provider, modelId)
 
     if (!model) {
-      throw new Error(`Model not found: ${provider}:${modelId}`)
+      throw new Error(`Model not found: ${provider}/${modelId}`)
     }
 
     sessionOptions.model = model
@@ -277,7 +310,9 @@ async function main(): Promise<void> {
   })
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error))
-  process.exit(1)
-})
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  })
+}

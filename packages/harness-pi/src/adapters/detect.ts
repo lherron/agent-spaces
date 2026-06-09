@@ -52,6 +52,19 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 /**
+ * Check if `path` is a usable Pi entrypoint: either a real executable, or a
+ * `.js` file that exists (run via bun, see `piCommand`). Used by BOTH the PATH
+ * search and the common-paths loop so detection is consistent across them.
+ */
+async function isUsablePiEntrypoint(path: string): Promise<boolean> {
+  if (await isExecutable(path)) {
+    return true
+  }
+  // A `.js` entrypoint needn't be marked executable — it is launched with bun.
+  return path.endsWith('.js') && (await fileExists(path))
+}
+
+/**
  * Search PATH for the Pi binary.
  */
 async function searchPath(): Promise<string | null> {
@@ -59,9 +72,13 @@ async function searchPath(): Promise<string | null> {
   const pathDirs = pathEnv.split(':')
 
   for (const dir of pathDirs) {
-    const piPath = join(dir, 'pi')
-    if (await isExecutable(piPath)) {
-      return piPath
+    // Probe both the bare `pi` executable and a `pi.js` entrypoint so a
+    // non-executable `.js` checkout on PATH is detected the same way the
+    // common-paths loop accepts one (both go through isUsablePiEntrypoint).
+    for (const candidate of [join(dir, 'pi'), join(dir, 'pi.js')]) {
+      if (await isUsablePiEntrypoint(candidate)) {
+        return candidate
+      }
     }
   }
 
@@ -100,11 +117,7 @@ export async function findPiBinary(): Promise<string> {
   // 3. Check common locations
   for (const commonPath of COMMON_PI_PATHS) {
     searchedPaths.push(commonPath)
-    if (await isExecutable(commonPath)) {
-      return commonPath
-    }
-    // Also check if it's a .js file that can be run with node/bun
-    if (commonPath.endsWith('.js') && (await fileExists(commonPath))) {
+    if (await isUsablePiEntrypoint(commonPath)) {
       return commonPath
     }
   }

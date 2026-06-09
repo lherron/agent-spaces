@@ -116,6 +116,12 @@ export function parseIntegerValue(flag: string, raw: string, options: { min: num
   return value
 }
 
+// The positional value that signals "read the body from stdin", and the path the
+// stdin read is routed to. Behaviour is identical to the inline literals these
+// replace — `'-'` still means stdin, still read from `/dev/stdin`.
+const STDIN_SENTINEL = '-'
+const STDIN_PATH = '/dev/stdin'
+
 export function consumeBody(
   opts: {
     positional?: string | undefined
@@ -129,8 +135,8 @@ export function consumeBody(
     return readBody(readFile, opts.file, `--file ${opts.file}`)
   }
 
-  if (opts.positional === '-') {
-    return readBody(readFile, '/dev/stdin', 'stdin')
+  if (opts.positional === STDIN_SENTINEL) {
+    return readBody(readFile, STDIN_PATH, 'stdin')
   }
 
   return opts.positional

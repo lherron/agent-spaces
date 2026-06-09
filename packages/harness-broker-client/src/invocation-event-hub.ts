@@ -45,6 +45,16 @@ export class InvocationEventHub {
 
     const stream = new EventIterator<InvocationEventEnvelope>()
     this.#events.set(invocationId, stream)
+    // If the consumer abandons the stream (for-await break / early return),
+    // forget it so it does not leak until dispose/closeAll. Mirror `drop`: clear
+    // only the live stream, NOT `#lastEventSeq`, so a later re-stream of the same
+    // invocation still suppresses already-surfaced seqs. Guard on identity so a
+    // stream that has since been replaced in the map is left untouched.
+    stream.setOnReturn(() => {
+      if (this.#events.get(invocationId) === stream) {
+        this.#events.delete(invocationId)
+      }
+    })
     const pending = this.#pendingEvents.get(invocationId)
     if (pending) {
       this.#pendingEvents.delete(invocationId)

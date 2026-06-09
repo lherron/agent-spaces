@@ -288,10 +288,3 @@ export async function displayPrompts(opts: DisplayPromptOptions): Promise<void> 
     }
   }
 }
-
-/**
- * Display the harness command being executed (for normal run mode).
- */
-export function displayCommand(command: string): void {
-  process.stdout.write(`${chalk.dim(`$ ${command}`)}\n\n`)
-}

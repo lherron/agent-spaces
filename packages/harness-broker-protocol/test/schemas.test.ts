@@ -433,6 +433,52 @@ describe('validateInvocationDispatchRequest', () => {
     )
   })
 
+  test('validates the lifecycle policyHash against the canonical lifecyclePolicyHash (inlined hasher)', () => {
+    // Locks the de-abstracted validator: validateLifecyclePolicyOverlay now
+    // hashes directly via lifecyclePolicyHash (no injectable seam). A correctly
+    // normalized overlay must pass; flipping a single material field must trip
+    // the canonical-hash mismatch with the unchanged digest.
+    const accepted = conservativeDefaultLifecyclePolicyOverlay('policy_inlined_hash')
+    const acceptRequest = {
+      startRequest: { spec: specSection19InvocationStartSpec },
+      lifecyclePolicy: accepted,
+    }
+    expect(validateInvocationDispatchRequest(acceptRequest)).toEqual(acceptRequest)
+    expect(accepted.policyHash).toBe(lifecyclePolicyHash(accepted))
+
+    // Same digest string, but material changed -> hash no longer canonical.
+    const tampered = {
+      ...accepted,
+      turnRetry: {
+        mode: 'safe-retry',
+        maxAttempts: 1,
+        retryOn: ['harness-crashed'],
+        requires: {
+          noToolCallObserved: true,
+          noPermissionRequestPending: true,
+          noAssistantFinalObserved: true,
+          noExternalMutationObserved: true,
+          continuationKnown: true,
+          driverCanProvePriorTurnIncomplete: true,
+        },
+        identity: { inputId: 'same', logicalTurnId: 'same', turnAttempt: 'increment' },
+        semantics: 'at-least-once',
+        onUnsafe: 'fail-turn',
+      },
+    }
+    expect(tampered.policyHash).not.toBe(lifecyclePolicyHash(tampered))
+    expectInvalidDispatchRequest(
+      {
+        startRequest: { spec: specSection19InvocationStartSpec },
+        lifecyclePolicy: tampered,
+      },
+      {
+        path: 'lifecyclePolicy.policyHash',
+        code: 'lifecycle_policy_hash_mismatch',
+      }
+    )
+  })
+
   test('rejects lifecycle overlays patched into HarnessInvocationSpec', () => {
     const spec = {
       ...specSection19InvocationStartSpec,

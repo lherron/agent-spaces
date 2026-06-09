@@ -1,32 +1,122 @@
-# agent-scope — SOLID / code-smell audit
+# Refactor analysis — `agent-scope`
 
-Package: `agent-scope` (`packages/agent-scope/`)
-Source audited (non-test): `index.ts`, `types.ts`, `input.ts`, `scope-ref.ts`, `scope-handle.ts`, `session-ref.ts`, `session-handle.ts`, `lane-ref.ts` (695 lines total).
+## Summary
 
-## Overall assessment
+`agent-scope` is a small, pure-logic **leaf** package (no workspace deps, no I/O, no
+concurrency): the canonical grammar for semantic agent-session addressing
+(ScopeRef / ScopeHandle / SessionRef / SessionHandle / LaneRef). 8 non-test source
+files + 5 test files, 179 passing assertions. It is the declared "canonical upstream
+package" and is consumed externally via `dist/` — **every exported symbol is public
+surface**.
 
-This package is small, single-purpose (parse/validate/format scope & session refs and handles), and was clearly the subject of a recent SOLID/code-smell cleanup pass (commit `e238805`). It is in good shape:
+Two prior SOLID/code-smell passes (T-02028, T-02030) plus the earlier per-package
+audit have landed the obvious work: `validateTokenField` (the `ValidationResult`-
+lifting wrapper), `buildScopeRef` (single source of truth for ref assembly),
+`splitHandle` (single source of truth for handle grammar, shared by validate+parse),
+and the `LANE_PREFIX` constant is now single-sourced in `lane-ref.ts` and imported by
+`session-ref.ts` (the prior run flagged this as duplicated — it has since been fixed;
+re-verified). The low-hanging fruit is gone.
 
-- Functions are short and single-job. The longest, `validateScopeRef` (scope-ref.ts, ~56 lines), is a linear grammar validator that already reads as a sequence of guard clauses; splitting it would hurt readability, not help. No extraction recommended.
-- The handle grammar has a single source of truth (`splitHandle` in scope-handle.ts, reused by both validate and parse). The ScopeRef assembly has a single builder (`buildScopeRef`). The validate-token boilerplate was already deduped into `validateTokenField`.
-- Magic strings are already named constants (`TOKEN_PATTERN`, `TOKEN_MIN/MAX_LENGTH`, `DEFAULT_LANE_ID`, `DEFAULT_PRIMARY_TASK_ID`, `LANE_PREFIX`).
-- No dead code, no commented-out blocks, no unreachable branches found across the eight files.
+**Verdict: 0 auto-applicable findings.** One real mechanism-grounded issue exists
+(a partiality gap in `parseSessionHandle` lane handling) but it is **public-surface
++ behavior-changing**, so it is surfaced as a deferred finding for a human decision,
+not auto-applied.
 
-Findings below are minor. Only one is a concrete, behavior-preserving dedupe; the rest are observations recorded for completeness.
+## Public boundary verdict (assess first — outside-in)
 
-## Duplicated `LANE_PREFIX` constant across lane-ref.ts and session-ref.ts
-- File: packages/agent-scope/src/session-ref.ts:6
-- Risk: Low
-- API-impact: internal-only
-- Smell: The literal `const LANE_PREFIX = 'lane:'` is declared identically in `lane-ref.ts:5` and `session-ref.ts:6`. `session-ref.ts` already imports three helpers (`laneIdFromRef`, `laneRefFromId`, `normalizeLaneRef`) from `lane-ref.ts`, so the constant is the only piece copy-pasted rather than shared. Two definitions of the same protocol literal can drift independently.
-- Proposed change: `export const LANE_PREFIX` from `lane-ref.ts` (a new module-internal export only — it is NOT re-exported from `index.ts`, so the package public surface is unchanged) and `import { LANE_PREFIX }` in `session-ref.ts`, deleting the local copy. Behavior-preserving; the value is identical.
+`index.ts` re-exports a focused, well-shaped API. Boundary is healthy:
 
-## `part(parts, i)` index-cast helper — minor readability tax (no change recommended)
-- File: packages/agent-scope/src/scope-ref.ts:4
-- Risk: Low
-- API-impact: internal-only
-- Smell: `function part(parts, i) { return parts[i] as string }` exists only to launder `string | undefined` into `string` after the validator has already guaranteed bounds. Every access reads `part(parts, 5)` instead of `parts[5]`, and the `as string` defeats the type-checker's bounds awareness. Borderline.
-- Proposed change: Optional only. Leave as-is unless already touching the file; the helper is internal and consistently used, and removing it would reintroduce `as string` casts at each call site (no net improvement). No change recommended.
+- **Token validators come in two intentional shapes**, both exported and both used:
+  `validateToken` → `string | undefined` (ergonomic for `lane-ref.ts`'s inline
+  error path) and `validateTokenField` → `ValidationResult` (used by the scope-ref /
+  scope-handle validators). Not a redundant pair — different return contracts,
+  different call sites. Leave.
+- **Parse/format/validate trios** are symmetric across ScopeRef, ScopeHandle,
+  SessionRef, SessionHandle and round-trip under test. Good.
+- **One asymmetry** in the boundary: `parseSessionRef` (canonical-string form)
+  validates its lane segment via `normalizeSessionRef`, but `parseSessionHandle`
+  (shorthand form) does **not** validate its lane segment. See deferred finding D1.
 
-## Verdict
-Already clean. One applicable dedupe (`LANE_PREFIX`), no deferred (High-risk / public-surface) findings.
+No fat/leaky interface, no premature one-implementor abstraction, no unmet
+expand/contract obligation beyond D1. The boundary needs no narrowing or widening.
+
+## Make-safe gate [T40]
+
+Already satisfied. `bun test` → 179 pass / 0 fail, with characterization coverage on
+every public function (grammar matrix, invalid-input rejection, round-trips,
+error-branch messages, whitespace policy). No new characterization tests required
+before internal churn — but the suite does **not** characterize the bad-lane-in-handle
+case (D1), so that gap is currently invisible to the tests.
+
+## Findings by mechanism
+
+### D1 — `parseSessionHandle` lane segment is partial, not total  [T17 partial→total / [M02] expand-contract]
+
+- **Location:** `src/session-handle.ts:18-38` (`parseSessionHandle`), specifically
+  line 36 `laneRef: laneId === undefined ? 'main' : laneRefFromId(laneId)`.
+- **Mechanism:** `laneRefFromId` is a pure formatter — it wraps any string as
+  `lane:<id>` with **no token validation**. The scope portion of the handle is
+  validated (via `parseScopeHandle` → `validateScopeHandle`), but the lane portion
+  is not. Verified empirically by probing the package:
+  - `parseSessionHandle('alice@demo~bad lane')` → `{ laneRef: 'lane:bad lane' }`
+    (a `LaneRef` value that `validateLaneRef` rejects).
+  - `parseSessionHandle('alice@demo~')` → `{ laneRef: 'lane:' }` (empty lane id,
+    also rejected by `validateLaneRef`).
+  The total-function repair is to validate the lane id (e.g. route through
+  `normalizeLaneRef`/`validateLaneRef`, mirroring what `parseSessionRef` already
+  does) so the function either returns a valid `SessionRef` or throws — making the
+  declared `LaneRef` return invariant actually hold.
+- **Direction:** Make the partial parser total — narrow the accepted input set so the
+  return type's `LaneRef` invariant is honored.
+- **Preservation:** **NOT behavior-preserving.** Inputs that today silently produce an
+  invalid `LaneRef` would begin to throw. That is a redesign of the observable
+  contract, flagged as such.
+- **Risk:** Med. **apiImpact:** public-surface.
+- **Tests:** No existing test characterizes the bad-lane case, so current tests would
+  still pass — but external callers relying on the lenient behavior would observe a
+  new throw. New tests should pin the chosen behavior (throw vs. coerce).
+- **Contraindication / why deferred:** Because this changes the observable contract of
+  a public, externally-consumed export, it must not be auto-applied. A human must
+  decide whether `parseSessionHandle` should (a) reject invalid lanes symmetric with
+  `parseSessionRef`, or (b) deliberately stay lenient (the handle parsers
+  intentionally do less normalization than the ref form — see the documented
+  whitespace-policy asymmetry in `session-ref.ts`). Both are defensible; this is a
+  contract call, not a mechanical refactor.
+
+## Deliberately left alone (pressure-tested, not flagged)
+
+- **`LANE_PREFIX` duplication (prior finding) — already fixed.** The earlier audit
+  flagged a copy in `session-ref.ts`; current source imports it from `lane-ref.ts`.
+  Stale. No action.
+- **`validateToken` vs `validateTokenField` (types.ts):** different return shapes,
+  both exported, both genuinely used. Collapsing either churns the public surface and
+  the `lane-ref.ts` call site for no gain.
+- **`HandleParts` (scope-handle.ts) vs `ScopeRefFields` (scope-ref.ts):** structurally
+  identical 4-field types in two files. Unifying [T15] would couple two currently-
+  independent modules over a trivial type, and the two names express distinct intents
+  (pre-validation handle decomposition vs. ref-builder input). The duplication is
+  cheap and non-load-bearing. Leave.
+- **`part(parts, i)` cast helper (scope-ref.ts:4-6):** casts `parts[i] as string`, a
+  contained post-validation accessor — `validateScopeRef` guarantees length before
+  `parseScopeRef` indexes. Reifying it would add structure without removing a real
+  bug. Leave.
+- **`validateScopeRef` grammar walk (scope-ref.ts:41-97):** linear, early-returning
+  grammar matcher; nesting peaks below the ≥4 guard-clause threshold. A dispatch table
+  [T19] would be premature — the grammar is fixed (5 kinds), not growing one arm per
+  feature. Leave.
+- **`formatScopeRef(parsed) = buildScopeRef(parsed)` (scope-ref.ts:143-145):** passes
+  the wider `ParsedScopeRef` as a function argument (not an object literal), so
+  structural typing is safe — no excess-property forwarding risk. Leave.
+
+## Outside-in apply sequence
+
+No auto-applicable internal-only findings, so the apply phase has nothing to do. The
+single finding (D1) is deferred to the user:
+
+1. **Decide D1's contract** — reject invalid lanes in `parseSessionHandle` (symmetric
+   with `parseSessionRef`) **or** keep it deliberately lenient.
+2. If "reject": route the lane id through `normalizeLaneRef`/`validateLaneRef`, add
+   characterization tests for `~bad lane` and trailing-`~`, and treat it as a
+   public-surface contract change (expand/contract, version note).
+3. If "lenient": document the intentional asymmetry in `session-handle.ts` so the gap
+   stops reading like an oversight.

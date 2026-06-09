@@ -13,7 +13,7 @@ import { type RunResult, run } from 'spaces-execution'
 
 import { exitWithAspError } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
-import { displayPrompts } from '../prompt-display.js'
+import { displayRunResultPrompts } from '../prompt-display.js'
 import { resolveRunTarget } from '../scope-target-resolver.js'
 import { buildSettingSources } from '../settings-helper.js'
 
@@ -94,20 +94,7 @@ export function registerGuiCommand(program: Command): void {
         }
 
         if (options.dryRun) {
-          await displayPrompts({
-            systemPrompt: result.systemPrompt,
-            systemPromptMode: result.systemPromptMode,
-            reminderContent: result.reminderContent,
-            primingPrompt: result.primingPrompt,
-            promptSectionSizes: result.promptSectionSizes,
-            reminderSectionSizes: result.reminderSectionSizes,
-            totalContextChars: result.totalContextChars,
-            maxChars: result.maxChars,
-            nearMaxChars: result.nearMaxChars,
-            command: result.displayCommand ?? result.command,
-            showCommand: true,
-            pagePrompts: options.pagePrompts,
-          })
+          await displayRunResultPrompts(result, options.pagePrompts)
         }
 
         process.exit(result.exitCode)

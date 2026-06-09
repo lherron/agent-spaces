@@ -113,6 +113,93 @@ function toResolvedBundle(
   return (source ?? { bundleIdentity }) as unknown as CompiledRuntimePlan['resolvedBundle']
 }
 
+/**
+ * Inputs for the shared plan-assembly tail. The four plan builders
+ * (broker / foreground / embedded-sdk / tmux-broker) all assemble an identical
+ * `planMaterial` envelope — differing ONLY in the per-route `harness` and `model`
+ * objects and in their `executionProfiles` payload. Everything else (schema,
+ * compiler stamp, identity, placement, resolvedBundle, artifacts, lockedEnv,
+ * diagnostics) is byte-for-byte the same. Centralizing the envelope guarantees a
+ * single source for the projection-hashed key order.
+ */
+interface AssemblePlanInput {
+  req: RuntimeCompileRequest
+  compileId: CompileId
+  createdAt: string
+  compiledPlacement: CompiledRuntimePlan['placement']
+  resolvedBundle: CompiledRuntimePlan['resolvedBundle']
+  harness: CompiledRuntimePlan['harness']
+  model: CompiledRuntimePlan['model']
+  executionProfiles: CompiledRuntimePlan['executionProfiles']
+  materializedBundleRoot: string
+  systemPromptFile?: string | undefined
+  lockHash?: string | undefined
+  bundleIdentity: string
+  lockedEnvKeys: string[]
+  diagnostics: CompileDiagnostic[]
+}
+
+/**
+ * Assemble the shared `planMaterial` envelope, compute its plan-projection hash,
+ * and wrap it in the `ok` compile response. The object-literal key order here is
+ * authoritative for the byte-parity tests — it reproduces the previously inlined
+ * tail exactly (schemaVersion, compiler, compileId, createdAt, identity,
+ * placement, resolvedBundle, harness, model, executionProfiles, artifacts,
+ * lockedEnv, diagnostics), so each caller's projectionHash is unchanged.
+ */
+function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
+  const {
+    req,
+    compileId,
+    createdAt,
+    compiledPlacement,
+    resolvedBundle,
+    harness,
+    model,
+    executionProfiles,
+    materializedBundleRoot,
+    systemPromptFile,
+    lockHash,
+    bundleIdentity,
+    lockedEnvKeys,
+    diagnostics,
+  } = input
+  const planMaterial = {
+    schemaVersion: 'agent-runtime-plan/v1' as const,
+    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
+    compileId,
+    createdAt,
+    identity: req.identity,
+    placement: compiledPlacement,
+    resolvedBundle,
+    harness,
+    model,
+    executionProfiles,
+    artifacts: {
+      materializedBundleRoot,
+      ...(systemPromptFile !== undefined ? { systemPromptFile } : {}),
+      ...(lockHash !== undefined ? { lockHash } : {}),
+      bundleIdentity,
+    },
+    lockedEnv: {
+      lockedEnvKeys,
+    },
+    diagnostics,
+  }
+  const planHash = projectionHash(planMaterial, 'plan').planHash
+  const plan: CompiledRuntimePlan = {
+    ...planMaterial,
+    planHash,
+  }
+
+  return {
+    schemaVersion: 'agent-runtime-compile-response/v1',
+    ok: true,
+    plan,
+    diagnostics,
+  }
+}
+
 function compileError(code: string, message: string, details?: unknown): CompileDiagnostic {
   return {
     level: 'error',
@@ -578,8 +665,10 @@ type InteractiveCompileBuilder = (
  * is a one-line entry rather than a new boolean predicate + dispatch branch.
  */
 const INTERACTIVE_BROKER_BUILDERS: Partial<Record<HarnessFamily, InteractiveCompileBuilder>> = {
-  'claude-code': (req, placement, options) => compileClaudeTmuxBrokerPlan(req, placement, options),
-  codex: (req, placement, options) => compileCodexTmuxBrokerPlan(req, placement, options),
+  'claude-code': (req, placement, options) =>
+    compileTmuxBrokerPlan(req, placement, CLAUDE_TMUX_DRIVER_CONFIG, options),
+  codex: (req, placement, options) =>
+    compileTmuxBrokerPlan(req, placement, CODEX_TMUX_DRIVER_CONFIG, options),
 }
 
 /**
@@ -793,21 +882,19 @@ async function compileBrokerPlan(
   const createdAt = new Date().toISOString()
   const resolvedBundle = toResolvedBundle(brokerInvocation.resolvedBundle, bundleIdentity)
   const compiledPlacement = toCompiledPlacement(placement)
-  const planMaterial = {
-    schemaVersion: 'agent-runtime-plan/v1' as const,
-    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
+  return assemblePlan({
+    req,
     compileId,
     createdAt,
-    identity: req.identity,
-    placement: compiledPlacement,
+    compiledPlacement,
     resolvedBundle,
     harness: {
-      family: 'codex' as const,
-      runtime: 'codex-cli' as const,
-      provider: 'openai' as const,
+      family: 'codex',
+      runtime: 'codex-cli',
+      provider: 'openai',
     },
     model: {
-      provider: 'openai' as const,
+      provider: 'openai',
       modelId:
         prepared.runtimePlan.model.ok === true
           ? prepared.runtimePlan.model.info.model
@@ -818,31 +905,15 @@ async function compileBrokerPlan(
         : {}),
     },
     executionProfiles: [profile],
-    artifacts: {
-      materializedBundleRoot: prepared.materialized.materialization.outputPath,
-      ...(prepared.systemPrompt?.path !== undefined
-        ? { systemPromptFile: prepared.systemPrompt.path }
-        : {}),
-      ...(lockHash !== undefined ? { lockHash } : {}),
-      bundleIdentity,
-    },
-    lockedEnv: {
-      lockedEnvKeys,
-    },
+    materializedBundleRoot: prepared.materialized.materialization.outputPath,
+    ...(prepared.systemPrompt?.path !== undefined
+      ? { systemPromptFile: prepared.systemPrompt.path }
+      : {}),
+    ...(lockHash !== undefined ? { lockHash } : {}),
+    bundleIdentity,
+    lockedEnvKeys,
     diagnostics,
-  }
-  const planHash = projectionHash(planMaterial, 'plan').planHash
-  const plan: CompiledRuntimePlan = {
-    ...planMaterial,
-    planHash,
-  }
-
-  return {
-    schemaVersion: 'agent-runtime-compile-response/v1',
-    ok: true,
-    plan,
-    diagnostics,
-  }
+  })
 }
 
 /**
@@ -985,13 +1056,11 @@ async function compileForegroundPlan(
   const resolvedBundle = toResolvedBundle(prepared.resolvedBundle, bundleIdentity)
   const compiledPlacement = toCompiledPlacement(placement)
 
-  const planMaterial = {
-    schemaVersion: 'agent-runtime-plan/v1' as const,
-    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
+  return assemblePlan({
+    req,
     compileId,
     createdAt,
-    identity: req.identity,
-    placement: compiledPlacement,
+    compiledPlacement,
     resolvedBundle,
     harness: {
       family: route.family,
@@ -1010,31 +1079,15 @@ async function compileForegroundPlan(
         : {}),
     },
     executionProfiles: [profile],
-    artifacts: {
-      materializedBundleRoot: prepared.materialized.materialization.outputPath,
-      ...(prepared.systemPrompt?.path !== undefined
-        ? { systemPromptFile: prepared.systemPrompt.path }
-        : {}),
-      ...(lockHash !== undefined ? { lockHash } : {}),
-      bundleIdentity,
-    },
-    lockedEnv: {
-      lockedEnvKeys,
-    },
+    materializedBundleRoot: prepared.materialized.materialization.outputPath,
+    ...(prepared.systemPrompt?.path !== undefined
+      ? { systemPromptFile: prepared.systemPrompt.path }
+      : {}),
+    ...(lockHash !== undefined ? { lockHash } : {}),
+    bundleIdentity,
+    lockedEnvKeys,
     diagnostics,
-  }
-  const planHash = projectionHash(planMaterial, 'plan').planHash
-  const plan: CompiledRuntimePlan = {
-    ...planMaterial,
-    planHash,
-  }
-
-  return {
-    schemaVersion: 'agent-runtime-compile-response/v1',
-    ok: true,
-    plan,
-    diagnostics,
-  }
+  })
 }
 
 /** Capability requirements for an in-process, nonInteractive embedded-sdk session. */
@@ -1302,21 +1355,19 @@ async function compileEmbeddedSdkPlan(
   const resolvedBundle = toResolvedBundle(prepared.resolvedBundle, bundleIdentity)
   const compiledPlacement = toCompiledPlacement(placement)
 
-  const planMaterial = {
-    schemaVersion: 'agent-runtime-plan/v1' as const,
-    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
+  return assemblePlan({
+    req,
     compileId,
     createdAt,
-    identity: req.identity,
-    placement: compiledPlacement,
+    compiledPlacement,
     resolvedBundle,
     harness: {
-      family: 'pi' as const,
-      runtime: 'pi-sdk' as const,
-      provider: 'openai' as const,
+      family: 'pi',
+      runtime: 'pi-sdk',
+      provider: 'openai',
     },
     model: {
-      provider: 'openai' as const,
+      provider: 'openai',
       modelId,
       ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
       ...(req.requested.reasoningEffort !== undefined
@@ -1324,31 +1375,15 @@ async function compileEmbeddedSdkPlan(
         : {}),
     },
     executionProfiles: [profile],
-    artifacts: {
-      materializedBundleRoot: prepared.materialized.materialization.outputPath,
-      ...(prepared.systemPrompt?.path !== undefined
-        ? { systemPromptFile: prepared.systemPrompt.path }
-        : {}),
-      ...(lockHash !== undefined ? { lockHash } : {}),
-      bundleIdentity,
-    },
-    lockedEnv: {
-      lockedEnvKeys,
-    },
+    materializedBundleRoot: prepared.materialized.materialization.outputPath,
+    ...(prepared.systemPrompt?.path !== undefined
+      ? { systemPromptFile: prepared.systemPrompt.path }
+      : {}),
+    ...(lockHash !== undefined ? { lockHash } : {}),
+    bundleIdentity,
+    lockedEnvKeys,
     diagnostics,
-  }
-  const planHash = projectionHash(planMaterial, 'plan').planHash
-  const plan: CompiledRuntimePlan = {
-    ...planMaterial,
-    planHash,
-  }
-
-  return {
-    schemaVersion: 'agent-runtime-compile-response/v1',
-    ok: true,
-    plan,
-    diagnostics,
-  }
+  })
 }
 
 /**
@@ -1432,22 +1467,6 @@ const CODEX_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
   honorDisallowedTools: false,
 }
 
-async function compileClaudeTmuxBrokerPlan(
-  req: RuntimeCompileRequest,
-  placement: CompilePlacement,
-  options?: CompileRuntimePlanOptions
-): Promise<RuntimeCompileResponse> {
-  return compileTmuxBrokerPlan(req, placement, CLAUDE_TMUX_DRIVER_CONFIG, options)
-}
-
-async function compileCodexTmuxBrokerPlan(
-  req: RuntimeCompileRequest,
-  placement: CompilePlacement,
-  options?: CompileRuntimePlanOptions
-): Promise<RuntimeCompileResponse> {
-  return compileTmuxBrokerPlan(req, placement, CODEX_TMUX_DRIVER_CONFIG, options)
-}
-
 /**
  * Harness-kind-agnostic interactive tmux broker compiler. The claude-code-tmux
  * and codex-cli-tmux routes are byte-identical except for the per-driver knobs
@@ -1518,6 +1537,7 @@ async function compileTmuxBrokerPlan(
   // pty is the PROCESS TRANSPORT; tmux is the broker terminal surface/host. The
   // tmux driver carries terminalHost so the validator can assert the surface
   // contract without duplicating launch mechanics outside the spec.
+  const launch = buildTmuxLaunchSpec(prepared)
   const spec: HarnessInvocationSpec = {
     specVersion: 'harness-broker.invocation/v1',
     ...(req.identity.invocationId !== undefined ? { invocationId: req.identity.invocationId } : {}),
@@ -1558,9 +1578,7 @@ async function compileTmuxBrokerPlan(
       terminalHost: 'tmux',
       ...(hookBridge !== undefined ? { hookBridge } : {}),
     },
-    ...(buildTmuxLaunchSpec(prepared) !== undefined
-      ? { launch: buildTmuxLaunchSpec(prepared) }
-      : {}),
+    ...(launch !== undefined ? { launch } : {}),
     correlation: brokerCorrelation(req),
   }
   validateInvocationSpec(spec)
@@ -1655,13 +1673,11 @@ async function compileTmuxBrokerPlan(
   const resolvedBundle = toResolvedBundle(prepared.resolvedBundle, bundleIdentity)
   const compiledPlacement = toCompiledPlacement(placement)
 
-  const planMaterial = {
-    schemaVersion: 'agent-runtime-plan/v1' as const,
-    compiler: { name: 'agent-spaces' as const, version: COMPILER_VERSION },
+  return assemblePlan({
+    req,
     compileId,
     createdAt,
-    identity: req.identity,
-    placement: compiledPlacement,
+    compiledPlacement,
     resolvedBundle,
     harness: {
       family: route.family,
@@ -1680,29 +1696,13 @@ async function compileTmuxBrokerPlan(
         : {}),
     },
     executionProfiles: [profile],
-    artifacts: {
-      materializedBundleRoot: prepared.materialized.materialization.outputPath,
-      ...(prepared.systemPrompt?.path !== undefined
-        ? { systemPromptFile: prepared.systemPrompt.path }
-        : {}),
-      ...(lockHash !== undefined ? { lockHash } : {}),
-      bundleIdentity,
-    },
-    lockedEnv: {
-      lockedEnvKeys,
-    },
+    materializedBundleRoot: prepared.materialized.materialization.outputPath,
+    ...(prepared.systemPrompt?.path !== undefined
+      ? { systemPromptFile: prepared.systemPrompt.path }
+      : {}),
+    ...(lockHash !== undefined ? { lockHash } : {}),
+    bundleIdentity,
+    lockedEnvKeys,
     diagnostics,
-  }
-  const planHash = projectionHash(planMaterial, 'plan').planHash
-  const plan: CompiledRuntimePlan = {
-    ...planMaterial,
-    planHash,
-  }
-
-  return {
-    schemaVersion: 'agent-runtime-compile-response/v1',
-    ok: true,
-    plan,
-    diagnostics,
-  }
+  })
 }

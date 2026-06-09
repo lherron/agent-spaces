@@ -1,19 +1,7 @@
-import { rm } from 'node:fs/promises'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
-import {
-  listInheritedEnvKeysToScrub,
-  sanitizeTmuxClientEnv,
-  sanitizeTmuxServerPath,
-} from './tmux-env'
-import {
-  MIN_SUPPORTED_TMUX_VERSION,
-  PANE_IDENTITY_FORMAT,
-  WINDOW_NAME,
-  parsePaneIdentity,
-  parsePaneState,
-  parseVersion,
-} from './tmux-parse'
+import { sanitizeTmuxClientEnv } from './tmux-env'
+import { PANE_IDENTITY_FORMAT, parsePaneIdentity, parsePaneState } from './tmux-parse'
 
 // Re-exported for backward compatibility — `parsePaneState` was a public export
 // of this module before the SRP split into `tmux-parse.ts`.
@@ -30,12 +18,6 @@ export type TmuxExec = (
   argv: string[],
   options?: { env?: Record<string, string | undefined> | undefined }
 ) => Promise<TmuxExecResult>
-
-export type TmuxManagerOptions = {
-  socketPath: string
-  tmuxBin?: string | undefined
-  exec?: TmuxExec | undefined
-}
 
 export type TmuxPaneAllowedOps = {
   inspect?: boolean | undefined
@@ -104,225 +86,10 @@ const SUBMIT_POLL_INTERVAL_MS = 150
 const MAX_SUBMIT_ATTEMPTS = 5
 // Used only when the lease does not grant capture (we cannot observe the pane).
 const LEGACY_PASTE_GAP_MS = 1_000
-// Gap between delivering input and pressing Enter in the capture-unaware
-// TmuxManager send paths (sendKeys / sendPastedLine). Same value/role as
-// LEGACY_PASTE_GAP_MS and the codex driver's INPUT_SUBMIT_GAP_MS.
-const MANAGER_SEND_KEYS_GAP_MS = 1_000
 // Trailing window of the pasted command used as the present / still-unexecuted
 // needle (whitespace-stripped so terminal line-wrap inside the window never breaks
 // the match — capture-pane hard-wraps long commands at pane width).
 const COMMAND_TAIL_LEN = 60
-
-function sessionNameFor(hostSessionId: string): string {
-  return `hrc-${hostSessionId.slice(0, 12)}`
-}
-
-function isMissingTargetError(stderr: string): boolean {
-  const normalized = stderr.toLowerCase()
-  return (
-    normalized.includes('no server running on') ||
-    normalized.includes("can't find session") ||
-    normalized.includes("can't find pane") ||
-    normalized.includes("can't find window")
-  )
-}
-
-export class TmuxManager {
-  private readonly tmuxBinary: string
-  private readonly execImpl: TmuxExec
-
-  constructor(
-    private readonly socketPath: string,
-    tmuxBinary = 'tmux',
-    execImpl?: TmuxExec | undefined
-  ) {
-    this.tmuxBinary = tmuxBinary
-    this.execImpl = execImpl ?? createDefaultTmuxExec()
-  }
-
-  async initialize(): Promise<void> {
-    await this.checkVersion()
-    await this.startServer()
-    await this.scrubServerEnvironment()
-  }
-
-  async ensurePane(hostSessionId: string, restartStyle: RestartStyle): Promise<TmuxPaneState> {
-    const sessionName = sessionNameFor(hostSessionId)
-
-    if (restartStyle === 'fresh_pty') {
-      const existing = await this.inspectSession(sessionName)
-      if (existing) {
-        const retiredSessionName = `${sessionName}-retired-${Date.now()}`
-        await this.exec(['rename-session', '-t', `=${sessionName}`, retiredSessionName])
-        try {
-          const created = await this.createNamedSession(sessionName)
-          await this.killSession(retiredSessionName)
-          return created
-        } catch (error) {
-          await this.killSession(retiredSessionName)
-          throw error
-        }
-      }
-
-      return this.createNamedSession(sessionName)
-    }
-
-    const existing = await this.inspectSession(sessionName)
-    if (existing) {
-      return existing
-    }
-
-    return this.createNamedSession(sessionName)
-  }
-
-  async checkVersion(): Promise<void> {
-    let result: TmuxExecResult
-    try {
-      result = await this.execRaw(['-V'])
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      throw new Error(`tmux not found or unavailable: ${message}`)
-    }
-
-    const version = parseVersion(result.stdout, result.stderr)
-    const supported =
-      version.major > MIN_SUPPORTED_TMUX_VERSION.major ||
-      (version.major === MIN_SUPPORTED_TMUX_VERSION.major &&
-        version.minor >= MIN_SUPPORTED_TMUX_VERSION.minor)
-
-    if (!supported) {
-      throw new Error(`unsupported tmux version ${version.major}.${version.minor}; need 3.2+`)
-    }
-  }
-
-  async createSession(hostSessionId: string): Promise<TmuxPaneState> {
-    await this.startServer()
-    return this.createNamedSession(sessionNameFor(hostSessionId))
-  }
-
-  async capture(paneId: string): Promise<string> {
-    const result = await this.exec(['capture-pane', '-t', paneId, '-p'])
-    return result.stdout
-  }
-
-  getAttachDescriptor(sessionName: string): { argv: string[] } {
-    return {
-      argv: [this.tmuxBinary, '-S', this.socketPath, 'attach-session', '-t', sessionName],
-    }
-  }
-
-  async interrupt(paneId: string): Promise<void> {
-    await this.exec(['send-keys', '-t', paneId, 'C-c'])
-  }
-
-  async terminate(sessionName: string): Promise<void> {
-    await this.killSession(sessionName)
-  }
-
-  async sendLiteral(paneId: string, text: string): Promise<void> {
-    if (text.length === 0) {
-      return
-    }
-
-    await this.exec(['send-keys', '-l', '-t', paneId, text])
-  }
-
-  async sendEnter(paneId: string): Promise<void> {
-    await this.exec(['send-keys', '-t', paneId, 'Enter'])
-  }
-
-  async sendKeys(paneId: string, keys: string): Promise<void> {
-    await this.sendLiteral(paneId, keys)
-    await sleep(MANAGER_SEND_KEYS_GAP_MS)
-    await this.sendEnter(paneId)
-  }
-
-  async sendPastedLine(paneId: string, text: string): Promise<void> {
-    const bufferName = `harness-broker-${Date.now()}-${Math.random().toString(16).slice(2)}`
-    await this.exec(['set-buffer', '-b', bufferName, text])
-    await this.exec(['paste-buffer', '-d', '-b', bufferName, '-t', paneId])
-    await sleep(MANAGER_SEND_KEYS_GAP_MS)
-    await this.sendEnter(paneId)
-  }
-
-  async inspectSession(sessionName: string): Promise<TmuxPaneState | null> {
-    try {
-      const result = await this.exec([
-        'list-panes',
-        '-t',
-        `=${sessionName}:${WINDOW_NAME}`,
-        '-F',
-        '#{session_id}\t#{window_id}\t#{pane_id}\t#{session_name}',
-      ])
-      return parsePaneState(result.stdout, this.socketPath)
-    } catch (error) {
-      if (error instanceof Error && isMissingTargetError(error.message)) {
-        return null
-      }
-      throw error
-    }
-  }
-
-  private async createNamedSession(sessionName: string): Promise<TmuxPaneState> {
-    const args = ['new-session', '-d']
-    const sanitizedPath = sanitizeTmuxServerPath(process.env['PATH'])
-    if (sanitizedPath) {
-      args.push('-e', `PATH=${sanitizedPath}`)
-    }
-    args.push(
-      '-P',
-      '-s',
-      sessionName,
-      '-n',
-      WINDOW_NAME,
-      '-F',
-      '#{session_id}\t#{window_id}\t#{pane_id}\t#{session_name}'
-    )
-
-    const result = await this.exec(args)
-    return parsePaneState(result.stdout, this.socketPath)
-  }
-
-  private async scrubServerEnvironment(): Promise<void> {
-    for (const key of listInheritedEnvKeysToScrub(process.env)) {
-      try {
-        await this.exec(['set-environment', '-gu', key])
-      } catch {
-        // Best effort: keep startup resilient if a key is already absent.
-      }
-    }
-  }
-
-  private async killSession(sessionName: string): Promise<void> {
-    try {
-      await this.exec(['kill-session', '-t', `=${sessionName}`])
-    } catch (error) {
-      if (error instanceof Error && isMissingTargetError(error.message)) {
-        return
-      }
-      throw error
-    }
-  }
-
-  private async startServer(): Promise<void> {
-    try {
-      await this.exec(['start-server'])
-    } catch {
-      await rm(this.socketPath, { force: true }).catch(() => undefined)
-      await this.exec(['start-server'])
-    }
-  }
-
-  private async exec(args: string[]): Promise<TmuxExecResult> {
-    return this.execRaw(['-S', this.socketPath, ...args])
-  }
-
-  private async execRaw(args: string[]): Promise<TmuxExecResult> {
-    return this.execImpl([this.tmuxBinary, ...args], {
-      env: sanitizeTmuxClientEnv(process.env),
-    })
-  }
-}
 
 export class TmuxPaneController {
   private readonly socketPath: string
@@ -580,10 +347,6 @@ function createDefaultTmuxExec(): TmuxExec {
 
     return { stdout, stderr }
   }
-}
-
-export function createTmuxManager(options: TmuxManagerOptions): TmuxManager {
-  return new TmuxManager(options.socketPath, options.tmuxBin, options.exec)
 }
 
 export function createTmuxPaneController(options: TmuxPaneControllerOptions): TmuxPaneController {

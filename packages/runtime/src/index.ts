@@ -33,7 +33,7 @@ export type {
   InspectedPromptZone,
   InspectedSystemPromptZone,
   InspectAgentSystemPromptInput,
-  MaterializeResult,
   MaterializeSystemPromptInput,
   TemplateDiscoveryProfile,
 } from './system-prompt.js'
+export type { MaterializeResult } from './materialize-io.js'

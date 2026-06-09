@@ -12,6 +12,7 @@ import type { Command } from 'commander'
 import { readSpaceToml } from 'spaces-config'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
+import { loadAllDistTags } from '../repo/registry-fs.js'
 
 interface SpaceInfo {
   id: string
@@ -32,19 +33,6 @@ interface ListOutput {
 async function ensureRegistryExists(repoPath: string): Promise<boolean> {
   const repoFile = Bun.file(`${repoPath}/.git/HEAD`)
   return repoFile.exists()
-}
-
-/**
- * Load dist-tags from registry.
- */
-async function loadDistTags(repoPath: string): Promise<Record<string, Record<string, string>>> {
-  try {
-    const distTagsPath = `${repoPath}/registry/dist-tags.json`
-    const content = await Bun.file(distTagsPath).text()
-    return JSON.parse(content)
-  } catch {
-    return {}
-  }
 }
 
 /**
@@ -77,7 +65,7 @@ async function getSpaceInfo(
  * List all spaces in registry.
  */
 async function listSpaces(repoPath: string): Promise<SpaceInfo[]> {
-  const distTags = await loadDistTags(repoPath)
+  const distTags = await loadAllDistTags(repoPath)
   const spacesDir = `${repoPath}/spaces`
 
   try {

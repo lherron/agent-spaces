@@ -12,6 +12,7 @@ import type { Command } from 'commander'
 import { getStatus } from 'spaces-config'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
+import { loadAllDistTags } from './registry-fs.js'
 
 /**
  * Registry status output structure.
@@ -50,19 +51,6 @@ async function listSpaces(repoPath: string): Promise<string[]> {
     return entries.filter((e) => e.isDirectory()).map((e) => e.name)
   } catch {
     return []
-  }
-}
-
-/**
- * Load dist-tags from registry.
- */
-async function loadDistTags(repoPath: string): Promise<Record<string, Record<string, string>>> {
-  try {
-    const distTagsPath = `${repoPath}/registry/dist-tags.json`
-    const content = await Bun.file(distTagsPath).text()
-    return JSON.parse(content)
-  } catch {
-    return {}
   }
 }
 
@@ -153,7 +141,7 @@ export function registerRepoStatusCommand(parent: Command): void {
 
         const gitStatus = await getStatus({ cwd: paths.repo })
         const spaces = await listSpaces(paths.repo)
-        const distTags = await loadDistTags(paths.repo)
+        const distTags = await loadAllDistTags(paths.repo)
 
         const status: RegistryStatus = {
           repoPath: paths.repo,

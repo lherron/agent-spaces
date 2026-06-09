@@ -587,11 +587,14 @@ export class PiSdkAdapter implements HarnessAdapter {
       args.push('--yolo')
     }
 
-    // Handle continuation key
-    if (options.continuationKey) {
+    // Handle continuation key: the runner threads --resume into a resumed
+    // SessionManager. A string continuationKey is a session-file path
+    // (SessionManager.open); a bare boolean means "continue most recent"
+    // (SessionManager.continueRecent), wired as a value-less --resume flag.
+    if (typeof options.continuationKey === 'string' && options.continuationKey) {
+      args.push('--resume', options.continuationKey)
+    } else if (options.continuationKey === true) {
       args.push('--resume')
-      // Note: pi-sdk runner may not implement resume yet,
-      // but we pass the flag for forward compatibility
     }
 
     const sdkRoot = process.env['ASP_PI_SDK_ROOT']

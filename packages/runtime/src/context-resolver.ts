@@ -426,19 +426,11 @@ async function resolveSlotSection(
   section: Extract<ContextSection, { type: 'slot' }>,
   context: ContextResolverContext
 ): Promise<string | undefined> {
+  // The parser requires `source` for every slot section (context-template.ts
+  // parseSection: parseRequiredString(input['source'])), so a sourceless slot is
+  // unreachable by construction; the optional type is retained only for shape parity.
   if (section.source === undefined) {
-    switch (section.name) {
-      case 'additional-base':
-        return resolveAdditionalBaseSlot(context)
-      case 'scaffold':
-        return resolveScaffoldSlot(context)
-      default:
-        return undefined
-    }
-  }
-
-  if (section.source === 'scaffold') {
-    return resolveScaffoldSlot(context)
+    return undefined
   }
 
   const sourceValue = resolveSourcePath(context.agentProfile, section.source)
@@ -456,41 +448,6 @@ async function resolveSlotSection(
   }
 
   return resolveFileRefSlot(entries, context)
-}
-
-async function resolveAdditionalBaseSlot(
-  context: ContextResolverContext
-): Promise<string | undefined> {
-  const refs = normalizeStringEntries(
-    resolveSourcePath(context.agentProfile, 'instructions.additionalBase')
-  )
-  if (!refs || refs.length === 0) {
-    return undefined
-  }
-
-  return resolveFileRefSlot(refs, context)
-}
-
-async function resolveScaffoldSlot(context: ContextResolverContext): Promise<string | undefined> {
-  const packets = context.scaffoldPackets
-  if (!packets || packets.length === 0) {
-    return undefined
-  }
-
-  const contents: Array<string | undefined> = []
-  for (const packet of packets) {
-    if (packet.content && packet.content.length > 0) {
-      contents.push(interpolateVariables(packet.content, context))
-    }
-
-    if (packet.ref) {
-      const filePath = resolveTemplateRef(packet.ref, context)
-      const content = await readFileOrUndefined(filePath)
-      contents.push(content === undefined ? undefined : interpolateVariables(content, context))
-    }
-  }
-
-  return joinResolvedContent(contents)
 }
 
 async function resolveFileRefSlot(

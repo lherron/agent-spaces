@@ -77,11 +77,6 @@ export function resolveRunEnvFlags(env: NodeJS.ProcessEnv = process.env): {
   }
 }
 
-/** Whether the run should be driven through the injected compiler. */
-export function isViaCompiler(env: NodeJS.ProcessEnv = process.env): boolean {
-  return resolveRunEnvFlags(env).viaCompiler
-}
-
 /**
  * Map a run-options bag onto the harness-facing `HarnessRunOptions` literal.
  *

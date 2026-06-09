@@ -95,11 +95,12 @@ describe('PromptQueue', () => {
     expect(yielded).toEqual([])
   })
 
-  // BUGS.md harness-claude A1: close() nulls the waiting resolver WITHOUT calling
-  // it, so a consumer that parked BEFORE close() never resolves — its `await`
-  // hangs forever, wedging the SDK input loop on normal teardown. Skipped until
-  // the lost-wakeup is fixed; enabling this would hang the suite.
-  test.todo('close() wakes a consumer that parked first (BUGS harness-claude A1)', async () => {
+  // BUGS.md harness-claude A1: close() previously nulled the waiting resolver
+  // WITHOUT calling it, so a consumer that parked BEFORE close() never resolved
+  // — its `await` hung forever, wedging the SDK input loop on normal teardown.
+  // close() now resolves the parked waiter with null (the iterator's completion
+  // signal) so the await unblocks and iteration terminates cleanly.
+  test('close() wakes a consumer that parked first (BUGS harness-claude A1)', async () => {
     const queue = new PromptQueue('s6')
     const iterator = queue[Symbol.asyncIterator]()
 
@@ -107,7 +108,41 @@ describe('PromptQueue', () => {
     await Promise.resolve()
     queue.close('teardown')
 
-    const { done } = await nextPromise
-    expect(done).toBe(true)
+    // Guard against a regression hang: if close() fails to wake the parked
+    // consumer, this await never settles, so race it against a timeout.
+    const timeout = new Promise<{ done: boolean; timedOut: true }>((resolve) =>
+      setTimeout(() => resolve({ done: false, timedOut: true }), 1000)
+    )
+    const result = await Promise.race([
+      nextPromise.then((r) => ({ done: r.done, timedOut: false as const })),
+      timeout,
+    ])
+
+    expect(result.timedOut).toBe(false)
+    expect(result.done).toBe(true)
+  })
+
+  test('a consumer parked in for-await terminates cleanly on close()', async () => {
+    const queue = new PromptQueue('s7')
+    const yielded: string[] = []
+
+    const consumer = (async () => {
+      for await (const msg of queue) {
+        yielded.push(msg.message.content)
+      }
+    })()
+
+    // Let the consumer park inside the iterator (no messages queued).
+    await Promise.resolve()
+    await Promise.resolve()
+    queue.close('teardown')
+
+    const timeout = new Promise<'timed-out'>((resolve) =>
+      setTimeout(() => resolve('timed-out'), 1000)
+    )
+    const outcome = await Promise.race([consumer.then(() => 'done' as const), timeout])
+
+    expect(outcome).toBe('done')
+    expect(yielded).toEqual([])
   })
 })

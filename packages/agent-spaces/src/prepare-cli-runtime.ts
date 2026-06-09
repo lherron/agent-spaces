@@ -21,9 +21,9 @@ import { type MaterializedSpec, materializeSpec } from './client-materialization
 import {
   CODEX_CLI_FRONTEND,
   CodedError,
+  assertProviderMatch,
   formatDisplayCommand,
   resolveFrontend,
-  validateProviderMatch,
 } from './client-support.js'
 import { buildCorrelationEnvVars } from './placement-api.js'
 import type {
@@ -134,7 +134,7 @@ export async function preparePlacementCliRuntime(
   }
 
   // Validate provider match with continuation if provided
-  validateProviderMatch(frontendDef, req.continuation)
+  assertProviderMatch(frontendDef, req.continuation)
 
   const placementContext = await resolvePlacementContext({ ...placement, dryRun: true })
   const { spec } = placementContext.materialization

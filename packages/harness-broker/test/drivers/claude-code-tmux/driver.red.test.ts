@@ -329,8 +329,7 @@ function expectNoForbiddenLifecycleVerbs(calls: TmuxExecCall[]): void {
   for (const forbidden of FORBIDDEN_TMUX_VERBS) {
     expect(flat).not.toContain(forbidden)
   }
-  // tmux -V is a server-version probe used by the legacy TmuxManager. The
-  // pane-leased driver must not issue it either.
+  // tmux -V is a server-version probe. The pane-leased driver must not issue it.
   expect(flat).not.toContain('-V')
 }
 

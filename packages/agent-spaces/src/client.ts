@@ -58,11 +58,12 @@ import {
   CodedError,
   FRONTEND_DEFS,
   PI_SDK_FRONTEND,
+  assertProviderMatch,
   formatDisplayCommand,
   resolveFrontend,
   resolveModel,
-  validateProviderMatch,
 } from './client-support.js'
+import type { AgentSpacesClientOptions } from './placement-api.js'
 import { preparePlacementCliRuntime, toProcessInvocationSpec } from './prepare-cli-runtime.js'
 import { runPlacementTurnNonInteractive } from './run-placement-turn.js'
 import {
@@ -113,11 +114,6 @@ function buildContinuationRef(
 // ---------------------------------------------------------------------------
 // Client implementation
 // ---------------------------------------------------------------------------
-
-export interface AgentSpacesClientOptions {
-  aspHome?: string | undefined
-  registryPath?: string | undefined
-}
 
 export function createAgentSpacesClient(options?: AgentSpacesClientOptions): AgentSpacesClient {
   const clientAspHome = options?.aspHome
@@ -236,7 +232,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
         }
 
         // Validate provider match with continuation if provided
-        validateProviderMatch(frontendDef, req.continuation)
+        assertProviderMatch(frontendDef, req.continuation)
 
         // Validate model
         const modelResolution = resolveModel(frontendDef, req.model)
@@ -368,7 +364,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           if (!isAbsolute(req.cwd)) {
             throw new Error('cwd must be an absolute path')
           }
-          validateProviderMatch(frontendDef, req.continuation)
+          assertProviderMatch(frontendDef, req.continuation)
           modelResolution = resolveModel(frontendDef, req.model)
         } catch (error) {
           return emitTurnFailure(
@@ -644,7 +640,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           }
 
           // Validate provider match with continuation
-          validateProviderMatch(frontendDef, req.continuation)
+          assertProviderMatch(frontendDef, req.continuation)
 
           modelResolution = resolveModel(frontendDef, req.model)
         } catch (error) {

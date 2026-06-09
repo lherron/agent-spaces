@@ -206,6 +206,28 @@ export function flattenAssistantText(content: unknown): string | undefined {
   return textParts.length > 0 ? textParts.join('\n') : undefined
 }
 
+/**
+ * Whether an SDK `user` message is a parent-task message carrying a
+ * `tool_use_result` that must be lifted into a synthesized tool-result event.
+ *
+ * WHY centralized: both `agent-session.ts` (emits a `UnifiedSessionEvent`) and
+ * `hooks-bridge.ts` (calls `emitPostToolUse`) gate on this *identical* 4-clause
+ * eligibility rule. Only the action diverges; the decision lives here so the two
+ * consumers cannot drift on the rule itself.
+ */
+export function isSynthesizableUserToolResult(
+  msg: Record<string, unknown>,
+  msgType: string | undefined,
+  sawToolResultBlock: boolean
+): boolean {
+  return (
+    msgType === 'user' &&
+    !sawToolResultBlock &&
+    typeof msg['parent_tool_use_id'] === 'string' &&
+    msg['tool_use_result'] !== undefined
+  )
+}
+
 export interface ToolBlockVisitor {
   onToolUse?: (block: Record<string, unknown>) => void
   onToolResult?: (block: Record<string, unknown>) => void

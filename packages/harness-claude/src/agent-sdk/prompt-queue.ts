@@ -24,7 +24,7 @@ export type SDKUserMessage = {
  */
 export class PromptQueue implements AsyncIterable<SDKUserMessage> {
   private messages: SDKUserMessage[] = []
-  private waiting: ((msg: SDKUserMessage) => void) | null = null
+  private waiting: ((msg: SDKUserMessage | null) => void) | null = null
   private closed = false
   private closeReason: string | undefined
   private sessionId: string
@@ -104,10 +104,14 @@ export class PromptQueue implements AsyncIterable<SDKUserMessage> {
   close(reason?: string): void {
     this.closed = true
     this.closeReason = reason
-    // Wake up any waiting consumer
+    // Wake up any waiting consumer. A consumer that parked before close() is
+    // awaiting the resolver; resolve it with null (the completion signal the
+    // iterator treats as "break") BEFORE clearing it, so the await unblocks and
+    // the async iterator terminates cleanly instead of hanging forever.
     if (this.waiting) {
-      // Can't pass null directly due to type, but we check closed flag
+      const resolve = this.waiting
       this.waiting = null
+      resolve(null)
     }
   }
 

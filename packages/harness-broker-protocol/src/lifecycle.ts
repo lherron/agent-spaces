@@ -100,7 +100,7 @@ export interface AcceptedLifecyclePolicy {
   turnRetryMode: TurnRetryPolicy['mode']
 }
 
-export interface LifecyclePolicyAcceptedPayload extends AcceptedLifecyclePolicy {}
+export type LifecyclePolicyAcceptedPayload = AcceptedLifecyclePolicy
 
 export interface LifecycleEscalationPayload {
   reason:

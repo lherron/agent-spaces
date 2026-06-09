@@ -24,8 +24,8 @@ import { materializeSpec } from './client-materialization.js'
 import {
   AGENT_SDK_FRONTEND,
   PI_SDK_FRONTEND,
+  assertProviderMatch,
   resolveFrontend,
-  validateProviderMatch,
 } from './client-support.js'
 import { buildCorrelationEnvVars } from './placement-api.js'
 import type { InFlightRunContext } from './run-tracker.js'
@@ -78,7 +78,7 @@ export async function runPlacementTurnNonInteractive(
   let resolvedPrompt = req.prompt
 
   try {
-    validateProviderMatch(frontendDef, req.continuation)
+    assertProviderMatch(frontendDef, req.continuation)
 
     const placementContext = await resolvePlacementContext({ ...placement, dryRun: true })
     const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
@@ -202,22 +202,19 @@ export async function runPlacementTurnNonInteractive(
     try {
       // Unified materialization: use the shared placement context rather than
       // reconstructing client-local synthetic planning state.
+      //
+      // `runtimePlan` was already resolved above from the dry-run placement
+      // context (used to gate model support and emit the user message). The
+      // planner is pure and `dryRun` only changes error tolerance — not the
+      // materialization manifest / effectiveConfig / cwd that planPlacementRuntime
+      // reads — so re-running it here against the non-dry context yields a
+      // byte-identical plan. Reuse the first result instead of recomputing it.
       const { spec } = placementContext.materialization
-      runtimePlan = await planPlacementRuntime({
-        placement,
-        placementContext,
-        frontend: req.frontend,
-        aspHome,
-        model: req.model,
-        prompt: req.prompt,
-        promptOverrideMode: 'truthy',
-        yolo: req.yolo,
-        continuationKey,
-      })
+      // `runtimePlan.model.ok` is already guaranteed `true` here: the early gate
+      // above returns a failure response when the dry-run plan reports an
+      // unsupported model, and the reused plan is byte-identical.
       if (!runtimePlan.model.ok) {
-        throw new Error(
-          `Model not supported for frontend ${frontendDef.frontend}: ${runtimePlan.model.modelId}`
-        )
+        throw new Error(`Model not supported for frontend ${frontendDef.frontend}`)
       }
       const effectiveModel = runtimePlan.model.info.effectiveModel
       const resolvedYolo = runtimePlan.yolo ?? false

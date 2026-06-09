@@ -13,7 +13,11 @@ import {
   parseContextTemplate,
 } from './context-template.js'
 import type { SystemPromptMode } from './context-template.js'
-import { writeMaterializedContext, writeMaterializedPrompt } from './materialize-io.js'
+import {
+  type MaterializeResult,
+  writeMaterializedContext,
+  writeMaterializedPrompt,
+} from './materialize-io.js'
 import { isRecord } from './type-guards.js'
 
 export interface MaterializeSystemPromptInput {
@@ -28,18 +32,6 @@ export interface MaterializeSystemPromptInput {
   runMode: RunMode
   scaffoldPackets?: RunScaffoldPacket[] | undefined
   env?: Record<string, string | undefined> | undefined
-}
-
-export interface MaterializeResult {
-  path: string
-  content: string
-  mode: SystemPromptMode
-  reminderContent?: string | undefined
-  maxChars?: number | undefined
-  promptSectionSizes?: string[] | undefined
-  reminderSectionSizes?: string[] | undefined
-  totalContextChars?: number | undefined
-  nearMaxChars?: boolean | undefined
 }
 
 export interface TemplateDiscoveryProfile {

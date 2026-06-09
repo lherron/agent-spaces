@@ -1,108 +1,106 @@
-# Refactor audit — `spaces-runtime-contracts`
+# Refactor analysis — `spaces-runtime-contracts`
 
-## Scope and overall assessment
+packageType: **data** (a contracts/DTO package — ~90% pure type declarations; the only
+executable logic is `hash.ts`, the two transport helpers in `public-api.ts`, the
+`validate-execution-profile.ts` legality registries, plus `const`-data tables in
+`route-catalog.ts` / `compile-fixtures.ts` / `boundary-checks.ts`).
 
-Audited every non-test source file under
-`packages/spaces-runtime-contracts/src/` (26 files, ~3047 lines).
+## Summary
 
-This is a **contracts package**: roughly 90% of the lines are pure TypeScript
-`type`/`export type` declarations with no runtime behavior. Only three files
-carry real executable logic:
+**applicableCount: 0. No findings — clean.**
 
-- `hash.ts` — canonical JSON serializer + projection.
-- `validate-execution-profile.ts` — per-kind legality validators.
-- `public-api.ts` — `transportAliasFor` / `legacyTransportAlias` helpers.
+This package was visibly worked over by the two prior passes (T-02028, T-02030). The
+evidence is everywhere in the executable files:
 
-The package was **recently and heavily refactored** in commit `e238805`
-("SOLID/code-smell cleanup pass across all 17 packages"). The evidence is
-visible throughout:
+- `validate-execution-profile.ts` already converted the broker/embedded-sdk legality
+  gates from flat guard sequences into **ordered rule registries** (`BROKER_RULES`,
+  `EMBEDDED_SDK_RULES`) with per-driver rule arrays, a precomputed `BrokerProfileFacts`
+  block, and the unsafe `'key' in driver` / forbidden-field probing **isolated into two
+  documented helpers** (`readDriver*`, `hasForbiddenProfileField`). The T19
+  conditional→dispatch mechanism is already applied.
+- `validateExecutionProfile` is an **exhaustive `switch` with a `never` default** — the
+  partial→total (T17) work is done; a new profile kind is a compile error here.
+- `compile-fixtures.ts` already extracted the duplicated capability/state sub-blocks into
+  shared `BASE_*` consts (`BASE_INPUT_CAPABILITIES`, `BASE_INVOCATION_INPUT_BLOCKS`,
+  `BASE_PERMISSION_STATE`, …) — the T15 missing-abstraction work on the fixtures is done.
+- `public-api.ts` already has the single canonical `transportAliasFor` dispatch that
+  `legacyTransportAlias` delegates to (the T15/T19 dedup of the alias derivation).
+- `hash.ts`'s `omitsLockedEnv` invariant guard, `serializeNumber` non-finite guard, and
+  `escapeJsonPointerToken` are all named/extracted.
 
-- `validate-execution-profile.ts` has already been rebuilt into a declarative
-  rule-array registry (`BrokerLegalityRule[]` per driver), with the unsafe
-  `'key' in driver` probing isolated into auditable helpers
-  (`readDriverTerminalHost`, `readDriverHookBridge`, `hasForbiddenProfileField`).
-- `hash.ts` extracts `serializeNumber`, `isEphemeralTimestampField`,
-  `resolvePolicy`, `escapeJsonPointerToken`, `omitsLockedEnv` as named helpers.
-- `compile-fixtures.ts` dedupes shared capability/state sub-blocks
-  (`BASE_INPUT_CAPABILITIES`, `BASE_PERMISSION_STATE`, etc.) into named consts to
-  prevent silent drift between fixtures.
-- `route-catalog.ts` factors the three lifecycle baselines into named consts.
+There is no remaining low-hanging fruit and nothing manufactured below. I pressure-tested
+the three things that looked like candidates and all three are either already-fixed or
+deliberately load-bearing (see "Deliberately left alone").
 
-As a result there are **very few actionable findings**, and the ones that remain
-are minor consistency / magic-string items. This is a genuinely clean package;
-the small list below is honest, not padded.
+## Public boundary verdict
 
----
+`src/index.ts` re-exports every module (`export *`). The package has **multiple in-repo
+consumers** (`packages/aspc`, `packages/cli`, `packages/agent-spaces`) and at least one
+cross-repo consumer (`hrc-runtime`, per the dev-publish loop). Per **M02 (expand/contract)**
+any type-shape change here is a contract change that must be migrated at every consumer —
+so the boundary is correctly treated as frozen. Characterization tests already pin the
+three executable surfaces that matter: `hash.test.ts`, `public-api.test.ts`,
+`validate-execution-profile.test.ts`, plus the `*.red.test.ts` guards. The make-safe (T40)
+gate is therefore already satisfied; no new characterization tests are needed before
+internal churn.
 
-## Findings
+The public surface itself is well-shaped: discriminated unions on a `kind` tag throughout
+(`RuntimeExecutionProfile`, `RuntimeState`, `RuntimeRouteDecision.admission`,
+`AgentchatExposurePolicy`, `RuntimeReconcileResult`), explicit `| undefined` on optionals,
+branded `Id<…>` types. No fat/leaky interface (T07) and no premature one-implementor
+abstraction (T16) was found on the boundary.
 
-## Magic-string `/process/lockedEnv` repeated in omit guard
-- File: packages/spaces-runtime-contracts/src/hash.ts:123
-- Risk: Low
-- API-impact: internal-only
-- Smell: The literal `/process/lockedEnv` appears three times in
-  `omitsLockedEnv` (exact match, suffix `endsWith`, infix `includes('/process/lockedEnv/')`).
-  A repeated magic string that must stay in sync across three comparisons.
-- Proposed change: Hoist a module-private `const LOCKED_ENV_POINTER = '/process/lockedEnv'`
-  and build the three checks from it (`=== LOCKED_ENV_POINTER`,
-  `endsWith(LOCKED_ENV_POINTER)`, `includes(\`${LOCKED_ENV_POINTER}/\`)`).
-  Pure behavior-preserving dedupe of a literal.
+## Findings by mechanism
 
-## Embedded-SDK validator is a flat 100-line guard sequence (inconsistent with broker rule-registry pattern)
-- File: packages/spaces-runtime-contracts/src/validate-execution-profile.ts:384
-- Risk: Med
-- API-impact: internal-only
-- Smell: `validateEmbeddedSdkExecutionProfile` is ~100 lines of repetitive
-  `if (cond) diagnostics.push(executionProfileDiagnostic(profile, code, message))`
-  blocks. The broker validator in the same file was already refactored into a
-  declarative `BrokerLegalityRule[]` registry iterated by a single loop; the
-  embedded-sdk validator did not get the same treatment, so the two validators
-  in one file use two different structural styles.
-- Proposed change: Introduce a local `EmbeddedSdkLegalityRule =
-  (profile) => CompileDiagnostic | undefined` rule array mirroring `BROKER_RULES`,
-  move each guard into a rule entry, and iterate it the same way
-  `validateBrokerExecutionProfile` does. Emission order is preserved by array
-  order, so behavior and the diagnostics sequence existing tests assert stay
-  identical. Internal to the file; the exported function signature is unchanged.
+None. Every mechanism A–E was walked outside-in and produced no applicable finding:
 
-## Forbidden-profile-field keys are repeated string literals
-- File: packages/spaces-runtime-contracts/src/validate-execution-profile.ts:420
-- Risk: Low
-- API-impact: internal-only
-- Smell: `hasForbiddenProfileField(profile, 'brokerProtocol' | 'brokerDriver' |
-  'brokerTerminal' | 'process' | 'transport' | 'terminal')` passes bare string
-  literals for the forbidden field keys at lines 420-453. These are
-  contract-significant field names duplicated as untyped strings; a typo would
-  silently disable a legality gate.
-- Proposed change: Define a module-private
-  `const FORBIDDEN_EMBEDDED_SDK_FIELDS = ['brokerProtocol', 'brokerDriver', ...] as const`
-  and reference the named members at each call site. Centralizes the field-name
-  list. Behavior-preserving.
+- **A make-safe / B boundary (T40/T07/M02):** boundary frozen, tests already present.
+- **C seams & structure (T01/T16/T15/T03/T19):** dispatch registries + exhaustive switch
+  already in place; shared fixture blocks already extracted; no new-concrete/singleton in
+  logic; no one-instantiation generic or never-flipped flag to de-abstract.
+- **D invariants (T12/T10/T17):** illegal states are already union-modeled; `validateExecutionProfile`
+  is total; the `never` default is a real exhaustiveness guard, not a "can't happen" arm to remove.
+- **E quality (T18/T23/T22/T21):** no swallowed catch (the only throws — `omitsLockedEnv`
+  guard, non-finite number, undefined `serialize` arm — are intentional and reachable); no
+  pass-through middle-man; max nesting is shallow; no param list >4 / data clump.
 
-## `runtimeCapabilities` / `capabilityResolution` fixture consts use lowerCamel unlike sibling SCREAMING_SNAKE bases
-- File: packages/spaces-runtime-contracts/src/compile-fixtures.ts:44
-- Risk: Low
-- API-impact: internal-only
-- Smell: Minor naming inconsistency — `runtimeCapabilities` (line 44) and
-  `capabilityResolution` (line 108) are module-private fixture consts in
-  lowerCamelCase, while the surrounding shared blocks use SCREAMING_SNAKE
-  (`BASE_INPUT_CAPABILITIES`, `BASE_PERMISSION_STATE`). Inconsistent within the
-  file.
-- Proposed change: Align the two private consts with a single convention. Purely
-  a local rename — neither is exported. Low value; listed for completeness.
+## Deliberately left alone (pressure-tested, NOT findings)
 
----
+1. **`CLAUDE_CODE_TMUX_RULES` vs `CODEX_CLI_TMUX_RULES` near-parallel arrays**
+   (`validate-execution-profile.ts:234-294`). Tempting T15 dedup target: each has a
+   "claims-X ⇒ driver-kind-X", "driver-kind-X ⇒ terminalHost tmux", "driver-kind-X ⇒ pty
+   transport" rule (codex adds a 4th hookBridge rule). **Left alone — load-bearing
+   divergence + deliberate option-value.** The driver name is baked into both the `facts`
+   selector boolean (`isClaudeCodeTmux` vs `isCodexCliTmux`) *and* the diagnostic
+   `code`/`message` string literals, which the tests assert by exact value AND emission
+   order (`v01-removal.red.test.ts` + `validate-execution-profile.test.ts`). Folding into a
+   `makeTmuxDriverRules(name)` factory would force dynamic `${name}_requires_pty_transport`
+   code construction (fragile, order-coupled) and re-introduce the exact cross-driver
+   coupling the prior pass intentionally removed — the registry header comment states the
+   design goal is "a new driver appends an array rather than editing a sibling branch."
+   Parameterizing here trades a documented, safe seam for a fragile abstraction.
 
-## Items explicitly NOT flagged (verified clean / intentional)
+2. **`boundary-checks.ts` mid-token string concatenation** (`'rg "spaces-harness-' +
+   'codex…'`). Looks like an obfuscation smell. **Left alone — deliberate self-protection,
+   exhaustively documented in the file header.** The split keeps this file from matching the
+   very ripgrep boundary patterns it ships; un-splitting would self-trigger the checks. The
+   comment explicitly forbids "tidying" the literals back together.
 
-- `boundary-checks.ts`: the deliberately mid-token-split `rg` command literals
-  are **intentional and load-bearing** (documented in the file header: un-split
-  literals would self-trigger the boundary scan). Do NOT "tidy" these — left as-is.
-- `validate-execution-profile.ts` `BROKER_RULES` ordering is asserted by tests;
-  the rule-array structure is already the SOLID-correct shape.
-- `hash.ts` `serialize` (~37 lines) is a single cohesive recursive serializer;
-  splitting it would not improve clarity.
-- The pervasive `?: T | undefined` explicit-undefined style is a repo-wide
-  `exactOptionalPropertyTypes` convention, not a smell.
-- No dead exports, no commented-out code, no unreachable branches found. The
-  `validateExecutionProfile` switch has an exhaustive `never` default guard.
+3. **`hash.ts` `project()` `{ ...base, planHash }` spread** (`hash.ts:169-182`). The brief
+   warns spreads can forward excess props. **Verified safe — not a finding.** `base` is an
+   explicit local `{ hashProjection, value }`, so the field set is exact and closed; there
+   is no source object whose extra properties could leak through, and the
+   `RuntimeContractProjection` union members each add exactly one hash field. No projection
+   rewrite warranted.
+
+4. **`RuntimeStatus` / `RunStatus` / `BrokerPermissionRequestKind` `| string` open unions**
+   (`primitives.ts`, `permissions.ts`). Not a T12 illegal-state target — these are
+   intentionally open string unions (forward-compat with broker/driver-emitted statuses);
+   closing them would be a behavior-narrowing redesign, not a refactor, and would break
+   consumers that already carry vendor statuses.
+
+## Outside-in apply sequence
+
+Empty. There are no auto-applicable (Low/Med + internal-only) findings to sequence, and no
+deferred (High / public-surface) findings to surface. The package is in a clean post-pass
+state; the correct action is to take nothing.

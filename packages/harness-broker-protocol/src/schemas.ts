@@ -19,7 +19,7 @@ import type { InvocationEventEnvelope, InvocationEventType } from './events'
 import type { HarnessInvocationSpec } from './invocation'
 import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from './invocation'
 import { isJsonRpcRequest } from './jsonrpc'
-import type { BrokerLifecyclePolicyOverlay, LifecyclePolicyHash } from './lifecycle.js'
+import type { BrokerLifecyclePolicyOverlay } from './lifecycle.js'
 import { lifecyclePolicyHash } from './lifecycle.js'
 import { validateTmuxPaneIds } from './tmux-ids.js'
 
@@ -716,19 +716,10 @@ function validateInvocationDispatchRequestShape(
   }
 }
 
-/**
- * Hasher seam for {@link validateLifecyclePolicyOverlay}. Defaults to the
- * canonical sha256 {@link lifecyclePolicyHash}; injectable so callers/tests can
- * substitute an alternative implementation without the validator hard-wiring
- * the crypto dependency.
- */
-type LifecyclePolicyHasher = (policy: BrokerLifecyclePolicyOverlay) => LifecyclePolicyHash
-
 function validateLifecyclePolicyOverlay(
   value: unknown,
   basePath: string,
-  issues: ValidationIssue[],
-  computeHash: LifecyclePolicyHasher = lifecyclePolicyHash
+  issues: ValidationIssue[]
 ): void {
   const policy = asRecord(value)
   if (!policy) {
@@ -756,7 +747,7 @@ function validateLifecyclePolicyOverlay(
   if (typeof policy.policyHash === 'string') {
     let expected: string | undefined
     try {
-      expected = computeHash(policy as BrokerLifecyclePolicyOverlay)
+      expected = lifecyclePolicyHash(policy as BrokerLifecyclePolicyOverlay)
     } catch {
       expected = undefined
     }
@@ -1138,9 +1129,10 @@ function validateDispatchRuntime(
   // Validate `runtime.terminalSurface` whenever it is present, regardless of
   // driver kind. (Protocol layer rejects malformed leases up-front.)
   const terminalSurfaceRaw = runtime?.['terminalSurface']
-  let terminalSurfaceLooksValid = false
   if (terminalSurfaceRaw !== undefined) {
-    terminalSurfaceLooksValid = validateTerminalSurfaceLease(
+    // Called for its side effect of emitting lease issues; the boolean return
+    // is not consumed here (the detailed issues already cover any rejection).
+    validateTerminalSurfaceLease(
       terminalSurfaceRaw,
       joinPath(runtimePath, 'terminalSurface'),
       issues
@@ -1168,7 +1160,6 @@ function validateDispatchRuntime(
   // If neither the legacy shim nor a well-formed lease is present, the
   // detailed lease issues already emitted by validateTerminalSurfaceLease
   // cover the rejection. No extra issue needed.
-  void terminalSurfaceLooksValid
 }
 
 /**

@@ -22,7 +22,7 @@ function shouldScrubInheritedEnvKey(key: string): boolean {
   return SCRUB_EXACT_KEYS.has(key) || SCRUB_PREFIXES.some((prefix) => key.startsWith(prefix))
 }
 
-export function scrubInheritedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+function scrubInheritedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   const scrubbed: Record<string, string> = {}
   for (const [key, value] of Object.entries(env)) {
     if (value !== undefined && !shouldScrubInheritedEnvKey(key)) {

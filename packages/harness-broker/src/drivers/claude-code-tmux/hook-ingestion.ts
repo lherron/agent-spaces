@@ -15,7 +15,7 @@ export type HookEnvelope = {
   hookData: unknown
 }
 
-export function buildHookEnvelope(hookData: unknown, env: HookEnvelopeEnv): HookEnvelope {
+function buildHookEnvelope(hookData: unknown, env: HookEnvelopeEnv): HookEnvelope {
   return {
     invocationId: env.invocationId,
     generation: env.generation,

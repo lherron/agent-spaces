@@ -411,6 +411,13 @@ blocking = true
     expect(result).toBeNull()
   })
 
+  it('throws (does not silently return null) for a malformed hooks.toml', async () => {
+    // Invalid TOML: unterminated string / bare junk that @iarna/toml rejects.
+    await writeFile(join(hooksDir, 'hooks.toml'), 'this = is = not = valid = toml')
+
+    await expect(readHooksToml(hooksDir)).rejects.toThrow()
+  })
+
   it('writes Claude hooks.json from canonical hooks', async () => {
     const hooks: CanonicalHookDefinition[] = [{ event: 'pre_tool_use', script: 'validate.sh' }]
 

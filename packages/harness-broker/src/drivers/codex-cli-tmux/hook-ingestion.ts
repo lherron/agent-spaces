@@ -15,10 +15,7 @@ export type CodexHookEnvelope = {
   hookData: unknown
 }
 
-export function buildCodexHookEnvelope(
-  hookData: unknown,
-  env: CodexHookEnvelopeEnv
-): CodexHookEnvelope {
+function buildCodexHookEnvelope(hookData: unknown, env: CodexHookEnvelopeEnv): CodexHookEnvelope {
   return {
     invocationId: env.invocationId,
     generation: env.generation,

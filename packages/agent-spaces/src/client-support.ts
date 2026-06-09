@@ -118,7 +118,7 @@ export function resolveFrontend(
   return { ...def, frontend }
 }
 
-export function validateProviderMatch(
+export function assertProviderMatch(
   frontendDef: FrontendDef & { frontend: HarnessFrontend },
   continuation: HarnessContinuationRef | undefined
 ): void {

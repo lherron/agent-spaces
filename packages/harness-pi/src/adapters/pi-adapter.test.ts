@@ -965,6 +965,32 @@ paths = ["/tmp"]
       expect(bridgeContent).toContain('eventName')
       expect(bridgeContent).toContain('payload')
     })
+
+    test('HRC events bridge registers session_start exactly once (via the enriched handler)', async () => {
+      const input = {
+        targetName: 'test-target',
+        compose: [],
+        roots: [],
+        loadOrder: [],
+        artifacts: [],
+        settingsInputs: [],
+      }
+
+      await adapter.composeTarget(input, outputDir, {})
+
+      const bridgeContent = await Bun.file(join(outputDir, 'asp-hrc-events.bridge.js')).text()
+
+      // session_start must be subscribed to exactly once — the generic-forward
+      // list must NOT also register it alongside the special-cased enriched
+      // handler (which captures sessionId/sessionFile from ctx.sessionManager).
+      const sessionStartHandlers = bridgeContent.match(/pi\.on\('session_start'/g) ?? []
+      expect(sessionStartHandlers).toHaveLength(1)
+
+      // The single registration must be the enriched one (captures sessionId),
+      // not a bare generic forward.
+      expect(bridgeContent).toContain('getSessionId')
+      expect(bridgeContent).toContain('sessionId')
+    })
   })
 
   describe('buildRunArgs', () => {
@@ -1459,6 +1485,38 @@ describe('Pi detection utilities', () => {
 
       // This should throw because the specified PI_PATH doesn't exist
       await expect(findPiBinary()).rejects.toThrow(PiNotFoundError)
+    })
+
+    test('finds a non-executable `pi.js`-style entrypoint on PATH (run via bun)', async () => {
+      // A `pi` entrypoint on PATH that is a .js file (run via bun) and is NOT
+      // marked executable must still be detected — the PATH search uses the
+      // same isUsablePiEntrypoint predicate as the common-paths loop.
+      const originalPath = process.env['PATH']
+      const pathDir = join(tmpDir, 'path-js-bin')
+      await mkdir(pathDir, { recursive: true })
+      // A `pi.js` entrypoint, written WITHOUT the executable bit (run via bun).
+      // The old isExecutable-only PATH search missed this; the shared
+      // isUsablePiEntrypoint predicate accepts it because the .js file exists.
+      const piJsPath = join(pathDir, 'pi.js')
+      await writeFile(piJsPath, 'console.log("0.0.0")')
+      await chmod(piJsPath, 0o644)
+
+      // Ensure no explicit override is in play so PATH search is exercised.
+      process.env['PI_PATH'] = undefined
+      const originalAspPiPath = process.env['ASP_PI_PATH']
+      Reflect.deleteProperty(process.env, 'ASP_PI_PATH')
+      // Isolate PATH to just our dir so the real `pi` (if installed) can't win.
+      process.env['PATH'] = pathDir
+
+      try {
+        const path = await findPiBinary()
+        expect(path).toBe(piJsPath)
+      } finally {
+        if (originalPath !== undefined) process.env['PATH'] = originalPath
+        else Reflect.deleteProperty(process.env, 'PATH')
+        if (originalAspPiPath !== undefined) process.env['ASP_PI_PATH'] = originalAspPiPath
+        else Reflect.deleteProperty(process.env, 'ASP_PI_PATH')
+      }
     })
   })
 })

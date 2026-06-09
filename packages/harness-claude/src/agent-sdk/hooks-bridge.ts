@@ -5,6 +5,7 @@ import {
   extractToolInput,
   extractToolName,
   forEachToolBlock,
+  isSynthesizableUserToolResult,
   isToolResultError,
   normalizeToolResultBlocks,
   resolveToolUseId,
@@ -360,15 +361,10 @@ function emitUserToolResultIfNeeded(
   sawToolResultBlock: boolean,
   bridge: HooksBridge
 ): void {
-  if (
-    msgType !== 'user' ||
-    sawToolResultBlock ||
-    typeof msg['parent_tool_use_id'] !== 'string' ||
-    msg['tool_use_result'] === undefined
-  ) {
+  if (!isSynthesizableUserToolResult(msg, msgType, sawToolResultBlock)) {
     return
   }
-  const toolUseId = msg['parent_tool_use_id']
+  const toolUseId = msg['parent_tool_use_id'] as string
   const toolMeta = bridge.getToolUse(toolUseId)
   const toolName = toolMeta?.name ?? 'tool'
   const toolInput = toolMeta?.input

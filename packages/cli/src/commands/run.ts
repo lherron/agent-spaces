@@ -32,7 +32,7 @@ import {
 import { validateOptionalHarness } from '../harness-validator.js'
 import { exitWithAspError, logInvocationOutput } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
-import { displayPrompts } from '../prompt-display.js'
+import { displayRunResultPrompts } from '../prompt-display.js'
 import { type ResolvedRunTarget, resolveRunTarget } from '../scope-target-resolver.js'
 import { buildSettingSources } from '../settings-helper.js'
 
@@ -394,20 +394,7 @@ export function registerRunCommand(program: Command): void {
 
         // In dry-run mode, print the system prompt, reminder, and command with formatting
         if (options.dryRun) {
-          await displayPrompts({
-            systemPrompt: result.systemPrompt,
-            systemPromptMode: result.systemPromptMode,
-            reminderContent: result.reminderContent,
-            primingPrompt: result.primingPrompt,
-            promptSectionSizes: result.promptSectionSizes,
-            reminderSectionSizes: result.reminderSectionSizes,
-            totalContextChars: result.totalContextChars,
-            maxChars: result.maxChars,
-            nearMaxChars: result.nearMaxChars,
-            command: result.displayCommand ?? result.command,
-            showCommand: true,
-            pagePrompts: options.pagePrompts,
-          })
+          await displayRunResultPrompts(result, options.pagePrompts)
           if (options.debug && result.runtimeCompile) {
             printCompilerDebugDump(result.runtimeCompile)
           }

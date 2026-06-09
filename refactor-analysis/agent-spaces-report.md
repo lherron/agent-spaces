@@ -1,112 +1,182 @@
-# SOLID / code-smell audit — `agent-spaces`
+# Refactor analysis — `agent-spaces`
 
-Scope: every non-test `*.ts` under `packages/agent-spaces/src/` (including `src/testing/` conformance harnesses). Public surface is ONLY what `src/index.ts` re-exports; everything else is internal. `package.json` ships only `dist` and exports only `.` → `index.ts`, so `testing/` and the compile/turn modules are internal.
+packageType: **general** (a compiler/adapter library; single public entrypoint, one real
+external consumer in `hrc-runtime`). Read-only mechanism-grounded pass. Analysis only — no source
+edited.
 
-Overall: the package was recently through a SOLID cleanup pass (commit e238805). Most small files (`index.ts`, `foreground-launch.ts`, `runtime-env.ts`, `run-turn-helpers.ts`, `session-events.ts`, `run-tracker.ts`, `placement-api.ts`, `types.ts`, `broker-invocation.ts`, `client-support.ts`, `client-materialization.ts`) are clean and well-factored. Note: the previously-checked-in report in this file claimed `toAgentSpacesError` / `normalizeAttachmentRefs` were duplicated in `run-tracker.ts` — that is STALE; current `run-tracker.ts` imports both from their canonical modules and does not redefine them. The remaining real smells concentrate in the four large orchestration files: `compile-runtime-plan.ts`, `run-placement-turn.ts`, `client.ts`, `prepare-cli-runtime.ts`. The most material finding is heavy copy-paste between the two interactive tmux broker compilers plus an ~80-line plan-assembly tail repeated across all five plan builders.
+## Summary
 
----
+This package was just hit by two SOLID/code-smell passes (T-02028, T-02030). It shows. The
+low-hanging fruit is gone: the magic broker-timeouts are named constants with per-field doc comments
+(`broker-invocation.ts:38-49`), the shotgun-surgery failure-emit triple is centralized
+(`emitTurnFailure` in `run-turn-helpers.ts`), the `key ? {provider,key} : undefined` ternary is a
+helper (`buildContinuationRef` in `client.ts`), the `as unknown as` plan-bundle cast is a single
+`toResolvedBundle` helper, and the two interactive tmux compilers were already de-duplicated into one
+`compileTmuxBrokerPlan` driven by a `TmuxBrokerDriverConfig` table. The error-handling is disciplined
+(no swallowed catches that hide failures; the two empty `catch {}` blocks on `session.stop()` cleanup
+are deliberately defensive and commented). Invariants are encoded via discriminated unions
+(`completion: {done:false,...} | {done:true}`, `model: {ok:true,info} | {ok:false,modelId}`).
 
-## Dead local: unused `_clientRegistryPath`
-- File: packages/agent-spaces/src/client.ts:124
-- Risk: Low
-- API-impact: internal-only
-- Smell: `const _clientRegistryPath = options?.registryPath` is assigned but never read (methods use per-request `req.registryPath`). The `registryPath` client option is silently ignored.
-- Proposed change: Delete the dead local line. (Whether to keep/wire the public `registryPath` option is a separate item below.)
+What's left is a small number of genuine, low-value-but-real findings — mostly thin pass-through
+indirection — plus one structural observation about the public surface that is a **contract change**
+(M02), not a refactor, and is surfaced for a human decision rather than auto-applied.
 
-## `AgentSpacesClientOptions.registryPath` is accepted but never honored
-- File: packages/agent-spaces/src/client.ts:119
-- Risk: High
-- API-impact: public-surface
-- Smell: The exported constructor option is wired nowhere (only the dead local above consumed it). Either thread it into materialization or remove it from the type.
-- Proposed change: Defer. Removing or wiring it changes exported behavior/typing; a human must decide whether callers depend on it.
+**3 auto-applicable (Low/Med + internal-only). 1 deferred (public-surface contract change).**
 
-## Duplicated interactive tmux broker compilers
-- File: packages/agent-spaces/src/compile-runtime-plan.ts:1410
-- Risk: Med
-- API-impact: internal-only
-- Smell: `compileClaudeTmuxBrokerPlan` (1410-1644) and `compileCodexTmuxBrokerPlan` (1646-1878) are ~90% byte-identical. They differ only in: driver `kind` (`claude-code-tmux` vs `codex-cli-tmux`), the codex `hookBridge: 'codex-hooks/v1'`, and codex appending a `disallowedToolsUnsupportedDiagnostic`. Everything else (route resolve, prepare call, policy reads, spec assembly, profile assembly, validation, plan tail) is copy-pasted.
-- Proposed change: Extract one private `compileTmuxBrokerPlan(req, placement, options, { driverKind, hookBridge?, emitDisallowedToolsWarning })` and have both delegate. Behavior- and hash-preserving (each driver keeps its existing field set). Largest single dedup win in the file.
+## Public boundary verdict
 
-## Repeated plan-assembly tail across all five plan builders
-- File: packages/agent-spaces/src/compile-runtime-plan.ts:787
-- Risk: Med
-- API-impact: internal-only
-- Smell: The block `compileId = stableId('compile', {...}) → createdAt → toResolvedBundle → toCompiledPlacement → planMaterial = {...} → planHash = projectionHash(planMaterial,'plan') → plan → return {ok:true, plan, diagnostics}` is repeated essentially verbatim at lines 787-855, 978-1040, 1295-1357, 1584-1644, 1818-1877 (5 occurrences). `lockedEnvKeys` (5x) and the `model.modelId`/`requestedModel`/`reasoningEffort` construction are likewise hand-copied.
-- Proposed change: Extract a private `assemblePlan({ req, profile, profileHash, route, prepared, lockedEnvKeys, bundleIdentity, lockHash, diagnostics }): RuntimeCompileResponse` that builds compileId + planMaterial + planHash + the success response. Hash-preserving (same field shape passed to `projectionHash`).
+`package.json` `exports` exposes **only** `./src/index.ts` (`.` → `dist/index.js`); there is no deep
+subpath export. The live external consumer is `hrc-runtime/packages/hrc-server`, which imports from the
+bare `agent-spaces` specifier exactly: the value `createAgentSpacesClient`, and the types
+`RunTurnNonInteractiveRequest/Response`, `BuildProcessInvocationSpecRequest/Response`,
+`ProcessInvocationSpec`, `AgentEvent`. `execute-embedded-sdk.ts` and the whole `testing/` tree are
+**not** re-exported and (because there is no subpath export) are unreachable to external consumers —
+they are internal/test scaffolding despite shipping `.d.ts`.
 
-## Misnamed shared constant `CLAUDE_TMUX_BROKER_TERMINAL` used for codex too
-- File: packages/agent-spaces/src/compile-runtime-plan.ts:1371
-- Risk: Low
-- API-impact: internal-only
-- Smell: `CLAUDE_TMUX_BROKER_TERMINAL` is assigned as `brokerTerminal` for BOTH the claude profile (1533) and the codex profile (1762). The name implies claude-only but it is a generic tmux terminal surface.
-- Proposed change: Rename the internal const to `TMUX_BROKER_TERMINAL` to match its actual shared use. (Folds away if the two tmux compilers are merged per the dedup finding.)
+Verdict: the boundary is **well-shaped and contract-bound**. Interface segregation is already good
+(`RuntimeCompiler` / `SpaceResolver` / `InvocationSpecBuilder` / `TurnExecutor` are split, then
+intersected into `AgentSpacesClient`). The deprecated fields (`cpSessionId`, legacy `env`) are
+correctly retained for back-compat and resolved through `resolveHostSessionId` / the
+locked-vs-dispatch split. **Because there is a real external consumer, any change to the re-exported
+type/value set is an expand/contract (M02) event — do it additively, never auto-apply.**
 
-## Repeated interactive broker-prepare request literal
-- File: packages/agent-spaces/src/compile-runtime-plan.ts:1430
-- Risk: Med
-- API-impact: internal-only
-- Smell: The `preparePlacementCliRuntime({ provider, frontend, interactionMode:'interactive', ...model, ...reasoningEffort, ...continuation, ...prompt, ...attachments, ...env channels, placement }, options?.clientAspHome)` object is built identically in `compileClaudeTmuxBrokerPlan` (1430-1453) and `compileCodexTmuxBrokerPlan` (1663-1685); the same env-channel spread also appears in `compileBrokerPlan` (680-682).
-- Proposed change: Extract a private `buildInteractivePrepareRequest(req, route, placement, { disallowedTools? })`. Folds naturally into the tmux-compiler dedup above.
+The one boundary nit worth a human's eyes: the published `BuildProcessInvocationSpecRequest` still
+admits the legacy non-placement shape (`aspHome`/`spec`/`cwd`, no `placement`), and `client.ts`
+carries a ~100-line branch (lines 219-318) to serve it — but the live consumer (`cli-adapter.ts:296`)
+**always** sets `placement`. The legacy branch is exercised only by in-repo characterization tests.
+See deferred finding D1.
 
-## `runPlacementTurnNonInteractive` is a 380-line function doing many jobs
-- File: packages/agent-spaces/src/run-placement-turn.ts:61
-- Risk: Med
-- API-impact: internal-only
-- Smell: One function performs provider validation, dry-run planning, emitter priming, model gating, a full env-channel build (locked/dispatch/brain/tools), a SECOND `planPlacementRuntime` call, agent-sdk vs pi-sdk session construction, the event loop, and success/failure assembly. Nested try/finally with an inner try.
-- Proposed change: Extract module-private helpers: `buildPlacementEnvChannels(placement, req, aspHome)` (158-198), `createSdkSessionForPlacement(...)` / `createPiSessionForPlacement(...)` (236-303), `assemblePlacementTurnResult(...)` (377-418). No signature change.
+## Findings by mechanism
 
-## Duplicated env-channel + brain/tool build between run-placement-turn and prepare-cli-runtime
-- File: packages/agent-spaces/src/run-placement-turn.ts:158
-- Risk: Med
-- API-impact: internal-only
-- Smell: The locked/dispatch env compose + `prepareAgentBrainRuntime` + `prepareAgentToolRuntime` + the `const { PATH: toolPath, ...toolLockedEnv } = toolRuntime.env; void toolPath` PATH-strip (158-198) is near-identical to `preparePlacementCliRuntime` (prepare-cli-runtime.ts:272-338). The `void toolPath` trick is copy-pasted in both.
-- Proposed change: Extract a shared private `composePlacementLaunchEnv(...)` (e.g. into runtime-env.ts) consumed by both. Behavior-preserving; flagged Med because it spans two internal modules and the dispatchEnv-overlay / ASP_HOME-injection ordering must be preserved.
+### F1 — Collapse pass-through arrow + thin wrapper layer in the interactive-broker dispatch table
+- **Location:** `src/compile-runtime-plan.ts:580-583` (`INTERACTIVE_BROKER_BUILDERS`) +
+  `:1435-1449` (`compileClaudeTmuxBrokerPlan` / `compileCodexTmuxBrokerPlan`).
+- **Mechanism:** [T23] remove middle man / collapse pass-throughs.
+- **Direction:** INWARD collapse. There are three indirection layers for what is one call:
+  the table value is an arrow `(req, placement, options) => compileClaudeTmuxBrokerPlan(req, placement, options)`
+  whose only job is to forward all args unchanged; the wrapper it calls is itself a one-liner
+  `return compileTmuxBrokerPlan(req, placement, CLAUDE_TMUX_DRIVER_CONFIG, options)`. The arrow adds
+  nothing (identical arity/types to the function it wraps) and the named wrappers add only the config
+  binding. Map the table directly to the config-bound delegate:
+  `'claude-code': (req, p, o) => compileTmuxBrokerPlan(req, p, CLAUDE_TMUX_DRIVER_CONFIG, o)` and drop
+  the two `compileClaude/CodexTmuxBrokerPlan` wrappers (or keep the wrappers and reference them bare,
+  `'claude-code': compileClaudeTmuxBrokerPlan` — the arrow is removable either way since signatures
+  match `InteractiveCompileBuilder`).
+- **Preservation:** Pure call-graph flattening; the same function runs with the same args, so every
+  spec/profile/plan hash is byte-identical. No observable behavior change.
+- **Risk:** Low. **apiImpact:** internal-only (module-private table + module-private wrappers).
+- **Tests:** `run-compile-byte-parity.test.ts`, `compiler-broker-profile.test.ts` and the
+  interactive-broker compile tests should pass unchanged; they assert on plan/profile/spec hashes,
+  which are unaffected.
+- **Contraindication checked:** the arrows are NOT adapting types or partially applying — they forward
+  all three params verbatim, so no contraindication ("wrapper exists to narrow/adapt") applies.
 
-## `planPlacementRuntime` invoked twice in run-placement-turn
-- File: packages/agent-spaces/src/run-placement-turn.ts:85
-- Risk: High
-- API-impact: internal-only
-- Smell: `planPlacementRuntime` is called in the pre-flight try (85-95) and again inside the main try (206-216) with the same args. Redundant work plus a drift risk (two arg lists kept in sync by hand).
-- Proposed change: Defer. The planner may have side effects; a human must confirm the second call does not depend on intervening env setup before collapsing to one.
+### F2 — `buildTmuxLaunchSpec(prepared)` invoked twice (test-then-use)
+- **Location:** `src/compile-runtime-plan.ts:1561-1563`.
+- **Mechanism:** [T15] extract missing abstraction (here: bind the computed value once) — a
+  compute-twice smell.
+- **Direction:** Hoist to a local. `...(buildTmuxLaunchSpec(prepared) !== undefined ? { launch: buildTmuxLaunchSpec(prepared) } : {})`
+  calls the builder twice. Bind once: `const launch = buildTmuxLaunchSpec(prepared)` then
+  `...(launch !== undefined ? { launch } : {})`.
+- **Preservation:** `buildTmuxLaunchSpec` is pure (reads only `prepared.systemPrompt`/`expandedPrompt`,
+  allocates a fresh object); calling it once and reusing yields an identical value. Plan/spec hashes
+  unchanged. (Note: this matches the established `...(continuation ? {continuation} : {})` style used
+  everywhere else in this file, where the value is already bound to a local first.)
+- **Risk:** Low. **apiImpact:** internal-only.
+- **Tests:** covered by the tmux-broker compile/byte-parity tests; no assertion change.
+- **Contraindication checked:** not load-bearing duplication — there is no side effect or
+  intentional re-evaluation; it is an accidental double call.
 
-## `runTurnNonInteractive` (legacy path) is a ~240-line method
-- File: packages/agent-spaces/src/client.ts:618
-- Risk: Med
-- API-impact: internal-only
-- Smell: The legacy (non-placement) branch (626-859) mixes validation, pi-sdk continuation-path resolution, two-frontend session creation, the event loop, and result assembly in one closure — structurally parallel to `run-placement-turn.ts` but separately maintained.
-- Proposed change: Extract module-private helpers (per-frontend session construction, turn-result assembly) mirroring the run-placement-turn extraction. Method signature unchanged.
+### F3 — Two structurally identical `AgentSpacesClientOptions` definitions
+- **Location:** `src/client.ts:117-120` and `src/placement-api.ts:24-27` (identical shape:
+  `{ aspHome?; registryPath? }`). `index.ts:42` re-exports the **placement-api** copy.
+- **Mechanism:** [T15] extract missing abstraction / collapse duplicated intent (single source of
+  truth for a public type).
+- **Direction:** Make `placement-api.ts` the canonical definition and have `client.ts` import it
+  (`import type { AgentSpacesClientOptions } from './placement-api.js'`) for `createAgentSpacesClient`'s
+  parameter, deleting the local `interface`. The exported public identity stays the placement-api one
+  (what `index.ts` already re-exports), so the public surface is byte-identical.
+- **Preservation:** Structural typing means the two are already interchangeable; collapsing to one
+  declaration changes no runtime behavior and no emitted `.d.ts` for the public export. (Direction
+  matters: import INTO client.ts, not the reverse — `placement-api.ts` is the file `index.ts` already
+  re-exports from, and it has no import from `client.ts`, so no cycle is introduced. client.ts already
+  depends on placement-api transitively via prepare-cli-runtime, so a direct type import adds no new
+  coupling.)
+- **Risk:** Low. **apiImpact:** internal-only (the exported symbol and its shape are unchanged; only
+  the second internal declaration is removed).
+- **Tests:** `m5-public-api-cutover.test.ts` pins the public export set — should pass unchanged. A
+  typecheck is the real gate.
+- **Contraindication checked:** these are NOT diverging-on-purpose copies (defense-in-depth) — they are
+  the same two-optional-field bag with the same JSDoc intent; no reason for two.
 
-## `runTurnInFlight` is a ~220-line method with hand-duplicated drains
-- File: packages/agent-spaces/src/client.ts:330
-- Risk: Med
-- API-impact: internal-only
-- Smell: The in-flight executor (330-551) nests a Promise executor inside a try inside `withAspHome`; the `.then(resolveInFlight).catch(rejectInFlight)` settle drain is hand-duplicated three times (496-498, 504-506, 513-515).
-- Proposed change: Extract a private `settleInFlight(context, work)` wrapping the resolve/reject drain, and pull session construction into a helper. Internal-only.
+## Deferred findings (surfaced — human decides; NOT auto-applied)
 
-## `preparePlacementCliRuntime` is a ~263-line function
-- File: packages/agent-spaces/src/prepare-cli-runtime.ts:119
-- Risk: Med
-- API-impact: internal-only
-- Smell: Single function does provider validation, placement resolution, runtime planning, adapter detection, materialization, system-prompt build, run-options assembly, codex-home prep, env compose, brain env, tool env, display command, and a 25-field return object.
-- Proposed change: Extract in-module private steps: `buildRunOptions(...)` (220-264) and `composeLaunchEnv(...)` (272-338, shared with the dedup finding above), keeping `preparePlacementCliRuntime` as an orchestrator. Behavior-preserving.
+### D1 — Legacy non-placement branch of `buildProcessInvocationSpec` is dead-for-consumers but live-for-contract
+- **Location:** `src/client.ts:219-318` (the `withAspHome(...)` branch taken when `req.placement` is
+  absent); the matching admissibility lives in the published type `BuildProcessInvocationSpecRequest`
+  (`types.ts:188-215`, where `spec`/`aspHome`/`cwd` are required and `placement` optional).
+- **Mechanism:** [M02] expand/contract on a public contract + [T16] de-abstract a path whose variation
+  no longer materializes.
+- **Why deferred (a human must decide):** The **only** live external caller
+  (`hrc-runtime .../cli-adapter.ts:296`) ALWAYS sets `placement`, routing to
+  `preparePlacementCliRuntime` (client.ts:214-217). The ~100-line legacy branch — including its own
+  `validateSpec`, provider/model resolution, adapter detect, `buildRunArgs`, and a separate
+  `ProcessInvocationSpec` assembly that partially duplicates `toProcessInvocationSpec` — is reached
+  only by in-repo characterization tests. Removing it would shrink `client.ts` meaningfully and delete
+  a second, drift-prone copy of the spec-assembly logic. BUT the published request type still permits
+  the placement-less shape, so deleting the branch is a **breaking contract change** requiring an
+  expand/contract migration (deprecate the legacy fields → confirm no external caller → narrow the
+  type → remove). This is a redesign decision, not a behavior-preserving refactor, and it touches the
+  external `hrc-runtime` contract. Leave it to the user.
+- **Risk:** High (contract change; behavior removal). **apiImpact:** public-surface.
+- **If pursued:** characterization tests on the legacy branch
+  (`client-process-invocation.characterization.test.ts`) would need to be deleted or rewritten, and the
+  `hrc-runtime` consumer-contract test (`agent-spaces-consumer-contracts.test.ts`) re-run to confirm
+  nothing depends on the placement-less path.
 
-## Duplicated namespaced-modelId slash split
-- File: packages/agent-spaces/src/execute-embedded-sdk.ts:401
-- Risk: Low
-- API-impact: internal-only
-- Smell: The `indexOf('/')` → `slice(0,i)` / `slice(i+1)` provider/model split (401-405) reimplements `parseModelId` in client-support.ts:133-147 (a similar split is also referenced in compile-runtime-plan around the embedded effectiveModel comment).
-- Proposed change: Extract a tiny shared private `splitNamespacedModelId(modelId)` util and call it from both, preserving each site's distinct fallback (parseModelId → `'codex'`; executor → `profile.session.provider`). Low-risk, internal.
+## Deliberately left alone (pressure-tested, NOT findings)
 
-## Name collision: two `validateProviderMatch` with opposite semantics
-- File: packages/agent-spaces/src/placement-api.ts:137
-- Risk: High
-- API-impact: public-surface
-- Smell: `placement-api.ts` exports `validateProviderMatch` (returns `AgentSpacesError | undefined`) and re-exports it from `index.ts`; `client-support.ts` defines a different `validateProviderMatch` (throws `CodedError`, different signature). Same name, opposite control-flow contract — a foot-gun.
-- Proposed change: Defer. The placement-api one is public surface (renaming breaks consumers). A human should decide whether to rename the internal `client-support` thrower to e.g. `assertProviderMatch` (internal-only, safe) while leaving the public export alone. Flagged High because the public name is involved.
+- **`run-placement-turn.ts` vs `client.ts runTurnNonInteractive` session-setup overlap.** Both build an
+  agent-sdk/pi-sdk session and wire `mapUnifiedEvents`. They look duplicative but the placement path
+  resolves env via `prepareAgentBrainRuntime`/`prepareAgentToolRuntime` + correlation channels and
+  materializes a system prompt, while the legacy path applies a flat `req.env` overlay and no system
+  prompt. The shared event-mapping/permission/normalize helpers are *already* extracted into
+  `session-events.ts`. Folding the two turn bodies into one would parameterize across two genuinely
+  different env/prompt models — a redesign with hash/behavior risk, not a clean dedup. Out of scope.
+- **`deriveHandleParts` try/catch shorthand fallback (`broker-invocation.ts:51-104`).** Nesting is deep
+  but the `catch` does real recovery (shorthand-handle parsing) and emits a single diagnostic line on a
+  genuine parse failure — this is reachable, documented error handling, not a swallowed catch. Leave.
+- **`mapUnifiedEvents` type switch (`session-events.ts:88-182`).** A growing-by-feature `switch` is a
+  T19 candidate, but each arm is small, the event union is owned upstream
+  (`spaces-execution`/UnifiedSessionEvent), and a dispatch table here would just relocate the same
+  arms while losing exhaustiveness narrowing. No net structural win; leave.
+- **The four near-identical plan-builder tails** (`compileBrokerPlan`, `compileForegroundPlan`,
+  `compileEmbeddedSdkPlan`, `compileTmuxBrokerPlan` each assemble `planMaterial` → `projectionHash` →
+  `plan`). Tempting T15 extraction, but the bodies differ in `harness.{family,runtime,provider}`,
+  `model`, `artifacts`, and which validator runs; a shared builder would need so many parameters
+  (parameter-clump) that it would obscure the per-profile hash inputs the byte-parity tests pin. The
+  shared sub-helpers (`toResolvedBundle`, `toCompiledPlacement`, `projectionHash`, `stableId`,
+  `disallowedToolsUnsupportedDiagnostic`) are already extracted — that's the right granularity. Leave.
+- **`FRONTEND_PROVIDER_MAP` (placement-api) vs `FRONTEND_DEFS` provider (client-support).** Two
+  frontend→provider lookups, but one is the public placement-API helper surface (string-keyed,
+  returns) and the other is the internal catalog-backed `FrontendDef` (throws via `CodedError`). They
+  serve different callers with different error contracts; unifying would couple the public helper to the
+  catalog. Leave.
+- **Magic numbers / dup intent across the package** — re-verified as already addressed by the prior
+  passes (named broker constants, `resolveRunId`/`resolveHostSessionId`, `buildContinuationRef`,
+  `emitTurnFailure`). No stale magic-number findings to file.
 
-## `pre-hrc-*` testing harnesses are large but are internal test infrastructure
-- File: packages/agent-spaces/src/testing/pre-hrc-broker-contract-harness.ts:1379
-- Risk: Med
-- API-impact: internal-only
-- Smell: `pre-hrc-broker-contract-harness.ts` (1562 lines) and `pre-hrc-interactive-tmux-runner.ts` (1060 lines) contain very large driver functions (`runPreHrcBrokerContractHarness`, `runInteractiveClaudeTmuxSession`). These are conformance-suite drivers — not shipped (`files: [dist]`, only `.` exported), effectively test scaffolding.
-- Proposed change: Defer / out of scope for an automated API-preserving pass. Not on the public surface; step-by-step linearity is intentional. Any split should be driven by the conformance-suite owners.
+## Outside-in apply sequence (for the apply phase)
+
+1. **[T40] make-safe first.** The byte-parity and public-API tests are the characterization net:
+   `run-compile-byte-parity.test.ts`, `m5-public-api-cutover.test.ts`, `compiler-broker-profile.test.ts`,
+   `client.test.ts`. Run them green before touching anything. (No new characterization tests needed —
+   coverage already pins hashes and the export set.)
+2. **F3** (collapse duplicate `AgentSpacesClientOptions`) — pure type move; gated by `tsc`/biome and the
+   public-API test.
+3. **F1** (flatten the interactive-broker dispatch indirection) — gated by the compile byte-parity tests.
+4. **F2** (bind `buildTmuxLaunchSpec` once) — gated by the tmux-broker compile tests.
+5. Re-run the full suite + biome. None of F1-F3 should change a single hash assertion; if one does, that
+   is a real regression, stop.
+6. **D1 is NOT in this sequence** — it is a contract decision for the user, requiring an
+   expand/contract migration coordinated with `hrc-runtime`.

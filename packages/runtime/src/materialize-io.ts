@@ -1,7 +1,18 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SystemPromptMode } from './context-template.js'
-import type { MaterializeResult } from './system-prompt.js'
+
+export interface MaterializeResult {
+  path: string
+  content: string
+  mode: SystemPromptMode
+  reminderContent?: string | undefined
+  maxChars?: number | undefined
+  promptSectionSizes?: string[] | undefined
+  reminderSectionSizes?: string[] | undefined
+  totalContextChars?: number | undefined
+  nearMaxChars?: boolean | undefined
+}
 
 const SYSTEM_PROMPT_FILENAME = 'system-prompt.md'
 const SESSION_REMINDER_FILENAME = 'session-reminder.md'
