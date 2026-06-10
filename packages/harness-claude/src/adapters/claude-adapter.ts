@@ -27,9 +27,11 @@ import type {
   ProjectManifest,
 } from 'spaces-config'
 import {
+  ALIAS_FABLE,
   ALIAS_HAIKU,
   ALIAS_OPUS,
   ALIAS_SONNET,
+  CLAUDE_FABLE_5,
   CLAUDE_HAIKU_4_5,
   CLAUDE_OPUS_4_6,
   CLAUDE_OPUS_4_6_1M,
@@ -77,6 +79,8 @@ export class ClaudeAdapter implements HarnessAdapter {
   readonly name = 'Claude Code'
 
   readonly models: HarnessModelInfo[] = [
+    { id: CLAUDE_FABLE_5, name: 'Claude Fable 5' },
+    { id: ALIAS_FABLE, name: 'Fable (alias)' },
     { id: CLAUDE_OPUS_4_6, name: 'Claude Opus 4.6 (200K)' },
     { id: CLAUDE_OPUS_4_6_1M, name: 'Claude Opus 4.6 (1M context)' },
     { id: CLAUDE_SONNET_4_5, name: 'Claude Sonnet 4.5' },

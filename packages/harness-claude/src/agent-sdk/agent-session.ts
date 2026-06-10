@@ -83,7 +83,7 @@ export interface AgentSessionOpts {
 export interface AgentSessionConfig {
   ownerId: string
   cwd: string
-  model: 'haiku' | 'sonnet' | 'opus' | 'opus-4-6'
+  model: 'fable' | 'haiku' | 'sonnet' | 'opus' | 'opus-4-6'
   allowedTools?: string[]
   maxTurns?: number
   sessionId?: string
