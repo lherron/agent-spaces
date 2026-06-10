@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
 import {
   type RunMode,
   type RunScaffoldPacket,
-  getAgentRootsForProject,
+  getAgentRootSearchPathForProject,
   getAspHome,
 } from 'spaces-config'
 import {
@@ -109,6 +109,7 @@ export function discoverContextTemplate(
     agentRoot: input.agentRoot,
     agentsRoot,
     projectRoot: input.projectRoot,
+    agentsRootWasProvided: input.agentsRoot !== undefined,
     agentRootSearchPath: input.agentRootSearchPath,
   })
   const profile = loadTemplateDiscoveryProfile(input.agentRoot)
@@ -252,17 +253,23 @@ function loadSystemPromptTemplate(input: {
   aspHome: string
   profileTemplateRef?: string | undefined
 }): DiscoveredTemplateSource | undefined {
+  const searchPathTemplateRef = input.profileTemplateRef ?? 'context-template.toml'
+  const searchPathCandidates =
+    input.profileTemplateRef && isAbsolute(input.profileTemplateRef)
+      ? []
+      : input.agentRootSearchPath.map((root) => ({
+          path: join(root, searchPathTemplateRef),
+          required: false,
+        }))
   const candidates = [
-    input.profileTemplateRef
+    ...buildProfileTemplateCandidates(input),
+    !input.profileTemplateRef
       ? {
-          path: resolve(input.agentRoot, input.profileTemplateRef),
-          required: true,
+          path: join(input.agentRoot, 'context-template.toml'),
+          required: false,
         }
       : undefined,
-    ...input.agentRootSearchPath.map((root) => ({
-      path: join(root, 'context-template.toml'),
-      required: false,
-    })),
+    ...searchPathCandidates,
     {
       path: join(input.aspHome, 'context-template.toml'),
       required: false,
@@ -275,16 +282,39 @@ function loadSystemPromptTemplate(input: {
     }
 
     if (!existsSync(candidate.path)) {
-      if (candidate.required) {
-        throw new Error(`Configured system prompt template not found: ${candidate.path}`)
-      }
       continue
     }
 
     return parseTemplateFile(candidate.path)
   }
 
+  if (input.profileTemplateRef) {
+    const searched = candidates
+      .filter((candidate): candidate is { path: string; required: boolean } => Boolean(candidate))
+      .map((candidate) => candidate.path)
+      .join(', ')
+    throw new Error(`Configured system prompt template not found. Searched: ${searched}`)
+  }
+
   return undefined
+}
+
+function buildProfileTemplateCandidates(input: {
+  agentRoot: string
+  profileTemplateRef?: string | undefined
+}): Array<{ path: string; required: boolean } | undefined> {
+  if (!input.profileTemplateRef) {
+    return []
+  }
+
+  return [
+    {
+      path: isAbsolute(input.profileTemplateRef)
+        ? input.profileTemplateRef
+        : resolve(input.agentRoot, input.profileTemplateRef),
+      required: false,
+    },
+  ]
 }
 
 function parseTemplateFile(filePath: string) {
@@ -329,12 +359,34 @@ function resolveSharedAgentRootSearchPath(input: {
   agentRoot: string
   agentsRoot: string
   projectRoot?: string | undefined
+  agentsRootWasProvided?: boolean | undefined
   agentRootSearchPath?: string[] | undefined
 }): string[] {
-  const roots = input.agentRootSearchPath?.length
-    ? input.agentRootSearchPath
-    : getAgentRootsForProject(input.projectRoot, { env: { ASP_AGENTS_ROOT: input.agentsRoot } })
+  const roots = resolveInitialSharedAgentRoots(input)
   return dedupeRoots([...roots, input.agentsRoot, dirname(resolve(input.agentRoot))])
+}
+
+function resolveInitialSharedAgentRoots(input: {
+  agentsRoot: string
+  projectRoot?: string | undefined
+  agentsRootWasProvided?: boolean | undefined
+  agentRootSearchPath?: string[] | undefined
+}): string[] {
+  if (input.agentRootSearchPath?.length) {
+    return input.agentRootSearchPath
+  }
+
+  if (input.projectRoot && !input.agentsRootWasProvided) {
+    const searchPath = getAgentRootSearchPathForProject(input.projectRoot)
+    const hasProjectOverlay = searchPath.entries.some((entry) => entry.kind === 'project')
+    if (hasProjectOverlay) {
+      return searchPath.roots
+    }
+  }
+
+  return getAgentRootSearchPathForProject(input.projectRoot, {
+    env: { ASP_AGENTS_ROOT: input.agentsRoot },
+  }).roots
 }
 
 function dedupeRoots(roots: string[]): string[] {

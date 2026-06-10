@@ -26,8 +26,10 @@ describe('materializeSystemPrompt canonical helper', () => {
   let aspHome: string
   let projectRoot: string
   let outputRoot: string
+  let originalAspAgentsRoot: string | undefined
 
   beforeEach(async () => {
+    originalAspAgentsRoot = process.env['ASP_AGENTS_ROOT']
     tempRoot = await mkdtemp(join(process.cwd(), '.tmp-system-prompt-materialize-'))
     agentRoot = join(tempRoot, 'agent')
     agentsRoot = join(tempRoot, 'agents')
@@ -42,6 +44,11 @@ describe('materializeSystemPrompt canonical helper', () => {
   })
 
   afterEach(async () => {
+    if (originalAspAgentsRoot === undefined) {
+      Reflect.deleteProperty(process.env, 'ASP_AGENTS_ROOT')
+    } else {
+      process.env['ASP_AGENTS_ROOT'] = originalAspAgentsRoot
+    }
     await rm(tempRoot, { recursive: true, force: true })
   })
 
@@ -232,6 +239,62 @@ template = "agent-template.toml"
     expect(result).toMatchObject({
       path: join(outputRoot, 'system-prompt.md'),
       content: 'agents root',
+      mode: 'replace',
+    })
+  })
+
+  test('T-04143 falls back from an overlay agent root to canonical context-template.toml', async () => {
+    const localAgentsRoot = join(projectRoot, 'agents')
+    const localAgentRoot = join(localAgentsRoot, 'bencher')
+    await mkdir(localAgentRoot, { recursive: true })
+    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    await writeFile(join(localAgentRoot, 'SOUL.md'), 'local soul')
+    await writeFile(join(localAgentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+    await writeFile(
+      join(agentsRoot, 'context-template.toml'),
+      replaceTemplate('canonical template')
+    )
+    process.env['ASP_AGENTS_ROOT'] = agentsRoot
+
+    const result = await materializeSystemPrompt(outputRoot, {
+      agentRoot: localAgentRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'task',
+    })
+
+    expect(result).toMatchObject({
+      content: 'canonical template',
+      mode: 'replace',
+    })
+  })
+
+  test('T-04143 explicit context-template.toml refs fall back through agent-root search path', async () => {
+    const localAgentsRoot = join(projectRoot, 'agents')
+    const localAgentRoot = join(localAgentsRoot, 'bencher')
+    await mkdir(localAgentRoot, { recursive: true })
+    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    await writeFile(join(localAgentRoot, 'SOUL.md'), 'local soul')
+    await writeFile(
+      join(localAgentRoot, 'agent-profile.toml'),
+      'schemaVersion = 2\n\n[instructions]\ntemplate = "context-template.toml"\n'
+    )
+    await writeFile(
+      join(agentsRoot, 'context-template.toml'),
+      replaceTemplate('canonical template')
+    )
+
+    const result = await materializeSystemPrompt(outputRoot, {
+      agentRoot: localAgentRoot,
+      agentsRoot,
+      agentRootSearchPath: [localAgentsRoot, agentsRoot],
+      aspHome,
+      projectRoot,
+      runMode: 'task',
+    })
+
+    expect(result).toMatchObject({
+      content: 'canonical template',
       mode: 'replace',
     })
   })
