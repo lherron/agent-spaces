@@ -5,7 +5,11 @@
  * These tests verify reachability computation.
  */
 
-import { describe, expect, it } from 'bun:test'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { afterEach, describe, expect, it } from 'bun:test'
 import {
   type LockFile,
   type Sha256Integrity,
@@ -13,7 +17,30 @@ import {
   asCommitSha,
   asSpaceId,
 } from '../core/index.js'
-import { computeReachableCacheKeys, computeReachableIntegrities } from './gc.js'
+import { computeReachableCacheKeys, computeReachableIntegrities, runGC } from './gc.js'
+import { PathResolver } from './paths.js'
+
+const tempDirs: string[] = []
+
+afterEach(async () => {
+  await Promise.all(tempDirs.map((path) => rm(path, { recursive: true, force: true })))
+  tempDirs.length = 0
+})
+
+async function createTempDir(prefix: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), prefix))
+  tempDirs.push(dir)
+  return dir
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
 
 function createMockLock(
   spaces: Record<string, { integrity: string; pluginName: string; version: string }>
@@ -95,5 +122,123 @@ describe('computeReachableCacheKeys', () => {
     // This tests that the function handles undefined/empty version
     const reachable = computeReachableCacheKeys([lock])
     expect(reachable.size).toBe(1)
+  })
+})
+
+describe('runGC target bundle versions (T-04053)', () => {
+  it('prunes only stale excess .versions entries and preserves live bundle artifacts', async () => {
+    const aspHome = await createTempDir('asp-gc-versions-')
+    const paths = new PathResolver({ aspHome })
+    await paths.ensureAll()
+
+    const scopeRoot = join(aspHome, 'codex-homes', 'agent-spaces_smokey')
+    const versionsRoot = join(scopeRoot, 'bundles', '.versions')
+    const targetName = 'smokey'
+    const harnessId = 'codex'
+    const old = new Date('2026-06-01T00:00:00.000Z')
+    const recentA = new Date('2026-06-08T00:00:00.000Z')
+    const recentB = new Date('2026-06-09T00:00:00.000Z')
+    const fresh = new Date()
+
+    async function createVersion(
+      fingerprint: string,
+      mtime: Date,
+      options: { prompt?: string | undefined } = {}
+    ): Promise<string> {
+      const bundleRoot = join(versionsRoot, fingerprint, targetName, harnessId)
+      await mkdir(bundleRoot, { recursive: true })
+      await writeFile(
+        join(bundleRoot, '.asp-materialized.json'),
+        `${JSON.stringify({
+          schemaVersion: 1,
+          complete: true,
+          fingerprint,
+          harnessId,
+          targetName,
+        })}\n`
+      )
+      if (options.prompt) {
+        const hash =
+          `${fingerprint}0000000000000000000000000000000000000000000000000000000000000000`
+            .slice(0, 64)
+            .replace(/[^a-f0-9]/g, 'a')
+        const promptPath = join(
+          bundleRoot,
+          '.asp-runtime-artifacts',
+          'system-prompts',
+          hash.slice(0, 2),
+          hash,
+          'system-prompt.md'
+        )
+        await mkdir(join(promptPath, '..'), { recursive: true })
+        await writeFile(promptPath, options.prompt)
+      }
+      await utimes(join(versionsRoot, fingerprint), mtime, mtime)
+      await utimes(bundleRoot, mtime, mtime)
+      return bundleRoot
+    }
+
+    const pruneFingerprint = '1111111111111111111111111111111111111111111111111111111111111111'
+    const activeFingerprint = '2222222222222222222222222222222222222222222222222222222222222222'
+    const freshFingerprint = '3333333333333333333333333333333333333333333333333333333333333333'
+    const recentFingerprintA = '4444444444444444444444444444444444444444444444444444444444444444'
+    const recentFingerprintB = '5555555555555555555555555555555555555555555555555555555555555555'
+    const currentFingerprint = '6666666666666666666666666666666666666666666666666666666666666666'
+
+    const prunePath = await createVersion(pruneFingerprint, old)
+    const activePath = await createVersion(activeFingerprint, old)
+    const currentPath = await createVersion(currentFingerprint, fresh, {
+      prompt: 'current prompt must remain\n',
+    })
+    const recentPathA = await createVersion(recentFingerprintA, recentA)
+    const recentPathB = await createVersion(recentFingerprintB, recentB, {
+      prompt: 'recent prompt must remain\n',
+    })
+    const freshPath = await createVersion(freshFingerprint, fresh)
+
+    // T-04053 regression guard: a resumable/active runtime may still reference
+    // an older content-addressed bundle through launch artifact env. GC must
+    // not remove that version just because it is older than the retention set.
+    await mkdir(join(aspHome, 'tmp', 'launch-artifacts'), { recursive: true })
+    await writeFile(
+      join(aspHome, 'tmp', 'launch-artifacts', 'active-session.json'),
+      `${JSON.stringify({
+        env: {
+          ASP_PLUGIN_ROOT: activePath,
+        },
+      })}\n`
+    )
+
+    const result = await runGC([], { paths, cwd: aspHome })
+
+    expect(await pathExists(prunePath)).toBe(false)
+    expect(await pathExists(activePath)).toBe(true)
+    expect(await pathExists(currentPath)).toBe(true)
+    expect(await pathExists(recentPathA)).toBe(true)
+    expect(await pathExists(recentPathB)).toBe(true)
+    expect(await pathExists(freshPath)).toBe(true)
+    expect((await readdir(versionsRoot)).sort()).toEqual(
+      [
+        activeFingerprint,
+        freshFingerprint,
+        recentFingerprintA,
+        recentFingerprintB,
+        currentFingerprint,
+      ].sort()
+    )
+    expect(
+      await readFile(
+        join(
+          currentPath,
+          '.asp-runtime-artifacts',
+          'system-prompts',
+          currentFingerprint.slice(0, 2),
+          currentFingerprint,
+          'system-prompt.md'
+        ),
+        'utf-8'
+      )
+    ).toBe('current prompt must remain\n')
+    expect(result.bytesFreed).toBeGreaterThan(0)
   })
 })

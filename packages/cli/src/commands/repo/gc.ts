@@ -121,6 +121,7 @@ export function registerRepoGcCommand(repo: Command): void {
         console.log(chalk.green('  Store/cache garbage collection complete'))
         console.log(`    Snapshots removed: ${result.snapshotsDeleted}`)
         console.log(`    Cache entries removed: ${result.cacheEntriesDeleted}`)
+        console.log(`    Bundle versions removed: ${result.bundleVersionsDeleted}`)
         console.log(`    Space freed: ${formatBytes(result.bytesFreed)}`)
         console.log('')
         console.log(chalk.green('Repository garbage collection complete'))

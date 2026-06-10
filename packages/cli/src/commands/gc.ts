@@ -62,6 +62,7 @@ export function registerGcCommand(program: Command): void {
         console.log(chalk.green('Garbage collection complete'))
         console.log(`  Snapshots removed: ${result.snapshotsDeleted}`)
         console.log(`  Cache entries removed: ${result.cacheEntriesDeleted}`)
+        console.log(`  Bundle versions removed: ${result.bundleVersionsDeleted}`)
         console.log(`  Space freed: ${formatBytes(result.bytesFreed)}`)
       } catch (error) {
         console.error(chalk.red(`Error: ${errorMessage(error)}`))

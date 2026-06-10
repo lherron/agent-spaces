@@ -91,8 +91,13 @@ export {
 export {
   computeReachableIntegrities,
   computeReachableCacheKeys,
+  pruneBundleVersions,
   runGC,
   checkGC,
+  DEFAULT_BUNDLE_VERSION_MIN_AGE_MS,
+  DEFAULT_BUNDLE_VERSION_RETAIN_RECENT,
+  type BundleVersionPruneOptions,
+  type BundleVersionPruneResult,
   type GCResult,
   type GCOptions,
 } from './gc.js'

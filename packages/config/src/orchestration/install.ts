@@ -71,6 +71,7 @@ import {
   createSnapshot,
   ensureAspHome,
   getAspHome,
+  pruneBundleVersions,
   sanitizeProjectAgentScopeSegment,
   snapshotExists,
   sweepAspTempArtifacts,
@@ -797,8 +798,18 @@ export async function materializeTarget(
   }
 
   await withLock(
-    materializationLockPath(paths, `bundle-${sha256Hex(outputPath).slice(0, 32)}`),
-    publishTarget,
+    materializationLockPath(
+      paths,
+      `bundle-scope-${sha256Hex(join(publicScopeRoot, 'bundles')).slice(0, 32)}`
+    ),
+    async () => {
+      await publishTarget()
+      await pruneBundleVersions({
+        versionsRoot: join(publicScopeRoot, 'bundles', '.versions'),
+        currentFingerprints: new Set([fingerprint]),
+        referenceRoots: [paths.temp],
+      })
+    },
     { stale: 60_000, retries: 600 }
   )
 
