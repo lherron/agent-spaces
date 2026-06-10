@@ -7,6 +7,10 @@
   "required": ["schema"],
   "properties": {
     "schema": { "type": "integer", "const": 1 },
+    "agents-root": {
+      "type": "string",
+      "description": "Optional project-local agents root, relative to the project root unless absolute or ~-prefixed"
+    },
 
     "claude": {
       "type": "object",

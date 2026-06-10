@@ -29,6 +29,7 @@ const EXEC_MAX_BUFFER_BYTES = 1024 * 1024
 export interface ContextResolverContext {
   agentRoot: string
   agentsRoot: string
+  agentRootSearchPath?: string[] | undefined
   projectRoot?: string | undefined
   projectId?: string | undefined
   agentId?: string | undefined
@@ -383,7 +384,7 @@ async function resolveFileSection(
   section: FileSectionDef,
   context: ContextResolverContext
 ): Promise<string | undefined> {
-  const filePath = resolveTemplateRef(section.path, context)
+  const filePath = await resolveTemplateFileRef(section.path, context)
   const content = await readFileOrUndefined(filePath)
 
   if (content === undefined || content.length === 0) {
@@ -457,7 +458,7 @@ async function resolveFileRefSlot(
   const contents: Array<string | undefined> = []
 
   for (const ref of refs) {
-    const filePath = resolveTemplateRef(ref, context)
+    const filePath = await resolveTemplateFileRef(ref, context)
     const content = await readFileOrUndefined(filePath)
     contents.push(content === undefined ? undefined : interpolateVariables(content, context))
   }
@@ -616,7 +617,23 @@ function resolveTemplateRef(ref: string, context: ContextResolverContext): strin
     return interpolated
   }
 
-  return join(context.agentsRoot, interpolated)
+  const roots = context.agentRootSearchPath?.length
+    ? context.agentRootSearchPath
+    : [context.agentsRoot]
+  for (const root of roots) {
+    const candidate = join(root, interpolated)
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+  return join(roots[0] ?? context.agentsRoot, interpolated)
+}
+
+async function resolveTemplateFileRef(
+  ref: string,
+  context: ContextResolverContext
+): Promise<string> {
+  return resolveTemplateRef(ref, context)
 }
 
 function joinNonEmpty(contents: Array<string | undefined>, separator: string): string | undefined {

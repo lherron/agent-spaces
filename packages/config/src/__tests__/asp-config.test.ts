@@ -14,7 +14,11 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { getAgentsRoot } from '../store/asp-config.js'
+import {
+  getAgentRootSearchPathForProject,
+  getAgentRootsForProject,
+  getAgentsRoot,
+} from '../store/asp-config.js'
 
 async function makeTempAspHome(
   configContent?: string
@@ -113,6 +117,81 @@ describe('config.toml parsing', () => {
       expect(getAgentsRoot({ aspHome, env: {} })).toBeUndefined()
     } finally {
       await cleanup()
+    }
+  })
+})
+
+describe('getAgentRootsForProject', () => {
+  test('returns project-local agents-root before canonical root', async () => {
+    const base = join(
+      tmpdir(),
+      `asp-config-project-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    )
+    const projectRoot = join(base, 'project')
+    const localRoot = join(projectRoot, 'agents')
+    const canonicalRoot = join(base, 'canonical')
+    try {
+      await mkdir(localRoot, { recursive: true })
+      await mkdir(canonicalRoot, { recursive: true })
+      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+
+      expect(
+        getAgentRootsForProject(projectRoot, { env: { ASP_AGENTS_ROOT: canonicalRoot } })
+      ).toEqual([localRoot, canonicalRoot])
+    } finally {
+      await rm(base, { recursive: true, force: true })
+    }
+  })
+
+  test('skips missing project-local agents-root with a warning and keeps canonical root', async () => {
+    const base = join(
+      tmpdir(),
+      `asp-config-project-missing-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    )
+    const projectRoot = join(base, 'project')
+    const canonicalRoot = join(base, 'canonical')
+    try {
+      await mkdir(projectRoot, { recursive: true })
+      await mkdir(canonicalRoot, { recursive: true })
+      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+
+      const result = getAgentRootSearchPathForProject(projectRoot, {
+        env: { ASP_AGENTS_ROOT: canonicalRoot },
+      })
+      expect(result.roots).toEqual([canonicalRoot])
+      expect(result.warnings).toEqual([
+        {
+          code: 'declared_agents_root_missing',
+          message: `Declared project agents root does not exist: ${join(projectRoot, 'agents')}`,
+          root: join(projectRoot, 'agents'),
+          projectRoot,
+          declaredPath: 'agents',
+        },
+      ])
+    } finally {
+      await rm(base, { recursive: true, force: true })
+    }
+  })
+
+  test('project without agents-root has canonical-only search path and no warnings', async () => {
+    const base = join(
+      tmpdir(),
+      `asp-config-project-no-key-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    )
+    const projectRoot = join(base, 'project')
+    const canonicalRoot = join(base, 'canonical')
+    try {
+      await mkdir(projectRoot, { recursive: true })
+      await mkdir(canonicalRoot, { recursive: true })
+      await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\n')
+
+      const result = getAgentRootSearchPathForProject(projectRoot, {
+        env: { ASP_AGENTS_ROOT: canonicalRoot },
+      })
+      expect(result.roots).toEqual([canonicalRoot])
+      expect(result.warnings).toEqual([])
+    } finally {
+      await rm(base, { recursive: true, force: true })
     }
   })
 })

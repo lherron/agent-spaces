@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { basename, dirname, resolve } from 'node:path'
 
 import { parseScopeRef } from 'agent-scope'
-import type { RuntimePlacement } from 'spaces-config'
+import { type RuntimePlacement, getAgentRootsForProject } from 'spaces-config'
 import type {
   CodexAppServerDriverSpec,
   HarnessInvocationSpec,
@@ -108,6 +108,7 @@ export function buildPromptExpansionContext(placement: RuntimePlacement): Contex
   return {
     agentRoot: placement.agentRoot,
     agentsRoot: dirname(placement.agentRoot),
+    agentRootSearchPath: getAgentRootsForProject(placement.projectRoot),
     agentId: handleParts.agentId ?? basename(placement.agentRoot),
     projectId: handleParts.projectId,
     taskId: handleParts.taskId,

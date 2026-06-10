@@ -12,7 +12,6 @@ import {
   type RuntimePlacement,
   type SpaceRefString,
   type TargetDefinition,
-  getAgentsRoot,
   getHarnessCatalogEntry,
   getHarnessCatalogEntryByFrontend,
 } from 'spaces-config'
@@ -166,12 +165,14 @@ export function planProjectTargetRuntime(
   targetName: string,
   options: {
     aspHome: string
+    projectPath: string
     harness?: HarnessId | undefined
   }
 ): ProjectTargetRuntimePlan {
   const target = manifest.targets[targetName]
   const agentProfile = loadAgentProfileForRun(targetName, {
-    agentsRoot: getAgentsRoot({ aspHome: options.aspHome }),
+    projectRoot: options.projectPath,
+    aspHome: options.aspHome,
   })
   const agentDefaults = agentProfile
     ? resolveAgentRunDefaultsFromProfile(target, agentProfile)

@@ -157,6 +157,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
 
   const runtimePlan = planProjectTargetRuntime(manifest, targetName, {
     aspHome,
+    projectPath: options.projectPath,
     harness: options.harness,
   })
   debugLog('plan ok')

@@ -236,6 +236,47 @@ template = "agent-template.toml"
     })
   })
 
+  test('uses project-local shared files before canonical shared files for canonical agents', async () => {
+    const canonicalAgentRoot = join(agentsRoot, 'daedalus')
+    const localAgentsRoot = join(projectRoot, 'agents')
+    await mkdir(canonicalAgentRoot, { recursive: true })
+    await mkdir(localAgentsRoot, { recursive: true })
+    await writeFile(join(canonicalAgentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+    await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    await writeFile(join(agentsRoot, 'AGENT_MOTD.md'), 'canonical motd')
+    await writeFile(
+      join(localAgentsRoot, 'context-template.toml'),
+      `
+schema_version = 2
+mode = "replace"
+
+[[prompt]]
+name = "motd"
+type = "file"
+path = "AGENT_MOTD.md"
+`
+    )
+
+    const fallback = await materializeSystemPrompt(outputRoot, {
+      agentRoot: canonicalAgentRoot,
+      agentsRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'task',
+    })
+    expect(fallback?.content).toBe('canonical motd')
+
+    await writeFile(join(localAgentsRoot, 'AGENT_MOTD.md'), 'local motd')
+    const override = await materializeSystemPrompt(outputRoot, {
+      agentRoot: canonicalAgentRoot,
+      agentsRoot,
+      aspHome,
+      projectRoot,
+      runMode: 'task',
+    })
+    expect(override?.content).toBe('local motd')
+  })
+
   test('ignores legacy system-prompt-template.toml fallbacks', async () => {
     await writeFile(join(agentsRoot, 'system-prompt-template.toml'), 'schema_version = 1\n')
 

@@ -42,7 +42,15 @@ export {
   PathResolver,
   type PathOptions,
 } from './paths.js'
-export { getAgentsRoot } from './asp-config.js'
+export {
+  getAgentRootSearchPathForProject,
+  getAgentRootsForProject,
+  getAgentsRoot,
+  type AgentRootSearchEntry,
+  type AgentRootSearchEntryKind,
+  type AgentRootSearchPath,
+  type AgentRootSearchWarning,
+} from './asp-config.js'
 export {
   buildRuntimeBundleRef,
   findProjectMarker,

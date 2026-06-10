@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
@@ -9,6 +9,13 @@ import {
   inferProjectIdFromCwd,
   resolveAgentPlacementPaths,
 } from './runtime-placement.js'
+
+function writeAgentProfile(agentsRoot: string, agentId: string): string {
+  const agentRoot = join(agentsRoot, agentId)
+  mkdirSync(agentRoot, { recursive: true })
+  writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+  return agentRoot
+}
 
 describe('runtime placement helpers', () => {
   test('buildRuntimeBundleRef detects agent-project bundles', () => {
@@ -52,6 +59,7 @@ describe('runtime placement helpers', () => {
     const agentsRoot = join(tmp, 'agents')
     const projectDir = join(tmp, 'projects', 'agent-spaces')
     mkdirSync(projectDir, { recursive: true })
+    writeAgentProfile(agentsRoot, 'larry')
     writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\n')
 
     expect(
@@ -71,51 +79,136 @@ describe('runtime placement helpers', () => {
   })
 
   test('resolveAgentPlacementPaths honors ASP_PROJECT_ROOT_OVERRIDE', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-override-'))
+    const agentsRoot = join(tmp, 'agents')
+    const projectRoot = join(tmp, 'projects', 'raw2draft')
+    writeAgentProfile(agentsRoot, 'larry')
+    mkdirSync(projectRoot, { recursive: true })
+
     expect(
       resolveAgentPlacementPaths({
         agentId: 'larry',
         projectId: 'raw2draft',
         env: {
-          ASP_AGENTS_ROOT: '/tmp/agents',
-          ASP_PROJECT_ROOT_OVERRIDE: '/opt/external/raw2draft',
+          ASP_AGENTS_ROOT: agentsRoot,
+          ASP_PROJECT_ROOT_OVERRIDE: projectRoot,
         },
       })
     ).toEqual({
-      agentRoot: '/tmp/agents/larry',
-      projectRoot: '/opt/external/raw2draft',
-      cwd: '/opt/external/raw2draft',
+      agentRoot: join(agentsRoot, 'larry'),
+      projectRoot,
+      cwd: projectRoot,
     })
   })
 
   test('resolveAgentPlacementPaths expands ~ in ASP_PROJECT_ROOT_OVERRIDE', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-home-'))
+    const home = join(tmp, 'home')
+    mkdirSync(home, { recursive: true })
+
     expect(
       resolveAgentPlacementPaths({
         agentId: 'larry',
         projectId: 'raw2draft',
         env: {
-          ASP_AGENTS_ROOT: '/tmp/agents',
+          HOME: home,
+          ASP_AGENTS_ROOT: '~/agents',
           ASP_PROJECT_ROOT_OVERRIDE: '~/tools/raw2draft',
         },
       })
     ).toEqual({
-      agentRoot: '/tmp/agents/larry',
-      projectRoot: join(homedir(), 'tools/raw2draft'),
-      cwd: join(homedir(), 'tools/raw2draft'),
+      projectRoot: join(home, 'tools/raw2draft'),
+      searchedAgentRoots: [join(home, 'agents', 'larry')],
+      cwd: join(home, 'tools/raw2draft'),
     })
   })
 
   test('resolveAgentPlacementPaths ignores ASP_PROJECT_ROOT_OVERRIDE when projectId is absent', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-noproject-'))
+    const agentsRoot = join(tmp, 'agents')
+    writeAgentProfile(agentsRoot, 'larry')
+
     expect(
       resolveAgentPlacementPaths({
         agentId: 'larry',
         env: {
-          ASP_AGENTS_ROOT: '/tmp/agents',
+          ASP_AGENTS_ROOT: agentsRoot,
           ASP_PROJECT_ROOT_OVERRIDE: '/opt/external/raw2draft',
         },
       })
     ).toEqual({
-      agentRoot: '/tmp/agents/larry',
-      cwd: '/tmp/agents/larry',
+      agentRoot: join(agentsRoot, 'larry'),
+      cwd: join(agentsRoot, 'larry'),
+    })
+  })
+
+  test('resolveAgentPlacementPaths prefers project-local agents-root over canonical root', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-local-'))
+    const canonicalRoot = join(tmp, 'canonical')
+    const projectDir = join(tmp, 'project')
+    const localRoot = join(projectDir, 'agents')
+    mkdirSync(projectDir, { recursive: true })
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    writeAgentProfile(canonicalRoot, 'smokey')
+    const localAgentRoot = writeAgentProfile(localRoot, 'smokey')
+
+    expect(
+      resolveAgentPlacementPaths({
+        agentId: 'smokey',
+        projectId: 'project',
+        cwd: projectDir,
+        env: { ASP_AGENTS_ROOT: canonicalRoot },
+      })
+    ).toEqual({
+      agentRoot: localAgentRoot,
+      projectRoot: projectDir,
+      cwd: projectDir,
+    })
+  })
+
+  test('resolveAgentPlacementPaths skips a declared-but-missing local root and falls back to canonical', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-missing-local-'))
+    const canonicalRoot = join(tmp, 'canonical')
+    const projectDir = join(tmp, 'project')
+    mkdirSync(projectDir, { recursive: true })
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    const canonicalAgentRoot = writeAgentProfile(canonicalRoot, 'daedalus')
+
+    expect(
+      resolveAgentPlacementPaths({
+        agentId: 'daedalus',
+        projectId: 'project',
+        cwd: projectDir,
+        env: { ASP_AGENTS_ROOT: canonicalRoot },
+      })
+    ).toEqual({
+      agentRoot: canonicalAgentRoot,
+      projectRoot: projectDir,
+      warnings: [`Declared project agents root does not exist: ${join(projectDir, 'agents')}`],
+      cwd: projectDir,
+    })
+  })
+
+  test('resolveAgentPlacementPaths exposes every searched agent root when not found', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-not-found-'))
+    const canonicalRoot = join(tmp, 'canonical')
+    const projectDir = join(tmp, 'project')
+    const localRoot = join(projectDir, 'agents')
+    mkdirSync(localRoot, { recursive: true })
+    mkdirSync(canonicalRoot, { recursive: true })
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+
+    expect(
+      resolveAgentPlacementPaths({
+        agentId: 'bench',
+        projectId: 'project',
+        cwd: projectDir,
+        env: { ASP_AGENTS_ROOT: canonicalRoot },
+      })
+    ).toEqual({
+      projectRoot: projectDir,
+      searchedAgentRoots: [join(localRoot, 'bench'), join(canonicalRoot, 'bench')],
+      cwd: projectDir,
     })
   })
 
@@ -160,6 +253,26 @@ describe('runtime placement helpers', () => {
     // With agentsRoot set to the project dir, walk-up refuses to return a
     // marker inside it (prevents agent homes from being treated as projects).
     expect(findProjectMarker(subDir, { agentsRoot: projectDir })).toBeUndefined()
+  })
+
+  test('findProjectMarker treats local agent roots as non-crossable but still returns containing project root', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-local-boundary-'))
+    const projectDir = join(tmp, 'project-root')
+    const localAgentsRoot = join(projectDir, 'agents')
+    const agentSubdir = join(localAgentsRoot, 'bench', 'skills')
+    mkdirSync(agentSubdir, { recursive: true })
+    writeFileSync(join(projectDir, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
+    writeFileSync(join(localAgentsRoot, 'asp-targets.toml'), 'schema = 1\n')
+
+    expect(
+      findProjectMarker(agentSubdir, {
+        agentRoots: [localAgentsRoot],
+        projectRoot: projectDir,
+      })
+    ).toEqual({
+      dir: projectDir,
+      id: 'project-root',
+    })
   })
 
   test('findProjectMarker stops at git repo root and does not cross into ancestors', () => {

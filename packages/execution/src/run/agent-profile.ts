@@ -10,6 +10,7 @@ import {
   type HarnessId,
   type SpaceRefString,
   type TargetDefinition,
+  getAgentRootsForProject,
   getAgentsRoot,
   mergeAgentWithProjectTarget,
   normalizeHarnessId,
@@ -73,9 +74,31 @@ export async function detectAgentLocalComponents(
 
 export function loadAgentProfileForRun(
   targetName: string,
-  options?: { agentsRoot?: string | undefined }
+  options?: {
+    agentsRoot?: string | undefined
+    agentRoots?: string[] | undefined
+    projectRoot?: string | undefined
+    aspHome?: string | undefined
+  }
 ): LoadedAgentProfile | undefined {
-  const agentsRoot = options?.agentsRoot ?? getAgentsRoot()
+  const agentRoots =
+    options?.agentRoots ??
+    (options?.agentsRoot
+      ? [options.agentsRoot]
+      : getAgentRootsForProject(options?.projectRoot, {
+          ...(options?.aspHome ? { aspHome: options.aspHome } : {}),
+        }))
+  if (agentRoots.length === 0) {
+    const agentsRoot = getAgentsRoot()
+    if (!agentsRoot) {
+      return undefined
+    }
+    agentRoots.push(agentsRoot)
+  }
+
+  const agentsRoot = agentRoots.find((root) =>
+    existsSync(join(root, targetName, 'agent-profile.toml'))
+  )
   if (!agentsRoot) {
     return undefined
   }
@@ -155,7 +178,7 @@ export function resolveAgentRunDefaultsFromProfile(
 export function resolveAgentRunDefaults(
   targetName: string,
   target: TargetDefinition | undefined,
-  options?: { agentsRoot?: string | undefined }
+  options?: Parameters<typeof loadAgentProfileForRun>[1]
 ): AgentRunDefaults | undefined {
   const agentProfile = loadAgentProfileForRun(targetName, options)
   if (!agentProfile) {

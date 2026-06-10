@@ -1,7 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
-import { type RunMode, type RunScaffoldPacket, getAspHome } from 'spaces-config'
+import {
+  type RunMode,
+  type RunScaffoldPacket,
+  getAgentRootsForProject,
+  getAspHome,
+} from 'spaces-config'
 import {
   type ResolvedContextDiagnostics,
   type ResolvedContextSection,
@@ -32,6 +37,7 @@ export interface MaterializeSystemPromptInput {
   runMode: RunMode
   scaffoldPackets?: RunScaffoldPacket[] | undefined
   env?: Record<string, string | undefined> | undefined
+  agentRootSearchPath?: string[] | undefined
 }
 
 export interface TemplateDiscoveryProfile {
@@ -50,10 +56,13 @@ export interface DiscoverContextTemplateInput {
   agentRoot: string
   agentsRoot?: string | undefined
   aspHome?: string | undefined
+  projectRoot?: string | undefined
+  agentRootSearchPath?: string[] | undefined
 }
 
 export interface DiscoveredContextTemplate {
   agentsRoot: string
+  agentRootSearchPath: string[]
   profile: TemplateDiscoveryProfile
   templateSource?: DiscoveredTemplateSource | undefined
 }
@@ -96,16 +105,24 @@ export function discoverContextTemplate(
 ): DiscoveredContextTemplate {
   const aspHome = input.aspHome ?? getAspHome()
   const agentsRoot = input.agentsRoot ?? dirname(resolve(input.agentRoot))
+  const agentRootSearchPath = resolveSharedAgentRootSearchPath({
+    agentRoot: input.agentRoot,
+    agentsRoot,
+    projectRoot: input.projectRoot,
+    agentRootSearchPath: input.agentRootSearchPath,
+  })
   const profile = loadTemplateDiscoveryProfile(input.agentRoot)
   const templateSource = loadSystemPromptTemplate({
     agentRoot: input.agentRoot,
     agentsRoot,
+    agentRootSearchPath,
     aspHome,
     profileTemplateRef: profile.template,
   })
 
   return {
     agentsRoot,
+    agentRootSearchPath,
     profile,
     templateSource,
   }
@@ -160,8 +177,10 @@ export async function inspectAgentSystemPrompt(
     agentRoot: input.agentRoot,
     agentsRoot: input.agentsRoot,
     aspHome: input.aspHome,
+    projectRoot: input.projectRoot,
+    agentRootSearchPath: input.agentRootSearchPath,
   })
-  const { agentsRoot, profile, templateSource } = discovered
+  const { agentsRoot, agentRootSearchPath, profile, templateSource } = discovered
 
   if (!templateSource && !existsSync(join(input.agentRoot, 'SOUL.md'))) {
     return undefined
@@ -174,6 +193,7 @@ export async function inspectAgentSystemPrompt(
     agentName: basename(input.agentRoot),
     agentId: input.agentId ?? basename(input.agentRoot),
     agentsRoot,
+    agentRootSearchPath,
     projectRoot: input.projectRoot,
     projectId: input.projectId,
     taskId: input.taskId,
@@ -228,6 +248,7 @@ export async function inspectAgentSystemPrompt(
 function loadSystemPromptTemplate(input: {
   agentRoot: string
   agentsRoot: string
+  agentRootSearchPath: string[]
   aspHome: string
   profileTemplateRef?: string | undefined
 }): DiscoveredTemplateSource | undefined {
@@ -238,10 +259,10 @@ function loadSystemPromptTemplate(input: {
           required: true,
         }
       : undefined,
-    {
-      path: join(input.agentsRoot, 'context-template.toml'),
+    ...input.agentRootSearchPath.map((root) => ({
+      path: join(root, 'context-template.toml'),
       required: false,
-    },
+    })),
     {
       path: join(input.aspHome, 'context-template.toml'),
       required: false,
@@ -302,6 +323,32 @@ function loadTemplateDiscoveryProfile(agentRoot: string): TemplateDiscoveryProfi
     additionalBase: parseStringArray(instructions['additionalBase']),
     rawProfile: parsed,
   }
+}
+
+function resolveSharedAgentRootSearchPath(input: {
+  agentRoot: string
+  agentsRoot: string
+  projectRoot?: string | undefined
+  agentRootSearchPath?: string[] | undefined
+}): string[] {
+  const roots = input.agentRootSearchPath?.length
+    ? input.agentRootSearchPath
+    : getAgentRootsForProject(input.projectRoot, { env: { ASP_AGENTS_ROOT: input.agentsRoot } })
+  return dedupeRoots([...roots, input.agentsRoot, dirname(resolve(input.agentRoot))])
+}
+
+function dedupeRoots(roots: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const root of roots) {
+    const resolved = resolve(root)
+    if (seen.has(resolved)) {
+      continue
+    }
+    seen.add(resolved)
+    result.push(root)
+  }
+  return result
 }
 
 function parseStringArray(input: unknown): string[] | undefined {

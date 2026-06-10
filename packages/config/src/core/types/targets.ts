@@ -75,6 +75,8 @@ export interface TargetDefinition {
 export interface ProjectManifest {
   /** Schema version (currently 1) */
   schema: 1
+  /** Optional project-local agents root, relative to project root unless absolute or ~-prefixed */
+  'agents-root'?: string | undefined
   /** Default claude options for all targets */
   claude?: ClaudeOptions
   /** Default codex options for all targets */
@@ -165,6 +167,9 @@ export function mergeManifests(
     targets: { ...defaults.targets, ...project.targets },
   }
 
+  if (defaults['agents-root'] || project['agents-root']) {
+    result['agents-root'] = project['agents-root'] ?? defaults['agents-root']
+  }
   if (defaults.claude || project.claude) {
     result.claude = mergeClaudeOptions(defaults.claude, project.claude)
   }

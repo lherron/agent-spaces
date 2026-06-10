@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import type { RuntimeBundleRef } from '../core/types/placement.js'
 import type { SpaceRefString } from '../core/types/refs.js'
-import { getAgentsRoot } from './asp-config.js'
+import { getAgentRootSearchPathForProject, getAgentsRoot } from './asp-config.js'
 
 export interface RuntimeBundleRefOptions {
   agentName?: string | undefined
@@ -27,6 +27,8 @@ export interface ResolvedAgentPlacementPaths {
   agentRoot?: string | undefined
   projectRoot?: string | undefined
   cwd?: string | undefined
+  searchedAgentRoots?: string[] | undefined
+  warnings?: string[] | undefined
 }
 
 export interface InferProjectIdFromCwdOptions {
@@ -43,9 +45,10 @@ export interface ProjectMarker {
 /** Filename that marks a directory as an ASP project root. */
 export const PROJECT_MARKER_FILENAME = 'asp-targets.toml'
 
-function expandHome(p: string): string {
-  if (p === '~') return homedir()
-  if (p.startsWith('~/')) return join(homedir(), p.slice(2))
+function expandHome(p: string, env: Record<string, string | undefined> = process.env): string {
+  const home = env['HOME'] ?? homedir()
+  if (p === '~') return home
+  if (p.startsWith('~/')) return join(home, p.slice(2))
   return p
 }
 
@@ -76,18 +79,32 @@ function toConfigOptions(options?: {
  */
 export function findProjectMarker(
   startDir: string,
-  options?: { agentsRoot?: string | undefined }
+  options?: {
+    agentsRoot?: string | undefined
+    agentRoots?: string[] | undefined
+    projectRoot?: string | undefined
+  }
 ): ProjectMarker | undefined {
   let dir = resolve(startDir)
-  const agentsRoot = options?.agentsRoot ? resolve(options.agentsRoot) : undefined
+  const agentRoots = [
+    ...(options?.agentRoots ?? []),
+    ...(options?.agentsRoot ? [options.agentsRoot] : []),
+  ].map((root) => resolve(root))
+  const allowedProjectRoot = options?.projectRoot ? resolve(options.projectRoot) : undefined
   const gitRoot = findGitRoot(dir)
 
-  const insideAgentsRoot = (p: string): boolean =>
-    agentsRoot !== undefined && (p === agentsRoot || p.startsWith(`${agentsRoot}/`))
+  const boundaryFor = (p: string): string | undefined =>
+    agentRoots.find((root) => isSameOrInside(p, root))
+
+  const canCrossBoundary = (root: string): boolean =>
+    allowedProjectRoot !== undefined && isSameOrInside(root, allowedProjectRoot)
 
   while (true) {
-    if (insideAgentsRoot(dir)) return undefined
-    if (existsSync(join(dir, PROJECT_MARKER_FILENAME))) {
+    const boundary = boundaryFor(dir)
+    if (boundary !== undefined && !canCrossBoundary(boundary)) {
+      return undefined
+    }
+    if (boundary === undefined && existsSync(join(dir, PROJECT_MARKER_FILENAME))) {
       return { dir, id: basename(dir) }
     }
     if (gitRoot && dir === gitRoot) break
@@ -97,10 +114,16 @@ export function findProjectMarker(
   }
 
   // No explicit marker. Fall back to the containing git repo root, if any.
-  if (gitRoot && !insideAgentsRoot(gitRoot)) {
+  const gitBoundary = gitRoot ? boundaryFor(gitRoot) : undefined
+  if (gitRoot && (gitBoundary === undefined || canCrossBoundary(gitBoundary))) {
     return { dir: gitRoot, id: basename(gitRoot) }
   }
   return undefined
+}
+
+function isSameOrInside(child: string, parent: string): boolean {
+  const rel = relative(parent, child)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
 /**
@@ -152,13 +175,6 @@ export function buildRuntimeBundleRef(options: RuntimeBundleRefOptions): Runtime
 export function resolveAgentPlacementPaths(
   options: ResolveAgentPlacementPathsOptions
 ): ResolvedAgentPlacementPaths {
-  const agentRoot =
-    options.agentRoot ??
-    (() => {
-      const agentsRoot = getAgentsRoot(toConfigOptions(options))
-      return agentsRoot ? join(agentsRoot, options.agentId) : undefined
-    })()
-
   const projectRoot =
     options.projectRoot ??
     (() => {
@@ -168,7 +184,7 @@ export function resolveAgentPlacementPaths(
       const env = options.env ?? process.env
       const override = env['ASP_PROJECT_ROOT_OVERRIDE']
       if (override) {
-        return expandHome(override)
+        return expandHome(override, env)
       }
       // Without an override, fall back to the marker walk-up from cwd.
       // This lets callers supply just a projectId and still land on a sensible
@@ -182,9 +198,18 @@ export function resolveAgentPlacementPaths(
       return undefined
     })()
 
+  const searchPath = getAgentRootSearchPathForProject(projectRoot, toConfigOptions(options))
+  const searchedAgentRoots = searchPath.roots.map((root) => join(root, options.agentId))
+  const agentRoot =
+    options.agentRoot ??
+    searchedAgentRoots.find((root) => existsSync(join(root, 'agent-profile.toml')))
+  const warnings = searchPath.warnings.map((warning) => warning.message)
+
   return {
     ...(agentRoot ? { agentRoot } : {}),
     ...(projectRoot ? { projectRoot } : {}),
+    ...(!agentRoot && searchedAgentRoots.length > 0 ? { searchedAgentRoots } : {}),
+    ...(warnings.length > 0 ? { warnings } : {}),
     ...((options.cwd ?? projectRoot ?? agentRoot)
       ? { cwd: options.cwd ?? projectRoot ?? agentRoot }
       : {}),

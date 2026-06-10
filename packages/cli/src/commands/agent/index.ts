@@ -147,6 +147,8 @@ interface AgentCommandOptions {
   yolo?: boolean
   json?: boolean
   compose?: string[]
+  searchedAgentRoots?: string[]
+  resolverWarnings?: string[]
 }
 
 function collect(value: string, previous: string[]): string[] {
@@ -200,12 +202,19 @@ export function registerAgentCommands(program: Command): void {
           projectId: parsed.projectId,
           agentRoot: options.agentRoot,
           projectRoot: options.projectRoot,
+          cwd: options.cwd,
         })
         if (paths.agentRoot) {
           options.agentRoot = paths.agentRoot
         }
         if (paths.projectRoot) {
           options.projectRoot = paths.projectRoot
+        }
+        if (paths.searchedAgentRoots) {
+          options.searchedAgentRoots = paths.searchedAgentRoots
+        }
+        if (paths.warnings) {
+          options.resolverWarnings = paths.warnings
         }
 
         if (mode === 'resolve') {
@@ -219,9 +228,7 @@ export function registerAgentCommands(program: Command): void {
 
 async function handleResolve(scopeRef: string, options: AgentCommandOptions): Promise<void> {
   if (!options.agentRoot) {
-    throw new Error(
-      '--agent-root is required (or set ASP_AGENTS_ROOT env var / agents-root in $ASP_HOME/config.toml)'
-    )
+    throw missingAgentRootError(options)
   }
 
   const { scopeRef: canonicalRef, laneRef } = resolveScopeInput(scopeRef, options.laneRef)
@@ -259,9 +266,7 @@ async function handleExecute(
   options: AgentCommandOptions
 ): Promise<void> {
   if (!options.agentRoot) {
-    throw new Error(
-      '--agent-root is required (or set ASP_AGENTS_ROOT env var / agents-root in $ASP_HOME/config.toml)'
-    )
+    throw missingAgentRootError(options)
   }
 
   const { scopeRef: canonicalRef, laneId } = resolveScopeInput(scopeRef, options.laneRef)
@@ -299,6 +304,18 @@ async function handleExecute(
   } else {
     await runSdkFrontend(frontend, exec)
   }
+}
+
+function missingAgentRootError(options: AgentCommandOptions): Error {
+  const searched = options.searchedAgentRoots?.length
+    ? ` Searched: ${options.searchedAgentRoots.join(', ')}.`
+    : ''
+  const warnings = options.resolverWarnings?.length
+    ? ` Warnings: ${options.resolverWarnings.join('; ')}.`
+    : ''
+  return new Error(
+    `--agent-root is required and no agent-profile.toml was found for the scope agent (set ASP_AGENTS_ROOT, agents-root in $ASP_HOME/config.toml, or project agents-root).${searched}${warnings}`
+  )
 }
 
 /**

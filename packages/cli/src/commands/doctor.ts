@@ -11,6 +11,7 @@ import type { Command } from 'commander'
 import { ensureAspHome, gitExec, listRemotes } from 'spaces-config'
 import { detectClaude } from 'spaces-execution'
 
+import { buildAgentRootReport } from '../agent-roots.js'
 import { errorMessage, formatCheckResults, outputDoctorSummary, resolvePaths } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 
@@ -192,6 +193,53 @@ function checkProject(projectPath: string | null): CheckResult {
   }
 }
 
+function checkAgentRoots(projectPath: string | null, aspHome: string): CheckResult[] {
+  if (!projectPath) {
+    return []
+  }
+  const report = buildAgentRootReport(projectPath, { aspHome })
+  const checks: CheckResult[] = []
+
+  for (const warning of report.searchPath.warnings) {
+    checks.push({
+      name: 'agents_root',
+      status: 'error',
+      message: warning.message,
+      detail: `Declared as agents-root = "${warning.declaredPath}" in ${warning.projectRoot}/asp-targets.toml; canonical agents remain usable.`,
+    })
+  }
+
+  for (const agent of report.agents) {
+    for (const shadowedRoot of agent.shadowedRoots) {
+      checks.push({
+        name: 'agent_shadow',
+        status: 'warning',
+        message: `agent '${agent.id}' resolved from ${agent.root}`,
+        detail: `shadows ${shadowedRoot}`,
+      })
+    }
+  }
+
+  for (const override of report.sharedFileOverrides) {
+    checks.push({
+      name: 'shared_file_override',
+      status: 'warning',
+      message: `${override.file} resolved from ${override.resolvedPath}`,
+      detail: `shadows ${override.shadowedPath}`,
+    })
+  }
+
+  if (checks.length === 0) {
+    checks.push({
+      name: 'agents_root',
+      status: 'ok',
+      message: `Agent roots checked: ${report.searchPath.roots.join(', ') || '(none)'}`,
+    })
+  }
+
+  return checks
+}
+
 /**
  * Register the doctor command.
  */
@@ -230,6 +278,7 @@ export function registerDoctorCommand(program: Command): void {
       // Check project
       const projectPath = options.project ?? (await findProjectRoot())
       checks.push(checkProject(projectPath))
+      checks.push(...checkAgentRoots(projectPath, aspHome))
 
       // Output results
       const { hasError, hasWarning } = formatCheckResults(checks, options)

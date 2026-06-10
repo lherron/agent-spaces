@@ -171,6 +171,20 @@ compose = ["space:my-space@stable"]
       expect(result.claude?.args).toEqual(['--verbose'])
     })
 
+    test('parses optional top-level agents-root', () => {
+      const toml = `
+schema = 1
+agents-root = "agents"
+
+[targets.default]
+compose = ["space:my-space@stable"]
+`
+      const result = parseTargetsToml(toml)
+
+      expect(result['agents-root']).toBe('agents')
+      expect(result.schema).toBe(1)
+    })
+
     test('parses manifest with codex options', () => {
       const toml = `
 schema = 1

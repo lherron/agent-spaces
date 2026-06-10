@@ -10,6 +10,7 @@ import type { Command } from 'commander'
 
 import { type LockFile, loadLockFileIfExists, loadProjectManifest } from 'spaces-config'
 
+import { type AgentProvenance, buildAgentRootReport } from '../agent-roots.js'
 import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
 
 interface TargetInfo {
@@ -29,6 +30,8 @@ interface ListOutput {
   aspHome: string
   storePath: string
   cachePath: string
+  agents: AgentProvenance[]
+  agentRootWarnings: string[]
 }
 
 /**
@@ -82,6 +85,22 @@ function formatListText(output: ListOutput): void {
   console.log(`  ASP_HOME: ${output.aspHome}`)
   console.log(`  Store: ${output.storePath}`)
   console.log(`  Cache: ${output.cachePath}`)
+  console.log('')
+  console.log(chalk.blue('Agents:'))
+  if (output.agents.length === 0) {
+    console.log(`  ${chalk.gray('(none found)')}`)
+  }
+  for (const agent of output.agents) {
+    const source = agent.source === 'project' ? chalk.cyan('project') : chalk.gray('canonical')
+    console.log(`  ${chalk.bold(agent.id)} ${source}`)
+    console.log(`    Root: ${agent.root}`)
+    for (const shadowed of agent.shadowedRoots) {
+      console.log(`    ${chalk.yellow(`shadows ${shadowed}`)}`)
+    }
+  }
+  for (const warning of output.agentRootWarnings) {
+    console.log(`  ${chalk.yellow(`warning: ${warning}`)}`)
+  }
 }
 
 /**
@@ -102,6 +121,7 @@ export function registerListCommand(program: Command): void {
 
         const lock = await loadLockFileIfExists(ctx.projectPath)
         const hasLock = lock !== null
+        const agentReport = buildAgentRootReport(ctx.projectPath, { aspHome: ctx.aspHome })
 
         const output: ListOutput = {
           projectPath: ctx.projectPath,
@@ -111,6 +131,8 @@ export function registerListCommand(program: Command): void {
           aspHome: ctx.aspHome,
           storePath: ctx.paths.store,
           cachePath: ctx.paths.cache,
+          agents: agentReport.agents,
+          agentRootWarnings: agentReport.searchPath.warnings.map((warning) => warning.message),
         }
 
         if (options.json) {
