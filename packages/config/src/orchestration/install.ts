@@ -98,7 +98,7 @@ import {
 /** Default plugin version used when a space declares none. */
 const DEFAULT_PLUGIN_VERSION = '0.0.0'
 const PLUGIN_MATERIALIZER_VERSION = 'plugin-materializer-v3-complete'
-const TARGET_MATERIALIZER_VERSION = 'target-materializer-v1-versioned'
+const TARGET_MATERIALIZER_VERSION = 'target-materializer-v2-published-output-path'
 const TARGET_MANIFEST_FILENAME = '.asp-materialized.json'
 
 /**
@@ -753,6 +753,7 @@ export async function materializeTarget(
     try {
       const { bundle } = await adapter.composeTarget(composeInput, stagingOutputPath, {
         clean: true,
+        publishedOutputPath: outputPath,
         inheritProject: options.inheritProject,
         inheritUser: options.inheritUser,
       })

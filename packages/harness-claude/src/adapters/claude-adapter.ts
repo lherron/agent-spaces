@@ -353,6 +353,7 @@ export class ClaudeAdapter implements HarnessAdapter {
     // Install statusline script and add to settings (best-effort)
     const statuslineWarning = await installStatusline(
       outputDir,
+      options.publishedOutputPath ?? outputDir,
       settingsOutputPath,
       composedSettings
     )
@@ -490,10 +491,12 @@ export class ClaudeAdapter implements HarnessAdapter {
  */
 async function installStatusline(
   outputDir: string,
+  commandOutputDir: string,
   settingsOutputPath: string,
   composedSettings: ComposedSettings
 ): Promise<string | undefined> {
   const statuslineDestPath = join(outputDir, 'statusline.sh')
+  const statuslineCommandPath = join(commandOutputDir, 'statusline.sh')
   try {
     const statuslineSrc = await readFile(STATUSLINE_ASSET_PATH)
     await writeFile(statuslineDestPath, statuslineSrc)
@@ -502,7 +505,7 @@ async function installStatusline(
     // Patch settings.json with statusLine configuration
     composedSettings.statusLine = {
       type: 'command',
-      command: `bash ${statuslineDestPath}`,
+      command: `bash ${statuslineCommandPath}`,
     }
     await writeFile(settingsOutputPath, JSON.stringify(composedSettings, null, 2))
     return undefined

@@ -561,6 +561,40 @@ allow = ["/tmp"]
       }
     })
 
+    test('writes statusline script to staging but points settings at published output', async () => {
+      const input = {
+        targetName: 'test-target',
+        compose: ['space1' as any],
+        roots: ['space1@abc' as SpaceKey],
+        loadOrder: ['space1@abc' as SpaceKey],
+        artifacts: [
+          {
+            spaceKey: 'space1@abc' as SpaceKey,
+            spaceId: 'space1',
+            artifactPath: artifact1Dir,
+            pluginName: 'plugin1',
+          },
+        ],
+        settingsInputs: [],
+      }
+      const publishedOutputPath = join(tmpDir, 'published', 'test-target', 'claude')
+
+      const result = await adapter.composeTarget(input, outputDir, {
+        publishedOutputPath,
+      })
+
+      const stagingStatuslinePath = join(outputDir, 'statusline.sh')
+      expect(await Bun.file(stagingStatuslinePath).exists()).toBe(true)
+
+      if (result.bundle.settingsPath) {
+        const settings = await Bun.file(result.bundle.settingsPath).json()
+        expect(settings.statusLine.command).toBe(
+          `bash ${join(publishedOutputPath, 'statusline.sh')}`
+        )
+        expect(settings.statusLine.command).not.toContain(outputDir)
+      }
+    })
+
     test('merges permissions.toml into settings', async () => {
       // Add permissions.toml to artifact1 with correct format
       // Note: permissions.toml uses paths=[] for read/write, not allow=[]

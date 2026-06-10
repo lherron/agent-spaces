@@ -326,6 +326,12 @@ export interface ComposeTargetInput {
 export interface ComposeTargetOptions {
   /** Clean output directory before composition */
   clean?: boolean | undefined
+  /**
+   * Final published target output path when composition is written through a
+   * temporary staging directory. Harnesses that embed absolute self-references
+   * should serialize this path while still writing files to outputDir.
+   */
+  publishedOutputPath?: string | undefined
   /** Inherit project-level settings (for Pi: enables .pi/skills in project) */
   inheritProject?: boolean | undefined
   /** Inherit user-level settings (for Pi: enables ~/.pi/agent/skills) */
