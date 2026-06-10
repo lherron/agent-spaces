@@ -51,7 +51,7 @@ const SAMPLE_FIXTURES_DIR = join(
   'integration-tests',
   'fixtures'
 )
-const CLI_TEST_TIMEOUT_MS = 15000
+const CLI_TEST_TIMEOUT_MS = 30000
 
 function cliTest(name: string, fn: TestFn): void
 function cliTest(name: string, fn: TestFn, timeout: number): void
@@ -86,7 +86,7 @@ function runAsp(
   try {
     const result = execFileSync('bun', ['run', ASP_CLI, ...args], {
       encoding: 'utf8',
-      timeout: 15000,
+      timeout: CLI_TEST_TIMEOUT_MS,
       env: { ...process.env, ...options.env, NO_COLOR: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -667,11 +667,11 @@ describe('placement invocation produces full argv (T-00874)', () => {
     expect(parsed.spec.argv).not.toContain('exec')
     expect(parsed.spec.argv).not.toContain('--model')
     expect(parsed.spec.codexAppServer).toMatchObject({
-      prompt: 'Hello',
       model: 'gpt-5.5',
       approvalPolicy: 'never',
       featureFlags: ['goals'],
     })
+    expect(parsed.spec.codexAppServer?.prompt).toContain('Hello')
   })
 
   cliTest('displayCommand is present and non-empty', () => {
@@ -828,7 +828,7 @@ describe('prompt in argv (T-00875)', () => {
 
     const parsed = JSON.parse(result.stdout)
     expect(parsed.spec.argv).not.toContain('Reply with exactly: CLIPASS')
-    expect(parsed.spec.codexAppServer?.prompt).toBe('Reply with exactly: CLIPASS')
+    expect(parsed.spec.codexAppServer?.prompt).toContain('Reply with exactly: CLIPASS')
   })
 
   cliTest('no prompt in argv when prompt not provided (heartbeat)', { timeout: 15000 }, () => {

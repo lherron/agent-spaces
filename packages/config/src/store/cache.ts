@@ -6,7 +6,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Sha256Integrity, SpaceKey } from '../core/index.js'
 import { type PathResolver, ensureDir } from './paths.js'
@@ -57,6 +57,10 @@ export function computeHarnessPluginCacheKey(
  * Cache entry metadata.
  */
 export interface CacheMetadata {
+  /** Metadata schema version */
+  schemaVersion?: 1 | undefined
+  /** Cache entry is complete and safe for readers */
+  complete?: true | undefined
   /** Plugin name */
   pluginName: string
   /** Plugin version */
@@ -69,6 +73,15 @@ export interface CacheMetadata {
   createdAt: string
   /** Space key (id@commit) */
   spaceKey: SpaceKey
+  /** Required artifact-relative files written by the harness materializer */
+  files?: string[] | undefined
+  /** Required artifact-relative entries written by the harness materializer */
+  requiredEntries?: CacheRequiredEntry[] | undefined
+}
+
+export interface CacheRequiredEntry {
+  path: string
+  kind: 'file' | 'directory' | 'symlink'
 }
 
 /**
@@ -86,7 +99,35 @@ export async function cacheExists(cacheKey: string, options: CacheOptions): Prom
   const cachePath = options.paths.pluginCache(cacheKey)
   try {
     const stats = await stat(cachePath)
-    return stats.isDirectory()
+    if (!stats.isDirectory()) {
+      return false
+    }
+    const metadata = await getCacheMetadata(cacheKey, options)
+    if (!metadata?.complete || metadata.cacheKey !== cacheKey) {
+      return false
+    }
+    if (metadata.requiredEntries !== undefined) {
+      for (const entry of metadata.requiredEntries) {
+        const entryStats = await lstat(join(cachePath, entry.path))
+        if (entry.kind === 'file' && !entryStats.isFile()) {
+          return false
+        }
+        if (entry.kind === 'directory' && !entryStats.isDirectory()) {
+          return false
+        }
+        if (entry.kind === 'symlink' && !entryStats.isSymbolicLink()) {
+          return false
+        }
+      }
+    } else {
+      for (const file of metadata.files ?? []) {
+        const fileStats = await lstat(join(cachePath, file))
+        if (!fileStats.isFile() && !fileStats.isDirectory() && !fileStats.isSymbolicLink()) {
+          return false
+        }
+      }
+    }
+    return true
   } catch {
     return false
   }
@@ -119,10 +160,17 @@ export async function writeCacheMetadata(
   options: CacheOptions
 ): Promise<void> {
   const cachePath = options.paths.pluginCache(cacheKey)
+  await writeCacheMetadataAt(cachePath, metadata)
+}
+
+export async function writeCacheMetadataAt(
+  cachePath: string,
+  metadata: CacheMetadata
+): Promise<void> {
   const metaPath = join(cachePath, '.asp-cache.json')
 
   await ensureDir(cachePath)
-  await writeFile(metaPath, JSON.stringify(metadata, null, 2))
+  await writeFile(metaPath, `${JSON.stringify(metadata, null, 2)}\n`)
 }
 
 /**

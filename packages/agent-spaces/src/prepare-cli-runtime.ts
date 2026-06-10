@@ -1,4 +1,5 @@
-import { basename, extname, resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { basename, extname, join, resolve } from 'node:path'
 
 import type { HarnessDetection, HarnessRunOptions, ResolvedPlacementContext } from 'spaces-config'
 import { type RuntimePlacement, getAspHome, resolvePlacementContext } from 'spaces-config'
@@ -113,6 +114,13 @@ function isImageAttachment(attachment: AttachmentRef): boolean {
   return IMAGE_ATTACHMENT_EXTENSIONS.has(extname(clean).toLowerCase())
 }
 
+function combinePromptText(...parts: Array<string | undefined>): string | undefined {
+  const present = parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => part !== undefined && part.length > 0)
+  return present.length > 0 ? present.join('\n\n') : undefined
+}
+
 /**
  * Prepare placement-based CLI runtime state without choosing an output protocol.
  */
@@ -179,6 +187,34 @@ export async function preparePlacementCliRuntime(
   // priming prompts and system prompt sections can reference {{agentId}},
   // {{projectId}}, {{taskId}}, {{handle}}, etc.
   const handleParts = deriveHandleParts(placement)
+  const materializationIdentity =
+    placement.bundle.kind === 'agent-project'
+      ? (() => {
+          if (!handleParts.agentId || !handleParts.projectId) {
+            const fallbackProjectRoot =
+              placement.projectRoot ??
+              placement.cwd ??
+              (placement.bundle.kind === 'agent-project' ? placement.bundle.projectRoot : undefined)
+            console.warn(
+              `[asp-diag] agent-project materialization missing semantic scopeRef identity; falling back to placement fields agentId=${JSON.stringify(
+                placement.bundle.agentName
+              )} projectRoot=${JSON.stringify(fallbackProjectRoot ?? 'missing-project')}`
+            )
+            return {
+              agentId: placement.bundle.agentName,
+              projectId: fallbackProjectRoot
+                ? basename(resolve(fallbackProjectRoot))
+                : 'missing-project',
+              frontend: req.frontend,
+            }
+          }
+          return {
+            agentId: handleParts.agentId,
+            projectId: handleParts.projectId,
+            frontend: req.frontend,
+          }
+        })()
+      : undefined
 
   // Unified materialization: use the shared placement context, then materialize the resolved spec.
   const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
@@ -187,9 +223,11 @@ export async function preparePlacementCliRuntime(
     ...(placement.bundle.kind === 'agent-project'
       ? { materializationTargetName: placement.bundle.agentName }
       : {}),
+    ...(materializationIdentity ? { materializationIdentity } : {}),
     agentLocalComponents,
   })
-  const systemPrompt = await materializeSystemPrompt(materialized.materialization.outputPath, {
+  const launchOverlayDir = join(aspHome, 'tmp', 'launch-overlays', randomUUID())
+  const systemPrompt = await materializeSystemPrompt(launchOverlayDir, {
     ...placement,
     ...(handleParts.agentId !== undefined ? { agentId: handleParts.agentId } : {}),
     ...(handleParts.projectId !== undefined ? { projectId: handleParts.projectId } : {}),
@@ -215,6 +253,10 @@ export async function preparePlacementCliRuntime(
     runtimePlan.prompt !== undefined
       ? expandTemplate(runtimePlan.prompt, buildPromptExpansionContext(placement))
       : undefined
+  const launchPrompt =
+    frontendDef.frontend === CODEX_CLI_FRONTEND && systemPrompt
+      ? combinePromptText(systemPrompt.content, systemPrompt.reminderContent, expandedPrompt)
+      : expandedPrompt
 
   // Build run options for the adapter
   let runOptions: HarnessRunOptions = {
@@ -228,7 +270,7 @@ export async function preparePlacementCliRuntime(
     // metadata must NOT inject --model — legacy `asp run` omits it (e.g. codex,
     // governed by CODEX_HOME/config.toml).
     ...(runtimePlan.model.info.explicit ? { model: runtimePlan.model.info.model } : {}),
-    ...(expandedPrompt !== undefined ? { prompt: expandedPrompt } : {}),
+    ...(launchPrompt !== undefined ? { prompt: launchPrompt } : {}),
     ...(runtimePlan.yolo !== undefined ? { yolo: runtimePlan.yolo } : {}),
     ...(req.disallowedTools ? { disallowedTools: req.disallowedTools } : {}),
     ...(handleParts.taskId !== undefined ? { taskId: handleParts.taskId } : {}),
@@ -252,9 +294,8 @@ export async function preparePlacementCliRuntime(
 
   // For codex frontends, prepare the stable runtime home directory so that
   // hrc run uses the same CODEX_HOME as asp run (codex-homes/<project>_<target>).
-  // prepareCodexRuntimeHome syncs managed files, injects system prompt into
-  // AGENTS.md, ensures project trust, and symlinks auth — all the steps that
-  // were previously duplicated inline here.
+  // prepareCodexRuntimeHome syncs only stable managed files and project trust;
+  // dynamic prompt material rides the launch request instead of mutating AGENTS.md.
   if (frontendDef.frontend === CODEX_CLI_FRONTEND) {
     const codexHomeDir = await prepareCodexRuntimeHome(bundle, {
       ...runOptions,

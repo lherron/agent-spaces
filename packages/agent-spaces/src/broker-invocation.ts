@@ -252,7 +252,20 @@ function buildBrokerInitialText(
   const callerPrompt =
     req.prompt !== undefined ? expandTemplate(req.prompt, expansionContext) : undefined
 
-  return combineBrokerPrompts(primingPrompt, callerPrompt)
+  const brokerPrompt = combineBrokerPrompts(primingPrompt, callerPrompt)
+  if (
+    req.provider === 'openai' &&
+    req.frontend === 'codex-cli' &&
+    prepared.systemPrompt !== undefined
+  ) {
+    const dynamicSystemPrompt = combineBrokerPrompts(
+      prepared.systemPrompt.content,
+      prepared.systemPrompt.reminderContent
+    )
+    return combineBrokerPrompts(dynamicSystemPrompt, brokerPrompt)
+  }
+
+  return brokerPrompt
 }
 
 function buildInitialInput(

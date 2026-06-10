@@ -76,6 +76,7 @@ export {
   cacheExists,
   getCacheMetadata,
   writeCacheMetadata,
+  writeCacheMetadataAt,
   deleteCache,
   listCacheEntries,
   getCacheSize,
@@ -83,6 +84,7 @@ export {
   pruneCache,
   type CacheMetadata,
   type CacheOptions,
+  type CacheRequiredEntry,
 } from './cache.js'
 
 // Garbage collection

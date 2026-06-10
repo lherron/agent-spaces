@@ -108,7 +108,15 @@ export {
 /**
  * Install options (with automatic harness adapter resolution)
  */
-export type InstallOptions = Omit<ConfigInstallOptions, 'adapter'>
+export type InstallOptions = Omit<ConfigInstallOptions, 'adapter'> & {
+  materializationIdentity?:
+    | {
+        agentId: string
+        projectId: string
+        frontend?: string | undefined
+      }
+    | undefined
+}
 
 /**
  * Install targets from project manifest.
@@ -149,7 +157,9 @@ export type {
 /**
  * Materialize-from-refs options (with automatic harness adapter resolution)
  */
-export type MaterializeFromRefsOptions = Omit<ConfigMaterializeFromRefsOptions, 'adapter'>
+export type MaterializeFromRefsOptions = Omit<ConfigMaterializeFromRefsOptions, 'adapter'> & {
+  materializationIdentity?: InstallOptions['materializationIdentity'] | undefined
+}
 
 /**
  * Materialize spaces from explicit refs without reading asp-targets.toml.

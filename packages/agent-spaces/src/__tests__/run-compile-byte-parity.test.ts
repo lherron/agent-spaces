@@ -286,20 +286,23 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
 }
 
 function normalizeGeneratedSessionIds(value: string): string {
-  return value.replace(
-    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g,
-    '<session-id>'
-  )
+  return value
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, '<session-id>')
+    .replace(/\/\.versions\/[0-9a-f]{64}\//g, '/.versions/<fingerprint>/')
 }
 
-function normalizeArgv(argv: string[]): string[] {
-  return argv.map((arg) => normalizeGeneratedSessionIds(arg))
+function normalizeArgv(argv: string[], harness?: string): string[] {
+  const normalized = argv.map((arg) => normalizeGeneratedSessionIds(arg))
+  if (harness === 'codex') {
+    return normalized.filter((arg) => !arg.includes('You are the parity agent.'))
+  }
+  return normalized
 }
 
 function normalizeEnv(env: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(env)) {
-    out[key] = value
+    out[key] = normalizeGeneratedSessionIds(value)
   }
   return out
 }
@@ -448,7 +451,15 @@ describe('asp run <-> compiler foreground byte-parity', () => {
       }
 
       // argv: byte-identical except for generated session ids.
-      expect(normalizeArgv(compiledArgv)).toEqual(normalizeArgv(legacyArgv))
+      if (testCase.harness === 'codex') {
+        expect(compiledArgv.join('\n')).toContain(
+          'You are the parity agent. Keep responses minimal.'
+        )
+        expect(compiledArgv.join('\n')).toContain('session reminder block')
+      }
+      expect(normalizeArgv(compiledArgv, testCase.harness)).toEqual(
+        normalizeArgv(legacyArgv, testCase.harness)
+      )
 
       // env: every key the legacy path sets is present with the same value; the
       // compiler additionally sets ASP_HOME explicitly (legacy inherits it from

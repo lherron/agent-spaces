@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -111,6 +111,65 @@ describe('placement prompt template expansion', () => {
       )
       expect(response.spec.argv.join(' ')).not.toContain('{{agentId}}')
       expect(response.spec.argv.join(' ')).not.toContain('{{taskId}}')
+
+      const codexHome = response.spec.env['CODEX_HOME']
+      expect(codexHome).toBe(join(fixture.aspHome, 'codex-homes', 'agent-spaces_cody'))
+      const agents = readFileSync(join(codexHome as string, 'AGENTS.md'), 'utf8')
+      expect(agents).not.toContain('prompt-test')
+      expect(agents).not.toContain('You are cody in agent-spaces working on prompt-test')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  test('task changes reuse the same semantic Codex home but different launch overlays', async () => {
+    const fixture = createFixture()
+    try {
+      process.env['ASP_CODEX_PATH'] = createCodexShim(fixture.aspHome)
+      process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+
+      const { createAgentSpacesClient } = await import('../index.js')
+      const client = createAgentSpacesClient({ aspHome: fixture.aspHome })
+
+      async function build(taskId: string) {
+        return client.buildProcessInvocationSpec({
+          placement: {
+            agentRoot: fixture.agentRoot,
+            projectRoot: fixture.projectRoot,
+            cwd: fixture.projectRoot,
+            runMode: 'task',
+            bundle: { kind: 'agent-project', agentName: 'cody', projectRoot: fixture.projectRoot },
+            correlation: {
+              sessionRef: {
+                scopeRef: `agent:cody:project:agent-spaces:task:${taskId}`,
+                laneRef: 'main',
+              },
+            },
+          },
+          provider: 'openai',
+          frontend: 'codex-cli',
+          interactionMode: 'interactive',
+          ioMode: 'pty',
+        } as any)
+      }
+
+      const first = await build('task-one')
+      const second = await build('task-two')
+
+      expect(first.spec.env['CODEX_HOME']).toBe(second.spec.env['CODEX_HOME'])
+      expect(first.spec.env['CODEX_HOME']).toBe(
+        join(fixture.aspHome, 'codex-homes', 'agent-spaces_cody')
+      )
+      expect(first.spec.argv).toContain(
+        'You are cody in agent-spaces working on task-one. cody code rules the world.'
+      )
+      expect(second.spec.argv).toContain(
+        'You are cody in agent-spaces working on task-two. cody code rules the world.'
+      )
+
+      const agents = readFileSync(join(first.spec.env['CODEX_HOME'] as string, 'AGENTS.md'), 'utf8')
+      expect(agents).not.toContain('task-one')
+      expect(agents).not.toContain('task-two')
     } finally {
       fixture.cleanup()
     }

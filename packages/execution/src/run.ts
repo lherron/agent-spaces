@@ -8,6 +8,7 @@
  * Helpers and global/dev modes live under ./run/.
  */
 
+import { randomUUID } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
 import {
   type BuildResult,
@@ -207,10 +208,28 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     !(await pathExists(harnessOutputPath)) ||
     composeChanged ||
     hasMutableAgentPromptMaterial
+  const { agentId, projectId, taskId, effectivePrompt } = resolveRunIdentity({
+    agentProfile,
+    projectPath: options.projectPath,
+    aspHome: options.aspHome,
+    defaultPrompt,
+    userPrompt: options.prompt,
+    projectId: options.projectId,
+    taskId: options.taskId,
+  })
+  const materializationIdentity =
+    agentId !== undefined
+      ? {
+          agentId,
+          projectId: options.projectId ?? basename(options.projectPath),
+          frontend: harnessId,
+        }
+      : undefined
+  let materializedHarnessOutputPath = harnessOutputPath
   if (needsInstall) {
     debugLog('install', options.refresh ? '(refresh)' : '(missing output)')
     if (effectiveCompose !== undefined) {
-      await materializeFromRefs({
+      const materializeOptions = {
         targetName,
         refs: effectiveCompose,
         registryPath: getRegistryPath(options),
@@ -226,9 +245,12 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         ...(agentLocalComponents ? { agentLocalComponents } : {}),
         ...(agentProfile ? { agentRoot: agentProfile.agentRoot } : {}),
         projectRoot: options.projectPath,
-      })
+        ...(materializationIdentity !== undefined ? { materializationIdentity } : {}),
+      }
+      const materialized = await materializeFromRefs(materializeOptions)
+      materializedHarnessOutputPath = materialized.materialization.outputPath
     } else {
-      await configInstall({
+      const installOptions = {
         ...options,
         harness: harnessId,
         targets: [targetName],
@@ -236,7 +258,12 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         fetchRegistry: false,
         ...(agentProfile ? { agentPath: agentProfile.agentRoot } : {}),
         ...(agentLocalComponents ? { agentLocalComponents } : {}),
-      })
+        ...(materializationIdentity !== undefined ? { materializationIdentity } : {}),
+      }
+      const installed = await configInstall(installOptions)
+      materializedHarnessOutputPath =
+        installed.materializations.find((entry) => entry.target === targetName)?.outputPath ??
+        materializedHarnessOutputPath
     }
     debugLog('install done')
   }
@@ -245,18 +272,8 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const lock = await readLockJson(lockPath)
   debugLog('lock ok')
 
-  const bundle = await adapter.loadTargetBundle(harnessOutputPath, targetName)
+  const bundle = await adapter.loadTargetBundle(materializedHarnessOutputPath, targetName)
   debugLog('loadTargetBundle ok')
-
-  const { agentId, projectId, taskId, effectivePrompt } = resolveRunIdentity({
-    agentProfile,
-    projectPath: options.projectPath,
-    aspHome: options.aspHome,
-    defaultPrompt,
-    userPrompt: options.prompt,
-    projectId: options.projectId,
-    taskId: options.taskId,
-  })
 
   const cliRunOptions: HarnessRunOptions = toHarnessRunOptions(options, {
     aspHome,
@@ -272,7 +289,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     debugLog('materializeSystemPrompt start')
     const materialized = await materializeRunSystemPrompt({
       agentProfile,
-      harnessOutputPath,
+      harnessOutputPath: join(aspHome, 'tmp', 'launch-overlays', randomUUID()),
       agentId,
       projectPath: options.projectPath,
       projectId,
@@ -350,7 +367,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
           bundleIdentity: `asp-run:${options.projectPath}:${targetName}:${harnessId}`,
           root: bundle.rootDir,
           targetName,
-          targetDir: harnessOutputPath,
+          targetDir: materializedHarnessOutputPath,
           lockHash: lock.targets[targetName]?.envHash,
         },
         correlation: {
