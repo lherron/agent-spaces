@@ -308,6 +308,117 @@ source = "session.additionalExec"
     })
   })
 
+  test('T-04143 resolves agents-root scheme through the overlay-first agent-root search path', async () => {
+    const localAgentsRoot = join(projectRoot, 'agents')
+    await mkdir(localAgentsRoot, { recursive: true })
+    await writeFile(join(localAgentsRoot, 'AGENT_MOTD.md'), 'local motd')
+    await writeFile(join(agentsRoot, 'AGENT_MOTD.md'), 'canonical motd')
+
+    const resolved = await resolve(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "motd"
+type = "file"
+path = "agents-root:///AGENT_MOTD.md"
+required = true
+`),
+      { agentRootSearchPath: [localAgentsRoot, agentsRoot] }
+    )
+
+    // T-04143 red/green gate: agents-root:/// is explicit shared-file syntax,
+    // but it must still resolve through the same overlay-first search path as
+    // T-04141 bare-relative shared files.
+    expect(resolved).toEqual({
+      prompt: { content: 'local motd', mode: 'replace' },
+      reminder: undefined,
+    })
+  })
+
+  test('T-04143 agents-root scheme falls back to canonical when the overlay has no file', async () => {
+    const localAgentsRoot = join(projectRoot, 'agents')
+    await mkdir(localAgentsRoot, { recursive: true })
+    await writeFile(join(agentsRoot, 'AGENT_MOTD.md'), 'canonical motd')
+
+    const resolved = await resolve(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "motd"
+type = "file"
+path = "agents-root:///AGENT_MOTD.md"
+required = true
+`),
+      { agentRootSearchPath: [localAgentsRoot, agentsRoot] }
+    )
+
+    expect(resolved).toEqual({
+      prompt: { content: 'canonical motd', mode: 'replace' },
+      reminder: undefined,
+    })
+  })
+
+  test('T-04143 agents-root scheme keeps required and non-required not-found behavior', async () => {
+    const localAgentsRoot = join(projectRoot, 'agents')
+    await mkdir(localAgentsRoot, { recursive: true })
+
+    const optional = await resolve(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "optional-missing"
+type = "file"
+path = "agents-root:///missing.md"
+required = false
+`),
+      { agentRootSearchPath: [localAgentsRoot, agentsRoot] }
+    )
+    expect(optional).toEqual({ prompt: undefined, reminder: undefined })
+
+    await expect(
+      resolve(
+        parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "required-missing"
+type = "file"
+path = "agents-root:///missing.md"
+required = true
+`),
+        { agentRootSearchPath: [localAgentsRoot, agentsRoot] }
+      )
+    ).rejects.toThrow(/missing\.md/)
+  })
+
+  test('T-04143 keeps bare-relative shared-file fallback semantics unchanged', async () => {
+    const localAgentsRoot = join(projectRoot, 'agents')
+    await mkdir(localAgentsRoot, { recursive: true })
+    await writeFile(join(localAgentsRoot, 'AGENT_MOTD.md'), 'local motd')
+    await writeFile(join(agentsRoot, 'AGENT_MOTD.md'), 'canonical motd')
+
+    const resolved = await resolve(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "motd"
+type = "file"
+path = "AGENT_MOTD.md"
+required = true
+`),
+      { agentRootSearchPath: [localAgentsRoot, agentsRoot] }
+    )
+
+    expect(resolved).toEqual({
+      prompt: { content: 'local motd', mode: 'replace' },
+      reminder: undefined,
+    })
+  })
+
   test('interpolates inline variables from resolver context', async () => {
     const resolved = await resolve(
       parseContextTemplate(`

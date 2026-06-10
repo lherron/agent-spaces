@@ -15,7 +15,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { existsSync, readFileSync, rmSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { createTempFixtureRoots, resolveAgentRoot } from '../test-support/v2-fixtures.js'
@@ -226,12 +226,18 @@ describe('root-relative refs (T-00854)', () => {
   let tempDir: string
   let agentRoot: string
   let projectRoot: string
+  let localAgentsRoot: string
+  let canonicalAgentsRoot: string
 
   beforeEach(() => {
     const roots = createTempFixtureRoots()
     tempDir = roots.tempDir
     agentRoot = roots.agentRoot
     projectRoot = roots.projectRoot
+    localAgentsRoot = join(tempDir, 'project-agents')
+    canonicalAgentsRoot = join(tempDir, 'canonical-agents')
+    mkdirSync(localAgentsRoot, { recursive: true })
+    mkdirSync(canonicalAgentsRoot, { recursive: true })
   })
 
   afterEach(() => {
@@ -257,6 +263,48 @@ describe('root-relative refs (T-00854)', () => {
       projectRoot,
     })
     expect(result).toBe(join(projectRoot, 'asp-targets.toml'))
+  })
+
+  test('agents-root:/// shared file resolves through project-local overlay first', async () => {
+    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
+    writeFileSync(join(localAgentsRoot, 'AGENT_MOTD.md'), 'local')
+    writeFileSync(join(canonicalAgentsRoot, 'AGENT_MOTD.md'), 'canonical')
+
+    const result = resolveRootRelativeRef('agents-root:///AGENT_MOTD.md', {
+      agentRoot,
+      agentsRoot: canonicalAgentsRoot,
+      agentRootSearchPath: [localAgentsRoot, canonicalAgentsRoot],
+      projectRoot,
+    })
+
+    expect(result).toBe(join(localAgentsRoot, 'AGENT_MOTD.md'))
+  })
+
+  test('agents-root:/// shared file falls back to canonical root when overlay is absent', async () => {
+    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
+    writeFileSync(join(canonicalAgentsRoot, 'AGENT_MOTD.md'), 'canonical')
+
+    const result = resolveRootRelativeRef('agents-root:///AGENT_MOTD.md', {
+      agentRoot,
+      agentsRoot: canonicalAgentsRoot,
+      agentRootSearchPath: [localAgentsRoot, canonicalAgentsRoot],
+      projectRoot,
+    })
+
+    expect(result).toBe(join(canonicalAgentsRoot, 'AGENT_MOTD.md'))
+  })
+
+  test('agents-root:/// missing file resolves against the first agents root', async () => {
+    const { resolveRootRelativeRef } = await import('../resolver/root-relative-refs.js')
+
+    const result = resolveRootRelativeRef('agents-root:///missing.md', {
+      agentRoot,
+      agentsRoot: canonicalAgentsRoot,
+      agentRootSearchPath: [localAgentsRoot, canonicalAgentsRoot],
+      projectRoot,
+    })
+
+    expect(result).toBe(join(localAgentsRoot, 'missing.md'))
   })
 
   test('agent-root:///spaces/private-ops/AGENTS.md resolves nested path', async () => {

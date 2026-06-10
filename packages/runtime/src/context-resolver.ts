@@ -604,9 +604,15 @@ function enforceGlobalMaxChars(template: ContextTemplate, zones: ResolvedZone[])
 }
 
 function resolveTemplateRef(ref: string, context: ContextResolverContext): string {
-  if (ref.startsWith('agent-root:///') || ref.startsWith('project-root:///')) {
+  if (
+    ref.startsWith('agent-root:///') ||
+    ref.startsWith('agents-root:///') ||
+    ref.startsWith('project-root:///')
+  ) {
     return resolveRootRelativeRef(ref, {
       agentRoot: context.agentRoot,
+      agentsRoot: context.agentsRoot,
+      agentRootSearchPath: context.agentRootSearchPath,
       projectRoot: context.projectRoot,
     })
   }

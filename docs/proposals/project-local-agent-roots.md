@@ -228,6 +228,11 @@ agentId for a given project scope changes.
 
 - Fully backward compatible: no project declares `agents-root` → search path is
   `[canonical]`, byte-identical behavior. No action for existing single-root users.
+- Context templates can make shared-file intent explicit with `agents-root:///`, e.g.
+  `path = "agents-root:///AGENT_MOTD.md"`. The scheme resolves through the same
+  project-local → canonical agent-root search path as existing bare relative refs; it
+  does not pin the canonical root. Existing bare refs remain supported, and doctor may
+  nudge templates toward the explicit form without treating it as a warning.
 - archagent adoption: add `agents-root = "agents"` to a new `archagent/asp-targets.toml`
   (also upgrades archagent from implicit-git-root project to explicit marker), create
   `archagent/agents/<persona>/agent-profile.toml` per cohort member.

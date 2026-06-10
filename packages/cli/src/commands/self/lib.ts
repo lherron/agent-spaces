@@ -411,7 +411,10 @@ export function classifyTemplateSource(
 
 export function describeTemplateSectionSource(
   section: TemplateSection,
-  resolverContext: Pick<ContextResolverContext, 'agentRoot' | 'agentsRoot' | 'projectRoot'>
+  resolverContext: Pick<
+    ContextResolverContext,
+    'agentRoot' | 'agentsRoot' | 'agentRootSearchPath' | 'projectRoot'
+  >
 ): string {
   switch (section.type) {
     case 'inline':
@@ -425,9 +428,13 @@ export function describeTemplateSectionSource(
     case 'file': {
       try {
         const resolved =
-          section.path.startsWith('agent-root:///') || section.path.startsWith('project-root:///')
+          section.path.startsWith('agent-root:///') ||
+          section.path.startsWith('agents-root:///') ||
+          section.path.startsWith('project-root:///')
             ? resolveRootRelativeRef(section.path, {
                 agentRoot: resolverContext.agentRoot,
+                agentsRoot: resolverContext.agentsRoot,
+                agentRootSearchPath: resolverContext.agentRootSearchPath,
                 projectRoot: resolverContext.projectRoot,
               })
             : join(resolverContext.agentsRoot, section.path)

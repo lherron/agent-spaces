@@ -5,13 +5,15 @@
  * providing clear guidance on what needs to be fixed.
  */
 
+import { existsSync, readFileSync } from 'node:fs'
 import { constants, access } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Command } from 'commander'
 
 import { ensureAspHome, gitExec, listRemotes } from 'spaces-config'
 import { detectClaude } from 'spaces-execution'
 
-import { buildAgentRootReport } from '../agent-roots.js'
+import { SHARED_AGENT_ROOT_FILES, buildAgentRootReport } from '../agent-roots.js'
 import { errorMessage, formatCheckResults, outputDoctorSummary, resolvePaths } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 
@@ -23,6 +25,11 @@ interface CheckResult {
   status: 'ok' | 'warning' | 'error'
   message: string
   detail?: string | undefined
+}
+
+interface ContextTemplateNudge {
+  path: string
+  refs: string[]
 }
 
 /**
@@ -229,6 +236,17 @@ function checkAgentRoots(projectPath: string | null, aspHome: string): CheckResu
     })
   }
 
+  for (const nudge of findContextTemplateSchemeNudges(report.searchPath.roots)) {
+    checks.push({
+      name: 'context_template_refs',
+      status: 'ok',
+      message: 'Context template can make shared-file refs explicit with agents-root:///',
+      detail: `${nudge.path}: ${nudge.refs
+        .map((ref) => `${ref} -> agents-root:///${ref}`)
+        .join(', ')}`,
+    })
+  }
+
   if (checks.length === 0) {
     checks.push({
       name: 'agents_root',
@@ -238,6 +256,38 @@ function checkAgentRoots(projectPath: string | null, aspHome: string): CheckResu
   }
 
   return checks
+}
+
+function findContextTemplateSchemeNudges(roots: string[]): ContextTemplateNudge[] {
+  const nudges: ContextTemplateNudge[] = []
+  const sharedFiles = SHARED_AGENT_ROOT_FILES.filter((file) => file !== 'context-template.toml')
+
+  for (const root of roots) {
+    const templatePath = join(root, 'context-template.toml')
+    if (!existsSync(templatePath)) {
+      continue
+    }
+
+    let content: string
+    try {
+      content = readFileSync(templatePath, 'utf8')
+    } catch {
+      continue
+    }
+
+    const refs = sharedFiles.filter((file) =>
+      new RegExp(`^\\s*path\\s*=\\s*["']${escapeRegExp(file)}["']\\s*$`, 'm').test(content)
+    )
+    if (refs.length > 0) {
+      nudges.push({ path: templatePath, refs })
+    }
+  }
+
+  return nudges
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**

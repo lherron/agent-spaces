@@ -3,6 +3,7 @@
  *
  * Supports:
  * - agent-root:///<relative-path>
+ * - agents-root:///<relative-path>
  * - project-root:///<relative-path>
  *
  * Rules (from AGENT_SPACES_PLAN.md section 6):
@@ -16,7 +17,7 @@ import { existsSync, realpathSync } from 'node:fs'
 import { isAbsolute, join, normalize, relative } from 'node:path'
 
 /** Root-relative ref scheme discriminator */
-export type RootRefScheme = 'agent-root' | 'project-root'
+export type RootRefScheme = 'agent-root' | 'agents-root' | 'project-root'
 
 /** Parsed root-relative ref */
 export interface ParsedRootRef {
@@ -24,7 +25,7 @@ export interface ParsedRootRef {
   relativePath: string
 }
 
-const ROOT_REF_PATTERN = /^(agent-root|project-root):\/\/\/(.+)$/
+const ROOT_REF_PATTERN = /^(agent-root|agents-root|project-root):\/\/\/(.+)$/
 
 /**
  * Check if a string is a root-relative ref.
@@ -51,6 +52,8 @@ export function parseRootRef(ref: string): ParsedRootRef | undefined {
  */
 export interface RootRefResolveOptions {
   agentRoot?: string | undefined
+  agentsRoot?: string | undefined
+  agentRootSearchPath?: string[] | undefined
   projectRoot?: string | undefined
 }
 
@@ -58,7 +61,7 @@ export interface RootRefResolveOptions {
  * Resolve a root-relative ref to an absolute filesystem path.
  *
  * Validates:
- * - The ref uses a known scheme (agent-root or project-root)
+ * - The ref uses a known scheme (agent-root, agents-root, or project-root)
  * - The appropriate root is provided
  * - The relative path does not contain ".." escapes
  * - The resolved path stays within the root (including after symlink resolution)
@@ -69,6 +72,10 @@ export function resolveRootRelativeRef(ref: string, options: RootRefResolveOptio
   const parsed = parseRootRef(ref)
   if (!parsed) {
     throw new Error(`Unknown or unsupported root-relative scheme in ref: "${ref}"`)
+  }
+
+  if (parsed.scheme === 'agents-root') {
+    return resolveAgentsRootRef(ref, parsed.relativePath, options)
   }
 
   const root = parsed.scheme === 'agent-root' ? options.agentRoot : options.projectRoot
@@ -86,6 +93,39 @@ export function resolveRootRelativeRef(ref: string, options: RootRefResolveOptio
   }
 
   return resolveContainedPath(root, parsed.relativePath)
+}
+
+function resolveAgentsRootRef(
+  ref: string,
+  relativePath: string,
+  options: RootRefResolveOptions
+): string {
+  const roots = options.agentRootSearchPath?.length
+    ? options.agentRootSearchPath
+    : options.agentsRoot
+      ? [options.agentsRoot]
+      : []
+
+  if (roots.length === 0) {
+    throw new Error(`agentsRoot or agentRootSearchPath is required to resolve ref: "${ref}"`)
+  }
+  const firstRoot = roots[0]
+  if (!firstRoot) {
+    throw new Error(`agentsRoot or agentRootSearchPath is required to resolve ref: "${ref}"`)
+  }
+
+  for (const root of roots) {
+    if (!isAbsolute(root)) {
+      throw new Error(`Root must be an absolute path, got: "${root}"`)
+    }
+
+    const candidate = resolveContainedPath(root, relativePath)
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return resolveContainedPath(firstRoot, relativePath)
 }
 
 /**
