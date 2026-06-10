@@ -66,7 +66,11 @@ export {
   buildHrcCodexHooksConfig,
   trustCodexHooksInConfigToml,
 } from './codex-hooks.js'
-export { applyPraesidiumContextToCodexHome } from './codex-agents.js'
+export {
+  applyPraesidiumContextToCodexHome,
+  renderPraesidiumContextBlock,
+  type PraesidiumContext,
+} from './codex-agents.js'
 
 const INSTRUCTIONS_FILES = ['AGENTS.md', 'AGENT.md'] as const
 export const DEFAULT_CODEX_ENABLED_FEATURES = ['goals'] as const

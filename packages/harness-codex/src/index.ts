@@ -7,9 +7,11 @@ export {
   buildCodexHookTrustState,
   codexAdapter,
   applyPraesidiumContextToCodexHome,
+  renderPraesidiumContextBlock,
   buildCodexAppServerLaunchDescriptor,
   trustCodexHooksInConfigToml,
   type CodexAppServerLaunchDescriptor,
+  type PraesidiumContext,
 } from './adapters/codex-adapter.js'
 export * from './codex-session/index.js'
 export { register } from './register.js'

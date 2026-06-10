@@ -633,5 +633,52 @@ exit 1
       expect(beginCount).toBe(1)
       expect(endCount).toBe(1)
     })
+
+    test('removes every stale praesidium block before appending fresh content', async () => {
+      await writeFile(
+        join(workDir, 'AGENTS.md'),
+        [
+          '# Space content',
+          '<!-- BEGIN praesidium-context -->',
+          'stale one',
+          '<!-- END praesidium-context -->',
+          'between',
+          '<!-- BEGIN praesidium-context -->',
+          'stale two',
+          '<!-- END praesidium-context -->',
+          '',
+        ].join('\n')
+      )
+
+      await applyPraesidiumContextToCodexHome(workDir, { systemPrompt: 'fresh' })
+      const out = await readFile(join(workDir, 'AGENTS.md'), 'utf-8')
+
+      expect(out).toContain('# Space content')
+      expect(out).toContain('between')
+      expect(out).toContain('fresh')
+      expect(out).not.toContain('stale one')
+      expect(out).not.toContain('stale two')
+      expect((out.match(/<!-- BEGIN praesidium-context -->/g) ?? []).length).toBe(1)
+      expect((out.match(/<!-- END praesidium-context -->/g) ?? []).length).toBe(1)
+    })
+
+    test('cleans stale praesidium block when no fresh content is provided', async () => {
+      await writeFile(
+        join(workDir, 'AGENTS.md'),
+        [
+          '# Space content',
+          '<!-- BEGIN praesidium-context -->',
+          'stale prompt',
+          '<!-- END praesidium-context -->',
+          '',
+        ].join('\n')
+      )
+
+      const wrote = await applyPraesidiumContextToCodexHome(workDir, {})
+      const out = await readFile(join(workDir, 'AGENTS.md'), 'utf-8')
+
+      expect(wrote).toBe(true)
+      expect(out).toBe('# Space content\n')
+    })
   })
 })

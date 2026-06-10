@@ -24,7 +24,9 @@ import {
 } from 'spaces-config'
 import {
   CODEX_INTERACTIVE_HOOK_EVENTS,
+  applyPraesidiumContextToCodexHome,
   buildHrcCodexHooksConfig,
+  renderPraesidiumContextBlock,
   trustCodexHooksInConfigToml,
 } from 'spaces-harness-codex'
 
@@ -91,6 +93,12 @@ function computeCodexRuntimeFingerprint(input: {
   projectPath?: string | undefined
   cwd?: string | undefined
   interactive?: boolean | undefined
+  // The exact praesidium-context block written into the home AGENTS.md. Folding
+  // it into the fingerprint means a change in the materialized system prompt /
+  // session reminder busts the home (rewriting only the managed files + block,
+  // never session state) so stale praesidium blocks self-heal. Same content =>
+  // same fingerprint => the locked rebuild short-circuits (write-if-changed).
+  praesidiumBlock?: string | undefined
 }): string {
   return createHash('sha256')
     .update(
@@ -102,6 +110,7 @@ function computeCodexRuntimeFingerprint(input: {
         projectPath: input.projectPath ? resolve(input.projectPath) : undefined,
         cwd: input.cwd ? resolve(input.cwd) : undefined,
         interactive: input.interactive === true,
+        praesidiumBlock: input.praesidiumBlock,
       })
     )
     .digest('hex')
@@ -279,6 +288,15 @@ export async function prepareCodexRuntimeHome(
   const templateHome = bundle.codex?.homeTemplatePath ?? join(bundle.rootDir, 'codex.home')
   const runtimeHome = resolveCodexRuntimeHomePath(bundle, runOptions)
   const projectPath = runOptions.cwd ?? runOptions.projectPath
+  // The materialized system prompt + session reminder are delivered to codex via
+  // the home AGENTS.md (codex reads it as user_instructions on both interactive
+  // and exec routes), NOT by prefixing them onto the visible launch message
+  // (T-03939). Render the exact block now so the same bytes are both hashed into
+  // the fingerprint and written under the lock below.
+  const praesidiumBlock = renderPraesidiumContextBlock({
+    systemPrompt: runOptions.systemPrompt,
+    reminderContent: runOptions.reminderContent,
+  })
   const fingerprint = computeCodexRuntimeFingerprint({
     templateHome,
     bundleRoot: bundle.rootDir,
@@ -286,6 +304,7 @@ export async function prepareCodexRuntimeHome(
     projectPath,
     cwd: runOptions.cwd,
     interactive: runOptions.interactive,
+    praesidiumBlock,
   })
   await mkdir(runtimeHome, { recursive: true })
 
@@ -324,6 +343,16 @@ export async function prepareCodexRuntimeHome(
         }
         await writeFile(configPath, configToml)
       }
+
+      // Inject the praesidium-context block into the freshly-synced AGENTS.md.
+      // syncManagedFile above replaced AGENTS.md with the pristine template
+      // (space instruction blocks, no praesidium block), so this strips nothing
+      // and appends exactly one block — healing any stale duplicate that an
+      // older home build may have left behind.
+      await applyPraesidiumContextToCodexHome(runtimeHome, {
+        systemPrompt: runOptions.systemPrompt,
+        reminderContent: runOptions.reminderContent,
+      })
 
       const metadata: CodexRuntimeMetadata = projectPath
         ? {

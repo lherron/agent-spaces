@@ -114,13 +114,6 @@ function isImageAttachment(attachment: AttachmentRef): boolean {
   return IMAGE_ATTACHMENT_EXTENSIONS.has(extname(clean).toLowerCase())
 }
 
-function combinePromptText(...parts: Array<string | undefined>): string | undefined {
-  const present = parts
-    .map((part) => part?.trim())
-    .filter((part): part is string => part !== undefined && part.length > 0)
-  return present.length > 0 ? present.join('\n\n') : undefined
-}
-
 /**
  * Prepare placement-based CLI runtime state without choosing an output protocol.
  */
@@ -253,10 +246,15 @@ export async function preparePlacementCliRuntime(
     runtimePlan.prompt !== undefined
       ? expandTemplate(runtimePlan.prompt, buildPromptExpansionContext(placement))
       : undefined
-  const launchPrompt =
-    frontendDef.frontend === CODEX_CLI_FRONTEND && systemPrompt
-      ? combinePromptText(systemPrompt.content, systemPrompt.reminderContent, expandedPrompt)
-      : expandedPrompt
+  // The visible launch/initial message is ONLY the priming/caller prompt for
+  // every frontend. For codex, the system prompt + session reminder reach the
+  // model via the runtime-home AGENTS.md (written under lock in
+  // prepareCodexRuntimeHome), NOT by concatenating them ahead of the priming
+  // prompt — that regression (T-03939) leaked the whole system prompt into the
+  // first TUI message. The compiled system prompt is static per agent@project
+  // (task-scoped identity removed from the `## Runtime scope` template section),
+  // so baking it into the shared home is race-free under the fingerprint lock.
+  const launchPrompt = expandedPrompt
 
   // Build run options for the adapter
   let runOptions: HarnessRunOptions = {
@@ -294,8 +292,13 @@ export async function preparePlacementCliRuntime(
 
   // For codex frontends, prepare the stable runtime home directory so that
   // hrc run uses the same CODEX_HOME as asp run (codex-homes/<project>_<target>).
-  // prepareCodexRuntimeHome syncs only stable managed files and project trust;
-  // dynamic prompt material rides the launch request instead of mutating AGENTS.md.
+  // prepareCodexRuntimeHome syncs stable managed files + project trust and writes
+  // the praesidium-context block (system prompt + reminder) into AGENTS.md inside
+  // the home lock; the block hash is folded into the home fingerprint so the
+  // shared home is rewritten only when the prompt material changes (race-free,
+  // self-healing for stale blocks). Codex reads AGENTS.md on both interactive and
+  // exec routes, so the model receives the system prompt without it appearing in
+  // the visible launch message.
   if (frontendDef.frontend === CODEX_CLI_FRONTEND) {
     const codexHomeDir = await prepareCodexRuntimeHome(bundle, {
       ...runOptions,

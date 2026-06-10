@@ -26,6 +26,37 @@ export function buildAgentsMarkdown(
   return lines.join('\n')
 }
 
+export interface PraesidiumContext {
+  systemPrompt?: string | undefined
+  reminderContent?: string | undefined
+}
+
+/**
+ * Render the praesidium-context block (delimited by the BEGIN/END markers) from
+ * the materialized system prompt + session reminder. Returns `undefined` when
+ * there is no content to inject. This is the single source of truth for the
+ * exact bytes written into AGENTS.md, so callers that need to fingerprint the
+ * home prompt material (run-codex) hash this string and get byte-for-byte
+ * agreement with what `applyPraesidiumContextToCodexHome` writes.
+ */
+export function renderPraesidiumContextBlock(context: PraesidiumContext): string | undefined {
+  const systemPrompt = context.systemPrompt?.trim() ?? ''
+  const reminderContent = context.reminderContent?.trim() ?? ''
+  if (!systemPrompt && !reminderContent) {
+    return undefined
+  }
+
+  const sections: string[] = []
+  if (systemPrompt) {
+    sections.push(systemPrompt)
+  }
+  if (reminderContent) {
+    sections.push(reminderContent)
+  }
+
+  return [PRAESIDIUM_BEGIN_MARKER, sections.join('\n\n'), PRAESIDIUM_END_MARKER].join('\n')
+}
+
 /**
  * Write praesidium-materialized system prompt + reminder content into a runtime
  * codex home's AGENTS.md so codex picks it up via its native user_instructions
@@ -37,14 +68,8 @@ export function buildAgentsMarkdown(
  */
 export async function applyPraesidiumContextToCodexHome(
   codexHome: string,
-  context: { systemPrompt?: string | undefined; reminderContent?: string | undefined }
+  context: PraesidiumContext
 ): Promise<boolean> {
-  const systemPrompt = context.systemPrompt?.trim() ?? ''
-  const reminderContent = context.reminderContent?.trim() ?? ''
-  if (!systemPrompt && !reminderContent) {
-    return false
-  }
-
   const agentsPath = join(codexHome, CODEX_AGENTS_FILE)
   let existing = ''
   try {
@@ -56,29 +81,32 @@ export async function applyPraesidiumContextToCodexHome(
 
   // Strip any prior praesidium block so we always emit fresh content.
   const stripped = stripPraesidiumBlock(existing).trimEnd()
-
-  const sections: string[] = []
-  if (systemPrompt) {
-    sections.push(systemPrompt)
+  const block = renderPraesidiumContextBlock(context)
+  if (block === undefined) {
+    if (stripped !== existing.trimEnd()) {
+      await writeFile(agentsPath, stripped.length > 0 ? `${stripped}\n` : '')
+      return true
+    }
+    return false
   }
-  if (reminderContent) {
-    sections.push(reminderContent)
-  }
 
-  const block = [PRAESIDIUM_BEGIN_MARKER, sections.join('\n\n'), PRAESIDIUM_END_MARKER].join('\n')
   const next = stripped.length > 0 ? `${stripped}\n\n${block}\n` : `${block}\n`
   await writeFile(agentsPath, next)
   return true
 }
 
 function stripPraesidiumBlock(content: string): string {
-  const beginIdx = content.indexOf(PRAESIDIUM_BEGIN_MARKER)
-  if (beginIdx === -1) {
-    return content
+  let remaining = content
+  while (true) {
+    const beginIdx = remaining.indexOf(PRAESIDIUM_BEGIN_MARKER)
+    if (beginIdx === -1) {
+      return remaining
+    }
+    const endIdx = remaining.indexOf(PRAESIDIUM_END_MARKER, beginIdx)
+    if (endIdx === -1) {
+      return remaining
+    }
+    remaining =
+      remaining.slice(0, beginIdx) + remaining.slice(endIdx + PRAESIDIUM_END_MARKER.length)
   }
-  const endIdx = content.indexOf(PRAESIDIUM_END_MARKER, beginIdx)
-  if (endIdx === -1) {
-    return content
-  }
-  return content.slice(0, beginIdx) + content.slice(endIdx + PRAESIDIUM_END_MARKER.length)
 }

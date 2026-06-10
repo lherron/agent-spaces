@@ -452,10 +452,21 @@ describe('asp run <-> compiler foreground byte-parity', () => {
 
       // argv: byte-identical except for generated session ids.
       if (testCase.harness === 'codex') {
-        expect(compiledArgv.join('\n')).toContain(
+        // T-03939: the materialized system prompt + session reminder reach codex
+        // via the runtime-home AGENTS.md, NEVER concatenated ahead of the priming
+        // prompt in the visible launch argv (that was the regression). Assert both
+        // are absent from argv and present (exactly once) in the shared home.
+        expect(compiledArgv.join('\n')).not.toContain(
           'You are the parity agent. Keep responses minimal.'
         )
-        expect(compiledArgv.join('\n')).toContain('session reminder block')
+        expect(compiledArgv.join('\n')).not.toContain('session reminder block')
+
+        const codexHome = foreground.env['CODEX_HOME']
+        expect(codexHome).toBeDefined()
+        const agents = readFileSync(join(codexHome as string, 'AGENTS.md'), 'utf8')
+        expect(agents).toContain('You are the parity agent. Keep responses minimal.')
+        expect(agents).toContain('session reminder block')
+        expect((agents.match(/<!-- BEGIN praesidium-context -->/g) ?? []).length).toBe(1)
       }
       expect(normalizeArgv(compiledArgv, testCase.harness)).toEqual(
         normalizeArgv(legacyArgv, testCase.harness)

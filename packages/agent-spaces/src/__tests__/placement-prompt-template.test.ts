@@ -174,4 +174,63 @@ describe('placement prompt template expansion', () => {
       fixture.cleanup()
     }
   })
+
+  // T-03939: the materialized system prompt must reach codex via the home
+  // AGENTS.md, NOT by being concatenated ahead of the priming prompt in the
+  // visible first message (the regression). Visible launch argv = priming only.
+  test('codex system prompt lands in AGENTS.md, never in the visible launch message', async () => {
+    const fixture = createFixture()
+    try {
+      process.env['ASP_CODEX_PATH'] = createCodexShim(fixture.aspHome)
+      process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+
+      // A SOUL.md makes materializeSystemPrompt emit a real system prompt via the
+      // built-in default template (soul section).
+      writeFileSync(
+        join(fixture.agentRoot, 'SOUL.md'),
+        '# Cody\nSOUL-SECRET-IDENTITY: the agent soul body.\n',
+        'utf8'
+      )
+
+      const { createAgentSpacesClient } = await import('../index.js')
+      const client = createAgentSpacesClient({ aspHome: fixture.aspHome })
+
+      const response = await client.buildProcessInvocationSpec({
+        placement: {
+          agentRoot: fixture.agentRoot,
+          projectRoot: fixture.projectRoot,
+          cwd: fixture.projectRoot,
+          runMode: 'task',
+          bundle: { kind: 'agent-project', agentName: 'cody', projectRoot: fixture.projectRoot },
+          correlation: {
+            sessionRef: {
+              scopeRef: 'agent:cody:project:agent-spaces:task:soul-test',
+              laneRef: 'main',
+            },
+          },
+        },
+        provider: 'openai',
+        frontend: 'codex-cli',
+        interactionMode: 'interactive',
+        ioMode: 'pty',
+      } as any)
+
+      const argv = response.spec.argv.join(' ')
+      // Visible launch message is the priming prompt ONLY.
+      expect(response.spec.argv).toContain(
+        'You are cody in agent-spaces working on soul-test. cody code rules the world.'
+      )
+      // The system prompt body must NOT pollute the first message.
+      expect(argv).not.toContain('SOUL-SECRET-IDENTITY')
+
+      // It reaches the model through the home AGENTS.md instead — exactly once.
+      const codexHome = response.spec.env['CODEX_HOME'] as string
+      const agents = readFileSync(join(codexHome, 'AGENTS.md'), 'utf8')
+      expect(agents).toContain('SOUL-SECRET-IDENTITY')
+      expect((agents.match(/<!-- BEGIN praesidium-context -->/g) ?? []).length).toBe(1)
+      expect(agents).not.toContain('soul-test')
+    } finally {
+      fixture.cleanup()
+    }
+  })
 })

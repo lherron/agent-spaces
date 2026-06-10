@@ -252,20 +252,12 @@ function buildBrokerInitialText(
   const callerPrompt =
     req.prompt !== undefined ? expandTemplate(req.prompt, expansionContext) : undefined
 
-  const brokerPrompt = combineBrokerPrompts(primingPrompt, callerPrompt)
-  if (
-    req.provider === 'openai' &&
-    req.frontend === 'codex-cli' &&
-    prepared.systemPrompt !== undefined
-  ) {
-    const dynamicSystemPrompt = combineBrokerPrompts(
-      prepared.systemPrompt.content,
-      prepared.systemPrompt.reminderContent
-    )
-    return combineBrokerPrompts(dynamicSystemPrompt, brokerPrompt)
-  }
-
-  return brokerPrompt
+  // Codex receives the system prompt + session reminder via the runtime-home
+  // AGENTS.md (written under lock in prepareCodexRuntimeHome), read on both the
+  // interactive and exec/headless routes. The broker initial input is therefore
+  // the priming/caller prompt ONLY — never the system prompt/reminder — matching
+  // the interactive launch and avoiding the T-03939 first-message pollution.
+  return combineBrokerPrompts(primingPrompt, callerPrompt)
 }
 
 function buildInitialInput(
