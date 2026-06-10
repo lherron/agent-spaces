@@ -96,3 +96,16 @@ export {
   type GCResult,
   type GCOptions,
 } from './gc.js'
+
+// Temp lifecycle
+export {
+  DEFAULT_LAUNCH_OVERLAY_MAX_AGE_MS,
+  DEFAULT_STAGING_MAX_AGE_MS,
+  sweepAspTempArtifacts,
+  writeRuntimeSystemPromptArtifact,
+  type AspTempSweepResult,
+  type RuntimeSystemPromptArtifact,
+  type SweepAspTempArtifactsOptions,
+  type TempSweepStats,
+  type WriteRuntimeSystemPromptArtifactInput,
+} from './temp-lifecycle.js'

@@ -1,5 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
@@ -779,6 +788,41 @@ exit 0
     )
     expect(profile.harnessInvocation.startRequest.initialInput).toBeUndefined()
     expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
+  })
+
+  test('compiled prompt paths use durable artifacts instead of launch overlays', async () => {
+    const soulPath = join(fixture.agentRoot, 'SOUL.md')
+    writeFileSync(soulPath, '# Cody\n\nSTABLE-PROMPT-PATH-REGRESSION\n', 'utf8')
+    try {
+      const response = await createClient().compileRuntimePlan(
+        interactiveCompileRequest({
+          modelProvider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          harnessFamily: 'claude-code',
+          preferredHarnessRuntime: 'claude-code-cli',
+          interactionMode: 'interactive',
+        })
+      )
+      const profile = brokerProfile(response)
+      if (!response.ok) throw new Error('unreachable')
+
+      const artifactPath = response.plan.artifacts.systemPromptFile
+      const launchPath = profile.harnessInvocation.startRequest.spec.launch?.systemPromptFile
+
+      expect(artifactPath).toBeDefined()
+      expect(launchPath).toBe(artifactPath)
+      expect(artifactPath).toContain('.asp-runtime-artifacts')
+      expect(artifactPath).toContain(join('system-prompts'))
+      expect(artifactPath).not.toContain(join('tmp', 'launch-overlays'))
+      expect(readFileSync(artifactPath as string, 'utf8')).toContain(
+        'STABLE-PROMPT-PATH-REGRESSION'
+      )
+
+      const overlayRoot = join(fixture.aspHome, 'tmp', 'launch-overlays')
+      expect(existsSync(overlayRoot) ? readdirSync(overlayRoot) : []).toEqual([])
+    } finally {
+      rmSync(soulPath, { force: true })
+    }
   })
 
   test('emits all required plan, profile, spec, and start request hashes', async () => {

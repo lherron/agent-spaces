@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import {
   type BuildResult,
@@ -26,6 +27,7 @@ import {
   lockFileExists,
   materializeFromRefs,
   readLockJson,
+  sweepAspTempArtifacts,
 } from 'spaces-config'
 
 import { migrateLegacyProjectCodexRuntimeHome } from './run-codex.js'
@@ -287,13 +289,17 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   let reminderContent: string | undefined
   if (agentProfile) {
     debugLog('materializeSystemPrompt start')
+    await sweepAspTempArtifacts({ aspHome }).catch(() => {})
+    const launchOverlayDir = join(aspHome, 'tmp', 'launch-overlays', randomUUID())
     const materialized = await materializeRunSystemPrompt({
       agentProfile,
-      harnessOutputPath: join(aspHome, 'tmp', 'launch-overlays', randomUUID()),
+      harnessOutputPath: launchOverlayDir,
       agentId,
       projectPath: options.projectPath,
       projectId,
       taskId,
+    }).finally(async () => {
+      await rm(launchOverlayDir, { recursive: true, force: true }).catch(() => {})
     })
     debugLog('materializeSystemPrompt ok')
     budget = materialized.budget

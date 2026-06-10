@@ -11,7 +11,7 @@
  * a single legacy delegate-parity anchor.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -450,6 +450,32 @@ describe('compiled broker profile field mapping', () => {
     )
     expect(spec.process.harnessTransport).toEqual({ kind: 'pty' })
     expect(validateBrokerExecutionProfile(profile)).toEqual([])
+  })
+
+  test('T-04051 stores durable prompt-file references outside tmp launch-overlays', async () => {
+    const soulPath = join(fixture.agentRoot, 'SOUL.md')
+    writeFileSync(soulPath, '# T-04051\n\nPrompt file durability probe.', 'utf8')
+    try {
+      const response = await createClient().compileRuntimePlan(claudeTmuxCompileRequest())
+      const profile = brokerProfile(response)
+      const planSystemPromptFile = response.ok
+        ? response.plan.artifacts.systemPromptFile
+        : undefined
+      const launchSystemPromptFile =
+        profile.harnessInvocation.startRequest.spec.launch?.systemPromptFile
+
+      // T-04051 red/green gate: compiled plans and broker start requests are
+      // durable/replayable artifacts. They must not persist paths into
+      // ASP_HOME/tmp/launch-overlays/<uuid>, because that tree is launch-scoped and
+      // can be swept by tmp lifecycle GC after the harness consumes the prompt.
+      for (const promptFile of [planSystemPromptFile, launchSystemPromptFile]) {
+        expect(promptFile).toBeDefined()
+        expect(promptFile).not.toContain('/tmp/launch-overlays/')
+        expect(existsSync(promptFile ?? '')).toBe(true)
+      }
+    } finally {
+      rmSync(soulPath, { force: true })
+    }
   })
 
   test('passes the interactive claude-code-tmux prompt through process argv', async () => {

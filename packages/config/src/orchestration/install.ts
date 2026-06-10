@@ -73,6 +73,7 @@ import {
   getAspHome,
   sanitizeProjectAgentScopeSegment,
   snapshotExists,
+  sweepAspTempArtifacts,
   writeCacheMetadataAt,
 } from '../store/index.js'
 
@@ -641,6 +642,7 @@ export async function materializeTarget(
   options: InstallOptions
 ): Promise<TargetMaterializationResult> {
   const aspHome = options.aspHome ?? getAspHome()
+  await sweepAspTempArtifacts({ aspHome }).catch(() => {})
   const paths = new PathResolver({ aspHome })
   const registryPath = getRegistryPath(options)
 

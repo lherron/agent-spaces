@@ -1,8 +1,15 @@
 import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
 import { basename, extname, join, resolve } from 'node:path'
 
 import type { HarnessDetection, HarnessRunOptions, ResolvedPlacementContext } from 'spaces-config'
-import { type RuntimePlacement, getAspHome, resolvePlacementContext } from 'spaces-config'
+import {
+  type RuntimePlacement,
+  getAspHome,
+  resolvePlacementContext,
+  sweepAspTempArtifacts,
+  writeRuntimeSystemPromptArtifact,
+} from 'spaces-config'
 import type { PlacementRuntimePlan } from 'spaces-execution'
 import {
   detectAgentLocalComponents,
@@ -114,6 +121,22 @@ function isImageAttachment(attachment: AttachmentRef): boolean {
   return IMAGE_ATTACHMENT_EXTENSIONS.has(extname(clean).toLowerCase())
 }
 
+async function persistSystemPromptArtifact(
+  aspHome: string,
+  artifactRoot: string,
+  systemPrompt: MaterializeResult
+): Promise<MaterializeResult> {
+  const artifact = await writeRuntimeSystemPromptArtifact({
+    aspHome,
+    artifactRoot,
+    content: systemPrompt.content,
+  })
+  return {
+    ...systemPrompt,
+    path: artifact.systemPromptPath,
+  }
+}
+
 /**
  * Prepare placement-based CLI runtime state without choosing an output protocol.
  */
@@ -147,6 +170,7 @@ export async function preparePlacementCliRuntime(
   const cwd = resolvedBundle.cwd
 
   const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
+  await sweepAspTempArtifacts({ aspHome }).catch(() => {})
   const runtimePlan = await planPlacementRuntime({
     placement,
     placementContext,
@@ -220,13 +244,28 @@ export async function preparePlacementCliRuntime(
     agentLocalComponents,
   })
   const launchOverlayDir = join(aspHome, 'tmp', 'launch-overlays', randomUUID())
-  const systemPrompt = await materializeSystemPrompt(launchOverlayDir, {
-    ...placement,
-    ...(handleParts.agentId !== undefined ? { agentId: handleParts.agentId } : {}),
-    ...(handleParts.projectId !== undefined ? { projectId: handleParts.projectId } : {}),
-    ...(handleParts.taskId !== undefined ? { taskId: handleParts.taskId } : {}),
-    ...(handleParts.lane !== undefined ? { lane: handleParts.lane } : {}),
-  })
+  let systemPrompt: MaterializeResult | undefined
+  try {
+    const materializedSystemPrompt = await materializeSystemPrompt(launchOverlayDir, {
+      ...placement,
+      ...(handleParts.agentId !== undefined ? { agentId: handleParts.agentId } : {}),
+      ...(handleParts.projectId !== undefined ? { projectId: handleParts.projectId } : {}),
+      ...(handleParts.taskId !== undefined ? { taskId: handleParts.taskId } : {}),
+      ...(handleParts.lane !== undefined ? { lane: handleParts.lane } : {}),
+    })
+    systemPrompt =
+      materializedSystemPrompt !== undefined
+        ? await persistSystemPromptArtifact(
+            aspHome,
+            // Tie prompt-file lifetime to the versioned bundle that compiled
+            // plans already reference; .versions pruning owns both together.
+            join(materialized.materialization.outputPath, '.asp-runtime-artifacts'),
+            materializedSystemPrompt
+          )
+        : undefined
+  } finally {
+    await rm(launchOverlayDir, { recursive: true, force: true }).catch(() => {})
+  }
 
   // Bundle label = the LOGICAL target name (legacy `asp run` labels the bundle
   // with the agent/target name). Agent-project placements materialize under the
