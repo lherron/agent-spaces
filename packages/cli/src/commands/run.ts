@@ -19,7 +19,7 @@ import { createCompileRuntimeFn } from 'agent-spaces'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
-import { getAgentsRoot, parseSpaceRef } from 'spaces-config'
+import { getAgentsRoot, getRegistryPath, parseSpaceRef } from 'spaces-config'
 import {
   type HarnessId,
   type RunResult,
@@ -236,7 +236,11 @@ async function runGlobalMode(
   // Check if selector was defaulted to dev and warn the user
   const spaceRef = parseSpaceRef(target)
   const aspHome = options.aspHome ?? process.env['ASP_HOME'] ?? `${process.env['HOME']}/.asp`
-  const registryPath = options.registry ?? `${aspHome}/repo`
+  const registryPath = getRegistryPath({
+    projectPath: process.cwd(),
+    aspHome,
+    ...(options.registry ? { registryPath: options.registry } : {}),
+  })
   const spacePath = `${registryPath}/spaces/${spaceRef.id}`
 
   if (spaceRef.defaultedToDev && !options.printCommand) {
@@ -246,8 +250,6 @@ async function runGlobalMode(
       )
     )
     console.log(chalk.gray(`  Path: ${spacePath}`))
-    console.log(chalk.gray(`  For a stable version, use: space:${spaceRef.id}@stable`))
-    console.log(chalk.gray(`  For latest commit, use: space:${spaceRef.id}@HEAD`))
     console.log('')
   }
 
@@ -314,10 +316,8 @@ function showInvalidModeHelp(): never {
   console.error(chalk.gray('Usage:'))
   console.error(chalk.gray('  In a project: asp run <target-name>'))
   console.error(
-    chalk.gray('  Global mode:  asp run space:my-space         (uses @dev - working dir)')
+    chalk.gray('  Global mode:  asp run space:my-space         (uses @dev from agents root)')
   )
-  console.error(chalk.gray('                asp run space:my-space@HEAD    (uses latest commit)'))
-  console.error(chalk.gray('                asp run space:my-space@stable  (uses dist-tag)'))
   console.error(chalk.gray('  Dev mode:     asp run ./path/to/space'))
   process.exit(1)
 }

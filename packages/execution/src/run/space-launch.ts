@@ -20,6 +20,7 @@ import {
   ensureDir,
   generateLockFileForTarget,
   getAspHome,
+  getRegistryPath,
   isHarnessSupported,
   lockFileExists,
   parseSpaceRef,
@@ -274,9 +275,8 @@ async function materializeClosureArtifacts(
 /**
  * Run a space reference in global mode (without a project).
  *
- * Allows `asp run space:my-space@stable` without being in a project. The space
- * is resolved from the registry, materialized, and run with the harness.
- * For @dev selector, runs directly from the filesystem.
+ * Allows `asp run space:my-space@dev` without being in a project. Shared @dev
+ * spaces resolve from the configured agents root by default.
  */
 export async function runGlobalSpace(
   spaceRefString: SpaceRefString,
@@ -289,7 +289,11 @@ export async function runGlobalSpace(
   const detection = await adapter.detect()
 
   const ref = parseSpaceRef(spaceRefString)
-  const registryPath = options.registryPath ?? paths.repo
+  const registryPath = getRegistryPath({
+    projectPath: process.cwd(),
+    aspHome,
+    ...(options.registryPath ? { registryPath: options.registryPath } : {}),
+  })
 
   if (ref.selector.kind === 'dev') {
     const spacePath = join(registryPath, 'spaces', ref.id)

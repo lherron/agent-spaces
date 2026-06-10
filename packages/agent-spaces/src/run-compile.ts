@@ -167,7 +167,13 @@ function buildRunCompileRequest(context: RunCompilerDebugContext): RuntimeCompil
 export function createCompileRuntimeFn(aspHome?: string | undefined): CompileRuntimeFn {
   return async (context) => {
     const request = buildRunCompileRequest(context)
-    const client = createAgentSpacesClient(aspHome !== undefined ? { aspHome } : {})
+    const registryPath = (
+      context as RunCompilerDebugContext & { registryPath?: string | undefined }
+    ).registryPath
+    const client = createAgentSpacesClient({
+      ...(aspHome !== undefined ? { aspHome } : {}),
+      ...(registryPath !== undefined ? { registryPath } : {}),
+    })
     const response = await client.compileRuntimePlan(request)
     const foreground = foregroundLaunchFromResponse(response)
     return {

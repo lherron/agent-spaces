@@ -142,7 +142,8 @@ async function persistSystemPromptArtifact(
  */
 export async function preparePlacementCliRuntime(
   req: PreparePlacementCliRuntimeRequest,
-  defaultAspHome?: string
+  defaultAspHome?: string,
+  defaultRegistryPath?: string
 ): Promise<PreparedPlacementCliRuntime> {
   const placement = req.placement as RuntimePlacement
   const warnings: string[] = []
@@ -235,6 +236,7 @@ export async function preparePlacementCliRuntime(
 
   // Unified materialization: use the shared placement context, then materialize the resolved spec.
   const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
+    ...(defaultRegistryPath !== undefined ? { registryPathOverride: defaultRegistryPath } : {}),
     agentRoot: placement.agentRoot,
     projectRoot: placement.projectRoot,
     ...(placement.bundle.kind === 'agent-project'

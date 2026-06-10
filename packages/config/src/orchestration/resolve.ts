@@ -33,7 +33,7 @@ import {
   generateLockFileForTarget,
 } from '../resolver/index.js'
 
-import { PathResolver, getAspHome } from '../store/index.js'
+import { PathResolver, getAgentsRoot, getAspHome } from '../store/index.js'
 
 /**
  * Options for resolving a target.
@@ -74,11 +74,24 @@ export interface ResolveResult {
 }
 
 /**
- * Get the registry path for resolution.
+ * Get the shared spaces root for resolution.
+ *
+ * The historical option name is still `registryPath`, but the default live
+ * shared-space source is now the canonical agents root. The resolver still reads
+ * `spaces/<id>` below this cwd, which keeps existing closure and lock shapes
+ * intact while removing the ASP_HOME/repo dependency for @dev spaces.
  */
 export function getRegistryPath(options: ResolveOptions): string {
   if (options.registryPath) {
     return options.registryPath
+  }
+  const agentsRoot = getAgentsRoot(
+    options.aspHome !== undefined
+      ? { aspHome: options.aspHome, env: process.env }
+      : { env: process.env }
+  )
+  if (agentsRoot) {
+    return agentsRoot
   }
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })

@@ -60,6 +60,7 @@ export function compileInteractionMode(
 
 export interface BuildCompilerDebugContextArgs {
   aspHome: string
+  registryPath?: string | undefined
   harnessId: HarnessId
   model?: string | undefined
   reasoningEffort?: string | undefined
@@ -116,6 +117,7 @@ export function buildCompilerDebugContext(
   const harnessCatalog = getHarnessCatalogEntry(args.harnessId)
   return {
     aspHome: args.aspHome,
+    registryPath: args.registryPath,
     placement: args.placement,
     requested: {
       modelProvider: harnessCatalog.provider,

@@ -2,6 +2,7 @@ import type { BuildResult, HarnessId, ResolveOptions } from 'spaces-config'
 
 export interface RunCompilerDebugContext {
   aspHome: string
+  registryPath?: string | undefined
   placement: Record<string, unknown>
   requested: {
     modelProvider?: 'anthropic' | 'openai' | undefined

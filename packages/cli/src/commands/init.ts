@@ -25,7 +25,7 @@ function generateTargetsToml(targetName: string): string {
 
 [targets.${targetName}]
 description = "Default target"
-compose = ["space:defaults@stable"]
+compose = ["space:defaults@dev"]
 `
 }
 
@@ -59,7 +59,7 @@ export function registerInitCommand(program: Command): void {
         console.log('')
         console.log(chalk.gray('Next steps:'))
         console.log(
-          `  1. Add spaces: ${chalk.cyan(`asp add space:my-space@stable --target ${targetName}`)}`
+          `  1. Add spaces: ${chalk.cyan(`asp add space:my-space@dev --target ${targetName}`)}`
         )
         console.log(`  2. Install:    ${chalk.cyan('asp install')}`)
         console.log(`  3. Run:        ${chalk.cyan(`asp run --target ${targetName}`)}`)

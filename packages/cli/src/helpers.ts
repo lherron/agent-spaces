@@ -9,7 +9,7 @@
 import chalk from 'chalk'
 import { CliUsageError, exitWithError } from 'cli-kit'
 
-import { PathResolver, getAspHome, isAspError } from 'spaces-config'
+import { PathResolver, getAspHome, getRegistryPath, isAspError } from 'spaces-config'
 
 import { findProjectRoot } from './lib.js'
 
@@ -45,14 +45,18 @@ export interface PathContext {
 /**
  * Resolve the shared ASP_HOME / PathResolver / registry path from CLI options.
  *
- * WHY: ~9 commands repeated `new PathResolver({ aspHome })` (plus the
- * `options.registry ?? paths.repo` fallback) inline. Routing them through this
- * single factory gives one construction seam and removes the duplication.
+ * WHY: Commands need the same ASP_HOME paths and shared-space root. Routing
+ * them through this single factory gives one construction seam and removes the
+ * duplication.
  */
 export function resolvePaths(options: CommonOptions): PathContext {
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
-  const registryPath = options.registry ?? paths.repo
+  const registryPath = getRegistryPath({
+    projectPath: process.cwd(),
+    aspHome,
+    ...(options.registry ? { registryPath: options.registry } : {}),
+  })
   return { aspHome, paths, registryPath }
 }
 

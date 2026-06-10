@@ -200,6 +200,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const lockPath = join(options.projectPath, LOCK_FILENAME)
   const lockExists = await lockFileExists(lockPath)
   const existingLock = lockExists ? await readLockJson(lockPath) : undefined
+  const effectiveRegistryPath = options.registryPath ?? getRegistryPath(options)
   const composeChanged =
     effectiveCompose !== undefined &&
     !composeArraysMatch(effectiveCompose, existingLock?.targets[targetName]?.compose ?? [])
@@ -235,7 +236,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
       const materializeOptions = {
         targetName,
         refs: effectiveCompose,
-        registryPath: getRegistryPath(options),
+        registryPath: effectiveRegistryPath,
         lockPath,
         projectPath: options.projectPath,
         harness: harnessId,
@@ -257,6 +258,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
         ...options,
         harness: harnessId,
         targets: [targetName],
+        registryPath: effectiveRegistryPath,
         adapter,
         fetchRegistry: false,
         ...(agentProfile ? { agentPath: agentProfile.agentRoot } : {}),
@@ -363,6 +365,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
       const scopeRef = `agent:${targetName}:project:${projectId}${taskId ? `:task:${taskId}` : ''}`
       return {
         aspHome,
+        registryPath: effectiveRegistryPath,
         harnessId,
         model: runOptions.model,
         reasoningEffort: runOptions.modelReasoningEffort,

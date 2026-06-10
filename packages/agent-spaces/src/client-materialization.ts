@@ -83,6 +83,18 @@ function computeSpacesTargetName(spaces: string[]): string {
   return `spaces-${hash.digest('hex').slice(0, 12)}`
 }
 
+function resolveSharedSpacesRoot(
+  aspHome: string,
+  registryPathOverride?: string | undefined,
+  projectRoot?: string | undefined
+): string {
+  return getRegistryPath({
+    aspHome,
+    projectPath: projectRoot ?? process.cwd(),
+    ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
+  })
+}
+
 export async function resolveSpecToLock(
   spec: ValidatedSpec,
   aspHome: string,
@@ -110,8 +122,7 @@ export async function resolveSpecToLock(
 
   const refs = spec.spaces as string[]
   const targetName = computeSpacesTargetName(refs)
-  const paths = new PathResolver({ aspHome })
-  const registryPath = registryPathOverride ?? paths.repo
+  const registryPath = resolveSharedSpacesRoot(aspHome, registryPathOverride, options?.projectRoot)
   const closure = await computeClosure(refs as SpaceRefString[], {
     cwd: registryPath,
     ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
@@ -182,10 +193,15 @@ export async function materializeSpec(
   if (refs.length === 0) {
     const targetName = options?.materializationTargetName ?? 'placement-empty'
     const paths = new PathResolver({ aspHome })
+    const registryPath = resolveSharedSpacesRoot(
+      aspHome,
+      registryPathOverride,
+      options?.projectRoot
+    )
     const materialized = await materializeFromRefs({
       targetName,
       refs: [],
-      registryPath: registryPathOverride ?? paths.repo,
+      registryPath,
       aspHome,
       lockPath: paths.globalLock,
       harness: harnessId,
@@ -212,7 +228,7 @@ export async function materializeSpec(
 
   const targetName = options?.materializationTargetName ?? computeSpacesTargetName(refs)
   const paths = new PathResolver({ aspHome })
-  const registryPath = registryPathOverride ?? paths.repo
+  const registryPath = resolveSharedSpacesRoot(aspHome, registryPathOverride, options?.projectRoot)
   const materialized = await materializeFromRefs({
     targetName,
     refs: refs as SpaceRefString[],

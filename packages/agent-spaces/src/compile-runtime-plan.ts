@@ -69,6 +69,7 @@ const COMPILER_VERSION = '0.1.1'
 
 type CompileRuntimePlanOptions = {
   clientAspHome?: string | undefined
+  clientRegistryPath?: string | undefined
 }
 
 function hashValue(value: unknown): string {
@@ -781,7 +782,11 @@ async function compileBrokerPlan(
   }
 
   validateBrokerInvocationRequest(brokerReq)
-  const prepared = await preparePlacementCliRuntime(brokerReq, options?.clientAspHome)
+  const prepared = await preparePlacementCliRuntime(
+    brokerReq,
+    options?.clientAspHome,
+    options?.clientRegistryPath
+  )
   const brokerInvocation = toHarnessBrokerStartRequest(prepared, brokerReq)
   const startRequest = brokerInvocation.startRequest
   const spec = brokerInvocation.spec
@@ -966,7 +971,8 @@ async function compileForegroundPlan(
       ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
       placement,
     },
-    options?.clientAspHome
+    options?.clientAspHome,
+    options?.clientRegistryPath
   )
 
   const lockedEnv = prepared.lockedEnv
@@ -1193,12 +1199,17 @@ async function prepareEmbeddedSdkSession(
   try {
     return await preparePlacementCliRuntime(
       { ...baseReq, ...(req.requested.model !== undefined ? { model: req.requested.model } : {}) },
-      options?.clientAspHome
+      options?.clientAspHome,
+      options?.clientRegistryPath
     )
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (req.requested.model !== undefined && /Model not supported/.test(message)) {
-      return await preparePlacementCliRuntime(baseReq, options?.clientAspHome)
+      return await preparePlacementCliRuntime(
+        baseReq,
+        options?.clientAspHome,
+        options?.clientRegistryPath
+      )
     }
     throw error
   }
@@ -1520,7 +1531,8 @@ async function compileTmuxBrokerPlan(
       ...(placement.dispatchEnv !== undefined ? { dispatchEnv: placement.dispatchEnv } : {}),
       placement,
     },
-    options?.clientAspHome
+    options?.clientAspHome,
+    options?.clientRegistryPath
   )
 
   const permissionPolicy = req.hrcPolicy.permissionPolicy ?? { mode: 'deny', audit: true }

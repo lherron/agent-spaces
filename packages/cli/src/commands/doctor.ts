@@ -217,6 +217,16 @@ function checkAgentRoots(projectPath: string | null, aspHome: string): CheckResu
   }
 
   for (const agent of report.agents) {
+    if (agent.id === 'spaces') {
+      checks.push({
+        name: 'agent_reserved_name',
+        status: 'error',
+        message: `agent '${agent.id}' uses reserved directory name ${agent.root}`,
+        detail:
+          'The agents root reserves spaces/ for shared space definitions; rename this agent directory.',
+      })
+    }
+
     for (const shadowedRoot of agent.shadowedRoots) {
       checks.push({
         name: 'agent_shadow',
@@ -307,7 +317,7 @@ export function registerDoctorCommand(program: Command): void {
       checks.push(await checkClaude())
 
       // Check ASP_HOME
-      const { aspHome, paths } = resolvePaths(options)
+      const { aspHome, paths, registryPath } = resolvePaths(options)
       checks.push(await checkAspHome(aspHome))
 
       // Check cache directory
@@ -316,13 +326,14 @@ export function registerDoctorCommand(program: Command): void {
       // Check store directory
       checks.push(await checkDirectoryAccess('store', paths.store))
 
-      // Check registry
-      const { result: registryResult, exists: registryExists } = await checkRegistry(paths.repo)
+      // Check shared spaces root. The compatibility name is still "registry",
+      // but the default path is now the configured agents root.
+      const { result: registryResult, exists: registryExists } = await checkRegistry(registryPath)
       checks.push(registryResult)
 
       // Check registry remote reachability (if registry exists)
       if (registryExists) {
-        checks.push(await checkRegistryRemote(paths.repo))
+        checks.push(await checkRegistryRemote(registryPath))
       }
 
       // Check project

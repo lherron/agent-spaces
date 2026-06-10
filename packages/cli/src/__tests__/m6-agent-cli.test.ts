@@ -51,6 +51,7 @@ const SAMPLE_FIXTURES_DIR = join(
   'integration-tests',
   'fixtures'
 )
+const CLAUDE_SHIM_DIR = join(SAMPLE_FIXTURES_DIR, 'claude-shim')
 const CLI_TEST_TIMEOUT_MS = 30000
 
 function cliTest(name: string, fn: TestFn): void
@@ -356,6 +357,94 @@ describe('existing CLI compatibility (T-00867)', () => {
       })
     } finally {
       await rm(aspHome, { recursive: true, force: true })
+    }
+  })
+
+  cliTest('asp run resolves @dev shared spaces from agents root in a clean ASP_HOME', async () => {
+    const aspHome = await mkdtemp(join(tmpdir(), 'asp-run-agents-root-home-'))
+    const projectDir = await mkdtemp(join(tmpdir(), 'asp-run-agents-root-project-'))
+    const agentsRoot = await mkdtemp(join(tmpdir(), 'asp-run-agents-root-'))
+    try {
+      await mkdir(join(projectDir), { recursive: true })
+      await writeFile(
+        join(projectDir, 'asp-targets.toml'),
+        [
+          'schema = 1',
+          '',
+          '[targets.dev]',
+          'description = "Clean home agents-root dev target"',
+          'compose = ["space:base@dev"]',
+          '',
+        ].join('\n')
+      )
+      await mkdir(join(agentsRoot, 'spaces'), { recursive: true })
+      await cp(
+        join(SAMPLE_FIXTURES_DIR, 'sample-registry', 'spaces', 'base'),
+        join(agentsRoot, 'spaces', 'base'),
+        {
+          recursive: true,
+        }
+      )
+
+      const env = {
+        ASP_HOME: aspHome,
+        ASP_AGENTS_ROOT: agentsRoot,
+        PATH: `${CLAUDE_SHIM_DIR}:${process.env.PATH ?? ''}`,
+      }
+
+      const install = runAsp(['install', '--update', '--no-fetch', '--project', projectDir], {
+        env,
+      })
+      expect(install.exitCode).toBe(0)
+
+      const result = runAsp(['run', 'dev', '--dry-run', '--project', projectDir], {
+        env,
+      })
+      const output = result.stdout + result.stderr
+
+      expect(result.exitCode).toBe(0)
+      expect(output).toContain('plugins/000-base')
+      expect(output).not.toContain(`${aspHome}/repo`)
+    } finally {
+      await rm(aspHome, { recursive: true, force: true })
+      await rm(projectDir, { recursive: true, force: true })
+      await rm(agentsRoot, { recursive: true, force: true })
+    }
+  })
+
+  cliTest('asp doctor rejects spaces as an agent directory name', async () => {
+    const aspHome = await mkdtemp(join(tmpdir(), 'asp-doctor-spaces-home-'))
+    const projectDir = await mkdtemp(join(tmpdir(), 'asp-doctor-spaces-project-'))
+    try {
+      await writeFile(
+        join(projectDir, 'asp-targets.toml'),
+        'schema = 1\nagents-root = "./agents"\n'
+      )
+      await mkdir(join(projectDir, 'agents', 'spaces'), { recursive: true })
+      await writeFile(
+        join(projectDir, 'agents', 'spaces', 'agent-profile.toml'),
+        'name = "spaces"\n'
+      )
+
+      const result = runAsp(['doctor', '--project', projectDir, '--asp-home', aspHome, '--json'], {
+        expectError: true,
+      })
+      const output = result.stdout + result.stderr
+      const parsed = JSON.parse(result.stdout) as {
+        checks: Array<{ name: string; status: string; message: string }>
+      }
+
+      expect(result.exitCode).toBe(1)
+      expect(output).toContain('agent_reserved_name')
+      expect(parsed.checks).toContainEqual(
+        expect.objectContaining({
+          name: 'agent_reserved_name',
+          status: 'error',
+        })
+      )
+    } finally {
+      await rm(aspHome, { recursive: true, force: true })
+      await rm(projectDir, { recursive: true, force: true })
     }
   })
 })

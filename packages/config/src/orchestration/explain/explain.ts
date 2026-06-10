@@ -24,6 +24,7 @@ import {
 import { type LintContext, type LintWarning, type SpaceLintData, lint } from '../../lint/index.js'
 
 import { PathResolver, getAspHome, snapshotExists } from '../../store/index.js'
+import { getRegistryPath } from '../resolve.js'
 
 import {
   getAvailableComponents,
@@ -197,7 +198,11 @@ async function explainTarget(
 ): Promise<TargetExplanation> {
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
-  const registryPath = options.registryPath ?? paths.repo
+  const registryPath = getRegistryPath({
+    projectPath: options.projectPath,
+    aspHome,
+    ...(options.registryPath ? { registryPath: options.registryPath } : {}),
+  })
   const checkStore = options.checkStore !== false
   const buildOpts = { paths, cwd: registryPath, registryPath }
 

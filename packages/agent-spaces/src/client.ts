@@ -117,11 +117,12 @@ function buildContinuationRef(
 
 export function createAgentSpacesClient(options?: AgentSpacesClientOptions): AgentSpacesClient {
   const clientAspHome = options?.aspHome
+  const clientRegistryPath = options?.registryPath
   const inFlightRuns = createInFlightRunMap()
 
   return {
     async compileRuntimePlan(req) {
-      return compileRuntimePlan(req, { clientAspHome })
+      return compileRuntimePlan(req, { clientAspHome, clientRegistryPath })
     },
 
     async resolve(req: ResolveRequest): Promise<ResolveResponse> {
@@ -208,7 +209,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
     ): Promise<BuildProcessInvocationSpecResponse> {
       // Placement-based path (v2)
       if (req.placement) {
-        const prepared = await preparePlacementCliRuntime(req, clientAspHome)
+        const prepared = await preparePlacementCliRuntime(req, clientAspHome, clientRegistryPath)
         return toProcessInvocationSpec(prepared, req)
       }
 
@@ -318,7 +319,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
       req: BuildHarnessBrokerInvocationRequest
     ): Promise<BuildHarnessBrokerInvocationResponse> {
       validateBrokerInvocationRequest(req)
-      const prepared = await preparePlacementCliRuntime(req, clientAspHome)
+      const prepared = await preparePlacementCliRuntime(req, clientAspHome, clientRegistryPath)
       return toHarnessBrokerStartRequest(prepared, req)
     },
 
