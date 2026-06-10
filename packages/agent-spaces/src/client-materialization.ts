@@ -136,6 +136,13 @@ export async function materializeSpec(
     agentRoot?: string | undefined
     projectRoot?: string | undefined
     materializationTargetName?: string | undefined
+    materializationIdentity?:
+      | {
+          agentId: string
+          projectId: string
+          frontend?: string | undefined
+        }
+      | undefined
     agentLocalComponents?: AgentLocalComponents | undefined
   }
 ): Promise<MaterializedSpec> {
@@ -154,6 +161,9 @@ export async function materializeSpec(
       ...(options?.agentRoot ? { agentPath: options.agentRoot } : {}),
       ...(options?.agentLocalComponents
         ? { agentLocalComponents: options.agentLocalComponents }
+        : {}),
+      ...(options?.materializationIdentity
+        ? { materializationIdentity: options.materializationIdentity }
         : {}),
     })
     const skillMetadata = await discoverSkills(materialization.pluginDirs)
@@ -185,6 +195,9 @@ export async function materializeSpec(
       ...(options?.agentLocalComponents
         ? { agentLocalComponents: options.agentLocalComponents }
         : {}),
+      ...(options?.materializationIdentity
+        ? { materializationIdentity: options.materializationIdentity }
+        : {}),
     })
     return {
       targetName,
@@ -212,6 +225,9 @@ export async function materializeSpec(
     ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
     ...(options?.agentLocalComponents
       ? { agentLocalComponents: options.agentLocalComponents }
+      : {}),
+    ...(options?.materializationIdentity
+      ? { materializationIdentity: options.materializationIdentity }
       : {}),
   })
 

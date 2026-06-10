@@ -37,6 +37,7 @@ import { ensureAspHome, getAspHome } from '../store/index.js'
 
 import { fetch as gitFetch } from '../git/index.js'
 import {
+  type InstallOptions,
   type TargetMaterializationResult,
   materializeTarget,
   populateSnapshotsFromLock,
@@ -93,6 +94,8 @@ export interface MaterializeFromRefsOptions {
    * When present, a synthetic plugin artifact is appended to the target bundle.
    */
   agentLocalComponents?: AgentLocalComponents | undefined
+  /** Semantic stable identity for agent/project placement materialization. */
+  materializationIdentity?: InstallOptions['materializationIdentity'] | undefined
 }
 
 /**
@@ -212,6 +215,9 @@ export async function materializeFromRefs(
     inheritUser: options.inheritUser,
     ...(options.agentRoot ? { agentPath: options.agentRoot } : {}),
     ...(options.agentLocalComponents ? { agentLocalComponents: options.agentLocalComponents } : {}),
+    ...(options.materializationIdentity
+      ? { materializationIdentity: options.materializationIdentity }
+      : {}),
   }
   const materialization = await materializeTarget(targetName, mergedLock, matOptions)
 

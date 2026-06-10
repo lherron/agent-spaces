@@ -9,9 +9,20 @@
  * - Materialize composed bundles under ASP_HOME
  */
 
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import {
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
+import { basename, join, relative } from 'node:path'
 
 import {
   type AgentLocalComponents,
@@ -39,6 +50,7 @@ import {
   getLoadOrderEntries,
   isHarnessSupported,
   readSpaceToml,
+  withLock,
   withProjectLock,
 } from '../core/index.js'
 
@@ -51,15 +63,17 @@ import {
 } from '../resolver/index.js'
 
 import {
+  type CacheRequiredEntry,
   PathResolver,
   type SnapshotOptions,
   cacheExists,
-  computePluginCacheKey,
+  computeHarnessPluginCacheKey,
   createSnapshot,
   ensureAspHome,
   getAspHome,
+  sanitizeProjectAgentScopeSegment,
   snapshotExists,
-  writeCacheMetadata,
+  writeCacheMetadataAt,
 } from '../store/index.js'
 
 import { fetch as gitFetch } from '../git/index.js'
@@ -83,6 +97,9 @@ import {
 
 /** Default plugin version used when a space declares none. */
 const DEFAULT_PLUGIN_VERSION = '0.0.0'
+const PLUGIN_MATERIALIZER_VERSION = 'plugin-materializer-v3-complete'
+const TARGET_MATERIALIZER_VERSION = 'target-materializer-v1-versioned'
+const TARGET_MANIFEST_FILENAME = '.asp-materialized.json'
 
 /**
  * Options for install operation.
@@ -126,6 +143,18 @@ export interface InstallOptions extends ResolveOptions {
    * When present, a synthetic plugin artifact is appended to the target bundle.
    */
   agentLocalComponents?: AgentLocalComponents | undefined
+  /**
+   * Semantic stable identity for agent/project placements. When present, this
+   * drives the public codex-homes/<project>_<agent> scope path instead of cwd
+   * basenames.
+   */
+  materializationIdentity?:
+    | {
+        agentId: string
+        projectId: string
+        frontend?: string | undefined
+      }
+    | undefined
 }
 
 /**
@@ -248,6 +277,173 @@ interface MaterializeTargetContext {
   options: InstallOptions
 }
 
+function materializationLockPath(paths: PathResolver, key: string): string {
+  const safeKey = sanitizeProjectAgentScopeSegment(key)
+  return join(paths.temp, 'locks', `${safeKey}.lock`)
+}
+
+function uniqueStagingDir(paths: PathResolver, prefix: string): string {
+  return join(paths.temp, '.staging', `${prefix}-${process.pid}-${randomUUID()}`)
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableJson(entry)).join(',')}]`
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+async function hashDirectory(
+  root: string,
+  options: { excludeRelativePaths?: Set<string> | undefined } = {}
+): Promise<string> {
+  const entries: string[] = []
+  const excludeRelativePaths = options.excludeRelativePaths ?? new Set()
+
+  async function visit(dir: string, prefix: string): Promise<void> {
+    const dirents = await readdir(dir, { withFileTypes: true })
+    for (const dirent of dirents.sort((a, b) => a.name.localeCompare(b.name))) {
+      const fullPath = join(dir, dirent.name)
+      const relativePath = prefix ? `${prefix}/${dirent.name}` : dirent.name
+      if (excludeRelativePaths.has(relativePath)) {
+        continue
+      }
+      const stats = await lstat(fullPath)
+      if (dirent.isDirectory()) {
+        entries.push(`dir ${relativePath} ${stats.mode}`)
+        await visit(fullPath, relativePath)
+      } else if (dirent.isSymbolicLink()) {
+        entries.push(`symlink ${relativePath} ${stats.mode} ${await readlink(fullPath)}`)
+      } else if (dirent.isFile()) {
+        const content = await readFile(fullPath)
+        entries.push(
+          `file ${relativePath} ${stats.mode} ${createHash('sha256').update(content).digest('hex')}`
+        )
+      }
+    }
+  }
+
+  await visit(root, '')
+  return sha256Hex(entries.join('\n'))
+}
+
+async function buildCacheRequiredEntries(
+  artifactPath: string,
+  paths: string[]
+): Promise<CacheRequiredEntry[]> {
+  const entries: CacheRequiredEntry[] = []
+  for (const path of Array.from(new Set(paths)).sort()) {
+    const stats = await lstat(join(artifactPath, path))
+    if (stats.isDirectory()) {
+      entries.push({ path, kind: 'directory' })
+    } else if (stats.isSymbolicLink()) {
+      entries.push({ path, kind: 'symlink' })
+    } else if (stats.isFile()) {
+      entries.push({ path, kind: 'file' })
+    }
+  }
+  return entries
+}
+
+function computeTargetFingerprint(input: {
+  harnessId: HarnessId
+  targetName: string
+  identity?: InstallOptions['materializationIdentity']
+  target: LockFile['targets'][string] | undefined
+  artifacts: Array<
+    Pick<ResolvedSpaceArtifact, 'spaceKey' | 'spaceId' | 'pluginName' | 'pluginVersion'> & {
+      contentHash: string
+    }
+  >
+  settingsInputs: SpaceSettings[]
+  codexOptions: CodexOptions | undefined
+}): string {
+  return sha256Hex(
+    stableJson({
+      schemaVersion: TARGET_MATERIALIZER_VERSION,
+      harnessId: input.harnessId,
+      targetName: input.targetName,
+      identity: input.identity,
+      compose: input.target?.compose ?? [],
+      roots: input.target?.roots ?? [],
+      loadOrder: input.target?.loadOrder ?? [],
+      artifacts: input.artifacts,
+      settingsInputs: input.settingsInputs,
+      codexOptions: input.codexOptions,
+    })
+  )
+}
+
+async function validateMaterializedTarget(
+  outputPath: string,
+  fingerprint: string
+): Promise<boolean> {
+  try {
+    const manifestPath = join(outputPath, TARGET_MANIFEST_FILENAME)
+    const manifestFile = Bun.file(manifestPath)
+    if (!(await manifestFile.exists())) {
+      return false
+    }
+    const manifest = (await manifestFile.json()) as {
+      fingerprint?: string
+      complete?: boolean
+      requiredPaths?: string[]
+    }
+    if (manifest.fingerprint !== fingerprint || manifest.complete !== true) {
+      return false
+    }
+    for (const requiredPath of manifest.requiredPaths ?? []) {
+      if (!(await pathExists(join(outputPath, requiredPath)))) {
+        return false
+      }
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+function targetRequiredPaths(bundle: {
+  rootDir: string
+  settingsPath?: string | undefined
+  mcpConfigPath?: string | undefined
+  pluginDirs?: string[] | undefined
+}): string[] {
+  const required = new Set<string>()
+  if (bundle.settingsPath) {
+    required.add(relative(bundle.rootDir, bundle.settingsPath))
+  }
+  if (bundle.mcpConfigPath) {
+    required.add(relative(bundle.rootDir, bundle.mcpConfigPath))
+  }
+  if (bundle.pluginDirs) {
+    for (const pluginDir of bundle.pluginDirs) {
+      required.add(relative(bundle.rootDir, pluginDir))
+    }
+  }
+  return Array.from(required).sort()
+}
+
 /**
  * Materialize a single locked space entry into a plugin artifact.
  *
@@ -268,12 +464,14 @@ async function materializeSpaceEntry(
   // Compute cache key
   const pluginName = entry.plugin?.name ?? entry.id
   const pluginVersion = entry.plugin?.version ?? DEFAULT_PLUGIN_VERSION
-  const cacheKey = computePluginCacheKey(
+  const cacheKey = computeHarnessPluginCacheKey(
+    harnessId,
+    PLUGIN_MATERIALIZER_VERSION,
     entry.integrity as Sha256Integrity,
     pluginName,
     pluginVersion
   )
-  const cacheDir = paths.pluginCache(cacheKey)
+  const publishedCacheDir = paths.pluginCache(cacheKey)
 
   // Build space key
   let spaceKey: SpaceKey
@@ -324,58 +522,87 @@ async function materializeSpaceEntry(
     return null
   }
 
-  // Check cache (skip for @dev, project, and agent refs since content can change, or when refresh requested)
-  const isCached =
-    !isDev &&
-    !isProjectSpace &&
-    !isAgentSpace &&
-    !options.refresh &&
-    (await cacheExists(cacheKey, { paths }))
+  const input: MaterializeSpaceInput = {
+    spaceKey,
+    manifest:
+      manifest ??
+      ({
+        schema: 1,
+        id: entry.id,
+        plugin: {
+          ...entry.plugin,
+          name: pluginName,
+          version: pluginVersion,
+        },
+      } as ResolvedSpaceManifest),
+    snapshotPath,
+    integrity: entry.integrity,
+  }
 
-  if (!isCached) {
-    // Build input for harness adapter
-    const input: MaterializeSpaceInput = {
-      spaceKey,
-      manifest:
-        manifest ??
-        ({
-          schema: 1,
-          id: entry.id,
-          plugin: {
-            ...entry.plugin,
-            name: pluginName,
-            version: pluginVersion,
-          },
-        } as ResolvedSpaceManifest),
-      snapshotPath,
-      integrity: entry.integrity,
+  const isMutableLocalSpace = isDev || isProjectSpace || isAgentSpace
+  let artifactPath = publishedCacheDir
+
+  if (isMutableLocalSpace) {
+    artifactPath = uniqueStagingDir(
+      paths,
+      `space-${sanitizeProjectAgentScopeSegment(String(spaceKey))}`
+    )
+    await adapter.materializeSpace(input, artifactPath, { force: false, useHardlinks: false })
+  } else {
+    const ensurePublishedCache = async (): Promise<void> => {
+      if (await cacheExists(cacheKey, { paths })) {
+        return
+      }
+
+      const stagingDir = uniqueStagingDir(paths, `cache-${cacheKey.slice(0, 16)}`)
+      await rm(stagingDir, { recursive: true, force: true }).catch(() => {})
+      try {
+        const result = await adapter.materializeSpace(input, stagingDir, {
+          force: false,
+          useHardlinks: true,
+        })
+        const files = Array.from(new Set(result.files)).sort()
+        await writeCacheMetadataAt(stagingDir, {
+          schemaVersion: 1,
+          complete: true,
+          pluginName,
+          pluginVersion,
+          integrity: entry.integrity as Sha256Integrity,
+          cacheKey,
+          createdAt: new Date().toISOString(),
+          spaceKey,
+          files,
+          requiredEntries: await buildCacheRequiredEntries(stagingDir, files),
+        })
+        try {
+          await mkdir(paths.cache, { recursive: true })
+          await rename(stagingDir, publishedCacheDir)
+        } catch (error) {
+          await rm(stagingDir, { recursive: true, force: true }).catch(() => {})
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+            throw error
+          }
+          if (!(await cacheExists(cacheKey, { paths }))) {
+            throw error
+          }
+        }
+      } catch (error) {
+        await rm(stagingDir, { recursive: true, force: true }).catch(() => {})
+        throw error
+      }
     }
 
-    // Materialize using harness adapter (handles hooks.toml → hooks.json, etc.)
-    // For dev, project, and agent spaces, use copy instead of hardlinks to protect source files
-    const useHardlinks = !isDev && !isProjectSpace && !isAgentSpace
-    await adapter.materializeSpace(input, cacheDir, { force: true, useHardlinks })
-
-    // Write cache metadata
-    await writeCacheMetadata(
-      cacheKey,
-      {
-        pluginName,
-        pluginVersion,
-        integrity: entry.integrity as Sha256Integrity,
-        cacheKey,
-        createdAt: new Date().toISOString(),
-        spaceKey,
-      },
-      { paths }
-    )
+    await withLock(materializationLockPath(paths, `cache-${cacheKey}`), ensurePublishedCache, {
+      stale: 60_000,
+      retries: 600,
+    })
   }
 
   return {
     artifact: {
       spaceKey,
       spaceId: entry.id,
-      artifactPath: cacheDir,
+      artifactPath,
       pluginName,
       pluginVersion,
     },
@@ -426,11 +653,21 @@ export async function materializeTarget(
     )
   }
 
-  // Get output paths using harness adapter.
-  // Returns: <ASP_HOME>/codex-homes/<project>_<target>/bundles/<target>/claude
-  // for ClaudeAdapter.
-  const outputRoot = paths.projectHarnessBundleRoot(options.projectPath, targetName)
-  const outputPath = adapter.getTargetOutputPath(outputRoot, targetName)
+  const publicScopeRoot = options.materializationIdentity
+    ? join(
+        aspHome,
+        'codex-homes',
+        `${sanitizeProjectAgentScopeSegment(
+          options.materializationIdentity.projectId
+        )}_${sanitizeProjectAgentScopeSegment(options.materializationIdentity.agentId)}`
+      )
+    : join(
+        aspHome,
+        'codex-homes',
+        `${sanitizeProjectAgentScopeSegment(basename(options.projectPath))}_${sanitizeProjectAgentScopeSegment(
+          targetName
+        )}`
+      )
 
   // Get spaces in load order for this target (from lock)
   const entries = getLoadOrderEntries(lock, targetName)
@@ -459,6 +696,18 @@ export async function materializeTarget(
       settingsInputs.push({}) // no settings from agent components
     }
   }
+  const artifactFingerprints = []
+  for (const artifact of artifacts) {
+    artifactFingerprints.push({
+      spaceKey: artifact.spaceKey,
+      spaceId: artifact.spaceId,
+      pluginName: artifact.pluginName,
+      pluginVersion: artifact.pluginVersion,
+      contentHash: await hashDirectory(artifact.artifactPath, {
+        excludeRelativePaths: new Set(['.asp-cache.json']),
+      }),
+    })
+  }
 
   // Phase 2: Compose target using harness adapter
   // This handles assembling artifacts into the final target bundle
@@ -478,21 +727,91 @@ export async function materializeTarget(
     codexOptions,
   }
 
-  const { bundle } = await adapter.composeTarget(composeInput, outputPath, {
-    clean: true,
-    inheritProject: options.inheritProject,
-    inheritUser: options.inheritUser,
+  const fingerprint = computeTargetFingerprint({
+    harnessId,
+    targetName,
+    identity: options.materializationIdentity,
+    target,
+    artifacts: artifactFingerprints,
+    settingsInputs,
+    codexOptions,
   })
+  const versionRoot = join(publicScopeRoot, 'bundles', '.versions', fingerprint)
+  const outputPath = adapter.getTargetOutputPath(versionRoot, targetName)
 
-  // Cleanup: remove the temporary agent-components directory after composition
-  // The composeTarget() call copies contents into the bundle, so the tmp dir is no longer needed
-  if (options.agentLocalComponents) {
-    const agentTmpDir = join(
-      paths.temp,
-      `agent-components-${basename(options.agentLocalComponents.agentRoot)}`
+  const publishTarget = async (): Promise<void> => {
+    if (await validateMaterializedTarget(outputPath, fingerprint)) {
+      return
+    }
+
+    const stagingRoot = uniqueStagingDir(
+      paths,
+      `bundle-${sanitizeProjectAgentScopeSegment(targetName)}-${fingerprint.slice(0, 16)}`
     )
-    await rm(agentTmpDir, { recursive: true, force: true }).catch(() => {})
+    const stagingOutputPath = adapter.getTargetOutputPath(stagingRoot, targetName)
+    await rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
+    try {
+      const { bundle } = await adapter.composeTarget(composeInput, stagingOutputPath, {
+        clean: true,
+        inheritProject: options.inheritProject,
+        inheritUser: options.inheritUser,
+      })
+      const requiredPaths = targetRequiredPaths(bundle)
+      await writeFile(
+        join(stagingOutputPath, TARGET_MANIFEST_FILENAME),
+        `${JSON.stringify(
+          {
+            schemaVersion: 1,
+            complete: true,
+            materializerVersion: TARGET_MATERIALIZER_VERSION,
+            fingerprint,
+            harnessId,
+            targetName,
+            identity: options.materializationIdentity,
+            generatedAt: new Date().toISOString(),
+            requiredPaths,
+          },
+          null,
+          2
+        )}\n`
+      )
+      await mkdir(join(publicScopeRoot, 'bundles', '.versions'), { recursive: true })
+      try {
+        await rename(stagingRoot, versionRoot)
+      } catch (error) {
+        await rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw error
+        }
+        if (!(await validateMaterializedTarget(outputPath, fingerprint))) {
+          throw error
+        }
+      }
+    } catch (error) {
+      await rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
+      throw error
+    }
   }
+
+  await withLock(
+    materializationLockPath(paths, `bundle-${sha256Hex(outputPath).slice(0, 32)}`),
+    publishTarget,
+    { stale: 60_000, retries: 600 }
+  )
+
+  if (!(await validateMaterializedTarget(outputPath, fingerprint))) {
+    throw new Error(`Materialized target did not validate after publish: ${outputPath}`)
+  }
+
+  const bundle = await adapter.loadTargetBundle(outputPath, targetName)
+  const stagingRoot = join(paths.temp, '.staging')
+  await Promise.all(
+    artifacts
+      .filter((artifact) => artifact.artifactPath.startsWith(stagingRoot))
+      .map((artifact) =>
+        rm(artifact.artifactPath, { recursive: true, force: true }).catch(() => {})
+      )
+  )
 
   return {
     target: targetName,
@@ -530,9 +849,13 @@ export async function materializeAgentLocalComponents(
   const agentName = basename(components.agentRoot)
   const pluginName = `${agentName}-agent`
 
-  // Build in a temp directory under ASP_HOME/tmp
-  const tmpDir = join(paths.temp, `agent-components-${agentName}`)
-  await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+  // Build in a unique temp directory under ASP_HOME/tmp. This directory is a
+  // per-compose source artifact; sharing it by agent basename races under
+  // parallel starts.
+  const tmpDir = uniqueStagingDir(
+    paths,
+    `agent-components-${sanitizeProjectAgentScopeSegment(agentName)}`
+  )
   await mkdir(tmpDir, { recursive: true })
 
   // Write minimal plugin.json

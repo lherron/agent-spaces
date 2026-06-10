@@ -792,7 +792,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
       // Agent-project materialization now uses the stable agent-name target
       // path. The heartbeat inclusion is verified by resolvedBundle above; the
       // process env should point at the materialized agent bundle.
-      expect(allEnvVals).toContain(join('bundles', 'alice', 'claude'))
+      expect(allEnvVals).toContain(join('alice', 'claude'))
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }

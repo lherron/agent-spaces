@@ -1287,7 +1287,10 @@ async function waitForTmuxPaneReady(
         await runMatrixTmux(tmuxBin, ['-S', socketPath, 'send-keys', '-t', paneId, 'Enter'])
         return false
       }
-      return latest.includes('OpenAI Codex') && latest.includes('Context') && latest.includes('›')
+      const hasPrompt = latest.includes('Context') && latest.includes('›')
+      const hasLegacyHeader = latest.includes('OpenAI Codex')
+      const hasCurrentModelLine = /\b(?:gpt|o[0-9]|codex)[^\n]*· Context \d+% left\b/i.test(latest)
+      return hasPrompt && (hasLegacyHeader || hasCurrentModelLine)
     },
     timeoutMs,
     1_000
@@ -2193,7 +2196,7 @@ const connectUnix = (socketPath: string): Promise<BrokerClient> =>
 
 const unixHelloRequest = {
   clientInfo: { name: 'pre-hrc-matrix-unix', version: '0.1.0' },
-  protocolVersions: ['harness-broker/0.2', 'harness-broker/0.1'],
+  protocolVersions: ['harness-broker/0.2'],
   capabilities: { eventReplay: true, permissionRequests: true },
 } as const
 
