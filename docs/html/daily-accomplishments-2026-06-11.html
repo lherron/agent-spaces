@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-11</title>
+  <style>
+    :root {
+      --bg: #f3efe7;
+      --paper: rgba(255,255,255,0.96);
+      --ink: #152120;
+      --muted: #5f6b69;
+      --line: #d5ddd7;
+      --shadow: 0 18px 44px rgba(21, 33, 32, 0.08);
+      --asp: #9a4a1c;
+      --asp-soft: #f8e2d3;
+      --pbc: #0e706a;
+      --pbc-soft: #def3ef;
+      --ops: #265f95;
+      --ops-soft: #e5eef8;
+      --warn: #7a591e;
+      --warn-soft: #f7ecd7;
+      --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+      --serif: Georgia, "Iowan Old Style", serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body {
+      background:
+        linear-gradient(90deg, rgba(21, 33, 32, 0.03) 1px, transparent 1px) 0 0 / 28px 28px,
+        linear-gradient(0deg, rgba(21, 33, 32, 0.02) 1px, transparent 1px) 0 0 / 28px 28px,
+        radial-gradient(circle at top right, rgba(14, 112, 106, 0.16), transparent 36%),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 var(--sans);
+    }
+    a { color: var(--pbc); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 292px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; padding: 24px 20px 28px; border-right: 1px solid var(--line); background: rgba(243,239,231,0.95); backdrop-filter: blur(12px); }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card { display: grid; gap: 10px; }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.055em; }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { margin: 0; font-family: var(--serif); line-height: 1.05; }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p { margin: 0; color: var(--muted); }
+    .kicker { color: var(--asp); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a { display: block; padding: 8px 10px; border-left: 3px solid transparent; color: var(--muted); font-size: 11px; font-weight: 800; text-decoration: none; }
+    .nav a:hover, .nav a:focus { border-left-color: var(--pbc); background: rgba(255,255,255,0.84); color: var(--ink); }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    main { min-width: 0; }
+    .hero { padding: 44px min(5vw, 62px) 34px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(14,112,106,0.16), transparent 52%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.9)); }
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.14fr) minmax(320px, 0.86fr); gap: 28px; }
+    .eyebrow { color: var(--pbc); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.4rem, 4vw, 3.9rem); margin-bottom: 14px; }
+    .hero p { max-width: 68ch; font-size: 1.02rem; }
+    .hero-note { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--line); background: rgba(255,255,255,0.84); box-shadow: var(--shadow); }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.9rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 80ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card { min-width: 0; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); padding: 20px; }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.35rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; font-weight: 800; max-width: 100%; overflow-wrap: anywhere; background: #edf2ee; }
+    .chip.pbc { background: var(--pbc-soft); color: var(--pbc); border-color: rgba(14,112,106,0.2); }
+    .chip.asp { background: var(--asp-soft); color: var(--asp); border-color: rgba(154,74,28,0.18); }
+    .chip.ops { background: var(--ops-soft); color: var(--ops); border-color: rgba(38,95,149,0.18); }
+    .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: rgba(122,89,30,0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.12fr 0.88fr; gap: 18px; min-width: 0; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; min-width: 0; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    .note-box { padding: 16px 18px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(229,238,248,0.64), rgba(255,255,255,0.84)); }
+    .task-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 800; color: var(--muted); }
+    .task-grid .task-card { grid-column: span 4; }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(225,241,231,0.9), rgba(255,255,255,0.96)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(247,234,214,0.88), rgba(255,255,255,0.96)); }
+    .repo-list span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 800; }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+      .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; }
+    }
+    @media (max-width: 640px) {
+      .hero, .content { padding-left: 18px; padding-right: 18px; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-11</h1>
+        <p>Previous 24 hours, local time. This brief spans every visible Praesidium repo and wrkq project evidence source, not only <code>agent-spaces</code>.</p>
+      </div>
+      <nav class="nav"><a href="#scorecard">Scorecard</a><a href="#workstreams">Workstreams</a><a href="#tasks">Completed Tasks</a><a href="#validation">Validation</a><a href="#open-state">Open Repo State</a></nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--pbc);"></span>Research and product-shaping</div>
+        <div class="legend-item"><span class="dot" style="background: var(--asp);"></span>Platform/config plumbing</div>
+        <div class="legend-item"><span class="dot" style="background: var(--ops);"></span>User-facing control surfaces</div>
+        <div class="legend-item"><span class="dot" style="background: var(--warn);"></span>Operational caveats</div>
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Window</strong><br />
+        2026-06-10 05:01 CDT to 2026-06-11 05:01 CDT
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Top accomplishments</strong>
+        <ul class="fact-list"><li>Archagent landed 56 commits and 12 completed tasks, culminating in metalang seed rev5 plus five concrete samplers for implementation pressure-testing.</li><li>Agent-loop closed the metalang MVP path with an implementation commit and two completed tasks that encoded the twin-study constraints into an executable package.</li><li>Agent-spaces, HRC runtime, and dependent repos rolled out `agents-root` and project-local root resolution, then refreshed locks and defaults across the surrounding repos.</li><li>ACP added the agent pulpit Discord send endpoint while Taskboard closed the concierge scoped-session migration task and shows fresh unchecked-in follow-through work.</li></ul>
+      </div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium accomplishments for 2026-06-11</div>
+            <h2>Metalang research, ASP root reshaping, and ACP session plumbing drove the day.</h2>
+            <p>Praesidium shipped a heavy architecture-exploration day in archagent, converted that exploration into an implementable metalang MVP in agent-loop, and landed the project-local/agents-root ASP path changes needed to make shared spaces resolve cleanly across the stack. ACP and Taskboard also kept moving on scoped-session and pulpit flows, with clear evidence of follow-on local work still in flight.</p>
+            <div class="hero-note"><strong>Coverage</strong>This brief includes landed commits, completed <code>wrkq</code> tasks across all visible projects, unpushed-commit evidence, and only the unchecked-in paths whose modification times fall inside the same local 24-hour window.</div>
+          </div>
+          <div class="metrics"><article class="metric"><div class="metric-label">Landed commits</div><div class="metric-value">74</div><small>Across 11 active repos</small></article><article class="metric"><div class="metric-label">Completed tasks</div><div class="metric-value">28</div><small>Across 7 wrkq projects</small></article><article class="metric"><div class="metric-label">Unpushed commits</div><div class="metric-value">17</div><small>35 total local-only commits across 8 repos</small></article><article class="metric"><div class="metric-label">Recent open paths</div><div class="metric-value">22</div><small>Fresh unchecked-in paths across 5 repos</small></article></div>
+        </div>
+      </section>
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The report groups accomplishments by the story the changes tell, not by raw file count. Archagent drove the volume, but the strongest cross-repo signal is how research output, implementation work, and platform plumbing connected within the same day.</p>
+          </div>
+          <div class="stream-grid"><article class="stream-card"><div class="stream-head"><div class="chips"><span class="chip pbc">Research to Implementation</span></div></div><h3>Metalang moved from survey artifacts into an MVP and sampler-ready contract.</h3><p>The densest landed work came from archagent, where paired indist/latent runs, twin comparisons, and seed revisions converged into a handoff that agent-loop immediately turned into implementation work.</p><div class="stream-columns"><div><ul class="fact-list"><li>`archagent` contributed 56 landed commits in-window, including the close-out sequence for `project-functors`, `decision-archaeology`, `metalang.indist`, `metalang-applications`, and the rev5 seed/sampler pass.</li><li>Completed wrkq evidence: 12 archagent tasks closed, including T-04151, T-04155, T-04154, T-04153, T-04152, T-04148, T-04147, T-04149, T-04146, and T-04138.</li><li>`agent-loop` then closed T-04156 and T-04178 and landed 3 commits, including `Implement metalang MVP` and a follow-up path fix for real wrkq usage.</li></ul></div><div><div class="note-box"><strong>Evidence highlights</strong><ul class="evidence-list"><li>metalang samplers: five pre-implementation TS samplers against seed rev5, grounded in real architecture cases — s1 service-surface census (survey/schema; embedded gateway, sock/po…</li><li>metalang seed rev5: implementation-ready pass — MVP contract section (cut-line, executor-side protocol, 6 runtime bindings w/ decided-vs-assigned status, Q3/Q4/Q6/Q7 v0 fallbacks,…</li><li>metalang seed rev4: fold in applications-twins fallout (T-04153/T-04154/T-04155) — differentiator timestamped (V1 door closing / V4+V7 moat conditional on Q4), gate economics tier…</li><li>metalang-applications twin comparison: pair-review aid — 10 convergences (V7↔Intent Archaeology, V4↔Claim Register direct hits), asset frame explains the vacancy map (3.1), door-v…</li><li>metalang-applications.latent close-out: artifact delivered (19 entries on compounding-asset build order, escape test 10/19), t9 + transcript + run card result, AGENTS.md actuation…</li><li>Fix metalang real wrkq path</li><li>Implement metalang MVP</li></ul></div></div></div><div class="hero-note"><strong>What to notice</strong>This is the clearest cross-repo story in the window: exploration output in one repo became executable package work in another within the same evening.</div></article><article class="stream-card"><div class="stream-head"><div class="chips"><span class="chip asp">Platform Plumbing</span></div></div><h3>ASP adopted project-local agent roots and `agents-root` references, then propagated that change through dependent repos.</h3><p>The second major theme was runtime/config path hygiene. Agent-spaces introduced project-local agent root resolution and a new `agents-root` ref scheme, HRC runtime resolved agents through project root search paths, and downstream repos refreshed defaults and lockfiles around the new layout.</p><div class="stream-columns"><div><ul class="fact-list"><li>`agent-spaces` landed 5 commits tied to T-04141, T-04143, and T-04144: proposal/docs, project-local root resolution, root-relative refs, overlay fallback repair, and shared-space resolution from the agents root.</li><li>Cross-repo follow-through landed in `spaces-repo`, `scriptable-ghostty`, `wrkq`, `ghostmux`, `taskboard`, and `workboard`, each carrying the T-04144 dev/default migration or lock refresh commit.</li><li>`hrc-runtime` added `Resolve agents through project root search path`, providing the runtime-side counterpart to the ASP config changes.</li></ul></div><div><div class="note-box"><strong>Evidence highlights</strong><ul class="evidence-list"><li>T-04144 resolve shared spaces from agents root</li><li>Fix overlay context-template fallback</li><li>Add agents-root root-relative refs</li><li>Add project-local agent root resolution</li><li>docs(proposals): project-local agent config roots — T-04141 phase 1 proposal</li><li>Resolve agents through project root search path</li><li>T-04144 tombstone legacy spaces repo</li></ul></div></div></div><div class="hero-note"><strong>What to notice</strong>This workstream touched many repos with small commits, but the conceptual change is singular: shared spaces now resolve through project-aware roots instead of the older registry indirection.</div></article><article class="stream-card"><div class="stream-head"><div class="chips"><span class="chip ops">Product Surface</span></div></div><h3>ACP and Taskboard advanced scoped-session and pulpit flows, with fresh local UI work still open.</h3><p>Committed ACP progress was lighter than the metalang and ASP threads, but task closure and current dirty files show active movement on the user-facing control surfaces.</p><div class="stream-columns"><div><ul class="fact-list"><li>`agent-control-plane` closed 7 tasks in-window, including ACP viewer host binding, workflow-boundary cleanup, session bleed fixes, and the Discord send endpoint.</li><li>A landed ACP commit added `agent pulpit Discord send`, while `taskboard` completed T-04158 to migrate the UI concierge onto ACP/HRC scoped sessions.</li><li>The `praesidium` umbrella project also closed two PBC integration tasks late in the window, and `media-ingest` closed its ACP pulpit CLI integration task.</li></ul></div><div><div class="note-box"><strong>Evidence highlights</strong><ul class="evidence-list"><li>Add agent pulpit Discord send</li><li>T-01994 — Add ACP agent pulpit Discord send endpoint</li><li>T-04157 — Allow max3.lan for ACP viewer</li><li>T-01424 — gateway-discord: scopeRef events bleed across bound sessions in same project</li><li>T-01937 — W7: boundary enforcement + final installed-binary smoke (Phase 8)</li><li>T-04158 — Migrate UI concierge to ACP/HRC scoped sessions</li><li>T-04177 — Integrate media-ingest with ACP pulpit CLI</li></ul></div></div></div><div class="hero-note"><strong>What to notice</strong>The open-state section matters here: Taskboard has the freshest unchecked-in paths, so the landed task should be read as an active stream rather than a finished pause point.</div></article></div>
+        </section>
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Task Grid</h2>
+            <p>All completed <code>wrkq</code> tasks captured in the window, sorted newest first. This is the workflow evidence layer that supplements the commit history, especially for umbrella-project and UI work.</p>
+          </div>
+          <div class="task-grid">
+      <article class="task-card">
+        <div class="task-meta"><span>agent-loop</span><span>T-04178</span></div>
+        <h3>metalang MVP: implement @praesidium/metalang until all 5 samplers run</h3>
+        <p>Jun 11, 12:12 AM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 2</span><span class="chip">agent-loop/inbox/metalang-mvp-impl</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-loop</span><span>T-04156</span></div>
+        <h3>metalang MVP: API must-not-preclude constraints from the applications twins</h3>
+        <p>Jun 10, 11:27 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 2</span><span class="chip">agent-loop/inbox/metalang-mvp-api-constraints</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>media-ingest</span><span>T-04177</span></div>
+        <h3>Integrate media-ingest with ACP pulpit CLI</h3>
+        <p>Jun 10, 11:24 PM UTC-05:00</p>
+        <div class="chips"><span class="chip warn">priority 2</span><span class="chip">media-ingest/inbox/integrate-pulpit-cli</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>praesidium</span><span>T-04164</span></div>
+        <h3>PBC Integration (patch-fin #6)</h3>
+        <p>Jun 10, 10:55 PM UTC-05:00</p>
+        <div class="chips"><span class="chip warn">priority 3</span><span class="chip">praesidium/inbox/pbc-int-5908-6</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>praesidium</span><span>T-04160</span></div>
+        <h3>PBC Integration (ready #2)</h3>
+        <p>Jun 10, 10:55 PM UTC-05:00</p>
+        <div class="chips"><span class="chip warn">priority 3</span><span class="chip">praesidium/inbox/pbc-int-5908-2</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04151</span></div>
+        <h3>Seed: metalang MVP API sketch (B)</h3>
+        <p>Jun 10, 10:51 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 1</span><span class="chip">archagent/inbox/metalang-api-seed</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>taskboard</span><span>T-04158</span></div>
+        <h3>Migrate UI concierge to ACP/HRC scoped sessions</h3>
+        <p>Jun 10, 09:54 PM UTC-05:00</p>
+        <div class="chips"><span class="chip ops">priority 2</span><span class="chip">taskboard/inbox/ui-concierge-acp-migration</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-control-plane</span><span>T-01994</span></div>
+        <h3>Add ACP agent pulpit Discord send endpoint</h3>
+        <p>Jun 10, 09:33 PM UTC-05:00</p>
+        <div class="chips"><span class="chip ops">priority 3</span><span class="chip">agent-control-plane/inbox/agent-pulpit-discord-send</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-control-plane</span><span>T-04157</span></div>
+        <h3>Allow max3.lan for ACP viewer</h3>
+        <p>Jun 10, 09:14 PM UTC-05:00</p>
+        <div class="chips"><span class="chip ops">priority 2</span><span class="chip">agent-control-plane/inbox/acp-viewer-max3-lan-host</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04155</span></div>
+        <h3>Twin comparison: metalang-applications indist vs latent (pair-review aid)</h3>
+        <p>Jun 10, 08:31 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 2</span><span class="chip">archagent/inbox/metalang-applications-twin-comparison</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04154</span></div>
+        <h3>Latent run: metalang applications exploration (twin B, blind)</h3>
+        <p>Jun 10, 06:59 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 2</span><span class="chip">archagent/inbox/metalang-applications-latent</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04136</span></div>
+        <h3>Define the indist harness before the first indist run</h3>
+        <p>Jun 10, 06:51 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 2</span><span class="chip">archagent/inbox/indist-harness-definition</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04153</span></div>
+        <h3>Indist run: metalang applications survey (twin A)</h3>
+        <p>Jun 10, 06:50 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 2</span><span class="chip">archagent/inbox/metalang-applications-indist</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04152</span></div>
+        <h3>Indist run: metalang core concept survey (A; gated on B)</h3>
+        <p>Jun 10, 05:11 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 2</span><span class="chip">archagent/inbox/metalang-indist</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04148</span></div>
+        <h3>Latent run: project-functors — 9-turn OOD exploration (paired with indist run)</h3>
+        <p>Jun 10, 01:50 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 1</span><span class="chip">archagent/inbox/project-functors-latent</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04147</span></div>
+        <h3>Indist run: project-functors — survey functors/categorical structure over software projects</h3>
+        <p>Jun 10, 01:48 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 1</span><span class="chip">archagent/inbox/project-functors-indist</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-spaces</span><span>T-04144</span></div>
+        <h3>Re-home spaces-repo/spaces into var/agents/spaces; retire registry indirection</h3>
+        <p>Jun 10, 01:44 PM UTC-05:00</p>
+        <div class="chips"><span class="chip asp">priority 2</span><span class="chip">agent-spaces/inbox/rehome-spaces-to-agents-root</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04149</span></div>
+        <h3>Cohort: baseline harness-runner agents for fable / opus / gpt-5.5</h3>
+        <p>Jun 10, 01:11 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 1</span><span class="chip">archagent/inbox/baseline-model-agents</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04146</span></div>
+        <h3>Synthesis run: build-map.synthesis.md — one roadmap from atlas/proposal/constitution</h3>
+        <p>Jun 10, 01:06 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 1</span><span class="chip">archagent/inbox/build-map-synthesis</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04138</span></div>
+        <h3>Empirical run: decision-archaeology backtest on wrkq repo</h3>
+        <p>Jun 10, 12:13 PM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 1</span><span class="chip">archagent/inbox/decision-archaeology-empirical</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-spaces</span><span>T-04143</span></div>
+        <h3>Add agents-root:/// root-relative ref scheme</h3>
+        <p>Jun 10, 11:54 AM UTC-05:00</p>
+        <div class="chips"><span class="chip asp">priority 2</span><span class="chip">agent-spaces/inbox/agents-root-ref-scheme</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-spaces</span><span>T-04141</span></div>
+        <h3>Project-local agent config roots (beyond single-root ASP_HOME)</h3>
+        <p>Jun 10, 10:51 AM UTC-05:00</p>
+        <div class="chips"><span class="chip asp">priority 2</span><span class="chip">agent-spaces/inbox/project-local-agent-roots</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-control-plane</span><span>T-01424</span></div>
+        <h3>gateway-discord: scopeRef events bleed across bound sessions in same project</h3>
+        <p>Jun 10, 10:05 AM UTC-05:00</p>
+        <div class="chips"><span class="chip ops">priority 3</span><span class="chip">agent-control-plane/inbox/gateway-discord-scope-bleed-bug</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-control-plane</span><span>T-01937</span></div>
+        <h3>W7: boundary enforcement + final installed-binary smoke (Phase 8)</h3>
+        <p>Jun 10, 10:04 AM UTC-05:00</p>
+        <div class="chips"><span class="chip ops">priority 2</span><span class="chip">agent-control-plane/inbox/wrkf-boundary-enforcement</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-control-plane</span><span>T-01892</span></div>
+        <h3>W6b: remove ACP workflow kernel/repo/acp-core workflow (Phase 7)</h3>
+        <p>Jun 10, 10:04 AM UTC-05:00</p>
+        <div class="chips"><span class="chip ops">priority 2</span><span class="chip">agent-control-plane/inbox/remove-acp-workflow-engine</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-control-plane</span><span>T-01488</span></div>
+        <h3>Refactor acp-core workflow kernel: extract event-store boundary</h3>
+        <p>Jun 10, 10:03 AM UTC-05:00</p>
+        <div class="chips"><span class="chip ops">priority 2</span><span class="chip">agent-control-plane/inbox/acp-core-workflow-event-store-extraction</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>archagent</span><span>T-04137</span></div>
+        <h3>Delta audit: r1-dependent holdings in constitution/adoption/charter</h3>
+        <p>Jun 10, 09:20 AM UTC-05:00</p>
+        <div class="chips"><span class="chip pbc">priority 2</span><span class="chip">archagent/inbox/r1-r3-delta-audit</span></div>
+      </article>
+      <article class="task-card">
+        <div class="task-meta"><span>agent-control-plane</span><span>T-04134</span></div>
+        <h3>ACP viewer port and host binding</h3>
+        <p>Jun 10, 08:18 AM UTC-05:00</p>
+        <div class="chips"><span class="chip ops">priority 2</span><span class="chip">agent-control-plane/inbox/acp-viewer-port-binding</span></div>
+      </article></div>
+        </section>
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>The artifact is only useful if the evidence rules are clear. These cards describe exactly what was counted and what was intentionally excluded from accomplishment credit.</p>
+          </div>
+          <div class="evidence-grid"><article class="evidence-card good"><h3>Git commit scan</h3><ul class="evidence-list"><li>Scanned 16 git repos under <code>/Users/lherron/praesidium</code>.</li><li>Counted 74 commits whose authored timestamps fall inside the local 24-hour window.</li><li>Grouped accomplishments by cross-repo narrative rather than raw per-repo churn so lock refreshes and follow-on fixes stay attached to their parent change.</li></ul></article><article class="evidence-card good"><h3>wrkq completion evidence</h3><ul class="evidence-list"><li>Collected 28 completed tasks across 7 projects using each project’s completion metadata in the same local window.</li><li>Used task closures to support repo stories where commits were sparse but workflow progress was explicit, especially in ACP, Taskboard, media-ingest, and the umbrella praesidium project.</li><li>The task grid below lists every completed task captured for the window.</li></ul></article><article class="evidence-card warn"><h3>Unpushed and open state</h3><ul class="evidence-list"><li>17 local-only commits were authored in-window across 8 repos; they are called out as accomplishment evidence but remain unpushed operationally.</li><li>304 dirty paths are visible overall across 12 repos, but only 22 paths in 5 repos have modification times inside this window and are treated as current-day open work.</li><li>The remaining 7 dirty repos are older carry-forward state and are not credited as new accomplishments in this brief.</li></ul></article></div>
+        </section>
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>Unchecked-in files that appear newly touched inside the same 24-hour window. Older carried-forward dirt exists elsewhere in the tree, but it is not credited as new work here.</p>
+          </div>
+          <div class="repo-grid">
+      <article class="repo-card">
+        <div class="task-meta"><span>agent-spaces</span><span>2 recent paths</span></div>
+        <h3>main vs origin/main</h3>
+        <ul class="repo-list"><li><code>??</code> docs/html/daily-accomplishments-2026-06-10.html<span>Jun 10, 05:06 AM</span></li><li><code>??</code> docs/proposals/aspc-reproducible-compiler.md<span>Jun 10, 07:58 AM</span></li></ul>
+      </article>
+      <article class="repo-card">
+        <div class="task-meta"><span>wrkq</span><span>1 recent paths</span></div>
+        <h3>main vs origin/main</h3>
+        <ul class="repo-list"><li><code>M</code> asp-lock.json<span>Jun 10, 01:32 PM</span></li></ul>
+      </article>
+      <article class="repo-card">
+        <div class="task-meta"><span>hrc-runtime</span><span>7 recent paths</span></div>
+        <h3>main vs origin/main</h3>
+        <ul class="repo-list"><li><code>M</code> bun.lock<span>Jun 10, 12:58 PM</span></li><li><code>M</code> packages/hrc-cli/package.json<span>Jun 10, 12:58 PM</span></li><li><code>M</code> packages/hrc-cli/src/cli.ts<span>Jun 10, 10:37 AM</span></li><li><code>M</code> packages/hrc-core/package.json<span>Jun 10, 01:17 PM</span></li><li><code>M</code> packages/hrc-frame-render/package.json<span>Jun 10, 01:17 PM</span></li><li><code>M</code> packages/hrc-server/package.json<span>Jun 10, 01:17 PM</span></li><li><code>M</code> packages/hrcchat-cli/package.json<span>Jun 10, 12:58 PM</span></li></ul>
+      </article>
+      <article class="repo-card">
+        <div class="task-meta"><span>taskboard</span><span>10 recent paths</span></div>
+        <h3>main vs origin/main</h3>
+        <ul class="repo-list"><li><code>M</code> apps/api/src/server.js<span>Jun 10, 09:26 PM</span></li><li><code>M</code> apps/web/src/api/client.ts<span>Jun 10, 09:21 PM</span></li><li><code>M</code> apps/web/src/components/chat/ChatInput.tsx<span>Jun 10, 09:43 PM</span></li><li><code>M</code> apps/web/src/components/concierge/ConciergePanel.tsx<span>Jun 10, 09:53 PM</span></li><li><code>M</code> apps/web/src/components/concierge/ConciergeProvider.tsx<span>Jun 10, 09:50 PM</span></li><li><code>M</code> apps/web/src/env.d.ts<span>Jun 10, 09:23 PM</span></li><li><code>M</code> apps/web/src/routes.tsx<span>Jun 10, 09:25 PM</span></li><li><code>M</code> apps/web/vite.config.ts<span>Jun 10, 09:34 PM</span></li><li><code>??</code> apps/api/test/concierge.routes.test.ts<span>Jun 10, 09:29 PM</span></li><li><code>??</code> apps/web/src/components/concierge/useConciergeTimeline.ts<span>Jun 10, 09:53 PM</span></li></ul>
+      </article>
+      <article class="repo-card">
+        <div class="task-meta"><span>praesidium</span><span>2 recent paths</span></div>
+        <h3>main vs origin/main</h3>
+        <ul class="repo-list"><li><code>??</code> agent-loop/<span>Jun 10, 11:20 PM</span></li><li><code>??</code> archagent/<span>Jun 10, 06:50 PM</span></li></ul>
+      </article></div>
+          <div class="hero-note"><strong>Unpushed commits</strong>17 local-only commits were authored in this window across 8 repos. The largest current local-only stacks are <code>taskboard</code> (17 total ahead, only 1 in-window), <code>agent-spaces</code> (7 ahead, 5 in-window), and <code>archagent</code> (4 ahead, all in-window).</div>
+        </section>
+        <div class="footer">Source window: 2026-06-10 05:01 CDT to 2026-06-11 05:01 CDT. Evidence pulled from git repos under <code>/Users/lherron/praesidium</code>, completed <code>wrkq</code> tasks across Praesidium projects, local-only commit ranges, and current worktree status. Artifact: <code>daily-accomplishments-2026-06-11.html</code>.</div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

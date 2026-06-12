@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-10</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --paper: rgba(255, 255, 255, 0.95);
+      --ink: #18201f;
+      --muted: #5e6a68;
+      --line: #d6ddd9;
+      --shadow: 0 18px 42px rgba(24, 32, 31, 0.08);
+      --asp: #9b4e1d;
+      --asp-soft: #f7e3d1;
+      --pbc: #0b6f67;
+      --pbc-soft: #ddf3ef;
+      --ops: #235f96;
+      --ops-soft: #e4eef8;
+      --warn: #78561c;
+      --warn-soft: #f6ead1;
+      --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+      --serif: Georgia, "Iowan Old Style", serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+
+    body {
+      background:
+        linear-gradient(90deg, rgba(24, 32, 31, 0.03) 1px, transparent 1px) 0 0 / 28px 28px,
+        linear-gradient(0deg, rgba(24, 32, 31, 0.022) 1px, transparent 1px) 0 0 / 28px 28px,
+        radial-gradient(circle at top right, rgba(11, 111, 103, 0.16), transparent 36%),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 var(--sans);
+    }
+
+    a {
+      color: var(--pbc);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+
+    .page { display: grid; grid-template-columns: 292px minmax(0, 1fr); min-height: 100vh; }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px 20px 28px;
+      border-right: 1px solid var(--line);
+      background: rgba(244, 239, 230, 0.95);
+      backdrop-filter: blur(12px);
+    }
+
+    .brand, .nav, .sidebar-block { display: grid; gap: 10px; }
+
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a {
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.055em;
+    }
+
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 {
+      margin: 0;
+      font-family: var(--serif);
+      line-height: 1.04;
+    }
+
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p { margin: 0; color: var(--muted); }
+    .kicker { color: var(--asp); font-size: 12px; font-weight: 900; }
+
+    .nav { margin: 18px 0; }
+
+    .nav a {
+      display: block;
+      padding: 8px 10px;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .nav a:hover, .nav a:focus {
+      border-left-color: var(--pbc);
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--ink);
+    }
+
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+
+    main { min-width: 0; }
+
+    .hero {
+      padding: 44px min(5vw, 62px) 34px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(90deg, rgba(11, 111, 103, 0.16), transparent 52%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0.88));
+    }
+
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.16fr) minmax(320px, 0.84fr); gap: 28px; }
+    .eyebrow { color: var(--pbc); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.45rem, 4vw, 4rem); margin-bottom: 16px; }
+    .hero p { max-width: 67ch; font-size: 1.02rem; }
+
+    .hero-note {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-note strong { display: block; margin-bottom: 6px; }
+
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+
+    .metric {
+      min-width: 0;
+      padding: 18px;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.95rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title { display: grid; gap: 10px; margin-bottom: 18px; }
+    .section-title h2 { font-size: clamp(2rem, 3vw, 2.55rem); }
+    .section-title p { max-width: 78ch; }
+
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .stream-card, .task-card, .evidence-card, .repo-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.35rem; }
+
+    .stream-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      font-weight: 800;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      background: #edf2ee;
+    }
+
+    .chip.pbc { background: var(--pbc-soft); color: var(--pbc); border-color: rgba(11, 111, 103, 0.2); }
+    .chip.asp { background: var(--asp-soft); color: var(--asp); border-color: rgba(155, 78, 29, 0.18); }
+    .chip.ops { background: var(--ops-soft); color: var(--ops); border-color: rgba(35, 95, 150, 0.18); }
+    .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: rgba(120, 86, 28, 0.18); }
+
+    .stream-columns { display: grid; grid-template-columns: 1.14fr 0.86fr; gap: 18px; min-width: 0; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; min-width: 0; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+
+    .note-box {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(228, 238, 248, 0.64), rgba(255, 255, 255, 0.84));
+    }
+
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+    }
+
+    .evidence-card.good { background: linear-gradient(180deg, rgba(225, 241, 231, 0.9), rgba(255, 255, 255, 0.96)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(247, 234, 214, 0.88), rgba(255, 255, 255, 0.96)); }
+    .repo-list span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+
+    .footer {
+      margin-top: 36px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    @media (max-width: 980px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar {
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+      .task-card, .evidence-card, .repo-card { grid-column: span 12; }
+    }
+
+    @media (max-width: 640px) {
+      .hero, .content { padding-left: 18px; padding-right: 18px; }
+      .metrics { grid-template-columns: 1fr; }
+      .hero h2, .section-title h2 { line-height: 1.08; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>Accomplishments for 2026-06-10</h1>
+        <p>Previous 24 hours, local window: 2026-06-09 05:02 CDT to 2026-06-10 05:02 CDT.</p>
+      </div>
+
+      <nav class="nav" aria-label="Sections">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#completed-tasks">Completed Tasks</a>
+        <a href="#validation">Validation Evidence</a>
+        <a href="#repo-state">Open Repo State</a>
+      </nav>
+
+      <div class="sidebar-block">
+        <p class="sidebar-note">This brief combines git activity, completed <code>wrkq</code> tasks, local-only commits, and visible unchecked-in repo state across Praesidium repos under <code>/Users/lherron/praesidium</code>.</p>
+      </div>
+
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--pbc);"></span>PBC / ACP / Taskboard flow work</div>
+        <div class="legend-item"><span class="dot" style="background: var(--asp);"></span>ASP / runtime hygiene and installs</div>
+        <div class="legend-item"><span class="dot" style="background: var(--ops);"></span>Wrkq / HRC / Archagent evidence chain</div>
+        <div class="legend-item"><span class="dot" style="background: var(--warn);"></span>Local-only and unchecked-in state</div>
+      </div>
+    </aside>
+
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div>
+            <div class="eyebrow">Praesidium-wide previous 24 hours</div>
+            <h2>Autonomous PBC flow hardened end-to-end while ASP and HRC reliability gaps were closed live.</h2>
+            <p>The strongest signal was concentrated in five active repos: <code>agent-control-plane</code>, <code>agent-spaces</code>, <code>taskboard</code>, <code>hrc-runtime</code>, and <code>archagent</code>. ACP and Taskboard pushed the PBC loop from fragile to live-verified, ASP cleaned up durable prompt and GC hazards with installed-binary smoke, and HRC fixed a daemon-restart response-loss bug mid-run so the Archagent Fable rerun could finish and deliver a corrected capability atlas.</p>
+            <div class="hero-note">
+              <strong>Top accomplishments</strong>
+              ACP landed clarification facts, universal artifact <code>.data</code> normalization, last-job failure surfacing, and upfront idempotency enforcement while Taskboard proved a real intake-to-finalized browser flow. ASP shipped tmp lifecycle cleanup and bundle-version pruning with real <code>hrc run</code> smokes. HRC made durable semantic-turn responses survive a daemon restart, and Archagent completed a 12-turn Fable latent run with a refreshed 46-entry atlas.
+            </div>
+          </div>
+
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Git Commits In Window</div>
+              <div class="metric-value">28</div>
+              <small>Across 5 active repos with landed activity.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Completed Tasks</div>
+              <div class="metric-value">56</div>
+              <small>Across 6 Praesidium projects; 34 were ACP PBC integration batch steps.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Local-only Commits</div>
+              <div class="metric-value">18</div>
+              <small><code>agent-spaces</code> ahead by 2, <code>taskboard</code> ahead by 16.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Repos With Open State</div>
+              <div class="metric-value">13</div>
+              <small>Dirty trees span validation docs, meta-repo cleanup, and active implementation lanes.</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The daily story breaks into three main lanes: autonomous PBC stabilization, ASP runtime hygiene, and response durability plus research continuation. Each lane below combines commit evidence with completed-task evidence from the same time window.</p>
+          </div>
+
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>PBC Flow Became Much Harder To Break</h3>
+                <div class="chips">
+                  <span class="chip pbc">8 ACP commits</span>
+                  <span class="chip pbc">4 Taskboard completions</span>
+                  <span class="chip pbc">3 Wrkq workflow completions</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <ul class="fact-list">
+                  <li><code>agent-control-plane</code> landed fallback prompt context, pressure-reviewer finalization, terminal empty-text completion handling, latest failed continuation exposure as <code>lastJob</code>, universal <code>.facts → .data</code> normalization, clarification facts recording, and upfront <code>idempotencyKey</code> rejection.</li>
+                  <li><code>taskboard</code> turned that backend work into live browser proof: fresh <code>/pbc/new</code> intake reached finalized, failed jobs now surface retry/resume affordances, and the finalized screen rendered with zero console errors.</li>
+                  <li><code>wrkq</code> closed supporting workflow gaps with direct-evidence conformance, finalize-role binding fixes, and pressure-reviewer finalization support that the ACP flow now consumes.</li>
+                  <li>Completed-task volume was unusually dense: 34 ACP “PBC Integration” batch tasks closed alongside named tasks such as <code>T-03755</code>, <code>T-04091</code>, <code>T-04112</code>, <code>T-04023</code>, and <code>T-04052</code>.</li>
+                </ul>
+                <div class="note-box">
+                  <p><strong>Why it mattered</strong></p>
+                  <p>The platform moved from “autonomous flow exists but stalls on edge cases” to “live intake, clarification, continuation failure recovery, and finalization are all evidenced in a real browser and real workflow state.” This is the clearest cross-repo integration gain of the day.</p>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>ASP Runtime Hygiene Shifted From Bugfixes To Retention Discipline</h3>
+                <div class="chips">
+                  <span class="chip asp">8 agent-spaces commits</span>
+                  <span class="chip asp">5 completed tasks</span>
+                  <span class="chip warn">2 commits still unpushed</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <ul class="fact-list">
+                  <li><code>agent-spaces</code> closed recent atomic-materialization fallout: statusline staging-path regression, Codex visible-priming regression, tmp lifecycle leaks, and unbounded bundle <code>.versions</code> growth.</li>
+                  <li><code>T-04051</code> moved system prompt files onto durable bundle-owned runtime artifacts, cleaned launch overlays, swept stale <code>.staging</code> debris, and proved healthy Claude/Codex ready states via real installed <code>hrc run</code> smoke.</li>
+                  <li><code>T-04053</code> added retention to bundle <code>.versions</code>, preserving current, recent, fresh, and active referenced versions while pruning stale excess entries in installed-binary dry-run smokes.</li>
+                  <li><code>T-03860</code> added Claude Fable 5 support, which directly enabled the corrected Archagent rerun later in the window.</li>
+                </ul>
+                <div class="note-box">
+                  <p><strong>Why it mattered</strong></p>
+                  <p>ASP’s current focus was less about new surface area and more about making the materialization/runtime path trustworthy under repeated real launches, cleanup pressure, and post-restart durability expectations.</p>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>HRC Response Durability Unblocked The Fable Atlas Rerun</h3>
+                <div class="chips">
+                  <span class="chip ops">1 HRC commit</span>
+                  <span class="chip ops">1 Archagent completion</span>
+                  <span class="chip ops">Live mid-run recovery</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <ul class="fact-list">
+                  <li><code>hrc-runtime</code> fixed the durable-store finalizer gap where a daemon restart mid-turn could leave a completed response absent from the durable message store even though the event log was truthful.</li>
+                  <li><code>T-04025</code> live-validated that a restart during a durable broker turn now recovers the semantic-turn finalizer and persists the response instead of orphaning it.</li>
+                  <li><code>archagent</code> then completed <code>T-03937</code>: a 12-turn Fable rerun of the capability-atlas latent harness, delivering a corrected 46-entry atlas and surfacing one new follow-on defect (<code>T-04046</code>) around monitor replay truncation.</li>
+                </ul>
+                <div class="note-box">
+                  <p><strong>Why it mattered</strong></p>
+                  <p>This was a real example of an infrastructure fix landing in time to preserve a long-running research workflow. The reportable outcome is not just the HRC bugfix, but the fact that the research run finished because of it.</p>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="completed-tasks">
+          <div class="section-title">
+            <h2>Completed Task Grid</h2>
+            <p>These cards highlight the highest-signal task closures from the 56 completions. The grid favors tasks that carried either broad integration impact or explicit live verification notes.</p>
+          </div>
+
+          <div class="task-grid">
+            <article class="task-card">
+              <div class="task-meta"><span>agent-spaces</span><span>T-04051 / T-04053</span></div>
+              <h3>ASP tmp cleanup and version retention landed together</h3>
+              <p>Bundle-owned durable prompt artifacts, overlay and staging sweeps, plus <code>.versions</code> pruning all closed with installed-binary smoke and green verification gates. These are also the two local-only <code>agent-spaces</code> commits currently ahead of origin.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta"><span>taskboard</span><span>T-04023</span></div>
+              <h3>PBC intake-to-finalized browser flow proved live</h3>
+              <p>Real browser coverage reached intake, clarification, resume/retry handling, and finalized render with zero console errors, while documenting the remaining live patch-decision gap.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta"><span>agent-control-plane</span><span>T-04091 / T-04112</span></div>
+              <h3>Clarification input now carries durable structure and rejects half-applies</h3>
+              <p>Clarification submissions now persist <code>{answer, acceptedDefault}</code> into facts/data, and missing <code>idempotencyKey</code> is rejected before any evidence or transition writes occur.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta"><span>hrc-runtime</span><span>T-04025</span></div>
+              <h3>Daemon restart no longer drops a completed turn response</h3>
+              <p>The durable store rebuilds response finalizers from durable request metadata on restart, restoring the invariant that a completed semantic turn has a persisted response.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta"><span>wrkq</span><span>T-03777 / T-03861 / T-03940</span></div>
+              <h3>Workflow contracts tightened under the PBC loop</h3>
+              <p>Direct-evidence validation, finalize-role binding, and pressure-reviewer finalization all closed in the supporting task system that ACP now depends on for autonomous progression.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta"><span>agent-control-plane</span><span>34 batch tasks</span></div>
+              <h3>PBC integration throughput stayed high while named defects were closed</h3>
+              <p>The ACP task stream shows repeated “ready” and “patch-fin” batch completions throughout the same window, indicating the live PBC pipeline was being exercised continuously rather than in isolated demos.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta"><span>taskboard</span><span>T-04052 / T-04111</span></div>
+              <h3>Inbox behavior kept moving alongside PBC work</h3>
+              <p>Taskboard also closed live-updating inbox behavior and a follow-on UX issue while the deeper PBC browser flow work was in progress, suggesting frontend throughput beyond the flagship path.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta"><span>archagent</span><span>T-03937</span></div>
+              <h3>Fable rerun produced the corrected capability atlas</h3>
+              <p>The 12-turn latent run completed in order, updated <code>docs/capability-atlas.md</code>, and replaced the wrong-model original with a new 46-entry formation-to-retirement spine plus addenda.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>These are the strongest concrete checks recorded in task comments during the window. They matter because they used installed binaries, real runtimes, real browser flows, or live daemon restarts rather than only unit suites.</p>
+          </div>
+
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3>Installed ASP launches reached healthy ready state</h3>
+              <ul class="evidence-list">
+                <li><code>T-04051</code> recorded real installed <code>hrc run</code> smokes for both Claude and Codex targets after <code>just install</code>, with visible status bars, priming-only panes, and bounded tmp directories.</li>
+                <li><code>T-04053</code> then used the installed <code>/Users/lherron/.local/bin/asp</code> in isolated <code>ASP_HOME</code> directories to prove stale version pruning while preserving active prompt artifacts.</li>
+                <li>Both tasks also closed with <code>just verify</code> green.</li>
+              </ul>
+            </article>
+
+            <article class="evidence-card good">
+              <h3>Taskboard live browser flow went green end-to-end</h3>
+              <ul class="evidence-list">
+                <li><code>T-04023</code> logged a real browser progression from intake to finalized, including clarification form submit and a resumed stuck job after the UI recovery fix.</li>
+                <li>The finalized screen rendered with zero console errors, and the failed/idle/resume states were validated against both real behavior and intercepted pre-fix behavior.</li>
+              </ul>
+            </article>
+
+            <article class="evidence-card good">
+              <h3>HRC restart-path durability was proven live, not inferred</h3>
+              <ul class="evidence-list">
+                <li><code>T-04025</code> explicitly reproduced a daemon restart mid-turn, observed <code>semantic_turn_handoff.finalizer_recovered</code>, and confirmed the response persisted under the new daemon pid.</li>
+                <li>The task distinguishes restart-caused socket loss from a simple client disconnect and documents both cases.</li>
+              </ul>
+            </article>
+
+            <article class="evidence-card warn">
+              <h3>Open verification follow-ons still exist</h3>
+              <ul class="evidence-list">
+                <li>The Archagent rerun finished, but it surfaced monitor replay truncation as a new open defect (<code>T-04046</code>).</li>
+                <li>The Taskboard PBC flow is live-validated through finalized, but the note still calls out a remaining live patch-decision case to cover.</li>
+                <li>Several repos remain dirty, so not all visible work has reached a commit boundary yet.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section id="repo-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>This section highlights the most relevant visible local state after the daily accomplishment window: unpushed commits, active dirty trees, and notable repos carrying substantial unchecked-in work.</p>
+          </div>
+
+          <div class="repo-grid">
+            <article class="repo-card">
+              <h3><code>agent-spaces</code></h3>
+              <ul class="repo-list">
+                <li>Branch is ahead of origin by 2 commits.
+                  <span><code>acbd943</code> fixed ASP tmp lifecycle cleanup; <code>efdfa44</code> pruned old materialized bundle versions.</span>
+                </li>
+                <li>Only visible unchecked-in file is this generated report, which keeps the worktree otherwise aligned with the latest accomplishments.</li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <h3><code>taskboard</code></h3>
+              <ul class="repo-list">
+                <li>Branch is ahead of origin by 16 commits.
+                  <span>Recent local-only commits include working-screen failure surfacing, fresh-load <code>lastJob</code> display, and multiple PBC validation/doc commits.</span>
+                </li>
+                <li>The tree is otherwise clean, which makes it the clearest “ready to push” candidate in the current daily state.</li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <h3><code>agent-control-plane</code> and <code>hrc-runtime</code></h3>
+              <ul class="repo-list">
+                <li><code>agent-control-plane</code> has landed PBC fixes but still carries package metadata and lockfile churn in the worktree.</li>
+                <li><code>hrc-runtime</code> is clean on commit velocity for the day but still has ongoing unchecked-in work around brain enricher formatting, broker handlers, docs, and helper scripts.</li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <h3>Large ongoing WIP remains outside the headline completions</h3>
+              <ul class="repo-list">
+                <li>The Praesidium root repo shows a broad split/reorg diff, and <code>knowledge</code> / <code>workflow-spec</code> carry especially large documentation and artifact deltas.</li>
+                <li><code>archagent</code> finished the rerun task but still has unchecked-in atlas updates and run artifacts, explicitly noted as not committed in <code>T-03937</code>.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <div class="footer">
+          Source window: 2026-06-09 05:02 CDT to 2026-06-10 05:02 CDT. Evidence pulled from git repos under <code>/Users/lherron/praesidium</code>, completed <code>wrkq</code> tasks in Praesidium projects, local-only commit ranges, and current worktree status. Artifact: <code>daily-accomplishments-2026-06-10.html</code>.
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

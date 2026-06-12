@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-12</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --paper: rgba(255, 255, 255, 0.96);
+      --ink: #17201f;
+      --muted: #62706d;
+      --line: #d6ddd7;
+      --shadow: 0 18px 42px rgba(23, 32, 31, 0.08);
+      --runtime: #0d6a66;
+      --runtime-soft: #d9f0ed;
+      --bridge: #9b4f20;
+      --bridge-soft: #f6e1d3;
+      --surface: #285f92;
+      --surface-soft: #e3edf8;
+      --warn: #79591e;
+      --warn-soft: #f5ebd9;
+      --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+      --serif: Georgia, "Iowan Old Style", serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body {
+      background:
+        linear-gradient(90deg, rgba(23, 32, 31, 0.03) 1px, transparent 1px) 0 0 / 28px 28px,
+        linear-gradient(0deg, rgba(23, 32, 31, 0.02) 1px, transparent 1px) 0 0 / 28px 28px,
+        radial-gradient(circle at top right, rgba(13, 106, 102, 0.16), transparent 34%),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 var(--sans);
+    }
+    a { color: var(--runtime); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 292px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px 20px 28px;
+      border-right: 1px solid var(--line);
+      background: rgba(244, 239, 230, 0.95);
+      backdrop-filter: blur(12px);
+    }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card { display: grid; gap: 10px; }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.055em; }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { margin: 0; font-family: var(--serif); line-height: 1.05; }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p { margin: 0; color: var(--muted); }
+    .kicker { color: var(--bridge); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a {
+      display: block;
+      padding: 8px 10px;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .nav a:hover, .nav a:focus {
+      border-left-color: var(--runtime);
+      background: rgba(255, 255, 255, 0.84);
+      color: var(--ink);
+    }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    main { min-width: 0; }
+    .hero {
+      padding: 44px min(5vw, 62px) 34px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(13, 106, 102, 0.16), transparent 52%), linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.9));
+    }
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.16fr) minmax(320px, 0.84fr); gap: 28px; }
+    .eyebrow { color: var(--runtime); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.4rem, 4vw, 4rem); margin-bottom: 14px; }
+    .hero p { max-width: 70ch; font-size: 1.02rem; }
+    .hero-note {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: var(--shadow);
+    }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.9rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 80ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .task-grid .task-card { grid-column: span 4; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.35rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      font-weight: 800;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      background: #edf2ee;
+    }
+    .chip.runtime { background: var(--runtime-soft); color: var(--runtime); border-color: rgba(13, 106, 102, 0.18); }
+    .chip.bridge { background: var(--bridge-soft); color: var(--bridge); border-color: rgba(155, 79, 32, 0.18); }
+    .chip.surface { background: var(--surface-soft); color: var(--surface); border-color: rgba(40, 95, 146, 0.18); }
+    .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: rgba(121, 89, 30, 0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.08fr 0.92fr; gap: 18px; min-width: 0; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; min-width: 0; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    .note-box { padding: 16px 18px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(227, 237, 248, 0.66), rgba(255, 255, 255, 0.84)); }
+    .task-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 800; color: var(--muted); }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(222, 241, 237, 0.9), rgba(255, 255, 255, 0.96)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(245, 235, 217, 0.9), rgba(255, 255, 255, 0.96)); }
+    .repo-list span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .footer {
+      margin-top: 36px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+      .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; }
+    }
+    @media (max-width: 640px) {
+      .hero, .content { padding-left: 18px; padding-right: 18px; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-12</h1>
+        <p>Previous 24 hours in local time, covering git, wrkq, local-only commits, and fresh unchecked-in work across visible Praesidium repos.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--runtime);"></span>Runtime and CLI flow</div>
+        <div class="legend-item"><span class="dot" style="background: var(--bridge);"></span>Broker and observer bridge work</div>
+        <div class="legend-item"><span class="dot" style="background: var(--surface);"></span>ACP and UI surface follow-through</div>
+        <div class="legend-item"><span class="dot" style="background: var(--warn);"></span>Carry-forward repo state</div>
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Window</strong><br />
+        2026-06-11 05:00:53 CDT to 2026-06-12 05:00:53 CDT
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Top accomplishments</strong>
+        <ul class="fact-list">
+          <li><code>hrc-runtime</code> carried the only in-window commit stream: 19 local-only commits across CLI ergonomics, selector resolution, stacked task-state rendering, and broker event attribution.</li>
+          <li><code>agent-spaces</code> closed T-04231, adding an experimental Codex broker observer UDS plus a shared event renderer and debug client with manual and matrix validation.</li>
+          <li>Fresh unchecked-in work is visible in <code>agent-control-plane</code>, <code>agent-spaces</code>, and <code>taskboard</code>, showing the next likely surfaces after the committed runtime work.</li>
+        </ul>
+      </div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium accomplishments for 2026-06-12</div>
+            <h2>The day centered on HRC runtime correctness, then ended with a broker observer bridge and fresh ACP/UI follow-through.</h2>
+            <p>The prior 24 hours were unusually concentrated. All visible committed work landed in <code>hrc-runtime</code>, where local-only commits tightened CLI command routing, unknown-command guidance, live wrkq task-state framing, broker user-message echo handling, and queued-turn attribution. Separately, <code>agent-spaces</code> closed an experimental observer-socket task with strong validation evidence, and three repos show fresh unchecked-in work extending the same platform/control-plane thread.</p>
+            <div class="hero-note"><strong>Coverage</strong>This brief includes committed work, completed <code>wrkq</code> task evidence, unpushed commit ranges, and only the unchecked-in paths whose visible mtimes fall inside the same local 24-hour window.</div>
+          </div>
+          <div class="metrics">
+            <article class="metric">
+              <div class="metric-label">Committed work</div>
+              <div class="metric-value">19</div>
+              <small>All in <code>hrc-runtime</code>, all ahead of <code>origin/main</code></small>
+            </article>
+            <article class="metric">
+              <div class="metric-label">Completed tasks</div>
+              <div class="metric-value">1</div>
+              <small>Visible cross-project <code>wrkq</code> completion in-window</small>
+            </article>
+            <article class="metric">
+              <div class="metric-label">Fresh open paths</div>
+              <div class="metric-value">29</div>
+              <small>Across <code>agent-control-plane</code>, <code>agent-spaces</code>, and <code>taskboard</code></small>
+            </article>
+            <article class="metric">
+              <div class="metric-label">Active repos</div>
+              <div class="metric-value">4</div>
+              <small>1 with new commits, 3 with new unchecked-in work</small>
+            </article>
+          </div>
+        </div>
+      </section>
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The report groups this narrow window by actual operational flow: runtime command-surface work, broker/event correctness, then the observer-side and ACP/UI work still open in the tree.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <div class="chips"><span class="chip runtime">Runtime CLI surface</span></div>
+              </div>
+              <h3>HRC runtime spent the window on operator-facing command flow and task-state visibility.</h3>
+              <p><code>hrc-runtime</code> contributed the full in-window commit stream. The commits cluster around improving how the HRC CLI resolves selectors, exposes run surfaces, renders live task state in stacked terminal frames, and guides users when commands are wrong or ambiguous.</p>
+              <div class="stream-columns">
+                <div>
+                  <ul class="fact-list">
+                    <li>19 commits landed locally in <code>hrc-runtime</code> between 10:28 AM and 9:33 PM CDT on June 11, 2026.</li>
+                    <li>The mid-window path added selector-resolver wiring, <code>show</code>/<code>ls</code> relocation, <code>resume --attach-only</code>, and did-you-mean suggestions for unknown commands.</li>
+                    <li>The same stack also added live wrkq task state to <code>hrcchat</code> stacked frames, which is the most concrete user-facing control-surface improvement visible in the window.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div class="note-box">
+                    <strong>Evidence highlights</strong>
+                    <ul class="evidence-list">
+                      <li><code>feat(hrcchat-cli): T-04216 — stacked terminal frame carries live wrkq task state</code></li>
+                      <li><code>Add hrc selector resolver wiring</code></li>
+                      <li><code>feat(hrc-cli): T-04234 P2 — show/ls + admin runs relocation + resume/--attach-only</code></li>
+                      <li><code>fix cli unknown-command suggestions</code></li>
+                      <li><code>docs(hrc-cli,hrcchat-cli): T-04219 P4 — document consolidated CLI surface</code></li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div class="chips"><span class="chip bridge">Broker correctness and observability</span></div>
+              </div>
+              <h3>Broker event handling tightened in two layers: runtime-side attribution fixes and an observer socket on the Codex experiment path.</h3>
+              <p>The later commits in <code>hrc-runtime</code> focus on broker event correctness, while the only completed task in the window closed an observer-side channel in <code>agent-spaces</code>. Together they show a clean pattern: broker semantics were being tightened while observability around the experimental Codex path was simultaneously improved.</p>
+              <div class="stream-columns">
+                <div>
+                  <ul class="fact-list">
+                    <li><code>hrc-runtime</code> ended the day with RED tests and a follow-up fix for queued-input turn attribution, plus an earlier change to suppress broker user-prompt echoes.</li>
+                    <li>T-04231 completed in <code>agent-spaces</code> and added an opt-in observer Unix socket, a read-only observer JSON-RPC surface, a shared renderer, and a debug client for replay/follow flows.</li>
+                    <li>The task comments explicitly record manual observer smoke plus full <code>smoke:matrix</code> coverage, which is stronger validation than the commit subjects alone provide.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div class="note-box">
+                    <strong>Evidence highlights</strong>
+                    <ul class="evidence-list">
+                      <li><code>Suppress broker user prompt echoes</code></li>
+                      <li><code>fix(hrc-server): T-04238 — attribute queued turns by open bracket</code></li>
+                      <li><code>test(hrc-server): RED tests for queued-input turn-attribution bug (T-04239)</code></li>
+                      <li>T-04231 comment: observer UDS, shared event renderer, debug client, manual smoke, and full matrix validation all passed.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div class="hero-note"><strong>What to notice</strong>The committed runtime work and the completed observer task are in different repos, but they point at the same operational theme: make broker behavior easier to reason about in live runs.</div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div class="chips"><span class="chip surface">ACP and UI follow-through</span><span class="chip warn">unchecked-in</span></div>
+              </div>
+              <h3>Fresh open work in ACP and Taskboard suggests the next push is already staged.</h3>
+              <p>No other repos show committed work inside the exact 24-hour window, but three repos do show fresh unchecked-in files with in-window mtimes. That is enough to treat ACP dispatch work, the observer-client changes in ASP, and Taskboard concierge work as active continuation streams rather than stale dirt.</p>
+              <div class="stream-columns">
+                <div>
+                  <ul class="fact-list">
+                    <li><code>agent-control-plane</code> has 14 fresh modified paths, centered on <code>interface-run-dispatcher</code> plus package and lock updates.</li>
+                    <li><code>agent-spaces</code> has 10 fresh open paths, including <code>packages/harness-broker/src/cli.ts</code>, new Codex app-server shim scripts, and <code>scripts/debug-broker-events.ts</code>.</li>
+                    <li><code>taskboard</code> has 5 fresh open paths, mostly in concierge/chat components, which matches the current platform-control-plane direction.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div class="note-box">
+                    <strong>Why it matters</strong>
+                    <ul class="evidence-list">
+                      <li>The ACP diffstat shows 227 insertions across the dispatcher test and implementation path.</li>
+                      <li>The agent-spaces diffstat shows 350 insertions across harness-broker CLI and tests, plus new local shim/debug tooling.</li>
+                      <li>The Taskboard diffstat shows 945 insertions across concierge and chat surfaces, indicating active UI follow-through rather than incidental churn.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Task Grid</h2>
+            <p>Only one visible <code>wrkq</code> task completed inside the exact reporting window. That makes its validation notes disproportionately important to the day’s narrative.</p>
+          </div>
+          <div class="task-grid">
+            <article class="task-card">
+              <div class="task-meta"><span>agent-spaces</span><span>T-04231</span></div>
+              <h3>Add experimental Codex broker observer socket</h3>
+              <p>Completed Jun 11, 2026 05:38 PM CDT</p>
+              <div class="chips">
+                <span class="chip bridge">priority 2</span>
+                <span class="chip">agent-spaces/inbox/codex-broker-observer-socket</span>
+              </div>
+              <p>The task scope was deliberately narrow: add an opt-in observer UDS for the Codex app-server broker experiment path without changing the stdio broker transport or existing broker semantics.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>evidence</span><span>acceptance</span></div>
+              <h3>Acceptance and implementation shape were aligned.</h3>
+              <p>The task required observer-disabled behavior to remain unchanged, the observer UDS to emit normal broker envelopes, and the debug client to replay <code>eventsSince</code> plus follow live notifications.</p>
+              <div class="chips">
+                <span class="chip runtime">observer JSON-RPC</span>
+                <span class="chip runtime">shared renderer</span>
+                <span class="chip runtime">debug client</span>
+              </div>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>period context</span><span>cross-repo</span></div>
+              <h3>This completion complements, rather than duplicates, the HRC runtime commit stream.</h3>
+              <p>There were no visible completed <code>wrkq</code> tasks in <code>hrc-runtime</code> during the same window, so T-04231 is the main workflow artifact tying the day’s broker/observability work to explicit acceptance criteria and manual smoke notes.</p>
+              <div class="chips">
+                <span class="chip warn">single completion</span>
+                <span class="chip surface">strong validation</span>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>Validation in this window is strongest where task comments recorded real execution. Elsewhere, the evidence is mostly commit-shape based: RED tests, fixes, docs, and related supporting changes landing together.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3>T-04231 recorded real smoke and matrix coverage.</h3>
+              <p>The task comments explicitly cite <code>just install</code>, <code>lint</code>, <code>typecheck</code>, harness-broker CLI socket tests, manual observer smoke, full <code>smoke:matrix</code>, and a post-install fake-codex matrix run.</p>
+            </article>
+            <article class="evidence-card good">
+              <h3>The HRC commit stream shows deliberate RED→GREEN progression.</h3>
+              <p>The runtime history includes multiple RED test commits immediately adjacent to feature and fix commits, especially around selector resolution, command-surface movement, did-you-mean behavior, and queued-turn attribution.</p>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Most committed work is still local-only.</h3>
+              <p>All 19 in-window commits are ahead of <code>origin/main</code> in <code>hrc-runtime</code>. They count as accomplished work for the period, but they are not yet upstreamed.</p>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Open-state repos need a later pass to turn fresh dirt into reported completions.</h3>
+              <p><code>agent-control-plane</code>, <code>agent-spaces</code>, and <code>taskboard</code> all have fresh unchecked-in files, but no matching in-window completion records yet.</p>
+            </article>
+          </div>
+        </section>
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>These are the unchecked-in paths that appear newly touched inside the reporting window. Older carried-forward dirt exists in several other repos, but it is intentionally not credited here as fresh work.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card">
+              <div class="task-meta"><span>agent-control-plane</span><span>14 fresh paths</span></div>
+              <h3>ACP dispatcher work is staged but not committed.</h3>
+              <ul class="repo-list">
+                <li><code>M</code> <code>packages/acp-server/src/integration/interface-run-dispatcher.ts</code><span>2026-06-11 07:04:56 CDT</span></li>
+                <li><code>M</code> <code>packages/acp-server/src/integration/interface-run-dispatcher.test.ts</code><span>2026-06-11 07:04:44 CDT</span></li>
+                <li><code>M</code> package manifests plus <code>bun.lock</code><span>Mostly 2026-06-11 05:37 PM CDT</span></li>
+              </ul>
+            </article>
+            <article class="repo-card">
+              <div class="task-meta"><span>agent-spaces</span><span>10 fresh paths</span></div>
+              <h3>Observer tooling and harness-broker CLI work remain open locally.</h3>
+              <ul class="repo-list">
+                <li><code>M</code> <code>packages/harness-broker/src/cli.ts</code><span>2026-06-11 05:30:54 CDT</span></li>
+                <li><code>??</code> <code>scripts/debug-broker-events.ts</code><span>2026-06-11 05:22:12 CDT</span></li>
+                <li><code>??</code> <code>scripts/codex-app-server-shim.mjs</code><span>2026-06-11 08:20:54 CDT</span></li>
+              </ul>
+            </article>
+            <article class="repo-card">
+              <div class="task-meta"><span>taskboard</span><span>5 fresh paths</span></div>
+              <h3>Taskboard concierge and chat components are visibly mid-change.</h3>
+              <ul class="repo-list">
+                <li><code>M</code> <code>apps/web/src/components/chat/ChatInput.tsx</code><span>2026-06-11 02:35:25 CDT</span></li>
+                <li><code>M</code> <code>apps/web/src/components/concierge/ConciergePanel.tsx</code><span>2026-06-11 02:35:13 CDT</span></li>
+                <li><code>??</code> <code>apps/web/src/components/concierge/useConciergeTimeline.ts</code><span>2026-06-11 07:12:26 CDT</span></li>
+              </ul>
+            </article>
+            <article class="repo-card">
+              <div class="task-meta"><span>carry-forward context</span><span>broader state</span></div>
+              <h3>Other repos remain ahead or dirty, but not with fresh in-window evidence.</h3>
+              <ul class="repo-list">
+                <li><code>hrc-runtime</code> is 20 commits ahead of upstream, with 19 of those inside this report window.</li>
+                <li><code>agent-spaces</code>, <code>archagent</code>, <code>ghostmux</code>, <code>scriptable-ghostty</code>, <code>taskboard</code>, <code>workboard</code>, and <code>wrkq</code> are also ahead of upstream, but their other local-only commits predate this window.</li>
+                <li>The umbrella <code>/Users/lherron/praesidium</code> repo and several documentation repos remain dirty with older carry-forward changes that are not counted as new accomplishments here.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+        <div class="footer">
+          Source window: 2026-06-11 05:00:53 CDT to 2026-06-12 05:00:53 CDT. Evidence pulled from git repos under <code>/Users/lherron/praesidium</code>, completed <code>wrkq</code> tasks across Praesidium projects, local-only commit ranges, and current worktree status. Artifact: <code>daily-accomplishments-2026-06-12.html</code>.
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -121,6 +121,7 @@ bun run smoke:matrix --config claude-tmux-ghostmux  # real claude + ghostmux ope
 Rows: (a) fake-codex (codex-app-server headless against an in-repo fixture), (b)
 real-codex (real `codex`), (c) real-claude-tmux (claude-code-tmux interactive
 against real `claude`), (d) claude-tmux-ghostmux (real ghostmux operator-attach).
+Codex.app app-server shim experiment (T-04237) is off by default; enable by quitting Codex.app and copying `scripts/codex-app-bundle-wrapper` to `/Applications/Codex.app/Contents/Resources/codex` while `/Applications/Codex.app/Contents/Resources/codex.real` is the real binary.
 Cross-harness floor on every row: compile/select/verify start-contract (hashes +
 route invariants) + ledger integrity (monotonic seq / no dup / normalized vocab
 only) + invocation.started/ready + `assertSharedCommandTurn` on the command turn.

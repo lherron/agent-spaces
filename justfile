@@ -41,6 +41,10 @@ debug-codex-tmux-live *args:
 debug-codex-tmux-live-ipc *args:
     bun scripts/debug-codex-tmux-live.ts --broker-transport ipc {{args}}
 
+# Render normal broker events from an experimental broker observer socket.
+debug-broker-events socket *args:
+    bun scripts/debug-broker-events.ts --socket {{socket}} {{args}}
+
 # Fix lint issues
 lint-fix:
     bun run lint:fix

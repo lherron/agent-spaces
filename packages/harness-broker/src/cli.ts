@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, unlinkSync } from 'node:fs'
 import { mkdir, readFile, unlink } from 'node:fs/promises'
 import { type Socket, connect, createServer } from 'node:net'
 import { dirname, join } from 'node:path'
@@ -29,6 +29,15 @@ import { createEventLedger } from './event-ledger'
 import { type ProtocolServer, createProtocolServer } from './protocol-server'
 import { assertSocketPathWithinBudget } from './socket-path'
 
+interface BrokerMethodOptions {
+  experimentalObserverEnabled?: boolean | undefined
+}
+
+interface BrokerObserverSocket {
+  notify(event: InvocationEventEnvelope): void
+  close(): Promise<void>
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
   const command = args[0]
@@ -38,7 +47,7 @@ async function main(): Promise<void> {
     const transport = transportIdx !== -1 ? args[transportIdx + 1] : undefined
 
     if (transport === 'stdio') {
-      runStdio()
+      await runStdio(args)
     } else if (transport === 'unix') {
       await runUnix(args)
     } else {
@@ -75,12 +84,28 @@ async function main(): Promise<void> {
   }
 }
 
-function runStdio(): void {
+async function runStdio(args: string[]): Promise<void> {
+  const observerSocketPath =
+    readFlag(args, '--experimental-observer-socket') ??
+    process.env['HARNESS_BROKER_OBSERVER_SOCKET']
+  const observerMode =
+    readFlag(args, '--experimental-observer-mode') ??
+    process.env['HARNESS_BROKER_OBSERVER_MODE'] ??
+    'observe'
+  if (observerSocketPath !== undefined && observerMode !== 'observe') {
+    process.stderr.write(
+      `Unsupported --experimental-observer-mode ${JSON.stringify(observerMode)}; only "observe" is implemented\n`
+    )
+    process.exit(1)
+  }
+
   const server = createProtocolServer({
     stdin: process.stdin,
     stdout: process.stdout,
     stderr: process.stderr,
   })
+
+  let observer: BrokerObserverSocket | undefined
 
   function emitEvent(event: InvocationEventEnvelope): void {
     const notification: JsonRpcNotification = {
@@ -89,24 +114,32 @@ function runStdio(): void {
       params: event,
     }
     server.notify(notification)
+    observer?.notify(event)
   }
 
   // Wire ask-client permission decisions to the broker→client request transport.
+  const eventLedger = createEventLedger()
   const broker = createDefaultBroker(
     emitEvent,
     (params) => server.request<PermissionDecision>('invocation.permission.request', params),
     // Stdio broker event replay is ephemeral and process-local: it backs
     // inspection reads only. The path-backed, controller-fenced durable ledger
     // remains exclusive to the unix transport.
-    { eventLedger: createEventLedger() }
+    { eventLedger }
   )
 
-  registerBrokerMethods(server, broker)
+  if (observerSocketPath !== undefined) {
+    observer = await startBrokerObserverSocket({ socketPath: observerSocketPath, broker })
+  }
+
+  registerBrokerMethods(server, broker, {
+    experimentalObserverEnabled: observerSocketPath !== undefined,
+  })
 
   void server.start()
 
   process.stdin.on('end', () => {
-    void server.close().then(() => {
+    void Promise.all([server.close(), observer?.close()]).then(() => {
       process.exit(0)
     })
   })
@@ -116,7 +149,11 @@ function runStdio(): void {
  * Register the v1 broker JSON-RPC methods on a protocol server. Shared by the
  * stdio and unix transport entry points so both expose identical surfaces.
  */
-function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
+function registerBrokerMethods(
+  server: ProtocolServer,
+  broker: Broker,
+  options: BrokerMethodOptions = {}
+): void {
   function validateParams(method: string, id: string | number | null, params: unknown): void {
     validateCommand({ jsonrpc: '2.0', id, method, params })
   }
@@ -136,6 +173,18 @@ function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
     // (including dispatchEnv key-class + lockedEnv-shadow rules) before dispatch.
     validateParams(method, id, params)
     const dispatch = params as InvocationDispatchRequest
+    if (
+      options.experimentalObserverEnabled === true &&
+      dispatch.startRequest.spec.driver.kind !== 'codex-app-server'
+    ) {
+      throw new BrokerError(
+        BrokerErrorCode.UnsupportedCapability,
+        'Experimental observer socket is only supported for codex-app-server invocations',
+        {
+          driverKind: dispatch.startRequest.spec.driver.kind,
+        }
+      )
+    }
     return broker.start(
       dispatch.startRequest,
       dispatch.dispatchEnv,
@@ -172,6 +221,42 @@ function registerBrokerMethods(server: ProtocolServer, broker: Broker): void {
   server.register('broker.listInvocations', async ({ id, method, params }) => {
     validateParams(method, id, (params ?? {}) as unknown)
     return broker.listInvocations((params ?? {}) as Parameters<typeof broker.listInvocations>[0])
+  })
+
+  server.register('invocation.snapshot', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.snapshot(params as Parameters<typeof broker.snapshot>[0])
+  })
+
+  server.register('invocation.eventsSince', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.eventsSince(params as Parameters<typeof broker.eventsSince>[0])
+  })
+}
+
+function registerBrokerObserverMethods(server: ProtocolServer, broker: Broker): void {
+  function validateParams(method: string, id: string | number | null, params: unknown): void {
+    validateCommand({ jsonrpc: '2.0', id, method, params })
+  }
+
+  server.register('broker.hello', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.hello(params as Parameters<typeof broker.hello>[0])
+  })
+
+  server.register('broker.health', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.health((params ?? {}) as Parameters<typeof broker.health>[0])
+  })
+
+  server.register('broker.listInvocations', async ({ id, method, params }) => {
+    validateParams(method, id, (params ?? {}) as unknown)
+    return broker.listInvocations((params ?? {}) as Parameters<typeof broker.listInvocations>[0])
+  })
+
+  server.register('invocation.status', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.status(params as Parameters<typeof broker.status>[0])
   })
 
   server.register('invocation.snapshot', async ({ id, method, params }) => {
@@ -405,6 +490,107 @@ async function runUnix(args: string[]): Promise<void> {
   })
 
   netServer.listen(socketPath)
+}
+
+async function startBrokerObserverSocket(options: {
+  socketPath: string
+  broker: Broker
+}): Promise<BrokerObserverSocket> {
+  const { socketPath, broker } = options
+  assertSocketPathWithinBudget(socketPath)
+  await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 })
+  await reclaimStaleSocket(socketPath)
+
+  const observers = new Set<ProtocolServer>()
+  const sockets = new Set<Socket>()
+  const netServer = createServer((socket) => {
+    sockets.add(socket)
+    const observer = createProtocolServer({
+      stdin: socket,
+      stdout: socket,
+      stderr: process.stderr,
+    })
+    registerBrokerObserverMethods(observer, broker)
+    observers.add(observer)
+    void observer.start()
+
+    const cleanup = (): void => {
+      sockets.delete(socket)
+      observers.delete(observer)
+      void observer.close()
+    }
+    socket.once('close', cleanup)
+    socket.once('error', cleanup)
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => {
+      netServer.removeListener('listening', onListening)
+      reject(error)
+    }
+    const onListening = (): void => {
+      netServer.removeListener('error', onError)
+      resolve()
+    }
+    netServer.once('error', onError)
+    netServer.once('listening', onListening)
+    netServer.listen(socketPath)
+  })
+
+  netServer.on('error', (err) => {
+    process.stderr.write(
+      `Broker observer socket error: ${err instanceof Error ? err.message : String(err)}\n`
+    )
+  })
+
+  const unlinkSocket = (): Promise<void> => unlink(socketPath).catch(() => {})
+  const cleanupSocketOnExit = (): void => {
+    if (existsSync(socketPath)) {
+      try {
+        unlinkSync(socketPath)
+      } catch {
+        // Best-effort cleanup only.
+      }
+    }
+  }
+  let closed = false
+  const close = (): Promise<void> =>
+    new Promise<void>((resolve) => {
+      if (closed) {
+        resolve()
+        return
+      }
+      closed = true
+      process.removeListener('exit', cleanupSocketOnExit)
+      for (const observer of observers) {
+        void observer.close()
+      }
+      observers.clear()
+      for (const socket of sockets) {
+        socket.end()
+        socket.destroy()
+      }
+      sockets.clear()
+      netServer.close(() => {
+        void unlinkSocket().then(() => resolve())
+      })
+    })
+
+  process.once('exit', cleanupSocketOnExit)
+
+  return {
+    notify(event: InvocationEventEnvelope): void {
+      const notification: JsonRpcNotification = {
+        jsonrpc: '2.0',
+        method: 'invocation.event',
+        params: event,
+      }
+      for (const observer of observers) {
+        observer.notify(notification)
+      }
+    },
+    close,
+  }
 }
 
 /** Probe an existing socket node and unlink it only if no live listener answers. */

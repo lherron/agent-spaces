@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { type Socket, connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -7,15 +8,24 @@ import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
   InvocationStartRequest,
+  JsonRpcMessage,
 } from 'spaces-harness-broker-protocol'
+import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { expectError, expectResult, noopSpec, parseFrames, request } from './helpers'
 
 const repoRoot = new URL('../../..', import.meta.url).pathname
 const fixtureDir = new URL('./fixtures/fake-codex', import.meta.url).pathname
 
-const runBrokerStdio = () =>
+const runBrokerStdio = (extraArgs: string[] = []) =>
   Bun.spawn({
-    cmd: ['bun', 'packages/harness-broker/bin/harness-broker.js', 'run', '--transport', 'stdio'],
+    cmd: [
+      'bun',
+      'packages/harness-broker/bin/harness-broker.js',
+      'run',
+      '--transport',
+      'stdio',
+      ...extraArgs,
+    ],
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
@@ -59,6 +69,82 @@ async function exchange(input: string) {
   expect(stderr).toBe('')
 
   return parseFrames(stdout)
+}
+
+async function exchangeWithBrokerArgs(input: string, args: string[]) {
+  const proc = runBrokerStdio(args)
+  proc.stdin.write(input)
+  proc.stdin.end()
+
+  const stdout = await new Response(proc.stdout).text()
+  const stderr = await new Response(proc.stderr).text()
+  const exitCode = await proc.exited
+
+  expect(exitCode).toBe(0)
+  expect(stderr).toBe('')
+
+  return parseFrames(stdout)
+}
+
+async function connectUnixSocket(socketPath: string): Promise<Socket> {
+  const socket = connect({ path: socketPath })
+  await new Promise<void>((resolve, reject) => {
+    socket.once('connect', resolve)
+    socket.once('error', reject)
+  })
+  socket.setEncoding('utf8')
+  return socket
+}
+
+function createSocketFrameReader(socket: Socket): {
+  nextFrame(): Promise<JsonRpcMessage>
+  close(): void
+} {
+  let buffer = ''
+  const frames: JsonRpcMessage[] = []
+  const waiters: Array<(frame: JsonRpcMessage) => void> = []
+
+  socket.on('data', (chunk: string) => {
+    buffer += chunk
+    while (true) {
+      const newline = buffer.indexOf('\n')
+      if (newline === -1) break
+      const line = buffer.slice(0, newline)
+      buffer = buffer.slice(newline + 1)
+      if (line.length === 0) continue
+      const frame = JSON.parse(line) as JsonRpcMessage
+      const waiter = waiters.shift()
+      if (waiter) {
+        waiter(frame)
+      } else {
+        frames.push(frame)
+      }
+    }
+  })
+
+  return {
+    nextFrame(): Promise<JsonRpcMessage> {
+      const frame = frames.shift()
+      if (frame) return Promise.resolve(frame)
+
+      return new Promise<JsonRpcMessage>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          const index = waiters.indexOf(onFrame)
+          if (index !== -1) waiters.splice(index, 1)
+          reject(new Error('timed out waiting for socket JSON-RPC frame'))
+        }, 1500)
+        const onFrame = (next: JsonRpcMessage) => {
+          clearTimeout(timeout)
+          resolve(next)
+        }
+        waiters.push(onFrame)
+      })
+    },
+    close(): void {
+      socket.end()
+      socket.destroy()
+    },
+  }
 }
 
 describe('harness-broker CLI', () => {
@@ -156,6 +242,69 @@ describe('harness-broker CLI', () => {
       eventTypeFilter: true,
     })
     expect(response.result.capabilities.attachReplay ?? false).toBe(false)
+  })
+
+  test('run --transport stdio can expose an experimental observer unix socket', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'harness-broker-observer-'))
+    const socketPath = join(dir, 'observer.sock')
+    const proc = runBrokerStdio(['--experimental-observer-socket', socketPath])
+
+    let observerSocket: Socket | undefined
+    let observer: ReturnType<typeof createSocketFrameReader> | undefined
+    try {
+      await waitForSocket(socketPath, proc)
+      observerSocket = await connectUnixSocket(socketPath)
+      observer = createSocketFrameReader(observerSocket)
+
+      observerSocket.write(
+        request('observer-hello', 'broker.hello', {
+          clientInfo: { name: 'observer-test' },
+          protocolVersions: ['harness-broker/0.2'],
+        })
+      )
+      const hello = expectResult<BrokerHelloResponse>(await observer.nextFrame(), 'observer-hello')
+      expect(hello.result.capabilities.eventNotifications).toBe(true)
+
+      observerSocket.write(request('observer-list', 'broker.listInvocations', {}))
+      const list = expectResult<{ invocations: unknown[] }>(
+        await observer.nextFrame(),
+        'observer-list'
+      )
+      expect(list.result.invocations).toEqual([])
+
+      observerSocket.write(
+        request('observer-input', 'invocation.input', {
+          invocationId: 'missing',
+          input: { kind: 'user', content: [{ type: 'text', text: 'hello' }] },
+        })
+      )
+      expectError(await observer.nextFrame(), 'observer-input', -32601)
+    } finally {
+      observer?.close()
+      proc.stdin.end()
+      await proc.exited.catch(() => {})
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('experimental observer mode rejects non-codex-app-server starts', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'harness-broker-observer-gate-'))
+    const socketPath = join(dir, 'observer.sock')
+    const frames = await exchangeWithBrokerArgs(
+      request('observer-gate', 'invocation.start', {
+        startRequest: {
+          spec: noopSpec({
+            invocationId: 'inv_observer_gate_non_codex',
+          }),
+        },
+      }),
+      ['--experimental-observer-socket', socketPath]
+    )
+    await rm(dir, { recursive: true, force: true })
+
+    const response = expectError(frames[0], 'observer-gate', BrokerErrorCode.UnsupportedCapability)
+    expect(response.error.message).toContain('codex-app-server')
+    expect(response.error.data).toMatchObject({ driverKind: 'noop-driver' })
   })
 
   test('run --transport bogus exits nonzero with a clear transport error', async () => {

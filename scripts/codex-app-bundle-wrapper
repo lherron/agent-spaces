@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export CODEX_REAL_CLI_PATH="${CODEX_REAL_CLI_PATH:-/Applications/Codex.app/Contents/Resources/codex.real}"
+exec /Users/lherron/praesidium/agent-spaces/scripts/codex-app-server-shim "$@"

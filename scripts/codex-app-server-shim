@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+node_bin="${NODE_REPL_NODE_PATH:-/Applications/Codex.app/Contents/Resources/cua_node/bin/node}"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+
+exec "$node_bin" "$script_dir/codex-app-server-shim.mjs" "$@"
