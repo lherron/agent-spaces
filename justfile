@@ -45,6 +45,14 @@ debug-codex-tmux-live-ipc *args:
 debug-broker-events socket *args:
     bun scripts/debug-broker-events.ts --socket {{socket}} {{args}}
 
+# Find likely code entry points for a topic.
+discover topic:
+    bun scripts/find-entry-points.ts {{topic}}
+
+# Explain a repo area using the shared import graph.
+explain area:
+    bun scripts/explain-area.ts {{area}}
+
 # Fix lint issues
 lint-fix:
     bun run lint:fix
