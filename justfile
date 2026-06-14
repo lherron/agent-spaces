@@ -58,6 +58,7 @@ check:
     bun scripts/check-boundaries.ts
     bun scripts/check-runtime-contract-harness-boundaries.ts
     bun scripts/check-manifest-edges.ts
+    bun scripts/check-suppressions.ts
 
 # Overlay Cody into the default Codex home and install managed Praesidium CLI hooks
 overlay-codex *args:
