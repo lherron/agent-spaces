@@ -16,6 +16,14 @@ pre-commit:
       run: bun scripts/check-runtime-contract-harness-boundaries.ts
     manifests:
       run: bun scripts/check-manifest-edges.ts
+    suppressions:
+      run: bun scripts/check-suppressions.ts
+    public-surface:
+      run: bun scripts/check-public-surface.ts
+    doc-reachability:
+      run: bun scripts/check-doc-reachability.ts
+    rule-authoring:
+      run: bun scripts/check-rule-authoring.ts
     build:
       run: bun run build
 
