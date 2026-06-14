@@ -129,7 +129,7 @@ Scaffold a new space with the correct directory layout and initial files.
 
 ## Usage
 
-Run this command to create a new space in the registry. You will be guided through the process.
+Run this command to route space creation through the deterministic scaffold generator, then add any real components afterward.
 
 ## Required Information
 
@@ -140,7 +140,7 @@ Run this command to create a new space in the registry. You will be guided throu
 
 2. **Description**: Brief description of what this space does
 
-3. **Initial Components** (optional):
+3. **Initial Components** (optional, added after scaffold):
    - Commands to include
    - Skills to include
    - Hooks to include (if needed)
@@ -153,18 +153,11 @@ The created space will have this structure:
 spaces/<space-id>/
 ├── space.toml          # Space manifest (required)
 ├── commands/           # Command definitions (optional)
-│   └── example.md
 ├── skills/             # Skill definitions (optional)
-│   └── example/
-│       └── SKILL.md
 ├── agents/             # Agent definitions (optional)
-│   └── example.md
 ├── hooks/              # Hook configurations (optional)
-│   ├── hooks.json
 │   └── scripts/
-│       └── example.sh
 └── mcp/                # MCP server configs (optional)
-    └── mcp.json
 \`\`\`
 
 ## Execution Steps
@@ -177,25 +170,14 @@ When you run this command, I will:
    - Initial version (default: 0.1.0)
    - Which components to include
 
-2. **Create the directory structure**:
+2. **Run the deterministic scaffold command**:
    \`\`\`bash
-   mkdir -p ~/.asp/repo/spaces/<space-id>/{commands,skills,agents,hooks/scripts,mcp}
+   asp repo new-space <space-id> --description "<description>" --version 0.1.0
    \`\`\`
 
-3. **Generate space.toml**:
-   \`\`\`toml
-   schema = 1
-   id = "<space-id>"
-   version = "0.1.0"
-   description = "<description>"
+3. **Create initial component files** based on your selections
 
-   [plugin]
-   name = "<space-id>"
-   \`\`\`
-
-4. **Create initial component files** based on your selections
-
-5. **Verify the structure** using \`asp lint\`
+4. **Verify the generated manifest** with the scaffold command's built-in validation gate before adding content
 
 ## Example
 
@@ -205,7 +187,8 @@ To create a space for frontend development tools:
 2. Enter ID: \`frontend-tools\`
 3. Enter description: "Frontend development commands and skills"
 4. Select components: commands, skills
-5. The space will be created at \`~/.asp/repo/spaces/frontend-tools/\`
+5. I will run \`asp repo new-space frontend-tools --description "Frontend development commands and skills"\`
+6. The space will be created at \`~/.asp/repo/spaces/frontend-tools/\`
 
 ## Next Steps After Creation
 
