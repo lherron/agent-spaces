@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "wrkf.hook-catalog.v0",
+  "hooks": {
+    "closeout_evidence_coverage": {
+      "kind": "check",
+      "argv": [
+        "bun",
+        "scripts/closeout-evidence-coverage.ts"
+      ],
+      "stdin": "json",
+      "stdout": "exit_code",
+      "timeoutMs": 120000,
+      "cwd": "template_dir",
+      "env": {
+        "allow": [
+          "PATH",
+          "HOME"
+        ]
+      },
+      "maxStdoutBytes": 1048576,
+      "maxStderrBytes": 1048576
+    }
+  }
+}
