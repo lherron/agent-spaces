@@ -51,6 +51,16 @@ const MANIFEST_FIXTURE_CONTENT = [
   "import { something } from 'spaces-harness-broker-protocol'", // line 3 — not in package.json
 ].join('\n')
 
+// Harness-contract fixture: forbidden HRC import in the testing harness surface.
+// The forbidden import is on line 3 (two comment lines precede it).
+const HARNESS_FIXTURE_LINE = 3
+const HARNESS_FIXTURE_REL = 'packages/agent-spaces/src/testing/__diag_fixture__.ts'
+const HARNESS_FIXTURE_CONTENT = [
+  '// __diag_fixture__: contract-harness boundary violation sentinel — DO NOT COMMIT',
+  '// Plants a forbidden HRC import for §3 diagnostic conformance testing.',
+  "import { x } from 'hrc-runtime'", // line 3 — hrc-* prefix is forbidden in this surface
+].join('\n')
+
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
@@ -138,6 +148,47 @@ describe('check-manifest-edges.ts — §3 six-field diagnostics', () => {
 
     // §3 field 1 — file:line (fixture path with concrete line number, not just path).
     expect(combined).toMatch(new RegExp(`__diag_fixture__\\.ts:${MANIFEST_FIXTURE_LINE}`))
+
+    // §3 field 2 — expected-vs-got: both "expected" and "got" appear in the diagnostic.
+    expect(combined).toMatch(/expected/i)
+    expect(combined).toMatch(/\bgot\b/i)
+
+    // §3 field 3 — FIX → blessed correction line.
+    expect(combined).toMatch(/FIX\s*(→|->)/i)
+
+    // §3 field 4 — WHY → rationale pointer.
+    expect(combined).toMatch(/WHY\s*(→|->)/i)
+
+    // §3 field 5 — EXCEPTION → sanctioned exception channel.
+    expect(combined).toMatch(/EXCEPTION\s*(→|->)/i)
+
+    // §3 field 6 — do-not-suppress wording.
+    expect(combined).toMatch(/do not (suppress|silence|disable)/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Harness contract: check-runtime-contract-harness-boundaries.ts
+// ---------------------------------------------------------------------------
+
+describe('check-runtime-contract-harness-boundaries.ts — §3 six-field diagnostics', () => {
+  afterEach(async () => {
+    // Force-remove even if the test threw before writeFile (force: true is a no-op if absent).
+    await rm(join(REPO_ROOT, HARNESS_FIXTURE_REL), { force: true })
+  })
+
+  test('contract-harness no-hrc-import violation carries all six §3 teaching fields', async () => {
+    // Plant: forbidden 'hrc-runtime' import on a deterministic line.
+    await writeFile(join(REPO_ROOT, HARNESS_FIXTURE_REL), HARNESS_FIXTURE_CONTENT)
+
+    const result = await runScript('scripts/check-runtime-contract-harness-boundaries.ts')
+    const combined = out(result)
+
+    // Must detect the violation and exit non-zero.
+    expect(result.exitCode).not.toBe(0)
+
+    // §3 field 1 — file:line (fixture path with concrete line number, not just path).
+    expect(combined).toMatch(new RegExp(`__diag_fixture__\\.ts:${HARNESS_FIXTURE_LINE}`))
 
     // §3 field 2 — expected-vs-got: both "expected" and "got" appear in the diagnostic.
     expect(combined).toMatch(/expected/i)
