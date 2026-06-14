@@ -132,13 +132,7 @@ async function writeAuthoring(
       `| ${r.check} | ${r.rule} | ${r.why} | ${r.bad} | ${r.good} | ${r.exception} | ${r.rung} | ${r.sunsetCondition} |`
   )
 
-  const content = [
-    '# Check Authoring Ledger',
-    '',
-    header,
-    separator,
-    ...dataRows,
-  ].join('\n')
+  const content = ['# Check Authoring Ledger', '', header, separator, ...dataRows].join('\n')
 
   await writeFile(join(checksDir, 'AUTHORING.md'), content)
 }
@@ -285,11 +279,10 @@ describe('check-rule-authoring.ts', () => {
       await mkdir(join(tmpDir, 'checks'), { recursive: true })
 
       // Header has columns in wrong order (rule before check).
-      const badHeader =
-        '| rule | check | why | bad | good | exception | rung | sunset-condition |'
-      const separator =
-        '|------|-------|-----|-----|------|-----------|------|-----------------|'
-      const row = `| R-ALPHA-01 | check-alpha.ts | why text | bad text | good text | EXCEPTION(T-01): reason | GUARD | Remove when done |`
+      const badHeader = '| rule | check | why | bad | good | exception | rung | sunset-condition |'
+      const separator = '|------|-------|-----|-----|------|-----------|------|-----------------|'
+      const row =
+        '| R-ALPHA-01 | check-alpha.ts | why text | bad text | good text | EXCEPTION(T-01): reason | GUARD | Remove when done |'
 
       await writeFile(
         join(tmpDir, 'checks', 'AUTHORING.md'),
@@ -318,9 +311,7 @@ describe('check-rule-authoring.ts', () => {
     // 5c — invalid rung value
     test('5c: invalid rung value (BOGUS) → exit 1', async () => {
       await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [
-        { ...VALID_ROW_ALPHA, rung: 'BOGUS' },
-      ])
+      await writeAuthoring(tmpDir, [{ ...VALID_ROW_ALPHA, rung: 'BOGUS' }])
 
       const result = await runCheck(tmpDir)
       expect(result.exitCode).not.toBe(0)
@@ -330,9 +321,7 @@ describe('check-rule-authoring.ts', () => {
     // 5d — filler sunset-condition
     test('5d: filler sunset-condition (n/a) → exit 1', async () => {
       await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [
-        { ...VALID_ROW_ALPHA, sunsetCondition: 'n/a' },
-      ])
+      await writeAuthoring(tmpDir, [{ ...VALID_ROW_ALPHA, sunsetCondition: 'n/a' }])
 
       const result = await runCheck(tmpDir)
       expect(result.exitCode).not.toBe(0)
@@ -342,9 +331,7 @@ describe('check-rule-authoring.ts', () => {
     // 5e — empty sunset-condition (catches '' and whitespace-only)
     test('5e: empty sunset-condition → exit 1', async () => {
       await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [
-        { ...VALID_ROW_ALPHA, sunsetCondition: '' },
-      ])
+      await writeAuthoring(tmpDir, [{ ...VALID_ROW_ALPHA, sunsetCondition: '' }])
 
       const result = await runCheck(tmpDir)
       expect(result.exitCode).not.toBe(0)
@@ -354,9 +341,7 @@ describe('check-rule-authoring.ts', () => {
     // 5f — filler sunset-condition variant: 'none'
     test('5f: filler sunset-condition (none) → exit 1', async () => {
       await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [
-        { ...VALID_ROW_ALPHA, sunsetCondition: 'none' },
-      ])
+      await writeAuthoring(tmpDir, [{ ...VALID_ROW_ALPHA, sunsetCondition: 'none' }])
 
       const result = await runCheck(tmpDir)
       expect(result.exitCode).not.toBe(0)
@@ -366,9 +351,7 @@ describe('check-rule-authoring.ts', () => {
     // 5g — filler sunset-condition variant: 'never'
     test('5g: filler sunset-condition (never) → exit 1', async () => {
       await writeJustfile(tmpDir, ['check-alpha.ts'])
-      await writeAuthoring(tmpDir, [
-        { ...VALID_ROW_ALPHA, sunsetCondition: 'never' },
-      ])
+      await writeAuthoring(tmpDir, [{ ...VALID_ROW_ALPHA, sunsetCondition: 'never' }])
 
       const result = await runCheck(tmpDir)
       expect(result.exitCode).not.toBe(0)

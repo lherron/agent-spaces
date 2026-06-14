@@ -69,6 +69,7 @@ check:
     bun scripts/check-suppressions.ts
     bun scripts/check-public-surface.ts
     bun scripts/check-doc-reachability.ts
+    bun scripts/check-rule-authoring.ts
 
 # Overlay Cody into the default Codex home and install managed Praesidium CLI hooks
 overlay-codex *args:
