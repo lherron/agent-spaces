@@ -482,3 +482,65 @@ describe('check-public-surface.ts', () => {
     expect(waived.exitCode).toBe(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Mutation/bite spot-check — real ratified package (T-04440 S7)
+// ---------------------------------------------------------------------------
+// Plants a new uncovered public symbol in the real agent-scope barrel and proves
+// that the REAL check-public-surface (real repo root, real baseline) FAILS.
+// Mirrors the planted-fixture pattern in scripts/check-diagnostics.test.ts.
+//
+// THE BITE: if the planted symbol is present and the check does NOT fail,
+// the test assertion fails — that is the proof the check can catch regressions.
+
+describe('check-public-surface.ts — mutation/bite spot-check (real repo)', () => {
+  // Sentinel file planted in the real ratified package (agent-scope).
+  const SURFACE_FIXTURE_REL = 'packages/agent-scope/src/__surface_fixture__.ts'
+  const SURFACE_FIXTURE_CONTENT = [
+    '// __surface_fixture__: public surface mutation sentinel — DO NOT COMMIT',
+    '// Plants an uncovered export for S7 mutation/bite spot-check (T-04440).',
+    'export const PlantedSurfaceFixtureT04440 = true',
+  ].join('\n')
+
+  // Single named re-export appended to the barrel; .js extension matches existing barrel style.
+  const INDEX_REL = 'packages/agent-scope/src/index.ts'
+  const INDEX_FIXTURE_LINE =
+    "export { PlantedSurfaceFixtureT04440 } from './__surface_fixture__.js'\n"
+
+  let savedIndexContent: string | undefined
+
+  afterEach(async () => {
+    // Force-remove fixture even if the test threw before writeFile (force:true is a no-op if absent).
+    await rm(join(REPO_ROOT, SURFACE_FIXTURE_REL), { force: true })
+    // Restore barrel to original content.
+    if (savedIndexContent !== undefined) {
+      await writeFile(join(REPO_ROOT, INDEX_REL), savedIndexContent)
+      savedIndexContent = undefined
+    }
+  })
+
+  test('mutation: planted uncovered public symbol makes check-public-surface fail', async () => {
+    // Snapshot the barrel before mutating.
+    savedIndexContent = await readFile(join(REPO_ROOT, INDEX_REL), 'utf-8')
+
+    // Plant: new uncovered public symbol in the fixture file; re-export from the barrel.
+    await writeFile(join(REPO_ROOT, SURFACE_FIXTURE_REL), SURFACE_FIXTURE_CONTENT)
+    await writeFile(join(REPO_ROOT, INDEX_REL), savedIndexContent + INDEX_FIXTURE_LINE)
+
+    // Run the REAL check — no --root or --baseline flags → uses REPO_ROOT CWD and real baseline.
+    const proc = Bun.spawn(['bun', 'scripts/check-public-surface.ts'], {
+      cwd: REPO_ROOT,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    await proc.exited
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+    const combined = stdout + stderr
+
+    // THE BITE: planted symbol not in baseline + not covered → must fail.
+    expect(proc.exitCode).not.toBe(0)
+    expect(combined).toMatch(/PlantedSurfaceFixtureT04440/)
+    expect(combined).toMatch(/PUBLIC_SURFACE|public-surface|new public surface/i)
+  })
+})
