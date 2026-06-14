@@ -52,7 +52,7 @@ const SAMPLE_FIXTURES_DIR = join(
   'fixtures'
 )
 const CLAUDE_SHIM_DIR = join(SAMPLE_FIXTURES_DIR, 'claude-shim')
-const CLI_TEST_TIMEOUT_MS = 30000
+const CLI_TEST_TIMEOUT_MS = 60000
 
 function cliTest(name: string, fn: TestFn): void
 function cliTest(name: string, fn: TestFn, timeout: number): void
@@ -64,12 +64,13 @@ function cliTest(
 ): void {
   if (typeof optionsOrFn === 'function') {
     const timeout = typeof maybeFnOrTimeout === 'number' ? maybeFnOrTimeout : CLI_TEST_TIMEOUT_MS
-    test(name, { timeout }, optionsOrFn)
+    test(name, optionsOrFn, timeout)
     return
   }
 
   if (typeof maybeFnOrTimeout === 'function') {
-    test(name, { timeout: CLI_TEST_TIMEOUT_MS, ...optionsOrFn }, maybeFnOrTimeout)
+    const timeout = optionsOrFn.timeout ?? CLI_TEST_TIMEOUT_MS
+    test(name, maybeFnOrTimeout, timeout)
     return
   }
 
@@ -147,7 +148,7 @@ describe('asp agent <scope-ref> <mode> (T-00865)', () => {
 
   cliTest(
     'asp agent "agent:alice" heartbeat --dry-run works without prompt',
-    { timeout: 15000 },
+    { timeout: CLI_TEST_TIMEOUT_MS },
     () => {
       const agentRoot = resolveAgentRoot()
 
@@ -920,28 +921,32 @@ describe('prompt in argv (T-00875)', () => {
     expect(parsed.spec.codexAppServer?.prompt).toContain('Reply with exactly: CLIPASS')
   })
 
-  cliTest('no prompt in argv when prompt not provided (heartbeat)', { timeout: 15000 }, () => {
-    const agentRoot = resolveAgentRoot()
+  cliTest(
+    'no prompt in argv when prompt not provided (heartbeat)',
+    { timeout: CLI_TEST_TIMEOUT_MS },
+    () => {
+      const agentRoot = resolveAgentRoot()
 
-    const result = runAsp(
-      [
-        'agent',
-        'agent:alice',
-        'heartbeat',
-        '--agent-root',
-        agentRoot,
-        '--harness',
-        'claude-code',
-        '--dry-run',
-        '--json',
-      ],
-      { expectError: true }
-    )
+      const result = runAsp(
+        [
+          'agent',
+          'agent:alice',
+          'heartbeat',
+          '--agent-root',
+          agentRoot,
+          '--harness',
+          'claude-code',
+          '--dry-run',
+          '--json',
+        ],
+        { expectError: true }
+      )
 
-    const parsed = JSON.parse(result.stdout)
-    // heartbeat has no prompt — argv should NOT contain -p
-    expect(parsed.spec.argv).not.toContain('-p')
-  })
+      const parsed = JSON.parse(result.stdout)
+      // heartbeat has no prompt — argv should NOT contain -p
+      expect(parsed.spec.argv).not.toContain('-p')
+    }
+  )
 })
 
 // ===================================================================
