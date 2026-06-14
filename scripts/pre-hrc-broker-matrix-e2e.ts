@@ -107,6 +107,7 @@ import { createClaudeCodeTmuxDriver } from '../packages/harness-broker/src/drive
 import { createCodexCliTmuxDriver } from '../packages/harness-broker/src/drivers/codex-cli-tmux/driver'
 import { createInvocationEventSequencer } from '../packages/harness-broker/src/events'
 import { createInvocationManager } from '../packages/harness-broker/src/invocation-manager'
+import { parseDispatchEnv } from '../packages/harness-broker/src/runtime/env'
 
 import { assertSharedCommandTurn } from '../packages/agent-spaces/src/testing/pre-hrc-broker-contract-assertions.js'
 import type { SharedCommandTurnMarkerSource } from '../packages/agent-spaces/src/testing/pre-hrc-broker-contract-assertions.js'
@@ -1743,6 +1744,7 @@ function interactiveDeps(): InteractiveTmuxRunnerDeps {
       createInvocationManager as unknown as InteractiveTmuxRunnerDeps['createInvocationManager'],
     createInvocationEventSequencer:
       createInvocationEventSequencer as InteractiveTmuxRunnerDeps['createInvocationEventSequencer'],
+    parseDispatchEnv: parseDispatchEnv as InteractiveTmuxRunnerDeps['parseDispatchEnv'],
   }
 }
 

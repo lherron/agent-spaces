@@ -41,6 +41,7 @@ import type { Driver, DriverContext } from './drivers/driver'
 import { BrokerError } from './errors'
 import { stableJsonStringify } from './event-ledger'
 import type { InvocationEventSequencer } from './events'
+import type { DispatchEnv } from './runtime/env'
 import { normalizeEventPayload } from './runtime/event-normalize'
 
 // ---------------------------------------------------------------------------
@@ -246,7 +247,7 @@ export interface InvocationManager {
     spec: HarnessInvocationSpec,
     driver: Driver,
     initialInput?: InvocationInput | undefined,
-    dispatchEnv?: Record<string, string> | undefined,
+    dispatchEnv?: DispatchEnv | undefined,
     runtime?: InvocationRuntimeContext | undefined,
     lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
   ): Promise<InvocationStartResponse>
@@ -970,7 +971,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       spec: HarnessInvocationSpec,
       driver: Driver,
       initialInput?: InvocationInput | undefined,
-      dispatchEnv?: Record<string, string> | undefined,
+      dispatchEnv?: DispatchEnv | undefined,
       runtime?: InvocationRuntimeContext | undefined,
       lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
     ): Promise<InvocationStartResponse> {

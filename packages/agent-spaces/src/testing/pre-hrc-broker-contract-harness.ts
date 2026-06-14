@@ -1075,6 +1075,7 @@ async function runInteractiveTmuxInvocation(
     const { createInvocationEventSequencer } = await importSibling(
       '../../../harness-broker/src/events'
     )
+    const { parseDispatchEnv } = await importSibling('../../../harness-broker/src/runtime/env')
     const driverSpecifier = [
       '../../../harness-broker/src',
       'drivers',
@@ -1088,6 +1089,10 @@ async function runInteractiveTmuxInvocation(
       InProcessInvocationManager
     >
     const createSequencer = createInvocationEventSequencer as DynamicFactory<[unknown], unknown>
+    const parseManagerDispatchEnv = parseDispatchEnv as DynamicFactory<
+      [unknown, Record<string, string> | undefined],
+      Record<string, string> | undefined
+    >
     const createTmuxDriver = createClaudeCodeTmuxDriver as DynamicFactory<[unknown], unknown>
 
     const manager = createManager({
@@ -1177,7 +1182,11 @@ async function runInteractiveTmuxInvocation(
       now: () => new Date('2026-05-26T12:00:00.000Z'),
     })
 
-    const response = await manager.start(startRequest.spec, driver, undefined, dispatchEnv, {
+    const parsedDispatchEnv = parseManagerDispatchEnv(
+      dispatchEnv,
+      startRequest.spec.process.lockedEnv
+    )
+    const response = await manager.start(startRequest.spec, driver, undefined, parsedDispatchEnv, {
       terminalSurface: harnessLease,
     })
     if (hookHandler === undefined) {

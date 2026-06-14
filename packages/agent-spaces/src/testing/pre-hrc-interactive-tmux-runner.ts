@@ -84,6 +84,10 @@ export type InteractiveTmuxRunnerDeps = {
     onEvent: (event: InvocationEventEnvelope) => void
   }) => InteractiveTmuxManager
   createInvocationEventSequencer: (config: { now: () => Date }) => unknown
+  parseDispatchEnv: (
+    input: unknown,
+    lockedEnv?: Record<string, string> | undefined
+  ) => Record<string, string> | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -800,12 +804,13 @@ export async function runInteractiveClaudeTmuxSession(
 
     const placementDispatchEnv =
       (request.placement as { dispatchEnv?: Record<string, string> | undefined }).dispatchEnv ?? {}
-    const dispatchEnv: Record<string, string> = {
+    const rawDispatchEnv: Record<string, string> = {
       ...buildCorrelationEnvVars(
         request.placement as unknown as Parameters<typeof buildCorrelationEnvVars>[0]
       ),
       ...placementDispatchEnv,
     }
+    const dispatchEnv = deps.parseDispatchEnv(rawDispatchEnv, spec.process.lockedEnv)
 
     const runtime: InvocationRuntimeContext = { terminalSurface: allocated.lease }
     await manager.start(spec, driver, undefined, dispatchEnv, runtime)

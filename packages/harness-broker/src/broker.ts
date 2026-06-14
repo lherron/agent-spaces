@@ -48,6 +48,8 @@ import { BrokerError, toInvalidParamsBrokerError } from './errors'
 import type { EventLedger } from './event-ledger'
 import { createInvocationEventSequencer } from './events'
 import { createInvocationManager } from './invocation-manager'
+import type { DispatchEnv } from './runtime/env'
+import { parseDispatchEnv } from './runtime/env'
 
 const BROKER_VERSION = '0.1.0'
 
@@ -274,10 +276,16 @@ export function createBroker(options: BrokerOptions): Broker {
       runtime?: InvocationRuntimeContext | undefined,
       lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
     ): Promise<InvocationStartResponse> {
+      let parsedDispatchEnv: DispatchEnv | undefined
+      try {
+        parsedDispatchEnv = parseDispatchEnv(dispatchEnv, req.spec.process.lockedEnv)
+      } catch (err) {
+        return Promise.reject(err)
+      }
       try {
         validateInvocationDispatchRequest({
           startRequest: req,
-          ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
+          ...(parsedDispatchEnv !== undefined ? { dispatchEnv: parsedDispatchEnv } : {}),
           ...(runtime !== undefined ? { runtime } : {}),
           ...(lifecyclePolicy !== undefined ? { lifecyclePolicy } : {}),
         })
@@ -304,7 +312,7 @@ export function createBroker(options: BrokerOptions): Broker {
         req.spec,
         driver,
         req.initialInput,
-        dispatchEnv,
+        parsedDispatchEnv,
         runtime,
         lifecyclePolicy
       )

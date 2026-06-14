@@ -16,6 +16,7 @@ import type {
   PermissionRequestParams,
   TurnId,
 } from 'spaces-harness-broker-protocol'
+import type { DispatchEnv } from '../runtime/env'
 
 export interface ApplyInputResult {
   turnId?: TurnId | undefined
@@ -41,7 +42,7 @@ export interface DriverContext {
    * not part of the hashed spec). The driver threads this into the spawn-env
    * composition (`spawnHarnessProcess`). Absent when no dispatchEnv was supplied.
    */
-  dispatchEnv?: Record<string, string> | undefined
+  dispatchEnv?: DispatchEnv | undefined
   /**
    * Dispatch-time runtime overlay (spec §3.3) supplied by the HRC runtime
    * control plane — or the pre-HRC harness stand-in — AFTER profile selection.
