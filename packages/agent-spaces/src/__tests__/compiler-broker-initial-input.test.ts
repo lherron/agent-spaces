@@ -7,7 +7,7 @@
  * inspect the broker profile's start request rather than calling
  * buildHarnessBrokerInvocation directly.
  */
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, test as bunTest, describe, expect } from 'bun:test'
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -22,6 +22,14 @@ import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
 import { createAgentSpacesClient } from '../index.js'
 import type { AgentSpacesClient } from '../types.js'
+
+type TestFn = () => unknown | Promise<unknown>
+
+const HEAVY_TEST_TIMEOUT_MS = 60000
+
+function test(name: string, fn: TestFn): void {
+  bunTest(name, fn, HEAVY_TEST_TIMEOUT_MS)
+}
 
 type CompileClient = AgentSpacesClient & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>

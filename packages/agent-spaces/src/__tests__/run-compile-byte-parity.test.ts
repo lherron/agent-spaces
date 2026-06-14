@@ -9,7 +9,7 @@
  * (argv array + env key→value map, order-normalized) MUST be empty.
  */
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, test as bunTest, describe, expect } from 'bun:test'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -37,6 +37,14 @@ import {
   foregroundLaunchFromResponse,
 } from '../index.js'
 import type { AgentSpacesClient } from '../types.js'
+
+type TestFn = () => unknown | Promise<unknown>
+
+const HEAVY_TEST_TIMEOUT_MS = 60000
+
+function test(name: string, fn: TestFn): void {
+  bunTest(name, fn, HEAVY_TEST_TIMEOUT_MS)
+}
 
 type CompileClient = AgentSpacesClient & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>

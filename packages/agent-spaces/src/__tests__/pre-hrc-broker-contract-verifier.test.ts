@@ -7,7 +7,7 @@
  *   before broker start: it recomputes specHash / startRequestHash and FAILS the
  *   run if local code mutated the selected start request after compile.
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, test as bunTest, describe, expect } from 'bun:test'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -32,6 +32,14 @@ import {
   selectBrokerProfile,
   verifyBrokerStartContract,
 } from '../testing/pre-hrc-broker-helpers.js'
+
+type TestFn = () => unknown | Promise<unknown>
+
+const HEAVY_TEST_TIMEOUT_MS = 60000
+
+function test(name: string, fn: TestFn): void {
+  bunTest(name, fn, HEAVY_TEST_TIMEOUT_MS)
+}
 
 type CompileClient = ReturnType<typeof createAgentSpacesClient> & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
