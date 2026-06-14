@@ -221,6 +221,62 @@ if (violations.length === 0) {
 console.error('Contract harness boundary check failed:')
 for (const violation of violations) {
   const location = violation.line > 0 ? `${violation.file}:${violation.line}` : violation.file
-  console.error(`  [${violation.rule}] ${location}: ${violation.detail}`)
+  const quotedDetail = /'([^']+)'/.exec(violation.detail)?.[1]
+  const diagnostic = (() => {
+    switch (violation.rule) {
+      case 'no-hrc-import':
+        return {
+          expected: 'contract harness must not import HRC',
+          got: `import '${quotedDetail ?? violation.detail}'`,
+          fix: 'drop the HRC import; consume only compiler + broker-client + protocol/runtime-contracts surface.',
+          why: 'the harness proves compiler output is consumable by an HRC-LIKE caller without reaching into HRC itself.',
+        }
+      case 'no-codex-driver-internals':
+        return {
+          expected: 'no Codex driver/session internals',
+          got: `'${quotedDetail ?? violation.detail}'`,
+          fix: 'use the normalized broker surface (fake-codex fixtures / ASP_CODEX_PATH shim), not driver/session internals.',
+          why: 'reaching into Codex internals couples the harness to a specific driver and defeats the contract proof.',
+        }
+      case 'no-direct-builder':
+        return {
+          expected: 'invocation built from the compiled plan',
+          got: 'buildHarnessBrokerInvocation',
+          fix: 'build the invocation from the compiled plan instead of the direct builder.',
+          why: 'the direct builder bypasses the compiler the harness is meant to exercise.',
+        }
+      case 'no-split-start':
+        return {
+          expected: 'request-level startInvocationFromRequest',
+          got: 'split .startInvocation(',
+          fix: 'call startInvocationFromRequest (the request-level pass-through).',
+          why: 'the split start escape hatch skips the request-level contract path.',
+        }
+      case 'requires-start-from-request':
+        return {
+          expected: 'at least one startInvocationFromRequest call in the contract harness',
+          got: 'none found',
+          fix: 'exercise startInvocationFromRequest somewhere in the harness surface.',
+          why: 'without it the harness never proves the request-level pass-through path works.',
+        }
+      default:
+        return {
+          expected: 'contract harness must preserve runtime boundary rules',
+          got: violation.detail,
+          fix: 'update the harness to satisfy the runtime contract boundary.',
+          why: 'the contract harness is a protected architecture surface.',
+        }
+    }
+  })()
+
+  console.error(`  ✗ CONTRACT-HARNESS boundary violation [${violation.rule}]`)
+  console.error(`    ${location}`)
+  console.error(`    expected: ${diagnostic.expected}; got: ${diagnostic.got}`)
+  console.error(`    FIX → ${diagnostic.fix}`)
+  console.error(`    WHY → ${diagnostic.why}`)
+  console.error(
+    '    EXCEPTION → edit the rule set in scripts/check-runtime-contract-harness-boundaries.ts via reviewed change — NOT an inline silence.'
+  )
+  console.error('    Do not suppress, silence, disable, or re-export to hide this; fix the edge.')
 }
 process.exit(1)
