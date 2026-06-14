@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-13</title>
+  <style>
+    :root {
+      --bg: #f3efe7;
+      --paper: rgba(255, 255, 255, 0.96);
+      --ink: #182120;
+      --muted: #5d6b68;
+      --line: #d6ddd8;
+      --shadow: 0 18px 42px rgba(24, 33, 32, 0.08);
+      --runtime: #0f6f68;
+      --runtime-soft: #d9f1ed;
+      --ops: #8f4d1f;
+      --ops-soft: #f6e0d0;
+      --surface: #2a5d8d;
+      --surface-soft: #e3edf8;
+      --research: #5d4b84;
+      --research-soft: #ece6f8;
+      --warn: #7a5c22;
+      --warn-soft: #f4ebda;
+      --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+      --serif: Georgia, "Iowan Old Style", serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body {
+      background:
+        linear-gradient(90deg, rgba(24, 33, 32, 0.03) 1px, transparent 1px) 0 0 / 28px 28px,
+        linear-gradient(0deg, rgba(24, 33, 32, 0.02) 1px, transparent 1px) 0 0 / 28px 28px,
+        radial-gradient(circle at top right, rgba(15, 111, 104, 0.15), transparent 36%),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 var(--sans);
+    }
+    a { color: var(--runtime); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 292px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px 20px 28px;
+      border-right: 1px solid var(--line);
+      background: rgba(243, 239, 231, 0.95);
+      backdrop-filter: blur(12px);
+    }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card {
+      display: grid;
+      gap: 10px;
+    }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a {
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.055em;
+    }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 {
+      margin: 0;
+      font-family: var(--serif);
+      line-height: 1.05;
+    }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p {
+      margin: 0;
+      color: var(--muted);
+    }
+    .kicker { color: var(--ops); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a {
+      display: block;
+      padding: 8px 10px;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .nav a:hover, .nav a:focus {
+      border-left-color: var(--runtime);
+      background: rgba(255, 255, 255, 0.84);
+      color: var(--ink);
+    }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero {
+      padding: 44px min(5vw, 62px) 34px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(15, 111, 104, 0.16), transparent 52%), linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.9));
+    }
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr); gap: 28px; }
+    .eyebrow { color: var(--runtime); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.4rem, 4vw, 4rem); margin-bottom: 14px; }
+    .hero p { max-width: 72ch; font-size: 1.02rem; }
+    .hero-note {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: var(--shadow);
+    }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.9rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .task-grid .task-card { grid-column: span 4; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.35rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      font-weight: 800;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      background: #edf2ee;
+    }
+    .chip.runtime { background: var(--runtime-soft); color: var(--runtime); border-color: rgba(15, 111, 104, 0.18); }
+    .chip.ops { background: var(--ops-soft); color: var(--ops); border-color: rgba(143, 77, 31, 0.18); }
+    .chip.surface { background: var(--surface-soft); color: var(--surface); border-color: rgba(42, 93, 141, 0.18); }
+    .chip.research { background: var(--research-soft); color: var(--research); border-color: rgba(93, 75, 132, 0.18); }
+    .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: rgba(122, 92, 34, 0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.06fr 0.94fr; gap: 18px; min-width: 0; }
+    .note-box {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(227, 237, 248, 0.66), rgba(255, 255, 255, 0.84));
+    }
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+    }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(222, 241, 237, 0.9), rgba(255, 255, 255, 0.96)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(245, 235, 217, 0.9), rgba(255, 255, 255, 0.96)); }
+    .repo-list span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .footer {
+      margin-top: 36px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+      .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; }
+    }
+    @media (max-width: 640px) {
+      .hero, .content { padding-left: 18px; padding-right: 18px; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-13</h1>
+        <p>Previous 24 hours in local time, covering git, wrkq, pushed vs local-only state, and period-relevant dirty work across visible Praesidium repos.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--runtime);"></span>Runtime and queue recovery</div>
+        <div class="legend-item"><span class="dot" style="background: var(--ops);"></span>Automation and platform plumbing</div>
+        <div class="legend-item"><span class="dot" style="background: var(--surface);"></span>UI and operator surfaces</div>
+        <div class="legend-item"><span class="dot" style="background: var(--research);"></span>Research and design probes</div>
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Window</strong><br />
+        2026-06-12 05:02:00 CDT to 2026-06-13 05:02:00 CDT
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Top accomplishments</strong>
+        <ul class="fact-list">
+          <li><code>hrc-runtime</code> turned a real reboot-zombie broker incident into a first-turn self-healing path and landed server-side monitor filtering.</li>
+          <li><code>agent-loop</code>, <code>wrkq</code>, and <code>agent-control-plane</code> each closed workflow or attribution tasks that tighten fleet-wide automation and queue semantics.</li>
+          <li><code>taskboard</code> shipped a rapid inbox-hub UX burst: quick-view, theme alignment, and a late-night component split/refactor pass, all already committed cleanly.</li>
+        </ul>
+      </div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium accomplishments for 2026-06-13</div>
+            <h2>The window mixed real incident recovery, platform workflow generalization, and a fast-moving taskboard UI pass.</h2>
+            <p>The last 24 hours were broad rather than narrow: <code>36</code> landed commits spread across nine repos, <code>38</code> completed wrkq tasks across six Praesidium projects, and three repos still hold period-relevant unchecked-in follow-on work. Most landed commits are already pushed; no in-window local-only commit ranges were visible, though two repos remain ahead from older work.</p>
+            <div class="hero-note">
+              <strong>Coverage</strong>
+              This brief credits committed work, completed <code>wrkq</code> tasks, ahead/behind state, and only unchecked-in paths that appear relevant to the same reporting window. Older carry-forward dirt is surfaced separately rather than treated as new accomplishment.
+            </div>
+          </div>
+          <div class="metrics">
+            <article class="metric">
+              <div class="metric-label">Committed work</div>
+              <div class="metric-value">36</div>
+              <small>Across <code>agent-control-plane</code>, <code>agent-loop</code>, <code>agent-spaces</code>, <code>ghostmux</code>, <code>hrc-runtime</code>, <code>stackctl</code>, <code>taskboard</code>, <code>workboard</code>, and <code>wrkq</code></small>
+            </article>
+            <article class="metric">
+              <div class="metric-label">Completed tasks</div>
+              <div class="metric-value">38</div>
+              <small>Across six Praesidium wrkq projects in the same window</small>
+            </article>
+            <article class="metric">
+              <div class="metric-label">Dirty repos now</div>
+              <div class="metric-value">7</div>
+              <small>Three look period-relevant; four appear older carry-forward state</small>
+            </article>
+            <article class="metric">
+              <div class="metric-label">Ahead repos</div>
+              <div class="metric-value">2</div>
+              <small><code>archagent</code> +4 and <code>scriptable-ghostty</code> +2, but no visible in-window unpushed commits</small>
+            </article>
+          </div>
+        </div>
+      </section>
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The day grouped into four clear streams: runtime recovery, automation plumbing, operator-facing UI work, and one research probe that finished with a fully driven artifact rather than a draft idea.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <div class="chips">
+                  <span class="chip runtime">Runtime recovery</span>
+                  <span class="chip surface">ACP queue follow-through</span>
+                </div>
+              </div>
+              <h3>HRC and ACP closed a real broker failure chain instead of just filing it.</h3>
+              <p><code>hrc-runtime</code> carried the heaviest reliability load: ten landed commits plus four completed tasks. The standout fix was T-04297, where a reboot-zombie durable broker path was changed from infinite retry failure into automatic reprovision on the same session. That incident then exposed a second queue blocker, which <code>agent-control-plane</code> captured and closed as T-04304.</p>
+              <div class="stream-columns">
+                <div>
+                  <ul class="fact-list">
+                    <li><code>hrc-runtime</code> landed reboot-zombie reaping, server-side monitor filtering, ndjson truncation fixes, and a sub-1000-LOC refactor pass.</li>
+                    <li><code>agent-control-plane</code> added one landed fix commit: <code>Fix headless interface run finalization</code>.</li>
+                    <li>Task evidence shows the runtime fix was validated against the real <code>mneme</code> incident path rather than only unit tests.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div class="note-box">
+                    <strong>Key landed messages</strong>
+                    <ul class="evidence-list">
+                      <li><code>fix(hrc): T-04297 reap reboot-zombie durable headless brokers</code></li>
+                      <li><code>feat(hrc): T-04232 monitor watch server-side event filtering</code></li>
+                      <li><code>fix(hrc-cli): T-04046 drain monitor watch stdout before exit</code></li>
+                      <li><code>Fix headless interface run finalization</code></li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <div class="chips">
+                  <span class="chip ops">Automation plumbing</span>
+                  <span class="chip ops">Attribution model</span>
+                </div>
+              </div>
+              <h3>Automation got more reusable while wrkq moved its write attribution boundary outward.</h3>
+              <p><code>agent-loop</code> spent seven commits and eight completed tasks turning one-off Praesidium scripts into generalized per-flow fleet runners. In parallel, <code>wrkq</code> landed tree ndjson improvements and a larger principal-ref migration that stops wrkq from acting as the canonical identity provider for writes.</p>
+              <div class="stream-columns">
+                <div>
+                  <ul class="fact-list">
+                    <li><code>agent-loop</code> landed a JSON-driven workflow runner, then replaced it with per-flow fleet scripts and a read-only project-overview workflow.</li>
+                    <li><code>wrkq</code> landed four commits and six completed tasks, including external principal attribution and styled TTY rendering for <code>wrkq cat</code>.</li>
+                    <li><code>agent-spaces</code> added broker observer tooling and docs via the landed <code>Add broker observer tooling and docs</code> commit.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div class="note-box">
+                    <strong>Representative tasks</strong>
+                    <ul class="evidence-list">
+                      <li><code>T-04302</code> generalize Praesidium project workflows into a JSON-driven runner</li>
+                      <li><code>T-04309</code> replace the apply-all runner with per-flow fleet scripts</li>
+                      <li><code>T-04303</code> external principal attribution for wrkq mutations and daemon writes</li>
+                      <li><code>T-04318</code> styled TTY rendering for <code>wrkq cat</code></li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <div class="chips">
+                  <span class="chip surface">Taskboard UI</span>
+                  <span class="chip surface">Committed clean</span>
+                </div>
+              </div>
+              <h3>Taskboard shipped a concentrated inbox-hub UI burst and committed the cleanup pass cleanly.</h3>
+              <p><code>taskboard</code> accounted for nine landed commits and ten completed tasks, mostly between late evening and just after midnight. The sequence starts with quick-view and theme alignment changes, then ends with a repo-wide SOLID cleanup and three late-night component splits that reduce the size of <code>InboxHub</code>, <code>TaskDetailModal</code>, and <code>InboxColumn</code>.</p>
+              <div class="stream-columns">
+                <div>
+                  <ul class="fact-list">
+                    <li><code>T-04324</code> added a right-side quick-view panel for inbox work.</li>
+                    <li><code>T-04320</code> through <code>T-04323</code> tuned theme alignment, section labels, and priority visibility.</li>
+                    <li><code>T-04330</code> through <code>T-04333</code> then converted that surface into a split-component refactor pass with committed results and no current dirty state.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div class="note-box">
+                    <strong>Commit cluster</strong>
+                    <ul class="evidence-list">
+                      <li><code>feat(inbox-hub): add right-side quick-view panel (T-04324)</code></li>
+                      <li><code>style(inbox-hub): align card tints with task state and theme tokens</code></li>
+                      <li><code>refactor: repo-wide SOLID/cleanup pass across taskboard (T-04330)</code></li>
+                      <li><code>refactor(inbox-hub): split data-flow hooks / modal body / column render components</code></li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <div class="chips">
+                  <span class="chip research">Research probe</span>
+                  <span class="chip warn">Not committed yet</span>
+                </div>
+              </div>
+              <h3>Archagent completed and drove a full 9-turn latent harness, but kept the artifact local for review.</h3>
+              <p><code>archagent</code> did not land commits during the window, but it did complete two task artifacts and remains four commits ahead of its upstream branch from older local work. T-04336 and T-04337 together authored and drove a twin-pair exploration of what makes a repo agent-enabled, with the latent half explicitly recorded as a clean 9/9-turn run and a 356-line artifact awaiting review.</p>
+              <div class="stream-columns">
+                <div>
+                  <ul class="fact-list">
+                    <li>The report credits this as completed task evidence rather than landed git work.</li>
+                    <li>The task log explicitly says the run was driven cleanly and the artifact gate was met across all three decision legs.</li>
+                    <li>The repo still shows local-only ahead state, so this remains visible but not yet published work.</li>
+                  </ul>
+                </div>
+                <div>
+                  <div class="note-box">
+                    <strong>Why it matters</strong>
+                    <ul class="evidence-list">
+                      <li>Praesidium’s repo-shaping and agent-grounding direction is being tested as a control-loop problem, not just a docs-vs-lints debate.</li>
+                      <li>The output names falsifiers and cheapest experiments, which makes it more than a conceptual memo.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Tasks</h2>
+            <p>Task completions were broader than the commit stream. These cards group the window by project and call out the highest-signal task IDs rather than listing all 38 completions flat.</p>
+          </div>
+          <div class="task-grid">
+            <article class="task-card">
+              <div class="task-meta"><span>hrc-runtime</span><span>4 completions</span></div>
+              <h3>Runtime recovery and monitor filtering</h3>
+              <p><code>T-04297</code> reboot-zombie broker recovery, <code>T-04232</code> monitor filtering, <code>T-04046</code> ndjson final-line fix, and <code>T-04241</code> the sub-1000-LOC refactor pass.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>agent-control-plane</span><span>8 completions</span></div>
+              <h3>Queue cleanup and PBC integration churn</h3>
+              <p><code>T-04304</code> closed the phantom pending-run queue jam. The remaining completions are clustered PBC integration task rows plus the longer-lived Discord timeout defect <code>T-01357</code>.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>agent-loop</span><span>8 completions</span></div>
+              <h3>Praesidium workflow runner generalization</h3>
+              <p><code>T-04242</code>, <code>T-04301</code>, <code>T-04302</code>, <code>T-04305</code>, <code>T-04306</code>, <code>T-04307</code>, <code>T-04308</code>, and <code>T-04309</code> walk from first workflow extraction to a more reusable fleet-script model.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>wrkq</span><span>6 completions</span></div>
+              <h3>CLI output and principal attribution</h3>
+              <p><code>T-04303</code> moved writes to principal refs, while <code>T-04298</code>, <code>T-04299</code>, and <code>T-04300</code> improved tree output, followed by <code>T-04315</code> and <code>T-04318</code> on docs and styled cat rendering.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>taskboard</span><span>10 completions</span></div>
+              <h3>Inbox-hub feature burst and refactor pass</h3>
+              <p>The window includes quick-view, styling and affordance tweaks, then four cleanup/refactor tasks from <code>T-04330</code> through <code>T-04333</code> that landed as a committed batch.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>archagent</span><span>2 completions</span></div>
+              <h3>Twin harness authored and driven</h3>
+              <p><code>T-04336</code> and <code>T-04337</code> completed an indistinguishable/latent pair on agent-enabled repos. The latent run finished cleanly and remains local pending review.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>Not every completion carried the same verification depth. These are the strongest explicit validation notes visible in task records and the artifact checks run for this report.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3>T-04297 closed with real incident replay</h3>
+              <p>The task comment records <code>960</code> passing hrc-server tests, lint, <code>just install</code>, <code>hrc server restart</code>, and a real turn to <code>mneme@media-ingest:primary</code> that self-healed on the first post-reboot dispatch.</p>
+            </article>
+            <article class="evidence-card good">
+              <h3>T-04303 migrated wrkq with production-copy checks</h3>
+              <p>The completion note calls out a backup, migration integrity checks, zero foreign-key errors, preserved row counts, <code>just verify</code>, <code>just install</code>, and installed-binary CLI plus daemon scope-only smokes with no actor rows created.</p>
+            </article>
+            <article class="evidence-card good">
+              <h3>T-04337 was fully driven, not merely authored</h3>
+              <p>The final comment says the 9-turn latent harness ran <code>9/9</code> turns clean with one durable response per turn, produced a 356-line artifact, and met its pre-committed cash-value gate.</p>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Report verification remained static</h3>
+              <p>This HTML file was checked for required anchors, responsive breakpoints, and overflow-safe CSS. Browser-based desktop/mobile screenshots were attempted only after artifact creation and depend on local browser tooling availability in-turn.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>The period leaves real follow-on work visible. The first group looks clearly tied to the same window; the second group looks older or separately staged and is listed for situational awareness only.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card">
+              <h3>Period-relevant unchecked-in work</h3>
+              <ul class="repo-list">
+                <li><code>agent-control-plane</code> has 12 modified paths, centered on <code>packages/acp-server/src/integration/*</code>, <code>real-launcher.ts</code>, a stale-classifier test, and package manifest churn.
+                  <span>This looks like post-fix queue/interface follow-through, not stale debris.</span></li>
+                <li><code>agent-loop</code> has 11 dirty paths replacing <code>apply-all-praesidium</code> files with <code>scripts/lib/*</code> and a new <code>praesidium-project-overview.ts</code> surface.
+                  <span>The task series landed, but the worktree still shows a next iteration in progress.</span></li>
+                <li><code>wrkq</code> has 8 dirty paths around <code>internal/cli/cat.go</code>, new <code>catstyle.go</code>/<code>mdrender.go</code>, vendored modules, and the DTO HTML.
+                  <span>That aligns with the just-completed styled-cat and documentation burst.</span></li>
+              </ul>
+            </article>
+            <article class="repo-card">
+              <h3>Carry-forward or separately staged state</h3>
+              <ul class="repo-list">
+                <li><code>archagent</code> is <code>4</code> commits ahead of <code>origin/main</code>; <code>scriptable-ghostty</code> is <code>2</code> ahead.
+                  <span>No visible ahead commits from these repos were authored inside this reporting window.</span></li>
+                <li><code>knowledge</code> shows 51 dirty paths and <code>workflow-spec</code> shows 40.
+                  <span>They appear as broader carry-forward reorganizations, not clearly attributable to this exact 24-hour period.</span></li>
+                <li>The top-level <code>praesidium</code> repo also has large delete/untracked churn.
+                  <span>That meta-repo state was intentionally not counted as new accomplishment without stronger period attribution.</span></li>
+              </ul>
+            </article>
+          </div>
+          <div class="footer">
+            Source window: git history and worktree state under <code>/Users/lherron/praesidium</code>, plus wrkq task records across Praesidium projects. Generated for the local date 2026-06-13.
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
