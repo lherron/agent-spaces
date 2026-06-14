@@ -27,20 +27,11 @@
  */
 import type { Dirent } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
-import { join, relative } from 'node:path'
-
-type Violation = {
-  file: string
-  line: number
-  rule: string
-  detail: string
-}
+import { join } from 'node:path'
+import { defineGuard, runGuard } from './lib/boundary-guard/engine.ts'
+import type { Guard, ImportFinding, TokenFinding } from './lib/boundary-guard/engine.ts'
 
 const repoRoot = new URL('..', import.meta.url).pathname
-
-// ---------------------------------------------------------------------------
-// Harness surface
-// ---------------------------------------------------------------------------
 
 const TESTING_DIR = 'packages/agent-spaces/src/testing'
 const SCRIPTS_DIR = 'scripts'
@@ -101,19 +92,6 @@ async function harnessFiles(): Promise<string[]> {
   return [...testingFiles, ...scriptFiles].sort()
 }
 
-// ---------------------------------------------------------------------------
-// Detection
-// ---------------------------------------------------------------------------
-
-const importPattern =
-  /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)|\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/
-
-function importSpecifier(line: string): string | undefined {
-  const match = importPattern.exec(line)
-  if (match === null) return undefined
-  return match[1] ?? match[2] ?? match[3]
-}
-
 function isHrcImport(specifier: string): boolean {
   return (
     specifier.startsWith('hrc-') ||
@@ -131,152 +109,108 @@ const codexInternalsPattern =
 
 const splitStartPattern = /\.startInvocation\s*\(/
 
-function scanLine(file: string, lineNumber: number, line: string): Violation[] {
-  const violations: Violation[] = []
-
-  const specifier = importSpecifier(line)
-  if (specifier !== undefined && isHrcImport(specifier)) {
-    violations.push({
-      file,
-      line: lineNumber,
-      rule: 'no-hrc-import',
-      detail: `forbidden HRC import '${specifier}'`,
-    })
-  }
-
-  const codexMatch = codexInternalsPattern.exec(line)
-  if (codexMatch !== null) {
-    violations.push({
-      file,
-      line: lineNumber,
-      rule: 'no-codex-driver-internals',
-      detail: `forbidden Codex driver/session internal '${codexMatch[0]}'`,
-    })
-  }
-
-  if (line.includes('buildHarnessBrokerInvocation')) {
-    violations.push({
-      file,
-      line: lineNumber,
-      rule: 'no-direct-builder',
-      detail: 'forbidden buildHarnessBrokerInvocation (use the compiled plan)',
-    })
-  }
-
-  // The split start call is `.startInvocation(`; the request-level call is
-  // `.startInvocationFromRequest(` and must NOT trip this rule.
-  if (splitStartPattern.test(line) && !line.includes('startInvocationFromRequest')) {
-    violations.push({
-      file,
-      line: lineNumber,
-      rule: 'no-split-start',
-      detail: 'forbidden split .startInvocation( (use startInvocationFromRequest)',
-    })
-  }
-
-  return violations
+function contractHarnessGuard(): Guard {
+  return defineGuard({
+    surface: {
+      dirs: [TESTING_DIR],
+      scriptPrefixes: [{ dir: SCRIPTS_DIR, prefix: SCRIPT_PREFIX }],
+      ignore: [...ignoredDirectories],
+    },
+    rules: [
+      {
+        id: 'CONTRACT-HARNESS:no-hrc-import',
+        kind: 'forbid-import',
+        match: (specifier: string) => (isHrcImport(specifier) ? specifier : undefined),
+        expected: 'contract harness must not import HRC',
+        got: (finding: ImportFinding) => `import '${finding.specifier}'`,
+        fix: 'drop the HRC import; consume only compiler + broker-client + protocol/runtime-contracts surface.',
+        why: 'the harness proves compiler output is consumable by an HRC-LIKE caller without reaching into HRC itself.',
+        exception:
+          'edit the rule set in scripts/check-runtime-contract-harness-boundaries.ts via reviewed change — NOT an inline silence.',
+        doNotSuppress:
+          'Do not suppress, silence, disable, or re-export to hide this; fix the edge.',
+      },
+      {
+        id: 'CONTRACT-HARNESS:no-codex-driver-internals',
+        kind: 'forbid-token',
+        match(line: string): string | undefined {
+          return codexInternalsPattern.exec(line)?.[0]
+        },
+        expected: 'no Codex driver/session internals',
+        got: (finding: TokenFinding) => `'${finding.token}'`,
+        fix: 'use the normalized broker surface (fake-codex fixtures / ASP_CODEX_PATH shim), not driver/session internals.',
+        why: 'reaching into Codex internals couples the harness to a specific driver and defeats the contract proof.',
+        exception:
+          'edit the rule set in scripts/check-runtime-contract-harness-boundaries.ts via reviewed change — NOT an inline silence.',
+        doNotSuppress:
+          'Do not suppress, silence, disable, or re-export to hide this; fix the edge.',
+      },
+      {
+        id: 'CONTRACT-HARNESS:no-direct-builder',
+        kind: 'forbid-token',
+        match: (line: string) =>
+          line.includes('buildHarnessBrokerInvocation')
+            ? 'buildHarnessBrokerInvocation'
+            : undefined,
+        expected: 'invocation built from the compiled plan',
+        got: 'buildHarnessBrokerInvocation',
+        fix: 'build the invocation from the compiled plan instead of the direct builder.',
+        why: 'the direct builder bypasses the compiler the harness is meant to exercise.',
+        exception:
+          'edit the rule set in scripts/check-runtime-contract-harness-boundaries.ts via reviewed change — NOT an inline silence.',
+        doNotSuppress:
+          'Do not suppress, silence, disable, or re-export to hide this; fix the edge.',
+      },
+      {
+        id: 'CONTRACT-HARNESS:no-split-start',
+        kind: 'forbid-token',
+        match: (line: string) =>
+          splitStartPattern.test(line) && !line.includes('startInvocationFromRequest')
+            ? 'split .startInvocation('
+            : undefined,
+        expected: 'request-level startInvocationFromRequest',
+        got: 'split .startInvocation(',
+        fix: 'call startInvocationFromRequest (the request-level pass-through).',
+        why: 'the split start escape hatch skips the request-level contract path.',
+        exception:
+          'edit the rule set in scripts/check-runtime-contract-harness-boundaries.ts via reviewed change — NOT an inline silence.',
+        doNotSuppress:
+          'Do not suppress, silence, disable, or re-export to hide this; fix the edge.',
+      },
+      {
+        id: 'CONTRACT-HARNESS:requires-start-from-request',
+        kind: 'require-presence',
+        match: (line: string) => line.includes('startInvocationFromRequest'),
+        expected: 'at least one startInvocationFromRequest call in the contract harness',
+        got: 'none found',
+        fix: 'exercise startInvocationFromRequest somewhere in the harness surface.',
+        why: 'without it the harness never proves the request-level pass-through path works.',
+        exception:
+          'edit the rule set in scripts/check-runtime-contract-harness-boundaries.ts via reviewed change — NOT an inline silence.',
+        doNotSuppress:
+          'Do not suppress, silence, disable, or re-export to hide this; fix the edge.',
+      },
+    ],
+    repoRoot,
+  })
 }
-
-// ---------------------------------------------------------------------------
-// Run
-// ---------------------------------------------------------------------------
 
 const files = await harnessFiles()
-if (files.length === 0) {
-  console.error('Contract harness boundary check failed: no harness files were found.')
-  console.error(`  expected ${TESTING_DIR}/**/*.ts and ${SCRIPTS_DIR}/${SCRIPT_PREFIX}*.ts`)
-  process.exit(1)
-}
-
-const violations: Violation[] = []
 let startInvocationFromRequestHits = 0
 
 for (const file of files) {
   const content = await readFile(file, 'utf8')
-  const lines = content.split('\n')
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? ''
-    if (line.includes('startInvocationFromRequest')) startInvocationFromRequestHits += 1
-    violations.push(...scanLine(relative(repoRoot, file), i + 1, line))
-  }
+  startInvocationFromRequestHits += content
+    .split('\n')
+    .filter((line) => line.includes('startInvocationFromRequest')).length
 }
 
-if (startInvocationFromRequestHits === 0) {
-  violations.push({
-    file: TESTING_DIR,
-    line: 0,
-    rule: 'requires-start-from-request',
-    detail:
-      'positive check failed: no startInvocationFromRequest call found in the contract harness',
-  })
-}
+const exitCode = await runGuard(contractHarnessGuard())
 
-if (violations.length === 0) {
+if (exitCode === 0) {
   console.log(
     `Contract harness boundary check passed (${files.length} files; startInvocationFromRequest hits=${startInvocationFromRequestHits}).`
   )
-  process.exit(0)
 }
 
-console.error('Contract harness boundary check failed:')
-for (const violation of violations) {
-  const location = violation.line > 0 ? `${violation.file}:${violation.line}` : violation.file
-  const quotedDetail = /'([^']+)'/.exec(violation.detail)?.[1]
-  const diagnostic = (() => {
-    switch (violation.rule) {
-      case 'no-hrc-import':
-        return {
-          expected: 'contract harness must not import HRC',
-          got: `import '${quotedDetail ?? violation.detail}'`,
-          fix: 'drop the HRC import; consume only compiler + broker-client + protocol/runtime-contracts surface.',
-          why: 'the harness proves compiler output is consumable by an HRC-LIKE caller without reaching into HRC itself.',
-        }
-      case 'no-codex-driver-internals':
-        return {
-          expected: 'no Codex driver/session internals',
-          got: `'${quotedDetail ?? violation.detail}'`,
-          fix: 'use the normalized broker surface (fake-codex fixtures / ASP_CODEX_PATH shim), not driver/session internals.',
-          why: 'reaching into Codex internals couples the harness to a specific driver and defeats the contract proof.',
-        }
-      case 'no-direct-builder':
-        return {
-          expected: 'invocation built from the compiled plan',
-          got: 'buildHarnessBrokerInvocation',
-          fix: 'build the invocation from the compiled plan instead of the direct builder.',
-          why: 'the direct builder bypasses the compiler the harness is meant to exercise.',
-        }
-      case 'no-split-start':
-        return {
-          expected: 'request-level startInvocationFromRequest',
-          got: 'split .startInvocation(',
-          fix: 'call startInvocationFromRequest (the request-level pass-through).',
-          why: 'the split start escape hatch skips the request-level contract path.',
-        }
-      case 'requires-start-from-request':
-        return {
-          expected: 'at least one startInvocationFromRequest call in the contract harness',
-          got: 'none found',
-          fix: 'exercise startInvocationFromRequest somewhere in the harness surface.',
-          why: 'without it the harness never proves the request-level pass-through path works.',
-        }
-      default:
-        return {
-          expected: 'contract harness must preserve runtime boundary rules',
-          got: violation.detail,
-          fix: 'update the harness to satisfy the runtime contract boundary.',
-          why: 'the contract harness is a protected architecture surface.',
-        }
-    }
-  })()
-
-  console.error(`  ✗ CONTRACT-HARNESS boundary violation [${violation.rule}]`)
-  console.error(`    ${location}`)
-  console.error(`    expected: ${diagnostic.expected}; got: ${diagnostic.got}`)
-  console.error(`    FIX → ${diagnostic.fix}`)
-  console.error(`    WHY → ${diagnostic.why}`)
-  console.error(
-    '    EXCEPTION → edit the rule set in scripts/check-runtime-contract-harness-boundaries.ts via reviewed change — NOT an inline silence.'
-  )
-  console.error('    Do not suppress, silence, disable, or re-export to hide this; fix the edge.')
-}
-process.exit(1)
+process.exit(exitCode)

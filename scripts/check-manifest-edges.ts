@@ -1,5 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { join, relative } from 'node:path'
+import { defineGuard, runGuard } from './lib/boundary-guard/engine.ts'
+import type { GuardDiagnostic } from './lib/boundary-guard/engine.ts'
 
 type PackageInfo = {
   dir: string
@@ -171,56 +173,71 @@ async function importedWorkspacePackages(
   return imports
 }
 
-const packages = await workspacePackages()
-const workspaceNames = new Set(packages.map((packageInfo) => packageInfo.name))
-const missingEdges: MissingEdge[] = []
+async function missingManifestEdges(): Promise<MissingEdge[]> {
+  const packages = await workspacePackages()
+  const workspaceNames = new Set(packages.map((packageInfo) => packageInfo.name))
+  const missingEdges: MissingEdge[] = []
 
-for (const packageInfo of packages) {
-  const imports = await importedWorkspacePackages(packageInfo, workspaceNames)
-  for (const [dependency, locations] of imports) {
-    if (!packageInfo.declared.has(dependency)) {
-      missingEdges.push({
-        packageDir: packageInfo.dir,
-        packageName: packageInfo.name,
-        dependency,
-        locations: locations.sort(
-          (left, right) => left.file.localeCompare(right.file) || left.line - right.line
-        ),
-      })
+  for (const packageInfo of packages) {
+    const imports = await importedWorkspacePackages(packageInfo, workspaceNames)
+    for (const [dependency, locations] of imports) {
+      if (!packageInfo.declared.has(dependency)) {
+        missingEdges.push({
+          packageDir: packageInfo.dir,
+          packageName: packageInfo.name,
+          dependency,
+          locations: locations.sort(
+            (left, right) => left.file.localeCompare(right.file) || left.line - right.line
+          ),
+        })
+      }
     }
   }
+
+  return missingEdges.sort(
+    (left, right) =>
+      left.packageDir.localeCompare(right.packageDir) ||
+      left.packageName.localeCompare(right.packageName) ||
+      left.dependency.localeCompare(right.dependency)
+  )
 }
 
-if (missingEdges.length === 0) {
+async function detectMissingManifestEdges(): Promise<GuardDiagnostic[]> {
+  const edges = await missingManifestEdges()
+
+  return edges.flatMap((edge) =>
+    edge.locations.map((location) => ({
+      location,
+      ruleId: 'MANIFEST:missing-workspace-dependency',
+      expected: `every imported workspace package is declared in ${edge.packageDir}/package.json dependencies`,
+      got: `source imports '${edge.dependency}' without a manifest edge`,
+      fix: `add '${edge.dependency}' to ${edge.packageDir}/package.json dependencies (autofix: \`cd ${edge.packageDir} && bun add ${edge.dependency}\`)`,
+      why: 'undeclared workspace dependencies break isolated installs and hide the real package edge from tooling.',
+      exception:
+        'declaring the dependency is the fix; if it truly should not be declared, edit this rule via reviewed change with rationale.',
+      doNotSuppress: 'Do not suppress, silence, disable, or re-export to hide this; fix the edge.',
+    }))
+  )
+}
+
+const guard = defineGuard({
+  surface: {
+    dirs: ['packages', 'integration-tests'],
+    ignore: ['.git', 'coverage', 'dist', 'node_modules', 'tmp'],
+  },
+  rules: [
+    {
+      id: 'MANIFEST:missing-workspace-dependency',
+      kind: 'custom',
+      detect: detectMissingManifestEdges,
+    },
+  ],
+})
+
+const exitCode = await runGuard(guard)
+
+if (exitCode === 0) {
   console.log('Manifest edge check passed.')
-  process.exit(0)
 }
 
-console.error('Manifest edge check failed: source imports missing from package manifests.')
-
-const grouped = Map.groupBy(missingEdges, (edge) => `${edge.packageDir} (${edge.packageName})`)
-for (const [group, edges] of grouped) {
-  console.error('')
-  console.error(group)
-  for (const edge of edges.sort((left, right) => left.dependency.localeCompare(right.dependency))) {
-    console.error(`  ✗ MANIFEST missing dependency '${edge.dependency}'`)
-    for (const location of edge.locations) {
-      console.error(`    ${location.file}:${location.line}`)
-    }
-    console.error(
-      `    expected: every imported workspace package is declared in ${edge.packageDir}/package.json dependencies; got: source imports '${edge.dependency}' without a manifest edge.`
-    )
-    console.error(
-      `    FIX → add '${edge.dependency}' to ${edge.packageDir}/package.json dependencies (autofix: \`cd ${edge.packageDir} && bun add ${edge.dependency}\`).`
-    )
-    console.error(
-      '    WHY → undeclared workspace dependencies break isolated installs and hide the real package edge from tooling.'
-    )
-    console.error(
-      '    EXCEPTION → declaring the dependency is the fix; if it truly should not be declared, edit this rule via reviewed change with rationale.'
-    )
-    console.error('    Do not suppress, silence, disable, or re-export to hide this; fix the edge.')
-  }
-}
-
-process.exit(1)
+process.exit(exitCode)
