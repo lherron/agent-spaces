@@ -11,7 +11,12 @@ type MissingEdge = {
   packageDir: string
   packageName: string
   dependency: string
-  files: string[]
+  locations: ImportLocation[]
+}
+
+type ImportLocation = {
+  file: string
+  line: number
 }
 
 type PackageJson = {
@@ -130,11 +135,15 @@ function barePackageName(specifier: string): string | undefined {
   return parts[0]
 }
 
+function lineNumberForIndex(content: string, index: number): number {
+  return content.slice(0, index).split('\n').length
+}
+
 async function importedWorkspacePackages(
   packageInfo: PackageInfo,
   workspaceNames: Set<string>
-): Promise<Map<string, Set<string>>> {
-  const imports = new Map<string, Set<string>>()
+): Promise<Map<string, ImportLocation[]>> {
+  const imports = new Map<string, ImportLocation[]>()
   const files = await collectSourceFiles(join(packageInfo.dir, 'src'))
 
   for (const file of files) {
@@ -150,9 +159,12 @@ async function importedWorkspacePackages(
         continue
       }
 
-      const importFiles = imports.get(packageName) ?? new Set<string>()
-      importFiles.add(relative(process.cwd(), file))
-      imports.set(packageName, importFiles)
+      const importLocations = imports.get(packageName) ?? []
+      importLocations.push({
+        file: relative(process.cwd(), file),
+        line: lineNumberForIndex(content, match.index),
+      })
+      imports.set(packageName, importLocations)
     }
   }
 
@@ -165,13 +177,15 @@ const missingEdges: MissingEdge[] = []
 
 for (const packageInfo of packages) {
   const imports = await importedWorkspacePackages(packageInfo, workspaceNames)
-  for (const [dependency, files] of imports) {
+  for (const [dependency, locations] of imports) {
     if (!packageInfo.declared.has(dependency)) {
       missingEdges.push({
         packageDir: packageInfo.dir,
         packageName: packageInfo.name,
         dependency,
-        files: [...files].sort(),
+        locations: locations.sort(
+          (left, right) => left.file.localeCompare(right.file) || left.line - right.line
+        ),
       })
     }
   }
@@ -189,10 +203,23 @@ for (const [group, edges] of grouped) {
   console.error('')
   console.error(group)
   for (const edge of edges.sort((left, right) => left.dependency.localeCompare(right.dependency))) {
-    console.error(`  missing dependency '${edge.dependency}'`)
-    for (const file of edge.files) {
-      console.error(`    ${file}`)
+    console.error(`  ✗ MANIFEST missing dependency '${edge.dependency}'`)
+    for (const location of edge.locations) {
+      console.error(`    ${location.file}:${location.line}`)
     }
+    console.error(
+      `    expected: every imported workspace package is declared in ${edge.packageDir}/package.json dependencies; got: source imports '${edge.dependency}' without a manifest edge.`
+    )
+    console.error(
+      `    FIX → add '${edge.dependency}' to ${edge.packageDir}/package.json dependencies (autofix: \`cd ${edge.packageDir} && bun add ${edge.dependency}\`).`
+    )
+    console.error(
+      '    WHY → undeclared workspace dependencies break isolated installs and hide the real package edge from tooling.'
+    )
+    console.error(
+      '    EXCEPTION → declaring the dependency is the fix; if it truly should not be declared, edit this rule via reviewed change with rationale.'
+    )
+    console.error('    Do not suppress, silence, disable, or re-export to hide this; fix the edge.')
   }
 }
 

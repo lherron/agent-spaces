@@ -10,7 +10,9 @@ type Layer = {
 
 type Violation = {
   file: string
+  line: number
   specifier: string
+  token: string
 }
 
 const aspPackages = [
@@ -251,6 +253,10 @@ function packageGroup(file: string): string {
   return parts[0] ?? dirname(file)
 }
 
+function lineNumberForIndex(content: string, index: number): number {
+  return content.slice(0, index).split('\n').length
+}
+
 async function findViolations(layer: Layer): Promise<Violation[]> {
   const violations: Violation[] = []
   const files = (await Promise.all(layer.roots.map((root) => collectTsFiles(root)))).flat()
@@ -263,8 +269,14 @@ async function findViolations(layer: Layer): Promise<Violation[]> {
         continue
       }
 
-      if (layer.forbidden.some((token) => isForbidden(specifier, token))) {
-        violations.push({ file: relative(process.cwd(), file), specifier })
+      const token = layer.forbidden.find((candidate) => isForbidden(specifier, candidate))
+      if (token) {
+        violations.push({
+          file: relative(process.cwd(), file),
+          line: lineNumberForIndex(content, match.index),
+          specifier,
+          token,
+        })
       }
     }
   }
@@ -296,7 +308,23 @@ for (const [layerName, violations] of violationsByLayer) {
   for (const [group, groupViolations] of grouped) {
     console.error(`  ${group}`)
     for (const violation of groupViolations) {
-      console.error(`    ${violation.file}: forbidden '${violation.specifier}'`)
+      console.error('    ✗ ARCH-L2 layer violation')
+      console.error(`      ${violation.file}:${violation.line}`)
+      console.error(
+        `      expected: ${layerName} layer must not import modules matching '${violation.token}'; got: import '${violation.specifier}'`
+      )
+      console.error(
+        `      FIX → move the shared type/API to a lower allowed layer, or invert the dependency; remove the '${violation.token}' edge from ${layerName}.`
+      )
+      console.error(
+        `      WHY → ${layerName} is a protected architecture layer; importing '${violation.token}' points it at an outer or forbidden layer.`
+      )
+      console.error(
+        '      EXCEPTION → edit the rule set in scripts/check-boundaries.ts via reviewed change with rationale — NOT an inline silence.'
+      )
+      console.error(
+        '      Do not suppress, silence, disable, or re-export to hide this; fix the edge.'
+      )
     }
   }
 }
