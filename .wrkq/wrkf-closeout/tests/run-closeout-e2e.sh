@@ -11,7 +11,6 @@
 #   ./tests/run-closeout-e2e.sh --test N  # run single test N (1-9)
 #
 # Exit 0 only if all selected tests pass.
-# RED bar until larry's Phase 2 delivers the template + hook-catalog files.
 
 set -uo pipefail
 
@@ -71,53 +70,48 @@ assert_contains() {
     pass "$label: pattern '$pattern' found"
     return 0
   else
-    fail "$label: pattern '$pattern' NOT found in: $(echo "$text" | head -5)"
+    fail "$label: pattern '$pattern' NOT found in: $(echo "$text" | head -3)"
     return 1
   fi
 }
 
-# assert_json_field LABEL FIELD JSON
-# Checks that jq .FIELD is non-null and non-empty string in the JSON
-assert_json_field() {
-  local label="$1" field="$2" json="$3"
-  local val
-  val="$(echo "$json" | jq -r "$field // empty" 2>/dev/null || true)"
-  if [[ -n "$val" && "$val" != "null" ]]; then
-    pass "$label.$field present: '$val'"
-    return 0
-  else
-    fail "$label.$field: not found or null in JSON"
-    return 1
-  fi
-}
-
-# assert_diag_fields LABEL STDERR_OUTPUT
-# Verifies all 7 §3 diagnostic fields are present in the hook stderr output
+# assert_diag_fields LABEL CHECK_RUN_JSON
+# Verifies all 7 §3 diagnostic fields appear in the check run's .summary JSON.
+# The check-run summary is a JSON-encoded string in .checks[0].summary.
 assert_diag_fields() {
-  local label="$1" output="$2"
-  # The hook emits a JSON object on stderr; find the first JSON object in the output
-  local diag
-  diag="$(echo "$output" | grep -oE '\{[^{}]*requiredSurface[^{}]*\}' | head -1 || true)"
-  if [[ -z "$diag" ]]; then
-    fail "$label: no §3 diagnostic JSON object found in output"
-    fail "  output was: $(echo "$output" | tail -5)"
+  local label="$1" check_json="$2"
+  local summary_str
+  summary_str="$(echo "$check_json" | jq -r '.checks[0].summary // empty' 2>/dev/null || true)"
+  if [[ -z "$summary_str" || "$summary_str" == "null" ]]; then
+    fail "$label: no §3 diagnostic in check summary (got: $check_json)"
     return 1
   fi
+  local diag
+  diag="$(echo "$summary_str" | jq '.' 2>/dev/null || true)"
+  if [[ -z "$diag" ]]; then
+    fail "$label: §3 summary is not valid JSON: $summary_str"
+    return 1
+  fi
+  log "$label §3 diag: $summary_str"
   local ok=0
   for field in requiredSurface claimClass recordedDiffFloor expectedKind reason; do
-    if echo "$diag" | jq -e ".$field" > /dev/null 2>&1; then
-      pass "$label.diag.$field present"
+    local val
+    val="$(echo "$diag" | jq -r ".$field // empty" 2>/dev/null || true)"
+    if [[ -n "$val" && "$val" != "null" ]]; then
+      pass "$label.diag.$field = '$val'"
     else
-      fail "$label.diag.$field MISSING in: $diag"
+      fail "$label.diag.$field MISSING in: $summary_str"
       ok=1
     fi
   done
   # foundKind and foundExitCode may be null — just check key presence
   for field in foundKind foundExitCode; do
     if echo "$diag" | jq -e "has(\"$field\")" > /dev/null 2>&1; then
-      pass "$label.diag.$field key present"
+      local val
+      val="$(echo "$diag" | jq -r ".$field // \"null\"" 2>/dev/null || true)"
+      pass "$label.diag.$field key present (=$val)"
     else
-      fail "$label.diag.$field key MISSING in: $diag"
+      fail "$label.diag.$field key MISSING in: $summary_str"
       ok=1
     fi
   done
@@ -134,7 +128,6 @@ setup_db() {
   rm -f "$db" "${db}-shm" "${db}-wal" 2>/dev/null || true
   wrkqadm --db "$db" migrate >&2
   # Run init from /tmp so wrkqadm doesn't pollute the repo's .gitignore
-  # (wrkqadm init adds the db path to .gitignore in CWD)
   (cd /tmp && wrkqadm --db "$db" init) >&2
 
   # Seed distinct actors (one per workflow role) for SoD compliance
@@ -160,32 +153,20 @@ cleanup_db() {
 }
 
 # ── Template install ──────────────────────────────────────────────────────────
-# install_template DB_PATH → 0 if validate+install both succeed
 install_template() {
   local db="$1"
-
-  # Template and catalog must exist — if absent the harness is RED here
   if [[ ! -f "$TEMPLATE" ]]; then
-    fail "TEMPLATE ABSENT: $TEMPLATE (Phase 2 not yet delivered — harness is RED)"
+    fail "TEMPLATE ABSENT: $TEMPLATE"
     return 1
   fi
   if [[ ! -f "$CATALOG" ]]; then
-    fail "CATALOG ABSENT: $CATALOG (Phase 2 not yet delivered — harness is RED)"
+    fail "CATALOG ABSENT: $CATALOG"
     return 1
   fi
-
-  log "Validating template..."
-  if ! wrkf --db "$db" --hook-catalog "$CATALOG" workflow validate "$TEMPLATE" 2>&1; then
-    fail "wrkf workflow validate failed"
-    return 1
-  fi
-
-  log "Installing template..."
   if ! wrkf --db "$db" --hook-catalog "$CATALOG" workflow install "$TEMPLATE" 2>&1; then
     fail "wrkf workflow install failed"
     return 1
   fi
-
   pass "Template $WORKFLOW_REF installed"
   return 0
 }
@@ -197,18 +178,28 @@ wf() {
   wrkf --db "$db" --hook-catalog "$CATALOG" "$@"
 }
 
+# ── Get obligation ID by kind ─────────────────────────────────────────────────
+# get_obligation_id DB TASK KIND → prints obligation ID (e.g. obl_000001)
+get_obligation_id() {
+  local db="$1" task="$2" kind="$3"
+  wf "$db" obligation list "$task" --all --json 2>/dev/null \
+    | jq -r --arg k "$kind" '.obligations[] | select(.kind==$k) | .id' 2>/dev/null \
+    | head -1
+}
+
 # ── Walk the workflow from intake → active/review ─────────────────────────────
-# walk_to_review DB TASK_ID CLAIM_CLASS [DIFF_FLOOR_SURFACE]
+# walk_to_review DB TASK_ID CLAIM_CLASS [DIFF_FLOOR_SURFACE] [DIFF_FILES_JSON]
 # CLAIM_CLASS: docs|logic|contract|packaging|harness|runtime
-# DIFF_FLOOR_SURFACE: (optional) strongestSurface for changed_files evidence
+# DIFF_FLOOR_SURFACE: (optional) strongestSurface fact for changed_files evidence
+# DIFF_FILES_JSON: (optional) files array JSON string for changed_files data
 walk_to_review() {
   local db="$1" task="$2" claim_class="$3"
   local diff_floor="${4:-}"
+  local diff_files="${5:-}"
 
   log "walk_to_review: claim_class=$claim_class diff_floor=${diff_floor:-none}"
 
   # 1. Tester adds red_test evidence, then author_red transition
-  log "  [author_red] adding red_test evidence as tester..."
   wf "$db" --actor tester-actor --role tester \
       evidence add "$task" \
       --kind red_test \
@@ -216,12 +207,10 @@ walk_to_review() {
       --facts '{"verdict":"red"}' \
       --summary "red bar from test harness" >&2
 
-  log "  [author_red] transitioning..."
   wf "$db" --actor tester-actor --role tester \
       transition "$task" author_red >&2
 
   # 2. Implementer adds verify (+ optional changed_files), then implement transition
-  log "  [implement] adding verify evidence as implementer..."
   wf "$db" --actor implementer-actor --role implementer \
       evidence add "$task" \
       --kind verify \
@@ -230,22 +219,21 @@ walk_to_review() {
       --summary "verify green from test harness" >&2
 
   if [[ -n "$diff_floor" ]]; then
-    log "  [implement] adding changed_files evidence (floor=$diff_floor)..."
+    local files_data="${diff_files:-[\"packages/harness-broker/src/core.ts\"]}"
+    log "  adding changed_files evidence (floor=$diff_floor, files=$files_data)..."
     wf "$db" --actor implementer-actor --role implementer \
         evidence add "$task" \
         --kind changed_files \
         --ref "file://tests/changed-files.txt" \
         --facts "{\"strongestSurface\":\"$diff_floor\"}" \
-        --data '{"files":["packages/harness-broker/src/core.ts","scripts/matrix.sh"]}' \
+        --data "{\"files\":$files_data}" \
         --summary "recorded diff floor from test harness" >&2
   fi
 
-  log "  [implement] transitioning..."
   wf "$db" --actor implementer-actor --role implementer \
       transition "$task" implement >&2
 
   # 3. Tester adds closeout_claim + verify_full, then full_verify transition
-  log "  [full_verify] adding closeout_claim evidence as tester (class=$claim_class)..."
   wf "$db" --actor tester-actor --role tester \
       evidence add "$task" \
       --kind closeout_claim \
@@ -253,7 +241,6 @@ walk_to_review() {
       --facts "{\"claimClass\":\"$claim_class\"}" \
       --summary "closeout claim from test harness" >&2
 
-  log "  [full_verify] adding verify_full evidence as tester..."
   wf "$db" --actor tester-actor --role tester \
       evidence add "$task" \
       --kind verify_full \
@@ -261,16 +248,13 @@ walk_to_review() {
       --facts '{"verdict":"pass"}' \
       --summary "full verify from test harness" >&2
 
-  log "  [full_verify] transitioning → active/review..."
   wf "$db" --actor tester-actor --role tester \
       transition "$task" full_verify >&2
 
   # Verify we reached active/review
-  local inspect_out
-  inspect_out="$(wf "$db" task inspect "$task" --json 2>&1)"
   local status phase
-  status="$(echo "$inspect_out" | jq -r '.status // empty' 2>/dev/null || true)"
-  phase="$(echo "$inspect_out"  | jq -r '.phase  // empty' 2>/dev/null || true)"
+  status="$(wf "$db" task inspect "$task" --json 2>/dev/null | jq -r '.status // empty')"
+  phase="$(wf  "$db" task inspect "$task" --json 2>/dev/null | jq -r '.phase  // empty')"
   if [[ "$status" != "active" || "$phase" != "review" ]]; then
     fail "walk_to_review: expected active/review, got $status/$phase"
     return 1
@@ -278,8 +262,9 @@ walk_to_review() {
   pass "walk_to_review: reached active/review ✓"
 }
 
-# ── add_reviewer_signoff_evidence: adds installed_binary + review_signoff + satisfies obligations
+# ── Add all sign_off transition requirements ──────────────────────────────────
 # add_signoff_requirements DB TASK_ID
+# Adds installed_binary + review_signoff evidence and satisfies both obligations.
 add_signoff_requirements() {
   local db="$1" task="$2"
 
@@ -299,19 +284,96 @@ add_signoff_requirements() {
       --facts '{"verdict":"approved"}' \
       --summary "reviewer approval from test harness" >&2
 
-  log "  satisfying review_signoff obligation as reviewer..."
+  # Satisfy obligations by ID (not kind name)
+  local rs_id ce_id
+  rs_id="$(get_obligation_id "$db" "$task" "review_signoff")"
+  ce_id="$(get_obligation_id "$db" "$task" "closeout_evidence")"
+  log "  satisfying review_signoff obligation ($rs_id)..."
   wf "$db" --actor reviewer-actor --role reviewer \
-      obligation satisfy "$task" review_signoff \
+      obligation satisfy "$task" "$rs_id" \
       --reason "reviewer submitted signoff evidence" >&2
-
-  log "  satisfying closeout_evidence obligation as reviewer..."
+  log "  satisfying closeout_evidence obligation ($ce_id)..."
   wf "$db" --actor reviewer-actor --role reviewer \
-      obligation satisfy "$task" closeout_evidence \
+      obligation satisfy "$task" "$ce_id" \
       --reason "reviewer attests coverage evidence submitted" >&2
 }
 
+# ── Deliver all pending set_task_state effects ────────────────────────────────
+# deliver_effects DB TASK_ID
+deliver_effects() {
+  local db="$1" task="$2"
+  local eff_ids
+  eff_ids="$(wf "$db" effect list "$task" --json 2>/dev/null | jq -r '.effects[] | select(.status=="pending") | .id' 2>/dev/null || true)"
+  if [[ -z "$eff_ids" ]]; then
+    log "  no pending effects to deliver"
+    return 0
+  fi
+  while IFS= read -r eff_id; do
+    log "  delivering effect $eff_id..."
+    wf "$db" effect deliver "$eff_id" >&2
+  done <<< "$eff_ids"
+}
+
+# ── Run check and assert §3 rejection ────────────────────────────────────────
+# run_check_assert_reject DB TASK_ID LABEL
+# Runs the closeout_evidence_coverage check, asserts it FAILS with §3 diag,
+# then asserts the transition is BLOCKED.
+run_check_assert_reject() {
+  local db="$1" task="$2" label="$3"
+  local ok=0
+
+  log "  running check run sign_off..."
+  local check_out check_rc=0
+  check_out="$(wf "$db" --actor reviewer-actor --role reviewer \
+      check run "$task" sign_off --json 2>&1)" || check_rc=$?
+
+  log "  check run output: $check_out"
+
+  local verdict
+  verdict="$(echo "$check_out" | jq -r '.checks[0].verdict // empty' 2>/dev/null || true)"
+  if [[ "$verdict" == "fail" ]]; then
+    pass "$label: check verdict=fail as expected"
+  else
+    fail "$label: check verdict expected 'fail', got '$verdict'"
+    ok=1
+  fi
+
+  # Assert §3 diagnostic fields in the check summary
+  assert_diag_fields "$label" "$check_out" || ok=1
+
+  # Transition must be BLOCKED (check failed → engine blocks sign_off)
+  log "  attempting transition sign_off (expect WRKF_TRANSITION_BLOCKED)..."
+  local tr_out tr_rc=0
+  tr_out="$(wf "$db" --actor reviewer-actor --role reviewer \
+      transition "$task" sign_off --json 2>&1)" || tr_rc=$?
+  log "  transition output (rc=$tr_rc): $tr_out"
+
+  # Should be a blocked error, not success
+  local err_code
+  err_code="$(echo "$tr_out" | jq -r '.error.code // empty' 2>/dev/null || true)"
+  if [[ "$err_code" == "WRKF_TRANSITION_BLOCKED" ]]; then
+    pass "$label: transition correctly BLOCKED (WRKF_TRANSITION_BLOCKED)"
+  else
+    fail "$label: expected WRKF_TRANSITION_BLOCKED, got: err=$err_code rc=$tr_rc"
+    ok=1
+  fi
+
+  # Task must NOT be in closed/done
+  local status phase
+  status="$(wf "$db" task inspect "$task" --json 2>/dev/null | jq -r '.status // empty')"
+  phase="$(wf  "$db" task inspect "$task" --json 2>/dev/null | jq -r '.phase  // empty')"
+  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
+    fail "$label: task incorrectly reached closed/done"
+    ok=1
+  else
+    pass "$label: task remains in $status/$phase (not done) ✓"
+  fi
+
+  return $ok
+}
+
 # ── inspect task state ────────────────────────────────────────────────────────
-get_task_state() {
+get_task_field() {
   local db="$1" task="$2" field="${3:-status}"
   wf "$db" task inspect "$task" --json 2>/dev/null \
     | jq -r ".$field // empty" 2>/dev/null || true
@@ -357,44 +419,40 @@ test_1() {
   local db="$1"
   local task
   task="$(setup_db "$db")"
-  log "Task: $task (DB: $db)"
+  log "Task: $task"
 
   # Template and catalog must exist
-  log "Checking template file: $TEMPLATE"
   if [[ ! -f "$TEMPLATE" ]]; then
-    fail "TEMPLATE ABSENT — harness is RED (Phase 2 not yet delivered)"
-    return 1
+    fail "TEMPLATE ABSENT — harness is RED (Phase 2 not yet delivered)"; return 1
   fi
-  log "Checking catalog file: $CATALOG"
   if [[ ! -f "$CATALOG" ]]; then
-    fail "CATALOG ABSENT — harness is RED (Phase 2 not yet delivered)"
-    return 1
+    fail "CATALOG ABSENT — harness is RED (Phase 2 not yet delivered)"; return 1
   fi
 
   local ok=0
+
   log "Running: wrkf workflow validate $TEMPLATE"
   if ! wf "$db" workflow validate "$TEMPLATE" 2>&1; then
-    fail "workflow validate failed"
-    ok=1
+    fail "workflow validate failed"; ok=1
   else
     pass "workflow validate passed"
   fi
 
   log "Running: wrkf workflow install $TEMPLATE"
   if ! wf "$db" workflow install "$TEMPLATE" 2>&1; then
-    fail "workflow install failed"
-    ok=1
+    fail "workflow install failed"; ok=1
   else
     pass "workflow install passed"
   fi
 
   log "Confirming template listed after install..."
+  # workflow list --json emits {"templates":[...]} — use .templates[]
   local list_out
   list_out="$(wf "$db" workflow list --json 2>/dev/null || true)"
-  if echo "$list_out" | jq -e '.[] | select(.id == "agent-spaces-closeout" and .version == "1")' > /dev/null 2>&1; then
+  if echo "$list_out" | jq -e '.templates[] | select(.id == "agent-spaces-closeout" and .version == "1")' > /dev/null 2>&1; then
     pass "template agent-spaces-closeout@1 present in registry"
   else
-    fail "template agent-spaces-closeout@1 NOT found in registry"
+    fail "template agent-spaces-closeout@1 NOT found in registry; list: $list_out"
     ok=1
   fi
 
@@ -417,10 +475,10 @@ test_2() {
       task attach "$task" --workflow "$WORKFLOW_REF" >&2
 
   local ok=0
+  local add_out rc
 
   # 2a. closeout_claim with INVALID claimClass enum → must fail
   log "2a. closeout_claim with invalid claimClass (should reject)..."
-  local add_out rc
   rc=0
   add_out="$(wf "$db" --actor tester-actor --role tester \
       evidence add "$task" \
@@ -430,8 +488,7 @@ test_2() {
   if [[ $rc -ne 0 ]]; then
     pass "2a. invalid claimClass correctly rejected (exit $rc)"
   else
-    fail "2a. invalid claimClass was NOT rejected (exit 0, output: $add_out)"
-    ok=1
+    fail "2a. invalid claimClass was NOT rejected (exit 0, output: $add_out)"; ok=1
   fi
 
   # 2b. closeout_claim produced by REVIEWER (wrong role) → must fail
@@ -445,8 +502,7 @@ test_2() {
   if [[ $rc -ne 0 ]]; then
     pass "2b. reviewer producing closeout_claim correctly rejected (exit $rc)"
   else
-    fail "2b. reviewer producing closeout_claim was NOT rejected (exit 0)"
-    ok=1
+    fail "2b. reviewer producing closeout_claim was NOT rejected (exit 0)"; ok=1
   fi
 
   # 2c. installed_binary produced by TESTER (wrong role) → must fail
@@ -460,8 +516,7 @@ test_2() {
   if [[ $rc -ne 0 ]]; then
     pass "2c. tester producing installed_binary correctly rejected (exit $rc)"
   else
-    fail "2c. tester producing installed_binary was NOT rejected (exit 0)"
-    ok=1
+    fail "2c. tester producing installed_binary was NOT rejected (exit 0)"; ok=1
   fi
 
   # 2d. closeout_claim with VALID claimClass as tester → must succeed
@@ -475,8 +530,7 @@ test_2() {
   if [[ $rc -eq 0 ]]; then
     pass "2d. valid closeout_claim accepted"
   else
-    fail "2d. valid closeout_claim was rejected (exit $rc, output: $add_out)"
-    ok=1
+    fail "2d. valid closeout_claim was rejected (exit $rc, output: $add_out)"; ok=1
   fi
 
   # 2e. changed_files with valid strongestSurface → must succeed
@@ -491,8 +545,7 @@ test_2() {
   if [[ $rc -eq 0 ]]; then
     pass "2e. valid changed_files accepted"
   else
-    fail "2e. valid changed_files was rejected (exit $rc, output: $add_out)"
-    ok=1
+    fail "2e. valid changed_files was rejected (exit $rc, output: $add_out)"; ok=1
   fi
 
   # 2f. installed_binary with required facts (verdict+binary) as reviewer → must succeed
@@ -506,18 +559,18 @@ test_2() {
   if [[ $rc -eq 0 ]]; then
     pass "2f. valid installed_binary (reviewer) accepted"
   else
-    fail "2f. valid installed_binary (reviewer) was rejected (exit $rc)"
-    ok=1
+    fail "2f. valid installed_binary (reviewer) was rejected (exit $rc)"; ok=1
   fi
 
   return $ok
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TEST 3 — RED: mismatched surface → sign_off REJECTED, §3 diagnostic present
+# TEST 3 — RED: surface mismatch → check FAILS + §3 diagnostic present
 # CONTRACT: "RED: runtime diff-floor/claim with only verify/unit evidence →
 #            sign_off REJECTED, §3 fields present."
-# Strategy: claimClass=harness, no matrix coverage → hook exits 1 with §3 diag.
+# Strategy: claimClass=harness (requires matrix); only verify evidence (covers
+#            logic only) → hook exits 1, §3 diag present, transition BLOCKED.
 # ═══════════════════════════════════════════════════════════════════════════════
 test_3() {
   local db="$1"
@@ -528,50 +581,38 @@ test_3() {
   wf "$db" --actor tester-actor --role tester \
       task attach "$task" --workflow "$WORKFLOW_REF" >&2
 
-  # Walk to active/review; claim harness surface but provide only verify coverage
+  # Walk to review with harness claim; no matrix coverage provided
   walk_to_review "$db" "$task" "harness" || return 1
 
-  # Add all sign_off transition requirements (installed_binary, review_signoff, obligations)
-  # NOTE: installed_binary covers "runtime" surface, NOT "harness".
-  # We are claiming "harness" but not providing "matrix" coverage → hook should fail.
+  # Add sign_off transition requirements (installed_binary covers runtime, not harness)
   add_signoff_requirements "$db" "$task" || return 1
 
   local ok=0
 
-  # Run sign_off --run-checks and capture ALL output (stdout + stderr merged)
-  log "Running sign_off --run-checks (expect rejection: harness surface uncovered)..."
-  local signoff_out
-  local signoff_rc=0
-  signoff_out="$(wf "$db" --actor reviewer-actor --role reviewer \
-      transition "$task" sign_off --run-checks --json 2>&1)" || signoff_rc=$?
+  # Run check → expect FAIL with §3 diag; then assert transition is BLOCKED
+  run_check_assert_reject "$db" "$task" "test3" || ok=1
 
-  log "sign_off output (rc=$signoff_rc): $signoff_out"
-
-  # The sign_off should route to "uncovered" (back to active/review), not error/reject at requires
-  # Check that the task did NOT reach closed/done
-  local status phase
-  status="$(get_task_state "$db" "$task" "status")"
-  phase="$(get_task_state  "$db" "$task" "phase")"
-  log "Task state after sign_off: $status/$phase"
-
-  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
-    fail "3. Task incorrectly reached closed/done — hook should have rejected"
-    ok=1
+  # §3 must show expectedKind=matrix (harness surface coverage)
+  local check_out
+  check_out="$(wf "$db" --actor reviewer-actor --role reviewer \
+      check run "$task" sign_off --json 2>&1)" || true
+  local expected_kind
+  expected_kind="$(echo "$check_out" | jq -r '.checks[0].summary // "null"' 2>/dev/null \
+      | jq -r '.expectedKind // empty' 2>/dev/null || true)"
+  if [[ "$expected_kind" == "matrix" ]]; then
+    pass "test3.§3.expectedKind = matrix (harness surface)"
   else
-    pass "3. Task NOT in closed/done (status=$status phase=$phase) — rejected as expected"
+    fail "test3.§3.expectedKind: expected 'matrix', got '$expected_kind'"; ok=1
   fi
-
-  # Assert §3 diagnostic fields appear in the output
-  assert_diag_fields "test3" "$signoff_out" || ok=1
 
   return $ok
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TEST 4 — GREEN: installed_binary/real-e2e evidence → sign_off → done + completed
+# TEST 4 — GREEN: installed_binary/real-e2e → sign_off → done + completed
 # CONTRACT: "GREEN: same with a successful installed_binary/real-e2e evidence →
 #            sign_off permitted → done + task completed."
-# Strategy: claimClass=runtime, installed_binary covers runtime → hook passes.
+# Strategy: claimClass=runtime, installed_binary (verdict:pass) covers runtime.
 # ═══════════════════════════════════════════════════════════════════════════════
 test_4() {
   local db="$1"
@@ -582,48 +623,45 @@ test_4() {
   wf "$db" --actor tester-actor --role tester \
       task attach "$task" --workflow "$WORKFLOW_REF" >&2
 
-  # Walk to active/review with claimClass=runtime (installed_binary covers it)
+  # Walk to review with runtime claim; installed_binary covers runtime surface
   walk_to_review "$db" "$task" "runtime" || return 1
 
-  # Add sign_off requirements (installed_binary with verdict:pass covers runtime surface)
+  # Add sign_off requirements (installed_binary covers runtime → check passes)
   add_signoff_requirements "$db" "$task" || return 1
 
   local ok=0
 
-  # Run sign_off --run-checks — hook should pass (installed_binary covers runtime)
-  log "Running sign_off --run-checks (expect GREEN: done + task completed)..."
+  log "Running sign_off --run-checks (GREEN: runtime covered by installed_binary)..."
   local signoff_out signoff_rc=0
   signoff_out="$(wf "$db" --actor reviewer-actor --role reviewer \
       transition "$task" sign_off --run-checks --json 2>&1)" || signoff_rc=$?
-
-  log "sign_off output (rc=$signoff_rc): $signoff_out"
+  log "sign_off output (rc=$signoff_rc): $(echo "$signoff_out" | jq -c '{outcome, state}' 2>/dev/null || echo "$signoff_out")"
 
   # Task must reach closed/done
   local status phase
-  status="$(get_task_state "$db" "$task" "status")"
-  phase="$(get_task_state  "$db" "$task" "phase")"
-  log "Task state after sign_off: $status/$phase"
-
+  status="$(get_task_field "$db" "$task" "status")"
+  phase="$(get_task_field  "$db" "$task" "phase")"
   assert_eq "4. task.status" "closed" "$status" || ok=1
   assert_eq "4. task.phase"  "done"   "$phase"  || ok=1
 
-  # Task state in wrkq must be completed (set_task_state effect)
+  # Deliver set_task_state effect so wrkq state reflects completed
+  deliver_effects "$db" "$task" || true
+
   local wrkq_state
   wrkq_state="$(wrkq --db "$db" --project smoke cat "inbox/wf-smoke" --output json 2>/dev/null \
       | jq -r '.[0].state // empty' 2>/dev/null || true)"
-  log "wrkq task state: $wrkq_state"
   assert_eq "4. wrkq task state" "completed" "$wrkq_state" || ok=1
 
   return $ok
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TEST 5 — failed evidence exec records but check STILL rejects
+# TEST 5 — failed evidence exec records but check STILL rejects (data.exitCode trap)
 # CONTRACT: "Failed-command: evidence exec with NONZERO exit records evidence
 #            (and exits nonzero), but the check STILL rejects (proves
 #            data.exitCode==0 inspection, not just facts.verdict=pass)."
-# Strategy: exec a command that exits 1 as "matrix" (harness surface) evidence;
-#           hook sees data.exitCode=1 → not covered even if kind matches.
+# Strategy: exec `false` as matrix kind → exitCode=1 in data;
+#           hook sees data.exitCode=1 → NOT covered → §3 diag foundExitCode=1.
 # ═══════════════════════════════════════════════════════════════════════════════
 test_5() {
   local db="$1"
@@ -634,12 +672,12 @@ test_5() {
   wf "$db" --actor tester-actor --role tester \
       task attach "$task" --workflow "$WORKFLOW_REF" >&2
 
-  # Walk to active/review with harness claim
+  # Walk to review with harness claim (needs matrix coverage)
   walk_to_review "$db" "$task" "harness" || return 1
 
   local ok=0
 
-  # Run evidence exec with a command that EXITS NONZERO → evidence exec should exit nonzero
+  # Run evidence exec with a command that EXITS NONZERO → exitCode=1 in evidence data
   log "5. Running evidence exec with failing command (false)..."
   local exec_rc=0
   wf "$db" --actor tester-actor --role tester \
@@ -649,58 +687,63 @@ test_5() {
       --summary "failing matrix command (test 5)" \
       -- false 2>&1 || exec_rc=$?
 
-  log "evidence exec exit code: $exec_rc"
   if [[ $exec_rc -ne 0 ]]; then
     pass "5. evidence exec exited nonzero ($exec_rc) as expected"
   else
-    fail "5. evidence exec exited 0 but should have exited nonzero for failing command"
-    ok=1
+    fail "5. evidence exec exited 0 — should have been nonzero for `false`"; ok=1
   fi
 
-  # Verify the evidence was RECORDED (list should show it)
-  log "5. Checking evidence was recorded despite nonzero exit..."
+  # Verify the evidence WAS RECORDED despite nonzero exit
   local evidence_list
   evidence_list="$(wf "$db" evidence list "$task" --json 2>/dev/null || true)"
-  if echo "$evidence_list" | jq -e '.[] | select(.kind == "matrix")' > /dev/null 2>&1; then
+  # evidence list --json emits {"evidence":[...]} — use .evidence[]
+  if echo "$evidence_list" | jq -e '.evidence[] | select(.kind == "matrix")' > /dev/null 2>&1; then
     pass "5. matrix evidence recorded despite nonzero exec exit"
   else
-    fail "5. matrix evidence NOT recorded (expected to be recorded)"
-    ok=1
+    fail "5. matrix evidence NOT recorded (expected to be recorded)"; ok=1
   fi
 
-  # Add sign_off requirements and attempt sign_off; hook must STILL reject
+  # Add sign_off requirements
   add_signoff_requirements "$db" "$task" || return 1
 
-  log "5. Running sign_off --run-checks (expect rejection: matrix exitCode=1)..."
-  local signoff_out signoff_rc=0
-  signoff_out="$(wf "$db" --actor reviewer-actor --role reviewer \
-      transition "$task" sign_off --run-checks --json 2>&1)" || signoff_rc=$?
-  log "sign_off output: $signoff_out"
+  # Run check; must FAIL with foundExitCode=1 in §3 diag
+  log "5. Running check run (expect rejection: data.exitCode=1 for matrix)..."
+  local check_out
+  check_out="$(wf "$db" --actor reviewer-actor --role reviewer \
+      check run "$task" sign_off --json 2>&1)" || true
+  log "5. check run: $check_out"
 
-  local status phase
-  status="$(get_task_state "$db" "$task" "status")"
-  phase="$(get_task_state  "$db" "$task" "phase")"
+  run_check_assert_reject "$db" "$task" "test5" || ok=1
 
-  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
-    fail "5. Task reached closed/done — nonzero exitCode evidence should have caused rejection"
-    ok=1
+  # Assert §3.foundExitCode = 1 (the key proof: exitCode=0 required, got 1)
+  local check_out2
+  check_out2="$(wf "$db" --actor reviewer-actor --role reviewer \
+      check run "$task" sign_off --json 2>&1)" || true
+  local found_exit_code
+  found_exit_code="$(echo "$check_out2" | jq -r '.checks[0].summary // "null"' 2>/dev/null \
+      | jq -r '.foundExitCode // "MISSING"' 2>/dev/null || true)"
+  if [[ "$found_exit_code" == "1" ]]; then
+    pass "5. §3.foundExitCode = 1 (proves data.exitCode==0 inspection)"
   else
-    pass "5. Task NOT closed/done (status=$status/$phase) — nonzero exitCode correctly rejected"
+    fail "5. §3.foundExitCode: expected 1, got '$found_exit_code'"; ok=1
   fi
-
-  assert_diag_fields "test5" "$signoff_out" || ok=1
 
   return $ok
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TEST 6 — recorded changed_files floor drives coverage; empty live diff can't downgrade
+# TEST 6 — recorded changed_files floor drives coverage; empty live staged diff loses
 # CONTRACT: "Diff-source: a recorded changed_files/committed-or-unstaged floor
 #            drives the correct (higher) requirement; an empty live staged diff
 #            can NOT downgrade it."
-# Strategy: changed_files strongestSurface=runtime, closeout_claim=docs;
-#           requiredSurface = max(docs=1, runtime=6) = runtime.
-#           Coverage = only docs_reachability (covers docs, not runtime) → hook fails.
+# Strategy:
+#   - changed_files: strongestSurface="harness",
+#     files=["packages/harness-broker/src/core.ts"] (matches harness globs)
+#   - closeout_claim: claimClass="docs" (rank 1, weakest)
+#   - requiredSurface = max(docs=1, harness=5) = harness (floor wins)
+#   - Coverage provided: docs_reachability (covers docs, NOT harness)
+#   - installed_binary (transition req) covers runtime (rank 6), NOT harness (rank 5)
+#   - Hook must fail: needs matrix (harness) — not present
 # ═══════════════════════════════════════════════════════════════════════════════
 test_6() {
   local db="$1"
@@ -711,58 +754,51 @@ test_6() {
   wf "$db" --actor tester-actor --role tester \
       task attach "$task" --workflow "$WORKFLOW_REF" >&2
 
-  # Walk to review with docs claim BUT recorded diff floor = runtime
-  walk_to_review "$db" "$task" "docs" "runtime" || return 1
+  # Walk to review with docs claim AND harness-surface diff floor
+  # Files in packages/harness-broker/ match the harness globs in closeout-config.json
+  walk_to_review "$db" "$task" "docs" "harness" \
+    '["packages/harness-broker/src/core.ts"]' || return 1
 
-  # Add a docs_reachability evidence (covers docs surface only)
-  log "6. Adding docs_reachability evidence (covers docs=1 only)..."
+  # Add docs_reachability coverage (covers docs=1, NOT harness=5)
+  log "6. Adding docs_reachability via evidence exec (exitCode=0, covers docs only)..."
   local exec_rc=0
   wf "$db" --actor tester-actor --role tester \
       evidence exec "$task" \
       --kind docs_reachability \
       --facts '{}' \
       --summary "docs reachability check" \
-      -- echo "docs reachability ok" 2>&1 || exec_rc=$?
-  log "docs_reachability exec rc: $exec_rc"
+      -- echo "docs ok" 2>&1 || exec_rc=$?
+  log "6. docs_reachability exec rc: $exec_rc"
 
-  # Add sign_off requirements
+  # Add sign_off requirements (installed_binary covers runtime=6, NOT harness=5)
   add_signoff_requirements "$db" "$task" || return 1
 
   local ok=0
 
-  # sign_off --run-checks should REJECT because floor is runtime (6) not docs (1)
-  log "6. Running sign_off --run-checks (expect rejection: floor=runtime, coverage=docs only)..."
-  local signoff_out signoff_rc=0
-  signoff_out="$(wf "$db" --actor reviewer-actor --role reviewer \
-      transition "$task" sign_off --run-checks --json 2>&1)" || signoff_rc=$?
-  log "sign_off output: $signoff_out"
+  # Run check; hook should compute:
+  #   claimSurface=docs(1), factFloor=harness(5), classifiedFloor=harness(5)
+  #   (packages/harness-broker/src/core.ts matches harness glob)
+  #   recordedDiffFloor=harness, requiredSurface=harness
+  #   Coverage for harness = matrix; NOT found (only docs_reachability+installed_binary present)
+  log "6. Running check run (expect: floor=harness, matrix coverage not provided)..."
+  local check_out
+  check_out="$(wf "$db" --actor reviewer-actor --role reviewer \
+      check run "$task" sign_off --json 2>&1)" || true
+  log "6. check run: $check_out"
 
-  local status phase
-  status="$(get_task_state "$db" "$task" "status")"
-  phase="$(get_task_state  "$db" "$task" "phase")"
+  run_check_assert_reject "$db" "$task" "test6" || ok=1
 
-  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
-    fail "6. Task reached closed/done — runtime floor should have caused rejection"
-    ok=1
+  # §3 diag must show recordedDiffFloor=harness (floor drove the requirement, not docs claim)
+  local check_out2
+  check_out2="$(wf "$db" --actor reviewer-actor --role reviewer \
+      check run "$task" sign_off --json 2>&1)" || true
+  local rec_floor
+  rec_floor="$(echo "$check_out2" | jq -r '.checks[0].summary // "null"' 2>/dev/null \
+      | jq -r '.recordedDiffFloor // empty' 2>/dev/null || true)"
+  if [[ "$rec_floor" == "harness" ]]; then
+    pass "6. §3.recordedDiffFloor = harness (floor beat docs claim)"
   else
-    pass "6. Task NOT closed/done ($status/$phase) — diff floor correctly rejected coverage"
-  fi
-
-  # §3 diagnostic must show recordedDiffFloor drove the requirement
-  assert_diag_fields "test6" "$signoff_out" || ok=1
-
-  # Specifically verify recordedDiffFloor field value
-  local diag
-  diag="$(echo "$signoff_out" | grep -oE '\{[^{}]*requiredSurface[^{}]*\}' | head -1 || true)"
-  if [[ -n "$diag" ]]; then
-    local rec_floor
-    rec_floor="$(echo "$diag" | jq -r '.recordedDiffFloor // empty' 2>/dev/null || true)"
-    if [[ "$rec_floor" == "runtime" ]]; then
-      pass "6. §3.recordedDiffFloor = runtime (correct)"
-    else
-      fail "6. §3.recordedDiffFloor expected 'runtime', got '$rec_floor'"
-      ok=1
-    fi
+    fail "6. §3.recordedDiffFloor expected 'harness', got '$rec_floor'"; ok=1
   fi
 
   return $ok
@@ -783,64 +819,84 @@ test_7() {
   wf "$db" --actor tester-actor --role tester \
       task attach "$task" --workflow "$WORKFLOW_REF" >&2
 
+  # Walk to review with logic claim (verify covers logic → check will PASS once run)
   walk_to_review "$db" "$task" "logic" || return 1
   add_signoff_requirements "$db" "$task" || return 1
 
   local ok=0
 
-  # 7a. sign_off WITHOUT --run-checks → must fail/reject
-  log "7a. sign_off WITHOUT --run-checks (expect rejection)..."
-  local signoff_out signoff_rc=0
-  signoff_out="$(wf "$db" --actor reviewer-actor --role reviewer \
-      transition "$task" sign_off --json 2>&1)" || signoff_rc=$?
-  log "sign_off (no --run-checks) output (rc=$signoff_rc): $signoff_out"
-
-  # Should NOT reach closed/done
-  local status phase
-  status="$(get_task_state "$db" "$task" "status")"
-  phase="$(get_task_state  "$db" "$task" "phase")"
-
-  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
-    fail "7a. Task reached closed/done without --run-checks — should have been rejected"
-    ok=1
+  # 7a. sign_off with NO prior check run → must be BLOCKED
+  log "7a. sign_off with NO check run (expect WRKF_TRANSITION_BLOCKED)..."
+  local tr_out tr_rc=0
+  tr_out="$(wf "$db" --actor reviewer-actor --role reviewer \
+      transition "$task" sign_off --json 2>&1)" || tr_rc=$?
+  log "7a. transition output (rc=$tr_rc): $tr_out"
+  local err_code
+  err_code="$(echo "$tr_out" | jq -r '.error.code // empty' 2>/dev/null || true)"
+  if [[ "$err_code" == "WRKF_TRANSITION_BLOCKED" ]]; then
+    pass "7a. no-check transition correctly BLOCKED"
   else
-    pass "7a. sign_off without --run-checks correctly rejected (status=$status/$phase)"
+    fail "7a. expected WRKF_TRANSITION_BLOCKED, got: $err_code"; ok=1
   fi
 
-  # 7b. Run the check FIRST (producing a check run result), then add more evidence
-  #     to make the check stale, then try sign_off → should reject
-  log "7b. Testing stale-check rejection..."
+  local status phase
+  status="$(get_task_field "$db" "$task" "status")"
+  phase="$(get_task_field  "$db" "$task" "phase")"
+  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
+    fail "7a. task incorrectly reached closed/done"; ok=1
+  else
+    pass "7a. task remains $status/$phase"
+  fi
 
-  # Run check standalone to get a check run result
-  log "  Running check run standalone..."
-  local check_rc=0
-  wf "$db" --actor reviewer-actor --role reviewer \
-      check run "$task" sign_off 2>&1 || check_rc=$?
-  log "  check run rc: $check_rc"
+  # 7b. Run check FIRST (GREEN: logic claim + verify covers → pass), then add new
+  #     evidence to make check STALE, then try transition → BLOCKED stale
+  log "7b. Running check (GREEN for logic claim with verify coverage)..."
+  local check_out check_rc=0
+  check_out="$(wf "$db" --actor reviewer-actor --role reviewer \
+      check run "$task" sign_off --json 2>&1)" || check_rc=$?
+  local verdict
+  verdict="$(echo "$check_out" | jq -r '.checks[0].verdict // empty' 2>/dev/null || true)"
+  if [[ "$verdict" == "pass" ]]; then
+    pass "7b. check passed (logic+verify coverage) — now adding evidence to make it stale"
+  else
+    fail "7b. check did NOT pass for logic+verify: verdict=$verdict; out=$check_out"; ok=1
+  fi
 
-  # Now add new evidence AFTER the check ran (making it stale)
-  log "  Adding new evidence to make check stale..."
+  log "7b. Adding new evidence to make check stale..."
   wf "$db" --actor tester-actor --role tester \
       evidence add "$task" \
       --kind closeout_claim \
       --ref "file://tests/stale-claim.txt" \
       --facts '{"claimClass":"logic"}' \
-      --summary "new evidence after check (stale)" >&2
+      --summary "new evidence after check (makes stale)" >&2
 
-  # Try sign_off pointing to the old (now stale) check run
-  log "  sign_off with stale check run (expect rejection)..."
-  signoff_rc=0
-  signoff_out="$(wf "$db" --actor reviewer-actor --role reviewer \
-      transition "$task" sign_off --json 2>&1)" || signoff_rc=$?
-  log "  stale sign_off output (rc=$signoff_rc): $signoff_out"
-
-  status="$(get_task_state "$db" "$task" "status")"
-  phase="$(get_task_state  "$db" "$task" "phase")"
-  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
-    fail "7b. Task reached closed/done with stale check — should have been rejected"
-    ok=1
+  log "7b. Attempting transition with stale check (expect WRKF_TRANSITION_BLOCKED)..."
+  tr_rc=0
+  tr_out="$(wf "$db" --actor reviewer-actor --role reviewer \
+      transition "$task" sign_off --json 2>&1)" || tr_rc=$?
+  log "7b. stale transition output (rc=$tr_rc): $tr_out"
+  local err_msg
+  err_msg="$(echo "$tr_out" | jq -r '.error.message // empty' 2>/dev/null || true)"
+  err_code="$(echo "$tr_out" | jq -r '.error.code // empty' 2>/dev/null || true)"
+  if [[ "$err_code" == "WRKF_TRANSITION_BLOCKED" ]]; then
+    pass "7b. stale check correctly BLOCKED: $err_msg"
   else
-    pass "7b. stale check correctly rejected (status=$status/$phase)"
+    fail "7b. expected WRKF_TRANSITION_BLOCKED for stale check, got: $err_code ($err_msg)"; ok=1
+  fi
+
+  # Check the stale message
+  if echo "$err_msg" | grep -qiE "stale"; then
+    pass "7b. error message mentions 'stale'"
+  else
+    fail "7b. stale error message expected to contain 'stale': $err_msg"; ok=1
+  fi
+
+  status="$(get_task_field "$db" "$task" "status")"
+  phase="$(get_task_field  "$db" "$task" "phase")"
+  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
+    fail "7b. task incorrectly reached closed/done with stale check"; ok=1
+  else
+    pass "7b. task remains $status/$phase with stale check"
   fi
 
   return $ok
@@ -864,24 +920,36 @@ test_8() {
 
   local ok=0
 
-  # Waive the closeout_evidence obligation (as system, which has waiveRole)
-  log "8. Waiving closeout_evidence obligation with ticketed reason..."
-  local waive_rc=0
-  local waive_out
-  waive_out="$(wf "$db" --actor system-actor --role system \
-      obligation waive "$task" closeout_evidence \
-      --reason "CLOSEOUT-EXEMPT(T-99999): harness tests waiver path" 2>&1)" || waive_rc=$?
-  log "waive output (rc=$waive_rc): $waive_out"
+  # Look up the closeout_evidence obligation ID (obl_XXXXXX)
+  local ce_id
+  ce_id="$(get_obligation_id "$db" "$task" "closeout_evidence")"
+  log "8. closeout_evidence obligation ID: $ce_id"
 
-  # Waive itself must succeed
+  # Waive the closeout_evidence obligation (waiveRole=system, noSelfWaive=true)
+  log "8. Waiving closeout_evidence obligation ($ce_id) as system-actor..."
+  local waive_out waive_rc=0
+  waive_out="$(wf "$db" --actor system-actor --role system \
+      obligation waive "$task" "$ce_id" \
+      --reason "CLOSEOUT-EXEMPT(T-99999): harness tests waiver path" 2>&1)" || waive_rc=$?
+  log "8. waive output (rc=$waive_rc): $waive_out"
+
   if [[ $waive_rc -eq 0 ]]; then
     pass "8. obligation waive succeeded (recorded)"
   else
-    fail "8. obligation waive failed unexpectedly (exit $waive_rc)"
-    ok=1
+    fail "8. obligation waive failed unexpectedly (exit $waive_rc): $waive_out"; ok=1
   fi
 
-  # Add the other sign_off requirements (excluding closeout_evidence satisfaction)
+  # Verify obligation is waived
+  local obl_status
+  obl_status="$(wf "$db" obligation list "$task" --all --json 2>/dev/null \
+      | jq -r --arg id "$ce_id" '.obligations[] | select(.id==$id) | .status' 2>/dev/null || true)"
+  if [[ "$obl_status" == "waived" ]]; then
+    pass "8. closeout_evidence obligation status = waived ✓"
+  else
+    fail "8. closeout_evidence obligation status expected 'waived', got '$obl_status'"; ok=1
+  fi
+
+  # Add the other sign_off requirements (review_signoff satisfied; closeout_evidence waived, NOT satisfied)
   log "8. Adding installed_binary + review_signoff as reviewer..."
   wf "$db" --actor reviewer-actor --role reviewer \
       evidence add "$task" \
@@ -897,41 +965,34 @@ test_8() {
       --facts '{"verdict":"approved"}' \
       --summary "reviewer approval" >&2
 
+  local rs_id
+  rs_id="$(get_obligation_id "$db" "$task" "review_signoff")"
+  log "8. satisfying review_signoff obligation ($rs_id) as reviewer..."
   wf "$db" --actor reviewer-actor --role reviewer \
-      obligation satisfy "$task" review_signoff \
+      obligation satisfy "$task" "$rs_id" \
       --reason "reviewer submitted signoff" >&2
 
-  # Attempt sign_off — must fail because closeout_evidence is waived, not satisfied
-  log "8. Attempting sign_off (expect rejection: closeout_evidence waived, not satisfied)..."
-  local signoff_out signoff_rc=0
-  signoff_out="$(wf "$db" --actor reviewer-actor --role reviewer \
-      transition "$task" sign_off --run-checks --json 2>&1)" || signoff_rc=$?
-  log "sign_off output (rc=$signoff_rc): $signoff_out"
-
-  local status phase
-  status="$(get_task_state "$db" "$task" "status")"
-  phase="$(get_task_state  "$db" "$task" "phase")"
-  log "Task state: $status/$phase"
-
-  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
-    fail "8. Task reached closed/done with waived obligation — should be blocked"
-    ok=1
+  # Attempt sign_off — must be BLOCKED because closeout_evidence is waived, not satisfied
+  log "8. Attempting sign_off (expect BLOCKED: closeout_evidence waived, not satisfied)..."
+  local tr_out tr_rc=0
+  tr_out="$(wf "$db" --actor reviewer-actor --role reviewer \
+      transition "$task" sign_off --json 2>&1)" || tr_rc=$?
+  log "8. sign_off output (rc=$tr_rc): $tr_out"
+  local err_code
+  err_code="$(echo "$tr_out" | jq -r '.error.code // empty' 2>/dev/null || true)"
+  if [[ "$err_code" == "WRKF_TRANSITION_BLOCKED" ]]; then
+    pass "8. sign_off correctly BLOCKED (waived obligation is not satisfied)"
   else
-    pass "8. Task NOT closed/done ($status/$phase) — waiver correctly blocked done path"
+    fail "8. expected WRKF_TRANSITION_BLOCKED, got: $err_code"; ok=1
   fi
 
-  # Verify obligation is still in waived state (not satisfied)
-  local obl_list
-  obl_list="$(wf "$db" obligation list "$task" --all --json 2>/dev/null || true)"
-  log "8. Obligations: $obl_list"
-  local obl_status
-  obl_status="$(echo "$obl_list" | jq -r \
-      '.[] | select(.kind == "closeout_evidence") | .status // empty' 2>/dev/null || true)"
-  if [[ "$obl_status" == "waived" ]]; then
-    pass "8. closeout_evidence obligation status=waived (confirmed)"
+  local status phase
+  status="$(get_task_field "$db" "$task" "status")"
+  phase="$(get_task_field  "$db" "$task" "phase")"
+  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
+    fail "8. task reached closed/done with waived obligation — should be blocked"; ok=1
   else
-    fail "8. closeout_evidence obligation status expected 'waived', got '$obl_status'"
-    ok=1
+    pass "8. task NOT closed/done ($status/$phase) — waiver correctly blocked done path"
   fi
 
   return $ok
@@ -954,13 +1015,11 @@ test_9() {
 
   local ok=0
 
-  # ── REJECT PATH ────────────────────────────────────────────────────────────
-  log "9. [REJECT PATH] Walking to active/review with harness claim..."
+  # Walk to review with harness claim (needs matrix evidence)
   walk_to_review "$db" "$task" "harness" || return 1
 
-  # Use real evidence exec for a command that SUCCEEDS but for WRONG surface
-  # (docs_reachability covers docs, not harness)
-  log "9. [REJECT PATH] Adding docs_reachability via evidence exec (wrong surface)..."
+  # Add docs_reachability via real evidence exec (wrong surface for harness)
+  log "9. [REJECT PATH] Adding docs_reachability via real evidence exec (wrong surface)..."
   local exec_rc=0
   wf "$db" --actor tester-actor --role tester \
       evidence exec "$task" \
@@ -968,36 +1027,17 @@ test_9() {
       --facts '{}' \
       --summary "live docs check" \
       -- echo "docs ok" 2>&1 || exec_rc=$?
-  log "docs_reachability exec rc: $exec_rc"
+  log "9. docs_reachability exec rc: $exec_rc"
 
+  # Add sign_off requirements
   add_signoff_requirements "$db" "$task" || return 1
 
-  log "9. [REJECT PATH] sign_off --run-checks (expect rejection: harness uncovered)..."
-  local signoff_out signoff_rc=0
-  signoff_out="$(wf "$db" --actor reviewer-actor --role reviewer \
-      transition "$task" sign_off --run-checks --json 2>&1)" || signoff_rc=$?
-  log "REJECT PATH sign_off output: $signoff_out"
+  # REJECT PATH: check fails (harness needs matrix; only docs_reachability present)
+  log "9. [REJECT PATH] Running check (expect fail: harness uncovered)..."
+  run_check_assert_reject "$db" "$task" "test9_reject" || ok=1
 
-  local status phase
-  status="$(get_task_state "$db" "$task" "status")"
-  phase="$(get_task_state  "$db" "$task" "phase")"
-
-  if [[ "$status" == "closed" && "$phase" == "done" ]]; then
-    fail "9. [REJECT PATH] Task reached closed/done — should have been rejected"
-    ok=1
-  else
-    pass "9. [REJECT PATH] Correctly rejected ($status/$phase)"
-  fi
-
-  assert_diag_fields "test9_reject" "$signoff_out" || ok=1
-
-  # ── PASS PATH ──────────────────────────────────────────────────────────────
-  # We need a fresh task for the pass path (can't reuse — the task is in active/review again)
-  # Reset obligations for the pass path: remove the old satisfaction and re-satisfy
-  # Actually, after the uncovered routing back to active/review, we need to add
-  # the CORRECT coverage evidence and re-attempt sign_off.
-
-  log "9. [PASS PATH] Adding matrix evidence via real evidence exec..."
+  # PASS PATH: add matrix evidence via real evidence exec (exitCode=0 → covers harness)
+  log "9. [PASS PATH] Adding matrix evidence via real evidence exec (echo → exitCode=0)..."
   exec_rc=0
   wf "$db" --actor tester-actor --role tester \
       evidence exec "$task" \
@@ -1005,30 +1045,41 @@ test_9() {
       --facts '{}' \
       --summary "live matrix smoke" \
       -- echo "matrix smoke ok" 2>&1 || exec_rc=$?
-  log "matrix exec rc: $exec_rc (should be 0)"
-
+  log "9. matrix exec rc: $exec_rc"
   if [[ $exec_rc -ne 0 ]]; then
-    fail "9. [PASS PATH] matrix evidence exec failed (rc=$exec_rc)"
-    ok=1
+    fail "9. [PASS PATH] matrix evidence exec failed (rc=$exec_rc)"; ok=1
   else
-    pass "9. [PASS PATH] matrix evidence exec succeeded"
+    pass "9. [PASS PATH] matrix evidence exec succeeded (exitCode=0)"
   fi
 
-  # Re-run sign_off --run-checks (obligations still satisfied from before)
-  log "9. [PASS PATH] sign_off --run-checks (expect GREEN: done + completed)..."
-  signoff_rc=0
+  # Check is now stale (new evidence added). Re-run check → must pass
+  log "9. [PASS PATH] Re-running check after adding matrix (expect PASS)..."
+  local check_out check_rc=0
+  check_out="$(wf "$db" --actor reviewer-actor --role reviewer \
+      check run "$task" sign_off --json 2>&1)" || check_rc=$?
+  local verdict
+  verdict="$(echo "$check_out" | jq -r '.checks[0].verdict // empty' 2>/dev/null || true)"
+  if [[ "$verdict" == "pass" ]]; then
+    pass "9. [PASS PATH] check passed after adding matrix evidence"
+  else
+    fail "9. [PASS PATH] check NOT passing after matrix: verdict=$verdict; out=$check_out"; ok=1
+  fi
+
+  # Transition sign_off (check is current and passing → routes to done)
+  log "9. [PASS PATH] Transitioning sign_off (check passed, expect done)..."
+  local signoff_out signoff_rc=0
   signoff_out="$(wf "$db" --actor reviewer-actor --role reviewer \
-      transition "$task" sign_off --run-checks --json 2>&1)" || signoff_rc=$?
-  log "PASS PATH sign_off output: $signoff_out"
+      transition "$task" sign_off --json 2>&1)" || signoff_rc=$?
+  log "9. sign_off output: $(echo "$signoff_out" | jq -c '{outcome, state}' 2>/dev/null || echo "$signoff_out")"
 
-  status="$(get_task_state "$db" "$task" "status")"
-  phase="$(get_task_state  "$db" "$task" "phase")"
-  log "Final task state: $status/$phase"
-
+  local status phase
+  status="$(get_task_field "$db" "$task" "status")"
+  phase="$(get_task_field  "$db" "$task" "phase")"
   assert_eq "9. [PASS PATH] task.status" "closed" "$status" || ok=1
   assert_eq "9. [PASS PATH] task.phase"  "done"   "$phase"  || ok=1
 
-  # Verify set_task_state completed effect was applied
+  # Deliver effect and check wrkq task state
+  deliver_effects "$db" "$task" || true
   local wrkq_state
   wrkq_state="$(wrkq --db "$db" --project smoke cat "inbox/wf-smoke" --output json 2>/dev/null \
       | jq -r '.[0].state // empty' 2>/dev/null || true)"
@@ -1048,22 +1099,22 @@ echo -e "${CYAN_C}╚═══════════════════�
 echo ""
 echo "Template : $TEMPLATE"
 echo "Catalog  : $CATALOG"
-echo "wrkf     : $(which wrkf) ($(wrkf version 2>/dev/null || echo unknown))"
+echo "wrkf     : $(which wrkf 2>/dev/null || echo 'not found')"
 echo ""
 
 if [[ -n "$SELECTED_TEST" ]]; then
   echo -e "${YELLOW_C}Running single test: $SELECTED_TEST${NC}"
 fi
 
-run_test 1 "validate + install (template+catalog used live)"           test_1
-run_test 2 "facts enum, producer restrictions, new-kind fields"        test_2
-run_test 3 "RED: mismatched surface → sign_off rejected + §3 diag"    test_3
-run_test 4 "GREEN: installed_binary/real-e2e → sign_off → done"       test_4
-run_test 5 "failed evidence exec records but check still rejects"      test_5
-run_test 6 "recorded diff-floor drives coverage; empty live diff loses" test_6
-run_test 7 "no --run-checks / stale check → sign_off rejected"        test_7
-run_test 8 "waiver records but cannot reach done"                      test_8
-run_test 9 "live smoke: both reject and pass paths with evidence exec" test_9
+run_test 1 "validate + install (template+catalog used live)"             test_1
+run_test 2 "facts enum, producer restrictions, new-kind fields"          test_2
+run_test 3 "RED: mismatched surface → check fails + §3 diag + BLOCKED"  test_3
+run_test 4 "GREEN: installed_binary/real-e2e → sign_off → done"         test_4
+run_test 5 "failed evidence exec records; check still rejects (exitCode trap)" test_5
+run_test 6 "recorded diff-floor beats weak claim; live empty diff loses" test_6
+run_test 7 "no-check / stale-check → sign_off BLOCKED"                  test_7
+run_test 8 "waiver records but cannot reach done"                        test_8
+run_test 9 "live smoke: both reject and pass paths with real evidence exec" test_9
 
 echo ""
 echo -e "${CYAN_C}══════════════════════════════════════════════════════${NC}"
