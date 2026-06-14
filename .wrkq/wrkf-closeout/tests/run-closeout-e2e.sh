@@ -132,8 +132,10 @@ setup_db() {
   export ASP_PROJECT= WRKQ_PROJECT_ROOT=
 
   rm -f "$db" "${db}-shm" "${db}-wal" 2>/dev/null || true
-  wrkqadm --db "$db" migrate   >&2
-  wrkqadm --db "$db" init      >&2
+  wrkqadm --db "$db" migrate >&2
+  # Run init from /tmp so wrkqadm doesn't pollute the repo's .gitignore
+  # (wrkqadm init adds the db path to .gitignore in CWD)
+  (cd /tmp && wrkqadm --db "$db" init) >&2
 
   # Seed distinct actors (one per workflow role) for SoD compliance
   wrkqadm --db "$db" actors add implementer-actor --role agent >&2
