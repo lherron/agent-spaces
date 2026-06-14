@@ -131,7 +131,10 @@ function importEntries(graph: DependencyGraph): Entry[] {
 }
 
 async function specEntries(): Promise<Entry[]> {
-  const files = await collectTsFiles(areaAbsolute)
+  const files =
+    existsSync(areaAbsolute) && !area.endsWith('.ts')
+      ? await collectTsFiles(areaAbsolute)
+      : [areaAbsolute]
   const packageName = packageGroup(area).split('/')[1] ?? area
   return sortEntries(
     files
