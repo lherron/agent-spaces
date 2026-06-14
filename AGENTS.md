@@ -16,6 +16,7 @@ Run these after implementing to get immediate feedback:
 - Typecheck: `bun run typecheck` (run `bun run build` first if workspace typings are missing)
 - Lint: `bun run lint` (fix with `bun run lint:fix`)
 - Boundary checks: `bun run check:boundaries`, `bun run check:manifests`
+- Closeout evidence tiers: see [docs/closeout-evidence.md](docs/closeout-evidence.md)
 - Pack smoke: `bun scripts/smoke-pack-cross-repo.ts` (verifies cross-repo published tarballs don't carry `exports.bun → ./src/*.ts`)
 - Harness broker MATRIX smoke (`bun run smoke:matrix`) — required for any harness-broker change → see [packages/harness-broker/AGENTS.md](packages/harness-broker/AGENTS.md)
 - Pack smoke for `@lherron/agent-spaces` (`cd packages/cli; bun scripts/smoke-test-pack.ts`) — required after packaging changes → see [packages/cli/AGENTS.md](packages/cli/AGENTS.md)
