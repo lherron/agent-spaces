@@ -17,9 +17,9 @@
  *     >=1 line matches /packages\/.+:\d+/;
  *     the "imported by:" section is non-empty (agent-scope is widely imported).
  */
+import { describe, expect, test } from 'bun:test'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, test } from 'bun:test'
 
 // Repo root — CWD for all subprocess invocations.
 // Test file lives at packages/agent-spaces/src/__tests__/ → 4 levels up.
