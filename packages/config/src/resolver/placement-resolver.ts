@@ -39,7 +39,9 @@ import type {
   RunScaffoldPacket,
   RuntimePlacement,
 } from '../core/types/placement.js'
+import { readAgentProfileSource } from './agent-profile-source.js'
 import { validateAgentRoot } from './agent-root.js'
+import { parseSpaceRef } from './ref-parser.js'
 import { resolveRootRelativeRef } from './root-relative-refs.js'
 import { resolveSpaceComposition } from './space-composition.js'
 
@@ -50,8 +52,6 @@ const BUNDLE_IDENTITY_HASH_LEN = 16
 const SOUL_FILENAME = 'SOUL.md'
 /** Filename of the optional heartbeat-mode instruction file. */
 const HEARTBEAT_FILENAME = 'HEARTBEAT.md'
-/** Filename of the agent runtime profile. */
-const AGENT_PROFILE_FILENAME = 'agent-profile.toml'
 /** Filename of the per-project targets manifest. */
 const ASP_TARGETS_FILENAME = 'asp-targets.toml'
 /** Directory under a root that holds filesystem-based spaces. */
@@ -214,21 +214,24 @@ function computeContentHash(content: string): string {
 }
 
 /**
- * Derive a space key from a space ref string.
+ * Derive a best-effort, audit-only space key from a space ref string.
+ *
+ * Delegates ref structure parsing to the canonical parseSpaceRef instead of
+ * maintaining a duplicate set of regexes. parseSpaceRef throws on malformed
+ * input, so it is wrapped to preserve the original best-effort contract:
+ * unparseable refs fall back to returning the raw ref unchanged (NOT throwing).
+ * Key shapes are preserved exactly: id@agent / id@project for filesystem
+ * spaces, id@selector for registry spaces (selector defaults to dev).
  */
 function deriveSpaceKey(ref: string): string {
-  // For agent/project spaces, key is id@agent or id@project
-  const agentMatch = /^space:agent:([^@]+)/.exec(ref)
-  if (agentMatch?.[1]) return `${agentMatch[1]}@agent`
-
-  const projectMatch = /^space:project:([^@]+)/.exec(ref)
-  if (projectMatch?.[1]) return `${projectMatch[1]}@project`
-
-  // For registry spaces, key is id@selector
-  const registryMatch = /^space:([^@:]+)(?:@(.+))?$/.exec(ref)
-  if (registryMatch?.[1]) return `${registryMatch[1]}@${registryMatch[2] ?? 'dev'}`
-
-  return ref
+  try {
+    const parsed = parseSpaceRef(ref)
+    if (parsed.agentSpace) return `${parsed.id}@agent`
+    if (parsed.projectSpace) return `${parsed.id}@project`
+    return `${parsed.id}@${parsed.selectorString}`
+  } catch {
+    return ref
+  }
 }
 
 /**
@@ -411,13 +414,19 @@ function resolveInstructionRef(ref: string, placement: RuntimePlacement): string
   }
 }
 
+/**
+ * Typed reader: validates against the agent-profile schema and throws
+ * ConfigValidationError on schema-less / unknown-key / wrong-shaped input.
+ * This divergence from space-composition's tolerant raw reader is intentional
+ * and pinned by t04617-t04618-characterization.test.ts. Only the file-read
+ * step is shared (readAgentProfileSource); the parse step stays typed here.
+ */
 function loadAgentProfile(agentRoot: string): AgentRuntimeProfile {
-  const profilePath = join(agentRoot, AGENT_PROFILE_FILENAME)
-  const content = readFileIfExists(profilePath)
-  if (content === undefined) {
+  const source = readAgentProfileSource(agentRoot)
+  if (source === undefined) {
     return { schemaVersion: 1 }
   }
-  return parseAgentProfile(content, profilePath)
+  return parseAgentProfile(source.content, source.path)
 }
 
 function loadProjectTargetOptional(

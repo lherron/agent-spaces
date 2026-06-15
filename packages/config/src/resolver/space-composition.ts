@@ -11,10 +11,9 @@
  * Deduplicate by resolved space key.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { parse as parseToml } from '@iarna/toml'
 import type { RunMode } from '../core/types/agent-profile.js'
+import { readAgentProfileSource } from './agent-profile-source.js'
 
 /** A resolved space entry in composition order */
 export interface ComposedSpaceEntry {
@@ -105,11 +104,15 @@ function normalizeRefKey(ref: string): string {
 /**
  * Load and parse agent-profile.toml from agentRoot.
  * Returns undefined if the file doesn't exist.
+ *
+ * Tolerant reader: parses raw TOML without schema validation, so partial/odd
+ * profiles that the typed parseAgentProfile would reject are still returned.
+ * This divergence from placement-resolver's typed reader is intentional and
+ * pinned by t04617-t04618-characterization.test.ts.
  */
 function loadAgentProfile(agentRoot: string): Record<string, unknown> | undefined {
-  const profilePath = join(agentRoot, 'agent-profile.toml')
-  if (!existsSync(profilePath)) return undefined
+  const source = readAgentProfileSource(agentRoot)
+  if (source === undefined) return undefined
 
-  const content = readFileSync(profilePath, 'utf8')
-  return parseToml(content) as Record<string, unknown>
+  return parseToml(source.content) as Record<string, unknown>
 }
