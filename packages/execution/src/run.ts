@@ -12,9 +12,13 @@ import { randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import {
+  type AgentLocalComponents,
   type BuildResult,
+  type HarnessAdapter,
+  type HarnessId,
   type HarnessRunOptions,
   LOCK_FILENAME,
+  type LockFile,
   PathResolver,
   type SpaceRefString,
   install as configInstall,
@@ -90,6 +94,42 @@ import {
 /** Warning code emitted for execution-time (post-compile) run warnings. */
 const RUN_WARNING_CODE = 'W401'
 
+interface MaterializationIdentity {
+  agentId: string
+  projectId: string
+  frontend: HarnessId
+}
+
+interface RunInstallArgs {
+  targetName: string
+  options: RunOptions
+  effectiveCompose: SpaceRefString[] | undefined
+  effectiveRegistryPath: string
+  lockPath: string
+  harnessId: HarnessId
+  adapter: HarnessAdapter
+  agentLocalComponents: AgentLocalComponents | undefined
+  agentRoot: string | undefined
+  materializationIdentity: MaterializationIdentity | undefined
+  currentHarnessOutputPath: string
+}
+
+interface BuildProjectRunCompilerContextArgs {
+  targetName: string
+  options: RunOptions
+  aspHome: string
+  effectiveRegistryPath: string
+  harnessId: HarnessId
+  runOptions: HarnessRunOptions
+  agentRoot: string | undefined
+  projectId: string
+  taskId: string | undefined
+  effectivePrompt: string | undefined
+  bundleRootDir: string
+  materializedHarnessOutputPath: string
+  lock: LockFile
+}
+
 export async function migrateLegacyProjectHarnessOutput(
   aspHome: string,
   projectPath: string,
@@ -114,6 +154,122 @@ export async function migrateLegacyProjectHarnessOutput(
   }
 
   await moveDirWithCopyFallback(legacyOutputPath, outputPath)
+}
+
+async function installRunTarget(args: RunInstallArgs): Promise<string> {
+  const effectiveCompose = args.effectiveCompose
+  if (effectiveCompose !== undefined) {
+    return materializeComposedRunTarget({ ...args, effectiveCompose })
+  }
+
+  return installConfiguredRunTarget(args)
+}
+
+async function materializeComposedRunTarget(
+  args: RunInstallArgs & { effectiveCompose: SpaceRefString[] }
+): Promise<string> {
+  const materializeOptions = {
+    targetName: args.targetName,
+    refs: args.effectiveCompose,
+    registryPath: args.effectiveRegistryPath,
+    lockPath: args.lockPath,
+    projectPath: args.options.projectPath,
+    harness: args.harnessId,
+    adapter: args.adapter,
+    fetchRegistry: false,
+    ...(args.options.aspHome !== undefined ? { aspHome: args.options.aspHome } : {}),
+    ...(args.options.refresh !== undefined ? { refresh: args.options.refresh } : {}),
+    ...(args.options.inheritProject !== undefined
+      ? { inheritProject: args.options.inheritProject }
+      : {}),
+    ...(args.options.inheritUser !== undefined ? { inheritUser: args.options.inheritUser } : {}),
+    ...(args.agentLocalComponents ? { agentLocalComponents: args.agentLocalComponents } : {}),
+    ...(args.agentRoot ? { agentRoot: args.agentRoot } : {}),
+    projectRoot: args.options.projectPath,
+    ...(args.materializationIdentity !== undefined
+      ? { materializationIdentity: args.materializationIdentity }
+      : {}),
+  }
+  const materialized = await materializeFromRefs(materializeOptions)
+  return materialized.materialization.outputPath
+}
+
+async function installConfiguredRunTarget(args: RunInstallArgs): Promise<string> {
+  const installOptions = {
+    ...args.options,
+    harness: args.harnessId,
+    targets: [args.targetName],
+    registryPath: args.effectiveRegistryPath,
+    adapter: args.adapter,
+    fetchRegistry: false,
+    ...(args.agentRoot ? { agentPath: args.agentRoot } : {}),
+    ...(args.agentLocalComponents ? { agentLocalComponents: args.agentLocalComponents } : {}),
+    ...(args.materializationIdentity !== undefined
+      ? { materializationIdentity: args.materializationIdentity }
+      : {}),
+  }
+  const installed = await configInstall(installOptions)
+  return (
+    installed.materializations.find((entry) => entry.target === args.targetName)?.outputPath ??
+    args.currentHarnessOutputPath
+  )
+}
+
+function buildProjectRunCompilerContext(
+  args: BuildProjectRunCompilerContextArgs
+): Parameters<typeof maybeCompileForRun>[0]['buildContext'] {
+  return () => {
+    const placementAgentRoot =
+      args.agentRoot ??
+      join(
+        getAgentsRoot({ aspHome: args.aspHome }) ?? dirname(args.options.projectPath),
+        args.targetName
+      )
+    const compilerCwd = args.runOptions.cwd ?? args.options.cwd ?? args.options.projectPath
+    const placementBase = {
+      agentRoot: placementAgentRoot,
+      projectRoot: args.options.projectPath,
+      cwd: compilerCwd,
+      runMode: 'query',
+      dryRun: args.options.dryRun === true,
+      ...(args.options.env !== undefined ? { env: args.options.env } : {}),
+    }
+    const placementBundle =
+      args.agentRoot !== undefined
+        ? {
+            kind: 'agent-project',
+            agentName: args.targetName,
+            projectRoot: args.options.projectPath,
+          }
+        : { kind: 'compose', compose: args.lock.targets[args.targetName]?.compose ?? [] }
+    const placement = { ...placementBase, bundle: placementBundle }
+    const scopeRef = `agent:${args.targetName}:project:${args.projectId}${
+      args.taskId ? `:task:${args.taskId}` : ''
+    }`
+    return {
+      aspHome: args.aspHome,
+      registryPath: args.effectiveRegistryPath,
+      harnessId: args.harnessId,
+      model: args.runOptions.model,
+      reasoningEffort: args.runOptions.modelReasoningEffort,
+      interactive: args.runOptions.interactive,
+      yolo: args.runOptions.yolo,
+      placement,
+      initialPrompt: args.effectivePrompt,
+      resolvedBundleHint: {
+        bundleIdentity: `asp-run:${args.options.projectPath}:${args.targetName}:${args.harnessId}`,
+        root: args.bundleRootDir,
+        targetName: args.targetName,
+        targetDir: args.materializedHarnessOutputPath,
+        lockHash: args.lock.targets[args.targetName]?.envHash,
+      },
+      correlation: {
+        appSessionKey: `${args.projectId}:${args.taskId}`,
+        scopeRef,
+        laneRef: 'main',
+      },
+    }
+  }
 }
 
 export {
@@ -232,44 +388,19 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   let materializedHarnessOutputPath = harnessOutputPath
   if (needsInstall) {
     debugLog('install', options.refresh ? '(refresh)' : '(missing output)')
-    if (effectiveCompose !== undefined) {
-      const materializeOptions = {
-        targetName,
-        refs: effectiveCompose,
-        registryPath: effectiveRegistryPath,
-        lockPath,
-        projectPath: options.projectPath,
-        harness: harnessId,
-        adapter,
-        fetchRegistry: false,
-        ...(options.aspHome !== undefined ? { aspHome: options.aspHome } : {}),
-        ...(options.refresh !== undefined ? { refresh: options.refresh } : {}),
-        ...(options.inheritProject !== undefined ? { inheritProject: options.inheritProject } : {}),
-        ...(options.inheritUser !== undefined ? { inheritUser: options.inheritUser } : {}),
-        ...(agentLocalComponents ? { agentLocalComponents } : {}),
-        ...(agentProfile ? { agentRoot: agentProfile.agentRoot } : {}),
-        projectRoot: options.projectPath,
-        ...(materializationIdentity !== undefined ? { materializationIdentity } : {}),
-      }
-      const materialized = await materializeFromRefs(materializeOptions)
-      materializedHarnessOutputPath = materialized.materialization.outputPath
-    } else {
-      const installOptions = {
-        ...options,
-        harness: harnessId,
-        targets: [targetName],
-        registryPath: effectiveRegistryPath,
-        adapter,
-        fetchRegistry: false,
-        ...(agentProfile ? { agentPath: agentProfile.agentRoot } : {}),
-        ...(agentLocalComponents ? { agentLocalComponents } : {}),
-        ...(materializationIdentity !== undefined ? { materializationIdentity } : {}),
-      }
-      const installed = await configInstall(installOptions)
-      materializedHarnessOutputPath =
-        installed.materializations.find((entry) => entry.target === targetName)?.outputPath ??
-        materializedHarnessOutputPath
-    }
+    materializedHarnessOutputPath = await installRunTarget({
+      targetName,
+      options,
+      effectiveCompose,
+      effectiveRegistryPath,
+      lockPath,
+      harnessId,
+      adapter,
+      agentLocalComponents,
+      agentRoot: agentProfile?.agentRoot,
+      materializationIdentity,
+      currentHarnessOutputPath: materializedHarnessOutputPath,
+    })
     debugLog('install done')
   }
 
@@ -340,53 +471,21 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     compileRuntime: options.compileRuntime,
     viaCompiler,
     wantDebugDump,
-    buildContext: () => {
-      const placementAgentRoot =
-        agentProfile?.agentRoot ??
-        join(getAgentsRoot({ aspHome }) ?? dirname(options.projectPath), targetName)
-      const compilerCwd = runOptions.cwd ?? options.cwd ?? options.projectPath
-      const placementBase = {
-        agentRoot: placementAgentRoot,
-        projectRoot: options.projectPath,
-        cwd: compilerCwd,
-        runMode: 'query',
-        dryRun: options.dryRun === true,
-        ...(options.env !== undefined ? { env: options.env } : {}),
-      }
-      const placementBundle =
-        agentProfile !== undefined
-          ? {
-              kind: 'agent-project',
-              agentName: targetName,
-              projectRoot: options.projectPath,
-            }
-          : { kind: 'compose', compose: lock.targets[targetName]?.compose ?? [] }
-      const placement = { ...placementBase, bundle: placementBundle }
-      const scopeRef = `agent:${targetName}:project:${projectId}${taskId ? `:task:${taskId}` : ''}`
-      return {
-        aspHome,
-        registryPath: effectiveRegistryPath,
-        harnessId,
-        model: runOptions.model,
-        reasoningEffort: runOptions.modelReasoningEffort,
-        interactive: runOptions.interactive,
-        yolo: runOptions.yolo,
-        placement,
-        initialPrompt: effectivePrompt,
-        resolvedBundleHint: {
-          bundleIdentity: `asp-run:${options.projectPath}:${targetName}:${harnessId}`,
-          root: bundle.rootDir,
-          targetName,
-          targetDir: materializedHarnessOutputPath,
-          lockHash: lock.targets[targetName]?.envHash,
-        },
-        correlation: {
-          appSessionKey: `${projectId}:${taskId}`,
-          scopeRef,
-          laneRef: 'main',
-        },
-      }
-    },
+    buildContext: buildProjectRunCompilerContext({
+      targetName,
+      options,
+      aspHome,
+      effectiveRegistryPath,
+      harnessId,
+      runOptions,
+      agentRoot: agentProfile?.agentRoot,
+      projectId,
+      taskId,
+      effectivePrompt,
+      bundleRootDir: bundle.rootDir,
+      materializedHarnessOutputPath,
+      lock,
+    }),
   })
   debugLog('compileRuntime ok', compileOutcome?.ok)
 
