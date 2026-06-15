@@ -1,4 +1,3 @@
-import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs'
 import type {
   InvocationEventEnvelope,
   InvocationId,
@@ -7,6 +6,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { createInvocationEventSequencer } from '../../events'
 import { getNumber, getString } from '../hook-json'
+import { createJsonlByteOffsetTailer } from '../jsonl-byte-tailer'
 import { CODEX_CLI_TMUX_DRIVER_KIND } from './hook-events'
 
 /**
@@ -58,20 +58,17 @@ export function createCodexHookTranscriptReader(
 ): CodexHookTranscriptReader {
   const invocationId = options.invocationId as InvocationId
   const sequencer = createInvocationEventSequencer({ now: options.now })
-  const buffer = Buffer.alloc(64 * 1024)
+  const tailer = createJsonlByteOffsetTailer()
 
-  let activePath: string | undefined
-  let offset = 0
-  let partial = ''
   let held: HeldAgentMessage | undefined
   let pendingDelta: PendingDelta | undefined
   let transcriptLastAgentMessage: string | undefined
   let messageCounter = 0
   const seenMessageIds = new Set<string>()
 
+  // Reset the per-line state machine. Offset/partial rewinding is owned by the
+  // shared tailer (via retarget/clear).
   const resetState = (): void => {
-    offset = 0
-    partial = ''
     held = undefined
     pendingDelta = undefined
     transcriptLastAgentMessage = undefined
@@ -252,43 +249,6 @@ export function createCodexHookTranscriptReader(
     }
   }
 
-  const readNewBytes = (into: InvocationEventEnvelope[]): void => {
-    if (activePath === undefined) return
-    try {
-      if (!existsSync(activePath)) return
-      const stats = statSync(activePath)
-      if (!stats.isFile()) return
-      if (stats.size < offset) {
-        offset = 0
-        partial = ''
-      }
-      if (stats.size === offset) return
-
-      const fd = openSync(activePath, 'r')
-      try {
-        while (offset < stats.size) {
-          const bytesToRead = Math.min(buffer.length, stats.size - offset)
-          const bytesRead = readSync(fd, buffer, 0, bytesToRead, offset)
-          if (bytesRead <= 0) break
-          offset += bytesRead
-          partial += buffer.subarray(0, bytesRead).toString('utf8')
-
-          let newlineIndex = partial.indexOf('\n')
-          while (newlineIndex >= 0) {
-            const line = partial.slice(0, newlineIndex)
-            partial = partial.slice(newlineIndex + 1)
-            processLine(line, into)
-            newlineIndex = partial.indexOf('\n')
-          }
-        }
-      } finally {
-        closeSync(fd)
-      }
-    } catch {
-      return
-    }
-  }
-
   return {
     handleHook(hook: Record<string, unknown>): InvocationEventEnvelope[] {
       const into: InvocationEventEnvelope[] = []
@@ -296,18 +256,13 @@ export function createCodexHookTranscriptReader(
 
       if (rawType === 'SessionStart') {
         const transcriptPath = getString(hook, 'transcript_path')
-        if (
-          transcriptPath !== undefined &&
-          transcriptPath.length > 0 &&
-          transcriptPath !== activePath
-        ) {
-          activePath = transcriptPath
-          resetState()
+        if (transcriptPath !== undefined && transcriptPath.length > 0) {
+          if (tailer.retarget(transcriptPath)) resetState()
         }
         return into
       }
 
-      readNewBytes(into)
+      tailer.readNewLines((line) => processLine(line, into))
 
       if (rawType === 'PreToolUse' || rawType === 'PostToolUse') {
         // A pending assistant message at a tool boundary cannot be the terminal
@@ -332,7 +287,7 @@ export function createCodexHookTranscriptReader(
     },
 
     reset(): void {
-      activePath = undefined
+      tailer.clear()
       messageCounter = 0
       resetState()
     },

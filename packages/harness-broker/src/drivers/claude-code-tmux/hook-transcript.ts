@@ -1,7 +1,7 @@
-import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs'
 import type { InvocationEventEnvelope, InvocationId, TurnId } from 'spaces-harness-broker-protocol'
 import { createInvocationEventSequencer } from '../../events'
 import { getString, unwrapHookPayload } from '../hook-json'
+import { createJsonlByteOffsetTailer } from '../jsonl-byte-tailer'
 import { CLAUDE_CODE_TMUX_DRIVER_KIND } from './hook-events'
 
 /**
@@ -51,16 +51,7 @@ export function createClaudeHookTranscriptReader(
 ): ClaudeHookTranscriptReader {
   const invocationId = options.invocationId as InvocationId
   const sequencer = createInvocationEventSequencer({ now: options.now })
-  const buffer = Buffer.alloc(64 * 1024)
-
-  let activePath: string | undefined
-  let offset = 0
-  let partial = ''
-
-  const resetState = (): void => {
-    offset = 0
-    partial = ''
-  }
+  const tailer = createJsonlByteOffsetTailer()
 
   const userMessageEvent = (content: string): InvocationEventEnvelope => {
     const turnIdText = options.getCurrentTurnId()
@@ -100,43 +91,6 @@ export function createClaudeHookTranscriptReader(
     into.push(userMessageEvent(content))
   }
 
-  const readNewBytes = (into: InvocationEventEnvelope[]): void => {
-    if (activePath === undefined) return
-    try {
-      if (!existsSync(activePath)) return
-      const stats = statSync(activePath)
-      if (!stats.isFile()) return
-      if (stats.size < offset) {
-        offset = 0
-        partial = ''
-      }
-      if (stats.size === offset) return
-
-      const fd = openSync(activePath, 'r')
-      try {
-        while (offset < stats.size) {
-          const bytesToRead = Math.min(buffer.length, stats.size - offset)
-          const bytesRead = readSync(fd, buffer, 0, bytesToRead, offset)
-          if (bytesRead <= 0) break
-          offset += bytesRead
-          partial += buffer.subarray(0, bytesRead).toString('utf8')
-
-          let newlineIndex = partial.indexOf('\n')
-          while (newlineIndex >= 0) {
-            const line = partial.slice(0, newlineIndex)
-            partial = partial.slice(newlineIndex + 1)
-            processLine(line, into)
-            newlineIndex = partial.indexOf('\n')
-          }
-        }
-      } finally {
-        closeSync(fd)
-      }
-    } catch {
-      return
-    }
-  }
-
   return {
     handleHook(hook: Record<string, unknown>): InvocationEventEnvelope[] {
       const into: InvocationEventEnvelope[] = []
@@ -145,24 +99,18 @@ export function createClaudeHookTranscriptReader(
 
       if (rawType === 'SessionStart') {
         const transcriptPath = getString(unwrapped, 'transcript_path')
-        if (
-          transcriptPath !== undefined &&
-          transcriptPath.length > 0 &&
-          transcriptPath !== activePath
-        ) {
-          activePath = transcriptPath
-          resetState()
+        if (transcriptPath !== undefined && transcriptPath.length > 0) {
+          tailer.retarget(transcriptPath)
         }
         return into
       }
 
-      readNewBytes(into)
+      tailer.readNewLines((line) => processLine(line, into))
       return into
     },
 
     reset(): void {
-      activePath = undefined
-      resetState()
+      tailer.clear()
     },
   }
 }
