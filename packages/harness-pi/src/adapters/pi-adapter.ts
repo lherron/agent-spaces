@@ -37,6 +37,7 @@ import {
   type MaterializeSpaceResult,
   PI_MODEL_TRANSLATION,
   type ProjectManifest,
+  type SpacePiConfig,
   copyDir,
   linkOrCopy,
 } from 'spaces-config'
@@ -241,15 +242,9 @@ export class PiAdapter implements HarnessAdapter {
     warnings: string[]
   ): Promise<void> {
     // Get build options from manifest (pi config is optional extension)
-    // Cast manifest to access potential pi config from extended schema
+    // Cast manifest to access potential pi config from extended schema.
     const manifestWithPi = input.manifest as typeof input.manifest & {
-      pi?: {
-        build?: {
-          format?: 'esm' | 'cjs' | undefined
-          target?: 'bun' | 'node' | undefined
-          external?: string[] | undefined
-        }
-      }
+      pi?: SpacePiConfig | undefined
     }
     const buildOpts: ExtensionBuildOptions = {
       format: manifestWithPi.pi?.build?.format,
