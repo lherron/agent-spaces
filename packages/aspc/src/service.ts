@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+
 import { createAgentSpacesClient } from 'agent-spaces'
 import type {
   AspcCompileAndStartRequest,
@@ -21,10 +23,21 @@ import type {
 import { DIAGNOSTIC_CODES, compilerDiagnostic, errorDetails, formatError } from './diagnostics.js'
 import { selectBrokerProfile } from './profileSelector.js'
 
-// Keep in sync with package.json `version`. The build's rootDir is `./src`, so
-// the manifest cannot be imported directly without breaking emit; this single
-// constant is the source of truth surfaced by `aspc.hello`.
-const ASPC_FACADE_VERSION = '0.1.1'
+type PackageManifest = {
+  version?: unknown
+}
+
+function readPackageVersion(): string {
+  const manifest = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+  ) as PackageManifest
+  if (typeof manifest.version !== 'string') {
+    throw new Error('spaces-aspc package.json is missing a string version')
+  }
+  return manifest.version
+}
+
+const ASPC_FACADE_VERSION = readPackageVersion()
 
 const ASPC_COMPILE_AND_START_SCHEMA = 'aspc-compile-and-start-response/v1'
 const ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA = 'aspc-compile-harness-invocation-response/v1'
