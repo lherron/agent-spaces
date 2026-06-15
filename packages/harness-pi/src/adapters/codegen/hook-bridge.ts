@@ -50,6 +50,25 @@ const PI_EVENT_MAP: Record<string, string> = {
   stop: 'session_shutdown',
 }
 
+/**
+ * Serialize an arbitrary string as a single-quoted JavaScript string literal.
+ *
+ * The hook bridge source IS the executable artifact, so any hook-supplied value
+ * (event name, script command) spliced into a code position MUST be escaped —
+ * otherwise quotes/newlines in the value break parsing or inject code
+ * (T-04644). For ordinary inputs (e.g. `asp --help`) this is byte-identical to
+ * the previous raw single-quote interpolation.
+ */
+function jsStringLiteral(value: string): string {
+  return `'${value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')}'`
+}
+
 async function isFile(path: string): Promise<boolean> {
   try {
     const stats = await stat(path)
@@ -115,10 +134,18 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
       // Map both abstract event names and Claude event names to Pi events
       const piEvent = PI_EVENT_MAP[hook.event] || hook.event
       const toolsFilter = hook.tools ? JSON.stringify(hook.tools) : 'null'
+      // Hook-supplied values are serialized as data, never spliced raw into a
+      // JS code position (T-04644). The generated runtime consts below carry the
+      // values; display/template positions reference them via the GENERATED
+      // code's own \${...} interpolation, not this codegen's interpolation.
+      const eventLiteral = jsStringLiteral(hook.event)
+      const scriptLiteral = jsStringLiteral(hook.script)
 
       return `
-  // Hook: ${hook.event} -> ${hook.script}
-  pi.on('${piEvent}', async (event, ctx) => {
+  // Hook: ${eventLiteral} -> ${scriptLiteral}
+  pi.on(${jsStringLiteral(piEvent)}, async (event, ctx) => {
+    const hookEvent = ${eventLiteral};
+    const hookScript = ${scriptLiteral};
     const toolsFilter = ${toolsFilter};
     // For tool events, filter by tool name
     if (toolsFilter && event.toolName && !toolsFilter.includes(event.toolName)) {
@@ -135,7 +162,7 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
     };
 
     try {
-      log('DEBUG', \`Running hook: ${hook.script}\`);
+      log('DEBUG', \`Running hook: \${hookScript}\`);
       const { spawn } = await import('node:child_process');
       let payload = '';
       try {
@@ -143,7 +170,7 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
       } catch {
         payload = '';
       }
-      const proc = spawn('${hook.script}', [], {
+      const proc = spawn(${scriptLiteral}, [], {
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: true,
@@ -169,7 +196,7 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
         outputParts.push(\`[stderr]\\n\${stderr.trimEnd()}\`);
       }
       if (outputParts.length > 0 || exitCode !== 0) {
-        const header = \`Hook ${hook.event}: ${hook.script}\`;
+        const header = \`Hook \${hookEvent}: \${hookScript}\`;
         const body = outputParts.length > 0 ? outputParts.join('\\n\\n') : '(no output)';
         const content = \`\${header}\\n\\n\${body}\`;
         const options = ctx.isIdle() ? {} : { deliverAs: 'nextTurn' };
@@ -179,8 +206,8 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
             content,
             display: true,
             details: {
-              event: '${hook.event}',
-              script: '${hook.script}',
+              event: hookEvent,
+              script: hookScript,
               exitCode,
             },
           },
@@ -188,12 +215,12 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
         );
       }
       if (exitCode !== 0) {
-        log('WARN', \`Hook script "${hook.script}" exited with \${exitCode}\`);
+        log('WARN', \`Hook script "\${hookScript}" exited with \${exitCode}\`);
       } else {
-        log('DEBUG', \`Hook script "${hook.script}" completed successfully\`);
+        log('DEBUG', \`Hook script "\${hookScript}" completed successfully\`);
       }
     } catch (err) {
-      log('ERROR', \`Hook script "${hook.script}" failed: \${err}\`);
+      log('ERROR', \`Hook script "\${hookScript}" failed: \${err}\`);
     }
   });`
     })
