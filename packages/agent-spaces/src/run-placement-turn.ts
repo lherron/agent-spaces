@@ -7,7 +7,6 @@ import {
 } from 'spaces-config'
 import {
   type UnifiedSession,
-  type UnifiedSessionEvent,
   createSession,
   detectAgentLocalComponents,
   planPlacementRuntime,
@@ -26,11 +25,7 @@ import {
 import { composeAgentLocalEnv } from './compose-agent-local-env.js'
 import type { InFlightRunContext } from './run-tracker.js'
 import { enqueueInFlightPrompt } from './run-tracker.js'
-import {
-  emitTurnFailure,
-  shouldDrainOutstandingTurn,
-  toAgentSpacesError,
-} from './run-turn-helpers.js'
+import { emitTurnFailure, toAgentSpacesError } from './run-turn-helpers.js'
 import {
   applyEnvOverlay,
   piSessionPath,
@@ -41,8 +36,8 @@ import {
   type EventPayload,
   buildAutoPermissionHandler,
   createEventEmitter,
-  mapUnifiedEvents,
 } from './session-events.js'
+import { attachTurnDriver } from './turn-driver.js'
 import type {
   HarnessContinuationRef,
   RunResult,
@@ -137,7 +132,6 @@ export async function runPlacementTurnNonInteractive(
   const permissionHandler = buildAutoPermissionHandler()
   let session: UnifiedSession | undefined
   let context: InFlightRunContext | undefined
-  let turnEnded = false
   let finalOutput: string | undefined
   const assistantState: { assistantBuffer: string; lastAssistantText?: string | undefined } = {
     assistantBuffer: '',
@@ -293,34 +287,20 @@ export async function runPlacementTurnNonInteractive(
         }
         inFlightRuns.set(hostSessionId as string, context)
 
-        session.onEvent((event: UnifiedSessionEvent) => {
-          const activeContext = context
-          if (!activeContext || activeContext.completion.done) return
-
-          const result = mapUnifiedEvents(
-            event,
-            (mapped) => {
-              void eventEmitter.emit(mapped)
-            },
-            (key) => {
-              continuationKey = key
-              activeContext.continuationKey = key
-              eventEmitter.setContinuation({
-                provider: runtimePlan.provider,
-                key,
-              })
-            },
-            assistantState,
-            { allowSessionIdUpdate: frontendDef.frontend !== PI_SDK_FRONTEND }
-          )
-
-          if (shouldDrainOutstandingTurn(event, result, activeContext) && !turnEnded) {
-            activeContext.outstandingTurns = Math.max(0, activeContext.outstandingTurns - 1)
-            if (activeContext.outstandingTurns !== 0) return
-            turnEnded = true
+        const driverContext = context
+        attachTurnDriver(session, driverContext, {
+          onContinuationKey: (key) => {
+            continuationKey = key
+            driverContext.continuationKey = key
+            eventEmitter.setContinuation({
+              provider: runtimePlan.provider,
+              key,
+            })
+          },
+          onDrained: (activeContext) => {
             activeContext.completion = { done: true }
             void eventEmitter.idle().then(resolve, reject)
-          }
+          },
         })
 
         void started.catch(reject)

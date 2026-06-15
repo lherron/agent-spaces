@@ -66,11 +66,8 @@ import {
 import type { AgentSpacesClientOptions } from './placement-api.js'
 import { preparePlacementCliRuntime, toProcessInvocationSpec } from './prepare-cli-runtime.js'
 import { runPlacementTurnNonInteractive } from './run-placement-turn.js'
-import {
-  emitTurnFailure,
-  shouldDrainOutstandingTurn,
-  toAgentSpacesError,
-} from './run-turn-helpers.js'
+import { emitTurnFailure, toAgentSpacesError } from './run-turn-helpers.js'
+import { attachTurnDriver } from './turn-driver.js'
 import type {
   AgentSpacesClient,
   BuildHarnessBrokerInvocationRequest,
@@ -463,35 +460,20 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
 
                 inFlightRuns.set(hostSessionId as string, context)
 
-                activeSession.onEvent((event: UnifiedSessionEvent) => {
-                  if (!context || context.completion.done) return
-
-                  const mapped = mapUnifiedEvents(
-                    event,
-                    (mappedEvent) => {
-                      void context?.eventEmitter.emit(mappedEvent)
-                    },
-                    (key) => {
-                      if (!context) return
-                      context.continuationKey = key
-                      context.eventEmitter.setContinuation({
-                        provider: frontendDef.provider,
-                        key,
-                      })
-                    },
-                    context.assistantState,
-                    { allowSessionIdUpdate: context.allowSessionIdUpdate }
-                  )
-
-                  if (!shouldDrainOutstandingTurn(event, mapped, context)) return
-
-                  context.outstandingTurns = Math.max(0, context.outstandingTurns - 1)
-                  if (context.outstandingTurns !== 0) return
-
-                  const activeContext = context
-                  void completeInFlightSuccess(activeContext)
-                    .then((response) => resolveInFlight(activeContext, response))
-                    .catch((error) => rejectInFlight(activeContext, error))
+                attachTurnDriver(activeSession, context, {
+                  onContinuationKey: (key) => {
+                    if (!context) return
+                    context.continuationKey = key
+                    context.eventEmitter.setContinuation({
+                      provider: frontendDef.provider,
+                      key,
+                    })
+                  },
+                  onDrained: (activeContext) => {
+                    void completeInFlightSuccess(activeContext)
+                      .then((response) => resolveInFlight(activeContext, response))
+                      .catch((error) => rejectInFlight(activeContext, error))
+                  },
                 })
 
                 void started.catch((error) => {
