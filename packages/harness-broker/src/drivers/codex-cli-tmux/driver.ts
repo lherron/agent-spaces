@@ -16,7 +16,7 @@ import { BrokerError } from '../../errors'
 import type { TmuxExec, TmuxPaneController } from '../../runtime/tmux'
 import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
-import { asRecord, getString } from '../hook-json'
+import { getString } from '../hook-json'
 import {
   type HookListenerHandle,
   buildHookSocketPath,
@@ -32,6 +32,7 @@ import {
   type CodexCliTmuxHookEnvelope,
   type CodexCliTmuxHookEventNormalizer,
   createCodexCliTmuxHookEventNormalizer,
+  extractCodexHookRecord,
   normalizeCodexHookEnvelope,
 } from './hook-events'
 import { type CodexHookTranscriptReader, createCodexHookTranscriptReader } from './hook-transcript'
@@ -248,7 +249,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         ) {
           return
         }
-        const hook = extractHookRecord(envelope)
+        const hook = extractCodexHookRecord(envelope)
         const envelopeTurnId = getString(hook, 'turn_id') ?? envelope.turnId
         if (envelopeTurnId !== undefined) {
           currentTurnId = envelopeTurnId
@@ -392,12 +393,6 @@ function emitTranscriptDiagnostic(
     },
     { driver: { kind: CODEX_CLI_TMUX_DRIVER_KIND, rawType: 'SessionStart' } }
   )
-}
-
-function extractHookRecord(envelope: CodexCliTmuxHookEnvelope): Record<string, unknown> {
-  const hook = asRecord(envelope.hookData ?? envelope.hookEvent ?? envelope.payload ?? envelope)
-  const nested = asRecord(hook['hookEvent'])
-  return nested['hook_event_name'] !== undefined ? nested : hook
 }
 
 async function buildLaunchCommandLine(

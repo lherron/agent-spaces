@@ -9,6 +9,7 @@ import type { Command } from 'commander'
 
 import { registerRepoGcCommand } from './gc.js'
 import { registerRepoInitCommand } from './init.js'
+import { registerRepoNewSpaceCommand } from './new-space.js'
 import { registerRepoPublishCommand } from './publish.js'
 import { registerRepoStatusCommand } from './status.js'
 import { registerRepoTagsCommand } from './tags.js'
@@ -20,6 +21,7 @@ export function registerRepoCommands(program: Command): void {
   const repo = program.command('repo').description('Registry/repository management commands')
 
   registerRepoInitCommand(repo)
+  registerRepoNewSpaceCommand(repo)
   registerRepoStatusCommand(repo)
   registerRepoPublishCommand(repo)
   registerRepoTagsCommand(repo)

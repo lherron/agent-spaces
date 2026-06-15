@@ -15,8 +15,6 @@ import {
   detectAgentLocalComponents,
   harnessRegistry,
   planPlacementRuntime,
-  prepareAgentBrainRuntime,
-  prepareAgentToolRuntime,
   prepareCodexRuntimeHome,
 } from 'spaces-execution'
 import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
@@ -33,7 +31,7 @@ import {
   formatDisplayCommand,
   resolveFrontend,
 } from './client-support.js'
-import { buildCorrelationEnvVars } from './placement-api.js'
+import { composeAgentLocalEnv } from './compose-agent-local-env.js'
 import type {
   BuildProcessInvocationSpecRequest,
   BuildProcessInvocationSpecResponse,
@@ -355,9 +353,6 @@ export async function preparePlacementCliRuntime(
   const commandPath = detection.path ?? runtimePlan.harnessId
   const argv = [commandPath, ...args]
 
-  // Build correlation env vars
-  const correlationEnv = buildCorrelationEnvVars(placement)
-
   // Derive ASP_PROJECT and AGENTCHAT_ID so tools like agentchat can discover
   // their project and agent context without a manual .env.local.
   const agentchatEnv: Record<string, string> = {
@@ -367,57 +362,25 @@ export async function preparePlacementCliRuntime(
     agentchatEnv['ASP_PROJECT'] = basename(resolve(placement.projectRoot))
   }
 
-  let lockedEnv: Record<string, string> = {
-    ...adapterEnv,
-    ...agentchatEnv,
-    ...(req.env ?? {}),
-    ...(req.lockedEnv ?? {}),
-    ASP_HOME: aspHome,
-  }
-  const dispatchEnv: Record<string, string> = {
-    ...correlationEnv,
-    ...(req.dispatchEnv ?? {}),
-  }
-  let env: Record<string, string> = {
-    ...lockedEnv,
-    ...dispatchEnv,
-  }
-
-  // Brain runtime preparation is retained as a no-op compatibility hook for
-  // profiles that still contain a [brain] section.
-  if (placement.dryRun !== true) {
-    const brainEnv = await prepareAgentBrainRuntime(
-      {
-        agentRoot: placement.agentRoot,
-        agentName: basename(placement.agentRoot),
-        ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
-      },
-      env
-    )
-    lockedEnv = { ...lockedEnv, ...brainEnv }
-    env = { ...env, ...brainEnv }
-  }
-
-  let pathPrepend: string[] = []
-  if (agentLocalComponents?.hasTools) {
-    const toolRuntime = await prepareAgentToolRuntime(
-      {
-        agentRoot: placement.agentRoot,
-        projectRoot: placement.projectRoot,
-        components: agentLocalComponents,
-      },
-      env
-    )
-    const { PATH: toolPath, ...toolLockedEnv } = toolRuntime.env
-    void toolPath
-    // PATH is never routed through lockedEnv. The tool-bin dirs are emitted as
-    // the typed HarnessProcessSpec.pathPrepend field (consumed by the broker
-    // env compose) so the controlled PATH mutation is part of the launch shape.
-    pathPrepend = toolRuntime.pathPrepend
-    lockedEnv = { ...lockedEnv, ...toolLockedEnv }
-    env = { ...env, ...toolRuntime.env }
-    warnings.push(...toolRuntime.warnings)
-  }
+  // Compose the agent-local env channels. The CLI path folds adapterEnv +
+  // agentchatEnv into lockedEnv, gates the brain block on dryRun, and consumes
+  // the typed pathPrepend + tool warnings.
+  const composed = await composeAgentLocalEnv({
+    placement,
+    agentLocalComponents,
+    aspHome,
+    adapterEnv,
+    agentchatEnv,
+    ...(req.env !== undefined ? { reqEnv: req.env } : {}),
+    ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
+    ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
+    gateBrainOnDryRun: true,
+  })
+  const lockedEnv = composed.lockedEnv
+  const dispatchEnv = composed.dispatchEnv
+  const env = composed.env
+  const pathPrepend = composed.pathPrepend
+  warnings.push(...composed.warnings)
 
   // Build display command
   const displayCommand = formatDisplayCommand(commandPath, args, adapterEnv)

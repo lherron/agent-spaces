@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-14</title>
+  <style>
+    :root {
+      --bg: #f5f1ea;
+      --paper: rgba(255, 255, 255, 0.97);
+      --ink: #1b2324;
+      --muted: #596767;
+      --line: #d7ddda;
+      --shadow: 0 18px 44px rgba(27, 35, 36, 0.08);
+      --guard: #0f6b5f;
+      --guard-soft: #d8efe9;
+      --workflow: #8d4b1f;
+      --workflow-soft: #f6e0d1;
+      --surface: #285d90;
+      --surface-soft: #e2edf8;
+      --design: #65498d;
+      --design-soft: #ede7f9;
+      --warn: #775620;
+      --warn-soft: #f4ead7;
+      --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+      --serif: Georgia, "Iowan Old Style", serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body {
+      background:
+        linear-gradient(90deg, rgba(27, 35, 36, 0.03) 1px, transparent 1px) 0 0 / 26px 26px,
+        linear-gradient(0deg, rgba(27, 35, 36, 0.02) 1px, transparent 1px) 0 0 / 26px 26px,
+        radial-gradient(circle at top right, rgba(15, 107, 95, 0.14), transparent 34%),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 var(--sans);
+    }
+    a { color: var(--guard); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 292px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px 20px 28px;
+      border-right: 1px solid var(--line);
+      background: rgba(245, 241, 234, 0.96);
+      backdrop-filter: blur(12px);
+    }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card {
+      display: grid;
+      gap: 10px;
+    }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a {
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.055em;
+    }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 {
+      margin: 0;
+      font-family: var(--serif);
+      line-height: 1.05;
+    }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p {
+      margin: 0;
+      color: var(--muted);
+    }
+    .kicker { color: var(--workflow); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a {
+      display: block;
+      padding: 8px 10px;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .nav a:hover, .nav a:focus {
+      border-left-color: var(--guard);
+      background: rgba(255, 255, 255, 0.84);
+      color: var(--ink);
+    }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero {
+      padding: 44px min(5vw, 62px) 34px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(15, 107, 95, 0.16), transparent 54%), linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.9));
+    }
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr); gap: 28px; }
+    .eyebrow { color: var(--guard); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.4rem, 4vw, 4rem); margin-bottom: 14px; }
+    .hero p { max-width: 72ch; font-size: 1.02rem; }
+    .hero-note {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: var(--shadow);
+    }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.9rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .task-grid .task-card { grid-column: span 4; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.35rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      font-weight: 800;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      background: #edf2ee;
+    }
+    .chip.guard { background: var(--guard-soft); color: var(--guard); border-color: rgba(15, 107, 95, 0.18); }
+    .chip.workflow { background: var(--workflow-soft); color: var(--workflow); border-color: rgba(141, 75, 31, 0.18); }
+    .chip.surface { background: var(--surface-soft); color: var(--surface); border-color: rgba(40, 93, 144, 0.18); }
+    .chip.design { background: var(--design-soft); color: var(--design); border-color: rgba(101, 73, 141, 0.18); }
+    .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: rgba(119, 86, 32, 0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.06fr 0.94fr; gap: 18px; min-width: 0; }
+    .note-box {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(226, 237, 248, 0.68), rgba(255, 255, 255, 0.86));
+    }
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+    }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(220, 239, 233, 0.9), rgba(255, 255, 255, 0.97)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(244, 235, 216, 0.9), rgba(255, 255, 255, 0.97)); }
+    .repo-list span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .footer {
+      margin-top: 36px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+      .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; }
+    }
+    @media (max-width: 640px) {
+      .hero, .content { padding-left: 18px; padding-right: 18px; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-14</h1>
+        <p>Previous 24 hours in local time, covering landed commits, completed wrkq tasks, local-only commit ranges, and period-relevant unchecked-in work across visible Praesidium repos.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--guard);"></span>Guardrails and verification</div>
+        <div class="legend-item"><span class="dot" style="background: var(--workflow);"></span>Workflow and automation</div>
+        <div class="legend-item"><span class="dot" style="background: var(--surface);"></span>Operator surfaces and APIs</div>
+        <div class="legend-item"><span class="dot" style="background: var(--design);"></span>Assessment and design tooling</div>
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Window</strong><br />
+        2026-06-13 05:04:03 CDT to 2026-06-14 05:04:03 CDT
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Top accomplishments</strong>
+        <ul class="fact-list">
+          <li><strong>Agent-spaces</strong> landed 18 commits that installed CI and new control-loop guards from S0 through S8, plus a late DispatchEnv ingress refinement.</li>
+          <li><strong>Wrkq</strong> recorded 30 local-only commits spanning output defaults, refined task types, workflow templates, discovery tools, and verify backstops.</li>
+          <li><strong>Archagent</strong> pushed the agent-enablement toolkit through 35 in-window commits and kept 11 of those commits local-only for further iteration.</li>
+          <li><strong>Taskboard</strong> replaced <code>ProjectDashboard</code> with a project command board and still shows fresh Inbox Hub and roadmap edits in the worktree.</li>
+          <li><strong>Agent control plane</strong> generalized webhooks for event-triggered jobs and bounded HRC launch evidence windows.</li>
+        </ul>
+      </div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium-wide accomplishments for 2026-06-14</div>
+            <h2>Guardrails dominated the day, while <code>wrkq</code> and <code>archagent</code> advanced substantial local-only follow-on work.</h2>
+            <p>The strongest shipped thread was the <code>agent-spaces</code> S0-to-S8 control-loop hardening pass: CI now mirrors <code>just verify</code>, router/doc reachability checks were installed, boundary diagnostics gained full teaching fields, suppression and public-surface guards landed, and rule-authoring discipline was made enforceable. In parallel, <code>wrkq</code> and <code>archagent</code> accumulated larger local-only streaks around workflow tooling and the agent-enablement toolkit, while <code>taskboard</code> and <code>agent-control-plane</code> each shipped narrower but concrete user-facing improvements.</p>
+            <div class="hero-note">
+              <strong>What changed most</strong>
+              Completed-task evidence is concentrated in one project this cycle: 18 agent-enablement tasks in <code>agent-spaces</code>, all closed inside the window. Commit volume, however, was broader: five repos showed in-window landed commits, and two repos carried large unpushed ranges that are relevant even though they have not landed upstream yet.
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Landed commits</div>
+              <div class="metric-value">87</div>
+              <small>Across <strong>5 repos</strong>: archagent 35, wrkq 30, agent-spaces 18, taskboard 2, agent-control-plane 2.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Completed wrkq tasks</div>
+              <div class="metric-value">18</div>
+              <small>All in <strong>agent-spaces / agent-enablement</strong>, covering S0, S3, S4, S5, S7, and S8 phases.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Local-only commits</div>
+              <div class="metric-value">40</div>
+              <small><strong>29</strong> in wrkq and <strong>11</strong> in archagent remained ahead of upstream within the same window.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Fresh dirty paths</div>
+              <div class="metric-value">6</div>
+              <small>Visible in <strong>taskboard</strong> and <strong>agent-spaces</strong>, excluding parent-repo bookkeeping for nested repos.</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The day broke into one landed guardrail wave, two strong local-only engineering streams, and two narrower product-facing surfaces. Each stream below groups shipped changes with the most relevant task or repo evidence.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>Agent-spaces: control-loop guards moved from policy to enforcement</h3>
+                <div class="chips">
+                  <span class="chip guard">18 commits</span>
+                  <span class="chip guard">18 completed tasks</span>
+                  <span class="chip surface">branch: agent-control-loop</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p>The dominant landed stream installed missing enforcement around the repo's verify surface. The sequence started with <code>.github/workflows/verify.yml</code> mirroring <code>just verify</code>, then tightened diagnostics and freshness checks around docs, suppressions, public surfaces, and rule authoring. The latest two commits also started a new <code>T-04408</code> thread to refine DispatchEnv ingress with RED acceptance coverage first.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Representative landed commits</strong>
+                  <ul class="evidence-list">
+                    <li><code>4b7495af1d</code> mirrored <code>just verify</code> in CI.</li>
+                    <li><code>8964007e47</code> upgraded boundary and manifest diagnostics to six-field teaching output.</li>
+                    <li><code>31d50dc829</code>, <code>48c911e60d</code>, and <code>cf49520088</code> added doc reachability, public-surface, and rule-authoring guards.</li>
+                    <li><code>06b17ab830</code> refined dispatch env ingress after a RED acceptance commit at <code>1f09ce562d</code>.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>Wrkq: workflow and verification surface expanded, but the whole streak is still local-only</h3>
+                <div class="chips">
+                  <span class="chip workflow">30 commits</span>
+                  <span class="chip warn">29 ahead of upstream</span>
+                  <span class="chip workflow">clean worktree</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p><code>wrkq</code> carried the largest local-only implementation run. The branch added refined task state and slug types, new command scaffolding, doc-link routing, suppression and surface coverage guards, a verify-full backstop tier, a workflow template for code changes, source-aware discovery tools, and adoption checks around <code>wrkf</code>. None of this appears pushed yet, so it belongs in the brief as real progress with delivery risk still open.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Strongest local-only sequence</strong>
+                  <ul class="evidence-list">
+                    <li><code>2a765e90a4</code> and <code>512c9eace0</code> tightened CLI output behavior and styled renderer writes.</li>
+                    <li><code>0cc25f1701</code>, <code>8ef99cefd9</code>, and <code>05a2d773c9</code> layered new guards into verify.</li>
+                    <li><code>eea11b33f9</code> and <code>af29254d22</code> pushed the <code>wrkf</code> workflow surface forward.</li>
+                    <li><code>d9a9e6f05a</code> plus <code>470e67476a</code> added source-aware discovery tools on top of layerguard reuse.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>Archagent: the agent-enablement toolkit became richer and more operational</h3>
+                <div class="chips">
+                  <span class="chip design">35 commits</span>
+                  <span class="chip warn">11 ahead of upstream</span>
+                  <span class="chip design">clean worktree</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p><code>archagent</code> spent the day deepening the agent-enablement toolkit itself: assessment harnesses, HTML gap reports, rubric/toolkit revisions, a work-state control-plane graduate, case-study rendering, and a clearer split between the pipeline contract and the manual runbook. The repo is clean, but the last eleven commits still live only locally, so the stream is active rather than fully landed.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Notable progression</strong>
+                  <ul class="evidence-list">
+                    <li>Morning commits built assessment artifacts and HTML dossiers for wrkq, agent-spaces, hermes-agent, hrc-runtime, and openclaw.</li>
+                    <li>Midday commits revised toolkit v0.5, promoted new graduates, and added concrete examples plus a real runbook.</li>
+                    <li>Late-night local-only commits tightened the case-study HTML, completed the ledger through S14, and added the phase-2 agent-spaces assessment with an install plan.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>Taskboard: the project board shipped, and follow-on UX edits are still in flight</h3>
+                <div class="chips">
+                  <span class="chip surface">2 commits</span>
+                  <span class="chip warn">5 fresh dirty paths</span>
+                  <span class="chip surface">main</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p>The landed work in <code>taskboard</code> was compact but clear: a red TDD commit for lane assignment immediately followed by the feature commit that replaced <code>ProjectDashboard</code> with a project command board. Later in the day, the worktree picked up fresh modifications in Inbox Hub keyboard navigation and roadmap styling, which means visible follow-on UI work is already underway after the landed board swap.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Fresh visible paths</strong>
+                  <ul class="evidence-list">
+                    <li><code>InboxHub.tsx</code> and <code>useKeyboardNavigation.ts</code></li>
+                    <li><code>ContainerDetailView.tsx</code>, <code>styleConfig.ts</code>, and a new <code>styleConfig.test.ts</code></li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>Agent control plane: event-triggered jobs and tighter evidence windows landed cleanly</h3>
+                <div class="chips">
+                  <span class="chip workflow">2 commits</span>
+                  <span class="chip workflow">0 dirty paths</span>
+                  <span class="chip workflow">main</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p><code>agent-control-plane</code> showed one focused pair of landed commits: generalized ACP webhooks for event-triggered jobs, then a follow-up fix to bound the HRC launch evidence window. The repo is clean and has no visible local-only delta, so this stream looks actually landed rather than partially staged.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Commit evidence</strong>
+                  <ul class="evidence-list">
+                    <li><code>0ab6fddcd2</code> introduced event-triggered webhook generalization for <code>T-04348</code>.</li>
+                    <li><code>6ed1ca2dd4</code> tightened the HRC launch evidence window afterward.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Task Grid</h2>
+            <p>All completed tasks visible in the window were in <code>agent-spaces/agent-enablement</code>. The underlying 18 task closures collapsed into six major outcome groups, each with concrete acceptance evidence in task comments.</p>
+          </div>
+          <div class="task-grid">
+            <article class="task-card">
+              <div class="task-meta">
+                <span>T-04388</span>
+                <span>S0 / CI mirror</span>
+              </div>
+              <h3>CI now mirrors <code>just verify</code></h3>
+              <p><code>.github/workflows/verify.yml</code> was added for push and pull request coverage without touching publish packaging. Smokey validated a planted boundary violation red path, then restored green, and the final landed commit was <code>4b7495a</code>.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta">
+                <span>T-04389 · T-04390 · T-04391</span>
+                <span>S5 / suppression guard</span>
+              </div>
+              <h3>Suppression cost became explicit</h3>
+              <p>The repo now enforces ticketed <code>EXCEPTION(T-####): reason</code> annotations for new suppressions, backed by <code>.suppression-baseline.json</code> and a fail-hard day-one guard. The task comment calls out 10 red tests, live bare-vs-annotated validation, and multiset baseline semantics.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta">
+                <span>T-04393 · T-04394 · T-04395</span>
+                <span>S4 / diagnostics</span>
+              </div>
+              <h3>Boundary and manifest failures now teach the fix</h3>
+              <p>Boundary and manifest edge checks were upgraded to emit file:line, expected-vs-got, blessed correction, rationale, exception path, and explicit do-not-suppress language. Coordinator validation used live planted violations for both checks and confirmed <code>just verify</code> green on clean HEAD.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta">
+                <span>T-04398 · T-04399 · T-04400 · T-04401</span>
+                <span>S3 / router + reachability</span>
+              </div>
+              <h3>AGENTS routing got smaller and self-checking</h3>
+              <p>Root <code>AGENTS.md</code> was reduced from 176 to 118 lines, three deep sections moved into package-local docs, and <code>check-doc-reachability.ts</code> now fails on broken file or anchor routes. The task evidence explicitly shows planted bad-link failures and a clean <code>just check</code> plus <code>just verify</code>.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta">
+                <span>T-04402 · T-04403 · T-04404</span>
+                <span>S7 / public surface</span>
+              </div>
+              <h3>New public surface can no longer appear silently</h3>
+              <p><code>check-public-surface.ts</code> now guards new exported contract surfaces unless they are covered, baseline-grandfathered, or ticket-waived. The real-path validation proved uncataloged surfaces fail, ticketed waivers pass, bare <code>TACIT</code> fails, and the baseline currently grandfathers 440 surfaces.</p>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta">
+                <span>T-04405 · T-04406 · T-04407</span>
+                <span>S8 / rule authoring</span>
+              </div>
+              <h3>Check authoring discipline is cataloged and enforced</h3>
+              <p><code>checks/AUTHORING.md</code> plus <code>check-rule-authoring.ts</code> now require every verify-gating check to carry rule, why, bad, good, exception, rung, and sunset metadata. The completion comment cites 12 red tests, full daedalus schema ratification, and a green <code>just verify</code> run with 425 tests across the workspace.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>This brief is based on live repo and wrkq state, not title-only summaries. Where task comments contained explicit verification detail, the evidence below keeps the sharpest signals.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3>Task acceptance was concrete, not implied</h3>
+              <ul class="evidence-list">
+                <li><strong>T-04405</strong> reported a green <code>just verify</code> with 262, 18, and 145 test buckets all passing, plus discovery of missing, stale, duplicate, and bad-rung ledger rows.</li>
+                <li><strong>T-04402</strong> verified real planted exports in <code>spaces-runtime-contracts/src/index.ts</code>, then restored clean state and confirmed the checker still passed.</li>
+                <li><strong>T-04393</strong> demonstrated six-field diagnostics on both planted layer and manifest violations before reverting to green.</li>
+              </ul>
+            </article>
+
+            <article class="evidence-card warn">
+              <h3>One validation caveat was explicitly called out</h3>
+              <ul class="evidence-list">
+                <li><strong>T-04389</strong> notes that a full <code>just verify</code> failure in one lane traced to pre-existing CLI tests outside the suppression-guard change, and that the guard's own lane stayed green.</li>
+                <li>That caveat does not negate later green runs in the S3, S4, S7, and S8 task comments; it marks an intermediate repo-health issue, not the final state of the landed sequence.</li>
+              </ul>
+            </article>
+
+            <article class="evidence-card good">
+              <h3>Daily brief generation checks</h3>
+              <ul class="evidence-list">
+                <li>Artifact path follows the established <code>agent-spaces/docs/html/daily-accomplishments-YYYY-MM-DD.html</code> convention.</li>
+                <li>Required section anchors are present: <code>#scorecard</code>, <code>#workstreams</code>, <code>#tasks</code>, <code>#validation</code>, and <code>#open-state</code>.</li>
+                <li>CSS includes document-level <code>overflow-x: hidden</code>, responsive one-column fallbacks, and stacked card layouts below tablet width.</li>
+              </ul>
+            </article>
+
+            <article class="evidence-card good">
+              <h3>Repo evidence method</h3>
+              <ul class="evidence-list">
+                <li>Commit counts came from each visible repo's <code>HEAD</code> log constrained to the exact local-time window.</li>
+                <li>Local-only ranges came from <code>@&#123;u&#125;..HEAD</code> where an upstream exists.</li>
+                <li>Fresh dirty paths were filtered by file modification time inside the same window and presented separately from older carry-forward worktree state.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>The open-state section separates delivered work from still-local or still-dirty work. This keeps the brief honest about what landed and what is only visible from the current machine.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card">
+              <h3>Wrkq</h3>
+              <ul class="repo-list">
+                <li><strong>29 in-window commits remain unpushed.</strong><span>Largest local-only run this cycle; worktree itself is clean.</span></li>
+                <li><strong>Theme:</strong> output defaults, verify guards, refined domain types, workflow templates, and discovery tooling.</li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <h3>Archagent</h3>
+              <ul class="repo-list">
+                <li><strong>11 in-window commits remain unpushed.</strong><span>Late-stage toolkit, case-study, and assessment hardening still local-only.</span></li>
+                <li><strong>Theme:</strong> agent-enablement pipeline/runbook refinement and the phase-2 agent-spaces assessment.</li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <h3>Taskboard</h3>
+              <ul class="repo-list">
+                <li><strong>5 fresh dirty paths</strong><span>Inbox Hub and roadmap files were edited after the landed project board commits.</span></li>
+                <li><strong>Fresh files:</strong> <code>InboxHub.tsx</code>, <code>useKeyboardNavigation.ts</code>, <code>ContainerDetailView.tsx</code>, <code>styleConfig.ts</code>, <code>styleConfig.test.ts</code>.</li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <h3>Agent-spaces</h3>
+              <ul class="repo-list">
+                <li><strong>2 modified test files are still visible in the worktree.</strong><span>The landed guardrail wave did not fully end with a clean branch snapshot.</span></li>
+                <li><strong>Visible paths:</strong> <code>packages/cli/src/__tests__/m6-agent-cli.test.ts</code> and <code>packages/cli/src/__tests__/scope-handle-cli.test.ts</code>.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <div class="footer">
+          Source evidence: git logs and status across visible repos under <code>/Users/lherron/praesidium</code>, plus completed task and comment evidence from <code>wrkq</code>. Brief window: 2026-06-13 05:04:03 CDT to 2026-06-14 05:04:03 CDT.
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

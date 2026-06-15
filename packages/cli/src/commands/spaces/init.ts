@@ -5,78 +5,17 @@
  * needing to run Claude or the manager space.
  */
 
-import { mkdir } from 'node:fs/promises'
 import chalk from 'chalk'
 import type { Command } from 'commander'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
+import { registryExists } from '../repo/registry-fs.js'
+import { validateSpaceId, writeSpaceScaffold } from './scaffold.js'
 
 interface InitOptions {
   description?: string | undefined
   version?: string | undefined
   aspHome?: string | undefined
-}
-
-const SPACE_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
-
-/**
- * Validate space ID format.
- */
-function validateSpaceId(id: string): string | null {
-  if (!id) {
-    return 'Space ID is required'
-  }
-  if (id.length > 64) {
-    return 'Space ID must be 64 characters or less'
-  }
-  if (!SPACE_ID_PATTERN.test(id)) {
-    return 'Space ID must be kebab-case (lowercase letters, numbers, hyphens) and start with a letter'
-  }
-  return null
-}
-
-/**
- * Generate space.toml content.
- */
-function generateSpaceToml(id: string, options: InitOptions): string {
-  const lines: string[] = ['schema = 1', `id = "${id}"`]
-
-  if (options.version) {
-    lines.push(`version = "${options.version}"`)
-  } else {
-    lines.push('version = "0.1.0"')
-  }
-
-  if (options.description) {
-    lines.push(`description = "${options.description}"`)
-  }
-
-  lines.push('')
-  lines.push('[plugin]')
-  lines.push(`name = "${id}"`)
-  lines.push('')
-
-  return lines.join('\n')
-}
-
-/**
- * Generate example command file.
- */
-function generateExampleCommand(id: string): string {
-  return `# Example Command
-
-This is an example command for the ${id} space.
-
-## Usage
-
-Describe how to use this command.
-
-## Execution Steps
-
-1. First step
-2. Second step
-3. Final step
-`
 }
 
 /**
@@ -104,7 +43,7 @@ export function registerSpacesInitCommand(parent: Command): void {
         const spaceDir = `${paths.repo}/spaces/${spaceId}`
 
         // Check if registry exists
-        const repoExists = await Bun.file(`${paths.repo}/.git/HEAD`).exists()
+        const repoExists = await registryExists(paths.repo)
         if (!repoExists) {
           console.error(chalk.red('Error: Registry not initialized'))
           console.error(chalk.gray('Run "asp repo init" first to create the registry'))
@@ -121,19 +60,7 @@ export function registerSpacesInitCommand(parent: Command): void {
 
         console.log(chalk.blue(`Creating space "${spaceId}"...`))
 
-        // Create directory structure
-        await mkdir(spaceDir, { recursive: true })
-        await mkdir(`${spaceDir}/commands`, { recursive: true })
-        await mkdir(`${spaceDir}/skills`, { recursive: true })
-        await mkdir(`${spaceDir}/agents`, { recursive: true })
-
-        // Generate and write space.toml
-        const spaceToml = generateSpaceToml(spaceId, options)
-        await Bun.write(`${spaceDir}/space.toml`, spaceToml)
-
-        // Write example command
-        const exampleCommand = generateExampleCommand(spaceId)
-        await Bun.write(`${spaceDir}/commands/example.md`, exampleCommand)
+        await writeSpaceScaffold(paths.repo, spaceId, { ...options, withExample: true })
 
         console.log(chalk.green(`Space "${spaceId}" created successfully`))
         console.log('')

@@ -10,12 +10,15 @@
  */
 
 import { spawn } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import type { PiSdkBundleHookEntry, PiSdkBundleManifest } from './bundle-manifest-types.js'
+import {
+  PI_SDK_BUNDLE_SCHEMA_VERSION,
+  assertPiSdkBundleHarness,
+  readPiSdkBundleManifest,
+} from './manifest-loading.js'
 
-export const PI_SDK_HARNESS_ID = 'pi-sdk'
-export const PI_SDK_BUNDLE_SCHEMA_VERSION = 1
+export { PI_SDK_BUNDLE_SCHEMA_VERSION, PI_SDK_HARNESS_ID } from './manifest-loading.js'
 
 /** Hook-event names matched against bundle hook entries (`hook.event`). */
 const HOOK_RUNTIME_EVENT = {
@@ -25,10 +28,12 @@ const HOOK_RUNTIME_EVENT = {
   SESSION_END: 'session_end',
 } as const
 
-/** Pi lifecycle event names this runtime registers `pi.on(...)` handlers for. */
-const PI_LIFECYCLE_EVENT = {
+/** Pi lifecycle event names `pi.on(...)` handlers are registered against. */
+export const PI_LIFECYCLE_EVENT = {
   TOOL_CALL: 'tool_call',
   TOOL_RESULT: 'tool_result',
+  TURN_START: 'turn_start',
+  TURN_END: 'turn_end',
   SESSION_START: 'session_start',
   SESSION_SHUTDOWN: 'session_shutdown',
 } as const
@@ -38,6 +43,9 @@ export interface ExtensionApi {
   on: <Args extends unknown[]>(event: string, handler: (...args: Args) => unknown) => unknown
   sendMessage: (message: unknown, options?: unknown) => unknown
 }
+
+/** An extension registrar invoked with the (minimally-typed) Pi extension API. */
+export type ExtensionFactory = (pi: ExtensionApi) => void | Promise<void>
 
 interface HookRunContext {
   sessionManager?: { getSessionFile?: () => string | undefined }
@@ -57,12 +65,8 @@ interface HookBlockResult {
 /** Read + validate a Pi SDK `bundle.json` manifest from a bundle root. */
 export async function loadBundleManifest(bundleRoot: string): Promise<PiSdkBundleManifest> {
   const manifestPath = resolve(bundleRoot, 'bundle.json')
-  const raw = await readFile(manifestPath, 'utf-8')
-  const manifest = JSON.parse(raw) as PiSdkBundleManifest
-
-  if (manifest.harnessId !== PI_SDK_HARNESS_ID) {
-    throw new Error(`Unexpected bundle harness: ${manifest.harnessId}`)
-  }
+  const manifest = await readPiSdkBundleManifest<PiSdkBundleManifest>(manifestPath)
+  assertPiSdkBundleHarness(manifest.harnessId)
 
   if (manifest.schemaVersion !== PI_SDK_BUNDLE_SCHEMA_VERSION) {
     throw new Error(`Unsupported bundle schemaVersion: ${manifest.schemaVersion}`)

@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-15</title>
+  <style>
+    :root {
+      --bg: #f3efe7;
+      --paper: rgba(255, 255, 255, 0.97);
+      --ink: #162126;
+      --muted: #5b6a6e;
+      --line: #d6ddd9;
+      --shadow: 0 18px 42px rgba(22, 33, 38, 0.08);
+      --guard: #0d6b5e;
+      --guard-soft: #d8efe8;
+      --runtime: #8d4d1f;
+      --runtime-soft: #f3e0d1;
+      --workflow: #265c8e;
+      --workflow-soft: #e2edf8;
+      --catalog: #6c4a8a;
+      --catalog-soft: #ede7f8;
+      --warn: #7b5b23;
+      --warn-soft: #f4ead8;
+      --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+      --serif: Georgia, "Iowan Old Style", serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body {
+      background:
+        linear-gradient(90deg, rgba(22, 33, 38, 0.03) 1px, transparent 1px) 0 0 / 24px 24px,
+        linear-gradient(0deg, rgba(22, 33, 38, 0.02) 1px, transparent 1px) 0 0 / 24px 24px,
+        radial-gradient(circle at top right, rgba(38, 92, 142, 0.14), transparent 32%),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 var(--sans);
+    }
+    a { color: var(--guard); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 296px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px 20px 28px;
+      border-right: 1px solid var(--line);
+      background: rgba(243, 239, 231, 0.96);
+      backdrop-filter: blur(12px);
+    }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card {
+      display: grid;
+      gap: 10px;
+    }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a {
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.055em;
+    }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 {
+      margin: 0;
+      font-family: var(--serif);
+      line-height: 1.05;
+    }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p {
+      margin: 0;
+      color: var(--muted);
+    }
+    .kicker { color: var(--runtime); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a {
+      display: block;
+      padding: 8px 10px;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .nav a:hover, .nav a:focus {
+      border-left-color: var(--guard);
+      background: rgba(255, 255, 255, 0.84);
+      color: var(--ink);
+    }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero {
+      padding: 44px min(5vw, 62px) 34px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(13, 107, 94, 0.15), transparent 54%), linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.9));
+    }
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.16fr) minmax(320px, 0.84fr); gap: 28px; }
+    .eyebrow { color: var(--guard); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.3rem, 4vw, 3.95rem); margin-bottom: 14px; }
+    .hero p { max-width: 74ch; font-size: 1.02rem; }
+    .hero-note {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: var(--shadow);
+    }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.85rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .task-grid .task-card { grid-column: span 4; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.35rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      font-weight: 800;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      background: #edf2ee;
+    }
+    .chip.guard { background: var(--guard-soft); color: var(--guard); border-color: rgba(13, 107, 94, 0.18); }
+    .chip.runtime { background: var(--runtime-soft); color: var(--runtime); border-color: rgba(141, 77, 31, 0.18); }
+    .chip.workflow { background: var(--workflow-soft); color: var(--workflow); border-color: rgba(38, 92, 142, 0.18); }
+    .chip.catalog { background: var(--catalog-soft); color: var(--catalog); border-color: rgba(108, 74, 138, 0.18); }
+    .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: rgba(123, 91, 35, 0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.06fr 0.94fr; gap: 18px; min-width: 0; }
+    .note-box {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(226, 237, 248, 0.66), rgba(255, 255, 255, 0.86));
+    }
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+    }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(220, 239, 233, 0.9), rgba(255, 255, 255, 0.97)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(244, 235, 216, 0.9), rgba(255, 255, 255, 0.97)); }
+    .repo-list span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .footer {
+      margin-top: 36px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+      .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; }
+    }
+    @media (max-width: 640px) {
+      .hero, .content { padding-left: 18px; padding-right: 18px; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-15</h1>
+        <p>Previous 24 hours in local time, covering committed work, completed wrkq tasks, in-window unpushed ranges, and visible open repo state across Praesidium.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--guard);"></span>Guardrails and adoption</div>
+        <div class="legend-item"><span class="dot" style="background: var(--workflow);"></span>Workflow and RPC surfaces</div>
+        <div class="legend-item"><span class="dot" style="background: var(--runtime);"></span>Runtime and operator control</div>
+        <div class="legend-item"><span class="dot" style="background: var(--catalog);"></span>Catalog and analysis tooling</div>
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Window</strong><br />
+        2026-06-14 05:02:37 CDT to 2026-06-15 05:02:37 CDT
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Top accomplishments</strong>
+        <ul class="fact-list">
+          <li><strong>Agent-spaces and archagent</strong> carried the densest guardrail day: 39 in-window commits and 27 completed tasks spanning typed ingress, boundary guards, closeout workflows, and retro/catalog hardening.</li>
+          <li><strong>Wrkq</strong> finished the unified <code>wrkq</code>/<code>wrkf</code> RPC surface, shipped <code>@wrkq/client</code>, implemented deferred methods, and closed the display-ref bug in <code>wrkf.instance.next</code>.</li>
+          <li><strong>Agent-loop</strong> stacked 13 in-window unpushed commits around new work primitives, effect workers, evidence helpers, and Verdaccio sync.</li>
+          <li><strong>HRC runtime</strong> landed operator-reap intent plumbing with live install-and-reap evidence, plus headless viewer color/status-bar improvements.</li>
+          <li><strong>Taskboard and ACP</strong> shipped narrower surface work: project command-board routing, a refactor-pass report for <code>packages/taskboard-cli</code>, and ACP retry/event-job completed tasks.</li>
+        </ul>
+      </div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium-wide accomplishments for 2026-06-15</div>
+            <h2>Workflow infrastructure and agent-enable­ment guardrails moved together, while runtime control gained real operator-reap proof.</h2>
+            <p>The strongest cross-repo thread was a paired platform push: <code>wrkq</code> and <code>agent-loop</code> advanced shared work/RPC primitives, while <code>agent-spaces</code> and <code>archagent</code> hardened the way real tasks are routed, verified, and harvested. On the runtime side, <code>hrc-runtime</code> closed the operator-reap intent gap with live installed validation, and the UI layer still moved through taskboard routing cleanup and a fresh taskboard-cli refactor report.</p>
+            <div class="hero-note">
+              <strong>What stood out</strong>
+              Completed-task evidence was broad this cycle, not concentrated in one repo. Seven Praesidium projects closed tasks inside the same 24-hour window, with the heaviest counts in <code>agent-spaces</code>, <code>archagent</code>, <code>wrkq</code>, and <code>agent-loop</code>.
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">In-window commits</div>
+              <div class="metric-value">76</div>
+              <small>Across <strong>7 repos</strong>: agent-spaces 20, archagent 19, wrkq 17, agent-loop 14, hrc-runtime 3, taskboard 2, agent-control-plane 1.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Completed wrkq tasks</div>
+              <div class="metric-value">50</div>
+              <small>Across <strong>7 projects</strong>: agent-spaces 14, archagent 13, wrkq 10, agent-loop 8, hrc-runtime 2, agent-control-plane 2, taskboard 1.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">In-window unpushed commits</div>
+              <div class="metric-value">14</div>
+              <small><strong>13</strong> remain ahead in <code>agent-loop</code>; <strong>1</strong> remains ahead in <code>taskboard</code>.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Visible open repo state</div>
+              <div class="metric-value">305</div>
+              <small><strong>9 dirty repos</strong> are still visible, led by agent-control-plane 86 paths, agent-spaces 58, hrc-runtime 55, knowledge 51, and workflow-spec 40.</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The day broke into four distinct streams: adoption and guardrails, unified work/RPC primitives, runtime/operator control, and smaller but real UI/control-plane surface moves. Each stream below combines commit volume, completed-task proof, and whether part of the momentum is still local-only.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>Agent-spaces closeout and boundary discipline became operational rather than aspirational.</h3>
+                <div class="chips">
+                  <span class="chip guard">20 commits</span>
+                  <span class="chip guard">14 completed tasks</span>
+                  <span class="chip catalog">Agent-spaces + Archagent</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p><code>agent-spaces</code> landed typed-ingress work, the executable scaffold generator, claim-to-evidence taxonomy, retro cadence, harness-boundary diagnostics, the vendorized boundary-guard engine migration, S7 residual fixes, the closeout workflow, and timeout-flake hardening. <code>archagent</code> moved in lockstep by turning those learnings into catalog entries, retro skill material, ledger checks, and closeout-evidence deposit mechanics.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Representative closes</strong>
+                  <ul class="evidence-list">
+                    <li><code>T-04415</code> closed the first real <code>agent-spaces-closeout@1</code> adoption loop and dogfooded <code>T-04409</code> end-to-end.</li>
+                    <li><code>T-04441</code>, <code>T-04442</code>, and <code>T-04443</code> turned closeout evidence into an executable gate with e2e harness coverage.</li>
+                    <li><code>T-04444</code> deposited the closeout-evidence catalog entry after the archagent side of the work matured.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>Unified work and RPC surfaces crossed from spec and red tests into working client/server paths.</h3>
+                <div class="chips">
+                  <span class="chip workflow">17 wrkq commits</span>
+                  <span class="chip workflow">10 wrkq tasks</span>
+                  <span class="chip workflow">14 agent-loop commits</span>
+                  <span class="chip warn">13 local-only</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p><code>wrkq</code> delivered the unified protocol contract, shared internal server entrypoints, named DTO-backed <code>wrkqapi</code> methods, evidence idempotency and selector fixes, the <code>@wrkq/client</code> Bun package, real-binary e2e across both binaries, deferred RPC methods, Verdaccio publishing, and a late fix for display-ref resolution in <code>wrkf.instance.next</code>. In parallel, <code>agent-loop</code> built a complementary work-primitive layer with workflow context wiring, evidence/transition helpers, lease-safe effect workers, example rewrites, and sync from Verdaccio.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Local-only momentum</strong>
+                  <ul class="evidence-list">
+                    <li><code>agent-loop</code> is ahead of <code>origin/main</code> by 13 in-window commits, so most of that stream is visible locally but not yet pushed.</li>
+                    <li><code>taskboard</code> has one additional in-window local commit: a four-package safe refactor-pass sweep.</li>
+                    <li><code>wrkq</code> itself is clean and caught up, so its RPC/client work is already landed rather than sitting only in a local range.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>Runtime and operator control gained explicit intent labeling and live reap evidence.</h3>
+                <div class="chips">
+                  <span class="chip runtime">3 hrc-runtime commits</span>
+                  <span class="chip runtime">2 completed tasks</span>
+                  <span class="chip runtime">1 ACP commit</span>
+                  <span class="chip runtime">2 ACP tasks</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p><code>hrc-runtime</code> added per-agent color identity and status bars for headless viewer windows, then landed the broker-backed operator-reap path that threads <code>reason='operator_reap'</code> through terminate/dispose flows. <code>agent-control-plane</code> only showed one in-window commit, but its completed-task evidence still matters: a worker retry fix and webhook event-job task review work both closed during the same period.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Why this matters</strong>
+                  <ul class="evidence-list">
+                    <li>The operator-reap work moved from a fragile <code>/quit</code> keystroke path to explicit durable audit intent.</li>
+                    <li>The live smoke recorded <code>21/21</code> reaped runtimes with the expected terminate payload reason/source fields.</li>
+                    <li>ACP’s smaller surface still contributed task-flow resilience while the runtime layer tightened operator control.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>UI and analysis work stayed smaller, but not empty.</h3>
+                <div class="chips">
+                  <span class="chip workflow">2 taskboard commits</span>
+                  <span class="chip workflow">1 taskboard task</span>
+                  <span class="chip warn">Analysis-only refactor report</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p><code>taskboard</code> landed project-command-board routing fixes and then added one more local refactor-pass commit. The only closed task in that project window, <code>T-04479</code>, was intentionally analysis-only: it produced a taskboard-cli refactor report with seven auto-applicable findings and one deferred public-surface item, without editing source.</p>
+                </div>
+                <div class="note-box">
+                  <strong>State of play</strong>
+                  <ul class="evidence-list">
+                    <li>The repo itself is clean, but one in-window refactor-pass commit is still ahead of <code>origin/main</code>.</li>
+                    <li>Other doc-heavy repos such as <code>knowledge</code> and <code>workflow-spec</code> remain actively dirty without in-window commits counted here.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Tasks</h2>
+            <p>The task layer is broader than the commit layer. These cards call out the most informative closes rather than every single completion, so a skim still shows where the period’s strongest proof came from.</p>
+          </div>
+          <div class="task-grid">
+            <article class="task-card">
+              <div class="task-meta"><span>agent-spaces</span><span>T-04415 + T-04409</span></div>
+              <h3>Wrkf closeout adoption was dogfooded on a real task.</h3>
+              <p><code>T-04415</code> closed after routing four open tasks through <code>agent-spaces-closeout@1</code> and driving <code>T-04409</code> fully through intake, red, verify, review, and done with real evidence objects and separation-of-duties enforcement.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>wrkq</span><span>T-04424 to T-04430, T-04448, T-04449, T-04466</span></div>
+              <h3>The unified wrkq/wrkf RPC stack reached working package and bug-fix form.</h3>
+              <p>The project closed the protocol contract, shared server, DTO surface, wrkf selector/idempotency work, <code>@wrkq/client</code>, dual-binary e2e, deferred RPC methods, Verdaccio publish path, and the display-ref fix for <code>instance.next</code>.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>agent-loop</span><span>T-04450 to T-04455, T-04459, T-04460</span></div>
+              <h3>Work primitives accumulated as a still-local but coherent stack.</h3>
+              <p>Eight tasks closed around <code>./work</code> primitives: workflow context, evidence helpers, transitions, a lease-safe effect worker, example scripts, verification cleanup, Verdaccio sync, and moving metalang examples onto the new primitives.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>archagent</span><span>T-04387, T-04418 to T-04422, T-04431 to T-04437, T-04444</span></div>
+              <h3>Archagent converted the enablement pass into catalog and retro machinery.</h3>
+              <p>Thirteen closes spanned the boundary-guard engine, ledger consistency, README/schema enforcement, harvest doctrine, retro skill creation, pipeline-map updates, and the closeout-evidence catalog deposit.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>hrc-runtime + ACP</span><span>T-04423, T-04439, T-02007, T-03775</span></div>
+              <h3>Operator control and task-flow resiliency both moved.</h3>
+              <p><code>hrc-runtime</code> closed the operator-reap work and color-coded viewer windows, while <code>agent-control-plane</code> closed its webhook event-job review task and the incomplete participant-turn retry fix.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>taskboard</span><span>T-04479</span></div>
+              <h3>Taskboard-cli got a completed analysis pass, not source churn.</h3>
+              <p>The refactor-pass run produced a report with seven auto-applicable findings and one deferred public-surface finding. The task explicitly closed as analysis-only, with no source edits.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation</h2>
+            <p>Closeout comments supplied stronger-than-usual proof this cycle. The most important validation items combined real binaries, installed workflows, or live runtime behavior rather than only unit tests.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3><code>wrkq</code> dual-binary e2e stayed grounded in the actual entrypoints.</h3>
+              <ul class="evidence-list">
+                <li><code>T-04430</code> reports the full agent-loop flow passing through both <code>command:'wrkq'</code> and <code>command:'wrkf'</code>.</li>
+                <li>The closeout comment records <strong>21 passing Bun tests</strong>, <strong>all <code>go test ./...</code> green</strong>, and <strong><code>tsc --noEmit</code> clean</strong>.</li>
+              </ul>
+            </article>
+            <article class="evidence-card good">
+              <h3><code>agent-spaces</code> proved the closeout gate on a real task, with SoD enforced.</h3>
+              <ul class="evidence-list">
+                <li><code>T-04415</code> records a real dogfood of <code>T-04409</code> with separate red-test, verify, and review actors.</li>
+                <li>The comment cites a deterministic repro, a fix commit, and a <strong>260 pass / 0 fail</strong> verification result before the workflow moved the task to done.</li>
+              </ul>
+            </article>
+            <article class="evidence-card good">
+              <h3><code>hrc-runtime</code> completed the strongest live smoke in the window.</h3>
+              <ul class="evidence-list">
+                <li><code>T-04423</code> records <code>just install</code>, one daemon restart, a controlled probe reap, then a real fleet reap.</li>
+                <li>The live result shows <strong>29 matched / 21 eligible / 21 reaped</strong> and <strong>21/21</strong> <code>runtime.terminated</code> events carrying <code>reason='operator_reap'</code> and <code>source='close-headless-ghostmux'</code>.</li>
+              </ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Open-state risk is still concentrated in a few large repos.</h3>
+              <ul class="evidence-list">
+                <li><code>agent-control-plane</code>, <code>agent-spaces</code>, <code>hrc-runtime</code>, <code>knowledge</code>, and <code>workflow-spec</code> together account for most visible unchecked-in paths.</li>
+                <li>That state is relevant context for tomorrow’s report even where today’s credited accomplishments are already strong.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>This section separates still-local momentum from plain dirty worktrees. It helps distinguish “not yet pushed” from “not yet committed” and identifies where tomorrow’s likely carry-forward pressure sits.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card">
+              <h3>Repos with in-window unpushed commits</h3>
+              <ul class="repo-list">
+                <li><strong>agent-loop</strong><span>13 in-window commits ahead of <code>origin/main</code>; example themes: work context, evidence helpers, effect worker, Verdaccio sync, example rewrites.</span></li>
+                <li><strong>taskboard</strong><span>1 in-window commit ahead of <code>origin/main</code>; safe refactor-pass findings applied across four packages.</span></li>
+              </ul>
+            </article>
+            <article class="repo-card">
+              <h3>Largest visible dirty worktrees</h3>
+              <ul class="repo-list">
+                <li><strong>agent-control-plane</strong><span>86 paths modified or new; broad ACP, gateway, viewer, and substrate changes remain open.</span></li>
+                <li><strong>agent-spaces</strong><span>58 paths modified or new; active broker, config, CLI, runtime, and harness work is still checked out.</span></li>
+                <li><strong>hrc-runtime</strong><span>55 paths modified or new; server, CLI, parser, render, and store work continues past the credited commits.</span></li>
+              </ul>
+            </article>
+            <article class="repo-card">
+              <h3>Doc-heavy carry-forward state</h3>
+              <ul class="repo-list">
+                <li><strong>knowledge</strong><span>51 paths dirty, including large deletions and new directory trees; no in-window commits were credited.</span></li>
+                <li><strong>workflow-spec</strong><span>40 dirty paths across proposal docs, schemas, explorer assets, and validation scripts; also no in-window commits were credited.</span></li>
+                <li><strong>spaces-repo</strong><span>4 dirty paths; active command and space-definition edits remain visible.</span></li>
+              </ul>
+            </article>
+            <article class="repo-card">
+              <h3>Repos that are clean after credited work</h3>
+              <ul class="repo-list">
+                <li><strong>wrkq</strong><span>17 in-window commits, 10 completed tasks, and a clean worktree with no ahead count.</span></li>
+                <li><strong>archagent</strong><span>19 in-window commits, 13 completed tasks, and a clean worktree with no ahead count.</span></li>
+                <li><strong>taskboard</strong><span>Clean worktree despite one local ahead commit; the remaining delta is commit-level, not unchecked-in-file state.</span></li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <div class="footer">
+          Source window: 2026-06-14 05:02:37 CDT to 2026-06-15 05:02:37 CDT. Inputs: git commit/status scans across Praesidium repos under <code>/Users/lherron/praesidium</code>, completed wrkq tasks across Praesidium projects, and representative task closeout comments for validation evidence. Artifact: <code>daily-accomplishments-2026-06-15.html</code>.
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

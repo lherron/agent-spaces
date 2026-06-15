@@ -1,0 +1,57 @@
+{
+  "_meta": {
+    "schemaVersion": 1,
+    "generatedBy": "bun scripts/check-suppressions.ts --update-baseline",
+    "warning": "future suppressions use EXCEPTION(); baseline update is for intentional grandfather/reset only and must be reviewed"
+  },
+  "suppressions": [
+    {
+      "file": "integration-tests/tests/agent-spaces-client.test.ts",
+      "rule": "lint/performance/noDelete",
+      "hash": "46839828634bb60ad17f4d1517a379f70bcae077c99a22b4a918c5a5a320aa80",
+      "count": 1
+    },
+    {
+      "file": "packages/aspc-protocol/src/schemas.ts",
+      "rule": "lint/suspicious/useValidTypeof",
+      "hash": "f10831f38c219a4aec539b85741de26d6b763f76a8d316eb721adf98f9595428",
+      "count": 1
+    },
+    {
+      "file": "packages/harness-broker/src/drivers/claude-code-tmux/hook-events.ts",
+      "rule": "lint/complexity/noExcessiveCognitiveComplexity",
+      "hash": "5f2a3d0ab0521df803e15055a79e48c44603775f7a97fed981fb4961fe1acbc8",
+      "count": 1
+    },
+    {
+      "file": "packages/harness-broker/src/invocation-manager.ts",
+      "rule": "lint/suspicious/noFallthroughSwitchClause",
+      "hash": "db78e5431cbc7d29e0d14fac4cc1472b959ad3e110c18e5819e2287de8b8cc5e",
+      "count": 1
+    },
+    {
+      "file": "packages/harness-claude/src/agent-sdk/agent-session.ts",
+      "rule": "lint/suspicious/noExplicitAny",
+      "hash": "963dbcd449fe7c2169efe860dd0951544a0355833efb0d8befb5df38162f0283",
+      "count": 1
+    },
+    {
+      "file": "packages/harness-claude/src/agent-sdk/agent-session.ts",
+      "rule": "lint/suspicious/noExplicitAny",
+      "hash": "f8d6dcd0488ad1bbd5579dc21bfb424a6438e8bfd15b4ed355816e72ae629ac4",
+      "count": 1
+    },
+    {
+      "file": "packages/runtime/src/harness/registry.test.ts",
+      "rule": "lint/performance/noDelete",
+      "hash": "6d28ce0169b05941f7684ec860afe9c6c221c36f9b7d56c6bc1a8674d0a79f8c",
+      "count": 3
+    },
+    {
+      "file": "scripts/pre-hrc-broker-matrix-e2e.ts",
+      "rule": "lint/style/noNonNullAssertion",
+      "hash": "c2e0d2f1b5152943c988bac3631ceaff37fb2261a990c0c38805e301eced533e",
+      "count": 1
+    }
+  ]
+}

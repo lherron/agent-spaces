@@ -41,6 +41,13 @@ const materializationSource = readFileSync(
   join(import.meta.dirname, '..', 'client-materialization.ts'),
   'utf8'
 )
+// The agent-local env compose (detect → tool-runtime → merge) was lifted into a
+// shared helper (T-04601); both turn paths now delegate to composeAgentLocalEnv,
+// which owns the prepareAgentToolRuntime + tool-env merge wiring.
+const composeAgentLocalEnvSource = readFileSync(
+  join(import.meta.dirname, '..', 'compose-agent-local-env.ts'),
+  'utf8'
+)
 
 // Helper: extract a function body from source by name
 function extractFunction(source: string, name: string): string {
@@ -156,17 +163,26 @@ describe('agent-project placement context feeds harness pipeline (T-00994)', () 
 
   test('buildPlacementInvocationSpec merges agent tool env after request env', () => {
     const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
+    // The CLI path detects agent-local components and delegates the env compose
+    // (incl. the prepareAgentToolRuntime tool-env merge) to composeAgentLocalEnv.
     expect(fn).toMatch(/detectAgentLocalComponents\(placement\.agentRoot\)/)
-    expect(fn).toMatch(/prepareAgentToolRuntime\(/)
-    expect(fn).toMatch(/\.\.\.\(req\.env \?\? \{\}\)[\s\S]*ASP_HOME:\s*aspHome/)
-    expect(fn).toMatch(/env = \{ \.\.\.env, \.\.\.toolRuntime\.env \}/)
+    expect(fn).toMatch(/composeAgentLocalEnv\(/)
+    // The shared helper owns the request-env-then-tool-env merge and ASP_HOME.
+    expect(composeAgentLocalEnvSource).toMatch(/prepareAgentToolRuntime\(/)
+    expect(composeAgentLocalEnvSource).toMatch(
+      /\.\.\.\(req\.reqEnv \?\? \{\}\)[\s\S]*ASP_HOME:\s*aspHome/
+    )
+    expect(composeAgentLocalEnvSource).toMatch(/env = \{ \.\.\.env, \.\.\.toolRuntime\.env \}/)
   })
 
   test('runPlacementTurnNonInteractive applies scoped env with agent tool env', () => {
     const fn = extractFunction(runPlacementTurnSource, 'runPlacementTurnNonInteractive')
+    // The placement path detects agent-local components and delegates the env
+    // compose (incl. the prepareAgentToolRuntime tool-env merge) to the shared helper.
     expect(fn).toMatch(/detectAgentLocalComponents\(placement\.agentRoot\)/)
-    expect(fn).toMatch(/prepareAgentToolRuntime\(/)
-    expect(fn).toMatch(/Object\.assign\(harnessEnv, toolRuntime\.env\)/)
+    expect(fn).toMatch(/composeAgentLocalEnv\(/)
+    expect(composeAgentLocalEnvSource).toMatch(/prepareAgentToolRuntime\(/)
+    expect(composeAgentLocalEnvSource).toMatch(/env = \{ \.\.\.env, \.\.\.toolRuntime\.env \}/)
     expect(fn).toMatch(/restoreEnv = applyEnvOverlay\(harnessEnv\)/)
     expect(fn).toMatch(/restoreEnv\?\.\(\)/)
   })

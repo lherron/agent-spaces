@@ -67,6 +67,21 @@ const defaultRuntimeEnv: RuntimeEnv = {
 }
 
 /**
+ * Minimal logging seam mirroring the `console` methods this session uses.
+ *
+ * Defaults to `console`, so when no logger is injected the diagnostic output —
+ * including the verbatim `[agent-sdk]` prefixes — is byte-identical to the
+ * previous direct `console.*` calls (T-04636). Hosts that want to capture or
+ * silence session diagnostics can supply their own implementation.
+ */
+export interface AgentSessionLogger {
+  log(...args: unknown[]): void
+  error(...args: unknown[]): void
+}
+
+const defaultLogger: AgentSessionLogger = console
+
+/**
  * Optional collaborators / seams for an {@link AgentSession}.
  */
 export interface AgentSessionOpts {
@@ -75,6 +90,8 @@ export interface AgentSessionOpts {
   queryFactory?: QueryFactory
   /** Override the process pid/env seam (defaults to real `process`). */
   runtimeEnv?: RuntimeEnv
+  /** Override the diagnostic logging sink (defaults to `console`). */
+  logger?: AgentSessionLogger
 }
 
 /**
@@ -110,6 +127,24 @@ export interface AgentSessionConfig {
 export type AgentSessionState = 'idle' | 'running' | 'stopped' | 'error'
 
 /**
+ * Discriminated lifecycle of the one-shot `agent_start` / `agent_end` emissions.
+ *
+ * Replaces the previously-correlated `hasEmittedAgentStart` / `hasEmittedAgentEnd`
+ * boolean latch pair (T-04632). The agent lifecycle has exactly three phases and
+ * only two legal forward transitions:
+ *
+ *   inactive ──activate()──▶ active ──end()──▶ ended
+ *   inactive ─────────────── end() ──────────▶ ended   (session ends before any
+ *                                                        SDK message arrives)
+ *
+ * `agent_start` is emitted exactly once on `inactive → active`; `agent_end`
+ * exactly once on `* → ended`. Encoding this as a phase makes a double-emit — or
+ * an `agent_start` after `agent_end` — structurally impossible rather than
+ * dependent on two independent booleans staying in sync.
+ */
+type AgentLifecyclePhase = 'inactive' | 'active' | 'ended'
+
+/**
  * Manages a single Claude Agent SDK session for an owner (project/run/session).
  *
  * Each owner gets one AgentSession that:
@@ -133,8 +168,7 @@ export class AgentSession implements UnifiedSession {
   private sdkSessionId?: string
   private readonly onSdkSessionId: ((sdkSessionId: string) => void) | undefined
   private eventCallback?: (event: UnifiedSessionEvent) => void
-  private hasEmittedAgentStart = false
-  private hasEmittedAgentEnd = false
+  private agentLifecycle: AgentLifecyclePhase = 'inactive'
   private stopReason: string | undefined
   private stopEmitted = false
   private turnCounter = 0
@@ -152,6 +186,7 @@ export class AgentSession implements UnifiedSession {
   private currentSubagentContext: string | undefined
   private readonly queryFactory: QueryFactory
   private readonly runtimeEnv: RuntimeEnv
+  private readonly logger: AgentSessionLogger
 
   constructor(
     private readonly config: AgentSessionConfig,
@@ -163,6 +198,7 @@ export class AgentSession implements UnifiedSession {
     this.onSdkSessionId = opts?.onSdkSessionId
     this.queryFactory = opts?.queryFactory ?? query
     this.runtimeEnv = opts?.runtimeEnv ?? defaultRuntimeEnv
+    this.logger = opts?.logger ?? defaultLogger
     this.sessionId = config.sessionId ?? config.ownerId
   }
 
@@ -214,7 +250,7 @@ export class AgentSession implements UnifiedSession {
       ...(this.config.continuationKey ? { resume: this.config.continuationKey } : {}),
     }
 
-    console.log(
+    this.logger.log(
       `[agent-sdk] session.start ${this.config.ownerId} model=${sdkModel} resume=${this.config.continuationKey ? truncateId(this.config.continuationKey) : 'none'} plugins=${this.config.plugins?.length ?? 0} maxTurns=${options.maxTurns}`
     )
 
@@ -281,7 +317,7 @@ export class AgentSession implements UnifiedSession {
     try {
       await this.sdkQuery.interrupt()
     } catch (error) {
-      console.error(
+      this.logger.error(
         `[agent-sdk] Failed to interrupt turn for session ${this.config.ownerId}:`,
         error
       )
@@ -315,11 +351,11 @@ export class AgentSession implements UnifiedSession {
         // a cleanup failure masquerade as a turn failure.
         const msg = error instanceof Error ? error.message : String(error)
         if (msg.includes('ProcessTransport is not ready')) {
-          console.log(
+          this.logger.log(
             `[agent-sdk] session ${this.config.ownerId} child already exited; skipping interrupt (priorState=${priorState}, reason=${reason ?? 'none'})`
           )
         } else {
-          console.error(
+          this.logger.error(
             `[agent-sdk] Failed to interrupt session ${this.config.ownerId} (priorState=${priorState}, reason=${reason ?? 'none'}):`,
             error
           )
@@ -332,7 +368,7 @@ export class AgentSession implements UnifiedSession {
     // Terminate the output iterator (fire and forget - awaiting may hang)
     if (this.outputIterator?.return) {
       void this.outputIterator.return().catch((error) => {
-        console.error(
+        this.logger.error(
           `[agent-sdk] Failed to close output iterator for session ${this.config.ownerId}:`,
           error
         )
@@ -411,7 +447,7 @@ export class AgentSession implements UnifiedSession {
     this.isListening = true
 
     this.outputListener = this.listenToOutput().catch((error) => {
-      console.error(`[agent-sdk] Error in session ${this.config.ownerId}:`, error)
+      this.logger.error(`[agent-sdk] Error in session ${this.config.ownerId}:`, error)
     })
   }
 
@@ -443,7 +479,7 @@ export class AgentSession implements UnifiedSession {
       this.state = 'error'
       this.stopReason = this.stopReason ?? 'error'
       const errMsg = error instanceof Error ? error.message : String(error)
-      console.error(
+      this.logger.error(
         `[agent-sdk] listenToOutput failed for session ${this.config.ownerId} (sdkSessionId=${this.sdkSessionId ?? 'none'}, pendingTurns=${this.pendingTurnIds.length}, lastResponseLen=${this.lastResponse.length}): ${errMsg}`
       )
       this.emitStopIfNeeded(undefined, this.lastResponse || undefined)
@@ -536,7 +572,9 @@ export class AgentSession implements UnifiedSession {
       })
       .filter((name): name is string => Boolean(name))
     if (pluginNames.length > 0) {
-      console.log(`[agent-sdk] init plugins for ${this.config.ownerId}: ${pluginNames.join(', ')}`)
+      this.logger.log(
+        `[agent-sdk] init plugins for ${this.config.ownerId}: ${pluginNames.join(', ')}`
+      )
     }
   }
 
@@ -560,9 +598,30 @@ export class AgentSession implements UnifiedSession {
     this.hooksBridge.emitStop(transcriptPath, lastResponse)
   }
 
+  /**
+   * Transition the agent lifecycle to `active`, returning whether this call won
+   * the one-shot race (i.e. `agent_start` should be emitted now). Legal only
+   * from `inactive`; once `active` or `ended`, the lifecycle never reactivates.
+   */
+  private activateAgentLifecycle(): boolean {
+    if (this.agentLifecycle !== 'inactive') return false
+    this.agentLifecycle = 'active'
+    return true
+  }
+
+  /**
+   * Transition the agent lifecycle to `ended`, returning whether this call won
+   * the one-shot race (i.e. `agent_end` should be emitted now). Idempotent once
+   * `ended`; legal from either `inactive` or `active`.
+   */
+  private endAgentLifecycle(): boolean {
+    if (this.agentLifecycle === 'ended') return false
+    this.agentLifecycle = 'ended'
+    return true
+  }
+
   private emitAgentStartIfNeeded(): void {
-    if (this.hasEmittedAgentStart) return
-    this.hasEmittedAgentStart = true
+    if (!this.activateAgentLifecycle()) return
     const event: UnifiedSessionEvent = {
       type: 'agent_start',
       sessionId: this.sessionId,
@@ -572,8 +631,7 @@ export class AgentSession implements UnifiedSession {
   }
 
   private emitAgentEnd(reason?: string): void {
-    if (this.hasEmittedAgentEnd) return
-    this.hasEmittedAgentEnd = true
+    if (!this.endAgentLifecycle()) return
     const event: UnifiedSessionEvent = {
       type: 'agent_end',
       sessionId: this.sessionId,

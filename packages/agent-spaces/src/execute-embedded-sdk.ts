@@ -31,6 +31,7 @@ import { PiSession, loadPiSdkBundle as realLoadPiSdkBundle } from 'spaces-harnes
 import type { UnifiedSession, UnifiedSessionEvent } from 'spaces-runtime'
 import type { EmbeddedSdkExecutionProfile } from 'spaces-runtime-contracts'
 
+import { splitNamespacedModel } from './client-support.js'
 import { applyEnvOverlay } from './runtime-env.js'
 import { buildAutoPermissionHandler, mapContentToText } from './session-events.js'
 
@@ -398,11 +399,10 @@ export async function executeEmbeddedSdkTurn(
     // (registryProvider, registryModel) from a namespaced modelId (e.g.
     // `openai-codex/gpt-5.5` -> provider `openai-codex`, model `gpt-5.5`). A bare
     // modelId falls back to the coarse ProviderDomain on the profile.
-    const slash = profile.session.modelId.indexOf('/')
-    const registryProvider =
-      slash > 0 ? profile.session.modelId.slice(0, slash) : profile.session.provider
-    const registryModel =
-      slash > 0 ? profile.session.modelId.slice(slash + 1) : profile.session.modelId
+    const { provider: registryProvider, model: registryModel } = splitNamespacedModel(
+      profile.session.modelId,
+      profile.session.provider
+    )
 
     const sessionConfig: Record<string, unknown> = {
       ownerId: input.runId ?? (invocationId as string),

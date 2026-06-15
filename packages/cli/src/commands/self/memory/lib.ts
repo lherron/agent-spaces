@@ -24,6 +24,19 @@ export const EXIT_SCANNER_BLOCKED = 2
 export const EXIT_CAP = 3
 export const EXIT_DELIMITER = 4
 
+/**
+ * Human-readable (scope, zone) labels per memory target.
+ *
+ * Single source of truth for the `inspect` and `paths` renderers, which both
+ * describe the same target taxonomy (the former as fields, the latter as a
+ * `"<scope>, <zone>"` string).
+ */
+export const MEMORY_TARGET_LABELS: Record<MemoryTargetName, { scope: string; zone: string }> = {
+  memory: { scope: 'per-agent', zone: 'reminder' },
+  user: { scope: 'shared-editable', zone: 'reminder' },
+  persona: { scope: 'per-agent', zone: 'prompt (next-session)' },
+}
+
 /** Failing variant of a `MemoryStore` write result. */
 export type StoreFailure = Extract<StoreResult, { ok: false }>
 

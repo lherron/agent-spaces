@@ -16,7 +16,12 @@ Run these after implementing to get immediate feedback:
 - Typecheck: `bun run typecheck` (run `bun run build` first if workspace typings are missing)
 - Lint: `bun run lint` (fix with `bun run lint:fix`)
 - Boundary checks: `bun run check:boundaries`, `bun run check:manifests`
+- Closeout evidence tiers: see [docs/closeout-evidence.md](docs/closeout-evidence.md)
+- Agent enablement changelog / retro step: see [docs/agent-enablement-changelog.md#retro-cadence](docs/agent-enablement-changelog.md#retro-cadence)
 - Pack smoke: `bun scripts/smoke-pack-cross-repo.ts` (verifies cross-repo published tarballs don't carry `exports.bun → ./src/*.ts`)
+- Harness broker MATRIX smoke (`bun run smoke:matrix`, single row via `--config <name>`) — required for any harness-broker change. **Run it from a real terminal via ghostmux — use the `ghoste2e` skill — NOT inline in your own agent session.** A `ghostmux new` surface is a clean login shell; running inline from a Claude Code session leaks `CLAUDE_CODE_CHILD_SESSION`/`CLAUDE_CODE_SESSION_ID`/`CLAUDECODE` into the child `claude`, which then treats itself as a nested child and skips its own session-transcript persistence. The `real-claude-tmux-midturn` row tails that transcript for the mid-turn `queue-operation`/`enqueue` line, so it then **false-negatives with `midturn_user_prompt_capture: got 0`** even though the steered prompt visibly enqueued — a harness-env artifact, not a code defect. If you must run inline, strip the vars: `env -u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_EXECPATH -u TMUX bun run smoke:matrix --config real-claude-tmux-midturn`.
+- Pack smoke for `@lherron/agent-spaces` (`cd packages/cli; bun scripts/smoke-test-pack.ts`) — required after packaging changes → see [packages/cli/AGENTS.md](packages/cli/AGENTS.md)
+- Pi harness env/runtime flags (`--harness pi`: `PI_CODING_AGENT_DIR`, `--no-skills`, hooks-scripts) → see [packages/harness-pi/AGENTS.md](packages/harness-pi/AGENTS.md)
 
 ## Project Structure
 
@@ -86,66 +91,10 @@ Test fixtures are in `integration-tests/fixtures/`:
 - `sample-project/` - Project with asp-targets.toml
 - `claude-shim/` - Mock claude binary for tests
 
-## Harness Broker Smoke
-
-For any harness-broker change, always run the pre-HRC broker MATRIX smoke before
-declaring the work completed. ONE parameterized runner
-(`scripts/pre-hrc-broker-matrix-e2e.ts`) iterates every implemented harness
-configuration, drives the SAME canonical command turn through each, and validates
-the SAME normalized broker event vocabulary. It compiles a `CompiledRuntimePlan`,
-selects the `BrokerExecutionProfile`, verifies plan/profile/spec/start-request
-hashes, and starts the broker via `BrokerClient.startInvocationFromRequest(...)` —
-it never uses the legacy direct-builder path. (The old per-harness scripts —
-`smoke-runtime-contract-broker-{fake,real}-codex` and the phase5
-`real-claude-tmux` / `ghostmux-attach` runners — were retired in favor of this
-matrix once it subsumed them; the signed interactive-tmux flow now lives in
-`packages/agent-spaces/src/testing/pre-hrc-interactive-tmux-runner.ts` +
-`pre-hrc-ghostmux-operator.ts`.)
-
-Full matrix (every row gated on availability; each SKIPs cleanly when its
-binary/auth/Ghostty is absent):
-
-```bash
-bun run smoke:matrix
-```
-
-Single row via the `--config` selector:
-
-```bash
-bun run smoke:matrix --config fake-codex           # deterministic CI (no auth/network)
-bun run smoke:matrix --config real-codex           # real codex app-server (+ auth)
-bun run smoke:matrix --config real-claude-tmux      # real claude, interactive-tmux
-bun run smoke:matrix --config claude-tmux-ghostmux  # real claude + ghostmux operator-attach
-```
-
-Rows: (a) fake-codex (codex-app-server headless against an in-repo fixture), (b)
-real-codex (real `codex`), (c) real-claude-tmux (claude-code-tmux interactive
-against real `claude`), (d) claude-tmux-ghostmux (real ghostmux operator-attach).
-Codex.app app-server shim experiment (T-04237) is off by default; enable by quitting Codex.app and copying `scripts/codex-app-bundle-wrapper` to `/Applications/Codex.app/Contents/Resources/codex` while `/Applications/Codex.app/Contents/Resources/codex.real` is the real binary.
-Cross-harness floor on every row: compile/select/verify start-contract (hashes +
-route invariants) + ledger integrity (monotonic seq / no dup / normalized vocab
-only) + invocation.started/ready + `assertSharedCommandTurn` on the command turn.
-The runner exercises `packages/harness-broker/bin/harness-broker.js run --transport
-stdio`. Strict mode is on by default: native Codex event names fail the run, and
-the legacy `invocation.permission.request` event is rejected unless the temporary
-`--allow-legacy-permission-event` flag is passed. Do not report a harness-broker
-change as complete unless this smoke has passed, or you have clearly reported the
-blocker that prevented running it.
-
-## Pack Smoke for `@lherron/agent-spaces`
-
-The published CLI bundles its workspace deps. After packaging changes, verify
-both shapes:
-
-```bash
-cd packages/cli
-bun scripts/smoke-test-pack.ts
-```
-
-The smoke runs prepack explicitly (because `~/.npmrc` may have
-`ignore-scripts=true`), packs with `npm pack --ignore-scripts`, installs the
-tarball into a throwaway Bun project, and asserts every published subpath
-entrypoint resolves and exports at least one symbol.
+For the harness-broker MATRIX smoke (`bun run smoke:matrix`, required for any
+harness-broker change) see [packages/harness-broker/AGENTS.md](packages/harness-broker/AGENTS.md).
+For the published-CLI pack smoke (`cd packages/cli; bun scripts/smoke-test-pack.ts`)
+see [packages/cli/AGENTS.md](packages/cli/AGENTS.md).
 
 ## Codebase Patterns
 
@@ -166,11 +115,6 @@ entrypoint resolves and exports at least one symbol.
 
 ## Pi Harness
 
-When running with `--harness pi`:
-
-- Always set `PI_CODING_AGENT_DIR=<asp_modules target pi dir>` as an environment variable
-- This env var must appear in `--print-command` output for copy-paste compatibility
-- This env var must be set when spawning the Pi process directly
-- Add `--no-extensions` when there are no extensions to load (prevents Pi from loading defaults)
-- Always add `--no-skills` to disable default skill loading from `.claude`, `.codex`, `~/.pi/agent/skills/`
-- Materialize hooks to `hooks-scripts/` (Pi has an incompatible `hooks/` directory format)
+When running with `--harness pi`, follow the env/runtime flags in
+[packages/harness-pi/AGENTS.md](packages/harness-pi/AGENTS.md)
+(`PI_CODING_AGENT_DIR`, `--no-extensions`, `--no-skills`, hooks-scripts).

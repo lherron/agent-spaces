@@ -45,6 +45,14 @@ debug-codex-tmux-live-ipc *args:
 debug-broker-events socket *args:
     bun scripts/debug-broker-events.ts --socket {{socket}} {{args}}
 
+# Find likely code entry points for a topic.
+discover topic:
+    bun scripts/find-entry-points.ts {{topic}}
+
+# Explain a repo area using the shared import graph.
+explain area:
+    bun scripts/explain-area.ts {{area}}
+
 # Fix lint issues
 lint-fix:
     bun run lint:fix
@@ -58,6 +66,10 @@ check:
     bun scripts/check-boundaries.ts
     bun scripts/check-runtime-contract-harness-boundaries.ts
     bun scripts/check-manifest-edges.ts
+    bun scripts/check-suppressions.ts
+    bun scripts/check-public-surface.ts
+    bun scripts/check-doc-reachability.ts
+    bun scripts/check-rule-authoring.ts
 
 # Overlay Cody into the default Codex home and install managed Praesidium CLI hooks
 overlay-codex *args:

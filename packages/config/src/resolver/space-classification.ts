@@ -10,7 +10,7 @@
 
 import { join } from 'node:path'
 
-import type { LockSpaceEntry } from '../core/index.js'
+import type { LockSpaceEntry, SpaceKey } from '../core/index.js'
 import { AGENT_COMMIT_MARKER, PROJECT_COMMIT_MARKER } from '../core/index.js'
 import type { PathResolver } from '../store/index.js'
 import { DEV_COMMIT_MARKER } from './closure.js'
@@ -41,6 +41,29 @@ export function classifySpaceEntry(entry: LockSpaceEntry): SpaceEntryKind {
     return 'agent'
   }
   return 'registry'
+}
+
+/**
+ * Build the `<id>@<kind-or-commit-prefix>` space key for a locked entry.
+ *
+ * Filesystem-backed kinds use a stable marker suffix (`@agent`/`@project`/
+ * `@dev`); registry entries use the short commit prefix. Pass `kind` when it has
+ * already been computed via {@link classifySpaceEntry} to avoid reclassifying.
+ */
+export function spaceKeyForEntry(
+  entry: LockSpaceEntry,
+  kind: SpaceEntryKind = classifySpaceEntry(entry)
+): SpaceKey {
+  switch (kind) {
+    case 'agent':
+      return `${entry.id}@agent` as SpaceKey
+    case 'project':
+      return `${entry.id}@project` as SpaceKey
+    case 'dev':
+      return `${entry.id}@dev` as SpaceKey
+    default:
+      return `${entry.id}@${entry.commit.slice(0, COMMIT_KEY_PREFIX_LEN)}` as SpaceKey
+  }
 }
 
 /** Filesystem roots used to resolve a space's content directory. */

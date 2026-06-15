@@ -6,6 +6,7 @@
  * that dependencies are loaded before dependents.
  */
 
+import { DisallowedDependencyEdgeError } from '../core/errors.js'
 import type {
   CommitSha,
   SpaceId,
@@ -135,23 +136,31 @@ export async function computeClosure(
     if (parentSpaceType !== undefined) {
       const edge = `${parentSpaceType} -> ${thisSpaceType}`
       if (parentSpaceType === 'registry' && thisSpaceType === 'agent') {
-        throw new Error(
-          `Disallowed dependency edge: ${edge}. Registry spaces cannot depend on agent-local spaces.`
+        throw new DisallowedDependencyEdgeError(
+          `Disallowed dependency edge: ${edge}. Registry spaces cannot depend on agent-local spaces.`,
+          parentSpaceType,
+          thisSpaceType
         )
       }
       if (parentSpaceType === 'registry' && thisSpaceType === 'project') {
-        throw new Error(
-          `Disallowed dependency edge: ${edge}. Registry spaces cannot depend on project-local spaces.`
+        throw new DisallowedDependencyEdgeError(
+          `Disallowed dependency edge: ${edge}. Registry spaces cannot depend on project-local spaces.`,
+          parentSpaceType,
+          thisSpaceType
         )
       }
       if (parentSpaceType === 'agent' && thisSpaceType === 'project') {
-        throw new Error(
-          `Disallowed dependency edge: ${edge}. Agent-local spaces cannot depend on project-local spaces.`
+        throw new DisallowedDependencyEdgeError(
+          `Disallowed dependency edge: ${edge}. Agent-local spaces cannot depend on project-local spaces.`,
+          parentSpaceType,
+          thisSpaceType
         )
       }
       if (parentSpaceType === 'project' && thisSpaceType === 'agent') {
-        throw new Error(
-          `Disallowed dependency edge: ${edge}. Project-local spaces cannot depend on agent-local spaces.`
+        throw new DisallowedDependencyEdgeError(
+          `Disallowed dependency edge: ${edge}. Project-local spaces cannot depend on agent-local spaces.`,
+          parentSpaceType,
+          thisSpaceType
         )
       }
     }
@@ -261,7 +270,7 @@ export async function computeClosure(
           throw err
         }
         // Rethrow dependency edge violations directly
-        if (err instanceof Error && err.message.startsWith('Disallowed dependency edge')) {
+        if (err instanceof DisallowedDependencyEdgeError) {
           throw err
         }
         // Wrap resolution errors as missing dependency, preserving the

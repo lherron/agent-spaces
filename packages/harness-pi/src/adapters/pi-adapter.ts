@@ -37,6 +37,7 @@ import {
   type MaterializeSpaceResult,
   PI_MODEL_TRANSLATION,
   type ProjectManifest,
+  type SpacePiConfig,
   copyDir,
   linkOrCopy,
 } from 'spaces-config'
@@ -68,7 +69,7 @@ import {
 } from './constants.js'
 import { detectPi } from './detect.js'
 import { PiBundleError } from './errors.js'
-import { copyComponentDir, dirExists, listDirEntries } from './fs-helpers.js'
+import { copyComponentDir, dirExists, fileExists, listDirEntries } from './fs-helpers.js'
 
 // Re-export the cohesive submodules so `./pi-adapter.js` remains the stable
 // public entrypoint for consumers and tests.
@@ -241,15 +242,9 @@ export class PiAdapter implements HarnessAdapter {
     warnings: string[]
   ): Promise<void> {
     // Get build options from manifest (pi config is optional extension)
-    // Cast manifest to access potential pi config from extended schema
+    // Cast manifest to access potential pi config from extended schema.
     const manifestWithPi = input.manifest as typeof input.manifest & {
-      pi?: {
-        build?: {
-          format?: 'esm' | 'cjs' | undefined
-          target?: 'bun' | 'node' | undefined
-          external?: string[] | undefined
-        }
-      }
+      pi?: SpacePiConfig | undefined
     }
     const buildOpts: ExtensionBuildOptions = {
       format: manifestWithPi.pi?.build?.format,
@@ -766,35 +761,11 @@ export class PiAdapter implements HarnessAdapter {
     const hookBridgePath = join(outputDir, 'asp-hooks.bridge.js')
     const hrcEventsBridgePath = join(outputDir, 'asp-hrc-events.bridge.js')
 
-    let skillsDirPath: string | undefined
-    try {
-      const entries = await readdir(skillsDir)
-      if (entries.length > 0) {
-        skillsDirPath = skillsDir
-      }
-    } catch {
-      // No skills directory
-    }
-
-    let hookBridge: string | undefined
-    try {
-      const stats = await stat(hookBridgePath)
-      if (stats.isFile()) {
-        hookBridge = hookBridgePath
-      }
-    } catch {
-      // No hook bridge
-    }
-
-    let hrcEventsBridge: string | undefined
-    try {
-      const stats = await stat(hrcEventsBridgePath)
-      if (stats.isFile()) {
-        hrcEventsBridge = hrcEventsBridgePath
-      }
-    } catch {
-      // No HRC events bridge
-    }
+    const skillsDirPath = (await listDirEntries(skillsDir)).length > 0 ? skillsDir : undefined
+    const hookBridge = (await fileExists(hookBridgePath)) ? hookBridgePath : undefined
+    const hrcEventsBridge = (await fileExists(hrcEventsBridgePath))
+      ? hrcEventsBridgePath
+      : undefined
 
     return {
       harnessId: 'pi',

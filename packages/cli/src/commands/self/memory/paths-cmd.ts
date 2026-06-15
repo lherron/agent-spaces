@@ -7,19 +7,13 @@ import type { Command } from 'commander'
 
 import { type MemoryTargetName, resolveMemoryPaths } from 'spaces-runtime'
 
-import { withMemoryContext } from './lib.js'
+import { MEMORY_TARGET_LABELS, withMemoryContext } from './lib.js'
 
 interface PathsOptions {
   json?: boolean
 }
 
 const COMMAND_NAME = 'self memory paths'
-
-const HUMAN_LABELS: Record<MemoryTargetName, string> = {
-  memory: 'per-agent, reminder',
-  user: 'shared-editable, reminder',
-  persona: 'per-agent, prompt (next-session)',
-}
 
 export function registerMemoryPathsCommand(parent: Command): void {
   parent
@@ -53,7 +47,8 @@ export function registerMemoryPathsCommand(parent: Command): void {
 
         const out: string[] = []
         for (const entry of targets) {
-          const label = HUMAN_LABELS[entry.target as MemoryTargetName]
+          const { scope, zone } = MEMORY_TARGET_LABELS[entry.target as MemoryTargetName]
+          const label = `${scope}, ${zone}`
           out.push(`  ${entry.target.padEnd(10)} ${entry.path}`)
           out.push(`             ${chalk.gray(label)}`)
         }

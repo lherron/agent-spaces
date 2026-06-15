@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "agent-spaces.closeout-config.v1",
+  "surfaces": [
+    {
+      "surface": "docs",
+      "globs": [
+        "docs/**",
+        "**/*.md",
+        "**/*.mdx"
+      ],
+      "evidenceKinds": [
+        "docs_reachability"
+      ],
+      "evidenceCommands": [
+        "bun scripts/check-doc-reachability.ts"
+      ]
+    },
+    {
+      "surface": "logic",
+      "globs": [
+        "packages/*/src/**",
+        "packages/*/lib/**",
+        "src/**",
+        "scripts/**/*.ts",
+        "scripts/**/*.js",
+        "tests/**/*.ts",
+        "tests/**/*.js"
+      ],
+      "evidenceKinds": [
+        "verify",
+        "verify_full"
+      ],
+      "evidenceCommands": [
+        "bun test",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "surface": "contract",
+      "globs": [
+        "**/*contract*/**",
+        "**/*schema*/**",
+        "**/*.schema.json",
+        "packages/*/contracts/**",
+        "packages/*/protocol/**"
+      ],
+      "evidenceKinds": [
+        "contract"
+      ],
+      "evidenceCommands": [
+        "contract test or matrix row named in the task"
+      ]
+    },
+    {
+      "surface": "packaging",
+      "globs": [
+        "package.json",
+        "bun.lock",
+        "packages/*/package.json",
+        "packages/*/scripts/smoke-test-pack.ts",
+        "scripts/smoke-pack-cross-repo.ts",
+        "npm/**",
+        "dist/**"
+      ],
+      "evidenceKinds": [
+        "pack_smoke"
+      ],
+      "evidenceCommands": [
+        "bun scripts/smoke-pack-cross-repo.ts",
+        "cd packages/cli; bun scripts/smoke-test-pack.ts"
+      ]
+    },
+    {
+      "surface": "harness",
+      "globs": [
+        "packages/harness-broker/**",
+        "harness/**",
+        "**/*harness*/**",
+        "**/*matrix*",
+        ".wrkq/wrkf-closeout/tests/**"
+      ],
+      "evidenceKinds": [
+        "matrix"
+      ],
+      "evidenceCommands": [
+        "bun run smoke:matrix"
+      ]
+    },
+    {
+      "surface": "runtime",
+      "globs": [
+        "packages/hrc/**",
+        "packages/acp/**",
+        "packages/gateway-discord/**",
+        "packages/gateway-ios/**",
+        "packages/ghostty/**",
+        "launchd/**",
+        "bin/**",
+        "cmd/**",
+        "services/**",
+        "**/*runtime*/**",
+        "**/*installed*"
+      ],
+      "evidenceKinds": [
+        "installed_binary"
+      ],
+      "evidenceCommands": [
+        "real e2e evidence against the installed/running system"
+      ]
+    }
+  ]
+}

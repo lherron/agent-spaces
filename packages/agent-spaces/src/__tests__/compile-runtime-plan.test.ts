@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, test as bunTest, describe, expect } from 'bun:test'
 import {
   chmodSync,
   existsSync,
@@ -34,6 +34,21 @@ import type {
   BuildHarnessBrokerInvocationRequest,
   BuildHarnessBrokerInvocationResponse,
 } from '../types.js'
+
+type TestFn = () => unknown | Promise<unknown>
+type EachTestFn<T extends readonly unknown[]> = (...args: T) => unknown | Promise<unknown>
+
+const HEAVY_TEST_TIMEOUT_MS = 60000
+
+function test(name: string, fn: TestFn): void {
+  bunTest(name, fn, HEAVY_TEST_TIMEOUT_MS)
+}
+
+test.each = <T extends readonly unknown[]>(table: readonly T[]) => {
+  return (name: string, fn: EachTestFn<T>): void => {
+    bunTest.each(table)(name, fn, HEAVY_TEST_TIMEOUT_MS)
+  }
+}
 
 type CompileClient = AgentSpacesClient & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>

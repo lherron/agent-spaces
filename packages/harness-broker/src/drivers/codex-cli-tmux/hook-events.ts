@@ -38,6 +38,36 @@ export type NormalizeCodexHookEnvelopeOptions = {
   now?: (() => Date) | undefined
 }
 
+/**
+ * Resolve the base hook record carried by a codex-cli-tmux hook envelope: the
+ * raw hook arrives under `hookData`, an alternate `hookEvent`, or `payload`,
+ * falling back to the envelope itself. This is the one piece shared verbatim by
+ * the driver's {@link extractCodexHookRecord} and {@link normalizeCodexHookEnvelope};
+ * each then applies its OWN, intentionally divergent unwrap (the driver descends
+ * a nested `hookEvent`; the normalizer merges the envelope turnId then defers to
+ * `unwrapHookPayload`). Only this base resolution is consolidated — the divergent
+ * tails are preserved.
+ */
+export function resolveCodexEnvelopeRecord(
+  envelope: CodexCliTmuxHookEnvelope
+): Record<string, unknown> {
+  return asHookRecord(envelope.hookData ?? envelope.hookEvent ?? envelope.payload ?? envelope)
+}
+
+/**
+ * Driver-side hook extraction: resolve the base record, then descend into a
+ * nested `hookEvent` wrapper when the resolved record carries one. NOTE: this
+ * intentionally differs from the normalizer's `unwrapHookPayload` (which prefers
+ * a top-level `hook_event_name` over a nested one) — do NOT merge the two.
+ */
+export function extractCodexHookRecord(
+  envelope: CodexCliTmuxHookEnvelope
+): Record<string, unknown> {
+  const hook = resolveCodexEnvelopeRecord(envelope)
+  const nested = asHookRecord(hook['hookEvent'])
+  return nested['hook_event_name'] !== undefined ? nested : hook
+}
+
 export function normalizeCodexHookEnvelope(
   envelope: CodexCliTmuxHookEnvelope,
   options: NormalizeCodexHookEnvelopeOptions = {}
@@ -49,7 +79,7 @@ export function normalizeCodexHookEnvelope(
       invocationId,
       now: options.now ?? (() => new Date()),
     })
-  const hook = asHookRecord(envelope.hookData ?? envelope.hookEvent ?? envelope.payload ?? envelope)
+  const hook = resolveCodexEnvelopeRecord(envelope)
   const merged =
     envelope.turnId !== undefined && getString(hook, 'turn_id') === undefined
       ? { ...hook, turn_id: envelope.turnId }

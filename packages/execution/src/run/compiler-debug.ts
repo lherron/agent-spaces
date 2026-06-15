@@ -16,7 +16,7 @@ import { type HarnessId, getHarnessCatalogEntry, isHarnessId } from 'spaces-conf
 import type { CompileRuntimeFn, LaunchShape, RunCompileOutcome } from './types.js'
 import type { RunCompilerDebugContext } from './types.js'
 
-export function harnessFamilyForHarness(
+function harnessFamilyForHarness(
   harnessId: string
 ): RunCompilerDebugContext['requested']['harnessFamily'] {
   if (harnessId === 'codex') return 'codex'
@@ -24,7 +24,7 @@ export function harnessFamilyForHarness(
   return 'claude-code'
 }
 
-export function harnessRuntimeForHarness(
+function harnessRuntimeForHarness(
   harnessId: string
 ): RunCompilerDebugContext['requested']['preferredHarnessRuntime'] {
   switch (harnessId) {
@@ -41,7 +41,7 @@ export function harnessRuntimeForHarness(
   }
 }
 
-export function compileInteractionMode(
+function compileInteractionMode(
   interactive: boolean | undefined,
   harnessId?: string
 ): RunCompilerDebugContext['requested']['interactionMode'] {
@@ -111,9 +111,7 @@ export async function maybeCompileForRun(
   return { compileOutcome, ...(compiledLaunch ? { compiledLaunch } : {}) }
 }
 
-export function buildCompilerDebugContext(
-  args: BuildCompilerDebugContextArgs
-): RunCompilerDebugContext {
+function buildCompilerDebugContext(args: BuildCompilerDebugContextArgs): RunCompilerDebugContext {
   const harnessCatalog = getHarnessCatalogEntry(args.harnessId)
   return {
     aspHome: args.aspHome,

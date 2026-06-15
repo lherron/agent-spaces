@@ -101,12 +101,18 @@ function buildSpawnOptions(
 }
 
 /**
+ * Characters considered safe to pass through unquoted in a shell command. A
+ * token matching this pattern needs no quoting; anything else is single-quoted.
+ */
+const SHELL_SAFE_TOKEN = /^[a-zA-Z0-9_./-]+$/
+
+/**
  * Quote a string for shell if it contains special characters.
  * Uses single quotes for safety, escaping any embedded single quotes.
  */
 function shellQuote(str: string): string {
   // If string contains no special characters, return as-is
-  if (/^[a-zA-Z0-9_./-]+$/.test(str)) {
+  if (SHELL_SAFE_TOKEN.test(str)) {
     return str
   }
   // Escape single quotes by ending quote, adding escaped quote, starting new quote

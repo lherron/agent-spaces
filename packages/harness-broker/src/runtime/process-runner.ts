@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises'
 import type { HarnessProcessSpec } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
+import type { DispatchEnv } from './env'
 import { buildProcessEnv } from './env'
 
 const liveChildren = new Set<ChildProcessWithoutNullStreams>()
@@ -12,7 +13,7 @@ export interface SpawnEnvChannels {
   /** Driver-provided credential env. Empty for the codex driver (auth on disk). */
   credentials?: Record<string, string> | undefined
   /** Per-invocation env from the InvocationDispatchRequest envelope. */
-  dispatchEnv?: Record<string, string> | undefined
+  dispatchEnv?: DispatchEnv | undefined
 }
 
 export async function spawnHarnessProcess(

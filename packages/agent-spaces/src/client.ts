@@ -37,6 +37,7 @@ import {
 import { applyEnvOverlay, piSessionPath, resolveHostSessionId, withAspHome } from './runtime-env.js'
 
 import {
+  type EventEmitter,
   type EventPayload,
   buildAutoPermissionHandler,
   createEventEmitter,
@@ -57,6 +58,7 @@ import {
   AGENT_SDK_FRONTEND,
   CodedError,
   FRONTEND_DEFS,
+  type FrontendDef,
   PI_SDK_FRONTEND,
   assertProviderMatch,
   formatDisplayCommand,
@@ -66,11 +68,8 @@ import {
 import type { AgentSpacesClientOptions } from './placement-api.js'
 import { preparePlacementCliRuntime, toProcessInvocationSpec } from './prepare-cli-runtime.js'
 import { runPlacementTurnNonInteractive } from './run-placement-turn.js'
-import {
-  emitTurnFailure,
-  shouldDrainOutstandingTurn,
-  toAgentSpacesError,
-} from './run-turn-helpers.js'
+import { emitTurnFailure, toAgentSpacesError } from './run-turn-helpers.js'
+import { attachTurnDriver } from './turn-driver.js'
 import type {
   AgentSpacesClient,
   BuildHarnessBrokerInvocationRequest,
@@ -109,6 +108,48 @@ function buildContinuationRef(
   key: string | undefined
 ): HarnessContinuationRef | undefined {
   return key ? { provider, key } : undefined
+}
+
+/**
+ * Result of {@link validateTurnRequest}: either the resolved
+ * spec + model-resolution tuple, or an already-emitted failure response to
+ * return early. `resolved` discriminates the try/catch outcome (NOT model
+ * support — `modelResolution.ok` is still checked by the caller after the
+ * running/message events).
+ */
+type ValidateTurnRequestResult =
+  | { resolved: true; spec: ValidatedSpec; modelResolution: ReturnType<typeof resolveModel> }
+  | { resolved: false; failureResponse: RunTurnNonInteractiveResponse }
+
+/**
+ * Hoisted early-validation guard shared by `runTurnInFlight` and the
+ * non-placement `runTurnNonInteractive`. Runs the identical
+ * `validateSpec` → `isAbsolute(cwd)` → `assertProviderMatch` → `resolveModel`
+ * block; on any throw it emits the canonical failure event pair via
+ * {@link emitTurnFailure} (state:error then complete) and returns that response
+ * for the caller to return early. The emitted failure-event order is preserved.
+ */
+async function validateTurnRequest(
+  req: RunTurnNonInteractiveRequest,
+  frontendDef: FrontendDef,
+  eventEmitter: EventEmitter
+): Promise<ValidateTurnRequestResult> {
+  try {
+    const spec = validateSpec(req.spec)
+    if (!isAbsolute(req.cwd)) {
+      throw new Error('cwd must be an absolute path')
+    }
+    assertProviderMatch(frontendDef, req.continuation)
+    const modelResolution = resolveModel(frontendDef, req.model)
+    return { resolved: true, spec, modelResolution }
+  } catch (error) {
+    const failureResponse = await emitTurnFailure(
+      eventEmitter,
+      { provider: frontendDef.provider, frontend: req.frontend, model: req.model },
+      toAgentSpacesError(error)
+    )
+    return { resolved: false, failureResponse }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -356,24 +397,11 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           )
         }
 
-        let spec: ValidatedSpec
-        let modelResolution: ReturnType<typeof resolveModel>
         const continuationKey = req.continuation?.key
 
-        try {
-          spec = validateSpec(req.spec)
-          if (!isAbsolute(req.cwd)) {
-            throw new Error('cwd must be an absolute path')
-          }
-          assertProviderMatch(frontendDef, req.continuation)
-          modelResolution = resolveModel(frontendDef, req.model)
-        } catch (error) {
-          return emitTurnFailure(
-            eventEmitter,
-            { provider: frontendDef.provider, frontend: req.frontend, model: req.model },
-            toAgentSpacesError(error)
-          )
-        }
+        const validated = await validateTurnRequest(req, frontendDef, eventEmitter)
+        if (!validated.resolved) return validated.failureResponse
+        const { spec, modelResolution } = validated
 
         if (continuationKey) {
           eventEmitter.setContinuation({
@@ -463,35 +491,20 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
 
                 inFlightRuns.set(hostSessionId as string, context)
 
-                activeSession.onEvent((event: UnifiedSessionEvent) => {
-                  if (!context || context.completion.done) return
-
-                  const mapped = mapUnifiedEvents(
-                    event,
-                    (mappedEvent) => {
-                      void context?.eventEmitter.emit(mappedEvent)
-                    },
-                    (key) => {
-                      if (!context) return
-                      context.continuationKey = key
-                      context.eventEmitter.setContinuation({
-                        provider: frontendDef.provider,
-                        key,
-                      })
-                    },
-                    context.assistantState,
-                    { allowSessionIdUpdate: context.allowSessionIdUpdate }
-                  )
-
-                  if (!shouldDrainOutstandingTurn(event, mapped, context)) return
-
-                  context.outstandingTurns = Math.max(0, context.outstandingTurns - 1)
-                  if (context.outstandingTurns !== 0) return
-
-                  const activeContext = context
-                  void completeInFlightSuccess(activeContext)
-                    .then((response) => resolveInFlight(activeContext, response))
-                    .catch((error) => rejectInFlight(activeContext, error))
+                attachTurnDriver(activeSession, context, {
+                  onContinuationKey: (key) => {
+                    if (!context) return
+                    context.continuationKey = key
+                    context.eventEmitter.setContinuation({
+                      provider: frontendDef.provider,
+                      key,
+                    })
+                  },
+                  onDrained: (activeContext) => {
+                    void completeInFlightSuccess(activeContext)
+                      .then((response) => resolveInFlight(activeContext, response))
+                      .catch((error) => rejectInFlight(activeContext, error))
+                  },
                 })
 
                 void started.catch((error) => {
@@ -628,29 +641,11 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           req.continuation
         )
 
-        let spec: ValidatedSpec
-        let modelResolution: ReturnType<typeof resolveModel>
         let continuationKey = req.continuation?.key
 
-        try {
-          spec = validateSpec(req.spec)
-
-          // Validate cwd is absolute (spec §6.3)
-          if (!isAbsolute(req.cwd)) {
-            throw new Error('cwd must be an absolute path')
-          }
-
-          // Validate provider match with continuation
-          assertProviderMatch(frontendDef, req.continuation)
-
-          modelResolution = resolveModel(frontendDef, req.model)
-        } catch (error) {
-          return emitTurnFailure(
-            eventEmitter,
-            { provider: frontendDef.provider, frontend: req.frontend, model: req.model },
-            toAgentSpacesError(error)
-          )
-        }
+        const validated = await validateTurnRequest(req, frontendDef, eventEmitter)
+        if (!validated.resolved) return validated.failureResponse
+        const { spec, modelResolution } = validated
 
         // Determine session/continuation context (no session record persistence)
         const isResume = continuationKey !== undefined

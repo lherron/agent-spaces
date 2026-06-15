@@ -1,5 +1,3 @@
-import { basename } from 'node:path'
-
 import {
   type RuntimePlacement,
   ensureDir,
@@ -9,12 +7,9 @@ import {
 } from 'spaces-config'
 import {
   type UnifiedSession,
-  type UnifiedSessionEvent,
   createSession,
   detectAgentLocalComponents,
   planPlacementRuntime,
-  prepareAgentBrainRuntime,
-  prepareAgentToolRuntime,
 } from 'spaces-execution'
 import { PiSession, loadPiSdkBundle } from 'spaces-harness-pi-sdk/pi-session'
 import { materializeSystemPrompt } from 'spaces-runtime'
@@ -27,14 +22,10 @@ import {
   assertProviderMatch,
   resolveFrontend,
 } from './client-support.js'
-import { buildCorrelationEnvVars } from './placement-api.js'
+import { composeAgentLocalEnv } from './compose-agent-local-env.js'
 import type { InFlightRunContext } from './run-tracker.js'
 import { enqueueInFlightPrompt } from './run-tracker.js'
-import {
-  emitTurnFailure,
-  shouldDrainOutstandingTurn,
-  toAgentSpacesError,
-} from './run-turn-helpers.js'
+import { emitTurnFailure, toAgentSpacesError } from './run-turn-helpers.js'
 import {
   applyEnvOverlay,
   piSessionPath,
@@ -45,8 +36,8 @@ import {
   type EventPayload,
   buildAutoPermissionHandler,
   createEventEmitter,
-  mapUnifiedEvents,
 } from './session-events.js'
+import { attachTurnDriver } from './turn-driver.js'
 import type {
   HarnessContinuationRef,
   RunResult,
@@ -141,7 +132,6 @@ export async function runPlacementTurnNonInteractive(
   const permissionHandler = buildAutoPermissionHandler()
   let session: UnifiedSession | undefined
   let context: InFlightRunContext | undefined
-  let turnEnded = false
   let finalOutput: string | undefined
   const assistantState: { assistantBuffer: string; lastAssistantText?: string | undefined } = {
     assistantBuffer: '',
@@ -155,47 +145,23 @@ export async function runPlacementTurnNonInteractive(
 
     // Apply the env overlay once it contains the disjoint locked and dispatch
     // env channels plus frontend-specific session env.
-    const correlationEnv = buildCorrelationEnvVars(placement)
-    const lockedEnv: Record<string, string> = {
-      ...(req.env ?? {}),
-      ...(req.lockedEnv ?? {}),
-    }
-    const dispatchEnv: Record<string, string> = {
-      ...correlationEnv,
-      ...(req.dispatchEnv ?? {}),
-    }
-    const harnessEnv: Record<string, string> = { ...lockedEnv, ...dispatchEnv }
-
     const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
-    lockedEnv['ASP_HOME'] = aspHome
-    harnessEnv['ASP_HOME'] = aspHome
-
     const placementAgentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
-    const brainEnv = await prepareAgentBrainRuntime(
-      {
-        agentRoot: placement.agentRoot,
-        agentName: basename(placement.agentRoot),
-        ...(placementAgentLocalComponents ? { components: placementAgentLocalComponents } : {}),
-      },
-      harnessEnv
-    )
-    Object.assign(lockedEnv, brainEnv)
-    Object.assign(harnessEnv, brainEnv)
 
-    if (placementAgentLocalComponents?.hasTools) {
-      const toolRuntime = await prepareAgentToolRuntime(
-        {
-          agentRoot: placement.agentRoot,
-          projectRoot: placement.projectRoot,
-          components: placementAgentLocalComponents,
-        },
-        harnessEnv
-      )
-      const { PATH: toolPath, ...toolLockedEnv } = toolRuntime.env
-      void toolPath
-      Object.assign(lockedEnv, toolLockedEnv)
-      Object.assign(harnessEnv, toolRuntime.env)
-    }
+    // Compose the agent-local env channels. The placement turn path omits
+    // adapterEnv/agentchatEnv, runs brain preparation unconditionally (no dryRun
+    // gate), and deliberately ignores the typed pathPrepend + tool warnings the
+    // CLI path consumes.
+    const composed = await composeAgentLocalEnv({
+      placement,
+      agentLocalComponents: placementAgentLocalComponents,
+      aspHome,
+      ...(req.env !== undefined ? { reqEnv: req.env } : {}),
+      ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
+      ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
+      gateBrainOnDryRun: false,
+    })
+    const harnessEnv = composed.env
 
     let restoreEnv: (() => void) | undefined
 
@@ -321,34 +287,20 @@ export async function runPlacementTurnNonInteractive(
         }
         inFlightRuns.set(hostSessionId as string, context)
 
-        session.onEvent((event: UnifiedSessionEvent) => {
-          const activeContext = context
-          if (!activeContext || activeContext.completion.done) return
-
-          const result = mapUnifiedEvents(
-            event,
-            (mapped) => {
-              void eventEmitter.emit(mapped)
-            },
-            (key) => {
-              continuationKey = key
-              activeContext.continuationKey = key
-              eventEmitter.setContinuation({
-                provider: runtimePlan.provider,
-                key,
-              })
-            },
-            assistantState,
-            { allowSessionIdUpdate: frontendDef.frontend !== PI_SDK_FRONTEND }
-          )
-
-          if (shouldDrainOutstandingTurn(event, result, activeContext) && !turnEnded) {
-            activeContext.outstandingTurns = Math.max(0, activeContext.outstandingTurns - 1)
-            if (activeContext.outstandingTurns !== 0) return
-            turnEnded = true
+        const driverContext = context
+        attachTurnDriver(session, driverContext, {
+          onContinuationKey: (key) => {
+            continuationKey = key
+            driverContext.continuationKey = key
+            eventEmitter.setContinuation({
+              provider: runtimePlan.provider,
+              key,
+            })
+          },
+          onDrained: (activeContext) => {
             activeContext.completion = { done: true }
             void eventEmitter.idle().then(resolve, reject)
-          }
+          },
         })
 
         void started.catch(reject)

@@ -1,8 +1,8 @@
-import { DEFAULT_LANE_ID, laneIdFromRef, normalizeLaneRef } from './lane-ref.js'
+import { laneIdFromRef, laneRefFromInput } from './lane-ref.js'
 import { splitHandle, validateScopeHandle } from './scope-handle.js'
 import { buildScopeRef, parseScopeRef, validateScopeRef } from './scope-ref.js'
 import { parseSessionHandle } from './session-handle.js'
-import type { LaneRef, ParsedScopeRef } from './types.js'
+import type { LaneRef, ParsedScopeRef, ScopeFields } from './types.js'
 
 export type ResolvedScopeInput = {
   parsed: ParsedScopeRef
@@ -35,18 +35,6 @@ export type ResolveQualifiedScopeOptions = {
   defaultTaskId?: string
 }
 
-function toLaneRef(defaultLaneId?: string): LaneRef {
-  if (!defaultLaneId || defaultLaneId === DEFAULT_LANE_ID) {
-    return 'main'
-  }
-
-  // Accept either a bare lane id or an already-prefixed `lane:<id>` form;
-  // `normalizeLaneRef` validates the canonical result.
-  return normalizeLaneRef(
-    defaultLaneId.startsWith('lane:') ? defaultLaneId : `lane:${defaultLaneId}`
-  )
-}
-
 /**
  * The component fields of a scope input, decomposed but not yet ref-built.
  * `projectId`/`taskId` may be absent — the project-deferred shorthand
@@ -54,11 +42,7 @@ function toLaneRef(defaultLaneId?: string): LaneRef {
  * until `resolveQualifiedScopeInput` fills the project. Keeping the parts raw
  * (rather than eagerly building a ref) is what lets that shorthand resolve.
  */
-type ScopeInputParts = {
-  agentId: string
-  projectId?: string | undefined
-  taskId?: string | undefined
-  roleName?: string | undefined
+type ScopeInputParts = ScopeFields & {
   laneId: string
   laneRef: LaneRef
 }
@@ -83,7 +67,7 @@ function parseScopeInput(input: string, defaultLaneId?: string): ScopeInputParts
     }
   }
 
-  const laneRef = toLaneRef(defaultLaneId)
+  const laneRef = laneRefFromInput(defaultLaneId)
   const laneId = laneIdFromRef(laneRef)
 
   // ScopeRef is checked first: `agent:<id>` is a canonical ScopeRef (the agent

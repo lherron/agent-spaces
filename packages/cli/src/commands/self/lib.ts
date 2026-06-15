@@ -156,17 +156,27 @@ export function extractPrimingPrompt(argv: readonly string[]): string | null {
 }
 
 /**
- * Infer the agent target name from ASP_PLUGIN_ROOT.
- *
  * Bundle layout: `<asp-home>/codex-homes/<scope>/bundles/<target>/<harness>/`.
  * The directory two levels up from the bundle root is the target slug.
  */
-export function inferTargetFromBundleRoot(bundleRoot: string | undefined): string | null {
+export function targetNameFromBundleRootPath(
+  bundleRoot: string | undefined,
+  options: { requireBundleLeaf?: boolean | undefined } = {}
+): string | null {
   if (!bundleRoot) return null
   const targetDir = dirname(bundleRoot)
+  const bundleLeaf = bundleRoot.split('/').pop()
+  if (options.requireBundleLeaf === true && !bundleLeaf) return null
   if (dirname(targetDir) === targetDir) return null
   const targetName = targetDir.split('/').pop()
   return targetName && targetName.length > 0 ? targetName : null
+}
+
+/**
+ * Infer the agent target name from ASP_PLUGIN_ROOT.
+ */
+export function inferTargetFromBundleRoot(bundleRoot: string | undefined): string | null {
+  return targetNameFromBundleRootPath(bundleRoot)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

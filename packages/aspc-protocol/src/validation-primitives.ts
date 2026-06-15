@@ -51,10 +51,27 @@ export function requireRecord(
  * Silently coerces `value` to a record, returning `undefined` when it is not a
  * plain object. Contrast with {@link requireRecord}, which records an issue.
  */
-export function coerceRecord(value: unknown): SchemaRecord | undefined {
+function coerceRecord(value: unknown): SchemaRecord | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as SchemaRecord)
     : undefined
+}
+
+/**
+ * Requires that each named field of `parent` is a present object, recording one
+ * issue per offending field via {@link requireRecord}. Fields are checked in the
+ * given array order, producing the same per-field issues (and ordering) as the
+ * equivalent sequence of inline `requireRecord` calls.
+ */
+export function requireRecordFields(
+  parent: SchemaRecord,
+  basePath: string,
+  fields: readonly string[],
+  issues: ValidationIssue[]
+): void {
+  for (const field of fields) {
+    requireRecord(parent[field], path(basePath, field), issues)
+  }
 }
 
 export function requireString(value: unknown, basePath: string, issues: ValidationIssue[]): void {

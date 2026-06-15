@@ -12,7 +12,7 @@ import type { Command } from 'commander'
 import { getStatus } from 'spaces-config'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
-import { loadAllDistTags } from './registry-fs.js'
+import { loadAllDistTags, registryExists } from './registry-fs.js'
 
 /**
  * Registry status output structure.
@@ -32,8 +32,7 @@ interface RegistryStatus {
  * Check if registry exists and throw if not.
  */
 async function ensureRegistryExists(repoPath: string): Promise<void> {
-  const repoFile = Bun.file(`${repoPath}/.git/HEAD`)
-  if (!(await repoFile.exists())) {
+  if (!(await registryExists(repoPath))) {
     console.error(chalk.red('No registry found'))
     console.error(chalk.gray(`Expected at: ${repoPath}`))
     console.error(chalk.gray('Run "asp repo init" to create one'))

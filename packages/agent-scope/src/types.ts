@@ -36,6 +36,19 @@ export function validateTokenField(value: string, label: string): ValidationResu
   return error ? { ok: false, error } : { ok: true }
 }
 
+/**
+ * The structural decomposition of a scope into its component identifier fields,
+ * prior to ref assembly or token validation. Shared internal shape behind the
+ * scope-ref builder, the handle splitter, and the input parser. Distinct from
+ * `ParsedScopeRef`, which additionally carries the load-bearing `kind`/`scopeRef`.
+ */
+export type ScopeFields = {
+  agentId: string
+  projectId?: string | undefined
+  taskId?: string | undefined
+  roleName?: string | undefined
+}
+
 export type ScopeKind = 'agent' | 'project' | 'project-role' | 'project-task' | 'project-task-role'
 
 export type ParsedScopeRef = {

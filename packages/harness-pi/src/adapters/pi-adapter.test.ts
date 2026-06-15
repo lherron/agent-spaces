@@ -2041,33 +2041,27 @@ exit 0
 })
 
 describe('Hook bridge generation — codegen injection hazard', () => {
-  // NOTE: `generateHookBridgeCode` interpolates `hook.script` and `hook.event`
-  // directly into single-quoted JavaScript string literals in the emitted
-  // bridge (see codegen/hook-bridge.ts). A script value containing a quote or
-  // newline therefore breaks or injects code in the generated extension. This
-  // is the highest-correctness-risk item flagged in harness-pi-report.md
-  // (Technical Debt Notes / second-pass A8). It is an UNFIXED behavioral
-  // hazard, so this assertion is marked `.todo` to document the gap without
-  // turning the suite red. Enable it once the codegen serializes hook values
-  // safely (e.g. JSON-encoded table) rather than interpolating raw literals.
-  test.todo(
-    'escapes hook.script values containing quotes/newlines so generated code stays valid',
-    () => {
-      const code = generateHookBridgeCode(
-        [
-          {
-            event: 'pre_tool_use',
-            script: "/path/to/it's a script\n.sh; rm -rf /",
-          },
-        ],
-        ['space1']
-      )
+  test('escapes hook.script and hook.event quotes/newlines so generated code stays valid', () => {
+    const script = "/path/to/it's a script\n.sh; rm -rf /"
+    const event = "pre_tool_use');\nthrow new Error('injected event"
+    const code = generateHookBridgeCode(
+      [
+        {
+          event,
+          script,
+        },
+      ],
+      ['space1']
+    )
 
-      // Once fixed, the raw unescaped script must NOT appear verbatim as a bare
-      // single-quoted literal that could terminate the string and inject code.
-      expect(code).not.toContain("'/path/to/it's a script")
-    }
-  )
+    // T-04644: generated bridge source is the executable artifact. Adversarial
+    // hook values must be serialized as data, never spliced raw into JS code.
+    expect(() => new Function('require', 'module', 'exports', code)).not.toThrow()
+    expect(code).not.toContain(`pi.on('${event}'`)
+    expect(code).not.toContain(`spawn('${script}'`)
+    expect(code).not.toContain(`event: '${event}'`)
+    expect(code).not.toContain(`script: '${script}'`)
+  })
 })
 
 describe('Error classes', () => {

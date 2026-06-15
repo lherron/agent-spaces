@@ -7,8 +7,9 @@
 
 import * as path from 'node:path'
 
+import { ConfigFileNotFoundError } from '../core/errors.js'
+
 import {
-  ConfigParseError,
   LOCK_FILENAME,
   type LockFile,
   type ProjectManifest,
@@ -111,7 +112,7 @@ export async function loadDefaultManifest(
   try {
     return await readTargetsToml(defaultPath)
   } catch (err) {
-    if (err instanceof ConfigParseError && err.message.includes('File not found')) {
+    if (err instanceof ConfigFileNotFoundError) {
       return null
     }
     throw err
@@ -131,7 +132,7 @@ export async function loadProjectManifest(
   try {
     projectManifest = await readTargetsToml(targetsPath)
   } catch (err) {
-    if (err instanceof ConfigParseError && err.message.includes('File not found')) {
+    if (err instanceof ConfigFileNotFoundError) {
       const defaults = await loadDefaultManifest(aspHome)
       if (defaults) {
         return defaults

@@ -56,10 +56,10 @@ import {
 
 import { linkDirectory } from '../materializer/link-components.js'
 import {
-  COMMIT_KEY_PREFIX_LEN,
   classifySpaceEntry,
   mergeLockFiles,
   resolveSpaceContentDir,
+  spaceKeyForEntry,
 } from '../resolver/index.js'
 
 import {
@@ -476,16 +476,7 @@ async function materializeSpaceEntry(
   const publishedCacheDir = paths.pluginCache(cacheKey)
 
   // Build space key
-  let spaceKey: SpaceKey
-  if (isAgentSpace) {
-    spaceKey = `${entry.id}@agent` as SpaceKey
-  } else if (isProjectSpace) {
-    spaceKey = `${entry.id}@project` as SpaceKey
-  } else if (isDev) {
-    spaceKey = `${entry.id}@dev` as SpaceKey
-  } else {
-    spaceKey = `${entry.id}@${entry.commit.slice(0, COMMIT_KEY_PREFIX_LEN)}` as SpaceKey
-  }
+  const spaceKey: SpaceKey = spaceKeyForEntry(entry, kind)
 
   // Build snapshot path
   // - Agent spaces: read from agent's spaces/ directory

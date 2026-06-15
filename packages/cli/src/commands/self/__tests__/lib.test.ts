@@ -4,6 +4,7 @@
  * Covers pure functions that can be tested without spawning the CLI:
  * - extractSystemPrompt / extractPrimingPrompt (argv parsing)
  * - inferTargetFromBundleRoot (path walking)
+ * - targetNameFromBundleRootPath (shared path-walk core)
  * - readLaunchArtifactLite (lenient JSON parsing)
  * - resolveSelfContext (env + launch file integration)
  * - enumeratePaths (path classification)
@@ -22,6 +23,7 @@ import {
   inferTargetFromBundleRoot,
   readLaunchArtifactLite,
   resolveSelfContext,
+  targetNameFromBundleRootPath,
 } from '../lib.js'
 
 const tempDirs: string[] = []
@@ -94,6 +96,18 @@ describe('inferTargetFromBundleRoot', () => {
 
   test('returns null for root path', () => {
     expect(inferTargetFromBundleRoot('/')).toBeNull()
+  })
+})
+
+describe('targetNameFromBundleRootPath', () => {
+  test('keeps self command lenient legacy behavior for paths without a leaf segment', () => {
+    expect(targetNameFromBundleRootPath('/tmp/asp/bundles/clod/')).toBe('bundles')
+  })
+
+  test('can preserve resolve-reminder harness-leaf guard at its boundary', () => {
+    expect(
+      targetNameFromBundleRootPath('/tmp/asp/bundles/clod/', { requireBundleLeaf: true })
+    ).toBeNull()
   })
 })
 

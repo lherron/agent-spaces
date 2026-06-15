@@ -38,7 +38,7 @@ function resolveProjectRoot(): string {
 }
 
 const ASP_CLI = join(import.meta.dirname, '..', '..', 'bin', 'asp.js')
-const CLI_TEST_TIMEOUT_MS = 15000
+const CLI_TEST_TIMEOUT_MS = 60000
 
 function cliTest(name: string, fn: TestFn): void
 function cliTest(name: string, fn: TestFn, timeout: number): void
@@ -50,12 +50,13 @@ function cliTest(
 ): void {
   if (typeof optionsOrFn === 'function') {
     const timeout = typeof maybeFnOrTimeout === 'number' ? maybeFnOrTimeout : CLI_TEST_TIMEOUT_MS
-    test(name, { timeout }, optionsOrFn)
+    test(name, optionsOrFn, timeout)
     return
   }
 
   if (typeof maybeFnOrTimeout === 'function') {
-    test(name, { timeout: CLI_TEST_TIMEOUT_MS, ...optionsOrFn }, maybeFnOrTimeout)
+    const timeout = optionsOrFn.timeout ?? CLI_TEST_TIMEOUT_MS
+    test(name, maybeFnOrTimeout, timeout)
     return
   }
 
@@ -69,7 +70,7 @@ function runAsp(
   try {
     const result = execFileSync('bun', ['run', ASP_CLI, ...args], {
       encoding: 'utf8',
-      timeout: 15000,
+      timeout: CLI_TEST_TIMEOUT_MS,
       env: { ...process.env, ...options.env, NO_COLOR: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })

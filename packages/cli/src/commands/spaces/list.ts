@@ -12,7 +12,7 @@ import type { Command } from 'commander'
 import { readSpaceToml } from 'spaces-config'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
-import { loadAllDistTags } from '../repo/registry-fs.js'
+import { loadAllDistTags, registryExists } from '../repo/registry-fs.js'
 
 interface SpaceInfo {
   id: string
@@ -31,8 +31,7 @@ interface ListOutput {
  * Check if registry exists.
  */
 async function ensureRegistryExists(repoPath: string): Promise<boolean> {
-  const repoFile = Bun.file(`${repoPath}/.git/HEAD`)
-  return repoFile.exists()
+  return registryExists(repoPath)
 }
 
 /**

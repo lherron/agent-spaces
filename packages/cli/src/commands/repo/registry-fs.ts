@@ -7,6 +7,17 @@
  */
 
 /**
+ * Detect whether the registry is an initialized git repo.
+ *
+ * The invariant is "the registry has a `.git/HEAD`", encoded once here so the
+ * repo/spaces command families stop re-spelling the path literal. Callers keep
+ * their own failure protocol (throw vs message+exit) and error text.
+ */
+export async function registryExists(repoPath: string): Promise<boolean> {
+  return Bun.file(`${repoPath}/.git/HEAD`).exists()
+}
+
+/**
  * Load the full dist-tags map (space id -> tag -> version) from the registry.
  *
  * Swallows any read/parse failure and returns `{}` so callers can treat a

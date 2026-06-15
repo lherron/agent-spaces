@@ -53,3 +53,14 @@ export function laneIdFromRef(laneRef: LaneRef): string {
 export function laneRefFromId(laneId: string): LaneRef {
   return laneId === DEFAULT_LANE_ID ? 'main' : `${LANE_PREFIX}${laneId}`
 }
+
+/**
+ * Build a LaneRef from a possibly-prefixed input. Accepts either a bare lane id
+ * or an already-prefixed `lane:<id>` form; an absent/undefined input or the
+ * default lane id resolves to "main". The canonical result is validated by
+ * `normalizeLaneRef`.
+ */
+export function laneRefFromInput(input?: string): LaneRef {
+  if (!input || input === DEFAULT_LANE_ID) return 'main'
+  return normalizeLaneRef(input.startsWith(LANE_PREFIX) ? input : `${LANE_PREFIX}${input}`)
+}

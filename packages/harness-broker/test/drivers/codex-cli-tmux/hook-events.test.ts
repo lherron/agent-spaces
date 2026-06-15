@@ -9,6 +9,20 @@ type CodexCliTmuxHookEventNormalizer = {
   normalizeHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
 }
 
+type NormalizeCodexHookEnvelope = (
+  envelope: {
+    invocationId?: string | undefined
+    generation?: number | undefined
+    callbackSocket?: string | undefined
+    runtimeId?: string | undefined
+    turnId?: string | undefined
+    hookData?: unknown
+    hookEvent?: unknown
+    payload?: unknown
+  },
+  options?: { normalizer?: CodexCliTmuxHookEventNormalizer | undefined; now?: () => Date }
+) => InvocationEventEnvelope[]
+
 const createNormalizer = async (): Promise<CodexCliTmuxHookEventNormalizer> => {
   const target = (await import('../../../src/drivers/codex-cli-tmux/hook-events')) as {
     createCodexCliTmuxHookEventNormalizer: (options: {
@@ -23,6 +37,13 @@ const createNormalizer = async (): Promise<CodexCliTmuxHookEventNormalizer> => {
   })
 }
 
+const loadNormalizeCodexHookEnvelope = async (): Promise<NormalizeCodexHookEnvelope> => {
+  const target = (await import('../../../src/drivers/codex-cli-tmux/hook-events')) as {
+    normalizeCodexHookEnvelope: NormalizeCodexHookEnvelope
+  }
+  return target.normalizeCodexHookEnvelope
+}
+
 const readPayload = async (name: string): Promise<Record<string, unknown>> => {
   return (await Bun.file(join(payloadRoot, name)).json()) as Record<string, unknown>
 }
@@ -31,6 +52,79 @@ const eventTypes = (events: InvocationEventEnvelope[]): InvocationEventType[] =>
   events.map((event) => event.type)
 
 describe('codex-cli-tmux hook event normalization', () => {
+  test('normalizeCodexHookEnvelope unwraps flat hookData and merges envelope turnId', async () => {
+    const normalize = await loadNormalizeCodexHookEnvelope()
+    const events = normalize(
+      {
+        invocationId,
+        generation: 1,
+        callbackSocket: '/tmp/codex-hooks.sock',
+        turnId: 'turn_from_envelope',
+        hookData: {
+          hook_event_name: 'UserPromptSubmit',
+          session_id: 'sess_from_hook',
+          prompt: 'start from flat hookData',
+        },
+      },
+      { now: () => new Date('2026-05-27T15:00:00.000Z') }
+    )
+
+    expect(eventTypes(events)).toEqual(['turn.started', 'user.message'])
+    expect(events).toMatchObject([
+      {
+        invocationId,
+        turnId: 'turn_from_envelope',
+        type: 'turn.started',
+        driver: { kind: 'codex-cli-tmux', rawType: 'UserPromptSubmit' },
+        payload: {
+          turnId: 'turn_from_envelope',
+          sessionId: 'sess_from_hook',
+          prompt: 'start from flat hookData',
+        },
+      },
+      {
+        invocationId,
+        turnId: 'turn_from_envelope',
+        type: 'user.message',
+        payload: { content: 'start from flat hookData', turnId: 'turn_from_envelope' },
+      },
+    ])
+  })
+
+  test('normalizeCodexHookEnvelope unwraps top-level hookEvent and preserves event order', async () => {
+    const normalize = await loadNormalizeCodexHookEnvelope()
+    const events = normalize(
+      {
+        invocationId,
+        generation: 1,
+        turnId: 'turn_from_hook_event_envelope',
+        hookEvent: {
+          hook_event_name: 'UserPromptSubmit',
+          session_id: 'sess_hook_event',
+          prompt: 'start from top-level hookEvent',
+        },
+      },
+      { now: () => new Date('2026-05-27T15:00:00.000Z') }
+    )
+
+    expect(eventTypes(events)).toEqual(['turn.started', 'user.message'])
+    expect(events.map((event) => event.turnId)).toEqual([
+      'turn_from_hook_event_envelope',
+      'turn_from_hook_event_envelope',
+    ])
+    expect(events.map((event) => event.driver?.rawType)).toEqual([
+      'UserPromptSubmit',
+      'UserPromptSubmit',
+    ])
+    expect(events[1]).toMatchObject({
+      type: 'user.message',
+      payload: {
+        content: 'start from top-level hookEvent',
+        turnId: 'turn_from_hook_event_envelope',
+      },
+    })
+  })
+
   test('UserPromptSubmit emits turn.started then user.message with Codex turn and prompt fields preserved', async () => {
     const hook = await readPayload('UserPromptSubmit-mpo5qmxg103.json')
     const events = (await createNormalizer()).normalizeHook(hook)

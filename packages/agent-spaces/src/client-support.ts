@@ -130,6 +130,24 @@ export function assertProviderMatch(
   }
 }
 
+/**
+ * Split a possibly-namespaced model id (e.g. `openai-codex/gpt-5.5`) into its
+ * `(provider, model)` parts. A bare id (no `/`) yields the supplied
+ * `fallbackProvider` and the id as the model. The split point is the FIRST `/`
+ * and is only honored when it is not the leading character (`slash > 0`),
+ * matching the pi model registry's namespacing rules.
+ */
+export function splitNamespacedModel(
+  modelId: string,
+  fallbackProvider: string
+): { provider: string; model: string } {
+  const slash = modelId.indexOf('/')
+  if (slash > 0) {
+    return { provider: modelId.slice(0, slash), model: modelId.slice(slash + 1) }
+  }
+  return { provider: fallbackProvider, model: modelId }
+}
+
 function parseModelId(modelId: string): ModelInfo | null {
   const separatorIndex = modelId.indexOf('/')
   if (separatorIndex === -1) {
@@ -138,8 +156,7 @@ function parseModelId(modelId: string): ModelInfo | null {
   if (separatorIndex <= 0 || separatorIndex === modelId.length - 1) {
     return null
   }
-  const provider = modelId.slice(0, separatorIndex)
-  const model = modelId.slice(separatorIndex + 1)
+  const { provider, model } = splitNamespacedModel(modelId, 'codex')
   if (!provider || !model) {
     return null
   }

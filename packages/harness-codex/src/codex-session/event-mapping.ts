@@ -123,6 +123,23 @@ export interface ErrorNotification {
   turnId?: string | undefined
 }
 
+/**
+ * Construct the codex app-server `input` text element shared by both RPC
+ * consumers. The `text_elements: []` seed shape is part of the wire contract;
+ * keep it byte-identical across the long-lived session and the one-shot path.
+ */
+export function textInput(text: string): Record<string, unknown> {
+  return { type: 'text', text, text_elements: [] }
+}
+
+/**
+ * Construct the codex app-server `localImage` input element shared by both
+ * RPC consumers' attachment loops.
+ */
+export function localImageInput(path: string): Record<string, unknown> {
+  return { type: 'localImage', path }
+}
+
 export function buildToolResult(content: string, details?: Record<string, unknown>): ToolResult {
   return {
     content: [{ type: 'text', text: content }],
@@ -175,6 +192,46 @@ export function mapDeltaNotification(
         message: progressParams.message,
         payload: progressParams,
       }
+    }
+    default:
+      return null
+  }
+}
+
+/**
+ * Classify the side-effect-free notification methods both RPC consumers emit
+ * verbatim: the `item/agentMessage/delta` text update and the
+ * `outputDelta`/`progress` trio handled by `mapDeltaNotification`. Returns
+ * `null` for any method that carries consumer-specific bookkeeping (turn
+ * lifecycle, item start/complete, errors) — those stay local to each consumer.
+ */
+export function classifyNotification(
+  method: string,
+  params: unknown
+): UnifiedSessionEvent[] | null {
+  switch (method) {
+    case 'item/agentMessage/delta': {
+      const deltaParams = params as AgentMessageDeltaNotification
+      return [
+        {
+          type: 'message_update',
+          messageId: deltaParams.itemId,
+          textDelta: deltaParams.delta,
+          payload: deltaParams,
+        },
+      ]
+    }
+    case 'item/commandExecution/outputDelta':
+    case 'item/fileChange/outputDelta':
+    case 'item/mcpToolCall/progress': {
+      const event = mapDeltaNotification(
+        method,
+        params as
+          | CommandExecutionOutputDeltaNotification
+          | FileChangeOutputDeltaNotification
+          | McpToolCallProgressNotification
+      )
+      return event ? [event] : []
     }
     default:
       return null

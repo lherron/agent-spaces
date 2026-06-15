@@ -53,6 +53,7 @@ import {
   optionalBoolean,
   optionalEnum,
   optionalNumber,
+  optionalNumberOrNull,
   optionalString,
   optionalStringArray,
   requireArray,
@@ -304,11 +305,7 @@ export function validateInvocationStartRequest(value: unknown): InvocationStartR
   if (!request) {
     issues.push(makeIssue('', 'invalid_type', 'Invocation start request must be an object'))
   } else {
-    validateSpec(request.spec, issues, 'spec')
-    if (request.initialInput !== undefined) {
-      validateInvocationInputShape(request.initialInput, 'initialInput', issues)
-    }
-    rejectStaleStartRequestRuntime(request, '', issues)
+    validateStartRequestBody(request, '', issues)
   }
   if (issues.length > 0) {
     throw new InvocationStartRequestValidationError(issues)
@@ -684,16 +681,7 @@ function validateInvocationDispatchRequestShape(
       makeIssue(joinPath(basePath, 'startRequest'), 'required', 'startRequest is required')
     )
   } else {
-    const startPath = joinPath(basePath, 'startRequest')
-    validateSpec(startRequest.spec, issues, joinPath(startPath, 'spec'))
-    if (startRequest.initialInput !== undefined) {
-      validateInvocationInputShape(
-        startRequest.initialInput,
-        joinPath(startPath, 'initialInput'),
-        issues
-      )
-    }
-    rejectStaleStartRequestRuntime(startRequest, startPath, issues)
+    validateStartRequestBody(startRequest, joinPath(basePath, 'startRequest'), issues)
   }
 
   const specRecord = asRecord(startRequest?.spec)
@@ -1242,6 +1230,26 @@ function validateTerminalSurfaceLease(
   return ok
 }
 
+/**
+ * Validate the body of an invocation start request: a spec, an optional
+ * initialInput, and the absence of any stale runtime/lifecycle overlay. Used by
+ * both the top-level start-request validator (basePath `''`) and the nested
+ * `startRequest` field of a dispatch request (basePath `'…startRequest'`). All
+ * issue paths are derived from `basePath` so the two callers produce identical
+ * {@link ValidationIssue.path} strings.
+ */
+function validateStartRequestBody(
+  record: Record<string, unknown>,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  validateSpec(record['spec'], issues, joinPath(basePath, 'spec'))
+  if (record['initialInput'] !== undefined) {
+    validateInvocationInputShape(record['initialInput'], joinPath(basePath, 'initialInput'), issues)
+  }
+  rejectStaleStartRequestRuntime(record, basePath, issues)
+}
+
 function rejectStaleStartRequestRuntime(
   startRequest: Record<string, unknown>,
   startPath: string,
@@ -1364,9 +1372,7 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
       issues,
       true
     )
-    if (payload['exitCode'] !== null) {
-      optionalNumber(payload['exitCode'], 'payload.exitCode', issues)
-    }
+    optionalNumberOrNull(payload['exitCode'], 'payload.exitCode', issues)
     optionalString(payload['signal'], 'payload.signal', issues)
   },
   'harness.recovery.started': (payload, issues) => {
@@ -1682,9 +1688,8 @@ function validateEnv(
     issues.push(makeIssue(basePath, 'invalid_type', `${channel} must be an object`))
     return
   }
-  const lockedEnvKeys = new Set(
-    asRecord(lockedEnv) ? Object.keys(asRecord(lockedEnv) as SchemaRecord) : []
-  )
+  const lockedRecord = asRecord(lockedEnv)
+  const lockedEnvKeys = new Set(lockedRecord ? Object.keys(lockedRecord) : [])
   for (const [key, envValue] of Object.entries(record)) {
     const envPath = joinPath(basePath, key)
     if (!ENV_KEY_PATTERN.test(key)) {

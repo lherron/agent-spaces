@@ -1,134 +1,96 @@
-# Refactor analysis — `cli-kit`
+# 🔧 Refactoring Analysis — cli-kit
 
-**Package:** `cli-kit` (`packages/cli-kit`)
-**Type:** leaf library (published, cross-repo)
-**Source:** `src/index.ts` (191 LOC) + `src/index.test.ts` (204 LOC). No other source files.
-**Date:** 2026-06-08
-**Verdict:** **CLEAN — 0 internal-only applicable findings.** The two prior passes (T-02028,
-T-02030) already landed here; their fingerprints are the justification comments on the overloads,
-the type guard, and the `formatErrorLine`/`readBody` extractions. Tests pass 18/18. One Low /
-public-surface nit is deferred (carried from the prior pass, still valid).
+**Target:** cli-kit  ·  **Files read:** 2 (1 source + 1 test)  ·  **Lines:** 197 (src) + 205 (test)
+**Generated:** 2026-06-14  ·  **Package type:** leaf (pure helpers, single dependency: commander)
 
-## packageType
-`leaf` — pure helpers/validators, no concurrency, no perf-critical paths, no internal state. The
-mechanism lens is tuned to boundary (T07/M02) + de-abstraction (T16) + partial→total (T17), which is
-where a small published utility kit is most likely to drift.
+## 🧭 Summary
 
-## Public boundary verdict — the load-bearing observation
-cli-kit exports **12 public symbols**: `CliUsageError`, `BuildDeps<D>`, `attachJsonOption`,
-`attachServerOption`, `attachActorOption`, `repeatable`, `withDeps`, `parseDuration`,
-`parseJsonObject`, `parseCommaList`, `parseIntegerValue`, `consumeBody`, `exitWithError`.
+A small, single-file leaf utility (`src/index.ts`) of Commander option-attachers, CLI value
+validators, a dependency-injection wrapper, and an error-exit envelope. The internal structure is
+already in good shape — it was clearly refactored once (named constants `DURATION_UNIT_MS`,
+`STDIN_SENTINEL`; extracted helpers `formatErrorLine`/`readBody`; honest overloads on `repeatable`;
+injected I/O seams). The highest-leverage observation is at the **public boundary**: the package
+exports 13 symbols, but a full cross-repo scan (agent-spaces + hrc-runtime) shows **6 functions and 1
+type have zero import sites anywhere**. The fat surface is the dominant finding; internals are nearly
+spotless.
 
-The only in-tree consumer (`packages/cli`, 8 files) imports exactly **two**: `CliUsageError` and
-`exitWithError`. The other 10 exports have **zero importers anywhere in this repo**.
+## 🚪 Public boundary (assess first)
 
-On a normal internal module this is a textbook **T16 (collapse premature abstraction)** /
-**T07 (narrow fat interface to actual usage)** finding — delete the unused 10.
+- **API surface (exported):** `BuildDeps<D>` (type), `CliUsageError`, `attachJsonOption`,
+  `attachServerOption`, `attachActorOption`, `repeatable`, `withDeps`, `parseDuration`,
+  `parseJsonObject`, `parseCommaList`, `parseIntegerValue`, `consumeBody`, `exitWithError`.
+- **Actual usage (grepped import sites across agent-spaces/packages + hrc-runtime/packages, excluding `dist/` and `*.test.*`):**
+  - **Used:** `CliUsageError` (41+17), `exitWithError` (17+2), `parseDuration` (0+3),
+    `consumeBody` (0+2), `parseIntegerValue` (0+1), `attachJsonOption` (0+1).
+  - **Zero import sites in either repo:** `attachServerOption`, `attachActorOption`, `repeatable`,
+    `withDeps`, `parseJsonObject`, `parseCommaList`, and the `BuildDeps<D>` type
+    (`BuildDeps` is only referenced internally as `withDeps`' second parameter type — it leaves no
+    independent reason to be exported once `withDeps` goes).
+- **Findings:** The surface is **fatter than its usage** (T07). It is a *published* package
+  (`version 0.1.1`, ships `dist/`), so unknown external consumers may exist (Hyrum's Law) — every
+  removal is a public-contract change that must go through **Expand/Contract [M02]**, not a direct
+  delete.
+- **Verdict:** 🟡 needs care — internals sound, but ~half the exported functions are dead within the
+  known consumer set and should be deprecated/contracted deliberately.
 
-**It is NOT auto-applicable here, and the contraindication is decisive:**
-- `package.json` declares `version: 0.1.1`, a `dist` artifact, `prepack`/`postpack`, and the
-  `strip-bun-exports` step — this is a *published* package, not an internal helper.
-- It is wired into the verdaccio dev-publish loop: `scripts/publish-local-verdaccio.ts` and
-  `scripts/smoke-pack-cross-repo.ts` both list `packages/cli-kit`.
-- Per the repo-split (2026-05-18), `hrc-runtime` and `agent-control-plane` are *separate repos* that
-  consume ASP packages via verdaccio. Their source is not in this tree, so "no importer here" does
-  **not** mean "no importer." The 10 currently-unused-in-`cli` exports are a **deliberate published
-  surface** for out-of-tree consumers.
+## 🎯 Findings by mechanism (outside-in, highest impact first)
 
-Trimming them would be a breaking `M02 contract change` justified by an incomplete view of the
-consumer graph — exactly the false positive the brief warns against. **Leave the surface intact**
-(surfaced as a deferred public-surface note so a human with the full consumer inventory can decide).
+### 1. Six exported functions + one exported type have no callers in either repo — [T07] Align interface to actual usage / [M02] Expand-Contract
+- **Location:** `src/index.ts:4` (`BuildDeps`), `:17` (`attachServerOption`), `:24` (`attachActorOption`), `:31-39` (`repeatable`), `:41-54` (`withDeps`), `:83-96` (`parseJsonObject`), `:98-109` (`parseCommaList`)
+- **Mechanism repaired:** A public surface wider than its real usage. Every export is a contract the maintainer must keep working under Hyrum's Law; unused exports are pure carrying cost (they constrain future change, inflate the `.d.ts`, and invite speculative coupling). Narrowing the interface to actual usage shrinks the supported contract.
+- **Symptom that flagged it:** Cross-repo import scan returns 0 import sites for each of these 7 symbols across both `agent-spaces` and `hrc-runtime` (the cli package even ships its own local `collect` instead of importing `repeatable`).
+- **Current → Suggested:** Run **Expand/Contract**: (1) annotate each with `@deprecated` in a release, (2) confirm no external consumer surfaces, (3) remove. Do NOT bulk-delete now — this is a published package and there may be downstream consumers not in these two repos.
+- **Direction:** remove (via deprecate-then-contract)
+- **Preservation:** test-suite + observational-equivalence across the *known* consumer set — removing a symbol with no import site cannot change observable behavior of any caller in-repo. The risk is purely unknown external callers, which Expand/Contract is designed to flush out.
+- **Falsifiable signal:** After deprecation window, a clean `grep -r "import .* from 'cli-kit'"` across all known consumers (and any published-package telemetry / downstream repos) shows none of the 7 symbols; the cli-kit test suite for the removed symbols is deleted alongside them; `tsc` of all consumers stays green.
+- **Risk:** Med  ·  **API-impact:** public-surface  ·  **Effort:** S to deprecate, S to contract (small, self-contained functions)
+- **Tests:** `index.test.ts` currently covers `attachServerOption`, `repeatable`, `withDeps`, `parseJsonObject`, `parseCommaList` — these char-tests are removed in the contract step, not before.
+- **Contraindication:** If product intent is for cli-kit to be a *general* reusable CLI toolkit published for arbitrary downstream CLIs, some of these (e.g. `attachServerOption`, `parseJsonObject`) are deliberate library affordances kept ahead of demand. Confirm intent before contracting — this is exactly the "an unused seam can be a deliberate option" caveat. Treat removal as a deliberate scope decision, not an auto-apply.
 
-The shape of the public API is otherwise sound: small, orthogonal functions; every validator takes
-the flag name first for uniform error messages; the `(opts, deps={})` injected-seam convention is
-consistent across `consumeBody` and `exitWithError`.
+### 2. `withDeps` documents Commander's positional/Command argv convention in prose — [T15] Extract missing abstraction (minor)
+- **Location:** `src/index.ts:45-52`
+- **Mechanism repaired:** The "last argv element is the `Command`, preceding are positionals" convention is an implicit Commander contract reconstructed by hand. It is currently the *only* place this knowledge lives, so there is no duplication to dedup — naming it would only help *if* a second site needed the same decode.
+- **Symptom that flagged it:** `args.at(-1) as Command` + `args.slice(0, -1) as string[]` casts encode a structural assumption in comments rather than a type.
+- **Current → Suggested:** Leave as-is. There is a single instance and the comment is accurate; extracting a `splitCommanderArgs` helper would add indirection without a second caller. Recorded only to show it was considered and rejected.
+- **Direction:** (none — left alone)
+- **Preservation:** n/a
+- **Falsifiable signal:** A second function in this file (or a consumer) reconstructs the same `args.at(-1)`/`slice(0,-1)` decode → then extract. Until then, do not.
+- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** n/a
+- **Tests:** n/a
+- **Contraindication:** Single instance → extracting now is premature abstraction (T16 in reverse). Where-NOT applies.
 
-## Findings by mechanism
+### 3. Two `as` casts in `repeatable`/`withDeps` are load-bearing, not removable — (analysis note, no change)
+- **Location:** `src/index.ts:38` (`value as unknown as T`), `:49-50` (`args.at(-1) as Command`)
+- **Mechanism repaired:** None needed. The `value as unknown as T` is reached *only* on the no-parser overload where the public signature already pins `T = string` (the overload at `:31` makes the cast sound at the boundary); the comment at `:28-30` correctly explains this. The `withDeps` casts reflect Commander's untyped variadic action signature, which has no safer typed form.
+- **Symptom that flagged it:** Raw `as` casts often signal an interface misaligned with usage (T07).
+- **Current → Suggested:** Leave. These are the minimal casts at an inherently-untyped third-party boundary; the overloads + guard (`isPlainObject` at `:79`) already do the real type work.
+- **Direction:** (none — left alone)
+- **Preservation:** type/compiler-proof — overloads constrain the only reachable callers.
+- **Falsifiable signal:** A way to type Commander's action callback without `as` (e.g. a generic Commander overload) appears upstream → revisit.
+- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** n/a
+- **Contraindication:** Removing the cast would require weakening the honest overloads — a net loss. Where-NOT applies.
 
-No internal-only applicable findings. Every mechanism was walked and pressure-tested; results below.
+## 🪶 Deliberately left alone (where-NOT)
 
-- **A — Make-safe [T40]:** Characterization already strong. `index.test.ts` covers every export,
-  both `exitWithError` exit codes, the JSON envelope, the injected `write`/`exit` and `readFile`
-  seams (no global `process` mutation), and a bun-commander smoke. No gap to backfill — and there is
-  no churn to gate.
-- **B — Boundary [T07/M02]:** See verdict above. Fat-looking but the width is intentional published
-  surface. Narrowing deferred, not applied.
-- **C — Seams/structure [T01/T16/T15/T03/T19]:**
-  - T01: substitution seams already present and injected (`deps.readFile`, `deps.write`,
-    `deps.exit`, `buildDeps`). No `new Concrete()`/singleton/static buried in logic.
-  - T16 (de-abstract): the `repeatable` overload set is two overloads + one impl resolving a real
-    typing problem (no-parser ⇒ `string`, parser ⇒ its return type) — it removes an `as T` cast, so
-    it is *earning* its structure, not premature. `BuildDeps<D> = () => D` is a one-line named alias
-    used in `withDeps`'s signature; trivial but it documents intent at the published boundary —
-    inlining it is a lateral move with no behavior or clarity gain. Leave both.
-  - T15 (extract abstraction): magic numbers already named (`EXIT_CODE_USAGE`/`EXIT_CODE_INTERNAL`,
-    `DURATION_UNIT_MS`); the duration regex is derived from the unit table, not duplicated. (The
-    one remaining inline literals — `'-'` / `'/dev/stdin'` in `consumeBody` — are the deferred nit.)
-  - T03 (cohesion): single file, three cohesive clusters (commander attachers / validators / error
-    envelope). Splitting into modules would only add a barrel; not worth it at 191 LOC.
-  - T19 (conditional↔dispatch): no growing type/enum switch. `consumeBody`'s file/`-`/positional
-    branch is a fixed 3-way, not a per-feature-growing arm.
-- **D — Invariants [T12/T10/T17]:**
-  - T17 (partial→total): the two `as` casts (`index.ts:38` `value as unknown as T`,
-    `index.ts:71` `DURATION_UNIT_MS[match[2]] as number`) are **not** unsafe partial overrides — the
-    first is reachable only on the no-parser overload where `T = string`, the second is guarded by
-    the regex alternation that produced `match[2]`. Both are documented. Keeping them explicit is
-    correct; "totalizing" further would add dead runtime branches for can't-happen states.
-  - T10/T12: no boolean soup, no "must call X first" ordering, no illegal-state struct.
-- **E — Quality [T18/T23/T22/T21]:**
-  - T18 (error handling): both `catch` blocks (`parseJsonObject`, `readBody`) **rethrow** as
-    `CliUsageError` with a clearer message — translation, not swallowing. `exitWithError` maps
-    `CliUsageError → exit 2` vs `else → exit 1` cleanly. Nothing to restructure.
-  - T23 (middle man): no delegating-only class or `a.b().c().d()` chain. `formatErrorLine` is a real
-    extraction (formatting decoupled from exit orchestration), not a pass-through.
-  - T22 (nesting): max nesting is 2 (guard-clause style throughout). Nothing ≥4.
-  - T21 (parameter object): widest param list is `exitWithError(err, opts, deps)` at 3, with `opts`
-    and `deps` already grouped as objects. No clump to reify.
+- **`DURATION_UNIT_MS` lookup `as number` (`:71`)** — the regex alternation at `:62` is *built from* `Object.keys(DURATION_UNIT_MS)`, so `match[2]` is provably a key. The cast is a TS-completeness wart, not a real partiality (T17 contra: the "can't happen" branch genuinely can't happen because the regex and the map share one source of truth). A `?? unreachable()` would add code without changing behavior.
+- **`isPlainObject` guard (`:79-81`)** — a real reachable runtime check feeding a user-defined type guard; this is correct invariant-at-the-boundary work, not a candidate for collapse (T12 done right).
+- **Injected `readFile`/`write`/`exit` seams (`:130`, `:185-188`)** — these substitution seams (T01) are already present and exercised by the tests via `captureExit`/injected `readFile`. No `new Concrete()`/singleton/static-in-logic smell remains; nothing to introduce or isolate.
+- **`formatErrorLine` / `readBody` extractions (`:149`, `:169`)** — already extracted along correct cohesion lines (formatting vs. orchestration; I/O-wrap vs. policy). No T23 middle-man (each does real work), no further T03 relocation warranted in a single-file leaf.
+- **`EXIT_CODE_USAGE`/`EXIT_CODE_INTERNAL` magic numbers (`:162-163`)** — already named constants; the earlier magic-number smell is fixed.
+- **No T19/T22/T21 findings** — there is no growing type/enum switch, no nesting ≥4 (every function uses guard clauses already), and no param list >4 or data clump (the `{min}` and `{json,binName}` option objects are already whole-values). These mechanisms simply do not apply here.
 
-## Deferred (public-surface) findings
+## 🔭 If applying: outside-in sequence
 
-### D1. `consumeBody` inlines the stdin sentinel `'-'` and path `'/dev/stdin'`
-- **Location:** `packages/cli-kit/src/index.ts:132-133`
-- **Mechanism:** T15 (extract missing abstraction — name the magic strings as
-  `STDIN_SENTINEL = '-'` / `STDIN_PATH = '/dev/stdin'` module constants).
-- **Direction:** extract two named constants; behavior-preserving.
-- **Preservation:** identical control flow and string values; existing tests
-  (`consumeBody reads stdin for a "-" positional`) already pin the `/dev/stdin` read and the `'-'`
-  trigger, so a regression would fail the suite.
-- **Risk:** Low. **apiImpact:** public-surface.
-- **Why deferred:** `consumeBody` is an exported function and the `'-'`-means-stdin semantics are
-  part of the observable CLI contract consumers rely on. Pure constant-extraction does not change
-  behavior, but any touch to this exported surface should be reviewed against the (cross-repo)
-  consuming CLIs rather than auto-applied. Net win is readability only — low urgency.
-- **Contraindication considered:** none blocking the extraction itself; deferral is purely the
-  public-surface review gate.
+1. **Confirm package scope intent first** (product/strategy call): is cli-kit an *internal* shared helper or a *general published toolkit*? This single decision gates Finding 1. Do not auto-apply; route to the human.
+2. If internal-only: open the **Expand/Contract** for Finding 1 — deprecate the 7 zero-caller symbols (`attachServerOption`, `attachActorOption`, `repeatable`, `withDeps`, `parseJsonObject`, `parseCommaList`, `BuildDeps`), publish, observe, then contract (remove symbol + its char-tests together).
+3. Re-run `tsc --noEmit` for cli-kit and every consumer; re-run cli-kit `bun test`.
+4. No internal-only auto-applicable refactors remain — internals are already clean.
 
-### D2. 10 exports are unused by the only in-tree consumer (potential T07/T16 narrowing)
-- **Location:** `packages/cli-kit/src/index.ts` (whole public surface; see boundary verdict).
-- **Mechanism:** T07 (narrow interface to actual usage) / T16 (collapse premature abstraction) —
-  *candidate only*.
-- **Direction:** would remove `attachJsonOption`, `attachServerOption`, `attachActorOption`,
-  `repeatable`, `withDeps`, `BuildDeps`, `parseDuration`, `parseJsonObject`, `parseCommaList`,
-  `parseIntegerValue`, `consumeBody` if confirmed dead globally.
-- **Preservation:** would be behavior-changing for out-of-tree consumers — this is **M02 contract
-  contraction**, i.e. a breaking change, not a behavior-preserving refactor.
-- **Risk:** High. **apiImpact:** public-surface.
-- **Why deferred / DO NOT APPLY:** cli-kit is published via verdaccio and consumed by separate
-  repos (hrc-runtime, agent-control-plane) not present in this tree. The "unused" signal is an
-  artifact of single-repo visibility. Removing the surface requires a confirmed cross-repo consumer
-  inventory; a human must make that call. **Recommendation: keep as-is** unless that inventory comes
-  back empty.
+## ✅ Safety checklist
 
-## Deliberately left alone (with reason)
-| Item | Why not touched |
-|---|---|
-| 10 exports unused by in-tree `cli` | Published cross-repo surface (verdaccio); out-of-tree consumers. Trimming = breaking M02 on incomplete consumer view. (Surfaced as D2.) |
-| `BuildDeps<D>` one-line alias | Documents intent at the published boundary; inlining is lateral, no gain. |
-| `repeatable` overload triple | Earns its structure — removes an `as T` cast; collapsing it reintroduces unsoundness. |
-| `index.ts:38` / `index.ts:71` casts | Reachable-state-correct and already documented; "totalizing" adds dead can't-happen branches. |
-| Single-file layout | 191 LOC, 3 cohesive clusters; splitting only adds a barrel. |
-
-## Outside-in apply sequence
-**None auto-applicable.** Both findings are public-surface and routed to the user (D1 Low, D2 High).
-If a human approves D1, it is a self-contained 2-constant extraction with existing test coverage. D2
-should not be applied without a cross-repo consumer inventory.
+- [ ] Behavior of in-repo consumers unchanged (only zero-caller symbols touched).
+- [ ] Field sets preserved — no spread/projection changes in this package (none present).
+- [ ] No new biome lint (no literal-parameterization dedup performed; existing `as number` left as-is).
+- [ ] Expand/Contract used for every public-surface change; nothing public deleted in one step.
+- [ ] cli-kit `bun test` green; consumers' `tsc --noEmit` green.
+- [ ] Package-scope intent confirmed with owner before contracting (Finding 1 contraindication).

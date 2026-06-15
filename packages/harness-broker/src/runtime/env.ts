@@ -8,6 +8,12 @@ import {
 } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
 
+declare const dispatchEnvBrand: unique symbol
+
+export type DispatchEnv = Readonly<Record<string, string>> & {
+  readonly [dispatchEnvBrand]: true
+}
+
 /**
  * The broker spawn environment is a VALIDATED DISJOINT UNION of four channels:
  *
@@ -35,7 +41,7 @@ import { BrokerError } from '../errors'
 export interface ProcessEnvChannels {
   credentials?: Record<string, string> | undefined
   lockedEnv?: Record<string, string> | undefined
-  dispatchEnv?: Record<string, string> | undefined
+  dispatchEnv?: DispatchEnv | undefined
   /**
    * Ordered directories prepended to the FINAL composed PATH (from
    * `spec.process.pathPrepend`). Applied AFTER the four-channel disjoint-union
@@ -46,6 +52,79 @@ export interface ProcessEnvChannels {
 }
 
 type ChannelName = 'credentials' | 'lockedEnv' | 'dispatchEnv'
+
+export function parseDispatchEnv(
+  input: unknown,
+  lockedEnv?: Record<string, string> | undefined
+): DispatchEnv | undefined {
+  if (input === undefined) {
+    return undefined
+  }
+  if (!isPlainRecord(input)) {
+    throw new BrokerError(
+      BrokerErrorCode.DispatchValidationFailed,
+      'dispatchEnv must be a plain object'
+    )
+  }
+
+  const lockedKeys = new Set(Object.keys(lockedEnv ?? {}))
+  const parsed: Record<string, string> = {}
+  for (const [key, value] of Object.entries(input)) {
+    if (!ENV_KEY_PATTERN.test(key)) {
+      throw new BrokerError(
+        BrokerErrorCode.DispatchValidationFailed,
+        `dispatchEnv key must match ${String(ENV_KEY_PATTERN)}: ${key}`,
+        { key }
+      )
+    }
+    if (isAmbientEnvKey(key)) {
+      throw new BrokerError(
+        BrokerErrorCode.DispatchValidationFailed,
+        `dispatchEnv key conflicts with ambient env: ${key}`,
+        { key }
+      )
+    }
+    if (isCredentialEnvKey(key)) {
+      throw new BrokerError(
+        BrokerErrorCode.DispatchValidationFailed,
+        `dispatchEnv key conflicts with credential env: ${key}`,
+        { key }
+      )
+    }
+    if (isReservedEnvKey(key)) {
+      throw new BrokerError(
+        BrokerErrorCode.DispatchValidationFailed,
+        `dispatchEnv key is reserved: ${key}`,
+        { key }
+      )
+    }
+    if (lockedKeys.has(key)) {
+      throw new BrokerError(
+        BrokerErrorCode.DispatchValidationFailed,
+        `dispatchEnv must not shadow lockedEnv: ${key}`,
+        { key }
+      )
+    }
+    if (typeof value !== 'string') {
+      throw new BrokerError(
+        BrokerErrorCode.DispatchValidationFailed,
+        `dispatchEnv value must be a string: ${key}`,
+        { key }
+      )
+    }
+    parsed[key] = value
+  }
+
+  return Object.freeze(parsed) as DispatchEnv
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
 
 export function buildProcessEnv(channels: ProcessEnvChannels): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}

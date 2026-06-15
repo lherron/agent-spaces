@@ -17,9 +17,14 @@ import { type CommonOptions, exitWithAspError, getProjectContext } from '../help
 const WARNING_CODE_LOCK_MISSING = 'W101'
 
 /**
- * Lint warning structure.
+ * CLI-local lint row.
+ *
+ * Distinct from the canonical `LintWarning` (spaces-config): this adds a
+ * `target` column and deliberately widens `severity` to `string` to carry the
+ * synthetic 'info' W101 lock warning. Renamed from `LintWarning` so the
+ * divergence from the upstream type is intentional and visible, not a shadow.
  */
-interface LintWarning {
+interface LintRow {
   target: string
   code: string
   message: string
@@ -31,7 +36,7 @@ interface LintWarning {
 /**
  * Check for missing lock file and return warning if applicable.
  */
-async function checkLockFile(projectPath: string): Promise<LintWarning | null> {
+async function checkLockFile(projectPath: string): Promise<LintRow | null> {
   const lockPath = join(projectPath, LOCK_FILENAME)
   const hasLock = await lockFileExists(lockPath)
 
@@ -57,7 +62,7 @@ async function collectExplainWarnings(
     registry?: string | undefined
     target?: string | undefined
   }
-): Promise<LintWarning[]> {
+): Promise<LintRow[]> {
   const lockPath = join(projectPath, LOCK_FILENAME)
   const hasLock = await lockFileExists(lockPath)
 
@@ -74,7 +79,7 @@ async function collectExplainWarnings(
     runLint: true,
   })
 
-  const warnings: LintWarning[] = []
+  const warnings: LintRow[] = []
   for (const [targetName, explanation] of Object.entries(result.targets)) {
     for (const warning of explanation.warnings) {
       warnings.push({
@@ -94,7 +99,7 @@ async function collectExplainWarnings(
 /**
  * Format and output warnings as text.
  */
-function outputWarningsText(warnings: LintWarning[]): void {
+function outputWarningsText(warnings: LintRow[]): void {
   if (warnings.length === 0) {
     console.log(chalk.green('No warnings found'))
     return
@@ -137,7 +142,7 @@ export function registerLintCommand(program: Command): void {
     .action(async (target: string | undefined, options: CommonOptions) => {
       try {
         const ctx = await getProjectContext(options)
-        const allWarnings: LintWarning[] = []
+        const allWarnings: LintRow[] = []
 
         // Check for missing lock file
         const lockWarning = await checkLockFile(ctx.projectPath)

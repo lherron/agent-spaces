@@ -1,134 +1,124 @@
-# SOLID / code-smell audit — `packages/cli/` (`@lherron/agent-spaces`)
+# 🔧 Refactoring Analysis — @lherron/agent-spaces (CLI)
 
-Audited every non-test source file under `packages/cli/src/`. The package was
-recently put through a SOLID/code-smell cleanup pass (commit e238805), so the
-bulk of it is already in good shape: long handlers are split into named private
-helpers, the run-option literals are spread from a single `buildCommonRunOptions`,
-harness validation / setting-source / scope-target resolution are centralized,
-and the memory subcommands share a `withMemoryStore`/`withMemoryCommand` scaffold.
+**Target:** packages/cli/src  ·  **Files read:** 56 source (non-test)  ·  **Lines:** ~6,000 (9,651 incl. tests)
+**Generated:** 2026-06-14  ·  **Package type:** leaf (thin Commander argument-parsing layer delegating to engine/spaces-* packages)
 
-The findings below are the residual smells — mostly cross-file duplication that
-the cleanup pass did not consolidate, plus a handful of magic numbers/strings and
-dead local aliases. None are structural. The single largest file
-(`commands/repo/manager-space-content.ts`, 1425 lines) is entirely embedded
-markdown/TOML content strings with one trivial accessor — no logic to refactor.
+## 🧭 Summary
+The CLI is a well-decomposed Commander tree: one `register*Command` per file, centralized via `command-registry.ts`, with prior refactor passes already having hoisted the high-frequency duplications (`resolvePaths`, `getProjectContext`, `validateHarness`, `buildCommonRunOptions`, `buildSettingSources`, the memory `withMemory*` scaffolds). The remaining findings are second-order: a registry-existence invariant re-implemented 7 ways across the `repo`/`spaces` families, an error-handling protocol split (some commands route through `exitWithAspError`, others hand-roll `console.error(chalk.red)`+`process.exit(1)`), and a few genuinely duplicated helpers (`inferTargetFromBundleRoot`, per-space dist-tags read). The public boundary is narrow and sound.
 
----
+## 🚪 Public boundary (assess first)
+- **API surface (src):** `index.ts` exports `main()` and re-exports `findProjectRoot`. Everything else is reached through `bin/asp.js` → `main()`. The package.json `exports` map (`./core`, `./resolver`, `./store`, …) points at prepack-generated `.js` shims that re-export the bundled `spaces-*` deps — they are **not** authored under `src/` and are out of scope for source refactoring here.
+- **Findings:** No T07/M02 issues. `main()` and `findProjectRoot()` are minimal and match their callers. The deep import surface is the per-command `register*` functions, all consumed only by `command-registry.ts` (internal).
+- **Verdict:** 🟢 sound — the observable surface is `asp <cmd>` CLI behavior (stdout/stderr/exit codes), not a TS API. Refactors below must preserve that observable contract; they do not touch `index.ts`.
 
-## Duplicated `formatBytes` helper across two gc commands
-- File: packages/cli/src/commands/gc.ts:80
-- Risk: Low
-- API-impact: internal-only
-- Smell: `formatBytes` (the `units`/`1024` loop) is duplicated byte-for-byte in `commands/gc.ts:80` and `commands/repo/gc.ts:90`.
-- Proposed change: Hoist a single `formatBytes` into `helpers.ts` (or `ui.ts`) and import it in both gc commands; delete the two local copies.
+## 🎯 Findings by mechanism (outside-in, highest impact first)
 
-## Duplicated registry-existence + dist-tags reads across repo/spaces commands
-- File: packages/cli/src/commands/repo/status.ts:33
-- Risk: Med
-- API-impact: internal-only
-- Smell: The `Bun.file(`${repoPath}/.git/HEAD`).exists()` registry guard appears in `repo/status.ts:33`, `repo/tags.ts:121`, `repo/publish.ts:33`, `repo/gc.ts:32` (via `stat`), `spaces/list.ts:32`, and `spaces/init.ts:107`. A near-identical `loadDistTags` reading `registry/dist-tags.json` is copy-pasted in `repo/status.ts:59`, `repo/tags.ts:63`, and `spaces/list.ts:40`.
-- Proposed change: Extract `registryExists(repoPath)` and `loadDistTags(repoPath)` into one shared module (e.g. `commands/repo/registry-fs.ts`) and route all callers through it. Keep each command's bespoke error message at the call site (behavior-preserving) since the messages differ slightly.
+### 1. Registry-existence invariant re-implemented 7 ways — [T15] Extract missing abstraction + [T18] Restructure error handling
+- **Location:** `commands/repo/status.ts:34`, `commands/repo/gc.ts:32`, `commands/repo/publish.ts:33`, `commands/repo/tags.ts:121`, `commands/repo/init.ts:136`, `commands/repo/new-space.ts:42`, `commands/spaces/init.ts:45`, `commands/spaces/list.ts:33`
+- **Mechanism repaired:** one domain invariant ("the registry is an initialized git repo, detected by `.git/HEAD`") has no single name; each call site re-encodes the path string `${repo}/.git/HEAD` AND independently chooses its failure protocol. Four files define a private `ensureRegistryExists` with three *different* contracts: `status.ts`/`gc.ts` throw-or-`process.exit`, `publish.ts` throws `Error`, `list.ts` returns `boolean`. The concept should be named once (e.g. `registryExists(repoPath)` predicate in `repo/registry-fs.ts`, alongside the existing `loadAllDistTags`).
+- **Symptom that flagged it:** 7 copies of the `.git/HEAD` literal; 4 same-named functions with divergent return types/side-effects.
+- **Current → Suggested:** add `export async function registryExists(repoPath: string): Promise<boolean>` to `registry-fs.ts`; have each site call it and keep its own message/exit so observable output is byte-identical. Do NOT unify the *messages* (they differ deliberately: "Registry not initialized" vs "No registry found" vs "No registry found. Run …").
+- **Direction:** relocate (the predicate) — keep per-site error text where it is.
+- **Preservation:** test-suite — exit codes and stderr text unchanged per site; only the existence check is factored. `repo/__tests__/new-space.test.ts` + `commands/self/__tests__` exercise these paths.
+- **Falsifiable signal:** snapshot each command's stderr+exit on a missing registry before/after; must match exactly.
+- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** S
+- **Tests:** existing repo/new-space test; add a characterization test asserting stderr text per command on missing `.git/HEAD`.
+- **Contraindication:** do NOT also unify the divergent error *messages* or the throw-vs-exit choice into the helper — that would change observable output and is a redesign, not a refactor. Factor only the boolean detection.
 
-## `inferTargetFromBundleRoot` duplicated between resolve-reminder and self/lib
-- File: packages/cli/src/commands/resolve-reminder.ts:111
-- Risk: Med
-- API-impact: internal-only
-- Smell: `inferTargetFromBundleRoot` exists in both `commands/resolve-reminder.ts:111` and `commands/self/lib.ts:164` with subtly different bodies (the resolve-reminder copy additionally computes `harnessName` only to null-check it). Divergent copies of the same "parse target slug from bundle path" logic risk drifting.
-- Proposed change: Keep the exported `self/lib.ts` version as the single source and import it into `resolve-reminder.ts` (or move both to a shared `bundle-path.ts`). Reconcile the one behavioral difference (harnessName presence check) deliberately rather than by accident.
+### 2. `inferTargetFromBundleRoot` duplicated across two modules — [T15] Extract missing abstraction
+- **Location:** `commands/self/lib.ts:164` and `commands/resolve-reminder.ts:111`
+- **Mechanism repaired:** the bundle-layout→target-slug derivation (walk up from `ASP_PLUGIN_ROOT`/bundle root, take the directory two levels up) is one concept implemented twice with subtly different return contracts (`self/lib.ts` returns `string | null`; `resolve-reminder.ts` returns `string | undefined` and also has the related `inferTargetFromClaudePluginRoot`/`inferTargetFromCodexHome` siblings). The shared core ("target name from a bundle root path") should live once.
+- **Symptom that flagged it:** two functions of the same name + near-identical bodies; one is even imported from `spaces-config` in `agent/index.ts` (`buildRuntimeBundleRef`), suggesting the canonical home may be a shared package.
+- **Current → Suggested:** extract the path-walk into one helper (candidate home: `self/lib.ts`, or better, push down to `spaces-config` since `resolve-reminder` and `agent` already import bundle helpers from there). `resolve-reminder.ts` adapts the `null`↔`undefined` at its boundary.
+- **Direction:** relocate / isolate.
+- **Preservation:** type/compiler-proof for the extraction; the `null`/`undefined` normalization is the only behavioral seam and is mechanical.
+- **Falsifiable signal:** unit-test both bundle-root shapes (`.../bundles/<target>/<harness>` and the codex-home variant) return the same slug pre/post.
+- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** S
+- **Tests:** `context-template-cli.test.ts` covers resolve-reminder; add a direct unit test for the extracted helper.
+- **Contraindication:** confirm the two copies have NOT already diverged in intent (self/lib uses `ASP_PLUGIN_ROOT` directly; resolve-reminder layers Claude/codex env probes on top). Extract only the shared innermost walk, not the env-probe wrappers.
 
-## Agent-profile TOML load duplicated (resolve-reminder vs self/lib)
-- File: packages/cli/src/commands/resolve-reminder.ts:193
-- Risk: Low
-- API-impact: internal-only
-- Smell: The "load `agent-profile.toml` if discovery did not include a rawProfile" fallback (lines 193-204) re-implements the `readAgentProfile` helper already present in `self/lib.ts:228` (existsSync + parseToml + record guard).
-- Proposed change: Export `readAgentProfile` from `self/lib.ts` (or a shared module) and reuse it in `resolve-reminder.ts`; drop the inline `parseToml(readFileSync(...))` block.
+### 3. Per-space dist-tags read bypasses the shared loader — [T23] Remove middle man / collapse pass-through
+- **Location:** `commands/repo/tags.ts:63` (`loadDistTags`) vs `commands/repo/registry-fs.ts:15` (`loadAllDistTags`)
+- **Mechanism repaired:** `registry-fs.ts` was created specifically to be the single reader of `registry/dist-tags.json` (status.ts and spaces/list.ts use it). `tags.ts` still re-reads and re-parses the same file inline, then indexes `allDistTags[spaceId]`. That is exactly `loadAllDistTags(repo)[spaceId] ?? {}`.
+- **Symptom that flagged it:** a second `dist-tags.json` read+`JSON.parse`+`catch→{}` that duplicates the hoisted helper's body.
+- **Current → Suggested:** `tags.ts` calls `loadAllDistTags(paths.repo)` and reads `[spaceId] ?? {}`.
+- **Direction:** remove (the inline copy).
+- **Preservation:** observational-equivalence — both swallow read/parse errors to `{}`; result is identical.
+- **Falsifiable signal:** `asp repo tags <id>` output identical with present/absent/corrupt dist-tags.json.
+- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** XS
+- **Tests:** add a tags-command characterization test (none currently isolates it).
+- **Contraindication:** none — this is the intended consumer of the existing seam.
 
-## Dead local alias + redundant computed var in `inferTargetFromBundleRoot`
-- File: packages/cli/src/commands/resolve-reminder.ts:116
-- Risk: Low
-- API-impact: internal-only
-- Smell: `const harnessDir = bundleRoot` is a pointless rename alias; `const harnessName = harnessDir.split('/').pop()` is computed only to be used in a single null check while `targetName` re-splits the same path again.
-- Proposed change: Inline `bundleRoot` directly, drop the `harnessDir` alias, compute `targetName` once, and collapse the null check.
+### 4. Two-protocol error handling fragments the CLI error contract — [T18] Restructure error handling
+- **Location:** `exitWithAspError` users (`build.ts`, `remove.ts`, `describe.ts`, `lint.ts`, `list.ts`, `diff.ts`, `upgrade.ts`, repo/*, spaces/*) **vs** hand-rolled `console.error(chalk.red(...))`+`process.exit(1)` users (`add.ts:95`, `explain.ts:62`, `gc.ts:68`, `harnesses.ts:144`, plus `printNoProjectError()` in `add.ts`/`explain.ts`)
+- **Mechanism repaired:** there are two competing "report-and-exit" protocols. `helpers.ts` already centralizes the blessed one (`exitWithAspError` → cli-kit, with `--json` awareness and `ProjectNotFoundError` normalization) and even provides `printNoProjectError()` as the chalk-bridge. The four hold-out commands skip it, so their errors are NOT `--json`-aware and don't get AspError cause-flattening (`formatAspErrorCause`).
+- **Symptom that flagged it:** `error instanceof Error ? error.message : String(error)` was already extracted as `errorMessage()`, yet the same commands wrap it in their own `console.error(chalk.red(...))`+`exit(1)` instead of `exitWithAspError`.
+- **Current → Suggested:** migrate the hold-outs to `exitWithAspError(error, options)`. NOTE: this is a **behavior change** for `add`/`explain`/`gc`/`harnesses` — error text routes through cli-kit's `binName: 'asp'` formatter and gains `--json` support (harnesses/gc/explain have no `--json` today, so observable change there is the cli-kit prefix/format only). Treat as redesign → Expand/Contract, not auto-apply.
+- **Direction:** relocate (onto the shared protocol).
+- **Preservation:** char-test — must snapshot current stderr/exit for each hold-out and decide per-command whether the new format is acceptable; routes through M02 because output text is observable (Hyrum's Law: scripts may grep these messages).
+- **Falsifiable signal:** diff stderr of `asp add`/`asp explain`/`asp gc`/`asp harnesses` failure paths before/after.
+- **Risk:** Med  ·  **API-impact:** public-surface (CLI stderr contract)  ·  **Effort:** M
+- **Tests:** characterize each hold-out's error output first; needs human sign-off on the format change.
+- **Contraindication:** `install.ts` deliberately keeps its own ui.ts-based error block (documented in `harness-validator.ts`); do NOT fold install into the chalk/cli-kit path. The chalk hold-outs may likewise be intentional — verify before migrating.
 
-## Inline `error instanceof Error ? .message : String(error)` despite `errorMessage()` existing
-- File: packages/cli/src/commands/explain.ts:62
-- Risk: Low
-- API-impact: internal-only
-- Smell: `helpers.ts` exports `errorMessage()` precisely to kill this idiom, but it is still hand-rolled inline in catch blocks: `explain.ts:62-66`, `gc.ts:67-71`, `add.ts:93-97`, and `self/inspect.ts:60` / `self/paths.ts:78` (`err instanceof Error ? err.message : String(err)`).
-- Proposed change: Replace each inline ternary with `errorMessage(error)`. Behavior-preserving; the produced string is identical.
+### 5. `LintWarning` re-declared locally, shadowing the canonical type — [T15]/[T12] name the concept once
+- **Location:** `commands/lint.ts:22` (local `interface LintWarning`) vs the imported `LintWarning` from `spaces-config` used in `describe.ts:14`
+- **Mechanism repaired:** the lint command defines its own structurally-similar `LintWarning` (adds `target`, makes `severity: string`) instead of extending/importing the canonical one. Two types named identically for the same concept invite drift (e.g. `severity: string` here vs a narrower union upstream).
+- **Symptom that flagged it:** same type name, same domain, two definitions; the local one is hand-mapped field-by-field from `explanation.warnings` at `lint.ts:80`.
+- **Current → Suggested:** import the canonical `LintWarning` and define the CLI-local shape as a derived type (`type ProjectLintWarning = LintWarning & { target: string }`) or alias to avoid name collision.
+- **Direction:** isolate (reuse the canonical type).
+- **Preservation:** type/compiler-proof — the field-by-field map at `:80` already produces the same runtime shape; only the type annotation changes.
+- **Falsifiable signal:** `tsc --noEmit` green; `asp lint --json` output unchanged.
+- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** S
+- **Contraindication:** if the upstream `LintWarning.severity` is a strict union that the CLI deliberately widens to `string` for the `'info'` synthetic W101 lock warning, keep a distinct CLI type but rename it (`LintRow`) so the shadow is intentional and visible.
 
-## Duplicated "No asp-targets.toml found" error block
-- File: packages/cli/src/commands/explain.ts:40
-- Risk: Low
-- API-impact: internal-only
-- Smell: The two-line red+gray "No asp-targets.toml found in current directory or parents / Run this command from a project directory or use --project" block is duplicated verbatim in `explain.ts:41-43` and `add.ts:38-40`; `install.ts:85-87` prints a near-identical variant via the ui helpers.
-- Proposed change: Extract a `printNoProjectError()` (chalk variant) into `helpers.ts` and call it from both chalk-based commands. (Commands that use `getProjectContext` already get this via `ProjectNotFoundError`/`exitWithAspError`; `explain.ts` and `add.ts` are the holdouts doing their own project lookup.)
+### 6. `HUMAN_LABELS` memory-target table duplicated — [T15] Extract missing abstraction
+- **Location:** `commands/self/memory/inspect.ts:18` and `commands/self/memory/paths-cmd.ts:18`
+- **Mechanism repaired:** the memory-target → (scope, zone) label mapping is hard-coded twice with the same three rows (`memory`/`user`/`persona`), once as `{scope, zone}` objects and once as `'scope, zone'` strings. The label taxonomy is one concept.
+- **Symptom that flagged it:** two `HUMAN_LABELS: Record<MemoryTargetName, …>` constants with the same data, different serialization.
+- **Current → Suggested:** define one `MEMORY_TARGET_LABELS` in `memory/lib.ts`; each renderer formats it (object access vs `${scope}, ${zone}`).
+- **Direction:** relocate (into the shared memory lib).
+- **Preservation:** observational-equivalence — rendered strings unchanged.
+- **Falsifiable signal:** `asp self memory inspect` and `… paths` text output identical pre/post.
+- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** XS
+- **Tests:** `self/memory/__tests__/cli.test.ts`.
+- **Contraindication:** `paths-cmd.ts:61-64` ALSO prints a hard-coded plaintext label block "for NO_COLOR mode"; that is a separate literal-for-test-visibility and may be deliberately independent — leave it unless the test asserts a single source.
 
-## `normalizeMainError` and `normalizeCliError` overlap
-- File: packages/cli/src/index.ts:28
-- Risk: Med
-- API-impact: internal-only
-- Smell: `index.ts:28 normalizeMainError` and `helpers.ts:92 normalizeCliError` both contain the same `isAspError(error) && error.cause instanceof Error → new Error(`${msg}\n  Cause: ${cause.message}`)` formatting branch.
-- Proposed change: Have `normalizeMainError` delegate the asp-error-cause formatting to a shared private helper (or fold it into `normalizeCliError` and call that from `index.ts`). Keep the `ProjectNotFoundError` branch exclusive to the helpers path.
+### 7. `gui.ts` rebuilds the run-options object instead of reusing `buildCommonRunOptions` — [T15] Extract missing abstraction
+- **Location:** `commands/gui.ts:46-63` vs `commands/run.ts:80` (`buildCommonRunOptions`)
+- **Mechanism repaired:** `run.ts` already extracted the ~20-field run-options shape into `buildCommonRunOptions(options)` precisely because the mode literals drifted. `gui.ts` hand-builds a near-identical object (same `aspHome`/`registryPath`/`refresh`/`settingSources`/`settings`/`inheritProject`/`inheritUser`/`pagePrompts`/`compileRuntime` fields) plus gui-specific (`harness:'codex'`, `launchSurface`, `interactive:true`). This is a missed reuse of an already-named abstraction.
+- **Symptom that flagged it:** the same field-spread pattern the run.ts WHY-comment warns against, re-appearing in gui.ts.
+- **Current → Suggested:** export `buildCommonRunOptions` from a shared module (e.g. `settings-helper.ts` or a new `run-options.ts`) and have `gui.ts` spread it, overriding only its gui-specific keys. **Caution:** `gui.ts`'s `GuiOptions` is a SUBSET of `RunOptions` (no `extraArgs`/`yolo`/`debug`/`model`/`resume`/etc.), so spreading the full common builder would forward `undefined` for fields gui never had — verify `run()` treats absent vs `undefined` identically before applying (the `{...common, ...guiSpecific}` must not introduce new keys with `undefined` that change `run()` behavior).
+- **Direction:** relocate (share the builder).
+- **Preservation:** test-suite — must confirm the extra forwarded `undefined` keys are inert in `runGui`'s `run()` call; this is the spread/projection hazard called out in the brief.
+- **Falsifiable signal:** `asp gui <agent> --dry-run --print-command` output identical pre/post; assert the compiled spec is unchanged.
+- **Risk:** Med  ·  **API-impact:** internal-only (but feeds the spaces-execution `run()` contract)  ·  **Effort:** M
+- **Tests:** no dedicated gui test exists; add a `--dry-run` characterization first.
+- **Contraindication:** if `run()` distinguishes "key absent" from "key=undefined" (e.g. via `'k' in opts`), do NOT spread — the field sets must stay exactly as today. Verify before extracting.
 
-## Repeated required-option guards in memory subcommands
-- File: packages/cli/src/commands/self/memory/add.ts:33
-- Risk: Low
-- API-impact: internal-only
-- Smell: `if (!options.X) { stderr.write(`${COMMAND_NAME}: --X is required\n`); process.exit(1) }` is repeated for `--target`, `--content`, `--match` across `memory/add.ts:33,39`, `memory/replace.ts:35,41,45`, and `memory/remove.ts:28,34` (6+ identical blocks).
-- Proposed change: Add a `requireOption(commandName, flag, value): asserts value is string` helper to `memory/lib.ts` alongside the existing `validateTarget`; replace the inline blocks. Message text and exit-1 behavior preserved.
+## 🪶 Deliberately left alone (where-NOT)
+- **`helpers.ts` `getStatusIcon`/`getStatusColor` two parallel switches** — they return different types (string vs function) for the same enum; collapsing into one config object is churn with no invariant repaired. The `default`-less exhaustive switches are already T17-total.
+- **`ui.ts` color/symbol palette** — single-purpose presentation constants; the `wrapCommandWithContinuation` regex loop carries a correct scoped `biome-ignore`. No premature abstraction.
+- **`command-registry.ts` `COMMAND_REGISTRARS` array** — clean dispatch table; do not "abstract" further.
+- **Memory `withMemoryCommand`/`withMemoryContext`/`withMemoryStore` ladder** — already the correct seam extraction; the three variants reflect three real needs (no ctx / ctx / ctx+store), not premature generality.
+- **`run.ts` `RunMode` switch + `detectRunMode`** — a genuine, documented priority dispatch with reachable arms; `'invalid'` is handled (T17-total). Leave as dispatch.
+- **`resolve-reminder.ts` `inferTargetFromClaudePluginRoot`/`inferTargetFromCodexHome` wrappers** — env-probe-specific; only the innermost walk overlaps with finding #2. Keep the wrappers local.
+- **Per-command error *messages*** — divergent registry/project error text is load-bearing (different commands guide users differently); do not unify (see #1 contraindication).
+- **`spaces/list.ts ensureRegistryExists` returning `boolean`** — its return-a-flag contract is the right shape for its call site; only the `.git/HEAD` literal (finding #1) should be shared, not the wrapper.
 
-## Magic timeout literal in doctor remote check
-- File: packages/cli/src/commands/doctor.ts:145
-- Risk: Low
-- API-impact: internal-only
-- Smell: `timeout: 10000, // 10 second timeout` — magic number with an explanatory comment, the textbook named-constant case.
-- Proposed change: `const REGISTRY_REMOTE_TIMEOUT_MS = 10_000` at module scope; reference it and drop the comment.
+## 🔭 If applying: outside-in sequence
+1. **#3** (dist-tags pass-through) — XS, zero-risk, pure reuse of an existing seam.
+2. **#1** (registry-exists predicate) — add `registryExists()` to `registry-fs.ts`, swap the 7 literals, keep all per-site messages/exits. Char-test stderr per command first.
+3. **#6** (memory labels) + **#2** (inferTargetFromBundleRoot) — local extractions, compiler-proof.
+4. **#5** (LintWarning type) — type-only, `tsc` gate.
+5. **#7** (gui run-options) — only after verifying the spread/projection field-set is inert; characterize `asp gui --dry-run` first.
+6. **#4** (error-protocol unification) — DEFER to Expand/Contract; needs human sign-off because it alters observable stderr/JSON for `add`/`explain`/`gc`/`harnesses`.
 
-## Repeated commit short-SHA slice length in diff
-- File: packages/cli/src/commands/diff.ts:86
-- Risk: Low
-- API-impact: internal-only
-- Smell: `.commit.slice(0, 12)` (short-SHA display width) is repeated 4 times in `computeDiffChanges` (lines 86, 92, 93, 104).
-- Proposed change: `const SHORT_SHA_LEN = 12` constant (or a tiny `shortSha(commit)` local) referenced in all four spots.
-
-## Experimental-harness set and default-harness string are inline magic literals
-- File: packages/cli/src/commands/harnesses.ts:117
-- Risk: Low
-- API-impact: internal-only
-- Smell: `const experimentalHarnesses = new Set(['codex'])` and `defaultHarness: 'claude'` are inline literals; `'claude'` as the default harness id is also hard-coded in `harness-validator.ts:36` and `install.ts:29`.
-- Proposed change: Introduce a same-package constant for the default harness id (and, if it belongs to the registry, source the "experimental" flag from the adapter rather than a local set). Do NOT change the public default value — pure rename of the literal.
-
-## `asp-targets.toml` filename built as inline literal in some commands
-- File: packages/cli/src/commands/add.ts:44
-- Risk: Low
-- API-impact: internal-only
-- Smell: `${projectPath}/asp-targets.toml` is hand-built in `add.ts:44`, `remove.ts:45`, `diff.ts:183`, `install.ts:120`, `agent/index.ts:58`, while `TARGETS_FILENAME` (from `spaces-config`) is used in `init.ts` and `describe.ts`. Inconsistent — a rename would miss the literal sites.
-- Proposed change: Use `join(projectPath, TARGETS_FILENAME)` everywhere the targets file path is constructed.
-
-## `explainReminder` has two near-identical early-return payloads
-- File: packages/cli/src/commands/self/explain.ts:235
-- Risk: Low
-- API-impact: internal-only
-- Smell: In `explainReminder`, the "no template" (235-246) and "no reminder sections" (248-259) branches each push one finding then return the same `{ topic, templateSource, runModeAssumed, findings }` shape; the per-finding `findings.push({ level, message })` calls are verbose throughout the file.
-- Proposed change: Add tiny local `info(msg)` / `warn(msg)` push helpers (or a `makeReminderPayload(findings, sections?)` closure) to remove the repeated object literals and the duplicated return shape. Purely local, behavior-preserving.
-
-## Redundant `_harness` → re-bind double assignment
-- File: packages/cli/src/commands/run.ts:362
-- Risk: Low
-- API-impact: internal-only
-- Smell: `const _harness = validateOptionalHarness(...); options.harness = _harness` (run.ts:362-363) and `const _harness = validateHarness(...); const harnessId = _harness` (install.ts:77-78) introduce a throwaway `_harness` local that is immediately re-bound — leftover noise from a prior refactor.
-- Proposed change: Assign directly (`options.harness = validateOptionalHarness(options.harness)` / `const harnessId = validateHarness(options.harness)`); drop the `_harness` intermediary.
-
----
-
-## Summary of risk classification
-
-All findings above are **Low** or **Med** risk and **internal-only** — they touch
-private helpers, local variables, inline literals, and same-package constants.
-None change anything exported from the package, any CLI flag, any user-visible
-output string, or any thrown-error contract. There are **no High-risk or
-public-surface findings** to defer.
-
-The package is in good post-refactor shape; these are incremental dedupe/cleanup
-items, not structural problems.
+## ✅ Safety checklist
+- [ ] No edits to `index.ts` / public `main`/`findProjectRoot` surface.
+- [ ] Registry-exists factor keeps each command's exact stderr text and exit code (snapshot before/after).
+- [ ] dist-tags swap preserves the `catch→{}` swallow semantics.
+- [ ] `inferTargetFromBundleRoot` extraction normalizes `null`/`undefined` at the resolve-reminder boundary only.
+- [ ] gui run-options reuse verified NOT to add new `undefined` keys that change `run()` (spread/projection hazard).
+- [ ] Error-protocol unification (#4) routed through Expand/Contract with human review — NOT auto-applied.
+- [ ] `tsc --noEmit` + `bun test` + `biome check` green; no new lint findings from any literal-parameterization.

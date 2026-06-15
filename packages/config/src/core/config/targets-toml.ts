@@ -5,7 +5,7 @@
 import { readFile } from 'node:fs/promises'
 import TOML from '@iarna/toml'
 
-import { ConfigParseError, ConfigValidationError } from '../errors.js'
+import { ConfigFileNotFoundError, ConfigParseError, ConfigValidationError } from '../errors.js'
 import { validateProjectManifest } from '../schemas/index.js'
 import type { ProjectManifest } from '../types/targets.js'
 
@@ -75,7 +75,7 @@ export async function readTargetsToml(filePath: string): Promise<ProjectManifest
       throw err
     }
     if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
-      throw new ConfigParseError('File not found', filePath)
+      throw new ConfigFileNotFoundError(filePath)
     }
     const message = err instanceof Error ? err.message : String(err)
     throw new ConfigParseError(`Failed to read file: ${message}`, filePath)

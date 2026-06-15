@@ -7,19 +7,13 @@ import type { Command } from 'commander'
 
 import type { MemoryTargetName } from 'spaces-runtime'
 
-import { withMemoryStore } from './lib.js'
+import { MEMORY_TARGET_LABELS, withMemoryStore } from './lib.js'
 
 interface InspectOptions {
   json?: boolean
 }
 
 const COMMAND_NAME = 'self memory inspect'
-
-const HUMAN_LABELS: Record<MemoryTargetName, { scope: string; zone: string }> = {
-  memory: { scope: 'per-agent', zone: 'reminder' },
-  user: { scope: 'shared-editable', zone: 'reminder' },
-  persona: { scope: 'per-agent', zone: 'prompt (next-session)' },
-}
 
 export function registerMemoryInspectCommand(parent: Command): void {
   parent
@@ -71,7 +65,7 @@ function renderHuman(result: Record<string, unknown>, agentName: string): void {
       scope: string
       zone: string
     }
-    const label = HUMAN_LABELS[target as MemoryTargetName]
+    const label = MEMORY_TARGET_LABELS[target as MemoryTargetName]
     const fileName = info.path.split('/').pop()
     out.push(`  ${chalk.bold(target)} (${fileName}) — ${label.scope}, ${label.zone}`)
     out.push(

@@ -1,140 +1,212 @@
-# spaces-execution — SOLID / code-smell audit
+# 🔧 Refactoring Analysis — spaces-execution
 
-Package: `packages/execution/` (npm `spaces-execution`)
-Audited: every non-test source file under `src/` (index.ts, run.ts, run-codex.ts, pager.ts,
-prompt-display.ts, and all of `run/*.ts`, plus the thin re-export barrels harness/agent-sdk/claude/pi-session).
+**Target:** packages/execution/src  ·  **Files read:** 17 source (+ 3 tests)  ·  **Lines:** ~2,600 source
+**Generated:** 2026-06-14  ·  **Package type:** general (run-time orchestration / launch volatility)
 
-## Overall assessment
+## 🧭 Summary
+This package is a thin orchestration shell: a large public barrel that re-exports harness adapters /
+session helpers from sibling packages, plus the `run()` launch pipeline (project-target + global/local
+space modes) and codex runtime-home preparation. The code is already heavily refactored (most prior
+duplication has been pulled into `run/util.ts`, `run/compiler-debug.ts`, `run/identity.ts`). The
+remaining leverage is in DEAD/DECOMMISSIONED surface (brain runtime), an over-broad public barrel, a few
+never-read result fields, and over-exposed module functions that are internal-only. No magic-number or
+new-extraction work is warranted — the recurring concepts are already named once.
 
-This package was just put through a deliberate SOLID/code-smell pass (commit e238805,
-"refactor(packages): SOLID/code-smell cleanup pass across all 17 packages (T-02028)"), and it
-shows. The bulk of `run.ts` has already been decomposed into `run/identity.ts`,
-`run/placement-plan.ts`, `run/execute.ts`, `run/compiler-debug.ts`, and `run/util.ts`. Named
-constants, guard clauses, grouped result objects, and explicit "behavior-preserving consolidation"
-comments are present throughout. Magic numbers in `agent-tools.ts`, `run-codex.ts`, and
-`prompt-display.ts` are already lifted into named constants.
+## 🚪 Public boundary (assess first)
+- **API surface:** `index.ts` re-exports `claude/*`, `spaces-runtime/session`, `agent-sdk/*`, pi-session
+  *types*, all of `harness/*`, the `run*` family (`run`, `runWithPrompt`, `runInteractive`,
+  `runGlobalSpace`, `runLocalSpace`, `isSpaceReference`, detectors, planners, prepare/resolve helpers,
+  and ~20 types), `pager.paginate`, `prompt-display.*`, and the install/materialize/build wrappers that
+  inject the harness adapter. `harness/index.ts` is itself a second barrel re-exporting four sibling
+  harness packages and constructing/registering the singletons.
+- **Findings:**
+  - The barrel re-exports a *decommissioned* brain runtime (`resolveAgentBrainRuntime`,
+    `BrainRuntimeResolution`, `EnabledAgentBrainEnvResult`, `AgentBrainEnvResult`) — public surface that
+    is dead (always returns `disabled`/`{}`). See Finding 1 (M02 / T16).
+  - `run.ts` re-exports `resolveAgentRunDefaults`, `resolveAgentRunDefaults`-adjacent helpers, and
+    `migrateLegacyProjectHarnessOutput`/`migrateLegacyProjectCodexRuntimeHome` which are consumed only by
+    the test suite, not by other packages — legitimate "pin behavior" surface, leave alone.
+  - `harness/index.ts` constructs `harnessRegistry`/`sessionRegistry` and calls `setSessionRegistry` at
+    **module-load** time (import side effects). This is a deliberate startup wiring seam, not a smell —
+    documented as where-NOT.
+- **Verdict:** 🟡 needs care — sound shape, but it publicly exposes a decommissioned subsystem
+  (brain) whose removal must route through Expand/Contract.
 
-The remaining findings are minor. Most are intentionally deferred because they touch the
-public-surface `run()` flow or are not strictly behavior-preserving. A small number of genuinely
-safe, internal-only cleanups remain.
+## 🎯 Findings by mechanism (outside-in, highest impact first)
 
----
+### 1. Decommissioned brain runtime still exported as live public surface — [T16] Collapse premature abstraction + [M02] Expand/Contract
+- **Location:** `run/agent-brain.ts:11-59`; re-exported `index.ts:70-91`, `run.ts:42-49`
+- **Mechanism repaired:** A whole subsystem's variation never materialized (brain was decommissioned).
+  `resolveAgentBrainRuntime` always returns `{ kind: 'disabled', reason: 'decommissioned' }`; the rich
+  discriminated union `BrainRuntimeResolution` with its `enabled` arm, `EnabledAgentBrainEnvResult`, and
+  the `G BRAIN_HOME`/`BRAIN_REPO` template-literal key types are structure for a branch that can no
+  longer be reached. `prepareAgentBrainRuntime` always returns `{}`.
+- **Symptom that flagged it:** One-arm discriminated union where the other arm is unreachable; a function
+  whose only return is the `disabled` literal; a 50-line type file modeling capabilities that are off.
+- **Current → Suggested:** `resolveAgentBrainRuntime` has ZERO external callers (grep-confirmed; only the
+  barrel re-exports it). It can be removed. `prepareAgentBrainRuntime` is still called from `execute.ts`
+  and two `agent-spaces` CLI sites but always yields `{}` (the `{...harnessEnv, ...brainEnv}` spread is a
+  no-op). Collapse the union to the single reachable shape and, via Expand/Contract, deprecate then
+  remove `resolveAgentBrainRuntime` + the `enabled`/`Brain*` types from the barrel.
+- **Direction:** remove (de-abstract)
+- **Preservation:** type/compiler-proof for the union collapse (no `enabled` value is ever produced);
+  observational-equivalence for the no-op `prepareAgentBrainRuntime` spread. Removing the export is a
+  public-contract change → Expand/Contract.
+- **Falsifiable signal:** `grep -rn 'resolveAgentBrainRuntime' --include='*.ts' | grep -v dist | grep -v
+  'agent-brain.ts\|src/index.ts\|src/run.ts'` returns nothing (no real callers). Build + full test suite
+  stays green after removal.
+- **Risk:** Med  ·  **API-impact:** public-surface  ·  **Effort:** M
+- **Tests:** add a characterization test asserting `prepareAgentBrainRuntime(...)` returns `{}` before
+  collapsing; existing `run-compile-brain-decommissioned.test.ts` (in agent-spaces) pins the disabled
+  outcome at the compiler layer.
+- **Contraindication:** This is a published export — an out-of-tree consumer could import it. Honor the
+  add-new→support-both→migrate→remove-old sequence (deprecate first, ship a release, then drop). Keeping
+  `prepareAgentBrainRuntime` as a documented no-op compat hook (its CLI comment already says so) is
+  acceptable; only the *resolver* + `enabled` type machinery should be removed.
 
-## W401 warning code is an inline magic string
-- File: packages/execution/src/run.ts:404
-- Risk: Low
-- API-impact: internal-only
-- Smell: The warning shape `{ code: 'W401', severity: 'warning', message }` is built inline with a
-  bare `'W401'` literal and `'warning'` string. The code is a magic string with no named constant
-  or comment explaining what W401 denotes.
-- Proposed change: Introduce a module-local `const RUN_WARNING_CODE = 'W401'` and reference it when
-  mapping `execution.warnings`. Pure rename of a literal to a named constant; the emitted value is
-  unchanged.
+### 2. `RunResult.compilerDebugContext` is a never-read/never-written field — [T16] Collapse premature abstraction
+- **Location:** `run/types.ts:137`
+- **Mechanism repaired:** A result field that no producer sets and no consumer reads — dead structure on
+  a public type. `run()` populates `runtimeCompile` (the real request/response), never
+  `compilerDebugContext`; grep finds the symbol only at its own declaration.
+- **Symptom that flagged it:** Optional field present on the type with zero assignments and zero reads
+  across the repo (grep returns only `types.ts:137`).
+- **Current → Suggested:** Remove the `compilerDebugContext?` field from `RunResult`. The live debug
+  surface is `runtimeCompile.request/response`.
+- **Direction:** remove
+- **Preservation:** type/compiler-proof — removing a field never assigned cannot change any runtime
+  value; only a consumer reading it would break, and none exists.
+- **Falsifiable signal:** `grep -rn 'compilerDebugContext' --include='*.ts' | grep -v dist` returns only
+  the declaration line; typecheck + tests stay green after removal.
+- **Risk:** Low  ·  **API-impact:** public-surface (field on an exported type)  ·  **Effort:** S
+- **Tests:** `run.test.ts` "RunResult exposes systemPromptMode…" pins the *other* fields; no test
+  references `compilerDebugContext`.
+- **Contraindication:** It is on an exported type; an external consumer could theoretically type against
+  it. Risk is low because it is never populated (always `undefined`), but route through Expand/Contract
+  to be safe rather than deleting in one shot.
 
-## Synthetic snapshot-integrity placeholder repeats a magic 64-zero sha256
-- File: packages/execution/src/run/space-launch.ts:225
-- Risk: Low
-- API-impact: internal-only
-- Smell: `` `sha256:${'0'.repeat(64)}` `` is an inline magic literal for "no integrity known". The
-  `64` (sha256 hex length) is unexplained, and the sibling `runLocalSpace` uses a *different*
-  placeholder (`'sha256:dev'`, line 391) for the same "synthetic integrity" concept.
-- Proposed change: Add a module-local named constant (e.g.
-  `const PLACEHOLDER_SNAPSHOT_INTEGRITY = \`sha256:${'0'.repeat(64)}\` as \`sha256:${string}\``)
-  and reference it at line 225. Behavior-preserving; produces the identical string. (Do NOT unify
-  with `'sha256:dev'` — that is a deliberately distinct dev-mode marker.)
+### 3. Over-exported internal helpers in `compiler-debug.ts` — [T07] Align interface to actual usage
+- **Location:** `run/compiler-debug.ts:19-59,114-139` (`harnessFamilyForHarness`,
+  `harnessRuntimeForHarness`, `compileInteractionMode`, `buildCompilerDebugContext`)
+- **Mechanism repaired:** Module exports wider than actual usage. These four are `export function` but
+  are imported nowhere outside `compiler-debug.ts` and are NOT re-exported through the package barrel —
+  they exist only to feed `maybeCompileForRun`. The public arrow of the module should be
+  `maybeCompileForRun` + its arg/result types only.
+- **Symptom that flagged it:** `export` keyword on functions whose only references are intra-file.
+- **Current → Suggested:** Drop `export` from the three normalizers and `buildCompilerDebugContext`
+  (keep them module-private), leaving `maybeCompileForRun` and the `*Args`/`*Result` interfaces exported.
+- **Direction:** remove (narrow visibility)
+- **Preservation:** type/compiler-proof — no external importer, no behavior change.
+- **Falsifiable signal:** `grep -rn 'harnessFamilyForHarness\|buildCompilerDebugContext' --include='*.ts'
+  | grep -v dist | grep -v compiler-debug.ts` returns nothing; build stays green after de-exporting.
+- **Risk:** Low  ·  **API-impact:** internal-only (not in barrel)  ·  **Effort:** S
+- **Tests:** none reference these directly; compile-time only.
+- **Contraindication:** If a future test wants to unit-test `compileInteractionMode`'s `sdk`-transport
+  branch in isolation, keep it exported. Currently no such test exists, so the narrow is safe.
 
-## Duplicated rename-then-copy-fallback migration block
-- File: packages/execution/src/run.ts:111 (and packages/execution/src/run-codex.ts:142)
-- Risk: Med
-- API-impact: internal-only
-- Smell: `migrateLegacyProjectHarnessOutput` (run.ts:111-118) and
-  `migrateLegacyProjectCodexRuntimeHome` (run-codex.ts:142-150) both implement the same
-  "mkdir parent; try rename; on failure rm+cp+rm" move-with-fallback dance. Two near-identical
-  copies of a tricky fs primitive.
-- Proposed change: Extract a private `moveDirWithCopyFallback(src, dest)` helper (likely into
-  `run/util.ts`, internal/non-exported) and call it from both sites. Note the two copies differ
-  slightly: run-codex.ts does an extra `rm(dest)` before the rename inside the try; run.ts does not.
-  Reconcile carefully so behavior is preserved per-caller (or keep a `clearDestFirst` flag). Tagged
-  Med because it spans two files and the pre-rename `rm` divergence must be handled exactly, not
-  smoothed over.
+### 4. `run()` is a ~315-line arrow-shaped pipeline with deep nesting in the install branch — [T22] Guard clauses / flatten + [T03] Relocate by affinity
+- **Location:** `run.ts:138-454` (notably the `needsInstall` block `233-274` and the
+  `buildContext` closure `343-389`)
+- **Mechanism repaired:** Low cohesion + nesting in a single orchestrator. The install branch inlines
+  two large option-literal builders (materializeFromRefs vs configInstall) with conditional-spread
+  pyramids; the compiler `buildContext` closure inlines placement/correlation assembly. The prior
+  refactor already extracted identity/system-prompt/util — this is the residual.
+- **Symptom that flagged it:** Function length, `if (needsInstall) { if (effectiveCompose) {…} else {…}}`
+  nesting, a 45-line inline closure assembling a structured object.
+- **Current → Suggested:** Extract a `resolveInstallOutcome(...)` helper returning
+  `materializedHarnessOutputPath` (mirrors how `space-launch.ts` already factors `executeSpaceRun`), and
+  move the project-target `buildContext` body next to `space-launch.ts`'s equivalent (both build a
+  `BuildCompilerDebugContextArgs`) — or into `placement-plan.ts`, which already owns placement assembly.
+- **Direction:** relocate
+- **Preservation:** test-suite — pure code-motion of an existing branch; `run.test.ts` exercises the
+  planner/identity pieces but NOT `run()` end-to-end, so add a characterization test first.
+- **Falsifiable signal:** `run()` shrinks below ~150 lines; byte-parity tests in `agent-spaces`
+  (`run-compile-byte-parity.test.ts`) still pass (they assert the compiled launch shape unchanged).
+- **Risk:** Med  ·  **API-impact:** internal-only (`run` signature unchanged)  ·  **Effort:** M
+- **Tests:** `run-compile-byte-parity.test.ts` (sibling pkg) is the real guard; add a local
+  characterization harness around `run()` install-selection before moving.
+- **Contraindication:** The two install literals look similar but the `materializeFromRefs` and
+  `configInstall` option bags are NOT the same field set — do NOT merge them into one parameterized
+  literal (that would forward wrong props). Extract each branch as-is into a named helper; keep them
+  distinct (coincidental similarity that legitimately diverges).
 
-## `run()` remains a ~290-line multi-stage orchestration function
-- File: packages/execution/src/run.ts:140
-- Risk: Med
-- API-impact: public-surface
-- Smell: `run()` (lines 140-432) is still long and does many jobs: env-flag/debug-log setup, manifest
-  load, runtime planning, harness detection, legacy migration, install-decision + materialize/install
-  branch (lines 201-247), lock read, identity resolution, system-prompt materialization, the inline
-  `buildContext` compiler closure (lines 322-367), execution, and result assembly. The install-decision
-  block and the `buildContext` closure are each cohesive enough to extract.
-- Proposed change: Extract (a) the `needsInstall` decision + materialize/install branch into a private
-  `ensureTargetInstalled(...)` helper, and (b) the inline `buildContext` closure into a private
-  `buildProjectRunCompilerContext(...)`. Both internal/non-exported. DEFERRED: `run()` is the package's
-  central exported entry point; even a behavior-preserving extraction reshapes the hottest code path and
-  warrants a human eye on the debugLog ordering and the conditional-spread literals. Flagged
-  public-surface because it is an exported function on the package's primary launch path.
+### 5. `resolveCodexRuntimeHomePath` is a 4-level nested path-selection ladder — [T22] Guard clauses / flatten
+- **Location:** `run-codex.ts:148-189`
+- **Mechanism repaired:** Nested `if (projectPath) { if (projectId && target) {…} if (target) {…} … if
+  (inferred) {…} }` selecting among five home-path shapes (project+id, project+target, inferred-project,
+  ad-hoc-cwd). The selection axis (which "mode" of home) is implicit in the nesting order.
+- **Symptom that flagged it:** Arrow shape with early-return-able branches; a "first matching rule wins"
+  ladder expressed as nesting rather than guard clauses.
+- **Current → Suggested:** Flatten to sequential guard clauses, each returning the resolved path
+  (already returns inside branches — just hoist the `aspHome` computation and remove the outer `if`
+  wrapping). Optionally name the selection as a small discriminator first.
+- **Direction:** isolate (flatten)
+- **Preservation:** test-suite — `run.test.ts` `prepareCodexRuntimeHome` cases cover project, agent-
+  project (`codexRuntimeTargetName`), and ad-hoc-cwd paths; behavior is pinned.
+- **Falsifiable signal:** The three `prepareCodexRuntimeHome` tests (project / cody / ad-hoc) stay green;
+  resolved paths byte-identical.
+- **Risk:** Low  ·  **API-impact:** internal-only (function is module-private)  ·  **Effort:** S
+- **Tests:** existing `run.test.ts` codex-home tests are sufficient.
+- **Contraindication:** None — the branches are mutually exclusive and already return; flattening is
+  mechanical.
 
-## Near-duplicate result-object assembly between `run()` and `executeSpaceRun()`
-- File: packages/execution/src/run.ts:400 (and packages/execution/src/run/space-launch.ts:157)
-- Risk: High
-- API-impact: public-surface
-- Smell: Both build a `RunResult` (`build: {...}`, `invocation`, `exitCode`, `command`,
-  `displayCommand`, `primingPrompt`, conditional `runtimeCompile`) from an `ExecuteHarnessResult`.
-  The shapes overlap substantially though `run()` adds the budget/prompt fields and `launch`.
-- Proposed change: Could factor a shared `toRunResult(execution, { lock, primingPrompt, compileOutcome, ... })`
-  builder. DEFERRED: `RunResult` is an exported type and these are the two public run entry points; the
-  field sets are not identical (budget fields, `launch`, warnings provenance differ), so a naive merge
-  risks dropping or reordering fields on the public result. Needs a human to confirm field-for-field parity.
+### 6. Duplicated env-prefixed display-command assembly — [T15] Extract missing abstraction (small)
+- **Location:** `run/execute.ts:222-223,235,248,273` — `envPrefix + formatCommand(...)` and
+  `envPrefix + formatDisplayCommand(commandPath, args)` recur four times in one function.
+- **Mechanism repaired:** A recurring intent ("the env-prefixed displayed command for *these* argv") is
+  re-spelled at four sites; the `formatDisplayCommand` call is recomputed three times with identical
+  args.
+- **Symptom that flagged it:** Same `envPrefix + formatDisplayCommand(commandPath, args)` expression
+  appears in the dry-run return, the displayPrompts call, and the live return.
+- **Current → Suggested:** Compute `const displayCommand = envPrefix + formatDisplayCommand(commandPath,
+  args)` once after `args`/`harnessEnv` are finalized and reuse it.
+- **Direction:** isolate (hoist a local)
+- **Preservation:** observational-equivalence — `formatDisplayCommand` is pure; hoisting the call cannot
+  change output.
+- **Falsifiable signal:** Returned `displayCommand` identical across dry-run and live paths (it already
+  must be).
+- **Risk:** Low  ·  **API-impact:** internal-only  ·  **Effort:** S
+- **Tests:** no direct test; covered by the function's own return-shape consumers in `run.ts`.
+- **Contraindication:** None — purely a within-function CSE; do not over-extract into a separate module.
 
-## `pathExists` is duplicated but the two copies are NOT behavior-identical
-- File: packages/execution/src/run/agent-brain.ts:293
-- Risk: Med
-- API-impact: internal-only
-- Smell: `agent-brain.ts` defines a private `pathExists` (293-303) that duplicates the exported
-  `pathExists` in `run/util.ts:127`. Looks like a copy-paste candidate for dedupe.
-- Proposed change: Do NOT mechanically dedupe. The two implementations differ in error semantics:
-  `run/util.ts` swallows *all* errors and returns `false`; `agent-brain.ts` returns `false` only on
-  `ENOENT` and *rethrows* other errors. Either keep both (and add a one-line comment on the
-  agent-brain copy noting the intentional rethrow), or unify on the stricter ENOENT-only variant ONLY
-  after auditing every `util.pathExists` caller for tolerance of a thrown non-ENOENT error. Tagged Med
-  because "dedupe" here is a latent behavior change, not a safe rename.
+## 🪶 Deliberately left alone (where-NOT)
+- **Module-load registry wiring** (`harness/index.ts:56-72`): constructing `harnessRegistry`/
+  `sessionRegistry` and `setSessionRegistry(...)`/`register(...)` at import time is a deliberate startup
+  seam, intentionally eager (with documented lazy exceptions for pi-sdk/codex session factories to avoid
+  barrel imports). Introducing a substitution seam here would change startup timing — out of scope for a
+  behavior-preserving pass.
+- **`shellQuote`/`formatCommand`/`formatEnvPrefix` duplicated in `packages/cli/commands/install.ts`**:
+  the CLI keeps its OWN private copies rather than importing from `run/util.ts`. This is cross-package
+  duplication, not in-package; consolidating it touches a second package's import graph → not an
+  execution-package refactor. (Noted for a future cross-package pass.)
+- **Two near-identical install option literals in `run()`** (compose vs non-compose): they look like a
+  dedup candidate but feed different functions with different field sets — merging risks prop-forwarding
+  bugs. Extract-each-as-helper (Finding 4) yes; parameterize-into-one no.
+- **`prepareAgentBrainRuntime` as a no-op** stays callable: its `agent-spaces` callers and `execute.ts`
+  still invoke it as a documented compatibility hook. Only the dead *resolver* + `enabled` types are
+  removal candidates (Finding 1).
+- **`pi-session/index.ts` types-only re-export** and the "import directly to avoid barrel" comments: a
+  deliberate startup-perf boundary, not a leaky API.
+- **Magic numbers in `agent-tools.ts` / `run-codex.ts`** (`EXECUTABLE_MODE_BITS`, `SHEBANG_*`,
+  `CODEX_RUNTIME_KEY_LENGTH`, `FRAME_WIDTH`, `LONG_ARG_THRESHOLD`): already named constants with
+  explanatory comments — no extraction needed.
+- **`RunCompileOutcome.diagnostics`**: looks unused locally but IS consumed in `agent-spaces`
+  (`run-compile.ts`) — live, leave it.
 
-## `runGlobalSpace` and `runLocalSpace` share temp-dir + compose-and-execute scaffolding
-- File: packages/execution/src/run/space-launch.ts:273 (and :357)
-- Risk: High
-- API-impact: public-surface
-- Smell: Both functions repeat: resolve aspHome/harness/adapter/detect, create tempDir + outputDir +
-  artifactRoot, ensureDir x2, build a `ComposeTargetInput`, call `adapter.composeTarget`, then
-  `executeSpaceRun`, with the same `try/catch { cleanupTempDir; throw }` wrapper.
-- Proposed change: Could extract a shared `composeAndExecuteInTempDir(...)` wrapping the temp-dir
-  lifecycle and the compose+execute+cleanup. DEFERRED: both are exported entry points, the
-  `ComposeTargetInput` construction differs materially (global derives artifacts from a closure;
-  local synthesizes a single-space input + synthetic lock), and the cleanup/try-catch boundary is
-  load-bearing. Needs a human to ensure the error/cleanup semantics stay identical.
+## 🔭 If applying: outside-in sequence
+1. Finding 2 (remove dead `compilerDebugContext` field) — smallest, public-type, Expand/Contract.
+2. Finding 1 (collapse + deprecate brain resolver/types) — public-surface, Expand/Contract; pin no-op first.
+3. Finding 3 (narrow `compiler-debug.ts` exports) — internal, compiler-proof.
+4. Finding 6 (hoist `displayCommand` local in `execute.ts`) — internal, trivial.
+5. Finding 5 (flatten `resolveCodexRuntimeHomePath`) — internal, pinned by existing tests.
+6. Finding 4 (decompose `run()` install branch + relocate `buildContext`) — largest; add characterization
+   test, lean on byte-parity suite.
 
-## Two parallel env-flag boolean parsers (informational, no change recommended)
-- File: packages/execution/src/run/util.ts:53
-- Risk: Low
-- API-impact: internal-only
-- Smell: `isEnvFlagEnabled` (accepts `'1'|'true'`) and `isEnvFlagDisabled` (accepts
-  `'0'|'false'|'no'|'off'`) are two helpers with overlapping intent and asymmetric accepted
-  vocabularies. The asymmetry is deliberate (one gate is default-off, one default-on).
-- Proposed change: Optional only — document the asymmetry with a short comment if desired. No
-  refactor recommended; listed for completeness so it isn't re-flagged later.
-
----
-
-## Notes / non-findings
-
-- `compiler-debug.ts`, `identity.ts`, and `util.ts` carry explicit "behavior-preserving
-  consolidation" comments and already capture the previously-duplicated compiler-gate, identity, and
-  options-mapping logic. No further dedupe warranted there.
-- Magic numbers are already named in `agent-tools.ts` (`EXECUTABLE_MODE_BITS`, `SHEBANG_SNIFF_BYTES`,
-  `SHEBANG_HASH/BANG`), `run-codex.ts` (`CODEX_RUNTIME_KEY_LENGTH`, `MANAGED_FILES`, `MANAGED_DIRS`),
-  and `prompt-display.ts` (`FRAME_WIDTH`, `LONG_ARG_THRESHOLD`, `PROMPT_FLAGS`).
-- `pager.ts` `process.exit(130)` on Ctrl-C and `\x03`/ANSI escapes are conventional terminal idioms,
-  not magic-string smells.
-- No dead code, unused exports, commented-out blocks, or unreachable branches were found.
-- The barrel files (index.ts, harness/index.ts, agent-sdk, claude, pi-session) are pure re-export
-  surfaces; their structure (type-only re-exports to dodge startup barrel imports) is intentional and
-  documented.
+## ✅ Safety checklist
+- [ ] Characterization: pin `prepareAgentBrainRuntime` returns `{}` before collapsing the union.
+- [ ] Characterization: harness around `run()` install-path selection before Finding 4 motion.
+- [ ] Expand/Contract for Findings 1 & 2 (deprecate → release → remove) — both touch exported types.
+- [ ] Confirm no spread/projection change in extracted install helpers (preserve exact field sets;
+  do NOT merge the two install literals).
+- [ ] Re-run sibling `run-compile-byte-parity.test.ts` after Finding 4 (asserts launch-shape parity).
+- [ ] `bun test packages/execution` green after each internal-only change (Findings 3,5,6).

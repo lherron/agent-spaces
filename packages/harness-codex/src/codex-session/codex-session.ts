@@ -14,23 +14,21 @@ import type {
 } from 'spaces-runtime'
 import { toError } from '../errors.js'
 import {
-  type AgentMessageDeltaNotification,
   CLIENT_INFO,
   type CodexThreadItem,
-  type CommandExecutionOutputDeltaNotification,
   type ErrorNotification,
-  type FileChangeOutputDeltaNotification,
   type ItemCompletedNotification,
   type ItemStartedNotification,
-  type McpToolCallProgressNotification,
   type ThreadResumeResponse,
   type ThreadStartResponse,
   type TurnStartResponse,
   type TurnStartedNotification,
+  classifyNotification,
   formatCodexErrorBody,
-  mapDeltaNotification,
+  localImageInput,
   mapItemCompleted,
   mapItemStarted,
+  textInput,
 } from './event-mapping.js'
 import {
   CodexRpcClient,
@@ -67,6 +65,34 @@ interface FileChangeRequestApprovalParams {
   itemId: string
   reason: string | null
   grantRoot: string | null
+}
+
+/**
+ * Legal forward transitions of the CodexSession state machine (T-04638).
+ *
+ *   idle ──start()──▶ running ──sendPrompt()──▶ streaming ──turn done──▶ running
+ *
+ * `stop()` forces any non-terminal state to `stopped`; any failure forces a
+ * non-`error` state to `error`. `stopped` and `error` are the two terminal
+ * "force" states and may flip to each other (last writer wins — a stop during a
+ * failed teardown, or a late error after stop), but neither returns to a healthy
+ * state. Crucially the table makes the race-sensitive rules structural:
+ *
+ * - error-wins: `error` has no edge back to `running`/`streaming`, so a turn that
+ *   completes after a failure cannot revert the session to a healthy state.
+ * - streaming rollback: only `streaming → running` is legal for a settling turn;
+ *   if the turn already failed/stopped mid-flight, the rollback is refused.
+ *
+ * Every state write goes through {@link CodexSession.transitionTo}, which silently
+ * ignores an illegal move (it never throws — the pinned illegal-transition error
+ * strings are produced by the start()/sendPrompt() preconditions, not here).
+ */
+const LEGAL_CODEX_TRANSITIONS: Record<UnifiedSessionState, ReadonlySet<UnifiedSessionState>> = {
+  idle: new Set<UnifiedSessionState>(['running', 'streaming', 'stopped', 'error']),
+  running: new Set<UnifiedSessionState>(['streaming', 'stopped', 'error']),
+  streaming: new Set<UnifiedSessionState>(['running', 'stopped', 'error']),
+  stopped: new Set<UnifiedSessionState>(['error']),
+  error: new Set<UnifiedSessionState>(['stopped']),
 }
 
 export class CodexSession implements UnifiedSession {
@@ -178,9 +204,9 @@ export class CodexSession implements UnifiedSession {
         sessionId: this.sessionId,
         sdkSessionId: this.threadId,
       })
-      this.state = 'running'
+      this.transitionTo('running')
     } catch (error) {
-      this.state = 'error'
+      this.transitionTo('error')
       throw error
     }
   }
@@ -191,7 +217,7 @@ export class CodexSession implements UnifiedSession {
     }
 
     this.lastActivityAt = Date.now()
-    this.state = 'streaming'
+    this.transitionTo('streaming')
 
     try {
       const input = await buildUserInputs(text, options?.attachments)
@@ -221,11 +247,10 @@ export class CodexSession implements UnifiedSession {
       this.handleError(toError(error))
       throw error
     } finally {
-      // Transition back to running if we're still streaming
-      // (state may have changed to 'error' or 'stopped' via async handlers)
-      if (this.state === 'streaming') {
-        this.state = 'running'
-      }
+      // Settle a still-streaming turn back to running. If an async handler
+      // already drove the session to a terminal state ('error' or 'stopped'),
+      // the transition is refused by the table — error-wins / stopped-wins.
+      this.transitionTo('running')
     }
   }
 
@@ -238,7 +263,7 @@ export class CodexSession implements UnifiedSession {
     } finally {
       this.pendingTurn?.reject(new Error(reason ?? 'Codex session stopped'))
       this.pendingTurn = undefined
-      this.state = 'stopped'
+      this.transitionTo('stopped')
     }
   }
 
@@ -248,6 +273,20 @@ export class CodexSession implements UnifiedSession {
 
   getState(): UnifiedSessionState {
     return this.state
+  }
+
+  /**
+   * Single chokepoint for every session state write. Applies the move only if
+   * {@link LEGAL_CODEX_TRANSITIONS} permits it from the current state; an illegal
+   * move is silently ignored so the terminal/precedence invariants
+   * (error-wins, terminal stopped/error) hold structurally. Never throws — the
+   * pinned illegal-transition error strings come from the start()/sendPrompt()
+   * preconditions, not from here.
+   */
+  private transitionTo(next: UnifiedSessionState): void {
+    if (this.state === next) return
+    if (!LEGAL_CODEX_TRANSITIONS[this.state].has(next)) return
+    this.state = next
   }
 
   getMetadata(): SessionMetadataSnapshot {
@@ -274,7 +313,7 @@ export class CodexSession implements UnifiedSession {
 
   private handleError(error: Error): void {
     if (this.state === 'error') return
-    this.state = 'error'
+    this.transitionTo('error')
     this.rpc?.close()
     this.proc?.kill('SIGTERM')
     if (this.pendingTurn) {
@@ -294,6 +333,13 @@ export class CodexSession implements UnifiedSession {
   }
 
   private handleNotification(notification: JsonRpcNotification): void {
+    const shared = classifyNotification(notification.method, notification.params)
+    if (shared) {
+      for (const event of shared) {
+        this.emitEvent(event)
+      }
+      return
+    }
     switch (notification.method) {
       case 'error': {
         const params = notification.params as ErrorNotification
@@ -357,31 +403,6 @@ export class CodexSession implements UnifiedSession {
       case 'item/completed': {
         const params = notification.params as ItemCompletedNotification
         this.handleItemCompleted(params)
-        return
-      }
-      case 'item/agentMessage/delta': {
-        const params = notification.params as AgentMessageDeltaNotification
-        this.emitEvent({
-          type: 'message_update',
-          messageId: params.itemId,
-          textDelta: params.delta,
-          payload: params,
-        })
-        return
-      }
-      case 'item/commandExecution/outputDelta':
-      case 'item/fileChange/outputDelta':
-      case 'item/mcpToolCall/progress': {
-        const event = mapDeltaNotification(
-          notification.method,
-          notification.params as
-            | CommandExecutionOutputDeltaNotification
-            | FileChangeOutputDeltaNotification
-            | McpToolCallProgressNotification
-        )
-        if (event) {
-          this.emitEvent(event)
-        }
         return
       }
     }
@@ -489,7 +510,7 @@ async function buildUserInputs(
   text: string,
   attachments: AttachmentRef[] | undefined
 ): Promise<Array<Record<string, unknown>>> {
-  const inputs: Array<Record<string, unknown>> = [{ type: 'text', text, text_elements: [] }]
+  const inputs: Array<Record<string, unknown>> = [textInput(text)]
   if (!attachments) return inputs
 
   for (const attachment of attachments) {
@@ -497,7 +518,7 @@ async function buildUserInputs(
       if (isImageAttachment(attachment, attachment.url)) {
         inputs.push({ type: 'image', url: attachment.url })
       } else {
-        inputs.push({ type: 'text', text: `Attached URL: ${attachment.url}`, text_elements: [] })
+        inputs.push(textInput(`Attached URL: ${attachment.url}`))
       }
       continue
     }
@@ -508,13 +529,9 @@ async function buildUserInputs(
         if (stats.size > MAX_IMAGE_BYTES) {
           throw new Error(`Attachment exceeds ${MAX_IMAGE_BYTES} bytes: ${attachment.path}`)
         }
-        inputs.push({ type: 'localImage', path: attachment.path })
+        inputs.push(localImageInput(attachment.path))
       } else {
-        inputs.push({
-          type: 'text',
-          text: `Attached file: ${attachment.path}`,
-          text_elements: [],
-        })
+        inputs.push(textInput(`Attached file: ${attachment.path}`))
       }
     }
   }

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import type { AspcCompileHarnessInvocationRequest, AspcProfileSelector } from 'spaces-aspc-protocol'
 import type { Broker } from 'spaces-harness-broker'
 import type {
@@ -63,6 +64,22 @@ function buildRequest(selector?: AspcProfileSelector): AspcCompileHarnessInvocat
     ...(selector !== undefined ? { profileSelector: selector } : {}),
   }
 }
+
+function packageVersion(): string {
+  const manifest = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+  ) as { version?: unknown }
+  if (typeof manifest.version !== 'string') throw new Error('missing package version')
+  return manifest.version
+}
+
+describe('AspcService.hello', () => {
+  test('facadeInfo.version matches package.json version', async () => {
+    const service = createAspcService({})
+    const response = await service.hello({})
+    expect(response.facadeInfo.version).toBe(packageVersion())
+  })
+})
 
 describe('AspcService.compileRuntimePlan', () => {
   test('wraps a throwing compiler into a compiler_exception diagnostic', async () => {

@@ -51,3 +51,8 @@ coverage/
 
 # Coordinator long-running spec backups (kept locally by skill convention)
 *_BACKUP.md
+# wrkq database files (created by wrkqadm init in throwaway-db proofs)
+.wrkq/wrkq.db
+.wrkq/*.db
+.wrkq/*.db-shm
+.wrkq/*.db-wal
