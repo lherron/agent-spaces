@@ -1,5 +1,3 @@
-import { basename } from 'node:path'
-
 import {
   type RuntimePlacement,
   ensureDir,
@@ -13,8 +11,6 @@ import {
   createSession,
   detectAgentLocalComponents,
   planPlacementRuntime,
-  prepareAgentBrainRuntime,
-  prepareAgentToolRuntime,
 } from 'spaces-execution'
 import { PiSession, loadPiSdkBundle } from 'spaces-harness-pi-sdk/pi-session'
 import { materializeSystemPrompt } from 'spaces-runtime'
@@ -27,7 +23,7 @@ import {
   assertProviderMatch,
   resolveFrontend,
 } from './client-support.js'
-import { buildCorrelationEnvVars } from './placement-api.js'
+import { composeAgentLocalEnv } from './compose-agent-local-env.js'
 import type { InFlightRunContext } from './run-tracker.js'
 import { enqueueInFlightPrompt } from './run-tracker.js'
 import {
@@ -155,47 +151,23 @@ export async function runPlacementTurnNonInteractive(
 
     // Apply the env overlay once it contains the disjoint locked and dispatch
     // env channels plus frontend-specific session env.
-    const correlationEnv = buildCorrelationEnvVars(placement)
-    const lockedEnv: Record<string, string> = {
-      ...(req.env ?? {}),
-      ...(req.lockedEnv ?? {}),
-    }
-    const dispatchEnv: Record<string, string> = {
-      ...correlationEnv,
-      ...(req.dispatchEnv ?? {}),
-    }
-    const harnessEnv: Record<string, string> = { ...lockedEnv, ...dispatchEnv }
-
     const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
-    lockedEnv['ASP_HOME'] = aspHome
-    harnessEnv['ASP_HOME'] = aspHome
-
     const placementAgentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
-    const brainEnv = await prepareAgentBrainRuntime(
-      {
-        agentRoot: placement.agentRoot,
-        agentName: basename(placement.agentRoot),
-        ...(placementAgentLocalComponents ? { components: placementAgentLocalComponents } : {}),
-      },
-      harnessEnv
-    )
-    Object.assign(lockedEnv, brainEnv)
-    Object.assign(harnessEnv, brainEnv)
 
-    if (placementAgentLocalComponents?.hasTools) {
-      const toolRuntime = await prepareAgentToolRuntime(
-        {
-          agentRoot: placement.agentRoot,
-          projectRoot: placement.projectRoot,
-          components: placementAgentLocalComponents,
-        },
-        harnessEnv
-      )
-      const { PATH: toolPath, ...toolLockedEnv } = toolRuntime.env
-      void toolPath
-      Object.assign(lockedEnv, toolLockedEnv)
-      Object.assign(harnessEnv, toolRuntime.env)
-    }
+    // Compose the agent-local env channels. The placement turn path omits
+    // adapterEnv/agentchatEnv, runs brain preparation unconditionally (no dryRun
+    // gate), and deliberately ignores the typed pathPrepend + tool warnings the
+    // CLI path consumes.
+    const composed = await composeAgentLocalEnv({
+      placement,
+      agentLocalComponents: placementAgentLocalComponents,
+      aspHome,
+      ...(req.env !== undefined ? { reqEnv: req.env } : {}),
+      ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
+      ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
+      gateBrainOnDryRun: false,
+    })
+    const harnessEnv = composed.env
 
     let restoreEnv: (() => void) | undefined
 
