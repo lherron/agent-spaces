@@ -31,7 +31,7 @@ import {
   materializeSpaces,
 } from '../materializer/index.js'
 
-import { COMMIT_KEY_PREFIX_LEN, classifySpaceEntry } from '../resolver/index.js'
+import { classifySpaceEntry, spaceKeyForEntry } from '../resolver/index.js'
 import { PathResolver, ensureDir, getAspHome } from '../store/index.js'
 
 import {
@@ -144,9 +144,7 @@ export async function build(targetName: string, options: BuildOptions): Promise<
       snapshotPath: isDev
         ? join(registryPath, 'spaces', entry.id)
         : paths.snapshot(entry.integrity),
-      spaceKey: isDev
-        ? (`${entry.id}@dev` as SpaceKey)
-        : (`${entry.id}@${entry.commit.slice(0, COMMIT_KEY_PREFIX_LEN)}` as SpaceKey),
+      spaceKey: spaceKeyForEntry(entry, isDev ? 'dev' : 'registry'),
       integrity: entry.integrity,
     }
   })
