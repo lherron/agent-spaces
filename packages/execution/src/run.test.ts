@@ -10,13 +10,15 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
+import * as spacesConfig from 'spaces-config'
 import {
   getLegacyProjectHarnessOutputPath,
   getProjectHarnessOutputPath,
   resolveEffectiveCompose,
 } from 'spaces-config'
 import type { AgentRuntimeProfile, SpaceRefString, TargetDefinition } from 'spaces-config'
+import { harnessRegistry } from './harness/index.js'
 import {
   ensureCodexProjectTrust,
   getProjectCodexRuntimeHomePath,
@@ -409,6 +411,259 @@ describe('system prompt threading (T-01016)', () => {
     expect(result.systemPromptMode).toBe('append')
     expect(result.reminderContent).toBe('reminder')
     expect(result.maxChars).toBe(8192)
+  })
+})
+
+describe('run() install selection field sets (T-04621)', () => {
+  async function writeProject(projectPath: string, body: string): Promise<void> {
+    await mkdir(projectPath, { recursive: true })
+    await writeFile(join(projectPath, 'asp-targets.toml'), body)
+    await writeFile(
+      join(projectPath, 'asp-lock.json'),
+      JSON.stringify(
+        {
+          lockfileVersion: 1,
+          resolverVersion: 1,
+          generatedAt: '2026-06-15T00:00:00.000Z',
+          registry: {
+            type: 'git',
+            url: 'local',
+            defaultBranch: 'main',
+          },
+          spaces: {},
+          targets: {
+            dev: {
+              compose: ['space:project@dev'],
+              roots: [],
+              loadOrder: [],
+              envHash: 'sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
+            },
+          },
+        },
+        null,
+        2
+      )
+    )
+  }
+
+  function makeAdapter() {
+    return {
+      id: 'claude',
+      name: 'T-04621 adapter',
+      models: [{ id: 'claude-test', default: true }],
+      detect: async () => ({ available: true, path: '/bin/echo' }),
+      validateSpace: () => ({ ok: true }),
+      materializeSpace: async () => ({ artifactPath: '/unused' }),
+      composeTarget: async () => ({ bundle: { harnessId: 'claude', targetName: 'dev' } }),
+      buildRunArgs: () => ['run'],
+      getTargetOutputPath: (root: string, targetName: string) =>
+        join(root, targetName, 'claude-output'),
+      loadTargetBundle: async (outputDir: string, targetName: string) => ({
+        harnessId: 'claude',
+        targetName,
+        rootDir: outputDir,
+        pluginDirs: [],
+      }),
+      getRunEnv: () => ({ HARNESS_ENV: '1' }),
+      getDefaultRunOptions: () => ({}),
+    }
+  }
+
+  test('compose installs pass the narrow materializeFromRefs field set', async () => {
+    const root = await createTempDir('run-install-compose-')
+    const aspHome = join(root, 'asp-home')
+    const projectPath = join(root, 'project-compose')
+    const agentsDir = join(root, 'agents')
+    await writeAgentProfile(
+      agentsDir,
+      'dev',
+      `
+schema_version = 2
+
+[spaces]
+base = ["space:agent@dev"]
+`
+    )
+    await writeFile(join(agentsDir, 'dev', 'SOUL.md'), 'T-04621 test soul\n')
+    await writeProject(
+      projectPath,
+      `
+schema = 1
+agents-root = "${agentsDir}"
+
+[targets.dev]
+compose = ["space:project@dev"]
+compose_mode = "merge"
+`
+    )
+
+    const adapter = makeAdapter()
+    const installCalls: Record<string, unknown>[] = []
+    const materializeCalls: Record<string, unknown>[] = []
+    const harnessSpy = spyOn(harnessRegistry, 'getOrThrow').mockImplementation(
+      () => adapter as never
+    )
+    const installSpy = spyOn(spacesConfig, 'install').mockImplementation(
+      async (options: Record<string, unknown>) => {
+        installCalls.push(options)
+        return { materializations: [{ target: 'dev', outputPath: '/materialized/install/dev' }] }
+      }
+    )
+    const materializeSpy = spyOn(spacesConfig, 'materializeFromRefs').mockImplementation(
+      async (options: Record<string, unknown>) => {
+        materializeCalls.push(options)
+        return { materialization: { outputPath: '/materialized/compose/dev' } }
+      }
+    )
+
+    try {
+      await runModule.run('dev', {
+        projectPath,
+        aspHome,
+        refresh: true,
+        inheritProject: true,
+        inheritUser: false,
+        prompt: 'caller prompt must not leak into materialize options',
+        interactive: false,
+        dryRun: true,
+      })
+    } finally {
+      harnessSpy.mockRestore()
+      installSpy.mockRestore()
+      materializeSpy.mockRestore()
+    }
+
+    expect(installCalls).toHaveLength(0)
+    expect(materializeCalls).toHaveLength(1)
+
+    const selection = materializeCalls[0]!
+    expect(Object.keys(selection).sort()).toEqual(
+      [
+        'adapter',
+        'agentRoot',
+        'aspHome',
+        'fetchRegistry',
+        'harness',
+        'inheritProject',
+        'inheritUser',
+        'lockPath',
+        'materializationIdentity',
+        'projectPath',
+        'projectRoot',
+        'refresh',
+        'refs',
+        'registryPath',
+        'targetName',
+      ].sort()
+    )
+    expect(selection).toMatchObject({
+      targetName: 'dev',
+      refs: ['space:agent@dev', 'space:project@dev'],
+      lockPath: join(projectPath, 'asp-lock.json'),
+      projectPath,
+      harness: 'claude',
+      adapter,
+      fetchRegistry: false,
+      agentRoot: join(agentsDir, 'dev'),
+      materializationIdentity: {
+        agentId: 'dev',
+        projectId: 'project-compose',
+        frontend: 'claude',
+      },
+      aspHome,
+      refresh: true,
+      inheritProject: true,
+      inheritUser: false,
+      projectRoot: projectPath,
+    })
+  })
+
+  test('non-compose installs pass the broader configInstall field set', async () => {
+    const root = await createTempDir('run-install-non-compose-')
+    const aspHome = join(root, 'asp-home')
+    const projectPath = join(root, 'project-install')
+    await writeProject(
+      projectPath,
+      `
+schema = 1
+
+[targets.dev]
+compose = ["space:project@dev"]
+`
+    )
+
+    const adapter = makeAdapter()
+    const installCalls: Record<string, unknown>[] = []
+    const materializeCalls: Record<string, unknown>[] = []
+    const harnessSpy = spyOn(harnessRegistry, 'getOrThrow').mockImplementation(
+      () => adapter as never
+    )
+    const installSpy = spyOn(spacesConfig, 'install').mockImplementation(
+      async (options: Record<string, unknown>) => {
+        installCalls.push(options)
+        return { materializations: [{ target: 'dev', outputPath: '/materialized/install/dev' }] }
+      }
+    )
+    const materializeSpy = spyOn(spacesConfig, 'materializeFromRefs').mockImplementation(
+      async (options: Record<string, unknown>) => {
+        materializeCalls.push(options)
+        return { materialization: { outputPath: '/materialized/compose/dev' } }
+      }
+    )
+
+    try {
+      await runModule.run('dev', {
+        projectPath,
+        aspHome,
+        refresh: true,
+        inheritProject: true,
+        inheritUser: false,
+        prompt: 'caller prompt stays on install options',
+        interactive: false,
+        dryRun: true,
+      })
+    } finally {
+      harnessSpy.mockRestore()
+      installSpy.mockRestore()
+      materializeSpy.mockRestore()
+    }
+
+    expect(materializeCalls).toHaveLength(0)
+    expect(installCalls).toHaveLength(1)
+
+    const selection = installCalls[0]!
+    expect(Object.keys(selection).sort()).toEqual(
+      [
+        'adapter',
+        'aspHome',
+        'dryRun',
+        'fetchRegistry',
+        'harness',
+        'inheritProject',
+        'inheritUser',
+        'interactive',
+        'projectPath',
+        'prompt',
+        'refresh',
+        'registryPath',
+        'targets',
+      ].sort()
+    )
+    expect(selection).toMatchObject({
+      projectPath,
+      aspHome,
+      refresh: true,
+      inheritProject: true,
+      inheritUser: false,
+      prompt: 'caller prompt stays on install options',
+      interactive: false,
+      dryRun: true,
+      harness: 'claude',
+      targets: ['dev'],
+      registryPath: expect.any(String),
+      adapter,
+      fetchRegistry: false,
+    })
   })
 })
 
