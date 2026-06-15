@@ -67,6 +67,21 @@ const defaultRuntimeEnv: RuntimeEnv = {
 }
 
 /**
+ * Minimal logging seam mirroring the `console` methods this session uses.
+ *
+ * Defaults to `console`, so when no logger is injected the diagnostic output —
+ * including the verbatim `[agent-sdk]` prefixes — is byte-identical to the
+ * previous direct `console.*` calls (T-04636). Hosts that want to capture or
+ * silence session diagnostics can supply their own implementation.
+ */
+export interface AgentSessionLogger {
+  log(...args: unknown[]): void
+  error(...args: unknown[]): void
+}
+
+const defaultLogger: AgentSessionLogger = console
+
+/**
  * Optional collaborators / seams for an {@link AgentSession}.
  */
 export interface AgentSessionOpts {
@@ -75,6 +90,8 @@ export interface AgentSessionOpts {
   queryFactory?: QueryFactory
   /** Override the process pid/env seam (defaults to real `process`). */
   runtimeEnv?: RuntimeEnv
+  /** Override the diagnostic logging sink (defaults to `console`). */
+  logger?: AgentSessionLogger
 }
 
 /**
@@ -169,6 +186,7 @@ export class AgentSession implements UnifiedSession {
   private currentSubagentContext: string | undefined
   private readonly queryFactory: QueryFactory
   private readonly runtimeEnv: RuntimeEnv
+  private readonly logger: AgentSessionLogger
 
   constructor(
     private readonly config: AgentSessionConfig,
@@ -180,6 +198,7 @@ export class AgentSession implements UnifiedSession {
     this.onSdkSessionId = opts?.onSdkSessionId
     this.queryFactory = opts?.queryFactory ?? query
     this.runtimeEnv = opts?.runtimeEnv ?? defaultRuntimeEnv
+    this.logger = opts?.logger ?? defaultLogger
     this.sessionId = config.sessionId ?? config.ownerId
   }
 
@@ -231,7 +250,7 @@ export class AgentSession implements UnifiedSession {
       ...(this.config.continuationKey ? { resume: this.config.continuationKey } : {}),
     }
 
-    console.log(
+    this.logger.log(
       `[agent-sdk] session.start ${this.config.ownerId} model=${sdkModel} resume=${this.config.continuationKey ? truncateId(this.config.continuationKey) : 'none'} plugins=${this.config.plugins?.length ?? 0} maxTurns=${options.maxTurns}`
     )
 
@@ -298,7 +317,7 @@ export class AgentSession implements UnifiedSession {
     try {
       await this.sdkQuery.interrupt()
     } catch (error) {
-      console.error(
+      this.logger.error(
         `[agent-sdk] Failed to interrupt turn for session ${this.config.ownerId}:`,
         error
       )
@@ -332,11 +351,11 @@ export class AgentSession implements UnifiedSession {
         // a cleanup failure masquerade as a turn failure.
         const msg = error instanceof Error ? error.message : String(error)
         if (msg.includes('ProcessTransport is not ready')) {
-          console.log(
+          this.logger.log(
             `[agent-sdk] session ${this.config.ownerId} child already exited; skipping interrupt (priorState=${priorState}, reason=${reason ?? 'none'})`
           )
         } else {
-          console.error(
+          this.logger.error(
             `[agent-sdk] Failed to interrupt session ${this.config.ownerId} (priorState=${priorState}, reason=${reason ?? 'none'}):`,
             error
           )
@@ -349,7 +368,7 @@ export class AgentSession implements UnifiedSession {
     // Terminate the output iterator (fire and forget - awaiting may hang)
     if (this.outputIterator?.return) {
       void this.outputIterator.return().catch((error) => {
-        console.error(
+        this.logger.error(
           `[agent-sdk] Failed to close output iterator for session ${this.config.ownerId}:`,
           error
         )
@@ -428,7 +447,7 @@ export class AgentSession implements UnifiedSession {
     this.isListening = true
 
     this.outputListener = this.listenToOutput().catch((error) => {
-      console.error(`[agent-sdk] Error in session ${this.config.ownerId}:`, error)
+      this.logger.error(`[agent-sdk] Error in session ${this.config.ownerId}:`, error)
     })
   }
 
@@ -460,7 +479,7 @@ export class AgentSession implements UnifiedSession {
       this.state = 'error'
       this.stopReason = this.stopReason ?? 'error'
       const errMsg = error instanceof Error ? error.message : String(error)
-      console.error(
+      this.logger.error(
         `[agent-sdk] listenToOutput failed for session ${this.config.ownerId} (sdkSessionId=${this.sdkSessionId ?? 'none'}, pendingTurns=${this.pendingTurnIds.length}, lastResponseLen=${this.lastResponse.length}): ${errMsg}`
       )
       this.emitStopIfNeeded(undefined, this.lastResponse || undefined)
@@ -553,7 +572,9 @@ export class AgentSession implements UnifiedSession {
       })
       .filter((name): name is string => Boolean(name))
     if (pluginNames.length > 0) {
-      console.log(`[agent-sdk] init plugins for ${this.config.ownerId}: ${pluginNames.join(', ')}`)
+      this.logger.log(
+        `[agent-sdk] init plugins for ${this.config.ownerId}: ${pluginNames.join(', ')}`
+      )
     }
   }
 
