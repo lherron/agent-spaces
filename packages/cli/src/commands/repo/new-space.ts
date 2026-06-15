@@ -10,6 +10,7 @@ import type { Command } from 'commander'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
 import { validateSpaceId, writeSpaceScaffold } from '../spaces/scaffold.js'
+import { registryExists } from './registry-fs.js'
 
 interface RepoNewSpaceOptions {
   description?: string | undefined
@@ -39,7 +40,7 @@ export function registerRepoNewSpaceCommand(parent: Command): void {
         const { paths } = resolvePaths(options)
         const spaceDir = `${paths.repo}/spaces/${spaceId}`
 
-        const repoExists = await Bun.file(`${paths.repo}/.git/HEAD`).exists()
+        const repoExists = await registryExists(paths.repo)
         if (!repoExists) {
           console.error(chalk.red('Error: Registry not initialized'))
           console.error(chalk.gray('Run "asp repo init" first to create the registry'))

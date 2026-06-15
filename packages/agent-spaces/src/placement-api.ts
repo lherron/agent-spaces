@@ -150,14 +150,3 @@ export function validateProviderMatch(
 
   return undefined
 }
-
-// ============================================================================
-// Placement-aware client interface
-// ============================================================================
-
-export interface PlacementAgentSpacesClient {
-  runTurnNonInteractive(req: PlacementRunTurnRequest): Promise<PlacementRunTurnResponse>
-  buildProcessInvocationSpec(
-    req: PlacementBuildInvocationRequest
-  ): Promise<PlacementBuildInvocationResponse>
-}

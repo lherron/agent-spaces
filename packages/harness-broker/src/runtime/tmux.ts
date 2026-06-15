@@ -1,11 +1,7 @@
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
 import { sanitizeTmuxClientEnv } from './tmux-env'
-import { PANE_IDENTITY_FORMAT, parsePaneIdentity, parsePaneState } from './tmux-parse'
-
-// Re-exported for backward compatibility — `parsePaneState` was a public export
-// of this module before the SRP split into `tmux-parse.ts`.
-export { parsePaneState }
+import { PANE_IDENTITY_FORMAT, parsePaneIdentity } from './tmux-parse'
 
 export type RestartStyle = 'reuse_pty' | 'fresh_pty'
 
@@ -53,15 +49,6 @@ export type TmuxPaneInspection = {
 export type TmuxPaneResize = {
   columns?: number | undefined
   rows?: number | undefined
-}
-
-export type TmuxPaneState = {
-  socketPath: string
-  sessionName: string
-  windowName: string
-  sessionId: string
-  windowId: string
-  paneId: string
 }
 
 // sendPastedLine submit tuning (T-01734, hardened T-01747). The launch command is

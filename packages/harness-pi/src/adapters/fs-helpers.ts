@@ -32,6 +32,23 @@ export async function dirExists(path: string): Promise<boolean> {
 }
 
 /**
+ * Returns true if `path` exists and is a regular file. Returns false only when
+ * the path is absent (ENOENT); re-throws other IO errors (e.g. EACCES, EMFILE)
+ * instead of silently swallowing them as "doesn't exist".
+ */
+export async function fileExists(path: string): Promise<boolean> {
+  try {
+    const stats = await stat(path)
+    return stats.isFile()
+  } catch (err) {
+    if (isEnoent(err)) {
+      return false
+    }
+    throw err
+  }
+}
+
+/**
  * Copy a source component directory into a destination, no-op when the source
  * directory is absent. Re-throws non-ENOENT IO errors instead of swallowing
  * them.

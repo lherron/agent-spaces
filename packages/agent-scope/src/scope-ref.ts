@@ -1,23 +1,11 @@
-import type { ParsedScopeRef, ValidationResult } from './types.js'
-import { validateTokenField } from './types.js'
-
-function part(parts: string[], i: number): string {
-  return parts[i] as string
-}
-
-/** Field set shared by the canonical ScopeRef builders. */
-type ScopeRefFields = {
-  agentId: string
-  projectId?: string | undefined
-  taskId?: string | undefined
-  roleName?: string | undefined
-}
+import type { ParsedScopeRef, ScopeFields, ValidationResult } from './types.js'
+import { validateToken } from './types.js'
 
 /**
  * Single source of truth for assembling a canonical scope ref string from its
  * component fields. Each segment is appended only when its field is present.
  */
-export function buildScopeRef(fields: ScopeRefFields): string {
+export function buildScopeRef(fields: ScopeFields): string {
   let ref = `agent:${fields.agentId}`
 
   if (fields.projectId !== undefined) {
@@ -36,64 +24,88 @@ export function buildScopeRef(fields: ScopeRefFields): string {
 }
 
 /**
- * Validate a scope ref string. Returns { ok: true } or { ok: false, error }.
+ * Single grammar walker for ScopeRef: validates the segment structure and, on
+ * success, returns the decoded `ParsedScopeRef` so callers need not re-walk.
+ * Returns `{ error }` with the canonical message on any structural violation.
+ *
+ * Sole owner of the ScopeRef grammar — both `validateScopeRef` and
+ * `parseScopeRef` delegate here, so the segment positions and error wording are
+ * encoded exactly once.
  */
-export function validateScopeRef(scopeRef: string): ValidationResult {
+function tryParseScopeRef(scopeRef: string): ParsedScopeRef | { error: string } {
   const parts = scopeRef.split(':')
 
   // Must start with "agent:<agentId>"
   if (parts.length < 2 || parts[0] !== 'agent') {
-    return { ok: false, error: 'ScopeRef must start with "agent:<agentId>"' }
+    return { error: 'ScopeRef must start with "agent:<agentId>"' }
   }
 
-  const agentResult = validateTokenField(part(parts, 1), 'agentId')
-  if (!agentResult.ok) return agentResult
+  const agentId = parts[1] as string
+
+  const agentErr = validateToken(agentId, 'agentId')
+  if (agentErr) return { error: agentErr }
 
   // agent:<agentId> — valid
-  if (parts.length === 2) return { ok: true }
+  if (parts.length === 2) return { kind: 'agent', agentId, scopeRef }
 
   // Must continue with "project:<projectId>"
   if (parts.length < 4 || parts[2] !== 'project') {
-    return { ok: false, error: 'After "agent:<agentId>", expected "project:<projectId>"' }
+    return { error: 'After "agent:<agentId>", expected "project:<projectId>"' }
   }
 
-  const projectResult = validateTokenField(part(parts, 3), 'projectId')
-  if (!projectResult.ok) return projectResult
+  const projectId = parts[3] as string
+
+  const projectErr = validateToken(projectId, 'projectId')
+  if (projectErr) return { error: projectErr }
 
   // agent:<agentId>:project:<projectId> — valid
-  if (parts.length === 4) return { ok: true }
+  if (parts.length === 4) return { kind: 'project', agentId, projectId, scopeRef }
 
   // Next segment must be "role" or "task"
   const nextKey = parts[4]
   if (nextKey === 'role') {
     // agent:<agentId>:project:<projectId>:role:<roleName>
     if (parts.length !== 6) {
-      return { ok: false, error: 'Expected exactly "role:<roleName>" after project segment' }
+      return { error: 'Expected exactly "role:<roleName>" after project segment' }
     }
-    return validateTokenField(part(parts, 5), 'roleName')
+    const roleName = parts[5] as string
+    const roleErr = validateToken(roleName, 'roleName')
+    if (roleErr) return { error: roleErr }
+    return { kind: 'project-role', agentId, projectId, roleName, scopeRef }
   }
 
   if (nextKey === 'task') {
     if (parts.length < 6) {
-      return { ok: false, error: 'Expected "task:<taskId>" after project segment' }
+      return { error: 'Expected "task:<taskId>" after project segment' }
     }
-    const taskResult = validateTokenField(part(parts, 5), 'taskId')
-    if (!taskResult.ok) return taskResult
+    const taskId = parts[5] as string
+    const taskErr = validateToken(taskId, 'taskId')
+    if (taskErr) return { error: taskErr }
 
     // agent:<agentId>:project:<projectId>:task:<taskId> — valid
-    if (parts.length === 6) return { ok: true }
+    if (parts.length === 6) return { kind: 'project-task', agentId, projectId, taskId, scopeRef }
 
     // Must continue with "role:<roleName>"
     if (parts.length !== 8 || parts[6] !== 'role') {
-      return { ok: false, error: 'After "task:<taskId>", expected "role:<roleName>"' }
+      return { error: 'After "task:<taskId>", expected "role:<roleName>"' }
     }
-    return validateTokenField(part(parts, 7), 'roleName')
+    const roleName = parts[7] as string
+    const roleErr = validateToken(roleName, 'roleName')
+    if (roleErr) return { error: roleErr }
+    return { kind: 'project-task-role', agentId, projectId, taskId, roleName, scopeRef }
   }
 
   return {
-    ok: false,
     error: `Unexpected segment "${nextKey}" after project; expected "role" or "task"`,
   }
+}
+
+/**
+ * Validate a scope ref string. Returns { ok: true } or { ok: false, error }.
+ */
+export function validateScopeRef(scopeRef: string): ValidationResult {
+  const result = tryParseScopeRef(scopeRef)
+  return 'error' in result ? { ok: false, error: result.error } : { ok: true }
 }
 
 /**
@@ -101,40 +113,11 @@ export function validateScopeRef(scopeRef: string): ValidationResult {
  * Throws if the scope ref is invalid.
  */
 export function parseScopeRef(scopeRef: string): ParsedScopeRef {
-  const validation = validateScopeRef(scopeRef)
-  if (!validation.ok) {
-    throw new Error(`Invalid ScopeRef "${scopeRef}": ${validation.error}`)
+  const result = tryParseScopeRef(scopeRef)
+  if ('error' in result) {
+    throw new Error(`Invalid ScopeRef "${scopeRef}": ${result.error}`)
   }
-
-  const parts = scopeRef.split(':')
-  const agentId = part(parts, 1)
-
-  if (parts.length === 2) {
-    return { kind: 'agent', agentId, scopeRef }
-  }
-
-  const projectId = part(parts, 3)
-
-  if (parts.length === 4) {
-    return { kind: 'project', agentId, projectId, scopeRef }
-  }
-
-  const nextKey = part(parts, 4)
-
-  if (nextKey === 'role') {
-    const roleName = part(parts, 5)
-    return { kind: 'project-role', agentId, projectId, roleName, scopeRef }
-  }
-
-  // nextKey === 'task'
-  const taskId = part(parts, 5)
-
-  if (parts.length === 6) {
-    return { kind: 'project-task', agentId, projectId, taskId, scopeRef }
-  }
-
-  const roleName = part(parts, 7)
-  return { kind: 'project-task-role', agentId, projectId, taskId, roleName, scopeRef }
+  return result
 }
 
 /**

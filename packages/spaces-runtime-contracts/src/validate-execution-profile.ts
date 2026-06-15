@@ -88,6 +88,10 @@ function isTmuxBrokerExposurePolicy(policy: AgentchatExposurePolicy): boolean {
   return policy.mode === 'broker-reports-target' && policy.targetKind === 'tmux-session'
 }
 
+function exposureTargetKind(policy: AgentchatExposurePolicy): string | undefined {
+  return policy.mode === 'none' ? undefined : policy.targetKind
+}
+
 function exposurePoliciesMatch(
   left: AgentchatExposurePolicy,
   right: AgentchatExposurePolicy
@@ -98,9 +102,7 @@ function exposurePoliciesMatch(
   if (left.mode === 'none') {
     return true
   }
-  return (
-    left.targetKind === (right as Exclude<AgentchatExposurePolicy, { mode: 'none' }>).targetKind
-  )
+  return exposureTargetKind(left) === exposureTargetKind(right)
 }
 
 function isNoneExposurePolicy(policy: AgentchatExposurePolicy): boolean {

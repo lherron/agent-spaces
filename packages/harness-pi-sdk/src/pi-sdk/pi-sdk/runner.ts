@@ -6,6 +6,8 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   type ExtensionApi,
+  type ExtensionFactory,
+  PI_LIFECYCLE_EVENT,
   buildHookExtension,
   collectBundleSpaceIds,
   loadBundleManifest,
@@ -33,8 +35,6 @@ interface RunnerArgs {
   sdkRoot?: string | undefined
   verbose: boolean
 }
-
-type ExtensionFactory = (pi: ExtensionApi) => void | Promise<void>
 
 export function parseArgs(argv: string[]): RunnerArgs {
   const args: RunnerArgs = {
@@ -142,18 +142,18 @@ function buildVerboseLoggingExtension() {
   let turnCount = 0
 
   return (pi: ExtensionApi) => {
-    pi.on('session_start', async () => {
+    pi.on(PI_LIFECYCLE_EVENT.SESSION_START, async () => {
       console.error('[verbose] session_start')
       return undefined
     })
 
-    pi.on('turn_start', async (_event: Record<string, unknown>) => {
+    pi.on(PI_LIFECYCLE_EVENT.TURN_START, async (_event: Record<string, unknown>) => {
       turnCount += 1
       console.error(`[verbose] turn_start #${turnCount}`)
       return undefined
     })
 
-    pi.on('turn_end', async (event: Record<string, unknown>) => {
+    pi.on(PI_LIFECYCLE_EVENT.TURN_END, async (event: Record<string, unknown>) => {
       const usage = event['usage'] as { inputTokens?: number; outputTokens?: number } | undefined
       const usageStr = usage
         ? ` (input: ${usage.inputTokens ?? '?'}, output: ${usage.outputTokens ?? '?'})`
@@ -162,13 +162,13 @@ function buildVerboseLoggingExtension() {
       return undefined
     })
 
-    pi.on('tool_call', async (event: Record<string, unknown>) => {
+    pi.on(PI_LIFECYCLE_EVENT.TOOL_CALL, async (event: Record<string, unknown>) => {
       const toolName = event['toolName'] as string | undefined
       console.error(`[verbose] tool_call: ${toolName ?? 'unknown'}`)
       return undefined
     })
 
-    pi.on('tool_result', async (event: Record<string, unknown>) => {
+    pi.on(PI_LIFECYCLE_EVENT.TOOL_RESULT, async (event: Record<string, unknown>) => {
       const toolName = event['toolName'] as string | undefined
       const error = event['error'] as string | undefined
       const status = error ? `error: ${error}` : 'success'
@@ -176,7 +176,7 @@ function buildVerboseLoggingExtension() {
       return undefined
     })
 
-    pi.on('session_shutdown', async () => {
+    pi.on(PI_LIFECYCLE_EVENT.SESSION_SHUTDOWN, async () => {
       console.error(`[verbose] session_shutdown (${turnCount} turns)`)
       return undefined
     })

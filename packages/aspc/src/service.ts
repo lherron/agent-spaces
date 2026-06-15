@@ -11,6 +11,7 @@ import type {
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import type { Broker } from 'spaces-harness-broker'
 import type { InvocationDispatchRequest } from 'spaces-harness-broker-protocol'
+import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
   CompileDiagnostic,
@@ -67,7 +68,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
           cohostedBroker: broker !== undefined,
           transports: ['stdio-jsonrpc-ndjson'],
         },
-        ...(broker !== undefined ? { brokerProtocol: 'harness-broker/0.2' } : {}),
+        ...(broker !== undefined ? { brokerProtocol: SUPPORTED_BROKER_PROTOCOL_VERSIONS[0] } : {}),
       }
     },
 

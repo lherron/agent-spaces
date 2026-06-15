@@ -3,7 +3,7 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
-import { ConfigParseError, ConfigValidationError } from '../errors.js'
+import { ConfigFileNotFoundError, ConfigParseError, ConfigValidationError } from '../errors.js'
 import { validateLockFile } from '../schemas/index.js'
 import type { LockFile } from '../types/lock.js'
 
@@ -55,7 +55,7 @@ export async function readLockJson(filePath: string): Promise<LockFile> {
       throw err
     }
     if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
-      throw new ConfigParseError('File not found', filePath)
+      throw new ConfigFileNotFoundError(filePath)
     }
     const message = err instanceof Error ? err.message : String(err)
     throw new ConfigParseError(`Failed to read file: ${message}`, filePath)

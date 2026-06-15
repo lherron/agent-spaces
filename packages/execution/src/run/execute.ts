@@ -221,6 +221,7 @@ export async function executeHarnessRun(
 
   const envPrefix = formatEnvPrefix(harnessEnv)
   const command = envPrefix + formatCommand(commandPath, args)
+  const displayCommand = envPrefix + formatDisplayCommand(commandPath, args)
   const launch: LaunchShape = {
     command: commandPath,
     args,
@@ -232,7 +233,7 @@ export async function executeHarnessRun(
     return {
       exitCode: 0,
       command,
-      displayCommand: envPrefix + formatDisplayCommand(commandPath, args),
+      displayCommand,
       warnings,
       systemPrompt: preparedRunOptions.systemPrompt,
       systemPromptMode: preparedRunOptions.systemPromptMode,
@@ -245,7 +246,7 @@ export async function executeHarnessRun(
     systemPromptMode: preparedRunOptions.systemPromptMode,
     reminderContent: options.reminderContent,
     primingPrompt: preparedRunOptions.prompt,
-    command: envPrefix + formatDisplayCommand(commandPath, args),
+    command: displayCommand,
     showCommand: true,
     pagePrompts: options.pagePrompts,
   })
@@ -270,7 +271,7 @@ export async function executeHarnessRun(
   return {
     exitCode,
     command,
-    displayCommand: envPrefix + formatDisplayCommand(commandPath, args),
+    displayCommand,
     warnings,
     launch,
     invocation:

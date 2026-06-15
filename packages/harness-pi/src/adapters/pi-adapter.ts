@@ -68,7 +68,7 @@ import {
 } from './constants.js'
 import { detectPi } from './detect.js'
 import { PiBundleError } from './errors.js'
-import { copyComponentDir, dirExists, listDirEntries } from './fs-helpers.js'
+import { copyComponentDir, dirExists, fileExists, listDirEntries } from './fs-helpers.js'
 
 // Re-export the cohesive submodules so `./pi-adapter.js` remains the stable
 // public entrypoint for consumers and tests.
@@ -766,35 +766,11 @@ export class PiAdapter implements HarnessAdapter {
     const hookBridgePath = join(outputDir, 'asp-hooks.bridge.js')
     const hrcEventsBridgePath = join(outputDir, 'asp-hrc-events.bridge.js')
 
-    let skillsDirPath: string | undefined
-    try {
-      const entries = await readdir(skillsDir)
-      if (entries.length > 0) {
-        skillsDirPath = skillsDir
-      }
-    } catch {
-      // No skills directory
-    }
-
-    let hookBridge: string | undefined
-    try {
-      const stats = await stat(hookBridgePath)
-      if (stats.isFile()) {
-        hookBridge = hookBridgePath
-      }
-    } catch {
-      // No hook bridge
-    }
-
-    let hrcEventsBridge: string | undefined
-    try {
-      const stats = await stat(hrcEventsBridgePath)
-      if (stats.isFile()) {
-        hrcEventsBridge = hrcEventsBridgePath
-      }
-    } catch {
-      // No HRC events bridge
-    }
+    const skillsDirPath = (await listDirEntries(skillsDir)).length > 0 ? skillsDir : undefined
+    const hookBridge = (await fileExists(hookBridgePath)) ? hookBridgePath : undefined
+    const hrcEventsBridge = (await fileExists(hrcEventsBridgePath))
+      ? hrcEventsBridgePath
+      : undefined
 
     return {
       harnessId: 'pi',

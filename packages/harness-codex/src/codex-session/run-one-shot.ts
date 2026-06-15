@@ -3,22 +3,20 @@ import type { UnifiedSessionEvent } from 'spaces-runtime'
 
 import { toError } from '../errors.js'
 import {
-  type AgentMessageDeltaNotification,
   CLIENT_INFO,
   type CodexThreadItem,
-  type CommandExecutionOutputDeltaNotification,
   type ErrorNotification,
-  type FileChangeOutputDeltaNotification,
   type ItemCompletedNotification,
   type ItemStartedNotification,
-  type McpToolCallProgressNotification,
   type ThreadResumeResponse,
   type ThreadStartResponse,
   type TurnStartResponse,
+  classifyNotification,
   formatCodexErrorBody,
-  mapDeltaNotification,
+  localImageInput,
   mapItemCompleted,
   mapItemStarted,
+  textInput,
 } from './event-mapping.js'
 import {
   CodexRpcClient,
@@ -108,6 +106,13 @@ export async function runCodexAppServerOneShot(
   }
 
   async function handleNotification(notification: JsonRpcNotification): Promise<void> {
+    const shared = classifyNotification(notification.method, notification.params)
+    if (shared) {
+      for (const event of shared) {
+        await emitEvent(event)
+      }
+      return
+    }
     switch (notification.method) {
       case 'error': {
         rejectWith(new Error(formatCodexError(notification.params as ErrorNotification)))
@@ -147,31 +152,6 @@ export async function runCodexAppServerOneShot(
         }
         if (mapped.finalOutput !== undefined) {
           finalOutput = mapped.finalOutput
-        }
-        return
-      }
-      case 'item/agentMessage/delta': {
-        const params = notification.params as AgentMessageDeltaNotification
-        await emitEvent({
-          type: 'message_update',
-          messageId: params.itemId,
-          textDelta: params.delta,
-          payload: params,
-        })
-        return
-      }
-      case 'item/commandExecution/outputDelta':
-      case 'item/fileChange/outputDelta':
-      case 'item/mcpToolCall/progress': {
-        const event = mapDeltaNotification(
-          notification.method,
-          notification.params as
-            | CommandExecutionOutputDeltaNotification
-            | FileChangeOutputDeltaNotification
-            | McpToolCallProgressNotification
-        )
-        if (event) {
-          await emitEvent(event)
         }
         return
       }
@@ -315,9 +295,9 @@ function buildUserInputs(
   text: string,
   imageAttachments: string[] | undefined
 ): Record<string, unknown>[] {
-  const inputs: Record<string, unknown>[] = [{ type: 'text', text, text_elements: [] }]
+  const inputs: Record<string, unknown>[] = [textInput(text)]
   for (const path of imageAttachments ?? []) {
-    inputs.push({ type: 'localImage', path })
+    inputs.push(localImageInput(path))
   }
   return inputs
 }

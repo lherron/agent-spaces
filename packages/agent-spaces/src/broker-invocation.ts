@@ -48,6 +48,25 @@ const DEFAULT_BROKER_PROCESS_LIMITS: NonNullable<HarnessInvocationSpec['process'
   stopGraceMs: DEFAULT_BROKER_STOP_GRACE_MS,
 }
 
+/**
+ * Best-effort parse of a shorthand `agent@project:task` handle into its parts.
+ * Used as a fallback when {@link parseScopeRef} cannot parse a canonical
+ * ScopeRef. Pure: emits no diagnostics and never throws.
+ */
+function parseShorthandHandle(scopeRef: string): HandleParts {
+  const atIndex = scopeRef.indexOf('@')
+  if (atIndex === -1) {
+    return { agentId: scopeRef }
+  }
+  const agentId = scopeRef.slice(0, atIndex)
+  const rest = scopeRef.slice(atIndex + 1)
+  const colonIndex = rest.indexOf(':')
+  if (colonIndex === -1) {
+    return { agentId, projectId: rest }
+  }
+  return { agentId, projectId: rest.slice(0, colonIndex), taskId: rest.slice(colonIndex + 1) }
+}
+
 export function deriveHandleParts(placement: RuntimePlacement): HandleParts {
   const parts: HandleParts = {}
   const scopeRef = placement.correlation?.sessionRef?.scopeRef
@@ -75,19 +94,13 @@ export function deriveHandleParts(placement: RuntimePlacement): HandleParts {
           scopeRef
         )} (${reason}); using shorthand fallback\n`
       )
-      const atIndex = scopeRef.indexOf('@')
-      if (atIndex === -1) {
-        parts.agentId = scopeRef
-      } else {
-        parts.agentId = scopeRef.slice(0, atIndex)
-        const rest = scopeRef.slice(atIndex + 1)
-        const colonIndex = rest.indexOf(':')
-        if (colonIndex === -1) {
-          parts.projectId = rest
-        } else {
-          parts.projectId = rest.slice(0, colonIndex)
-          parts.taskId = rest.slice(colonIndex + 1)
-        }
+      const shorthand = parseShorthandHandle(scopeRef)
+      parts.agentId = shorthand.agentId
+      if (shorthand.projectId !== undefined) {
+        parts.projectId = shorthand.projectId
+      }
+      if (shorthand.taskId !== undefined) {
+        parts.taskId = shorthand.taskId
       }
     }
   }

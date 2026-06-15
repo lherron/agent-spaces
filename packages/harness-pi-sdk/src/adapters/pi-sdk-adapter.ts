@@ -47,6 +47,12 @@ import {
   INSTRUCTIONS_FILE_CLAUDE,
   readHooksWithPrecedence,
 } from 'spaces-config'
+import type {
+  PiSdkBundleContextEntry,
+  PiSdkBundleExtensionEntry,
+  PiSdkBundleHookEntry,
+  PiSdkBundleManifest as PiSdkBundleManifestShape,
+} from '../pi-session/bundle-manifest-types.js'
 import { resolveSdkEntry } from '../pi-session/sdk-entry.js'
 import {
   type ExtensionBuildOptions,
@@ -63,33 +69,26 @@ const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.5'
 
 const RUNNER_PATH = fileURLToPath(new URL('../pi-sdk/pi-sdk/runner.js', import.meta.url))
 
-interface PiSdkBundleExtensionEntry {
-  spaceId: string
-  path: string
-}
-
-interface PiSdkBundleContextEntry {
-  spaceId: string
-  path: string
-  label?: string | undefined
-}
-
-interface PiSdkBundleHookEntry {
-  event: string
-  script: string
-  tools?: string[] | undefined
-  blocking?: boolean | undefined
-}
-
-interface PiSdkBundleManifest {
+/**
+ * Producer-side view of the canonical bundle manifest. The adapter writes a
+ * stricter literal than the canonical (consumer) shape tolerates — `schemaVersion`
+ * is always `1`, `harnessId` is always `'pi-sdk'`, and `contextFiles`/`hooks` are
+ * always materialized — so it narrows the shared `PiSdkBundleManifestShape`
+ * rather than re-declaring the interface family. This keeps producer and
+ * consumer pinned to a single source of truth (bundle-manifest-types.ts).
+ */
+type PiSdkBundleManifest = PiSdkBundleManifestShape & {
   schemaVersion: 1
   harnessId: 'pi-sdk'
-  targetName: string
-  rootDir: string
-  extensions: PiSdkBundleExtensionEntry[]
-  skillsDir?: string | undefined
   contextFiles: PiSdkBundleContextEntry[]
   hooks: PiSdkBundleHookEntry[]
+}
+
+/** The optional `pi.build` extension of a project manifest (see {@link ExtensionBuildOptions}). */
+interface PiManifestExtension {
+  pi?: {
+    build?: ExtensionBuildOptions
+  }
 }
 
 // ============================================================================
@@ -272,72 +271,10 @@ export class PiSdkAdapter implements HarnessAdapter {
       }
       await mkdir(cacheDir, { recursive: true })
 
-      const manifestWithPi = input.manifest as typeof input.manifest & {
-        pi?: {
-          build?: {
-            format?: 'esm' | 'cjs' | undefined
-            target?: 'bun' | 'node' | undefined
-            external?: string[] | undefined
-          }
-        }
-      }
-      const buildOpts: ExtensionBuildOptions = {
-        format: manifestWithPi.pi?.build?.format,
-        target: manifestWithPi.pi?.build?.target,
-        external: manifestWithPi.pi?.build?.external,
-      }
-
-      const extensionsDir = join(cacheDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const sourceExtensions = await discoverExtensions(input.snapshotPath)
-      const spaceId = input.manifest.id
-
-      for (const srcPath of sourceExtensions) {
-        const srcBasename = basename(srcPath)
-        const srcName = srcBasename.replace(/\.(ts|js)$/, '')
-        const outName = `${spaceId}__${srcName}.js`
-        const outPath = join(extensionsDir, outName)
-
-        try {
-          await bundleExtension(srcPath, outPath, buildOpts)
-          files.push(`extensions/${outName}`)
-        } catch (err) {
-          if (err instanceof PiBundleError) {
-            warnings.push(`Failed to bundle ${srcBasename}: ${err.stderr}`)
-          } else {
-            throw err
-          }
-        }
-      }
-
-      const srcSkillsDir = join(input.snapshotPath, 'skills')
-      const destSkillsDir = join(cacheDir, 'skills')
-      if (await copyDirIfPresent(srcSkillsDir, destSkillsDir)) {
-        const skillEntries = await readdir(destSkillsDir)
-        for (const entry of skillEntries) {
-          files.push(`skills/${entry}`)
-        }
-      }
-
-      const srcHooksDir = join(input.snapshotPath, 'hooks')
-      const destHooksDir = join(cacheDir, 'hooks')
-      if (await copyDirIfPresent(srcHooksDir, destHooksDir)) {
-        const hookEntries = await readdir(destHooksDir)
-        for (const entry of hookEntries) {
-          files.push(`hooks/${entry}`)
-        }
-      }
-
-      const contextDir = join(cacheDir, 'context')
-      const instructionPath = await resolveInstructionFile(input.snapshotPath)
-      if (instructionPath) {
-        await mkdir(contextDir, { recursive: true })
-        const contextName = `${spaceId}.md`
-        const destPath = join(contextDir, contextName)
-        await linkOrCopy(instructionPath, destPath)
-        files.push(`context/${contextName}`)
-      }
+      await this.materializeExtensions(input, cacheDir, files, warnings)
+      await this.materializeSkills(input, cacheDir, files)
+      await this.materializeHooks(input, cacheDir, files)
+      await this.materializeContext(input, cacheDir, files)
 
       return {
         artifactPath: cacheDir,
@@ -347,6 +284,90 @@ export class PiSdkAdapter implements HarnessAdapter {
     } catch (err) {
       await rm(cacheDir, { recursive: true, force: true }).catch(() => {})
       throw err
+    }
+  }
+
+  private async materializeExtensions(
+    input: MaterializeSpaceInput,
+    cacheDir: string,
+    files: string[],
+    warnings: string[]
+  ): Promise<void> {
+    const manifestWithPi = input.manifest as typeof input.manifest & PiManifestExtension
+    const buildOpts: ExtensionBuildOptions = {
+      format: manifestWithPi.pi?.build?.format,
+      target: manifestWithPi.pi?.build?.target,
+      external: manifestWithPi.pi?.build?.external,
+    }
+
+    const extensionsDir = join(cacheDir, 'extensions')
+    await mkdir(extensionsDir, { recursive: true })
+
+    const sourceExtensions = await discoverExtensions(input.snapshotPath)
+    const spaceId = input.manifest.id
+
+    for (const srcPath of sourceExtensions) {
+      const srcBasename = basename(srcPath)
+      const srcName = srcBasename.replace(/\.(ts|js)$/, '')
+      const outName = `${spaceId}__${srcName}.js`
+      const outPath = join(extensionsDir, outName)
+
+      try {
+        await bundleExtension(srcPath, outPath, buildOpts)
+        files.push(`extensions/${outName}`)
+      } catch (err) {
+        if (err instanceof PiBundleError) {
+          warnings.push(`Failed to bundle ${srcBasename}: ${err.stderr}`)
+        } else {
+          throw err
+        }
+      }
+    }
+  }
+
+  private async materializeSkills(
+    input: MaterializeSpaceInput,
+    cacheDir: string,
+    files: string[]
+  ): Promise<void> {
+    const srcSkillsDir = join(input.snapshotPath, 'skills')
+    const destSkillsDir = join(cacheDir, 'skills')
+    if (await copyDirIfPresent(srcSkillsDir, destSkillsDir)) {
+      const skillEntries = await readdir(destSkillsDir)
+      for (const entry of skillEntries) {
+        files.push(`skills/${entry}`)
+      }
+    }
+  }
+
+  private async materializeHooks(
+    input: MaterializeSpaceInput,
+    cacheDir: string,
+    files: string[]
+  ): Promise<void> {
+    const srcHooksDir = join(input.snapshotPath, 'hooks')
+    const destHooksDir = join(cacheDir, 'hooks')
+    if (await copyDirIfPresent(srcHooksDir, destHooksDir)) {
+      const hookEntries = await readdir(destHooksDir)
+      for (const entry of hookEntries) {
+        files.push(`hooks/${entry}`)
+      }
+    }
+  }
+
+  private async materializeContext(
+    input: MaterializeSpaceInput,
+    cacheDir: string,
+    files: string[]
+  ): Promise<void> {
+    const contextDir = join(cacheDir, 'context')
+    const instructionPath = await resolveInstructionFile(input.snapshotPath)
+    if (instructionPath) {
+      await mkdir(contextDir, { recursive: true })
+      const contextName = `${input.manifest.id}.md`
+      const destPath = join(contextDir, contextName)
+      await linkOrCopy(instructionPath, destPath)
+      files.push(`context/${contextName}`)
     }
   }
 

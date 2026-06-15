@@ -11,6 +11,7 @@ import type { Command } from 'commander'
 import { atomicWriteJson, createAnnotatedTag, gitExecLines } from 'spaces-config'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
+import { registryExists } from './registry-fs.js'
 
 interface RepoPublishOptions {
   tag: string
@@ -31,7 +32,7 @@ function validateVersionTag(version: string): void {
  * Ensure registry exists.
  */
 async function ensureRegistryExists(repoPath: string): Promise<void> {
-  if (!(await Bun.file(`${repoPath}/.git/HEAD`).exists())) {
+  if (!(await registryExists(repoPath))) {
     throw new Error('No registry found. Run "asp repo init" first.')
   }
 }

@@ -92,15 +92,30 @@ function serialize(value: unknown, policy: HashMaterialPolicy, pointer = ''): st
   const parts: string[] = []
   for (const key of keys) {
     const childPointer = `${pointer}/${escapeJsonPointerToken(key)}`
-    if (policy.omitPaths.includes(childPointer)) continue
-    if (policy.timestampMode === 'omit-ephemeral' && isEphemeralTimestampField(key)) {
-      continue
-    }
     const child = record[key]
-    if (child === undefined) continue // omit undefined; null is preserved
+    if (!includeObjectField(key, childPointer, child, policy)) continue
     parts.push(`${JSON.stringify(key)}:${serialize(child, policy, childPointer)}`)
   }
   return `{${parts.join(',')}}`
+}
+
+/**
+ * Decides whether an object field is hash-material. Drops fields whose pointer
+ * is explicitly omitted, ephemeral-timestamp fields under `omit-ephemeral`, and
+ * `undefined` values (null is preserved).
+ */
+function includeObjectField(
+  key: string,
+  childPointer: string,
+  child: unknown,
+  policy: HashMaterialPolicy
+): boolean {
+  if (policy.omitPaths.includes(childPointer)) return false
+  if (policy.timestampMode === 'omit-ephemeral' && isEphemeralTimestampField(key)) {
+    return false
+  }
+  if (child === undefined) return false // omit undefined; null is preserved
+  return true
 }
 
 export function createCanonicalHasher(): CanonicalHasher {
@@ -166,19 +181,16 @@ export function project(
   const canonical = serialize(source, policy)
   const value = JSON.parse(canonical) as JsonValue
   const hashValue = createHash('sha256').update(canonical, 'utf8').digest('hex')
-  const base = {
-    hashProjection: policy.hashProjection,
-    value,
-  }
+  const hashProjection = policy.hashProjection
   switch (kind) {
     case 'plan':
-      return { ...base, planHash: hashValue }
+      return { hashProjection, value, planHash: hashValue }
     case 'profile':
-      return { ...base, profileHash: hashValue }
+      return { hashProjection, value, profileHash: hashValue }
     case 'spec':
-      return { ...base, specHash: hashValue }
+      return { hashProjection, value, specHash: hashValue }
     case 'start-request':
-      return { ...base, startRequestHash: hashValue }
+      return { hashProjection, value, startRequestHash: hashValue }
   }
 }
 

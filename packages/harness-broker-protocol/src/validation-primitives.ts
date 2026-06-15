@@ -96,6 +96,22 @@ export function optionalNumber(value: unknown, basePath: string, issues: Validat
   }
 }
 
+/**
+ * Like {@link optionalNumber} but additionally accepts `null`. Names the
+ * "exit-code-shaped nullable number" contract (`number | null | undefined`)
+ * once; other types still fail with `invalid_type`.
+ */
+export function optionalNumberOrNull(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  if (value === null) {
+    return
+  }
+  optionalNumber(value, basePath, issues)
+}
+
 export function optionalBoolean(value: unknown, basePath: string, issues: ValidationIssue[]): void {
   if (value !== undefined && typeof value !== 'boolean') {
     issues.push(makeIssue(basePath, 'invalid_type', `${basePath} must be a boolean`))

@@ -9,6 +9,7 @@ import chalk from 'chalk'
 import type { Command } from 'commander'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
+import { registryExists } from '../repo/registry-fs.js'
 import { validateSpaceId, writeSpaceScaffold } from './scaffold.js'
 
 interface InitOptions {
@@ -42,7 +43,7 @@ export function registerSpacesInitCommand(parent: Command): void {
         const spaceDir = `${paths.repo}/spaces/${spaceId}`
 
         // Check if registry exists
-        const repoExists = await Bun.file(`${paths.repo}/.git/HEAD`).exists()
+        const repoExists = await registryExists(paths.repo)
         if (!repoExists) {
           console.error(chalk.red('Error: Registry not initialized'))
           console.error(chalk.gray('Run "asp repo init" first to create the registry'))

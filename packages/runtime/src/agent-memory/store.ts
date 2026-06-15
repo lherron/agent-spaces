@@ -268,6 +268,15 @@ async function acquireAdvisoryLock(lockPath: string): Promise<LockRelease> {
     }
   }
 
+  // The cross-process advisory lock degraded to an in-process-only queue
+  // (no python3, spawn error, or unexpected stdout). This weakens the safety
+  // guarantee, so surface it under a guarded debug log — matching the
+  // established pattern in harness/registry.ts — without altering behavior.
+  if (process.env['ASP_DEBUG']) {
+    console.debug(
+      `[agent-memory] advisory fcntl lock unavailable for "${lockPath}"; falling back to in-process lock`
+    )
+  }
   await proc.exited.catch(() => undefined)
   return acquireProcessLock(lockPath)
 }

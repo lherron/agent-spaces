@@ -102,6 +102,7 @@ export {
   COMMIT_KEY_PREFIX_LEN,
   classifySpaceEntry,
   resolveSpaceContentDir,
+  spaceKeyForEntry,
   type SpaceEntryKind,
   type SpaceContentRoots,
 } from './space-classification.js'

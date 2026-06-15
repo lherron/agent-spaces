@@ -19,6 +19,7 @@ import {
   MANAGER_SPACE_VERSION,
   getManagerSpaceFiles,
 } from './manager-space-content'
+import { registryExists } from './registry-fs.js'
 
 interface RepoInitOptions {
   clone?: string | undefined
@@ -133,7 +134,7 @@ export function registerRepoInitCommand(parent: Command): void {
         console.log(chalk.blue('Initializing registry...'))
         console.log(`  Location: ${paths.repo}`)
 
-        if (await Bun.file(`${paths.repo}/.git/HEAD`).exists()) {
+        if (await registryExists(paths.repo)) {
           console.log(chalk.yellow('Registry already exists'))
           console.log(chalk.gray('Use git commands directly to manage it'))
           return

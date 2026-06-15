@@ -1,5 +1,6 @@
 import type { ExtensionFactory } from '@mariozechner/pi-coding-agent'
 import type { PermissionHandler } from 'spaces-runtime'
+import { PI_LIFECYCLE_EVENT } from './hook-runtime.js'
 import type { PiHookEventBusAdapter } from './types.js'
 
 export interface PermissionHookOptions {
@@ -17,7 +18,7 @@ type PermissionResolution = { block: true; reason: string } | undefined
 
 export function createPermissionHook(options: PermissionHookOptions): ExtensionFactory {
   return (pi) => {
-    pi.on('tool_call', async (event, ctx) => {
+    pi.on(PI_LIFECYCLE_EVENT.TOOL_CALL, async (event, ctx) => {
       const hook: Record<string, unknown> = {
         hook_event_name: 'PreToolUse',
         tool_name: event.toolName,

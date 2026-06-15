@@ -603,20 +603,24 @@ function enforceGlobalMaxChars(template: ContextTemplate, zones: ResolvedZone[])
   )
 }
 
-function resolveTemplateRef(ref: string, context: ContextResolverContext): string {
-  if (
+function isScopedRef(ref: string): boolean {
+  return (
     ref.startsWith('agent-root:///') ||
     ref.startsWith('agents-root:///') ||
     ref.startsWith('project-root:///')
-  ) {
-    return resolveRootRelativeRef(ref, {
-      agentRoot: context.agentRoot,
-      agentsRoot: context.agentsRoot,
-      agentRootSearchPath: context.agentRootSearchPath,
-      projectRoot: context.projectRoot,
-    })
-  }
+  )
+}
 
+function resolveScopedRef(ref: string, context: ContextResolverContext): string {
+  return resolveRootRelativeRef(ref, {
+    agentRoot: context.agentRoot,
+    agentsRoot: context.agentsRoot,
+    agentRootSearchPath: context.agentRootSearchPath,
+    projectRoot: context.projectRoot,
+  })
+}
+
+function resolveSearchPathRef(ref: string, context: ContextResolverContext): string {
   // Interpolate template variables in file paths (e.g. {{agentRoot}}/memory/MEMORY.md)
   const interpolated = interpolateVariables(ref, context)
   if (interpolated !== ref && isAbsolute(interpolated)) {
@@ -633,6 +637,13 @@ function resolveTemplateRef(ref: string, context: ContextResolverContext): strin
     }
   }
   return join(roots[0] ?? context.agentsRoot, interpolated)
+}
+
+function resolveTemplateRef(ref: string, context: ContextResolverContext): string {
+  if (isScopedRef(ref)) {
+    return resolveScopedRef(ref, context)
+  }
+  return resolveSearchPathRef(ref, context)
 }
 
 async function resolveTemplateFileRef(

@@ -153,6 +153,19 @@ function isDirectorySync(path: string): boolean {
   }
 }
 
+/**
+ * `stat` a path (letting a missing-path ENOENT propagate, as the raw `stat`
+ * calls did) and throw `message` verbatim when the entry exists but is the
+ * wrong kind. The message strings are part of observable behavior.
+ */
+async function assertExists(path: string, kind: 'file' | 'dir', message: string): Promise<void> {
+  const stats = await stat(path)
+  const ok = kind === 'dir' ? stats.isDirectory() : stats.isFile()
+  if (!ok) {
+    throw new Error(message)
+  }
+}
+
 async function writeJson(path: string, data: unknown): Promise<void> {
   const content = `${JSON.stringify(data, null, 2)}\n`
   await writeFile(path, content)
@@ -580,23 +593,21 @@ export class CodexAdapter implements HarnessAdapter {
     if (input.codexOptions) {
       const codexOptions = input.codexOptions as CodexOptionsWithStatusLine
       const targetOverrides: Record<string, unknown> = {}
-      if (codexOptions.model) {
-        targetOverrides['model'] = codexOptions.model
-      }
-      if (codexOptions.model_reasoning_effort) {
-        targetOverrides['model_reasoning_effort'] = codexOptions.model_reasoning_effort
-      }
-      if (codexOptions.status_line) {
-        targetOverrides['tui.status_line'] = codexOptions.status_line
-      }
-      if (codexOptions.approval_policy) {
-        targetOverrides['approval_policy'] = codexOptions.approval_policy
-      }
-      if (codexOptions.sandbox_mode) {
-        targetOverrides['sandbox_mode'] = codexOptions.sandbox_mode
-      }
-      if (codexOptions.profile) {
-        targetOverrides['profile'] = codexOptions.profile
+      // [option field, dotted toml override key] — `status_line` is the lone
+      // irregular row (maps to `tui.status_line`); every other key is identity.
+      const overrideKeyMap: Array<[keyof CodexOptionsWithStatusLine, string]> = [
+        ['model', 'model'],
+        ['model_reasoning_effort', 'model_reasoning_effort'],
+        ['status_line', 'tui.status_line'],
+        ['approval_policy', 'approval_policy'],
+        ['sandbox_mode', 'sandbox_mode'],
+        ['profile', 'profile'],
+      ]
+      for (const [field, tomlKey] of overrideKeyMap) {
+        const value = codexOptions[field]
+        if (value) {
+          targetOverrides[tomlKey] = value
+        }
       }
       if (Object.keys(targetOverrides).length > 0) {
         codexOverrides.push(targetOverrides)
@@ -706,20 +717,9 @@ export class CodexAdapter implements HarnessAdapter {
     const promptsDir = join(codexHome, CODEX_PROMPTS_DIR)
     const mcpPath = join(codexHome, 'mcp.json')
 
-    const homeStats = await stat(codexHome)
-    if (!homeStats.isDirectory()) {
-      throw new Error(`Codex home directory not found: ${codexHome}`)
-    }
-
-    const configStats = await stat(configPath)
-    if (!configStats.isFile()) {
-      throw new Error(`Codex config.toml not found: ${configPath}`)
-    }
-
-    const agentsStats = await stat(agentsPath)
-    if (!agentsStats.isFile()) {
-      throw new Error(`Codex AGENTS.md not found: ${agentsPath}`)
-    }
+    await assertExists(codexHome, 'dir', `Codex home directory not found: ${codexHome}`)
+    await assertExists(configPath, 'file', `Codex config.toml not found: ${configPath}`)
+    await assertExists(agentsPath, 'file', `Codex AGENTS.md not found: ${agentsPath}`)
 
     let mcpConfigPath: string | undefined
     try {

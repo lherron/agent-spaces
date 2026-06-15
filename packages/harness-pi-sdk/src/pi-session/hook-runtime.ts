@@ -25,10 +25,12 @@ const HOOK_RUNTIME_EVENT = {
   SESSION_END: 'session_end',
 } as const
 
-/** Pi lifecycle event names this runtime registers `pi.on(...)` handlers for. */
-const PI_LIFECYCLE_EVENT = {
+/** Pi lifecycle event names `pi.on(...)` handlers are registered against. */
+export const PI_LIFECYCLE_EVENT = {
   TOOL_CALL: 'tool_call',
   TOOL_RESULT: 'tool_result',
+  TURN_START: 'turn_start',
+  TURN_END: 'turn_end',
   SESSION_START: 'session_start',
   SESSION_SHUTDOWN: 'session_shutdown',
 } as const
@@ -38,6 +40,9 @@ export interface ExtensionApi {
   on: <Args extends unknown[]>(event: string, handler: (...args: Args) => unknown) => unknown
   sendMessage: (message: unknown, options?: unknown) => unknown
 }
+
+/** An extension registrar invoked with the (minimally-typed) Pi extension API. */
+export type ExtensionFactory = (pi: ExtensionApi) => void | Promise<void>
 
 interface HookRunContext {
   sessionManager?: { getSessionFile?: () => string | undefined }

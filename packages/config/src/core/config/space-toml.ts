@@ -5,7 +5,7 @@
 import { readFile } from 'node:fs/promises'
 import TOML from '@iarna/toml'
 
-import { ConfigParseError, ConfigValidationError } from '../errors.js'
+import { ConfigFileNotFoundError, ConfigParseError, ConfigValidationError } from '../errors.js'
 import { validateSpaceManifest } from '../schemas/index.js'
 import type { SpaceManifest } from '../types/space.js'
 
@@ -54,7 +54,7 @@ export async function readSpaceToml(filePath: string): Promise<SpaceManifest> {
       throw err
     }
     if ((err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
-      throw new ConfigParseError('File not found', filePath)
+      throw new ConfigFileNotFoundError(filePath)
     }
     const message = err instanceof Error ? err.message : String(err)
     throw new ConfigParseError(`Failed to read file: ${message}`, filePath)

@@ -149,8 +149,10 @@ function resolveCodexRuntimeHomePath(
   bundle: ComposedTargetBundle,
   runOptions: HarnessRunOptions
 ): string {
-  if (runOptions.projectPath) {
-    const aspHome = runOptions.aspHome ?? getAspHome()
+  const aspHome = runOptions.aspHome ?? getAspHome()
+  const { projectPath } = runOptions
+
+  if (projectPath) {
     const runtimeTargetName = runOptions.codexRuntimeTargetName
     if (runOptions.projectId && runtimeTargetName) {
       return join(
@@ -162,28 +164,19 @@ function resolveCodexRuntimeHomePath(
       )
     }
     if (runtimeTargetName) {
-      return getProjectCodexRuntimeHomePath(aspHome, runOptions.projectPath, runtimeTargetName)
+      return getProjectCodexRuntimeHomePath(aspHome, projectPath, runtimeTargetName)
     }
     const paths = new PathResolver({ aspHome })
     const isProjectBundle =
       bundle.rootDir ===
-        paths.projectHarnessOutput(runOptions.projectPath, bundle.targetName, bundle.harnessId) ||
-      isWithinPath(
-        bundle.rootDir,
-        paths.projectHarnessBundleRoot(runOptions.projectPath, bundle.targetName)
-      )
-    const inferredRuntimeTargetName = isProjectBundle ? bundle.targetName : undefined
-    if (inferredRuntimeTargetName) {
-      return getProjectCodexRuntimeHomePath(
-        aspHome,
-        runOptions.projectPath,
-        inferredRuntimeTargetName
-      )
+        paths.projectHarnessOutput(projectPath, bundle.targetName, bundle.harnessId) ||
+      isWithinPath(bundle.rootDir, paths.projectHarnessBundleRoot(projectPath, bundle.targetName))
+    if (isProjectBundle) {
+      return getProjectCodexRuntimeHomePath(aspHome, projectPath, bundle.targetName)
     }
   }
 
-  const aspHome = runOptions.aspHome ?? getAspHome()
-  const cwd = runOptions.cwd ?? runOptions.projectPath ?? process.cwd()
+  const cwd = runOptions.cwd ?? projectPath ?? process.cwd()
   const key = computeCodexRuntimeKey(bundle.targetName, cwd)
   return join(aspHome, 'codex-homes', key, 'home')
 }

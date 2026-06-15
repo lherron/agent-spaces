@@ -145,19 +145,17 @@ async function runStdio(args: string[]): Promise<void> {
   })
 }
 
-/**
- * Register the v1 broker JSON-RPC methods on a protocol server. Shared by the
- * stdio and unix transport entry points so both expose identical surfaces.
- */
-function registerBrokerMethods(
-  server: ProtocolServer,
-  broker: Broker,
-  options: BrokerMethodOptions = {}
-): void {
-  function validateParams(method: string, id: string | number | null, params: unknown): void {
-    validateCommand({ jsonrpc: '2.0', id, method, params })
-  }
+function validateParams(method: string, id: string | number | null, params: unknown): void {
+  validateCommand({ jsonrpc: '2.0', id, method, params })
+}
 
+/**
+ * Register the read-only broker JSON-RPC methods (the observer surface). This is
+ * a strict SUBSET of the full broker surface: it has no mutating methods. Both
+ * the full registration and the observer-only registration share this set so the
+ * read surface cannot silently drift between them.
+ */
+function registerReadMethods(server: ProtocolServer, broker: Broker): void {
   server.register('broker.hello', async ({ id, method, params }) => {
     validateParams(method, id, params)
     return broker.hello(params as Parameters<typeof broker.hello>[0])
@@ -167,6 +165,38 @@ function registerBrokerMethods(
     validateParams(method, id, params)
     return broker.health((params ?? {}) as Parameters<typeof broker.health>[0])
   })
+
+  server.register('broker.listInvocations', async ({ id, method, params }) => {
+    validateParams(method, id, (params ?? {}) as unknown)
+    return broker.listInvocations((params ?? {}) as Parameters<typeof broker.listInvocations>[0])
+  })
+
+  server.register('invocation.status', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.status(params as Parameters<typeof broker.status>[0])
+  })
+
+  server.register('invocation.snapshot', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.snapshot(params as Parameters<typeof broker.snapshot>[0])
+  })
+
+  server.register('invocation.eventsSince', async ({ id, method, params }) => {
+    validateParams(method, id, params)
+    return broker.eventsSince(params as Parameters<typeof broker.eventsSince>[0])
+  })
+}
+
+/**
+ * Register the v1 broker JSON-RPC methods on a protocol server. Shared by the
+ * stdio and unix transport entry points so both expose identical surfaces.
+ */
+function registerBrokerMethods(
+  server: ProtocolServer,
+  broker: Broker,
+  options: BrokerMethodOptions = {}
+): void {
+  registerReadMethods(server, broker)
 
   server.register('invocation.start', async ({ id, method, params }) => {
     // validateCommand validates the full InvocationDispatchRequest envelope
@@ -208,66 +238,18 @@ function registerBrokerMethods(
     return broker.stop(params as Parameters<typeof broker.stop>[0])
   })
 
-  server.register('invocation.status', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.status(params as Parameters<typeof broker.status>[0])
-  })
-
   server.register('invocation.dispose', async ({ id, method, params }) => {
     validateParams(method, id, params)
     return broker.dispose(params as Parameters<typeof broker.dispose>[0])
   })
-
-  server.register('broker.listInvocations', async ({ id, method, params }) => {
-    validateParams(method, id, (params ?? {}) as unknown)
-    return broker.listInvocations((params ?? {}) as Parameters<typeof broker.listInvocations>[0])
-  })
-
-  server.register('invocation.snapshot', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.snapshot(params as Parameters<typeof broker.snapshot>[0])
-  })
-
-  server.register('invocation.eventsSince', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.eventsSince(params as Parameters<typeof broker.eventsSince>[0])
-  })
 }
 
+/**
+ * Observer-mode registration: the read-only subset only. Deliberately omits all
+ * mutating methods (start/input/interrupt/stop/dispose).
+ */
 function registerBrokerObserverMethods(server: ProtocolServer, broker: Broker): void {
-  function validateParams(method: string, id: string | number | null, params: unknown): void {
-    validateCommand({ jsonrpc: '2.0', id, method, params })
-  }
-
-  server.register('broker.hello', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.hello(params as Parameters<typeof broker.hello>[0])
-  })
-
-  server.register('broker.health', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.health((params ?? {}) as Parameters<typeof broker.health>[0])
-  })
-
-  server.register('broker.listInvocations', async ({ id, method, params }) => {
-    validateParams(method, id, (params ?? {}) as unknown)
-    return broker.listInvocations((params ?? {}) as Parameters<typeof broker.listInvocations>[0])
-  })
-
-  server.register('invocation.status', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.status(params as Parameters<typeof broker.status>[0])
-  })
-
-  server.register('invocation.snapshot', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.snapshot(params as Parameters<typeof broker.snapshot>[0])
-  })
-
-  server.register('invocation.eventsSince', async ({ id, method, params }) => {
-    validateParams(method, id, params)
-    return broker.eventsSince(params as Parameters<typeof broker.eventsSince>[0])
-  })
+  registerReadMethods(server, broker)
 }
 
 /**

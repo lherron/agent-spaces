@@ -17,6 +17,7 @@ import {
   optionalString,
   requireLiteral,
   requireRecord,
+  requireRecordFields,
   requireString,
   requireStringArray,
 } from './validation-primitives.js'
@@ -229,12 +230,12 @@ function validateRuntimeCompileRequest(
     path(basePath, 'schemaVersion'),
     issues
   )
-  requireRecord(request['identity'], path(basePath, 'identity'), issues)
-  requireRecord(request['placement'], path(basePath, 'placement'), issues)
-  requireRecord(request['requested'], path(basePath, 'requested'), issues)
-  requireRecord(request['materialization'], path(basePath, 'materialization'), issues)
-  requireRecord(request['hrcPolicy'], path(basePath, 'hrcPolicy'), issues)
-  requireRecord(request['correlation'], path(basePath, 'correlation'), issues)
+  requireRecordFields(
+    request,
+    basePath,
+    ['identity', 'placement', 'requested', 'materialization', 'hrcPolicy', 'correlation'],
+    issues
+  )
 }
 
 function validateProfileSelector(

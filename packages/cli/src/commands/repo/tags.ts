@@ -11,6 +11,7 @@ import type { Command } from 'commander'
 import { listTags } from 'spaces-config'
 
 import { exitWithAspError, resolvePaths } from '../../helpers.js'
+import { loadAllDistTags, registryExists } from './registry-fs.js'
 
 interface RepoTagsOptions {
   json?: boolean | undefined
@@ -55,19 +56,6 @@ function sortVersionsDescending(versions: string[]): string[] {
     if (aVer[1] !== bVer[1]) return bVer[1] - aVer[1]
     return bVer[2] - aVer[2]
   })
-}
-
-/**
- * Load dist-tags for a space.
- */
-async function loadDistTags(repoPath: string, spaceId: string): Promise<Record<string, string>> {
-  try {
-    const content = await Bun.file(`${repoPath}/registry/dist-tags.json`).text()
-    const allDistTags = JSON.parse(content)
-    return allDistTags[spaceId] ?? {}
-  } catch {
-    return {}
-  }
 }
 
 /**
@@ -118,7 +106,7 @@ export function registerRepoTagsCommand(parent: Command): void {
       try {
         const { paths } = resolvePaths(options)
 
-        if (!(await Bun.file(`${paths.repo}/.git/HEAD`).exists())) {
+        if (!(await registryExists(paths.repo))) {
           throw new Error('No registry found. Run "asp repo init" first.')
         }
 
@@ -126,7 +114,7 @@ export function registerRepoTagsCommand(parent: Command): void {
         const versions = sortVersionsDescending(
           tags.map(parseVersionFromTag).filter((v): v is string => v !== null)
         )
-        const distTags = await loadDistTags(paths.repo, spaceId)
+        const distTags = (await loadAllDistTags(paths.repo))[spaceId] ?? {}
 
         const output: TagsOutput = { spaceId, versions, distTags }
 

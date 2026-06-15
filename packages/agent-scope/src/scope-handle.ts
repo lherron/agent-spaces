@@ -1,5 +1,5 @@
 import { buildScopeRef, parseScopeRef } from './scope-ref.js'
-import type { ParsedScopeRef, ValidationResult } from './types.js'
+import type { ParsedScopeRef, ScopeFields, ValidationResult } from './types.js'
 import { validateTokenField } from './types.js'
 
 /**
@@ -21,20 +21,12 @@ import { validateTokenField } from './types.js'
  *   alice@demo:t1/reviewer  → agent:alice:project:demo:task:t1:role:reviewer
  */
 
-/** Structural decomposition of a scope handle, prior to token validation. */
-type HandleParts = {
-  agentId: string
-  projectId?: string | undefined
-  taskId?: string | undefined
-  roleName?: string | undefined
-}
-
 /**
  * Split a scope handle into its component tokens without validating them.
  * Single source of truth for the handle grammar, reused by both
  * `validateScopeHandle` and `parseScopeHandle`.
  */
-export function splitHandle(handle: string): HandleParts {
+export function splitHandle(handle: string): ScopeFields {
   const atIdx = handle.indexOf('@')
 
   // No "@": agent-only, or the project-deferred `<agentId>:<taskId>` shorthand.

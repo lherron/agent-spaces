@@ -58,6 +58,21 @@ export class ConfigParseError extends ConfigError {
   }
 }
 
+/**
+ * Error thrown when a config file does not exist on disk.
+ *
+ * Internal-only subclass of {@link ConfigParseError} that gives callers a
+ * machine-readable discriminator (`instanceof`) for the expected "file absent"
+ * outcome instead of string-matching the message. The thrown message text is
+ * preserved as `'File not found'` for backward compatibility.
+ */
+export class ConfigFileNotFoundError extends ConfigParseError {
+  constructor(source: string) {
+    super('File not found', source)
+    this.name = 'ConfigFileNotFoundError'
+  }
+}
+
 /** Error thrown when schema validation fails */
 export class ConfigValidationError extends ConfigError {
   readonly validationErrors: ValidationError[]
@@ -133,6 +148,26 @@ export class MissingDependencyError extends ResolutionError {
     if (options && 'cause' in options) {
       this.cause = options.cause
     }
+  }
+}
+
+/**
+ * Error thrown when a dependency edge violates the provenance rules
+ * (e.g. a registry space depending on an agent-local space).
+ *
+ * Internal-only subclass of {@link ResolutionError} that lets the closure
+ * walker re-throw edge violations via `instanceof` instead of matching the
+ * message prefix. The thrown message text is preserved by the caller.
+ */
+export class DisallowedDependencyEdgeError extends ResolutionError {
+  readonly parentType: string
+  readonly childType: string
+
+  constructor(message: string, parentType: string, childType: string) {
+    super(message, 'DISALLOWED_DEPENDENCY_EDGE_ERROR')
+    this.name = 'DisallowedDependencyEdgeError'
+    this.parentType = parentType
+    this.childType = childType
   }
 }
 

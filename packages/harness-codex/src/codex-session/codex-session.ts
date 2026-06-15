@@ -14,23 +14,21 @@ import type {
 } from 'spaces-runtime'
 import { toError } from '../errors.js'
 import {
-  type AgentMessageDeltaNotification,
   CLIENT_INFO,
   type CodexThreadItem,
-  type CommandExecutionOutputDeltaNotification,
   type ErrorNotification,
-  type FileChangeOutputDeltaNotification,
   type ItemCompletedNotification,
   type ItemStartedNotification,
-  type McpToolCallProgressNotification,
   type ThreadResumeResponse,
   type ThreadStartResponse,
   type TurnStartResponse,
   type TurnStartedNotification,
+  classifyNotification,
   formatCodexErrorBody,
-  mapDeltaNotification,
+  localImageInput,
   mapItemCompleted,
   mapItemStarted,
+  textInput,
 } from './event-mapping.js'
 import {
   CodexRpcClient,
@@ -294,6 +292,13 @@ export class CodexSession implements UnifiedSession {
   }
 
   private handleNotification(notification: JsonRpcNotification): void {
+    const shared = classifyNotification(notification.method, notification.params)
+    if (shared) {
+      for (const event of shared) {
+        this.emitEvent(event)
+      }
+      return
+    }
     switch (notification.method) {
       case 'error': {
         const params = notification.params as ErrorNotification
@@ -357,31 +362,6 @@ export class CodexSession implements UnifiedSession {
       case 'item/completed': {
         const params = notification.params as ItemCompletedNotification
         this.handleItemCompleted(params)
-        return
-      }
-      case 'item/agentMessage/delta': {
-        const params = notification.params as AgentMessageDeltaNotification
-        this.emitEvent({
-          type: 'message_update',
-          messageId: params.itemId,
-          textDelta: params.delta,
-          payload: params,
-        })
-        return
-      }
-      case 'item/commandExecution/outputDelta':
-      case 'item/fileChange/outputDelta':
-      case 'item/mcpToolCall/progress': {
-        const event = mapDeltaNotification(
-          notification.method,
-          notification.params as
-            | CommandExecutionOutputDeltaNotification
-            | FileChangeOutputDeltaNotification
-            | McpToolCallProgressNotification
-        )
-        if (event) {
-          this.emitEvent(event)
-        }
         return
       }
     }
@@ -489,7 +469,7 @@ async function buildUserInputs(
   text: string,
   attachments: AttachmentRef[] | undefined
 ): Promise<Array<Record<string, unknown>>> {
-  const inputs: Array<Record<string, unknown>> = [{ type: 'text', text, text_elements: [] }]
+  const inputs: Array<Record<string, unknown>> = [textInput(text)]
   if (!attachments) return inputs
 
   for (const attachment of attachments) {
@@ -497,7 +477,7 @@ async function buildUserInputs(
       if (isImageAttachment(attachment, attachment.url)) {
         inputs.push({ type: 'image', url: attachment.url })
       } else {
-        inputs.push({ type: 'text', text: `Attached URL: ${attachment.url}`, text_elements: [] })
+        inputs.push(textInput(`Attached URL: ${attachment.url}`))
       }
       continue
     }
@@ -508,13 +488,9 @@ async function buildUserInputs(
         if (stats.size > MAX_IMAGE_BYTES) {
           throw new Error(`Attachment exceeds ${MAX_IMAGE_BYTES} bytes: ${attachment.path}`)
         }
-        inputs.push({ type: 'localImage', path: attachment.path })
+        inputs.push(localImageInput(attachment.path))
       } else {
-        inputs.push({
-          type: 'text',
-          text: `Attached file: ${attachment.path}`,
-          text_elements: [],
-        })
+        inputs.push(textInput(`Attached file: ${attachment.path}`))
       }
     }
   }
