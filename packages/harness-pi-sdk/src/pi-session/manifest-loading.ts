@@ -13,11 +13,38 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { PiSdkBundleManifest } from './bundle-manifest-types.js'
 
+export const PI_SDK_HARNESS_ID = 'pi-sdk'
+export const PI_SDK_BUNDLE_SCHEMA_VERSION = 1
+
+export type ParsedPiSdkBundleManifest = Partial<PiSdkBundleManifest> & {
+  harnessId?: string | undefined
+  schemaVersion?: number | undefined
+}
+
 /** A loaded manifest context file: the resolved path, its content, and label. */
 export interface LoadedContextFile {
   path: string
   content: string
   label?: string | undefined
+}
+
+/** Read and parse a Pi SDK `bundle.json` without enforcing schemaVersion policy. */
+export async function readPiSdkBundleManifest<TManifest = ParsedPiSdkBundleManifest>(
+  manifestPath: string
+): Promise<TManifest> {
+  const raw = await readFile(manifestPath, 'utf-8')
+  return JSON.parse(raw) as TManifest
+}
+
+/** Assert the parsed manifest belongs to the Pi SDK harness. */
+export function assertPiSdkBundleHarness(
+  harnessId: string | undefined,
+  makeErrorMessage: (harnessId: string | undefined) => string = (harnessId) =>
+    `Unexpected bundle harness: ${harnessId}`
+): void {
+  if (harnessId !== PI_SDK_HARNESS_ID) {
+    throw new Error(makeErrorMessage(harnessId))
+  }
 }
 
 /**

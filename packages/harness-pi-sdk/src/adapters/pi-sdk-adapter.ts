@@ -9,17 +9,7 @@
  */
 
 import { readdirSync } from 'node:fs'
-import {
-  constants,
-  access,
-  mkdir,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from 'node:fs/promises'
+import { constants, access, mkdir, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -53,6 +43,11 @@ import type {
   PiSdkBundleHookEntry,
   PiSdkBundleManifest as PiSdkBundleManifestShape,
 } from '../pi-session/bundle-manifest-types.js'
+import {
+  type ParsedPiSdkBundleManifest,
+  assertPiSdkBundleHarness,
+  readPiSdkBundleManifest,
+} from '../pi-session/manifest-loading.js'
 import { resolveSdkEntry } from '../pi-session/sdk-entry.js'
 import {
   type ExtensionBuildOptions,
@@ -650,19 +645,19 @@ export class PiSdkAdapter implements HarnessAdapter {
 
   async loadTargetBundle(outputDir: string, targetName: string): Promise<ComposedTargetBundle> {
     const manifestPath = join(outputDir, 'bundle.json')
-    let manifest: { harnessId?: string; schemaVersion?: number } | undefined
+    let manifest: ParsedPiSdkBundleManifest | undefined
 
     try {
-      const raw = await readFile(manifestPath, 'utf-8')
-      manifest = JSON.parse(raw) as { harnessId?: string; schemaVersion?: number }
+      manifest = await readPiSdkBundleManifest(manifestPath)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       throw new Error(`Pi SDK bundle manifest not found: ${manifestPath} (${message})`)
     }
 
-    if (manifest?.harnessId !== 'pi-sdk') {
-      throw new Error(`Unexpected Pi SDK bundle harness: ${manifest?.harnessId ?? 'unknown'}`)
-    }
+    assertPiSdkBundleHarness(
+      manifest?.harnessId,
+      (harnessId) => `Unexpected Pi SDK bundle harness: ${harnessId ?? 'unknown'}`
+    )
 
     const extensionsDir = join(outputDir, 'extensions')
     const skillsDir = join(outputDir, 'skills')
