@@ -6,15 +6,14 @@
  */
 
 import type { HarnessAdapter, HarnessDetection, HarnessId } from 'spaces-config'
+import { KeyedRegistry } from '../keyed-registry.js'
 
 /**
  * Registry for harness adapters
  *
  * Provides a central place to register and retrieve harness adapters.
  */
-export class HarnessRegistry {
-  private adapters = new Map<HarnessId, HarnessAdapter>()
-
+export class HarnessRegistry extends KeyedRegistry<HarnessId, HarnessAdapter> {
   /**
    * Register a harness adapter
    *
@@ -22,10 +21,7 @@ export class HarnessRegistry {
    * @throws Error if an adapter with the same ID is already registered
    */
   register(adapter: HarnessAdapter): void {
-    if (this.adapters.has(adapter.id)) {
-      throw new Error(`Harness adapter already registered: ${adapter.id}`)
-    }
-    this.adapters.set(adapter.id, adapter)
+    this.registerEntry(adapter.id, adapter, 'Harness adapter already registered: ')
   }
 
   /**
@@ -35,7 +31,7 @@ export class HarnessRegistry {
    * @returns The adapter, or undefined if not registered
    */
   get(id: HarnessId): HarnessAdapter | undefined {
-    return this.adapters.get(id)
+    return this.getEntry(id)
   }
 
   /**
@@ -46,11 +42,7 @@ export class HarnessRegistry {
    * @throws Error if the adapter is not registered
    */
   getOrThrow(id: HarnessId): HarnessAdapter {
-    const adapter = this.adapters.get(id)
-    if (!adapter) {
-      throw new Error(`Harness adapter not found: ${id}`)
-    }
-    return adapter
+    return this.getEntryOrThrow(id, 'Harness adapter not found: ')
   }
 
   /**
@@ -59,21 +51,21 @@ export class HarnessRegistry {
    * @param id - The harness ID to check
    */
   has(id: HarnessId): boolean {
-    return this.adapters.has(id)
+    return this.hasEntry(id)
   }
 
   /**
    * Get all registered harness adapters
    */
   getAll(): HarnessAdapter[] {
-    return Array.from(this.adapters.values())
+    return this.values()
   }
 
   /**
    * Get all registered harness IDs
    */
   getIds(): HarnessId[] {
-    return Array.from(this.adapters.keys())
+    return this.keys()
   }
 
   /**
@@ -87,7 +79,7 @@ export class HarnessRegistry {
     const results = new Map<HarnessId, HarnessDetection>()
 
     await Promise.all(
-      Array.from(this.adapters.entries()).map(async ([id, adapter]) => {
+      this.entryList().map(async ([id, adapter]) => {
         try {
           const detection = await adapter.detect()
           results.set(id, detection)
@@ -122,7 +114,7 @@ export class HarnessRegistry {
 
     for (const [id, detection] of detections) {
       if (detection.available) {
-        const adapter = this.adapters.get(id)
+        const adapter = this.get(id)
         if (adapter) {
           available.push(adapter)
         }
@@ -138,6 +130,6 @@ export class HarnessRegistry {
    * Primarily for testing.
    */
   clear(): void {
-    this.adapters.clear()
+    this.clearEntries()
   }
 }
