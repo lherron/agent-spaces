@@ -1,4 +1,4 @@
-import { connect } from 'node:net'
+import { parseHookJson, postEnvelope, readAll, runHookBridgeCli } from '../hook-bridge-transport'
 import { buildCodexHookEnvelopeFromEnv } from './hook-ingestion'
 
 /**
@@ -25,50 +25,11 @@ export async function runCodexHookBridge(options: CodexHookBridgeOptions): Promi
   await postEnvelope(options.socketPath, envelope)
 }
 
-function parseHookJson(raw: string): unknown {
-  const trimmed = raw.trim()
-  if (trimmed.length === 0) return {}
-  try {
-    return JSON.parse(trimmed)
-  } catch {
-    return { raw: trimmed }
-  }
-}
-
-async function readAll(stream: NodeJS.ReadableStream): Promise<string> {
-  const chunks: Buffer[] = []
-  for await (const chunk of stream) {
-    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : (chunk as Buffer))
-  }
-  return Buffer.concat(chunks).toString('utf8')
-}
-
-async function postEnvelope(socketPath: string, envelope: unknown): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const conn = connect(socketPath)
-    conn.on('error', reject)
-    conn.on('connect', () => {
-      conn.end(JSON.stringify(envelope))
-    })
-    conn.on('close', () => resolve())
-  })
-}
-
 /** CLI entrypoint: `harness-broker codex-hook --socket <path>`. */
 export async function runCodexHookBridgeCli(args: string[]): Promise<void> {
-  const socketIdx = args.indexOf('--socket')
-  const socketPath = socketIdx !== -1 ? args[socketIdx + 1] : undefined
-  if (socketPath === undefined || socketPath.length === 0) {
-    process.stderr.write('codex-hook requires --socket <path>\n')
-    process.exit(1)
-    return
-  }
-  try {
-    await runCodexHookBridge({ socketPath })
-  } catch (error) {
-    // Codex hooks are observability inputs; do not fail the model turn because
-    // the callback socket is unavailable.
-    const message = error instanceof Error ? error.message : String(error)
-    process.stderr.write(`codex-hook delivery failed: ${message}\n`)
-  }
+  await runHookBridgeCli({
+    commandName: 'codex-hook',
+    args,
+    run: ({ socketPath }) => runCodexHookBridge({ socketPath }),
+  })
 }
