@@ -57,8 +57,24 @@ at the path its `SessionStart` hook reports. The reader then reads nothing
 (`lines=0` every hook) and `real-claude-tmux-midturn` FAILS with
 `midturn_user_prompt_capture: got 0` even though the steered prompt visibly
 enqueued. This is a **false negative from the harness environment, not a code
-defect**. Run the matrix from a non-Claude-Code shell (a plain terminal, or a
-codex/`cody` session), or strip the inherited vars:
+defect**.
+
+**Run the matrix from a real terminal via ghostmux — use the `ghoste2e` skill.**
+A `ghostmux new` surface is a clean login shell that does NOT inherit the calling
+agent's `CLAUDE_CODE_*` vars, so the child `claude` persists its transcript
+normally and the claude-tmux rows behave correctly. This is the recommended way
+for an agent to run `smoke:matrix`: drive it through ghostmux (the same harness
+the `ghoste2e` skill uses) rather than executing `bun run smoke:matrix` inline in
+your own session. Sketch:
+
+```bash
+SID=$(ghostmux new --json --cwd "$PWD" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
+ghostmux send-keys -t "$SID" 'ASP_CODEX_PATH=$(command -v codex) bun run smoke:matrix --config real-claude-tmux-midturn'
+# poll `ghostmux capture-pane -t "$SID"` for the row result; ghostmux kill-surface -t "$SID" when done
+```
+
+If you must run inline from a non-Claude-Code shell, strip the inherited vars
+instead:
 
 ```bash
 env -u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION \
