@@ -110,6 +110,24 @@ export interface AgentSessionConfig {
 export type AgentSessionState = 'idle' | 'running' | 'stopped' | 'error'
 
 /**
+ * Discriminated lifecycle of the one-shot `agent_start` / `agent_end` emissions.
+ *
+ * Replaces the previously-correlated `hasEmittedAgentStart` / `hasEmittedAgentEnd`
+ * boolean latch pair (T-04632). The agent lifecycle has exactly three phases and
+ * only two legal forward transitions:
+ *
+ *   inactive ──activate()──▶ active ──end()──▶ ended
+ *   inactive ─────────────── end() ──────────▶ ended   (session ends before any
+ *                                                        SDK message arrives)
+ *
+ * `agent_start` is emitted exactly once on `inactive → active`; `agent_end`
+ * exactly once on `* → ended`. Encoding this as a phase makes a double-emit — or
+ * an `agent_start` after `agent_end` — structurally impossible rather than
+ * dependent on two independent booleans staying in sync.
+ */
+type AgentLifecyclePhase = 'inactive' | 'active' | 'ended'
+
+/**
  * Manages a single Claude Agent SDK session for an owner (project/run/session).
  *
  * Each owner gets one AgentSession that:
@@ -133,8 +151,7 @@ export class AgentSession implements UnifiedSession {
   private sdkSessionId?: string
   private readonly onSdkSessionId: ((sdkSessionId: string) => void) | undefined
   private eventCallback?: (event: UnifiedSessionEvent) => void
-  private hasEmittedAgentStart = false
-  private hasEmittedAgentEnd = false
+  private agentLifecycle: AgentLifecyclePhase = 'inactive'
   private stopReason: string | undefined
   private stopEmitted = false
   private turnCounter = 0
@@ -560,9 +577,30 @@ export class AgentSession implements UnifiedSession {
     this.hooksBridge.emitStop(transcriptPath, lastResponse)
   }
 
+  /**
+   * Transition the agent lifecycle to `active`, returning whether this call won
+   * the one-shot race (i.e. `agent_start` should be emitted now). Legal only
+   * from `inactive`; once `active` or `ended`, the lifecycle never reactivates.
+   */
+  private activateAgentLifecycle(): boolean {
+    if (this.agentLifecycle !== 'inactive') return false
+    this.agentLifecycle = 'active'
+    return true
+  }
+
+  /**
+   * Transition the agent lifecycle to `ended`, returning whether this call won
+   * the one-shot race (i.e. `agent_end` should be emitted now). Idempotent once
+   * `ended`; legal from either `inactive` or `active`.
+   */
+  private endAgentLifecycle(): boolean {
+    if (this.agentLifecycle === 'ended') return false
+    this.agentLifecycle = 'ended'
+    return true
+  }
+
   private emitAgentStartIfNeeded(): void {
-    if (this.hasEmittedAgentStart) return
-    this.hasEmittedAgentStart = true
+    if (!this.activateAgentLifecycle()) return
     const event: UnifiedSessionEvent = {
       type: 'agent_start',
       sessionId: this.sessionId,
@@ -572,8 +610,7 @@ export class AgentSession implements UnifiedSession {
   }
 
   private emitAgentEnd(reason?: string): void {
-    if (this.hasEmittedAgentEnd) return
-    this.hasEmittedAgentEnd = true
+    if (!this.endAgentLifecycle()) return
     const event: UnifiedSessionEvent = {
       type: 'agent_end',
       sessionId: this.sessionId,
