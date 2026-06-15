@@ -27,6 +27,7 @@ import {
 } from 'spaces-runtime'
 
 import { errorMessage } from '../helpers.js'
+import { targetNameFromBundleRootPath } from './self/lib.js'
 
 interface ResolveReminderOptions {
   agentRoot?: string
@@ -109,18 +110,7 @@ function inferTargetFromCodexHome(codexHome: string | undefined): string | undef
 }
 
 function inferTargetFromBundleRoot(bundleRoot: string | undefined): string | undefined {
-  if (!bundleRoot) {
-    return undefined
-  }
-
-  const targetDir = dirname(bundleRoot)
-  const harnessName = bundleRoot.split('/').pop()
-  if (!harnessName || dirname(targetDir) === targetDir) {
-    return undefined
-  }
-
-  const targetName = targetDir.split('/').pop()
-  return targetName && targetName.length > 0 ? targetName : undefined
+  return targetNameFromBundleRootPath(bundleRoot, { requireBundleLeaf: true }) ?? undefined
 }
 
 /**
