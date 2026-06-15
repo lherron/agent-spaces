@@ -314,4 +314,46 @@ describe('codex-cli-tmux hook-driven transcript reader', () => {
     expect(events).toHaveLength(1)
     expect(text(events[0] as InvocationEventEnvelope)).toBe('immediate')
   })
+
+  test('byte-offset tailing preserves partial-line buffering, multi-record order, and offset resume', async () => {
+    const path = tempTranscript()
+    const { reader } = await createHarness()
+
+    reader.handleHook(sessionStart(path))
+    appendFileSync(
+      path,
+      '{"type":"event_msg","payload":{"type":"agent_message","id":"m_partial","message":"partial note"}'
+    )
+
+    // T-04627 characterization: an unterminated JSONL record is retained in
+    // the reader buffer across hooks and must not emit until its newline lands.
+    expect(reader.handleHook(preToolUse())).toEqual([])
+
+    appendFileSync(
+      path,
+      '}\n{"type":"event_msg","payload":{"type":"agent_message","id":"m_terminal","message":"terminal note"}}\n{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"terminal note"}}\n'
+    )
+    const stopEvents = reader.handleHook(stop({ last_assistant_message: 'terminal note' }))
+
+    expect(eventTypes(stopEvents)).toEqual([
+      'assistant.message.completed',
+      'assistant.message.completed',
+    ])
+    expect(stopEvents.map(text)).toEqual(['partial note', 'terminal note'])
+    expect(finals(stopEvents)).toEqual([false, true])
+
+    // Offset resume guard: a later non-terminal hook sees no duplicate
+    // transcript-derived terminal/interim records from already-read bytes.
+    expect(reader.handleHook(preToolUse())).toEqual([])
+
+    appendFileSync(
+      path,
+      '{"type":"event_msg","payload":{"type":"agent_message","id":"m_after","message":"after resume"}}\n'
+    )
+    const resumed = reader.handleHook(preToolUse())
+
+    expect(eventTypes(resumed)).toEqual(['assistant.message.completed'])
+    expect(resumed.map(text)).toEqual(['after resume'])
+    expect(finals(resumed)).toEqual([false])
+  })
 })

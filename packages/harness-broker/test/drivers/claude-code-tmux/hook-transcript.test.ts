@@ -194,4 +194,45 @@ describe('createClaudeHookTranscriptReader', () => {
     expect(eventTypes(second)).toEqual(['user.message'])
     expect(contentOf(second[0]!)).toBe('second steered prompt')
   })
+
+  test('byte-offset tailing preserves partial-line buffering, multi-record order, and offset resume', async () => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    const reader = create({
+      now: () => new Date('2026-06-07T22:33:04.000Z'),
+      invocationId,
+      getCurrentTurnId: () => 'turn_active_1',
+    })
+
+    reader.handleHook(sessionStart(path))
+    appendFileSync(
+      path,
+      '{"type":"queue-operation","operation":"enqueue","content":"partial prompt"'
+    )
+
+    // T-04627 characterization: bytes without a newline advance the read offset
+    // but remain buffered; the next hook must not emit a partial JSON record.
+    expect(reader.handleHook(postToolUse())).toEqual([])
+
+    appendFileSync(
+      path,
+      '}\n{"type":"queue-operation","operation":"enqueue","content":"second prompt"}\n{"type":"queue-operation","operation":"remove","content":"not emitted"}\n'
+    )
+    const firstRead = reader.handleHook(postToolUse())
+
+    expect(eventTypes(firstRead)).toEqual(['user.message', 'user.message'])
+    expect(firstRead.map(contentOf)).toEqual(['partial prompt', 'second prompt'])
+
+    // Offset resume guard: already-read complete records are not replayed.
+    expect(reader.handleHook(postToolUse())).toEqual([])
+
+    appendFileSync(
+      path,
+      '{"type":"queue-operation","operation":"enqueue","content":"third prompt"}\n'
+    )
+    const resumed = reader.handleHook(postToolUse())
+
+    expect(eventTypes(resumed)).toEqual(['user.message'])
+    expect(resumed.map(contentOf)).toEqual(['third prompt'])
+  })
 })
