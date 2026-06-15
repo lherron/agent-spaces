@@ -19,7 +19,7 @@ Run these after implementing to get immediate feedback:
 - Closeout evidence tiers: see [docs/closeout-evidence.md](docs/closeout-evidence.md)
 - Agent enablement changelog / retro step: see [docs/agent-enablement-changelog.md#retro-cadence](docs/agent-enablement-changelog.md#retro-cadence)
 - Pack smoke: `bun scripts/smoke-pack-cross-repo.ts` (verifies cross-repo published tarballs don't carry `exports.bun → ./src/*.ts`)
-- Harness broker MATRIX smoke (`bun run smoke:matrix`) — required for any harness-broker change → see [packages/harness-broker/AGENTS.md](packages/harness-broker/AGENTS.md)
+- Harness broker MATRIX smoke (`bun run smoke:matrix`) — required for any harness-broker change → see [packages/harness-broker/AGENTS.md](packages/harness-broker/AGENTS.md). **Do not run the claude-tmux rows from inside a Claude Code session** (the child `claude` inherits `CLAUDE_CODE_CHILD_SESSION` and skips transcript persistence → `real-claude-tmux-midturn` false-negatives with `got 0`); run from a non-Claude-Code shell — details in that doc.
 - Pack smoke for `@lherron/agent-spaces` (`cd packages/cli; bun scripts/smoke-test-pack.ts`) — required after packaging changes → see [packages/cli/AGENTS.md](packages/cli/AGENTS.md)
 - Pi harness env/runtime flags (`--harness pi`: `PI_CODING_AGENT_DIR`, `--no-skills`, hooks-scripts) → see [packages/harness-pi/AGENTS.md](packages/harness-pi/AGENTS.md)
 
