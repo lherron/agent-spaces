@@ -3022,16 +3022,23 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       const aspHome = mkdtempSync(join(tmpdir(), 'asp-matrix-claude-midturn-'))
       const artifactDir = join(aspHome, 'matrix-claude-midturn-artifacts')
       const socketPath = join(tmpdir(), `matrix-claude-midturn-${process.pid}.sock`)
-      // turn1 = a real Bash tool with a multi-second BUSY window (sleep 3) that
+      // turn1 = a real Bash tool with a multi-second BUSY window (sleep 10) that
       // also prints the marker (shared floor). While it's in-flight the runner
       // types a SECOND prompt DIRECTLY into the tmux pane (tmux send-keys, NOT
       // broker manager.input) carrying MIDTURN_<marker>; Claude enqueues it
       // (queue-operation/enqueue, no UserPromptSubmit) and the driver's
       // transcript reader surfaces it as user.message. turn2 = the SHARED
       // narration scenario so assertIntermediateMessages runs on this row too.
+      //
+      // The window MUST stay comfortably wider than the inject latency
+      // (tool.call.started hook delivery + the runner's poll + settle before the
+      // Enter): a tight ~3s window let the typed line land at/after the tool had
+      // already returned, so Claude ran it as a fresh turn instead of enqueuing
+      // it mid-turn — zero queue-operation records, a deterministic miss. 10s
+      // leaves several seconds of slack so the enqueue is reliably recorded.
       const midTurnMarker = `MIDTURN_${ctx.marker}`
       const prompts = [
-        `Run the Bash command: sleep 3 && printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
+        `Run the Bash command: sleep 10 && printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
         NARRATION_PROMPT,
       ]
       const result: RowResult = {

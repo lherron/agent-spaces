@@ -564,11 +564,21 @@ async function waitForTerminalTurn(
 }
 
 /**
- * Type a steered prompt DIRECTLY into the live tmux pane (T-02027). Waits for the
- * first `afterEventType` on `turnId` (the turn's busy window opening) — falling
- * back to ~800ms after `turn.started` if no such event arrives — then send-keys
- * the literal marker and a separate Enter. This is the operator-typing path, NOT
- * broker `manager.input`, so Claude enqueues it mid-turn (`queue-operation`).
+ * Type a steered prompt DIRECTLY into the live tmux pane (T-02027) so Claude
+ * enqueues it mid-turn (`queue-operation`/`enqueue`) — the operator-typing path,
+ * NOT broker `manager.input` (which a busy turn `busy_rejected`s).
+ *
+ * This must land the line and have it ACCEPTED into the queue while the turn is
+ * still in-flight; otherwise the line submits as a fresh turn (no enqueue → a
+ * `got 0` miss) or the lone `Enter` is swallowed on a not-yet-reading pane (the
+ * exact fragility driver T-01747 retired). Earlier event-timed variants (wait
+ * for `tool.call.started`, then a fixed paste+sleep+Enter) were flaky: the
+ * paste/submit could overrun the busy window. Instead, drive everything off the
+ * LIVE pane state and converge: wait for the pane to actually be busy
+ * (`esc to interrupt` — true throughout Claude's reasoning AND tool run, a wide
+ * window), then keep the marker in the input and press `Enter` until Claude
+ * renders the `queued messages` affordance, re-pasting only if the line vanished.
+ * Tying each step to the observed busy state makes the enqueue deterministic.
  */
 async function injectMidTurnPrompt(opts: {
   events: InvocationEventEnvelope[]
@@ -577,42 +587,60 @@ async function injectMidTurnPrompt(opts: {
   socketPath: string
   paneId?: string | undefined
   marker: string
-  afterEventType: 'tool.call.started'
   timeoutMs: number
   serverEnv: Record<string, string | undefined>
 }): Promise<void> {
-  const deadline = Date.now() + opts.timeoutMs
-  let triggered = false
-  while (Date.now() < deadline) {
-    if (opts.events.some((e) => e.turnId === opts.turnId && e.type === opts.afterEventType)) {
-      triggered = true
-      break
-    }
-    await delay(150)
-  }
-  if (!triggered) {
-    // Fallback: the turn opened but no tool fired yet — give the busy window a
-    // beat to establish before typing so the prompt is enqueued, not dropped.
-    const turnStarted = opts.events.some(
-      (e) => e.turnId === opts.turnId && e.type === 'turn.started'
-    )
-    if (!turnStarted) return
-    await delay(800)
-  }
   const target = opts.paneId !== undefined ? ['-t', opts.paneId] : []
-  await runTmux(
-    opts.tmuxBin,
-    ['-S', opts.socketPath, 'send-keys', ...target, '-l', opts.marker],
-    opts.serverEnv
-  )
-  // Separate Enter after a short settle so the TUI registers the line before
-  // submit (queues it into the active turn rather than swallowing a partial).
-  await delay(400)
-  await runTmux(
-    opts.tmuxBin,
-    ['-S', opts.socketPath, 'send-keys', ...target, 'Enter'],
-    opts.serverEnv
-  )
+  const sendKeys = (keys: string[]): Promise<unknown> =>
+    runTmux(opts.tmuxBin, ['-S', opts.socketPath, 'send-keys', ...target, ...keys], opts.serverEnv)
+  const capturePane = async (): Promise<string> => {
+    try {
+      return (
+        await runTmux(
+          opts.tmuxBin,
+          ['-S', opts.socketPath, 'capture-pane', '-p', ...target],
+          opts.serverEnv
+        )
+      ).stdout
+    } catch {
+      return ''
+    }
+  }
+  // Busy detection must be width-robust: in an 80-col tmux pane the footer
+  // `· esc to interrupt` hint is truncated off, so the reliable cross-width
+  // signal is the live spinner (`<verb>… (Ns · ↓ N tokens)`) or a `Running…`
+  // tool line — present throughout reasoning AND the tool. The IDLE/done state
+  // reads `<verb> for Ns` (past tense, no ellipsis/parens) and must NOT match.
+  const paneBusy = (pane: string): boolean =>
+    /esc to interrupt/i.test(pane) || /…\s*\(\d+s/.test(pane) || /\bRunning…/.test(pane)
+  const paneQueued = (pane: string): boolean => /queued message/i.test(pane)
+
+  const deadline = Date.now() + opts.timeoutMs
+  const needle = opts.marker.slice(0, 24)
+
+  // Converge on an accepted enqueue, driven entirely by the LIVE pane state and
+  // scoped to THIS broker turn. The steered line must enqueue into the turn that
+  // is currently active (whose transcript the driver's reader is tailing); typing
+  // into an earlier turn's window enqueues into a soon-abandoned transcript. So
+  // give up the moment the turn reaches terminal. While it is in-flight: wait for
+  // a busy window, keep the marker in the input, and Enter until Claude renders
+  // the `queued messages` affordance — re-pasting only if the line vanished.
+  while (Date.now() < deadline) {
+    const pane = await capturePane()
+    if (paneQueued(pane)) return
+    if (terminalTurnFor(opts.events, opts.turnId)) return
+    if (!paneBusy(pane)) {
+      await delay(150)
+      continue
+    }
+    if (pane.includes(needle)) {
+      await sendKeys(['Enter'])
+      await delay(500)
+    } else {
+      await sendKeys(['-l', opts.marker])
+      await delay(350)
+    }
+  }
 }
 
 export function resolveTmuxBin(): string {
@@ -907,8 +935,9 @@ export async function runInteractiveClaudeTmuxSession(
 
       // Mid-turn injection (T-02027): while turn 1 is in-flight, type a SECOND
       // prompt directly into the tmux pane so Claude enqueues it (no
-      // UserPromptSubmit). Run it concurrently with the terminal-turn wait so the
-      // injection lands DURING the busy window, not after it.
+      // UserPromptSubmit). Armed against turn 1's broker turnId (the active turn
+      // whose transcript the reader tails) and run concurrently with the
+      // terminal-turn wait so it lands DURING the busy window.
       const midTurnPromise =
         i === 0 && options.midTurnInjection !== undefined && !options.mockClaude
           ? injectMidTurnPrompt({
@@ -918,7 +947,6 @@ export async function runInteractiveClaudeTmuxSession(
               socketPath: options.socketPath,
               paneId: result.surface?.paneId,
               marker: options.midTurnInjection.marker,
-              afterEventType: options.midTurnInjection.afterEvent ?? 'tool.call.started',
               timeoutMs: options.turnTimeoutMs,
               serverEnv,
             })
