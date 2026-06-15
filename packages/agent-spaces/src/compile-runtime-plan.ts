@@ -206,6 +206,91 @@ function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
   }
 }
 
+/**
+ * Inputs for {@link finalizePlan} — the shared pre-assembly preamble that the
+ * four plan builders (broker / foreground / embedded-sdk / tmux-broker) each
+ * re-copied: build the `prepare_runtime_warning` diagnostics, append the
+ * disallowed-tools diagnostic, stamp `compileId` + `createdAt`, coerce the
+ * resolved bundle + placement, then call {@link assemblePlan}.
+ *
+ * The route-specific bits are parameterized: the warnings source, the
+ * disallowed-tools context (the tmux route gates it on `honorDisallowedTools` by
+ * passing `undefined`), the resolved-bundle source, and the per-route harness /
+ * model / executionProfiles. The diagnostics array ORDER (warnings then the
+ * optional disallowed-tools diagnostic) and the {@link assemblePlan} key order
+ * are hash-authoritative — both are reproduced verbatim.
+ */
+interface FinalizePlanInput {
+  req: RuntimeCompileRequest
+  profileHash: string
+  profileId?: ProfileId | undefined
+  preparedWarnings: string[] | undefined
+  /**
+   * When defined, compute + append the disallowed-tools-unsupported diagnostic
+   * for `selectedDriver`. When undefined, no diagnostic is added (tmux route with
+   * `honorDisallowedTools`).
+   */
+  disallowedToolsContext: { selectedDriver: string } | undefined
+  resolvedBundleSource: PreparedResolvedBundle | undefined
+  bundleIdentity: string
+  placement: CompilePlacement
+  harness: CompiledRuntimePlan['harness']
+  model: CompiledRuntimePlan['model']
+  executionProfiles: CompiledRuntimePlan['executionProfiles']
+  materializedBundleRoot: string
+  systemPromptFile?: string | undefined
+  lockHash?: string | undefined
+  lockedEnvKeys: string[]
+}
+
+/**
+ * Fold the shared pre-assembly preamble + {@link assemblePlan} into a single
+ * call. Byte-parity-critical: the diagnostics order, the `stableId('compile', …)`
+ * key set, and the assemble key order are unchanged from the inlined tails.
+ */
+function finalizePlan(input: FinalizePlanInput): RuntimeCompileResponse {
+  const diagnostics: CompileDiagnostic[] = (input.preparedWarnings ?? []).map((warning) => ({
+    level: 'warning',
+    code: 'prepare_runtime_warning',
+    message: warning,
+    plane: 'asp-compiler',
+    profileId: input.profileId,
+  }))
+  if (input.disallowedToolsContext !== undefined) {
+    const disallowedToolsDiagnostic = disallowedToolsUnsupportedDiagnostic(
+      input.req,
+      input.disallowedToolsContext.selectedDriver,
+      input.profileId
+    )
+    if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
+  }
+  const compileId = stableId('compile', {
+    requestId: input.req.identity.requestId,
+    operationId: input.req.identity.operationId,
+    generation: input.req.identity.generation,
+    profileHash: input.profileHash,
+  }) as CompileId
+  const createdAt = new Date().toISOString()
+  const resolvedBundle = toResolvedBundle(input.resolvedBundleSource, input.bundleIdentity)
+  const compiledPlacement = toCompiledPlacement(input.placement)
+  return assemblePlan({
+    req: input.req,
+    compileId,
+    createdAt,
+    compiledPlacement,
+    resolvedBundle,
+    harness: input.harness,
+    model: input.model,
+    executionProfiles: input.executionProfiles,
+    materializedBundleRoot: input.materializedBundleRoot,
+    ...(input.systemPromptFile !== undefined ? { systemPromptFile: input.systemPromptFile } : {}),
+    ...(input.lockHash !== undefined ? { lockHash: input.lockHash } : {}),
+    bundleIdentity: input.bundleIdentity,
+    lockedEnvKeys: input.lockedEnvKeys,
+    diagnostics,
+  })
+}
+
 function compileError(code: string, message: string, details?: unknown): CompileDiagnostic {
   return {
     level: 'error',
@@ -870,34 +955,15 @@ async function compileBrokerPlan(
     compatibilityHash,
   }
 
-  const diagnostics: CompileDiagnostic[] = (brokerInvocation.warnings ?? []).map((warning) => ({
-    level: 'warning',
-    code: 'prepare_runtime_warning',
-    message: warning,
-    plane: 'asp-compiler',
-    profileId,
-  }))
-  const disallowedToolsDiagnostic = disallowedToolsUnsupportedDiagnostic(
+  return finalizePlan({
     req,
-    'codex-app-server',
-    profileId
-  )
-  if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
-  const compileId = stableId('compile', {
-    requestId: req.identity.requestId,
-    operationId: req.identity.operationId,
-    generation: req.identity.generation,
     profileHash,
-  }) as CompileId
-  const createdAt = new Date().toISOString()
-  const resolvedBundle = toResolvedBundle(brokerInvocation.resolvedBundle, bundleIdentity)
-  const compiledPlacement = toCompiledPlacement(placement)
-  return assemblePlan({
-    req,
-    compileId,
-    createdAt,
-    compiledPlacement,
-    resolvedBundle,
+    profileId,
+    preparedWarnings: brokerInvocation.warnings,
+    disallowedToolsContext: { selectedDriver: 'codex-app-server' },
+    resolvedBundleSource: brokerInvocation.resolvedBundle,
+    bundleIdentity,
+    placement,
     harness: {
       family: 'codex',
       runtime: 'codex-cli',
@@ -920,9 +986,7 @@ async function compileBrokerPlan(
       ? { systemPromptFile: prepared.systemPrompt.path }
       : {}),
     ...(lockHash !== undefined ? { lockHash } : {}),
-    bundleIdentity,
     lockedEnvKeys,
-    diagnostics,
   })
 }
 
@@ -1044,35 +1108,15 @@ async function compileForegroundPlan(
     }
   }
 
-  const diagnostics: CompileDiagnostic[] = (prepared.warnings ?? []).map((warning) => ({
-    level: 'warning',
-    code: 'prepare_runtime_warning',
-    message: warning,
-    plane: 'asp-compiler',
-    profileId,
-  }))
-  const disallowedToolsDiagnostic = disallowedToolsUnsupportedDiagnostic(
+  return finalizePlan({
     req,
-    `${route.frontend}:foreground-terminal`,
-    profileId
-  )
-  if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
-  const compileId = stableId('compile', {
-    requestId: req.identity.requestId,
-    operationId: req.identity.operationId,
-    generation: req.identity.generation,
     profileHash,
-  }) as CompileId
-  const createdAt = new Date().toISOString()
-  const resolvedBundle = toResolvedBundle(prepared.resolvedBundle, bundleIdentity)
-  const compiledPlacement = toCompiledPlacement(placement)
-
-  return assemblePlan({
-    req,
-    compileId,
-    createdAt,
-    compiledPlacement,
-    resolvedBundle,
+    profileId,
+    preparedWarnings: prepared.warnings,
+    disallowedToolsContext: { selectedDriver: `${route.frontend}:foreground-terminal` },
+    resolvedBundleSource: prepared.resolvedBundle,
+    bundleIdentity,
+    placement,
     harness: {
       family: route.family,
       runtime: route.runtime,
@@ -1095,9 +1139,7 @@ async function compileForegroundPlan(
       ? { systemPromptFile: prepared.systemPrompt.path }
       : {}),
     ...(lockHash !== undefined ? { lockHash } : {}),
-    bundleIdentity,
     lockedEnvKeys,
-    diagnostics,
   })
 }
 
@@ -1352,31 +1394,15 @@ async function compileEmbeddedSdkPlan(
     }
   }
 
-  const diagnostics: CompileDiagnostic[] = (prepared.warnings ?? []).map((warning) => ({
-    level: 'warning',
-    code: 'prepare_runtime_warning',
-    message: warning,
-    plane: 'asp-compiler',
-    profileId,
-  }))
-  const disallowedToolsDiagnostic = disallowedToolsUnsupportedDiagnostic(req, 'pi-sdk', profileId)
-  if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
-  const compileId = stableId('compile', {
-    requestId: req.identity.requestId,
-    operationId: req.identity.operationId,
-    generation: req.identity.generation,
-    profileHash,
-  }) as CompileId
-  const createdAt = new Date().toISOString()
-  const resolvedBundle = toResolvedBundle(prepared.resolvedBundle, bundleIdentity)
-  const compiledPlacement = toCompiledPlacement(placement)
-
-  return assemblePlan({
+  return finalizePlan({
     req,
-    compileId,
-    createdAt,
-    compiledPlacement,
-    resolvedBundle,
+    profileHash,
+    profileId,
+    preparedWarnings: prepared.warnings,
+    disallowedToolsContext: { selectedDriver: 'pi-sdk' },
+    resolvedBundleSource: prepared.resolvedBundle,
+    bundleIdentity,
+    placement,
     harness: {
       family: 'pi',
       runtime: 'pi-sdk',
@@ -1396,9 +1422,7 @@ async function compileEmbeddedSdkPlan(
       ? { systemPromptFile: prepared.systemPrompt.path }
       : {}),
     ...(lockHash !== undefined ? { lockHash } : {}),
-    bundleIdentity,
     lockedEnvKeys,
-    diagnostics,
   })
 }
 
@@ -1665,37 +1689,15 @@ async function compileTmuxBrokerPlan(
     }
   }
 
-  const diagnostics: CompileDiagnostic[] = (prepared.warnings ?? []).map((warning) => ({
-    level: 'warning',
-    code: 'prepare_runtime_warning',
-    message: warning,
-    plane: 'asp-compiler',
-    profileId,
-  }))
-  if (!honorDisallowedTools) {
-    const disallowedToolsDiagnostic = disallowedToolsUnsupportedDiagnostic(
-      req,
-      driverKind,
-      profileId
-    )
-    if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
-  }
-  const compileId = stableId('compile', {
-    requestId: req.identity.requestId,
-    operationId: req.identity.operationId,
-    generation: req.identity.generation,
-    profileHash,
-  }) as CompileId
-  const createdAt = new Date().toISOString()
-  const resolvedBundle = toResolvedBundle(prepared.resolvedBundle, bundleIdentity)
-  const compiledPlacement = toCompiledPlacement(placement)
-
-  return assemblePlan({
+  return finalizePlan({
     req,
-    compileId,
-    createdAt,
-    compiledPlacement,
-    resolvedBundle,
+    profileHash,
+    profileId,
+    preparedWarnings: prepared.warnings,
+    disallowedToolsContext: honorDisallowedTools ? undefined : { selectedDriver: driverKind },
+    resolvedBundleSource: prepared.resolvedBundle,
+    bundleIdentity,
+    placement,
     harness: {
       family: route.family,
       runtime: route.runtime,
@@ -1718,8 +1720,6 @@ async function compileTmuxBrokerPlan(
       ? { systemPromptFile: prepared.systemPrompt.path }
       : {}),
     ...(lockHash !== undefined ? { lockHash } : {}),
-    bundleIdentity,
     lockedEnvKeys,
-    diagnostics,
   })
 }
