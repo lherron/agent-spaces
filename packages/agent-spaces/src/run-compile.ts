@@ -80,7 +80,7 @@ function buildRunCompileRequest(context: RunCompilerDebugContext): RuntimeCompil
     context.correlation.scopeRef !== undefined
       ? taskContextFromScopeRef(context.correlation.scopeRef)
       : undefined
-  const placement = {
+  const placement: RuntimeCompileRequest['placement'] = {
     ...context.placement,
     correlation: {
       ...(typeof context.placement['correlation'] === 'object' &&
@@ -98,7 +98,7 @@ function buildRunCompileRequest(context: RunCompilerDebugContext): RuntimeCompil
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
     identity,
-    placement: placement as RuntimeCompileRequest['placement'],
+    placement,
     requested: {
       modelProvider: context.requested.modelProvider,
       model: context.requested.model,

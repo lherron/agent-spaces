@@ -46,7 +46,11 @@ import {
   type PreparedPlacementCliRuntime,
   preparePlacementCliRuntime,
 } from './prepare-cli-runtime.js'
-import type { BuildHarnessBrokerInvocationRequest, HarnessFrontend } from './types.js'
+import type {
+  BuildHarnessBrokerInvocationRequest,
+  BuildHarnessBrokerInvocationResponse,
+  HarnessFrontend,
+} from './types.js'
 
 /**
  * The compile request placement, narrowed to the spaces-config RuntimePlacement
@@ -66,6 +70,8 @@ type CompilePlacement = RuntimeCompileRequest['placement'] &
   }
 
 const COMPILER_VERSION = '0.1.1'
+
+type PreparedResolvedBundle = NonNullable<BuildHarnessBrokerInvocationResponse['resolvedBundle']>
 
 type CompileRuntimePlanOptions = {
   clientAspHome?: string | undefined
@@ -101,17 +107,16 @@ function toCompiledPlacement(placement: CompilePlacement): CompiledRuntimePlan['
 }
 
 /**
- * Coerce the prepared/broker `resolvedBundle` (or a `{ bundleIdentity }`-only
- * fallback when the prepare step produced none) into the plan-shaped
- * `CompiledRuntimePlan['resolvedBundle']`. Centralizes the `as unknown as` cast
- * that was hand-repeated across every plan builder. Hash-neutral: the returned
- * runtime value is identical to the previous inline expression.
+ * Return the prepared/broker `resolvedBundle` (or a `{ bundleIdentity }`-only
+ * fallback when the prepare step produced none) in the plan-shaped contract.
+ * Hash-neutral: the returned enumerable field set is identical to the previous
+ * inline expression.
  */
 function toResolvedBundle(
-  source: { bundleIdentity?: string | undefined } | undefined,
+  source: PreparedResolvedBundle | undefined,
   bundleIdentity: string
 ): CompiledRuntimePlan['resolvedBundle'] {
-  return (source ?? { bundleIdentity }) as unknown as CompiledRuntimePlan['resolvedBundle']
+  return source === undefined ? { bundleIdentity } : { ...source }
 }
 
 /**
