@@ -55,6 +55,13 @@ export {
 export { createAgentSpacesClient } from './client.js'
 
 export {
+  checkContinuationArtifact,
+  type CheckContinuationArtifactOptions,
+  type ContinuationArtifactRef,
+  type ContinuationArtifactResult,
+} from './continuation-probe.js'
+
+export {
   composeForegroundEnv,
   foregroundLaunchFromResponse,
   type ForegroundLaunch,
