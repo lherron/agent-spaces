@@ -202,6 +202,17 @@ export interface Invocation {
    */
   inputDispositions: Map<string, InputDispositionRecord>
   /**
+   * Exactly-once `turn.started` bracket ledger (T-04846), keyed by turnId.
+   * The broker GUARANTEES one `turn.started` per delivered input — it
+   * synthesizes the bracket from `applyInputNow`'s returned turnId rather than
+   * depending on a driver hook (e.g. Claude `UserPromptSubmit`) that may not
+   * fire for an idle dispatch. Both the synthesized (`source:'broker-delivery'`)
+   * path and any driver/hook-observed `turn.started` flow through `emit`, which
+   * dedupes on this map so a turn is never double-opened. The stored envelope is
+   * the first (winning) start, returned to callers on a suppressed duplicate.
+   */
+  startedTurns: Map<TurnId, InvocationEventEnvelope>
+  /**
    * Broker-owned pending permission requests, keyed by permissionRequestId.
    * Retained across controller disconnect until each request's absolute
    * deadline, and surfaced in the durability snapshot (C2). In-memory only.
@@ -329,9 +340,19 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   }
 
   /**
-   * Emit broker-owned input.accepted, then call driver.applyInputNow.
-   * turn.started is emitted by the driver via ctx.emit (notification pipeline).
-   * This is the single code path for both immediate application and drain.
+   * Emit broker-owned input.accepted, then call driver.applyInputNow, then
+   * GUARANTEE the `turn.started` bracket from the returned turnId (T-04846).
+   *
+   * The broker no longer depends on a driver hook (e.g. Claude
+   * `UserPromptSubmit`) to open the turn: that hook does not fire for an idle
+   * dispatch, leaving the turn body/terminal orphaned with no open bracket.
+   * Instead, once the input is delivered and `applyInputNow` returns the
+   * authoritative turnId, the broker synthesizes exactly one `turn.started`
+   * (provenance `source:'broker-delivery'`) BEFORE any body/terminal event.
+   * If the driver/hook ALSO observes the start for the same turnId, `emit`
+   * dedupes it (whichever path lands first wins). This is the single code path
+   * for both immediate application and drain. `attempted_steer` does not flow
+   * through here, so it never gets a synthetic start.
    */
   async function applyAndEmit(
     inv: Invocation,
@@ -341,6 +362,18 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     const { inputId } = input
     emit(inv, 'input.accepted', { inputId, disposition: 'started' }, { inputId })
     const result = await inv.driver.applyInputNow(input)
+    // Broker-guaranteed turn.started: synthesize the bracket from the delivered
+    // input's turnId. Deduped in emit() so it never double-opens a turn the
+    // driver/hook also reports. Emitted synchronously after delivery so it
+    // strictly precedes the (asynchronously-arriving) hook body/terminal events.
+    if (result.turnId !== undefined) {
+      emit(
+        inv,
+        'turn.started',
+        { turnId: result.turnId, source: 'broker-delivery', inputId },
+        { turnId: result.turnId, inputId }
+      )
+    }
     return result
   }
 
@@ -662,6 +695,23 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       turnAttempt?: number | undefined
     }
   ): InvocationEventEnvelope<TPayload> {
+    // Exactly-once `turn.started` bracket (T-04846). A turn may be started from
+    // two seams — the broker synthesizing it from a delivered input
+    // (`source:'broker-delivery'`) and a driver/hook observing the harness open
+    // the turn — and both flow through here. Dedupe by turnId so the turn is
+    // opened exactly once: the first start wins and is recorded; a later start
+    // for the same turn is suppressed (not sequenced, not projected) and the
+    // original winning envelope is returned to the (return-ignoring) caller.
+    if (type === 'turn.started') {
+      const turnId = extra?.turnId ?? (payload as { turnId?: TurnId } | undefined)?.turnId
+      if (turnId !== undefined) {
+        const existing = inv.startedTurns.get(turnId)
+        if (existing !== undefined) {
+          return existing as InvocationEventEnvelope<TPayload>
+        }
+      }
+    }
+
     // Single central event-safety path before sequencing: constrain/normalize
     // well-known payloads and truncate oversized payloads against maxEventBytes.
     const { payload: safePayload, diagnostics } = normalizeEventPayload({
@@ -673,6 +723,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     const event = sequencer.next(inv.invocationId, type, safePayload, extra)
     if (inv.spec.correlation !== undefined) {
       event.correlation = inv.spec.correlation
+    }
+    // Record the winning `turn.started` so any subsequent start for this turn
+    // (e.g. a hook-observed start after a broker-delivery synthesis) is deduped
+    // above and resolves back to this same envelope (T-04846).
+    if (type === 'turn.started' && event.turnId !== undefined) {
+      inv.startedTurns.set(event.turnId, event as InvocationEventEnvelope)
     }
     applyEventState(inv, event as InvocationEventEnvelope)
     onEvent(event as InvocationEventEnvelope)
@@ -1019,6 +1075,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         pending: [],
         inputCounter: 0,
         inputDispositions: new Map(),
+        startedTurns: new Map(),
         pendingPermissions: new Map(),
         settledPermissions: new Map(),
       }

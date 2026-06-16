@@ -39,7 +39,8 @@ describe('claude-code-tmux hook envelope turn_id seam RED', () => {
         invocationId: 'inv_envelope_turn_id_1',
         type: 'turn.started',
         turnId: 'turn_from_env_1',
-        payload: { turnId: 'turn_from_env_1' },
+        // T-04846: hook-observed starts carry provenance (vs broker-delivery).
+        payload: { turnId: 'turn_from_env_1', source: 'hook-observed' },
         driver: { kind: 'claude-code-tmux', rawType: 'UserPromptSubmit' },
       })
     )

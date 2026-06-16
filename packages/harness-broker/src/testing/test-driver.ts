@@ -32,6 +32,13 @@ export interface TestDriverOptions {
   failInputIds?: Iterable<string> | undefined
   inputCapabilities?: Partial<InvocationCapabilities['input']> | undefined
   supportsSteer?: boolean | undefined
+  /**
+   * When true, `applyInputNow` returns the allocated turnId but does NOT emit
+   * its own `turn.started` — modelling a claude-code-tmux idle dispatch where
+   * the Claude `UserPromptSubmit` hook never fires. The broker must still
+   * guarantee the bracket from the returned turnId (T-04846).
+   */
+  suppressTurnStarted?: boolean | undefined
 }
 
 export interface TestDriverHandle {
@@ -179,8 +186,16 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
       turnCounter += 1
       activeTurnId = `turn_test_${turnCounter}` as TurnId
 
-      // Driver emits turn.started — broker owns input.accepted separately
-      requireCtx().emit('turn.started', { turnId: activeTurnId }, { turnId: activeTurnId, inputId })
+      // Driver emits turn.started — broker owns input.accepted separately. When
+      // suppressTurnStarted is set, the driver stays silent (no hook fired) and
+      // relies on the broker's delivery-synthesized bracket (T-04846).
+      if (options.suppressTurnStarted !== true) {
+        requireCtx().emit(
+          'turn.started',
+          { turnId: activeTurnId },
+          { turnId: activeTurnId, inputId }
+        )
+      }
 
       return { turnId: activeTurnId }
     },

@@ -981,7 +981,8 @@ describe('claude-code-tmux driver RED lifecycle', () => {
       expect.objectContaining({
         type: 'turn.started',
         turnId: activeTurnId,
-        payload: { turnId: activeTurnId },
+        // T-04846: hook-observed starts carry provenance (vs broker-delivery).
+        payload: { turnId: activeTurnId, source: 'hook-observed' },
       })
     )
     expect(events).toContainEqual(

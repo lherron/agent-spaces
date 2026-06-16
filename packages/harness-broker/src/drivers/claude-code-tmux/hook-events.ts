@@ -238,7 +238,11 @@ export function createClaudeCodeHookEventNormalizer(
         const events: InvocationEventEnvelope[] = [
           emit(rawType, {
             type: 'turn.started',
-            payload: { turnId: resolvedText },
+            // Provenance-visible (T-04846 / #8236): a start observed from the
+            // Claude UserPromptSubmit hook, distinct from a broker-delivery
+            // synthesized start. The broker dedupes by turnId, so whichever
+            // seam lands first wins and its `source` reflects the live path.
+            payload: { turnId: resolvedText, source: 'hook-observed' },
             turnId: asTurnId(resolvedText),
           }),
         ]
