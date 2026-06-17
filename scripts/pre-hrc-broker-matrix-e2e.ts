@@ -105,6 +105,7 @@ import { AspcClient } from '../packages/aspc/src/index.js'
 
 import { createClaudeCodeTmuxDriver } from '../packages/harness-broker/src/drivers/claude-code-tmux/driver'
 import { createCodexCliTmuxDriver } from '../packages/harness-broker/src/drivers/codex-cli-tmux/driver'
+import { createPiTuiTmuxDriver } from '../packages/harness-broker/src/drivers/pi-tui-tmux/driver'
 import { createInvocationEventSequencer } from '../packages/harness-broker/src/events'
 import { createInvocationManager } from '../packages/harness-broker/src/invocation-manager'
 import { parseDispatchEnv } from '../packages/harness-broker/src/runtime/env'
@@ -146,6 +147,8 @@ type RowName =
   | 'real-claude-tmux-midturn'
   | 'claude-tmux-ghostmux'
   | 'real-pi-sdk-embedded'
+  | 'real-pi-tui-tmux'
+  | 'pi-tui-tmux-ghostmux'
 
 type CompileTransport = 'sdk' | 'aspc-rpc'
 const ALL_ROWS: RowName[] = [
@@ -158,6 +161,8 @@ const ALL_ROWS: RowName[] = [
   'real-claude-tmux-midturn',
   'claude-tmux-ghostmux',
   'real-pi-sdk-embedded',
+  'real-pi-tui-tmux',
+  'pi-tui-tmux-ghostmux',
 ]
 
 async function ghostmuxNewWithRetry(
@@ -445,6 +450,22 @@ function resolveRealCodexBin(): string | undefined {
   // resolves a real executable on PATH — NOT a shell alias — so an interactive
   // `alias codex=...` stays correctly excluded.
   const onPath = Bun.which('codex')
+  if (onPath !== null && onPath.length > 0 && existsSync(onPath)) return onPath
+  return undefined
+}
+
+function resolveRealPiBin(): string | undefined {
+  for (const candidate of [
+    process.env['ASP_PI_PATH'],
+    process.env['PI_PATH'],
+    join(process.env['HOME'] ?? '', '.local/bin/pi'),
+    '/opt/homebrew/bin/pi',
+    '/usr/local/bin/pi',
+    '/usr/bin/pi',
+  ]) {
+    if (candidate !== undefined && candidate.length > 0 && existsSync(candidate)) return candidate
+  }
+  const onPath = Bun.which('pi')
   if (onPath !== null && onPath.length > 0 && existsSync(onPath)) return onPath
   return undefined
 }
@@ -1773,6 +1794,400 @@ const EMBEDDED_MARKER_SOURCES: readonly SharedCommandTurnMarkerSource[] = [
   'tool-command',
   'assistant',
 ]
+
+function createPiTuiFixture(): {
+  agentRoot: string
+  projectRoot: string
+  aspHome: string
+  cleanup: () => void
+} {
+  const base = mkdtempSync(join(tmpdir(), 'asp-matrix-pi-tui-'))
+  const agentRoot = join(base, 'agents', 'curly')
+  const projectRoot = join(base, 'project')
+  const aspHome = join(base, 'asp-home')
+  const skillDir = join(agentRoot, 'skills', 'pi-matrix-skill')
+  mkdirSync(skillDir, { recursive: true })
+  mkdirSync(projectRoot, { recursive: true })
+  mkdirSync(aspHome, { recursive: true })
+  writeFileSync(
+    join(agentRoot, 'agent-profile.toml'),
+    'schemaVersion = 2\n\n[spaces]\nbase = []\n\n[brain]\nenabled = false\n',
+    'utf8'
+  )
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    '---\nname: pi-matrix-skill\ndescription: Matrix proof skill for pi-tui-tmux.\n---\n\nPi matrix skill loaded.\n',
+    'utf8'
+  )
+  return {
+    agentRoot,
+    projectRoot,
+    aspHome,
+    cleanup: () => rmSync(base, { recursive: true, force: true }),
+  }
+}
+
+function piTuiCompileRequest(input: {
+  agentRoot: string
+  projectRoot: string
+  hostSessionId: string
+  prompt: string
+  marker: string
+  timeoutMs: number
+}): RuntimeCompileRequest {
+  const identity = allocatePreHrcRuntimeIdentity({
+    namespace: 'prehrc_matrix_pi_tui_tmux',
+    invocationId: `inv_matrix_pi_tui_tmux_${input.marker}`,
+    initialInputId: `input_matrix_pi_tui_tmux_${input.marker}`,
+    idempotencyKey: `pre-hrc-matrix-pi-tui-tmux-${input.marker}`,
+  })
+  return {
+    schemaVersion: 'agent-runtime-compile-request/v1',
+    identity,
+    placement: {
+      agentRoot: input.agentRoot,
+      projectRoot: input.projectRoot,
+      cwd: input.projectRoot,
+      runMode: 'task',
+      bundle: { kind: 'agent-project', agentName: 'curly', projectRoot: input.projectRoot },
+      correlation: {
+        sessionRef: {
+          scopeRef: 'agent:curly:project:agent-spaces:task:T-04866',
+          laneRef: 'main',
+        },
+        hostSessionId: input.hostSessionId,
+      },
+    } as RuntimeCompileRequest['placement'],
+    requested: {
+      modelProvider: 'openai',
+      model: 'gpt-5.5',
+      reasoningEffort: 'medium',
+      harnessFamily: 'pi',
+      preferredHarnessRuntime: 'pi-cli',
+      interactionMode: 'interactive',
+    },
+    materialization: {
+      initialPrompt: input.prompt,
+      attachments: [],
+      taskContext: {
+        taskId: 'T-04866',
+        phase: 'matrix',
+        role: 'smoke',
+        requiredEvidenceKinds: ['contract-artifacts'],
+        hintsText: 'pre-HRC broker matrix pi-tui-tmux row',
+      },
+    },
+    hrcPolicy: {
+      permissionPolicy: allowPermissionPolicy(),
+      inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
+      exposurePolicy: { mode: 'broker-reports-target', targetKind: 'tmux-session' },
+      resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
+      observability: { traceId: identity.traceId },
+      capabilityPolicy: { allowDegrade: false, requireBrokerDefaultForCodexHeadless: true },
+    },
+    correlation: {
+      requestId: identity.requestId,
+      operationId: identity.operationId,
+      hostSessionId: identity.hostSessionId,
+      generation: identity.generation,
+      runtimeId: identity.runtimeId,
+      runId: identity.runId,
+      invocationId: identity.invocationId,
+      traceId: identity.traceId,
+      appId: 'agent-spaces',
+      appSessionKey: `pre-hrc-matrix-pi-tui-tmux-${input.marker}`,
+      scopeRef: 'agent:curly:project:agent-spaces:task:T-04866',
+      laneRef: 'main',
+    },
+  }
+}
+
+async function runPiTuiTmuxRow(
+  ctx: RowContext,
+  options: { ghostmuxOperator: boolean }
+): Promise<RowResult> {
+  const pi = resolveRealPiBin()
+  if (pi === undefined) throw new Error('real pi binary disappeared after probe')
+  const rowName: RowName = options.ghostmuxOperator ? 'pi-tui-tmux-ghostmux' : 'real-pi-tui-tmux'
+  const operatorMarker = `${ctx.marker}_OP`
+  const commandMarker = options.ghostmuxOperator ? operatorMarker : ctx.marker
+  const launchPrompt = `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`
+  const prompts = [NARRATION_PROMPT]
+  const operatorPrompt = `Run the Bash command: printf '${operatorMarker}' — then reply with exactly ${operatorMarker} and nothing else.`
+  const result: RowResult = {
+    name: rowName,
+    status: 'FAIL',
+    marker: commandMarker,
+    prompt: options.ghostmuxOperator ? operatorPrompt : prompts[0],
+    observedTurnIds: [],
+    compile: {},
+    floorFailures: [],
+    contractFailures: [],
+    extraFailures: [],
+    notes: {},
+  }
+  const savedPiPath = process.env['ASP_PI_PATH']
+  process.env['ASP_PI_PATH'] = pi
+  const fx = createPiTuiFixture()
+  const socketPath = join(tmpdir(), `matrix-${rowName}-${process.pid}.sock`)
+  const hookSocketPath = `${socketPath}.hooks`
+  const events: InvocationEventEnvelope[] = []
+  const ledger = new PreHrcBrokerEventLedger()
+  const tmuxArgv: string[][] = []
+  let surface:
+    | { socketPath: string; sessionName: string; paneId: string; sessionId?: string | undefined }
+    | undefined
+  let surfaceId: string | undefined
+  try {
+    ensureAspHomeRegistry(fx.aspHome, ctx.repoRoot)
+    const hostSessionId = `host_pi_tui_${ctx.marker}`
+    const response = await compileRuntimePlanForMatrix(
+      ctx,
+      fx.aspHome,
+      piTuiCompileRequest({
+        agentRoot: fx.agentRoot,
+        projectRoot: fx.projectRoot,
+        hostSessionId,
+        prompt: launchPrompt,
+        marker: ctx.marker,
+        timeoutMs: ctx.turnTimeoutMs,
+      })
+    )
+    if (!response.ok) {
+      result.contractFailures.push({
+        code: 'pi_tui_compile_failed',
+        message: `compileRuntimePlan returned diagnostics: ${JSON.stringify(response.diagnostics)}`,
+      })
+      return result
+    }
+    const profile = response.plan.executionProfiles.find(
+      (candidate): candidate is BrokerExecutionProfile =>
+        candidate.kind === 'harness-broker' && candidate.brokerDriver === 'pi-tui-tmux'
+    )
+    if (profile === undefined) {
+      result.contractFailures.push({
+        code: 'pi_tui_profile_missing',
+        message: 'compileRuntimePlan did not emit pi-tui-tmux broker profile',
+      })
+      return result
+    }
+    result.compile = {
+      compileId: response.plan.compileId,
+      planHash: response.plan.planHash,
+      selectedProfileHash: profile.profileHash,
+      startRequestHash: profile.harnessInvocation.startRequestHash,
+    }
+    const verification = verifyBrokerStartContract(profile)
+    result.contractFailures.push(...verification.failures.map(toFailure))
+    const args = profile.harnessInvocation.startRequest.spec.process.args
+    result.notes['piArgv'] = args
+    result.notes['piLockedEnvKeys'] = Object.keys(
+      profile.harnessInvocation.startRequest.spec.process.lockedEnv ?? {}
+    ).sort()
+    if (!args.some((arg) => arg.endsWith('asp-hrc-events.bridge.js'))) {
+      result.extraFailures.push({
+        code: 'pi_tui_hrc_events_bridge_missing',
+        message: 'compiled Pi argv did not include asp-hrc-events.bridge.js extension',
+      })
+    }
+    if (!args.includes('--skill')) {
+      result.extraFailures.push({
+        code: 'pi_tui_skill_arg_missing',
+        message: 'compiled Pi argv did not include a materialized --skill directory',
+      })
+    }
+    if (
+      profile.harnessInvocation.startRequest.spec.process.lockedEnv?.['PI_CODING_AGENT_DIR'] ===
+      undefined
+    ) {
+      result.extraFailures.push({
+        code: 'pi_tui_agent_dir_env_missing',
+        message: 'PI_CODING_AGENT_DIR missing from compiled lockedEnv',
+      })
+    }
+
+    await runMatrixTmux(ctx.tmuxBin, ['-S', socketPath, 'start-server'])
+    const allocated = await allocatePreHrcTmuxPane({
+      tmuxBin: ctx.tmuxBin,
+      socketPath,
+      sessionName: `matrix-${rowName}-${ctx.marker}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60),
+    })
+    const driver = createPiTuiTmuxDriver({
+      tmux: {
+        socketPath,
+        tmuxBin: ctx.tmuxBin,
+        exec: async (argv, execOptions) => {
+          tmuxArgv.push([...argv])
+          return runMatrixTmux(ctx.tmuxBin, argv.slice(1), execOptions?.env ?? process.env)
+        },
+      },
+      hooks: {
+        listen: makeCodexHookListener(hookSocketPath),
+        bridgeCommand: `bun ${join(ctx.repoRoot, 'packages/harness-broker/bin/harness-broker.js')} pi-hook`,
+      },
+    })
+    const manager = createInvocationManager({
+      sequencer: createInvocationEventSequencer({ now: () => new Date() }),
+      onEvent: (event) => {
+        events.push(event)
+        ledger.append(event)
+      },
+    })
+    const invocationId = (profile.harnessInvocation.startRequest.spec.invocationId ??
+      `inv_matrix_pi_tui_tmux_${ctx.marker}`) as InvocationId
+    await manager.start(profile.harnessInvocation.startRequest.spec, driver, undefined, undefined, {
+      terminalSurface: allocated.lease,
+    })
+    const surfaceEvent = events.find((event) => event.type === 'terminal.surface.reported')
+    const sp = surfaceEvent?.payload as
+      | { socketPath?: string; sessionName?: string; paneId?: string; sessionId?: string }
+      | undefined
+    if (
+      sp !== undefined &&
+      typeof sp.socketPath === 'string' &&
+      typeof sp.sessionName === 'string' &&
+      typeof sp.paneId === 'string'
+    ) {
+      surface = {
+        socketPath: sp.socketPath,
+        sessionName: sp.sessionName,
+        paneId: sp.paneId,
+        ...(typeof sp.sessionId === 'string' ? { sessionId: sp.sessionId } : {}),
+      }
+      result.notes['surface'] = surface
+    }
+    if (ctx.bootWaitMs > 0) await sleep(ctx.bootWaitMs)
+    const launchTurnObserved = await waitForAdditionalTerminalTurn(events, 0, ctx.turnTimeoutMs)
+    result.notes['launchTurnObserved'] = launchTurnObserved
+    if (!launchTurnObserved) {
+      result.extraFailures.push({
+        code: 'pi_tui_launch_turn_not_recorded',
+        message: 'Pi launch prompt did not produce a completed normalized turn before broker input',
+      })
+    }
+
+    const scriptedTurns: Array<{ prompt: string; terminalTurnObserved: boolean }> = []
+    let narrationTurnIds: string[] = []
+    for (const prompt of prompts) {
+      const baseline = terminalTurnCount(events)
+      const turnIdsBefore = new Set(observedTurnIds(events))
+      await manager.input({
+        invocationId,
+        input: { kind: 'user', content: [{ type: 'text', text: prompt }] },
+        policy: { whenBusy: 'reject' },
+      })
+      const terminalTurnObserved = await waitForAdditionalTerminalTurn(
+        events,
+        baseline,
+        ctx.turnTimeoutMs
+      )
+      scriptedTurns.push({ prompt, terminalTurnObserved })
+      await sleep(2_000)
+      if (prompt === NARRATION_PROMPT) {
+        narrationTurnIds = observedTurnIds(events).filter((id) => !turnIdsBefore.has(id))
+      }
+    }
+    result.notes['scriptedTurns'] = scriptedTurns
+    result.notes['narrationTurnIds'] = narrationTurnIds
+
+    if (options.ghostmuxOperator) {
+      const attachCommand =
+        surface !== undefined
+          ? `${ctx.tmuxBin} -S ${surface.socketPath} attach-session -t ${surface.sessionName}`
+          : `${ctx.tmuxBin} -S ${socketPath} attach-session`
+      const newOut = await ghostmuxNewWithRetry('ghostmux', [
+        'new',
+        '--command',
+        attachCommand,
+        '--title',
+        'matrix-pi-ghostmux-attach',
+        '--json',
+      ])
+      if (newOut.code !== 0) {
+        result.extraFailures.push({
+          code: 'ghostmux_new_failed',
+          message: `ghostmux new failed: ${newOut.stderr.trim() || newOut.stdout.trim()}`,
+        })
+      } else {
+        surfaceId = (JSON.parse(newOut.stdout) as { id?: string }).id
+        result.notes['surfaceId'] = surfaceId ?? null
+        if (surfaceId !== undefined) {
+          await waitForCodexPaneReady('ghostmux', surfaceId, 30_000)
+          const baseline = terminalTurnCount(events)
+          await driveOperatorTurn('ghostmux', surfaceId, operatorPrompt, 250)
+          const recorded = await waitForAdditionalTerminalTurn(events, baseline, ctx.turnTimeoutMs)
+          if (!recorded) {
+            result.extraFailures.push({
+              code: 'operator_turn_not_recorded',
+              message: 'operator keystrokes did not produce a new Pi turn',
+            })
+          }
+          const pane = await capturePane('ghostmux', surfaceId)
+          result.notes['tokenRenderedInPane'] = pane.includes(operatorMarker)
+          if (!pane.includes(operatorMarker)) {
+            result.extraFailures.push({
+              code: 'operator_token_not_rendered',
+              message: `Pi did not render the operator token ${operatorMarker} in the attached pane`,
+            })
+          }
+        }
+      }
+    }
+
+    result.observedTurnIds = observedTurnIds(events)
+    result.notes['ledgerEventTypes'] = [...new Set(events.map((event) => event.type))]
+    result.notes['tmuxArgv'] = tmuxArgv
+    result.notes['eventCount'] = events.length
+    if (surface !== undefined) {
+      result.notes['postTurnPane'] = await captureTmuxPane(
+        ctx.tmuxBin,
+        surface.socketPath,
+        surface.paneId
+      ).catch((error) => (error instanceof Error ? error.message : String(error)))
+    }
+    const commandTurnId =
+      findTurnWithToolCommandMarker(events, commandMarker) ?? deriveCommandTurnId(events)
+    result.commandTurnId = commandTurnId
+    result.floorFailures = runSharedFloor(
+      events,
+      commandMarker,
+      commandTurnId,
+      ctx.allowLegacyPermissionEvent,
+      EMBEDDED_MARKER_SOURCES
+    )
+    result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
+    for (const required of [
+      'terminal.surface.reported',
+      'assistant.message.completed',
+      'turn.completed',
+      'tool.call.started',
+      'tool.call.completed',
+      'continuation.updated',
+    ] as const) {
+      if (!events.some((event) => event.type === required)) {
+        result.extraFailures.push({
+          code: 'pi_tui_event_missing',
+          message: `pi-tui-tmux row did not emit ${required}`,
+        })
+      }
+    }
+    const failed =
+      result.floorFailures.length + result.contractFailures.length + result.extraFailures.length
+    result.status = failed === 0 ? 'OK' : 'FAIL'
+    return result
+  } finally {
+    if (surfaceId !== undefined) {
+      await ghostmux('ghostmux', ['kill-surface', '-t', surfaceId]).catch(() => undefined)
+    }
+    await runMatrixTmux(ctx.tmuxBin, ['-S', socketPath, 'kill-server']).catch(() => undefined)
+    if (savedPiPath === undefined) {
+      process.env['ASP_PI_PATH'] = undefined
+    } else {
+      process.env['ASP_PI_PATH'] = savedPiPath
+    }
+    if (!ctx.keepArtifacts) fx.cleanup()
+  }
+}
 
 function createPiSdkFixture(): {
   agentRoot: string
@@ -3491,6 +3906,43 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       return { available: true, reason: `pi auth at ${authPath}` }
     },
     run: async (ctx) => runEmbeddedPiSdkRow(ctx),
+  },
+  {
+    name: 'real-pi-tui-tmux',
+    description: 'pi-tui-tmux interactive-tmux against the REAL pi binary',
+    probe: async () => {
+      const pi = resolveRealPiBin()
+      if (pi === undefined) {
+        return { available: false, reason: 'real pi binary not found (set ASP_PI_PATH)' }
+      }
+      const authPath = join(process.env['HOME'] ?? '', '.pi', 'agent', 'auth.json')
+      if (!existsSync(authPath)) {
+        return { available: false, reason: `pi auth (${authPath}) not present` }
+      }
+      if (!existsSync(resolveTmuxBin()) && resolveTmuxBin() === 'tmux') {
+        return { available: false, reason: 'tmux not found' }
+      }
+      return { available: true, reason: `real pi at ${pi}` }
+    },
+    run: async (ctx) => runPiTuiTmuxRow(ctx, { ghostmuxOperator: false }),
+  },
+  {
+    name: 'pi-tui-tmux-ghostmux',
+    description: 'pi-tui-tmux + REAL ghostmux operator-attach (operator-typed turn)',
+    probe: async () => {
+      const pi = resolveRealPiBin()
+      if (pi === undefined) {
+        return { available: false, reason: 'real pi binary not found (set ASP_PI_PATH)' }
+      }
+      const authPath = join(process.env['HOME'] ?? '', '.pi', 'agent', 'auth.json')
+      if (!existsSync(authPath)) {
+        return { available: false, reason: `pi auth (${authPath}) not present` }
+      }
+      const gmux = await ghostmuxAvailable('ghostmux')
+      if (!gmux.available) return gmux
+      return { available: true, reason: `${gmux.reason}; real pi at ${pi}` }
+    },
+    run: async (ctx) => runPiTuiTmuxRow(ctx, { ghostmuxOperator: true }),
   },
 ]
 

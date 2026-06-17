@@ -1056,7 +1056,8 @@ function validateTurnRetryPolicy(
 // tmux id shape rules (regexes + validators) live in ./tmux-ids.
 
 /**
- * Spec §3.3 dispatch-time contract: a `claude-code-tmux` / `codex-cli-tmux`
+ * Spec §3.3 dispatch-time contract: a `claude-code-tmux` / `codex-cli-tmux` /
+ * `pi-tui-tmux`
  * dispatch MUST carry a runtime-owned terminal surface on the dispatch
  * envelope. The compiled profile emits launch INTENT only — the concrete
  * tmux server socket and pane are runtime allocations supplied by HRC (or
@@ -1127,7 +1128,11 @@ function validateDispatchRuntime(
     )
   }
 
-  if (driverKind !== 'claude-code-tmux' && driverKind !== 'codex-cli-tmux') {
+  if (
+    driverKind !== 'claude-code-tmux' &&
+    driverKind !== 'codex-cli-tmux' &&
+    driverKind !== 'pi-tui-tmux'
+  ) {
     return
   }
 
@@ -1509,7 +1514,10 @@ function validateTerminalSurfaceReportedPayload(
   context: EventPayloadContext
 ): void {
   const driverKind = context.driverKind
-  const requiresPaneKind = driverKind === 'claude-code-tmux' || driverKind === 'codex-cli-tmux'
+  const requiresPaneKind =
+    driverKind === 'claude-code-tmux' ||
+    driverKind === 'codex-cli-tmux' ||
+    driverKind === 'pi-tui-tmux'
 
   if (payload.kind === 'tmux-pane') {
     requireString(payload['socketPath'], 'payload.socketPath', issues)

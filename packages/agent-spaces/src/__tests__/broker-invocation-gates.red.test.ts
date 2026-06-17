@@ -38,6 +38,20 @@ describe('broker invocation driver gate lift RED', () => {
     ).not.toThrow()
   })
 
+  test('accepts the interactive pi-tui-tmux broker route with pty transport', () => {
+    expect(() =>
+      validateBrokerInvocationRequest(
+        brokerReq({
+          provider: 'openai',
+          frontend: 'pi-cli',
+          interactionMode: 'interactive',
+          brokerDriver: 'pi-tui-tmux',
+          harnessTransport: { kind: 'pty' },
+        })
+      )
+    ).not.toThrow()
+  })
+
   test('still rejects codex app-server when interaction mode is interactive', () => {
     expect(() =>
       validateBrokerInvocationRequest(
@@ -108,6 +122,53 @@ describe('broker invocation driver gate lift RED', () => {
       key: 'claude-session-01769',
     })
     expect(spec.driver).toEqual({ kind: 'claude-code-tmux', terminalHost: 'tmux' })
+    expect(startRequest.initialInput).toBeUndefined()
+  })
+
+  test('maps pi-tui-tmux into an OpenAI Pi HarnessInvocationSpec with HRC events hook bridge', () => {
+    const prepared = {
+      runOptions: {},
+      commandPath: '/usr/local/bin/pi',
+      args: ['--no-context-files', '--extension', '/tmp/asp-hrc-events.bridge.js'],
+      cwd: '/tmp/projects/agent-spaces',
+      lockedEnv: { PI_CODING_AGENT_DIR: '/tmp/pi-bundle' },
+      pathPrepend: [],
+      placement,
+      imageAttachmentPaths: [],
+      runtimePlan: { defaultRunOptions: {} },
+      placementContext: { materialization: {} },
+      resolvedBundle: { bundleIdentity: 'test-pi-bundle' },
+      warnings: [],
+    }
+
+    const { spec, startRequest } = toHarnessBrokerStartRequest(
+      prepared as any,
+      brokerReq({
+        provider: 'openai',
+        frontend: 'pi-cli',
+        interactionMode: 'interactive',
+        brokerDriver: 'pi-tui-tmux',
+        harnessTransport: { kind: 'pty' },
+        continuation: { provider: 'openai', key: 'pi-session-1' },
+      })
+    )
+
+    expect(spec.harness).toEqual({
+      frontend: 'pi-cli',
+      provider: 'openai',
+      driver: 'pi-tui-tmux',
+    })
+    expect(spec.process.harnessTransport).toEqual({ kind: 'pty' })
+    expect(spec.continuation).toEqual({
+      provider: 'openai',
+      kind: 'session',
+      key: 'pi-session-1',
+    })
+    expect(spec.driver).toEqual({
+      kind: 'pi-tui-tmux',
+      terminalHost: 'tmux',
+      hookBridge: 'pi-hrc-events/v1',
+    })
     expect(startRequest.initialInput).toBeUndefined()
   })
 })

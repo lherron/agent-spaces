@@ -957,7 +957,16 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
 
     expect(surfaceIndex).toBeGreaterThanOrEqual(0)
     expect(turnStartedIndex).toBeGreaterThan(surfaceIndex)
-    expect(events[turnStartedIndex]?.payload).toEqual({ turnId: inputTurnId })
+    const turnStarted = events[turnStartedIndex]
+    expect(turnStarted?.inputId).toBeString()
+    expect(events[turnStartedIndex]).toMatchObject({
+      inputId: turnStarted?.inputId,
+      payload: {
+        turnId: inputTurnId,
+        inputId: turnStarted?.inputId,
+        source: 'broker-delivery',
+      },
+    })
     expect(terminalTurns).toHaveLength(1)
     expect(terminalTurns[0]?.type).toBe('turn.completed')
     expect(eventTypes).not.toContain('invocation.permission.request' as never)

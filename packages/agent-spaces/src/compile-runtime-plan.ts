@@ -760,6 +760,8 @@ const INTERACTIVE_BROKER_BUILDERS: Partial<Record<HarnessFamily, InteractiveComp
     compileTmuxBrokerPlan(req, placement, CLAUDE_TMUX_DRIVER_CONFIG, options),
   codex: (req, placement, options) =>
     compileTmuxBrokerPlan(req, placement, CODEX_TMUX_DRIVER_CONFIG, options),
+  pi: (req, placement, options) =>
+    compileTmuxBrokerPlan(req, placement, PI_TMUX_DRIVER_CONFIG, options),
 }
 
 /**
@@ -1491,8 +1493,8 @@ function buildTmuxLaunchSpec(prepared: PreparedPlacementCliRuntime): HarnessLaun
  * carries `hookBridge: 'codex-hooks/v1'` on the spec driver descriptor.
  */
 interface TmuxBrokerDriverConfig {
-  driverKind: 'claude-code-tmux' | 'codex-cli-tmux'
-  hookBridge?: 'codex-hooks/v1'
+  driverKind: 'claude-code-tmux' | 'codex-cli-tmux' | 'pi-tui-tmux'
+  hookBridge?: 'codex-hooks/v1' | 'pi-hrc-events/v1'
   honorDisallowedTools: boolean
 }
 
@@ -1504,6 +1506,12 @@ const CLAUDE_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
 const CODEX_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
   driverKind: 'codex-cli-tmux',
   hookBridge: 'codex-hooks/v1',
+  honorDisallowedTools: false,
+}
+
+const PI_TMUX_DRIVER_CONFIG: TmuxBrokerDriverConfig = {
+  driverKind: 'pi-tui-tmux',
+  hookBridge: 'pi-hrc-events/v1',
   honorDisallowedTools: false,
 }
 

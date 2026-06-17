@@ -81,6 +81,27 @@ echo "codex shim"
   return shimPath
 }
 
+function createPiShim(dir: string): string {
+  const shimPath = join(dir, 'pi')
+  writeFileSync(
+    shimPath,
+    `#!/usr/bin/env bash
+if [[ "$1" == "--version" ]]; then
+  echo "pi 999.0.0"
+  exit 0
+fi
+if [[ "$1" == "--help" ]]; then
+  echo "--extension --skill --no-skills --no-context-files --model --provider"
+  exit 0
+fi
+echo "pi shim"
+`,
+    'utf8'
+  )
+  chmodSync(shimPath, 0o755)
+  return shimPath
+}
+
 function createClaudeShim(dir: string): string {
   const shimPath = join(dir, 'claude')
   writeFileSync(
@@ -128,6 +149,7 @@ enabled = false
   )
   createClaudeShim(aspHome)
   createCodexShim(aspHome)
+  createPiShim(aspHome)
   return {
     agentRoot,
     projectRoot,
@@ -139,6 +161,7 @@ enabled = false
 
 let fixture: ReturnType<typeof createFixture>
 const originalCodexPath = process.env['ASP_CODEX_PATH']
+const originalPiPath = process.env['ASP_PI_PATH']
 const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
 const originalClaudePath = process.env['ASP_CLAUDE_PATH']
 
@@ -385,6 +408,7 @@ describe('compileRuntimePlan broker profile contract', () => {
     fixture = createFixture()
     process.env['ASP_CLAUDE_PATH'] = join(fixture.aspHome, 'claude')
     process.env['ASP_CODEX_PATH'] = join(fixture.aspHome, 'codex')
+    process.env['ASP_PI_PATH'] = join(fixture.aspHome, 'pi')
     process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
   })
 
@@ -398,6 +422,11 @@ describe('compileRuntimePlan broker profile contract', () => {
       process.env['ASP_CODEX_PATH'] = undefined
     } else {
       process.env['ASP_CODEX_PATH'] = originalCodexPath
+    }
+    if (originalPiPath === undefined) {
+      process.env['ASP_PI_PATH'] = undefined
+    } else {
+      process.env['ASP_PI_PATH'] = originalPiPath
     }
     if (originalSkipCommon === undefined) {
       process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = undefined
@@ -485,6 +514,56 @@ describe('compileRuntimePlan broker profile contract', () => {
       })
     )
     expect(validateEmbeddedSdkExecutionProfile(profile)).toEqual([])
+  })
+
+  test('compiles pi-cli interactive requests to the pi-tui-tmux broker profile', async () => {
+    const response = await createClient().compileRuntimePlan(
+      interactiveCompileRequest({
+        modelProvider: 'openai',
+        model: 'gpt-5.5',
+        reasoningEffort: 'medium',
+        harnessFamily: 'pi',
+        preferredHarnessRuntime: 'pi-cli',
+        interactionMode: 'interactive',
+      })
+    )
+    const profile = brokerProfile(response)
+
+    expect(response.ok).toBe(true)
+    expect(profile.kind).toBe('harness-broker')
+    expect(profile.interactionMode).toBe('interactive')
+    expect(profile.brokerDriver).toBe('pi-tui-tmux')
+    expect(profile.brokerTerminal).toMatchObject({
+      host: 'tmux',
+      turnDelivery: 'terminal-literal-input',
+      operatorAttach: true,
+    })
+    expect(profile.harnessInvocation.startRequest.spec.harness).toEqual({
+      frontend: 'pi-cli',
+      provider: 'openai',
+      driver: 'pi-tui-tmux',
+    })
+    expect(profile.harnessInvocation.startRequest.spec.process.harnessTransport.kind).toBe('pty')
+    expect(profile.harnessInvocation.startRequest.spec.driver).toMatchObject({
+      kind: 'pi-tui-tmux',
+      terminalHost: 'tmux',
+      hookBridge: 'pi-hrc-events/v1',
+    })
+    expect(profile.harnessInvocation.startRequest.spec.process.args).toEqual(
+      expect.arrayContaining([
+        '--no-context-files',
+        '--no-skills',
+        '--model',
+        'gpt-5.5',
+        '--provider',
+        'openai-codex',
+      ])
+    )
+    expect(profile.harnessInvocation.startRequest.spec.process.args).toContain(
+      'hello foreground terminal'
+    )
+    expect(profile.harnessInvocation.startRequest.initialInput).toBeUndefined()
+    expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
   })
 
   test('rejects pi-sdk headless requests instead of rewriting them to nonInteractive embedded-sdk', async () => {

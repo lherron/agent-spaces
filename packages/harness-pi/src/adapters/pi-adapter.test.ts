@@ -658,10 +658,11 @@ script = "scripts/validate.sh"
       const bridgeContent = await Bun.file(join(outputDir, 'asp-hooks.bridge.js')).text()
 
       // The generated script path should include the 'scripts' subdirectory
-      // Expected: /path/to/hooks-scripts/scripts/agent_motd.sh
+      // Expected: hooks-scripts/scripts/agent_motd.sh
       // NOT: /path/to/hooks-scripts/agent_motd.sh
       expect(bridgeContent).toContain('hooks-scripts/scripts/agent_motd.sh')
       expect(bridgeContent).not.toMatch(/hooks-scripts\/agent_motd\.sh[^/]/)
+      expect(bridgeContent).not.toContain(outputDir)
     })
 
     test('resolves missing scripts/ prefix for nested hook scripts', async () => {
@@ -751,7 +752,11 @@ script = "scripts/validate.sh"
       await adapter.composeTarget(input, outputDir, {})
 
       const bridgeContent = await Bun.file(join(outputDir, 'asp-hooks.bridge.js')).text()
-      expect(bridgeContent).toContain("spawn('asp --help'")
+      expect(bridgeContent).toContain("const hookScript = 'asp --help'")
+      expect(bridgeContent).toContain('const isRawShellCommand = /\\s/.test(hookScript)')
+      expect(bridgeContent).toContain(
+        'isRawShellCommand ? hookScript : path.join(__dirname, hookScript)'
+      )
     })
 
     test('generates W301 warning for blocking hooks', async () => {

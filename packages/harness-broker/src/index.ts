@@ -33,6 +33,11 @@ export {
   createCodexCliTmuxHookEventNormalizer,
 } from './drivers/codex-cli-tmux/hook-events'
 export { createCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
+export {
+  PI_TUI_TMUX_DRIVER_KIND,
+  createPiTuiTmuxHookEventNormalizer,
+} from './drivers/pi-tui-tmux/hook-events'
+export { createPiTuiTmuxDriver } from './drivers/pi-tui-tmux/driver'
 export type { NoopDriverOptions } from './drivers/noop-driver'
 
 export type { Driver, DriverContext, DriverStartResult } from './drivers/driver'

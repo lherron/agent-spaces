@@ -139,6 +139,21 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
   {
     controller: 'harness-broker',
     modelProvider: 'openai',
+    harnessFamily: 'pi',
+    harnessRuntime: 'pi-cli',
+    interactionMode: 'interactive',
+    startupMethods: ['create-broker-invocation', 'reuse-existing'],
+    turnDeliveries: ['broker-input', 'terminal-literal-input'],
+    lifecycle: BROKER_LIFECYCLE_BASELINE,
+    broker: {
+      protocolVersion: 'harness-broker/0.2',
+      driver: 'pi-tui-tmux',
+      processTransport: 'pty',
+    },
+  },
+  {
+    controller: 'harness-broker',
+    modelProvider: 'openai',
     harnessFamily: 'codex',
     harnessRuntime: 'codex-cli',
     interactionMode: 'headless',

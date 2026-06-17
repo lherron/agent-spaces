@@ -24,6 +24,7 @@ import type { Broker, BrokerAttachIdentity } from './broker'
 import { createDefaultBroker } from './default-broker'
 import { runClaudeHookBridgeCli } from './drivers/claude-code-tmux/hook-bridge'
 import { runCodexHookBridgeCli } from './drivers/codex-cli-tmux/hook-bridge'
+import { runPiHookBridgeCli } from './drivers/pi-tui-tmux/hook-bridge'
 import { BrokerError } from './errors'
 import { createEventLedger } from './event-ledger'
 import { type ProtocolServer, createProtocolServer } from './protocol-server'
@@ -72,6 +73,8 @@ async function main(): Promise<void> {
     await runClaudeHookBridgeCli(args.slice(1))
   } else if (command === 'codex-hook') {
     await runCodexHookBridgeCli(args.slice(1))
+  } else if (command === 'pi-hook') {
+    await runPiHookBridgeCli(args.slice(1))
   } else if (command === 'run-once') {
     await runOnce(args.slice(1))
   } else if (command === 'validate-start-request') {

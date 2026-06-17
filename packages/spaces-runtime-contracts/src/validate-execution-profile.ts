@@ -142,6 +142,8 @@ type BrokerProfileFacts = {
   isClaudeCodeTmux: boolean
   profileClaimsCodexCliTmux: boolean
   isCodexCliTmux: boolean
+  profileClaimsPiTuiTmux: boolean
+  isPiTuiTmux: boolean
 }
 
 function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfileFacts {
@@ -149,6 +151,7 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
   const specDriverKind = spec.driver.kind
   const profileClaimsClaudeCodeTmux = profile.brokerDriver === 'claude-code-tmux'
   const profileClaimsCodexCliTmux = profile.brokerDriver === 'codex-cli-tmux'
+  const profileClaimsPiTuiTmux = profile.brokerDriver === 'pi-tui-tmux'
   return {
     specDriverKind,
     transportKind: spec.process.harnessTransport.kind,
@@ -161,6 +164,8 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
     isClaudeCodeTmux: profileClaimsClaudeCodeTmux || specDriverKind === 'claude-code-tmux',
     profileClaimsCodexCliTmux,
     isCodexCliTmux: profileClaimsCodexCliTmux || specDriverKind === 'codex-cli-tmux',
+    profileClaimsPiTuiTmux,
+    isPiTuiTmux: profileClaimsPiTuiTmux || specDriverKind === 'pi-tui-tmux',
   }
 }
 
@@ -295,6 +300,41 @@ const CODEX_CLI_TMUX_RULES: BrokerLegalityRule[] = [
       : undefined,
 ]
 
+const PI_TUI_TMUX_RULES: BrokerLegalityRule[] = [
+  (profile, facts) =>
+    facts.profileClaimsPiTuiTmux && facts.specDriverKind !== 'pi-tui-tmux'
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_tui_tmux_requires_driver_kind',
+          'pi-tui-tmux broker profiles must use pi-tui-tmux in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.specDriverKind === 'pi-tui-tmux' && facts.specDriverTerminalHost !== 'tmux'
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_tui_tmux_requires_terminal_host',
+          'pi-tui-tmux broker profiles must declare terminalHost tmux in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isPiTuiTmux && facts.transportKind !== 'pty'
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_tui_tmux_requires_pty_transport',
+          'pi-tui-tmux broker profiles must use pty process transport.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.specDriverKind === 'pi-tui-tmux' && facts.specDriverHookBridge !== 'pi-hrc-events/v1'
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_tui_tmux_requires_pi_events_bridge',
+          'pi-tui-tmux broker profiles must declare hookBridge pi-hrc-events/v1.'
+        )
+      : undefined,
+]
+
 const INTERACTIVE_TMUX_RULES: BrokerLegalityRule[] = [
   (profile, facts) =>
     profile.interactionMode === 'interactive' && facts.specInteractionMode !== 'interactive'
@@ -345,6 +385,7 @@ const BROKER_RULES: BrokerLegalityRule[] = [
   ...EXPOSURE_RULES,
   ...CLAUDE_CODE_TMUX_RULES,
   ...CODEX_CLI_TMUX_RULES,
+  ...PI_TUI_TMUX_RULES,
   ...INTERACTIVE_TMUX_RULES,
 ]
 

@@ -95,13 +95,13 @@ export async function resolveHookScriptPath(script: string, hooksDir: string): P
 
   const directPath = join(hooksDir, normalized)
   if (await isFile(directPath)) {
-    return directPath
+    return join('hooks-scripts', normalized)
   }
 
   if (!normalized.startsWith('scripts/')) {
     const scriptsPath = join(hooksDir, 'scripts', normalized)
     if (await isFile(scriptsPath)) {
-      return scriptsPath
+      return join('hooks-scripts', 'scripts', normalized)
     }
   }
 
@@ -146,6 +146,8 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
   pi.on(${jsStringLiteral(piEvent)}, async (event, ctx) => {
     const hookEvent = ${eventLiteral};
     const hookScript = ${scriptLiteral};
+    const isRawShellCommand = /\\s/.test(hookScript);
+    const resolvedHookScript = path.isAbsolute(hookScript) || isRawShellCommand ? hookScript : path.join(__dirname, hookScript);
     const toolsFilter = ${toolsFilter};
     // For tool events, filter by tool name
     if (toolsFilter && event.toolName && !toolsFilter.includes(event.toolName)) {
@@ -162,7 +164,7 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
     };
 
     try {
-      log('DEBUG', \`Running hook: \${hookScript}\`);
+      log('DEBUG', \`Running hook: \${resolvedHookScript}\`);
       const { spawn } = await import('node:child_process');
       let payload = '';
       try {
@@ -170,7 +172,7 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
       } catch {
         payload = '';
       }
-      const proc = spawn(${scriptLiteral}, [], {
+      const proc = spawn(resolvedHookScript, [], {
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: true,
@@ -196,7 +198,7 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
         outputParts.push(\`[stderr]\\n\${stderr.trimEnd()}\`);
       }
       if (outputParts.length > 0 || exitCode !== 0) {
-        const header = \`Hook \${hookEvent}: \${hookScript}\`;
+        const header = \`Hook \${hookEvent}: \${resolvedHookScript}\`;
         const body = outputParts.length > 0 ? outputParts.join('\\n\\n') : '(no output)';
         const content = \`\${header}\\n\\n\${body}\`;
         const options = ctx.isIdle() ? {} : { deliverAs: 'nextTurn' };
@@ -207,7 +209,7 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
             display: true,
             details: {
               event: hookEvent,
-              script: hookScript,
+              script: resolvedHookScript,
               exitCode,
             },
           },
@@ -215,12 +217,12 @@ export function generateHookBridgeCode(hooks: HookDefinition[], spaceIds: string
         );
       }
       if (exitCode !== 0) {
-        log('WARN', \`Hook script "\${hookScript}" exited with \${exitCode}\`);
+        log('WARN', \`Hook script "\${resolvedHookScript}" exited with \${exitCode}\`);
       } else {
-        log('DEBUG', \`Hook script "\${hookScript}" completed successfully\`);
+        log('DEBUG', \`Hook script "\${resolvedHookScript}" completed successfully\`);
       }
     } catch (err) {
-      log('ERROR', \`Hook script "\${hookScript}" failed: \${err}\`);
+      log('ERROR', \`Hook script "\${resolvedHookScript}" failed: \${err}\`);
     }
   });`
     })

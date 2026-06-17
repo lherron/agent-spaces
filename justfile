@@ -41,6 +41,9 @@ debug-codex-tmux-live *args:
 debug-codex-tmux-live-ipc *args:
     bun scripts/debug-codex-tmux-live.ts --broker-transport ipc {{args}}
 
+debug-pi-tui-tmux-live *args:
+    bun scripts/debug-pi-tui-tmux-live.ts {{args}}
+
 # Render normal broker events from an experimental broker observer socket.
 debug-broker-events socket *args:
     bun scripts/debug-broker-events.ts --socket {{socket}} {{args}}

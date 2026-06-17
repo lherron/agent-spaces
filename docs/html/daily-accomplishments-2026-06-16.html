@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-16</title>
+  <style>
+    :root {
+      --bg: #f5f0e6;
+      --paper: rgba(255, 255, 255, 0.97);
+      --ink: #182025;
+      --muted: #59656a;
+      --line: #d8ddd7;
+      --shadow: 0 18px 42px rgba(24, 32, 37, 0.08);
+      --guard: #0b6a5b;
+      --guard-soft: #d9efe8;
+      --runtime: #8d4d1f;
+      --runtime-soft: #f2dfd2;
+      --workflow: #2a5d88;
+      --workflow-soft: #e1ebf6;
+      --catalog: #745087;
+      --catalog-soft: #eee6f6;
+      --warn: #7b5b23;
+      --warn-soft: #f5ead5;
+      --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+      --serif: Georgia, "Iowan Old Style", serif;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body {
+      background:
+        linear-gradient(90deg, rgba(24, 32, 37, 0.03) 1px, transparent 1px) 0 0 / 24px 24px,
+        linear-gradient(0deg, rgba(24, 32, 37, 0.02) 1px, transparent 1px) 0 0 / 24px 24px,
+        radial-gradient(circle at top right, rgba(42, 93, 136, 0.12), transparent 34%),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 var(--sans);
+    }
+    a { color: var(--guard); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 296px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px 20px 28px;
+      border-right: 1px solid var(--line);
+      background: rgba(245, 240, 230, 0.96);
+      backdrop-filter: blur(12px);
+    }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card {
+      display: grid;
+      gap: 10px;
+    }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a {
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.055em;
+    }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 {
+      margin: 0;
+      font-family: var(--serif);
+      line-height: 1.05;
+    }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p {
+      margin: 0;
+      color: var(--muted);
+    }
+    .kicker { color: var(--runtime); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a {
+      display: block;
+      padding: 8px 10px;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .nav a:hover, .nav a:focus {
+      border-left-color: var(--guard);
+      background: rgba(255, 255, 255, 0.84);
+      color: var(--ink);
+    }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero {
+      padding: 44px min(5vw, 62px) 34px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(11, 106, 91, 0.14), transparent 54%), linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.9));
+    }
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.16fr) minmax(320px, 0.84fr); gap: 28px; }
+    .eyebrow { color: var(--guard); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.25rem, 4vw, 3.85rem); margin-bottom: 14px; }
+    .hero p { max-width: 74ch; font-size: 1.02rem; }
+    .hero-note {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: var(--shadow);
+    }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.85rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .task-grid .task-card { grid-column: span 4; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.35rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      font-weight: 800;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      background: #edf2ee;
+    }
+    .chip.guard { background: var(--guard-soft); color: var(--guard); border-color: rgba(11, 106, 91, 0.18); }
+    .chip.runtime { background: var(--runtime-soft); color: var(--runtime); border-color: rgba(141, 77, 31, 0.18); }
+    .chip.workflow { background: var(--workflow-soft); color: var(--workflow); border-color: rgba(42, 93, 136, 0.18); }
+    .chip.catalog { background: var(--catalog-soft); color: var(--catalog); border-color: rgba(116, 80, 135, 0.18); }
+    .chip.warn { background: var(--warn-soft); color: var(--warn); border-color: rgba(123, 91, 35, 0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.06fr 0.94fr; gap: 18px; min-width: 0; }
+    .note-box {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(225, 235, 246, 0.66), rgba(255, 255, 255, 0.86));
+    }
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+    }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(221, 239, 233, 0.9), rgba(255, 255, 255, 0.97)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(245, 234, 213, 0.9), rgba(255, 255, 255, 0.97)); }
+    .repo-list span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .footer {
+      margin-top: 36px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+      .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; }
+    }
+    @media (max-width: 640px) {
+      .hero, .content { padding-left: 18px; padding-right: 18px; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-16</h1>
+        <p>Previous 24 hours in local time, covering current-branch commits, completed <code>wrkq</code> tasks, in-window unpushed ranges, and visible open repo state across Praesidium.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--runtime);"></span>Runtime and operator control</div>
+        <div class="legend-item"><span class="dot" style="background: var(--guard);"></span>ASP guardrails and broker resume</div>
+        <div class="legend-item"><span class="dot" style="background: var(--workflow);"></span>Workflow loop and UI follow-through</div>
+        <div class="legend-item"><span class="dot" style="background: var(--catalog);"></span>Catalog and assessment carry-forward</div>
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Window</strong><br />
+        2026-06-15 05:02:09 CDT to 2026-06-16 05:02:09 CDT
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Top accomplishments</strong>
+        <ul class="fact-list">
+          <li><strong>HRC runtime</strong> led landed volume with <strong>49 current-branch commits</strong>, then immediately started local archived-view and primary-session reaper fixes that are not yet pushed.</li>
+          <li><strong>Agent-spaces</strong> landed a <strong>36-commit</strong> refactor wave and closed <strong>24 completed tasks</strong>, capped by the new continuation probe and resume-no-fallback guards.</li>
+          <li><strong>Agent control plane</strong> shipped a <strong>20-commit</strong> cleanup and async/store-port migration sweep, including the <code>@wrkq/client</code> migration inside <code>acp-server</code>.</li>
+          <li><strong>Agent-loop</strong> stayed landed and clean while adding <strong>13 commits</strong> around refactor-pass and expand-contract workflow machinery.</li>
+          <li><strong>Open-state pressure</strong> remains concentrated in fresh doc/spec work under <code>archagent</code> and <code>wrkq</code>, plus older carry-forward dirt in knowledge-heavy repos.</li>
+        </ul>
+      </div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium-wide accomplishments for 2026-06-16</div>
+            <h2>Large internal refactor waves landed first, then the next operational defects were caught and fixed locally before they could drift into silent resume or reap behavior.</h2>
+            <p>This window was narrower than yesterday in task spread but denser in current-branch code motion. <code>hrc-runtime</code>, <code>agent-spaces</code>, and <code>agent-control-plane</code> all landed broad behavior-preserving cleanups with explicit characterization coverage, while the freshest local-only work moved straight into concrete resume/reaper correctness: continuation artifacts in ASP, archived-as-view dormancy in HRC, and primary-session reap protection before push.</p>
+            <div class="hero-note">
+              <strong>What changed in shape</strong>
+              The task evidence was concentrated instead of broad: all <strong>24 completed tasks</strong> in the exact window came from <code>agent-spaces</code>. The cross-project story came primarily from landed git history plus visible local-only ranges, not a wide multi-project task closeout burst.
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Current-branch commits</div>
+              <div class="metric-value">122</div>
+              <small>Across <strong>6 repos</strong>: hrc-runtime 49, agent-spaces 36, agent-control-plane 20, agent-loop 13, archagent 2, taskboard 2.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Completed wrkq tasks</div>
+              <div class="metric-value">24</div>
+              <small>All <strong>24</strong> were in <code>agent-spaces</code>: 21 deferred-refactor closes plus 3 continuation/resume closes at the end of the window.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">In-window unpushed commits</div>
+              <div class="metric-value">8</div>
+              <small>Across <strong>3 repos</strong>: hrc-runtime 4, agent-spaces 3, archagent 1. Older carry-forward ahead state still exists elsewhere.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Visible open repo state</div>
+              <div class="metric-value">156</div>
+              <small><strong>7 dirty repos</strong> remain visible, led by knowledge 51 paths, workflow-spec 40, wrkq 30, archagent 24, and scriptable-ghostty 6.</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The period broke into four distinct threads: HRC runtime hardening, ASP continuation correctness, ACP plus agent-loop internal structure cleanup, and a doc-heavy carry-forward state that is visibly preparing the next wave rather than already landed.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>HRC runtime landed the largest wave, then immediately started the next safety fixes locally.</h3>
+                <div class="chips">
+                  <span class="chip runtime">49 landed commits</span>
+                  <span class="chip runtime">4 local-only commits</span>
+                  <span class="chip runtime">HRC server focus</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p><code>hrc-runtime</code> carried the heaviest current-branch volume with a nine-package safe-refactor sweep, then package-specific extractions across action render, core dispatch, SDK flags, SQLite store helpers, frame reduction, CLI monitor args, hrcchat finalize-turn dispatch, broker capability checks, and server boolean flag handling. After that landing wave, the branch moved directly into four unpushed commits that make archived targets resumable dormant views and protect <code>:task:primary</code> sessions from the reaper.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Boundary between landed and local</strong>
+                  <ul class="evidence-list">
+                    <li>Landed wave begins with <code>refactor: apply 43 safe internal-only refactors across all 9 packages</code>.</li>
+                    <li>Local-only follow-up ends with <code>fix(hrc-server): T-04833 — protect primary sessions from reaper</code>.</li>
+                    <li>This is the clearest example of the day’s pattern: cleanup landed first, then behavior-sensitive operational fixes were held locally until proven.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>Agent-spaces converted a refactor backlog into landed structure, then closed the continuation-resume invariant.</h3>
+                <div class="chips">
+                  <span class="chip guard">36 landed commits</span>
+                  <span class="chip guard">24 completed tasks</span>
+                  <span class="chip guard">3 local-only commits</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p>The landed portion of <code>agent-spaces</code> was dominated by the repo-wide behavior-preserving refactor pass plus targeted fixes in config, runtime, CLI, harness-pi, and harness-broker support seams. The end of the window then shifted into the next defect cluster: <code>T-04828</code>, <code>T-04829</code>, and <code>T-04830</code> locked the continuation contract to a tri-state probe and made codex resume failures visible instead of silently starting fresh conversations.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Late-window closeout</strong>
+                  <ul class="evidence-list">
+                    <li><code>547a6ae</code>: continuation threading and visible-fail guards.</li>
+                    <li><code>2489bd6</code>: probe reds reworked to use real on-disk provider layouts.</li>
+                    <li><code>9fa2b7f</code>: exported <code>checkContinuationArtifact</code> so HRC can consume the ASP-owned path rules.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>ACP and agent-loop both tightened internal structure, but in different modes.</h3>
+                <div class="chips">
+                  <span class="chip workflow">20 ACP commits</span>
+                  <span class="chip workflow">13 agent-loop commits</span>
+                  <span class="chip workflow">Both landed and clean</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p><code>agent-control-plane</code> spent the day on a broad cleanup and migration wave: deduped internal readers, provenance wrappers, claim-and-lease loops, async store-port flips, and the <code>@wrkf/client</code> to <code>@wrkq/client</code> migration inside <code>acp-server</code>. <code>agent-loop</code> stayed more workflow-oriented, landing refactor-pass and expand-contract primitives, design-signoff gates, resume scan fixes, lint-clean repair loops, then applying and merging the first internal-only findings wave.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Why this pairing matters</strong>
+                  <ul class="evidence-list">
+                    <li>ACP reduced duplication in live control-plane paths that other repos depend on.</li>
+                    <li>Agent-loop turned that same general refactor discipline into reusable workflow machinery for future passes.</li>
+                    <li>Both repos are clean after the credited work, which makes them higher-confidence landed accomplishments than the still-open doc/spec work elsewhere.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <h3>Archagent and taskboard moved less code, but they shape what tomorrow will look like.</h3>
+                <div class="chips">
+                  <span class="chip catalog">2 landed archagent commits</span>
+                  <span class="chip catalog">24 fresh dirty paths</span>
+                  <span class="chip warn">30 fresh wrkq dirty paths</span>
+                </div>
+              </div>
+              <div class="stream-columns">
+                <div>
+                  <p><code>archagent</code> only landed two commits on the current branch, but it now has twenty-four newly touched assessment, rubric, toolkit, and catalog files, plus one local-only commit removing metalang pre-implementation samplers. <code>taskboard</code> landed a browser-keystroke fix and an expand-contract deferred-items pass, while <code>wrkq</code> shows no current-branch landed commits in the exact window but does show thirty freshly modified RPC and workflow files that clearly point at the next working set.</p>
+                </div>
+                <div class="note-box">
+                  <strong>Interpretation</strong>
+                  <ul class="evidence-list">
+                    <li><code>archagent</code> and <code>wrkq</code> are the strongest “tomorrow pressure” repos in this report.</li>
+                    <li>The work is visible and fresh, but it is not credited as landed accomplishment until committed or pushed.</li>
+                    <li>This separation keeps the brief honest about momentum without blurring it into shipped work.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Tasks</h2>
+            <p>All completions in the exact window came from <code>agent-spaces</code>. The cards below summarize the most informative closeout clusters instead of listing all twenty-four line-by-line.</p>
+          </div>
+          <div class="task-grid">
+            <article class="task-card">
+              <div class="task-meta"><span>agent-spaces</span><span>T-04828 / T-04829 / T-04830</span></div>
+              <h3>Continuation resume stopped depending on HRC status and started depending on real artifacts.</h3>
+              <p>The broker half of the archived-as-view work closed with a tri-state continuation probe, compile-to-broker-to-spec threading guards, and visible codex app-server resume failure when a thread is missing instead of silently starting fresh.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>agent-spaces</span><span>T-04632, T-04636, T-04638, T-04644</span></div>
+              <h3>High-risk deferred refactors were closed only after characterization pinned behavior.</h3>
+              <p>The heaviest closes in the deferred batch were the harness lifecycle/state-machine and provider-surface items that had explicitly been pulled out of the unattended pass until state or event-order invariants were tested.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>agent-spaces</span><span>T-04626 / T-04627 / T-04628</span></div>
+              <h3>Harness-broker transport dedupes closed with transcript and envelope equivalence guards.</h3>
+              <p>The hook-bridge and transcript-reader extractions were only closed after smoke-safe characterization proved byte-identical envelope behavior and no replay/order regressions across both Claude and Codex paths.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>agent-spaces</span><span>T-04617 / T-04618 / T-04621 / T-04650</span></div>
+              <h3>Config, execution, and runtime shared-core cleanup all crossed from finding to completion.</h3>
+              <p>The mid-window closes removed duplicated profile readers, regex-derived space keys, oversized install-branch logic, and repeated registry patterns without changing the public surface.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>agent-spaces</span><span>T-04601 to T-04605, T-04608, T-04611, T-04616, T-04646</span></div>
+              <h3>The lower-risk deferred queue was drained rather than allowed to linger.</h3>
+              <p>Shared helper extraction, version derivation, bundle-root walking, config key reuse, and typed manifest access all moved from report findings into closed tasks on the same day.</p>
+            </article>
+            <article class="task-card">
+              <div class="task-meta"><span>agent-spaces</span><span>24 total closes</span></div>
+              <h3>This was a concentrated cleanup day, not a broad multi-project closeout day.</h3>
+              <p>The task layer makes that visible: the report’s breadth comes from git evidence across Praesidium, while the explicit done-state evidence is overwhelmingly an <code>agent-spaces</code> backlog-drain plus a late continuation defect fix.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation</h2>
+            <p>The best validation evidence this window came from closeout comments that named real test suites, pass counts, and artifact-level checks instead of just saying “green.”</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3><code>T-04828</code> closed with real artifact checks, not only mocked resume paths.</h3>
+              <ul class="evidence-list">
+                <li>The final verification recorded <strong>33 pass / 0 fail</strong> across the three red and guard suites, plus <strong>50 pass / 0 fail</strong> across compile and broker-invocation coverage.</li>
+                <li>The codex app-server driver suite also stayed green at <strong>73 pass / 0 fail</strong> with the missing-thread fail-visible rule preserved.</li>
+                <li>The continuation probe smoke used real layouts under <code>~/.codex/sessions</code> and <code>~/.claude/projects</code> and reported <strong>9/9 pass</strong>.</li>
+              </ul>
+            </article>
+            <article class="evidence-card good">
+              <h3><code>T-04830</code> exported the probe and held the repo-level gates.</h3>
+              <ul class="evidence-list">
+                <li>The implementation closeout names the exported symbol directly: <code>checkContinuationArtifact</code> from <code>agent-spaces</code>.</li>
+                <li>Repo gates remained clean: <code>bun run lint</code> with no fixes, <code>bun run typecheck</code> all zero, and the pre-commit hook passed boundaries, manifests, public-surface, rule-authoring, and related checks.</li>
+                <li>A dev snapshot was published as <code>0.1.1-dev.20260616001930</code> with the shipped continuation probe in the tarball.</li>
+              </ul>
+            </article>
+            <article class="evidence-card good">
+              <h3>The deferred refactor batch kept insisting on characterization before simplification.</h3>
+              <ul class="evidence-list">
+                <li><code>T-04632</code> pinned lifecycle emission behavior first, then closed with <strong>128 pass / 0 fail</strong> after reifying the internal phase machine.</li>
+                <li><code>T-04626</code> closed only after the hook-bridge transport characterization held at <strong>314 pass / 0 fail</strong> with byte-identical envelope behavior and <code>just verify</code> exit 0.</li>
+                <li>The recurring pattern was deliberate: characterize, extract, then prove no drift.</li>
+              </ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Open-state risk is fresh, not only historical.</h3>
+              <ul class="evidence-list">
+                <li><code>archagent</code> has <strong>24</strong> newly touched assessment and catalog paths inside the same window.</li>
+                <li><code>wrkq</code> has <strong>30</strong> newly touched RPC and workflow paths in the same window even though no current-branch commits were credited there.</li>
+                <li>That means tomorrow’s report likely inherits real continuation from both repos unless this work lands or is dropped today.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>This section distinguishes three different things: local-only commits created in the exact window, freshly modified but uncommitted files from the same window, and older carry-forward dirt that is visible now but not credited as new accomplishment.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card">
+              <h3>Repos with in-window unpushed commits</h3>
+              <ul class="repo-list">
+                <li><strong>hrc-runtime</strong><span>4 local commits: archived targets become dormant resumable views, then primary sessions are protected from reaper logic.</span></li>
+                <li><strong>agent-spaces</strong><span>3 local commits: resume threading guards, real-layout probe reds, and the exported continuation probe.</span></li>
+                <li><strong>archagent</strong><span>1 local commit: delete metalang pre-implementation samplers after the metalang removal.</span></li>
+                <li><strong>scriptable-ghostty</strong><span>2 commits ahead of upstream remain visible, but they are older than this report window and are treated as carry-forward state.</span></li>
+              </ul>
+            </article>
+            <article class="repo-card">
+              <h3>Fresh dirty worktrees inside the same window</h3>
+              <ul class="repo-list">
+                <li><strong>archagent</strong><span>24 recent dirty paths across assessment JSON/Markdown, toolkit docs, rubric files, and catalog index material.</span></li>
+                <li><strong>wrkq</strong><span>30 recent dirty paths across <code>internal/workrpc</code>, <code>internal/wrkfapi</code>, <code>internal/wrkqapi</code>, workflow service/types, and <code>docs/wrkq-wrkf-rpc.md</code>.</span></li>
+              </ul>
+            </article>
+            <article class="repo-card">
+              <h3>Older carry-forward dirty state</h3>
+              <ul class="repo-list">
+                <li><strong>knowledge</strong><span>51 dirty paths remain visible but were not credited as new work for this period.</span></li>
+                <li><strong>workflow-spec</strong><span>40 dirty paths remain visible, also outside the credited landed/local-only accomplishment set.</span></li>
+                <li><strong>spaces-repo</strong><span>4 dirty paths remain visible; <code>explainer</code> has 1 and <code>scriptable-ghostty</code> has 6.</span></li>
+              </ul>
+            </article>
+            <article class="repo-card">
+              <h3>Heavy movers that are clean after landing</h3>
+              <ul class="repo-list">
+                <li><strong>agent-control-plane</strong><span>20 current-branch commits and a clean worktree.</span></li>
+                <li><strong>agent-loop</strong><span>13 current-branch commits and a clean worktree after merging the internal-applied phase.</span></li>
+                <li><strong>taskboard</strong><span>2 current-branch commits and a clean worktree, with no extra ahead or dirty state in the exact window.</span></li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <div class="footer">
+          Source window: 2026-06-15 05:02:09 CDT to 2026-06-16 05:02:09 CDT. Inputs: current-branch git commit and status scans across Praesidium repos under <code>/Users/lherron/praesidium</code>, completed <code>wrkq</code> tasks across Praesidium projects, selected closeout comments for validation evidence, and ahead-of-upstream checks for local-only ranges. Artifact: <code>daily-accomplishments-2026-06-16.html</code>.
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

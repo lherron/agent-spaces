@@ -16,7 +16,12 @@ import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
 import type { ContextResolverContext } from 'spaces-runtime'
 import { expandTemplate } from 'spaces-runtime'
 
-import { CLAUDE_CODE_FRONTEND, CODEX_CLI_FRONTEND, CodedError } from './client-support.js'
+import {
+  CLAUDE_CODE_FRONTEND,
+  CODEX_CLI_FRONTEND,
+  CodedError,
+  PI_CLI_FRONTEND,
+} from './client-support.js'
 import type { PreparedPlacementCliRuntime } from './prepare-cli-runtime.js'
 import type {
   BuildHarnessBrokerInvocationRequest,
@@ -144,24 +149,43 @@ export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocatio
   }
   const transportKind = broker.harnessTransport?.kind
 
-  // Phase 3 route: OPERATOR-ATTACHABLE interactive Claude Code in tmux. This is
-  // the ONLY broker route allowed to be interactive (guardrails #1/#2), and it
-  // REUSES the pty transport (guardrail #3) — tmux is the terminal host, pty is
-  // the process transport.
-  if (
-    broker.provider === 'anthropic' &&
-    broker.frontend === CLAUDE_CODE_FRONTEND &&
-    broker.brokerDriver === 'claude-code-tmux'
-  ) {
+  const interactiveTmuxRoutes: Record<
+    string,
+    { provider: string; frontend: string; driver: string }
+  > = {
+    'claude-code-tmux': {
+      provider: 'anthropic',
+      frontend: CLAUDE_CODE_FRONTEND,
+      driver: 'claude-code-tmux',
+    },
+    'codex-cli-tmux': {
+      provider: 'openai',
+      frontend: CODEX_CLI_FRONTEND,
+      driver: 'codex-cli-tmux',
+    },
+    'pi-tui-tmux': { provider: 'openai', frontend: PI_CLI_FRONTEND, driver: 'pi-tui-tmux' },
+  }
+  const interactiveRoute =
+    broker.brokerDriver !== undefined ? interactiveTmuxRoutes[broker.brokerDriver] : undefined
+  if (interactiveRoute !== undefined) {
+    if (
+      broker.provider !== interactiveRoute.provider ||
+      broker.frontend !== interactiveRoute.frontend
+    ) {
+      throw new CodedError(
+        `${interactiveRoute.driver} broker route requires provider "${interactiveRoute.provider}" and frontend "${interactiveRoute.frontend}"`,
+        'unsupported_frontend'
+      )
+    }
     if (broker.interactionMode !== 'interactive') {
       throw new CodedError(
-        `claude-code-tmux broker route requires interactive interaction mode; got "${broker.interactionMode}"`,
+        `${interactiveRoute.driver} broker route requires interactive interaction mode; got "${broker.interactionMode}"`,
         'unsupported_frontend'
       )
     }
     if (transportKind !== undefined && transportKind !== 'pty') {
       throw new CodedError(
-        `claude-code-tmux broker route requires "pty" harness transport; got "${transportKind}"`,
+        `${interactiveRoute.driver} broker route requires "pty" harness transport; got "${transportKind}"`,
         'unsupported_frontend'
       )
     }
@@ -300,19 +324,22 @@ export function toHarnessBrokerStartRequest(
   prepared: PreparedPlacementCliRuntime,
   req: BuildHarnessBrokerInvocationRequest
 ): BuildHarnessBrokerInvocationResponse {
-  if (
-    req.provider === 'anthropic' &&
-    req.frontend === CLAUDE_CODE_FRONTEND &&
-    req.brokerDriver === 'claude-code-tmux'
-  ) {
+  if (isInteractiveTmuxBrokerRequest(req)) {
+    const driverKind = req.brokerDriver
+    const hookBridge =
+      driverKind === 'codex-cli-tmux'
+        ? 'codex-hooks/v1'
+        : driverKind === 'pi-tui-tmux'
+          ? 'pi-hrc-events/v1'
+          : undefined
     const spec: HarnessInvocationSpec = {
       specVersion: 'harness-broker.invocation/v1',
       ...(req.invocationId !== undefined ? { invocationId: req.invocationId } : {}),
       ...(req.labels !== undefined ? { labels: req.labels } : {}),
       harness: {
-        frontend: CLAUDE_CODE_FRONTEND,
-        provider: 'anthropic',
-        driver: 'claude-code-tmux',
+        frontend: req.frontend,
+        provider: req.provider,
+        driver: driverKind,
       },
       process: {
         command: prepared.commandPath,
@@ -329,9 +356,13 @@ export function toHarnessBrokerStartRequest(
         inputQueue: req.interaction?.inputQueue ?? 'none',
       },
       ...(req.continuation?.key !== undefined
-        ? { continuation: { provider: 'anthropic', kind: 'session', key: req.continuation.key } }
+        ? { continuation: { provider: req.provider, kind: 'session', key: req.continuation.key } }
         : {}),
-      driver: { kind: 'claude-code-tmux', terminalHost: 'tmux' },
+      driver: {
+        kind: driverKind,
+        terminalHost: 'tmux',
+        ...(hookBridge !== undefined ? { hookBridge } : {}),
+      },
       correlation: req.correlation ?? brokerCorrelationFromPlacement(req.placement),
     }
     const startRequest: InvocationStartRequest = { spec }
@@ -408,4 +439,17 @@ export function toHarnessBrokerStartRequest(
     resolvedBundle: prepared.resolvedBundle,
     ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
   }
+}
+
+function isInteractiveTmuxBrokerRequest(
+  req: BuildHarnessBrokerInvocationRequest
+): req is BuildHarnessBrokerInvocationRequest & {
+  brokerDriver: 'claude-code-tmux' | 'codex-cli-tmux' | 'pi-tui-tmux'
+} {
+  return (
+    req.interactionMode === 'interactive' &&
+    (req.brokerDriver === 'claude-code-tmux' ||
+      req.brokerDriver === 'codex-cli-tmux' ||
+      req.brokerDriver === 'pi-tui-tmux')
+  )
 }

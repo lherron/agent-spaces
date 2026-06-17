@@ -223,9 +223,14 @@ export interface BuildProcessInvocationSpecResponse {
 export interface BuildHarnessBrokerInvocationRequest {
   placement: RuntimePlacement
   provider: ProviderDomain
-  frontend: 'codex-cli' | 'claude-code'
+  frontend: 'codex-cli' | 'claude-code' | 'pi-cli'
   interactionMode: 'headless' | 'interactive'
-  brokerDriver?: 'codex-app-server' | 'claude-code-tmux' | undefined
+  brokerDriver?:
+    | 'codex-app-server'
+    | 'claude-code-tmux'
+    | 'codex-cli-tmux'
+    | 'pi-tui-tmux'
+    | undefined
   harnessTransport?: { kind: 'jsonrpc-stdio' | 'pty' } | undefined
   aspHome?: string | undefined
   model?: string | undefined

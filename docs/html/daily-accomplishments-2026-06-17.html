@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-17</title>
+  <style>
+    :root {
+      --bg: #f3efe7;
+      --paper: rgba(255, 255, 255, 0.96);
+      --ink: #162028;
+      --muted: #5f6b73;
+      --line: #d7ddd8;
+      --shadow: 0 18px 44px rgba(22, 32, 40, 0.08);
+      --green: #146356;
+      --green-soft: #dcefe8;
+      --blue: #255f8a;
+      --blue-soft: #deebf5;
+      --amber: #8a5a18;
+      --amber-soft: #f4e6ce;
+      --rose: #8d3c47;
+      --rose-soft: #f6e0e4;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+      --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+      --serif: Georgia, "Iowan Old Style", serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body {
+      background:
+        linear-gradient(90deg, rgba(22, 32, 40, 0.03) 1px, transparent 1px) 0 0 / 22px 22px,
+        linear-gradient(0deg, rgba(22, 32, 40, 0.02) 1px, transparent 1px) 0 0 / 22px 22px,
+        radial-gradient(circle at top right, rgba(37, 95, 138, 0.12), transparent 34%),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 var(--sans);
+    }
+    a { color: var(--green); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 296px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px 20px 28px;
+      border-right: 1px solid var(--line);
+      background: rgba(243, 239, 231, 0.97);
+      backdrop-filter: blur(10px);
+    }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card {
+      display: grid;
+      gap: 10px;
+    }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a {
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.055em;
+    }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 {
+      margin: 0;
+      font-family: var(--serif);
+      line-height: 1.06;
+    }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p {
+      margin: 0;
+      color: var(--muted);
+    }
+    .kicker { color: var(--amber); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a {
+      display: block;
+      padding: 8px 10px;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .nav a:hover, .nav a:focus {
+      border-left-color: var(--green);
+      background: rgba(255, 255, 255, 0.84);
+      color: var(--ink);
+    }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero {
+      padding: 44px min(5vw, 62px) 34px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(20, 99, 86, 0.14), transparent 54%), linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.9));
+    }
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr); gap: 28px; }
+    .eyebrow { color: var(--green); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.25rem, 4vw, 3.8rem); margin-bottom: 14px; }
+    .hero p { max-width: 74ch; font-size: 1.02rem; }
+    .hero-note {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: var(--shadow);
+    }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.85rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .task-grid .task-card { grid-column: span 4; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.35rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      font-weight: 800;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+    .chip.green { background: var(--green-soft); color: var(--green); border-color: rgba(20, 99, 86, 0.18); }
+    .chip.blue { background: var(--blue-soft); color: var(--blue); border-color: rgba(37, 95, 138, 0.18); }
+    .chip.amber { background: var(--amber-soft); color: var(--amber); border-color: rgba(138, 90, 24, 0.18); }
+    .chip.rose { background: var(--rose-soft); color: var(--rose); border-color: rgba(141, 60, 71, 0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.08fr 0.92fr; gap: 18px; min-width: 0; }
+    .note-box {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(222, 235, 245, 0.7), rgba(255, 255, 255, 0.86));
+    }
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+    }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(220, 239, 232, 0.9), rgba(255, 255, 255, 0.97)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(244, 230, 206, 0.9), rgba(255, 255, 255, 0.97)); }
+    .repo-list span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .footer {
+      margin-top: 36px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+      .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; }
+    }
+    @media (max-width: 640px) {
+      .hero, .content { padding-left: 18px; padding-right: 18px; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-17</h1>
+        <p>Previous 24 hours in local time, covering landed commits, completed <code>wrkq</code> tasks, in-window ahead-of-upstream work, and fresh unchecked-in repo state across Praesidium.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--green);"></span>Landed cross-repo work</div>
+        <div class="legend-item"><span class="dot" style="background: var(--blue);"></span>Validation and test evidence</div>
+        <div class="legend-item"><span class="dot" style="background: var(--amber);"></span>Completed but not yet landed</div>
+        <div class="legend-item"><span class="dot" style="background: var(--rose);"></span>Open repo pressure</div>
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Window</strong><br />
+        2026-06-16 05:01:35 CDT to 2026-06-17 05:01:35 CDT
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Top accomplishments</strong>
+        <ul class="fact-list">
+          <li><strong><code>wrkq</code> carried the heaviest landed volume</strong> with <strong>14 commits</strong>, extending the RPC surface through container mutation, legacy actor admin methods, task move cascade, task-list sorting, and event-bridge e2e coverage.</li>
+          <li><strong><code>taskboard</code> consumed that new seam</strong> with <code>@wrkq/client</code> RPC integration plus fixes for task-detail context and container-scoped list counts.</li>
+          <li><strong><code>hrc-runtime</code> added capture-verifier infrastructure</strong> and a stable analytics report, then stayed ahead of upstream with the two newest commits still local-only.</li>
+          <li><strong><code>agent-control-plane</code> tightened downstream behavior</strong> by fixing mobile timeline websocket follow behavior and splitting the wrkq-client sync into a dedicated script.</li>
+          <li><strong>The only exact-window task completion was <code>T-04866</code></strong>, closing the Pi TUI tmux broker-driver task in <code>agent-spaces</code> while its implementation remains visible as unchecked-in work.</li>
+        </ul>
+      </div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium-wide accomplishments for 2026-06-17</div>
+            <h2>The day’s throughline was cross-repo RPC maturation: <code>wrkq</code> expanded the contract, <code>taskboard</code> switched over to it, and downstream runtime surfaces kept pace while the next broker wave stayed local and visible instead of hidden.</h2>
+            <p>This window was broad on landed git work but narrow on task closeout. Six repos landed code in the exact 24-hour slice, but only one <code>wrkq</code> task flipped to completed inside that same slice. That split matters: most of the value today is in shipped code, while the freshest broker/Pi work is clearly marked as completed-in-task-system but not yet committed.</p>
+            <div class="hero-note">
+              <strong>Read this window carefully</strong>
+              The report distinguishes four states on purpose: committed work, completed task evidence, ahead-of-upstream local commits, and visible unchecked-in files. The newest <code>agent-spaces</code> Pi-driver work appears in the latter two buckets, not the landed-commit bucket.
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Landed commits</div>
+              <div class="metric-value">26</div>
+              <small>Across <strong>6 repos</strong>: <code>wrkq</code> 14, <code>hrc-runtime</code> 4, <code>taskboard</code> 3, <code>agent-control-plane</code> 2, <code>agent-loop</code> 2, <code>agent-spaces</code> 1.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Completed wrkq tasks</div>
+              <div class="metric-value">1</div>
+              <small><strong><code>T-04866</code></strong> completed at <strong>2026-06-16 23:47 CDT</strong> in <code>agent-spaces</code>; no other Praesidium task completion landed inside the exact window.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">In-window unpushed commits</div>
+              <div class="metric-value">3</div>
+              <small><code>hrc-runtime</code> is ahead by <strong>2</strong> in-window commits and <code>agent-spaces</code> by <strong>1</strong>; older ahead state also persists in <code>archagent</code> and <code>scriptable-ghostty</code>.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Fresh dirty repos</div>
+              <div class="metric-value">3</div>
+              <small>Recent unchecked-in paths are concentrated in <code>agent-spaces</code> (19), <code>agent-control-plane</code> (12), and <code>hrc-runtime</code> (6); larger dirt elsewhere predates this window.</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The strongest workstreams came from aligned repo pairs rather than isolated changes: <code>wrkq</code> plus <code>taskboard</code> on the product seam, <code>hrc-runtime</code> plus <code>agent-control-plane</code> on runtime validation and downstream behavior, and a smaller broker-focused slice in <code>agent-spaces</code> that is partly landed and partly still local-only.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3><code>wrkq</code> and <code>taskboard</code> moved the RPC seam from core contract expansion into live UI adoption</h3>
+                </div>
+                <div class="chips">
+                  <span class="chip green">17 landed commits</span>
+                  <span class="chip blue">10,829 insertions</span>
+                  <span class="chip amber">2,261 deletions</span>
+                </div>
+              </div>
+              <p>The highest-volume landed work happened on the work-management surface. <code>wrkq</code> extended RPC coverage through container mutation, legacy-actor admin methods, task move cascade, richer task-list sorting/cursor behavior, and event-bridge e2e plus forward-spec methods. <code>taskboard</code> then integrated <code>@wrkq/client</code> RPC, fixed task-detail context preservation, and scoped container task lists and counts correctly.</p>
+              <div class="stream-columns">
+                <ul class="fact-list">
+                  <li><code>wrkq</code> landed <strong>14 commits</strong> with <strong>7,591 insertions</strong> and only <strong>208 deletions</strong>, signaling contract growth rather than churn.</li>
+                  <li><code>taskboard</code> landed <strong>3 commits</strong> with <strong>3,238 insertions</strong> and <strong>2,053 deletions</strong>, which fits a seam replacement rather than a narrow patch.</li>
+                  <li>Representative landed subjects were <code>feat(workrpc): add task move RPC cascade</code>, <code>feat(workrpc): container mutation RPC methods</code>, <code>feat(wrkq): task.list sort/direction/recursive + cursor identity</code>, and <code>feat(taskboard): wrkq/client RPC integration + Verdaccio sync infra</code>.</li>
+                </ul>
+                <div class="note-box">
+                  <strong>Why this matters</strong>
+                  <ul class="evidence-list">
+                    <li>The same window contains both the producer-side RPC expansion and the consumer-side UI switchover, so this is not just speculative interface work.</li>
+                    <li><code>test(workrpc)+docs: event-bridge e2e + forward-spec methods</code> landed at the end of the <code>wrkq</code> series, giving the contract expansion an explicit verification capstone.</li>
+                    <li><code>taskboard</code> did not only add integration plumbing; it also fixed container counts and detail-context regressions that would otherwise make the new seam feel partial.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3><code>hrc-runtime</code> and <code>agent-control-plane</code> tightened runtime verification and downstream consumption</h3>
+                </div>
+                <div class="chips">
+                  <span class="chip green">6 landed commits</span>
+                  <span class="chip blue">7,178 insertions</span>
+                  <span class="chip amber">1,652 deletions</span>
+                </div>
+              </div>
+              <p>The runtime layer advanced through capture-verifier work in <code>hrc-runtime</code>, while <code>agent-control-plane</code> kept its downstream contract behavior honest. The landed story here is less about one big feature flag and more about instrumentation, event-follow correctness, and keeping the wrkq-client integration path maintainable.</p>
+              <div class="stream-columns">
+                <ul class="fact-list">
+                  <li><code>hrc-runtime</code> landed <strong>4 commits</strong> with <strong>6,866 insertions</strong> and <strong>1,553 deletions</strong>, including <code>feat(hrc-capture-verifier): add capture verifier library</code> and <code>feat(capture-verifier): add stable analytics report</code>.</li>
+                  <li><code>agent-control-plane</code> landed <strong>2 commits</strong> with <strong>312 insertions</strong> and <strong>99 deletions</strong>.</li>
+                  <li>The ACP subjects were specific and operationally meaningful: <code>mobile timeline WS must follow from snapshot high-water</code> and <code>split @wrkq/client sync into dedicated script; sync deps</code>.</li>
+                </ul>
+                <div class="note-box">
+                  <strong>Why this matters</strong>
+                  <ul class="evidence-list">
+                    <li>The runtime commits are not just scaffolding; they create a capture-verifier library and the stable analytics output needed to reason about event integrity over time.</li>
+                    <li>The websocket follow-from-high-water fix in <code>acp-server</code> closes a correctness gap on a live downstream surface rather than merely refactoring internals.</li>
+                    <li>Both newest <code>hrc-runtime</code> commits are still ahead of upstream, so the report credits them as real local progress but keeps them separate from already-pushed work.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3><code>agent-spaces</code> closed the Pi TUI broker-driver task while leaving the implementation openly in-progress on the worktree</h3>
+                </div>
+                <div class="chips">
+                  <span class="chip green">1 landed commit</span>
+                  <span class="chip amber">1 completed task</span>
+                  <span class="chip rose">19 fresh dirty paths</span>
+                </div>
+              </div>
+              <p>This is the one area where the task system is ahead of the commit log. <code>agent-spaces</code> landed one broker correctness fix in the exact window, then later completed <code>T-04866</code> for a Pi TUI tmux broker driver, but the implementation is still visible as local-only changes and a branch ahead state rather than a landed commit series.</p>
+              <div class="stream-columns">
+                <ul class="fact-list">
+                  <li>The only exact-window landed commit was <code>fix(harness-broker): broker guarantees turn.started for every delivered input</code>, touching six files with <strong>274 insertions</strong> and <strong>8 deletions</strong>.</li>
+                  <li><code>T-04866</code> completed at <strong>2026-06-16 23:47 CDT</strong> with a P1 title: <code>Add pi-tui-tmux broker driver</code>.</li>
+                  <li>Fresh unchecked-in paths include <code>packages/harness-broker/src/drivers/pi-tui-tmux/</code>, matching tests under <code>packages/harness-broker/test/drivers/pi-tui-tmux/</code>, and <code>scripts/debug-pi-tui-tmux-live.ts</code>.</li>
+                </ul>
+                <div class="note-box">
+                  <strong>Why this matters</strong>
+                  <ul class="evidence-list">
+                    <li>The task completion, new driver directories, and ahead-of-upstream status line up, so there is real progress even though it has not landed yet.</li>
+                    <li>The report intentionally does <em>not</em> count the Pi-driver work as landed code, which keeps the artifact trustworthy for follow-up.</li>
+                    <li><code>agent-loop</code> also contributed two smaller landed commits in the same window to keep the refactor loop surface usable: stdout emission and lint-script correction.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Tasks</h2>
+            <p>Only one Praesidium <code>wrkq</code> task moved to completed inside the exact local-time window. That narrow task evidence is real, but it understates the breadth of landed code, so the report keeps the task grid and the commit-based workstreams separate.</p>
+          </div>
+          <div class="task-grid">
+            <article class="task-card">
+              <div class="task-meta">
+                <span><code>T-04866</code></span>
+                <span>2026-06-16 23:47 CDT</span>
+              </div>
+              <h3>Add Pi TUI tmux broker driver</h3>
+              <p><code>agent-spaces/inbox/pi-tui-tmux-driver</code></p>
+              <ul class="fact-list">
+                <li>Priority <strong>P1</strong> task completed by <code>agent:cody</code>.</li>
+                <li>Scope covers a new <code>pi-tui-tmux</code> broker driver, compile/runtime-plan selection, matrix rows, debug recipe, and ghostmux validation expectations.</li>
+                <li>Completion timestamp lines up with fresh local driver code and tests still visible in the repo, so the task system is ahead of commit history here.</li>
+              </ul>
+            </article>
+            <article class="task-card">
+              <div class="task-meta">
+                <span>Window note</span>
+                <span>Important nuance</span>
+              </div>
+              <h3>No other task completions landed in this exact slice</h3>
+              <p>Several related broker-resume tasks in <code>agent-spaces</code> completed around midnight local time, but their completion timestamps were before <strong>2026-06-16 05:01:35 CDT</strong> and are therefore excluded from this report.</p>
+              <ul class="fact-list">
+                <li><code>T-04828</code>, <code>T-04829</code>, and <code>T-04830</code> are intentionally omitted from the window count.</li>
+                <li>This keeps the daily brief aligned to the stated 24-hour boundary rather than to a looser “same date” interpretation.</li>
+              </ul>
+            </article>
+            <article class="task-card">
+              <div class="task-meta">
+                <span>Task-system signal</span>
+                <span>Interpret with git</span>
+              </div>
+              <h3>Today’s accomplishment picture is commit-heavy, not closeout-heavy</h3>
+              <p>The delta between <strong>26 landed commits</strong> and <strong>1 completed task</strong> indicates that the most visible value today came from implementation progress across active branches and repos, not from broad task closeout churn.</p>
+              <ul class="fact-list">
+                <li>This is common during seam migration days where multiple repos move together but only one or two user-facing task containers are closed.</li>
+                <li>The HTML report keeps that distinction explicit so follow-up can target the still-open local work.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>Evidence in this window comes from landed test-oriented commit subjects, exact task completion metadata, and the report’s own artifact verification. Where validation is not yet visible as landed code, that gap is called out directly instead of inferred away.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3><code>wrkq</code> ended with explicit e2e and spec-forward validation</h3>
+              <p>The window closed with <code>test(workrpc)+docs: T-04853 gap6+7 — event-bridge e2e + forward-spec methods</code>, which is the clearest landed validation marker across all repos in this slice.</p>
+            </article>
+            <article class="evidence-card good">
+              <h3><code>agent-spaces</code> landed a concrete guard test for broker turn starts</h3>
+              <p>The single landed <code>agent-spaces</code> commit added <code>packages/harness-broker/test/turn-started-guarantee.test.ts</code> alongside the implementation change so the broker invariant is tested, not just described.</p>
+            </article>
+            <article class="evidence-card good">
+              <h3><code>hrc-runtime</code> validation improved by adding capture-verifier primitives</h3>
+              <p><code>T-04862</code> and <code>T-04864</code> landed the verifier library and stable analytics report, which increases the platform’s ability to inspect runtime behavior after the fact instead of relying only on ad hoc observation.</p>
+            </article>
+            <article class="evidence-card warn">
+              <h3><code>T-04866</code> completion is ahead of its landed verification trail</h3>
+              <p>The task is complete and the implementation is visibly present in the worktree, but there is no landed commit series for the Pi-driver path in this window yet. The report therefore treats it as completed local progress, not shipped validation.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>Only fresh unchecked-in paths from this exact window are listed below as new work. Older carry-forward dirt still exists in several repos, but it is separated out so the brief does not accidentally credit stale state as today’s accomplishment.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card">
+              <div class="task-meta">
+                <span><code>agent-spaces</code></span>
+                <span>ahead 4 total, 1 in-window</span>
+              </div>
+              <h3>Fresh Pi-driver and broker-surface work remains local</h3>
+              <ul class="repo-list">
+                <li><code>??</code> <code>packages/harness-broker/src/drivers/pi-tui-tmux/</code><span>New driver directory touched 2026-06-16 23:09 CDT</span></li>
+                <li><code>??</code> <code>packages/harness-broker/test/drivers/pi-tui-tmux/</code><span>New matching tests touched 2026-06-16 23:14 CDT</span></li>
+                <li><code>??</code> <code>scripts/debug-pi-tui-tmux-live.ts</code><span>New live-debug script touched 2026-06-16 23:18 CDT</span></li>
+                <li><code>M</code> <code>packages/agent-spaces/src/broker-invocation.ts</code>, <code>compile-runtime-plan.ts</code>, <code>types.ts</code><span>Core broker and route-shaping edits touched around 23:31 CDT</span></li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <div class="task-meta">
+                <span><code>hrc-runtime</code></span>
+                <span>ahead 2, both in-window</span>
+              </div>
+              <h3>Newest capture-verifier work is committed locally but not pushed</h3>
+              <ul class="repo-list">
+                <li><code>feat(hrc-capture-verifier): add capture verifier library</code><span>Committed 2026-06-16 20:03 CDT, still ahead of upstream</span></li>
+                <li><code>feat(capture-verifier): add stable analytics report</code><span>Committed 2026-06-16 20:35 CDT, still ahead of upstream</span></li>
+                <li><code>M</code> <code>packages/hrc-*.package.json</code> plus <code>bun.lock</code><span>Fresh dependency/state edits touched around 23:42 CDT</span></li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <div class="task-meta">
+                <span><code>agent-control-plane</code></span>
+                <span>12 fresh dirty paths</span>
+              </div>
+              <h3>Post-commit dependency sync remains open</h3>
+              <ul class="repo-list">
+                <li><code>M</code> <code>bun.lock</code><span>Touched 2026-06-16 23:42 CDT</span></li>
+                <li><code>M</code> package manifests across <code>acp-cli</code>, <code>acp-server</code>, gateways, stores, and substrate packages<span>All touched within the same minute after the landed sync-script split</span></li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <div class="task-meta">
+                <span>Carry-forward pressure</span>
+                <span>Not counted as new work</span>
+              </div>
+              <h3>Older open state still exists outside today’s window</h3>
+              <ul class="repo-list">
+                <li><code>archagent</code> has <strong>24</strong> older dirty paths and is ahead by <strong>1</strong> older local commit.</li>
+                <li><code>knowledge</code> has <strong>51</strong> older dirty paths; <code>workflow-spec</code> has <strong>40</strong>; <code>spaces-repo</code>, <code>explainer</code>, and <code>scriptable-ghostty</code> also remain dirty from earlier periods.</li>
+                <li><code>scriptable-ghostty</code> is ahead by <strong>2</strong> older local commits that predate this report window.</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="hero-note" style="margin-top: 18px;">
+            <strong>Unpushed commits, exact-window count</strong>
+            Only <strong>3</strong> ahead commits fall inside this report window: <strong>2</strong> in <code>hrc-runtime</code> and <strong>1</strong> in <code>agent-spaces</code>. The remaining ahead-of-upstream commits visible on the machine are older carry-forward state and are not credited as new accomplishments for 2026-06-17.
+          </div>
+        </section>
+
+        <div class="footer">
+          Source window: 2026-06-16 05:01:35 CDT to 2026-06-17 05:01:35 CDT. Inputs: current-branch git commit and status scans across Praesidium repos under <code>/Users/lherron/praesidium</code>, completed <code>wrkq</code> tasks across Praesidium projects, task log timestamps for exact-window verification, ahead-of-upstream checks for local-only commit ranges, and manual artifact verification. Artifact: <code>daily-accomplishments-2026-06-17.html</code>.
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

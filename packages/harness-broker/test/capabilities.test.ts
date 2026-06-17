@@ -3,6 +3,7 @@ import type { InvocationCapabilities } from 'spaces-harness-broker-protocol'
 import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
 import { createDefaultClaudeCodeTmuxDriver } from '../src/drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from '../src/drivers/codex-app-server/driver'
+import { createDefaultPiTuiTmuxDriver } from '../src/drivers/pi-tui-tmux/driver'
 
 const CODEX_APP_SERVER_V0_CAPABILITIES: InvocationCapabilities = {
   input: {
@@ -48,5 +49,18 @@ describe('Claude Code tmux capability matrix', () => {
       provider: 'anthropic',
       keyKind: 'session',
     })
+  })
+})
+
+describe('Pi TUI tmux capability matrix', () => {
+  test('advertises durable OpenAI session continuation and operator attach', () => {
+    const capabilities = createDefaultPiTuiTmuxDriver().capabilities()
+    expect(capabilities.continuation).toEqual({
+      supported: true,
+      provider: 'openai',
+      keyKind: 'session',
+    })
+    expect(capabilities.control.attach).toBe(true)
+    expect(capabilities.control.driverAttachExistingSurface).toBe(false)
   })
 })
