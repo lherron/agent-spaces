@@ -1,0 +1,18 @@
+schema = 1
+name = "daily-triage"
+title = "Daily triage"
+enabled = true
+timezone = "America/Chicago"
+
+[target]
+project = "agent-spaces"
+agent = "cody"
+lane = "main"
+task = "primary"
+
+[trigger]
+kind = "schedule"
+cron = "0 8 * * 1-5"
+
+[input]
+content = "Review new inbox tasks."

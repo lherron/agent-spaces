@@ -1,0 +1,30 @@
+schema = 1
+name = "wrkq-needs-smoketest"
+title = "Smokey handles wrkq needs_smoketest"
+enabled = true
+
+[event]
+source = "wrkq"
+
+[match]
+event = ["updated", "transitioned"]
+project_scope_id = "agent-spaces"
+kind = "task"
+
+[match.transition]
+to = "needs_smoketest"
+
+[target]
+project = "{{ project_scope_id }}"
+agent = "smokey"
+lane = "main"
+task = "{{ticket_id}}"
+
+[input]
+content = "Run the smoke-test workflow for {{ticket_id}}."
+
+[originPolicy]
+agent = "deny"
+
+[cooldown]
+seconds = 300

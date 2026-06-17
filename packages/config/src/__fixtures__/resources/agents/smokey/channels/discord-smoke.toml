@@ -1,0 +1,18 @@
+schema = 1
+name = "discord-smoke"
+enabled = true
+
+[gateway]
+id = "acp-discord-smoke"
+type = "discord"
+
+[conversation]
+ref = "channel:1501224513390772224"
+threadRef = "thread:1501224513390772225"
+
+[target]
+project = "agent-spaces"
+agent = "cody"
+lane = "main"
+task = "primary"
+roleName = "coordinator"

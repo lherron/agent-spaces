@@ -1,0 +1,21 @@
+# Formatting and comments must not affect sourceHash.
+schema = 1
+name = "daily-triage"
+title = "Daily triage"
+enabled = true
+
+[target]
+agent = "cody"
+project = "agent-spaces"
+task = "primary"
+lane = "main"
+
+[trigger]
+windowMinutes = 30
+windowEnd = "18:00"
+windowStart = "08:00"
+cron = "0 8 * * 1-5"
+kind = "schedule"
+
+[input]
+content = "Review new inbox tasks and summarize the highest-risk platform work."

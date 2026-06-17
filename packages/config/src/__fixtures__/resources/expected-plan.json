@@ -1,0 +1,136 @@
+{
+  "schema": "agent-authored-runtime-resources.plan/v1",
+  "sourceOwnerScopeRef": "agent:smokey:project:agent-spaces",
+  "managedBy": "agent-directory",
+  "compiler": {
+    "name": "spaces-config/resources",
+    "version": 1
+  },
+  "resources": [
+    {
+      "projectionId": "agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage",
+      "resourceKind": "scheduled-job",
+      "projectionTable": "jobs",
+      "projectionPk": "agent-smokey.daily-triage",
+      "sourceOwnerScopeRef": "agent:smokey:project:agent-spaces",
+      "resourceName": "daily-triage",
+      "sourcePath": "agents/smokey/schedules/daily-triage.toml",
+      "sourceHash": "sha256-canonical-json/v1:62489a3aef8a6f7a8b9663fc7d3b9613326613e243b9b34fd3cb1b10cb65d9b2",
+      "desiredProjectionHash": "sha256-canonical-json/v1:2a7ecfc9f0ee065d962c38020b4c24ff28988d8f59ba6f9414eefbc62844435b",
+      "desiredJson": {
+        "kind": "scheduled-job",
+        "slug": "agent-smokey.daily-triage",
+        "projectId": "agent-spaces",
+        "agentId": "cody",
+        "scopeRef": "agent:cody:project:agent-spaces:task:primary",
+        "laneRef": "agent:cody:project:agent-spaces:task:primary~main",
+        "title": "Daily triage",
+        "disabled": false,
+        "trigger": {
+          "kind": "schedule"
+        },
+        "schedule": {
+          "cron": "0 8 * * 1-5",
+          "windowStart": "08:00",
+          "windowEnd": "18:00",
+          "windowMinutes": 30
+        },
+        "input": {
+          "content": "Review new inbox tasks and summarize the highest-risk platform work."
+        }
+      },
+      "sourceVersion": 1,
+      "managedBy": "agent-directory",
+      "origin": "created",
+      "lastReconciledAt": "pending-apply",
+      "createdAt": "pending-apply",
+      "updatedAt": "pending-apply"
+    },
+    {
+      "projectionId": "agent-directory:agent:smokey:project:agent-spaces:interface-binding:discord-smoke",
+      "resourceKind": "interface-binding",
+      "projectionTable": "interface_bindings",
+      "projectionPk": "agent-smokey.discord-smoke",
+      "sourceOwnerScopeRef": "agent:smokey:project:agent-spaces",
+      "resourceName": "discord-smoke",
+      "sourcePath": "agents/smokey/channels/discord-smoke.toml",
+      "sourceHash": "sha256-canonical-json/v1:0d7a49dc12c83433dc3107f1353a93229ad23674557f807333a10c01982022b9",
+      "desiredProjectionHash": "sha256-canonical-json/v1:138f08a0e1d55f85bf9cbb14639f8c6b8db75155508729ee324c3e38709ca0b0",
+      "desiredJson": {
+        "kind": "interface-binding",
+        "bindingId": "agent-smokey.discord-smoke",
+        "gatewayId": "acp-discord-smoke",
+        "gatewayType": "discord",
+        "conversationRef": "channel:1501224513390772224",
+        "threadRef": "thread:1501224513390772225",
+        "routing": {
+          "projectId": "agent-spaces",
+          "agentId": "cody",
+          "taskId": "primary",
+          "roleName": "coordinator",
+          "scopeRef": "agent:cody:project:agent-spaces:task:primary",
+          "laneRef": "agent:cody:project:agent-spaces:task:primary~main"
+        },
+        "status": "active"
+      },
+      "sourceVersion": 1,
+      "managedBy": "agent-directory",
+      "origin": "created",
+      "lastReconciledAt": "pending-apply",
+      "createdAt": "pending-apply",
+      "updatedAt": "pending-apply"
+    },
+    {
+      "projectionId": "agent-directory:agent:smokey:project:agent-spaces:event-hook:wrkq-needs-smoketest",
+      "resourceKind": "event-hook",
+      "projectionTable": "jobs",
+      "projectionPk": "agent-smokey.wrkq-needs-smoketest",
+      "sourceOwnerScopeRef": "agent:smokey:project:agent-spaces",
+      "resourceName": "wrkq-needs-smoketest",
+      "sourcePath": "agents/smokey/event-hooks/wrkq-needs-smoketest.toml",
+      "sourceHash": "sha256-canonical-json/v1:7ceae7837bb0307b5f90f820b48121bb38a2263b45759d3e3ae7d7e2a43d8633",
+      "desiredProjectionHash": "sha256-canonical-json/v1:a1e266bcd9422e1f472601c50a27817051de7ba40d07a9bf9be88c6395885e46",
+      "desiredJson": {
+        "kind": "event-triggered-job",
+        "slug": "agent-smokey.wrkq-needs-smoketest",
+        "projectId": "agent-spaces",
+        "agentId": "smokey",
+        "scopeRef": "agent:smokey:project:agent-spaces:task:{{ticket_id}}",
+        "laneRef": "agent:smokey:project:agent-spaces:task:{{ticket_id}}~main",
+        "title": "Smokey handles wrkq needs_smoketest",
+        "disabled": false,
+        "trigger": {
+          "kind": "event",
+          "source": "wrkq",
+          "match": {
+            "event": ["updated", "transitioned"],
+            "project_scope_id": "agent-spaces",
+            "kind": "task",
+            "transition": {
+              "to": "needs_smoketest"
+            }
+          },
+          "target": {
+            "project": "{{ project_scope_id }}",
+            "agent": "smokey",
+            "lane": "main",
+            "task": "{{ticket_id}}"
+          },
+          "cooldown": "PT300S",
+          "originPolicy": {
+            "agent": "deny"
+          }
+        },
+        "input": {
+          "content": "Run the smoke-test workflow for {{ticket_id}}."
+        }
+      },
+      "sourceVersion": 1,
+      "managedBy": "agent-directory",
+      "origin": "created",
+      "lastReconciledAt": "pending-apply",
+      "createdAt": "pending-apply",
+      "updatedAt": "pending-apply"
+    }
+  ]
+}

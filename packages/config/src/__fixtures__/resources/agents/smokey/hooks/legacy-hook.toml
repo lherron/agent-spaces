@@ -1,0 +1,15 @@
+schema = 1
+name = "legacy-hook"
+enabled = true
+
+[event]
+source = "wrkq"
+
+[target]
+project = "agent-spaces"
+agent = "smokey"
+lane = "main"
+task = "{{ticket_id}}"
+
+[cooldown]
+seconds = 300

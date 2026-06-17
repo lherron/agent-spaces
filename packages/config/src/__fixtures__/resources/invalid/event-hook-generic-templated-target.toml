@@ -1,0 +1,24 @@
+schema = 1
+name = "generic-templated-target"
+enabled = true
+
+[event]
+source = "generic"
+
+[match]
+event = ["delivered"]
+
+[target]
+project = "{{ project_scope_id }}"
+agent = "smokey"
+lane = "main"
+task = "primary"
+
+[input]
+content = "Handle generic event."
+
+[originPolicy]
+agent = "deny"
+
+[cooldown]
+seconds = 300

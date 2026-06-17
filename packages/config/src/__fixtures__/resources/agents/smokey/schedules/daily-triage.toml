@@ -1,0 +1,20 @@
+schema = 1
+name = "daily-triage"
+title = "Daily triage"
+enabled = true
+
+[target]
+project = "agent-spaces"
+agent = "cody"
+lane = "main"
+task = "primary"
+
+[trigger]
+kind = "schedule"
+cron = "0 8 * * 1-5"
+windowStart = "08:00"
+windowEnd = "18:00"
+windowMinutes = 30
+
+[input]
+content = "Review new inbox tasks and summarize the highest-risk platform work."

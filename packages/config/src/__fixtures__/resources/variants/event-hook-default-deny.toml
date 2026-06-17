@@ -1,0 +1,24 @@
+schema = 1
+name = "wrkq-default-deny"
+title = "Default deny origin policy"
+enabled = true
+
+[event]
+source = "wrkq"
+
+[match]
+event = ["updated"]
+project_scope_id = "agent-spaces"
+kind = "task"
+
+[target]
+project = "{{ project_scope_id }}"
+agent = "smokey"
+lane = "main"
+task = "{{ticket_id}}"
+
+[input]
+content = "Run the smoke-test workflow for {{ticket_id}}."
+
+[cooldown]
+seconds = 300

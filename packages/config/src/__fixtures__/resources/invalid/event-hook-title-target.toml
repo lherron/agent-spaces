@@ -1,0 +1,26 @@
+schema = 1
+name = "title-target"
+enabled = true
+
+[event]
+source = "wrkq"
+
+[match]
+event = ["updated"]
+project_scope_id = "agent-spaces"
+kind = "task"
+
+[target]
+project = "{{ title }}"
+agent = "smokey"
+lane = "main"
+task = "{{ticket_id}}"
+
+[input]
+content = "Run smoke tests."
+
+[originPolicy]
+agent = "deny"
+
+[cooldown]
+seconds = 300
