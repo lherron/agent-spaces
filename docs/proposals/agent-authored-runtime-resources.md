@@ -342,12 +342,16 @@ Runtime ownership:
 Safety defaults:
 
 - `originPolicy.agent` defaults to `deny`.
-- A hook must declare an explicit cooldown, or ACP must apply a conservative
-  default.
+- A hook must declare an explicit authored cooldown until ACP exposes a
+  versioned conservative default that ASP can materialize into the canonical
+  projection.
 - Authored cooldown syntax may be TOML-shaped, but the compiled ACP job
   projection must contain ACP's canonical `EventTrigger.cooldown` duration
-  value, or an ACP-defined conservative default. Do not emit `[cooldown]` as an
-  untyped object in the job trigger.
+  value, or an ACP-versioned conservative default materialized by ASP. Do not
+  emit `[cooldown]` as an untyped object in the job trigger.
+- Do not let ASP emit absent cooldown and rely on an invisible apply-time
+  default; that weakens loop safety and breaks `desiredProjectionHash`
+  semantics.
 - Malformed cooldowns fail validation before apply.
 - Future `originPolicy.agent = "allow"` requires separate architecture review;
   it must not become an accidental field pass-through.
@@ -512,63 +516,94 @@ source owner, adopt or transfer projections, then disable old owner.
 
 ## Implementation Plan
 
-Phase 1: Read-only compiler and plan output in ASP.
+Use the approved A-F decomposition. Phases are gates, not optional labels.
+
+Phase A: ASP red tests and fixture contract.
+
+- Add red fixture tests for deterministic plan JSON, stable `sourceHash`,
+  stable `desiredProjectionHash`, and schedule/channel/event-hook projection
+  fixtures.
+- Cover rejection of unsupported v1 fields, `timezone`, bare `hooks/`,
+  cross-owner targets, generic-event target templates, lane templates,
+  payload/title/labels/container/arbitrary structural target fields,
+  `originPolicy.agent = "allow"`, malformed cooldowns, and missing authored
+  cooldown.
+- Cover the wrkq structural template allowlist: `project_scope_id` for project
+  and `ticket_id` for task.
+- Cover boundary enforcement: no ACP imports and no ACP mutation from ASP tests.
+
+Phase B: ASP read-only compiler and installed plan gate.
 
 - Add schema and parser for `schedules/*.toml`, `channels/*.toml`, and
   `event-hooks/*.toml`.
+- Emit versioned machine-readable plan JSON plus fixtures/schema and a human
+  summary.
+- Do not make ACP runtime consume a TypeScript DTO export from `agent-spaces` in
+  v1. ACP validates the wire JSON locally.
+- A later pure wire-contract package is acceptable only if it has no parser, no
+  store authority, and no runtime side effects.
 - Resolve source-owner scope and same-owner target scope using existing
   agent/profile/project context.
-- Generate a stable normalized source hash and desired projection hash.
-- Reject unsupported v1 fields, including `timezone`; reject cross-owner
-  targets.
-- For event hooks, reject bare `hooks/`, reject generic-event target templates,
-  allow only wrkq source-allowlisted structural templates for `project_scope_id`
-  and `ticket_id`, reject payload-derived or arbitrary structural templates,
-  and canonicalize authored cooldown into ACP's `EventTrigger.cooldown` duration
-  value or a declared ACP conservative default.
-- Add `asp resources plan` with machine-readable JSON and human summary.
-- No ACP mutations yet.
+- Generate stable normalized source hash and desired projection hash.
+- For event hooks, canonicalize authored cooldown into ACP's
+  `EventTrigger.cooldown` duration string. Require authored cooldown until ACP
+  exposes a versioned conservative default that ASP can materialize into the
+  canonical projection.
+- Do not emit absent cooldown and rely on an invisible apply-time default.
+- Add `asp resources plan` with byte-stable JSON output.
+- Manual gate after implementation and `just install`: installed
+  `asp resources plan` runs against real sample agent files, produces byte-stable
+  JSON across repeated runs, includes canonical cooldown strings, and leaves ACP
+  state unchanged.
 
-Phase 2: ACP managed-resource apply surface.
+Phase C: ACP layered red tests.
+
+- Add ACP red tests against the ASP fixture JSON as wire input before
+  implementation.
+- Layer tests so store/provenance failures can go green before server/routes.
+- Cover store/provenance, apply/status, event runtime, mixed-store partial
+  failure, and live-validation prerequisites.
+
+Phase D: ACP store APIs, migrations, and companion provenance.
 
 - Add companion provenance tables in `acp-jobs.db` and `acp-interface.db`.
-- Add apply APIs for scheduled jobs, event hooks, and interface bindings.
-- Reuse existing job and binding repos for store writes, but wrap them in
-  managed-resource collision/adoption checks rather than generic upsert
-  semantics.
-- Implement collision, adoption-required, disable-on-missing, and drift status.
+- Add store APIs for scheduled jobs, event hooks, and interface bindings.
+- Phase D owns migrations, companion provenance, and store invariants.
+- Store APIs perform operational writes and same-transaction provenance writes.
 - Add required provenance uniqueness on source identity and projection row.
-- Adoption requires explicit live row id plus current fingerprint/updatedAt so a
-  stale adoption cannot race an operator edit.
+- Implement idempotent reapply, unmanaged/differently-managed collision
+  fail-closed behavior, stale adoption failure, drift detection, and
+  disable-only missing-source behavior preserving history.
+
+Phase E: ACP apply/status orchestration, routes, and CLI.
+
+- Add apply/status orchestration, routes, and CLI over the Phase D store APIs.
+- Phase E must not write SQLite directly or reimplement store invariants.
+- Phase E accepts the versioned ASP fixture JSON as wire input and validates it
+  locally.
+- Reject unknown, malformed, absent, or untyped cooldowns unless the plan
+  contains an ACP-versioned conservative default materialized as canonical
+  `EventTrigger.cooldown`.
+- Return machine-readable per-resource outcomes for mixed
+  schedule/event-hook/channel batches and converge on idempotent retry after
+  partial failure.
 - Event hooks compile to managed `jobs` rows with `trigger.kind = 'event'`;
   reuse ACP's existing event-job substrate rather than adding a second hook
   engine.
-- Event-hook apply validates that `trigger.cooldown` is ACP's canonical
-  `EventTrigger.cooldown` duration value or an ACP-defined conservative default,
-  never an untyped authored TOML object.
 - Event-hook apply/status must preserve webhook ingest, `event_inbox`,
   event-job match outcomes, cooldown enforcement, leases, resolved action
   snapshots, job runs, dispatch, audit, and webhook history.
-- Return per-resource outcomes for mixed schedule/event-hook/channel batches.
 
-Phase 3: ASP apply/status integration.
+Phase F: final installed live validation.
 
-- Wire `asp resources apply/status` to ACP admin surface.
-- Add dry-run and diff output.
-- Ensure plan/apply does not cross repo boundaries by direct imports.
+- Run one final `just install` and restart cycle.
+- Validate installed ASP plan, ACP apply/status, one schedule through jobs, one
+  real wrkq `needs_smoketest` event hook to an admitted Smokey turn,
+  replay/idempotency/cooldown evidence, and one real Discord binding route.
+- If credentials/runtime block a live path, record exact BLOCKED evidence and do
+  not count synthetic coverage as acceptance for that path.
 
-Phase 4: operational validation.
-
-- Create one schedule resource, one event hook resource, and one Discord binding
-  resource for a low-risk agent/gateway.
-- Run `just install`, restart ACP once, and validate through live ACP CLI and
-  Discord route where applicable.
-- Confirm history survives disable/re-enable.
-- Validate one real wrkq transition to `needs_smoketest`, with event inbox,
-  match, job-run evidence, and the admitted Smokey turn on the expected
-  ScopeRef/lane.
-
-Phase 5: reserve but do not implement typed tools/sandbox/evals.
+Reserved vocabulary remains reserved.
 
 - Document reserved directories and future compiler extension points.
 - Do not ship partially functional directories that imply unsupported behavior.
@@ -588,8 +623,10 @@ ASP compiler fixture tests:
   and `ticket_id`.
 - Rejection of payload-derived structural templates such as `payload.*`, title,
   labels, container path, or arbitrary fields.
-- Canonical cooldown projection to ACP's `EventTrigger.cooldown` duration value
-  or ACP-defined conservative default.
+- Explicit authored cooldown and canonical projection to ACP's
+  `EventTrigger.cooldown` duration value.
+- Rejection of absent cooldown until ACP exposes a versioned conservative
+  default that ASP can materialize into the canonical projection.
 - Rejection of malformed cooldowns before apply.
 
 ACP apply tests:
@@ -641,8 +678,9 @@ Event runtime tests:
 - Matching event hook records event/job outcome.
 - Origin agent is blocked by default.
 - Cooldown suppresses repeated target mints.
-- Event-triggered jobs reject untyped cooldown objects and accept only canonical
-  cooldown duration values/defaults.
+- Event-triggered jobs reject absent/untyped cooldown objects and accept only
+  canonical cooldown duration values or ACP-versioned defaults materialized in
+  the plan.
 - Resolved scope/input snapshots are used for dispatch.
 - Bad or missing template values fail closed and record `template_error`, not a
   malformed dispatch.
@@ -689,6 +727,8 @@ Live validation:
 11. Mixed schedule/event-hook/channel apply failures are machine-readable and
     converge on retry, unless ACP adds an operation ledger with stronger batch
     semantics.
+12. Event hooks require authored canonical cooldown output unless ASP
+    materializes an explicit ACP-versioned conservative default into the plan.
 
 ## Out of Scope
 
@@ -718,15 +758,16 @@ Live validation:
    to spell out task/role explicitly?
 4. Should ACP add an operation ledger for mixed-store apply batches, or is
    per-resource idempotent retry sufficient for v1?
-5. Should ACP define the default event-hook cooldown globally, or should the ASP
-   compiler require every event hook to declare one explicitly?
+5. What versioned ACP conservative cooldown default, if any, should be exposed
+   for ASP to materialize in a future plan version?
 
 ## Architecture Review Notes
 
 Daedalus approved the base proposal in hrcchat #8329, approved folding event
-hooks into the same split in hrcchat #8338, and acknowledged the cooldown
-canonicalization constraint in #8340. No architecture blockers remain if the
-event-hook constraints below are preserved. The approved invariant:
+hooks into the same split in hrcchat #8338, acknowledged the cooldown
+canonicalization constraint in #8340, and approved the A-F implementation gates
+in #8357. No architecture blockers remain if the gates below are preserved. The
+approved invariant:
 
 Agent-directory resource files are declarative desired state only. ASP may
 parse, canonicalize, hash, and plan; ACP alone validates, records per-store
@@ -753,6 +794,14 @@ Required changes incorporated from the conditional review:
 - Event hooks are folded into the same split under Daedalus #8338:
   `event-hooks/`, resource kind `event-hook`, ACP projection as a `jobs` row
   with `trigger.kind = 'event'`, and no second hook engine.
+- Phase B emits versioned machine-readable plan JSON plus fixtures/schema. ACP
+  runtime must not consume a TypeScript DTO export from `agent-spaces` in v1;
+  ACP validates the wire JSON locally.
+- Phase D owns ACP migrations, companion provenance, and store APIs. Phase E
+  owns apply/status orchestration, routes, and CLI. Phase E must not write
+  SQLite directly or reimplement store invariants.
+- ASP requires authored cooldown until ACP exposes a versioned conservative
+  default that ASP can materialize into canonical plan JSON.
 
 Residual implementation risks:
 
@@ -761,23 +810,33 @@ Residual implementation risks:
 - Generic admin break-glass edits remain possible, so status must surface drift
   and apply must not silently bless drift as desired state.
 - Cooldown representation can drift between authored TOML and ACP EventTrigger;
-  ASP must canonicalize it and ACP must validate the final projection.
+  ASP must canonicalize it, ACP must validate the final projection, and absent
+  cooldown must not rely on an invisible apply-time default.
 - Operation ledger versus per-resource retry remains an implementation choice,
   provided mixed-store failures are machine-readable and retry converges.
 - Event-hook target templating can become a privilege/routing bug. V1 must stay
   same-owner, use static generic targets, and allow only wrkq structural
   templates for `project_scope_id` and `ticket_id`.
 - Event hooks can create loops or storms. `originPolicy.agent` defaults to
-  `deny`, and hooks require either an explicit cooldown or an ACP-defined
-  conservative default.
+  `deny`, and hooks require explicit authored cooldown until an ACP-versioned
+  conservative default can be materialized by ASP.
 - `/v1/webhooks/events` is loopback-trusted, not internet-safe; event hooks must
   not be presented as external integrations until source auth/signing exists.
 
 ## Split Work Items
 
-- `agent-spaces` T-04867: Phase 1 read-only compiler and
-  `asp resources plan` for schedules, channels, and event hooks.
-- `agent-control-plane` T-04868: companion provenance tables,
-  managed-resource apply/status, event-triggered job projection,
-  collision/adoption/deletion semantics, and live validation.
+- `agent-spaces` T-04881 under T-04867 Phase A: red tests and fixture/schema
+  contract for schedule, channel, and event-hook plan JSON.
+- `agent-spaces` T-04882 under T-04867 Phase B: read-only compiler and
+  installed `asp resources plan` gate with versioned machine-readable JSON.
+- `agent-control-plane` T-04883 under T-04868 Phase C: layered ACP red tests
+  using ASP fixture JSON as wire input.
+- `agent-control-plane` T-04884 under T-04868 Phase D: migrations, companion
+  provenance, and owning store APIs.
+- `agent-control-plane` T-04885 under T-04868 Phase E: apply/status
+  orchestration, routes, and CLI over Phase D store APIs only.
+- Phase D and Phase E must be separate worker tasks or separately reviewable
+  commits.
+- `agent-control-plane` T-04886 under T-04868 Phase F: final installed live
+  validation after one final install/restart cycle.
 - `agents`: sample resource files only after both schema and apply path land.
