@@ -12,7 +12,7 @@ threadRef = "thread:1501224513390772225"
 
 [target]
 project = "agent-spaces"
-agent = "smokey"
+agent = "cody"
 lane = "main"
 task = "primary"
 roleName = "coordinator"

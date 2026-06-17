@@ -15,15 +15,15 @@
       "sourceOwnerScopeRef": "agent:smokey:project:agent-spaces",
       "resourceName": "daily-triage",
       "sourcePath": "agents/smokey/schedules/daily-triage.toml",
-      "sourceHash": "sha256-canonical-json/v1:62489a3aef8a6f7a8b9663fc7d3b9613326613e243b9b34fd3cb1b10cb65d9b2",
-      "desiredProjectionHash": "sha256-canonical-json/v1:2a7ecfc9f0ee065d962c38020b4c24ff28988d8f59ba6f9414eefbc62844435b",
+      "sourceHash": "sha256-canonical-json/v1:4bc88e59a4360da45d0b98a6d33cc547548c44c8d33a852f3ff398a3e7994342",
+      "desiredProjectionHash": "sha256-canonical-json/v1:3758089897d52bfbee7733baa4159ba207265b4cb2791f0b9f7605488b45c5eb",
       "desiredJson": {
         "kind": "scheduled-job",
         "slug": "agent-smokey.daily-triage",
         "projectId": "agent-spaces",
-        "agentId": "cody",
-        "scopeRef": "agent:cody:project:agent-spaces:task:primary",
-        "laneRef": "agent:cody:project:agent-spaces:task:primary~main",
+        "agentId": "smokey",
+        "scopeRef": "agent:smokey:project:agent-spaces:task:primary",
+        "laneRef": "agent:smokey:project:agent-spaces:task:primary~main",
         "title": "Daily triage",
         "disabled": false,
         "trigger": {
@@ -54,8 +54,8 @@
       "sourceOwnerScopeRef": "agent:smokey:project:agent-spaces",
       "resourceName": "discord-smoke",
       "sourcePath": "agents/smokey/channels/discord-smoke.toml",
-      "sourceHash": "sha256-canonical-json/v1:0d7a49dc12c83433dc3107f1353a93229ad23674557f807333a10c01982022b9",
-      "desiredProjectionHash": "sha256-canonical-json/v1:138f08a0e1d55f85bf9cbb14639f8c6b8db75155508729ee324c3e38709ca0b0",
+      "sourceHash": "sha256-canonical-json/v1:ea43e293de6565579fd5ffdf2fb9c3e9eea8ea7d1a8213c7b6d3cb3cfd737870",
+      "desiredProjectionHash": "sha256-canonical-json/v1:6f6bdc51f0ceb99fc7450ac1e25a215440a0e63e4eecbed67dba3ca807869dd0",
       "desiredJson": {
         "kind": "interface-binding",
         "bindingId": "agent-smokey.discord-smoke",
@@ -65,11 +65,11 @@
         "threadRef": "thread:1501224513390772225",
         "routing": {
           "projectId": "agent-spaces",
-          "agentId": "cody",
+          "agentId": "smokey",
           "taskId": "primary",
           "roleName": "coordinator",
-          "scopeRef": "agent:cody:project:agent-spaces:task:primary",
-          "laneRef": "agent:cody:project:agent-spaces:task:primary~main"
+          "scopeRef": "agent:smokey:project:agent-spaces:task:primary",
+          "laneRef": "agent:smokey:project:agent-spaces:task:primary~main"
         },
         "status": "active"
       },

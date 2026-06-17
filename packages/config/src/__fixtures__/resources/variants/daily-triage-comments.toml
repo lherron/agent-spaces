@@ -5,7 +5,7 @@ title = "Daily triage"
 enabled = true
 
 [target]
-agent = "cody"
+agent = "smokey"
 project = "agent-spaces"
 task = "primary"
 lane = "main"

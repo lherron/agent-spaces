@@ -79,7 +79,7 @@ describe('agent-authored runtime resources plan compiler', () => {
         resources: [
           expect.objectContaining({
             sourceHash:
-              'sha256-canonical-json/v1:62489a3aef8a6f7a8b9663fc7d3b9613326613e243b9b34fd3cb1b10cb65d9b2',
+              'sha256-canonical-json/v1:4bc88e59a4360da45d0b98a6d33cc547548c44c8d33a852f3ff398a3e7994342',
           }),
         ],
       }),
@@ -90,7 +90,7 @@ describe('agent-authored runtime resources plan compiler', () => {
         resources: [
           expect.objectContaining({
             sourceHash:
-              'sha256-canonical-json/v1:62489a3aef8a6f7a8b9663fc7d3b9613326613e243b9b34fd3cb1b10cb65d9b2',
+              'sha256-canonical-json/v1:4bc88e59a4360da45d0b98a6d33cc547548c44c8d33a852f3ff398a3e7994342',
           }),
         ],
       }),
@@ -188,6 +188,22 @@ describe('agent-authored runtime resources plan compiler', () => {
       ok: false,
       code: 'CROSS_OWNER_EVENT_HOOK',
       message: expect.stringContaining('smokey'),
+    })
+  })
+
+  test('rejects cross-owner targets for schedules and channels in v1', async () => {
+    const schedule = await compileFixture('../../invalid', ['schedule-cross-owner-target.toml'])
+    const channel = await compileFixture('../../invalid', ['channel-cross-owner-target.toml'])
+
+    expect(schedule).toEqual({
+      ok: false,
+      code: 'CROSS_OWNER_TARGET',
+      message: expect.stringContaining('cody'),
+    })
+    expect(channel).toEqual({
+      ok: false,
+      code: 'CROSS_OWNER_TARGET',
+      message: expect.stringContaining('cody'),
     })
   })
 
