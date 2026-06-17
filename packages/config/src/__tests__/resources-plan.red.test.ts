@@ -152,6 +152,27 @@ describe('agent-authored runtime resources plan compiler', () => {
     })
   })
 
+  test('emits bare lane refs accepted by the job-dispatch wire contract', async () => {
+    // Test context: Phase F remediation guard. ASP owns only the wire format here; ACP owns
+    // the authoritative LaneRef parser round-trip, so keep this as a regex contract check.
+    const result = await compileFixture('agents/smokey')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const laneRefs = result.plan.resources.map((resource) => {
+      if (resource.resourceKind === 'interface-binding') {
+        return String(resource.desiredJson.routing.laneRef)
+      }
+      return String(resource.desiredJson.laneRef)
+    })
+
+    for (const laneRef of laneRefs) {
+      expect(laneRef, `expected bare laneRef, got ${laneRef}`).toMatch(
+        /^(main|lane:[A-Za-z0-9._-]+)$/
+      )
+    }
+  })
+
   test('rejects unsupported timezone fields in v1 schedules', async () => {
     const result = await compileFixture('../../invalid', ['schedule-timezone.toml'])
     expect(result).toEqual({
