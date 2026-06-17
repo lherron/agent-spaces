@@ -7,6 +7,22 @@ bun install       # Install dependencies
 bun run build     # Build all packages
 ```
 
+## Codex Overlay
+
+When changing Codex-facing agent defaults, edit the source under
+`~/praesidium/var/agents/` first. Do not edit generated Codex home files or
+materialized bundle copies directly.
+
+After changing agent source files, run the ASP overlay recipe from this repo:
+
+```bash
+just overlay-codex
+```
+
+This runs `scripts/sync-agent-to-codex-default.ts --install-hooks --apply`,
+updates the managed block in `~/.codex/AGENTS.md`, syncs managed skills into
+`~/.codex/skills`, and leaves unmanaged Codex config/skills alone.
+
 ## Validation
 
 Run these after implementing to get immediate feedback:
