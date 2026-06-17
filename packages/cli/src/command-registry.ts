@@ -27,6 +27,7 @@ import { registerPathCommand } from './commands/path.js'
 import { registerRemoveCommand } from './commands/remove.js'
 import { registerRepoCommands } from './commands/repo/index.js'
 import { registerResolveReminderCommand } from './commands/resolve-reminder.js'
+import { registerResourcesCommands } from './commands/resources/index.js'
 import { registerRunCommand } from './commands/run.js'
 import { registerSelfCommands } from './commands/self/index.js'
 import { registerSpacesCommands } from './commands/spaces/index.js'
@@ -62,6 +63,7 @@ const COMMAND_REGISTRARS: readonly RegisterCommandFn[] = [
   registerSelfCommands,
   registerRepoCommands,
   registerSpacesCommands,
+  registerResourcesCommands,
   registerAgentCommands,
 ]
 

@@ -117,3 +117,6 @@ export {
 
 // Orchestration - config-time workflows
 export * from './orchestration/index.js'
+
+// Agent-authored runtime resources
+export * from './resources/index.js'

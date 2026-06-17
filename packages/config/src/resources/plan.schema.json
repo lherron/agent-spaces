@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-authored-runtime-resources.plan/v1",
+  "title": "Agent Authored Runtime Resources Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "sourceOwnerScopeRef", "managedBy", "compiler", "resources"],
+  "properties": {
+    "schema": {
+      "const": "agent-authored-runtime-resources.plan/v1"
+    },
+    "sourceOwnerScopeRef": {
+      "type": "string"
+    },
+    "managedBy": {
+      "const": "agent-directory"
+    },
+    "compiler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {
+          "const": "spaces-config/resources"
+        },
+        "version": {
+          "const": 1
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/managedResourceProjection"
+      }
+    }
+  },
+  "$defs": {
+    "managedResourceProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectionId",
+        "resourceKind",
+        "projectionTable",
+        "projectionPk",
+        "sourceOwnerScopeRef",
+        "resourceName",
+        "sourcePath",
+        "sourceHash",
+        "desiredProjectionHash",
+        "desiredJson",
+        "sourceVersion",
+        "managedBy",
+        "origin",
+        "lastReconciledAt",
+        "createdAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "projectionId": {
+          "type": "string"
+        },
+        "resourceKind": {
+          "enum": ["scheduled-job", "event-hook", "interface-binding"]
+        },
+        "projectionTable": {
+          "enum": ["jobs", "interface_bindings"]
+        },
+        "projectionPk": {
+          "type": "string"
+        },
+        "sourceOwnerScopeRef": {
+          "type": "string"
+        },
+        "resourceName": {
+          "type": "string"
+        },
+        "sourcePath": {
+          "type": "string"
+        },
+        "sourceHash": {
+          "type": "string",
+          "pattern": "^sha256-canonical-json/v1:[a-f0-9]{64}$"
+        },
+        "desiredProjectionHash": {
+          "type": "string",
+          "pattern": "^sha256-canonical-json/v1:[a-f0-9]{64}$"
+        },
+        "desiredJson": {
+          "type": "object"
+        },
+        "sourceVersion": {
+          "const": 1
+        },
+        "managedBy": {
+          "const": "agent-directory"
+        },
+        "origin": {
+          "const": "created"
+        },
+        "lastReconciledAt": {
+          "const": "pending-apply"
+        },
+        "createdAt": {
+          "const": "pending-apply"
+        },
+        "updatedAt": {
+          "const": "pending-apply"
+        }
+      }
+    }
+  }
+}

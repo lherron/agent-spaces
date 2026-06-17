@@ -36,6 +36,11 @@
       "types": "./dist/materializer/index.d.ts",
       "import": "./dist/materializer/index.js"
     },
+    "./resources": {
+      "bun": "./src/resources/index.ts",
+      "types": "./dist/resources/index.d.ts",
+      "import": "./dist/resources/index.js"
+    },
     "./lint": {
       "bun": "./src/lint/index.ts",
       "types": "./dist/lint/index.d.ts",
@@ -62,7 +67,8 @@
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "proper-lockfile": "^4.1.2",
-    "semver": "^7.7.2"
+    "semver": "^7.7.2",
+    "spaces-runtime-contracts": "*"
   },
   "devDependencies": {
     "@types/proper-lockfile": "^4.1.4",
