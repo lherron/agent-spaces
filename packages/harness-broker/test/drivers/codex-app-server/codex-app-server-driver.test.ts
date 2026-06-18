@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import type {
+  HarnessInvocationSpec,
+  InvocationEventEnvelope,
+  InvocationRuntimeContext,
+} from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../../../src/broker'
 import {
@@ -61,6 +66,109 @@ const userInput = {
   content: [{ type: 'text' as const, text: 'Please respond.' }],
 }
 
+type TerminalSurfaceLease = NonNullable<InvocationRuntimeContext['terminalSurface']>
+type ViewerRuntime = InvocationRuntimeContext & {
+  terminalSurfaceRequired?: true | undefined
+}
+
+const paneLease = (overrides: Partial<TerminalSurfaceLease> = {}): TerminalSurfaceLease => ({
+  kind: 'tmux-pane',
+  ownership: 'hrc',
+  socketPath: '/tmp/harness-broker/codex-app-server-viewer.sock',
+  sessionId: '$9',
+  windowId: '@4',
+  paneId: '%42',
+  sessionName: 'hrc-owned-codex-app-server',
+  windowName: 'tui',
+  allowedOps: { inspect: true, sendInput: true, sendInterrupt: true },
+  ...overrides,
+})
+
+const viewerRuntime = (
+  terminalSurface?: unknown,
+  options: { required?: boolean } = {}
+): ViewerRuntime =>
+  ({
+    ...(terminalSurface !== undefined ? { terminalSurface } : {}),
+    ...(options.required === true ? { terminalSurfaceRequired: true } : {}),
+  }) as ViewerRuntime
+
+async function withFakeTmux<T>(
+  inspected: { sessionId: string; windowId: string; paneId: string },
+  fn: (logPath: string) => Promise<T>
+): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'codex-app-server-tmux-'))
+  const tmuxPath = join(dir, 'tmux')
+  const logPath = join(dir, 'tmux.log')
+  await writeFile(
+    tmuxPath,
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(logPath)}
+if [[ "$1" == "-S" ]]; then
+  shift 2
+fi
+if [[ "$1" == "display-message" ]]; then
+  printf '${inspected.sessionId}\\t${inspected.windowId}\\t${inspected.paneId}\\n'
+  exit 0
+fi
+printf 'unexpected fake tmux argv: %s\\n' "$*" >&2
+exit 64
+`
+  )
+  await chmod(tmuxPath, 0o755)
+
+  const previousPath = process.env['PATH']
+  process.env['PATH'] =
+    previousPath === undefined || previousPath.length === 0 ? dir : `${dir}:${previousPath}`
+  try {
+    return await fn(logPath)
+  } finally {
+    if (previousPath === undefined) {
+      process.env['PATH'] = undefined
+    } else {
+      process.env['PATH'] = previousPath
+    }
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
+const eventTypes = (events: InvocationEventEnvelope[]) => events.map((event) => event.type)
+
+const createDriverCtx = (events: InvocationEventEnvelope[], runtime: ViewerRuntime) =>
+  ({
+    invocationId: 'inv_direct_viewer_required',
+    clientCapabilities: {},
+    runtime,
+    emit(type: InvocationEventEnvelope['type'], payload: unknown, extra?: Record<string, unknown>) {
+      const event = {
+        invocationId: 'inv_direct_viewer_required',
+        seq: events.length + 1,
+        time: now().toISOString(),
+        type,
+        payload,
+        ...extra,
+      } as InvocationEventEnvelope
+      events.push(event)
+      return event
+    },
+  }) as Parameters<ReturnType<typeof createCodexAppServerDriver>['start']>[1]
+
+async function expectDirectStartRejects(
+  runtime: ViewerRuntime,
+  expected: { code: BrokerErrorCode }
+): Promise<InvocationEventEnvelope[]> {
+  const events: InvocationEventEnvelope[] = []
+  const driver = createCodexAppServerDriver()
+  try {
+    await expect(
+      driver.start(scenarioSpec('start-fresh-turn'), createDriverCtx(events, runtime))
+    ).rejects.toMatchObject(expected)
+  } finally {
+    await driver.dispose()
+  }
+  return events
+}
+
 function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope {
   return JSON.parse(
     JSON.stringify(event, (key, value) => {
@@ -109,6 +217,33 @@ async function runScenario(
 }
 
 describe('Codex app-server driver red scenarios', () => {
+  test('legacy no-lease start stays pure headless with no reported terminal surface', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const spec = scenarioSpec('start-fresh-turn')
+
+    await broker.start({ spec })
+    await broker.input({
+      invocationId: spec.invocationId ?? '',
+      input: userInput,
+      policy: { whenBusy: 'reject' },
+    })
+
+    expect(spec.harness.driver).toBe('codex-app-server')
+    expect(spec.interaction?.mode).toBe('headless')
+    expect(spec.process.harnessTransport.kind).toBe('jsonrpc-stdio')
+    expect(eventTypes(events)).toContain('invocation.started')
+    expect(eventTypes(events)).toContain('invocation.ready')
+    expect(eventTypes(events)).toContain('turn.started')
+    expect(eventTypes(events)).not.toContain('terminal.surface.reported')
+    expect(JSON.stringify(events)).not.toContain('codex-cli-tmux')
+    expect(JSON.stringify(events)).not.toContain('brokerTerminal')
+  })
+
   test('starts a fresh thread and completes a turn', async () => {
     const events = await runScenario('start-fresh-turn')
     await expectGolden('start-fresh-turn', events)
@@ -328,6 +463,122 @@ describe('Codex app-server driver red scenarios', () => {
     })
 
     await expectGolden('unsupported-controls', events)
+  })
+})
+
+describe('Codex app-server viewer contract red tests (T-04908 Phase A)', () => {
+  test('valid HRC tmux-pane lease is consumed and reported with exact inspected pane ids', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const lease = paneLease()
+    const spec = scenarioSpec('start-fresh-turn')
+
+    await withFakeTmux(
+      { sessionId: lease.sessionId, windowId: lease.windowId, paneId: lease.paneId },
+      async (logPath) => {
+        await broker.start({ spec }, undefined, viewerRuntime(lease))
+
+        // This pins Phase A to the shared consumePaneLease path: a green driver
+        // must inspect the leased pane before reporting it, not trust the broker
+        // window or an unvalidated runtime payload.
+        const tmuxLog = await readFile(logPath, 'utf8').catch(() => '')
+        expect(tmuxLog).toContain('-S /tmp/harness-broker/codex-app-server-viewer.sock')
+        expect(tmuxLog).toContain('display-message')
+        expect(tmuxLog).toContain('%42')
+      }
+    )
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'terminal.surface.reported',
+        payload: {
+          kind: 'tmux-pane',
+          socketPath: lease.socketPath,
+          sessionId: lease.sessionId,
+          windowId: lease.windowId,
+          paneId: lease.paneId,
+          sessionName: lease.sessionName,
+          windowName: lease.windowName,
+        },
+        driver: { kind: 'codex-app-server', rawType: 'tmux.surface' },
+      })
+    )
+    expect(JSON.stringify(events)).not.toContain('codex-cli-tmux')
+    expect(spec.interaction?.mode).toBe('headless')
+    expect(spec.process.harnessTransport.kind).toBe('jsonrpc-stdio')
+  })
+
+  test('viewer-required missing lease fails loudly with InvalidInvocationState', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+
+    await expect(
+      broker.start(
+        { spec: scenarioSpec('start-fresh-turn') },
+        undefined,
+        viewerRuntime(undefined, {
+          required: true,
+        })
+      )
+    ).rejects.toMatchObject({ code: BrokerErrorCode.InvalidInvocationState })
+    expect(eventTypes(events)).not.toContain('invocation.ready')
+    expect(eventTypes(events)).not.toContain('terminal.surface.reported')
+  })
+
+  test.each([
+    {
+      name: 'malformed terminal surface',
+      runtime: viewerRuntime({ kind: 'tmux-pane' }, { required: true }),
+    },
+    {
+      name: 'non-hrc ownership',
+      runtime: viewerRuntime(paneLease({ ownership: 'driver' as never }), { required: true }),
+    },
+  ])('viewer-required rejects $name with InvalidInvocationState', async ({ runtime }) => {
+    const events = await expectDirectStartRejects(runtime, {
+      code: BrokerErrorCode.InvalidInvocationState,
+    })
+    expect(eventTypes(events)).not.toContain('invocation.ready')
+    expect(eventTypes(events)).not.toContain('terminal.surface.reported')
+  })
+
+  test('viewer-required inspected id mismatch rejects the broker-window surface', async () => {
+    const lease = paneLease()
+    let events: InvocationEventEnvelope[] = []
+
+    await withFakeTmux({ sessionId: '$9', windowId: '@4', paneId: '%99' }, async () => {
+      events = await expectDirectStartRejects(viewerRuntime(lease, { required: true }), {
+        code: BrokerErrorCode.InvalidInvocationState,
+      })
+    })
+    expect(eventTypes(events)).not.toContain('invocation.ready')
+    expect(eventTypes(events)).not.toContain('terminal.surface.reported')
+  })
+
+  test('applied app-server input emits durable user.message with input id and text', async () => {
+    const events = await runScenario('start-fresh-turn')
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'user.message',
+        inputId: userInput.inputId,
+        payload: {
+          content: 'Please respond.',
+          inputId: userInput.inputId,
+          role: 'user',
+        },
+        driver: { kind: 'codex-app-server', rawType: 'broker.input' },
+      })
+    )
+    expect(eventTypes(events)).toContain('input.accepted')
   })
 })
 
