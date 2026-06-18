@@ -16,7 +16,14 @@ import { BrokerError } from '../../errors'
 import { spawnHarnessProcess } from '../../runtime/process-runner'
 import { terminateProcess } from '../../runtime/signals'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
-import { consumePaneLease, extractText } from '../tmux-shared'
+import {
+  type HookListenerHandle,
+  buildHookSocketPath,
+  consumePaneLease,
+  extractText,
+  getInvocationRuntimeId,
+  listenForHookEnvelopes,
+} from '../tmux-shared'
 import { CODEX_CAPABILITIES } from './capabilities'
 import { createCodexNotificationMapper, parseCodexError } from './event-map'
 import { buildTurnStartParams } from './input'
@@ -44,6 +51,23 @@ interface ThreadResponse {
 
 type ChildProcess = Awaited<ReturnType<typeof spawnHarnessProcess>>
 
+type RendererControlEnvelope =
+  | {
+      type: 'app-server-renderer.quit'
+      invocationId?: string | undefined
+      runtimeId?: string | undefined
+      callbackSocket?: string | undefined
+      reason?: string | undefined
+    }
+  | {
+      type: 'app-server-renderer.exited'
+      invocationId?: string | undefined
+      runtimeId?: string | undefined
+      callbackSocket?: string | undefined
+      exitCode?: number | null | undefined
+      signal?: NodeJS.Signals | string | null | undefined
+    }
+
 export function createCodexAppServerDriver(): Driver {
   let ctx: DriverContext | undefined
   let spec: HarnessInvocationSpec | undefined
@@ -61,6 +85,8 @@ export function createCodexAppServerDriver(): Driver {
   let rejectStartup: ((error: Error) => void) | undefined
   let startupFailure: Promise<never> | undefined
   let turnTimeout: ReturnType<typeof setTimeout> | undefined
+  let rendererControlListener: HookListenerHandle | undefined
+  let rendererQuitAccepted = false
   const mapCodexNotification = createCodexNotificationMapper()
   const permissionRequestIds = createPermissionRequestIdAllocator()
 
@@ -193,6 +219,61 @@ export function createCodexAppServerDriver(): Driver {
     requireCtx().emit('invocation.exited', { exitCode: code, signal })
   }
 
+  function closeRendererControlListener(): void {
+    const listener = rendererControlListener
+    rendererControlListener = undefined
+    if (listener !== undefined) {
+      void listener.close()
+    }
+  }
+
+  function rendererEnvelopeMatchesFence(
+    envelope: RendererControlEnvelope,
+    expectedRuntimeId: string | undefined
+  ): boolean {
+    if (envelope.invocationId !== requireCtx().invocationId) return false
+    if (expectedRuntimeId !== undefined && envelope.runtimeId !== expectedRuntimeId) return false
+    if (
+      rendererControlListener === undefined ||
+      envelope.callbackSocket !== rendererControlListener.socketPath
+    ) {
+      return false
+    }
+    return true
+  }
+
+  async function handleRendererQuit(): Promise<void> {
+    if (rendererQuitAccepted || terminalEmitted) return
+    rendererQuitAccepted = true
+    stopping = true
+    if (turnTimeout !== undefined) {
+      clearTimeout(turnTimeout)
+      turnTimeout = undefined
+    }
+    requireCtx().emit(
+      'continuation.cleared',
+      { reason: 'prompt_input_exit' },
+      { driver: { kind: 'codex-app-server', rawType: 'app-server-renderer.quit' } }
+    )
+    if (proc !== undefined) {
+      await terminateProcess({
+        proc,
+        graceMs: spec?.process.limits?.stopGraceMs ?? 1000,
+      })
+    }
+    setTimeout(closeRendererControlListener, 0)
+  }
+
+  function handleRendererExited(
+    envelope: Extract<RendererControlEnvelope, { type: 'app-server-renderer.exited' }>
+  ): void {
+    if (rendererQuitAccepted || terminalEmitted) return
+    emitDiagnostic('error', 'Codex app-server renderer exited unexpectedly', {
+      exitCode: envelope.exitCode ?? null,
+      signal: envelope.signal ?? null,
+    })
+  }
+
   async function startThread(): Promise<string> {
     if (!rpc || !spec || !driverSpec) {
       throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Driver is not initialized')
@@ -258,10 +339,12 @@ export function createCodexAppServerDriver(): Driver {
       spec = startSpec
       driverSpec = startSpec.driver as CodexAppServerDriverSpec
       const activeDriverSpec = driverSpec
+      const expectedRuntimeId = getInvocationRuntimeId(startSpec)
       terminalEmitted = false
       startedEmitted = false
       stopping = false
       starting = true
+      rendererQuitAccepted = false
 
       if (
         driverCtx.runtime?.terminalSurface !== undefined ||
@@ -288,6 +371,26 @@ export function createCodexAppServerDriver(): Driver {
           { driver: { kind: 'codex-app-server', rawType: 'tmux.surface' } }
         )
 
+        const controlSocketPath = buildRendererControlSocketPath(
+          driverCtx,
+          leased.surface,
+          expectedRuntimeId
+        )
+        rendererControlListener = await listenForHookEnvelopes<RendererControlEnvelope>(
+          controlSocketPath,
+          async (envelope) => {
+            if (!rendererEnvelopeMatchesFence(envelope, expectedRuntimeId)) return
+            if (envelope.type === 'app-server-renderer.quit') {
+              if (envelope.reason !== 'prompt_input_exit') return
+              await handleRendererQuit()
+              return
+            }
+            if (envelope.type === 'app-server-renderer.exited') {
+              handleRendererExited(envelope)
+            }
+          }
+        )
+
         // Launch the DRIVER-OWNED renderer into the leased pane. The renderer is
         // a presentation/observation process: it reads the broker's DURABLE
         // event surface (invocation.eventsSince + live invocation.event), NOT a
@@ -299,6 +402,8 @@ export function createCodexAppServerDriver(): Driver {
           buildRendererLaunchCommand({
             invocationId: driverCtx.invocationId,
             observerSocketPath,
+            controlSocketPath: rendererControlListener.socketPath,
+            ...(expectedRuntimeId !== undefined ? { runtimeId: expectedRuntimeId } : {}),
           })
         )
       }
@@ -501,6 +606,7 @@ export function createCodexAppServerDriver(): Driver {
 
     async stop(req: InvocationStopRequest): Promise<InvocationStopResponse> {
       stopping = true
+      closeRendererControlListener()
       // Clear any pending turn timeout; the stop takes precedence.
       if (turnTimeout !== undefined) {
         clearTimeout(turnTimeout)
@@ -517,6 +623,7 @@ export function createCodexAppServerDriver(): Driver {
     },
 
     async dispose(): Promise<void> {
+      closeRendererControlListener()
       rpc?.close()
       ctx = undefined
       spec = undefined
@@ -531,6 +638,7 @@ export function createCodexAppServerDriver(): Driver {
       terminalEmitted = false
       stopping = false
       starting = false
+      rendererQuitAccepted = false
     },
   }
 
@@ -561,6 +669,20 @@ function resolveRendererObserverSocket(
     ? surface.socketPath.slice(0, surface.socketPath.lastIndexOf('/'))
     : '.'
   return `${dir}/${driverCtx.invocationId}.observer.sock`
+}
+
+function buildRendererControlSocketPath(
+  driverCtx: DriverContext,
+  surface: { socketPath: string },
+  runtimeId: string | undefined
+): string {
+  const dir = surface.socketPath.includes('/')
+    ? surface.socketPath.slice(0, surface.socketPath.lastIndexOf('/'))
+    : '.'
+  return buildHookSocketPath(dir, 'codex-app-server-renderer-control', {
+    invocationId: driverCtx.invocationId,
+    runtimeId,
+  })
 }
 
 type DiagnosticEmitter = (

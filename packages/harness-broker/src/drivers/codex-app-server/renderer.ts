@@ -208,6 +208,9 @@ export interface RendererLaunchOptions {
   invocationId: string
   /** Read-only observer/broker socket the renderer connects to. */
   observerSocketPath: string
+  /** Fenced renderer->driver control socket for lifecycle intent such as /quit. */
+  controlSocketPath: string
+  runtimeId?: string | undefined
   rendererEntryPath?: string | undefined
 }
 
@@ -227,6 +230,8 @@ export function buildRendererLaunchCommand(options: RendererLaunchOptions): stri
     '--driver codex-app-server',
     `--invocation-id ${shellQuote(options.invocationId)}`,
     `--observer-socket ${shellQuote(options.observerSocketPath)}`,
+    `--control-socket ${shellQuote(options.controlSocketPath)}`,
+    ...(options.runtimeId !== undefined ? [`--runtime-id ${shellQuote(options.runtimeId)}`] : []),
     '--bootstrap-method invocation.eventsSince',
     '--live-method invocation.event',
   ].join(' ')

@@ -13,12 +13,14 @@
  * harness transport.
  */
 import { connect } from 'node:net'
+import { createInterface } from 'node:readline'
 import {
   type InvocationEventEnvelope,
   type JsonRpcMessage,
   NdjsonDecoder,
   encodeNdjsonFrame,
 } from 'spaces-harness-broker-protocol'
+import { postEnvelope } from '../hook-bridge-transport'
 import {
   type RendererDurableReadSurface,
   type RendererEventsSinceRequest,
@@ -29,6 +31,8 @@ import {
 interface RendererArgs {
   invocationId: string
   observerSocketPath: string
+  controlSocketPath: string
+  runtimeId?: string | undefined
 }
 
 function parseArgs(argv: string[]): RendererArgs {
@@ -38,10 +42,23 @@ function parseArgs(argv: string[]): RendererArgs {
   }
   const invocationId = read('--invocation-id')
   const observerSocketPath = read('--observer-socket')
-  if (invocationId === undefined || observerSocketPath === undefined) {
-    throw new Error('codex-app-server renderer requires --invocation-id and --observer-socket')
+  const controlSocketPath = read('--control-socket')
+  const runtimeId = read('--runtime-id')
+  if (
+    invocationId === undefined ||
+    observerSocketPath === undefined ||
+    controlSocketPath === undefined
+  ) {
+    throw new Error(
+      'codex-app-server renderer requires --invocation-id, --observer-socket, and --control-socket'
+    )
   }
-  return { invocationId, observerSocketPath }
+  return {
+    invocationId,
+    observerSocketPath,
+    controlSocketPath,
+    ...(runtimeId !== undefined ? { runtimeId } : {}),
+  }
 }
 
 /**
@@ -110,7 +127,9 @@ function connectReadSurface(socketPath: string): {
 }
 
 async function main(): Promise<void> {
-  const { invocationId, observerSocketPath } = parseArgs(process.argv.slice(2))
+  const { invocationId, observerSocketPath, controlSocketPath, runtimeId } = parseArgs(
+    process.argv.slice(2)
+  )
   const { surface, close } = connectReadSurface(observerSocketPath)
   const projection = createCodexAppServerRendererProjection({
     invocationId,
@@ -118,12 +137,49 @@ async function main(): Promise<void> {
     sink: (line) => process.stdout.write(`${line}\n`),
   })
   await projection.start()
+  let quitPosted = false
+  let exitPosted = false
+
+  async function postRendererExit(exitCode: number | null, signal: string | null): Promise<void> {
+    if (quitPosted || exitPosted) return
+    exitPosted = true
+    await postEnvelope(controlSocketPath, {
+      type: 'app-server-renderer.exited',
+      invocationId,
+      ...(runtimeId !== undefined ? { runtimeId } : {}),
+      callbackSocket: controlSocketPath,
+      exitCode,
+      signal,
+    }).catch(() => undefined)
+  }
+
+  createInterface({ input: process.stdin }).on('line', (line) => {
+    if (line.trim() !== '/quit' || quitPosted) return
+    quitPosted = true
+    void (async () => {
+      await postEnvelope(controlSocketPath, {
+        type: 'app-server-renderer.quit',
+        invocationId,
+        ...(runtimeId !== undefined ? { runtimeId } : {}),
+        callbackSocket: controlSocketPath,
+        reason: 'prompt_input_exit',
+      }).catch(() => undefined)
+      projection.close()
+      close()
+      process.exit(0)
+    })()
+  })
+
   // Keep the process alive to stream live events into the pane until the pane
   // (or the broker connection) is torn down.
   process.on('SIGINT', () => {
+    void postRendererExit(null, 'SIGINT')
     projection.close()
     close()
     process.exit(0)
+  })
+  process.on('beforeExit', (code) => {
+    void postRendererExit(code, null)
   })
 }
 
