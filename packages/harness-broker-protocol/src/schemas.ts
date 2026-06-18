@@ -124,6 +124,7 @@ export type SchemaRecord = Record<string, unknown> & {
   socketPath?: unknown
   startupTimeoutMs?: unknown
   stopGraceMs?: unknown
+  terminalSurfaceRequired?: unknown
   text?: unknown
   timeoutMs?: unknown
   time?: unknown
@@ -1127,6 +1128,11 @@ function validateDispatchRuntime(
       issues
     )
   }
+  optionalBoolean(
+    runtime?.['terminalSurfaceRequired'],
+    joinPath(runtimePath, 'terminalSurfaceRequired'),
+    issues
+  )
 
   if (
     driverKind !== 'claude-code-tmux' &&

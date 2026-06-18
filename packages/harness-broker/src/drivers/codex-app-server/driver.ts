@@ -16,6 +16,7 @@ import { BrokerError } from '../../errors'
 import { spawnHarnessProcess } from '../../runtime/process-runner'
 import { terminateProcess } from '../../runtime/signals'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
+import { consumePaneLease, extractText } from '../tmux-shared'
 import { CODEX_CAPABILITIES } from './capabilities'
 import { createCodexNotificationMapper, parseCodexError } from './event-map'
 import { buildTurnStartParams } from './input'
@@ -260,6 +261,33 @@ export function createCodexAppServerDriver(): Driver {
       startedEmitted = false
       stopping = false
       starting = true
+
+      if (
+        driverCtx.runtime?.terminalSurface !== undefined ||
+        driverCtx.runtime?.terminalSurfaceRequired === true
+      ) {
+        const leased = await consumePaneLease(driverCtx, {
+          driverKind: 'codex-app-server',
+        })
+        driverCtx.emit(
+          'terminal.surface.reported',
+          {
+            kind: 'tmux-pane' as const,
+            socketPath: leased.surface.socketPath,
+            sessionId: leased.surface.sessionId,
+            windowId: leased.surface.windowId,
+            paneId: leased.surface.paneId,
+            ...(leased.surface.sessionName !== undefined
+              ? { sessionName: leased.surface.sessionName }
+              : {}),
+            ...(leased.surface.windowName !== undefined
+              ? { windowName: leased.surface.windowName }
+              : {}),
+          },
+          { driver: { kind: 'codex-app-server', rawType: 'tmux.surface' } }
+        )
+      }
+
       startupFailure = new Promise<never>((_resolve, reject) => {
         rejectStartup = reject
       })
@@ -369,6 +397,15 @@ export function createCodexAppServerDriver(): Driver {
 
       const inputId = input.inputId ?? (`input_${Date.now().toString(36)}` as InputId)
       currentInputId = inputId
+      requireCtx().emit(
+        'user.message',
+        {
+          content: extractText(input),
+          inputId,
+          role: 'user' as const,
+        },
+        { inputId, driver: { kind: 'codex-app-server', rawType: 'broker.input' } }
+      )
 
       // Wire turn timeout
       const turnTimeoutMs = spec.process.limits?.turnTimeoutMs

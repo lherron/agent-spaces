@@ -156,6 +156,12 @@ export interface InvocationRuntimeContext {
         }
       }
     | undefined
+  /**
+   * Explicit route-policy bit for headless drivers that require an operator
+   * presentation pane. This is dispatch-time runtime policy, not profile
+   * identity and not part of the hashed driver spec.
+   */
+  terminalSurfaceRequired?: true | undefined
 }
 
 export interface InvocationStartRequest {

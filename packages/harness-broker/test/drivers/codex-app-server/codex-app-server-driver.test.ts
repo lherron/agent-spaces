@@ -108,7 +108,7 @@ if [[ "$1" == "-S" ]]; then
   shift 2
 fi
 if [[ "$1" == "display-message" ]]; then
-  printf '${inspected.sessionId}\\t${inspected.windowId}\\t${inspected.paneId}\\n'
+  printf '%s\\t%s\\t%s\\n' '${inspected.sessionId}' '${inspected.windowId}' '${inspected.paneId}'
   exit 0
 fi
 printf 'unexpected fake tmux argv: %s\\n' "$*" >&2

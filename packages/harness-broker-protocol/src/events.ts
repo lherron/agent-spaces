@@ -187,6 +187,8 @@ export interface TurnStartedPayload {
  */
 export interface UserMessagePayload {
   content: string
+  inputId?: InputId | undefined
+  role?: 'user' | undefined
   turnId?: TurnId | undefined
 }
 
