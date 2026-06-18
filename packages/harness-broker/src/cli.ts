@@ -39,6 +39,16 @@ interface BrokerObserverSocket {
   close(): Promise<void>
 }
 
+interface ObserverSubscription {
+  cursor: number
+  queued: InvocationEventEnvelope[] | undefined
+}
+
+interface ObserverClient {
+  server: ProtocolServer
+  subscriptions: Map<string, ObserverSubscription>
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
   const command = args[0]
@@ -142,8 +152,10 @@ async function runStdio(args: string[]): Promise<void> {
   void server.start()
 
   process.stdin.on('end', () => {
-    void Promise.all([server.close(), observer?.close()]).then(() => {
-      process.exit(0)
+    setImmediate(() => {
+      void Promise.all([server.close(), observer?.close()]).then(() => {
+        process.exit(0)
+      })
     })
   })
 }
@@ -268,6 +280,19 @@ async function runUnix(args: string[]): Promise<void> {
     process.stderr.write('Usage: harness-broker run --transport unix --socket <path>\n')
     process.exit(1)
   }
+  const observerSocketPath =
+    readFlag(args, '--experimental-observer-socket') ??
+    process.env['HARNESS_BROKER_OBSERVER_SOCKET']
+  const observerMode =
+    readFlag(args, '--experimental-observer-mode') ??
+    process.env['HARNESS_BROKER_OBSERVER_MODE'] ??
+    'observe'
+  if (observerSocketPath !== undefined && observerMode !== 'observe') {
+    process.stderr.write(
+      `Unsupported --experimental-observer-mode ${JSON.stringify(observerMode)}; only "observe" is implemented\n`
+    )
+    process.exit(1)
+  }
 
   // Hazard (a): refuse over-long socket paths up front with a readable error
   // instead of surfacing a low-level sockaddr_un bind failure.
@@ -323,8 +348,10 @@ async function runUnix(args: string[]): Promise<void> {
   let liveSocket: Socket | undefined
   // Fencing gate: set on a successful attach; only this controller may ack.
   let activeController: { server: ProtocolServer; socket: Socket; instanceId: string } | undefined
+  let observer: BrokerObserverSocket | undefined
 
   function emitEvent(event: InvocationEventEnvelope): void {
+    observer?.notify(event)
     if (!liveServer) return
     const notification: JsonRpcNotification = {
       jsonrpc: '2.0',
@@ -355,6 +382,10 @@ async function runUnix(args: string[]): Promise<void> {
       ...(attachIdentity !== undefined ? { attachIdentity } : {}),
     }
   )
+
+  if (observerSocketPath !== undefined) {
+    observer = await startBrokerObserverSocket({ socketPath: observerSocketPath, broker })
+  }
 
   // Send a terminal control error to the fenced controller, then close it. The
   // client transport surfaces `control.fenced` as a ControllerFenced close so a
@@ -430,7 +461,9 @@ async function runUnix(args: string[]): Promise<void> {
       stdout: socket,
       stderr: process.stderr,
     })
-    registerBrokerMethods(server, broker)
+    registerBrokerMethods(server, broker, {
+      experimentalObserverEnabled: observerSocketPath !== undefined,
+    })
     registerDurabilityMethods(server, socket)
     void server.start()
 
@@ -458,11 +491,9 @@ async function runUnix(args: string[]): Promise<void> {
 
   const shutdown = (): void => {
     netServer.close()
-    void unlink(socketPath)
-      .catch(() => {})
-      .then(() => {
-        process.exit(0)
-      })
+    void Promise.all([observer?.close(), unlink(socketPath).catch(() => {})]).then(() => {
+      process.exit(0)
+    })
   }
   process.on('SIGTERM', shutdown)
   process.on('SIGINT', shutdown)
@@ -471,7 +502,7 @@ async function runUnix(args: string[]): Promise<void> {
     process.stderr.write(
       `Broker unix server error: ${err instanceof Error ? err.message : String(err)}\n`
     )
-    process.exit(1)
+    void (observer?.close() ?? Promise.resolve()).finally(() => process.exit(1))
   })
 
   netServer.listen(socketPath)
@@ -486,7 +517,7 @@ async function startBrokerObserverSocket(options: {
   await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 })
   await reclaimStaleSocket(socketPath)
 
-  const observers = new Set<ProtocolServer>()
+  const observers = new Set<ObserverClient>()
   const sockets = new Set<Socket>()
   const netServer = createServer((socket) => {
     sockets.add(socket)
@@ -495,13 +526,41 @@ async function startBrokerObserverSocket(options: {
       stdout: socket,
       stderr: process.stderr,
     })
-    registerBrokerObserverMethods(observer, broker)
-    observers.add(observer)
+    const client: ObserverClient = {
+      server: observer,
+      subscriptions: new Map(),
+    }
+    const observerBroker: Broker = {
+      ...broker,
+      async eventsSince(req) {
+        const subscription: ObserverSubscription = { cursor: req.afterSeq, queued: [] }
+        client.subscriptions.set(req.invocationId, subscription)
+        try {
+          const response = await broker.eventsSince(req)
+          subscription.cursor = response.currentSeq
+          setImmediate(() => {
+            const current = client.subscriptions.get(req.invocationId)
+            if (current !== subscription || current.queued === undefined) return
+            const queued = current.queued
+            current.queued = undefined
+            for (const event of queued) {
+              notifyObserverClient(client, event)
+            }
+          })
+          return response
+        } catch (err) {
+          client.subscriptions.delete(req.invocationId)
+          throw err
+        }
+      },
+    }
+    registerBrokerObserverMethods(observer, observerBroker)
+    observers.add(client)
     void observer.start()
 
     const cleanup = (): void => {
       sockets.delete(socket)
-      observers.delete(observer)
+      observers.delete(client)
       void observer.close()
     }
     socket.once('close', cleanup)
@@ -548,7 +607,7 @@ async function startBrokerObserverSocket(options: {
       closed = true
       process.removeListener('exit', cleanupSocketOnExit)
       for (const observer of observers) {
-        void observer.close()
+        void observer.server.close()
       }
       observers.clear()
       for (const socket of sockets) {
@@ -565,17 +624,43 @@ async function startBrokerObserverSocket(options: {
 
   return {
     notify(event: InvocationEventEnvelope): void {
-      const notification: JsonRpcNotification = {
-        jsonrpc: '2.0',
-        method: 'invocation.event',
-        params: event,
-      }
       for (const observer of observers) {
-        observer.notify(notification)
+        notifyObserverClient(observer, event)
       }
     },
     close,
   }
+}
+
+function notifyObserverClient(client: ObserverClient, event: InvocationEventEnvelope): void {
+  const subscription = client.subscriptions.get(event.invocationId)
+  if (subscription === undefined || event.seq <= subscription.cursor) return
+  if (subscription.queued !== undefined) {
+    subscription.queued.push(event)
+    return
+  }
+  const notification: JsonRpcNotification = {
+    jsonrpc: '2.0',
+    method: 'invocation.event',
+    params: eventForObserverNotification(event),
+  }
+  client.server.notify(notification)
+  subscription.cursor = event.seq
+}
+
+function eventForObserverNotification(event: InvocationEventEnvelope): InvocationEventEnvelope {
+  if (event.type !== 'turn.completed') return event
+  const payload = event.payload as unknown
+  if (payload === null || typeof payload !== 'object') return event
+  const fields = payload as Record<string, unknown>
+  if (fields['result'] !== undefined || fields['finalOutput'] === undefined) return event
+  return {
+    ...event,
+    payload: {
+      ...fields,
+      result: fields['finalOutput'],
+    },
+  } as InvocationEventEnvelope
 }
 
 /** Probe an existing socket node and unlink it only if no live listener answers. */
