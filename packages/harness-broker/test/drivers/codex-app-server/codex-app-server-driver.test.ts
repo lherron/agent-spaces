@@ -14,6 +14,7 @@ import {
   createCodexAppServerDriver,
   validateInitializeHandshake,
 } from '../../../src/drivers/codex-app-server/driver'
+import { postEnvelope } from '../../../src/drivers/hook-bridge-transport'
 
 const root = new URL('../../..', import.meta.url).pathname
 const fixtureDir = join(root, 'test/fixtures/fake-codex')
@@ -142,6 +143,33 @@ const tmuxLines = async (logPath: string): Promise<string[]> =>
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
+
+function rendererLaunchLines(lines: string[]): string[] {
+  return lines.filter(
+    (line) =>
+      line.includes('set-buffer') && line.includes('codex-app-server') && line.includes('renderer')
+  )
+}
+
+function expectRendererControlSocket(lines: string[]): string {
+  const launch = rendererLaunchLines(lines)[0]
+  expect(launch, `tmux log:\n${lines.join('\n')}`).toBeDefined()
+  const match = launch?.match(/--control-socket\s+(?:"([^"]+)"|'([^']+)'|(\S+))/)
+  expect(
+    match?.[1] ?? match?.[2] ?? match?.[3],
+    `renderer launch must include a fenced inbound --control-socket; tmux log:\n${lines.join('\n')}`
+  ).toBeDefined()
+  return (match?.[1] ?? match?.[2] ?? match?.[3]) as string
+}
+
+async function waitFor(predicate: () => boolean, message: string, timeoutMs = 1000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  expect(predicate(), message).toBe(true)
+}
 
 const createDriverCtx = (events: InvocationEventEnvelope[], runtime: ViewerRuntime) =>
   ({
@@ -613,12 +641,7 @@ describe('Codex app-server renderer process red tests (T-04909 Phase B)', () => 
         })
 
         const lines = await tmuxLines(logPath)
-        const launchLines = lines.filter(
-          (line) =>
-            line.includes('set-buffer') &&
-            line.includes('codex-app-server') &&
-            line.includes('renderer')
-        )
+        const launchLines = rendererLaunchLines(lines)
 
         // T-04909 Phase B: viewer mode needs a driver-owned presentation process
         // launched through TmuxPaneController.sendPastedLine(). The app-server
@@ -645,6 +668,176 @@ describe('Codex app-server renderer process red tests (T-04909 Phase B)', () => 
     expect(spec.process.harnessTransport.kind).toBe('jsonrpc-stdio')
     expect(JSON.stringify(events)).not.toContain('codex-cli-tmux')
     expect(JSON.stringify(events)).not.toContain('brokerTerminal')
+  })
+})
+
+describe('Codex app-server renderer /quit lifecycle red tests (T-04910 Phase C)', () => {
+  test('fenced renderer /quit clears continuation, pushes summary, then exits the app-server child in order', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const runtimeId = 'runtime_codex_app_server_quit'
+    const lease = paneLease()
+    const spec = scenarioSpec('stop-active', {
+      invocationId: 'inv_renderer_quit_lifecycle',
+      correlation: { runtimeId },
+    })
+
+    await withFakeTmux(
+      { sessionId: lease.sessionId, windowId: lease.windowId, paneId: lease.paneId },
+      async (logPath) => {
+        await broker.start({ spec }, undefined, viewerRuntime(lease, { required: true }))
+        await broker.input({
+          invocationId: spec.invocationId ?? '',
+          input: userInput,
+          policy: { whenBusy: 'reject' },
+        })
+
+        const controlSocket = expectRendererControlSocket(await tmuxLines(logPath))
+
+        // Phase C contract: /quit is a renderer -> driver control envelope on a
+        // fenced per-invocation callback socket, not a local renderer exit and
+        // not the read-only observer event feed used for durable rendering.
+        await postEnvelope(controlSocket, {
+          type: 'app-server-renderer.quit',
+          invocationId: spec.invocationId,
+          runtimeId,
+          callbackSocket: controlSocket,
+          reason: 'prompt_input_exit',
+        })
+
+        await waitFor(
+          () => events.some((event) => event.type === 'invocation.exited'),
+          `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+        )
+      }
+    )
+
+    const types = eventTypes(events)
+    const clearIdx = types.indexOf('continuation.cleared')
+    const summaryIdx = types.indexOf('invocation.summary')
+    const exitedIdx = types.indexOf('invocation.exited')
+
+    expect(clearIdx).toBeGreaterThanOrEqual(0)
+    expect(events[clearIdx]?.payload).toMatchObject({ reason: 'prompt_input_exit' })
+    expect(summaryIdx).toBeGreaterThan(clearIdx)
+    expect(exitedIdx).toBeGreaterThan(summaryIdx)
+    expect(types).not.toContain('turn.failed')
+  })
+
+  test('renderer /quit control envelopes with wrong invocation, runtime, or callback identity are ignored', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const runtimeId = 'runtime_codex_app_server_fence'
+    const lease = paneLease()
+    const spec = scenarioSpec('stop-active', {
+      invocationId: 'inv_renderer_quit_fencing',
+      correlation: { runtimeId },
+    })
+
+    await withFakeTmux(
+      { sessionId: lease.sessionId, windowId: lease.windowId, paneId: lease.paneId },
+      async (logPath) => {
+        await broker.start({ spec }, undefined, viewerRuntime(lease, { required: true }))
+        await broker.input({
+          invocationId: spec.invocationId ?? '',
+          input: userInput,
+          policy: { whenBusy: 'reject' },
+        })
+
+        const controlSocket = expectRendererControlSocket(await tmuxLines(logPath))
+        const base = {
+          type: 'app-server-renderer.quit',
+          invocationId: spec.invocationId,
+          runtimeId,
+          callbackSocket: controlSocket,
+          reason: 'prompt_input_exit',
+        }
+
+        await postEnvelope(controlSocket, { ...base, invocationId: 'inv_other' })
+        await postEnvelope(controlSocket, { ...base, runtimeId: 'runtime_other' })
+        await postEnvelope(controlSocket, { ...base, callbackSocket: `${controlSocket}.other` })
+        await new Promise((resolve) => setTimeout(resolve, 50))
+
+        await broker.stop({
+          invocationId: spec.invocationId ?? '',
+          reason: 'test cleanup after fenced control envelopes',
+          graceMs: 100,
+        })
+      }
+    )
+
+    expect(eventTypes(events)).not.toContain('continuation.cleared')
+    expect(eventTypes(events)).not.toContain('invocation.summary')
+  })
+
+  test('renderer crash without /quit emits a diagnostic/failure signal and never clears continuation as prompt exit', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const runtimeId = 'runtime_codex_app_server_renderer_crash'
+    const lease = paneLease()
+    const spec = scenarioSpec('stop-active', {
+      invocationId: 'inv_renderer_crash',
+      correlation: { runtimeId },
+    })
+
+    await withFakeTmux(
+      { sessionId: lease.sessionId, windowId: lease.windowId, paneId: lease.paneId },
+      async (logPath) => {
+        await broker.start({ spec }, undefined, viewerRuntime(lease, { required: true }))
+        await broker.input({
+          invocationId: spec.invocationId ?? '',
+          input: userInput,
+          policy: { whenBusy: 'reject' },
+        })
+
+        const controlSocket = expectRendererControlSocket(await tmuxLines(logPath))
+
+        // Negative guard for the /quit path: an unexpected renderer process
+        // failure is lifecycle degradation, not user intent. A green driver
+        // owns the renderer child and handles this crash envelope without
+        // emitting continuation.cleared(prompt_input_exit).
+        await postEnvelope(controlSocket, {
+          type: 'app-server-renderer.exited',
+          invocationId: spec.invocationId,
+          runtimeId,
+          callbackSocket: controlSocket,
+          exitCode: 42,
+          signal: null,
+        })
+
+        await waitFor(
+          () =>
+            events.some(
+              (event) =>
+                (event.type === 'diagnostic' || event.type === 'invocation.failed') &&
+                JSON.stringify(event.payload).includes('renderer')
+            ),
+          `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+        )
+
+        await broker.stop({
+          invocationId: spec.invocationId ?? '',
+          reason: 'test cleanup after renderer crash signal',
+          graceMs: 100,
+        })
+      }
+    )
+
+    const cleared = events.filter((event) => event.type === 'continuation.cleared')
+    expect(cleared).toHaveLength(0)
+    expect(JSON.stringify(events)).not.toContain('prompt_input_exit')
   })
 })
 
