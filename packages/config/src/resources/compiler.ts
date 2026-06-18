@@ -399,7 +399,7 @@ function readCooldown(source: ParsedToml, relPath: string): string {
   if (typeof seconds !== 'number' || !Number.isInteger(seconds)) {
     throw resourceError('INVALID_COOLDOWN', `${relPath}: cooldown seconds must be an integer`)
   }
-  return `PT${seconds}S`
+  return `${seconds}s`
 }
 
 function readTarget(source: ParsedToml): Target {

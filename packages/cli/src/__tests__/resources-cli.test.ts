@@ -56,7 +56,7 @@ describe('asp resources plan', () => {
       'interface-binding',
       'event-hook',
     ])
-    expect(plan.resources[2]?.desiredJson.trigger?.cooldown).toBe('PT300S')
+    expect(plan.resources[2]?.desiredJson.trigger?.cooldown).toBe('300s')
     expect(first.stderr).toContain('Compiled resources plan for smokey@agent-spaces: 3 resources')
   })
 })
