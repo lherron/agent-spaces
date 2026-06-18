@@ -152,6 +152,27 @@ describe('agent-authored runtime resources plan compiler', () => {
     })
   })
 
+  test('emits event hook cooldowns in ACP runtime duration format instead of ISO-8601', async () => {
+    // Test context: T-04894 red. ACP runtime parses /^(\d+)(ms|s|m|h|d)$/ only; ISO-8601
+    // cooldowns silently disable the scheduler cooldown guard.
+    const result = await compileFixture('agents/smokey')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const eventHook = result.plan.resources.find(
+      (resource) => resource.resourceKind === 'event-hook'
+    )
+    expect(eventHook).toBeDefined()
+
+    const cooldown = (eventHook?.desiredJson as { trigger?: { cooldown?: unknown } } | undefined)
+      ?.trigger?.cooldown
+    expect(typeof cooldown).toBe('string')
+    expect(cooldown, `expected ACP runtime duration format, got ${String(cooldown)}`).toMatch(
+      /^(\d+)(ms|s|m|h|d)$/
+    )
+    expect(cooldown).not.toMatch(/^PT/)
+  })
+
   test('emits bare lane refs accepted by the job-dispatch wire contract', async () => {
     // Test context: Phase F remediation guard. ASP owns only the wire format here; ACP owns
     // the authoritative LaneRef parser round-trip, so keep this as a regex contract check.
