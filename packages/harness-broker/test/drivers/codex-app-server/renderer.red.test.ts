@@ -221,7 +221,7 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     expect(rendered).toContain('renderer')
     expect(rendered).toContain('retention')
     expect(rendered).toContain('seq 7')
-    expect(rendered).toContain(BrokerErrorCode.EventReplayUnavailable)
+    expect(rendered).toContain(String(BrokerErrorCode.EventReplayUnavailable))
     projection.close()
   })
 })

@@ -1,0 +1,233 @@
+import { dirname, extname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { shellQuote } from '../tmux-shared'
+
+/**
+ * T-04906 / T-04909 Phase B — the Codex app-server operator renderer.
+ *
+ * The renderer is a DRIVER-OWNED presentation process launched into the
+ * HRC-leased `tmux-tui` pane. Its single source of truth is the broker's
+ * DURABLE read surface (daedalus Q1 ruling): it bootstraps from
+ * `invocation.eventsSince`, then consumes live `invocation.event`
+ * notifications. It is NOT fed a driver-pushed private event stream, so its
+ * output stays coherent with HRC durable attach/replay semantics. The
+ * app-server JSON-RPC stdio child remains the authoritative harness transport;
+ * the renderer never replaces it and never routes through `codex-cli-tmux`.
+ */
+
+export interface RendererEventsSinceRequest {
+  invocationId: string
+  afterSeq: number
+}
+
+export interface RendererEventsSinceResponse {
+  events: InvocationEventEnvelope[]
+  currentSeq: number
+  retentionFloorSeq?: number | undefined
+}
+
+/**
+ * The durable broker read surface the renderer projects from. Backed in
+ * production by the read-only observer/broker JSON-RPC socket (`eventsSince` +
+ * the `invocation.event` notification stream); backed in tests by an in-memory
+ * fake. It is deliberately read-only — mutation (e.g. Phase C `/quit`) does NOT
+ * flow through here.
+ */
+export interface RendererDurableReadSurface {
+  eventsSince: (request: RendererEventsSinceRequest) => Promise<RendererEventsSinceResponse>
+  observe: (handler: (event: InvocationEventEnvelope) => void) => { close: () => void }
+}
+
+export interface RendererProjection {
+  /** Bootstrap from `eventsSince`, then stream live `invocation.event`. */
+  start: () => Promise<void>
+  /** Rendered lines in seq order (one line per surfaced event). */
+  lines: () => string[]
+  close: () => void
+}
+
+export interface RendererProjectionOptions {
+  invocationId: string
+  readSurface: RendererDurableReadSurface
+  /** Optional side-channel for each rendered line (e.g. write to the pane). */
+  sink?: (line: string) => void
+}
+
+/**
+ * Build the durable-read projection for one invocation. Live subscription is
+ * established BEFORE the `eventsSince` bootstrap so no event slips through the
+ * gap between the replay snapshot and the live stream; any replay/live overlap
+ * (and any out-of-order live arrival during bootstrap) is reconciled by seq so
+ * output is de-duplicated and strictly seq-ordered.
+ */
+export function createCodexAppServerRendererProjection(
+  options: RendererProjectionOptions
+): RendererProjection {
+  const { invocationId, readSurface, sink } = options
+  const lines: string[] = []
+  const seenSeqs = new Set<number>()
+  let bootstrapping = true
+  const deferredLive: InvocationEventEnvelope[] = []
+  let subscription: { close: () => void } | undefined
+  let closed = false
+
+  function pushLine(line: string): void {
+    lines.push(line)
+    sink?.(line)
+  }
+
+  function render(event: InvocationEventEnvelope): void {
+    if (event.invocationId !== invocationId) return
+    if (seenSeqs.has(event.seq)) return
+    seenSeqs.add(event.seq)
+    pushLine(formatEvent(event))
+  }
+
+  function onLive(event: InvocationEventEnvelope): void {
+    if (closed) return
+    if (event.invocationId !== invocationId) return
+    // While bootstrapping, defer live events so they are flushed in seq order
+    // AFTER the replay snapshot — never interleaved ahead of it.
+    if (bootstrapping) {
+      deferredLive.push(event)
+      return
+    }
+    render(event)
+  }
+
+  return {
+    async start(): Promise<void> {
+      subscription = readSurface.observe(onLive)
+      try {
+        const response = await readSurface.eventsSince({ invocationId, afterSeq: 0 })
+        for (const event of [...response.events].sort((a, b) => a.seq - b.seq)) {
+          render(event)
+        }
+      } catch (error) {
+        pushLine(formatReadFailure(error))
+      } finally {
+        bootstrapping = false
+        // Flush any live events captured during bootstrap, in seq order.
+        for (const event of deferredLive.sort((a, b) => a.seq - b.seq)) {
+          render(event)
+        }
+        deferredLive.length = 0
+      }
+    },
+    lines(): string[] {
+      return [...lines]
+    },
+    close(): void {
+      closed = true
+      subscription?.close()
+      subscription = undefined
+    },
+  }
+}
+
+function asRecord(payload: unknown): Record<string, unknown> {
+  return payload !== null && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+}
+
+function str(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  return JSON.stringify(value)
+}
+
+/**
+ * Render one durable broker event into a single operator-facing line. Every
+ * line carries `seq=<n>` so the operator (and the projection's own ordering
+ * invariant) can read the durable sequence directly.
+ */
+export function formatEvent(event: InvocationEventEnvelope): string {
+  const seq = `seq=${event.seq}`
+  const p = asRecord(event.payload)
+  switch (event.type) {
+    case 'user.message':
+      return `${seq} user> ${str(p['content'])}`.trimEnd()
+    case 'invocation.ready':
+      return `${seq} status ready (${str(p['state']) || 'ready'})`
+    case 'invocation.summary':
+      return `${seq} summary ${str(p['summary'] ?? p)}`
+    case 'assistant.message.delta':
+      return `${seq} assistant Δ ${str(p['text'])}`.trimEnd()
+    case 'assistant.message.completed':
+      return `${seq} assistant ${str(p['text'])}`.trimEnd()
+    case 'tool.call.started':
+      return `${seq} tool start ${str(p['name'])} ${str(p['input'])}`.trimEnd()
+    case 'tool.call.delta':
+      return `${seq} tool … ${str(p['text'] ?? p['output'])}`.trimEnd()
+    case 'tool.call.completed':
+      return `${seq} tool done ${str(p['output'])}`.trimEnd()
+    case 'tool.call.failed':
+      return `${seq} tool FAILED ${str(p['name'])} ${str(p['message'])}`.trimEnd()
+    case 'diagnostic':
+      return `${seq} [${str(p['level']) || 'info'}] ${str(p['message'])}`.trimEnd()
+    case 'turn.started':
+      return `${seq} turn started ${str(p['turnId'])}`.trimEnd()
+    case 'turn.completed':
+      return `${seq} turn completed ${str(p['finalOutput'])}`.trimEnd()
+    case 'turn.failed':
+      return `${seq} turn failed ${str(p['message'] ?? p['finalOutput'])}`.trimEnd()
+    default:
+      return `${seq} ${event.type} ${str(event.payload)}`.trimEnd()
+  }
+}
+
+/**
+ * Render a durable-read failure VISIBLY (daedalus invariant): a retention-gap
+ * (`EventReplayUnavailable`) or any other read-surface error must surface in
+ * the renderer output, never be silently dropped.
+ */
+export function formatReadFailure(error: unknown): string {
+  const err = (error ?? {}) as {
+    code?: unknown
+    message?: unknown
+    data?: { retentionFloorSeq?: unknown } | undefined
+  }
+  const code = err.code !== undefined ? String(err.code) : 'unknown'
+  const floor = err.data?.retentionFloorSeq
+  const floorNote = floor !== undefined ? ` retentionFloorSeq=${String(floor)}` : ''
+  const message = typeof err.message === 'string' ? err.message : String(error)
+  return `renderer durable read failed (${code})${floorNote}: ${message}`
+}
+
+/**
+ * Resolve the absolute path to the renderer entry process that ships beside
+ * this module (`renderer-entry.ts` in dev, `.js` once built by tsc). The launch
+ * command invokes it directly inside the leased pane.
+ */
+export function resolveRendererEntryPath(): string {
+  const self = fileURLToPath(import.meta.url)
+  return join(dirname(self), `renderer-entry${extname(self)}`)
+}
+
+export interface RendererLaunchOptions {
+  invocationId: string
+  /** Read-only observer/broker socket the renderer connects to. */
+  observerSocketPath: string
+  rendererEntryPath?: string | undefined
+}
+
+/**
+ * Build the command line pasted into the leased pane to launch the renderer.
+ * It names the durable read source explicitly — bootstrap method
+ * `invocation.eventsSince` and live notification `invocation.event` — so the
+ * launch is self-documenting and a driver-pushed private feed can never satisfy
+ * it. Never references `codex-cli-tmux`: the app-server JSON-RPC child stays the
+ * harness transport.
+ */
+export function buildRendererLaunchCommand(options: RendererLaunchOptions): string {
+  const entry = options.rendererEntryPath ?? resolveRendererEntryPath()
+  return [
+    'exec bun',
+    shellQuote(entry),
+    '--driver codex-app-server',
+    `--invocation-id ${shellQuote(options.invocationId)}`,
+    `--observer-socket ${shellQuote(options.observerSocketPath)}`,
+    '--bootstrap-method invocation.eventsSince',
+    '--live-method invocation.event',
+  ].join(' ')
+}

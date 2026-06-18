@@ -25,6 +25,7 @@ import {
   createPermissionRequestIdAllocator,
   handlePermissionRequest,
 } from './permissions'
+import { buildRendererLaunchCommand } from './renderer'
 import { CodexRpcClient, CodexRpcError, type JsonRpcNotification } from './rpc-client'
 
 const bunRuntime =
@@ -286,6 +287,20 @@ export function createCodexAppServerDriver(): Driver {
           },
           { driver: { kind: 'codex-app-server', rawType: 'tmux.surface' } }
         )
+
+        // Launch the DRIVER-OWNED renderer into the leased pane. The renderer is
+        // a presentation/observation process: it reads the broker's DURABLE
+        // event surface (invocation.eventsSince + live invocation.event), NOT a
+        // driver-pushed feed, so it stays coherent with HRC attach/replay. The
+        // app-server JSON-RPC child started below remains the harness transport;
+        // this never routes through codex-cli-tmux.
+        const observerSocketPath = resolveRendererObserverSocket(driverCtx, leased.surface)
+        await leased.controller.sendPastedLine(
+          buildRendererLaunchCommand({
+            invocationId: driverCtx.invocationId,
+            observerSocketPath,
+          })
+        )
       }
 
       startupFailure = new Promise<never>((_resolve, reject) => {
@@ -525,6 +540,27 @@ export function createCodexAppServerDriver(): Driver {
     work.catch(() => {})
     return Promise.race([work, startupFailure])
   }
+}
+
+/**
+ * Resolve the read-only observer/broker socket the renderer connects to for the
+ * durable event surface. HRC supplies it via the
+ * `HARNESS_BROKER_OBSERVER_SOCKET` dispatch/process env (the concrete read
+ * endpoint seam); absent that, derive a conventional path beside the leased
+ * tmux socket so the launch command always carries a concrete endpoint.
+ */
+function resolveRendererObserverSocket(
+  driverCtx: DriverContext,
+  surface: { socketPath: string }
+): string {
+  const fromDispatch = driverCtx.dispatchEnv?.['HARNESS_BROKER_OBSERVER_SOCKET']
+  if (typeof fromDispatch === 'string' && fromDispatch.length > 0) return fromDispatch
+  const fromEnv = process.env['HARNESS_BROKER_OBSERVER_SOCKET']
+  if (typeof fromEnv === 'string' && fromEnv.length > 0) return fromEnv
+  const dir = surface.socketPath.includes('/')
+    ? surface.socketPath.slice(0, surface.socketPath.lastIndexOf('/'))
+    : '.'
+  return `${dir}/${driverCtx.invocationId}.observer.sock`
 }
 
 type DiagnosticEmitter = (
