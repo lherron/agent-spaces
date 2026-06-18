@@ -7,7 +7,9 @@ import type {
   BrokerHelloResponse,
   HarnessInvocationSpec,
   InvocationEventEnvelope,
+  InvocationEventsSinceResponse,
   InvocationStartRequest,
+  InvocationStartResponse,
   JsonRpcMessage,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
@@ -30,6 +32,22 @@ const runBrokerStdio = (extraArgs: string[] = []) =>
     stdout: 'pipe',
     stderr: 'pipe',
     cwd: repoRoot,
+  })
+
+const runBrokerUnix = (args: string[]) =>
+  Bun.spawn({
+    cmd: [
+      'bun',
+      'packages/harness-broker/bin/harness-broker.js',
+      'run',
+      '--transport',
+      'unix',
+      ...args,
+    ],
+    cwd: repoRoot,
+    stdin: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
   })
 
 const waitForSocket = async (
@@ -144,6 +162,31 @@ function createSocketFrameReader(socket: Socket): {
       socket.end()
       socket.destroy()
     },
+  }
+}
+
+async function nextResultFrame<TResult>(
+  reader: ReturnType<typeof createSocketFrameReader>,
+  id: string | number
+) {
+  while (true) {
+    const frame = await reader.nextFrame()
+    if ('id' in frame && frame.id === id) {
+      return expectResult<TResult>(frame, id)
+    }
+  }
+}
+
+async function nextInvocationEvent(
+  reader: ReturnType<typeof createSocketFrameReader>,
+  predicate: (event: InvocationEventEnvelope) => boolean
+): Promise<InvocationEventEnvelope> {
+  while (true) {
+    const frame = await reader.nextFrame()
+    if ('method' in frame && frame.method === 'invocation.event') {
+      const event = frame.params as InvocationEventEnvelope
+      if (predicate(event)) return event
+    }
   }
 }
 
@@ -282,6 +325,130 @@ describe('harness-broker CLI', () => {
     } finally {
       observer?.close()
       proc.stdin.end()
+      await proc.exited.catch(() => {})
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('run --transport unix can expose an experimental observer unix socket with no controller attached for live events', async () => {
+    // T-04924: the durable unix broker is the path used by the dual-tmux viewer.
+    // Its observer socket must serve replay reads and must continue live
+    // notification delivery after the controller socket disconnects.
+    const dir = await mkdtemp(join(tmpdir(), 'harness-broker-unix-observer-'))
+    const brokerSocketPath = join(dir, 'broker.sock')
+    const observerSocketPath = join(dir, 'observer.sock')
+    const eventLedgerPath = join(dir, 'events.ndjson')
+    const proc = runBrokerUnix([
+      '--socket',
+      brokerSocketPath,
+      '--event-ledger',
+      eventLedgerPath,
+      '--experimental-observer-socket',
+      observerSocketPath,
+    ])
+
+    let controllerSocket: Socket | undefined
+    let controller: ReturnType<typeof createSocketFrameReader> | undefined
+    let observerSocket: Socket | undefined
+    let observer: ReturnType<typeof createSocketFrameReader> | undefined
+    try {
+      await waitForSocket(brokerSocketPath, proc)
+      await waitForSocket(observerSocketPath, proc)
+
+      controllerSocket = await connectUnixSocket(brokerSocketPath)
+      controller = createSocketFrameReader(controllerSocket)
+      observerSocket = await connectUnixSocket(observerSocketPath)
+      observer = createSocketFrameReader(observerSocket)
+
+      const startRequest = codexStartRequest('delayed-live-after-turn-response')
+      controllerSocket.write(
+        request('unix-observer-start', 'invocation.start', {
+          startRequest,
+        })
+      )
+      const start = await nextResultFrame<InvocationStartResponse>(
+        controller,
+        'unix-observer-start'
+      )
+      expect(start.result.invocationId).toBe(startRequest.spec.invocationId)
+
+      observerSocket.write(
+        request('unix-observer-bootstrap', 'invocation.eventsSince', {
+          invocationId: startRequest.spec.invocationId,
+          afterSeq: 0,
+        })
+      )
+      const bootstrap = expectResult<InvocationEventsSinceResponse>(
+        await observer.nextFrame(),
+        'unix-observer-bootstrap'
+      )
+      expect(bootstrap.result.events.length).toBeGreaterThan(0)
+      const seqBeforeControllerDetach = bootstrap.result.currentSeq
+
+      controller.close()
+      controllerSocket.end()
+      controllerSocket.destroy()
+      controller = undefined
+      controllerSocket = undefined
+
+      const liveEvent = await nextInvocationEvent(
+        observer,
+        (event) =>
+          event.invocationId === startRequest.spec.invocationId &&
+          event.seq > seqBeforeControllerDetach &&
+          event.type === 'turn.completed'
+      )
+      expect(liveEvent.payload).toMatchObject({ result: 'Delayed live event complete.' })
+    } finally {
+      observer?.close()
+      controller?.close()
+      proc.kill('SIGTERM')
+      await proc.exited.catch(() => {})
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('run --transport unix without experimental observer socket does not create observer socket', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'harness-broker-unix-no-observer-'))
+    const brokerSocketPath = join(dir, 'broker.sock')
+    const observerSocketPath = join(dir, 'observer.sock')
+    const proc = runBrokerUnix(['--socket', brokerSocketPath])
+
+    try {
+      await waitForSocket(brokerSocketPath, proc)
+      await expect(stat(observerSocketPath)).rejects.toThrow()
+    } finally {
+      proc.kill('SIGTERM')
+      await proc.exited.catch(() => {})
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('run --transport unix rejects unsupported experimental observer mode', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'harness-broker-unix-observer-mode-'))
+    const proc = runBrokerUnix([
+      '--socket',
+      join(dir, 'broker.sock'),
+      '--experimental-observer-socket',
+      join(dir, 'observer.sock'),
+      '--experimental-observer-mode',
+      'control',
+    ])
+
+    try {
+      const exitCode = await Promise.race([proc.exited, Bun.sleep(500).then(() => null)])
+      if (exitCode === null) {
+        throw new Error('broker did not reject unsupported experimental observer mode')
+      }
+      const stdout = await new Response(proc.stdout).text()
+      const stderr = await new Response(proc.stderr).text()
+
+      expect(exitCode).not.toBe(0)
+      expect(stdout).toBe('')
+      expect(stderr).toContain('Unsupported --experimental-observer-mode')
+      expect(stderr).toContain('observe')
+    } finally {
+      proc.kill('SIGTERM')
       await proc.exited.catch(() => {})
       await rm(dir, { recursive: true, force: true })
     }
