@@ -12,7 +12,7 @@ project_scope_id = "agent-spaces"
 kind = "task"
 
 [match.transition]
-to = "needs_smoketest"
+to = "in_progress"
 
 [target]
 project = "{{ project_scope_id }}"

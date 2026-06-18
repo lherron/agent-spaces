@@ -186,7 +186,7 @@ function compileSchedule(file: ResourceFile, owner: Owner): ResourceProjection {
     projectId: owner.projectId,
     agentId: owner.agentId,
     scopeRef,
-    laneRef: laneRefFor(scopeRef, lane),
+    laneRef: laneRefFor(lane),
     title: optionalString(source, 'title'),
     disabled: source['enabled'] === false,
     trigger: {
@@ -219,7 +219,7 @@ function compileChannel(file: ResourceFile, owner: Owner): ResourceProjection {
     taskId: task,
     ...(target.roleName !== undefined ? { roleName: target.roleName } : {}),
     scopeRef,
-    laneRef: laneRefFor(scopeRef, lane),
+    laneRef: laneRefFor(lane),
   }
   const desiredJson = {
     kind: 'interface-binding',
@@ -275,7 +275,7 @@ function compileEventHook(file: ResourceFile, owner: Owner, agentRoot: string): 
     projectId: owner.projectId,
     agentId: owner.agentId,
     scopeRef,
-    laneRef: laneRefFor(scopeRef, lane),
+    laneRef: laneRefFor(lane),
     title: optionalString(source, 'title'),
     disabled: source['enabled'] === false,
     trigger: {
@@ -425,8 +425,8 @@ function scopeRefFor(agentId: string, projectId: string, taskId: string): string
   return `agent:${agentId}:project:${projectId}:task:${taskId}`
 }
 
-function laneRefFor(scopeRef: string, laneId: string): string {
-  return `${scopeRef}~${laneId}`
+function laneRefFor(laneId: string): string {
+  return laneId === 'main' ? 'main' : `lane:${laneId}`
 }
 
 function hashString(value: unknown): string {
