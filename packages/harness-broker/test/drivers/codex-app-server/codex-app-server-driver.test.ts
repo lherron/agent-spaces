@@ -111,6 +111,9 @@ if [[ "$1" == "display-message" ]]; then
   printf '%s\\t%s\\t%s\\n' '${inspected.sessionId}' '${inspected.windowId}' '${inspected.paneId}'
   exit 0
 fi
+if [[ "$1" == "set-buffer" || "$1" == "paste-buffer" || "$1" == "send-keys" ]]; then
+  exit 0
+fi
 printf 'unexpected fake tmux argv: %s\\n' "$*" >&2
 exit 64
 `
@@ -133,6 +136,12 @@ exit 64
 }
 
 const eventTypes = (events: InvocationEventEnvelope[]) => events.map((event) => event.type)
+
+const tmuxLines = async (logPath: string): Promise<string[]> =>
+  (await readFile(logPath, 'utf8').catch(() => ''))
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
 
 const createDriverCtx = (events: InvocationEventEnvelope[], runtime: ViewerRuntime) =>
   ({
@@ -579,6 +588,63 @@ describe('Codex app-server viewer contract red tests (T-04908 Phase A)', () => {
       })
     )
     expect(eventTypes(events)).toContain('input.accepted')
+  })
+})
+
+describe('Codex app-server renderer process red tests (T-04909 Phase B)', () => {
+  test('viewer lease launches a driver-owned renderer command into the leased pane while JSON-RPC app-server remains authoritative', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const lease = paneLease()
+    const spec = scenarioSpec('start-fresh-turn')
+
+    await withFakeTmux(
+      { sessionId: lease.sessionId, windowId: lease.windowId, paneId: lease.paneId },
+      async (logPath) => {
+        await broker.start({ spec }, undefined, viewerRuntime(lease, { required: true }))
+        await broker.input({
+          invocationId: spec.invocationId ?? '',
+          input: userInput,
+          policy: { whenBusy: 'reject' },
+        })
+
+        const lines = await tmuxLines(logPath)
+        const launchLines = lines.filter(
+          (line) =>
+            line.includes('set-buffer') &&
+            line.includes('codex-app-server') &&
+            line.includes('renderer')
+        )
+
+        // T-04909 Phase B: viewer mode needs a driver-owned presentation process
+        // launched through TmuxPaneController.sendPastedLine(). The app-server
+        // JSON-RPC child remains the harness transport; this forbids satisfying
+        // viewer mode by swapping to codex-cli-tmux or only reporting the pane.
+        expect(launchLines, `tmux log:\n${lines.join('\n')}`).toHaveLength(1)
+        for (const line of launchLines) {
+          expect(line).toContain('-S /tmp/harness-broker/codex-app-server-viewer.sock')
+          expect(line).toContain('-t %42')
+          expect(line).toContain('invocation.eventsSince')
+          expect(line).toContain('invocation.event')
+          expect(line).not.toContain('codex-cli-tmux')
+        }
+      }
+    )
+
+    expect(eventTypes(events)).toContain('terminal.surface.reported')
+    expect(eventTypes(events)).toContain('invocation.started')
+    expect(eventTypes(events)).toContain('invocation.ready')
+    expect(eventTypes(events)).toContain('turn.started')
+    expect(eventTypes(events)).toContain('turn.completed')
+    expect(spec.harness.driver).toBe('codex-app-server')
+    expect(spec.interaction?.mode).toBe('headless')
+    expect(spec.process.harnessTransport.kind).toBe('jsonrpc-stdio')
+    expect(JSON.stringify(events)).not.toContain('codex-cli-tmux')
+    expect(JSON.stringify(events)).not.toContain('brokerTerminal')
   })
 })
 
