@@ -20,6 +20,7 @@ import { parse as parseToml } from '@iarna/toml'
 import {
   mergeAgentWithProjectTarget,
   parseAgentProfile,
+  parseSpaceRef,
   parseTargetsToml,
   resolveAgentPrimingPrompt,
 } from '../core/index.js'
@@ -41,7 +42,6 @@ import type {
 } from '../core/types/placement.js'
 import { readAgentProfileSource } from './agent-profile-source.js'
 import { validateAgentRoot } from './agent-root.js'
-import { parseSpaceRef } from './ref-parser.js'
 import { resolveRootRelativeRef } from './root-relative-refs.js'
 import { resolveSpaceComposition } from './space-composition.js'
 

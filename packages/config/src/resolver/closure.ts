@@ -21,6 +21,7 @@ import {
   MissingDependencyError,
   PROJECT_COMMIT_MARKER,
   asSpaceKey,
+  parseSpaceRef,
 } from '../core/index.js'
 import {
   type ManifestReadOptions,
@@ -28,7 +29,7 @@ import {
   readSpaceManifest,
   readSpaceManifestFromFilesystem,
 } from './manifest.js'
-import { buildSpaceKey, parseSpaceRef } from './ref-parser.js'
+import { buildSpaceKey } from './ref-parser.js'
 import { type ResolvedSelector, type SelectorResolveOptions, resolveSelector } from './selector.js'
 
 /** Marker commit for @dev refs (not a real git SHA) */

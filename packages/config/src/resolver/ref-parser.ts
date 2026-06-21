@@ -22,7 +22,7 @@ import {
 } from '../core/index.js'
 
 // Re-export core parsing functions
-export { parseSpaceRef as parseSpaceRefCore } from '../core/index.js'
+export { parseSpaceRef, parseSpaceRef as parseSpaceRefCore } from '../core/index.js'
 export { parseSelector, formatSpaceRef, isSpaceRefString }
 
 // Re-export type constructors
@@ -30,14 +30,6 @@ export { asSpaceId, asCommitSha, asSpaceKey }
 
 // Re-export types
 export type { SpaceRef, SpaceRefString, Selector, SpaceId, CommitSha, SpaceKey }
-
-/**
- * Parse a space reference string with validation.
- * Wraps the core function to provide resolver-specific context.
- */
-export function parseSpaceRef(refString: string): SpaceRef {
-  return coreParseSpaceRef(refString)
-}
 
 /**
  * Build a space key from id and commit.
@@ -66,5 +58,5 @@ export function parseSpaceKey(key: SpaceKey): { id: SpaceId; commit: string } {
  * Extract all space refs from an array of ref strings.
  */
 export function parseAllRefs(refStrings: SpaceRefString[]): SpaceRef[] {
-  return refStrings.map((s) => parseSpaceRef(s))
+  return refStrings.map((s) => coreParseSpaceRef(s))
 }
