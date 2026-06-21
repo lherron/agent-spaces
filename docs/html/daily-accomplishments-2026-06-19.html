@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-19</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --paper: rgba(255, 255, 255, 0.96);
+      --ink: #16202a;
+      --muted: #5f6c75;
+      --line: #d7ddd8;
+      --shadow: 0 18px 42px rgba(22, 32, 42, 0.09);
+      --green: #115e53;
+      --green-soft: #dbeee8;
+      --blue: #265f8a;
+      --blue-soft: #deebf5;
+      --amber: #8a5a18;
+      --amber-soft: #f4e6ce;
+      --rose: #8f3d49;
+      --rose-soft: #f6e1e5;
+      --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+      --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+      --serif: Georgia, "Iowan Old Style", serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body {
+      background:
+        linear-gradient(90deg, rgba(22, 32, 42, 0.03) 1px, transparent 1px) 0 0 / 22px 22px,
+        linear-gradient(0deg, rgba(22, 32, 42, 0.02) 1px, transparent 1px) 0 0 / 22px 22px,
+        radial-gradient(circle at top right, rgba(37, 95, 138, 0.12), transparent 34%),
+        var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 var(--sans);
+    }
+    a { color: var(--green); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 296px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px 20px 28px;
+      border-right: 1px solid var(--line);
+      background: rgba(244, 239, 230, 0.97);
+      backdrop-filter: blur(10px);
+    }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card {
+      display: grid;
+      gap: 10px;
+    }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a {
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.055em;
+    }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 {
+      margin: 0;
+      font-family: var(--serif);
+      line-height: 1.06;
+    }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p {
+      margin: 0;
+      color: var(--muted);
+    }
+    .kicker { color: var(--amber); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a {
+      display: block;
+      padding: 8px 10px;
+      border-left: 3px solid transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .nav a:hover, .nav a:focus {
+      border-left-color: var(--green);
+      background: rgba(255, 255, 255, 0.84);
+      color: var(--ink);
+    }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero {
+      padding: 44px min(5vw, 62px) 34px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(90deg, rgba(20, 99, 86, 0.14), transparent 54%), linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.9));
+    }
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr); gap: 28px; }
+    .eyebrow { color: var(--green); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.25rem, 4vw, 3.8rem); margin-bottom: 14px; }
+    .hero p { max-width: 74ch; font-size: 1.02rem; }
+    .hero-note {
+      margin-top: 18px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: var(--shadow);
+    }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.85rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .task-grid .task-card { grid-column: span 4; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.35rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 11px;
+      font-weight: 800;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+    .chip.green { background: var(--green-soft); color: var(--green); border-color: rgba(20, 99, 86, 0.18); }
+    .chip.blue { background: var(--blue-soft); color: var(--blue); border-color: rgba(37, 95, 138, 0.18); }
+    .chip.amber { background: var(--amber-soft); color: var(--amber); border-color: rgba(138, 90, 24, 0.18); }
+    .chip.rose { background: var(--rose-soft); color: var(--rose); border-color: rgba(141, 60, 71, 0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.08fr 0.92fr; gap: 18px; min-width: 0; }
+    .note-box {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(222, 235, 245, 0.7), rgba(255, 255, 255, 0.86));
+    }
+    .task-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+    }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(220, 239, 232, 0.9), rgba(255, 255, 255, 0.97)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(244, 230, 206, 0.9), rgba(255, 255, 255, 0.97)); }
+    .evidence-card.risk { background: linear-gradient(180deg, rgba(246, 225, 229, 0.9), rgba(255, 255, 255, 0.97)); }
+    .repo-list span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .footer {
+      margin-top: 36px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) {
+      .page { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+      .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; }
+    }
+    @media (max-width: 640px) {
+      .hero, .content { padding-left: 18px; padding-right: 18px; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-19</h1>
+        <p>Previous 24 hours in local time, covering committed work, completed <code>wrkq</code> tasks, unpushed commits, and visible unchecked-in state across Praesidium repos.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--green);"></span>Committed work in the exact window</div>
+        <div class="legend-item"><span class="dot" style="background: var(--blue);"></span>Task-system completion evidence</div>
+        <div class="legend-item"><span class="dot" style="background: var(--amber);"></span>Committed locally but not pushed</div>
+        <div class="legend-item"><span class="dot" style="background: var(--rose);"></span>Visible unchecked-in repo pressure</div>
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Window</strong><br />
+        2026-06-18 05:02 CDT to 2026-06-19 05:02 CDT
+      </div>
+      <div class="sidebar-block sidebar-note">
+        <strong>Top accomplishments</strong>
+        <ul class="fact-list">
+          <li><strong><code>zed-agent-collab</code> dominated shipped output</strong> with <strong>27 commits</strong> and <strong>12 completed tasks</strong>, moving from Stage 0 stack bring-up into Phase 2 read/write/steering and pairing seams.</li>
+          <li><strong>The Codex app-server viewer route crossed both ASP and HRC</strong> with <strong>21 commits</strong> and <strong>13 completed tasks</strong> across <code>agent-spaces</code> and <code>hrc-runtime</code>.</li>
+          <li><strong><code>agent-loop</code> closed its named-sinks refactor</strong> and followed through with transcript and payload-preview fixes in the same window.</li>
+          <li><strong>Local-only progress stayed explicit</strong>: <code>agent-spaces</code> has <strong>8</strong> in-window unpushed commits and <code>hrc-runtime</code> has <strong>2</strong>, all called out separately from broader committed work.</li>
+          <li><strong>Open repo state is non-trivial</strong>, with visible unchecked-in changes in <strong>13 repos</strong>, led by the umbrella <code>praesidium</code> repo, <code>zed-agent-collab</code>, and <code>agent-control-plane</code>.</li>
+        </ul>
+      </div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium-wide accomplishments for 2026-06-19</div>
+            <h2>The day’s core story was a two-front push: Zed collaboration execution accelerated hard, while the Codex app-server viewer route advanced across both ASP and HRC with task closeout, test-first commits, and follow-on crash fixes.</h2>
+            <p>The exact local-time window contains dense implementation output rather than broad repo dispersion. Four repos produced all observed commits in the slice, but those four repos accounted for substantial task closure volume as well: <code>zed-agent-collab</code>, <code>hrc-runtime</code>, <code>agent-spaces</code>, and <code>agent-loop</code> together closed 26 tasks. The report keeps committed work, completed tasks, unpushed commits, and dirty worktrees separate so the artifact stays precise about what shipped locally versus what still needs push or cleanup.</p>
+            <div class="hero-note">
+              <strong>Interpret the buckets literally</strong>
+              Commits are any local commits in the window. Unpushed commits are the subset proven to be ahead of an upstream branch. Repos with no upstream configured, such as <code>zed-agent-collab</code> and <code>agent-loop</code>, are counted as committed work but not classified as pushed or unpushed by this report.
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric">
+              <div class="metric-label">Committed window</div>
+              <div class="metric-value">55</div>
+              <small>Across <strong>4 repos</strong>: <code>zed-agent-collab</code> 27, <code>hrc-runtime</code> 13, <code>agent-spaces</code> 8, <code>agent-loop</code> 7.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Completed wrkq tasks</div>
+              <div class="metric-value">26</div>
+              <small>Across <strong>4 projects</strong>: <code>zed-agent-collab</code> 12, <code>hrc-runtime</code> 8, <code>agent-spaces</code> 5, <code>agent-loop</code> 1.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">In-window unpushed commits</div>
+              <div class="metric-value">10</div>
+              <small><code>agent-spaces</code> is ahead of <code>origin/main</code> by <strong>8</strong> in-window commits and <code>hrc-runtime</code> by <strong>2</strong>.</small>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Dirty repos now</div>
+              <div class="metric-value">13</div>
+              <small>Visible unchecked-in state remains heaviest in the umbrella <code>praesidium</code> repo (158 paths), <code>knowledge</code> (51), <code>zed-agent-collab</code> (48), and <code>workflow-spec</code> (40).</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>Two large cross-cutting streams account for most of the day: the Zed collaboration build-out and the Codex app-server viewer route. A smaller but still meaningful third stream cleaned up <code>agent-loop</code> event output after the API shift to named sinks.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3><code>zed-agent-collab</code> moved from stack bring-up into a full Phase 2 collaboration surface</h3>
+                </div>
+                <div class="chips">
+                  <span class="chip green">27 committed changes</span>
+                  <span class="chip blue">12 completed tasks</span>
+                  <span class="chip amber">No upstream configured</span>
+                </div>
+              </div>
+              <p>The largest single stream was the Zed collaboration effort. The repo committed continuously through the window, starting with Stage 0 stack/bootstrap work and then landing the Phase 2 foundation, read surface, write surface, agent-loop driveability seam, inline steering watcher, pairing semantics design, steering-surface design, guarded watch-sigil pairing runtime, and the bounded agent-dispatch seam revision work.</p>
+              <div class="stream-columns">
+                <ul class="fact-list">
+                  <li>Representative commit subjects include <code>feat(stage0): self-hosted Zed collab stack + auth shim + STAGE0 contract</code>, <code>feat(2a.2): GREEN read/introspection surface for T-04912</code>, <code>feat(2a.5): TS agent-loop driver + stable JSON/stdio contract</code>, and <code>feat(2b): T-04929 — guarded watch-sigils pairing runtime</code>.</li>
+                  <li>The task system shows the same story from another angle: <code>T-04903</code>, <code>T-04904</code>, <code>T-04907</code>, <code>T-04911</code> through <code>T-04918</code>, and <code>T-04929</code> all completed inside the exact window.</li>
+                  <li>The closing commits in the series are explicitly about seam hardening, idempotency, delayed-self-trigger provenance, and Daedalus-gated revisions, which makes this a disciplined implementation burst rather than raw feature spray.</li>
+                </ul>
+                <div class="note-box">
+                  <strong>Why this matters</strong>
+                  <ul class="evidence-list">
+                    <li>The repo did not only produce code; it also closed design tasks and build tasks in the same slice, which means the conceptual and implementation layers stayed synchronized.</li>
+                    <li>Because the repo has no configured upstream, the report avoids guessing push state and simply records the committed output as local evidence.</li>
+                    <li>Visible dirty state is still high in the repo, so follow-up should assume active local churn continues after this window rather than a fully settled surface.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3><code>agent-spaces</code> plus <code>hrc-runtime</code> pushed the Codex app-server viewer route from renderer pane work into runtime fixes</h3>
+                </div>
+                <div class="chips">
+                  <span class="chip green">21 committed changes</span>
+                  <span class="chip blue">13 completed tasks</span>
+                  <span class="chip amber">10 proven unpushed</span>
+                </div>
+              </div>
+              <p>The second major stream is the viewer-route line anchored on <code>T-04905</code>. On the ASP side, <code>agent-spaces</code> completed the renderer pane, Phase A/B/C subtasks, and the observer-socket fix. On the HRC side, <code>hrc-runtime</code> completed Phase A/B/C/E work, diagnosis, a startup wedge fix, a broker crash fix, and the top-level integration task itself.</p>
+              <div class="stream-columns">
+                <ul class="fact-list">
+                  <li><code>agent-spaces</code> committed eight in-window changes, all still ahead of <code>origin/main</code>, including renderer launch, viewer contract, <code>/quit</code> lifecycle control, and the read-only observer socket fix.</li>
+                  <li><code>hrc-runtime</code> committed 13 changes, of which the newest two remain ahead of <code>origin/main</code>: the false-liveness reap crash fix and the non-tmux socket startup/status fix.</li>
+                  <li>Task evidence mirrors the commit story closely: <code>T-04906</code>, <code>T-04908</code>, <code>T-04909</code>, <code>T-04910</code>, and <code>T-04924</code> in ASP; <code>T-04921</code>, <code>T-04922</code>, <code>T-04923</code>, <code>T-04925</code>, <code>T-04926</code>, <code>T-04927</code>, <code>T-04928</code>, and <code>T-04905</code> in HRC.</li>
+                </ul>
+                <div class="note-box">
+                  <strong>Why this matters</strong>
+                  <ul class="evidence-list">
+                    <li>This is genuine cross-repo closure rather than isolated implementation: the HRC integration task itself completed after the phase tasks and follow-on blockers were closed.</li>
+                    <li>The commit stream contains explicit <code>test(...)</code> entries for phases A, B, C, and E on the HRC side and red-test commits for the ASP renderer work, which gives this stream a strong visible test trail.</li>
+                    <li>The report separates the still-unpushed ASP/HRC commits from the broader committed narrative so the follow-up can focus on publish state without losing the implementation record.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3><code>agent-loop</code> finished the named-sinks refactor and then repaired visibility of sink output</h3>
+                </div>
+                <div class="chips">
+                  <span class="chip green">7 committed changes</span>
+                  <span class="chip blue">1 completed task</span>
+                  <span class="chip amber">No upstream configured</span>
+                </div>
+              </div>
+              <p>The smallest stream still had a clear arc. <code>agent-loop</code> first snapped the pre-split state, then split loops out of the SDK, replaced the event API with named sinks, improved event-sink payload previews, and finally rendered event-sink transcript output in the same style as <code>hrcchat</code>.</p>
+              <div class="stream-columns">
+                <ul class="fact-list">
+                  <li>The completed task <code>T-04920</code> was <code>Replace agent-loop event API with named sinks</code>, updated at <strong>2026-06-18 14:38 CDT</strong>.</li>
+                  <li>The commit sequence shows the implementation did not stop at the structural rename; it followed through with usability fixes immediately after the API shift.</li>
+                  <li>There is no current dirty worktree in <code>agent-loop</code>, making it the cleanest repo among the four that produced commits in this slice.</li>
+                </ul>
+                <div class="note-box">
+                  <strong>Why this matters</strong>
+                  <ul class="evidence-list">
+                    <li>This is a good example of a small, closed loop: one focused task, a compact commit series, and no visible unchecked-in residue afterward.</li>
+                    <li>The transcript-rendering fix improves operational observability, which compounds the value of the named-sinks change instead of leaving it as a purely internal API move.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Tasks</h2>
+            <p>The completed-task grid below highlights the main closure clusters rather than listing every single item. The full exact-window count is 26 tasks across four Praesidium projects.</p>
+          </div>
+          <div class="task-grid">
+            <article class="task-card">
+              <div class="task-meta">
+                <span><code>hrc-runtime</code></span>
+                <span>8 tasks completed</span>
+              </div>
+              <h3><code>T-04905</code> closed after all major viewer-route phases and blocker fixes landed</h3>
+              <p>Key completions: <code>T-04921</code>, <code>T-04922</code>, <code>T-04923</code>, <code>T-04925</code>, <code>T-04927</code>, <code>T-04928</code>, and the parent integration task <code>T-04905</code>.</p>
+              <ul class="fact-list">
+                <li>Latest completion: <strong>2026-06-18 20:37 CDT</strong> for <code>T-04905</code>.</li>
+                <li>The task sequence shows both feature phases and production-fallout cleanup happened inside one daily window.</li>
+              </ul>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta">
+                <span><code>zed-agent-collab</code></span>
+                <span>12 tasks completed</span>
+              </div>
+              <h3>Phase 2 collaboration surface moved from foundation through steering and pairing</h3>
+              <p>Notable completions include <code>T-04911</code>, <code>T-04912</code>, <code>T-04913</code>, <code>T-04914</code>, <code>T-04915</code>, <code>T-04916</code>, <code>T-04917</code>, <code>T-04918</code>, and <code>T-04929</code>.</p>
+              <ul class="fact-list">
+                <li>Latest completion: <strong>2026-06-18 20:32 CDT</strong> for <code>T-04929</code>.</li>
+                <li>The mix spans docs, design, runtime build, and tooling surfaces, which matches the broad commit volume in the repo.</li>
+              </ul>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta">
+                <span><code>agent-spaces</code></span>
+                <span>5 tasks completed</span>
+              </div>
+              <h3>Renderer-pane and observer-socket work closed the ASP half of the viewer route</h3>
+              <p>The exact-window set is <code>T-04906</code>, <code>T-04908</code>, <code>T-04909</code>, <code>T-04910</code>, and <code>T-04924</code>.</p>
+              <ul class="fact-list">
+                <li>Latest completion: <strong>2026-06-18 15:58 CDT</strong> for <code>T-04924</code>.</li>
+                <li>Every in-window commit in the repo maps cleanly onto these tasks, which makes this a high-confidence task-to-code correlation.</li>
+              </ul>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta">
+                <span><code>agent-loop</code></span>
+                <span>1 task completed</span>
+              </div>
+              <h3><code>T-04920</code> closed the named-sinks refactor</h3>
+              <p><code>Replace agent-loop event API with named sinks</code> completed at <strong>2026-06-18 14:38 CDT</strong>.</p>
+              <ul class="fact-list">
+                <li>Follow-on commits in the same repo immediately improved payload previewing and transcript rendering.</li>
+                <li>The repo ended the window clean, with no visible unchecked-in files.</li>
+              </ul>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta">
+                <span>Task-system reading</span>
+                <span>Operational takeaway</span>
+              </div>
+              <h3>Completion volume was concentrated, not diffuse</h3>
+              <p>All 26 exact-window task completions came from the same four projects that produced the day’s commits.</p>
+              <ul class="fact-list">
+                <li>That concentration suggests coordinated implementation pushes rather than incidental backlog gardening.</li>
+                <li>It also means follow-up should center on publish and cleanup in these same project lanes.</li>
+              </ul>
+            </article>
+
+            <article class="task-card">
+              <div class="task-meta">
+                <span>Commit/task split</span>
+                <span>Trust signal</span>
+              </div>
+              <h3>The report does not infer completions from repo state</h3>
+              <p>Each task count here comes from exact <code>wrkq</code> completion timestamps inside the local-time window, not from commit subjects or branch names.</p>
+              <ul class="fact-list">
+                <li>This matters because multiple other repos are dirty or ahead without corresponding window task closeouts.</li>
+                <li>The open-state section captures that pressure explicitly instead of blurring it into the accomplishment count.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>Validation in this report comes from visible test-first commit subjects, exact task timestamps, and artifact checks. Where push state or browser verification is limited, the report states that directly rather than filling the gap with inference.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3>Viewer-route work kept its red-test trail visible</h3>
+              <p><code>agent-spaces</code> includes renderer red tests and observer-socket coverage, while <code>hrc-runtime</code> includes phase-specific red-test commits for the viewer route and presentation-aware predicates.</p>
+            </article>
+            <article class="evidence-card good">
+              <h3><code>zed-agent-collab</code> recorded repeated test and design gates</h3>
+              <p>The commit history explicitly alternates <code>test(...)</code>, <code>feat(...)</code>, <code>fix(...)</code>, and Daedalus-reviewed design steps, which is strong evidence of controlled iteration instead of one-shot dumping.</p>
+            </article>
+            <article class="evidence-card good">
+              <h3><code>wrkq</code> evidence matches repo evidence closely</h3>
+              <p>The four projects with exact-window task completions are the same four with actual commits, and the task titles line up with the observed commit subjects.</p>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Push-state confidence is selective by design</h3>
+              <p>Only repos with an upstream configured are classified as unpushed. <code>agent-loop</code> and <code>zed-agent-collab</code> have no upstream configured in this environment, so their push status is intentionally left unclassified.</p>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Open repo pressure is real and visible</h3>
+              <p>Large dirty worktrees in <code>praesidium</code>, <code>knowledge</code>, <code>workflow-spec</code>, <code>agent-control-plane</code>, and <code>zed-agent-collab</code> mean this report should be read as “high output amid ongoing churn,” not “globally clean closeout.”</p>
+            </article>
+            <article class="evidence-card risk">
+              <h3>Artifact verification depends on available browser tooling</h3>
+              <p>This file includes responsive, overflow-safe CSS and stable section anchors. If localhost browser control succeeds, desktop and mobile layouts are verified live; otherwise the fallback is static structure/CSS verification only.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>Unchecked-in work and ahead-of-upstream commits are separated here because both matter operationally, but they mean different things. The cards below focus on the repos most relevant to this window or most likely to affect tomorrow’s report.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card">
+              <div class="task-meta">
+                <span><code>agent-spaces</code></span>
+                <span>ahead 17 total, 8 in-window</span>
+              </div>
+              <h3>All ASP viewer-route commits are still local-only</h3>
+              <ul class="repo-list">
+                <li><code>796c341</code>, <code>5ae5d6e</code>, <code>2a472ea</code>, <code>39ec1c7</code>, <code>291fc70</code>, <code>f5aaec3</code>, <code>3ee0c18</code>, and <code>02bb730</code><span>Eight exact-window commits remain ahead of <code>origin/main</code>.</span></li>
+                <li><code>M</code> <code>packages/config/src/__tests__/resources-plan.red.test.ts</code> and <code>packages/config/src/resources/compiler.ts</code><span>Current unchecked-in config/resource-plan edits.</span></li>
+                <li><code>??</code> two new event-hook resource fixture files<span>Visible untracked additions in the same repo.</span></li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <div class="task-meta">
+                <span><code>hrc-runtime</code></span>
+                <span>ahead 2, both in-window</span>
+              </div>
+              <h3>The last two HRC fixes are committed but not yet pushed</h3>
+              <ul class="repo-list">
+                <li><code>1ac666c</code> <code>viewer broker SIGHUP crash from false liveness reap</code><span>Committed 2026-06-18 19:16 CDT.</span></li>
+                <li><code>da5b016</code> <code>btmux non-tmux sockets must not wedge daemon startup/status</code><span>Committed 2026-06-18 18:17 CDT.</span></li>
+                <li>No current dirty worktree in the repo<span>Open state is publish-state, not checkout-state.</span></li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <div class="task-meta">
+                <span><code>zed-agent-collab</code></span>
+                <span>48 unchecked-in paths</span>
+              </div>
+              <h3>High-output repo remains visibly mid-migration</h3>
+              <ul class="repo-list">
+                <li>Modified docs and examples plus new TS/Bun surfaces<span><code>examples/agent-loop/</code>, <code>src/</code>, <code>scripts/</code>, <code>test/</code>, and root config files are all visibly active.</span></li>
+                <li>Deleted Rust-era files remain in status<span><code>Cargo.toml</code>, <code>Cargo.lock</code>, and <code>zed-collab-agent/src/*.rs</code> are still shown as deleted.</span></li>
+                <li>No upstream configured<span>Push classification is intentionally omitted for this repo.</span></li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <div class="task-meta">
+                <span><code>praesidium</code> root</span>
+                <span>158 unchecked-in paths</span>
+              </div>
+              <h3>The umbrella repo is carrying a broad structural rewrite</h3>
+              <ul class="repo-list">
+                <li>Large delete set under <code>animata/</code><span>The root repo shows a wide removal of the older subtree.</span></li>
+                <li>Large untracked set at the root<span>New entries include <code>agent-loop/</code>, <code>archagent/</code>, <code>comms-router/</code>, <code>explainer/</code>, and additional planning/docs files.</span></li>
+                <li>This state is visible now, even though it did not produce exact-window commits<span>It is relevant repo pressure for tomorrow’s brief.</span></li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <div class="task-meta">
+                <span><code>agent-control-plane</code></span>
+                <span>ahead 15 total, 25 dirty paths</span>
+              </div>
+              <h3>ACP has substantial carry-forward local state outside today’s commit slice</h3>
+              <ul class="repo-list">
+                <li>Modified package manifests, stores, and server resources<span>Includes <code>packages/acp-server/src/resources/apply.ts</code> and related jobs/output files.</span></li>
+                <li>Three new untracked job-output reconciler files<span><code>job-output-config.ts</code>, <code>output-reconciler.ts</code>, and its test are visible.</span></li>
+                <li>No exact-window commits were observed here<span>State is important but not credited as today’s committed work.</span></li>
+              </ul>
+            </article>
+
+            <article class="repo-card">
+              <div class="task-meta">
+                <span>Carry-forward pressure</span>
+                <span>Still visible</span>
+              </div>
+              <h3>Other dirty repos remain in the background</h3>
+              <ul class="repo-list">
+                <li><code>knowledge</code> has <strong>51</strong> visible changes and <code>workflow-spec</code> has <strong>40</strong>.</li>
+                <li><code>archagent</code> has <strong>24</strong> dirty paths and is ahead by <strong>1</strong>; <code>scriptable-ghostty</code> has <strong>10</strong> dirty paths and is ahead by <strong>2</strong>.</li>
+                <li><code>spaces-repo</code>, <code>ghostmux</code>, <code>taskboard</code>, <code>wrkq</code>, and <code>explainer</code> are also visibly dirty, but without exact-window commits.</li>
+              </ul>
+            </article>
+          </div>
+
+          <div class="hero-note" style="margin-top: 18px;">
+            <strong>Exact-window unpushed summary</strong>
+            Proven unpushed work in this report is limited to <strong>10 commits</strong>: <strong>8</strong> in <code>agent-spaces</code> and <strong>2</strong> in <code>hrc-runtime</code>. Other committed repos either have no upstream configured or no ahead-of-upstream commits in the window.
+          </div>
+        </section>
+
+        <div class="footer">
+          Source window: 2026-06-18 05:02 CDT to 2026-06-19 05:02 CDT. Inputs: current-branch git commit and status scans across repos under <code>/Users/lherron/praesidium</code>, per-project completed <code>wrkq</code> task scans for Praesidium project slugs, upstream-ahead checks where configured, and artifact verification. Artifact: <code>daily-accomplishments-2026-06-19.html</code>.
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
