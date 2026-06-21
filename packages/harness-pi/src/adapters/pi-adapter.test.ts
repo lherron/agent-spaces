@@ -2043,6 +2043,37 @@ exit 0
     // toolNamespacing is always advertised.
     expect(result.capabilities).toContain('toolNamespacing')
   })
+
+  test('detects skills capability from the real pi flag (--skill / --no-skills, not --skills)', async () => {
+    const adapter = new PiAdapter()
+    // The real pi CLI advertises `--skill <path>` and `--no-skills`, and never
+    // the string `--skills`. The probe must look for `--skill`; probing the old
+    // `--skills` would (incorrectly) miss this help text and report no skills.
+    await writeFile(
+      mockPiPath,
+      `#!/bin/bash
+if [[ "$1" == "--version" ]]; then
+  echo "1.0.0"
+  exit 0
+fi
+if [[ "$1" == "--help" ]]; then
+  echo "  --extension, -e <path>    Load an extension file"
+  echo "  --skill <path>            Load a skill file or directory"
+  echo "  --no-skills, -ns          Disable skills discovery and loading"
+  exit 0
+fi
+exit 0
+`
+    )
+    await chmod(mockPiPath, 0o755)
+    process.env['PI_PATH'] = mockPiPath
+
+    const result = await adapter.detect()
+
+    expect(result.available).toBe(true)
+    expect(result.capabilities).toContain('extensions')
+    expect(result.capabilities).toContain('skills')
+  })
 })
 
 describe('Hook bridge generation — codegen injection hazard', () => {

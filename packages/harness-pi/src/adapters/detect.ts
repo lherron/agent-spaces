@@ -190,10 +190,12 @@ export async function detectPi(forceRefresh = false): Promise<PiInfo> {
   const path = await findPiBinary()
   const version = await queryPiVersion(path)
 
-  // Check supported flags in parallel
+  // Check supported flags in parallel. Probe the real pi CLI flags: extensions
+  // via `--extension`; skills via `--skill` (pi exposes `--skill <path>` /
+  // `--no-skills`, never `--skills`).
   const [supportsExtensions, supportsSkills] = await Promise.all([
     supportsPiFlag(path, '--extension'),
-    supportsPiFlag(path, '--skills'),
+    supportsPiFlag(path, '--skill'),
   ])
 
   cachedPiInfo = {
