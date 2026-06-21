@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { durableUnixBrokerRuntimeState } from '../src/compile-fixtures'
+import { durableUnixBrokerRuntimeState } from './fixtures/compile-fixtures'
 
 describe('BrokerRuntimeState durable IPC contract', () => {
   test('round-trips unix broker endpoint, attachment mode, tmux panes, and high-water metadata', () => {

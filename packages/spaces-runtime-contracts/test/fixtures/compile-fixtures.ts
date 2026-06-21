@@ -1,6 +1,6 @@
 import type { InvocationCapabilities, InvocationId } from 'spaces-harness-broker-protocol'
 import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
-import type { CapabilityResolution, RuntimeCapabilities } from './capabilities'
+import type { CapabilityResolution, RuntimeCapabilities } from '../../src/capabilities'
 import type {
   CompileId,
   HostSessionId,
@@ -12,11 +12,11 @@ import type {
   ServerInstanceId,
   SpecHash,
   StartRequestHash,
-} from './ids'
-import type { BrokerInputRuntimeState } from './input'
-import type { BrokerPermissionRuntimeState } from './permissions'
-import type { RuntimeRouteDecision } from './route-decision'
-import type { BrokerRuntimeState } from './runtime-state'
+} from '../../src/ids'
+import type { BrokerInputRuntimeState } from '../../src/input'
+import type { BrokerPermissionRuntimeState } from '../../src/permissions'
+import type { RuntimeRouteDecision } from '../../src/route-decision'
+import type { BrokerRuntimeState } from '../../src/runtime-state'
 
 // Shared capability sub-blocks. These input/turns/continuation shapes are
 // identical across the runtime-capabilities fixture and both invocation
