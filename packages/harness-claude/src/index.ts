@@ -3,6 +3,5 @@ export {
   ClaudeAgentSdkAdapter,
   claudeAgentSdkAdapter,
 } from './adapters/claude-agent-sdk-adapter.js'
-export * from './claude/index.js'
-export * from './agent-sdk/index.js'
+export { detectClaude, type ClaudeInfo } from './claude/index.js'
 export { register } from './register.js'
