@@ -44,11 +44,6 @@ export {
 
 import { detectAgentLocalComponents, resolveAgentRunDefaults } from './run/agent-profile.js'
 export {
-  prepareAgentBrainRuntime,
-  type AgentBrainEnvResult,
-  type AgentBrainRuntimeContext,
-} from './run/agent-brain.js'
-export {
   prepareAgentToolRuntime,
   validateAgentTools,
   type AgentToolEnvResult,
@@ -494,15 +489,6 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     reminderContent,
     pagePrompts: options.pagePrompts,
     ...(executionLaunch ? { compiledLaunch: executionLaunch } : {}),
-    ...(agentProfile
-      ? {
-          agentBrainRuntime: {
-            agentRoot: agentProfile.agentRoot,
-            agentName: basename(agentProfile.agentRoot),
-            ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
-          },
-        }
-      : {}),
     ...(agentProfile && agentLocalComponents
       ? {
           agentToolRuntime: {

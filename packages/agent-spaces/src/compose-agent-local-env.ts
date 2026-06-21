@@ -1,7 +1,5 @@
-import { basename } from 'node:path'
-
 import type { AgentLocalComponents, RuntimePlacement } from 'spaces-config'
-import { prepareAgentBrainRuntime, prepareAgentToolRuntime } from 'spaces-execution'
+import { prepareAgentToolRuntime } from 'spaces-execution'
 
 import { buildCorrelationEnvVars } from './placement-api.js'
 
@@ -26,18 +24,12 @@ export interface ComposeAgentLocalEnvRequest {
    * The CLI path supplies it; the placement turn path omits it.
    */
   agentchatEnv?: Record<string, string> | undefined
-  /**
-   * When true, brain runtime preparation is gated on `placement.dryRun !== true`
-   * (CLI behavior). When false, brain preparation always runs (placement turn
-   * behavior).
-   */
-  gateBrainOnDryRun: boolean
 }
 
 export interface ComposedAgentLocalEnv {
   lockedEnv: Record<string, string>
   dispatchEnv: Record<string, string>
-  /** Effective merged env: lockedEnv ⊕ dispatchEnv ⊕ brain ⊕ tool env. */
+  /** Effective merged env: lockedEnv ⊕ dispatchEnv ⊕ tool env. */
   env: Record<string, string>
   /**
    * Ordered tool-bin dirs to prepend to PATH (typed PATH mutation, NOT lockedEnv).
@@ -55,10 +47,9 @@ export interface ComposedAgentLocalEnv {
  *
  * The two call sites are NOT byte-equivalent and the divergence is preserved
  * exactly via the request flags:
- *  - CLI folds adapterEnv + agentchatEnv into lockedEnv, gates the brain block on
- *    `placement.dryRun !== true`, and consumes pathPrepend + warnings.
- *  - Placement omits adapterEnv/agentchatEnv, never gates brain on dryRun, and
- *    ignores pathPrepend + warnings.
+ *  - CLI folds adapterEnv + agentchatEnv into lockedEnv and consumes
+ *    pathPrepend + warnings.
+ *  - Placement omits adapterEnv/agentchatEnv and ignores pathPrepend + warnings.
  *
  * PATH is never routed through lockedEnv; tool-bin dirs are surfaced via the
  * typed `pathPrepend` field (consumed by the broker env compose) instead.
@@ -84,22 +75,6 @@ export async function composeAgentLocalEnv(
   let env: Record<string, string> = {
     ...lockedEnv,
     ...dispatchEnv,
-  }
-
-  // Brain runtime preparation is retained as a no-op compatibility hook for
-  // profiles that still contain a [brain] section. The CLI path gates it on
-  // dryRun; the placement turn path runs it unconditionally.
-  if (!req.gateBrainOnDryRun || placement.dryRun !== true) {
-    const brainEnv = await prepareAgentBrainRuntime(
-      {
-        agentRoot: placement.agentRoot,
-        agentName: basename(placement.agentRoot),
-        ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
-      },
-      env
-    )
-    lockedEnv = { ...lockedEnv, ...brainEnv }
-    env = { ...env, ...brainEnv }
   }
 
   let pathPrepend: string[] = []

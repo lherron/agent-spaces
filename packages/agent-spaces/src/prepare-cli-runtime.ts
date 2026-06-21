@@ -371,7 +371,6 @@ export async function preparePlacementCliRuntime(
     agentchatEnv,
     ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
     ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
-    gateBrainOnDryRun: true,
   })
   const lockedEnv = composed.lockedEnv
   const dispatchEnv = composed.dispatchEnv

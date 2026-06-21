@@ -158,7 +158,6 @@ export async function runPlacementTurnNonInteractive(
       aspHome,
       ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
       ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
-      gateBrainOnDryRun: false,
     })
     const harnessEnv = composed.env
 
