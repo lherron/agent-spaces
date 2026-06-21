@@ -1,16 +1,6 @@
 export { PiSession } from './pi-session.js'
 export { createPermissionHook } from './permission-hook.js'
 export { loadPiSdkBundle } from './bundle.js'
-export {
-  AuthStorage,
-  ModelRegistry,
-  createCodingTools,
-  createEventBus,
-  createExtensionRuntime,
-  discoverAndLoadExtensions,
-  loadSkills,
-  SettingsManager,
-} from '@mariozechner/pi-coding-agent'
 export type {
   HookPermissionResponse,
   PiAgentSessionEvent,
