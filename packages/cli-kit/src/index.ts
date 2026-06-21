@@ -1,8 +1,6 @@
 import { readFileSync } from 'node:fs'
 import type { Command } from 'commander'
 
-export type BuildDeps<D> = () => D
-
 export class CliUsageError extends Error {
   constructor(message: string) {
     super(message)
@@ -12,17 +10,6 @@ export class CliUsageError extends Error {
 
 export function attachJsonOption(cmd: Command): Command {
   return cmd.option('--json', 'emit JSON output')
-}
-
-export function attachServerOption(cmd: Command, defaultUrl?: string): Command {
-  if (defaultUrl === undefined) {
-    return cmd.option('--server <url>', 'server URL')
-  }
-  return cmd.option('--server <url>', 'server URL', defaultUrl)
-}
-
-export function attachActorOption(cmd: Command): Command {
-  return cmd.option('--actor <agentId>', 'actor agent id')
 }
 
 // Overloads keep the element type honest: omitting `parse` forces `T = string`
@@ -36,21 +23,6 @@ export function repeatable<T>(
   parse?: (raw: string) => T
 ): (value: string, prev: T[] | undefined) => T[] {
   return (value, prev) => [...(prev ?? []), parse ? parse(value) : (value as unknown as T)]
-}
-
-export function withDeps<D, R, Opts = Record<string, unknown>>(
-  handler: (opts: Opts, args: string[], deps: D) => Promise<R>,
-  buildDeps: BuildDeps<D>
-): (...args: unknown[]) => Promise<void> {
-  return async (...args: unknown[]) => {
-    // Commander invokes action handlers with the positional arguments first and
-    // the `Command` instance as the final argument, so `args.at(-1)` is the
-    // `Command` and the preceding entries are the positionals.
-    const command = args.at(-1) as Command | undefined
-    const positionals = args.slice(0, -1) as string[]
-    const opts = (command?.opts() ?? {}) as Opts
-    await handler(opts, positionals, buildDeps())
-  }
 }
 
 const DURATION_UNIT_MS: Record<string, number> = {
@@ -70,42 +42,6 @@ export function parseDuration(input: string): number {
   // The unit is constrained by the regex alternation above, so the lookup is always defined.
   const multiplier = DURATION_UNIT_MS[match[2]] as number
   return Number.parseInt(match[1], 10) * multiplier
-}
-
-// User-defined type guard keeps the runtime check and the static type in
-// lock-step: narrowing here is what lets the caller return `value` without an
-// `as` cast, so weakening this guard would fail to compile rather than silently
-// lie about the return type.
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-export function parseJsonObject(flag: string, raw: string): Record<string, unknown> {
-  let value: unknown
-  try {
-    value = JSON.parse(raw)
-  } catch {
-    throw new CliUsageError(`${flag} must be valid JSON`)
-  }
-
-  if (!isPlainObject(value)) {
-    throw new CliUsageError(`${flag} must be a JSON object`)
-  }
-
-  return value
-}
-
-export function parseCommaList(flag: string, raw: string): string[] {
-  const values = raw
-    .split(',')
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0)
-
-  if (values.length === 0) {
-    throw new CliUsageError(`${flag} requires at least one value`)
-  }
-
-  return values
 }
 
 export function parseIntegerValue(flag: string, raw: string, options: { min: number }): number {
