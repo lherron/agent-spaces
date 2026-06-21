@@ -4,7 +4,6 @@ export * from './agent-memory/index.js'
 export { parseContextTemplate } from './context-template.js'
 export {
   expandTemplate,
-  resolveContextTemplate,
   resolveContextTemplateDetailed,
 } from './context-resolver.js'
 export {

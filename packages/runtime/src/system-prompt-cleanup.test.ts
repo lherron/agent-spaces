@@ -15,7 +15,7 @@ describe('T-01017 runtime cleanup', () => {
 
     expect(typeof runtimeModule.materializeSystemPrompt).toBe('function')
     expect(typeof runtimeModule.parseContextTemplate).toBe('function')
-    expect(typeof runtimeModule.resolveContextTemplate).toBe('function')
+    expect(typeof runtimeModule.resolveContextTemplateDetailed).toBe('function')
     expect(runtimeModule.materializeSystemPromptV2).toBeUndefined()
   })
 })

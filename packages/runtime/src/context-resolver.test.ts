@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { resolveContextTemplateDetailed } from './context-resolver.js'
+import { type ResolvedContext, resolveContextTemplateDetailed } from './context-resolver.js'
 import { type ContextTemplate, parseContextTemplate } from './context-template.js'
 
 const SECTION_SEPARATOR = '\n\n---\n\n'
@@ -794,17 +794,27 @@ async function loadResolver(): Promise<
 > {
   try {
     const module = (await import('./context-resolver.js')) as {
-      resolveContextTemplate?: (
+      resolveContextTemplateDetailed?: (
         template: ContextTemplate,
         context: Record<string, unknown>
       ) => Promise<unknown>
     }
 
-    if (typeof module.resolveContextTemplate !== 'function') {
-      throw new Error('Expected resolveContextTemplate export')
+    if (typeof module.resolveContextTemplateDetailed !== 'function') {
+      throw new Error('Expected resolveContextTemplateDetailed export')
     }
 
-    return module.resolveContextTemplate
+    return async (template, context) => {
+      const resolved = (await module.resolveContextTemplateDetailed?.(
+        template,
+        context
+      )) as ResolvedContext
+
+      return {
+        prompt: resolved.prompt,
+        reminder: resolved.reminder,
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`T-01043 red test blocked by missing resolver implementation: ${message}`)

@@ -116,18 +116,6 @@ interface ResolvedZone {
 
 const MAX_CHARS_WARNING_RATIO = 0.9
 
-export async function resolveContextTemplate(
-  template: ContextTemplate,
-  context: ContextResolverContext
-): Promise<ResolvedContext> {
-  const resolved = await resolveContextTemplateDetailed(template, context)
-
-  return {
-    prompt: resolved.prompt,
-    reminder: resolved.reminder,
-  }
-}
-
 export async function resolveContextTemplateDetailed(
   template: ContextTemplate,
   context: ContextResolverContext,
