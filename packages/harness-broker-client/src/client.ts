@@ -67,6 +67,19 @@ export interface InvocationStartDispatchOptions {
   lifecyclePolicy?: BrokerLifecyclePolicyOverlay | undefined
 }
 
+/**
+ * The per-invocation override keys carried by {@link InvocationStartDispatchOptions}.
+ * Single source of truth so the positional-overload discriminator
+ * ({@link BrokerClient#normalizeDispatchOptions}) and the envelope assembly
+ * ({@link BrokerClient#buildDispatch}) cannot drift. Order is preserved in the
+ * assembled `invocation.start` envelope.
+ */
+const DISPATCH_OPTION_KEYS = [
+  'dispatchEnv',
+  'runtime',
+  'lifecyclePolicy',
+] as const satisfies readonly (keyof InvocationStartDispatchOptions)[]
+
 export class BrokerClient {
   #transport: BrokerJsonRpcTransport
   #eventHub = new InvocationEventHub()
@@ -197,9 +210,7 @@ export class BrokerClient {
   ): InvocationStartDispatchOptions {
     if (
       dispatchEnvOrOptions !== undefined &&
-      ('dispatchEnv' in dispatchEnvOrOptions ||
-        'runtime' in dispatchEnvOrOptions ||
-        'lifecyclePolicy' in dispatchEnvOrOptions)
+      DISPATCH_OPTION_KEYS.some((key) => key in dispatchEnvOrOptions)
     ) {
       return dispatchEnvOrOptions as InvocationStartDispatchOptions
     }
@@ -217,14 +228,14 @@ export class BrokerClient {
     request: InvocationStartRequest,
     options: InvocationStartDispatchOptions
   ): InvocationDispatchRequest {
-    return {
-      startRequest: request,
-      ...(options.dispatchEnv !== undefined ? { dispatchEnv: options.dispatchEnv } : {}),
-      ...(options.runtime !== undefined ? { runtime: options.runtime } : {}),
-      ...(options.lifecyclePolicy !== undefined
-        ? { lifecyclePolicy: options.lifecyclePolicy }
-        : {}),
+    const dispatch: InvocationDispatchRequest = { startRequest: request }
+    for (const key of DISPATCH_OPTION_KEYS) {
+      const value = options[key]
+      if (value !== undefined) {
+        ;(dispatch as unknown as Record<string, unknown>)[key] = value
+      }
     }
+    return dispatch
   }
 
   input(req: InvocationInputRequest): Promise<InvocationInputResponse> {
