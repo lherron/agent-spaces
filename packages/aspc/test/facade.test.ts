@@ -192,9 +192,6 @@ function createFixture(): Fixture {
 
 [spaces]
 base = []
-
-[brain]
-enabled = false
 `,
     'utf8'
   )

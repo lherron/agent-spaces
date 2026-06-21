@@ -89,7 +89,7 @@ function createFixture() {
   mkdirSync(aspHome, { recursive: true })
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    'schemaVersion = 2\n\n[spaces]\nbase = []\n\n[brain]\nenabled = false\n',
+    'schemaVersion = 2\n\n[spaces]\nbase = []\n',
     'utf8'
   )
   createClaudeShim(aspHome)

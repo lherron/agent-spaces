@@ -144,122 +144,33 @@ unexpected = "nope"
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2c. [brain] section
+// 2c. [brain] decommissioned — now an unknown top-level key (T-04978 Phase 4)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('parseAgentProfile: brain section', () => {
-  test('leaves brain undefined when [brain] is absent', () => {
-    const toml = `
-schemaVersion = 2
-`
-    const result = parseAgentProfile(toml)
-    expect(result.brain).toBeUndefined()
-  })
-
-  test('parses enabled brain with search_mode and resolver', () => {
-    const toml = `
-schemaVersion = 2
-
-[brain]
-enabled = true
-search_mode = "balanced"
-resolver = "RESOLVER.md"
-`
-    const result = parseAgentProfile(toml)
-    expect(result.brain).toEqual({
-      enabled: true,
-      search_mode: 'balanced',
-      resolver: 'RESOLVER.md',
-    })
-  })
-
-  test('parses disabled brain with optional fields omitted', () => {
+describe('parseAgentProfile: [brain] section is decommissioned', () => {
+  test('rejects [brain] as an unknown top-level key', () => {
     const toml = `
 schemaVersion = 2
 
 [brain]
 enabled = false
 `
-    const result = parseAgentProfile(toml)
-    expect(result.brain).toEqual({ enabled: false })
-  })
-
-  test('requires enabled when [brain] is present', () => {
-    const toml = `
-schemaVersion = 2
-
-[brain]
-search_mode = "balanced"
-`
     expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
-  })
-
-  test('rejects unsupported brain search_mode', () => {
-    const toml = `
-schemaVersion = 2
-
-[brain]
-enabled = true
-search_mode = "fast"
-`
-    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
-  })
-
-  test('rejects unknown brain keys', () => {
-    const toml = `
-schemaVersion = 2
-
-[brain]
-enabled = true
-global_config = "nope"
-`
-    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
-  })
-
-  test('parses injection = true explicitly', () => {
-    const toml = `
-schemaVersion = 2
-
-[brain]
-enabled = true
-injection = true
-`
-    const result = parseAgentProfile(toml)
-    expect(result.brain).toEqual({ enabled: true, injection: true })
-  })
-
-  test('parses injection = false to opt out of pre-dispatch enrichment', () => {
-    const toml = `
-schemaVersion = 2
-
-[brain]
-enabled = true
-injection = false
-`
-    const result = parseAgentProfile(toml)
-    expect(result.brain).toEqual({ enabled: true, injection: false })
-  })
-
-  test('leaves injection undefined when omitted (defaults applied at resolver)', () => {
-    const toml = `
-schemaVersion = 2
-
-[brain]
-enabled = true
-`
-    const result = parseAgentProfile(toml)
-    expect(result.brain).toEqual({ enabled: true })
-  })
-
-  test('rejects non-boolean injection', () => {
-    const toml = `
-schemaVersion = 2
-
-[brain]
-enabled = true
-injection = "yes"
-`
-    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
+    // The unknown-key contract: assertOnlyKeys fails at path '/brain' with the
+    // additionalProperties keyword, identical to any other unexpected top-level key.
+    try {
+      parseAgentProfile(toml)
+      throw new Error('expected parseAgentProfile to throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ConfigValidationError)
+      const validationErrors = (err as ConfigValidationError).validationErrors
+      expect(validationErrors).toEqual([
+        expect.objectContaining({
+          path: '/brain',
+          keyword: 'additionalProperties',
+        }),
+      ])
+    }
   })
 })
 

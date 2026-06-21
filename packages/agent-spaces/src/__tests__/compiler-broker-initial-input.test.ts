@@ -81,9 +81,6 @@ function createFixture(options: { primingPrompt?: string | undefined } = {}): {
 ${options.primingPrompt !== undefined ? `priming_prompt = "${options.primingPrompt}"\n` : ''}
 [spaces]
 base = []
-
-[brain]
-enabled = false
 `,
     'utf8'
   )

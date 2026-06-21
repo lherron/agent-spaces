@@ -45,9 +45,6 @@ priming_prompt = "You are {{agentId}} in {{projectId}} working on {{taskId}}. {{
 
 [spaces]
 base = []
-
-[brain]
-enabled = false
 `,
     'utf8'
   )

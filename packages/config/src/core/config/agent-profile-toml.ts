@@ -1,12 +1,7 @@
 import TOML from '@iarna/toml'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
-import type {
-  AgentProfileBrain,
-  AgentRuntimeProfile,
-  HarnessSettings,
-  RunMode,
-} from '../types/agent-profile.js'
+import type { AgentRuntimeProfile, HarnessSettings, RunMode } from '../types/agent-profile.js'
 import type { AgentIdentity } from '../types/agent-profile.js'
 import { resolveHarnessCatalogEntry } from '../types/harness.js'
 import { type SpaceRefString, isSpaceRefString } from '../types/refs.js'
@@ -14,11 +9,6 @@ import type { ClaudeOptions, CodexOptions } from '../types/targets.js'
 
 const AGENT_PROFILE_FILENAME = 'agent-profile.toml'
 const RUN_MODES = new Set<RunMode>(['query', 'heartbeat', 'task', 'maintenance'])
-const BRAIN_SEARCH_MODES = new Set<NonNullable<AgentProfileBrain['search_mode']>>([
-  'conservative',
-  'balanced',
-  'tokenmax',
-])
 const CODEX_APPROVAL_POLICIES = new Set(['untrusted', 'on-failure', 'on-request', 'never'])
 const CODEX_SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 
@@ -302,54 +292,6 @@ function parseIdentity(value: unknown, source: string, path: string): AgentIdent
   return identity
 }
 
-function parseBrain(value: unknown, source: string, path: string): AgentProfileBrain | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-  if (!isPlainObject(value)) {
-    fail(source, path, 'must be a table', 'type')
-  }
-
-  assertOnlyKeys(value, ['enabled', 'injection', 'search_mode', 'resolver'], source, path)
-
-  if (value['enabled'] === undefined) {
-    fail(source, `${path}/enabled`, 'is required when [brain] is present', 'required')
-  }
-  if (typeof value['enabled'] !== 'boolean') {
-    fail(source, `${path}/enabled`, 'must be a boolean', 'type')
-  }
-
-  const brain: AgentProfileBrain = {
-    enabled: value['enabled'],
-  }
-
-  if (value['injection'] !== undefined) {
-    if (typeof value['injection'] !== 'boolean') {
-      fail(source, `${path}/injection`, 'must be a boolean', 'type')
-    }
-    brain.injection = value['injection']
-  }
-
-  const searchMode = parseOptionalEnum(
-    value,
-    'search_mode',
-    BRAIN_SEARCH_MODES as ReadonlySet<string>,
-    'search mode',
-    source,
-    path
-  )
-  if (searchMode !== undefined) {
-    brain.search_mode = searchMode as AgentProfileBrain['search_mode']
-  }
-
-  const resolver = parseOptionalString(value, 'resolver', source, path)
-  if (resolver !== undefined) {
-    brain.resolver = resolver
-  }
-
-  return brain
-}
-
 function parseClaudeOptions(
   value: unknown,
   source: string,
@@ -472,7 +414,6 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
       'priming_prompt_file',
       'instructions',
       'session',
-      'brain',
       'spaces',
       'targets',
       'harnessDefaults',
@@ -500,7 +441,6 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
   }
 
   profile.identity = parseIdentity(parsed['identity'], source, '/identity')
-  profile.brain = parseBrain(parsed['brain'], source, '/brain')
 
   if (parsed['priming_prompt'] !== undefined) {
     if (typeof parsed['priming_prompt'] !== 'string') {

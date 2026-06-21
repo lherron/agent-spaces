@@ -1711,7 +1711,7 @@ function createFakeCodexFixture(repoRoot: string): {
   mkdirSync(aspHome, { recursive: true })
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    'schemaVersion = 2\n\n[spaces]\nbase = []\n\n[brain]\nenabled = false\n',
+    'schemaVersion = 2\n\n[spaces]\nbase = []\n',
     'utf8'
   )
   const fixture = join(
@@ -1811,7 +1811,7 @@ function createPiTuiFixture(): {
   mkdirSync(aspHome, { recursive: true })
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    'schemaVersion = 2\n\n[spaces]\nbase = []\n\n[brain]\nenabled = false\n',
+    'schemaVersion = 2\n\n[spaces]\nbase = []\n',
     'utf8'
   )
   writeFileSync(
@@ -2204,7 +2204,7 @@ function createPiSdkFixture(): {
   mkdirSync(aspHome, { recursive: true })
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    'schemaVersion = 2\n\n[spaces]\nbase = []\n\n[brain]\nenabled = false\n',
+    'schemaVersion = 2\n\n[spaces]\nbase = []\n',
     'utf8'
   )
   // pi-sdk frontend may probe a codex binary; provide a harmless version shim.

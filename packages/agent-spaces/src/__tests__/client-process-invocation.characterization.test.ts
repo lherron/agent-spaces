@@ -53,9 +53,6 @@ priming_prompt = "Agent {{agentId}} handles {{projectId}} task {{taskId}} on {{l
 [spaces]
 base = []
 
-[brain]
-enabled = false
-
 [harnessDefaults.codex]
 model = "gpt-5.3-codex"
 model_reasoning_effort = "medium"

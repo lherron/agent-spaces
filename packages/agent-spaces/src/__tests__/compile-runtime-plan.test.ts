@@ -141,9 +141,6 @@ function createFixture(): {
 
 [spaces]
 base = []
-
-[brain]
-enabled = false
 `,
     'utf8'
   )

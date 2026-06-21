@@ -119,9 +119,6 @@ harness = "codex"
 [spaces]
 base = []
 
-[brain]
-enabled = false
-
 [harnessDefaults]
 model = "gpt-5.5"
 

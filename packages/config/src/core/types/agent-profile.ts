@@ -39,13 +39,6 @@ export interface AgentProfileSession {
   additionalExec?: string[] | undefined
 }
 
-export interface AgentProfileBrain {
-  enabled: boolean
-  injection?: boolean | undefined
-  search_mode?: 'conservative' | 'balanced' | 'tokenmax' | undefined
-  resolver?: string | undefined
-}
-
 export interface AgentRuntimeProfile {
   schemaVersion: 1 | 2
   identity?: AgentIdentity | undefined
@@ -53,7 +46,6 @@ export interface AgentRuntimeProfile {
   priming_prompt_file?: string | undefined
   instructions?: AgentProfileInstructions | undefined
   session?: AgentProfileSession | undefined
-  brain?: AgentProfileBrain | undefined
   spaces?: AgentProfileSpaces | undefined
   targets?: Record<string, AgentProfileTarget> | undefined
   harnessDefaults?: HarnessSettings | undefined

@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { type RunResult, run } from 'spaces-execution'
+import { run } from 'spaces-execution'
 import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
@@ -61,6 +61,9 @@ enabled = true
 `,
     'utf8'
   )
+  // NOTE: [brain] is decommissioned (T-04978 Phase 4). The profile above is
+  // intentionally invalid — the parser rejects [brain] as an unknown top-level
+  // key, so both the run() and compileRuntimePlan() paths must fail to compile.
 
   writeFileSync(
     join(projectRoot, 'asp-targets.toml'),
@@ -160,26 +163,13 @@ function compileRequest(dryRun: boolean): RuntimeCompileRequest {
   }
 }
 
-async function runSilently(fn: () => Promise<RunResult>): Promise<RunResult> {
-  const outOrig = process.stdout.write.bind(process.stdout)
-  const errOrig = process.stderr.write.bind(process.stderr)
-  ;(process.stdout as unknown as { write: (c: unknown) => boolean }).write = () => true
-  ;(process.stderr as unknown as { write: (c: unknown) => boolean }).write = () => true
-  try {
-    return await fn()
-  } finally {
-    ;(process.stdout as unknown as { write: typeof outOrig }).write = outOrig
-    ;(process.stderr as unknown as { write: typeof errOrig }).write = errOrig
-  }
-}
-
 function expectNoLegacyBrainEnv(env: Record<string, string>): void {
   for (const key of LEGACY_BRAIN_ENV_KEYS) {
     expect(env[key]).toBeUndefined()
   }
 }
 
-describe('decommissioned brain runtime', () => {
+describe('[brain] rejected — brain fully decommissioned', () => {
   beforeAll(() => {
     fixture = createFixture()
     setEnv('ASP_AGENTS_ROOT', fixture.agentsRoot)
@@ -191,57 +181,35 @@ describe('decommissioned brain runtime', () => {
     fixture.cleanup()
   })
 
-  test('dry-run: enabled brain profile does not advertise legacy env', async () => {
-    const legacy = await run(AGENT_NAME, {
-      projectPath: fixture.projectRoot,
-      aspHome: fixture.aspHome,
-      harness: 'claude',
-      model: 'claude-sonnet-4-5',
-      interactive: true,
-      dryRun: true,
-    })
-    expect(legacy.launch).toBeDefined()
-    expectNoLegacyBrainEnv(legacy.launch!.env)
-
-    const response = await createClient().compileRuntimePlan(compileRequest(true))
-    const foreground = foregroundLaunchFromResponse(response)
-    if (!foreground) {
-      throw new Error(
-        `compileRuntimePlan produced no foreground launch: ${
-          response.ok
-            ? 'ok but no terminal profile'
-            : response.diagnostics.map((d) => d.code).join(', ')
-        }`
-      )
-    }
-    expectNoLegacyBrainEnv(foreground.env)
-  })
-
-  test('real launch: enabled brain profile still does not advertise legacy env', async () => {
-    const legacy = await runSilently(() =>
+  test('run(): a [brain] profile fails to compile (unknown top-level key)', async () => {
+    await expect(
       run(AGENT_NAME, {
         projectPath: fixture.projectRoot,
         aspHome: fixture.aspHome,
         harness: 'claude',
         model: 'claude-sonnet-4-5',
         interactive: true,
-        dryRun: false,
+        dryRun: true,
       })
-    )
-    expect(legacy.launch).toBeDefined()
-    expectNoLegacyBrainEnv(legacy.launch!.env)
+    ).rejects.toThrow(/brain/)
+  })
 
-    const response = await createClient().compileRuntimePlan(compileRequest(false))
-    const foreground = foregroundLaunchFromResponse(response)
-    if (!foreground) {
-      throw new Error(
-        `compileRuntimePlan produced no foreground launch: ${
-          response.ok
-            ? 'ok but no terminal profile'
-            : response.diagnostics.map((d) => d.code).join(', ')
-        }`
-      )
+  test('compileRuntimePlan(): a [brain] profile produces no foreground launch', async () => {
+    // The profile no longer parses, so the compile path must NOT yield a launch
+    // shape. Whether the parse error surfaces as a rejected promise or as a
+    // not-ok response, there is no foreground launch (and thus no env able to
+    // carry the retired legacy brain keys).
+    let foreground: ReturnType<typeof foregroundLaunchFromResponse> | undefined
+    try {
+      const response = await createClient().compileRuntimePlan(compileRequest(true))
+      expect(response.ok).toBe(false)
+      foreground = foregroundLaunchFromResponse(response)
+    } catch (err) {
+      expect((err as Error).message).toMatch(/brain/)
     }
-    expectNoLegacyBrainEnv(foreground.env)
+    expect(foreground).toBeFalsy()
+    // No launch env exists, so the retired legacy brain keys are absent by
+    // construction — assert the invariant holds for an empty env too.
+    expectNoLegacyBrainEnv({})
   }, 30000)
 })
