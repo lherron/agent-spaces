@@ -299,6 +299,63 @@ describe('validateInvocationSpec', () => {
       code: 'invalid_literal',
     })
   })
+
+  test('reports required (not invalid_literal) for missing harnessTransport.kind', () => {
+    const invalid = structuredClone(specSection62Example)
+    Reflect.deleteProperty(invalid.process.harnessTransport, 'kind')
+
+    expectInvalidSpec(invalid, {
+      path: 'process.harnessTransport.kind',
+      code: 'required',
+    })
+  })
+
+  test('reports invalid_literal for unsupported harnessTransport.kind', () => {
+    const invalid = structuredClone(specSection62Example)
+    invalid.process.harnessTransport.kind = 'websocket'
+
+    expectInvalidSpec(invalid, {
+      path: 'process.harnessTransport.kind',
+      code: 'invalid_literal',
+    })
+  })
+
+  test('reports required (not invalid_literal) for missing interaction.mode', () => {
+    const invalid = structuredClone(specSection62Example)
+    Reflect.deleteProperty(invalid.interaction, 'mode')
+
+    expectInvalidSpec(invalid, {
+      path: 'interaction.mode',
+      code: 'required',
+    })
+  })
+
+  test('reports invalid_literal for unsupported interaction.mode', () => {
+    const invalid = structuredClone(specSection62Example)
+    invalid.interaction.mode = 'batch'
+
+    expectInvalidSpec(invalid, {
+      path: 'interaction.mode',
+      code: 'invalid_literal',
+    })
+  })
+
+  test('reports invalid_literal for unsupported interaction.inputQueue', () => {
+    const invalid = structuredClone(specSection62Example)
+    invalid.interaction.inputQueue = 'lifo'
+
+    expectInvalidSpec(invalid, {
+      path: 'interaction.inputQueue',
+      code: 'invalid_literal',
+    })
+  })
+
+  test('accepts spec with optional interaction.inputQueue omitted', () => {
+    const valid = structuredClone(specSection62Example)
+    Reflect.deleteProperty(valid.interaction, 'inputQueue')
+
+    expect(() => validateInvocationSpec(valid)).not.toThrow()
+  })
 })
 
 describe('validateInvocationInput', () => {

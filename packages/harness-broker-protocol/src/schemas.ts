@@ -1634,11 +1634,13 @@ function validateHarnessTransport(
     issues.push(makeIssue(basePath, 'required', 'harnessTransport is required'))
     return
   }
-  if (!['jsonrpc-stdio', 'pipes', 'pty'].includes(String(transport['kind']))) {
-    issues.push(
-      makeIssue(joinPath(basePath, 'kind'), 'invalid_literal', 'Unsupported harness transport')
-    )
-  }
+  optionalEnum(
+    transport['kind'],
+    ['jsonrpc-stdio', 'pipes', 'pty'],
+    joinPath(basePath, 'kind'),
+    issues,
+    true
+  )
   if (transport['kind'] === 'pty') {
     optionalNumber(transport['cols'], joinPath(basePath, 'cols'), issues)
     optionalNumber(transport['rows'], joinPath(basePath, 'rows'), issues)
@@ -1669,11 +1671,13 @@ function validateInteraction(value: unknown, basePath: string, issues: Validatio
     issues.push(makeIssue(basePath, 'invalid_type', 'interaction must be an object'))
     return
   }
-  if (!['headless', 'interactive', 'service'].includes(String(interaction['mode']))) {
-    issues.push(
-      makeIssue(joinPath(basePath, 'mode'), 'invalid_literal', 'Unsupported interaction mode')
-    )
-  }
+  optionalEnum(
+    interaction['mode'],
+    ['headless', 'interactive', 'service'],
+    joinPath(basePath, 'mode'),
+    issues,
+    true
+  )
   if (interaction['turnConcurrency'] !== undefined && interaction['turnConcurrency'] !== 'single') {
     issues.push(
       makeIssue(
@@ -1683,14 +1687,12 @@ function validateInteraction(value: unknown, basePath: string, issues: Validatio
       )
     )
   }
-  if (
-    interaction['inputQueue'] !== undefined &&
-    !['none', 'fifo'].includes(String(interaction['inputQueue']))
-  ) {
-    issues.push(
-      makeIssue(joinPath(basePath, 'inputQueue'), 'invalid_literal', 'Unsupported input queue')
-    )
-  }
+  optionalEnum(
+    interaction['inputQueue'],
+    ['none', 'fifo'],
+    joinPath(basePath, 'inputQueue'),
+    issues
+  )
 }
 
 function validateContinuation(value: unknown, basePath: string, issues: ValidationIssue[]): void {
