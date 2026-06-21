@@ -8,7 +8,6 @@ export {
 } from './context-resolver.js'
 export {
   discoverContextTemplate,
-  discoverSystemPromptTemplate,
   inspectAgentSystemPrompt,
   materializeSystemPrompt,
 } from './system-prompt.js'

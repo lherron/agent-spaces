@@ -129,8 +129,6 @@ export function discoverContextTemplate(
   }
 }
 
-export const discoverSystemPromptTemplate = discoverContextTemplate
-
 export async function materializeSystemPrompt(
   outputPath: string,
   input: MaterializeSystemPromptInput
