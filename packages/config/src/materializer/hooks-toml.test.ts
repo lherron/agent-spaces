@@ -480,6 +480,28 @@ script = "from-toml.sh"
     expect(result.hooks[0]?.event).toBe('post_tool_use')
   })
 
+  it('normalizes Claude native event names to canonical snake case', async () => {
+    const jsonContent = JSON.stringify({
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'hooks/pre.sh' }] }],
+        PostToolUse: [{ hooks: [{ type: 'command', command: 'hooks/post.sh' }] }],
+        SessionStart: [{ hooks: [{ type: 'command', command: 'hooks/start.sh' }] }],
+        Stop: [{ hooks: [{ type: 'command', command: 'hooks/stop.sh' }] }],
+      },
+    })
+    await writeFile(join(hooksDir, 'hooks.json'), jsonContent)
+
+    const result = await readHooksWithPrecedence(hooksDir)
+
+    expect(result.source).toBe('json')
+    expect(result.hooks.map((hook) => hook.event)).toEqual([
+      'pre_tool_use',
+      'post_tool_use',
+      'session_start',
+      'stop',
+    ])
+  })
+
   it('returns empty when neither file exists', async () => {
     const result = await readHooksWithPrecedence(hooksDir)
 

@@ -395,10 +395,7 @@ function claudeCommandToScript(command: string): string {
 
 /** Normalize a Claude PascalCase event name (e.g. `PreToolUse`) to `pre_tool_use`. */
 function claudeEventToCanonical(eventName: string): string {
-  return eventName
-    .toLowerCase()
-    .replace(/([a-z])([A-Z])/g, '$1_$2')
-    .toLowerCase()
+  return eventName.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()
 }
 
 /**
