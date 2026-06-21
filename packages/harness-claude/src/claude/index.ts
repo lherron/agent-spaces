@@ -32,6 +32,8 @@ export {
   formatClaudeCommand,
   getClaudeCommand,
   type ClaudeInvocationResult,
+  type ClaudeArgsOptions,
+  type ClaudeProcessOptions,
   type ClaudeInvokeOptions,
   type SpawnClaudeOptions,
 } from './invoke.js'

@@ -25,9 +25,10 @@ export interface ClaudeInvocationResult {
 }
 
 /**
- * Options for invoking Claude.
+ * CLI-flag options consumed when building the Claude argv (see
+ * {@link buildClaudeArgs}). These map one-to-one onto `claude` command flags.
  */
-export interface ClaudeInvokeOptions {
+export interface ClaudeArgsOptions {
   /** Plugin directories to load (--plugin-dir flags) */
   pluginDirs?: string[] | undefined
   /** Path to MCP config file (--mcp-config flag) */
@@ -50,6 +51,14 @@ export interface ClaudeInvokeOptions {
   appendSystemPrompt?: string | undefined
   /** Additional arguments to pass through */
   args?: string[] | undefined
+}
+
+/**
+ * Process-execution options consumed when spawning the Claude subprocess (see
+ * {@link buildSpawnOptions} and {@link invokeClaude}). These govern how the
+ * process runs, not the argv it receives.
+ */
+export interface ClaudeProcessOptions {
   /** Working directory for Claude */
   cwd?: string | undefined
   /** Environment variables to add/override */
@@ -59,6 +68,15 @@ export interface ClaudeInvokeOptions {
   /** Timeout in milliseconds (default: no timeout for interactive use) */
   timeout?: number | undefined
 }
+
+/**
+ * Options for invoking Claude.
+ *
+ * Union of {@link ClaudeArgsOptions} (CLI-flag concerns) and
+ * {@link ClaudeProcessOptions} (process-exec concerns). The alias name and
+ * exact shape are preserved for callers that pass a combined bag.
+ */
+export type ClaudeInvokeOptions = ClaudeArgsOptions & ClaudeProcessOptions
 
 /**
  * Spawn options shape shared by {@link invokeClaude} and {@link spawnClaude}.
@@ -81,7 +99,7 @@ interface ClaudeSpawnOptions {
  */
 function buildSpawnOptions(
   stdio: 'pipe' | 'inherit',
-  options: Pick<ClaudeInvokeOptions, 'cwd' | 'env'>
+  options: Pick<ClaudeProcessOptions, 'cwd' | 'env'>
 ): ClaudeSpawnOptions {
   const spawnOptions: ClaudeSpawnOptions = {
     stdin: stdio,
@@ -125,7 +143,7 @@ function shellQuote(str: string): string {
  * @param options - Invocation options
  * @returns Array of arguments (not including 'claude' itself)
  */
-export function buildClaudeArgs(options: ClaudeInvokeOptions): string[] {
+export function buildClaudeArgs(options: ClaudeArgsOptions): string[] {
   const args: string[] = []
 
   // Add plugin directories
@@ -204,7 +222,7 @@ export function buildClaudeArgs(options: ClaudeInvokeOptions): string[] {
  * // Returns: /usr/local/bin/claude --plugin-dir /path/to/plugin1 --plugin-dir '/path with spaces/plugin2' --mcp-config /path/to/mcp.json
  * ```
  */
-export function formatClaudeCommand(claudePath: string, options: ClaudeInvokeOptions): string {
+export function formatClaudeCommand(claudePath: string, options: ClaudeArgsOptions): string {
   const args = buildClaudeArgs(options)
   const quotedArgs = args.map(shellQuote)
   return [shellQuote(claudePath), ...quotedArgs].join(' ')
@@ -218,7 +236,7 @@ export function formatClaudeCommand(claudePath: string, options: ClaudeInvokeOpt
  * @param options - Invocation options
  * @returns Shell-safe command string
  */
-export async function getClaudeCommand(options: ClaudeInvokeOptions): Promise<string> {
+export async function getClaudeCommand(options: ClaudeArgsOptions): Promise<string> {
   const claudePath = await getClaudePath()
   return formatClaudeCommand(claudePath, options)
 }
