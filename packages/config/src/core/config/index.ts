@@ -26,24 +26,3 @@ export {
 
 // Agent runtime profile parser
 export { parseAgentProfile } from './agent-profile-toml.js'
-
-// asp_modules directory helpers
-export {
-  ASP_MODULES_DIR,
-  ASP_MODULES_MCP_CONFIG,
-  ASP_MODULES_PLUGINS_DIR,
-  ASP_MODULES_SETTINGS,
-  aspModulesExists,
-  getAspModulesPath,
-  getTargetMcpConfigPath,
-  getTargetOutputPath,
-  getTargetPluginsPath,
-  getTargetSettingsPath,
-  targetOutputExists,
-  // Phase 2: Harness-aware path helpers
-  getHarnessOutputPath,
-  getHarnessPluginsPath,
-  getHarnessMcpConfigPath,
-  getHarnessSettingsPath,
-  harnessOutputExists,
-} from './asp-modules.js'

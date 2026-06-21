@@ -49,27 +49,6 @@ export {
 } from './config/index.js'
 export type { ValidateTargetResult } from './config/index.js'
 
-// asp_modules directory helpers
-export {
-  ASP_MODULES_DIR,
-  ASP_MODULES_MCP_CONFIG,
-  ASP_MODULES_PLUGINS_DIR,
-  ASP_MODULES_SETTINGS,
-  aspModulesExists,
-  getAspModulesPath,
-  getTargetMcpConfigPath,
-  getTargetOutputPath,
-  getTargetPluginsPath,
-  getTargetSettingsPath,
-  targetOutputExists,
-  // Phase 2: Harness-aware path helpers
-  getHarnessOutputPath,
-  getHarnessPluginsPath,
-  getHarnessMcpConfigPath,
-  getHarnessSettingsPath,
-  harnessOutputExists,
-} from './config/index.js'
-
 // Errors
 export {
   AspError,
