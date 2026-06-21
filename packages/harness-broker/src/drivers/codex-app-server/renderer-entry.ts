@@ -92,8 +92,19 @@ function connectReadSurface(socketPath: string): {
       return
     }
     if ('method' in message && message.method === 'invocation.event') {
-      const event = (message.params as { event?: InvocationEventEnvelope } | undefined)?.event
-      if (event !== undefined) {
+      // The broker/observer wire shape carries the envelope DIRECTLY as `params`
+      // (see cli.ts emitEvent / notifyObserverClient and the aspc facade — all
+      // four producers emit `params: <envelope>`). Read it directly; tolerate a
+      // legacy `{ event }` wrapper defensively so either shape is accepted.
+      const params = message.params as
+        | (InvocationEventEnvelope & { event?: InvocationEventEnvelope })
+        | undefined
+      const event = params?.event ?? params
+      if (
+        event !== undefined &&
+        typeof event.seq === 'number' &&
+        typeof event.invocationId === 'string'
+      ) {
         for (const handler of liveHandlers) handler(event)
       }
     }
@@ -131,10 +142,15 @@ async function main(): Promise<void> {
     process.argv.slice(2)
   )
   const { surface, close } = connectReadSurface(observerSocketPath)
+  // The renderer writes into a real tmux pane (a TTY): enable colour unless the
+  // operator opted out via NO_COLOR, and wrap to the pane width.
+  const color = process.env['NO_COLOR'] === undefined && process.stdout.isTTY === true
   const projection = createCodexAppServerRendererProjection({
     invocationId,
     readSurface: surface,
     sink: (line) => process.stdout.write(`${line}\n`),
+    color,
+    ...(typeof process.stdout.columns === 'number' ? { width: process.stdout.columns } : {}),
   })
   await projection.start()
   let quitPosted = false

@@ -118,7 +118,7 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     const { createCodexAppServerRendererProjection } = await loadRendererModule()
     const { surface, emitLive, eventsSinceRequests } = createReadSurface([
       event(1, 'invocation.ready', { state: 'ready' }),
-      event(2, 'assistant.message.delta', { messageId: 'msg_1', text: 'Replay delta' }),
+      event(2, 'assistant.message.completed', { messageId: 'msg_1', text: 'Replay message' }),
     ])
     const projection = createCodexAppServerRendererProjection({
       invocationId: 'inv_renderer',
@@ -129,50 +129,56 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     // It must bootstrap via invocation.eventsSince before accepting live
     // invocation.event notifications; a driver-pushed private feed is not enough.
     await projection.start()
-    emitLive(event(2, 'assistant.message.delta', { messageId: 'msg_1', text: 'Replay delta' }))
+    emitLive(
+      event(2, 'assistant.message.completed', { messageId: 'msg_1', text: 'Replay message' })
+    )
     emitLive(
       event(
         2,
-        'assistant.message.delta',
+        'assistant.message.completed',
         { messageId: 'other', text: 'Other invocation' },
         'inv_other'
       )
     )
-    emitLive(event(3, 'assistant.message.completed', { messageId: 'msg_1', text: 'Done' }))
+    emitLive(event(3, 'turn.completed', { turnId: 'turn_1', status: 'completed' }))
 
     expect(eventsSinceRequests).toEqual([{ invocationId: 'inv_renderer', afterSeq: 0 }])
-    const lines = textLines(projection)
-    expect(lines).toHaveLength(3)
-    expect(lines.join('\n')).toContain('ready')
-    expect(lines.join('\n')).toContain('Replay delta')
-    expect(lines.join('\n')).toContain('Done')
-    expect(lines.join('\n')).not.toContain('Other invocation')
-    expect(lines.join('\n').match(/Replay delta/g)).toHaveLength(1)
-    expect(lines.map((line) => Number(line.match(/\bseq=(\d+)\b/)?.[1] ?? Number.NaN))).toEqual([
-      1, 2, 3,
-    ])
+    const rendered = textLines(projection).join('\n')
+    // Strict seq order is preserved as transcript order: ready → message → done.
+    expectTextInOrder(rendered, ['ready', 'Replay message', '✓ done'])
+    // A replayed-then-live duplicate (same seq) renders once; a live event for a
+    // different invocation never bleeds in.
+    expect(rendered).not.toContain('Other invocation')
+    expect(rendered.match(/Replay message/g)).toHaveLength(1)
     projection.close()
   })
 
-  test('renders representative broker events in seq order, including user input, tools, diagnostics, status, and summary', async () => {
+  test('renders a full turn hrcchat-style: prompt, turn header, grouped tools, diagnostics, bold answer, and footer', async () => {
     const { createCodexAppServerRendererProjection } = await loadRendererModule()
     const { surface } = createReadSurface([
       event(1, 'user.message', { role: 'user', inputId: 'input_1', content: 'Run the check' }),
       event(2, 'invocation.ready', { state: 'ready' }),
-      event(3, 'assistant.message.delta', { messageId: 'msg_1', text: 'I will run it.' }),
-      event(4, 'tool.call.started', { callId: 'tool_1', name: 'shell', input: 'bun test' }),
-      event(5, 'tool.call.delta', { callId: 'tool_1', text: 'running' }),
-      event(6, 'tool.call.completed', { callId: 'tool_1', output: 'ok' }),
-      event(7, 'tool.call.failed', { callId: 'tool_2', name: 'shell', message: 'boom' }),
-      event(8, 'diagnostic', { level: 'warn', source: 'harness', message: 'slow read' }),
-      event(9, 'assistant.message.completed', { messageId: 'msg_1', text: 'All set.' }),
-      event(10, 'turn.completed', {
+      event(3, 'turn.started', { turnId: 'turn_1' }),
+      event(4, 'assistant.message.started', { messageId: 'msg_1' }),
+      event(5, 'assistant.message.delta', { messageId: 'msg_1', text: 'I will run it.' }),
+      event(6, 'tool.call.started', {
+        toolCallId: 'tool_1',
+        name: 'command',
+        input: { command: 'bun test' },
+      }),
+      event(7, 'tool.call.delta', { toolCallId: 'tool_1', text: 'streaming-chunk' }),
+      event(8, 'tool.call.completed', {
+        toolCallId: 'tool_1',
+        result: { output: 'ok', exitCode: 0 },
+      }),
+      event(9, 'tool.call.failed', { toolCallId: 'tool_2', name: 'command', message: 'boom' }),
+      event(10, 'diagnostic', { level: 'warn', source: 'harness', message: 'slow read' }),
+      event(11, 'usage.updated', { usage: { total: { totalTokens: 12345 } } }),
+      event(12, 'assistant.message.completed', { messageId: 'msg_1', text: 'All set.' }),
+      event(13, 'turn.completed', {
         turnId: 'turn_1',
         status: 'completed',
         finalOutput: 'All set.',
-      }),
-      event(11, 'invocation.summary', {
-        summary: { driver: 'codex-app-server', turnsCompleted: 1 },
       }),
     ])
     const projection = createCodexAppServerRendererProjection({
@@ -184,18 +190,70 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
 
     const rendered = textLines(projection).join('\n')
     expectTextInOrder(rendered, [
-      'Run the check',
-      'ready',
-      'I will run it.',
-      'shell',
-      'running',
-      'ok',
-      'boom',
-      'slow read',
-      'All set.',
-      'completed',
-      'turnsCompleted',
+      '▷ Run the check', // user prompt preview
+      '● ready', // ready beat
+      '▶ turn', // turn header
+      '$ command', // grouped tool (started)
+      '↳ ok', // grouped tool output (completed)
+      '✗ command  boom', // failed tool
+      '⚠ slow read', // diagnostic surfaced (warn)
+      'All set.', // coalesced assistant answer
+      '✓ done · 12,345 tok', // footer with usage
     ])
+    // Streaming delta events are folded into their *.completed event — never
+    // rendered per-chunk.
+    expect(rendered).not.toContain('I will run it.')
+    expect(rendered).not.toContain('streaming-chunk')
+    projection.close()
+  })
+
+  test('renders every emitted lifecycle/telemetry event type with a dedicated form, never the raw-JSON fallback', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    // The exact set the live codex-app-server invocation emits that previously
+    // fell through to the `seq=<n> <type> {json}` default branch.
+    const { surface } = createReadSurface([
+      event(1, 'lifecycle.policy.accepted', {
+        policyId: 'policy-route-headless-broker:codex-app-server',
+        retentionMode: 'keep-alive',
+      }),
+      event(2, 'terminal.surface.reported', { kind: 'tmux-pane', paneId: '%1' }),
+      event(3, 'invocation.started', { pid: 91871, command: '/usr/bin/codex' }),
+      event(4, 'continuation.updated', { provider: 'codex', kind: 'thread', key: 'thr_1' }),
+      event(5, 'input.accepted', { inputId: 'input_1', disposition: 'started' }),
+      event(6, 'assistant.message.started', { messageId: 'msg_1' }),
+      event(7, 'usage.updated', {
+        usage: { total: { totalTokens: 20140, inputTokens: 20062, outputTokens: 78 } },
+      }),
+      event(8, 'assistant.message.completed', {
+        messageId: 'msg_1',
+        content: [{ type: 'text', text: 'From content array' }],
+        final: false,
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+
+    await projection.start()
+
+    const lines = textLines(projection)
+    const rendered = lines.join('\n')
+    // Every broker-specific type (ones hrcchat turn never emits) renders with a
+    // dedicated friendly form, in order.
+    expectTextInOrder(rendered, [
+      'policy policy-route-headless-broker:codex-app-server (keep-alive)',
+      'surface tmux-pane %1',
+      'process pid=91871',
+      'thread thr_1',
+      'input started',
+      '20,140 tok', // usage, comma-grouped
+      'From content array', // assistant content[] extracted
+    ])
+    // None may degrade to a raw-JSON object dump.
+    for (const line of lines) {
+      expect(line, `event rendered via raw-JSON fallback:\n${line}`).not.toMatch(/\s\{".*":/)
+    }
     projection.close()
   })
 

@@ -2,6 +2,7 @@ import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { shellQuote } from '../tmux-shared'
+import { createCodexTranscriptModel } from './transcript'
 
 /**
  * T-04906 / T-04909 Phase B — the Codex app-server operator renderer.
@@ -42,7 +43,7 @@ export interface RendererDurableReadSurface {
 export interface RendererProjection {
   /** Bootstrap from `eventsSince`, then stream live `invocation.event`. */
   start: () => Promise<void>
-  /** Rendered lines in seq order (one line per surfaced event). */
+  /** The rendered transcript lines, in seq order. */
   lines: () => string[]
   close: () => void
 }
@@ -52,6 +53,10 @@ export interface RendererProjectionOptions {
   readSurface: RendererDurableReadSurface
   /** Optional side-channel for each rendered line (e.g. write to the pane). */
   sink?: (line: string) => void
+  /** Emit ANSI colour (default false — enable on a TTY pane). */
+  color?: boolean | undefined
+  /** Wrap width for assistant prose (default 96). */
+  width?: number | undefined
 }
 
 /**
@@ -77,11 +82,22 @@ export function createCodexAppServerRendererProjection(
     sink?.(line)
   }
 
+  // The presentation layer: folds the durable event stream into an
+  // hrcchat-turn-style transcript (palette + glyphs + rail, assistant deltas
+  // coalesced, tool calls grouped). The projection owns ordering/dedup; the
+  // model owns styling.
+  const transcript = createCodexTranscriptModel({
+    invocationId,
+    emit: pushLine,
+    ...(options.color !== undefined ? { color: options.color } : {}),
+    ...(options.width !== undefined ? { width: options.width } : {}),
+  })
+
   function render(event: InvocationEventEnvelope): void {
     if (event.invocationId !== invocationId) return
     if (seenSeqs.has(event.seq)) return
     seenSeqs.add(event.seq)
-    pushLine(formatEvent(event))
+    transcript.apply(event)
   }
 
   function onLive(event: InvocationEventEnvelope): void {
@@ -105,7 +121,7 @@ export function createCodexAppServerRendererProjection(
           render(event)
         }
       } catch (error) {
-        pushLine(formatReadFailure(error))
+        transcript.readFailure(formatReadFailure(error))
       } finally {
         bootstrapping = false
         // Flush any live events captured during bootstrap, in seq order.
@@ -123,56 +139,6 @@ export function createCodexAppServerRendererProjection(
       subscription?.close()
       subscription = undefined
     },
-  }
-}
-
-function asRecord(payload: unknown): Record<string, unknown> {
-  return payload !== null && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
-}
-
-function str(value: unknown): string {
-  if (value === undefined || value === null) return ''
-  if (typeof value === 'string') return value
-  return JSON.stringify(value)
-}
-
-/**
- * Render one durable broker event into a single operator-facing line. Every
- * line carries `seq=<n>` so the operator (and the projection's own ordering
- * invariant) can read the durable sequence directly.
- */
-export function formatEvent(event: InvocationEventEnvelope): string {
-  const seq = `seq=${event.seq}`
-  const p = asRecord(event.payload)
-  switch (event.type) {
-    case 'user.message':
-      return `${seq} user> ${str(p['content'])}`.trimEnd()
-    case 'invocation.ready':
-      return `${seq} status ready (${str(p['state']) || 'ready'})`
-    case 'invocation.summary':
-      return `${seq} summary ${str(p['summary'] ?? p)}`
-    case 'assistant.message.delta':
-      return `${seq} assistant Δ ${str(p['text'])}`.trimEnd()
-    case 'assistant.message.completed':
-      return `${seq} assistant ${str(p['text'])}`.trimEnd()
-    case 'tool.call.started':
-      return `${seq} tool start ${str(p['name'])} ${str(p['input'])}`.trimEnd()
-    case 'tool.call.delta':
-      return `${seq} tool … ${str(p['text'] ?? p['output'])}`.trimEnd()
-    case 'tool.call.completed':
-      return `${seq} tool done ${str(p['output'])}`.trimEnd()
-    case 'tool.call.failed':
-      return `${seq} tool FAILED ${str(p['name'])} ${str(p['message'])}`.trimEnd()
-    case 'diagnostic':
-      return `${seq} [${str(p['level']) || 'info'}] ${str(p['message'])}`.trimEnd()
-    case 'turn.started':
-      return `${seq} turn started ${str(p['turnId'])}`.trimEnd()
-    case 'turn.completed':
-      return `${seq} turn completed ${str(p['finalOutput'])}`.trimEnd()
-    case 'turn.failed':
-      return `${seq} turn failed ${str(p['message'] ?? p['finalOutput'])}`.trimEnd()
-    default:
-      return `${seq} ${event.type} ${str(event.payload)}`.trimEnd()
   }
 }
 
