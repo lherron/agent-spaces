@@ -134,7 +134,6 @@ export interface RunResult {
   totalContextChars?: number | undefined
   nearMaxChars?: boolean | undefined
   primingPrompt?: string | undefined
-  compilerDebugContext?: RunCompilerDebugContext | undefined
   launch?: LaunchShape | undefined
   /**
    * The real RuntimeCompileRequest/Response the run compiled (when a compiler
