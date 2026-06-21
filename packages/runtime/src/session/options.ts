@@ -1,3 +1,4 @@
+import type { AgentSdkModelAlias } from 'spaces-config'
 import type { PermissionHandler } from './permissions.js'
 import type { SessionKind } from './types.js'
 
@@ -9,7 +10,7 @@ export interface CreateSessionOptions {
   sessionId: string
   cwd: string
 
-  model?: 'fable' | 'haiku' | 'sonnet' | 'opus' | 'opus-4-6'
+  model?: AgentSdkModelAlias
   allowedTools?: string[]
   plugins?: Array<{ type: 'local'; path: string }>
   systemPrompt?: string
