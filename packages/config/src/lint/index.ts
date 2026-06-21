@@ -36,20 +36,9 @@ import { allRules } from './rules/index.js'
 import type { LintContext, LintWarning } from './types.js'
 
 /**
- * Options for linting.
- */
-export interface LintOptions {
-  /** Rules to run (defaults to all) */
-  rules?: string[] | undefined
-}
-
-/**
  * Run all lint rules against a context.
  */
-export async function lint(
-  context: LintContext,
-  _options: LintOptions = {}
-): Promise<LintWarning[]> {
+export async function lint(context: LintContext): Promise<LintWarning[]> {
   const warnings: LintWarning[] = []
 
   for (const rule of allRules) {
