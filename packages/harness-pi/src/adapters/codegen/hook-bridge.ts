@@ -30,7 +30,16 @@ export interface HookDefinition {
 
 /**
  * Maps both abstract event names (hooks.toml) and Claude event names
- * (hooks.json), plus lowercased variants, to Pi event names.
+ * (hooks.json) to Pi event names.
+ *
+ * Claude native hooks.json event names are normalized by the producer
+ * (`claudeEventToCanonical` in spaces-config's readHooksWithPrecedence) which
+ * inserts an underscore at each lower→upper boundary then lowercases:
+ * `PreToolUse`→`pre_tool_use`, `PostToolUse`→`post_tool_use`,
+ * `SessionStart`→`session_start` — all already covered by the abstract entries.
+ * `Stop` is a single word with no case boundary, so it normalizes to plain
+ * `stop`; the `stop` entry below is that genuine canonical name, not a buggy
+ * lowercased variant.
  */
 const PI_EVENT_MAP: Record<string, string> = {
   // Abstract event names (from hooks.toml)
@@ -43,10 +52,8 @@ const PI_EVENT_MAP: Record<string, string> = {
   PostToolUse: 'tool_result',
   SessionStart: 'session_start',
   Stop: 'session_shutdown',
-  // Lowercased variants (from buggy snake_case conversion in readHooksWithPrecedence)
-  sessionstart: 'session_start',
-  pretooluse: 'tool_call',
-  posttooluse: 'tool_result',
+  // Canonical single-word event name: `Stop` normalizes to `stop` (no case
+  // boundary for the producer to underscore).
   stop: 'session_shutdown',
 }
 
