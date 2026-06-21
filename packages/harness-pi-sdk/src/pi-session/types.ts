@@ -56,6 +56,7 @@ export interface PiSessionStartOptions {
   skills?: Skill[]
   extensions?: ExtensionFactory[]
   contextFiles?: Array<{ path: string; content: string }>
+  systemPrompt?: string
   agentDir?: string
   globalAgentDir?: string
 }

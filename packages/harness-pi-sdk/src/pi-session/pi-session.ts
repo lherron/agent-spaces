@@ -3,11 +3,12 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
   AuthStorage,
+  DefaultResourceLoader,
   ModelRegistry,
   SessionManager,
   createAgentSession,
 } from '@mariozechner/pi-coding-agent'
-import type { AgentSession } from '@mariozechner/pi-coding-agent'
+import type { AgentSession, ExtensionFactory, Skill } from '@mariozechner/pi-coding-agent'
 import type {
   ContentBlock,
   Message,
@@ -63,6 +64,119 @@ function resolveGlobalAgentDir(
     configGlobalAgentDir ??
     process.env['PI_CODING_AGENT_DIR'] ??
     join(homedir(), '.pi', 'agent')
+  )
+}
+
+type ContextFile = { path: string; content: string }
+type ResourceLoaderOptions = NonNullable<ConstructorParameters<typeof DefaultResourceLoader>[0]>
+
+/**
+ * The advertised Pi capability inputs that createAgentSession has NO native
+ * option for (extensions/skills/contextFiles/systemPrompt/additionalExtensionPaths).
+ * They thread through a DefaultResourceLoader passed as `resourceLoader`.
+ */
+export interface PiResourceInputs {
+  extensions?: ExtensionFactory[]
+  skills?: Skill[]
+  contextFiles?: ContextFile[]
+  systemPrompt?: string | undefined
+  additionalExtensionPaths?: string[]
+}
+
+/** Dedupe by a string key, keeping the LAST occurrence (later inputs win). */
+function dedupeByKey<T>(items: T[], keyOf: (item: T) => string): T[] {
+  const byKey = new Map<string, T>()
+  for (const item of items) {
+    byKey.set(keyOf(item), item)
+  }
+  return [...byKey.values()]
+}
+
+/**
+ * Build DefaultResourceLoader options that inject the supplied capability inputs
+ * into createAgentSession via a resource loader. Returns undefined when nothing
+ * needs injecting, so the default (no resourceLoader) path is preserved exactly —
+ * createAgentSession then constructs its own DefaultResourceLoader with pure
+ * cwd/agentDir auto-discovery.
+ *
+ * Mapping (createAgentSession reads NONE of these as top-level options — they are
+ * silently dropped if passed there; the loader is the only seam):
+ *  - extensions               -> extensionFactories
+ *  - additionalExtensionPaths -> additionalExtensionPaths
+ *  - skills                   -> skillsOverride: ADDITIVE onto auto-discovered
+ *                                skills; base diagnostics preserved
+ *  - contextFiles             -> agentsFilesOverride: discovered AGENTS/CLAUDE
+ *                                files preserved, explicit files APPENDED
+ *  - systemPrompt             -> systemPrompt
+ *
+ * Duplicate-path / duplicate-name policy: the explicit (supplied) resource wins
+ * over an auto-discovered one with the same skill name / context-file path.
+ */
+export function buildResourceLoaderOptions(
+  inputs: PiResourceInputs,
+  resolved: { cwd: string; agentDir: string }
+): ResourceLoaderOptions | undefined {
+  const extensions = inputs.extensions ?? []
+  const skills = inputs.skills ?? []
+  const contextFiles = inputs.contextFiles ?? []
+  const additionalExtensionPaths = inputs.additionalExtensionPaths ?? []
+  const systemPrompt = inputs.systemPrompt
+
+  const hasInjection =
+    extensions.length > 0 ||
+    skills.length > 0 ||
+    contextFiles.length > 0 ||
+    systemPrompt !== undefined ||
+    additionalExtensionPaths.length > 0
+  if (!hasInjection) return undefined
+
+  const loaderOptions: ResourceLoaderOptions = {
+    cwd: resolved.cwd,
+    agentDir: resolved.agentDir,
+  }
+  if (extensions.length > 0) {
+    loaderOptions.extensionFactories = extensions
+  }
+  if (additionalExtensionPaths.length > 0) {
+    loaderOptions.additionalExtensionPaths = additionalExtensionPaths
+  }
+  if (systemPrompt !== undefined) {
+    loaderOptions.systemPrompt = systemPrompt
+  }
+  if (skills.length > 0) {
+    loaderOptions.skillsOverride = (base) => ({
+      skills: dedupeByKey([...base.skills, ...skills], (skill) => skill.name),
+      diagnostics: base.diagnostics,
+    })
+  }
+  if (contextFiles.length > 0) {
+    loaderOptions.agentsFilesOverride = (base) => ({
+      agentsFiles: dedupeByKey([...base.agentsFiles, ...contextFiles], (file) => file.path),
+    })
+  }
+  return loaderOptions
+}
+
+/**
+ * Resolve the capability inputs from a PiSessionConfig plus per-start overrides,
+ * then build resource-loader options. start() options EXTEND the config for the
+ * array-valued inputs (extensions/skills/contextFiles concatenated, config first)
+ * and OVERRIDE the scalar systemPrompt (start wins when present).
+ */
+export function buildPiResourceLoaderOptions(
+  config: PiSessionConfig,
+  options: PiSessionStartOptions,
+  resolved: { cwd: string; agentDir: string }
+): ResourceLoaderOptions | undefined {
+  return buildResourceLoaderOptions(
+    {
+      extensions: [...(config.extensions ?? []), ...(options.extensions ?? [])],
+      skills: [...(config.skills ?? []), ...(options.skills ?? [])],
+      contextFiles: [...(config.contextFiles ?? []), ...(options.contextFiles ?? [])],
+      systemPrompt: options.systemPrompt ?? config.systemPrompt,
+      additionalExtensionPaths: [...(config.additionalExtensionPaths ?? [])],
+    },
+    resolved
   )
 }
 
@@ -122,6 +236,16 @@ export class PiSession implements UnifiedSession {
       }
       if (model) {
         sessionOptions.model = model
+      }
+
+      const loaderOptions = buildPiResourceLoaderOptions(this.config, options, {
+        cwd: this.config.cwd,
+        agentDir: agentDir ?? globalAgentDir,
+      })
+      if (loaderOptions) {
+        const loader = new DefaultResourceLoader(loaderOptions)
+        await loader.reload()
+        sessionOptions.resourceLoader = loader
       }
 
       const { session } = await createAgentSession(sessionOptions)

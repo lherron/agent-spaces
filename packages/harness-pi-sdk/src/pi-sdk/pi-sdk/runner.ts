@@ -4,6 +4,7 @@
 
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import type { ExtensionFactory as PiExtensionFactory, Skill } from '@mariozechner/pi-coding-agent'
 import {
   type ExtensionApi,
   type ExtensionFactory,
@@ -16,6 +17,7 @@ import {
   loadManifestContextFiles,
   loadManifestExtensionFactories,
 } from '../../pi-session/manifest-loading.js'
+import { buildResourceLoaderOptions } from '../../pi-session/pi-session.js'
 import { resolveSdkEntry } from '../../pi-session/sdk-entry.js'
 
 interface RunnerArgs {
@@ -193,6 +195,9 @@ async function main(): Promise<void> {
     AuthStorage,
     ModelRegistry,
     SessionManager,
+    SettingsManager,
+    DefaultResourceLoader,
+    getAgentDir,
     createAgentSession,
     loadSkills,
     InteractiveMode,
@@ -244,20 +249,40 @@ async function main(): Promise<void> {
     skills = discovered
   }
 
+  // createAgentSession has NO top-level extensions/skills/contextFiles options —
+  // passing them there silently drops the bundle's resources. Thread them through
+  // a DefaultResourceLoader (the only seam), mirroring PiSession.start(). agentDir
+  // matches createAgentSession's own default (getAgentDir()) so discovery is
+  // unchanged; settingsManager mirrors createAgentSession's default loader so
+  // settings-gated discovery is preserved.
   const sessionOptions: {
     cwd: string
-    extensions: ExtensionFactory[]
-    skills: unknown[]
-    contextFiles: Array<{ path: string; content: string }>
+    resourceLoader?: unknown
     model?: unknown
     authStorage?: unknown
     modelRegistry?: unknown
     sessionManager?: unknown
   } = {
     cwd: args.cwd,
-    extensions: extensionFactories,
-    skills: args.noSkills ? [] : skills,
-    contextFiles,
+  }
+
+  const agentDir = getAgentDir()
+  const loaderOptions = buildResourceLoaderOptions(
+    {
+      // The runner's extension factories use the local hook-runtime ExtensionApi
+      // shape (a structural superset of pi's typed event union); they are valid
+      // pi ExtensionFactory at runtime — cast to the loader's expected type.
+      extensions: extensionFactories as unknown as PiExtensionFactory[],
+      skills: args.noSkills ? [] : (skills as Skill[]),
+      contextFiles,
+    },
+    { cwd: args.cwd, agentDir }
+  )
+  if (loaderOptions) {
+    loaderOptions.settingsManager = SettingsManager.create(args.cwd, agentDir)
+    const loader = new DefaultResourceLoader(loaderOptions)
+    await loader.reload()
+    sessionOptions.resourceLoader = loader
   }
 
   // Continuation: resume via SessionManager (mirrors how PiSession resumes
