@@ -64,138 +64,7 @@ import {
   requireTrue,
 } from './validation-primitives.js'
 
-export type SchemaRecord = Record<string, unknown> & {
-  approvalPolicy?: unknown
-  args?: unknown
-  capabilities?: unknown
-  clientInfo?: unknown
-  cols?: unknown
-  command?: unknown
-  continuation?: unknown
-  content?: unknown
-  correlation?: unknown
-  cwd?: unknown
-  defaultImageAttachments?: unknown
-  driver?: unknown
-  env?: unknown
-  dispatchEnv?: unknown
-  frontend?: unknown
-  harness?: unknown
-  harnessTransport?: unknown
-  inputQueue?: unknown
-  input?: unknown
-  inputId?: unknown
-  interaction?: unknown
-  invocationId?: unknown
-  key?: unknown
-  kind?: unknown
-  labels?: unknown
-  launch?: unknown
-  limits?: unknown
-  lockedEnv?: unknown
-  maxEventBytes?: unknown
-  metadata?: unknown
-  mimeType?: unknown
-  mode?: unknown
-  model?: unknown
-  modelReasoningEffort?: unknown
-  name?: unknown
-  path?: unknown
-  pathPrepend?: unknown
-  permissionRequests?: unknown
-  permissionPolicy?: unknown
-  policy?: unknown
-  paneId?: unknown
-  probeDrivers?: unknown
-  probeLiveness?: unknown
-  process?: unknown
-  profile?: unknown
-  provider?: unknown
-  protocolVersions?: unknown
-  reason?: unknown
-  resumeFallback?: unknown
-  resumeThreadId?: unknown
-  rows?: unknown
-  sandboxMode?: unknown
-  seq?: unknown
-  sessionName?: unknown
-  spec?: unknown
-  specVersion?: unknown
-  socketPath?: unknown
-  startupTimeoutMs?: unknown
-  stopGraceMs?: unknown
-  terminalSurfaceRequired?: unknown
-  text?: unknown
-  timeoutMs?: unknown
-  time?: unknown
-  turnConcurrency?: unknown
-  turnTimeoutMs?: unknown
-  type?: unknown
-  types?: unknown
-  version?: unknown
-  whenBusy?: unknown
-  eventAcks?: unknown
-  graceMs?: unknown
-  includeDisposed?: unknown
-  initialInput?: unknown
-  lifecyclePolicy?: unknown
-  policyHash?: unknown
-  policyId?: unknown
-  schemaVersion?: unknown
-  retention?: unknown
-  harnessRecovery?: unknown
-  turnRetry?: unknown
-  idleTtlMs?: unknown
-  retire?: unknown
-  onTimeout?: unknown
-  stallDetection?: unknown
-  escalation?: unknown
-  maxGenerationsPerInvocation?: unknown
-  activeTurnDisposition?: unknown
-  recycle?: unknown
-  onRecoveryFailure?: unknown
-  healthProbe?: unknown
-  noProgressMs?: unknown
-  minTurnAgeMs?: unknown
-  killGraceMs?: unknown
-  killProcessTree?: unknown
-  restartFrom?: unknown
-  requireContinuation?: unknown
-  maxAttempts?: unknown
-  retryOn?: unknown
-  requires?: unknown
-  identity?: unknown
-  semantics?: unknown
-  onUnsafe?: unknown
-  generation?: unknown
-  harnessGeneration?: unknown
-  turnAttempt?: unknown
-  fromGeneration?: unknown
-  toGeneration?: unknown
-  ready?: unknown
-  fromAttempt?: unknown
-  toAttempt?: unknown
-  fromHarnessGeneration?: unknown
-  toHarnessGeneration?: unknown
-  thresholdMs?: unknown
-  requestedAction?: unknown
-  permissionRequestId?: unknown
-  startRequest?: unknown
-  scope?: unknown
-  runtimeId?: unknown
-  hostSessionId?: unknown
-  startRequestHash?: unknown
-  selectedProfileHash?: unknown
-  controllerInstanceId?: unknown
-  attachToken?: unknown
-  lastProjectedSeq?: unknown
-  clientCapabilities?: unknown
-  afterSeq?: unknown
-  live?: unknown
-  throughSeq?: unknown
-  decision?: unknown
-  message?: unknown
-}
+export type SchemaRecord = Record<string, unknown>
 
 /**
  * Single source of truth for the runtime method/event registries. The tuples
@@ -354,22 +223,22 @@ export function validateEventEnvelope(value: unknown): InvocationEventEnvelope {
   if (!envelope) {
     issues.push(makeIssue('', 'invalid_type', 'Event envelope must be an object'))
   } else {
-    requireString(envelope.invocationId, 'invocationId', issues)
-    requireNumber(envelope.seq, 'seq', issues)
-    requireString(envelope.time, 'time', issues)
+    requireString(envelope['invocationId'], 'invocationId', issues)
+    requireNumber(envelope['seq'], 'seq', issues)
+    requireString(envelope['time'], 'time', issues)
     if (
-      typeof envelope.type !== 'string' ||
-      !eventTypes.has(envelope.type as InvocationEventType)
+      typeof envelope['type'] !== 'string' ||
+      !eventTypes.has(envelope['type'] as InvocationEventType)
     ) {
       issues.push(makeIssue('type', 'invalid_event_type', 'Unsupported event type'))
     }
     if (!Object.hasOwn(envelope, 'payload')) {
       issues.push(makeIssue('payload', 'required', 'payload is required'))
-    } else if (typeof envelope.type === 'string') {
+    } else if (typeof envelope['type'] === 'string') {
       const driverKind = asRecord(envelope['driver'])?.['kind']
       validateOptionalPositiveInteger(envelope['harnessGeneration'], 'harnessGeneration', issues)
       validateOptionalPositiveInteger(envelope['turnAttempt'], 'turnAttempt', issues)
-      validateEventPayload(envelope.type as InvocationEventType, envelope['payload'], issues, {
+      validateEventPayload(envelope['type'] as InvocationEventType, envelope['payload'], issues, {
         driverKind: typeof driverKind === 'string' ? driverKind : undefined,
       })
     }
@@ -388,7 +257,7 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
     return
   }
 
-  if (spec.specVersion !== 'harness-broker.invocation/v1') {
+  if (spec['specVersion'] !== 'harness-broker.invocation/v1') {
     issues.push(
       makeIssue(joinPath(prefix, 'specVersion'), 'invalid_literal', 'Unsupported specVersion')
     )
@@ -403,51 +272,51 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
     )
   }
 
-  validateStringRecord(spec.labels, joinPath(prefix, 'labels'), issues, false)
-  validateStringRecord(spec.correlation, joinPath(prefix, 'correlation'), issues, false)
+  validateStringRecord(spec['labels'], joinPath(prefix, 'labels'), issues, false)
+  validateStringRecord(spec['correlation'], joinPath(prefix, 'correlation'), issues, false)
 
-  const harness = asRecord(spec.harness)
+  const harness = asRecord(spec['harness'])
   if (!harness) {
     issues.push(makeIssue(joinPath(prefix, 'harness'), 'required', 'harness is required'))
   } else {
-    requireString(harness.frontend, joinPath(prefix, 'harness.frontend'), issues)
-    requireString(harness.driver, joinPath(prefix, 'harness.driver'), issues)
-    if (harness.provider !== undefined && typeof harness.provider !== 'string') {
+    requireString(harness['frontend'], joinPath(prefix, 'harness.frontend'), issues)
+    requireString(harness['driver'], joinPath(prefix, 'harness.driver'), issues)
+    if (harness['provider'] !== undefined && typeof harness['provider'] !== 'string') {
       issues.push(
         makeIssue(joinPath(prefix, 'harness.provider'), 'invalid_type', 'provider must be a string')
       )
     }
   }
 
-  const process = asRecord(spec.process)
+  const process = asRecord(spec['process'])
   if (!process) {
     issues.push(makeIssue(joinPath(prefix, 'process'), 'required', 'process is required'))
   } else {
-    requireString(process.command, joinPath(prefix, 'process.command'), issues)
-    requireStringArray(process.args, joinPath(prefix, 'process.args'), issues)
-    requireString(process.cwd, joinPath(prefix, 'process.cwd'), issues)
-    validateEnv(process.lockedEnv, joinPath(prefix, 'process.lockedEnv'), issues, 'lockedEnv')
-    optionalStringArray(process.pathPrepend, joinPath(prefix, 'process.pathPrepend'), issues)
+    requireString(process['command'], joinPath(prefix, 'process.command'), issues)
+    requireStringArray(process['args'], joinPath(prefix, 'process.args'), issues)
+    requireString(process['cwd'], joinPath(prefix, 'process.cwd'), issues)
+    validateEnv(process['lockedEnv'], joinPath(prefix, 'process.lockedEnv'), issues, 'lockedEnv')
+    optionalStringArray(process['pathPrepend'], joinPath(prefix, 'process.pathPrepend'), issues)
     validateHarnessTransport(
-      process.harnessTransport,
+      process['harnessTransport'],
       joinPath(prefix, 'process.harnessTransport'),
       issues
     )
-    validateProcessLimits(process.limits, joinPath(prefix, 'process.limits'), issues)
+    validateProcessLimits(process['limits'], joinPath(prefix, 'process.limits'), issues)
   }
 
-  validateInteraction(spec.interaction, joinPath(prefix, 'interaction'), issues)
-  validateContinuation(spec.continuation, joinPath(prefix, 'continuation'), issues)
+  validateInteraction(spec['interaction'], joinPath(prefix, 'interaction'), issues)
+  validateContinuation(spec['continuation'], joinPath(prefix, 'continuation'), issues)
 
-  const driver = asRecord(spec.driver)
+  const driver = asRecord(spec['driver'])
   if (!driver) {
     issues.push(makeIssue(joinPath(prefix, 'driver'), 'required', 'driver is required'))
   } else {
-    requireString(driver.kind, joinPath(prefix, 'driver.kind'), issues)
+    requireString(driver['kind'], joinPath(prefix, 'driver.kind'), issues)
     if (
-      typeof harness?.driver === 'string' &&
-      typeof driver.kind === 'string' &&
-      harness.driver !== driver.kind
+      typeof harness?.['driver'] === 'string' &&
+      typeof driver['kind'] === 'string' &&
+      harness['driver'] !== driver['kind']
     ) {
       issues.push(
         makeIssue(
@@ -457,12 +326,12 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
         )
       )
     }
-    if (driver.kind === 'codex-app-server') {
+    if (driver['kind'] === 'codex-app-server') {
       validateCodexDriver(driver, joinPath(prefix, 'driver'), issues)
     }
   }
 
-  validateLaunch(spec.launch, joinPath(prefix, 'launch'), issues)
+  validateLaunch(spec['launch'], joinPath(prefix, 'launch'), issues)
 }
 
 function validateLaunch(value: unknown, prefix: string, issues: ValidationIssue[]): void {
@@ -522,72 +391,72 @@ const COMMAND_PARAM_VALIDATORS: Partial<
     validateBrokerHelloParams(commandParams, issues)
   },
   'broker.attach': (commandParams, issues) => {
-    requireString(commandParams.runtimeId, 'params.runtimeId', issues)
-    requireString(commandParams.hostSessionId, 'params.hostSessionId', issues)
-    requireNumber(commandParams.generation, 'params.generation', issues)
-    requireString(commandParams.invocationId, 'params.invocationId', issues)
-    requireString(commandParams.startRequestHash, 'params.startRequestHash', issues)
-    requireString(commandParams.selectedProfileHash, 'params.selectedProfileHash', issues)
-    requireString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
-    requireString(commandParams.attachToken, 'params.attachToken', issues)
-    optionalNumber(commandParams.lastProjectedSeq, 'params.lastProjectedSeq', issues)
+    requireString(commandParams['runtimeId'], 'params.runtimeId', issues)
+    requireString(commandParams['hostSessionId'], 'params.hostSessionId', issues)
+    requireNumber(commandParams['generation'], 'params.generation', issues)
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    requireString(commandParams['startRequestHash'], 'params.startRequestHash', issues)
+    requireString(commandParams['selectedProfileHash'], 'params.selectedProfileHash', issues)
+    requireString(commandParams['controllerInstanceId'], 'params.controllerInstanceId', issues)
+    requireString(commandParams['attachToken'], 'params.attachToken', issues)
+    optionalNumber(commandParams['lastProjectedSeq'], 'params.lastProjectedSeq', issues)
     validateClientCapabilities(
-      commandParams.clientCapabilities,
+      commandParams['clientCapabilities'],
       'params.clientCapabilities',
       issues
     )
   },
   'broker.listInvocations': (commandParams, issues) => {
-    optionalBoolean(commandParams.includeDisposed, 'params.includeDisposed', issues)
-    optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
+    optionalBoolean(commandParams['includeDisposed'], 'params.includeDisposed', issues)
+    optionalBoolean(commandParams['probeLiveness'], 'params.probeLiveness', issues)
   },
   'invocation.start': (commandParams, issues) => {
     validateInvocationDispatchRequestShape(commandParams, 'params', issues)
   },
   'invocation.input': (commandParams, issues) => {
-    requireString(commandParams.invocationId, 'params.invocationId', issues)
-    validateInvocationInputShape(commandParams.input, 'params.input', issues)
-    validateInputPolicy(commandParams.policy, 'params.policy', issues)
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    validateInvocationInputShape(commandParams['input'], 'params.input', issues)
+    validateInputPolicy(commandParams['policy'], 'params.policy', issues)
   },
   'invocation.interrupt': (commandParams, issues) => {
-    requireString(commandParams.invocationId, 'params.invocationId', issues)
-    optionalEnum(commandParams.scope, ['turn', 'invocation'], 'params.scope', issues, true)
-    optionalString(commandParams.reason, 'params.reason', issues)
-    optionalNumber(commandParams.graceMs, 'params.graceMs', issues)
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    optionalEnum(commandParams['scope'], ['turn', 'invocation'], 'params.scope', issues, true)
+    optionalString(commandParams['reason'], 'params.reason', issues)
+    optionalNumber(commandParams['graceMs'], 'params.graceMs', issues)
   },
   'invocation.stop': (commandParams, issues) => {
-    requireString(commandParams.invocationId, 'params.invocationId', issues)
-    optionalString(commandParams.reason, 'params.reason', issues)
-    optionalNumber(commandParams.graceMs, 'params.graceMs', issues)
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    optionalString(commandParams['reason'], 'params.reason', issues)
+    optionalNumber(commandParams['graceMs'], 'params.graceMs', issues)
   },
   'invocation.status': (commandParams, issues) => {
-    requireString(commandParams.invocationId, 'params.invocationId', issues)
-    optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    optionalBoolean(commandParams['probeLiveness'], 'params.probeLiveness', issues)
   },
   'invocation.dispose': (commandParams, issues) => {
-    requireString(commandParams.invocationId, 'params.invocationId', issues)
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
   },
   'invocation.eventsSince': (commandParams, issues) => {
-    requireString(commandParams.invocationId, 'params.invocationId', issues)
-    requireNumber(commandParams.afterSeq, 'params.afterSeq', issues)
-    optionalBoolean(commandParams.live, 'params.live', issues)
-    validateOptionalEventTypeArray(commandParams.types, 'params.types', issues)
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    requireNumber(commandParams['afterSeq'], 'params.afterSeq', issues)
+    optionalBoolean(commandParams['live'], 'params.live', issues)
+    validateOptionalEventTypeArray(commandParams['types'], 'params.types', issues)
   },
   'invocation.ackEvents': (commandParams, issues) => {
-    requireString(commandParams.invocationId, 'params.invocationId', issues)
-    requireNumber(commandParams.throughSeq, 'params.throughSeq', issues)
-    requireString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    requireNumber(commandParams['throughSeq'], 'params.throughSeq', issues)
+    requireString(commandParams['controllerInstanceId'], 'params.controllerInstanceId', issues)
   },
   'invocation.snapshot': (commandParams, issues) => {
-    requireString(commandParams.invocationId, 'params.invocationId', issues)
-    optionalBoolean(commandParams.probeLiveness, 'params.probeLiveness', issues)
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    optionalBoolean(commandParams['probeLiveness'], 'params.probeLiveness', issues)
   },
   'invocation.permission.respond': (commandParams, issues) => {
-    requireString(commandParams.invocationId, 'params.invocationId', issues)
-    requireString(commandParams.permissionRequestId, 'params.permissionRequestId', issues)
-    optionalEnum(commandParams.decision, ['allow', 'deny'], 'params.decision', issues, true)
-    optionalString(commandParams.controllerInstanceId, 'params.controllerInstanceId', issues)
-    optionalString(commandParams.message, 'params.message', issues)
+    requireString(commandParams['invocationId'], 'params.invocationId', issues)
+    requireString(commandParams['permissionRequestId'], 'params.permissionRequestId', issues)
+    optionalEnum(commandParams['decision'], ['allow', 'deny'], 'params.decision', issues, true)
+    optionalString(commandParams['controllerInstanceId'], 'params.controllerInstanceId', issues)
+    optionalString(commandParams['message'], 'params.message', issues)
   },
 }
 
@@ -624,7 +493,7 @@ function validateBrokerHealthParams(params: unknown, issues: ValidationIssue[]):
   const health = asRecord(params)
   if (!health) {
     issues.push(makeIssue('params', 'invalid_type', 'params must be an object'))
-  } else if (health.probeDrivers !== undefined && typeof health.probeDrivers !== 'boolean') {
+  } else if (health['probeDrivers'] !== undefined && typeof health['probeDrivers'] !== 'boolean') {
     issues.push(makeIssue('params.probeDrivers', 'invalid_type', 'probeDrivers must be a boolean'))
   }
 }
@@ -640,7 +509,7 @@ function validatePermissionRequestParamsShape(
     return
   }
 
-  requireString(params.invocationId, joinPath(basePath, 'invocationId'), issues)
+  requireString(params['invocationId'], joinPath(basePath, 'invocationId'), issues)
   optionalString(params['turnId'], joinPath(basePath, 'turnId'), issues)
   validateOptionalPositiveInteger(
     params['harnessGeneration'],
@@ -649,7 +518,7 @@ function validatePermissionRequestParamsShape(
   )
   validateOptionalPositiveInteger(params['turnAttempt'], joinPath(basePath, 'turnAttempt'), issues)
   requireString(params['permissionRequestId'], joinPath(basePath, 'permissionRequestId'), issues)
-  requireString(params.kind, joinPath(basePath, 'kind'), issues)
+  requireString(params['kind'], joinPath(basePath, 'kind'), issues)
   if (!Object.hasOwn(params, 'subject')) {
     issues.push(makeIssue(joinPath(basePath, 'subject'), 'required', 'subject is required'))
   }
@@ -676,7 +545,7 @@ function validateInvocationDispatchRequestShape(
     return
   }
 
-  const startRequest = asRecord(request.startRequest)
+  const startRequest = asRecord(request['startRequest'])
   if (!startRequest) {
     issues.push(
       makeIssue(joinPath(basePath, 'startRequest'), 'required', 'startRequest is required')
@@ -685,20 +554,20 @@ function validateInvocationDispatchRequestShape(
     validateStartRequestBody(startRequest, joinPath(basePath, 'startRequest'), issues)
   }
 
-  const specRecord = asRecord(startRequest?.spec)
-  const processRecord = asRecord(specRecord?.process)
-  const lockedEnv = processRecord?.lockedEnv
+  const specRecord = asRecord(startRequest?.['spec'])
+  const processRecord = asRecord(specRecord?.['process'])
+  const lockedEnv = processRecord?.['lockedEnv']
   validateEnv(
-    request.dispatchEnv,
+    request['dispatchEnv'],
     joinPath(basePath, 'dispatchEnv'),
     issues,
     'dispatchEnv',
     lockedEnv
   )
   validateDispatchRuntime(request, basePath, issues)
-  if (request.lifecyclePolicy !== undefined) {
+  if (request['lifecyclePolicy'] !== undefined) {
     validateLifecyclePolicyOverlay(
-      request.lifecyclePolicy,
+      request['lifecyclePolicy'],
       joinPath(basePath, 'lifecyclePolicy'),
       issues
     )
@@ -717,30 +586,30 @@ function validateLifecyclePolicyOverlay(
   }
 
   optionalEnum(
-    policy.schemaVersion,
+    policy['schemaVersion'],
     ['harness-broker.lifecycle-policy/v1'],
     joinPath(basePath, 'schemaVersion'),
     issues,
     true
   )
-  requireString(policy.policyId, joinPath(basePath, 'policyId'), issues)
-  requireString(policy.policyHash, joinPath(basePath, 'policyHash'), issues)
-  validateRuntimeRetentionPolicy(policy.retention, joinPath(basePath, 'retention'), issues)
+  requireString(policy['policyId'], joinPath(basePath, 'policyId'), issues)
+  requireString(policy['policyHash'], joinPath(basePath, 'policyHash'), issues)
+  validateRuntimeRetentionPolicy(policy['retention'], joinPath(basePath, 'retention'), issues)
   validateHarnessRecoveryPolicy(
-    policy.harnessRecovery,
+    policy['harnessRecovery'],
     joinPath(basePath, 'harnessRecovery'),
     issues
   )
-  validateTurnRetryPolicy(policy.turnRetry, joinPath(basePath, 'turnRetry'), issues)
+  validateTurnRetryPolicy(policy['turnRetry'], joinPath(basePath, 'turnRetry'), issues)
 
-  if (typeof policy.policyHash === 'string') {
+  if (typeof policy['policyHash'] === 'string') {
     let expected: string | undefined
     try {
-      expected = lifecyclePolicyHash(policy as BrokerLifecyclePolicyOverlay)
+      expected = lifecyclePolicyHash(policy as unknown as BrokerLifecyclePolicyOverlay)
     } catch {
       expected = undefined
     }
-    if (expected !== undefined && policy.policyHash !== expected) {
+    if (expected !== undefined && policy['policyHash'] !== expected) {
       issues.push(
         makeIssue(
           joinPath(basePath, 'policyHash'),
@@ -763,24 +632,30 @@ function validateRuntimeRetentionPolicy(
     return
   }
   optionalEnum(
-    policy.mode,
+    policy['mode'],
     ['keep-alive', 'idle-ttl', 'unmanaged'],
     joinPath(basePath, 'mode'),
     issues,
     true
   )
-  if (policy.mode === 'idle-ttl') {
-    requireNumber(policy.idleTtlMs, joinPath(basePath, 'idleTtlMs'), issues)
-    const retire = asRecord(policy.retire)
+  if (policy['mode'] === 'idle-ttl') {
+    requireNumber(policy['idleTtlMs'], joinPath(basePath, 'idleTtlMs'), issues)
+    const retire = asRecord(policy['retire'])
     if (!retire) {
       issues.push(
         makeIssue(joinPath(basePath, 'retire'), 'required', 'retention.retire is required')
       )
     } else {
-      optionalEnum(retire.mode, ['driver-retire'], joinPath(basePath, 'retire.mode'), issues, true)
-      requireNumber(retire.graceMs, joinPath(basePath, 'retire.graceMs'), issues)
       optionalEnum(
-        retire.onTimeout,
+        retire['mode'],
+        ['driver-retire'],
+        joinPath(basePath, 'retire.mode'),
+        issues,
+        true
+      )
+      requireNumber(retire['graceMs'], joinPath(basePath, 'retire.graceMs'), issues)
+      optionalEnum(
+        retire['onTimeout'],
         ['fail-invocation', 'escalate-hard-reap'],
         joinPath(basePath, 'retire.onTimeout'),
         issues,
@@ -788,8 +663,8 @@ function validateRuntimeRetentionPolicy(
       )
     }
   }
-  if (policy.mode === 'unmanaged') {
-    requireString(policy.reason, joinPath(basePath, 'reason'), issues)
+  if (policy['mode'] === 'unmanaged') {
+    requireString(policy['reason'], joinPath(basePath, 'reason'), issues)
   }
 }
 
@@ -817,15 +692,15 @@ function validateHarnessRecoveryPolicy(
     return
   }
   optionalEnum(
-    policy.mode,
+    policy['mode'],
     ['none', 'fail-and-escalate', 'recycle-child'],
     joinPath(basePath, 'mode'),
     issues,
     true
   )
-  if (typeof policy.mode !== 'string') return
+  if (typeof policy['mode'] !== 'string') return
   const modeValidator =
-    HARNESS_RECOVERY_MODE_VALIDATORS[policy.mode as 'fail-and-escalate' | 'recycle-child']
+    HARNESS_RECOVERY_MODE_VALIDATORS[policy['mode'] as 'fail-and-escalate' | 'recycle-child']
   modeValidator?.(policy, basePath, issues)
 }
 
@@ -834,15 +709,15 @@ function validateFailAndEscalateRecovery(
   basePath: string,
   issues: ValidationIssue[]
 ): void {
-  if (policy.stallDetection !== undefined) {
+  if (policy['stallDetection'] !== undefined) {
     validateStallDetectionPolicy(
-      policy.stallDetection,
+      policy['stallDetection'],
       joinPath(basePath, 'stallDetection'),
       issues
     )
   }
   optionalEnum(
-    policy.escalation,
+    policy['escalation'],
     ['fail-turn', 'fail-invocation', 'escalate-hard-reap'],
     joinPath(basePath, 'escalation'),
     issues,
@@ -856,21 +731,25 @@ function validateRecycleChildRecovery(
   issues: ValidationIssue[]
 ): void {
   requireNumber(
-    policy.maxGenerationsPerInvocation,
+    policy['maxGenerationsPerInvocation'],
     joinPath(basePath, 'maxGenerationsPerInvocation'),
     issues
   )
   optionalEnum(
-    policy.activeTurnDisposition,
+    policy['activeTurnDisposition'],
     ['fail-before-recycle', 'escalate-only'],
     joinPath(basePath, 'activeTurnDisposition'),
     issues,
     true
   )
-  validateStallDetectionPolicy(policy.stallDetection, joinPath(basePath, 'stallDetection'), issues)
-  validateRecycleSpec(policy.recycle, joinPath(basePath, 'recycle'), issues)
+  validateStallDetectionPolicy(
+    policy['stallDetection'],
+    joinPath(basePath, 'stallDetection'),
+    issues
+  )
+  validateRecycleSpec(policy['recycle'], joinPath(basePath, 'recycle'), issues)
   optionalEnum(
-    policy.onRecoveryFailure,
+    policy['onRecoveryFailure'],
     ['fail-invocation', 'escalate-hard-reap'],
     joinPath(basePath, 'onRecoveryFailure'),
     issues,
@@ -940,17 +819,17 @@ function validateStallDetectionPolicy(
     return
   }
   optionalEnum(
-    policy.mode,
+    policy['mode'],
     ['disabled', 'no-progress-plus-health'],
     joinPath(basePath, 'mode'),
     issues,
     true
   )
-  if (policy.mode === 'no-progress-plus-health') {
-    requireNumber(policy.noProgressMs, joinPath(basePath, 'noProgressMs'), issues)
-    optionalNumber(policy.minTurnAgeMs, joinPath(basePath, 'minTurnAgeMs'), issues)
+  if (policy['mode'] === 'no-progress-plus-health') {
+    requireNumber(policy['noProgressMs'], joinPath(basePath, 'noProgressMs'), issues)
+    optionalNumber(policy['minTurnAgeMs'], joinPath(basePath, 'minTurnAgeMs'), issues)
     optionalEnum(
-      policy.healthProbe,
+      policy['healthProbe'],
       ['runner-status', 'driver-status', 'native-heartbeat'],
       joinPath(basePath, 'healthProbe'),
       issues,
@@ -969,16 +848,16 @@ function validateTurnRetryPolicy(
     issues.push(makeIssue(basePath, 'required', 'turnRetry is required'))
     return
   }
-  optionalEnum(policy.mode, ['none', 'safe-retry'], joinPath(basePath, 'mode'), issues, true)
-  if (policy.mode !== 'safe-retry') return
-  requireNumber(policy.maxAttempts, joinPath(basePath, 'maxAttempts'), issues)
+  optionalEnum(policy['mode'], ['none', 'safe-retry'], joinPath(basePath, 'mode'), issues, true)
+  if (policy['mode'] !== 'safe-retry') return
+  requireNumber(policy['maxAttempts'], joinPath(basePath, 'maxAttempts'), issues)
   validateEnumArray(
-    policy.retryOn,
+    policy['retryOn'],
     ['harness-stalled', 'harness-crashed'],
     joinPath(basePath, 'retryOn'),
     issues
   )
-  const requires = asRecord(policy.requires)
+  const requires = asRecord(policy['requires'])
   if (!requires) {
     issues.push(
       makeIssue(joinPath(basePath, 'requires'), 'required', 'turnRetry.requires is required')
@@ -1022,7 +901,7 @@ function validateTurnRetryPolicy(
       issues
     )
   }
-  const identity = asRecord(policy.identity)
+  const identity = asRecord(policy['identity'])
   if (!identity) {
     issues.push(
       makeIssue(joinPath(basePath, 'identity'), 'required', 'turnRetry.identity is required')
@@ -1050,8 +929,14 @@ function validateTurnRetryPolicy(
       true
     )
   }
-  optionalEnum(policy.semantics, ['at-least-once'], joinPath(basePath, 'semantics'), issues, true)
-  optionalEnum(policy.onUnsafe, ['fail-turn'], joinPath(basePath, 'onUnsafe'), issues, true)
+  optionalEnum(
+    policy['semantics'],
+    ['at-least-once'],
+    joinPath(basePath, 'semantics'),
+    issues,
+    true
+  )
+  optionalEnum(policy['onUnsafe'], ['fail-turn'], joinPath(basePath, 'onUnsafe'), issues, true)
 }
 
 // tmux id shape rules (regexes + validators) live in ./tmux-ids.
@@ -1331,7 +1216,7 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
   },
   'lifecycle.escalation': (payload, issues) => {
     optionalEnum(
-      payload.reason,
+      payload['reason'],
       [
         'idle-retire-timeout',
         'recycle-failed',
@@ -1361,8 +1246,8 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
     optionalString(payload['policyHash'], 'payload.policyHash', issues)
   },
   'harness.started': (payload, issues) => {
-    validateRequiredPositiveInteger(payload.generation, 'payload.generation', issues)
-    optionalEnum(payload.mode, ['initial', 'recycle'], 'payload.mode', issues, true)
+    validateRequiredPositiveInteger(payload['generation'], 'payload.generation', issues)
+    optionalEnum(payload['mode'], ['initial', 'recycle'], 'payload.mode', issues, true)
     optionalEnum(
       payload['mechanism'],
       ['in-pane-runner', 'direct-child'],
@@ -1375,9 +1260,9 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
     optionalString(payload['controlSocketId'], 'payload.controlSocketId', issues)
   },
   'harness.exited': (payload, issues) => {
-    validateRequiredPositiveInteger(payload.generation, 'payload.generation', issues)
+    validateRequiredPositiveInteger(payload['generation'], 'payload.generation', issues)
     optionalEnum(
-      payload.reason,
+      payload['reason'],
       ['idle-retire', 'operator-stop', 'crash', 'recycle-kill', 'process-exit', 'runner-exit'],
       'payload.reason',
       issues,
@@ -1389,7 +1274,7 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
   'harness.recovery.started': (payload, issues) => {
     validateRequiredPositiveInteger(payload['fromGeneration'], 'payload.fromGeneration', issues)
     optionalEnum(
-      payload.reason,
+      payload['reason'],
       ['child-exit', 'stall', 'healthcheck-failed'],
       'payload.reason',
       issues,
@@ -1406,12 +1291,12 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
   'harness.recovery.completed': (payload, issues) => {
     validateRequiredPositiveInteger(payload['fromGeneration'], 'payload.fromGeneration', issues)
     validateRequiredPositiveInteger(payload['toGeneration'], 'payload.toGeneration', issues)
-    requireBoolean(payload.ready, 'payload.ready', 'payload.ready must be a boolean', issues)
+    requireBoolean(payload['ready'], 'payload.ready', 'payload.ready must be a boolean', issues)
   },
   'harness.recovery.failed': (payload, issues) => {
     validateRequiredPositiveInteger(payload['fromGeneration'], 'payload.fromGeneration', issues)
     optionalEnum(
-      payload.reason,
+      payload['reason'],
       ['runner-unresponsive', 'kill-timeout', 'spawn-failed', 'continuation-missing'],
       'payload.reason',
       issues,
@@ -1427,7 +1312,7 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
   },
   'permission.requested': (payload, issues) => {
     requireString(payload['permissionRequestId'], 'payload.permissionRequestId', issues)
-    requireString(payload.kind, 'payload.kind', issues)
+    requireString(payload['kind'], 'payload.kind', issues)
     if (!Object.hasOwn(payload, 'subjectDisplay')) {
       issues.push(makeIssue('payload.subjectDisplay', 'required', 'subjectDisplay is required'))
     }
@@ -1475,13 +1360,13 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
       issues
     )
     optionalEnum(
-      payload.reason,
+      payload['reason'],
       ['harness-stalled', 'harness-crashed'],
       'payload.reason',
       issues,
       true
     )
-    optionalEnum(payload.semantics, ['at-least-once'], 'payload.semantics', issues, true)
+    optionalEnum(payload['semantics'], ['at-least-once'], 'payload.semantics', issues, true)
   },
   'terminal.surface.reported': validateTerminalSurfaceReportedPayload,
   'permission.resolved': (payload, issues) => {
@@ -1499,7 +1384,7 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
   'permission.cancelled': (payload, issues) => {
     requireString(payload['permissionRequestId'], 'payload.permissionRequestId', issues)
     optionalEnum(
-      payload.reason,
+      payload['reason'],
       ['harness-generation-ended', 'turn-failed', 'invocation-stopping'],
       'payload.reason',
       issues,
@@ -1525,12 +1410,12 @@ function validateTerminalSurfaceReportedPayload(
     driverKind === 'codex-cli-tmux' ||
     driverKind === 'pi-tui-tmux'
 
-  if (payload.kind === 'tmux-pane') {
+  if (payload['kind'] === 'tmux-pane') {
     requireString(payload['socketPath'], 'payload.socketPath', issues)
     validateTmuxPaneIds(payload, 'payload', 'payload', issues)
     optionalString(payload['sessionName'], 'payload.sessionName', issues)
     optionalString(payload['windowName'], 'payload.windowName', issues)
-  } else if (payload.kind === 'tmux-session') {
+  } else if (payload['kind'] === 'tmux-session') {
     if (requiresPaneKind) {
       issues.push(
         makeIssue(
@@ -1544,7 +1429,7 @@ function validateTerminalSurfaceReportedPayload(
     requireString(payload['sessionName'], 'payload.sessionName', issues)
     optionalString(payload['paneId'], 'payload.paneId', issues)
   } else {
-    optionalEnum(payload.kind, ['tmux-session', 'tmux-pane'], 'payload.kind', issues, true)
+    optionalEnum(payload['kind'], ['tmux-session', 'tmux-pane'], 'payload.kind', issues, true)
   }
 }
 
@@ -1562,17 +1447,17 @@ function validateEventPayload(
 }
 
 function validateBrokerHelloParams(params: SchemaRecord, issues: ValidationIssue[]): void {
-  const clientInfo = asRecord(params.clientInfo)
+  const clientInfo = asRecord(params['clientInfo'])
   if (!clientInfo) {
     issues.push(makeIssue('params.clientInfo', 'required', 'clientInfo is required'))
   } else {
-    requireString(clientInfo.name, 'params.clientInfo.name', issues)
-    optionalString(clientInfo.version, 'params.clientInfo.version', issues)
+    requireString(clientInfo['name'], 'params.clientInfo.name', issues)
+    optionalString(clientInfo['version'], 'params.clientInfo.version', issues)
   }
 
-  requireStringArray(params.protocolVersions, 'params.protocolVersions', issues)
-  if (Array.isArray(params.protocolVersions)) {
-    params.protocolVersions.forEach((version, index) => {
+  requireStringArray(params['protocolVersions'], 'params.protocolVersions', issues)
+  if (Array.isArray(params['protocolVersions'])) {
+    params['protocolVersions'].forEach((version, index) => {
       if (
         typeof version === 'string' &&
         !(SUPPORTED_BROKER_PROTOCOL_VERSIONS as readonly string[]).includes(version)
@@ -1588,8 +1473,8 @@ function validateBrokerHelloParams(params: SchemaRecord, issues: ValidationIssue
     })
   }
 
-  if (params.capabilities !== undefined) {
-    validateClientCapabilities(params.capabilities, 'params.capabilities', issues)
+  if (params['capabilities'] !== undefined) {
+    validateClientCapabilities(params['capabilities'], 'params.capabilities', issues)
   }
 }
 
@@ -1606,11 +1491,11 @@ function validateClientCapabilities(
     issues.push(makeIssue(basePath, 'invalid_type', 'capabilities must be an object'))
   } else {
     optionalBoolean(
-      capabilities.permissionRequests,
+      capabilities['permissionRequests'],
       joinPath(basePath, 'permissionRequests'),
       issues
     )
-    optionalBoolean(capabilities.eventAcks, joinPath(basePath, 'eventAcks'), issues)
+    optionalBoolean(capabilities['eventAcks'], joinPath(basePath, 'eventAcks'), issues)
   }
 }
 
@@ -1625,16 +1510,16 @@ function validateInvocationInputShape(
     return
   }
 
-  optionalString(input.inputId, joinPath(basePath, 'inputId'), issues)
+  optionalString(input['inputId'], joinPath(basePath, 'inputId'), issues)
   optionalEnum(
-    input.kind,
+    input['kind'],
     ['user', 'steer', 'append_context'],
     joinPath(basePath, 'kind'),
     issues,
     true
   )
-  validateInputContent(input.content, joinPath(basePath, 'content'), issues)
-  validateStringRecord(input.metadata, joinPath(basePath, 'metadata'), issues, false)
+  validateInputContent(input['content'], joinPath(basePath, 'content'), issues)
+  validateStringRecord(input['metadata'], joinPath(basePath, 'metadata'), issues, false)
 }
 
 function validateInputContent(value: unknown, basePath: string, issues: ValidationIssue[]): void {
@@ -1651,13 +1536,13 @@ function validateInputContent(value: unknown, basePath: string, issues: Validati
       return
     }
 
-    if (content.type === 'text') {
-      requireString(content.text, joinPath(itemPath, 'text'), issues)
-    } else if (content.type === 'local_image') {
-      requireString(content.path, joinPath(itemPath, 'path'), issues)
-    } else if (content.type === 'file_ref') {
-      requireString(content.path, joinPath(itemPath, 'path'), issues)
-      optionalString(content.mimeType, joinPath(itemPath, 'mimeType'), issues)
+    if (content['type'] === 'text') {
+      requireString(content['text'], joinPath(itemPath, 'text'), issues)
+    } else if (content['type'] === 'local_image') {
+      requireString(content['path'], joinPath(itemPath, 'path'), issues)
+    } else if (content['type'] === 'file_ref') {
+      requireString(content['path'], joinPath(itemPath, 'path'), issues)
+      optionalString(content['mimeType'], joinPath(itemPath, 'mimeType'), issues)
     } else {
       issues.push(
         makeIssue(joinPath(itemPath, 'type'), 'invalid_literal', 'Unsupported input content type')
@@ -1676,13 +1561,13 @@ function validateInputPolicy(value: unknown, basePath: string, issues: Validatio
     return
   }
   optionalEnum(
-    policy.whenBusy,
+    policy['whenBusy'],
     ['reject', 'queue', 'interrupt_then_apply'],
     joinPath(basePath, 'whenBusy'),
     issues,
     true
   )
-  optionalNumber(policy.timeoutMs, joinPath(basePath, 'timeoutMs'), issues)
+  optionalNumber(policy['timeoutMs'], joinPath(basePath, 'timeoutMs'), issues)
 }
 
 type EnvChannel = 'lockedEnv' | 'dispatchEnv'
@@ -1749,14 +1634,14 @@ function validateHarnessTransport(
     issues.push(makeIssue(basePath, 'required', 'harnessTransport is required'))
     return
   }
-  if (!['jsonrpc-stdio', 'pipes', 'pty'].includes(String(transport.kind))) {
+  if (!['jsonrpc-stdio', 'pipes', 'pty'].includes(String(transport['kind']))) {
     issues.push(
       makeIssue(joinPath(basePath, 'kind'), 'invalid_literal', 'Unsupported harness transport')
     )
   }
-  if (transport.kind === 'pty') {
-    optionalNumber(transport.cols, joinPath(basePath, 'cols'), issues)
-    optionalNumber(transport.rows, joinPath(basePath, 'rows'), issues)
+  if (transport['kind'] === 'pty') {
+    optionalNumber(transport['cols'], joinPath(basePath, 'cols'), issues)
+    optionalNumber(transport['rows'], joinPath(basePath, 'rows'), issues)
   }
 }
 
@@ -1769,10 +1654,10 @@ function validateProcessLimits(value: unknown, basePath: string, issues: Validat
     issues.push(makeIssue(basePath, 'invalid_type', 'limits must be an object'))
     return
   }
-  optionalNumber(limits.startupTimeoutMs, joinPath(basePath, 'startupTimeoutMs'), issues)
-  optionalNumber(limits.turnTimeoutMs, joinPath(basePath, 'turnTimeoutMs'), issues)
-  optionalNumber(limits.stopGraceMs, joinPath(basePath, 'stopGraceMs'), issues)
-  optionalNumber(limits.maxEventBytes, joinPath(basePath, 'maxEventBytes'), issues)
+  optionalNumber(limits['startupTimeoutMs'], joinPath(basePath, 'startupTimeoutMs'), issues)
+  optionalNumber(limits['turnTimeoutMs'], joinPath(basePath, 'turnTimeoutMs'), issues)
+  optionalNumber(limits['stopGraceMs'], joinPath(basePath, 'stopGraceMs'), issues)
+  optionalNumber(limits['maxEventBytes'], joinPath(basePath, 'maxEventBytes'), issues)
 }
 
 function validateInteraction(value: unknown, basePath: string, issues: ValidationIssue[]): void {
@@ -1784,12 +1669,12 @@ function validateInteraction(value: unknown, basePath: string, issues: Validatio
     issues.push(makeIssue(basePath, 'invalid_type', 'interaction must be an object'))
     return
   }
-  if (!['headless', 'interactive', 'service'].includes(String(interaction.mode))) {
+  if (!['headless', 'interactive', 'service'].includes(String(interaction['mode']))) {
     issues.push(
       makeIssue(joinPath(basePath, 'mode'), 'invalid_literal', 'Unsupported interaction mode')
     )
   }
-  if (interaction.turnConcurrency !== undefined && interaction.turnConcurrency !== 'single') {
+  if (interaction['turnConcurrency'] !== undefined && interaction['turnConcurrency'] !== 'single') {
     issues.push(
       makeIssue(
         joinPath(basePath, 'turnConcurrency'),
@@ -1799,8 +1684,8 @@ function validateInteraction(value: unknown, basePath: string, issues: Validatio
     )
   }
   if (
-    interaction.inputQueue !== undefined &&
-    !['none', 'fifo'].includes(String(interaction.inputQueue))
+    interaction['inputQueue'] !== undefined &&
+    !['none', 'fifo'].includes(String(interaction['inputQueue']))
   ) {
     issues.push(
       makeIssue(joinPath(basePath, 'inputQueue'), 'invalid_literal', 'Unsupported input queue')
@@ -1817,9 +1702,9 @@ function validateContinuation(value: unknown, basePath: string, issues: Validati
     issues.push(makeIssue(basePath, 'invalid_type', 'continuation must be an object'))
     return
   }
-  requireString(continuation.provider, joinPath(basePath, 'provider'), issues)
-  requireString(continuation.key, joinPath(basePath, 'key'), issues)
-  if (continuation.kind !== undefined && typeof continuation.kind !== 'string') {
+  requireString(continuation['provider'], joinPath(basePath, 'provider'), issues)
+  requireString(continuation['key'], joinPath(basePath, 'key'), issues)
+  if (continuation['kind'] !== undefined && typeof continuation['kind'] !== 'string') {
     issues.push(makeIssue(joinPath(basePath, 'kind'), 'invalid_type', 'kind must be a string'))
   }
 }
@@ -1829,36 +1714,36 @@ function validateCodexDriver(
   basePath: string,
   issues: ValidationIssue[]
 ): void {
-  optionalString(driver.resumeThreadId, joinPath(basePath, 'resumeThreadId'), issues)
-  optionalString(driver.model, joinPath(basePath, 'model'), issues)
-  optionalString(driver.modelReasoningEffort, joinPath(basePath, 'modelReasoningEffort'), issues)
-  optionalString(driver.profile, joinPath(basePath, 'profile'), issues)
+  optionalString(driver['resumeThreadId'], joinPath(basePath, 'resumeThreadId'), issues)
+  optionalString(driver['model'], joinPath(basePath, 'model'), issues)
+  optionalString(driver['modelReasoningEffort'], joinPath(basePath, 'modelReasoningEffort'), issues)
+  optionalString(driver['profile'], joinPath(basePath, 'profile'), issues)
   optionalStringArray(
-    driver.defaultImageAttachments,
+    driver['defaultImageAttachments'],
     joinPath(basePath, 'defaultImageAttachments'),
     issues
   )
   optionalEnum(
-    driver.approvalPolicy,
+    driver['approvalPolicy'],
     ['untrusted', 'on-failure', 'on-request', 'never'],
     joinPath(basePath, 'approvalPolicy'),
     issues
   )
   optionalEnum(
-    driver.sandboxMode,
+    driver['sandboxMode'],
     ['read-only', 'workspace-write', 'danger-full-access'],
     joinPath(basePath, 'sandboxMode'),
     issues
   )
   optionalEnum(
-    driver.resumeFallback,
+    driver['resumeFallback'],
     ['start-fresh', 'fail'],
     joinPath(basePath, 'resumeFallback'),
     issues
   )
 
-  if (driver.permissionPolicy !== undefined) {
-    const policy = asRecord(driver.permissionPolicy)
+  if (driver['permissionPolicy'] !== undefined) {
+    const policy = asRecord(driver['permissionPolicy'])
     if (!policy) {
       issues.push(
         makeIssue(
@@ -1869,13 +1754,13 @@ function validateCodexDriver(
       )
     } else {
       optionalEnum(
-        policy.mode,
+        policy['mode'],
         ['deny', 'allow', 'ask-client'],
         joinPath(basePath, 'permissionPolicy.mode'),
         issues,
         true
       )
-      optionalNumber(policy.timeoutMs, joinPath(basePath, 'permissionPolicy.timeoutMs'), issues)
+      optionalNumber(policy['timeoutMs'], joinPath(basePath, 'permissionPolicy.timeoutMs'), issues)
       optionalEnum(
         policy['defaultDecision'],
         ['allow', 'deny'],
