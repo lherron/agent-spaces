@@ -1,0 +1,30 @@
+schema = 1
+name = "summary-with-bad-output"
+title = "Summarize with invalid output sink"
+enabled = true
+
+[event]
+source = "media-ingest"
+
+[match]
+event = "transcript.completed"
+
+[target]
+project = "agent-spaces"
+agent = "smokey"
+lane = "main"
+task = "primary"
+
+[input]
+content = "Summarize transcript {{payload.transcript_id}}."
+
+[[output.sinks]]
+kind = "webhook"
+url = "https://example.com/api/transcript-summaries"
+format = "discord_markdown"
+
+[originPolicy]
+agent = "deny"
+
+[cooldown]
+seconds = 600

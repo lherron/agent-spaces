@@ -1,0 +1,33 @@
+schema = 1
+name = "summary-with-output"
+title = "Summarize with output sink"
+enabled = true
+
+[event]
+source = "media-ingest"
+
+[match]
+event = "transcript.completed"
+
+[match.subject]
+type = "transcript"
+
+[target]
+project = "agent-spaces"
+agent = "smokey"
+lane = "main"
+task = "primary"
+
+[input]
+content = "Summarize transcript {{payload.transcript_id}}."
+
+[[output.sinks]]
+kind = "webhook"
+url = "http://127.0.0.1:18551/api/transcript-summaries"
+format = "discord_markdown"
+
+[originPolicy]
+agent = "deny"
+
+[cooldown]
+seconds = 600

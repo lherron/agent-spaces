@@ -64,6 +64,14 @@ type Target = {
   roleName?: string | undefined
 }
 
+type JobOutput = {
+  sinks: Array<{
+    kind: 'webhook'
+    url: string
+    format: string
+  }>
+}
+
 const hasher = createCanonicalHasher()
 const RESOURCE_DIRECTORIES: ReadonlyArray<{ dir: string; kind: ResourceKind }> = [
   { dir: 'schedules', kind: 'scheduled-job' },
@@ -269,6 +277,7 @@ function compileEventHook(file: ResourceFile, owner: Owner, agentRoot: string): 
     ? owner.projectId
     : (target.project ?? owner.projectId)
   const scopeRef = scopeRefFor(owner.agentId, scopeProject, task)
+  const output = readOutput(source, file.relPath)
   const desiredJson = {
     kind: 'event-triggered-job',
     slug: projectionPk(owner.agentId, name),
@@ -292,6 +301,7 @@ function compileEventHook(file: ResourceFile, owner: Owner, agentRoot: string): 
       originPolicy,
     },
     input: cloneRecord(source['input']),
+    ...(output !== undefined ? { output } : {}),
   }
 
   return resourceProjection(file, owner, name, 'event-hook', 'jobs', desiredJson)
@@ -400,6 +410,62 @@ function readCooldown(source: ParsedToml, relPath: string): string {
     throw resourceError('INVALID_COOLDOWN', `${relPath}: cooldown seconds must be an integer`)
   }
   return `${seconds}s`
+}
+
+function readOutput(source: ParsedToml, relPath: string): JobOutput | undefined {
+  const output = source['output']
+  if (output === undefined) return undefined
+  if (!isRecord(output)) {
+    throw resourceError('INVALID_OUTPUT', `${relPath}: [output] must be a table`)
+  }
+
+  const sinks = output['sinks']
+  if (!Array.isArray(sinks) || sinks.length === 0) {
+    throw resourceError('INVALID_OUTPUT', `${relPath}: [[output.sinks]] is required`)
+  }
+
+  return {
+    sinks: sinks.map((sink, index) => readOutputSink(sink, index, relPath)),
+  }
+}
+
+function readOutputSink(sink: unknown, index: number, relPath: string): JobOutput['sinks'][number] {
+  if (!isRecord(sink)) {
+    throw resourceError('INVALID_OUTPUT', `${relPath}: output sink ${index} must be a table`)
+  }
+  if (sink['kind'] !== 'webhook') {
+    throw resourceError(
+      'UNSUPPORTED_OUTPUT_SINK',
+      `${relPath}: output sink ${index} kind must be webhook`
+    )
+  }
+  const url = sink['url']
+  if (typeof url !== 'string' || !isLoopbackHttpUrl(url)) {
+    throw resourceError(
+      'INVALID_OUTPUT_SINK_URL',
+      `${relPath}: output sink ${index} url must be a loopback http URL`
+    )
+  }
+  const format = sink['format']
+  if (typeof format !== 'string' || format.trim() === '') {
+    throw resourceError(
+      'INVALID_OUTPUT_SINK_FORMAT',
+      `${relPath}: output sink ${index} format must be a non-empty string`
+    )
+  }
+  return { kind: 'webhook', url, format }
+}
+
+function isLoopbackHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (
+      url.protocol === 'http:' &&
+      (url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]')
+    )
+  } catch {
+    return false
+  }
 }
 
 function readTarget(source: ParsedToml): Target {

@@ -173,6 +173,40 @@ describe('agent-authored runtime resources plan compiler', () => {
     expect(cooldown).not.toMatch(/^PT/)
   })
 
+  test('projects event hook output webhook sinks for ACP job completion callbacks', async () => {
+    const result = await compileFixture('../../variants', ['event-hook-output-webhook.toml'])
+    expect(result).toEqual({
+      ok: true,
+      plan: expect.objectContaining({
+        resources: [
+          expect.objectContaining({
+            resourceKind: 'event-hook',
+            desiredJson: expect.objectContaining({
+              output: {
+                sinks: [
+                  {
+                    kind: 'webhook',
+                    url: 'http://127.0.0.1:18551/api/transcript-summaries',
+                    format: 'discord_markdown',
+                  },
+                ],
+              },
+            }),
+          }),
+        ],
+      }),
+    })
+  })
+
+  test('rejects non-loopback event hook output webhooks before ACP apply', async () => {
+    const result = await compileFixture('../../invalid', ['event-hook-output-nonloopback.toml'])
+    expect(result).toEqual({
+      ok: false,
+      code: 'INVALID_OUTPUT_SINK_URL',
+      message: expect.stringContaining('loopback'),
+    })
+  })
+
   test('emits bare lane refs accepted by the job-dispatch wire contract', async () => {
     // Test context: Phase F remediation guard. ASP owns only the wire format here; ACP owns
     // the authoritative LaneRef parser round-trip, so keep this as a regex contract check.
