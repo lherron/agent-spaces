@@ -86,15 +86,8 @@ export { type HookDefinition, generateHookBridgeCode } from './codegen/hook-brid
 /** Pi permissions shape produced by `toPiPermissions`. */
 type PiPermissions = ReturnType<typeof toPiPermissions>
 
-/**
- * The Pi sub-bundle plus the optional `hrcEventsBridgePath` field that this
- * adapter carries alongside the shared `ComposedTargetBundle['pi']` contract.
- * Kept local (not widened into `spaces-config`) to avoid changing the
- * cross-adapter contract.
- */
-type PiBundleWithHrc = NonNullable<ComposedTargetBundle['pi']> & {
-  hrcEventsBridgePath?: string | undefined
-}
+/** Pi sub-bundle shape, populated by this adapter. */
+type PiBundle = NonNullable<ComposedTargetBundle['pi']>
 
 /**
  * Permission facets that Pi can only lint (not enforce). Each entry names a
@@ -363,7 +356,7 @@ export class PiAdapter implements HarnessAdapter {
         skillsDir: skillsDirPath,
         hookBridgePath,
         hrcEventsBridgePath,
-      } as PiBundleWithHrc & { hrcEventsBridgePath: string },
+      },
     }
 
     return { bundle, warnings }
@@ -613,7 +606,7 @@ export class PiAdapter implements HarnessAdapter {
       throw new AspError('Pi bundle is missing - cannot build run args', 'PI_BUNDLE_MISSING')
     }
 
-    const piBundle = bundle.pi as PiBundleWithHrc
+    const piBundle = bundle.pi
 
     // Add replacement system prompt and reminder paths before other runtime flags.
     if (options.systemPrompt) {
@@ -650,7 +643,7 @@ export class PiAdapter implements HarnessAdapter {
    * Push extension flags (discovered `.js` extensions + hook/HRC bridges), or
    * `--no-extensions` when none are present.
    */
-  private pushExtensionArgs(args: string[], piBundle: PiBundleWithHrc): void {
+  private pushExtensionArgs(args: string[], piBundle: PiBundle): void {
     const extensionsDir = piBundle.extensionsDir
     let hasExtensions = false
 
@@ -683,7 +676,7 @@ export class PiAdapter implements HarnessAdapter {
   /**
    * Disable default skill loading and add the bundle's skills directory when present.
    */
-  private pushSkillArgs(args: string[], piBundle: NonNullable<ComposedTargetBundle['pi']>): void {
+  private pushSkillArgs(args: string[], piBundle: PiBundle): void {
     // Disable default skill loading from local/user directories.
     args.push('--no-skills')
     if (piBundle.skillsDir) {
@@ -776,7 +769,7 @@ export class PiAdapter implements HarnessAdapter {
         skillsDir: skillsDirPath,
         hookBridgePath: hookBridge,
         hrcEventsBridgePath: hrcEventsBridge,
-      } as PiBundleWithHrc,
+      },
     }
   }
 

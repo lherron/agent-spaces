@@ -375,6 +375,8 @@ export interface ComposedTargetBundle {
     skillsDir?: string | undefined
     /** Path to generated hook bridge extension */
     hookBridgePath?: string | undefined
+    /** Path to generated HRC events bridge extension */
+    hrcEventsBridgePath?: string | undefined
     /** Path to run manifest */
     runManifestPath?: string | undefined
   }
