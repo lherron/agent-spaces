@@ -13,7 +13,7 @@ import figures from 'figures'
 import { type HarnessDetection, type HarnessModelInfo, harnessRegistry } from 'spaces-execution'
 
 import { DEFAULT_HARNESS_ID } from '../harness-validator.js'
-import { errorMessage } from '../helpers.js'
+import { exitWithAspError } from '../helpers.js'
 
 /** Harness ids surfaced as "experimental" in the `harnesses` listing. */
 const EXPERIMENTAL_HARNESS_IDS = new Set(['codex'])
@@ -141,8 +141,7 @@ export function registerHarnessesCommand(program: Command): void {
           formatHarnessesText(output)
         }
       } catch (error) {
-        console.error(chalk.red(`Error: ${errorMessage(error)}`))
-        process.exit(1)
+        exitWithAspError(error, options)
       }
     })
 }

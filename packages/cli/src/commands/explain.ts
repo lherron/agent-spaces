@@ -6,13 +6,12 @@
  * the space composition.
  */
 
-import chalk from 'chalk'
 import type { Command } from 'commander'
 
 import { explain, formatExplainJson, formatExplainText } from 'spaces-config'
 
 import { validateHarness } from '../harness-validator.js'
-import { errorMessage, printNoProjectError } from '../helpers.js'
+import { exitWithAspError, printNoProjectError } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 
 /**
@@ -59,8 +58,7 @@ export function registerExplainCommand(program: Command): void {
           console.log(formatExplainText(result))
         }
       } catch (error) {
-        console.error(chalk.red(`Error: ${errorMessage(error)}`))
-        process.exit(1)
+        exitWithAspError(error, options)
       }
     })
 }

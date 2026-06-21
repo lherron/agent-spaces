@@ -10,7 +10,7 @@ import type { Command } from 'commander'
 
 import { type GCOptions, readLockJson, runGC } from 'spaces-config'
 
-import { errorMessage, formatBytes, resolvePaths } from '../helpers.js'
+import { exitWithAspError, formatBytes, resolvePaths } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 
 /**
@@ -65,8 +65,7 @@ export function registerGcCommand(program: Command): void {
         console.log(`  Bundle versions removed: ${result.bundleVersionsDeleted}`)
         console.log(`  Space freed: ${formatBytes(result.bytesFreed)}`)
       } catch (error) {
-        console.error(chalk.red(`Error: ${errorMessage(error)}`))
-        process.exit(1)
+        exitWithAspError(error, options)
       }
     })
 }

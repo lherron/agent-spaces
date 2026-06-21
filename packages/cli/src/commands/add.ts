@@ -7,6 +7,7 @@
 
 import { join } from 'node:path'
 import chalk from 'chalk'
+import { CliUsageError } from 'cli-kit'
 import type { Command } from 'commander'
 
 import {
@@ -18,7 +19,7 @@ import {
 } from 'spaces-config'
 import { install } from 'spaces-execution'
 
-import { errorMessage, printNoProjectError } from '../helpers.js'
+import { exitWithAspError, printNoProjectError } from '../helpers.js'
 import { findProjectRoot } from '../lib.js'
 
 /**
@@ -51,11 +52,9 @@ export function registerAddCommand(program: Command): void {
 
         // Check if target exists
         if (!manifest.targets[targetName]) {
-          console.error(chalk.red(`Error: Target "${targetName}" not found`))
-          console.error(
-            chalk.gray(`Available targets: ${Object.keys(manifest.targets).join(', ')}`)
+          throw new CliUsageError(
+            `Target "${targetName}" not found\nAvailable targets: ${Object.keys(manifest.targets).join(', ')}`
           )
-          process.exit(1)
         }
 
         // Check if space already in compose
@@ -92,8 +91,7 @@ export function registerAddCommand(program: Command): void {
           console.log(`  Snapshots created: ${result.snapshotsCreated}`)
         }
       } catch (error) {
-        console.error(chalk.red(`Error: ${errorMessage(error)}`))
-        process.exit(1)
+        exitWithAspError(error, options)
       }
     })
 }
