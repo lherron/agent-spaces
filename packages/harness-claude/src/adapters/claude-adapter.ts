@@ -17,6 +17,7 @@ import type {
   ComposedTargetBundle,
   HarnessAdapter,
   HarnessDetection,
+  HarnessId,
   HarnessModelInfo,
   HarnessRunOptions,
   HarnessValidationResult,
@@ -75,8 +76,8 @@ const STATUSLINE_ASSET_PATH = join(
  * - Invocation: uses spaces-claude/invoke
  */
 export class ClaudeAdapter implements HarnessAdapter {
-  readonly id = 'claude' as const
-  readonly name = 'Claude Code'
+  readonly id: HarnessId = 'claude'
+  readonly name: string = 'Claude Code'
 
   readonly models: HarnessModelInfo[] = [
     { id: CLAUDE_FABLE_5, name: 'Claude Fable 5' },
@@ -362,7 +363,7 @@ export class ClaudeAdapter implements HarnessAdapter {
     }
 
     const bundle: ComposedTargetBundle = {
-      harnessId: 'claude',
+      harnessId: this.id,
       targetName: input.targetName,
       rootDir: outputDir,
       pluginDirs,
@@ -419,10 +420,10 @@ export class ClaudeAdapter implements HarnessAdapter {
   /**
    * Get the output directory path for a Claude target bundle.
    *
-   * Returns: asp_modules/<targetName>/claude
+   * Returns: asp_modules/<targetName>/<harnessId>
    */
   getTargetOutputPath(aspModulesDir: string, targetName: string): string {
-    return join(aspModulesDir, targetName, 'claude')
+    return join(aspModulesDir, targetName, this.id)
   }
 
   async loadTargetBundle(outputDir: string, targetName: string): Promise<ComposedTargetBundle> {
@@ -451,7 +452,7 @@ export class ClaudeAdapter implements HarnessAdapter {
     const settingsPath = join(outputDir, 'settings.json')
 
     return {
-      harnessId: 'claude',
+      harnessId: this.id,
       targetName,
       rootDir: outputDir,
       pluginDirs,
