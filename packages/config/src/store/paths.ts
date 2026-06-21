@@ -49,102 +49,6 @@ export function getAspHome(): string {
  * └── tmp/               # Temporary files during operations
  */
 
-/**
- * Get the registry repo directory path.
- */
-export function getRepoPath(): string {
-  return join(getAspHome(), 'repo')
-}
-
-/**
- * Get the content-addressed snapshots directory path.
- */
-export function getSnapshotsPath(): string {
-  return join(getAspHome(), 'snapshots')
-}
-
-/**
- * @deprecated Use getSnapshotsPath instead
- */
-export function getStorePath(): string {
-  return getSnapshotsPath()
-}
-
-/**
- * Get the plugin cache directory path.
- */
-export function getCachePath(): string {
-  return join(getAspHome(), 'cache')
-}
-
-/**
- * Get the project bundle storage path.
- */
-export function getProjectsPath(aspHome?: string | undefined): string {
-  return join(aspHome ?? getAspHome(), 'projects')
-}
-
-/**
- * Get the temp directory path.
- */
-export function getTempPath(): string {
-  return join(getAspHome(), 'tmp')
-}
-
-/**
- * Get the path for a space snapshot.
- * Snapshots are keyed by their integrity hash.
- */
-export function getSnapshotPath(integrity: Sha256Integrity): string {
-  // Extract just the hash part (without "sha256:" prefix)
-  const hash = integrity.replace('sha256:', '')
-  return join(getSnapshotsPath(), hash)
-}
-
-/**
- * Get the path for a cached plugin.
- * Plugins are cached by their cache key (derived from integrity + plugin identity).
- */
-export function getPluginCachePath(cacheKey: string): string {
-  return join(getCachePath(), cacheKey)
-}
-
-/**
- * Get the path to the spaces directory in the registry.
- */
-export function getSpacesPath(): string {
-  return join(getRepoPath(), 'spaces')
-}
-
-/**
- * Get the path to a specific space in the registry.
- */
-export function getSpaceSourcePath(spaceId: string): string {
-  return join(getSpacesPath(), spaceId)
-}
-
-/**
- * Get the path to the registry metadata directory.
- */
-export function getRegistryMetaPath(): string {
-  return join(getRepoPath(), 'registry')
-}
-
-/**
- * Get the path to dist-tags.json.
- */
-export function getDistTagsPath(): string {
-  return join(getRegistryMetaPath(), 'dist-tags.json')
-}
-
-/**
- * Get the path to the global lock file.
- * Used for global mode runs (asp run space:id@selector).
- */
-export function getGlobalLockPath(): string {
-  return join(getAspHome(), 'global-lock.json')
-}
-
 export function sanitizeProjectAgentScopeSegment(value: string): string {
   const sanitized = value
     .trim()
@@ -228,7 +132,8 @@ export function getLegacyProjectHarnessOutputPath(
   aspHome?: string | undefined
 ): string {
   return join(
-    getProjectsPath(aspHome),
+    aspHome ?? getAspHome(),
+    'projects',
     getLegacyProjectStorageId(projectPath),
     'targets',
     targetName,
@@ -266,12 +171,13 @@ export async function ensureDir(path: string): Promise<void> {
  * Ensure all ASP_HOME directories exist.
  */
 export async function ensureAspHome(): Promise<void> {
+  const paths = new PathResolver()
   await Promise.all([
-    ensureDir(getRepoPath()),
-    ensureDir(getSnapshotsPath()),
-    ensureDir(getCachePath()),
-    ensureDir(getProjectsPath()),
-    ensureDir(getTempPath()),
+    ensureDir(paths.repo),
+    ensureDir(paths.snapshots),
+    ensureDir(paths.cache),
+    ensureDir(paths.projects),
+    ensureDir(paths.temp),
   ])
 }
 
@@ -299,11 +205,6 @@ export class PathResolver {
 
   get snapshots(): string {
     return join(this.aspHome, 'snapshots')
-  }
-
-  /** @deprecated Use snapshots instead */
-  get store(): string {
-    return this.snapshots
   }
 
   get cache(): string {

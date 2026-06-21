@@ -12,20 +12,12 @@ import type { Sha256Integrity } from '../core/index.js'
 import {
   PathResolver,
   getAspHome,
-  getCachePath,
-  getPluginCachePath,
   getProjectAgentScopeId,
   getProjectAgentScopePath,
   getProjectDataPath,
   getProjectHarnessOutputPath,
   getProjectStorageId,
   getProjectTargetsPath,
-  getProjectsPath,
-  getRepoPath,
-  getSnapshotPath,
-  getSnapshotsPath,
-  getStorePath,
-  getTempPath,
 } from './paths.js'
 
 describe('getAspHome', () => {
@@ -50,7 +42,7 @@ describe('getAspHome', () => {
   })
 })
 
-describe('path functions', () => {
+describe('project path functions', () => {
   const originalEnv = process.env['ASP_HOME']
 
   beforeEach(() => {
@@ -63,40 +55,6 @@ describe('path functions', () => {
     } else {
       process.env['ASP_HOME'] = undefined
     }
-  })
-
-  it('should build repo path', () => {
-    expect(getRepoPath()).toBe('/test/asp/repo')
-  })
-
-  it('should build snapshots path', () => {
-    expect(getSnapshotsPath()).toBe('/test/asp/snapshots')
-  })
-
-  it('should build store path (deprecated)', () => {
-    // Deprecated: getStorePath now returns snapshots path
-    expect(getStorePath()).toBe('/test/asp/snapshots')
-  })
-
-  it('should build cache path', () => {
-    expect(getCachePath()).toBe('/test/asp/cache')
-  })
-
-  it('should build projects path', () => {
-    expect(getProjectsPath()).toBe('/test/asp/projects')
-  })
-
-  it('should build temp path', () => {
-    expect(getTempPath()).toBe('/test/asp/tmp')
-  })
-
-  it('should build snapshot path', () => {
-    const integrity = 'sha256:abc123' as Sha256Integrity
-    expect(getSnapshotPath(integrity)).toBe('/test/asp/snapshots/abc123')
-  })
-
-  it('should build plugin cache path', () => {
-    expect(getPluginCachePath('cache-key-123')).toBe('/test/asp/cache/cache-key-123')
   })
 
   it('should build project-scoped bundle paths', () => {
@@ -121,9 +79,10 @@ describe('PathResolver', () => {
     expect(resolver.aspHome).toBe('/custom/home')
     expect(resolver.repo).toBe('/custom/home/repo')
     expect(resolver.snapshots).toBe('/custom/home/snapshots')
-    expect(resolver.store).toBe('/custom/home/snapshots') // deprecated alias
     expect(resolver.cache).toBe('/custom/home/cache')
+    expect(resolver.projects).toBe('/custom/home/projects')
     expect(resolver.temp).toBe('/custom/home/tmp')
+    expect(resolver.globalLock).toBe('/custom/home/global-lock.json')
   })
 
   it('should build snapshot path', () => {

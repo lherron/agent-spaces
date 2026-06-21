@@ -323,8 +323,8 @@ export function registerDoctorCommand(program: Command): void {
       // Check cache directory
       checks.push(await checkDirectoryAccess('cache', paths.cache))
 
-      // Check store directory
-      checks.push(await checkDirectoryAccess('store', paths.store))
+      // Check snapshots directory
+      checks.push(await checkDirectoryAccess('snapshots', paths.snapshots))
 
       // Check shared spaces root. The compatibility name is still "registry",
       // but the default path is now the configured agents root.

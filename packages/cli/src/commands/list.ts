@@ -129,7 +129,7 @@ export function registerListCommand(program: Command): void {
           hasLock,
           lockGenerated: lock?.generatedAt,
           aspHome: ctx.aspHome,
-          storePath: ctx.paths.store,
+          storePath: ctx.paths.snapshots,
           cachePath: ctx.paths.cache,
           agents: agentReport.agents,
           agentRootWarnings: agentReport.searchPath.warnings.map((warning) => warning.message),

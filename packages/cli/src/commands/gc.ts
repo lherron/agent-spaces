@@ -27,7 +27,7 @@ export function registerGcCommand(program: Command): void {
       const { paths } = resolvePaths(options)
 
       console.log(chalk.blue('Running garbage collection...'))
-      console.log(`  Store: ${paths.store}`)
+      console.log(`  Store: ${paths.snapshots}`)
       console.log(`  Cache: ${paths.cache}`)
       console.log('')
 
