@@ -31,6 +31,9 @@ export type RuntimeControllerKind =
   | 'command-process'
   | 'legacy-exec'
 
+// Invariant: the execution-profile kind intentionally mirrors the controller
+// kind — the two are kept identical by design. Kept as a distinct alias so the
+// profile kind can diverge later if profile-level distinctions ever emerge.
 export type RuntimeExecutionProfileKind = RuntimeControllerKind
 export type LegacyTransportAlias = 'tmux' | 'headless' | 'sdk'
 
