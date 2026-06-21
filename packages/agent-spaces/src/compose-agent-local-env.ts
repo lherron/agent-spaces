@@ -14,8 +14,6 @@ export interface ComposeAgentLocalEnvRequest {
   /** Pre-detected agent-local components (skills/commands/tools) for this placement. */
   agentLocalComponents: AgentLocalComponents | undefined
   aspHome: string
-  /** @deprecated legacy `env` channel, folded into lockedEnv. */
-  reqEnv?: Record<string, string> | undefined
   reqLockedEnv?: Record<string, string> | undefined
   reqDispatchEnv?: Record<string, string> | undefined
   /**
@@ -76,7 +74,6 @@ export async function composeAgentLocalEnv(
   let lockedEnv: Record<string, string> = {
     ...(req.adapterEnv ?? {}),
     ...(req.agentchatEnv ?? {}),
-    ...(req.reqEnv ?? {}),
     ...(req.reqLockedEnv ?? {}),
     ASP_HOME: aspHome,
   }

@@ -170,7 +170,7 @@ describe('agent-project placement context feeds harness pipeline (T-00994)', () 
     // The shared helper owns the request-env-then-tool-env merge and ASP_HOME.
     expect(composeAgentLocalEnvSource).toMatch(/prepareAgentToolRuntime\(/)
     expect(composeAgentLocalEnvSource).toMatch(
-      /\.\.\.\(req\.reqEnv \?\? \{\}\)[\s\S]*ASP_HOME:\s*aspHome/
+      /\.\.\.\(req\.reqLockedEnv \?\? \{\}\)[\s\S]*ASP_HOME:\s*aspHome/
     )
     expect(composeAgentLocalEnvSource).toMatch(/env = \{ \.\.\.env, \.\.\.toolRuntime\.env \}/)
   })
