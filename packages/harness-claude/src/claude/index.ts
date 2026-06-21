@@ -17,7 +17,8 @@ export {
   detectClaude,
   findClaudeBinary,
   getClaudePath,
-  clearClaudeCache,
+  ClaudeDetector,
+  defaultClaudeDetector,
   type ClaudeInfo,
 } from './detect.js'
 

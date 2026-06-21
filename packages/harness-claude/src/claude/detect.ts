@@ -28,11 +28,6 @@ export interface ClaudeInfo {
 }
 
 /**
- * Cached Claude info to avoid repeated detection.
- */
-let cachedInfo: ClaudeInfo | null = null
-
-/**
  * Get home directory with fallback.
  */
 function getHomeDir(): string {
@@ -175,7 +170,78 @@ async function queryVersion(claudePath: string): Promise<string> {
 }
 
 /**
+ * Detects the Claude installation and caches the result.
+ *
+ * WHY a class: the detection result is expensive to compute and stable for the
+ * life of a process, so it is cached. Owning that cache as instance state (rather
+ * than a module-global) makes the seam injectable — tests and alternate call sites
+ * can construct an isolated detector instead of mutating shared process state.
+ *
+ * The module-level functions ({@link detectClaude}, {@link getClaudePath},
+ * {@link clearClaudeCache}) delegate to {@link defaultClaudeDetector}, preserving
+ * the original behavior and signatures.
+ */
+export class ClaudeDetector {
+  private cachedInfo: ClaudeInfo | null = null
+
+  /**
+   * Detect Claude installation and query capabilities.
+   *
+   * @param forceRefresh - If true, ignore cached info and re-detect
+   * @returns Claude installation information
+   * @throws ClaudeNotFoundError if claude cannot be found
+   */
+  async detect(forceRefresh = false): Promise<ClaudeInfo> {
+    // Return cached info if available
+    if (this.cachedInfo && !forceRefresh) {
+      return this.cachedInfo
+    }
+
+    const path = await findClaudeBinary()
+    const version = await queryVersion(path)
+
+    this.cachedInfo = {
+      path,
+      version,
+      supportsPluginDir: true,
+      supportsMcpConfig: true,
+    }
+
+    return this.cachedInfo
+  }
+
+  /**
+   * Get the Claude binary path without full detection.
+   * Faster than {@link detect} when you only need the path.
+   *
+   * @returns Path to claude binary
+   * @throws ClaudeNotFoundError if claude cannot be found
+   */
+  async getPath(): Promise<string> {
+    if (this.cachedInfo) {
+      return this.cachedInfo.path
+    }
+    return findClaudeBinary()
+  }
+
+  /**
+   * Clear the cached Claude info.
+   * Useful for testing or after PATH changes.
+   */
+  clear(): void {
+    this.cachedInfo = null
+  }
+}
+
+/**
+ * Process-wide default detector backing the module-level convenience functions.
+ */
+export const defaultClaudeDetector = new ClaudeDetector()
+
+/**
  * Detect Claude installation and query capabilities.
+ *
+ * Delegates to {@link defaultClaudeDetector}.
  *
  * @param forceRefresh - If true, ignore cached info and re-detect
  * @returns Claude installation information
@@ -190,43 +256,27 @@ async function queryVersion(claudePath: string): Promise<string> {
  * }
  * ```
  */
-export async function detectClaude(forceRefresh = false): Promise<ClaudeInfo> {
-  // Return cached info if available
-  if (cachedInfo && !forceRefresh) {
-    return cachedInfo
-  }
-
-  const path = await findClaudeBinary()
-  const version = await queryVersion(path)
-
-  cachedInfo = {
-    path,
-    version,
-    supportsPluginDir: true,
-    supportsMcpConfig: true,
-  }
-
-  return cachedInfo
+export function detectClaude(forceRefresh = false): Promise<ClaudeInfo> {
+  return defaultClaudeDetector.detect(forceRefresh)
 }
 
 /**
- * Clear the cached Claude info.
+ * Clear the cached Claude info on the default detector.
  * Useful for testing or after PATH changes.
  */
 export function clearClaudeCache(): void {
-  cachedInfo = null
+  defaultClaudeDetector.clear()
 }
 
 /**
  * Get the Claude binary path without full detection.
  * Faster than detectClaude() when you only need the path.
  *
+ * Delegates to {@link defaultClaudeDetector}.
+ *
  * @returns Path to claude binary
  * @throws ClaudeNotFoundError if claude cannot be found
  */
-export async function getClaudePath(): Promise<string> {
-  if (cachedInfo) {
-    return cachedInfo.path
-  }
-  return findClaudeBinary()
+export function getClaudePath(): Promise<string> {
+  return defaultClaudeDetector.getPath()
 }

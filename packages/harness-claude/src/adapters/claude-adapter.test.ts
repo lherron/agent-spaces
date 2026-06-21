@@ -16,7 +16,7 @@ import type {
   ResolvedSpaceManifest,
   SpaceKey,
 } from 'spaces-config'
-import { clearClaudeCache } from '../claude/index.js'
+import { clearClaudeCache } from '../claude/detect.js'
 import { ClaudeAdapter } from './claude-adapter.js'
 
 /**
