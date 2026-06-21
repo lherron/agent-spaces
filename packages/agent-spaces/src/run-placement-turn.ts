@@ -149,9 +149,8 @@ export async function runPlacementTurnNonInteractive(
     const placementAgentLocalComponents = await detectAgentLocalComponents(placement.agentRoot)
 
     // Compose the agent-local env channels. The placement turn path omits
-    // adapterEnv/agentchatEnv, runs brain preparation unconditionally (no dryRun
-    // gate), and deliberately ignores the typed pathPrepend + tool warnings the
-    // CLI path consumes.
+    // adapterEnv/agentchatEnv, and deliberately ignores the typed pathPrepend +
+    // tool warnings the CLI path consumes.
     const composed = await composeAgentLocalEnv({
       placement,
       agentLocalComponents: placementAgentLocalComponents,

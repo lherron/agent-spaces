@@ -234,7 +234,7 @@ describe('T-04601 env-compose snapshots', () => {
     }
   })
 
-  test('placement turn env omits adapterEnv and agentchatEnv, ignores pathPrepend, and does not dryRun-gate brain preparation', async () => {
+  test('placement turn env omits adapterEnv and agentchatEnv, ignores pathPrepend', async () => {
     const fixture = createFixture()
     try {
       const placement = createPlacement(fixture, true)

@@ -77,7 +77,7 @@ function createFixture(): {
   mkdirSync(projectRoot, { recursive: true })
   mkdirSync(aspHome, { recursive: true })
 
-  // Agent profile with empty compose, brain disabled, no system prompt material
+  // Agent profile with empty compose, no system prompt material
   // so the launch shape stays minimal and the expansion context cannot diverge.
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),

@@ -361,8 +361,8 @@ export async function preparePlacementCliRuntime(
   }
 
   // Compose the agent-local env channels. The CLI path folds adapterEnv +
-  // agentchatEnv into lockedEnv, gates the brain block on dryRun, and consumes
-  // the typed pathPrepend + tool warnings.
+  // agentchatEnv into lockedEnv, and consumes the typed pathPrepend + tool
+  // warnings.
   const composed = await composeAgentLocalEnv({
     placement,
     agentLocalComponents,

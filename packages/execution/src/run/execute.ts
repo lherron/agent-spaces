@@ -150,7 +150,7 @@ export async function executeHarnessRun(
      * Pre-compiled foreground launch shape (argv + composed env + cwd) sourced
      * from the compiler's foreground TerminalExecutionProfile. When present, the
      * launch shape is taken verbatim from the compiled plan instead of being
-     * derived from the adapter (buildRunArgs/getRunEnv) and the brain/tool
+     * derived from the adapter (buildRunArgs/getRunEnv) and the tool
      * runtimes — those already ran inside the compiler. ONE code path: this
      * function still renders the same displayPrompts sections and inherit-spawns.
      */
