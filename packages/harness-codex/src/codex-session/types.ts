@@ -53,7 +53,6 @@ export interface CodexSessionConfig {
   sessionId?: string | undefined
   appServerCommand?: string | undefined
   homeDir: string
-  templateDir?: string | undefined
   model?: string | undefined
   modelReasoningEffort?: string | undefined
   approvalPolicy?: CodexApprovalPolicy | undefined

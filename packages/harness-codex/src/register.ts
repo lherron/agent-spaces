@@ -18,7 +18,6 @@ export function register(reg: { harnesses: HarnessRegistry; sessions: SessionReg
       ...(options.codexAppServerCommand !== undefined
         ? { appServerCommand: options.codexAppServerCommand }
         : {}),
-      ...(options.codexTemplateDir !== undefined ? { templateDir: options.codexTemplateDir } : {}),
       ...(options.codexModel !== undefined ? { model: options.codexModel } : {}),
       ...(options.codexApprovalPolicy !== undefined
         ? { approvalPolicy: options.codexApprovalPolicy }

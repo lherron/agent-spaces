@@ -30,7 +30,6 @@ export interface CreateSessionOptions {
 
   codexAppServerCommand?: string
   codexHomeDir?: string
-  codexTemplateDir?: string
   codexModel?: string
   codexCwd?: string
   codexApprovalPolicy?: CodexApprovalPolicy
