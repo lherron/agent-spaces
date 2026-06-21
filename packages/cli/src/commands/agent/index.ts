@@ -347,7 +347,7 @@ async function runProcessFrontend(
     interactionMode: (options.interaction ?? 'headless') as 'interactive' | 'headless',
     ioMode: (options.io ?? 'pipes') as 'pty' | 'pipes' | 'inherit',
     continuation,
-    env: envVars,
+    lockedEnv: envVars,
     prompt,
     yolo: options.yolo,
     hostSessionId: options.hostSessionId || `cli-${Date.now()}`,
@@ -409,7 +409,7 @@ async function runSdkFrontend(
     model: options.model,
     yolo: options.yolo,
     continuation,
-    env: envVars,
+    lockedEnv: envVars,
     prompt: prompt ?? '',
     attachments: options.attachment,
     callbacks: {

@@ -104,8 +104,6 @@ export type BuildPlacementFromScopeRefInput = {
   cwd?: string | undefined
   lockedEnv?: Record<string, string | undefined> | undefined
   dispatchEnv?: Record<string, string | undefined> | undefined
-  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
-  env?: Record<string, string | undefined> | undefined
   laneRef?: string | undefined
   runMode?: string | undefined
   /** Override the derived agent name (otherwise parsed from the scope ref). */
@@ -129,9 +127,7 @@ export function buildPlacementFromScopeRef(
     cwd: input.cwd ?? input.projectRoot,
     runMode: input.runMode ?? 'task',
     bundle: { kind: 'agent-project', agentName, projectRoot: input.projectRoot },
-    ...(input.env !== undefined || input.lockedEnv !== undefined
-      ? { lockedEnv: { ...(input.env ?? {}), ...(input.lockedEnv ?? {}) } }
-      : {}),
+    ...(input.lockedEnv !== undefined ? { lockedEnv: { ...input.lockedEnv } } : {}),
     ...(input.dispatchEnv !== undefined ? { dispatchEnv: input.dispatchEnv } : {}),
     correlation: {
       sessionRef: { scopeRef: input.scopeRef, laneRef: input.laneRef ?? 'main' },

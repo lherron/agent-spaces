@@ -81,8 +81,6 @@ interface PreparePlacementCliRuntimeRequest {
   attachments?: AttachmentRef[] | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
-  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
-  env?: Record<string, string> | undefined
   placement?: RuntimePlacement | undefined
 }
 
@@ -371,7 +369,6 @@ export async function preparePlacementCliRuntime(
     aspHome,
     adapterEnv,
     agentchatEnv,
-    ...(req.env !== undefined ? { reqEnv: req.env } : {}),
     ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
     ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
     gateBrainOnDryRun: true,

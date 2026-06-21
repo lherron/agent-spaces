@@ -48,13 +48,11 @@ export function piSessionPath(aspHome: string, hostSessionId: string): string {
 export function resolveHostSessionId(
   input: {
     hostSessionId?: string | undefined
-    cpSessionId?: string | undefined
     placement?: RuntimePlacement | undefined
   },
   required = true
 ): string | undefined {
-  const hostSessionId =
-    input.hostSessionId ?? input.cpSessionId ?? input.placement?.correlation?.hostSessionId
+  const hostSessionId = input.hostSessionId ?? input.placement?.correlation?.hostSessionId
   if (!hostSessionId && required) {
     throw new Error('hostSessionId is required')
   }

@@ -179,7 +179,6 @@ describe('T-04601 env-compose snapshots', () => {
           interactionMode: 'headless',
           model: 'gpt-5.3-codex',
           aspHome: fixture.aspHome,
-          env: { REQ_ENV: 'request-env', REQ_WINS: 'legacy-env' },
           lockedEnv: { LOCKED_ONLY: 'locked-env', REQ_WINS: 'locked-env' },
           dispatchEnv: { DISPATCH_ONLY: 'dispatch-env' },
         },
@@ -213,7 +212,7 @@ describe('T-04601 env-compose snapshots', () => {
         ),
         LOCKED_ONLY: 'locked-env',
         PATH: undefined,
-        REQ_ENV: 'request-env',
+        REQ_ENV: undefined,
         REQ_WINS: 'locked-env',
       })
       expect(prepared.dispatchEnv).toEqual({

@@ -126,7 +126,7 @@ describe('buildProcessInvocationSpec characterization', () => {
         continuation: { provider: 'openai', key: 'thread_01558' },
         prompt: 'Inspect {{projectId}} as {{agentId}} for {{taskId}} on {{lane}}.',
         attachments: [{ kind: 'file', path: fixture.imagePath, contentType: 'image/png' }],
-        env: { EXTRA_FLAG: 'from-request', ASP_HOME: 'request-overlay-is-normalized' },
+        lockedEnv: { EXTRA_FLAG: 'from-request', ASP_HOME: 'request-overlay-is-normalized' },
         yolo: true,
       })
 

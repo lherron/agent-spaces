@@ -156,7 +156,6 @@ export async function runPlacementTurnNonInteractive(
       placement,
       agentLocalComponents: placementAgentLocalComponents,
       aspHome,
-      ...(req.env !== undefined ? { reqEnv: req.env } : {}),
       ...(req.lockedEnv !== undefined ? { reqLockedEnv: req.lockedEnv } : {}),
       ...(req.dispatchEnv !== undefined ? { reqDispatchEnv: req.dispatchEnv } : {}),
       gateBrainOnDryRun: false,

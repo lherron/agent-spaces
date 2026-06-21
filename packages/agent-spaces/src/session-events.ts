@@ -15,7 +15,7 @@ import type { AgentEvent, HarnessContinuationRef } from './types.js'
 
 export type EventPayload = Omit<
   AgentEvent,
-  'ts' | 'seq' | 'hostSessionId' | 'cpSessionId' | 'runId' | 'continuation'
+  'ts' | 'seq' | 'hostSessionId' | 'runId' | 'continuation'
 >
 export type EventEmitter = ReturnType<typeof createEventEmitter>
 

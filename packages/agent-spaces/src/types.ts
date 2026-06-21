@@ -119,8 +119,6 @@ export type SessionState = 'running' | 'complete' | 'error'
 
 export interface RunTurnNonInteractiveRequest {
   hostSessionId?: string | undefined
-  /** @deprecated Use hostSessionId instead */
-  cpSessionId?: string | undefined
   runId: string
   aspHome: string
   spec: SpaceSpec
@@ -131,8 +129,6 @@ export interface RunTurnNonInteractiveRequest {
   cwd: string
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
-  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
-  env?: Record<string, string> | undefined
   prompt: string
   attachments?: AgentSpacesAttachmentInput[] | undefined
   callbacks: SessionCallbacks
@@ -158,8 +154,6 @@ export interface RunTurnInFlightRequest extends RunTurnNonInteractiveRequest {}
 
 export interface QueueInFlightInputRequest {
   hostSessionId?: string | undefined
-  /** @deprecated Use hostSessionId instead */
-  cpSessionId?: string | undefined
   runId: string
   inputApplicationId?: string | undefined
   idempotencyKey?: string | undefined
@@ -175,8 +169,6 @@ export interface QueueInFlightInputResponse {
 
 export interface InterruptInFlightTurnRequest {
   hostSessionId?: string | undefined
-  /** @deprecated Use hostSessionId instead */
-  cpSessionId?: string | undefined
   runId?: string | undefined
   reason?: string | undefined
 }
@@ -187,8 +179,6 @@ export interface InterruptInFlightTurnRequest {
 
 export interface BuildProcessInvocationSpecRequest {
   hostSessionId?: string | undefined
-  /** @deprecated Use hostSessionId instead */
-  cpSessionId?: string | undefined
   aspHome: string
   spec: SpaceSpec
   provider: ProviderDomain
@@ -201,8 +191,6 @@ export interface BuildProcessInvocationSpecRequest {
   cwd: string
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
-  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
-  env?: Record<string, string> | undefined
   artifactDir?: string | undefined
   /** Prompt text to include in the invocation argv */
   prompt?: string | undefined
@@ -241,8 +229,6 @@ export interface BuildHarnessBrokerInvocationRequest {
   attachments?: AttachmentRef[] | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
-  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
-  env?: Record<string, string> | undefined
   invocationId?: InvocationId | undefined
   initialInputId?: InputId | undefined
   labels?: Record<string, string> | undefined
@@ -283,8 +269,6 @@ export interface DescribeRequest {
   model?: string | undefined
   cwd?: string | undefined
   hostSessionId?: string | undefined
-  /** @deprecated Use hostSessionId instead */
-  cpSessionId?: string | undefined
   runLint?: boolean | undefined
 }
 
@@ -344,8 +328,6 @@ export interface BaseEvent {
   ts: string
   seq: number
   hostSessionId: string
-  /** @deprecated Use hostSessionId instead */
-  cpSessionId?: string | undefined
   runId: string
   continuation?: HarnessContinuationRef | undefined
   /** Raw payload from harness for downstream clients */

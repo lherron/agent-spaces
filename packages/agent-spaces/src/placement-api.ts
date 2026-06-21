@@ -36,8 +36,6 @@ export interface PlacementRunTurnRequest {
   continuation?: HarnessContinuationRef | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
-  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
-  env?: Record<string, string> | undefined
   prompt: string
   attachments?: Array<string | AttachmentRef> | undefined
   callbacks: SessionCallbacks
@@ -66,8 +64,6 @@ export interface PlacementBuildInvocationRequest {
   continuation?: HarnessContinuationRef | undefined
   lockedEnv?: Record<string, string> | undefined
   dispatchEnv?: Record<string, string> | undefined
-  /** @deprecated Use lockedEnv or dispatchEnv explicitly. Legacy env is treated as lockedEnv. */
-  env?: Record<string, string> | undefined
   artifactDir?: string | undefined
 }
 

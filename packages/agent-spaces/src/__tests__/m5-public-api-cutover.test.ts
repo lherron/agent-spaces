@@ -613,7 +613,7 @@ describe('non-interactive placement defaults (T-01092)', () => {
 describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
   test('placement.correlation.hostSessionId is used when top-level hostSessionId absent', async () => {
     // RED: Currently throws "hostSessionId is required" because
-    // resolveHostSessionId(req) only reads req.hostSessionId / req.cpSessionId
+    // resolveHostSessionId(req) only reads req.hostSessionId
     const { createAgentSpacesClient } = await import('../index.js')
     const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-t891' })
     const events: Array<{ hostSessionId: string; runId: string }> = []

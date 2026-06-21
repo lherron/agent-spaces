@@ -322,10 +322,9 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
         const commandPath = detection.path ?? frontendDef.internalId
         const argv = [commandPath, ...args]
 
-        // Merge env: adapter env + request env delta
+        // Merge env: adapter env
         const env: Record<string, string> = {
           ...adapterEnv,
-          ...(req.env ?? {}),
           ASP_HOME: req.aspHome,
         }
 
@@ -441,7 +440,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
 
         try {
           const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId)
-          const restoreEnv = applyEnvOverlay({ ...(req.env ?? {}) })
+          const restoreEnv = applyEnvOverlay({})
 
           try {
             const plugins = materialized.materialization.pluginDirs.map((dir) => ({
@@ -725,7 +724,7 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
         try {
           const materialized = await materializeSpec(spec, req.aspHome, frontendDef.internalId)
 
-          const harnessEnv: Record<string, string> = { ...(req.env ?? {}) }
+          const harnessEnv: Record<string, string> = {}
           if (frontendDef.frontend === PI_SDK_FRONTEND) {
             harnessEnv['PI_CODING_AGENT_DIR'] = materialized.materialization.outputPath
           }
