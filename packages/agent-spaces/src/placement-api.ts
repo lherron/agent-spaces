@@ -8,7 +8,6 @@
 import type { ResolvedRuntimeBundle, RuntimePlacement } from 'spaces-config'
 import type { AttachmentRef } from 'spaces-runtime'
 import type {
-  AgentSpacesError,
   HarnessContinuationRef,
   ProcessInvocationSpec,
   ProviderDomain,
@@ -107,46 +106,4 @@ export function buildCorrelationEnvVars(placement: RuntimePlacement): Record<str
   }
 
   return env
-}
-
-// ============================================================================
-// Provider validation helpers
-// ============================================================================
-
-const FRONTEND_PROVIDER_MAP: Record<string, ProviderDomain> = {
-  'agent-sdk': 'anthropic',
-  'claude-code': 'anthropic',
-  'pi-sdk': 'openai',
-  'codex-cli': 'openai',
-}
-
-/**
- * Get the expected provider for a frontend.
- */
-export function getProviderForFrontend(frontend: string): ProviderDomain {
-  const provider = FRONTEND_PROVIDER_MAP[frontend]
-  if (!provider) {
-    throw new Error(`Unknown frontend: "${frontend}"`)
-  }
-  return provider
-}
-
-/**
- * Validate that a continuation's provider matches the expected provider for a frontend.
- */
-export function validateProviderMatch(
-  frontend: string,
-  continuation?: HarnessContinuationRef
-): AgentSpacesError | undefined {
-  if (!continuation) return undefined
-
-  const expected = getProviderForFrontend(frontend)
-  if (continuation.provider !== expected) {
-    return {
-      message: `Provider mismatch: frontend "${frontend}" requires provider "${expected}" but continuation has provider "${continuation.provider}"`,
-      code: 'provider_mismatch',
-    }
-  }
-
-  return undefined
 }

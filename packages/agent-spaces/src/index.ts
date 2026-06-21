@@ -46,11 +46,7 @@ export type {
   PlacementRunTurnResponse,
 } from './placement-api.js'
 
-export {
-  buildCorrelationEnvVars,
-  getProviderForFrontend,
-  validateProviderMatch,
-} from './placement-api.js'
+export { buildCorrelationEnvVars } from './placement-api.js'
 
 export { createAgentSpacesClient } from './client.js'
 
