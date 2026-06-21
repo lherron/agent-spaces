@@ -37,6 +37,11 @@ export type RuntimeControllerKind =
 export type RuntimeExecutionProfileKind = RuntimeControllerKind
 export type LegacyTransportAlias = 'tmux' | 'headless' | 'sdk'
 
+// INTENTIONALLY OPEN (`| string`): this union is the `runtime-state/v1` wire
+// schema and HRC is a live producer emitting status values outside the ASP
+// literal set (e.g. awaiting_input/stale/terminated/zombied). Do NOT close it
+// here. Closing the vocabulary (or schema-splitting wire vs. ASP) is tracked in
+// follow-up T-05007. (T-04651)
 export type RuntimeStatus =
   | 'allocating'
   | 'compiling'
@@ -61,4 +66,3 @@ export type RunStatus =
   | 'interrupted'
   | 'degraded'
   | 'zombie'
-  | string

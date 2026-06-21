@@ -1,3 +1,7 @@
+// The control-plane error taxonomy is CLOSED: every value is one of the named
+// kebab-case codes below. Plugin/driver-specific failures must normalize into
+// one of these codes and carry raw vendor/driver detail in
+// RuntimeControlError.details — never in .code. (T-04651)
 export type RuntimeControlErrorCode =
   | 'compile-failed'
   | 'no-admissible-profile'
@@ -17,7 +21,6 @@ export type RuntimeControlErrorCode =
   | 'runtime-recompile-required'
   | 'event-projection-failed'
   | 'restart-reattach-unsupported'
-  | string
 
 export type RuntimeControlError = {
   code: RuntimeControlErrorCode
