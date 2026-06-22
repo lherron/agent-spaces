@@ -20,6 +20,17 @@ import { CLAUDE_CODE_TMUX_DRIVER_KIND } from './hook-events'
  * DISJOINT, so emitting `user.message` on `enqueue` does NOT double-count idle
  * prompts and needs NO dedup against `UserPromptSubmit`.
  *
+ * It additionally surfaces Claude Code API-failure rows (T-05092). CC records
+ * an API error as an `type:"assistant"` row with `isApiErrorMessage:true` whose
+ * text lives under `message.content[].text`, plus top-level `requestId`/`error`.
+ * Like the steered prompt, this NEVER arrives via a hook, so this transcript
+ * reader is its only path to the broker. Each such row emits exactly one
+ * non-terminal `diagnostic` (`level:'error'`, `source:'harness'`,
+ * `data.code:'api_error'`) — it MUST NOT by itself mint a terminal/lifecycle
+ * event (daedalus ruling, DM #9988). Because the byte-offset tailer never
+ * re-reads a consumed row, no dedup is needed across hook reads and the stop()
+ * drain.
+ *
  * This reader mirrors the codex-cli-tmux transcript reader's synchronous,
  * hook-driven, byte-offset JSONL tailer, but is far simpler — no held-latest /
  * delta coalescing / terminal classification. The driver calls
@@ -37,6 +48,14 @@ export type ClaudeHookTranscriptReader = {
    * emits one `user.message` per `queue-operation`/`enqueue` line.
    */
   handleHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
+  /**
+   * Read any transcript bytes appended since the last read WITHOUT a triggering
+   * hook, emitting the same events `handleHook` would. The driver calls this in
+   * `stop()` (before `reset()`) so a trailing API-error row that no post-error
+   * hook would surface still reaches the broker. The byte-offset tailer is the
+   * dedupe mechanism: rows already consumed by a prior read are not replayed.
+   */
+  drain: () => InvocationEventEnvelope[]
   reset: () => void
 }
 
@@ -52,6 +71,62 @@ export function createClaudeHookTranscriptReader(
   const invocationId = options.invocationId as InvocationId
   const sequencer = createInvocationEventSequencer({ now: options.now })
   const tailer = createJsonlByteOffsetTailer()
+
+  /**
+   * Extract the human-readable API-error text from an assistant row. CC nests it
+   * under `message.content[]` (array of `{type:'text', text}`), but tolerate a
+   * plain-string `content` and a top-level `text` as fallbacks so the diagnostic
+   * message is never `[object Object]` or empty.
+   */
+  const extractAssistantText = (entry: Record<string, unknown>): string => {
+    const message = entry['message']
+    if (message !== null && typeof message === 'object' && !Array.isArray(message)) {
+      const content = (message as Record<string, unknown>)['content']
+      if (typeof content === 'string') return content.trim()
+      if (Array.isArray(content)) {
+        const text = content
+          .map((part) =>
+            part !== null && typeof part === 'object' && !Array.isArray(part)
+              ? getString(part as Record<string, unknown>, 'text')
+              : undefined
+          )
+          .filter((part): part is string => part !== undefined && part.length > 0)
+          .join('')
+        if (text.length > 0) return text.trim()
+      }
+    }
+    return getString(entry, 'text')?.trim() ?? ''
+  }
+
+  const apiErrorDiagnosticEvent = (entry: Record<string, unknown>): InvocationEventEnvelope => {
+    const turnIdText = options.getCurrentTurnId()
+    const turnId = turnIdText !== undefined ? (turnIdText as TurnId) : undefined
+    const message = extractAssistantText(entry)
+    const requestId = getString(entry, 'requestId')
+    const error = getString(entry, 'error')
+    const status = entry['status']
+    return sequencer.next(
+      invocationId,
+      'diagnostic',
+      {
+        level: 'error',
+        source: 'harness',
+        message: message.length > 0 ? message : 'Claude Code API error',
+        data: {
+          code: 'api_error',
+          rawType: 'assistant',
+          isApiErrorMessage: true,
+          ...(typeof status === 'number' ? { apiErrorStatus: status } : {}),
+          ...(requestId !== undefined ? { requestId } : {}),
+          ...(error !== undefined ? { error } : {}),
+        },
+      },
+      {
+        ...(turnId !== undefined ? { turnId } : {}),
+        driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType: 'assistant' },
+      }
+    )
+  }
 
   const userMessageEvent = (content: string): InvocationEventEnvelope => {
     const turnIdText = options.getCurrentTurnId()
@@ -81,10 +156,19 @@ export function createClaudeHookTranscriptReader(
       return
     }
 
+    const entryType = getString(entry, 'type')
+
+    // API failure: CC records an assistant row flagged isApiErrorMessage with no
+    // hook. Emit a non-terminal diagnostic; never a terminal/lifecycle event.
+    if (entryType === 'assistant' && entry['isApiErrorMessage'] === true) {
+      into.push(apiErrorDiagnosticEvent(entry))
+      return
+    }
+
     // Mid-turn/steered prompt: the ONLY transcript record is a queue-operation
     // enqueue carrying the typed text. A queue/remove (dequeue) follows but
     // carries no new prompt — only enqueue surfaces a typed prompt.
-    if (getString(entry, 'type') !== 'queue-operation') return
+    if (entryType !== 'queue-operation') return
     if (getString(entry, 'operation') !== 'enqueue') return
     const content = getString(entry, 'content')
     if (content === undefined || content.length === 0) return
@@ -105,6 +189,12 @@ export function createClaudeHookTranscriptReader(
         return into
       }
 
+      tailer.readNewLines((line) => processLine(line, into))
+      return into
+    },
+
+    drain(): InvocationEventEnvelope[] {
+      const into: InvocationEventEnvelope[] = []
       tailer.readNewLines((line) => processLine(line, into))
       return into
     },

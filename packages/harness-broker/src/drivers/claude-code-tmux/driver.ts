@@ -402,6 +402,19 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // interrupt/applyInputNow observe a not-live driver (codex parity); the
       // pane controller ref is retained until dispose, like codex-cli-tmux.
       await closeHookListener()
+      // T-05092: final transcript drain BEFORE reset/turn-id loss, so a trailing
+      // API-error row that no post-error hook would surface still reaches the
+      // broker. The byte-offset tailer dedupes — already-read rows are not
+      // replayed. Emitted through the live ctx so the broker sequences them.
+      if (transcriptReader !== undefined && ctx !== undefined) {
+        for (const event of transcriptReader.drain()) {
+          ctx.emit(event.type, event.payload, {
+            ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+            ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
+            ...(event.driver !== undefined ? { driver: event.driver } : {}),
+          })
+        }
+      }
       transcriptReader?.reset()
       transcriptReader = undefined
       surface = undefined
@@ -413,6 +426,18 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // listener and the in-memory pane controller. tmux server / session
       // lifecycle stays with the runtime control plane.
       await closeHookListener()
+      // T-05092: drain a trailing API-error row on a dispose-without-stop path.
+      // After stop() the reader is already nulled, so a stop→dispose sequence
+      // does not double-emit; the byte-offset tailer dedupes either way.
+      if (transcriptReader !== undefined && ctx !== undefined) {
+        for (const event of transcriptReader.drain()) {
+          ctx.emit(event.type, event.payload, {
+            ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+            ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
+            ...(event.driver !== undefined ? { driver: event.driver } : {}),
+          })
+        }
+      }
       transcriptReader?.reset()
       transcriptReader = undefined
       ctx = undefined

@@ -856,6 +856,84 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expect(tmuxCalls.length).toBe(callsAfterStop)
   })
 
+  test('stop() drains a trailing API-error transcript row as a diagnostic carrying the active turn id', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return {
+            socketPath: '/tmp/harness-broker/claude-hooks.sock',
+            close: async () => undefined,
+          }
+        },
+      },
+      now,
+    })
+
+    const root = mkdtempSync(join(tmpdir(), 'claude-stop-drain-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    writeFileSync(transcriptPath, '')
+
+    try {
+      await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
+
+      // SessionStart points the transcript reader at our file; UserPromptSubmit
+      // makes turn_drain_1 the active turn (and reads the still-empty transcript).
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+        turnId: 'turn_drain_1',
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'go' },
+      })
+
+      // The API error lands AFTER the last hook — only the stop() drain can surface it.
+      writeFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: 'assistant',
+          isApiErrorMessage: true,
+          requestId: 'req_drain',
+          error: 'unknown',
+          message: { content: [{ type: 'text', text: 'API Error: Internal server error' }] },
+        })}\n`
+      )
+
+      const before = events.length
+      expect(await driver.stop({} as never)).toEqual({ accepted: true, state: 'exited' })
+
+      const drained = events.slice(before).filter((event) => event.type === 'diagnostic')
+      expect(drained).toHaveLength(1)
+      const diag = drained[0]!
+      expect(diag.payload).toMatchObject({ level: 'error', source: 'harness' })
+      expect((diag.payload as { data?: Record<string, unknown> }).data).toMatchObject({
+        code: 'api_error',
+        rawType: 'assistant',
+        isApiErrorMessage: true,
+        requestId: 'req_drain',
+      })
+      expect((diag.payload as { message?: string }).message).toBe(
+        'API Error: Internal server error'
+      )
+      // Drained before reset/turn-id loss → it still carries the active turn id.
+      expect(diag.turnId).toBe('turn_drain_1')
+      expect(diag.driver).toEqual({ kind: 'claude-code-tmux', rawType: 'assistant' })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('merges broker hooks into the effective pre-separator Claude settings file', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'claude-tmux-driver-settings-'))
     try {

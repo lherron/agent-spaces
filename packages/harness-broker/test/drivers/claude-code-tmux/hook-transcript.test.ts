@@ -8,6 +8,7 @@ const invocationId = 'inv_claude_hooktx_1'
 
 type ClaudeHookTranscriptReader = {
   handleHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
+  drain: () => InvocationEventEnvelope[]
   reset: () => void
 }
 
@@ -64,6 +65,32 @@ const userEntry = (textContent: string): string =>
     promptSource: 'typed',
     message: { role: 'user', content: textContent },
   })
+
+// A real CC API-failure row: type:assistant, isApiErrorMessage:true, text nested
+// under message.content[], plus top-level requestId/error (see T-05092).
+const apiError = (
+  text: string,
+  extra: Record<string, unknown> = { requestId: 'req_011CcJrh', error: 'unknown' }
+): string =>
+  jsonl({
+    type: 'assistant',
+    timestamp: '2026-06-22T19:34:09.815Z',
+    message: { role: 'assistant', type: 'message', content: [{ type: 'text', text }] },
+    isApiErrorMessage: true,
+    ...extra,
+  })
+
+const assistantOk = (text: string): string =>
+  jsonl({
+    type: 'assistant',
+    message: { role: 'assistant', content: [{ type: 'text', text }] },
+  })
+
+const messageOf = (event: InvocationEventEnvelope): string =>
+  (event.payload as { message?: string }).message ?? ''
+
+const dataOf = (event: InvocationEventEnvelope): Record<string, unknown> =>
+  (event.payload as { data?: Record<string, unknown> }).data ?? {}
 
 const sessionStart = (transcriptPath: string): Record<string, unknown> => ({
   hook_event_name: 'SessionStart',
@@ -234,5 +261,130 @@ describe('createClaudeHookTranscriptReader', () => {
 
     expect(eventTypes(resumed)).toEqual(['user.message'])
     expect(resumed.map(contentOf)).toEqual(['third prompt'])
+  })
+
+  // T-05092: API-failure rows → non-terminal diagnostic (daedalus DM #9988).
+  test('emits one diagnostic for an assistant isApiErrorMessage row, with approved shape', async () => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    const reader = create({
+      now: () => new Date('2026-06-22T19:34:10.000Z'),
+      invocationId,
+      getCurrentTurnId: () => 'turn_active_1',
+    })
+
+    reader.handleHook(sessionStart(path))
+    appendFileSync(path, apiError('API Error: Internal server error'))
+
+    const events = reader.handleHook(postToolUse())
+    expect(eventTypes(events)).toEqual(['diagnostic'])
+    const event = events[0]!
+    expect(event.payload).toMatchObject({ level: 'error', source: 'harness' })
+    expect(messageOf(event)).toBe('API Error: Internal server error')
+    expect(dataOf(event)).toMatchObject({
+      code: 'api_error',
+      rawType: 'assistant',
+      isApiErrorMessage: true,
+      requestId: 'req_011CcJrh',
+      error: 'unknown',
+    })
+    // code lives under data, never top-level (no DiagnosticPayload widening).
+    expect((event.payload as { code?: unknown }).code).toBeUndefined()
+    // driver provenance + active turn id.
+    expect(event.driver).toEqual({ kind: 'claude-code-tmux', rawType: 'assistant' })
+    expect(event.turnId).toBe('turn_active_1')
+    expect((event.payload as { turnId?: string }).turnId ?? 'turn_active_1').toBe('turn_active_1')
+  })
+
+  test('carries apiErrorStatus when the row has a numeric status', async () => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    const reader = create({
+      now: () => new Date('2026-06-22T19:34:10.000Z'),
+      invocationId,
+      getCurrentTurnId: () => undefined,
+    })
+
+    reader.handleHook(sessionStart(path))
+    appendFileSync(path, apiError('API Error: Overloaded', { status: 529, requestId: 'req_x' }))
+
+    const events = reader.handleHook(postToolUse())
+    expect(eventTypes(events)).toEqual(['diagnostic'])
+    expect(dataOf(events[0]!)).toMatchObject({ code: 'api_error', apiErrorStatus: 529 })
+    // No active turn → no turnId required.
+    expect(events[0]!.turnId).toBeUndefined()
+  })
+
+  test('non-API assistant rows, false flag, empty text, and malformed JSON emit nothing', async () => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    const reader = create({
+      now: () => new Date('2026-06-22T19:34:10.000Z'),
+      invocationId,
+      getCurrentTurnId: () => 'turn_active_1',
+    })
+
+    reader.handleHook(sessionStart(path))
+    // Ordinary assistant content — not an API error.
+    appendFileSync(path, assistantOk('Here is the answer.'))
+    // Flag explicitly false.
+    appendFileSync(
+      path,
+      jsonl({
+        type: 'assistant',
+        isApiErrorMessage: false,
+        message: { content: [{ type: 'text', text: 'not an error' }] },
+      })
+    )
+    // Malformed JSON line.
+    appendFileSync(path, 'this is not json\n')
+
+    expect(reader.handleHook(postToolUse())).toEqual([])
+  })
+
+  test('empty API-error text falls back to a non-empty diagnostic message', async () => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    const reader = create({
+      now: () => new Date('2026-06-22T19:34:10.000Z'),
+      invocationId,
+      getCurrentTurnId: () => undefined,
+    })
+
+    reader.handleHook(sessionStart(path))
+    appendFileSync(
+      path,
+      jsonl({ type: 'assistant', isApiErrorMessage: true, message: { content: [] } })
+    )
+
+    const events = reader.handleHook(postToolUse())
+    expect(eventTypes(events)).toEqual(['diagnostic'])
+    expect(messageOf(events[0]!)).toBe('Claude Code API error')
+  })
+
+  test('stop()-style drain emits an unread API-error row exactly once; no replay after a prior read', async () => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    const reader = create({
+      now: () => new Date('2026-06-22T19:34:10.000Z'),
+      invocationId,
+      getCurrentTurnId: () => 'turn_active_1',
+    })
+
+    reader.handleHook(sessionStart(path))
+
+    // Row written with no triggering hook after it: drain() surfaces it.
+    appendFileSync(path, apiError('API Error: Internal server error'))
+    const drained = reader.drain()
+    expect(eventTypes(drained)).toEqual(['diagnostic'])
+    expect(messageOf(drained[0]!)).toBe('API Error: Internal server error')
+
+    // The byte-offset tailer is the dedupe mechanism: a second drain replays nothing.
+    expect(reader.drain()).toEqual([])
+
+    // A row already consumed by a hook read is not re-emitted by a later drain.
+    appendFileSync(path, apiError('API Error: second', { requestId: 'req_2' }))
+    expect(eventTypes(reader.handleHook(postToolUse()))).toEqual(['diagnostic'])
+    expect(reader.drain()).toEqual([])
   })
 })
