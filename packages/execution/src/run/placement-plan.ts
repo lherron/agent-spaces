@@ -111,7 +111,7 @@ function resolvePlacementRuntimeModel(
   const explicitModel =
     requestedModel ??
     defaultRunOptions.model ??
-    (effectiveModel && supportedModels.has(effectiveModel) ? effectiveModel : undefined)
+    (effectiveModel !== undefined ? effectiveModel : undefined)
   const candidateModel = explicitModel ?? defaultModelId
 
   if (!candidateModel || !supportedModels.has(candidateModel)) {

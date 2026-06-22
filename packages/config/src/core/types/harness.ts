@@ -232,6 +232,10 @@ export interface HarnessModelInfo {
   id: string
   /** Human-readable name */
   name: string
+  /** Whether this identifier is a canonical/full model identity or a launch alias */
+  identityKind?: 'full' | 'alias' | undefined
+  /** Canonical/full model identity for aliases */
+  canonicalId?: string | undefined
   /** Whether this is the default model for the harness */
   default?: boolean | undefined
   /** Optional description or notes */

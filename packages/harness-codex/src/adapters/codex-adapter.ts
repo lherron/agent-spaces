@@ -343,13 +343,13 @@ export class CodexAdapter implements HarnessAdapter {
   readonly name = 'OpenAI Codex'
 
   readonly models: HarnessModelInfo[] = [
-    { id: DEFAULT_CODEX_CLI_MODEL, name: 'GPT-5.5', default: true },
-    { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex' },
-    { id: 'gpt-5.3', name: 'GPT-5.3' },
-    { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex' },
-    { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
-    { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini' },
-    { id: 'gpt-5.2', name: 'GPT-5.2' },
+    { id: DEFAULT_CODEX_CLI_MODEL, name: 'GPT-5.5', default: true, identityKind: 'full' },
+    { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', identityKind: 'full' },
+    { id: 'gpt-5.3', name: 'GPT-5.3', identityKind: 'full' },
+    { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', identityKind: 'full' },
+    { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max', identityKind: 'full' },
+    { id: 'gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini', identityKind: 'full' },
+    { id: 'gpt-5.2', name: 'GPT-5.2', identityKind: 'full' },
   ]
 
   async detect(): Promise<HarnessDetection> {

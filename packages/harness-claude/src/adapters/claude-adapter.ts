@@ -31,6 +31,7 @@ import {
   ALIAS_FABLE,
   ALIAS_HAIKU,
   ALIAS_OPUS,
+  ALIAS_OPUS_1M,
   ALIAS_SONNET,
   CLAUDE_FABLE_5,
   CLAUDE_HAIKU_4_5,
@@ -80,16 +81,42 @@ export class ClaudeAdapter implements HarnessAdapter {
   readonly name: string = 'Claude Code'
 
   readonly models: HarnessModelInfo[] = [
-    { id: CLAUDE_FABLE_5, name: 'Claude Fable 5' },
-    { id: ALIAS_FABLE, name: 'Fable (alias)' },
-    { id: CLAUDE_OPUS_4_6, name: 'Claude Opus 4.6 (200K)' },
-    { id: CLAUDE_OPUS_4_6_1M, name: 'Claude Opus 4.6 (1M context)' },
-    { id: CLAUDE_SONNET_4_5, name: 'Claude Sonnet 4.5' },
-    { id: CLAUDE_HAIKU_4_5, name: 'Claude Haiku 4.5' },
-    { id: ALIAS_OPUS, name: 'Opus (alias, 200K)' },
-    { id: DEFAULT_CLAUDE_CODE_MODEL, name: 'Opus (alias, 1M context)', default: true },
-    { id: ALIAS_SONNET, name: 'Sonnet (alias)' },
-    { id: ALIAS_HAIKU, name: 'Haiku (alias)' },
+    { id: CLAUDE_FABLE_5, name: 'Claude Fable 5', identityKind: 'full' },
+    {
+      id: ALIAS_FABLE,
+      name: 'Fable (alias)',
+      identityKind: 'alias',
+      canonicalId: CLAUDE_FABLE_5,
+    },
+    { id: CLAUDE_OPUS_4_6, name: 'Claude Opus 4.6 (200K)', identityKind: 'full' },
+    { id: CLAUDE_OPUS_4_6_1M, name: 'Claude Opus 4.6 (1M context)', identityKind: 'full' },
+    { id: CLAUDE_SONNET_4_5, name: 'Claude Sonnet 4.5', identityKind: 'full' },
+    { id: CLAUDE_HAIKU_4_5, name: 'Claude Haiku 4.5', identityKind: 'full' },
+    {
+      id: ALIAS_OPUS,
+      name: 'Opus (alias, 200K)',
+      identityKind: 'alias',
+      canonicalId: CLAUDE_OPUS_4_6,
+    },
+    {
+      id: ALIAS_OPUS_1M,
+      name: 'Opus (alias, 1M context)',
+      default: true,
+      identityKind: 'alias',
+      canonicalId: CLAUDE_OPUS_4_6_1M,
+    },
+    {
+      id: ALIAS_SONNET,
+      name: 'Sonnet (alias)',
+      identityKind: 'alias',
+      canonicalId: CLAUDE_SONNET_4_5,
+    },
+    {
+      id: ALIAS_HAIKU,
+      name: 'Haiku (alias)',
+      identityKind: 'alias',
+      canonicalId: CLAUDE_HAIKU_4_5,
+    },
   ]
 
   /**

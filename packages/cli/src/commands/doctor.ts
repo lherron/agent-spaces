@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import type { Command } from 'commander'
 
 import { ensureAspHome, gitExec, listRemotes } from 'spaces-config'
-import { detectClaude } from 'spaces-execution'
+import { type ModelAuditRow, auditProjectModels, detectClaude } from 'spaces-execution'
 
 import { SHARED_AGENT_ROOT_FILES, buildAgentRootReport } from '../agent-roots.js'
 import { errorMessage, formatCheckResults, outputDoctorSummary, resolvePaths } from '../helpers.js'
@@ -25,6 +25,7 @@ interface CheckResult {
   status: 'ok' | 'warning' | 'error'
   message: string
   detail?: string | undefined
+  data?: { modelAudit?: ModelAuditRow[] | undefined } | undefined
 }
 
 interface ContextTemplateNudge {
@@ -268,6 +269,56 @@ function checkAgentRoots(projectPath: string | null, aspHome: string): CheckResu
   return checks
 }
 
+async function checkModelAudit(
+  projectPath: string | null,
+  aspHome: string
+): Promise<CheckResult[]> {
+  if (!projectPath) {
+    return []
+  }
+
+  try {
+    const rows = await auditProjectModels({ projectPath, aspHome })
+    if (rows.length === 0) {
+      return [
+        {
+          name: 'model_audit',
+          status: 'ok',
+          message: 'No agent profile models found to audit',
+          data: { modelAudit: [] },
+        },
+      ]
+    }
+
+    const hasError = rows.some((row) => row.status === 'error')
+    const hasWarning = rows.some((row) => row.status === 'warning')
+
+    return [
+      {
+        name: 'model_audit',
+        status: hasError ? 'error' : hasWarning ? 'warning' : 'ok',
+        message: `Audited ${rows.length} agent profile model${rows.length === 1 ? '' : 's'}`,
+        detail: rows
+          .map(
+            (row) =>
+              `${row.agentId}: ${row.sourceModel ?? '(default)'} -> ${row.resolvedModel} (${row.sourceMode}, ${row.identityMode})`
+          )
+          .join('; '),
+        data: { modelAudit: rows },
+      },
+    ]
+  } catch (error) {
+    return [
+      {
+        name: 'model_audit',
+        status: 'error',
+        message: 'Could not audit profile models',
+        detail: errorMessage(error),
+      },
+    ]
+  }
+}
+
 function findContextTemplateSchemeNudges(roots: string[]): ContextTemplateNudge[] {
   const nudges: ContextTemplateNudge[] = []
   const sharedFiles = SHARED_AGENT_ROOT_FILES.filter((file) => file !== 'context-template.toml')
@@ -340,6 +391,7 @@ export function registerDoctorCommand(program: Command): void {
       const projectPath = options.project ?? (await findProjectRoot())
       checks.push(checkProject(projectPath))
       checks.push(...checkAgentRoots(projectPath, aspHome))
+      checks.push(...(await checkModelAudit(projectPath, aspHome)))
 
       // Output results
       const { hasError, hasWarning } = formatCheckResults(checks, options)

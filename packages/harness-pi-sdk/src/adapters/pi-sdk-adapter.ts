@@ -199,14 +199,70 @@ export class PiSdkAdapter implements HarnessAdapter {
   readonly name = 'Pi SDK'
 
   readonly models: HarnessModelInfo[] = [
-    { id: DEFAULT_PI_SDK_MODEL, name: 'GPT-5.5', default: true },
-    { id: 'openai-codex/gpt-5.3-codex', name: 'GPT-5.3 Codex' },
-    { id: 'openai-codex/gpt-5.3', name: 'GPT-5.3' },
-    { id: 'openai-codex/gpt-5.2-codex', name: 'GPT-5.2 Codex' },
-    { id: 'openai-codex/gpt-5.2', name: 'GPT-5.2' },
-    { id: 'openai-codex/gpt-5.1', name: 'GPT-5.1' },
-    { id: 'openai-codex/gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max' },
-    { id: 'openai-codex/gpt-5.1-codex-mini', name: 'GPT-5.1 Codex Mini' },
+    { id: DEFAULT_PI_SDK_MODEL, name: 'GPT-5.5', default: true, identityKind: 'full' },
+    {
+      id: 'gpt-5.5',
+      name: 'GPT-5.5',
+      identityKind: 'alias',
+      canonicalId: DEFAULT_PI_SDK_MODEL,
+    },
+    { id: 'openai-codex/gpt-5.3-codex', name: 'GPT-5.3 Codex', identityKind: 'full' },
+    {
+      id: 'gpt-5.3-codex',
+      name: 'GPT-5.3 Codex',
+      identityKind: 'alias',
+      canonicalId: 'openai-codex/gpt-5.3-codex',
+    },
+    { id: 'openai-codex/gpt-5.3', name: 'GPT-5.3', identityKind: 'full' },
+    {
+      id: 'gpt-5.3',
+      name: 'GPT-5.3',
+      identityKind: 'alias',
+      canonicalId: 'openai-codex/gpt-5.3',
+    },
+    { id: 'openai-codex/gpt-5.2-codex', name: 'GPT-5.2 Codex', identityKind: 'full' },
+    {
+      id: 'gpt-5.2-codex',
+      name: 'GPT-5.2 Codex',
+      identityKind: 'alias',
+      canonicalId: 'openai-codex/gpt-5.2-codex',
+    },
+    { id: 'openai-codex/gpt-5.2', name: 'GPT-5.2', identityKind: 'full' },
+    {
+      id: 'gpt-5.2',
+      name: 'GPT-5.2',
+      identityKind: 'alias',
+      canonicalId: 'openai-codex/gpt-5.2',
+    },
+    { id: 'openai-codex/gpt-5.1', name: 'GPT-5.1', identityKind: 'full' },
+    {
+      id: 'gpt-5.1',
+      name: 'GPT-5.1',
+      identityKind: 'alias',
+      canonicalId: 'openai-codex/gpt-5.1',
+    },
+    {
+      id: 'openai-codex/gpt-5.1-codex-max',
+      name: 'GPT-5.1 Codex Max',
+      identityKind: 'full',
+    },
+    {
+      id: 'gpt-5.1-codex-max',
+      name: 'GPT-5.1 Codex Max',
+      identityKind: 'alias',
+      canonicalId: 'openai-codex/gpt-5.1-codex-max',
+    },
+    {
+      id: 'openai-codex/gpt-5.1-codex-mini',
+      name: 'GPT-5.1 Codex Mini',
+      identityKind: 'full',
+    },
+    {
+      id: 'gpt-5.1-codex-mini',
+      name: 'GPT-5.1 Codex Mini',
+      identityKind: 'alias',
+      canonicalId: 'openai-codex/gpt-5.1-codex-mini',
+    },
   ]
 
   async detect(): Promise<HarnessDetection> {

@@ -49,6 +49,7 @@ export {
   type AgentToolEnvResult,
   type AgentToolRuntimeContext,
 } from './run/agent-tools.js'
+export { auditProjectModels, type ModelAuditRow } from './run/model-audit.js'
 import { maybeCompileForRun } from './run/compiler-debug.js'
 import { executeHarnessRun } from './run/execute.js'
 import {

@@ -486,7 +486,12 @@ exit 1
     })
 
     test('marks gpt-5.5 as the default supported model', () => {
-      expect(adapter.models[0]).toEqual({ id: 'gpt-5.5', name: 'GPT-5.5', default: true })
+      expect(adapter.models[0]).toEqual({
+        id: 'gpt-5.5',
+        name: 'GPT-5.5',
+        default: true,
+        identityKind: 'full',
+      })
     })
   })
 
