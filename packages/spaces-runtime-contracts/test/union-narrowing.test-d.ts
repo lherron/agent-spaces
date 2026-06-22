@@ -7,8 +7,7 @@
 //    values must assign.
 //  - brokerDriver + route-catalog `driver` stay OPEN (plugin seams): a custom
 //    driver string must still assign.
-//  - RuntimeStatus stays OPEN (runtime-state/v1 wire seam, T-05007): an
-//    arbitrary string must still assign.
+//  - RuntimeStatus is CLOSED over public/runtime-row status producers.
 //
 // Typechecked via tsconfig.test.json / `typecheck:tests` (the package's default
 // `typecheck` excludes test/).
@@ -118,6 +117,7 @@ type RouteCatalogBroker = NonNullable<RuntimeRouteCatalogEntry['broker']>
 const _customRouteDriver: RouteCatalogBroker['driver'] = 'my-custom-driver'
 void _customRouteDriver
 
-// ── (d) RuntimeStatus stays OPEN (runtime-state/v1 wire seam) ────────────────
-const _openRuntimeStatus: RuntimeStatus = arbitraryString
-void _openRuntimeStatus
+// ── (d) RuntimeStatus is CLOSED ─────────────────────────────────────────────
+// @ts-expect-error EXCEPTION(T-05007): closed runtime-row status vocabulary — arbitrary string must NOT assign.
+const _badRuntimeStatus: RuntimeStatus = arbitraryString
+void _badRuntimeStatus

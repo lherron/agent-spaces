@@ -27,7 +27,7 @@ import type {
   HarnessRuntime,
   IsoTimestamp,
   RuntimeControllerKind,
-  RuntimeStatus,
+  RuntimeStateStatus,
 } from './primitives'
 
 export type RuntimeState =
@@ -43,7 +43,7 @@ export type RuntimeStateBase = {
   runtimeId: RuntimeId
   hostSessionId: HostSessionId
   generation: number
-  status: RuntimeStatus
+  status: RuntimeStateStatus
   activeRunId?: RunId | undefined
   createdAt: IsoTimestamp
   updatedAt: IsoTimestamp

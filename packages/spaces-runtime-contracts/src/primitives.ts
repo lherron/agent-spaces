@@ -37,24 +37,40 @@ export type RuntimeControllerKind =
 export type RuntimeExecutionProfileKind = RuntimeControllerKind
 export type LegacyTransportAlias = 'tmux' | 'headless' | 'sdk'
 
-// INTENTIONALLY OPEN (`| string`): this union is the `runtime-state/v1` wire
-// schema and HRC is a live producer emitting status values outside the ASP
-// literal set (e.g. awaiting_input/stale/terminated/zombied). Do NOT close it
-// here. Closing the vocabulary (or schema-splitting wire vs. ASP) is tracked in
-// follow-up T-05007. (T-04651)
-export type RuntimeStatus =
-  | 'allocating'
-  | 'compiling'
-  | 'admitted'
-  | 'starting'
-  | 'ready'
-  | 'busy'
-  | 'stopping'
-  | 'stopped'
-  | 'failed'
-  | 'unknown_after_restart'
-  | 'disposed'
-  | string
+export const RUNTIME_STATE_STATUS_VALUES = [
+  'allocating',
+  'compiling',
+  'admitted',
+  'starting',
+  'ready',
+  'busy',
+  'stopping',
+  'stopped',
+  'failed',
+  'unknown_after_restart',
+  'disposed',
+  'awaiting_input',
+  'stale',
+  'terminated',
+] as const
+
+export type RuntimeStateStatus = (typeof RUNTIME_STATE_STATUS_VALUES)[number]
+
+const RUNTIME_STATE_STATUS_SET: ReadonlySet<string> = new Set(RUNTIME_STATE_STATUS_VALUES)
+
+export function isRuntimeStateStatus(value: unknown): value is RuntimeStateStatus {
+  return typeof value === 'string' && RUNTIME_STATE_STATUS_SET.has(value)
+}
+
+export const RUNTIME_STATUS_VALUES = [...RUNTIME_STATE_STATUS_VALUES, 'dead', 'adopted'] as const
+
+export type RuntimeStatus = (typeof RUNTIME_STATUS_VALUES)[number]
+
+const RUNTIME_STATUS_SET: ReadonlySet<string> = new Set(RUNTIME_STATUS_VALUES)
+
+export function isRuntimeStatus(value: unknown): value is RuntimeStatus {
+  return typeof value === 'string' && RUNTIME_STATUS_SET.has(value)
+}
 
 export type RunStatus =
   | 'accepted'
