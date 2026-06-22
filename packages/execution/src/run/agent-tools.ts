@@ -1,12 +1,12 @@
 import { lstat, mkdir, open, readdir, realpath, stat } from 'node:fs/promises'
-import { delimiter, join, sep } from 'node:path'
+import { basename, delimiter, join, sep } from 'node:path'
 
 import { type AgentLocalComponents, getProjectStorageId } from 'spaces-config'
 
 export interface AgentToolRuntimeContext {
   agentRoot: string
   projectRoot?: string | undefined
-  components: AgentLocalComponents
+  components?: AgentLocalComponents | undefined
 }
 
 export interface AgentToolEnvResult {
@@ -76,38 +76,42 @@ export async function prepareAgentToolRuntime(
   baseEnv: Record<string, string> = {}
 ): Promise<AgentToolEnvResult> {
   const { components, projectRoot } = context
-  if (!components.hasTools) {
-    return { env: {}, pathPrepend: [], warnings: [] }
-  }
-
-  const warnings = await validateAgentTools(components)
-  const stateDir = join(components.agentVarDir, 'state')
-  const cacheDir = join(components.agentVarDir, 'cache')
-  const logDir = join(components.agentVarDir, 'logs')
+  const agentRoot = components?.agentRoot ?? context.agentRoot
+  const agentName = components?.agentName ?? basename(agentRoot)
+  const agentVarDir = components?.agentVarDir ?? join(agentRoot, 'var')
+  const stateDir = join(agentVarDir, 'state')
+  const cacheDir = join(agentVarDir, 'cache')
+  const logDir = join(agentVarDir, 'logs')
 
   await mkdir(stateDir, { recursive: true })
   await mkdir(cacheDir, { recursive: true })
   await mkdir(logDir, { recursive: true })
 
   const env: Record<string, string> = {
-    ASP_AGENT_ROOT: components.agentRoot,
-    ASP_AGENT_NAME: components.agentName,
-    ASP_AGENT_TOOLS_DIR: components.toolsDir,
-    ASP_AGENT_TOOLS_BIN: components.toolsBinDir,
-    ASP_AGENT_VAR_DIR: components.agentVarDir,
+    ASP_AGENT_ROOT: agentRoot,
+    ASP_AGENT_NAME: agentName,
+    ASP_AGENT_VAR_DIR: agentVarDir,
     ASP_AGENT_STATE_DIR: stateDir,
     ASP_AGENT_CACHE_DIR: cacheDir,
     ASP_AGENT_LOG_DIR: logDir,
   }
 
   if (projectRoot) {
-    const projectId = getProjectStorageId(projectRoot, components.agentName)
+    const projectId = getProjectStorageId(projectRoot, agentName)
     const projectStateDir = join(stateDir, 'projects', projectId)
     await mkdir(projectStateDir, { recursive: true })
     env['ASP_PROJECT_ROOT'] = projectRoot
     env['ASP_PROJECT_ID'] = projectId
     env['ASP_PROJECT_STATE_DIR'] = projectStateDir
   }
+
+  if (components?.hasTools !== true) {
+    return { env, pathPrepend: [], warnings: [] }
+  }
+
+  const warnings = await validateAgentTools(components)
+  env['ASP_AGENT_TOOLS_DIR'] = components.toolsDir
+  env['ASP_AGENT_TOOLS_BIN'] = components.toolsBinDir
 
   const currentPath = baseEnv['PATH'] ?? process.env['PATH'] ?? ''
   const pathEntries = currentPath ? currentPath.split(delimiter) : []

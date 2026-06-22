@@ -489,12 +489,12 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     reminderContent,
     pagePrompts: options.pagePrompts,
     ...(executionLaunch ? { compiledLaunch: executionLaunch } : {}),
-    ...(agentProfile && agentLocalComponents
+    ...(agentProfile
       ? {
           agentToolRuntime: {
             agentRoot: agentProfile.agentRoot,
             projectRoot: options.projectPath,
-            components: agentLocalComponents,
+            ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
           },
         }
       : {}),

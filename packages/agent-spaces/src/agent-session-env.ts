@@ -14,7 +14,6 @@ export const RESERVED_AGENT_SESSION_ENV_KEYS = new Set([
   'WRKQ_ACTOR',
   'AGENT_SCOPE_REF',
   'AGENT_LANE_REF',
-  'ASP_PROJECT_ROOT',
   'HRC_SESSION_REF',
   'HRC_RUN_ID',
   'HRC_HOST_SESSION_ID',
@@ -97,7 +96,6 @@ export function buildAgentSessionEnv(
   }
   if (placement.projectRoot !== undefined) {
     env['AGENT_PROJECT_ROOT'] = placement.projectRoot
-    env['ASP_PROJECT_ROOT'] = placement.projectRoot
   }
 
   const actor = options.actor ?? agentId

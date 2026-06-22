@@ -84,12 +84,12 @@ export async function composeAgentLocalEnv(
 
   let pathPrepend: string[] = []
   const warnings: string[] = []
-  if (agentLocalComponents?.hasTools) {
+  if (placement.agentRoot) {
     const toolRuntime = await prepareAgentToolRuntime(
       {
         agentRoot: placement.agentRoot,
         projectRoot: placement.projectRoot,
-        components: agentLocalComponents,
+        ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
       },
       env
     )

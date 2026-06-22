@@ -250,7 +250,6 @@ describe('T-04218 canonical agent env contract', () => {
           WRKQ_ACTOR: 'cody',
           AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-04218',
           AGENT_LANE_REF: 'lane:repair',
-          ASP_PROJECT_ROOT: fixture.projectRoot,
           HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04218/lane:repair',
           HRC_RUN_ID: 'run-04218',
           HRC_HOST_SESSION_ID: 'host-session-04218',
