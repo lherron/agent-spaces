@@ -44,6 +44,9 @@ import {
 } from './pre-hrc-broker-helpers.js'
 import { allocatePreHrcTmuxPane } from './pre-hrc-tmux-allocator.js'
 
+const INTERACTIVE_TMUX_LAUNCH_PRIMING_PROMPT =
+  'Pre-HRC interactive tmux harness is starting. Wait for the next user prompt before taking action.'
+
 // ---------------------------------------------------------------------------
 // Injected harness-broker factory shapes (structural; no harness-broker import)
 // ---------------------------------------------------------------------------
@@ -248,6 +251,12 @@ function defaultPermissionPolicy(): BrokerPermissionPolicy {
   return { mode: 'deny', audit: true }
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
 function compileRequest(options: InteractiveTmuxRunOptions): RuntimeCompileRequest {
   const identity = allocatePreHrcRuntimeIdentity({
     namespace: options.identityNamespace ?? 'phase5_claude_tmux',
@@ -274,7 +283,7 @@ function compileRequest(options: InteractiveTmuxRunOptions): RuntimeCompileReque
       interactionMode: 'interactive',
     },
     materialization: {
-      initialPrompt: options.prompts[0] ?? 'phase5 turn',
+      initialPrompt: INTERACTIVE_TMUX_LAUNCH_PRIMING_PROMPT,
       attachments: [],
       taskContext: {
         taskId: options.taskId ?? 'T-01663',
@@ -1012,6 +1021,30 @@ export async function runInteractiveClaudeTmuxSession(
   for (const f of ledger.requireMonotonicSeq()) failures.push(f)
   for (const f of ledger.requireNoDuplicates()) failures.push(f)
   for (const f of ledger.requireOnlyNormalizedEventTypes()) failures.push(f)
+
+  const firstScenarioPrompt = options.prompts[0]
+  const firstScenarioSubmits = events.filter(
+    (event) =>
+      event.type === 'user.message' &&
+      event.driver?.rawType === 'UserPromptSubmit' &&
+      asRecord(event.payload)?.['content'] === firstScenarioPrompt
+  )
+  if (firstScenarioSubmits.length !== 1) {
+    failures.push({
+      code: 'claude_tmux_first_prompt_submit_count_invalid',
+      message: `expected exactly one UserPromptSubmit user.message for the first scenario prompt, got ${firstScenarioSubmits.length}.`,
+      path: 'events',
+    })
+  }
+
+  const firstScriptedTurn = turns[0]
+  if (firstScriptedTurn?.index !== 1 || firstScriptedTurn.prompt !== firstScenarioPrompt) {
+    failures.push({
+      code: 'claude_tmux_first_turn_shape_invalid',
+      message: 'run.turns[0] must represent scripted scenario prompt 1.',
+      path: 'turns[0]',
+    })
+  }
 
   if (!options.keepAlive) {
     // Enumerate EVERY observed broker-applied turn id (scripted broker-input
