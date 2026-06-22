@@ -7,6 +7,7 @@
 
 import type { ResolvedRuntimeBundle, RuntimePlacement } from 'spaces-config'
 import type { AttachmentRef } from 'spaces-runtime'
+import { buildAgentSessionEnv } from './agent-session-env.js'
 import type {
   HarnessContinuationRef,
   ProcessInvocationSpec,
@@ -78,28 +79,9 @@ export interface PlacementBuildInvocationResponse {
 // ============================================================================
 
 /**
- * Build correlation environment variables from a RuntimePlacement.
- *
- * When correlation.sessionRef is present:
- * - AGENT_SCOPE_REF = sessionRef.scopeRef
- * - AGENT_LANE_REF = sessionRef.laneRef
- *
- * When correlation.hostSessionId is present:
- * - AGENT_HOST_SESSION_ID = hostSessionId
- *
- * These vars are advisory only.
+ * Build runtime-only agent session environment variables from a RuntimePlacement.
+ * These values are per-launch dispatch metadata and must stay out of lockedEnv.
  */
 export function buildCorrelationEnvVars(placement: RuntimePlacement): Record<string, string> {
-  const env: Record<string, string> = {}
-
-  if (placement.correlation?.sessionRef) {
-    env['AGENT_SCOPE_REF'] = placement.correlation.sessionRef.scopeRef
-    env['AGENT_LANE_REF'] = placement.correlation.sessionRef.laneRef
-  }
-
-  if (placement.correlation?.hostSessionId) {
-    env['AGENT_HOST_SESSION_ID'] = placement.correlation.hostSessionId
-  }
-
-  return env
+  return buildAgentSessionEnv(placement)
 }

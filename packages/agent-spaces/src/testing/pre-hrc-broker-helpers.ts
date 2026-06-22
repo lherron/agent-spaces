@@ -301,6 +301,25 @@ function canonicalHash(value: unknown): string {
   return createCanonicalHasher().hash(value, { timestampMode: 'omit-ephemeral' }).value
 }
 
+function hashNeutralInvocationSpec(
+  spec: InvocationStartRequest['spec']
+): InvocationStartRequest['spec'] {
+  const {
+    invocationId: _invocationId,
+    correlation: _correlation,
+    ...hashSpec
+  } = spec as InvocationStartRequest['spec'] & { correlation?: unknown }
+  return hashSpec
+}
+
+function hashNeutralStartRequest(startRequest: InvocationStartRequest): InvocationStartRequest {
+  const { initialInput: _initialInput, ...hashStartRequest } = startRequest
+  return {
+    ...hashStartRequest,
+    spec: hashNeutralInvocationSpec(startRequest.spec),
+  }
+}
+
 /** Recursively freeze an object graph in place. */
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -346,8 +365,10 @@ export function verifyBrokerStartContract(
   }
 
   const startRequest = invocation.startRequest
-  const recomputedSpecHash = canonicalHash(startRequest.spec)
-  const recomputedStartRequestHash = canonicalHash(startRequest)
+  const recomputedSpecHash = canonicalHash(hashNeutralInvocationSpec(startRequest.spec))
+  const recomputedStartRequestHash = canonicalHash(hashNeutralStartRequest(startRequest))
+  const recomputedInitialInputHash =
+    startRequest.initialInput !== undefined ? canonicalHash(startRequest.initialInput) : undefined
 
   if (recomputedSpecHash !== invocation.specHash) {
     failures.push({
@@ -367,6 +388,18 @@ export function verifyBrokerStartContract(
       redactedDetails: {
         expected: invocation.startRequestHash,
         actual: recomputedStartRequestHash,
+      },
+    })
+  }
+  if (recomputedInitialInputHash !== invocation.initialInputHash) {
+    failures.push({
+      code: 'initial_input_hash_mismatch',
+      message:
+        'Broker initial input hash changed after compile; local code mutated initialInput before broker start.',
+      path: 'selectedProfile.harnessInvocation.initialInputHash',
+      redactedDetails: {
+        expected: invocation.initialInputHash,
+        actual: recomputedInitialInputHash,
       },
     })
   }

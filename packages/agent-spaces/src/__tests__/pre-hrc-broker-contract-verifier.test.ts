@@ -541,8 +541,9 @@ describe('verifyBrokerStartContract', () => {
     const verification = verifyBrokerStartContract(profile)
     expect(verification.ok).toBe(false)
     const codes = verification.failures.map((f) => f.code)
-    expect(codes).toContain('start_request_hash_mismatch')
-    // spec is untouched, so only the start-request hash should drift.
+    expect(codes).toContain('initial_input_hash_mismatch')
+    // spec is untouched, so only the initial-input hash should drift.
+    expect(codes).not.toContain('start_request_hash_mismatch')
     expect(codes).not.toContain('spec_hash_mismatch')
   })
 
@@ -705,8 +706,9 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
     })
     expect(result.ok).toBe(false)
     const codes = result.assertionReport.failures.map((f) => f.code)
-    // The start request drifted; spec is untouched so only the start-request hash moves.
-    expect(codes).toContain('start_request_hash_mismatch')
+    // The initial input drifted; spec is untouched.
+    expect(codes).toContain('initial_input_hash_mismatch')
+    expect(codes).not.toContain('start_request_hash_mismatch')
     expect(codes).not.toContain('spec_hash_mismatch')
     // Broker start must not have been attempted; the closure gate fired first.
     expect(result.brokerStart).toEqual({

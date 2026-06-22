@@ -213,10 +213,21 @@ describe('T-04601 env-compose snapshots', () => {
         REQ_WINS: 'locked-env',
       })
       expect(prepared.dispatchEnv).toEqual({
-        AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-04601',
-        AGENT_LANE_REF: 'snapshots',
+        AGENT_ACTOR: 'cody',
         AGENT_HOST_SESSION_ID: 'host-session-04601',
+        AGENT_ID: 'cody',
+        AGENT_LANE: 'snapshots',
+        AGENT_LANE_REF: 'snapshots',
+        AGENT_PROJECT: 'agent-spaces',
+        AGENT_PROJECT_ROOT: fixture.projectRoot,
+        AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-04601',
+        AGENT_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04601/lane:snapshots',
+        AGENT_TASK: 'T-04601',
+        ASP_PROJECT_ROOT: fixture.projectRoot,
         DISPATCH_ONLY: 'dispatch-env',
+        HRC_HOST_SESSION_ID: 'host-session-04601',
+        HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04601/lane:snapshots',
+        WRKQ_ACTOR: 'cody',
       })
       expect(pickEnv(prepared.env)).toEqual({
         ...pickEnv(prepared.lockedEnv),
@@ -305,10 +316,21 @@ describe('T-04601 env-compose snapshots', () => {
         REQ_WINS: 'locked-env',
       })
       expect(dispatchEnv).toEqual({
-        AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-04601',
-        AGENT_LANE_REF: 'snapshots',
+        AGENT_ACTOR: 'cody',
         AGENT_HOST_SESSION_ID: 'host-session-04601',
+        AGENT_ID: 'cody',
+        AGENT_LANE: 'snapshots',
+        AGENT_LANE_REF: 'snapshots',
+        AGENT_PROJECT: 'agent-spaces',
+        AGENT_PROJECT_ROOT: fixture.projectRoot,
+        AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-04601',
+        AGENT_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04601/lane:snapshots',
+        AGENT_TASK: 'T-04601',
+        ASP_PROJECT_ROOT: fixture.projectRoot,
         DISPATCH_ONLY: 'dispatch-env',
+        HRC_HOST_SESSION_ID: 'host-session-04601',
+        HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04601/lane:snapshots',
+        WRKQ_ACTOR: 'cody',
       })
       expect(pickEnv(harnessEnv)).toEqual({
         ...pickEnv(lockedEnv),

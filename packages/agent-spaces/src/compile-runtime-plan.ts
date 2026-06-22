@@ -88,6 +88,39 @@ function stableId(prefix: 'compile' | 'profile', value: unknown): string {
   return `${prefix}_${hashValue(value).slice(0, 32)}`
 }
 
+function hashNeutralCompileIdentity(
+  identity: RuntimeCompileRequest['identity']
+): Partial<RuntimeCompileRequest['identity']> {
+  return { generation: identity.generation }
+}
+
+function hashNeutralPlacement(
+  placement: CompiledRuntimePlan['placement']
+): CompiledRuntimePlan['placement'] {
+  const { correlation: _correlation, ...hashPlacement } =
+    placement as CompiledRuntimePlan['placement'] & {
+      correlation?: unknown
+    }
+  return hashPlacement
+}
+
+function hashNeutralInvocationSpec(spec: HarnessInvocationSpec): HarnessInvocationSpec {
+  const {
+    invocationId: _invocationId,
+    correlation: _correlation,
+    ...hashSpec
+  } = spec as HarnessInvocationSpec & { correlation?: unknown }
+  return hashSpec
+}
+
+function hashNeutralStartRequest(startRequest: InvocationStartRequest): InvocationStartRequest {
+  const { initialInput: _initialInput, ...hashStartRequest } = startRequest
+  return {
+    ...hashStartRequest,
+    spec: hashNeutralInvocationSpec(startRequest.spec),
+  }
+}
+
 function projectionHash<K extends 'plan' | 'profile' | 'spec' | 'start-request'>(
   value: unknown,
   kind: K
@@ -192,7 +225,24 @@ function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
     },
     diagnostics,
   }
-  const planHash = projectionHash(planMaterial, 'plan').planHash
+  const planHash = projectionHash(
+    {
+      schemaVersion: planMaterial.schemaVersion,
+      compiler: planMaterial.compiler,
+      identity: hashNeutralCompileIdentity(req.identity),
+      placement: hashNeutralPlacement(compiledPlacement),
+      harness: planMaterial.harness,
+      model: planMaterial.model,
+      executionProfiles: planMaterial.executionProfiles.map((profile) => ({
+        kind: profile.kind,
+        profileHash: profile.profileHash,
+        compatibilityHash: profile.compatibilityHash,
+      })),
+      lockedEnv: planMaterial.lockedEnv,
+      diagnostics: planMaterial.diagnostics,
+    },
+    'plan'
+  ).planHash
   const plan: CompiledRuntimePlan = {
     ...planMaterial,
     planHash,
@@ -265,8 +315,6 @@ function finalizePlan(input: FinalizePlanInput): RuntimeCompileResponse {
     if (disallowedToolsDiagnostic !== undefined) diagnostics.push(disallowedToolsDiagnostic)
   }
   const compileId = stableId('compile', {
-    requestId: input.req.identity.requestId,
-    operationId: input.req.identity.operationId,
     generation: input.req.identity.generation,
     profileHash: input.profileHash,
   }) as CompileId
@@ -889,17 +937,19 @@ async function compileBrokerPlan(
   const lockHash = (
     brokerInvocation.resolvedBundle as { lockHash?: string | undefined } | undefined
   )?.lockHash
+  const hashStartRequest = hashNeutralStartRequest(startRequest)
+  const hashSpec = hashStartRequest.spec
   const profileId = stableId('profile', {
     kind: 'harness-broker',
     brokerDriver: 'codex-app-server',
-    startRequest,
+    startRequest: hashStartRequest,
   }) as ProfileId
   const compatibilityHash = hashValue(
-    buildCompatibilityMaterial(req, startRequest, bundleIdentity, lockHash, lockedEnv)
+    buildCompatibilityMaterial(req, hashStartRequest, bundleIdentity, lockHash, lockedEnv)
   )
-  const specProjection = projectionHash(spec, 'spec')
+  const specProjection = projectionHash(hashSpec, 'spec')
   const specHash = specProjection.specHash
-  const startRequestProjection = projectionHash(startRequest, 'start-request')
+  const startRequestProjection = projectionHash(hashStartRequest, 'start-request')
   const startRequestHash = startRequestProjection.startRequestHash
   const initialInputHash =
     startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
@@ -947,7 +997,18 @@ async function compileBrokerPlan(
     ),
   }
   const profileHash = projectionHash(
-    { ...profileMaterial, compatibilityHash },
+    {
+      ...profileMaterial,
+      harnessInvocation: {
+        startRequest: hashStartRequest,
+        specHash: profileMaterial.harnessInvocation.specHash,
+        startRequestHash: profileMaterial.harnessInvocation.startRequestHash,
+      },
+      observability: {
+        correlation: hashNeutralCompileIdentity(req.identity),
+      },
+      compatibilityHash,
+    },
     'profile'
   ).profileHash
 
@@ -1632,17 +1693,19 @@ async function compileTmuxBrokerPlan(
   }
   validateInvocationSpec(spec)
   const startRequest: InvocationStartRequest = { spec }
+  const hashStartRequest = hashNeutralStartRequest(startRequest)
+  const hashSpec = hashStartRequest.spec
 
   const profileId = stableId('profile', {
     kind: 'harness-broker',
     brokerDriver: driverKind,
-    startRequest,
+    startRequest: hashStartRequest,
   }) as ProfileId
   const compatibilityHash = hashValue(
-    buildCompatibilityMaterial(req, startRequest, bundleIdentity, lockHash, lockedEnv)
+    buildCompatibilityMaterial(req, hashStartRequest, bundleIdentity, lockHash, lockedEnv)
   )
-  const specHash = projectionHash(spec, 'spec').specHash
-  const startRequestHash = projectionHash(startRequest, 'start-request').startRequestHash
+  const specHash = projectionHash(hashSpec, 'spec').specHash
+  const startRequestHash = projectionHash(hashStartRequest, 'start-request').startRequestHash
 
   const profileMaterial = {
     schemaVersion: 'agent-runtime-profile/v1' as const,
@@ -1679,7 +1742,18 @@ async function compileTmuxBrokerPlan(
     ),
   }
   const profileHash = projectionHash(
-    { ...profileMaterial, compatibilityHash },
+    {
+      ...profileMaterial,
+      harnessInvocation: {
+        startRequest: hashStartRequest,
+        specHash: profileMaterial.harnessInvocation.specHash,
+        startRequestHash: profileMaterial.harnessInvocation.startRequestHash,
+      },
+      observability: {
+        correlation: hashNeutralCompileIdentity(req.identity),
+      },
+      compatibilityHash,
+    },
     'profile'
   ).profileHash
   const profile: BrokerExecutionProfile = {

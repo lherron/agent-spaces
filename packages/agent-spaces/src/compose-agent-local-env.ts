@@ -1,6 +1,7 @@
 import type { AgentLocalComponents, RuntimePlacement } from 'spaces-config'
 import { prepareAgentToolRuntime } from 'spaces-execution'
 
+import { RESERVED_AGENT_SESSION_ENV_KEYS } from './agent-session-env.js'
 import { buildCorrelationEnvVars } from './placement-api.js'
 
 /**
@@ -68,9 +69,13 @@ export async function composeAgentLocalEnv(
     ...(req.reqLockedEnv ?? {}),
     ASP_HOME: aspHome,
   }
+  const callerDispatchEnv = { ...(req.reqDispatchEnv ?? {}) }
+  for (const key of RESERVED_AGENT_SESSION_ENV_KEYS) {
+    delete callerDispatchEnv[key]
+  }
   const dispatchEnv: Record<string, string> = {
+    ...callerDispatchEnv,
     ...correlationEnv,
-    ...(req.reqDispatchEnv ?? {}),
   }
   let env: Record<string, string> = {
     ...lockedEnv,

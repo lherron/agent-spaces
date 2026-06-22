@@ -66,6 +66,7 @@ export type ContractHarnessFailureCode =
   | 'start_request_identity_mismatch'
   | 'start_request_reference_changed'
   | 'initial_input_identity_mismatch'
+  | 'initial_input_hash_mismatch'
   | 'spec_hash_mismatch'
   | 'start_request_hash_mismatch'
   | 'broker_start_contract_unverifiable'
