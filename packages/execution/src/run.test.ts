@@ -578,6 +578,69 @@ compose_mode = "merge"
     })
   })
 
+  test('profile-only direct dry-run exposes durable agent state env without tools', async () => {
+    const root = await createTempDir('run-profile-only-env-')
+    const aspHome = join(root, 'asp-home')
+    const projectPath = join(root, 'project-direct-env')
+    const agentsDir = join(root, 'agents')
+    const agentRoot = join(agentsDir, 'dev')
+    await writeProject(
+      projectPath,
+      `
+schema = 1
+agents-root = "../agents"
+
+[targets.dev]
+compose = ["space:project@dev"]
+`
+    )
+    await writeAgentProfile(
+      agentsDir,
+      'dev',
+      `
+schemaVersion = 2
+`
+    )
+    await writeFile(join(agentRoot, 'SOUL.md'), 'profile-only direct run fixture\n')
+
+    const adapter = makeAdapter()
+    const harnessSpy = spyOn(harnessRegistry, 'getOrThrow').mockImplementation(
+      () => adapter as never
+    )
+    const materializeSpy = spyOn(spacesConfig, 'materializeFromRefs').mockImplementation(
+      async () => ({ materialization: { outputPath: join(root, 'materialized-dev') } })
+    )
+    try {
+      const result = await runModule.run('dev', {
+        projectPath,
+        aspHome,
+        refresh: true,
+        inheritProject: true,
+        inheritUser: false,
+        prompt: 'inspect durable env',
+        interactive: false,
+        dryRun: true,
+      })
+
+      // T-04936: the legacy/direct launch path must not require skills,
+      // commands, or tools/bin before exporting durable agent env.
+      expect(result.exitCode).toBe(0)
+      expect(result.launch.env).toMatchObject({
+        ASP_AGENT_ROOT: agentRoot,
+        ASP_AGENT_NAME: 'dev',
+        ASP_AGENT_STATE_DIR: join(agentRoot, 'var', 'state'),
+        ASP_AGENT_CACHE_DIR: join(agentRoot, 'var', 'cache'),
+        ASP_AGENT_LOG_DIR: join(agentRoot, 'var', 'logs'),
+        ASP_PROJECT_ROOT: projectPath,
+      })
+      expect(result.launch.env).not.toHaveProperty('ASP_AGENT_TOOLS_DIR')
+      expect(result.launch.env).not.toHaveProperty('ASP_AGENT_TOOLS_BIN')
+    } finally {
+      harnessSpy.mockRestore()
+      materializeSpy.mockRestore()
+    }
+  })
+
   test('non-compose installs pass the broader configInstall field set', async () => {
     const root = await createTempDir('run-install-non-compose-')
     const aspHome = join(root, 'asp-home')

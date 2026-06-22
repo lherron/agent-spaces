@@ -100,6 +100,7 @@ io.respond(thread, { threadId: 'thread_env_capture' })
 const turn = await expectMethod(io, 'turn/start')
 const envCapture = {
   EXTRA_FLAG: process.env['EXTRA_FLAG'] ?? null,
+  ASP_AGENT_STATE_DIR: process.env['ASP_AGENT_STATE_DIR'] ?? null,
   AGENT_SCOPE_REF: process.env['AGENT_SCOPE_REF'] ?? null,
   AGENT_LANE_REF: process.env['AGENT_LANE_REF'] ?? null,
   AGENT_HOST_SESSION_ID: process.env['AGENT_HOST_SESSION_ID'] ?? null,
@@ -767,7 +768,10 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
 
       expect(result.ok).toBe(true)
       expect(result.selectedProfile?.harnessInvocation.startRequest.spec.process.lockedEnv).toEqual(
-        expect.objectContaining({ EXTRA_FLAG: '1' })
+        expect.objectContaining({
+          EXTRA_FLAG: '1',
+          ASP_AGENT_STATE_DIR: join(fixture.agentRoot, 'var', 'state'),
+        })
       )
       expect(
         result.selectedProfile?.harnessInvocation.startRequest.spec.process.lockedEnv
@@ -794,6 +798,7 @@ describe('runPreHrcBrokerContractHarness contract gate', () => {
       >
       expect(envCapture).toEqual({
         EXTRA_FLAG: '1',
+        ASP_AGENT_STATE_DIR: join(fixture.agentRoot, 'var', 'state'),
         AGENT_SCOPE_REF: 'cody@agent-spaces',
         AGENT_LANE_REF: 'main',
         AGENT_HOST_SESSION_ID: result.compileResponse.ok

@@ -677,8 +677,22 @@ describe('compiled broker profile field mapping', () => {
     const spec = compiledSpec(
       brokerProfile(await createClient().compileRuntimePlan(baseCompileRequest()))
     )
+    // T-04936: no-tools/profile-only agents still get durable env in lockedEnv;
+    // only PATH/pathPrepend and ASP_AGENT_TOOLS_* are gated by tools/bin.
+    expect(spec.process.lockedEnv).toMatchObject({
+      ASP_AGENT_ROOT: fixture.agentRoot,
+      ASP_AGENT_NAME: 'cody',
+      ASP_AGENT_VAR_DIR: join(fixture.agentRoot, 'var'),
+      ASP_AGENT_STATE_DIR: join(fixture.agentRoot, 'var', 'state'),
+      ASP_AGENT_CACHE_DIR: join(fixture.agentRoot, 'var', 'cache'),
+      ASP_AGENT_LOG_DIR: join(fixture.agentRoot, 'var', 'logs'),
+      ASP_PROJECT_ROOT: fixture.projectRoot,
+      ASP_PROJECT_STATE_DIR: expect.stringContaining(join(fixture.agentRoot, 'var', 'state')),
+    })
     expect(spec.process.pathPrepend).toBeUndefined()
     expect(spec.process.lockedEnv).not.toHaveProperty('PATH')
+    expect(spec.process.lockedEnv).not.toHaveProperty('ASP_AGENT_TOOLS_DIR')
+    expect(spec.process.lockedEnv).not.toHaveProperty('ASP_AGENT_TOOLS_BIN')
   })
 
   test('legacy buildHarnessBrokerInvocation delegates to the compiled broker start request', async () => {

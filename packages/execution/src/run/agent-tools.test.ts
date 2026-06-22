@@ -44,12 +44,74 @@ async function writeTool(agentRoot: string, name: string, source = '#!/bin/sh\ne
 }
 
 describe('prepareAgentToolRuntime', () => {
-  test('returns empty env when tools are disabled', async () => {
+  test('returns durable agent env when tools are disabled', async () => {
     const agentRoot = await createTempDir('agent-tools-none-')
+    const projectRoot = await createTempDir('agent-tools-none-project-')
+    const result = await prepareAgentToolRuntime({
+      agentRoot,
+      projectRoot,
+      components: components(agentRoot, false),
+    })
+    const projectId = getProjectStorageId(projectRoot, basename(agentRoot))
 
-    await expect(
-      prepareAgentToolRuntime({ agentRoot, components: components(agentRoot, false) })
-    ).resolves.toEqual({ env: {}, pathPrepend: [], warnings: [] })
+    // T-04936: Durable agent/project env is a runtime placement contract, not
+    // a tools contract. Only PATH and ASP_AGENT_TOOLS_* stay tools-gated.
+    expect(result).toMatchObject({
+      pathPrepend: [],
+      warnings: [],
+      env: {
+        ASP_AGENT_ROOT: agentRoot,
+        ASP_AGENT_NAME: basename(agentRoot),
+        ASP_AGENT_VAR_DIR: join(agentRoot, 'var'),
+        ASP_AGENT_STATE_DIR: join(agentRoot, 'var', 'state'),
+        ASP_AGENT_CACHE_DIR: join(agentRoot, 'var', 'cache'),
+        ASP_AGENT_LOG_DIR: join(agentRoot, 'var', 'logs'),
+        ASP_PROJECT_ROOT: projectRoot,
+        ASP_PROJECT_ID: projectId,
+        ASP_PROJECT_STATE_DIR: join(agentRoot, 'var', 'state', 'projects', projectId),
+      },
+    })
+    expect(result.env).not.toHaveProperty('ASP_AGENT_TOOLS_DIR')
+    expect(result.env).not.toHaveProperty('ASP_AGENT_TOOLS_BIN')
+    expect(result.env).not.toHaveProperty('PATH')
+    await expect(stat(join(agentRoot, 'var', 'state'))).resolves.toMatchObject({})
+    await expect(stat(join(agentRoot, 'var', 'cache'))).resolves.toMatchObject({})
+    await expect(stat(join(agentRoot, 'var', 'logs'))).resolves.toMatchObject({})
+    await expect(stat(result.env['ASP_PROJECT_STATE_DIR'] as string)).resolves.toMatchObject({})
+  })
+
+  test('returns durable agent env when component discovery is absent', async () => {
+    const agentRoot = await createTempDir('agent-tools-profile-only-')
+    const projectRoot = await createTempDir('agent-tools-profile-only-project-')
+    const result = await prepareAgentToolRuntime({
+      agentRoot,
+      projectRoot,
+    } as Parameters<typeof prepareAgentToolRuntime>[0])
+
+    // T-04936: profile-only agent roots still need state/cache/log env even
+    // when detectAgentLocalComponents() returns undefined.
+    expect(result.pathPrepend).toEqual([])
+    expect(result.warnings).toEqual([])
+    expect(result.env).toMatchObject({
+      ASP_AGENT_ROOT: agentRoot,
+      ASP_AGENT_NAME: basename(agentRoot),
+      ASP_AGENT_VAR_DIR: join(agentRoot, 'var'),
+      ASP_AGENT_STATE_DIR: join(agentRoot, 'var', 'state'),
+      ASP_AGENT_CACHE_DIR: join(agentRoot, 'var', 'cache'),
+      ASP_AGENT_LOG_DIR: join(agentRoot, 'var', 'logs'),
+      ASP_PROJECT_ROOT: projectRoot,
+      ASP_PROJECT_STATE_DIR: join(
+        agentRoot,
+        'var',
+        'state',
+        'projects',
+        getProjectStorageId(projectRoot, basename(agentRoot))
+      ),
+    })
+    expect(result.env).not.toHaveProperty('ASP_AGENT_TOOLS_DIR')
+    expect(result.env).not.toHaveProperty('ASP_AGENT_TOOLS_BIN')
+    expect(result.env).not.toHaveProperty('PATH')
+    await expect(stat(join(agentRoot, 'var', 'state'))).resolves.toMatchObject({})
   })
 
   test('prepends PATH, sets agent env, and creates state directories', async () => {
