@@ -1742,13 +1742,24 @@ async function compileTmuxBrokerPlan(
   const specHash = projectionHash(hashSpec, 'spec').specHash
   const startRequestHash = projectionHash(hashStartRequest, 'start-request').startRequestHash
 
+  // T-01817: interactive v0.2 tmux broker profiles must not contradict a durable
+  // Unix broker hello that advertises attachReplay:true. Emit attachReplay
+  // 'optional' (not the pre-durable 'forbidden' default) for all three tmux
+  // drivers. This relaxes the contradiction without asserting restart durability;
+  // HRC still requires attachReplay:true from broker hello for durable Unix routes.
+  const brokerProtocol = 'harness-broker/0.2' as const
+  const attachReplay = 'optional' as const
+
   const profileMaterial = {
     schemaVersion: 'agent-runtime-profile/v1' as const,
     profileId,
     kind: 'harness-broker' as const,
     interactionMode: 'interactive' as const,
-    expectedCapabilities: expectedCapabilities(permissionPolicy, { inputQueue: 'required' }),
-    brokerProtocol: 'harness-broker/0.2' as const,
+    expectedCapabilities: expectedCapabilities(permissionPolicy, {
+      inputQueue: 'required',
+      attachReplay,
+    }),
+    brokerProtocol,
     brokerDriver: driverKind,
     brokerOwnership: 'hrc-owned-process' as const,
     brokerTerminal: TMUX_BROKER_TERMINAL,
