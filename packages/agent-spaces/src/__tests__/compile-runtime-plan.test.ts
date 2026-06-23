@@ -273,6 +273,18 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
 }
 
 type EmbeddedSdkProfileValidator = (profile: EmbeddedSdkExecutionProfile) => CompileDiagnostic[]
+type BrokerProfileValidator = (profile: BrokerExecutionProfile) => CompileDiagnostic[]
+
+function validateBrokerExecutionProfile(profile: BrokerExecutionProfile): CompileDiagnostic[] {
+  const validator = (
+    RuntimeContracts as typeof RuntimeContracts & {
+      validateBrokerExecutionProfile?: BrokerProfileValidator | undefined
+    }
+  ).validateBrokerExecutionProfile
+
+  expect(validator).toBeFunction()
+  return validator(profile)
+}
 
 function validateEmbeddedSdkExecutionProfile(
   profile: EmbeddedSdkExecutionProfile
@@ -561,6 +573,100 @@ describe('compileRuntimePlan broker profile contract', () => {
     )
     expect(profile.harnessInvocation.startRequest.initialInput).toBeUndefined()
     expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
+  })
+
+  test('T-01817 emits durable-aware attach replay requirements only for interactive tmux broker profiles', async () => {
+    const interactiveRoutes = [
+      {
+        brokerDriver: 'claude-code-tmux',
+        requested: {
+          modelProvider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          harnessFamily: 'claude-code',
+          preferredHarnessRuntime: 'claude-code-cli',
+          interactionMode: 'interactive',
+        },
+      },
+      {
+        brokerDriver: 'codex-cli-tmux',
+        requested: {
+          modelProvider: 'openai',
+          model: 'gpt-5.5',
+          reasoningEffort: 'medium',
+          harnessFamily: 'codex',
+          preferredHarnessRuntime: 'codex-cli',
+          interactionMode: 'interactive',
+        },
+      },
+      {
+        brokerDriver: 'pi-tui-tmux',
+        requested: {
+          modelProvider: 'openai',
+          model: 'gpt-5.5',
+          reasoningEffort: 'medium',
+          harnessFamily: 'pi',
+          preferredHarnessRuntime: 'pi-cli',
+          interactionMode: 'interactive',
+        },
+      },
+    ] as const
+
+    for (const route of interactiveRoutes) {
+      const profile = brokerProfile(
+        await createClient().compileRuntimePlan(interactiveCompileRequest(route.requested))
+      )
+
+      // T-01817 acceptance: v0.2 interactive tmux broker profiles must not
+      // contradict durable Unix broker hellos that advertise attachReplay:true.
+      expect(profile.kind).toBe('harness-broker')
+      expect(profile.interactionMode).toBe('interactive')
+      expect(profile.brokerDriver).toBe(route.brokerDriver)
+      expect(profile.brokerProtocol).toBe('harness-broker/0.2')
+      expect(profile.expectedCapabilities.control.attachReplay).toBe('optional')
+      expect(profile.expectedCapabilities.input.queue).toBe('required')
+      expect(profile.harnessInvocation.startRequest.spec.process.harnessTransport.kind).toBe('pty')
+      expect(validateBrokerExecutionProfile(profile)).toEqual([])
+    }
+
+    const headlessCodex = brokerProfile(
+      await createClient().compileRuntimePlan(baseCompileRequest())
+    )
+    expect(headlessCodex.brokerDriver).toBe('codex-app-server')
+    expect(headlessCodex.expectedCapabilities.control.attachReplay).toBe('optional')
+
+    const foreground = terminalProfile(
+      await createClient().compileRuntimePlan(
+        explicitTerminalCompileRequest({
+          modelProvider: 'anthropic',
+          model: 'claude-sonnet-4-5',
+          harnessFamily: 'claude-code',
+          preferredHarnessRuntime: 'claude-code-cli',
+          interactionMode: 'interactive',
+        })
+      )
+    )
+    expect(foreground.expectedCapabilities.control.attachReplay).toBe('forbidden')
+
+    const embedded = embeddedSdkProfile(
+      await createClient().compileRuntimePlan(
+        baseCompileRequest({
+          requested: {
+            modelProvider: 'openai',
+            model: 'gpt-5.5',
+            reasoningEffort: 'medium',
+            harnessFamily: 'pi',
+            preferredHarnessRuntime: 'pi-sdk',
+            interactionMode: 'nonInteractive',
+          },
+          materialization: {
+            ...baseCompileRequest().materialization,
+            attachments: [],
+          },
+          continuation: undefined,
+        })
+      )
+    )
+    expect(embedded.expectedCapabilities.control.attachReplay).toBe('forbidden')
   })
 
   test('rejects pi-sdk headless requests instead of rewriting them to nonInteractive embedded-sdk', async () => {
