@@ -122,14 +122,20 @@ function hashNeutralInvocationSpec(spec: HarnessInvocationSpec): HarnessInvocati
 
 /**
  * Hash material for a start request. `spec.invocationId` / `correlation` stay
- * neutralized (per-dispatch identity). Of `initialInput` only the deterministic
+ * neutralized (per-dispatch identity). Of `initialInput` the deterministic
  * `inputId` is retained (T-04133): its derivation now folds generation + content,
  * so a changed generation moves the start-request hash while a pure correlation
  * change does not. Content is deliberately NOT hashed here — post-compile content
  * drift is caught by `initialInputHash`, keeping the two contract gates distinct.
+ * The per-turn `responseFormat` (T-03779) IS retained: it is a caller-supplied
+ * turn-identity field that need not move the deterministic `inputId` (callers may
+ * pin `initialInputId`), so the start-request gate must observe it directly.
  */
 type StartRequestHashMaterial = Omit<InvocationStartRequest, 'initialInput'> & {
-  initialInput?: { inputId: NonNullable<InvocationStartRequest['initialInput']>['inputId'] }
+  initialInput?: {
+    inputId: NonNullable<InvocationStartRequest['initialInput']>['inputId']
+    responseFormat?: NonNullable<InvocationStartRequest['initialInput']>['responseFormat']
+  }
 }
 
 function hashNeutralStartRequest(startRequest: InvocationStartRequest): StartRequestHashMaterial {
@@ -137,7 +143,16 @@ function hashNeutralStartRequest(startRequest: InvocationStartRequest): StartReq
   return {
     ...rest,
     spec: hashNeutralInvocationSpec(startRequest.spec),
-    ...(initialInput !== undefined ? { initialInput: { inputId: initialInput.inputId } } : {}),
+    ...(initialInput !== undefined
+      ? {
+          initialInput: {
+            inputId: initialInput.inputId,
+            ...(initialInput.responseFormat !== undefined
+              ? { responseFormat: initialInput.responseFormat }
+              : {}),
+          },
+        }
+      : {}),
   }
 }
 
@@ -934,6 +949,9 @@ async function compileBrokerPlan(
         ? { provider: 'openai', key: req.continuation.hrc.key }
         : undefined,
     prompt: req.materialization.initialPrompt,
+    ...(req.materialization.responseFormat !== undefined
+      ? { responseFormat: req.materialization.responseFormat }
+      : {}),
     ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
     ...(placement.env !== undefined ? { env: placement.env } : {}),
     ...(placement.lockedEnv !== undefined ? { lockedEnv: placement.lockedEnv } : {}),

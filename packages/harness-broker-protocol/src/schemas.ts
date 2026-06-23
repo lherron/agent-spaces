@@ -1519,7 +1519,101 @@ function validateInvocationInputShape(
     true
   )
   validateInputContent(input['content'], joinPath(basePath, 'content'), issues)
+  validateResponseFormat(input['responseFormat'], joinPath(basePath, 'responseFormat'), issues)
   validateStringRecord(input['metadata'], joinPath(basePath, 'metadata'), issues, false)
+}
+
+/**
+ * Validate an optional per-turn `responseFormat` (T-03779). Accepts only
+ * `{ kind: 'text' }` (no `schema`) and `{ kind: 'json_schema', schema }` with a
+ * plain-object schema root whose values are all JSON-representable. Rejects
+ * null/array/primitive schema roots, missing schema, text formats carrying a
+ * schema, unknown kinds, and any non-JSON value nested anywhere in the schema.
+ */
+function validateResponseFormat(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+  if (value === undefined) {
+    return
+  }
+  const format = asRecord(value)
+  if (!format) {
+    issues.push(makeIssue(basePath, 'invalid_type', 'responseFormat must be an object'))
+    return
+  }
+  const kind = format['kind']
+  if (kind === 'text') {
+    if ('schema' in format) {
+      issues.push(
+        makeIssue(
+          joinPath(basePath, 'schema'),
+          'unexpected_key',
+          'text responseFormat must not carry a schema'
+        )
+      )
+    }
+    return
+  }
+  if (kind === 'json_schema') {
+    const schemaPath = joinPath(basePath, 'schema')
+    const schema = asRecord(format['schema'])
+    if (!schema) {
+      issues.push(
+        makeIssue(
+          schemaPath,
+          'invalid_type',
+          'json_schema responseFormat schema must be a plain object'
+        )
+      )
+      return
+    }
+    validateJsonValue(schema, schemaPath, issues)
+    return
+  }
+  issues.push(
+    makeIssue(joinPath(basePath, 'kind'), 'invalid_literal', 'responseFormat kind is unsupported')
+  )
+}
+
+/** True only for objects with a plain (`Object.prototype` or null) prototype. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
+/**
+ * Recursively assert `value` is JSON-representable. Permits null, string,
+ * boolean, finite number, arrays, and plain objects; rejects undefined,
+ * function, symbol, bigint, NaN/Infinity, and non-plain objects (Date, Map,
+ * Set, class instances). Offending values are reported at their nested path.
+ */
+function validateJsonValue(value: unknown, path: string, issues: ValidationIssue[]): void {
+  if (value === null) {
+    return
+  }
+  if (typeof value === 'string' || typeof value === 'boolean') {
+    return
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      issues.push(makeIssue(path, 'invalid_type', `${path} must be a finite number`))
+    }
+    return
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      validateJsonValue(item, joinPath(path, String(index)), issues)
+    })
+    return
+  }
+  if (isPlainObject(value)) {
+    for (const [key, nested] of Object.entries(value)) {
+      validateJsonValue(nested, joinPath(path, key), issues)
+    }
+    return
+  }
+  issues.push(makeIssue(path, 'invalid_type', `${path} must be a JSON value`))
 }
 
 function validateInputContent(value: unknown, basePath: string, issues: ValidationIssue[]): void {

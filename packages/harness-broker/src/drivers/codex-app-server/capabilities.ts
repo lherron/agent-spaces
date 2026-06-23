@@ -36,5 +36,11 @@ export const CODEX_CAPABILITIES: InvocationCapabilities = {
     stop: true,
     dispose: true,
   },
+  finalResponse: {
+    jsonSchema: true,
+    perTurn: true,
+    strict: true,
+    parsedResult: false,
+  },
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
 }

@@ -9,6 +9,7 @@ import type {
   InputId,
   InvocationId,
   InvocationInput,
+  InvocationResponseFormat,
   InvocationStartRequest,
   PermissionPolicy,
   ProcessLimits,
@@ -253,6 +254,12 @@ export interface BuildHarnessBrokerInvocationRequest {
   limits?: ProcessLimits | undefined
   interaction?: { inputQueue?: 'fifo' | 'none' | undefined } | undefined
   resumeFallback?: 'start-fresh' | 'fail' | undefined
+  /**
+   * Optional per-turn structured final response format (T-03779). Attached to
+   * the compiled broker initial input when a turn exists; never synthesizes an
+   * empty initial input on its own.
+   */
+  responseFormat?: InvocationResponseFormat | undefined
 }
 
 export interface BuildHarnessBrokerInvocationResponse {

@@ -214,8 +214,22 @@ export interface InvocationInput {
   inputId?: InputId | undefined
   kind: 'user' | 'steer' | 'append_context'
   content: InputContent[]
+  /**
+   * Optional, typed, PER-TURN final response format (T-03779). Modeled as
+   * broker input data — NOT a Codex driver-spec or invocation-global setting —
+   * because Codex supports a schema per turn. Omitted or `{ kind: 'text' }`
+   * means no structured-output request; `{ kind: 'json_schema', schema }` asks
+   * the selected driver to constrain this turn's final assistant message to the
+   * given JSON Schema (object root). Broker events stay string-based; callers
+   * parse the returned JSON string themselves.
+   */
+  responseFormat?: InvocationResponseFormat | undefined
   metadata?: Record<string, string> | undefined
 }
+
+export type InvocationResponseFormat =
+  | { kind: 'text' }
+  | { kind: 'json_schema'; schema: Record<string, unknown> }
 
 export type InputContent =
   | { type: 'text'; text: string }

@@ -25,6 +25,7 @@ import type {
   InvocationLivenessView,
   InvocationPermissionRespondRequest,
   InvocationPermissionRespondResponse,
+  InvocationResponseFormat,
   InvocationRuntimeContext,
   InvocationStartResponse,
   InvocationState,
@@ -72,6 +73,39 @@ const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
  * Mirrors HRC's BROKER_TMUX_PROMPT_EXIT_REASONS.
  */
 const SESSION_LEAVE_REASONS = new Set(['prompt_input_exit', 'logout'])
+
+/**
+ * Reason/message surfaced when a JSON Schema response format is sent to a driver
+ * that does not advertise structured final-response support (T-03779).
+ */
+const REASON_UNSUPPORTED_FINAL_RESPONSE = 'UnsupportedCapability: finalResponse.jsonSchema'
+
+/**
+ * Normalize a per-turn response format for idempotency fingerprinting (T-03779):
+ * omitted and `{ kind: 'text' }` both collapse to `null`; a JSON Schema format
+ * keeps its `{ kind, schema }`. `stableJsonStringify` canonicalizes object key
+ * order downstream, so reordered schema keys fingerprint identically.
+ */
+function normalizeResponseFormat(
+  responseFormat: InvocationResponseFormat | undefined
+): { kind: 'json_schema'; schema: Record<string, unknown> } | null {
+  if (responseFormat?.kind === 'json_schema') {
+    return { kind: 'json_schema', schema: responseFormat.schema }
+  }
+  return null
+}
+
+/** True when this input requests a JSON Schema structured final response. */
+function requestsJsonSchemaResponse(input: InvocationInput): boolean {
+  return input.responseFormat?.kind === 'json_schema'
+}
+
+/** True when the driver capabilities advertise per-turn JSON Schema support. */
+function supportsJsonSchemaResponse(capabilities: InvocationCapabilities): boolean {
+  return (
+    capabilities.finalResponse?.jsonSchema === true && capabilities.finalResponse?.perTurn === true
+  )
+}
 
 function assertLifecyclePolicySupported(
   policy: BrokerLifecyclePolicyOverlay | undefined,
@@ -792,6 +826,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       kind: req.input.kind,
       content: req.input.content,
       policy: req.policy ?? null,
+      responseFormat: normalizeResponseFormat(req.input.responseFormat),
     })
   }
 
@@ -1048,6 +1083,19 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
 
       const driverCaps = driver.capabilities()
       assertLifecyclePolicySupported(lifecyclePolicy, driverCaps)
+      // T-03779: reject a JSON Schema initialInput on an unsupporting driver
+      // BEFORE driver.start and before the invocation is registered, so no
+      // input.accepted/input.rejected is emitted and the driver never sees it.
+      if (
+        initialInput !== undefined &&
+        requestsJsonSchemaResponse(initialInput) &&
+        !supportsJsonSchemaResponse(driverCaps)
+      ) {
+        throw new BrokerError(
+          BrokerErrorCode.UnsupportedCapability,
+          REASON_UNSUPPORTED_FINAL_RESPONSE
+        )
+      }
       const composedQueue =
         driverCaps.input.queue === true &&
         // input.user is a capability-dependency check (queueing requires user-input capability),
@@ -1173,7 +1221,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           }
           throw new BrokerError(
             BrokerErrorCode.DuplicateInputConflict,
-            `Duplicate inputId ${providedInputId} with differing content or policy`,
+            `Duplicate inputId ${providedInputId} differs by content, policy, or responseFormat`,
             { invocationId: inv.invocationId, inputId: providedInputId }
           )
         }
@@ -1215,6 +1263,21 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         throw new BrokerError(
           BrokerErrorCode.UnsupportedCapability,
           'UnsupportedCapability: input.appendContext'
+        )
+      }
+      // T-03779: a JSON Schema response format is accepted only when the driver
+      // advertises per-turn structured support. Reject before input.accepted,
+      // queueing, or driver apply.
+      if (requestsJsonSchemaResponse(input) && !supportsJsonSchemaResponse(inv.capabilities)) {
+        emit(
+          inv,
+          'input.rejected',
+          { inputId, reason: REASON_UNSUPPORTED_FINAL_RESPONSE },
+          { inputId }
+        )
+        throw new BrokerError(
+          BrokerErrorCode.UnsupportedCapability,
+          REASON_UNSUPPORTED_FINAL_RESPONSE
         )
       }
 

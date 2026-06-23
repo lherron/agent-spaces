@@ -15,7 +15,13 @@ export function buildTurnStartParams(options: {
     model: options.driver.model ?? null,
     effort: options.driver.modelReasoningEffort ?? null,
     summary: null,
-    outputSchema: null,
+    // T-03779: structured output is per-turn input data. Map the current input's
+    // JSON Schema response format to Codex app-server `turn/start.outputSchema`;
+    // omitted or `{ kind: 'text' }` carries no schema.
+    outputSchema:
+      options.input.responseFormat?.kind === 'json_schema'
+        ? options.input.responseFormat.schema
+        : null,
   }
 }
 

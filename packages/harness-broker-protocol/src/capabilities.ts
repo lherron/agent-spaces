@@ -50,6 +50,23 @@ export interface InvocationCapabilities {
         eventAudit: boolean
       }
     | undefined
+  /**
+   * Structured final-response support (T-03779). Present only for drivers with
+   * a real structured-output path. `jsonSchema`: the driver accepts a per-turn
+   * JSON Schema response format. `perTurn`: schemas are scoped to the single
+   * turn, not sticky. `strict`: the driver asks upstream for strict schema
+   * enforcement (NOT broker-side parsing/validation of the final text).
+   * `parsedResult`: the broker emits a parsed object (always false in this
+   * pass — broker events remain string-based).
+   */
+  finalResponse?:
+    | {
+        jsonSchema: boolean
+        perTurn: boolean
+        strict: boolean
+        parsedResult: boolean
+      }
+    | undefined
   lifecycle: InvocationLifecycleCapabilities
 }
 

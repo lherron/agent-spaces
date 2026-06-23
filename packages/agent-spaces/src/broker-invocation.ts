@@ -344,6 +344,10 @@ function buildInitialInput(
     inputId: req.initialInputId ?? deriveInitialInputId(req, content),
     kind: 'user',
     content,
+    // T-03779: a per-turn response format rides on the initial broker turn only
+    // when a turn actually exists. Response format alone must never synthesize
+    // an empty initial input (the content.length === 0 guard above handles that).
+    ...(req.responseFormat !== undefined ? { responseFormat: req.responseFormat } : {}),
   }
 }
 

@@ -1,3 +1,4 @@
+import type { InvocationResponseFormat } from 'spaces-harness-broker-protocol'
 import type { HrcCapabilityPolicy } from './capabilities'
 import type { RuntimeContinuationRef } from './continuation'
 import type { RuntimeExecutionProfile } from './execution-profile'
@@ -55,6 +56,12 @@ export type RuntimeCompileRequest = {
     attachments?: AttachmentRef[] | undefined
     taskContext?: HrcTaskContext | undefined
     resolvedBundleHint?: ResolvedRuntimeBundle | undefined
+    /**
+     * Optional per-turn structured final response format (T-03779). Threaded
+     * onto the compiled broker initial input so the public compile path and its
+     * hashes exercise the feature. Response format alone never creates a turn.
+     */
+    responseFormat?: InvocationResponseFormat | undefined
   }
 
   hrcPolicy: {
