@@ -60,12 +60,31 @@ const eventPayload = <T extends Record<string, unknown>>(event: InvocationEventE
 const inputEvents = (events: InvocationEventEnvelope[], type: InvocationEventEnvelope['type']) =>
   events.filter((event) => event.type === type)
 
+const structuredResponse = (schema: Record<string, unknown>) =>
+  ({
+    kind: 'json_schema',
+    schema,
+  }) as unknown
+
+const textResponse = () =>
+  ({
+    kind: 'text',
+  }) as unknown
+
 const setup = async (
   options: {
     invocationId?: string | undefined
     inputQueue?: 'fifo' | 'none' | undefined
     interactionMode?: 'headless' | 'interactive' | undefined
     inputCapabilities?: Partial<InvocationCapabilities['input']> | undefined
+    finalResponseCapabilities?:
+      | {
+          jsonSchema: boolean
+          perTurn: boolean
+          strict: boolean
+          parsedResult: boolean
+        }
+      | undefined
     maxInputQueueDepth?: number | undefined
     failInputIds?: string[] | undefined
     supportsSteer?: boolean | undefined
@@ -77,6 +96,14 @@ const setup = async (
     inputCapabilities: options.inputCapabilities,
     supportsSteer: options.supportsSteer,
   })
+  if (options.finalResponseCapabilities !== undefined) {
+    const originalCapabilities = driver.capabilities.bind(driver)
+    driver.capabilities = () =>
+      ({
+        ...originalCapabilities(),
+        finalResponse: options.finalResponseCapabilities,
+      }) as InvocationCapabilities
+  }
   const brokerOptions: Parameters<typeof createBroker>[0] & {
     maxInputQueueDepth?: number | undefined
   } = {
@@ -140,6 +167,131 @@ describe('broker-owned FIFO input queue', () => {
     })
 
     expect(inputEvents(events, 'input.queued')).toHaveLength(0)
+  })
+
+  test('JSON Schema response format is rejected before input.accepted when driver lacks support', async () => {
+    const { broker, controller, events, invocationId } = await setup({
+      invocationId: 'inv_structured_response_unsupported_input',
+    })
+
+    await expect(
+      broker.input({
+        invocationId,
+        input: {
+          ...userInput('input_schema_unsupported', 'return json'),
+          responseFormat: structuredResponse({
+            type: 'object',
+            properties: { ok: { type: 'boolean' } },
+          }),
+        } as InvocationInput,
+      })
+    ).rejects.toMatchObject({ code: BrokerErrorCode.UnsupportedCapability })
+
+    expect(inputEvents(events, 'input.accepted')).toHaveLength(0)
+    expect(inputEvents(events, 'input.rejected').at(-1)).toMatchObject({
+      inputId: 'input_schema_unsupported',
+      payload: {
+        inputId: 'input_schema_unsupported',
+        reason: 'UnsupportedCapability: finalResponse.jsonSchema',
+      },
+    })
+    expect(controller.inputs).toHaveLength(0)
+  })
+
+  test('JSON Schema initialInput is rejected before input.accepted when driver lacks support', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const { driver, controller } = createTestDriver()
+    const broker = createBroker({
+      drivers: [driver],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+
+    await expect(
+      broker.start({
+        spec: testSpec({ invocationId: 'inv_structured_response_unsupported_initial' }),
+        initialInput: {
+          ...userInput('input_initial_schema_unsupported', 'return json'),
+          responseFormat: structuredResponse({
+            type: 'object',
+            properties: { ok: { type: 'boolean' } },
+          }),
+        } as InvocationInput,
+      })
+    ).rejects.toMatchObject({ code: BrokerErrorCode.UnsupportedCapability })
+
+    expect(inputEvents(events, 'input.accepted')).toHaveLength(0)
+    expect(inputEvents(events, 'input.rejected')).toHaveLength(0)
+    expect(controller.inputs).toHaveLength(0)
+  })
+
+  test('inputId idempotency fingerprints normalized responseFormat', async () => {
+    const { broker, controller, invocationId } = await setup({
+      invocationId: 'inv_structured_response_idempotency',
+      finalResponseCapabilities: {
+        jsonSchema: true,
+        perTurn: true,
+        strict: true,
+        parsedResult: false,
+      },
+    })
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: { status: { type: 'string' }, count: { type: 'number' } },
+      required: ['status', 'count'],
+    }
+    const reorderedSchema = {
+      required: ['status', 'count'],
+      properties: { count: { type: 'number' }, status: { type: 'string' } },
+      additionalProperties: false,
+      type: 'object',
+    }
+
+    const first = await broker.input({
+      invocationId,
+      input: {
+        ...userInput('input_schema_replay', 'return json'),
+        responseFormat: structuredResponse(schema),
+      } as InvocationInput,
+    })
+    const replay = await broker.input({
+      invocationId,
+      input: {
+        ...userInput('input_schema_replay', 'return json'),
+        responseFormat: structuredResponse(reorderedSchema),
+      } as InvocationInput,
+    })
+    const text = await broker.input({
+      invocationId,
+      input: {
+        ...userInput('input_text_replay', 'return plain text'),
+        responseFormat: textResponse(),
+      } as InvocationInput,
+      policy: { whenBusy: 'queue' },
+    })
+    const omitted = await broker.input({
+      invocationId,
+      input: userInput('input_text_replay', 'return plain text'),
+      policy: { whenBusy: 'queue' },
+    })
+
+    expect(replay).toEqual(first)
+    expect(omitted).toEqual(text)
+    expect(controller.inputs.map((input) => input.inputId)).toEqual(['input_schema_replay'])
+
+    await expect(
+      broker.input({
+        invocationId,
+        input: {
+          ...userInput('input_schema_replay', 'return json'),
+          responseFormat: structuredResponse({
+            type: 'object',
+            properties: { different: { type: 'boolean' } },
+          }),
+        } as InvocationInput,
+      })
+    ).rejects.toThrow('responseFormat')
   })
 
   test('turn_active user input with whenBusy reject rejects and emits input.rejected with original inputId', async () => {

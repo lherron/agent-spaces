@@ -129,6 +129,15 @@ const expectInvalidInput = (value: unknown, expectedIssue: { path: string; code:
   )
 }
 
+const expectInvalidInputPath = (value: unknown, path: string) => {
+  expect(() => validateInvocationInput(value)).toThrow(
+    expect.objectContaining({
+      code: 'INVALID_INVOCATION_INPUT',
+      issues: expect.arrayContaining([expect.objectContaining({ path })]),
+    })
+  )
+}
+
 const expectInvalidStartRequest = (
   value: unknown,
   expectedIssue: { path: string; code: string }
@@ -371,6 +380,101 @@ describe('validateInvocationInput', () => {
     }
 
     expect(validateInvocationInput(input)).toEqual(input)
+  })
+
+  test('accepts per-turn response formats for text and JSON Schema object roots', () => {
+    const jsonSchemaInput = {
+      inputId: 'input_structured_response',
+      kind: 'user',
+      content: [{ type: 'text', text: 'return a status object' }],
+      responseFormat: {
+        kind: 'json_schema',
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            status: { type: 'string', enum: ['ok', 'blocked'] },
+            count: { type: 'number', minimum: 0 },
+            nullable: { type: ['string', 'null'] },
+          },
+          required: ['status'],
+        },
+      },
+    }
+    const textInput = {
+      ...jsonSchemaInput,
+      inputId: 'input_text_response',
+      responseFormat: { kind: 'text' },
+    }
+
+    expect(validateInvocationInput(jsonSchemaInput)).toEqual(jsonSchemaInput)
+    expect(validateInvocationInput(textInput)).toEqual(textInput)
+  })
+
+  test.each([
+    ['text format carrying schema', { kind: 'text', schema: { type: 'object' } }, 'schema'],
+    ['json_schema missing schema', { kind: 'json_schema' }, 'schema'],
+    ['json_schema null root', { kind: 'json_schema', schema: null }, 'schema'],
+    ['json_schema array root', { kind: 'json_schema', schema: [] }, 'schema'],
+    ['json_schema primitive root', { kind: 'json_schema', schema: true }, 'schema'],
+    ['unknown response format kind', { kind: 'xml_schema', schema: {} }, 'kind'],
+    [
+      'nested undefined schema value',
+      { kind: 'json_schema', schema: { type: 'object', properties: { value: undefined } } },
+      'schema.properties.value',
+    ],
+    [
+      'nested function schema value',
+      { kind: 'json_schema', schema: { type: 'object', properties: { value: () => true } } },
+      'schema.properties.value',
+    ],
+    [
+      'nested symbol schema value',
+      { kind: 'json_schema', schema: { type: 'object', properties: { value: Symbol('x') } } },
+      'schema.properties.value',
+    ],
+    [
+      'nested bigint schema value',
+      { kind: 'json_schema', schema: { type: 'object', properties: { value: 1n } } },
+      'schema.properties.value',
+    ],
+    [
+      'nested non-finite schema number',
+      { kind: 'json_schema', schema: { type: 'object', properties: { value: Number.NaN } } },
+      'schema.properties.value',
+    ],
+    [
+      'nested Date schema value',
+      { kind: 'json_schema', schema: { type: 'object', properties: { value: new Date(0) } } },
+      'schema.properties.value',
+    ],
+    [
+      'nested Map schema value',
+      { kind: 'json_schema', schema: { type: 'object', properties: { value: new Map() } } },
+      'schema.properties.value',
+    ],
+    [
+      'nested Set schema value',
+      { kind: 'json_schema', schema: { type: 'object', properties: { value: new Set() } } },
+      'schema.properties.value',
+    ],
+    [
+      'nested class instance schema value',
+      {
+        kind: 'json_schema',
+        schema: { type: 'object', properties: { value: new (class SchemaValue {})() } },
+      },
+      'schema.properties.value',
+    ],
+  ])('rejects malformed responseFormat: %s', (_name, responseFormat, pathSuffix) => {
+    expectInvalidInputPath(
+      {
+        kind: 'user',
+        content: [{ type: 'text', text: 'return a status object' }],
+        responseFormat,
+      },
+      `responseFormat.${pathSuffix}`
+    )
   })
 
   test('rejects missing content with a stable validation code', () => {

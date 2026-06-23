@@ -33,7 +33,20 @@ const CODEX_APP_SERVER_V0_CAPABILITIES: InvocationCapabilities = {
     stop: true,
     dispose: true,
   },
+  finalResponse: {
+    jsonSchema: true,
+    perTurn: true,
+    strict: true,
+    parsedResult: false,
+  },
   lifecycle: CONSERVATIVE_LIFECYCLE_CAPABILITIES,
+} as InvocationCapabilities & {
+  finalResponse: {
+    jsonSchema: boolean
+    perTurn: boolean
+    strict: boolean
+    parsedResult: boolean
+  }
 }
 
 describe('Codex app-server v0 capability matrix', () => {
@@ -44,17 +57,24 @@ describe('Codex app-server v0 capability matrix', () => {
 
 describe('Claude Code tmux capability matrix', () => {
   test('advertises durable Anthropic session continuation', () => {
-    expect(createDefaultClaudeCodeTmuxDriver().capabilities().continuation).toEqual({
+    const capabilities =
+      createDefaultClaudeCodeTmuxDriver().capabilities() as InvocationCapabilities & {
+        finalResponse?: { jsonSchema?: boolean } | undefined
+      }
+    expect(capabilities.continuation).toEqual({
       supported: true,
       provider: 'anthropic',
       keyKind: 'session',
     })
+    expect(capabilities.finalResponse?.jsonSchema).not.toBe(true)
   })
 })
 
 describe('Pi TUI tmux capability matrix', () => {
   test('advertises durable OpenAI session continuation and operator attach', () => {
-    const capabilities = createDefaultPiTuiTmuxDriver().capabilities()
+    const capabilities = createDefaultPiTuiTmuxDriver().capabilities() as InvocationCapabilities & {
+      finalResponse?: { jsonSchema?: boolean } | undefined
+    }
     expect(capabilities.continuation).toEqual({
       supported: true,
       provider: 'openai',
@@ -62,5 +82,6 @@ describe('Pi TUI tmux capability matrix', () => {
     })
     expect(capabilities.control.attach).toBe(true)
     expect(capabilities.control.driverAttachExistingSurface).toBe(false)
+    expect(capabilities.finalResponse?.jsonSchema).not.toBe(true)
   })
 })

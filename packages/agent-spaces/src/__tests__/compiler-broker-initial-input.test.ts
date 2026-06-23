@@ -185,6 +185,12 @@ function textContent(profile: BrokerExecutionProfile): string | undefined {
   return item?.type === 'text' ? item.text : undefined
 }
 
+const jsonResponseFormat = (schema: Record<string, unknown>) =>
+  ({
+    kind: 'json_schema',
+    schema,
+  }) as unknown
+
 describe('compiled broker initial input composition', () => {
   const originalCodexPath = process.env['ASP_CODEX_PATH']
   const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
@@ -329,6 +335,82 @@ describe('compiled broker initial input composition', () => {
       })
       expect(second.harnessInvocation.initialInputHash).not.toBe(
         first.harnessInvocation.initialInputHash
+      )
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  test('threads materialization responseFormat onto the compiled broker initial input', async () => {
+    const fixture = createFixture()
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: { status: { type: 'string' } },
+      required: ['status'],
+    }
+    try {
+      const profile = await compile(fixture, {
+        initialPrompt: 'return a structured status',
+        responseFormat: jsonResponseFormat(schema),
+      } as Partial<RuntimeCompileRequest['materialization']>)
+
+      // T-03779: the public compile path must put the response format on the
+      // initial broker turn, not on the Codex driver spec.
+      expect(initialInput(profile)).toMatchObject({
+        inputId: 'input_T01610',
+        kind: 'user',
+        responseFormat: { kind: 'json_schema', schema },
+      })
+      expect(profile.harnessInvocation.startRequest.spec.driver).not.toHaveProperty(
+        'responseFormat'
+      )
+      expect(profile.harnessInvocation.startRequest.spec.driver).not.toHaveProperty('outputSchema')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  test('responseFormat alone does not create an empty broker initial input', async () => {
+    const fixture = createFixture()
+    try {
+      const profile = await compile(fixture, {
+        responseFormat: jsonResponseFormat({
+          type: 'object',
+          properties: { ok: { type: 'boolean' } },
+        }),
+      } as Partial<RuntimeCompileRequest['materialization']>)
+
+      expect(initialInput(profile)).toBeUndefined()
+      expect(profile.harnessInvocation.initialInputHash).toBeUndefined()
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  test('changing only responseFormat changes initial input and start request hashes', async () => {
+    const fixture = createFixture()
+    try {
+      const first = await compile(fixture, {
+        initialPrompt: 'return json',
+        responseFormat: jsonResponseFormat({
+          type: 'object',
+          properties: { status: { type: 'string' } },
+        }),
+      } as Partial<RuntimeCompileRequest['materialization']>)
+      const second = await compile(fixture, {
+        initialPrompt: 'return json',
+        responseFormat: jsonResponseFormat({
+          type: 'object',
+          properties: { count: { type: 'number' } },
+        }),
+      } as Partial<RuntimeCompileRequest['materialization']>)
+
+      expect(second.harnessInvocation.initialInputHash).not.toBe(
+        first.harnessInvocation.initialInputHash
+      )
+      expect(second.harnessInvocation.startRequestHash).not.toBe(
+        first.harnessInvocation.startRequestHash
       )
     } finally {
       fixture.cleanup()

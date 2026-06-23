@@ -14,6 +14,7 @@ import {
   createCodexAppServerDriver,
   validateInitializeHandshake,
 } from '../../../src/drivers/codex-app-server/driver'
+import { buildTurnStartParams } from '../../../src/drivers/codex-app-server/input'
 import { postEnvelope } from '../../../src/drivers/hook-bridge-transport'
 
 const root = new URL('../../..', import.meta.url).pathname
@@ -254,6 +255,64 @@ async function runScenario(
 }
 
 describe('Codex app-server driver red scenarios', () => {
+  test('maps each input responseFormat JSON Schema to that turn/start outputSchema only', () => {
+    const firstSchema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: { status: { type: 'string' } },
+      required: ['status'],
+    }
+    const secondSchema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: { count: { type: 'number' } },
+      required: ['count'],
+    }
+    const base = {
+      threadId: 'thread_structured_response',
+      cwd: '/workspace/project',
+      driver: {
+        kind: 'codex-app-server' as const,
+        approvalPolicy: 'never' as const,
+        sandboxMode: 'workspace-write' as const,
+      },
+    }
+
+    // T-03779: structured output is per-turn input data, not a sticky
+    // invocation-level Codex driver setting.
+    expect(
+      buildTurnStartParams({
+        ...base,
+        input: {
+          ...userInput,
+          inputId: 'input_schema_1',
+          responseFormat: { kind: 'json_schema', schema: firstSchema },
+        } as typeof userInput,
+      }).outputSchema
+    ).toEqual(firstSchema)
+    expect(
+      buildTurnStartParams({
+        ...base,
+        input: {
+          ...userInput,
+          inputId: 'input_schema_2',
+          responseFormat: { kind: 'json_schema', schema: secondSchema },
+        } as typeof userInput,
+      }).outputSchema
+    ).toEqual(secondSchema)
+    expect(
+      buildTurnStartParams({
+        ...base,
+        input: {
+          ...userInput,
+          inputId: 'input_text_response',
+          responseFormat: { kind: 'text' },
+        } as typeof userInput,
+      }).outputSchema
+    ).toBeNull()
+    expect(buildTurnStartParams({ ...base, input: userInput }).outputSchema).toBeNull()
+  })
+
   test('legacy no-lease start stays pure headless with no reported terminal surface', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
