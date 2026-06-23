@@ -3524,6 +3524,70 @@
       "file": "packages/spaces-runtime-contracts/src/validate-execution-profile.ts",
       "hash": "spaces-runtime-contracts|validateTerminalExecutionProfile|value",
       "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "CompileContext",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/compile-context.ts",
+      "hash": "spaces-runtime-contracts|CompileContext|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "CompileToolchainManifest",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/compile-context.ts",
+      "hash": "spaces-runtime-contracts|CompileToolchainManifest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OUTPUT_MANIFEST_SCHEMA_VERSION",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OUTPUT_MANIFEST_SCHEMA_VERSION|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OutputManifest",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OutputManifest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OutputManifestEntry",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OutputManifestEntry|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OutputManifestEntryKind",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OutputManifestEntryKind|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OutputManifestExclusion",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OutputManifestExclusion|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OutputManifestExclusionReason",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OutputManifestExclusionReason|type",
+      "count": 1
     }
   ]
 }

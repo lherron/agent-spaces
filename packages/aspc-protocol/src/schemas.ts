@@ -201,7 +201,24 @@ function validateCompileRuntimePlan(
   if (request === undefined) return undefined
   validateRuntimeCompileRequest(request['compileRequest'], path(basePath, 'compileRequest'), issues)
   optionalString(request['aspHome'], path(basePath, 'aspHome'), issues)
+  validateCompileContext(request['compileContext'], path(basePath, 'compileContext'), issues)
   return request
+}
+
+/**
+ * Validate the optional serializable compile context (T-04133). All fields are
+ * optional; an absent context is accepted. `nowIso` / `idSalt` must be strings;
+ * `toolchainManifest`, when present, must be a record.
+ */
+function validateCompileContext(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+  if (value === undefined) return
+  const context = requireRecord(value, basePath, issues)
+  if (context === undefined) return
+  optionalString(context['nowIso'], path(basePath, 'nowIso'), issues)
+  optionalString(context['idSalt'], path(basePath, 'idSalt'), issues)
+  if (context['toolchainManifest'] !== undefined) {
+    requireRecord(context['toolchainManifest'], path(basePath, 'toolchainManifest'), issues)
+  }
 }
 
 function validateCompileHarnessInvocation(

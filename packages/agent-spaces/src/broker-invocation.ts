@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { basename, dirname, resolve } from 'node:path'
 
 import { parseScopeRef } from 'agent-scope'
@@ -15,6 +14,7 @@ import { validateInvocationInput, validateInvocationSpec } from 'spaces-harness-
 import { buildCodexAppServerLaunchDescriptor } from 'spaces-harness-codex'
 import type { ContextResolverContext } from 'spaces-runtime'
 import { expandTemplate } from 'spaces-runtime'
+import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
 import {
   CLAUDE_CODE_FRONTEND,
@@ -298,6 +298,33 @@ function buildBrokerInitialText(
   return combineBrokerPrompts(primingPrompt, callerPrompt)
 }
 
+/**
+ * Derive a stable `initialInputId` from generation + input content (T-04133).
+ * Replaces the former `input_${randomUUID()}` fallback: a random id made the
+ * initial input — and any hash that includes it — non-reproducible. The
+ * derivation folds the optional compile-context `idSalt`, the request
+ * `generation`, and the canonical hash of the input content, so an identical
+ * request + content repeats the id while a changed generation or input content
+ * moves it. It is deliberately NEUTRAL to per-dispatch correlation/invocationId
+ * so the start-request projection that includes this id stays hash-neutral
+ * across pure correlation changes (the canonical-env contract). It is NOT a
+ * hidden RNG: with fixed inputs it is a pure function. HRC's per-request
+ * dispatch uniqueness is unaffected — it derives from invocationId, not from
+ * the initial input id.
+ */
+function deriveInitialInputId(
+  req: BuildHarnessBrokerInvocationRequest,
+  content: InputContent[]
+): InputId {
+  const material = {
+    idSalt: req.idSalt,
+    generation: req.generation,
+    content,
+  }
+  const digest = createCanonicalHasher().hash(material, { timestampMode: 'omit-ephemeral' }).value
+  return `input_${digest.slice(0, 32)}` as InputId
+}
+
 function buildInitialInput(
   prepared: PreparedPlacementCliRuntime,
   req: BuildHarnessBrokerInvocationRequest
@@ -314,7 +341,7 @@ function buildInitialInput(
     return undefined
   }
   return {
-    inputId: req.initialInputId ?? (`input_${randomUUID()}` as InputId),
+    inputId: req.initialInputId ?? deriveInitialInputId(req, content),
     kind: 'user',
     content,
   }

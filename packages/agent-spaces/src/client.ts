@@ -162,8 +162,14 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
   const inFlightRuns = createInFlightRunMap()
 
   return {
-    async compileRuntimePlan(req) {
-      return compileRuntimePlan(req, { clientAspHome, clientRegistryPath })
+    async compileRuntimePlan(req, options) {
+      return compileRuntimePlan(req, {
+        clientAspHome,
+        clientRegistryPath,
+        ...(options?.compileContext !== undefined
+          ? { compileContext: options.compileContext }
+          : {}),
+      })
     },
 
     async resolve(req: ResolveRequest): Promise<ResolveResponse> {

@@ -17,6 +17,7 @@ import {
   type BrokerPermissionPolicy,
   type BrokerTerminalSurface,
   type CapabilityRequirements,
+  type CompileContext,
   type CompileDiagnostic,
   type CompileId,
   type CompiledRuntimePlan,
@@ -76,6 +77,12 @@ type PreparedResolvedBundle = NonNullable<BuildHarnessBrokerInvocationResponse['
 type CompileRuntimePlanOptions = {
   clientAspHome?: string | undefined
   clientRegistryPath?: string | undefined
+  /**
+   * Pinned, serializable compile context (T-04133). When present, `nowIso`
+   * sources `createdAt` and `idSalt`/`toolchainManifest` feed deterministic id
+   * derivation. Production callers omit it (real time, unsalted derivation).
+   */
+  compileContext?: CompileContext | undefined
 }
 
 function hashValue(value: unknown): string {
@@ -113,11 +120,24 @@ function hashNeutralInvocationSpec(spec: HarnessInvocationSpec): HarnessInvocati
   return hashSpec
 }
 
-function hashNeutralStartRequest(startRequest: InvocationStartRequest): InvocationStartRequest {
-  const { initialInput: _initialInput, ...hashStartRequest } = startRequest
+/**
+ * Hash material for a start request. `spec.invocationId` / `correlation` stay
+ * neutralized (per-dispatch identity). Of `initialInput` only the deterministic
+ * `inputId` is retained (T-04133): its derivation now folds generation + content,
+ * so a changed generation moves the start-request hash while a pure correlation
+ * change does not. Content is deliberately NOT hashed here — post-compile content
+ * drift is caught by `initialInputHash`, keeping the two contract gates distinct.
+ */
+type StartRequestHashMaterial = Omit<InvocationStartRequest, 'initialInput'> & {
+  initialInput?: { inputId: NonNullable<InvocationStartRequest['initialInput']>['inputId'] }
+}
+
+function hashNeutralStartRequest(startRequest: InvocationStartRequest): StartRequestHashMaterial {
+  const { initialInput, ...rest } = startRequest
   return {
-    ...hashStartRequest,
+    ...rest,
     spec: hashNeutralInvocationSpec(startRequest.spec),
+    ...(initialInput !== undefined ? { initialInput: { inputId: initialInput.inputId } } : {}),
   }
 }
 
@@ -291,6 +311,12 @@ interface FinalizePlanInput {
   systemPromptFile?: string | undefined
   lockHash?: string | undefined
   lockedEnvKeys: string[]
+  /**
+   * Pinned wall-clock instant (ISO-8601) from the compile context. When omitted
+   * the compiler stamps real time. `createdAt` is NOT part of the plan-hash
+   * material, so this affects only the emitted stamp, never plan identity.
+   */
+  nowIso?: string | undefined
 }
 
 /**
@@ -318,7 +344,7 @@ function finalizePlan(input: FinalizePlanInput): RuntimeCompileResponse {
     generation: input.req.identity.generation,
     profileHash: input.profileHash,
   }) as CompileId
-  const createdAt = new Date().toISOString()
+  const createdAt = input.nowIso ?? new Date().toISOString()
   const resolvedBundle = toResolvedBundle(input.resolvedBundleSource, input.bundleIdentity)
   const compiledPlacement = toCompiledPlacement(input.placement)
   return assemblePlan({
@@ -726,7 +752,9 @@ function expectedCapabilities(
 
 function buildCompatibilityMaterial(
   req: RuntimeCompileRequest,
-  startRequest: BrokerExecutionProfile['harnessInvocation']['startRequest'],
+  // Only `.spec` is read, so this accepts both the full start request and the
+  // neutralized {@link StartRequestHashMaterial} projection.
+  startRequest: { spec: BrokerExecutionProfile['harnessInvocation']['startRequest']['spec'] },
   bundleIdentity: string,
   lockHash: string | undefined,
   lockedEnv: Record<string, string>
@@ -914,6 +942,10 @@ async function compileBrokerPlan(
     ...(req.identity.initialInputId !== undefined
       ? { initialInputId: req.identity.initialInputId }
       : {}),
+    ...(options?.compileContext?.idSalt !== undefined
+      ? { idSalt: options.compileContext.idSalt }
+      : {}),
+    generation: req.identity.generation,
     ...(taskId !== undefined ? { labels: { task: taskId } } : {}),
     correlation: brokerCorrelation(req),
     permissionPolicy: toBrokerPermissionPolicy(permissionPolicy),
@@ -1050,6 +1082,7 @@ async function compileBrokerPlan(
       : {}),
     ...(lockHash !== undefined ? { lockHash } : {}),
     lockedEnvKeys,
+    nowIso: options?.compileContext?.nowIso,
   })
 }
 
@@ -1203,6 +1236,7 @@ async function compileForegroundPlan(
       : {}),
     ...(lockHash !== undefined ? { lockHash } : {}),
     lockedEnvKeys,
+    nowIso: options?.compileContext?.nowIso,
   })
 }
 
@@ -1486,6 +1520,7 @@ async function compileEmbeddedSdkPlan(
       : {}),
     ...(lockHash !== undefined ? { lockHash } : {}),
     lockedEnvKeys,
+    nowIso: options?.compileContext?.nowIso,
   })
 }
 
@@ -1803,5 +1838,6 @@ async function compileTmuxBrokerPlan(
       : {}),
     ...(lockHash !== undefined ? { lockHash } : {}),
     lockedEnvKeys,
+    nowIso: options?.compileContext?.nowIso,
   })
 }

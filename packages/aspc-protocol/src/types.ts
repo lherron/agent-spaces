@@ -7,6 +7,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
+  CompileContext,
   CompileDiagnostic,
   CompiledRuntimePlan,
   RuntimeCompileRequest,
@@ -80,6 +81,12 @@ export interface AspcHelloResponse {
 export interface AspcCompileRuntimePlanRequest {
   compileRequest: RuntimeCompileRequest
   aspHome?: string | undefined
+  /**
+   * Optional, serializable compile context (T-04133). Pins clock/id-salt and
+   * toolchain so a compile is reproducible under a release gate. Production
+   * callers omit it.
+   */
+  compileContext?: CompileContext | undefined
 }
 
 export type AspcProfileSelector = {

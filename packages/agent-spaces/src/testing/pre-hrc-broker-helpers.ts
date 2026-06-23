@@ -312,11 +312,24 @@ function hashNeutralInvocationSpec(
   return hashSpec
 }
 
-function hashNeutralStartRequest(startRequest: InvocationStartRequest): InvocationStartRequest {
-  const { initialInput: _initialInput, ...hashStartRequest } = startRequest
+/**
+ * Mirror of the compiler's start-request hash projection (T-04133): retain only
+ * the deterministic `initialInput.inputId`, drop content, and neutralize the
+ * per-dispatch `spec.invocationId` / `correlation`. Must stay in lockstep with
+ * `hashNeutralStartRequest` in compile-runtime-plan.ts so the pre-start gate
+ * recomputes the same `startRequestHash` the compiler embedded — and so that
+ * post-compile content drift is caught by `initialInputHash`, not this hash.
+ */
+type StartRequestHashMaterial = Omit<InvocationStartRequest, 'initialInput'> & {
+  initialInput?: { inputId: NonNullable<InvocationStartRequest['initialInput']>['inputId'] }
+}
+
+function hashNeutralStartRequest(startRequest: InvocationStartRequest): StartRequestHashMaterial {
+  const { initialInput, ...rest } = startRequest
   return {
-    ...hashStartRequest,
+    ...rest,
     spec: hashNeutralInvocationSpec(startRequest.spec),
+    ...(initialInput !== undefined ? { initialInput: { inputId: initialInput.inputId } } : {}),
   }
 }
 

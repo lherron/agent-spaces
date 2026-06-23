@@ -16,6 +16,7 @@ import type { InvocationDispatchRequest } from 'spaces-harness-broker-protocol'
 import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
+  CompileContext,
   CompileDiagnostic,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
@@ -45,7 +46,7 @@ const RUNTIME_COMPILE_RESPONSE_SCHEMA = 'agent-runtime-compile-response/v1'
 
 export type AspcCompiler = (
   req: RuntimeCompileRequest,
-  options?: { aspHome?: string | undefined }
+  options?: { aspHome?: string | undefined; compileContext?: CompileContext | undefined }
 ) => Promise<RuntimeCompileResponse>
 
 export interface AspcServiceOptions {
@@ -86,7 +87,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
     },
 
     async compileRuntimePlan(req: AspcCompileRuntimePlanRequest): Promise<RuntimeCompileResponse> {
-      return compileRuntimePlanSafe(compiler, req.compileRequest, req.aspHome)
+      return compileRuntimePlanSafe(compiler, req.compileRequest, req.aspHome, req.compileContext)
     },
 
     async compileHarnessInvocation(
@@ -135,19 +136,26 @@ export function startFromDispatch(
 
 async function defaultCompiler(
   req: RuntimeCompileRequest,
-  options?: { aspHome?: string | undefined }
+  options?: { aspHome?: string | undefined; compileContext?: CompileContext | undefined }
 ): Promise<RuntimeCompileResponse> {
   const client = createAgentSpacesClient({ aspHome: options?.aspHome })
-  return client.compileRuntimePlan(req)
+  return client.compileRuntimePlan(
+    req,
+    options?.compileContext !== undefined ? { compileContext: options.compileContext } : undefined
+  )
 }
 
 async function compileRuntimePlanSafe(
   compiler: AspcCompiler,
   req: RuntimeCompileRequest,
-  aspHome: string | undefined
+  aspHome: string | undefined,
+  compileContext?: CompileContext | undefined
 ): Promise<RuntimeCompileResponse> {
   try {
-    return await compiler(req, { aspHome })
+    return await compiler(req, {
+      aspHome,
+      ...(compileContext !== undefined ? { compileContext } : {}),
+    })
   } catch (error) {
     return failRuntimeCompile([
       compilerDiagnostic(
@@ -163,7 +171,12 @@ async function compileHarnessInvocation(
   compiler: AspcCompiler,
   req: AspcCompileHarnessInvocationRequest
 ): Promise<AspcCompileHarnessInvocationResponse> {
-  const compileResponse = await compileRuntimePlanSafe(compiler, req.compileRequest, req.aspHome)
+  const compileResponse = await compileRuntimePlanSafe(
+    compiler,
+    req.compileRequest,
+    req.aspHome,
+    req.compileContext
+  )
   if (!compileResponse.ok) {
     return failHarnessInvocation(compileResponse, compileResponse.diagnostics)
   }

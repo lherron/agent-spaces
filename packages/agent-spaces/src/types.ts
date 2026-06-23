@@ -14,7 +14,11 @@ import type {
   ProcessLimits,
 } from 'spaces-harness-broker-protocol'
 import type { AttachmentRef } from 'spaces-runtime'
-import type { RuntimeCompileRequest, RuntimeCompileResponse } from 'spaces-runtime-contracts'
+import type {
+  CompileContext,
+  RuntimeCompileRequest,
+  RuntimeCompileResponse,
+} from 'spaces-runtime-contracts'
 
 /** Re-export HostCorrelation from config for placement consumers */
 export type HostCorrelation = HostCorrelationType
@@ -231,6 +235,18 @@ export interface BuildHarnessBrokerInvocationRequest {
   dispatchEnv?: Record<string, string> | undefined
   invocationId?: InvocationId | undefined
   initialInputId?: InputId | undefined
+  /**
+   * Optional salt (from the compile context) folded into the deterministic
+   * derivation of an omitted `initialInputId`. No effect when `initialInputId`
+   * is provided explicitly. (T-04133)
+   */
+  idSalt?: string | undefined
+  /**
+   * Request generation, folded into the deterministic derivation of an omitted
+   * `initialInputId` so a new generation moves the id while pure correlation
+   * changes do not. No effect when `initialInputId` is provided. (T-04133)
+   */
+  generation?: number | undefined
   labels?: Record<string, string> | undefined
   correlation?: Record<string, string> | undefined
   permissionPolicy?: PermissionPolicy | undefined
@@ -373,9 +389,18 @@ export type AgentEvent =
 // Client interface (updated per spec)
 // ---------------------------------------------------------------------------
 
+/** Options for a single compile pass. */
+export interface RuntimeCompileOptions {
+  /** Pinned, serializable compile context (T-04133); omitted by production callers. */
+  compileContext?: CompileContext | undefined
+}
+
 /** Compiles a placement/request into a runtime plan (e.g. dry-run preview). */
 export interface RuntimeCompiler {
-  compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
+  compileRuntimePlan(
+    req: RuntimeCompileRequest,
+    options?: RuntimeCompileOptions
+  ): Promise<RuntimeCompileResponse>
 }
 
 /** Resolves and describes a space without executing a turn. */
