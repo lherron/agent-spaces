@@ -13,6 +13,16 @@ import { resolve } from 'node:path'
 
 const runPlacementTurnSrc = readFileSync(resolve(__dirname, '..', 'run-placement-turn.ts'), 'utf8')
 
+// Narrow named-region helper: bound runPlacementTurnNonInteractive by its
+// declaration to EOF (it is the only top-level function in the file) rather than
+// greedily scanning to the first column-0 brace, so the empty-response guard
+// assertion stays scoped without pinning the whole body.
+function fnRegion(source: string, startMarker: string): string | undefined {
+  const start = source.indexOf(startMarker)
+  return start === -1 ? undefined : source.slice(start)
+}
+const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonInteractive'
+
 const sessionSrc = readFileSync(
   resolve(__dirname, '..', '..', '..', 'harness-claude', 'src', 'agent-sdk', 'agent-session.ts'),
   'utf8'
@@ -20,9 +30,7 @@ const sessionSrc = readFileSync(
 
 describe('T-01216 empty_response guard', () => {
   test('runPlacementTurnNonInteractive guards against no-content success', () => {
-    const runFn = runPlacementTurnSrc.match(
-      /async function runPlacementTurnNonInteractive[\s\S]*?^}/m
-    )?.[0]
+    const runFn = fnRegion(runPlacementTurnSrc, RUN_PLACEMENT_TURN_DECL)
     expect(runFn).toBeDefined()
     // After the happy-path assembly of finalOutput, there must be a guard
     // that demotes the result to success:false when neither finalOutput

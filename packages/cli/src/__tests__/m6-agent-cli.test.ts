@@ -1016,8 +1016,12 @@ describe('pi-sdk placement path (T-00879)', () => {
       join(import.meta.dirname, '..', '..', '..', 'agent-spaces', 'src', 'run-placement-turn.ts'),
       'utf8'
     )
-    // Extract the runPlacementTurnNonInteractive function body
-    const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
+    // Scope to the runPlacementTurnNonInteractive function via its declaration to
+    // EOF (it is the only top-level function in run-placement-turn.ts) instead of
+    // a greedy whole-body regex, so the unified-pipeline wiring assertion stays
+    // scoped without pinning the whole body.
+    const declStart = source.indexOf('export async function runPlacementTurnNonInteractive')
+    const runFn = declStart === -1 ? undefined : source.slice(declStart)
     expect(runFn).toBeDefined()
     // Must use resolvePlacementContext + materializeSpec (unified pipeline)
     expect(runFn).toMatch(/resolvePlacementContext\(/)

@@ -57,6 +57,25 @@ function extractFunction(source: string, name: string): string {
   return source.slice(start, nextFn > -1 ? nextFn : undefined)
 }
 
+// Narrow named-region helper: bound a function by its declaration and the next
+// top-level declaration, instead of greedily scanning a whole body. Used for the
+// large placement functions (preparePlacementCliRuntime,
+// runPlacementTurnNonInteractive) so a future cohesive extraction that preserves
+// the asserted wiring stays green, while a regression that drops it still fails.
+function fnRegion(source: string, startMarker: string, endMarker?: string): string {
+  const start = source.indexOf(startMarker)
+  if (start === -1) throw new Error(`marker not found: ${startMarker}`)
+  if (endMarker === undefined) return source.slice(start)
+  const end = source.indexOf(endMarker, start + startMarker.length)
+  return source.slice(start, end > -1 ? end : undefined)
+}
+
+const PREPARE_CLI_RUNTIME_REGION = [
+  'export async function preparePlacementCliRuntime',
+  '\nexport function toProcessInvocationSpec',
+] as const
+const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonInteractive'
+
 // ===================================================================
 // Test 1: resolvePlacementContext returns effectiveConfig for agent-project
 // ===================================================================
@@ -107,7 +126,7 @@ describe('resolvePlacementContext returns effectiveConfig for agent-project (T-0
 // ===================================================================
 describe('buildPlacementInvocationSpec threads effectiveConfig defaults (T-00994)', () => {
   test('priming_prompt default: uses effectiveConfig.priming_prompt when req.prompt is unset', () => {
-    const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
+    const fn = fnRegion(prepareCliRuntimeSource, ...PREPARE_CLI_RUNTIME_REGION)
 
     // Placement defaults should come from the shared runtime planner.
     expect(fn).toMatch(/planPlacementRuntime\(/)
@@ -115,20 +134,20 @@ describe('buildPlacementInvocationSpec threads effectiveConfig defaults (T-00994
   })
 
   test('yolo default: uses effectiveConfig.yolo when req.yolo is unset', () => {
-    const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
+    const fn = fnRegion(prepareCliRuntimeSource, ...PREPARE_CLI_RUNTIME_REGION)
 
     expect(fn).toMatch(/runtimePlan\.runOptions/)
     expect(fn).toMatch(/runtimePlan\.yolo/)
   })
 
   test('model default: uses effectiveConfig.model when req.model is unset', () => {
-    const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
+    const fn = fnRegion(prepareCliRuntimeSource, ...PREPARE_CLI_RUNTIME_REGION)
 
     expect(fn).toMatch(/runtimePlan\.model/)
   })
 
   test('CLI req.yolo=true overrides effectiveConfig.yolo=false', () => {
-    const clientFn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
+    const clientFn = fnRegion(prepareCliRuntimeSource, ...PREPARE_CLI_RUNTIME_REGION)
     const plannerFn = extractFunction(executionSource, 'planPlacementRuntime')
 
     expect(clientFn).toMatch(/yolo:\s*req\.yolo/)
@@ -156,13 +175,13 @@ describe('agent-project placement context feeds harness pipeline (T-00994)', () 
   })
 
   test('buildPlacementInvocationSpec passes resolvePlacementContext spec to materializeSpec', () => {
-    const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
+    const fn = fnRegion(prepareCliRuntimeSource, ...PREPARE_CLI_RUNTIME_REGION)
     expect(fn).toMatch(/resolvePlacementContext\(/)
     expect(fn).toMatch(/materializeSpec\(/)
   })
 
   test('buildPlacementInvocationSpec merges agent tool env after request env', () => {
-    const fn = extractFunction(prepareCliRuntimeSource, 'preparePlacementCliRuntime')
+    const fn = fnRegion(prepareCliRuntimeSource, ...PREPARE_CLI_RUNTIME_REGION)
     // The CLI path detects agent-local components and delegates the env compose
     // (incl. the prepareAgentToolRuntime tool-env merge) to composeAgentLocalEnv.
     expect(fn).toMatch(/detectAgentLocalComponents\(placement\.agentRoot\)/)
@@ -176,7 +195,7 @@ describe('agent-project placement context feeds harness pipeline (T-00994)', () 
   })
 
   test('runPlacementTurnNonInteractive applies scoped env with agent tool env', () => {
-    const fn = extractFunction(runPlacementTurnSource, 'runPlacementTurnNonInteractive')
+    const fn = fnRegion(runPlacementTurnSource, RUN_PLACEMENT_TURN_DECL)
     // The placement path detects agent-local components and delegates the env
     // compose (incl. the prepareAgentToolRuntime tool-env merge) to the shared helper.
     expect(fn).toMatch(/detectAgentLocalComponents\(placement\.agentRoot\)/)

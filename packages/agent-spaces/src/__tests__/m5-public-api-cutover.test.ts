@@ -21,6 +21,24 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+// Narrow named-region helper: bound a function by its declaration and the next
+// top-level declaration (or EOF) instead of greedily scanning to the first
+// column-0 brace. Keeps the placement-function wiring assertions scoped to the
+// named function without pinning the whole body, so a cohesive Lane 3 extraction
+// that preserves the wiring stays green while a regression still fails.
+function fnRegion(source: string, startMarker: string, endMarker?: string): string | undefined {
+  const start = source.indexOf(startMarker)
+  if (start === -1) return undefined
+  if (endMarker === undefined) return source.slice(start)
+  const end = source.indexOf(endMarker, start + startMarker.length)
+  return source.slice(start, end > -1 ? end : undefined)
+}
+const PREPARE_CLI_RUNTIME_REGION = [
+  'export async function preparePlacementCliRuntime',
+  '\nexport function toProcessInvocationSpec',
+] as const
+const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonInteractive'
+
 beforeAll(() => {
   const agentRoot = '/tmp/asp-test-m5/agent-root'
   mkdirSync(agentRoot, { recursive: true })
@@ -547,8 +565,8 @@ describe('unified placement materialization (T-00876)', () => {
     const runSource = readFileSync(join(import.meta.dirname, '..', 'run-placement-turn.ts'), 'utf8')
 
     // Extract the two placement functions
-    const buildFn = prepareSource.match(/async function preparePlacementCliRuntime[\s\S]*?^}/m)?.[0]
-    const runFn = runSource.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
+    const buildFn = fnRegion(prepareSource, ...PREPARE_CLI_RUNTIME_REGION)
+    const runFn = fnRegion(runSource, RUN_PLACEMENT_TURN_DECL)
 
     expect(buildFn).toBeDefined()
     expect(runFn).toBeDefined()
@@ -577,7 +595,7 @@ describe('non-interactive placement defaults (T-01092)', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
     const source = readFileSync(join(import.meta.dirname, '..', 'run-placement-turn.ts'), 'utf8')
-    const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
+    const runFn = fnRegion(source, RUN_PLACEMENT_TURN_DECL)
 
     expect(runFn).toBeDefined()
     expect(runFn).toMatch(/planPlacementRuntime\(/)
@@ -590,7 +608,7 @@ describe('non-interactive placement defaults (T-01092)', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
     const source = readFileSync(join(import.meta.dirname, '..', 'run-placement-turn.ts'), 'utf8')
-    const runFn = source.match(/async function runPlacementTurnNonInteractive[\s\S]*?^}/m)?.[0]
+    const runFn = fnRegion(source, RUN_PLACEMENT_TURN_DECL)
 
     expect(runFn).toBeDefined()
     expect(runFn).not.toMatch(/yolo:\s*true/)
