@@ -64,5 +64,3 @@ export {
 } from './foreground-launch.js'
 
 export { createCompileRuntimeFn } from './run-compile.js'
-
-export { clampInt } from './clamp-int.js'
