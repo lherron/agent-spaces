@@ -35,7 +35,10 @@ describe('buildCorrelationEnvVars', () => {
     const env = buildCorrelationEnvVars(placement)
 
     expect(env['AGENT_SCOPE_REF']).toBe('agent:smokey:project:media-ingest')
+    expect(env['AGENT_SESSION_REF']).toBe('agent:smokey:project:media-ingest/lane:main')
+    expect(env['AGENT_PROJECT']).toBe('media-ingest')
     expect(env['AGENT_LANE_REF']).toBe('lane:main')
+    expect(env['AGENT_LANE']).toBe('main')
     expect(env['AGENT_HOST_SESSION_ID']).toBe('hsid-test')
   })
 
@@ -50,7 +53,28 @@ describe('buildCorrelationEnvVars', () => {
     const env = buildCorrelationEnvVars(placement)
 
     expect(env['AGENT_SCOPE_REF']).toBe('agent:rex:project:agent-spaces:task:T-01104')
+    expect(env['AGENT_SESSION_REF']).toBe('agent:rex:project:agent-spaces:task:T-01104/lane:repair')
     expect(env['AGENT_LANE_REF']).toBe('lane:repair')
+    expect(env['AGENT_LANE']).toBe('repair')
+  })
+
+  it('keeps scope identity distinct from lane-aware session identity', () => {
+    const scopeRef = 'agent:rex:project:agent-spaces:task:T-01104:role:reviewer'
+    const placement = makePlacement({
+      sessionRef: {
+        scopeRef,
+        laneRef: 'lane:repair',
+      },
+    })
+
+    const env = buildCorrelationEnvVars(placement)
+
+    expect(env['AGENT_SCOPE_REF']).toBe(scopeRef)
+    expect(env['AGENT_SESSION_REF']).toBe(`${scopeRef}/lane:repair`)
+    expect(env['AGENT_ID']).toBe('rex')
+    expect(env['AGENT_PROJECT']).toBe('agent-spaces')
+    expect(env['AGENT_TASK']).toBe('T-01104')
+    expect(env['AGENT_LANE']).toBe('repair')
   })
 
   it('omits all correlation vars when correlation is absent', () => {
@@ -59,6 +83,7 @@ describe('buildCorrelationEnvVars', () => {
     const env = buildCorrelationEnvVars(placement)
 
     expect(env['AGENT_SCOPE_REF']).toBeUndefined()
+    expect(env['AGENT_SESSION_REF']).toBeUndefined()
     expect(env['AGENT_LANE_REF']).toBeUndefined()
     expect(env['AGENT_HOST_SESSION_ID']).toBeUndefined()
   })
@@ -71,6 +96,7 @@ describe('buildCorrelationEnvVars', () => {
     const env = buildCorrelationEnvVars(placement)
 
     expect(env['AGENT_SCOPE_REF']).toBeUndefined()
+    expect(env['AGENT_SESSION_REF']).toBeUndefined()
     expect(env['AGENT_LANE_REF']).toBeUndefined()
     expect(env['AGENT_HOST_SESSION_ID']).toBe('hsid-only')
   })

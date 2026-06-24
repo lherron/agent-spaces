@@ -3,12 +3,14 @@
 This package-local copy mirrors the repository-level `docs/env-contract.md` so
 filtered package tests can validate the same contract from the package cwd.
 
-Agent sessions use canonical `AGENT_*` variables: `AGENT_ID`,
-`AGENT_PROJECT`, `AGENT_TASK`, `AGENT_LANE`, `AGENT_SESSION_REF`,
-`AGENT_RUN_ID`, `AGENT_HOST_SESSION_ID`, `AGENT_PROJECT_ROOT`, and
-`AGENT_ACTOR`. Phase 1 compatibility aliases include `WRKQ_ACTOR`,
-`AGENT_SCOPE_REF`, `AGENT_LANE_REF`, `ASP_PROJECT_ROOT`, `ASP_PROJECT`,
-`AGENTCHAT_ID`, `HRC_SESSION_REF`, `HRC_RUN_ID`, and `HRC_HOST_SESSION_ID`.
+Agent sessions use canonical `AGENT_*` variables: `AGENT_SCOPE_REF`,
+`AGENT_ID`, `AGENT_PROJECT`, `AGENT_TASK`, `AGENT_LANE`,
+`AGENT_SESSION_REF`, `AGENT_RUN_ID`, `AGENT_HOST_SESSION_ID`,
+`AGENT_PROJECT_ROOT`, and `AGENT_ACTOR`. `AGENT_SCOPE_REF` is durable
+identity; `AGENT_SESSION_REF` is that scope plus lane. Phase 1 compatibility
+aliases include `WRKQ_ACTOR`, `AGENT_LANE_REF`, `ASP_PROJECT_ROOT`,
+`ASP_PROJECT`, `AGENTCHAT_ID`, `HRC_SESSION_REF`, `HRC_RUN_ID`, and
+`HRC_HOST_SESSION_ID`.
 
 Cross-service producer-owned names include `ACP_BASE_URL`, `ACP_GATEWAY_ID`,
 `WRKQ_DB_PATH`, `WRKQD_TOKEN`, `WRKQD_URL`, `WRKQD_ADDR`,

@@ -239,6 +239,7 @@ describe('T-04218 canonical agent env contract', () => {
       expect(prepared.dispatchEnv).toEqual(
         expect.objectContaining({
           AGENT_ID: 'cody',
+          AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-04218',
           AGENT_PROJECT: 'agent-spaces',
           AGENT_TASK: 'T-04218',
           AGENT_LANE: 'repair',
@@ -248,7 +249,6 @@ describe('T-04218 canonical agent env contract', () => {
           AGENT_PROJECT_ROOT: fixture.projectRoot,
           AGENT_ACTOR: 'cody',
           WRKQ_ACTOR: 'cody',
-          AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-04218',
           AGENT_LANE_REF: 'lane:repair',
           HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04218/lane:repair',
           HRC_RUN_ID: 'run-04218',
@@ -263,6 +263,7 @@ describe('T-04218 canonical agent env contract', () => {
       )
       for (const reservedKey of [
         'AGENT_ID',
+        'AGENT_SCOPE_REF',
         'AGENT_PROJECT',
         'AGENT_TASK',
         'AGENT_LANE',
@@ -286,21 +287,37 @@ describe('T-04218 canonical agent env contract', () => {
     try {
       const prepared = await prepareCodexRuntime(fixture, {
         AGENT_ID: 'attacker',
+        AGENT_SCOPE_REF: 'agent:attacker:project:other',
         AGENT_PROJECT: 'other-project',
+        AGENT_LANE: 'attacker-lane',
+        AGENT_LANE_REF: 'lane:attacker',
         AGENT_SESSION_REF: 'agent:attacker:project:other/lane:main',
         AGENT_HOST_SESSION_ID: 'attacker-host',
+        AGENT_PROJECT_ROOT: '/attacker/project',
+        AGENT_ACTOR: 'attacker',
         WRKQ_ACTOR: 'attacker',
+        ASP_PROJECT_ROOT: '/attacker/asp-project',
+        ASP_PROJECT: 'attacker-project',
+        AGENTCHAT_ID: 'attacker-chat',
       })
 
       expect(prepared.dispatchEnv).toEqual(
         expect.objectContaining({
           AGENT_ID: 'cody',
+          AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-04218',
           AGENT_PROJECT: 'agent-spaces',
+          AGENT_LANE: 'repair',
+          AGENT_LANE_REF: 'lane:repair',
           AGENT_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04218/lane:repair',
           AGENT_HOST_SESSION_ID: 'host-session-04218',
+          AGENT_PROJECT_ROOT: fixture.projectRoot,
+          AGENT_ACTOR: 'cody',
           WRKQ_ACTOR: 'cody',
         })
       )
+      expect(prepared.env['ASP_PROJECT']).toBe('agent-spaces')
+      expect(prepared.env['AGENTCHAT_ID']).toBe('cody')
+      expect(prepared.env['ASP_PROJECT_ROOT']).toBe(fixture.projectRoot)
     } finally {
       fixture.cleanup()
     }
@@ -363,6 +380,7 @@ describe('T-04218 canonical agent env contract', () => {
       )
       for (const reservedKey of [
         'AGENT_SESSION_REF',
+        'AGENT_SCOPE_REF',
         'AGENT_RUN_ID',
         'AGENT_HOST_SESSION_ID',
         'AGENT_PROJECT_ROOT',
@@ -388,6 +406,7 @@ describe('T-04218 canonical agent env contract', () => {
 
     const doc = readFileSync(docPath, 'utf8')
     for (const requiredToken of [
+      'AGENT_SCOPE_REF',
       'AGENT_SESSION_REF',
       'AGENT_ACTOR',
       'WRKQ_ACTOR',

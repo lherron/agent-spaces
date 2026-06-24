@@ -1,7 +1,8 @@
 import { formatSessionRef, laneIdFromRef, normalizeLaneRef, parseScopeRef } from 'agent-scope'
 import type { RuntimePlacement } from 'spaces-config'
 
-export const RESERVED_AGENT_SESSION_ENV_KEYS = new Set([
+export const CANONICAL_AGENT_SESSION_ENV_KEYS = new Set([
+  'AGENT_SCOPE_REF',
   'AGENT_ID',
   'AGENT_PROJECT',
   'AGENT_TASK',
@@ -11,12 +12,22 @@ export const RESERVED_AGENT_SESSION_ENV_KEYS = new Set([
   'AGENT_HOST_SESSION_ID',
   'AGENT_PROJECT_ROOT',
   'AGENT_ACTOR',
+])
+
+export const PHASE1_AGENT_SESSION_COMPAT_ENV_KEYS = new Set([
   'WRKQ_ACTOR',
-  'AGENT_SCOPE_REF',
   'AGENT_LANE_REF',
+  'ASP_PROJECT_ROOT',
+  'ASP_PROJECT',
+  'AGENTCHAT_ID',
   'HRC_SESSION_REF',
   'HRC_RUN_ID',
   'HRC_HOST_SESSION_ID',
+])
+
+export const RESERVED_AGENT_SESSION_ENV_KEYS = new Set([
+  ...CANONICAL_AGENT_SESSION_ENV_KEYS,
+  ...PHASE1_AGENT_SESSION_COMPAT_ENV_KEYS,
 ])
 
 export interface BuildAgentSessionEnvOptions {
@@ -61,6 +72,8 @@ export function buildAgentSessionEnv(
         ? sessionRef.laneRef
         : `lane:${sessionRef.laneRef}`
     )
+    // Scope identity and session identity are distinct. Keep both: scopeRef is
+    // durable identity; sessionRef is scopeRef plus lane for runtime routing.
     env['AGENT_SCOPE_REF'] = sessionRef.scopeRef
     env['AGENT_LANE_REF'] = sessionRef.laneRef
 

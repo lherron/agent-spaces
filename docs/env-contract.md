@@ -21,20 +21,24 @@ Phase: Phase 1 writes canonical names plus compatibility aliases.
 
 | Variable | Format | Legacy fallback |
 | --- | --- | --- |
+| `AGENT_SCOPE_REF` | Canonical durable scope identity, for example `agent:cody:project:agent-spaces:task:T-04218` | `ASP_SCOPE_REF` / handle-derived identity during migration |
 | `AGENT_ID` | Bare agent id, for example `cody` | `AGENTCHAT_ID` during migration |
 | `AGENT_PROJECT` | Project id, for example `agent-spaces` | `ASP_PROJECT` during migration |
 | `AGENT_TASK` | Task id when task scoped, for example `T-04218` | none |
 | `AGENT_LANE` | Bare lane id, default `main` | `AGENT_LANE_REF` during migration |
-| `AGENT_SESSION_REF` | `<scopeRef>/lane:<lane>` | `HRC_SESSION_REF` during migration |
+| `AGENT_SESSION_REF` | Lane-aware session identity, `<scopeRef>/lane:<lane>` | `HRC_SESSION_REF` during migration |
 | `AGENT_RUN_ID` | Per-launch run id | `HRC_RUN_ID` during migration |
 | `AGENT_HOST_SESSION_ID` | Host session id | `HRC_HOST_SESSION_ID` during migration |
 | `AGENT_PROJECT_ROOT` | Absolute project root path | `ASP_PROJECT_ROOT` during migration |
 | `AGENT_ACTOR` | Bare actor slug for task writes | `WRKQ_ACTOR` during migration |
 
-Compatibility aliases written in Phase 1 are `WRKQ_ACTOR`, `AGENT_SCOPE_REF`,
-`AGENT_LANE_REF`, `ASP_PROJECT_ROOT`, `ASP_PROJECT`, `AGENTCHAT_ID`,
-`HRC_SESSION_REF`, `HRC_RUN_ID`, and `HRC_HOST_SESSION_ID`. They are not final
-contract names.
+`AGENT_SCOPE_REF` and `AGENT_SESSION_REF` are both canonical and name different
+concepts. Use `AGENT_SCOPE_REF` for durable identity and ownership logic. Use
+`AGENT_SESSION_REF` only when lane-aware session routing or correlation matters.
+
+Compatibility aliases written in Phase 1 are `WRKQ_ACTOR`, `AGENT_LANE_REF`,
+`ASP_PROJECT_ROOT`, `ASP_PROJECT`, `AGENTCHAT_ID`, `HRC_SESSION_REF`,
+`HRC_RUN_ID`, and `HRC_HOST_SESSION_ID`. They are not final contract names.
 
 ## Cross-Service Contract
 
