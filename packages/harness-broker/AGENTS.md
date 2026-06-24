@@ -44,6 +44,18 @@ exactly one normalized JSON `assistant.message.completed{final:true}` plus one
 `turn.completed`; rows that do not advertise that capability must reject the
 input as `UnsupportedCapability: finalResponse.jsonSchema` before
 `input.accepted`.
+Operator contract — `claude-code-tmux` structured output is WARM-ONLY (T-05156).
+The driver synthesizes enforcement on the in-flight turn (`applyInputNow` appends
+the schema directive; the Stop-hook validates/retries), so the schema only has a
+per-turn vehicle once the runtime is warm. Interactive cold start is launch-argv
+primed, so a `responseFormat: { kind: "json_schema" }` carried on `startRequest.
+initialInput` (cold turn-1) has nowhere to ride and is rejected fail-closed by the
+hrc T-05142 backstop (`response format json_schema cannot be delivered on this
+broker start path`). This is intentional — never honor a schema the start path
+cannot deliver. Unlike `codex-app-server` (which delivers structured output via
+`initialInput`), `claude-code-tmux` requires a warm runtime before a structured
+turn; `real-claude-tmux` (turn 3) and `real-claude-tmux-midturn` cover the warm
+path. Cold-turn-1 parity is deliberately out of scope.
 The runner exercises `packages/harness-broker/bin/harness-broker.js run --transport
 stdio`. Strict mode is on by default: native Codex event names fail the run, and
 the legacy `invocation.permission.request` event is rejected unless the temporary
