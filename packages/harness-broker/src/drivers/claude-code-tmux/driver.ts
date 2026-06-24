@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import Ajv, { type ErrorObject, type ValidateFunction } from 'ajv'
 import type {
   HarnessInvocationSpec,
   InvocationCapabilities,
@@ -19,6 +20,8 @@ import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import { asRecord as asHookRecord } from '../hook-json'
 import {
+  type HookEnvelopeDecision,
+  type HookEnvelopeResult,
   type HookListenerHandle,
   buildHookSocketPath,
   consumePaneLease,
@@ -69,6 +72,12 @@ const CLAUDE_CODE_TMUX_CAPABILITIES: InvocationCapabilities = {
     provider: 'anthropic',
     keyKind: 'session',
   },
+  finalResponse: {
+    jsonSchema: true,
+    perTurn: true,
+    strict: false,
+    parsedResult: false,
+  },
   events: {
     assistantDeltas: false,
     toolCalls: true,
@@ -96,7 +105,9 @@ export interface HookListenerContext {
 }
 
 /** Receives normalized hook envelopes posted by the in-pane Claude hook CLI. */
-export type HookEnvelopeHandler = (envelope: ClaudeCodeHookEnvelope) => Promise<void>
+export type HookEnvelopeHandler = (
+  envelope: ClaudeCodeHookEnvelope
+) => Promise<HookEnvelopeResult> | HookEnvelopeResult
 
 export interface ClaudeCodeTmuxDriverOptions {
   tmux: {
@@ -135,6 +146,25 @@ interface SurfaceState {
   windowName?: string | undefined
 }
 
+interface StructuredTurnState {
+  turnId: string
+  schema: Record<string, unknown>
+  attempts: number
+  validator: ValidateFunction
+}
+
+const STRUCTURED_OUTPUT_MAX_ATTEMPTS = 3
+
+// Broker-synthesized structured-output enforcement for claude-code-tmux uses
+// Ajv draft-07 defaults with strict schema linting disabled, allErrors enabled,
+// and schema validation enabled. This intentionally mirrors the advertised
+// strict:false capability: Claude is prompted, then the driver validates the
+// Stop-hook candidate before allowing final capture.
+const structuredOutputAjv = new Ajv({
+  strict: false,
+  allErrors: true,
+})
+
 /**
  * Phase 3 broker driver: launches an OPERATOR-ATTACHABLE interactive Claude
  * Code in a tmux session (pty transport, terminal host = tmux), delivers turns
@@ -151,7 +181,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let surface: SurfaceState | undefined
   let hookListener: HookListenerHandle | undefined
   let transcriptReader: ClaudeHookTranscriptReader | undefined
-  let hookDrain: Promise<void> = Promise.resolve()
+  let hookDrain: Promise<HookEnvelopeResult> = Promise.resolve(undefined)
   // The runtime hands the driver a pane LEASE — `runtime.terminalSurface`
   // (kind: 'tmux-pane', ownership: 'hrc', T-01723 Phase A). The driver
   // attaches to that lease through a TmuxPaneController (T-01724 Phase B)
@@ -164,6 +194,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   // `turn_id` still attribute turn.started/turn.completed to the live turn.
   let activeTurnId: string | undefined
   let turnCounter = 0
+  const structuredTurns = new Map<string, StructuredTurnState>()
+  const completedStructuredTurns = new Set<string>()
 
   // Single shared per-invocation turn-id allocator (cody's blessed scheme,
   // C-02755). BOTH applyInputNow (manager path) and the hook normalizer (which
@@ -233,7 +265,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         allocateTurnId,
       })
       const expectedRuntimeId = getInvocationRuntimeId(spec)
-      hookDrain = Promise.resolve()
+      hookDrain = Promise.resolve(undefined)
       // Hook-driven session-transcript reader (T-02027): captures the mid-turn /
       // steered prompts that fire NO UserPromptSubmit. Reads newly appended
       // transcript bytes synchronously in hook order, attributes each
@@ -244,7 +276,9 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         getCurrentTurnId: () => activeTurnId,
       })
       transcriptReader = reader
-      const handleHookEnvelope = async (envelope: ClaudeCodeHookEnvelope): Promise<void> => {
+      const handleHookEnvelope = async (
+        envelope: ClaudeCodeHookEnvelope
+      ): Promise<HookEnvelopeResult> => {
         if (envelope.invocationId !== driverCtx.invocationId) {
           return
         }
@@ -272,10 +306,15 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         // already-completed id is never merged into raw turn_id indistinguishably
         // (C-02755 step 5); that lets the normalizer mint a fresh id for the next
         // turn-id-less operator prompt.
-        const effectiveEnvelope =
+        let effectiveEnvelope =
           envelope.turnId === undefined && activeTurnId !== undefined
             ? { ...envelope, turnId: activeTurnId }
             : envelope
+        const structuredDecision = handleStructuredOutputHook(effectiveEnvelope)
+        if (structuredDecision.action === 'drop') {
+          return structuredDecision.decision
+        }
+        effectiveEnvelope = structuredDecision.envelope
         // T-02027: read the session transcript BEFORE normalizing the triggering
         // hook so a mid-turn/steered prompt's `user.message` lands in hook order
         // ahead of this hook's normalized events. SessionStart captures the
@@ -299,7 +338,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           // after a terminal, clear it so the next turn-id-less prompt mints.
           if (event.type === 'turn.started' && event.turnId !== undefined) {
             activeTurnId = event.turnId
-          } else if (event.type === 'turn.completed') {
+          } else if (event.type === 'turn.completed' || event.type === 'turn.failed') {
             if (activeTurnId === event.turnId) {
               activeTurnId = undefined
             }
@@ -370,10 +409,11 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       // authoritative turn id for this input.
       const turnId = allocateTurnId()
       activeTurnId = turnId
+      const prompt = promptForStructuredOutput(input, text, turnId)
       // terminal-literal-input turn delivery: literal text, a short TUI-friendly
       // pause, then Enter so shell expansion / key interpretation never mangles
       // the prompt and Claude reliably submits it.
-      await requirePaneController().sendKeys(text)
+      await requirePaneController().sendKeys(prompt)
       return { turnId: turnId as ApplyInputResult['turnId'] }
     },
 
@@ -444,7 +484,238 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       surface = undefined
       paneController = undefined
       activeTurnId = undefined
+      structuredTurns.clear()
+      completedStructuredTurns.clear()
     },
+  }
+
+  function promptForStructuredOutput(input: InvocationInput, text: string, turnId: string): string {
+    if (input.responseFormat?.kind !== 'json_schema') {
+      return text
+    }
+    const schema = input.responseFormat.schema
+    const validator = structuredOutputAjv.compile(schema)
+    structuredTurns.set(turnId, {
+      turnId,
+      schema,
+      attempts: 0,
+      validator,
+    })
+    completedStructuredTurns.delete(turnId)
+    return `${text}\n\nreturn ONLY JSON matching this schema, no prose/markdown.\nSchema:\n${JSON.stringify(schema)}`
+  }
+
+  type StructuredHookDecision =
+    | { action: 'continue'; envelope: ClaudeCodeHookEnvelope }
+    | { action: 'drop'; decision?: HookEnvelopeDecision | undefined }
+
+  function handleStructuredOutputHook(envelope: ClaudeCodeHookEnvelope): StructuredHookDecision {
+    const hook = asHookRecord(envelope.hookData)
+    const rawType =
+      typeof hook['hook_event_name'] === 'string' ? hook['hook_event_name'] : undefined
+    const turnId = envelope.turnId
+    if (
+      turnId !== undefined &&
+      completedStructuredTurns.has(turnId) &&
+      rawType === 'MessageDisplay'
+    ) {
+      return { action: 'drop' }
+    }
+    if (turnId === undefined) {
+      return { action: 'continue', envelope }
+    }
+    const state = structuredTurns.get(turnId)
+    if (state === undefined) {
+      return { action: 'continue', envelope }
+    }
+
+    if (rawType === 'MessageDisplay') {
+      // T-05145 invariant: for claude-code-tmux a structured turn may NOT pass
+      // final capture unless its turn-local validator positively cleared the
+      // candidate. MessageDisplay is racy with Stop and is never authoritative
+      // for structured final capture; Stop's last_assistant_message is the gate.
+      return { action: 'drop' }
+    }
+    if (rawType !== 'Stop') {
+      if (rawType === 'SessionEnd' || rawType === 'SubagentStop') {
+        failStructuredTurn(state, 'Structured output ended before Stop validation cleared')
+        return { action: 'drop' }
+      }
+      return { action: 'continue', envelope }
+    }
+
+    const candidate =
+      typeof hook['last_assistant_message'] === 'string' ? hook['last_assistant_message'] : ''
+    const validation = validateStructuredCandidate(state, candidate)
+    if (validation.valid) {
+      structuredTurns.delete(turnId)
+      completedStructuredTurns.add(turnId)
+      return {
+        action: 'continue',
+        envelope: {
+          ...envelope,
+          hookData: {
+            ...hook,
+            last_assistant_message: validation.normalized,
+          },
+        },
+      }
+    }
+
+    state.attempts += 1
+    const reason = formatValidationErrors(validation.errors)
+    emitStructuredValidationNotice(state, reason, validation.errors)
+    if (state.attempts < STRUCTURED_OUTPUT_MAX_ATTEMPTS) {
+      return { action: 'drop', decision: { decision: 'block', reason } }
+    }
+
+    emitStructuredDiagnostic(state, candidate)
+    failStructuredTurn(state, reason, validation.errors)
+    return { action: 'drop' }
+  }
+
+  function validateStructuredCandidate(
+    state: StructuredTurnState,
+    candidate: string
+  ):
+    | { valid: true; normalized: string }
+    | { valid: false; errors: ErrorObject[]; parsed?: unknown | undefined } {
+    const parsed = parseStructuredJsonCandidate(candidate)
+    if (!parsed.valid) {
+      return {
+        valid: false,
+        errors: [
+          {
+            instancePath: '',
+            schemaPath: '',
+            keyword: 'parse',
+            params: {},
+            message: parsed.message,
+          } as ErrorObject,
+        ],
+      }
+    }
+    if (state.validator(parsed.value)) {
+      return { valid: true, normalized: JSON.stringify(parsed.value) }
+    }
+    return { valid: false, errors: [...(state.validator.errors ?? [])], parsed: parsed.value }
+  }
+
+  function parseStructuredJsonCandidate(
+    candidate: string
+  ): { valid: true; value: unknown } | { valid: false; message: string } {
+    const trimmed = candidate.trim()
+    const bare = tryParseJson(trimmed)
+    if (bare.valid) {
+      return bare
+    }
+    const fenced = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i)
+    if (fenced?.[1] !== undefined) {
+      const fencedJson = tryParseJson(fenced[1].trim())
+      if (fencedJson.valid) {
+        return fencedJson
+      }
+      return { valid: false, message: 'must be valid JSON matching schema' }
+    }
+    return { valid: false, message: 'must be valid JSON matching schema' }
+  }
+
+  function tryParseJson(raw: string): { valid: true; value: unknown } | { valid: false } {
+    try {
+      return { valid: true, value: JSON.parse(raw) as unknown }
+    } catch {
+      return { valid: false }
+    }
+  }
+
+  function formatValidationErrors(errors: ErrorObject[]): string {
+    if (errors.length === 0) {
+      return 'must match schema'
+    }
+    return errors
+      .slice(0, 3)
+      .map((error) => {
+        const path = error.instancePath.length > 0 ? error.instancePath : '/'
+        return `${path} ${error.message ?? error.keyword}`.trim()
+      })
+      .join('; ')
+  }
+
+  function emitStructuredValidationNotice(
+    state: StructuredTurnState,
+    reason: string,
+    errors: ErrorObject[]
+  ): void {
+    ctx?.emit(
+      'driver.notice',
+      {
+        message: reason,
+        code: 'structured_output_validation_retry',
+        data: { validation: formatValidationData(errors), attempts: state.attempts },
+      },
+      {
+        turnId: state.turnId as ApplyInputResult['turnId'],
+        driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND },
+      }
+    )
+  }
+
+  function emitStructuredDiagnostic(state: StructuredTurnState, candidate: string): void {
+    ctx?.emit(
+      'diagnostic',
+      {
+        level: 'warn',
+        source: 'harness',
+        message: 'Structured output validation failed after retry cap',
+        data: {
+          code: 'StructuredOutputValidationFailed',
+          rawCandidate: candidate,
+        },
+      },
+      {
+        turnId: state.turnId as ApplyInputResult['turnId'],
+        driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND },
+      }
+    )
+  }
+
+  function failStructuredTurn(
+    state: StructuredTurnState,
+    reason: string,
+    errors: ErrorObject[] = []
+  ): void {
+    structuredTurns.delete(state.turnId)
+    completedStructuredTurns.add(state.turnId)
+    ctx?.emit(
+      'turn.failed',
+      {
+        turnId: state.turnId,
+        status: 'failed',
+        message: reason,
+        code: 'StructuredOutputValidationFailed',
+        retryable: false,
+        data: {
+          validation: formatValidationData(errors),
+          attempts: state.attempts,
+        },
+      },
+      {
+        turnId: state.turnId as ApplyInputResult['turnId'],
+        driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND },
+      }
+    )
+    if (activeTurnId === state.turnId) {
+      activeTurnId = undefined
+    }
+  }
+
+  function formatValidationData(errors: ErrorObject[]): Array<Record<string, unknown>> {
+    return errors.map((error) => ({
+      path: error.instancePath.length > 0 ? error.instancePath : '/',
+      keyword: error.keyword,
+      message: error.message ?? error.keyword,
+      params: error.params,
+    }))
   }
 
   async function closeHookListener(): Promise<void> {
@@ -485,16 +756,26 @@ export function buildClaudeHookSettingsOverlay(options: {
 }): { hooks: Record<string, unknown> } {
   const bridge = options.bridgeCommand ?? DEFAULT_HOOK_BRIDGE_COMMAND
   const command = `${bridge} --socket ${shellQuote(options.callbackSocket)}`
+  const legacyCommandMarker = `${bridge} --socket ${options.callbackSocket}`
+  const decisionCommand = `${toDecisionBridgeCommand(bridge)} --socket ${shellQuote(
+    options.callbackSocket
+  )} --legacy-command ${shellQuote(legacyCommandMarker)}`
   const matchAll = ['PreToolUse', 'PostToolUse']
   const hooks: Record<string, unknown> = {}
   for (const event of HOOK_EVENT_NAMES) {
-    const entry: Record<string, unknown> = { hooks: [{ type: 'command', command }] }
+    const entry: Record<string, unknown> = {
+      hooks: [{ type: 'command', command: event === 'Stop' ? decisionCommand : command }],
+    }
     if (matchAll.includes(event)) {
       entry['matcher'] = '*'
     }
     hooks[event] = [entry]
   }
   return { hooks }
+}
+
+function toDecisionBridgeCommand(bridgeCommand: string): string {
+  return bridgeCommand.replace(/\bclaude-hook\b/, 'claude-hook-decision')
 }
 
 async function buildLaunchCommandLine(

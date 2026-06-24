@@ -48,6 +48,21 @@ export async function postEnvelope(socketPath: string, envelope: unknown): Promi
   })
 }
 
+/** Connect to the broker callback socket, write an envelope, and read the response body. */
+export async function postEnvelopeAndRead(socketPath: string, envelope: unknown): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = []
+    const conn = connect(socketPath)
+    conn.on('error', reject)
+    conn.on('data', (chunk: Buffer) => chunks.push(chunk))
+    conn.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    conn.on('close', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    conn.on('connect', () => {
+      conn.write(JSON.stringify(envelope))
+    })
+  })
+}
+
 /**
  * Shared CLI entrypoint for the hook bridges. Resolves `--socket <path>`,
  * exits(1) with a usage error if absent, otherwise runs the driver bridge and

@@ -22,7 +22,10 @@ import {
 } from 'spaces-harness-broker-protocol'
 import type { Broker, BrokerAttachIdentity } from './broker'
 import { createDefaultBroker } from './default-broker'
-import { runClaudeHookBridgeCli } from './drivers/claude-code-tmux/hook-bridge'
+import {
+  runClaudeHookBridgeCli,
+  runClaudeHookDecisionBridgeCli,
+} from './drivers/claude-code-tmux/hook-bridge'
 import { runCodexHookBridgeCli } from './drivers/codex-cli-tmux/hook-bridge'
 import { runPiHookBridgeCli } from './drivers/pi-tui-tmux/hook-bridge'
 import { BrokerError } from './errors'
@@ -81,6 +84,8 @@ async function main(): Promise<void> {
     }
   } else if (command === 'claude-hook') {
     await runClaudeHookBridgeCli(args.slice(1))
+  } else if (command === 'claude-hook-decision') {
+    await runClaudeHookDecisionBridgeCli(args.slice(1))
   } else if (command === 'codex-hook') {
     await runCodexHookBridgeCli(args.slice(1))
   } else if (command === 'pi-hook') {

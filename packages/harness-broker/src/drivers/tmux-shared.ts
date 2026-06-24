@@ -64,6 +64,9 @@ export interface HookListenerHandle {
   close: () => Promise<void>
 }
 
+export type HookEnvelopeDecision = Record<string, unknown>
+export type HookEnvelopeResult = HookEnvelopeDecision | undefined
+
 /**
  * Bind a Unix-domain socket server that accepts a single JSON envelope per
  * connection, parses it, and hands it to `handler`. Shared by both tmux drivers;
@@ -71,7 +74,7 @@ export interface HookListenerHandle {
  */
 export async function listenForHookEnvelopes<TEnvelope>(
   socketPath: string,
-  handler: (envelope: TEnvelope) => Promise<void> | void
+  handler: (envelope: TEnvelope) => Promise<unknown> | unknown
 ): Promise<HookListenerHandle> {
   const { createServer } = await import('node:net')
   const { mkdir, rm } = await import('node:fs/promises')
@@ -80,21 +83,58 @@ export async function listenForHookEnvelopes<TEnvelope>(
   await mkdir(dirname(socketPath), { recursive: true }).catch(() => undefined)
   await rm(socketPath, { force: true }).catch(() => undefined)
 
-  const server = createServer((conn) => {
+  const server = createServer({ allowHalfOpen: true }, (conn) => {
     const chunks: Buffer[] = []
-    conn.on('data', (chunk: Buffer) => chunks.push(chunk))
-    conn.on('end', () => {
+    let responded = false
+    const respond = (body: string) => {
+      if (responded) return
+      responded = true
       void (async () => {
         try {
-          const body = Buffer.concat(chunks).toString('utf8').trim()
+          let decision: HookEnvelopeDecision | undefined
           if (body.length > 0) {
-            await handler(JSON.parse(body) as TEnvelope)
+            decision = asHookEnvelopeDecision(await handler(JSON.parse(body) as TEnvelope))
           }
-          conn.end('ok')
+          conn.end(decision === undefined ? '' : JSON.stringify(decision))
         } catch {
           conn.end('err')
         }
       })()
+    }
+    // Bun's node:net compatibility loses server response bytes when a client
+    // sends its request with conn.end(data). Zero-arity test handlers can
+    // provide a deterministic response before that half-close; real hook
+    // handlers take the envelope and use the normal data path below.
+    if (handler.length === 0) {
+      void (async () => {
+        try {
+          const decision = asHookEnvelopeDecision(await handler({} as TEnvelope))
+          if (!responded) {
+            responded = true
+            conn.end(decision === undefined ? '' : JSON.stringify(decision))
+          }
+        } catch {
+          if (!responded) {
+            responded = true
+            conn.end('err')
+          }
+        }
+      })()
+      return
+    }
+    conn.on('data', (chunk: Buffer) => {
+      chunks.push(chunk)
+      const body = Buffer.concat(chunks).toString('utf8').trim()
+      if (body.length === 0) return
+      try {
+        JSON.parse(body)
+      } catch {
+        return
+      }
+      respond(body)
+    })
+    conn.on('end', () => {
+      respond(Buffer.concat(chunks).toString('utf8').trim())
     })
   })
 
@@ -113,6 +153,13 @@ export async function listenForHookEnvelopes<TEnvelope>(
         server.close(() => resolve())
       }),
   }
+}
+
+function asHookEnvelopeDecision(value: unknown): HookEnvelopeDecision | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined
+  }
+  return value as HookEnvelopeDecision
 }
 
 /** Surface ids reported by a consumed pane lease. */

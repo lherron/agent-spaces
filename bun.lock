@@ -177,6 +177,7 @@
         "harness-broker": "./bin/harness-broker.js",
       },
       "dependencies": {
+        "ajv": "^8.17.1",
         "spaces-harness-broker-protocol": "workspace:*",
       },
       "devDependencies": {

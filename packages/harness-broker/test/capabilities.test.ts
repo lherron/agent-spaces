@@ -56,17 +56,29 @@ describe('Codex app-server v0 capability matrix', () => {
 })
 
 describe('Claude Code tmux capability matrix', () => {
-  test('advertises durable Anthropic session continuation', () => {
+  test('advertises durable Anthropic session continuation and synthesized JSON Schema finals', () => {
     const capabilities =
       createDefaultClaudeCodeTmuxDriver().capabilities() as InvocationCapabilities & {
-        finalResponse?: { jsonSchema?: boolean } | undefined
+        finalResponse?:
+          | {
+              jsonSchema?: boolean
+              perTurn?: boolean
+              strict?: boolean
+              parsedResult?: boolean
+            }
+          | undefined
       }
     expect(capabilities.continuation).toEqual({
       supported: true,
       provider: 'anthropic',
       keyKind: 'session',
     })
-    expect(capabilities.finalResponse?.jsonSchema).not.toBe(true)
+    expect(capabilities.finalResponse).toEqual({
+      jsonSchema: true,
+      perTurn: true,
+      strict: false,
+      parsedResult: false,
+    })
   })
 })
 
