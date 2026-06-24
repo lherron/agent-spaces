@@ -49,14 +49,36 @@ export async function postEnvelope(socketPath: string, envelope: unknown): Promi
 }
 
 /** Connect to the broker callback socket, write an envelope, and read the response body. */
-export async function postEnvelopeAndRead(socketPath: string, envelope: unknown): Promise<string> {
+export async function postEnvelopeAndRead(
+  socketPath: string,
+  envelope: unknown,
+  options: { timeoutMs?: number | undefined } = {}
+): Promise<string> {
   return await new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = []
+    let settled = false
     const conn = connect(socketPath)
-    conn.on('error', reject)
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      conn.destroy()
+      resolve('')
+    }, options.timeoutMs ?? 1000)
+    const finish = (value: string) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      resolve(value)
+    }
+    conn.on('error', (error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      reject(error)
+    })
     conn.on('data', (chunk: Buffer) => chunks.push(chunk))
-    conn.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-    conn.on('close', () => resolve(Buffer.concat(chunks).toString('utf8')))
+    conn.on('end', () => finish(Buffer.concat(chunks).toString('utf8')))
+    conn.on('close', () => finish(Buffer.concat(chunks).toString('utf8')))
     conn.on('connect', () => {
       conn.write(JSON.stringify(envelope))
     })

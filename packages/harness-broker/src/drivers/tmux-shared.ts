@@ -95,7 +95,7 @@ export async function listenForHookEnvelopes<TEnvelope>(
           if (body.length > 0) {
             decision = asHookEnvelopeDecision(await handler(JSON.parse(body) as TEnvelope))
           }
-          conn.end(decision === undefined ? '' : JSON.stringify(decision))
+          conn.end(decision === undefined ? 'ok' : JSON.stringify(decision))
         } catch {
           conn.end('err')
         }
