@@ -37,6 +37,13 @@ Codex.app app-server shim experiment (T-04237) is off by default; enable by quit
 Cross-harness floor on every row: compile/select/verify start-contract (hashes +
 route invariants) + ledger integrity (monotonic seq / no dup / normalized vocab
 only) + invocation.started/ready + `assertSharedCommandTurn` on the command turn.
+The matrix also runs the `structured-output` scenario against every row. Rows
+whose advertised capabilities include `finalResponse.jsonSchema` and `perTurn`
+must accept a per-turn `responseFormat: { kind: "json_schema" }` input and emit
+exactly one normalized JSON `assistant.message.completed{final:true}` plus one
+`turn.completed`; rows that do not advertise that capability must reject the
+input as `UnsupportedCapability: finalResponse.jsonSchema` before
+`input.accepted`.
 The runner exercises `packages/harness-broker/bin/harness-broker.js run --transport
 stdio`. Strict mode is on by default: native Codex event names fail the run, and
 the legacy `invocation.permission.request` event is rejected unless the temporary

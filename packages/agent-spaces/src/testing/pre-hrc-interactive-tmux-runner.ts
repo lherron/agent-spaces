@@ -24,6 +24,7 @@ import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
   InvocationId,
+  InvocationInput,
   InvocationRuntimeContext,
 } from 'spaces-harness-broker-protocol'
 import type {
@@ -70,7 +71,7 @@ export type InteractiveTmuxManager = {
   ) => Promise<{ invocationId: string }>
   input: (request: {
     invocationId: string
-    input: { kind: 'user'; content: Array<{ type: 'text'; text: string }> }
+    input: InvocationInput
     policy: { whenBusy: 'reject' }
   }) => Promise<{ turnId?: string | undefined }>
   stop: (request: { invocationId: string; reason: string }) => Promise<unknown>
@@ -102,6 +103,14 @@ export type AnthropicKeySource =
   | { kind: 'consul'; path: string }
   | { kind: 'env'; var: string }
 
+export type InteractiveTmuxPrompt =
+  | string
+  | {
+      text: string
+      responseFormat?: InvocationInput['responseFormat'] | undefined
+      label?: string | undefined
+    }
+
 export type InteractiveTmuxRunOptions = {
   repoRoot: string
   scopeRef: string
@@ -113,7 +122,7 @@ export type InteractiveTmuxRunOptions = {
   socketPath: string
   tmuxBin: string
   model: string
-  prompts: string[]
+  prompts: InteractiveTmuxPrompt[]
   bootWaitMs: number
   turnTimeoutMs: number
   /**
@@ -890,11 +899,17 @@ export async function runInteractiveClaudeTmuxSession(
     }
 
     for (let i = 0; i < options.prompts.length; i += 1) {
-      const prompt = options.prompts[i] ?? ''
+      const promptItem = options.prompts[i] ?? ''
+      const prompt = typeof promptItem === 'string' ? promptItem : promptItem.text
+      const responseFormat = typeof promptItem === 'string' ? undefined : promptItem.responseFormat
       const inputResponse = await applyInputWhenReady(
         {
           invocationId,
-          input: { kind: 'user', content: [{ type: 'text', text: prompt }] },
+          input: {
+            kind: 'user',
+            content: [{ type: 'text', text: prompt }],
+            ...(responseFormat !== undefined ? { responseFormat } : {}),
+          },
           policy: { whenBusy: 'reject' },
         },
         `Turn ${i + 1}`

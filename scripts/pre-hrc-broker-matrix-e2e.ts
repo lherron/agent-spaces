@@ -104,6 +104,7 @@ import { piSessionPath } from '../packages/agent-spaces/src/runtime-env.js'
 import { AspcClient } from '../packages/aspc/src/index.js'
 
 import { createClaudeCodeTmuxDriver } from '../packages/harness-broker/src/drivers/claude-code-tmux/driver'
+import { createCodexAppServerDriver } from '../packages/harness-broker/src/drivers/codex-app-server/driver'
 import { createCodexCliTmuxDriver } from '../packages/harness-broker/src/drivers/codex-cli-tmux/driver'
 import { createPiTuiTmuxDriver } from '../packages/harness-broker/src/drivers/pi-tui-tmux/driver'
 import { createInvocationEventSequencer } from '../packages/harness-broker/src/events'
@@ -218,6 +219,20 @@ const NARRATION_PROMPT =
   'Step 3: write a one-line final summary. ' +
   'Each Step 1/Step 2 status line must be its own plain-text sentence emitted immediately BEFORE its command ' +
   'in the same turn — never fold those status lines into the final summary.'
+
+const STRUCTURED_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'marker'],
+  properties: {
+    status: { type: 'string', enum: ['ok'] },
+    marker: { type: 'string' },
+  },
+} as const satisfies Record<string, unknown>
+
+const STRUCTURED_OUTPUT_PROMPT =
+  'Return ONLY a JSON object matching the provided schema. Do not use markdown fences, prose, or tool calls. ' +
+  'Use status "ok" and copy this marker exactly into marker:'
 
 type CliArgs = {
   config?: RowName | undefined
@@ -824,6 +839,157 @@ function assertIntermediateMessages(
   return failures
 }
 
+function structuredResponseFormat(): InvocationInput['responseFormat'] {
+  return { kind: 'json_schema', schema: STRUCTURED_OUTPUT_SCHEMA }
+}
+
+function structuredUserInput(marker: string, inputId?: string | undefined): InvocationInput {
+  return {
+    ...(inputId !== undefined ? { inputId: inputId as InputId } : {}),
+    kind: 'user',
+    content: [{ type: 'text', text: `${STRUCTURED_OUTPUT_PROMPT} ${marker}` }],
+    responseFormat: structuredResponseFormat(),
+  }
+}
+
+function supportsStructuredFinalResponse(capabilities: unknown): boolean {
+  const finalResponse = asRecord(asRecord(capabilities)?.['finalResponse'])
+  return finalResponse?.['jsonSchema'] === true && finalResponse?.['perTurn'] === true
+}
+
+function textFromAssistantCompleted(event: InvocationEventEnvelope): string {
+  const content = asRecord(event.payload)?.['content']
+  if (!Array.isArray(content)) return ''
+  return content.map((part) => String(asRecord(part)?.['text'] ?? '')).join('')
+}
+
+function structuredJsonFromFinal(event: InvocationEventEnvelope): Record<string, unknown> | null {
+  const text = textFromAssistantCompleted(event).trim()
+  if (text.startsWith('```') || text.endsWith('```')) return null
+  try {
+    const parsed = JSON.parse(text)
+    return asRecord(parsed) ?? null
+  } catch {
+    return null
+  }
+}
+
+function assertStructuredValidTurn(
+  events: InvocationEventEnvelope[],
+  turnId: string | undefined,
+  marker: string
+): Failure[] {
+  if (turnId === undefined) {
+    return [
+      { code: 'structured_turn_missing', message: 'structured-output input returned no turnId' },
+    ]
+  }
+  const scoped = events.filter((event) => event.turnId === turnId)
+  const finals = scoped.filter(
+    (event) =>
+      event.type === 'assistant.message.completed' && asRecord(event.payload)?.['final'] === true
+  )
+  const completions = scoped.filter((event) => event.type === 'turn.completed')
+  const failures: Failure[] = []
+  if (finals.length !== 1) {
+    failures.push({
+      code: 'structured_final_count',
+      message: `structured-output valid turn must emit exactly one final assistant.message.completed, got ${finals.length}`,
+    })
+  } else {
+    const parsed = structuredJsonFromFinal(finals[0] as InvocationEventEnvelope)
+    if (parsed === null) {
+      failures.push({
+        code: 'structured_final_not_normalized_json',
+        message: `structured-output final must be normalized parseable JSON, got ${JSON.stringify(textFromAssistantCompleted(finals[0] as InvocationEventEnvelope).slice(0, 120))}`,
+      })
+    } else if (parsed['status'] !== 'ok' || parsed['marker'] !== marker) {
+      failures.push({
+        code: 'structured_final_schema_mismatch',
+        message: `structured-output JSON did not satisfy expected fixture values: ${JSON.stringify(parsed)}`,
+      })
+    }
+  }
+  if (completions.length !== 1) {
+    failures.push({
+      code: 'structured_turn_completed_count',
+      message: `structured-output valid turn must emit exactly one turn.completed, got ${completions.length}`,
+    })
+  }
+  return failures
+}
+
+function assertStructuredRejectedBeforeAccepted(
+  events: InvocationEventEnvelope[],
+  baselineLength: number,
+  inputId: string
+): Failure[] {
+  const scoped = events.slice(baselineLength).filter((event) => event.inputId === inputId)
+  const types = scoped.map((event) => event.type)
+  const failures: Failure[] = []
+  if (types.includes('input.accepted')) {
+    failures.push({
+      code: 'structured_unsupported_accepted',
+      message: 'unsupported structured-output input emitted input.accepted',
+    })
+  }
+  const rejected = scoped.find((event) => event.type === 'input.rejected')
+  if (rejected === undefined) {
+    failures.push({
+      code: 'structured_unsupported_rejection_missing',
+      message: 'unsupported structured-output input did not emit input.rejected',
+    })
+  } else if (
+    String(asRecord(rejected.payload)?.['reason'] ?? '') !==
+    'UnsupportedCapability: finalResponse.jsonSchema'
+  ) {
+    failures.push({
+      code: 'structured_unsupported_rejection_reason',
+      message: `unsupported structured-output rejection reason was ${JSON.stringify(asRecord(rejected.payload)?.['reason'])}`,
+    })
+  }
+  return failures
+}
+
+async function expectUnsupportedStructuredInput(options: {
+  events: InvocationEventEnvelope[]
+  input: (req: {
+    input: InvocationInput
+    policy: { whenBusy: 'reject' }
+  }) => Promise<unknown>
+  marker: string
+  inputId: string
+}): Promise<Failure[]> {
+  const baselineLength = options.events.length
+  try {
+    await options.input({
+      input: structuredUserInput(options.marker, options.inputId),
+      policy: { whenBusy: 'reject' },
+    })
+    return [
+      {
+        code: 'structured_unsupported_call_succeeded',
+        message: 'unsupported structured-output input unexpectedly succeeded',
+      },
+      ...assertStructuredRejectedBeforeAccepted(options.events, baselineLength, options.inputId),
+    ]
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const failures = assertStructuredRejectedBeforeAccepted(
+      options.events,
+      baselineLength,
+      options.inputId
+    )
+    if (!message.includes('UnsupportedCapability: finalResponse.jsonSchema')) {
+      failures.push({
+        code: 'structured_unsupported_error',
+        message: `unsupported structured-output input threw unexpected error: ${message}`,
+      })
+    }
+    return failures
+  }
+}
+
 /** Real-codex app-server / env evidence (ported from the real-codex smoke). */
 function assertRealCodexEnvEvidence(
   result: Awaited<ReturnType<typeof runPreHrcBrokerContractHarness>>,
@@ -1086,6 +1252,13 @@ async function runCodexRow(
         ...assertRealCodexEnvEvidence(harnessResult, options.agentRoot, ctx.marker)
       )
     }
+    const structured = await runCodexAppServerStructuredScenario({
+      repoRoot: ctx.repoRoot,
+      marker: `${ctx.marker}_${options.real ? 'REAL_CODEX' : 'FAKE_CODEX'}`,
+      ...(options.real ? { realCodexPath: options.codexPath } : {}),
+    })
+    result.extraFailures.push(...structured.failures)
+    result.notes['structuredOutput'] = structured.notes
     // Uniform intermediate-message contract, scoped to the single command turn
     // (the narration scenario rides on it). The headless app-server marks every
     // agentMessage final:true, so this row goes RED with intermediate_messages_missing
@@ -1102,6 +1275,70 @@ async function runCodexRow(
     process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = savedSkip
   }
   return result
+}
+
+async function runCodexAppServerStructuredScenario(options: {
+  repoRoot: string
+  marker: string
+  realCodexPath?: string | undefined
+}): Promise<{ failures: Failure[]; notes: Record<string, unknown> }> {
+  const marker = `STRUCT_${options.marker}`
+  const events: InvocationEventEnvelope[] = []
+  const manager = createInvocationManager({
+    sequencer: createInvocationEventSequencer({ now: () => new Date() }),
+    onEvent: (event) => events.push(event),
+  })
+  const fixturePath =
+    options.realCodexPath ??
+    join(options.repoRoot, 'packages/harness-broker/test/fixtures/fake-codex/structured-output.ts')
+  const spec: HarnessInvocationSpec = {
+    specVersion: 'harness-broker.invocation/v1',
+    invocationId: `inv_structured_codex_${options.marker}` as InvocationId,
+    labels: { package: 'pre-hrc-matrix', scenario: 'structured-output' },
+    harness: { frontend: 'codex', provider: 'openai', driver: 'codex-app-server' },
+    process: {
+      command: options.realCodexPath ?? process.execPath,
+      args: options.realCodexPath === undefined ? [fixturePath] : ['app-server'],
+      cwd: options.repoRoot,
+      harnessTransport: { kind: 'jsonrpc-stdio' },
+      limits: { startupTimeoutMs: 5000, turnTimeoutMs: 60_000, stopGraceMs: 100 },
+      lockedEnv: { ASP_MATRIX_STRUCTURED_MARKER: marker },
+    },
+    interaction: { mode: 'headless', turnConcurrency: 'single', inputQueue: 'fifo' },
+    correlation: {
+      runtimeId: `runtime_structured_codex_${options.marker}`,
+      hostSessionId: `host_structured_codex_${options.marker}`,
+      startRequestHash: `start_structured_codex_${options.marker}`,
+      selectedProfileHash: `profile_structured_codex_${options.marker}`,
+    },
+    driver: { kind: 'codex-app-server', resumeFallback: 'start-fresh' },
+  }
+
+  const failures: Failure[] = []
+  const start = await manager.start(spec, createCodexAppServerDriver())
+  if (!supportsStructuredFinalResponse(start.capabilities)) {
+    failures.push({
+      code: 'structured_capability_missing',
+      message: 'codex-app-server did not advertise finalResponse.jsonSchema + perTurn',
+    })
+  }
+  const response = await manager.input({
+    invocationId: spec.invocationId as InvocationId,
+    input: structuredUserInput(marker, `input_structured_codex_${options.marker}`),
+    policy: { whenBusy: 'reject' },
+  })
+  await pollUntil(() => terminalTurnCount(events) > 0, 60_000, 250)
+  failures.push(...assertStructuredValidTurn(events, response.turnId, marker))
+  await manager.dispose({ invocationId: spec.invocationId as InvocationId }).catch(() => undefined)
+  return {
+    failures,
+    notes: {
+      structuredScenario: 'structured-output',
+      structuredEventCount: events.length,
+      structuredTurnId: response.turnId ?? null,
+      structuredDeclaresJsonSchema: supportsStructuredFinalResponse(start.capabilities),
+    },
+  }
 }
 
 function codexInteractiveCompileRequest(input: {
@@ -1544,6 +1781,20 @@ async function runCodexTmuxRow(
     }
     result.notes['scriptedTurns'] = scriptedTurns
     result.notes['narrationTurnIds'] = narrationTurnIds
+
+    const structuredUnsupported = await expectUnsupportedStructuredInput({
+      events,
+      marker: `STRUCT_${ctx.marker}_${rowName}`,
+      inputId: `input_structured_${rowName}_${ctx.marker}`,
+      input: (req) => manager.input({ invocationId, input: req.input, policy: req.policy }),
+    })
+    result.extraFailures.push(...structuredUnsupported)
+    result.notes['structuredOutput'] = {
+      scenario: 'structured-output',
+      declaresJsonSchema: false,
+      assertion: 'rejected-before-input.accepted',
+      failures: structuredUnsupported.length,
+    }
 
     if (options.ghostmuxOperator) {
       const ghostmuxBin = 'ghostmux'
@@ -2090,6 +2341,20 @@ async function runPiTuiTmuxRow(
     result.notes['scriptedTurns'] = scriptedTurns
     result.notes['narrationTurnIds'] = narrationTurnIds
 
+    const structuredUnsupported = await expectUnsupportedStructuredInput({
+      events,
+      marker: `STRUCT_${ctx.marker}_${rowName}`,
+      inputId: `input_structured_${rowName}_${ctx.marker}`,
+      input: (req) => manager.input({ invocationId, input: req.input, policy: req.policy }),
+    })
+    result.extraFailures.push(...structuredUnsupported)
+    result.notes['structuredOutput'] = {
+      scenario: 'structured-output',
+      declaresJsonSchema: false,
+      assertion: 'rejected-before-input.accepted',
+      failures: structuredUnsupported.length,
+    }
+
     if (options.ghostmuxOperator) {
       const attachCommand =
         surface !== undefined
@@ -2470,6 +2735,41 @@ async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
     const narrationTurnIds = commandTurnId !== undefined ? [commandTurnId] : []
     result.notes['narrationTurnIds'] = narrationTurnIds
     result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
+
+    const structuredInputId = `input_structured_unix_${ctx.marker}`
+    let structuredError = ''
+    try {
+      const structuredResponse = await client.input({
+        invocationId: identity.invocationId,
+        input: structuredUserInput(`STRUCT_${ctx.marker}_UNIX`, structuredInputId),
+      })
+      if (structuredResponse.accepted) {
+        result.extraFailures.push({
+          code: 'structured_unsupported_call_succeeded',
+          message: 'unix structured-output input unexpectedly succeeded',
+        })
+      }
+    } catch (error) {
+      structuredError = error instanceof Error ? error.message : String(error)
+    }
+    const structuredEvents = await unixCollectUntil(started.events, 'input.rejected', 5_000).catch(
+      () => []
+    )
+    result.extraFailures.push(
+      ...assertStructuredRejectedBeforeAccepted(structuredEvents, 0, structuredInputId)
+    )
+    if (!structuredError.includes('UnsupportedCapability: finalResponse.jsonSchema')) {
+      result.extraFailures.push({
+        code: 'structured_unsupported_error',
+        message: `unix structured-output input threw unexpected error: ${structuredError}`,
+      })
+    }
+    result.notes['structuredOutput'] = {
+      scenario: 'structured-output',
+      declaresJsonSchema: false,
+      assertion: 'rejected-before-input.accepted',
+      error: structuredError,
+    }
   } finally {
     if (!ctx.keepArtifacts) fx.cleanup()
   }
@@ -3292,9 +3592,12 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       // runs on this row too. claude-code-tmux has no transcript tail yet, so it
       // never sets `final` → this row goes RED with intermediate_messages_missing /
       // final_message_count (the intended T-01706 worklist signal).
+      const structuredMarker = `STRUCT_${ctx.marker}_CLAUDE`
+      const structuredPrompt = `${STRUCTURED_OUTPUT_PROMPT} ${structuredMarker}`
       const prompts = [
         `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
         NARRATION_PROMPT,
+        { text: structuredPrompt, responseFormat: structuredResponseFormat() },
       ]
       const result: RowResult = {
         name: 'real-claude-tmux',
@@ -3410,6 +3713,15 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         .map((t) => t.turnId)
       result.notes['narrationTurnIds'] = narrationTurnIds
       result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
+      const structuredTurnId = run.turns.find((t) => t.prompt === structuredPrompt)?.turnId
+      result.notes['structuredOutput'] = {
+        scenario: 'structured-output',
+        declaresJsonSchema: true,
+        structuredTurnId: structuredTurnId ?? null,
+      }
+      result.extraFailures.push(
+        ...assertStructuredValidTurn(events, structuredTurnId, structuredMarker)
+      )
 
       if (!ctx.keepArtifacts) rmSync(aspHome, { recursive: true, force: true })
 
@@ -3452,9 +3764,12 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       // it mid-turn — zero queue-operation records, a deterministic miss. 10s
       // leaves several seconds of slack so the enqueue is reliably recorded.
       const midTurnMarker = `MIDTURN_${ctx.marker}`
+      const structuredMarker = `STRUCT_${ctx.marker}_CLAUDE_MIDTURN`
+      const structuredPrompt = `${STRUCTURED_OUTPUT_PROMPT} ${structuredMarker}`
       const prompts = [
         `Run the Bash command: sleep 10 && printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
         NARRATION_PROMPT,
+        { text: structuredPrompt, responseFormat: structuredResponseFormat() },
       ]
       const result: RowResult = {
         name: 'real-claude-tmux-midturn',
@@ -3566,6 +3881,15 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
         .map((t) => t.turnId)
       result.notes['narrationTurnIds'] = narrationTurnIds
       result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
+      const structuredTurnId = run.turns.find((t) => t.prompt === structuredPrompt)?.turnId
+      result.notes['structuredOutput'] = {
+        scenario: 'structured-output',
+        declaresJsonSchema: true,
+        structuredTurnId: structuredTurnId ?? null,
+      }
+      result.extraFailures.push(
+        ...assertStructuredValidTurn(events, structuredTurnId, structuredMarker)
+      )
 
       // CORE midturn signal (T-02027): the steered prompt typed mid-turn fires
       // NO UserPromptSubmit — its ONLY transcript record is a
@@ -3649,6 +3973,8 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       const enterDelayMs = 250
       const operatorPrompt = `Run the Bash command: printf '${ctx.marker}_OP' — then reply with exactly ${ctx.marker}_OP and nothing else.`
       const operatorMarker = `${ctx.marker}_OP`
+      const structuredMarker = `STRUCT_${ctx.marker}_CLAUDE_GHOSTMUX`
+      const structuredPrompt = `${STRUCTURED_OUTPUT_PROMPT} ${structuredMarker}`
       // turn1 = Bash marker command turn; turn2 = the SHARED narration scenario
       // (NARRATION_PROMPT, T-01700) so assertIntermediateMessages runs here too.
       // claude-code-tmux has no transcript tail yet → RED with
@@ -3656,6 +3982,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       const prompts = [
         `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`,
         NARRATION_PROMPT,
+        { text: structuredPrompt, responseFormat: structuredResponseFormat() },
       ]
 
       const result: RowResult = {
@@ -3819,6 +4146,15 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
           .map((t) => t.turnId)
         result.notes['narrationTurnIds'] = narrationTurnIds
         result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
+        const structuredTurnId = run.turns.find((t) => t.prompt === structuredPrompt)?.turnId
+        result.notes['structuredOutput'] = {
+          scenario: 'structured-output',
+          declaresJsonSchema: true,
+          structuredTurnId: structuredTurnId ?? null,
+        }
+        result.extraFailures.push(
+          ...assertStructuredValidTurn(events, structuredTurnId, structuredMarker)
+        )
 
         const operatorSubmits = events.filter(
           (e) => e.type === 'turn.started' && e.driver?.rawType === 'UserPromptSubmit'
