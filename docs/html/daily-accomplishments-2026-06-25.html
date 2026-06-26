@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-25</title>
+  <style>
+    :root { --bg: #f5efe5; --paper: rgba(255,255,255,0.96); --ink: #17212b; --muted: #5c6770; --line: #d7d8d0; --shadow: 0 18px 48px rgba(23,33,43,0.10); --green: #0f6d57; --green-soft: #d8efe7; --blue: #205d8b; --blue-soft: #dce8f6; --amber: #8a5a18; --amber-soft: #f5e7cf; --rose: #8d3d4c; --rose-soft: #f7e0e5; --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif; --serif: Georgia, "Iowan Old Style", serif; --mono: "SFMono-Regular", Menlo, Consolas, monospace; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body { background: radial-gradient(circle at 0% 0%, rgba(32,93,139,0.11), transparent 28%), radial-gradient(circle at 100% 0%, rgba(15,109,87,0.09), transparent 24%), linear-gradient(90deg, rgba(23,33,43,0.03) 1px, transparent 1px) 0 0 / 24px 24px, linear-gradient(0deg, rgba(23,33,43,0.02) 1px, transparent 1px) 0 0 / 24px 24px, var(--bg); color: var(--ink); font: 16px/1.56 var(--sans); }
+    a { color: var(--green); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; padding: 24px 20px 28px; border-right: 1px solid var(--line); background: rgba(245,239,229,0.97); backdrop-filter: blur(8px); }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card { display: grid; gap: 10px; }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.055em; }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { margin: 0; font-family: var(--serif); line-height: 1.05; }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p { margin: 0; color: var(--muted); }
+    .kicker { color: var(--amber); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a { display: block; padding: 8px 10px; border-left: 3px solid transparent; color: var(--muted); font-size: 11px; font-weight: 800; text-decoration: none; }
+    .nav a:hover, .nav a:focus { border-left-color: var(--green); background: rgba(255,255,255,0.82); color: var(--ink); }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero { padding: 44px min(5vw, 62px) 34px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(15,109,87,0.14), transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.90)); }
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr); gap: 28px; }
+    .eyebrow { color: var(--green); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.1rem, 4vw, 3.7rem); margin-bottom: 14px; }
+    .hero p { max-width: 76ch; font-size: 1.02rem; }
+    .hero-note { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--line); background: rgba(255,255,255,0.9); box-shadow: var(--shadow); }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.8rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card { min-width: 0; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); padding: 20px; }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .task-grid .task-card { grid-column: span 4; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.32rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; font-weight: 800; max-width: 100%; overflow-wrap: anywhere; }
+    .chip.green { background: var(--green-soft); color: var(--green); border-color: rgba(15,109,87,0.18); }
+    .chip.blue { background: var(--blue-soft); color: var(--blue); border-color: rgba(32,93,139,0.18); }
+    .chip.amber { background: var(--amber-soft); color: var(--amber); border-color: rgba(138,90,24,0.18); }
+    .chip.rose { background: var(--rose-soft); color: var(--rose); border-color: rgba(141,61,76,0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.02fr 0.98fr; gap: 18px; min-width: 0; }
+    .note-box { padding: 16px 18px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(220,232,246,0.72), rgba(255,255,255,0.92)); min-width: 0; }
+    .task-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 800; color: var(--muted); }
+    .task-time { font-family: var(--mono); font-size: 12px; }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(216,239,231,0.92), rgba(255,255,255,0.97)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(245,231,207,0.92), rgba(255,255,255,0.97)); }
+    .evidence-card.risk, .repo-card.pressure { background: linear-gradient(180deg, rgba(247,224,229,0.92), rgba(255,255,255,0.97)); }
+    .empty-state { display: grid; gap: 10px; place-items: start; }
+    .footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 800; }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) { .page { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); } .hero-grid, .stream-columns { grid-template-columns: 1fr; } .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; } }
+    @media (max-width: 640px) { .hero, .content { padding-left: 18px; padding-right: 18px; } .metrics { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-25</h1>
+        <p>Previous 24 hours in local time, covering committed work, completed <code>wrkq</code> tasks, proven ahead-of-upstream commits, and visible unchecked-in repo state across Praesidium.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--green);"></span>Committed work inside the exact local window</div>
+        <div class="legend-item"><span class="dot" style="background: var(--blue);"></span><code>wrkq</code> completion evidence across projects</div>
+        <div class="legend-item"><span class="dot" style="background: var(--amber);"></span>Proven ahead-of-upstream commit state</div>
+        <div class="legend-item"><span class="dot" style="background: var(--rose);"></span>Visible unchecked-in pressure</div>
+      </div>
+      <div class="sidebar-block sidebar-note"><strong>Window</strong><br />2026-06-24 05:03:12 CDT to 2026-06-25 05:03:12 CDT</div>
+      <div class="sidebar-block sidebar-note"><strong>Top accomplishments</strong><ul class="fact-list"><li><strong>Agent Control Plane carried the entire shipped lane</strong> with <strong>23 current-branch commits</strong> and no other repo contributing in-window commits.</li><li><strong>The ACP refactor loop became more operationally complete</strong> through automation, email reporting, isolated scheduled sessions, archive-only publish support, and no-proceed queue guards.</li><li><strong>DeliveryOutcome and interface-store exports were tightened</strong> through root-export additions, package-root narrowing, delivery mapping cleanup, and interface-store idempotency type exports.</li><li><strong>Refactor queue handling got hardened at the edges</strong> via empty-queue coverage, no-task skip behavior, and stale heartbeat project lookup repair.</li><li><strong>Open repo pressure stayed low and local</strong>: zero proven unpushed commits, zero completed <code>wrkq</code> tasks, and only four fresh unchecked-in paths across two repos.</li></ul></div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium-wide accomplishments for 2026-06-25</div>
+            <h2>This slice was narrow but decisive: the day’s shipped movement lived almost entirely inside Agent Control Plane, where refactor automation, queue safety, export cleanup, and heartbeat correctness all advanced together.</h2>
+            <p>The report keeps committed history, completed tasks, proven ahead commits, and fresh unchecked-in files as separate buckets. That distinction matters here because the workspace stayed active, but only one repo actually produced in-window commits and no <code>wrkq</code> tasks crossed the finish line during the same period.</p>
+            <div class="hero-note"><strong>Interpretation note</strong>This was not a broad multi-repo shipping day. The signal is concentrated: one repo landed a dense tranche, two repos showed fresh visible file activity, and the rest of the platform stayed quiet within the exact 24-hour slice.</div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><div class="metric-label">Committed window</div><div class="metric-value">23</div><small>1 active repo with current-branch commit history in the slice.</small></div>
+            <div class="metric"><div class="metric-label">Completed tasks</div><div class="metric-value">0</div><small>No <code>wrkq</code> task reached completed inside the slice.</small></div>
+            <div class="metric"><div class="metric-label">Proven unpushed</div><div class="metric-value">0</div><small>No in-window commits were ahead of a configured upstream.</small></div>
+            <div class="metric"><div class="metric-label">Fresh unchecked-in</div><div class="metric-value">4</div><small>2 repos show currently visible in-window paths.</small></div>
+          </div>
+        </div>
+      </section>
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>Today’s workstream picture is concentrated enough that the useful question is not “which repo won,” but “what did the ACP tranche actually accomplish.” The answer is a blend of automation hardening, refactor-queue guardrails, and package/export cleanup that makes the control plane less brittle at both the orchestration and package-surface edges.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>Refactor automation moved from “exists” toward “operationally survivable”</h3>
+                  <p>The earliest and most sustained lane in the slice was refactor-loop operations: automation wiring, email reporting, session isolation, cadence control, archive-only publish, and queue-governance fixes all landed on the same branch.</p>
+                </div>
+                <div class="chips"><span class="chip green">10 commits</span><span class="chip amber">0 ahead commits</span><span class="chip blue">Queue + automation lane</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>093cb66c</code> chore(acp): automate wrkq refactor loop</li><li><code>f3e69f73</code> fix(acp): allow archive-only refactor publish</li><li><code>7843e1f0</code> chore(acp): email refactor automation results</li><li><code>907adeb4</code> chore(acp): run refactor automation every 20 minutes</li><li><code>76016a0e</code> chore(acp): isolate scheduled refactor sessions</li><li><code>115d8a29</code> Archive non-actionable acp-jobs-store refactor note</li><li><code>9df00146</code> fix(acp): block no-proceed refactor tasks</li><li><code>d8f472f5</code> Handle empty wrkq refactor queues</li><li><code>4eaa6d76</code> test(acp): cover empty wrkq refactor queue</li><li><code>e027b889</code> fix(acp): skip refactor turn when no task selected</li></ul></div>
+                <div class="note-box"><strong>Why it matters</strong><ul class="evidence-list"><li>The control plane is not just dispatching work more often; it is becoming more explicit about when not to proceed, when to archive, and how to isolate scheduled sessions.</li><li>The queue-safety commits are backed by targeted test coverage, which matters more here than raw commit count because the regressions would otherwise be silent orchestration failures.</li><li>No ahead-of-upstream gap exists for this lane, so the whole tranche is already on-branch rather than stranded as local-only delivery.</li></ul></div>
+              </div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>ACP package surfaces and delivery contracts were cleaned up in parallel</h3>
+                  <p>The second lane tightened the package boundary story: root exports, idempotency types, delivery mapping, and transport-core factoring all moved together, which points to a deliberate package-surface consolidation rather than isolated cleanup.</p>
+                </div>
+                <div class="chips"><span class="chip green">8 commits</span><span class="chip blue">Exports + delivery lane</span><span class="chip amber">No push pressure</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>3eb41af0</code> refactor(acp-cli): unify ACP request transport core</li><li><code>d409eb2b</code> Refactor delivery outcome mapping</li><li><code>daf5fb71</code> Add acp-core DeliveryOutcome root export</li><li><code>d5e6bf05</code> test(acp-core): cover DeliveryOutcome package root import</li><li><code>0a07f4ec</code> Export acp-interface-store delivery idempotency types</li><li><code>aaaf8980</code> refactor(interface-store): remove failed delivery no-op</li><li><code>331cbb02</code> refactor(gateway-ios): narrow package root exports</li><li><code>74dd905c</code> Constrain input status columns</li></ul></div>
+                <div class="note-box"><strong>Why it matters</strong><ul class="evidence-list"><li>This lane reduces ambiguity at the package root, which is usually where downstream callers accumulate accidental dependencies and stale import habits.</li><li>The test around <code>DeliveryOutcome</code> matters because root-export cleanup is exactly the kind of change that looks harmless until a consumer breaks later.</li><li>The interface-store and gateway-ios commits suggest the cleanup is crossing package seams instead of staying trapped in one local module.</li></ul></div>
+              </div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>Viewer and heartbeat correctness were the visible user-facing tail of the tranche</h3>
+                  <p>The closing commits in the window were not more infrastructure. They were correctness and UI surface fixes: clearing dead viewer UI, refactoring fetch/accessor paths, and repairing stale heartbeat project lookup.</p>
+                </div>
+                <div class="chips"><span class="chip green">5 commits</span><span class="chip rose">No companion task closeouts</span><span class="chip blue">UX + correctness lane</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>49e4d96e</code> Refactor acp-viewer job summary accessors</li><li><code>7d740a0e</code> Refactor acp-viewer fetch helper</li><li><code>a2b087cc</code> Remove orphaned acp-viewer scheduler panel</li><li><code>df6aa93b</code> Fix stale heartbeat project lookup</li><li><code>cacffe94</code> chore(acp): sync deps and boundary cleanup</li></ul></div>
+                <div class="note-box"><strong>Interpretation</strong><ul class="evidence-list"><li>The window ends with a heartbeat lookup fix, which is a better terminal signal than ending on pure cleanup because it points at an actual behavior defect being corrected.</li><li>The viewer commits are not headline features, but they reduce surface confusion by removing orphaned UI and tightening fetch/accessor seams.</li><li>Because there were zero completed <code>wrkq</code> tasks in the slice, this narrative must come directly from live commit history rather than task closeout prose.</li></ul></div>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Tasks</h2>
+            <p>This section stays explicit even when the answer is zero. There were no completed <code>wrkq</code> tasks across visible Praesidium projects inside the exact 24-hour window.</p>
+          </div>
+          <div class="task-grid">
+            <article class="task-card">
+              <div class="empty-state">
+                <div class="task-meta"><span>Cross-project wrkq scan</span><span>0 completions</span></div>
+                <h3>No task crossed the finish line in-window</h3>
+                <p>The report still scanned recent completed-task history, then filtered it to the exact local slice. Nothing qualified between 2026-06-24 05:03:12 CDT and 2026-06-25 05:03:12 CDT.</p>
+                <p class="task-time">Implication: today’s accomplishment narrative is commit-led, not task-led.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>The evidence chain for this report is explicit: live repo history, live repo state, live <code>wrkq</code> completion scans, and post-write artifact verification. This section records the collection and verification rules used for this run.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3>Source coverage</h3>
+              <ul class="evidence-list"><li>Scanned every visible git repo under <code>/Users/lherron/praesidium</code> and filtered current-branch commit history to the exact local 24-hour window.</li><li>Queried <code>wrkq find --state completed --sort updated_at --reverse --limit 500 --output ndjson</code> and then filtered the result locally to the same window.</li><li>Collected ahead-of-upstream evidence only from repos with a configured upstream; repos without upstream are not counted as unpushed by guesswork.</li></ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Scoring rules</h3>
+              <ul class="evidence-list"><li>Kept committed history, completed tasks, proven ahead commits, and fresh unchecked-in paths as separate evidence buckets rather than collapsing them into one activity number.</li><li>Treated dirty paths as relevant only when the current file mtime fell inside the same local 24-hour window.</li><li>Did not inflate the scorecard with stale workspace noise from unrelated older dirty trees.</li></ul>
+            </article>
+            <article class="evidence-card good">
+              <h3>Static verification</h3>
+              <ul class="evidence-list"><li>Verified required anchors <code>#scorecard</code>, <code>#workstreams</code>, <code>#tasks</code>, <code>#validation</code>, and <code>#open-state</code> are present.</li><li>Verified responsive overflow guards: <code>html, body { overflow-x: hidden; }</code>, stacked mobile breakpoints, and no fixed-width card layout.</li><li>Browser-plugin localhost verification was not the reliable path in this runtime, so this run uses the accepted static-check fallback.</li></ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Delivery path</h3>
+              <ul class="evidence-list"><li>This artifact is intended for email attachment delivery with subject <code>Praesidium accomplishments for 2026-06-25</code>.</li><li>The email body states the exact covered window, the attachment filename, and the top accomplishments from this page.</li><li>Send status is recorded outside the artifact so a mail failure does not silently rewrite the evidence page.</li></ul>
+            </article>
+          </div>
+        </section>
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>Open state stays visible after the accomplishment narrative so the report does not confuse landed work with active churn. In this slice the remaining pressure is small and localized.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card">
+              <h3>No proven unpushed commits</h3>
+              <p>Every repo with a configured upstream showed zero in-window commits ahead of that upstream.</p>
+              <ul class="repo-list"><li>This means the shipped ACP tranche is not waiting on a local push gap.</li><li>Repos without configured upstreams were not counted by inference.</li><li>Push-state risk for this slice is effectively zero.</li></ul>
+            </article>
+            <article class="repo-card pressure">
+              <h3>agent-spaces</h3>
+              <p>One fresh unchecked-in file is visible here, and it is yesterday’s generated accomplishments artifact rather than product code.</p>
+              <ul class="repo-list"><li><code>??</code> <code>docs/html/daily-accomplishments-2026-06-24.html</code></li><li>This is reporting churn, not delivery risk.</li><li>The new 2026-06-25 artifact joins this same reporting lane after generation.</li></ul>
+            </article>
+            <article class="repo-card pressure">
+              <h3>automations/media-ingest</h3>
+              <p>Three new transcript markdown files appeared inside the window with no same-window commits, so they belong in open state rather than the shipped scorecard.</p>
+              <ul class="repo-list"><li><code>??</code> <code>transcripts/ai-daily-brief/5-ways-claude-tag-could-change-how-you-use-ai.md</code></li><li><code>??</code> <code>transcripts/morning-brew-daily/tech-stocks-rocked-by-global-selloff-ai-crashes-election-primaries-plus-a-convo-w-meta-cto-andrew-bosworth.md</code></li><li><code>??</code> <code>transcripts/morning-brew-daily/tech-stocks-rocked-by-global-selloff-meta-cto-andrew-bosworth-talks-new-in-house-glasses.md</code></li></ul>
+            </article>
+            <article class="repo-card">
+              <h3>Workspace signal stayed bounded</h3>
+              <p>Only three repos had any in-window signal at all: one with commits and two with fresh visible files.</p>
+              <ul class="repo-list"><li><code>agent-control-plane</code> contributed all 23 shipped commits.</li><li><code>agent-spaces</code> and <code>automations/media-ingest</code> contributed all 4 fresh unchecked-in paths.</li><li>No completed tasks or ahead commits diluted that picture.</li></ul>
+            </article>
+          </div>
+          <div class="footer">Source window 2026-06-24 05:03:12 CDT to 2026-06-25 05:03:12 CDT. Generated from git history/status across visible Praesidium repos and completed <code>wrkq</code> tasks across all projects. Artifact: daily-accomplishments-2026-06-25.html.</div>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

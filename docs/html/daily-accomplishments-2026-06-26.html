@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-26</title>
+  <style>
+    :root { --bg: #f4efe8; --paper: rgba(255,255,255,0.96); --ink: #17212b; --muted: #58636c; --line: #d6d7cf; --shadow: 0 18px 48px rgba(23,33,43,0.10); --green: #0a6b57; --green-soft: #d9efe7; --blue: #1f5c89; --blue-soft: #dce7f5; --amber: #8d5a14; --amber-soft: #f7e8cd; --rose: #8f3b4e; --rose-soft: #f8e1e6; --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif; --serif: Georgia, "Iowan Old Style", serif; --mono: "SFMono-Regular", Menlo, Consolas, monospace; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body { background: radial-gradient(circle at 0% 0%, rgba(31,92,137,0.11), transparent 28%), radial-gradient(circle at 100% 0%, rgba(10,107,87,0.09), transparent 24%), linear-gradient(90deg, rgba(23,33,43,0.03) 1px, transparent 1px) 0 0 / 24px 24px, linear-gradient(0deg, rgba(23,33,43,0.02) 1px, transparent 1px) 0 0 / 24px 24px, var(--bg); color: var(--ink); font: 16px/1.56 var(--sans); }
+    a { color: var(--green); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; padding: 24px 20px 28px; border-right: 1px solid var(--line); background: rgba(244,239,232,0.97); backdrop-filter: blur(8px); }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card { display: grid; gap: 10px; }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.055em; }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { margin: 0; font-family: var(--serif); line-height: 1.05; }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p { margin: 0; color: var(--muted); }
+    .kicker { color: var(--amber); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a { display: block; padding: 8px 10px; border-left: 3px solid transparent; color: var(--muted); font-size: 11px; font-weight: 800; text-decoration: none; }
+    .nav a:hover, .nav a:focus { border-left-color: var(--green); background: rgba(255,255,255,0.82); color: var(--ink); }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero { padding: 44px min(5vw, 62px) 34px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(10,107,87,0.14), transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.90)); }
+    .hero-grid, .content { width: min(1220px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr); gap: 28px; }
+    .eyebrow { color: var(--green); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.1rem, 4vw, 3.6rem); margin-bottom: 14px; }
+    .hero p { max-width: 76ch; font-size: 1.02rem; }
+    .hero-note { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--line); background: rgba(255,255,255,0.9); box-shadow: var(--shadow); }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.8rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card { min-width: 0; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); padding: 20px; }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .task-grid .task-card { grid-column: span 4; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.28rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; font-weight: 800; max-width: 100%; overflow-wrap: anywhere; }
+    .chip.green { background: var(--green-soft); color: var(--green); border-color: rgba(10,107,87,0.18); }
+    .chip.blue { background: var(--blue-soft); color: var(--blue); border-color: rgba(31,92,137,0.18); }
+    .chip.amber { background: var(--amber-soft); color: var(--amber); border-color: rgba(141,90,20,0.18); }
+    .chip.rose { background: var(--rose-soft); color: var(--rose); border-color: rgba(143,59,78,0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.02fr 0.98fr; gap: 18px; min-width: 0; }
+    .note-box { padding: 16px 18px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(220,232,246,0.72), rgba(255,255,255,0.92)); min-width: 0; }
+    .task-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 800; color: var(--muted); }
+    .task-time, .inline-time { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(216,239,231,0.92), rgba(255,255,255,0.97)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(245,231,207,0.92), rgba(255,255,255,0.97)); }
+    .evidence-card.risk, .repo-card.pressure { background: linear-gradient(180deg, rgba(247,224,229,0.92), rgba(255,255,255,0.97)); }
+    .empty-state { display: grid; gap: 10px; place-items: start; }
+    .footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 800; }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) { .page { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); } .hero-grid, .stream-columns { grid-template-columns: 1fr; } .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; } }
+    @media (max-width: 640px) { .hero, .content { padding-left: 18px; padding-right: 18px; } .metrics { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-26</h1>
+        <p>Previous 24 hours in local time, covering committed work, completed <code>wrkq</code> tasks, proven ahead-of-upstream commits, and visible unchecked-in repo state across Praesidium.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--green);"></span>Committed work inside the exact local window</div>
+        <div class="legend-item"><span class="dot" style="background: var(--blue);"></span><code>wrkq</code> completion evidence across projects</div>
+        <div class="legend-item"><span class="dot" style="background: var(--amber);"></span>Proven ahead-of-upstream commit state</div>
+        <div class="legend-item"><span class="dot" style="background: var(--rose);"></span>Visible unchecked-in pressure</div>
+      </div>
+      <div class="sidebar-block sidebar-note"><strong>Window</strong><br />2026-06-25 05:00:37 CDT to 2026-06-26 05:00:37 CDT</div>
+      <div class="sidebar-block sidebar-note"><strong>Top accomplishments</strong><ul class="fact-list">
+        <li><strong>Agent Control Plane dominated the slice</strong> with <strong>31 of 39 in-window commits</strong> and <strong>29 of 31 completed tasks</strong>.</li>
+        <li><strong>The ACP refactor queue became more governable</strong> through ready-task forcing, human sign-off honoring, whole-worktree publish context, and follow-on selector/reporting cleanup.</li>
+        <li><strong>Package boundaries were narrowed across the ACP surface</strong> from gateway-discord and gateway-ios through interface-store, jobs-store, core, conversation, cli, and admin-store.</li>
+        <li><strong>A smaller support wave touched seven other repos</strong> including agent-loop orchestration, hrcchat scope dispatch, scriptable-ghostty macOS build repair, and spec/knowledge maintenance.</li>
+        <li><strong>Open-state pressure stayed small but non-zero</strong>: one local-only <code>spaces-repo</code> commit and two visible unchecked-in paths.</li>
+      </ul></div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium-wide accomplishments for 2026-06-26</div>
+            <h2>The day was broad enough to touch eight repos, but the real throughput was a concentrated ACP hardening pass: refactor-governance fixes early, package-surface pruning all day, and a small support lane that kept adjacent tools and specs aligned.</h2>
+            <p>The buckets stay separate on purpose. Commits show what actually landed, <code>wrkq</code> completions show what formally crossed the line, ahead-of-upstream exposes delivery lag, and unchecked-in files show visible pressure that is still open.</p>
+            <div class="hero-note"><strong>Interpretation note</strong>This was not a shallow “many repos changed” day. It was a deep ACP cleanup and contract-hardening tranche with a thin but real ecosystem follow-through in agent-loop, hrc-runtime, knowledge, scriptable-ghostty, spaces-repo, workflow-spec, and explainer.</div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><div class="metric-label">Committed window</div><div class="metric-value">39</div><small>8 repos contributed current-branch commits inside the slice.</small></div>
+            <div class="metric"><div class="metric-label">Completed tasks</div><div class="metric-value">31</div><small>29 ACP tasks, 1 agent-loop task, 1 project-util task.</small></div>
+            <div class="metric"><div class="metric-label">Proven unpushed</div><div class="metric-value">1</div><small>1 repo with in-window commits still ahead of upstream.</small></div>
+            <div class="metric"><div class="metric-label">Fresh unchecked-in</div><div class="metric-value">2</div><small>2 repo/group buckets show currently visible in-window paths.</small></div>
+          </div>
+        </div>
+      </section>
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The useful split here is between the ACP tranche that carried most of the day, the later package-boundary cleanup that formalized those gains, and the smaller maintenance wave that kept adjacent repos consistent with the same direction.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>Refactor governance and gateway contract fixes drove the opening half of the slice</h3>
+                  <p>The early ACP wave fixed how refactor automation decides to proceed, how it interprets human sign-off, and how it publishes context, while also trimming gateway barrels and resolving gateway-ios session and input mismatches.</p>
+                </div>
+                <div class="chips"><span class="chip green">10 commits</span><span class="chip blue">Automation + gateway lane</span><span class="chip amber">0 ahead commits</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>38c47b2</code> refactor(acp-admin-store): remove unused section store factories <span class="inline-time">19:33</span></li><li><code>0e3b6cd</code> Narrow acp-cli AcpClient surface <span class="inline-time">19:09</span></li><li><code>cde6f83</code> refactor(acp-cli): narrow AcpClient legacy surface <span class="inline-time">18:44</span></li><li><code>544d955</code> refactor(acp-conversation): narrow package root exports <span class="inline-time">17:35</span></li><li><code>ea9db3e</code> refactor(acp-conversation): drop migration snapshot from store interface <span class="inline-time">17:12</span></li><li><code>b0910a7</code> Remove dead acp-core normalizeAgentActor export <span class="inline-time">16:26</span></li><li><code>d11536c</code> refactor(acp-core): use structuredClone for workflow copies <span class="inline-time">16:02</span></li><li><code>86b64aa</code> Converge interface-store delivery outcome types <span class="inline-time">15:15</span></li><li><code>b0975a2</code> refactor(acp-interface-store): remove inert actor store option <span class="inline-time">14:50</span></li><li><code>4da9a1a</code> refactor(acp-interface-store): narrow public index exports <span class="inline-time">14:26</span></li></ul></div>
+                <div class="note-box"><strong>Why it matters</strong><ul class="evidence-list">
+                  <li>The selector and sign-off fixes move the ACP refactor loop away from silent wrong-turns and toward explicit operator intent.</li>
+                  <li>The whole-worktree publish fix matters because automation that publishes partial context creates deceptive success states.</li>
+                  <li>Gateway-discord and gateway-ios cleanup in the same lane means the orchestration fixes were paired with public-contract tightening, not left as standalone queue work.</li>
+                </ul></div>
+              </div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>ACP spent the rest of the day narrowing package surfaces and correcting store contracts</h3>
+                  <p>From viewer typing through state-store, ops-reducer, jobs-store, interface-store, core, conversation, cli, and admin-store, the branch kept removing dead exports, converging duplicated types, and correcting semantics that were previously wrong or over-exposed.</p>
+                </div>
+                <div class="chips"><span class="chip green">21 commits</span><span class="chip blue">Boundary + contract lane</span><span class="chip green">29 completed tasks</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>43f2100</code> Remove unused acp-jobs-store sqlite exports <span class="inline-time">14:02</span></li><li><code>703fdf0</code> Remove unused acp-jobs-store assertValidJobFlow export <span class="inline-time">13:39</span></li><li><code>057135d</code> refactor(acp-jobs-store): remove ScheduledRun public export <span class="inline-time">13:15</span></li><li><code>7ecf6ad</code> fix(acp-jobs-store): preserve skipped flow job-run status <span class="inline-time">12:51</span></li><li><code>87dc787</code> refactor: centralize ops redaction policy <span class="inline-time">12:26</span></li><li><code>42809d1</code> refactor(acp-ops-reducer): narrow reducer type exports <span class="inline-time">11:40</span></li><li><code>c75500c</code> fix(acp-state-store): fail transition outbox after capped retries <span class="inline-time">11:16</span></li><li><code>5f7930c</code> Fix acp-viewer admin detail contracts <span class="inline-time">10:51</span></li><li><code>6737412</code> refactor(acp-viewer): localize JobSummary API type <span class="inline-time">10:19</span></li><li><code>8e9e3be</code> Improve wrkq refactor email subjects <span class="inline-time">09:44</span></li><li><code>f7ae6ba</code> refactor(coordination-substrate): narrow public index exports <span class="inline-time">09:14</span></li><li><code>456c1ef</code> refactor(gateway-discord): remove dead renderToDiscord path <span class="inline-time">07:46</span></li></ul></div>
+                <div class="note-box"><strong>Why it matters</strong><ul class="evidence-list">
+                  <li>This is the kind of tranche that lowers future bug surface more than it raises same-day feature count: fewer stale exports, fewer duplicated types, fewer wrong public promises.</li>
+                  <li>The state-store and jobs-store fixes were not only cleanup; they corrected failure and skipped-status semantics that affect real downstream interpretation.</li>
+                  <li>The 29 ACP task completions show this was formal tracked work crossing the finish line, not just opportunistic commit gardening.</li>
+                </ul></div>
+              </div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>Seven supporting repos moved in the same direction, with one local-only follow-through still open</h3>
+                  <p>The support lane was lighter but coherent: agent-loop orchestration, hrcchat Codex-scope dispatch, knowledge/spec refreshes, a macOS Zig build fix in scriptable-ghostty, and a spaces-repo retirement update that remains local-only for now.</p>
+                </div>
+                <div class="chips"><span class="chip green">8 commits</span><span class="chip amber">1 ahead commit</span><span class="chip rose">2 non-ACP task completions</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>agent-loop</code> <code>fb8a537</code> Harden agent loop orchestration <span class="inline-time">09:43</span></li><li><code>explainer</code> <code>72f0c4e</code> Quote explainer skill description <span class="inline-time">09:42</span></li><li><code>hrc-runtime</code> <code>89efe39</code> fix(hrcchat): avoid local dispatch for Codex app scopes <span class="inline-time">09:52</span></li><li><code>knowledge</code> <code>90702a5</code> Update knowledge base structure and workflow ontology <span class="inline-time">09:51</span></li><li><code>scriptable-ghostty</code> <code>70adf42f0</code> Format repository docs <span class="inline-time">09:58</span></li><li><code>scriptable-ghostty</code> <code>d720ea4a8</code> Fix macOS Zig build with Xcode 26 <span class="inline-time">09:56</span></li><li><code>spaces-repo</code> <code>8d54000</code> chore: update retired space definitions <span class="inline-time">09:57</span></li><li><code>workflow-spec</code> <code>ea4e56a</code> Update workflow spec artifacts <span class="inline-time">10:01</span></li></ul></div>
+                <div class="note-box"><strong>Interpretation</strong><ul class="evidence-list">
+                  <li>The support work is mostly maintenance, but it lines up with the same theme: cleaner boundaries, safer orchestration, and fewer environment-specific breakpoints.</li>
+                  <li><code>spaces-repo</code> is the only repo with both an in-window commit and remaining push pressure, so it is the one follow-through item that still needs publication.</li>
+                  <li>The two non-ACP completed tasks extend the story beyond ACP itself: one hardened agent-loop commit-and-push orchestration, and one added project-util target selection capability.</li>
+                </ul></div>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Tasks</h2>
+            <p>The exact local slice contained 31 completed <code>wrkq</code> tasks across three projects. Most are ACP surface-pruning and contract-correction work, with one agent-loop completion and one project-util completion closing the adjacent orchestration lane.</p>
+          </div>
+          <div class="task-grid">
+            <article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04493</span></div>
+      <h3>[acp-admin-store] checkStaleHeartbeats O(agents x projects x memberships) project-resolution scan</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 05:35:12 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04584</span></div>
+      <h3>[gateway-ios] Narrow the fat index.ts export surface to the actual public contract</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 05:35:13 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04581</span></div>
+      <h3>[gateway-discord] F1 — narrow index.ts barrel to the 2 names acp-cli actually uses (GatewayDiscordApp, envNumber)</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 05:35:13 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04523</span></div>
+      <h3>[acp-interface-store] recordFailedDelivery is a typed no-op kept alive only by a future-API test cast</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 05:35:13 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04592</span></div>
+      <h3>[wlearn] F1 — Trim dead/leaky library re-exports (reviewTraceLabel, transitionLearningArtifactLifecycle) from index.ts</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 05:44:43 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04587</span></div>
+      <h3>[gateway-ios] Duplicated session-resolution selection rule with divergent tie-break (module.ts vs session-generation.ts)</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 06:31:56 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04586</span></div>
+      <h3>[gateway-ios] InputRequest.enter contract says required but parser treats it optional</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 06:56:43 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04583</span></div>
+      <h3>[gateway-discord] F5 — drop render.ts test-only re-export pass-through; repoint render.test.ts to agent-action-render</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 07:20:20 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04582</span></div>
+      <h3>[gateway-discord] F2 — delete production-dead discord-render.ts (renderToDiscord) + its index.ts export + the e2e test usage</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 07:45:55 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-loop</span><span>T-05162</span></div>
+      <h3>Use project-util plan to drive commit-and-push targets</h3>
+      <p>Completed in <code>agent-loop</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 08:45:35 CDT</p>
+      <div class="chips"><span class="chip amber">agent-loop</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04576</span></div>
+      <h3>[coordination-substrate] F1 — Narrow over-wide public export surface in index.ts (lifecycle + session-ref quartet + listEventLinks + LocalDispatchAttempt)</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 09:14:04 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>project-util</span><span>T-05160</span></div>
+      <h3>projstat: commit-and-push target selection capability</h3>
+      <p>Completed in <code>project-util</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 09:34:50 CDT</p>
+      <div class="chips"><span class="chip rose">project-util</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04566</span></div>
+      <h3>[acp-viewer] F4 (api-compat.d.ts deletion) — global ambient JobSummary is actually load-bearing</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 10:18:37 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04564</span></div>
+      <h3>[acp-viewer] Two parallel response-type families bridged by  (API contract may be wrong)</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 10:50:54 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04559</span></div>
+      <h3>[acp-state-store] markErrored parks failed events in &#x27;leased&#x27;, never the terminal &#x27;failed&#x27; state</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 11:16:06 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04544</span></div>
+      <h3>[acp-ops-reducer] F5 [T07] De-export never-imported types ReducerEventFilters / ReducerWindow</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 11:39:34 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04540</span></div>
+      <h3>[acp-ops-reducer] Centralize duplicated credential-redaction policy by exporting it from acp-ops-projection</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 12:25:48 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04529</span></div>
+      <h3>[acp-jobs-store] mapJobRunStatusForFlowResponse flattens skipped into failed</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 12:50:33 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04528</span></div>
+      <h3>[acp-jobs-store] Remove unused ScheduledRun alias from public export</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 13:14:56 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04527</span></div>
+      <h3>[acp-jobs-store] Remove unused assertValidJobFlow</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 13:38:25 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04526</span></div>
+      <h3>[acp-jobs-store] Remove unused Sqlite* re-export cluster</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 14:02:06 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04524</span></div>
+      <h3>[acp-interface-store] F1 — stop re-exporting concrete repo/resolver classes from index.ts</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 14:25:48 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04522</span></div>
+      <h3>[acp-interface-store] Inert public option OpenInterfaceStoreOptions.actor accepted but never read</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 14:50:15 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04521</span></div>
+      <h3>[acp-interface-store] De-duplicate DeliveryOutcome/DeliveryRequestStatus against acp-core (copies have drifted)</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 15:14:52 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04518</span></div>
+      <h3>[acp-core] F9 — Replace JSON round-trip clone&lt;T&gt; with structuredClone</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 16:01:17 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04514</span></div>
+      <h3>[acp-core] F3 — Remove (or wire) dead public export normalizeAgentActor</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 16:25:19 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04509</span></div>
+      <h3>[acp-conversation] F2 — Drop ConversationStore.migrations.applied snapshot from the public interface</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 17:11:32 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04508</span></div>
+      <h3>[acp-conversation] F1 — Narrow the fat boundary export (stop re-exporting SqliteDatabase default, the four ConversationSqlite* type aliases, and the three migr</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 17:35:01 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04502</span></div>
+      <h3>[acp-cli] F2 — Narrow exported AcpClient interface (drop promoteTask, listTransitions; decide createTask)</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 18:43:54 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04499</span></div>
+      <h3>[acp-cli] Narrow AcpClient interface to actual usage (drop promoteTask, listTransitions; investigate createTask)</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 19:08:14 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article><article class="task-card">
+      <div class="task-meta"><span>agent-control-plane</span><span>T-04495</span></div>
+      <h3>[acp-admin-store] B2 — collapse premature abstraction StoreHandle&lt;T&gt; / createStoreHandle</h3>
+      <p>Completed in <code>agent-control-plane</code> during the reporting slice.</p>
+      <p class="task-time">2026-06-25 19:35:12 CDT</p>
+      <div class="chips"><span class="chip green">agent-control-plane</span></div>
+    </article>
+          </div>
+        </section>
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>The evidence chain for this run stays explicit: live git history, live repo status, live <code>wrkq</code> completion scans, and post-write artifact verification. No bucket is inferred from another.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3>Source coverage</h3>
+              <ul class="evidence-list">
+                <li>Scanned visible git repos under <code>/Users/lherron/praesidium</code> and filtered current-branch commit history to the exact local 24-hour window.</li>
+                <li>Queried <code>wrkq find --project &lt;project&gt; --type t --state completed --sort updated_at --reverse --limit 400 --output ndjson</code> across visible Praesidium projects, then filtered locally by timestamp.</li>
+                <li>Collected ahead-of-upstream evidence only from repos with configured upstreams; no repo without upstream was treated as unpushed by guesswork.</li>
+              </ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Scoring rules</h3>
+              <ul class="evidence-list">
+                <li>Kept landed commits, completed tasks, local-only ahead commits, and fresh unchecked-in paths as separate evidence buckets.</li>
+                <li>Treated dirty paths as relevant only when the current file mtime fell inside the same local 24-hour slice.</li>
+                <li>Excluded the umbrella <code>/Users/lherron/praesidium</code> repo from scorecard commit counts so unrelated umbrella noise could not swamp the brief.</li>
+              </ul>
+            </article>
+            <article class="evidence-card good">
+              <h3>Artifact checks</h3>
+              <ul class="evidence-list">
+                <li>Verified required anchors <code>#scorecard</code>, <code>#workstreams</code>, <code>#tasks</code>, <code>#validation</code>, and <code>#open-state</code>.</li>
+                <li>Verified overflow-safe CSS with <code>html, body { overflow-x: hidden; }</code> and mobile breakpoint collapse rules for the sidebar, metrics, and card grids.</li>
+                <li>If browser preview is unavailable in this runtime, static verification remains the accepted fallback for this workflow.</li>
+              </ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Delivery path</h3>
+              <ul class="evidence-list">
+                <li>This artifact is intended for attachment delivery with subject <code>Praesidium accomplishments for 2026-06-26</code>.</li>
+                <li>The plain-text body states the exact covered window, the attachment filename, and the top accomplishments from this page.</li>
+                <li>Mail-send success or failure is tracked outside the artifact so transport problems do not silently change the report content.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>Open state stays visible after the accomplishment narrative so the brief does not confuse landed work with still-local pressure. In this slice the remaining pressure is small, specific, and easy to name.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card pressure">
+  <h3>spaces-repo has the only proven local-only commit</h3>
+  <p>One commit from the window is still ahead of its configured upstream, so push pressure is real but tightly bounded.</p>
+  <ul class="repo-list">
+    <li><code>spaces-repo</code> <code>8d54000</code> chore: update retired space definitions</li>
+    <li>Committed at 2026-06-25 09:57:56 UTC-05:00</li>
+    <li>No other scanned repo showed in-window commits ahead of upstream.</li>
+  </ul>
+</article><article class="repo-card pressure">
+  <h3>agent-spaces</h3>
+  <p>Currently visible unchecked-in work from the same 24-hour slice.</p>
+  <ul class="repo-list">
+    <li><code>??</code> <code>docs/html/daily-accomplishments-2026-06-25.html</code></li>
+    <li>mtime: 2026-06-25 05:06:50 CDT</li>
+    <li>This is visible open state, not counted as landed work.</li>
+  </ul>
+</article><article class="repo-card pressure">
+  <h3>util</h3>
+  <p>Visible umbrella-repo work that belongs in open state rather than the shipped scorecard.</p>
+  <ul class="repo-list">
+    <li><code>??</code> <code>util/project-util/</code></li>
+    <li>mtime: 2026-06-25 07:46:42 CDT</li>
+    <li>The umbrella root itself is excluded from scorecard commit counts to avoid noise.</li>
+  </ul>
+</article><article class="repo-card">
+  <h3>Workspace signal stayed concentrated</h3>
+  <p>The slice is wide in repo coverage but still sharply concentrated in ACP work.</p>
+  <ul class="repo-list">
+    <li><code>agent-control-plane</code> produced 31 of 39 in-window commits and 29 of 31 completed tasks.</li>
+    <li>Seven other repos produced just 8 maintenance commits combined.</li>
+    <li>Open-state pressure is limited to 2 visible paths across 2 groups.</li>
+  </ul>
+</article>
+          </div>
+          <div class="footer">Source window 2026-06-25 05:00:37 CDT to 2026-06-26 05:00:37 CDT. Generated from git history/status across visible Praesidium repos and completed <code>wrkq</code> tasks across all projects. Artifact: daily-accomplishments-2026-06-26.html.</div>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

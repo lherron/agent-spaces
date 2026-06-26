@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-24</title>
+  <style>
+    :root { --bg: #f3ecdf; --paper: rgba(255,255,255,0.96); --ink: #16202a; --muted: #5e6971; --line: #d4d9d3; --shadow: 0 18px 48px rgba(22,32,42,0.10); --green: #0e6a54; --green-soft: #d8efe7; --blue: #1f5e8f; --blue-soft: #dce9f7; --amber: #865414; --amber-soft: #f5e6ce; --rose: #8f3c4c; --rose-soft: #f8e0e5; --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif; --serif: Georgia, "Iowan Old Style", serif; --mono: "SFMono-Regular", Menlo, Consolas, monospace; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body { background: radial-gradient(circle at 0% 0%, rgba(31,94,143,0.11), transparent 28%), radial-gradient(circle at 100% 0%, rgba(14,106,84,0.09), transparent 24%), linear-gradient(90deg, rgba(22,32,42,0.03) 1px, transparent 1px) 0 0 / 26px 26px, linear-gradient(0deg, rgba(22,32,42,0.02) 1px, transparent 1px) 0 0 / 26px 26px, var(--bg); color: var(--ink); font: 16px/1.56 var(--sans); }
+    a { color: var(--green); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; padding: 24px 20px 28px; border-right: 1px solid var(--line); background: rgba(243,236,223,0.97); backdrop-filter: blur(8px); }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card { display: grid; gap: 10px; }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.055em; }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { margin: 0; font-family: var(--serif); line-height: 1.05; }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p { margin: 0; color: var(--muted); }
+    .kicker { color: var(--amber); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a { display: block; padding: 8px 10px; border-left: 3px solid transparent; color: var(--muted); font-size: 11px; font-weight: 800; text-decoration: none; }
+    .nav a:hover, .nav a:focus { border-left-color: var(--green); background: rgba(255,255,255,0.82); color: var(--ink); }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero { padding: 44px min(5vw, 62px) 34px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(14,106,84,0.14), transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.90)); }
+    .hero-grid, .content { width: min(1180px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr); gap: 28px; }
+    .eyebrow { color: var(--green); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.15rem, 4vw, 3.75rem); margin-bottom: 14px; }
+    .hero p { max-width: 76ch; font-size: 1.02rem; }
+    .hero-note { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--line); background: rgba(255,255,255,0.9); box-shadow: var(--shadow); }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.8rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card { min-width: 0; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); padding: 20px; }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .task-grid .task-card { grid-column: span 4; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.32rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; font-weight: 800; max-width: 100%; overflow-wrap: anywhere; }
+    .chip.green { background: var(--green-soft); color: var(--green); border-color: rgba(14,106,84,0.18); }
+    .chip.blue { background: var(--blue-soft); color: var(--blue); border-color: rgba(31,94,143,0.18); }
+    .chip.amber { background: var(--amber-soft); color: var(--amber); border-color: rgba(134,84,20,0.18); }
+    .chip.rose { background: var(--rose-soft); color: var(--rose); border-color: rgba(143,60,76,0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.02fr 0.98fr; gap: 18px; min-width: 0; }
+    .note-box { padding: 16px 18px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(220,233,247,0.72), rgba(255,255,255,0.92)); min-width: 0; }
+    .task-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 800; color: var(--muted); }
+    .task-time { font-family: var(--mono); font-size: 12px; }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(216,239,231,0.92), rgba(255,255,255,0.97)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(245,230,206,0.92), rgba(255,255,255,0.97)); }
+    .evidence-card.risk, .repo-card.pressure { background: linear-gradient(180deg, rgba(248,224,229,0.92), rgba(255,255,255,0.97)); }
+    .footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 800; }
+    @media (max-width: 1180px) { .task-grid .task-card { grid-column: span 6; } }
+    @media (max-width: 980px) { .page { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); } .hero-grid, .stream-columns { grid-template-columns: 1fr; } .task-card, .evidence-card, .repo-card, .task-grid .task-card { grid-column: span 12; } }
+    @media (max-width: 640px) { .hero, .content { padding-left: 18px; padding-right: 18px; } .metrics { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-24</h1>
+        <p>Previous 24 hours in local time, covering committed work, completed <code>wrkq</code> tasks, proven ahead-of-upstream commits, and visible unchecked-in repo state across Praesidium.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--green);"></span>Committed work inside the exact local window</div>
+        <div class="legend-item"><span class="dot" style="background: var(--blue);"></span><code>wrkq</code> completion evidence across projects</div>
+        <div class="legend-item"><span class="dot" style="background: var(--amber);"></span>Proven ahead-of-upstream commit state</div>
+        <div class="legend-item"><span class="dot" style="background: var(--rose);"></span>Visible unchecked-in pressure</div>
+      </div>
+      <div class="sidebar-block sidebar-note"><strong>Window</strong><br />2026-06-23 05:02:45 CDT to 2026-06-24 05:02:45 CDT</div>
+      <div class="sidebar-block sidebar-note"><strong>Top accomplishments</strong><ul class="fact-list"><li><strong>Taskboard led the visible shipped lane</strong> with <strong>12 commits</strong>, <strong>9 completed tasks</strong>, and <strong>6 proven ahead commits</strong> still waiting to be pushed.</li><li><strong>Structured output is now threaded through ASP plus HRC</strong> via <strong>11 commits</strong> and <strong>13 completed tasks</strong> spanning broker support, per-turn response formats, and warm-path documentation.</li><li><strong><code>wrkq</code> closed another RPC-CLI tranche</strong> with <strong>8 commits</strong> and <strong>9 completed tasks</strong>, while also carrying the heaviest open-state pressure at <strong>57 fresh dirty paths</strong>.</li><li><strong>Agent-loop hardened session and restart behavior</strong> with <strong>3 commits</strong> and <strong>4 completed tasks</strong>, not just proposal work.</li><li><strong>Open repo pressure is real but bounded</strong>: <strong>92 fresh unchecked-in paths across 4 scored repos</strong>, while the deletion-heavy umbrella and knowledge repos stay visible but excluded from scorecard totals.</li></ul></div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium-wide accomplishments for 2026-06-24</div>
+            <h2>The day’s center of gravity was split between visible Taskboard shipping, a cross-repo structured-output chain through ASP and HRC, and another dense <code>wrkq</code> RPC-CLI tranche that landed while the next tranche was already accumulating in the tree.</h2>
+            <p>The report keeps history, task closeout, push state, and open repo pressure as separate evidence buckets. That separation matters in this slice because the shipped count is strong, but the same workspace also shows concentrated fresh WIP in <code>wrkq</code>, <code>agent-loop</code>, <code>agent-control-plane</code>, and <code>hrc-runtime</code>.</p>
+            <div class="hero-note"><strong>Scoring caveat</strong>The umbrella <code>/Users/lherron/praesidium</code> repo and <code>knowledge</code> remain visible in open state, but stay out of the top-line numbers so their deletion-heavy background noise does not swamp the project-repo picture.</div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><div class="metric-label">Committed window</div><div class="metric-value">34</div><small>5 active repos with current-branch commit history in the slice.</small></div>
+            <div class="metric"><div class="metric-label">Completed tasks</div><div class="metric-value">35</div><small>5 projects closed work in the slice.</small></div>
+            <div class="metric"><div class="metric-label">Proven unpushed</div><div class="metric-value">7</div><small>2 repos have in-window commits that are still ahead of upstream.</small></div>
+            <div class="metric"><div class="metric-label">Fresh unchecked-in</div><div class="metric-value">92</div><small>4 scored repos show currently visible in-window paths.</small></div>
+          </div>
+        </div>
+      </section>
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>This run is not one repo overpowering everything. The strongest narrative is three shipped lanes plus one explicit pressure lane: Taskboard product movement, broker and runtime structured-output closure, wrkq RPC-CLI expansion, and agent-loop plus ACP follow-on churn that is visible but only partly landed.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>Taskboard shipped visible product behavior, not just local churn</h3>
+                  <p>The strongest current-branch lane by visible product effect was Taskboard: artifact concierge, keyboard control, inbox routing fixes, and modal navigation all landed together, with part of that lane still ahead of upstream.</p>
+                </div>
+                <div class="chips"><span class="chip green">12 commits</span><span class="chip blue">9 completed tasks</span><span class="chip amber">6 proven unpushed commits</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>cf39a11</code> fix(taskboard): T-05139 — ancestor-based control suppression for modal scroll keys</li><li><code>681bbe8</code> test: cover modal scroll control descendants</li><li><code>6de83e5</code> fix(taskboard): T-05138 — scope inbox hub action view to resolved intake container</li><li><code>ade6ad6</code> test: add red bar for inbox hub action scope</li><li><code>7b9bb51</code> feat(taskboard): T-05137 — hotkey &quot;s&quot; to set task status</li><li><code>9114594</code> test: add red bar for status hotkey</li><li><code>9285282</code> fix: route artifact concierge to dedicated scope</li><li><code>ae45cb4</code> feat: add artifact concierge viewer</li></ul></div>
+                <div class="note-box"><strong>Why it matters</strong><ul class="evidence-list"><li>Closed <code>T-05139</code>, <code>T-05138</code>, <code>T-05137</code>, <code>T-05150</code>, and <code>T-05106</code> in one slice, so keyboard support, intake routing, and artifact concierge all moved in the same day.</li><li>Six Taskboard commits are still ahead of <code>origin/codex/taskboard-wrkq-client-rpc</code>, which makes this the clearest proven unpushed delivery risk in the report.</li><li>The branch is otherwise clean, so the outstanding work is in commit/push state rather than a half-edited working tree.</li></ul></div>
+              </div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>Structured output and agent env contracts tightened across ASP plus HRC</h3>
+                  <p>The next strongest lane was the structured-output path: broker support in agent-spaces, per-turn responseFormat in HRC, warm-only backstop documentation, and fresh env-contract verification work all closed in the same 24-hour window.</p>
+                </div>
+                <div class="chips"><span class="chip green">11 commits</span><span class="chip blue">13 completed tasks</span><span class="chip amber">1 proven unpushed commit</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>79c46ea</code> docs(harness-broker): T-05156 document claude-code-tmux warm-only structured-output contract</li><li><code>c7c62fe</code> fix(harness-broker): T-05147 — bound claude stop decision bridge</li><li><code>0b0d02d</code> Add structured-output matrix scenario</li><li><code>faf63e9</code> feat(harness-broker): T-05147 — claude tmux structured output</li><li><code>ba4d6a2</code> test: add claude tmux structured output reds</li><li><code>2336648</code> docs(hrc-server): T-05154 — clarify launch-primed structured-output backstop is warm-only by design</li><li><code>402a7ff</code> feat(hrc): T-05142 — per-turn responseFormat across HRC turn dispatch</li><li><code>582968b</code> chore(launchd): T-01801 — capture durable-IPC env in canonical plist</li><li><code>5551e71</code> feat: add broker session open flow</li></ul></div>
+                <div class="note-box"><strong>Closed task surface</strong><ul class="evidence-list"><li>agent-spaces closed <code>T-05156</code>, <code>T-05148</code>, <code>T-05145</code>, <code>T-05147</code>, <code>T-05146</code>, <code>T-04218</code>, <code>T-05125</code>, <code>T-05124</code>, <code>T-03779</code>, and <code>T-04133</code>.</li><li>hrc-runtime closed <code>T-05154</code>, <code>T-05142</code>, and <code>T-01801</code> to carry the same response-format and durable-IPC story into runtime dispatch.</li><li>The only proven unpushed commit in this lane is a documentation clarifier on <code>hrc-runtime/main</code>; agent-spaces itself is clean against its upstream.</li></ul></div>
+              </div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>wrkq finished another RPC-CLI tranche while leaving the next tranche visibly in flight</h3>
+                  <p>The wrkq slice landed search and index, monitor and watch, handoff, bundle, webhook, pretty-mode parity, seam smoke, and cutover inventory work. At the same time, wrkq now holds the heaviest fresh dirty set in the workspace.</p>
+                </div>
+                <div class="chips"><span class="chip green">8 commits</span><span class="chip blue">9 completed tasks</span><span class="chip rose">57 fresh dirty paths</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>3c5ef54</code> fix(rpccli): close daedalus T-05117/19 third-round gaps + add attribution invariant</li><li><code>8e285d2</code> fix(rpccli): apply daedalus Tranche D re-review corrections (T-05117/19/15)</li><li><code>8df9c23</code> fix(rpccli): apply daedalus Tranche D review corrections (T-05114/15/17/19)</li><li><code>af0ae3d</code> feat(rpccli): search + index family — server-owned sidecar + embedder behind RPC (T-05114)</li><li><code>ce15b4a</code> feat(rpccli): monitor + watch via bounded-polling read models (Tranche D, #10211)</li><li><code>e58e832</code> feat(rpccli): handoff family wrkq.handoff.create/get/listView/acknowledge (Tranche D, T-05117)</li><li><code>197cd37</code> feat(rpccli): bundle via wrkq.bundle.exportView (LOGICAL snapshot, CLI materializes) — Tranche D, T-05118</li><li><code>d501ff3</code> feat(rpccli): webhook family — dedicated wrkq.webhook.add/remove/listView (T-05119)</li></ul></div>
+                <div class="note-box"><strong>Open-state implication</strong><ul class="evidence-list"><li>Closed <code>T-05151</code>, <code>T-05140</code>, <code>T-05088</code>, <code>T-05119</code>, <code>T-05117</code>, <code>T-05116</code>, <code>T-05115</code>, <code>T-05114</code>, and <code>T-05118</code> in the same window.</li><li>The open tree still contains broad CLI and RPCCLI edits across command surfaces like <code>cat</code>, <code>find</code>, <code>ls</code>, <code>tree</code>, <code>search</code>, <code>attach</code>, <code>cp</code>, and <code>mv</code>.</li><li>This is strong throughput, but it is not a settled repo: the report needs to separate what landed from what is actively being reshaped.</li></ul></div>
+              </div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>Agent-loop pushed session and dispatch resilience while ACP accumulated packaging churn</h3>
+                  <p>agent-loop shipped core runtime behavior changes around session opening, restart resilience, and stall handling. Parallel to that, agent-control-plane picked up a package-manifest churn set without current-branch commits in the same window.</p>
+                </div>
+                <div class="chips"><span class="chip green">3 agent-loop commits</span><span class="chip blue">4 agent-loop tasks</span><span class="chip rose">12 ACP dirty paths</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Concrete shipped movement</strong><ul class="evidence-list"><li><code>48de460</code> feat(wrkq-task-impl): T-05133 — split Phase V to observer + proportionate smoke</li><li><code>8818136</code> feat(dispatch-hrc): T-05130 — survive hrc-server restarts mid worker-turn</li><li><code>8acd813</code> feat(session): T-05128 — session() opens without dispatching a turn; remove initialPrompt</li></ul></div>
+                <div class="note-box"><strong>Pressure to watch</strong><ul class="evidence-list"><li>agent-loop closed <code>T-05076</code>, <code>T-05130</code>, <code>T-05057</code>, and <code>T-05128</code>, so the day included real runtime behavior hardening, not just design notes.</li><li>The agent-loop tree still shows 17 fresh paths, including new response-format files and dispatch/runtime provider edits, which suggests a follow-on tranche already in progress.</li><li>agent-control-plane shows 12 fresh package.json edits in-window with no same-window commits, so it belongs in open repo state rather than the shipped scorecard.</li></ul></div>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Tasks</h2>
+            <p>This grid stays exhaustive for the filtered 24-hour slice instead of only highlighting favorites. The result is scanable, but it still preserves the full cross-project closeout surface.</p>
+          </div>
+          <div class="task-grid">
+        <article class="task-card">
+          <div class="task-meta"><span>taskboard</span><span>T-05139</span></div>
+          <h3>task detail modal needs keyboard support</h3>
+          <p><code>taskboard/inbox/task-detail-modal-needs-keyboard-support</code></p>
+          <p class="task-time">Completed Jun 24, 1:44 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>taskboard</span><span>T-05138</span></div>
+          <h3>quick-add tasks are not going to &quot;inbox&quot;</h3>
+          <p><code>taskboard/inbox/quick-add-tasks-are-not-going-to-inbox</code></p>
+          <p class="task-time">Completed Jun 24, 12:58 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>wrkq</span><span>T-05151</span></div>
+          <h3>Finish wrkq-rpccli primary cutover inventory</h3>
+          <p><code>wrkq/inbox/rpccli-primary-cutover-inventory</code></p>
+          <p class="task-time">Completed Jun 24, 12:32 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>taskboard</span><span>T-05137</span></div>
+          <h3>hotkey &quot;s&quot; to change status</h3>
+          <p><code>taskboard/inbox/hotkey-s-to-change-status</code></p>
+          <p class="task-time">Completed Jun 24, 12:22 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>hrc-runtime</span><span>T-05154</span></div>
+          <h3>hrc-side e2e: claude-code-tmux JSON Schema structured output</h3>
+          <p><code>hrc-runtime/inbox/hrc-claude-tmux-structured-e2e</code></p>
+          <p class="task-time">Completed Jun 23, 11:49 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-spaces</span><span>T-05156</span></div>
+          <h3>claude-code-tmux cold-start turn-1 structured output (warm-only limitation)</h3>
+          <p><code>agent-spaces/inbox/claude-tmux-coldstart-structured</code></p>
+          <p class="task-time">Completed Jun 23, 11:47 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>taskboard</span><span>T-05150</span></div>
+          <h3>task board artifacts should have ui concierge</h3>
+          <p><code>taskboard/inbox/task-board-artifacts-should-have-ui-concierge</code></p>
+          <p class="task-time">Completed Jun 23, 10:33 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-spaces</span><span>T-05148</span></div>
+          <h3>T-05145 Phase 3: structured-output matrix scenario + AGENTS.md</h3>
+          <p><code>agent-spaces/inbox/t05145-matrix</code></p>
+          <p class="task-time">Completed Jun 23, 10:30 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-spaces</span><span>T-05145</span></div>
+          <h3>claude-code-tmux: JSON Schema structured-output support</h3>
+          <p><code>agent-spaces/inbox/claude-tmux-json-schema</code></p>
+          <p class="task-time">Completed Jun 23, 10:30 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-spaces</span><span>T-05147</span></div>
+          <h3>T-05145 Phase 2: claude-tmux JSON Schema driver impl</h3>
+          <p><code>agent-spaces/inbox/t05145-driver</code></p>
+          <p class="task-time">Completed Jun 23, 10:24 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>taskboard</span><span>T-05106</span></div>
+          <h3>Artifact hosting Phase 3: markdown intake renderer</h3>
+          <p><code>taskboard/inbox/artifact-hosting-intake-renderer</code></p>
+          <p class="task-time">Completed Jun 23, 9:21 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-spaces</span><span>T-05146</span></div>
+          <h3>T-05145 Phase 1: unit reds for claude-tmux JSON Schema</h3>
+          <p><code>agent-spaces/inbox/t05145-reds</code></p>
+          <p class="task-time">Completed Jun 23, 9:03 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>taskboard</span><span>T-04966</span></div>
+          <h3>add a go-to keyboard shortcut</h3>
+          <p><code>taskboard/inbox/add-a-go-to-keyboard-shortcut</code></p>
+          <p class="task-time">Completed Jun 23, 8:36 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-spaces</span><span>T-04218</span></div>
+          <h3>Correct AGENT_* scope/session env contract + canonical cross-service names</h3>
+          <p><code>agent-spaces/inbox/agent-env-contract-standardization</code></p>
+          <p class="task-time">Completed Jun 23, 7:39 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>hrc-runtime</span><span>T-05142</span></div>
+          <h3>Implement per-turn responseFormat across HRC turn dispatch</h3>
+          <p><code>hrc-runtime/inbox/turn-response-format</code></p>
+          <p class="task-time">Completed Jun 23, 7:23 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>wrkq</span><span>T-05140</span></div>
+          <h3>Implement rpccli --pretty parity for five base commands</h3>
+          <p><code>wrkq/inbox/rpccli-pretty-byte-check</code></p>
+          <p class="task-time">Completed Jun 23, 3:30 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>hrc-runtime</span><span>T-01801</span></div>
+          <h3>HRC broker IPC durability implementation</h3>
+          <p><code>hrc-runtime/inbox/broker-ipc-durability-hrc-implementation</code></p>
+          <p class="task-time">Completed Jun 23, 1:46 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>taskboard</span><span>T-04964</span></div>
+          <h3>Fix workspace column h/l navigation</h3>
+          <p><code>taskboard/inbox/workspace-column-keyboard</code></p>
+          <p class="task-time">Completed Jun 23, 1:45 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-loop</span><span>T-05076</span></div>
+          <h3>Base-SDK stall watchdog: stallTimeoutMs/heartbeatMs on agent() + typed AgentStallError</h3>
+          <p><code>agent-loop/inbox/agent-stall-watchdog</code></p>
+          <p class="task-time">Completed Jun 23, 1:42 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-spaces</span><span>T-05125</span></div>
+          <h3>Smoke T-04218 fresh agent wrkq write</h3>
+          <p><code>agent-spaces/inbox/smokey-env-contract-agent-write-1782196654</code></p>
+          <p class="task-time">Completed Jun 23, 1:28 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-spaces</span><span>T-05124</span></div>
+          <h3>Smoke T-04218 actor env verify</h3>
+          <p><code>agent-spaces/inbox/smokey-env-contract-verify-1782196600</code></p>
+          <p class="task-time">Completed Jun 23, 1:28 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-loop</span><span>T-05130</span></div>
+          <h3>dispatch-hrc SDK: survive hrc-server restarts / socket failures mid worker-turn</h3>
+          <p><code>agent-loop/inbox/dispatch-hrc-restart-resilience</code></p>
+          <p class="task-time">Completed Jun 23, 12:40 PM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-spaces</span><span>T-03779</span></div>
+          <h3>Add broker support for Codex structured responses</h3>
+          <p><code>agent-spaces/inbox/codex-structured-response-contract</code></p>
+          <p class="task-time">Completed Jun 23, 10:23 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>taskboard</span><span>T-04982</span></div>
+          <h3>workspace routes dont properly move cards when webhook fires</h3>
+          <p><code>taskboard/inbox/workspace-routes-dont-properly-move-cards-when-webhook-fires</code></p>
+          <p class="task-time">Completed Jun 23, 9:52 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>taskboard</span><span>T-05132</span></div>
+          <h3>Artifact publish: send Mneme Discord pulpit after email</h3>
+          <p><code>taskboard/inbox/artifact-publish-mneme-pulpit</code></p>
+          <p class="task-time">Completed Jun 23, 9:14 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>wrkq</span><span>T-05088</span></div>
+          <h3>RPC-backed wrkq CLI: seam smoke slice</h3>
+          <p><code>wrkq/inbox/rpccli-seam-smoke</code></p>
+          <p class="task-time">Completed Jun 23, 8:16 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>wrkq</span><span>T-05119</span></div>
+          <h3>RPC-CLI Tranche D: webhook family wrkq.webhook.add/remove/listView — daedalus-approved</h3>
+          <p><code>wrkq/inbox/rpccli-webhook</code></p>
+          <p class="task-time">Completed Jun 23, 8:16 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>wrkq</span><span>T-05117</span></div>
+          <h3>RPC-CLI Tranche D: handoff family wrkq.handoff.create/get/listView/acknowledge — daedalus-approved</h3>
+          <p><code>wrkq/inbox/rpccli-handoff</code></p>
+          <p class="task-time">Completed Jun 23, 8:14 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>wrkq</span><span>T-05116</span></div>
+          <h3>RPC-CLI Tranche D: watch via wrkq.history.tailView (sibling of history.listView) — daedalus-approved</h3>
+          <p><code>wrkq/inbox/rpccli-watch</code></p>
+          <p class="task-time">Completed Jun 23, 8:04 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>wrkq</span><span>T-05115</span></div>
+          <h3>RPC-CLI Tranche D: monitor via wrkq.monitor.eventsView + .stateView (bounded polling) — daedalus-approved</h3>
+          <p><code>wrkq/inbox/rpccli-monitor</code></p>
+          <p class="task-time">Completed Jun 23, 8:04 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>wrkq</span><span>T-05114</span></div>
+          <h3>RPC-CLI Tranche D: search + index family (server-owned sidecar+embedder) — daedalus-approved</h3>
+          <p><code>wrkq/inbox/rpccli-search</code></p>
+          <p class="task-time">Completed Jun 23, 7:46 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-spaces</span><span>T-04133</span></div>
+          <h3>aspc as a true compiler: reproducibility, output capture, release verification</h3>
+          <p><code>agent-spaces/inbox/aspc-reproducible-compiler</code></p>
+          <p class="task-time">Completed Jun 23, 7:44 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>wrkq</span><span>T-05118</span></div>
+          <h3>RPC-CLI Tranche D: bundle via wrkq.bundle.exportView (logical snapshot, CLI materializes) — daedalus-approved</h3>
+          <p><code>wrkq/inbox/rpccli-bundle</code></p>
+          <p class="task-time">Completed Jun 23, 7:44 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-loop</span><span>T-05057</span></div>
+          <h3>Smoke: triage loop happy path 20260621192142</h3>
+          <p><code>agent-loop/triage-smoke-20260621192142/happy-path-fixture</code></p>
+          <p class="task-time">Completed Jun 23, 7:43 AM CDT</p>
+        </article>
+        <article class="task-card">
+          <div class="task-meta"><span>agent-loop</span><span>T-05128</span></div>
+          <h3>session(): open a broker session without dispatching a turn; remove initialPrompt (hrc session() broken)</h3>
+          <p><code>agent-loop/inbox/opensession-no-dispatch-without-prompt</code></p>
+          <p class="task-time">Completed Jun 23, 7:39 AM CDT</p>
+        </article>
+          </div>
+        </section>
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>The evidence chain for this report is explicit: live repo history, live repo state, live <code>wrkq</code> completions, and post-write artifact verification. This section records the collection and verification rules used for this run.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3>Source coverage</h3>
+              <ul class="evidence-list"><li>Scanned every visible git repo under <code>/Users/lherron/praesidium</code> and filtered commit history to the exact local 24-hour window.</li><li>Queried <code>wrkq projects --json</code> first, then collected completed tasks per project with <code>wrkq find --project ... --type t --state completed --json</code> and filtered timestamps locally.</li><li>Collected ahead-of-upstream evidence only from repos with a configured upstream; repos without upstream are not counted as unpushed by guesswork.</li></ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Scoring rules</h3>
+              <ul class="evidence-list"><li>Excluded the umbrella <code>/Users/lherron/praesidium</code> repo and <code>knowledge</code> from top-line scorecard counts so unrelated deletion-heavy state does not swamp project-level signal.</li><li>Kept committed history, completed tasks, proven ahead commits, and fresh unchecked-in paths as separate evidence buckets rather than collapsing them into one activity number.</li><li>Treated dirty paths as relevant only when the current file mtime fell inside the same local 24-hour window.</li></ul>
+            </article>
+            <article class="evidence-card good">
+              <h3>Static verification</h3>
+              <ul class="evidence-list"><li>Verified required anchors <code>#scorecard</code>, <code>#workstreams</code>, <code>#tasks</code>, <code>#validation</code>, and <code>#open-state</code> are present.</li><li>Verified responsive overflow guards: <code>html, body { overflow-x: hidden; }</code>, stacked mobile breakpoints, and no fixed-width card layout.</li><li>Browser-plugin localhost verification was not the reliable path in this runtime, so this run uses the accepted static-check fallback.</li></ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Delivery path</h3>
+              <ul class="evidence-list"><li>This artifact is intended for email attachment delivery with subject <code>Praesidium accomplishments for 2026-06-24</code>.</li><li>The email body states the exact covered window, the attachment filename, and the top accomplishments from this page.</li><li>Send status is recorded outside the artifact so a mail failure does not silently rewrite the evidence page.</li></ul>
+            </article>
+          </div>
+        </section>
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>Open state is kept visible after the accomplishment narrative so the report does not confuse landed work with active churn. These cards call out the repos that still need attention because of ahead commits or fresh unchecked-in paths.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card pressure">
+              <h3>taskboard</h3>
+              <p>6 ahead commits on a clean branch make Taskboard the strongest proven push gap in this run.</p>
+              <ul class="repo-list"><li><code>cf39a11</code> fix(taskboard): T-05139 — ancestor-based control suppression for modal scroll keys</li><li><code>681bbe8</code> test: cover modal scroll control descendants</li><li><code>6de83e5</code> fix(taskboard): T-05138 — scope inbox hub action view to resolved intake container</li><li><code>ade6ad6</code> test: add red bar for inbox hub action scope</li><li><code>7b9bb51</code> feat(taskboard): T-05137 — hotkey &quot;s&quot; to set task status</li><li><code>9114594</code> test: add red bar for status hotkey</li></ul>
+            </article>
+            <article class="repo-card pressure">
+              <h3>wrkq</h3>
+              <p>57 fresh dirty paths remain after 8 landed commits, concentrated in CLI and RPCCLI command surfaces.</p>
+              <ul class="repo-list"><li><code>M</code> <code>Justfile</code></li><li><code>M</code> <code>docs/rpc-cli-migration.md</code></li><li><code>M</code> <code>docs/wrkq-wrkf-rpc-client-forward-spec.md</code></li><li><code>M</code> <code>docs/wrkq-wrkf-rpc.md</code></li><li><code>M</code> <code>internal/cli/cat.go</code></li><li><code>M</code> <code>internal/cli/find.go</code></li><li><code>M</code> <code>internal/cli/ls.go</code></li><li><code>M</code> <code>internal/cli/search.go</code></li></ul>
+            </article>
+            <article class="repo-card pressure">
+              <h3>agent-loop</h3>
+              <p>17 fresh dirty paths show the next runtime tranche already in progress immediately after the shipped commits.</p>
+              <ul class="repo-list"><li><code>M</code> <code>loops/wrkq-task-impl/README.md</code></li><li><code>M</code> <code>loops/wrkq-task-impl/wrkq-task-impl.test.ts</code></li><li><code>M</code> <code>loops/wrkq-task-impl/wrkq-task-impl.ts</code></li><li><code>M</code> <code>loops/wrkq-task-triage/wrkq-task-triage.ts</code></li><li><code>M</code> <code>packages/agent-loop-dispatch-hrc/src/hrc-client-adapter.ts</code></li><li><code>M</code> <code>packages/agent-loop-dispatch-hrc/src/provider.test.ts</code></li><li><code>M</code> <code>packages/agent-loop-dispatch-hrc/src/provider.ts</code></li><li><code>M</code> <code>packages/agent-loop-dispatch-local/src/provider.ts</code></li></ul>
+            </article>
+            <article class="repo-card pressure">
+              <h3>agent-control-plane and hrc-runtime</h3>
+              <p>ACP holds package-manifest churn without same-window commits; HRC has one ahead doc commit plus six fresh package edits.</p>
+              <ul class="repo-list"><li><code>M</code> <code>packages/acp-cli/package.json</code></li><li><code>M</code> <code>packages/acp-conversation/package.json</code></li><li><code>M</code> <code>packages/acp-core/package.json</code></li><li><code>M</code> <code>packages/acp-e2e/package.json</code></li><li><code>M</code> <code>packages/acp-interface-store/package.json</code></li><li><code>M</code> <code>packages/acp-ops-projection/package.json</code></li><li><code>M</code> <code>packages/hrc-cli/package.json</code></li><li><code>M</code> <code>packages/hrc-core/package.json</code></li><li><code>M</code> <code>packages/hrc-frame-render/package.json</code></li></ul>
+            </article>
+            <article class="repo-card ">
+              <h3>Excluded noisy roots</h3>
+              <p>The umbrella repo and knowledge remain visible in open state, but stay out of top-line counts.</p>
+              <ul class="repo-list"><li><code>praesidium</code> has 159 visible dirty paths, with only 1 fresh in-window path (<code>?? agent-loop/</code>).</li><li><code>knowledge</code> has 51 visible dirty paths and 0 fresh in-window paths.</li><li>This preserves signal: only active project repos shape the scorecard.</li></ul>
+            </article>
+          </div>
+          <div class="footer">Source window 2026-06-23 05:02:45 CDT to 2026-06-24 05:02:45 CDT. Generated from git history/status across visible Praesidium repos and completed <code>wrkq</code> tasks across all projects. Artifact: daily-accomplishments-2026-06-24.html.</div>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
