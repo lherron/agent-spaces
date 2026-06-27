@@ -10,7 +10,15 @@ import {
   type InvocationPermissionRespondResponse,
   type PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
-import { brokerCommand, codexSpec, collectUntil, repoRoot, userInput, withTimeout } from './helpers'
+import {
+  brokerCommand,
+  brokerProcessEnv,
+  codexSpec,
+  collectUntil,
+  repoRoot,
+  userInput,
+  withTimeout,
+} from './helpers'
 
 const tmpDirs: string[] = []
 
@@ -93,6 +101,7 @@ const startUnixBroker = async () => {
     stdin: 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',
+    env: brokerProcessEnv(),
   })
 
   await waitForSocket(socketPath, broker)

@@ -16,6 +16,8 @@ export interface CommandResult {
   stderr: string
 }
 
+const DISCOVERY_COMMAND_TIMEOUT_MS = 3000
+
 function parseSemver(version: string): [number, number, number] | null {
   const match = version.match(/(\d+)\.(\d+)\.(\d+)/)
   if (!match) return null
@@ -87,28 +89,38 @@ export function codexCommandCandidates(): string[] {
 interface BunSpawnOptions {
   stdout: 'pipe' | 'inherit' | 'ignore'
   stderr: 'pipe' | 'inherit' | 'ignore'
+  env?: Record<string, string> | undefined
 }
 
 interface BunProcess {
   exited: Promise<number>
   stdout: ReadableStream
   stderr: ReadableStream
+  kill: () => void
 }
 
 export async function runCommand(args: string[]): Promise<CommandResult> {
+  const env = codexDiscoveryEnv()
   const bun = (
     globalThis as { Bun?: { spawn: (args: string[], opts: BunSpawnOptions) => BunProcess } }
   ).Bun
   if (bun) {
-    const proc = bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' })
-    const exitCode = await proc.exited
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
-    return { exitCode, stdout, stderr }
+    const proc = bun.spawn(args, { stdout: 'pipe', stderr: 'pipe', env })
+    const stdout = new Response(proc.stdout).text().catch(() => '')
+    const stderr = new Response(proc.stderr).text().catch(() => '')
+    const exitCode = await exitWithTimeout(proc, DISCOVERY_COMMAND_TIMEOUT_MS)
+    if (exitCode === undefined) {
+      proc.kill()
+      return { exitCode: 124, stdout: '', stderr: 'command timed out' }
+    }
+    return { exitCode, stdout: await stdout, stderr: await stderr }
   }
 
   return await new Promise((resolve, reject) => {
-    const proc = spawn(args[0] ?? '', args.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] })
+    const proc = spawn(args[0] ?? '', args.slice(1), {
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
     let stdout = ''
     let stderr = ''
     proc.stdout?.on('data', (chunk) => {
@@ -117,9 +129,46 @@ export async function runCommand(args: string[]): Promise<CommandResult> {
     proc.stderr?.on('data', (chunk) => {
       stderr += chunk.toString()
     })
-    proc.on('error', reject)
+    const timer = setTimeout(() => {
+      proc.kill()
+      resolve({ exitCode: 124, stdout, stderr: stderr || 'command timed out' })
+    }, DISCOVERY_COMMAND_TIMEOUT_MS)
+    timer.unref?.()
+    proc.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
     proc.on('close', (code) => {
+      clearTimeout(timer)
       resolve({ exitCode: code ?? 0, stdout, stderr })
     })
   })
+}
+
+async function exitWithTimeout(
+  proc: { exited: Promise<number> },
+  timeoutMs: number
+): Promise<number | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      proc.exited,
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs, undefined)
+        timer.unref?.()
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function codexDiscoveryEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue
+    if (key.startsWith('HARNESS_BROKER_')) continue
+    env[key] = value
+  }
+  return env
 }

@@ -47,6 +47,18 @@ import {
   verifyBrokerStartContract,
 } from './pre-hrc-broker-helpers.js'
 
+const INHERITED_BROKER_ENV_PREFIXES = ['HARNESS_BROKER_']
+
+function brokerEnvOverrides(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {}
+  for (const key of Object.keys(process.env)) {
+    if (INHERITED_BROKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      env[key] = undefined
+    }
+  }
+  return env
+}
+
 function routeIdFor(value: unknown): string {
   return `prehrc_route_${createCanonicalHasher().hash(value, { timestampMode: 'omit-ephemeral' }).value.slice(0, 32)}`
 }
@@ -923,6 +935,7 @@ async function startBrokerInvocation(
       command: 'bun',
       args: ['packages/harness-broker/bin/harness-broker.js', 'run', '--transport', 'stdio'],
       cwd: repoRoot(),
+      env: brokerEnvOverrides() as Record<string, string>,
     })
     const hello = await brokerClient.hello({
       clientInfo: { name: 'pre-hrc-broker-contract-harness', version: '0.1.0' },

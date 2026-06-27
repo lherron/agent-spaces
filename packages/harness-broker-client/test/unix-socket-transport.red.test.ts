@@ -6,6 +6,7 @@ import { BrokerClient } from 'spaces-harness-broker-client'
 import type { BrokerHelloResponse } from 'spaces-harness-broker-protocol'
 import {
   brokerCommand,
+  brokerProcessEnv,
   codexSpec,
   collectUntil,
   helloRequest,
@@ -81,6 +82,7 @@ describe('BrokerClient unix socket transport red tests for T-01792', () => {
       stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
+      env: brokerProcessEnv(),
     })
     const brokerPid = broker.pid
 

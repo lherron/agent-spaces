@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { BrokerClient } from 'spaces-harness-broker-client'
 import type { PermissionDecision, PermissionRequestParams } from 'spaces-harness-broker-protocol'
-import { collectUntil, repoRoot } from './helpers'
+import { brokerEnvOverrides, collectUntil, repoRoot } from './helpers'
 
 // Fake broker that, on `invocation.input`, issues a single inbound
 // `invocation.permission.request` JSON-RPC request and reports the decision it
@@ -86,6 +86,7 @@ async function runDecisionScenario(
     command: process.execPath,
     args: ['--eval', fakeBrokerScript],
     cwd: repoRoot,
+    env: brokerEnvOverrides(),
   })
 
   register(client)
@@ -180,6 +181,7 @@ describe('BrokerClient onClose disposer (A4)', () => {
       // Broker that exits shortly after start so onClose fires.
       args: ['--eval', 'setTimeout(() => process.exit(0), 50)'],
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     let keptFired = false

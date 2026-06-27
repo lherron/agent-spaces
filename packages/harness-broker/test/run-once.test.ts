@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { brokerProcessEnv } from './helpers'
 
 const packageRoot = new URL('..', import.meta.url).pathname
 const repoRoot = new URL('../../..', import.meta.url).pathname
@@ -75,6 +76,7 @@ describe('harness-broker run-once', () => {
       stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
+      env: brokerProcessEnv(),
     })
 
     const stdout = await new Response(proc.stdout).text()

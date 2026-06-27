@@ -13,7 +13,14 @@ import type {
   JsonRpcMessage,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
-import { expectError, expectResult, noopSpec, parseFrames, request } from './helpers'
+import {
+  brokerProcessEnv,
+  expectError,
+  expectResult,
+  noopSpec,
+  parseFrames,
+  request,
+} from './helpers'
 
 const repoRoot = new URL('../../..', import.meta.url).pathname
 const fixtureDir = new URL('./fixtures/fake-codex', import.meta.url).pathname
@@ -32,6 +39,7 @@ const runBrokerStdio = (extraArgs: string[] = []) =>
     stdout: 'pipe',
     stderr: 'pipe',
     cwd: repoRoot,
+    env: brokerProcessEnv(),
   })
 
 const runBrokerUnix = (args: string[]) =>
@@ -48,6 +56,7 @@ const runBrokerUnix = (args: string[]) =>
     stdin: 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',
+    env: brokerProcessEnv(),
   })
 
 const waitForSocket = async (
@@ -481,6 +490,7 @@ describe('harness-broker CLI', () => {
       stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
+      env: brokerProcessEnv(),
     })
 
     const stdout = await new Response(proc.stdout).text()
@@ -521,6 +531,7 @@ describe('harness-broker unix transport red tests for T-01792', () => {
       stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
+      env: brokerProcessEnv(),
     })
 
     try {
@@ -552,6 +563,7 @@ describe('harness-broker unix transport red tests for T-01792', () => {
       stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
+      env: brokerProcessEnv(),
     })
 
     const stdout = await new Response(proc.stdout).text()
@@ -628,6 +640,7 @@ describe('harness-broker run-once --start-request', () => {
       stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
+      env: brokerProcessEnv(),
     })
 
   test('drives the full lifecycle from an InvocationStartRequest file', async () => {
@@ -704,6 +717,7 @@ describe('harness-broker validate-start-request', () => {
       stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
+      env: brokerProcessEnv(),
     })
 
   test('exits 0 for a valid InvocationStartRequest', async () => {

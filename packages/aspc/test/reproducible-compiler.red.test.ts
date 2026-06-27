@@ -41,6 +41,7 @@ const fixedCompileContext = {
 
 const originalCodexPath = process.env['ASP_CODEX_PATH']
 const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
+const INHERITED_BROKER_ENV_PREFIXES = ['HARNESS_BROKER_']
 
 let fixture: Fixture
 
@@ -376,10 +377,10 @@ async function startFacadeClient(): Promise<AspcClient> {
     command: process.execPath,
     args: ['packages/aspc/bin/aspc-facade.js', 'run', '--transport', 'stdio'],
     cwd: repoRoot,
-    env: {
+    env: brokerEnvOverrides({
       ASP_CODEX_PATH: fixture.codexPath,
       ASP_CODEX_SKIP_COMMON_PATHS: '1',
-    },
+    }),
   })
 }
 
@@ -424,11 +425,10 @@ function writeGoldCorpusFixture(): string {
 function runAspcCli(args: string[]): { status: number | null; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [aspcCliPath(), ...args], {
     cwd: repoRoot,
-    env: {
-      ...process.env,
+    env: brokerProcessEnv({
       ASP_CODEX_PATH: fixture.codexPath,
       ASP_CODEX_SKIP_COMMON_PATHS: '1',
-    },
+    }),
     encoding: 'utf8',
   })
   return {
@@ -448,4 +448,35 @@ function restoreEnv(name: string, value: string | undefined): void {
   } else {
     process.env[name] = value
   }
+}
+
+function brokerEnvOverrides(
+  overrides: Record<string, string | undefined> = {}
+): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...overrides }
+  for (const key of Object.keys(process.env)) {
+    if (INHERITED_BROKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      env[key] = undefined
+    }
+  }
+  return env
+}
+
+function brokerProcessEnv(
+  overrides: Record<string, string | undefined> = {}
+): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue
+    if (INHERITED_BROKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) continue
+    env[key] = value
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) {
+      delete env[key]
+    } else {
+      env[key] = value
+    }
+  }
+  return env
 }

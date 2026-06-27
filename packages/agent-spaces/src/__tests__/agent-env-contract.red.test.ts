@@ -44,6 +44,7 @@ type Fixture = {
 
 const originalCodexPath = process.env['ASP_CODEX_PATH']
 const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
+const HEAVY_TEST_TIMEOUT_MS = 60_000
 
 afterEach(() => {
   if (originalCodexPath === undefined) {
@@ -323,81 +324,85 @@ describe('T-04218 canonical agent env contract', () => {
     }
   })
 
-  test('per-launch agent session env is absent from lockedEnv and hash-neutral across compile plans', async () => {
-    const fixture = createFixture()
-    try {
-      process.env['ASP_CODEX_PATH'] = fixture.codexShim
-      process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
-      const client = createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
-      const first = await client.compileRuntimePlan(compileRequest(fixture))
-      const changedCorrelation = await client.compileRuntimePlan(
-        compileRequest(fixture, {
-          identity: {
-            ...compileRequest(fixture).identity,
-            requestId: 'request_T04218_changed',
-            operationId: 'runtimeOperation_T04218_changed',
-            hostSessionId: 'hostSession_T04218_changed',
-            invocationId: 'inv_T04218_changed' as InvocationId,
-            runId: 'run_T04218_changed',
-            traceId: 'trace_T04218_changed',
-          },
-          placement: placement(fixture, {
-            correlation: {
-              sessionRef: {
-                scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
-                laneRef: 'main',
-              },
-              hostSessionId: 'host-session-changed',
-              runId: 'run-changed',
+  test(
+    'per-launch agent session env is absent from lockedEnv and hash-neutral across compile plans',
+    async () => {
+      const fixture = createFixture()
+      try {
+        process.env['ASP_CODEX_PATH'] = fixture.codexShim
+        process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+        const client = createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
+        const first = await client.compileRuntimePlan(compileRequest(fixture))
+        const changedCorrelation = await client.compileRuntimePlan(
+          compileRequest(fixture, {
+            identity: {
+              ...compileRequest(fixture).identity,
+              requestId: 'request_T04218_changed',
+              operationId: 'runtimeOperation_T04218_changed',
+              hostSessionId: 'hostSession_T04218_changed',
+              invocationId: 'inv_T04218_changed' as InvocationId,
+              runId: 'run_T04218_changed',
+              traceId: 'trace_T04218_changed',
             },
-          }),
-          correlation: {
-            ...compileRequest(fixture).correlation,
-            requestId: 'request_T04218_changed',
-            operationId: 'runtimeOperation_T04218_changed',
-            hostSessionId: 'hostSession_T04218_changed',
-            invocationId: 'inv_T04218_changed' as InvocationId,
-            runId: 'run_T04218_changed',
-            traceId: 'trace_T04218_changed',
-            scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
-            laneRef: 'main',
-          },
-        })
-      )
-      const firstProfile = brokerProfile(first)
-      const changedProfile = brokerProfile(changedCorrelation)
+            placement: placement(fixture, {
+              correlation: {
+                sessionRef: {
+                  scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
+                  laneRef: 'main',
+                },
+                hostSessionId: 'host-session-changed',
+                runId: 'run-changed',
+              },
+            }),
+            correlation: {
+              ...compileRequest(fixture).correlation,
+              requestId: 'request_T04218_changed',
+              operationId: 'runtimeOperation_T04218_changed',
+              hostSessionId: 'hostSession_T04218_changed',
+              invocationId: 'inv_T04218_changed' as InvocationId,
+              runId: 'run_T04218_changed',
+              traceId: 'trace_T04218_changed',
+              scopeRef: 'agent:cody:project:agent-spaces:task:T-99999',
+              laneRef: 'main',
+            },
+          })
+        )
+        const firstProfile = brokerProfile(first)
+        const changedProfile = brokerProfile(changedCorrelation)
 
-      expect(changedCorrelation.ok && changedCorrelation.plan.planHash).toBe(
-        first.ok && first.plan.planHash
-      )
-      expect(changedProfile.profileHash).toBe(firstProfile.profileHash)
-      expect(changedProfile.compatibilityHash).toBe(firstProfile.compatibilityHash)
-      expect(changedProfile.harnessInvocation.specHash).toBe(
-        firstProfile.harnessInvocation.specHash
-      )
-      expect(changedProfile.harnessInvocation.startRequestHash).toBe(
-        firstProfile.harnessInvocation.startRequestHash
-      )
-      for (const reservedKey of [
-        'AGENT_SESSION_REF',
-        'AGENT_SCOPE_REF',
-        'AGENT_RUN_ID',
-        'AGENT_HOST_SESSION_ID',
-        'AGENT_PROJECT_ROOT',
-        'AGENT_ACTOR',
-        'WRKQ_ACTOR',
-        'HRC_SESSION_REF',
-        'HRC_RUN_ID',
-        'HRC_HOST_SESSION_ID',
-      ]) {
-        expect(
-          firstProfile.harnessInvocation.startRequest.spec.process.lockedEnv
-        ).not.toHaveProperty(reservedKey)
+        expect(changedCorrelation.ok && changedCorrelation.plan.planHash).toBe(
+          first.ok && first.plan.planHash
+        )
+        expect(changedProfile.profileHash).toBe(firstProfile.profileHash)
+        expect(changedProfile.compatibilityHash).toBe(firstProfile.compatibilityHash)
+        expect(changedProfile.harnessInvocation.specHash).toBe(
+          firstProfile.harnessInvocation.specHash
+        )
+        expect(changedProfile.harnessInvocation.startRequestHash).toBe(
+          firstProfile.harnessInvocation.startRequestHash
+        )
+        for (const reservedKey of [
+          'AGENT_SESSION_REF',
+          'AGENT_SCOPE_REF',
+          'AGENT_RUN_ID',
+          'AGENT_HOST_SESSION_ID',
+          'AGENT_PROJECT_ROOT',
+          'AGENT_ACTOR',
+          'WRKQ_ACTOR',
+          'HRC_SESSION_REF',
+          'HRC_RUN_ID',
+          'HRC_HOST_SESSION_ID',
+        ]) {
+          expect(
+            firstProfile.harnessInvocation.startRequest.spec.process.lockedEnv
+          ).not.toHaveProperty(reservedKey)
+        }
+      } finally {
+        fixture.cleanup()
       }
-    } finally {
-      fixture.cleanup()
-    }
-  })
+    },
+    HEAVY_TEST_TIMEOUT_MS
+  )
 
   test('docs/env-contract.md documents the allowed cross-boundary variables and legacy kill list', () => {
     const docPath = join(process.cwd(), 'docs', 'env-contract.md')

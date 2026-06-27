@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-06-27</title>
+  <style>
+    :root { --bg: #f3efe7; --paper: rgba(255,255,255,0.96); --ink: #182129; --muted: #5c6770; --line: #d9d4c9; --shadow: 0 18px 44px rgba(24,33,41,0.10); --green: #16624f; --green-soft: #d7ece5; --blue: #295c87; --blue-soft: #dbe8f4; --amber: #8a5c16; --amber-soft: #f5e7cb; --rose: #8d3f4f; --rose-soft: #f7e2e6; --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif; --serif: Georgia, "Iowan Old Style", serif; --mono: "SFMono-Regular", Menlo, Consolas, monospace; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body { background: radial-gradient(circle at 0% 0%, rgba(41,92,135,0.12), transparent 28%), radial-gradient(circle at 100% 0%, rgba(22,98,79,0.08), transparent 24%), linear-gradient(90deg, rgba(24,33,41,0.03) 1px, transparent 1px) 0 0 / 24px 24px, linear-gradient(0deg, rgba(24,33,41,0.02) 1px, transparent 1px) 0 0 / 24px 24px, var(--bg); color: var(--ink); font: 16px/1.56 var(--sans); }
+    a { color: var(--green); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; padding: 24px 20px 28px; border-right: 1px solid var(--line); background: rgba(243,239,231,0.97); backdrop-filter: blur(8px); }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card { display: grid; gap: 10px; }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.055em; }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { margin: 0; font-family: var(--serif); line-height: 1.05; }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p { margin: 0; color: var(--muted); }
+    .kicker { color: var(--amber); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a { display: block; padding: 8px 10px; border-left: 3px solid transparent; color: var(--muted); font-size: 11px; font-weight: 800; text-decoration: none; }
+    .nav a:hover, .nav a:focus { border-left-color: var(--green); background: rgba(255,255,255,0.84); color: var(--ink); }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero { padding: 44px min(5vw, 62px) 34px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(22,98,79,0.14), transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.90)); }
+    .hero-grid, .content { width: min(1220px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr); gap: 28px; }
+    .eyebrow { color: var(--green); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.1rem, 4vw, 3.45rem); margin-bottom: 14px; }
+    .hero p { max-width: 76ch; font-size: 1.02rem; }
+    .hero-note { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--line); background: rgba(255,255,255,0.9); box-shadow: var(--shadow); }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.8rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card { min-width: 0; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); padding: 20px; }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.28rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; font-weight: 800; max-width: 100%; overflow-wrap: anywhere; }
+    .chip.green { background: var(--green-soft); color: var(--green); border-color: rgba(22,98,79,0.18); }
+    .chip.blue { background: var(--blue-soft); color: var(--blue); border-color: rgba(41,92,135,0.18); }
+    .chip.amber { background: var(--amber-soft); color: var(--amber); border-color: rgba(138,92,22,0.18); }
+    .chip.rose { background: var(--rose-soft); color: var(--rose); border-color: rgba(141,63,79,0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 18px; min-width: 0; }
+    .note-box { padding: 16px 18px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(220,232,246,0.72), rgba(255,255,255,0.92)); min-width: 0; }
+    .inline-time, .task-time { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(216,239,231,0.92), rgba(255,255,255,0.97)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(245,231,207,0.92), rgba(255,255,255,0.97)); }
+    .repo-card.pressure { background: linear-gradient(180deg, rgba(247,224,229,0.92), rgba(255,255,255,0.97)); }
+    .empty-state { place-items: start; }
+    .footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 800; }
+    @media (max-width: 980px) { .page { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); } .hero-grid, .stream-columns { grid-template-columns: 1fr; } .task-card, .evidence-card, .repo-card { grid-column: span 12; } }
+    @media (max-width: 640px) { .hero, .content { padding-left: 18px; padding-right: 18px; } .metrics { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-06-27</h1>
+        <p>Previous 24 hours in local time, covering landed commits, completed <code>wrkq</code> tasks, proven ahead-of-upstream branches, and visible unchecked-in repo pressure across Praesidium.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--green);"></span>Landed commits inside the exact local window</div>
+        <div class="legend-item"><span class="dot" style="background: var(--blue);"></span><code>wrkq</code> completion evidence across projects</div>
+        <div class="legend-item"><span class="dot" style="background: var(--amber);"></span>Current ahead-of-upstream carry-over</div>
+        <div class="legend-item"><span class="dot" style="background: var(--rose);"></span>Fresh unchecked-in pressure</div>
+      </div>
+      <div class="sidebar-block sidebar-note"><strong>Window</strong><br />2026-06-26 05:01:55 CDT to 2026-06-27 05:01:55 CDT</div>
+      <div class="sidebar-block sidebar-note"><strong>Top accomplishments</strong><ul class="fact-list">
+        <li><strong>Two commits landed across two repos</strong>, keeping both the reporting archive and <code>wrkq</code> RPC CLI surface moving.</li>
+        <li><strong>No <code>wrkq</code> tasks completed inside the slice</strong>, so the queue-closure bucket stays explicitly empty rather than inferred from commit activity.</li>
+        <li><strong>Push lag is visible in two repos</strong>: <code>spaces-repo</code> is 1 commit ahead and <code>taskboard</code> is 6 commits ahead.</li>
+        <li><strong>Fresh unchecked-in package metadata work is visible</strong> in <code>agent-control-plane</code> and <code>taskboard</code>.</li>
+      </ul></div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium-wide accomplishments for 2026-06-27</div>
+            <h2>This was a quiet landed-work day: one archival docs commit, one infrastructure-facing <code>wrkq</code> CLI commit, zero completed tasks, and a more prominent carry-over story in ahead branches and fresh package-manifest edits.</h2>
+            <p>The report keeps the buckets separate on purpose. Commits show what actually landed, <code>wrkq</code> completions show formal task closure, ahead-of-upstream shows delivery lag, and unchecked-in files show visible pressure still open at report time.</p>
+            <div class="hero-note"><strong>Interpretation note</strong>The evidence does not support a broad throughput narrative for this slice. It supports a narrow one: reporting/archive upkeep, incremental queue tooling expansion, and a meaningful amount of current-state carry-over that should stay visible until it is pushed or committed.</div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><div class="metric-label">Committed window</div><div class="metric-value">2</div><small>2 repos contributed current-branch commits inside the slice.</small></div>
+            <div class="metric"><div class="metric-label">Completed tasks</div><div class="metric-value">0</div><small>No completed wrkq tasks crossed the local window.</small></div>
+            <div class="metric"><div class="metric-label">Proven unpushed</div><div class="metric-value">7</div><small>2 repos are currently ahead of upstream.</small></div>
+            <div class="metric"><div class="metric-label">Fresh unchecked-in</div><div class="metric-value">5</div><small>2 repos show visible in-window path changes.</small></div>
+          </div>
+        </div>
+      </section>
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The day was light enough that the most honest grouping is the landed work itself, followed by the queue/open-state contrast that explains why the slice feels thinner than the current worktree pressure.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+    <div class="stream-head">
+      <div>
+        <h3>agent-spaces carried 1 in-window commit</h3>
+        <p>The only landed agent-spaces work in the slice was documentation publication: the late-June accomplishment reports were added to the docs/html archive.</p>
+      </div>
+      <div class="chips"><span class="chip green">1 commit</span><span class="chip blue">main</span></div>
+    </div>
+    <div class="stream-columns">
+      <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>9e6e63d</code> docs: add late June daily accomplishment reports <span class="inline-time">11:29</span></li></ul></div>
+      <div class="note-box"><strong>Interpretation</strong><ul class="evidence-list"><li>This landed work is archival and reporting-oriented, not a feature or runtime behavior change.</li><li>Neither landed commit had a matching completed wrkq task inside the same slice, so the day reads as direct branch progress rather than queue-close throughput.</li><li>The sparse landed set makes current ahead-of-upstream and dirty-state carry-over more important to call out explicitly.</li></ul></div>
+    </div>
+  </article><article class="stream-card">
+    <div class="stream-head">
+      <div>
+        <h3>wrkq carried 1 in-window commit</h3>
+        <p>The wrkq change expanded RPC CLI fanout, which is an infrastructure-facing capability improvement rather than a task-closure event.</p>
+      </div>
+      <div class="chips"><span class="chip green">1 commit</span><span class="chip blue">main</span></div>
+    </div>
+    <div class="stream-columns">
+      <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>d3d1bae</code> feat(rpccli): expand RPC command fanout <span class="inline-time">11:29</span></li></ul></div>
+      <div class="note-box"><strong>Interpretation</strong><ul class="evidence-list"><li>This landed work improved tooling surface area directly in the queue/runtime ecosystem.</li><li>Neither landed commit had a matching completed wrkq task inside the same slice, so the day reads as direct branch progress rather than queue-close throughput.</li><li>The sparse landed set makes current ahead-of-upstream and dirty-state carry-over more important to call out explicitly.</li></ul></div>
+    </div>
+  </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>The queue-close bucket stayed empty while open-state pressure remained visible</h3>
+                  <p>No completed <code>wrkq</code> tasks fell inside the exact local window, but two ahead branches and two dirty repos were still visible at report time.</p>
+                </div>
+                <div class="chips"><span class="chip blue">0 completed tasks</span><span class="chip amber">7 ahead commits</span><span class="chip rose">5 fresh dirty paths</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>What stayed open</strong><ul class="evidence-list">
+                  <li><code>spaces-repo</code> is 1 commit ahead of upstream with <code>8d54000</code> still local-only.</li>
+                  <li><code>taskboard</code> is 6 commits ahead of upstream on <code>codex/taskboard-wrkq-client-rpc</code>, all predating this slice but still unpublished.</li>
+                  <li><code>agent-control-plane</code> has fresh edits in <code>packages/acp-server/package.json</code>, <code>packages/wrkq-lib/package.json</code>, and <code>bun.lock</code>.</li>
+                  <li><code>taskboard</code> has fresh edits in <code>apps/api/package.json</code> and <code>bun.lock</code>.</li>
+                </ul></div>
+                <div class="note-box"><strong>Why it matters</strong><ul class="evidence-list">
+                  <li>A quiet landed-work day can still hide meaningful delivery backlog; keeping ahead branches visible prevents that from disappearing behind a low commit count.</li>
+                  <li>Fresh package-manifest and lockfile churn is usually a signal that dependency or packaging work is in motion even when it has not crossed commit boundaries yet.</li>
+                  <li>Leaving the completed-task grid empty is the correct reading for this slice; anything else would blur direct evidence with inference.</li>
+                </ul></div>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Tasks</h2>
+            <p>The cross-project <code>wrkq</code> scan used project-by-project completed-task listings filtered locally by <code>updated_at</code>. That produced no in-window completions for this report.</p>
+          </div>
+          <div class="task-grid"><div class="empty-state task-card"><h3>No completed wrkq tasks landed in this slice</h3><p>The cross-project <code>wrkq</code> scan returned zero tasks with <code>updated_at</code> inside 2026-06-26 05:01:55 CDT to 2026-06-27 05:01:55 CDT. The report keeps that bucket visible instead of backfilling from commits.</p></div></div>
+        </section>
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>The report was built from current repo and task surfaces, not prior summaries. Collection stayed aligned to the same exact local-time window used in the page copy and email body.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3>Evidence collection</h3>
+              <ul class="evidence-list">
+                <li>Scanned 17 visible Praesidium git repos for current-branch commits inside 2026-06-26 05:01:55 CDT to 2026-06-27 05:01:55 CDT.</li>
+                <li>Queried every <code>wrkq</code> project via <code>wrkq projects --json</code> then filtered completed tasks locally by <code>updated_at</code>.</li>
+                <li>Checked each repo for current ahead-of-upstream ranges and visible dirty paths.</li>
+              </ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Readout constraints</h3>
+              <ul class="evidence-list">
+                <li>The task-completion bucket is intentionally empty because no completed tasks matched the window.</li>
+                <li>Ahead-of-upstream state is a current snapshot; some carry-over commits predate the reporting slice and are labeled as such in open-state cards.</li>
+                <li>Unchecked-in path relevance used visible current state plus file modification times where available.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>This section keeps live pressure visible even when the landed-work day is light: unpublished branch history and fresh unchecked-in files still shape the next slice.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card pressure">
+    <h3>spaces-repo is 1 commit ahead of upstream</h3>
+    <p>This is carry-over open state rather than in-window landed work, but it remains part of the visible delivery backlog.</p>
+    <ul class="repo-list"><li><code>8d54000</code> chore: update retired space definitions <span class="inline-time">2026-06-25 09:57:56 CDT</span></li></ul>
+  </article><article class="repo-card pressure">
+    <h3>taskboard is 6 commits ahead of upstream</h3>
+    <p>This is carry-over open state rather than in-window landed work, but it remains part of the visible delivery backlog.</p>
+    <ul class="repo-list"><li><code>cf39a11</code> fix(taskboard): T-05139 — ancestor-based control suppression for modal scroll keys <span class="inline-time">2026-06-24 01:03:07 CDT</span></li><li><code>681bbe8</code> test: cover modal scroll control descendants <span class="inline-time">2026-06-24 01:00:59 CDT</span></li><li><code>6de83e5</code> fix(taskboard): T-05138 — scope inbox hub action view to resolved intake container <span class="inline-time">2026-06-24 00:28:00 CDT</span></li><li><code>ade6ad6</code> test: add red bar for inbox hub action scope <span class="inline-time">2026-06-24 00:26:28 CDT</span></li><li><code>7b9bb51</code> feat(taskboard): T-05137 — hotkey &quot;s&quot; to set task status <span class="inline-time">2026-06-23 23:34:01 CDT</span></li><li><code>9114594</code> test: add red bar for status hotkey <span class="inline-time">2026-06-23 23:31:21 CDT</span></li></ul>
+  </article>
+            <article class="repo-card pressure">
+  <h3>agent-control-plane has fresh unchecked-in paths</h3>
+  <p>3 visible paths changed inside the reporting window.</p>
+  <ul class="repo-list"><li><code>un.lock</code> <span class="inline-time">M</span></li><li><code>packages/acp-server/package.json</code> <span class="inline-time">M</span></li><li><code>packages/wrkq-lib/package.json</code> <span class="inline-time">M</span></li></ul>
+</article><article class="repo-card pressure">
+  <h3>taskboard has fresh unchecked-in paths</h3>
+  <p>2 visible paths changed inside the reporting window.</p>
+  <ul class="repo-list"><li><code>pps/api/package.json</code> <span class="inline-time">M</span></li><li><code>bun.lock</code> <span class="inline-time">M</span></li></ul>
+</article>
+          </div>
+        </section>
+        <div class="footer">Source: daily Praesidium accomplishments automation for 2026-06-27. Window: 2026-06-26 05:01:55 CDT to 2026-06-27 05:01:55 CDT. Artifact path: /Users/lherron/praesidium/agent-spaces/docs/html/daily-accomplishments-2026-06-27.html.</div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

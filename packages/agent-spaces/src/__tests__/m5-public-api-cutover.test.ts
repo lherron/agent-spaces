@@ -38,6 +38,7 @@ const PREPARE_CLI_RUNTIME_REGION = [
   '\nexport function toProcessInvocationSpec',
 ] as const
 const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonInteractive'
+const HEAVY_TEST_TIMEOUT_MS = 60_000
 
 beforeAll(() => {
   const agentRoot = '/tmp/asp-test-m5/agent-root'
@@ -209,29 +210,33 @@ describe('hostSessionId rename (T-00861)', () => {
 // T-00862: resolvedBundle returned from execution/invocation APIs
 // ===================================================================
 describe('resolvedBundle from APIs (T-00862)', () => {
-  test('client.buildProcessInvocationSpec returns resolvedBundle', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+  test(
+    'client.buildProcessInvocationSpec returns resolvedBundle',
+    async () => {
+      const { createAgentSpacesClient } = await import('../index.js')
+      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
-    // Build a placement-based request for a CLI frontend
-    const response = await client.buildProcessInvocationSpec({
-      placement: {
-        agentRoot: '/tmp/asp-test-m5/agent-root',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-      },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'headless',
-      ioMode: 'pipes',
-    } as any)
+      // Build a placement-based request for a CLI frontend
+      const response = await client.buildProcessInvocationSpec({
+        placement: {
+          agentRoot: '/tmp/asp-test-m5/agent-root',
+          runMode: 'query',
+          bundle: { kind: 'agent-project', agentName: 'alice' },
+        },
+        provider: 'anthropic',
+        frontend: 'claude-code',
+        interactionMode: 'headless',
+        ioMode: 'pipes',
+      } as any)
 
-    expect(response.resolvedBundle).toBeDefined()
-    expect(response.resolvedBundle!.bundleIdentity).toBeDefined()
-    expect(response.resolvedBundle!.runMode).toBe('query')
-    expect(response.resolvedBundle!.instructions).toBeInstanceOf(Array)
-    expect(response.resolvedBundle!.spaces).toBeInstanceOf(Array)
-  })
+      expect(response.resolvedBundle).toBeDefined()
+      expect(response.resolvedBundle!.bundleIdentity).toBeDefined()
+      expect(response.resolvedBundle!.runMode).toBe('query')
+      expect(response.resolvedBundle!.instructions).toBeInstanceOf(Array)
+      expect(response.resolvedBundle!.spaces).toBeInstanceOf(Array)
+    },
+    HEAVY_TEST_TIMEOUT_MS
+  )
 
   test('provider mismatch still detected with placement API', async () => {
     const { createAgentSpacesClient } = await import('../index.js')
@@ -257,33 +262,37 @@ describe('resolvedBundle from APIs (T-00862)', () => {
     ).rejects.toThrow(/provider.*mismatch/i)
   })
 
-  test('continuation refs still type-checked across providers', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+  test(
+    'continuation refs still type-checked across providers',
+    async () => {
+      const { createAgentSpacesClient } = await import('../index.js')
+      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
-    // anthropic continuation with anthropic frontend should be OK structurally
-    // (may fail for other reasons like missing agentRoot, but not provider mismatch)
-    try {
-      await client.buildProcessInvocationSpec({
-        placement: {
-          agentRoot: '/tmp/asp-test-m5/agent-root',
-          runMode: 'query',
-          bundle: { kind: 'agent-project', agentName: 'alice' },
-        },
-        provider: 'anthropic',
-        frontend: 'claude-code',
-        interactionMode: 'headless',
-        ioMode: 'pipes',
-        continuation: {
+      // anthropic continuation with anthropic frontend should be OK structurally
+      // (may fail for other reasons like missing agentRoot, but not provider mismatch)
+      try {
+        await client.buildProcessInvocationSpec({
+          placement: {
+            agentRoot: '/tmp/asp-test-m5/agent-root',
+            runMode: 'query',
+            bundle: { kind: 'agent-project', agentName: 'alice' },
+          },
           provider: 'anthropic',
-          key: 'some-key',
-        },
-      } as any)
-    } catch (err: any) {
-      // Should NOT be a provider mismatch error
-      expect(err.message).not.toMatch(/provider.*mismatch/i)
-    }
-  })
+          frontend: 'claude-code',
+          interactionMode: 'headless',
+          ioMode: 'pipes',
+          continuation: {
+            provider: 'anthropic',
+            key: 'some-key',
+          },
+        } as any)
+      } catch (err: any) {
+        // Should NOT be a provider mismatch error
+        expect(err.message).not.toMatch(/provider.*mismatch/i)
+      }
+    },
+    HEAVY_TEST_TIMEOUT_MS
+  )
 })
 
 // ===================================================================
@@ -337,104 +346,120 @@ describe('createAgentSpacesClient options (T-00863)', () => {
 // T-00864: Correlation env vars in buildProcessInvocationSpec
 // ===================================================================
 describe('correlation env vars (T-00864)', () => {
-  test('AGENT_SCOPE_REF emitted when sessionRef present', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+  test(
+    'AGENT_SCOPE_REF emitted when sessionRef present',
+    async () => {
+      const { createAgentSpacesClient } = await import('../index.js')
+      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
-    const response = await client.buildProcessInvocationSpec({
-      placement: {
-        agentRoot: '/tmp/asp-test-m5/agent-root',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-        correlation: {
-          sessionRef: {
-            scopeRef: 'agent:alice:project:demo',
-            laneRef: 'main',
+      const response = await client.buildProcessInvocationSpec({
+        placement: {
+          agentRoot: '/tmp/asp-test-m5/agent-root',
+          runMode: 'query',
+          bundle: { kind: 'agent-project', agentName: 'alice' },
+          correlation: {
+            sessionRef: {
+              scopeRef: 'agent:alice:project:demo',
+              laneRef: 'main',
+            },
           },
         },
-      },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'headless',
-      ioMode: 'pipes',
-    } as any)
+        provider: 'anthropic',
+        frontend: 'claude-code',
+        interactionMode: 'headless',
+        ioMode: 'pipes',
+      } as any)
 
-    expect(response.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo')
-    expect(response.spec.env.AGENT_LANE_REF).toBe('main')
-  })
+      expect(response.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo')
+      expect(response.spec.env.AGENT_LANE_REF).toBe('main')
+    },
+    HEAVY_TEST_TIMEOUT_MS
+  )
 
-  test('AGENT_HOST_SESSION_ID emitted when hostSessionId present', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+  test(
+    'AGENT_HOST_SESSION_ID emitted when hostSessionId present',
+    async () => {
+      const { createAgentSpacesClient } = await import('../index.js')
+      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
 
-    const response = await client.buildProcessInvocationSpec({
-      placement: {
-        agentRoot: '/tmp/asp-test-m5/agent-root',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-        correlation: {
-          hostSessionId: 'hs-correlation-test',
-        },
-      },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'headless',
-      ioMode: 'pipes',
-    } as any)
-
-    expect(response.spec.env.AGENT_HOST_SESSION_ID).toBe('hs-correlation-test')
-  })
-
-  test('correlation env vars are absent when no correlation provided', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
-
-    const response = await client.buildProcessInvocationSpec({
-      placement: {
-        agentRoot: '/tmp/asp-test-m5/agent-root',
-        runMode: 'query',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-      },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'headless',
-      ioMode: 'pipes',
-    } as any)
-
-    expect(response.spec.env.AGENT_SCOPE_REF).toBeUndefined()
-    expect(response.spec.env.AGENT_LANE_REF).toBeUndefined()
-    expect(response.spec.env.AGENT_HOST_SESSION_ID).toBeUndefined()
-  })
-
-  test('env vars are advisory only (string type)', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
-
-    const response = await client.buildProcessInvocationSpec({
-      placement: {
-        agentRoot: '/tmp/asp-test-m5/agent-root',
-        runMode: 'task',
-        bundle: { kind: 'agent-project', agentName: 'alice' },
-        correlation: {
-          hostSessionId: 'hs-123',
-          sessionRef: {
-            scopeRef: 'agent:alice:project:demo:task:t1',
-            laneRef: 'lane:deploy',
+      const response = await client.buildProcessInvocationSpec({
+        placement: {
+          agentRoot: '/tmp/asp-test-m5/agent-root',
+          runMode: 'query',
+          bundle: { kind: 'agent-project', agentName: 'alice' },
+          correlation: {
+            hostSessionId: 'hs-correlation-test',
           },
         },
-      },
-      provider: 'anthropic',
-      frontend: 'claude-code',
-      interactionMode: 'headless',
-      ioMode: 'pipes',
-    } as any)
+        provider: 'anthropic',
+        frontend: 'claude-code',
+        interactionMode: 'headless',
+        ioMode: 'pipes',
+      } as any)
 
-    expect(typeof response.spec.env.AGENT_SCOPE_REF).toBe('string')
-    expect(typeof response.spec.env.AGENT_LANE_REF).toBe('string')
-    expect(typeof response.spec.env.AGENT_HOST_SESSION_ID).toBe('string')
-    expect(response.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo:task:t1')
-    expect(response.spec.env.AGENT_LANE_REF).toBe('lane:deploy')
-  })
+      expect(response.spec.env.AGENT_HOST_SESSION_ID).toBe('hs-correlation-test')
+    },
+    HEAVY_TEST_TIMEOUT_MS
+  )
+
+  test(
+    'correlation env vars are absent when no correlation provided',
+    async () => {
+      const { createAgentSpacesClient } = await import('../index.js')
+      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+
+      const response = await client.buildProcessInvocationSpec({
+        placement: {
+          agentRoot: '/tmp/asp-test-m5/agent-root',
+          runMode: 'query',
+          bundle: { kind: 'agent-project', agentName: 'alice' },
+        },
+        provider: 'anthropic',
+        frontend: 'claude-code',
+        interactionMode: 'headless',
+        ioMode: 'pipes',
+      } as any)
+
+      expect(response.spec.env.AGENT_SCOPE_REF).toBeUndefined()
+      expect(response.spec.env.AGENT_LANE_REF).toBeUndefined()
+      expect(response.spec.env.AGENT_HOST_SESSION_ID).toBeUndefined()
+    },
+    HEAVY_TEST_TIMEOUT_MS
+  )
+
+  test(
+    'env vars are advisory only (string type)',
+    async () => {
+      const { createAgentSpacesClient } = await import('../index.js')
+      const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+
+      const response = await client.buildProcessInvocationSpec({
+        placement: {
+          agentRoot: '/tmp/asp-test-m5/agent-root',
+          runMode: 'task',
+          bundle: { kind: 'agent-project', agentName: 'alice' },
+          correlation: {
+            hostSessionId: 'hs-123',
+            sessionRef: {
+              scopeRef: 'agent:alice:project:demo:task:t1',
+              laneRef: 'lane:deploy',
+            },
+          },
+        },
+        provider: 'anthropic',
+        frontend: 'claude-code',
+        interactionMode: 'headless',
+        ioMode: 'pipes',
+      } as any)
+
+      expect(typeof response.spec.env.AGENT_SCOPE_REF).toBe('string')
+      expect(typeof response.spec.env.AGENT_LANE_REF).toBe('string')
+      expect(typeof response.spec.env.AGENT_HOST_SESSION_ID).toBe('string')
+      expect(response.spec.env.AGENT_SCOPE_REF).toBe('agent:alice:project:demo:task:t1')
+      expect(response.spec.env.AGENT_LANE_REF).toBe('lane:deploy')
+    },
+    HEAVY_TEST_TIMEOUT_MS
+  )
 })
 
 // ===================================================================
@@ -765,97 +790,105 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
     expect(source).toMatch(/byMode/)
   })
 
-  test('heartbeat byMode spaces are materialized (integration)', async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), 'bymode-overlay-'))
-    const agentRoot = join(tempDir, 'agent-root')
-    mkdirSync(agentRoot, { recursive: true })
-    writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
-    writeFileSync(
-      join(agentRoot, 'agent-profile.toml'),
-      `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
-    )
-    // Create spaces with manifests
-    for (const id of ['base-space', 'heartbeat-monitor']) {
-      mkdirSync(join(agentRoot, 'spaces', id, 'claude', 'plugins'), { recursive: true })
+  test(
+    'heartbeat byMode spaces are materialized (integration)',
+    async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'bymode-overlay-'))
+      const agentRoot = join(tempDir, 'agent-root')
+      mkdirSync(agentRoot, { recursive: true })
+      writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
       writeFileSync(
-        join(agentRoot, 'spaces', id, 'space.toml'),
-        `schema = 1\nid = "${id}"\ndescription = "${id} fixture"\n\n[harness]\nsupports = ["claude"]\n\n[claude]\nmodel = "claude-opus-4-6"\n`
+        join(agentRoot, 'agent-profile.toml'),
+        `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
       )
-    }
+      // Create spaces with manifests
+      for (const id of ['base-space', 'heartbeat-monitor']) {
+        mkdirSync(join(agentRoot, 'spaces', id, 'claude', 'plugins'), { recursive: true })
+        writeFileSync(
+          join(agentRoot, 'spaces', id, 'space.toml'),
+          `schema = 1\nid = "${id}"\ndescription = "${id} fixture"\n\n[harness]\nsupports = ["claude"]\n\n[claude]\nmodel = "claude-opus-4-6"\n`
+        )
+      }
 
-    try {
-      const { createAgentSpacesClient } = await import('../index.js')
-      const client = createAgentSpacesClient({ aspHome: join(tempDir, 'asp-home') })
+      try {
+        const { createAgentSpacesClient } = await import('../index.js')
+        const client = createAgentSpacesClient({ aspHome: join(tempDir, 'asp-home') })
 
-      const response = await client.buildProcessInvocationSpec({
-        placement: {
-          agentRoot,
-          runMode: 'heartbeat',
-          bundle: { kind: 'agent-project', agentName: 'alice' },
-        },
-        provider: 'anthropic',
-        frontend: 'claude-code',
-        interactionMode: 'headless',
-        ioMode: 'pipes',
-      } as any)
+        const response = await client.buildProcessInvocationSpec({
+          placement: {
+            agentRoot,
+            runMode: 'heartbeat',
+            bundle: { kind: 'agent-project', agentName: 'alice' },
+          },
+          provider: 'anthropic',
+          frontend: 'claude-code',
+          interactionMode: 'headless',
+          ioMode: 'pipes',
+        } as any)
 
-      // The materialized pluginDirs should include heartbeat-monitor space.
-      const allEnvVals = Object.values(response.spec.env ?? {}).join('\n')
+        // The materialized pluginDirs should include heartbeat-monitor space.
+        const allEnvVals = Object.values(response.spec.env ?? {}).join('\n')
 
-      // resolvedBundle.spaces says heartbeat-monitor is included
-      const auditRefs = response.resolvedBundle!.spaces.map((s: any) => s.ref)
-      const auditHasHeartbeat = auditRefs.some((r: string) => r.includes('heartbeat-monitor'))
-      expect(auditHasHeartbeat).toBe(true)
+        // resolvedBundle.spaces says heartbeat-monitor is included
+        const auditRefs = response.resolvedBundle!.spaces.map((s: any) => s.ref)
+        const auditHasHeartbeat = auditRefs.some((r: string) => r.includes('heartbeat-monitor'))
+        expect(auditHasHeartbeat).toBe(true)
 
-      // Agent-project materialization now uses the stable agent-name target
-      // path. The heartbeat inclusion is verified by resolvedBundle above; the
-      // process env should point at the materialized agent bundle.
-      expect(allEnvVals).toContain(join('alice', 'claude'))
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true })
-    }
-  })
+        // Agent-project materialization now uses the stable agent-name target
+        // path. The heartbeat inclusion is verified by resolvedBundle above; the
+        // process env should point at the materialized agent bundle.
+        expect(allEnvVals).toContain(join('alice', 'claude'))
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true })
+      }
+    },
+    HEAVY_TEST_TIMEOUT_MS
+  )
 
-  test('query mode does NOT include heartbeat overlay (sanity)', async () => {
-    // GREEN: query mode should only have base-space.
-    const tempDir = mkdtempSync(join(tmpdir(), 'bymode-overlay-'))
-    const agentRoot = join(tempDir, 'agent-root')
-    mkdirSync(agentRoot, { recursive: true })
-    writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
-    writeFileSync(
-      join(agentRoot, 'agent-profile.toml'),
-      `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
-    )
-    for (const id of ['base-space', 'heartbeat-monitor']) {
-      mkdirSync(join(agentRoot, 'spaces', id, 'claude', 'plugins'), { recursive: true })
+  test(
+    'query mode does NOT include heartbeat overlay (sanity)',
+    async () => {
+      // GREEN: query mode should only have base-space.
+      const tempDir = mkdtempSync(join(tmpdir(), 'bymode-overlay-'))
+      const agentRoot = join(tempDir, 'agent-root')
+      mkdirSync(agentRoot, { recursive: true })
+      writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
       writeFileSync(
-        join(agentRoot, 'spaces', id, 'space.toml'),
-        `schema = 1\nid = "${id}"\ndescription = "${id} fixture"\n\n[harness]\nsupports = ["claude"]\n\n[claude]\nmodel = "claude-opus-4-6"\n`
+        join(agentRoot, 'agent-profile.toml'),
+        `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
       )
-    }
+      for (const id of ['base-space', 'heartbeat-monitor']) {
+        mkdirSync(join(agentRoot, 'spaces', id, 'claude', 'plugins'), { recursive: true })
+        writeFileSync(
+          join(agentRoot, 'spaces', id, 'space.toml'),
+          `schema = 1\nid = "${id}"\ndescription = "${id} fixture"\n\n[harness]\nsupports = ["claude"]\n\n[claude]\nmodel = "claude-opus-4-6"\n`
+        )
+      }
 
-    try {
-      const { createAgentSpacesClient } = await import('../index.js')
-      const client = createAgentSpacesClient({ aspHome: join(tempDir, 'asp-home') })
+      try {
+        const { createAgentSpacesClient } = await import('../index.js')
+        const client = createAgentSpacesClient({ aspHome: join(tempDir, 'asp-home') })
 
-      const response = await client.buildProcessInvocationSpec({
-        placement: {
-          agentRoot,
-          runMode: 'query',
-          bundle: { kind: 'agent-project', agentName: 'alice' },
-        },
-        provider: 'anthropic',
-        frontend: 'claude-code',
-        interactionMode: 'headless',
-        ioMode: 'pipes',
-      } as any)
+        const response = await client.buildProcessInvocationSpec({
+          placement: {
+            agentRoot,
+            runMode: 'query',
+            bundle: { kind: 'agent-project', agentName: 'alice' },
+          },
+          provider: 'anthropic',
+          frontend: 'claude-code',
+          interactionMode: 'headless',
+          ioMode: 'pipes',
+        } as any)
 
-      expect(response.resolvedBundle).toBeDefined()
-      const spaceRefs = response.resolvedBundle!.spaces.map((s: any) => s.ref)
-      const hasHeartbeat = spaceRefs.some((r: string) => r.includes('heartbeat-monitor'))
-      expect(hasHeartbeat).toBe(false)
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true })
-    }
-  })
+        expect(response.resolvedBundle).toBeDefined()
+        const spaceRefs = response.resolvedBundle!.spaces.map((s: any) => s.ref)
+        const hasHeartbeat = spaceRefs.some((r: string) => r.includes('heartbeat-monitor'))
+        expect(hasHeartbeat).toBe(false)
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true })
+      }
+    },
+    HEAVY_TEST_TIMEOUT_MS
+  )
 })

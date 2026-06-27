@@ -131,6 +131,7 @@ export async function findClaudeBinary(): Promise<string> {
  * Sentinel returned when the Claude version cannot be determined.
  */
 const UNKNOWN_VERSION = 'unknown'
+const VERSION_QUERY_TIMEOUT_MS = 3000
 
 /**
  * Parse a semver version string from `claude --version` output.
@@ -152,21 +153,54 @@ function parseClaudeVersion(stdout: string): string {
 async function queryVersion(claudePath: string): Promise<string> {
   try {
     const proc = Bun.spawn([claudePath, '--version'], {
+      env: claudeDiscoveryEnv(),
       stdout: 'pipe',
       stderr: 'pipe',
     })
 
-    const exitCode = await proc.exited
-    const stdout = await new Response(proc.stdout).text()
+    const stdout = new Response(proc.stdout).text().catch(() => '')
+    const exitCode = await exitWithTimeout(proc, VERSION_QUERY_TIMEOUT_MS)
+    if (exitCode === undefined) {
+      proc.kill()
+      return UNKNOWN_VERSION
+    }
 
     if (exitCode !== 0) {
       return UNKNOWN_VERSION
     }
 
-    return parseClaudeVersion(stdout)
+    return parseClaudeVersion(await stdout)
   } catch {
     return UNKNOWN_VERSION
   }
+}
+
+async function exitWithTimeout(
+  proc: { exited: Promise<number> },
+  timeoutMs: number
+): Promise<number | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      proc.exited,
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs, undefined)
+        timer.unref?.()
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function claudeDiscoveryEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue
+    if (key.startsWith('HARNESS_BROKER_')) continue
+    env[key] = value
+  }
+  return env
 }
 
 /**

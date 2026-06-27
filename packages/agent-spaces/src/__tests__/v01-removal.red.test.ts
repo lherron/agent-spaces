@@ -29,6 +29,8 @@ type CompileClient = AgentSpacesClient & {
   compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
 }
 
+const HEAVY_TEST_TIMEOUT_MS = 60_000
+
 // ---------------------------------------------------------------------------
 // Minimal fixture — codex + claude shims, temp asp-home
 // ---------------------------------------------------------------------------
@@ -267,10 +269,14 @@ describe('Ph6 red: compileRuntimePlan emits brokerProtocol v0.2 (T-01867)', () =
     expect(profile.brokerProtocol).not.toBe('harness-broker/0.1')
   })
 
-  test('interactive claude-code-tmux broker profile has brokerProtocol harness-broker/0.2', async () => {
-    // RED today: interactive path also emits v0.1
-    const response = await createClient().compileRuntimePlan(interactiveClaudeRequest())
-    const profile = extractBrokerProfile(response)
-    expect(profile.brokerProtocol).toBe('harness-broker/0.2')
-  })
+  test(
+    'interactive claude-code-tmux broker profile has brokerProtocol harness-broker/0.2',
+    async () => {
+      // RED today: interactive path also emits v0.1
+      const response = await createClient().compileRuntimePlan(interactiveClaudeRequest())
+      const profile = extractBrokerProfile(response)
+      expect(profile.brokerProtocol).toBe('harness-broker/0.2')
+    },
+    HEAVY_TEST_TIMEOUT_MS
+  )
 })

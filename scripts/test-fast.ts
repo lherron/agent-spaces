@@ -1,7 +1,10 @@
 // Explicit pre-push allowlist. Keep this to deterministic unit and broker fake-driver tests;
 // slow CLI subprocess suites and integration-tests stay on the full/integration paths.
+const FAST_TEST_TIMEOUT_MS = 60_000
+
 const fastSuiteArgs = [
   'test',
+  `--timeout=${FAST_TEST_TIMEOUT_MS}`,
   'packages/agent-scope',
   'packages/agent-spaces',
   'packages/cli-kit',

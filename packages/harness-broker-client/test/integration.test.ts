@@ -4,6 +4,7 @@ import type { BrokerHelloResponse, InvocationEventEnvelope } from 'spaces-harnes
 import {
   brokerArgs,
   brokerCommand,
+  brokerEnvOverrides,
   codexSpec,
   collectUntil,
   helloRequest,
@@ -17,6 +18,7 @@ describe('BrokerClient integration', () => {
       command: brokerCommand,
       args: brokerArgs,
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {

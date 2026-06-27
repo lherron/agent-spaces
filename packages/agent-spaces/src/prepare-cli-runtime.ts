@@ -108,6 +108,7 @@ const IMAGE_ATTACHMENT_EXTENSIONS = new Set([
   '.heif',
   '.avif',
 ])
+const TEMP_SWEEP_BUDGET_MS = 250
 
 function isImageAttachment(attachment: AttachmentRef): boolean {
   if (attachment.contentType?.toLowerCase().startsWith('image/') === true) return true
@@ -167,7 +168,7 @@ export async function preparePlacementCliRuntime(
   const cwd = resolvedBundle.cwd
 
   const aspHome = req.aspHome ?? defaultAspHome ?? getAspHome()
-  await sweepAspTempArtifacts({ aspHome }).catch(() => {})
+  await sweepAspTempArtifactsWithinBudget(aspHome)
   const runtimePlan = await planPlacementRuntime({
     placement,
     placementContext,
@@ -420,6 +421,18 @@ export async function preparePlacementCliRuntime(
     ...(codexAppServer ? { codexAppServer } : {}),
     warnings,
   }
+}
+
+async function sweepAspTempArtifactsWithinBudget(aspHome: string): Promise<void> {
+  const sweep = sweepAspTempArtifacts({ aspHome }).catch(() => undefined)
+  await Promise.race([sweep, delay(TEMP_SWEEP_BUDGET_MS)])
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref?.()
+  })
 }
 
 export function toProcessInvocationSpec(

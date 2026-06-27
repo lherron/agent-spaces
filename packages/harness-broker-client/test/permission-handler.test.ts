@@ -5,7 +5,7 @@ import type {
   PermissionDecision,
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
-import { collectUntil, repoRoot } from './helpers'
+import { brokerEnvOverrides, collectUntil, repoRoot } from './helpers'
 
 const fakeBrokerScript = String.raw`
 const readline = require('node:readline')
@@ -156,6 +156,7 @@ async function runClientScenario(options: {
     command: process.execPath,
     args: fakeBrokerArgs(options.mode),
     cwd: repoRoot,
+    env: brokerEnvOverrides(),
   })
   const requests: PermissionRequestParams[] = []
 

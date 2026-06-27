@@ -10,6 +10,7 @@ import {
 } from 'spaces-harness-broker-protocol'
 import {
   brokerCommand,
+  brokerProcessEnv,
   codexSpec,
   collectUntil,
   helloRequest,
@@ -93,6 +94,7 @@ const startUnixBroker = async () => {
     stdin: 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',
+    env: brokerProcessEnv(),
   })
 
   await waitForSocket(socketPath, broker)

@@ -5,6 +5,7 @@ import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker
 import {
   brokerArgs,
   brokerCommand,
+  brokerEnvOverrides,
   codexSpec,
   collectUntil,
   helloRequest,
@@ -154,6 +155,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       command: process.execPath,
       args: fakeBrokerArgs('exact-request', { startRequest: request }),
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {
@@ -184,6 +186,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       command: process.execPath,
       args: fakeBrokerArgs('exact-request', { startRequest: request, dispatchEnv }),
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {
@@ -211,6 +214,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       command: process.execPath,
       args: fakeBrokerArgs('exact-request', { startRequest: request, runtime }),
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {
@@ -244,6 +248,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
         lifecyclePolicy,
       }),
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {
@@ -264,6 +269,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       command: brokerCommand,
       args: brokerArgs,
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {
@@ -293,6 +299,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       command: brokerCommand,
       args: brokerArgs,
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {
@@ -321,6 +328,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       command: brokerCommand,
       args: brokerArgs,
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {
@@ -348,6 +356,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       command: process.execPath,
       args: fakeBrokerArgs('early-started'),
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {
@@ -374,6 +383,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       command: process.execPath,
       args: fakeBrokerArgs('legacy-equivalence'),
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {
@@ -406,6 +416,7 @@ describe('BrokerClient startInvocationFromRequest', () => {
       command: process.execPath,
       args: fakeBrokerArgs('early-started'),
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
     let closeError: Error | undefined
     client.onClose((error) => {

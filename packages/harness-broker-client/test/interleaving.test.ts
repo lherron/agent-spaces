@@ -3,6 +3,7 @@ import { BrokerClient } from 'spaces-harness-broker-client'
 import {
   brokerArgs,
   brokerCommand,
+  brokerEnvOverrides,
   codexSpec,
   collectUntil,
   helloRequest,
@@ -16,6 +17,7 @@ describe('BrokerClient response and event interleaving', () => {
       command: brokerCommand,
       args: brokerArgs,
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {

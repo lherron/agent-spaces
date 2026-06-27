@@ -16,6 +16,39 @@ export const brokerArgs = [
   'stdio',
 ]
 
+const INHERITED_BROKER_ENV_PREFIXES = ['HARNESS_BROKER_']
+
+export function brokerEnvOverrides(
+  overrides: Record<string, string | undefined> = {}
+): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...overrides }
+  for (const key of Object.keys(process.env)) {
+    if (INHERITED_BROKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      env[key] = undefined
+    }
+  }
+  return env
+}
+
+export function brokerProcessEnv(
+  overrides: Record<string, string | undefined> = {}
+): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue
+    if (INHERITED_BROKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) continue
+    env[key] = value
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) {
+      delete env[key]
+    } else {
+      env[key] = value
+    }
+  }
+  return env
+}
+
 const fakeCodexFixtureDir = join(repoRoot, 'packages/harness-broker/test/fixtures/fake-codex')
 
 export const helloRequest = (

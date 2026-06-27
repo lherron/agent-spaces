@@ -6,6 +6,27 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { CONSERVATIVE_LIFECYCLE_CAPABILITIES } from 'spaces-harness-broker-protocol'
 
+const INHERITED_BROKER_ENV_PREFIXES = ['HARNESS_BROKER_']
+
+export function brokerProcessEnv(
+  overrides: Record<string, string | undefined> = {}
+): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue
+    if (INHERITED_BROKER_ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) continue
+    env[key] = value
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) {
+      delete env[key]
+    } else {
+      env[key] = value
+    }
+  }
+  return env
+}
+
 export const noopCapabilities: InvocationCapabilities = {
   input: {
     user: true,

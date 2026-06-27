@@ -3,6 +3,7 @@ import { BrokerClient } from 'spaces-harness-broker-client'
 import {
   brokerArgs,
   brokerCommand,
+  brokerEnvOverrides,
   codexSpec,
   collectUntil,
   findBrokerChildPid,
@@ -19,6 +20,7 @@ describe('BrokerClient process exit handling', () => {
       command: brokerCommand,
       args: brokerArgs,
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     try {
@@ -40,6 +42,7 @@ describe('BrokerClient process exit handling', () => {
       command: brokerCommand,
       args: brokerArgs,
       cwd: repoRoot,
+      env: brokerEnvOverrides(),
     })
 
     await client.hello(helloRequest())

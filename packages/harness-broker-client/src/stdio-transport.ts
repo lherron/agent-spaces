@@ -8,7 +8,7 @@ export interface StdioTransportStartOptions {
   command: string
   args?: string[] | undefined
   cwd?: string | undefined
-  env?: Record<string, string> | undefined
+  env?: Record<string, string | undefined> | undefined
   /** Optional diagnostics hooks for the underlying JSON-RPC channel. */
   debug?: JsonRpcChannelDebugOptions | undefined
 }
@@ -57,9 +57,10 @@ export class StdioTransport extends JsonRpcFramedChannel {
   }
 
   static async start(options: StdioTransportStartOptions): Promise<StdioTransport> {
+    const env = options.env === undefined ? process.env : mergeProcessEnvWithOverrides(options.env)
     const child = spawn(options.command, options.args ?? [], {
       cwd: options.cwd,
-      env: options.env === undefined ? process.env : { ...process.env, ...options.env },
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
@@ -125,4 +126,18 @@ export class StdioTransport extends JsonRpcFramedChannel {
     this.fail(enriched)
     this.#resolveExit()
   }
+}
+
+function mergeProcessEnvWithOverrides(
+  overrides: Record<string, string | undefined>
+): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) {
+      delete env[key]
+    } else {
+      env[key] = value
+    }
+  }
+  return env
 }
