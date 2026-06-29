@@ -40,6 +40,32 @@ function runAspResourcesPlan(): { stdout: string; stderr: string } {
   return { stdout: result.stdout, stderr: result.stderr }
 }
 
+function runAspResourcesPlanInclude(includePath: string): { stdout: string; stderr: string } {
+  const result = spawnSync(
+    'bun',
+    [
+      'run',
+      ASP_CLI,
+      'resources',
+      'plan',
+      'smokey',
+      '--project',
+      'agent-spaces',
+      '--agent-root',
+      RESOURCE_AGENT_ROOT,
+      '--include',
+      includePath,
+    ],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, NO_COLOR: '1' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }
+  )
+  expect(result.status).toBe(0)
+  return { stdout: result.stdout, stderr: result.stderr }
+}
+
 describe('asp resources plan', () => {
   test('prints byte-stable plan JSON with human summary on stderr', () => {
     const first = runAspResourcesPlan()
@@ -58,5 +84,20 @@ describe('asp resources plan', () => {
     ])
     expect(plan.resources[2]?.desiredJson.trigger?.cooldown).toBe('300s')
     expect(first.stderr).toContain('Compiled resources plan for smokey@agent-spaces: 3 resources')
+  })
+
+  test('can compile a single included resource path', () => {
+    const result = runAspResourcesPlanInclude('schedules/daily-triage.toml')
+    const plan = JSON.parse(result.stdout) as {
+      resources: Array<{ resourceKind: string; sourcePath: string }>
+    }
+
+    expect(plan.resources).toEqual([
+      expect.objectContaining({
+        resourceKind: 'scheduled-job',
+        sourcePath: 'agents/smokey/schedules/daily-triage.toml',
+      }),
+    ])
+    expect(result.stderr).toContain('Compiled resources plan for smokey@agent-spaces: 1 resources')
   })
 })

@@ -1,0 +1,21 @@
+schema = 1
+name = "flow-triage"
+title = "Flow triage"
+enabled = true
+
+[trigger]
+cron = "*/20 * * * *"
+
+[target]
+project = "agent-spaces"
+agent = "smokey"
+lane = "main"
+task = "flow-triage"
+
+[input]
+content = "legacy content should not be dispatched for flow jobs"
+
+[[flow.sequence]]
+id = "run"
+fresh = true
+input = "Run the flow triage job with fresh context."

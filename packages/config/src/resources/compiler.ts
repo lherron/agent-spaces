@@ -207,6 +207,7 @@ function compileSchedule(file: ResourceFile, owner: Owner): ResourceProjection {
       windowMinutes: optionalNestedNumber(source, 'trigger', 'windowMinutes'),
     },
     input: cloneRecord(source['input']),
+    ...(isRecord(source['flow']) ? { flow: cloneRecord(source['flow']) } : {}),
   }
 
   return resourceProjection(file, owner, name, 'scheduled-job', 'jobs', desiredJson)

@@ -128,6 +128,33 @@ describe('agent-authored runtime resources plan compiler', () => {
     })
   })
 
+  test('projects schedule resources with flow steps for fresh scheduled agent sessions', async () => {
+    const result = await compileFixture('../../variants', ['schedule-flow.toml'])
+
+    expect(result).toEqual({
+      ok: true,
+      plan: expect.objectContaining({
+        resources: [
+          expect.objectContaining({
+            resourceKind: 'scheduled-job',
+            desiredJson: expect.objectContaining({
+              scopeRef: 'agent:smokey:project:agent-spaces:task:flow-triage',
+              flow: {
+                sequence: [
+                  {
+                    id: 'run',
+                    fresh: true,
+                    input: 'Run the flow triage job with fresh context.',
+                  },
+                ],
+              },
+            }),
+          }),
+        ],
+      }),
+    })
+  })
+
   test('projects channel resources with gateway lookup, routing, status, and provenance', async () => {
     const result = await compileFixture('agents/smokey')
     expect(result).toEqual({

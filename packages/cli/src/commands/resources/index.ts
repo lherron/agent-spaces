@@ -9,6 +9,7 @@ interface ResourcesPlanOptions {
   project?: string | undefined
   agentRoot?: string | undefined
   aspHome?: string | undefined
+  include?: string[] | undefined
 }
 
 export function registerResourcesCommands(program: Command): void {
@@ -21,6 +22,10 @@ export function registerResourcesCommands(program: Command): void {
     .requiredOption('--project <project>', 'Project id')
     .option('--agent-root <path>', 'Absolute path to agent root')
     .option('--asp-home <path>', 'ASP_HOME override')
+    .option(
+      '--include <path...>',
+      'Compile only the listed resource path(s), relative to agent root'
+    )
     .action(async (agent: string, options: ResourcesPlanOptions) => {
       const projectId = options.project ?? inferProjectIdFromCwd({ aspHome: options.aspHome })
       if (!projectId) {
@@ -43,6 +48,9 @@ export function registerResourcesCommands(program: Command): void {
 
       const plan = await compileResourcesPlan({
         agentRoot,
+        ...(options.include !== undefined && options.include.length > 0
+          ? { includePaths: options.include }
+          : {}),
         owner: {
           projectId,
           agentId: agent,
