@@ -353,7 +353,93 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
     }
   })
 
-  test('6. invalid output before retry cap blocks without final/completed and keeps the same turn active', async () => {
+  test('6. accepts leading prose before a valid JSON object and emits normalized JSON only', async () => {
+    const { driver, events, hookHandler } = await setupDriver()
+
+    const applied = await driver.applyInputNow(
+      input('input_prefixed_json', 'return status', schemaResponse(statusSchema))
+    )
+    await stop(hookHandler, applied.turnId ?? 'missing', 'Here is the JSON:\n{"status":"ok"}')
+
+    const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
+    const finals = sameTurnEvents.filter((event) => event.type === 'assistant.message.completed')
+    const completions = sameTurnEvents.filter((event) => event.type === 'turn.completed')
+    expect(finals).toHaveLength(1)
+    expect(completions).toHaveLength(1)
+    expect(completedText(finals[0] as InvocationEventEnvelope)).toBe('{"status":"ok"}')
+  })
+
+  test('7. prefix extraction validates the first JSON root and fails closed on invalid candidates', async () => {
+    const { driver, events, hookHandler } = await setupDriver()
+
+    const schemaInvalid = await driver.applyInputNow(
+      input('input_prefixed_invalid', 'return status', schemaResponse(statusSchema))
+    )
+    await stop(
+      hookHandler,
+      schemaInvalid.turnId ?? 'missing',
+      'Here is the JSON:\n{"wrong":"field"}'
+    )
+
+    const noRoot = await driver.applyInputNow(
+      input('input_prefixed_no_root', 'return status', schemaResponse(statusSchema))
+    )
+    await stop(hookHandler, noRoot.turnId ?? 'missing', 'Here is the JSON: status ok')
+
+    const laterValid = await driver.applyInputNow(
+      input('input_prefixed_later_valid', 'return status', schemaResponse(statusSchema))
+    )
+    await stop(
+      hookHandler,
+      laterValid.turnId ?? 'missing',
+      'Example: {"wrong":"field"}\nActual: {"status":"ok"}'
+    )
+
+    for (const applied of [schemaInvalid, noRoot, laterValid]) {
+      const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
+      expect(sameTurnEvents.map((event) => event.type)).not.toContain('assistant.message.completed')
+      expect(sameTurnEvents.map((event) => event.type)).not.toContain('turn.completed')
+    }
+  })
+
+  test('8. prefix extraction rejects trailing wrapper prose after the JSON root', async () => {
+    const { driver, events, hookHandler } = await setupDriver()
+
+    const applied = await driver.applyInputNow(
+      input('input_prefixed_suffix', 'return status', schemaResponse(statusSchema))
+    )
+    await stop(
+      hookHandler,
+      applied.turnId ?? 'missing',
+      'Here is the JSON:\n{"status":"ok"}\nThanks'
+    )
+
+    const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
+    expect(sameTurnEvents.map((event) => event.type)).not.toContain('assistant.message.completed')
+    expect(sameTurnEvents.map((event) => event.type)).not.toContain('turn.completed')
+  })
+
+  test('9. prefix extraction handles braces and brackets inside JSON strings', async () => {
+    const { driver, events, hookHandler } = await setupDriver()
+
+    const applied = await driver.applyInputNow(
+      input('input_prefixed_strings', 'return status', schemaResponse(statusSchema))
+    )
+    await stop(
+      hookHandler,
+      applied.turnId ?? 'missing',
+      'Here is the JSON:\n{"status":"ok with {braces} and [brackets]"}'
+    )
+
+    const sameTurnEvents = events.filter((event) => event.turnId === applied.turnId)
+    const finals = sameTurnEvents.filter((event) => event.type === 'assistant.message.completed')
+    expect(finals).toHaveLength(1)
+    expect(completedText(finals[0] as InvocationEventEnvelope)).toBe(
+      '{"status":"ok with {braces} and [brackets]"}'
+    )
+  })
+
+  test('10. invalid output before retry cap blocks without final/completed and keeps the same turn active', async () => {
     const { driver, events, hookHandler } = await setupDriver()
 
     const applied = await driver.applyInputNow(
@@ -371,7 +457,7 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
     })
   })
 
-  test('7. retry cap exhaustion emits one non-retryable StructuredOutputValidationFailed turn.failed', async () => {
+  test('11. retry cap exhaustion emits one non-retryable StructuredOutputValidationFailed turn.failed', async () => {
     const { driver, events, hookHandler } = await setupDriver()
 
     const applied = await driver.applyInputNow(
@@ -396,7 +482,7 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
     expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(0)
   })
 
-  test('8. terminal paths without validator clearance fail closed instead of completing invalid content', async () => {
+  test('12. terminal paths without validator clearance fail closed instead of completing invalid content', async () => {
     const { driver, events, hookHandler } = await setupDriver()
 
     const applied = await driver.applyInputNow(
@@ -430,7 +516,7 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
     expect(sameTurnEvents.map((event) => event.type)).not.toContain('turn.completed')
   })
 
-  test('9. late terminal MessageDisplay after structured Stop does not emit another assistant completion', async () => {
+  test('13. late terminal MessageDisplay after structured Stop does not emit another assistant completion', async () => {
     const { driver, events, hookHandler } = await setupDriver()
 
     const applied = await driver.applyInputNow(

@@ -617,6 +617,10 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       }
       return { valid: false, message: 'must be valid JSON matching schema' }
     }
+    const prefixed = tryParsePrefixedJsonRoot(trimmed)
+    if (prefixed.valid) {
+      return prefixed
+    }
     return { valid: false, message: 'must be valid JSON matching schema' }
   }
 
@@ -626,6 +630,75 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     } catch {
       return { valid: false }
     }
+  }
+
+  function tryParsePrefixedJsonRoot(
+    raw: string
+  ): { valid: true; value: unknown } | { valid: false } {
+    for (let index = 0; index < raw.length; index += 1) {
+      const char = raw[index]
+      if (char !== '{' && char !== '[') {
+        continue
+      }
+      const endIndex = findJsonRootEnd(raw, index)
+      if (endIndex === undefined) {
+        continue
+      }
+      const json = raw.slice(index, endIndex)
+      const parsed = tryParseJson(json)
+      if (!parsed.valid) {
+        continue
+      }
+      if (raw.slice(endIndex).trim().length > 0) {
+        return { valid: false }
+      }
+      return parsed
+    }
+    return { valid: false }
+  }
+
+  function findJsonRootEnd(raw: string, startIndex: number): number | undefined {
+    const stack: string[] = []
+    let inString = false
+    let escaped = false
+
+    for (let index = startIndex; index < raw.length; index += 1) {
+      const char = raw[index]
+      if (char === undefined) {
+        return undefined
+      }
+      if (inString) {
+        if (escaped) {
+          escaped = false
+        } else if (char === '\\') {
+          escaped = true
+        } else if (char === '"') {
+          inString = false
+        }
+        continue
+      }
+      if (char === '"') {
+        inString = true
+        continue
+      }
+      if (char === '{') {
+        stack.push('}')
+        continue
+      }
+      if (char === '[') {
+        stack.push(']')
+        continue
+      }
+      if (char === '}' || char === ']') {
+        if (stack.pop() !== char) {
+          return undefined
+        }
+        if (stack.length === 0) {
+          return index + 1
+        }
+      }
+    }
+    return undefined
   }
 
   function formatValidationErrors(errors: ErrorObject[]): string {
