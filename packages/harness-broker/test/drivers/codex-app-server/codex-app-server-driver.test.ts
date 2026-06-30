@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
@@ -16,6 +16,7 @@ import {
 } from '../../../src/drivers/codex-app-server/driver'
 import { buildTurnStartParams } from '../../../src/drivers/codex-app-server/input'
 import { postEnvelope } from '../../../src/drivers/hook-bridge-transport'
+import { createEventLedger } from '../../../src/event-ledger'
 
 const root = new URL('../../..', import.meta.url).pathname
 const fixtureDir = join(root, 'test/fixtures/fake-codex')
@@ -343,6 +344,73 @@ describe('Codex app-server driver red scenarios', () => {
   test('starts a fresh thread and completes a turn', async () => {
     const events = await runScenario('start-fresh-turn')
     await expectGolden('start-fresh-turn', events)
+  })
+
+  test('reports provider transcript provenance through live and durable broker streams', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const broker = createBroker({
+      drivers: [createCodexAppServerDriver()],
+      eventLedger: createEventLedger(),
+      onEvent: (event) => events.push(event),
+      now,
+    })
+    const spec = scenarioSpec('start-fresh-turn')
+
+    await broker.start({ spec })
+    await broker.input({
+      invocationId: spec.invocationId ?? '',
+      input: userInput,
+      policy: { whenBusy: 'reject' },
+    })
+
+    const replay = await broker.eventsSince({
+      invocationId: spec.invocationId ?? '',
+      afterSeq: 0,
+    })
+    const liveReports = events.filter(
+      (event) => (event.type as string) === 'provider.transcript.reported'
+    )
+    const replayReports = replay.events.filter(
+      (event) => (event.type as string) === 'provider.transcript.reported'
+    )
+
+    // T-05374: the driver must emit through DriverContext.emit so both the live
+    // listener and durable EventLedger replay observe the same provenance event.
+    expect(liveReports).toHaveLength(1)
+    expect(replayReports).toHaveLength(1)
+    expect(replayReports[0]).toEqual(liveReports[0])
+
+    const report = liveReports[0] as InvocationEventEnvelope<{
+      kind?: unknown
+      artifactPath?: unknown
+      provider?: unknown
+    }>
+    expect(report.payload).toMatchObject({
+      kind: 'provider-transcript-jsonl',
+      provider: 'codex',
+    })
+    expect(report.driver).toEqual({
+      kind: 'codex-app-server',
+      rawType: expect.stringMatching(/provider-transcript|transcript/),
+    })
+    expect(typeof report.payload.artifactPath).toBe('string')
+    expect(isAbsolute(report.payload.artifactPath as string)).toBe(true)
+
+    const rawJsonl = await readFile(report.payload.artifactPath as string, 'utf8')
+    const rows = rawJsonl
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { jsonrpc?: unknown; method?: unknown; params?: unknown })
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        jsonrpc: '2.0',
+        method: 'turn/completed',
+        params: expect.objectContaining({ turnId: 'turn_1' }),
+      })
+    )
+    expect(rows.every((row) => row.jsonrpc === '2.0' && typeof row.method === 'string')).toBe(true)
+    expect(rows.some((row) => row.method === 'turn.completed')).toBe(false)
   })
 
   test('resumes an existing thread and completes a turn', async () => {

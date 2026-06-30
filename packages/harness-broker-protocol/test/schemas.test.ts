@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import * as protocol from '../src'
 import { conservativeDefaultLifecyclePolicyOverlay, lifecyclePolicyHash } from '../src/lifecycle'
 import {
   validateCommand,
@@ -1122,6 +1123,7 @@ describe('validatePermissionRequestParams', () => {
 })
 
 describe('validateEventEnvelope', () => {
+  const providerTranscriptConstants = protocol as Record<string, unknown>
   const envelope = (type: string, payload: unknown) => ({
     invocationId: 'inv_1',
     seq: 1,
@@ -1218,6 +1220,53 @@ describe('validateEventEnvelope', () => {
       windowName: 'main',
     })
     expect(validateEventEnvelope(env)).toEqual(env)
+  })
+
+  test('accepts provider transcript reported with protocol-owned constants', () => {
+    expect(providerTranscriptConstants['PROVIDER_TRANSCRIPT_REPORTED_EVENT_TYPE']).toBe(
+      'provider.transcript.reported'
+    )
+    expect(providerTranscriptConstants['PROVIDER_TRANSCRIPT_ARTIFACT_KIND']).toBe(
+      'provider-transcript-jsonl'
+    )
+    expect(providerTranscriptConstants['PROVIDER_TRANSCRIPT_STORAGE']).toBe('file-path')
+    expect(providerTranscriptConstants['PROVIDER_TRANSCRIPT_MEDIA_TYPE']).toBe(
+      'application/x-ndjson'
+    )
+    expect(providerTranscriptConstants['PROVIDER_TRANSCRIPT_SCHEMA']).toBe(
+      'harness-broker.provider-transcript.codex-jsonrpc-notification-jsonl/v1'
+    )
+
+    const env = envelope(
+      providerTranscriptConstants['PROVIDER_TRANSCRIPT_REPORTED_EVENT_TYPE'] as string,
+      {
+        kind: providerTranscriptConstants['PROVIDER_TRANSCRIPT_ARTIFACT_KIND'],
+        artifactPath: '/tmp/provider-transcript.jsonl',
+        provider: 'codex',
+        harnessGeneration: 1,
+      }
+    )
+    expect(validateEventEnvelope(env)).toEqual(env)
+  })
+
+  test('rejects provider transcript reported without an absolute string artifactPath', () => {
+    const basePayload = {
+      kind: 'provider-transcript-jsonl',
+      artifactPath: '/tmp/provider-transcript.jsonl',
+      provider: 'codex',
+    }
+    const eventType = 'provider.transcript.reported'
+
+    for (const { payload, code } of [
+      { payload: {}, code: 'required' },
+      { payload: { artifactPath: 42 }, code: 'invalid_type' },
+      { payload: { artifactPath: 'relative/provider-transcript.jsonl' }, code: 'invalid_path' },
+    ]) {
+      expectInvalidEventEnvelope(envelope(eventType, { ...basePayload, ...payload }), {
+        path: 'payload.artifactPath',
+        code,
+      })
+    }
   })
 
   test('rejects terminal.surface.reported tmux-pane with malformed paneId', () => {
