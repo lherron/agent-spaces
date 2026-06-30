@@ -1,3 +1,6 @@
+import { closeSync, fsyncSync, mkdirSync, openSync, writeSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type {
   CodexAppServerDriverSpec,
@@ -11,7 +14,11 @@ import type {
   InvocationStopResponse,
   TurnId,
 } from 'spaces-harness-broker-protocol'
-import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
+import {
+  BrokerErrorCode,
+  PROVIDER_TRANSCRIPT_ARTIFACT_KIND,
+  emitProviderTranscriptReported,
+} from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import { spawnHarnessProcess } from '../../runtime/process-runner'
 import { terminateProcess } from '../../runtime/signals'
@@ -87,8 +94,77 @@ export function createCodexAppServerDriver(): Driver {
   let turnTimeout: ReturnType<typeof setTimeout> | undefined
   let rendererControlListener: HookListenerHandle | undefined
   let rendererQuitAccepted = false
+  // Provider-transcript provenance state (T-05374). The broker-owned sidecar
+  // captures RAW upstream Codex JSON-RPC notifications (pre-normalization) into a
+  // verifier-compatible JSONL file; `reportedTranscriptPaths` fences provenance
+  // emission to at-most-once per concrete absolute path per invocation.
+  let transcriptSidecar: TranscriptSidecar | undefined
+  const reportedTranscriptPaths = new Set<string>()
   const mapCodexNotification = createCodexNotificationMapper()
   const permissionRequestIds = createPermissionRequestIdAllocator()
+
+  /**
+   * Capture one raw upstream notification into the broker-owned sidecar BEFORE
+   * normalization. Lazily opens the sidecar (deterministic absolute path) on the
+   * first notification so scenarios that never receive one create no artifact.
+   * Uses a synchronous write + fsync so the row is durable/readable before any
+   * provenance event references the file.
+   */
+  function captureTranscriptRow(notification: JsonRpcNotification): void {
+    if (transcriptSidecar === undefined) {
+      transcriptSidecar = openTranscriptSidecar(requireCtx())
+    }
+    const sidecar = transcriptSidecar
+    const row =
+      notification.params !== undefined
+        ? { jsonrpc: '2.0' as const, method: notification.method, params: notification.params }
+        : { jsonrpc: '2.0' as const, method: notification.method }
+    writeSync(sidecar.fd, `${JSON.stringify(row)}\n`)
+    fsyncSync(sidecar.fd)
+  }
+
+  /**
+   * Emit `provider.transcript.reported` through the normal broker emit path once
+   * the turn terminal has flushed. Fenced to one provenance event per concrete
+   * absolute path so a multi-turn invocation does not re-report the same file.
+   */
+  function reportProviderTranscript(): void {
+    const sidecar = transcriptSidecar
+    if (sidecar === undefined) return
+    if (reportedTranscriptPaths.has(sidecar.path)) return
+    fsyncSync(sidecar.fd)
+    reportedTranscriptPaths.add(sidecar.path)
+    emitProviderTranscriptReported(
+      requireCtx(),
+      {
+        kind: PROVIDER_TRANSCRIPT_ARTIFACT_KIND,
+        artifactPath: sidecar.path,
+        provider: 'codex',
+      },
+      {
+        ...(currentTurnId !== undefined ? { turnId: currentTurnId } : {}),
+        ...(currentInputId !== undefined ? { inputId: currentInputId } : {}),
+        driver: { kind: 'codex-app-server', rawType: 'provider-transcript.sidecar' },
+      }
+    )
+  }
+
+  function closeTranscriptSidecar(): void {
+    const sidecar = transcriptSidecar
+    transcriptSidecar = undefined
+    if (sidecar !== undefined) {
+      try {
+        fsyncSync(sidecar.fd)
+      } catch {
+        // best-effort flush on teardown
+      }
+      try {
+        closeSync(sidecar.fd)
+      } catch {
+        // fd may already be closed
+      }
+    }
+  }
 
   function requireCtx(): DriverContext {
     if (!ctx) {
@@ -121,6 +197,10 @@ export function createCodexAppServerDriver(): Driver {
   }
 
   function onNotification(notification: JsonRpcNotification): void {
+    // Capture the RAW upstream notification before any normalization or special
+    // error handling so the sidecar preserves verifier-compatible provider rows.
+    captureTranscriptRow(notification)
+
     if (notification.method === 'error') {
       const error = parseCodexError(notification.params)
       emitDiagnostic(
@@ -185,6 +265,9 @@ export function createCodexAppServerDriver(): Driver {
           clearTimeout(turnTimeout)
           turnTimeout = undefined
         }
+        // Turn terminal flushed: report the provider transcript provenance once
+        // the raw rows (including this terminal notification) are durable.
+        reportProviderTranscript()
       }
     }
   }
@@ -345,6 +428,8 @@ export function createCodexAppServerDriver(): Driver {
       stopping = false
       starting = true
       rendererQuitAccepted = false
+      closeTranscriptSidecar()
+      reportedTranscriptPaths.clear()
 
       if (
         driverCtx.runtime?.terminalSurface !== undefined ||
@@ -624,6 +709,8 @@ export function createCodexAppServerDriver(): Driver {
 
     async dispose(): Promise<void> {
       closeRendererControlListener()
+      closeTranscriptSidecar()
+      reportedTranscriptPaths.clear()
       rpc?.close()
       ctx = undefined
       spec = undefined
@@ -670,6 +757,43 @@ function resolveRendererObserverSocket(
     : '.'
   return `${dir}/${driverCtx.invocationId}.observer.sock`
 }
+
+interface TranscriptSidecar {
+  path: string
+  fd: number
+}
+
+/**
+ * Open a broker-owned sidecar JSONL file for raw provider-transcript rows.
+ *
+ * The directory is taken from a broker-owned artifact root on `dispatchEnv`
+ * (`HARNESS_BROKER_ARTIFACT_DIR`, supplied by HRC in production) when present;
+ * otherwise it falls back to a deterministic broker-owned subtree under the
+ * system temp root. The path is always ABSOLUTE. The file is opened with `'w'`
+ * so each invocation starts a fresh transcript (the path is per-invocation).
+ */
+function openTranscriptSidecar(ctx: DriverContext): TranscriptSidecar {
+  const fromDispatch = ctx.dispatchEnv?.['HARNESS_BROKER_ARTIFACT_DIR']
+  const dir =
+    typeof fromDispatch === 'string' && fromDispatch.length > 0
+      ? fromDispatch
+      : DEFAULT_PROVIDER_TRANSCRIPT_DIR
+  mkdirSync(dir, { recursive: true })
+  const path = join(dir, `${ctx.invocationId}.provider-transcript.jsonl`)
+  const fd = openSync(path, 'w')
+  return { path, fd }
+}
+
+/**
+ * Deterministic broker-owned fallback root for provider transcripts. A fixed
+ * `/tmp`-rooted path (vs `mkdtemp`) keeps the absolute artifact path stable
+ * per-invocation so durable goldens stay reproducible; HRC overrides it with a
+ * runtime-owned artifact root via `HARNESS_BROKER_ARTIFACT_DIR`.
+ */
+const DEFAULT_PROVIDER_TRANSCRIPT_DIR = join(
+  process.platform === 'win32' ? tmpdir() : '/tmp',
+  'spaces-harness-broker-provider-transcripts'
+)
 
 function buildRendererControlSocketPath(
   driverCtx: DriverContext,

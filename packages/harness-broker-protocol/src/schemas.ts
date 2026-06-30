@@ -16,6 +16,7 @@ import {
   type ValidationIssue,
 } from './errors.js'
 import type { InvocationEventEnvelope, InvocationEventType } from './events'
+import { PROVIDER_TRANSCRIPT_ARTIFACT_KIND } from './events.js'
 import type { HarnessInvocationSpec } from './invocation'
 import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from './invocation'
 import { isJsonRpcRequest } from './jsonrpc'
@@ -131,6 +132,7 @@ const EVENT_TYPES = [
   'permission.requested',
   'permission.resolved',
   'permission.cancelled',
+  'provider.transcript.reported',
 ] as const satisfies readonly InvocationEventType[]
 
 // Compile-time exhaustiveness guard: if a union member is missing from the
@@ -1369,6 +1371,28 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
     optionalEnum(payload['semantics'], ['at-least-once'], 'payload.semantics', issues, true)
   },
   'terminal.surface.reported': validateTerminalSurfaceReportedPayload,
+  'provider.transcript.reported': (payload, issues) => {
+    if (payload['kind'] !== PROVIDER_TRANSCRIPT_ARTIFACT_KIND) {
+      issues.push(
+        makeIssue(
+          'payload.kind',
+          'invalid_literal',
+          `payload.kind must be '${PROVIDER_TRANSCRIPT_ARTIFACT_KIND}'`
+        )
+      )
+    }
+    if (payload['provider'] !== 'codex') {
+      issues.push(
+        makeIssue('payload.provider', 'invalid_literal', "payload.provider must be 'codex'")
+      )
+    }
+    validateAbsolutePath(payload['artifactPath'], 'payload.artifactPath', issues)
+    validateOptionalPositiveInteger(
+      payload['harnessGeneration'],
+      'payload.harnessGeneration',
+      issues
+    )
+  },
   'permission.resolved': (payload, issues) => {
     requireString(payload['permissionRequestId'], 'payload.permissionRequestId', issues)
     optionalEnum(payload['decision'], ['allow', 'deny'], 'payload.decision', issues, true)
@@ -1933,6 +1957,33 @@ function validateOptionalEventTypeArray(
       )
     }
   })
+}
+
+/**
+ * Validate a present, non-empty, absolute filesystem path string. Absolute-path
+ * detection is implemented locally so the protocol package pulls in no HRC /
+ * node path helper. POSIX absolute paths begin with `/`; Windows absolute paths
+ * are a drive letter (`C:\` / `C:/`) or a UNC prefix (`\\`).
+ */
+function validateAbsolutePath(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+  if (value === undefined) {
+    issues.push(makeIssue(basePath, 'required', `${basePath} is required`))
+    return
+  }
+  if (typeof value !== 'string') {
+    issues.push(makeIssue(basePath, 'invalid_type', `${basePath} must be a string`))
+    return
+  }
+  if (!isAbsolutePath(value)) {
+    issues.push(makeIssue(basePath, 'invalid_path', `${basePath} must be an absolute path`))
+  }
+}
+
+function isAbsolutePath(value: string): boolean {
+  if (value.length === 0) return false
+  if (value.startsWith('/')) return true
+  if (value.startsWith('\\\\')) return true
+  return /^[A-Za-z]:[\\/]/.test(value)
 }
 
 function validateOptionalPositiveInteger(

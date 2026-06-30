@@ -1257,12 +1257,23 @@ describe('validateEventEnvelope', () => {
     }
     const eventType = 'provider.transcript.reported'
 
-    for (const { payload, code } of [
-      { payload: {}, code: 'required' },
-      { payload: { artifactPath: 42 }, code: 'invalid_type' },
-      { payload: { artifactPath: 'relative/provider-transcript.jsonl' }, code: 'invalid_path' },
+    // missing artifactPath -> required (build the payload WITHOUT the field;
+    // spreading basePayload would keep a valid artifactPath and never trigger `required`)
+    const payloadMissingArtifactPath = {
+      kind: basePayload.kind,
+      provider: basePayload.provider,
+    }
+    expectInvalidEventEnvelope(envelope(eventType, payloadMissingArtifactPath), {
+      path: 'payload.artifactPath',
+      code: 'required',
+    })
+
+    // present but invalid artifactPath -> invalid_type / invalid_path
+    for (const { artifactPath, code } of [
+      { artifactPath: 42, code: 'invalid_type' },
+      { artifactPath: 'relative/provider-transcript.jsonl', code: 'invalid_path' },
     ]) {
-      expectInvalidEventEnvelope(envelope(eventType, { ...basePayload, ...payload }), {
+      expectInvalidEventEnvelope(envelope(eventType, { ...basePayload, artifactPath }), {
         path: 'payload.artifactPath',
         code,
       })

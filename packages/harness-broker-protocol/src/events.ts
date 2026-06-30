@@ -82,6 +82,86 @@ export type InvocationEventType =
   | 'permission.requested'
   | 'permission.resolved'
   | 'permission.cancelled'
+  | 'provider.transcript.reported'
+
+/**
+ * Provider-transcript provenance contract (T-05374).
+ *
+ * ASP is the SOLE canonical producer-side source for the broker event that
+ * reports where a raw provider transcript artifact lives. These constants pin
+ * the event name and the artifact's kind / storage / media-type / schema so
+ * producers (the codex-app-server driver) and downstream consumers (HRC) agree
+ * without stringly-typed drift. Rows under {@link PROVIDER_TRANSCRIPT_SCHEMA}
+ * are NDJSON JSON objects preserving the raw upstream Codex app-server JSON-RPC
+ * notifications received BEFORE normalization (`jsonrpc: '2.0'`, `method`,
+ * optional `params`). Broker envelopes, normalized broker events, mapper
+ * output, HRC state, and rendered transcript text are NOT valid sources.
+ */
+export const PROVIDER_TRANSCRIPT_REPORTED_EVENT_TYPE = 'provider.transcript.reported' as const
+export const PROVIDER_TRANSCRIPT_ARTIFACT_KIND = 'provider-transcript-jsonl' as const
+export const PROVIDER_TRANSCRIPT_STORAGE = 'file-path' as const
+export const PROVIDER_TRANSCRIPT_MEDIA_TYPE = 'application/x-ndjson' as const
+export const PROVIDER_TRANSCRIPT_SCHEMA =
+  'harness-broker.provider-transcript.codex-jsonrpc-notification-jsonl/v1' as const
+
+/**
+ * Payload for {@link PROVIDER_TRANSCRIPT_REPORTED_EVENT_TYPE}. `artifactPath` is
+ * an absolute path to a readable JSONL file whose rows conform to
+ * {@link PROVIDER_TRANSCRIPT_SCHEMA}.
+ */
+export interface ProviderTranscriptReportedPayload {
+  kind: typeof PROVIDER_TRANSCRIPT_ARTIFACT_KIND
+  artifactPath: string
+  provider: 'codex'
+  harnessGeneration?: number | undefined
+}
+
+/**
+ * Extra envelope metadata accepted by {@link emitProviderTranscriptReported}.
+ * Mirrors the structural `extra` of the broker `DriverContext.emit` so the
+ * driver call site needs no `as never` / stringly-typed names / untyped casts.
+ */
+export interface ProviderTranscriptReportedExtra {
+  turnId?: TurnId | undefined
+  inputId?: InputId | undefined
+  itemId?: string | undefined
+  driver?: { kind: string; rawType?: string | undefined } | undefined
+  harnessGeneration?: number | undefined
+  turnAttempt?: number | undefined
+}
+
+/**
+ * Minimal structural emit context compatible with the broker `DriverContext`.
+ * Kept protocol-only so this package never imports `spaces-harness-broker` or
+ * any HRC package.
+ */
+export interface ProviderTranscriptEmitContext {
+  emit<TPayload>(
+    type: InvocationEventType,
+    payload: TPayload,
+    extra?: ProviderTranscriptReportedExtra
+  ): InvocationEventEnvelope<TPayload>
+}
+
+/**
+ * Typed producer helper so driver code emits `provider.transcript.reported`
+ * with the correct event name and payload shape and no casts. When
+ * `harnessGeneration` is supplied in BOTH the payload and the envelope extra,
+ * the helper reconciles them to the same value so payload and envelope metadata
+ * stay identical.
+ */
+export function emitProviderTranscriptReported(
+  ctx: ProviderTranscriptEmitContext,
+  payload: ProviderTranscriptReportedPayload,
+  extra: ProviderTranscriptReportedExtra = {}
+): InvocationEventEnvelope<ProviderTranscriptReportedPayload> {
+  const harnessGeneration = payload.harnessGeneration ?? extra.harnessGeneration
+  const mergedPayload: ProviderTranscriptReportedPayload =
+    harnessGeneration !== undefined ? { ...payload, harnessGeneration } : payload
+  const mergedExtra: ProviderTranscriptReportedExtra =
+    harnessGeneration !== undefined ? { ...extra, harnessGeneration } : extra
+  return ctx.emit(PROVIDER_TRANSCRIPT_REPORTED_EVENT_TYPE, mergedPayload, mergedExtra)
+}
 
 /**
  * Pushed by the broker on a graceful session end (the user-exit
@@ -135,6 +215,7 @@ export type InvocationEventPayload =
   | PermissionRequestedPayload
   | PermissionResolvedPayload
   | PermissionCancelledPayload
+  | ProviderTranscriptReportedPayload
 
 export interface InvocationStartedPayload {
   pid?: number | undefined

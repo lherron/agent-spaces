@@ -3588,6 +3588,38 @@
       "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
       "hash": "spaces-runtime-contracts|OutputManifestExclusionReason|type",
       "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "emitProviderTranscriptReported",
+      "kind": "value",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|emitProviderTranscriptReported|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ProviderTranscriptEmitContext",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|ProviderTranscriptEmitContext|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ProviderTranscriptReportedExtra",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|ProviderTranscriptReportedExtra|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ProviderTranscriptReportedPayload",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|ProviderTranscriptReportedPayload|type",
+      "count": 1
     }
   ]
 }
