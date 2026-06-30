@@ -7,8 +7,11 @@ Agent sessions use canonical `AGENT_*` variables: `AGENT_SCOPE_REF`,
 `AGENT_ID`, `AGENT_PROJECT`, `AGENT_TASK`, `AGENT_LANE`,
 `AGENT_SESSION_REF`, `AGENT_RUN_ID`, `AGENT_HOST_SESSION_ID`,
 `AGENT_PROJECT_ROOT`, and `AGENT_ACTOR`. `AGENT_SCOPE_REF` is durable
-identity; `AGENT_SESSION_REF` is that scope plus lane. Phase 1 compatibility
-aliases include `WRKQ_ACTOR`, `AGENT_LANE_REF`, `ASP_PROJECT_ROOT`,
+identity; `AGENT_SESSION_REF` is that scope plus lane. wrkq caller attribution
+is principal-only (T-05381): sessions emit `WRKQ_PRINCIPAL_REF=agent:<id>` as
+the canonical wrkq principal; the legacy bare-slug `WRKQ_ACTOR` alias is no
+longer read by wrkq. Phase 1 compatibility
+aliases include `WRKQ_PRINCIPAL_REF`, `AGENT_LANE_REF`, `ASP_PROJECT_ROOT`,
 `ASP_PROJECT`, `AGENTCHAT_ID`, `HRC_SESSION_REF`, `HRC_RUN_ID`, and
 `HRC_HOST_SESSION_ID`.
 

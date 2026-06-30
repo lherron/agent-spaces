@@ -226,7 +226,7 @@ describe('T-04601 env-compose snapshots', () => {
         DISPATCH_ONLY: 'dispatch-env',
         HRC_HOST_SESSION_ID: 'host-session-04601',
         HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04601/lane:snapshots',
-        WRKQ_ACTOR: 'cody',
+        WRKQ_PRINCIPAL_REF: 'agent:cody',
       })
       expect(pickEnv(prepared.env)).toEqual({
         ...pickEnv(prepared.lockedEnv),
@@ -328,7 +328,7 @@ describe('T-04601 env-compose snapshots', () => {
         DISPATCH_ONLY: 'dispatch-env',
         HRC_HOST_SESSION_ID: 'host-session-04601',
         HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04601/lane:snapshots',
-        WRKQ_ACTOR: 'cody',
+        WRKQ_PRINCIPAL_REF: 'agent:cody',
       })
       expect(pickEnv(harnessEnv)).toEqual({
         ...pickEnv(lockedEnv),

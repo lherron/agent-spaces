@@ -15,7 +15,7 @@ export const CANONICAL_AGENT_SESSION_ENV_KEYS = new Set([
 ])
 
 export const PHASE1_AGENT_SESSION_COMPAT_ENV_KEYS = new Set([
-  'WRKQ_ACTOR',
+  'WRKQ_PRINCIPAL_REF',
   'AGENT_LANE_REF',
   'ASP_PROJECT_ROOT',
   'ASP_PROJECT',
@@ -114,7 +114,10 @@ export function buildAgentSessionEnv(
   const actor = options.actor ?? agentId
   if (actor !== undefined && actor.length > 0) {
     env['AGENT_ACTOR'] = actor
-    env['WRKQ_ACTOR'] = actor
+    // wrkq attribution is principal-only (T-05381): the canonical caller
+    // principal env is WRKQ_PRINCIPAL_REF and must be exactly agent:<id>.
+    // The legacy WRKQ_ACTOR bare-slug alias is no longer read by wrkq.
+    env['WRKQ_PRINCIPAL_REF'] = actor.startsWith('agent:') ? actor : `agent:${actor}`
   }
 
   return env

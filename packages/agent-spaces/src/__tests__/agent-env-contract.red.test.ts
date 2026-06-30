@@ -249,7 +249,7 @@ describe('T-04218 canonical agent env contract', () => {
           AGENT_HOST_SESSION_ID: 'host-session-04218',
           AGENT_PROJECT_ROOT: fixture.projectRoot,
           AGENT_ACTOR: 'cody',
-          WRKQ_ACTOR: 'cody',
+          WRKQ_PRINCIPAL_REF: 'agent:cody',
           AGENT_LANE_REF: 'lane:repair',
           HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04218/lane:repair',
           HRC_RUN_ID: 'run-04218',
@@ -273,7 +273,7 @@ describe('T-04218 canonical agent env contract', () => {
         'AGENT_HOST_SESSION_ID',
         'AGENT_PROJECT_ROOT',
         'AGENT_ACTOR',
-        'WRKQ_ACTOR',
+        'WRKQ_PRINCIPAL_REF',
         'HRC_SESSION_REF',
       ]) {
         expect(prepared.lockedEnv).not.toHaveProperty(reservedKey)
@@ -296,7 +296,7 @@ describe('T-04218 canonical agent env contract', () => {
         AGENT_HOST_SESSION_ID: 'attacker-host',
         AGENT_PROJECT_ROOT: '/attacker/project',
         AGENT_ACTOR: 'attacker',
-        WRKQ_ACTOR: 'attacker',
+        WRKQ_PRINCIPAL_REF: 'agent:attacker',
         ASP_PROJECT_ROOT: '/attacker/asp-project',
         ASP_PROJECT: 'attacker-project',
         AGENTCHAT_ID: 'attacker-chat',
@@ -313,7 +313,7 @@ describe('T-04218 canonical agent env contract', () => {
           AGENT_HOST_SESSION_ID: 'host-session-04218',
           AGENT_PROJECT_ROOT: fixture.projectRoot,
           AGENT_ACTOR: 'cody',
-          WRKQ_ACTOR: 'cody',
+          WRKQ_PRINCIPAL_REF: 'agent:cody',
         })
       )
       expect(prepared.env['ASP_PROJECT']).toBe('agent-spaces')
@@ -388,7 +388,7 @@ describe('T-04218 canonical agent env contract', () => {
           'AGENT_HOST_SESSION_ID',
           'AGENT_PROJECT_ROOT',
           'AGENT_ACTOR',
-          'WRKQ_ACTOR',
+          'WRKQ_PRINCIPAL_REF',
           'HRC_SESSION_REF',
           'HRC_RUN_ID',
           'HRC_HOST_SESSION_ID',
