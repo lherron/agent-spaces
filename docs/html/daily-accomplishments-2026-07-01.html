@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Praesidium Accomplishments - 2026-07-01</title>
+  <style>
+    :root { --bg: #f2eee6; --paper: rgba(255,255,255,0.97); --ink: #182126; --muted: #5b646d; --line: #d4cec2; --shadow: 0 18px 42px rgba(24,33,38,0.10); --green: #115744; --green-soft: #d9ece5; --blue: #2f5f88; --blue-soft: #dbe8f5; --amber: #8b5d19; --amber-soft: #f5e5c7; --rose: #8d3c4d; --rose-soft: #f6e0e6; --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif; --serif: Georgia, "Iowan Old Style", serif; --mono: "SFMono-Regular", Menlo, Consolas, monospace; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+    body { background: radial-gradient(circle at 0% 0%, rgba(47,95,136,0.12), transparent 28%), radial-gradient(circle at 100% 0%, rgba(17,87,68,0.10), transparent 24%), linear-gradient(90deg, rgba(24,33,38,0.03) 1px, transparent 1px) 0 0 / 24px 24px, linear-gradient(0deg, rgba(24,33,38,0.02) 1px, transparent 1px) 0 0 / 24px 24px, var(--bg); color: var(--ink); font: 16px/1.56 var(--sans); }
+    a { color: var(--green); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+    .page { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; padding: 24px 20px 28px; border-right: 1px solid var(--line); background: rgba(242,238,230,0.97); backdrop-filter: blur(8px); }
+    .brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card { display: grid; gap: 10px; }
+    .kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.055em; }
+    .brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { margin: 0; font-family: var(--serif); line-height: 1.05; }
+    .brand h1 { font-size: 30px; }
+    .brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p { margin: 0; color: var(--muted); }
+    .kicker { color: var(--amber); font-size: 12px; font-weight: 900; }
+    .nav { margin: 18px 0; }
+    .nav a { display: block; padding: 8px 10px; border-left: 3px solid transparent; color: var(--muted); font-size: 11px; font-weight: 800; text-decoration: none; }
+    .nav a:hover, .nav a:focus { border-left-color: var(--green); background: rgba(255,255,255,0.84); color: var(--ink); }
+    .sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+    .legend-item { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+    .fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+    .fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+    main { min-width: 0; }
+    .hero { padding: 44px min(5vw, 62px) 34px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(17,87,68,0.15), transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.90)); }
+    .hero-grid, .content { width: min(1220px, 100%); }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.16fr) minmax(320px, 0.84fr); gap: 28px; }
+    .eyebrow { color: var(--green); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+    .hero h2 { font-size: clamp(2.1rem, 4vw, 3.28rem); margin-bottom: 14px; }
+    .hero p { max-width: 78ch; font-size: 1.02rem; }
+    .hero-note { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--line); background: rgba(255,255,255,0.9); box-shadow: var(--shadow); }
+    .hero-note strong { display: block; margin-bottom: 6px; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+    .metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+    .metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+    .metric-value { margin-top: 8px; font-size: clamp(1.8rem, 2.8vw, 2.7rem); }
+    .metric small { display: block; margin-top: 8px; color: var(--muted); }
+    .content { padding: 30px min(5vw, 62px) 64px; }
+    section { margin-top: 34px; }
+    .section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+    .section-title p { max-width: 82ch; }
+    .stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .stream-card, .task-card, .evidence-card, .repo-card { min-width: 0; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); padding: 20px; }
+    .stream-card { grid-column: span 12; }
+    .task-card, .evidence-card, .repo-card { grid-column: span 6; }
+    .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.28rem; }
+    .stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    .chip { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; font-weight: 800; max-width: 100%; overflow-wrap: anywhere; }
+    .chip.green { background: var(--green-soft); color: var(--green); border-color: rgba(17,87,68,0.18); }
+    .chip.blue { background: var(--blue-soft); color: var(--blue); border-color: rgba(47,95,136,0.18); }
+    .chip.amber { background: var(--amber-soft); color: var(--amber); border-color: rgba(139,93,25,0.18); }
+    .chip.rose { background: var(--rose-soft); color: var(--rose); border-color: rgba(141,60,77,0.18); }
+    .stream-columns { display: grid; grid-template-columns: 1.02fr 0.98fr; gap: 18px; min-width: 0; }
+    .note-box { padding: 16px 18px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(220,232,246,0.72), rgba(255,255,255,0.92)); min-width: 0; }
+    .inline-time { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+    .task-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 11px; font-weight: 800; }
+    .evidence-card.good { background: linear-gradient(180deg, rgba(216,239,231,0.92), rgba(255,255,255,0.97)); }
+    .evidence-card.warn { background: linear-gradient(180deg, rgba(245,231,207,0.92), rgba(255,255,255,0.97)); }
+    .repo-card.pressure { background: linear-gradient(180deg, rgba(247,224,229,0.92), rgba(255,255,255,0.97)); }
+    .footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 800; }
+    @media (max-width: 980px) { .page { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); } .hero-grid, .stream-columns { grid-template-columns: 1fr; } .task-card, .evidence-card, .repo-card { grid-column: span 12; } }
+    @media (max-width: 640px) { .hero, .content { padding-left: 18px; padding-right: 18px; } .metrics { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="kicker">Praesidium Daily Brief</div>
+        <h1>2026-07-01</h1>
+        <p>Previous 24 hours in local time, covering landed commits, completed <code>wrkq</code> tasks, proven ahead-of-upstream branches, and visible unchecked-in repo pressure across Praesidium.</p>
+      </div>
+      <nav class="nav">
+        <a href="#scorecard">Scorecard</a>
+        <a href="#workstreams">Workstreams</a>
+        <a href="#tasks">Completed Tasks</a>
+        <a href="#validation">Validation</a>
+        <a href="#open-state">Open Repo State</a>
+      </nav>
+      <div class="sidebar-block">
+        <div class="legend-item"><span class="dot" style="background: var(--green);"></span>Landed commits inside the exact local window</div>
+        <div class="legend-item"><span class="dot" style="background: var(--blue);"></span><code>wrkq</code> completion evidence across projects</div>
+        <div class="legend-item"><span class="dot" style="background: var(--amber);"></span>Current ahead-of-upstream carry-over</div>
+        <div class="legend-item"><span class="dot" style="background: var(--rose);"></span>Fresh unchecked-in pressure</div>
+      </div>
+      <div class="sidebar-block sidebar-note"><strong>Window</strong><br />2026-06-30 05:01:01 CDT to 2026-07-01 05:01:01 CDT</div>
+      <div class="sidebar-block sidebar-note"><strong>Top accomplishments</strong><ul class="fact-list"><li><strong><code>wrkq</code> and agent-loop drove the heaviest lane</strong> with <strong>33</strong> commits and <strong>10</strong> completed tasks, led by WRKF executable-action work, recovery/runner integration, and the implementer-phase decomposition follow-through.</li><li><strong>The transcript-contract thread actually crossed repo boundaries</strong>: <strong><code>T-05374</code></strong> landed in agent-spaces and <strong><code>T-05375</code></strong> landed in HRC, so the producer/consumer path is now represented on both sides of the broker boundary.</li><li><strong>Taskboard kept shipping operator-facing fixes</strong> with <strong>3 completed tasks</strong> and a fresh principal-only surface commit, focused on responsive layout, Inbox Hub quick-add targeting, and scroll preservation.</li><li><strong>Current push backlog is mostly carry-over, not same-day throughput</strong>: only <strong>10</strong> of <strong>33</strong> ahead commits were authored inside this window, while <strong>23</strong> older local-only commits remain concentrated in <code>hrc-runtime</code>, <code>taskboard</code>, and older side repos.</li><li><strong>Unchecked-in pressure is low and narrow today</strong>: only <strong>6</strong> fresh dirty paths are visible, all in <code>taskboard</code> and <code>wrkq</code>, while <code>explainer</code> still carries most of the older dirt.</li></ul></div>
+    </aside>
+    <main>
+      <section class="hero" id="scorecard">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow">Praesidium-wide accomplishments for 2026-07-01</div>
+            <h2>Today&apos;s strongest story was a narrower but more coherent platform slice: WRKF executable actions, actor-to-<code>principal_ref</code> migration, and transcript-event parity moved through <code>wrkq</code>, agent-loop, ASP, HRC, ACP, and Taskboard without inflating same-day throughput with older carry-over.</h2>
+            <p>The raw totals dropped from yesterday, but the lane is cleaner. <code>wrkq</code> concentrated most of the new commits and completions, agent-loop pushed the implementation-loop shape forward, ASP and HRC completed the producer/consumer transcript handshake on both sides of the broker boundary, and Taskboard kept shipping operator-facing responsive fixes. Open-state pressure is now lighter on fresh dirt, but most ahead-of-upstream commits are still older carry-over rather than work authored in this specific window.</p>
+            <div class="hero-note"><strong>Scope note</strong>The scorecard counts only current-branch commits inside the exact local 24-hour window. Current ahead-of-upstream state and dirty paths are reported later as operational pressure, not silently blended into the accomplishment totals.</div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><div class="metric-label">Committed window</div><div class="metric-value">45</div><small>6 repos contributed current-branch commits inside the slice.</small></div>
+            <div class="metric"><div class="metric-label">Completed tasks</div><div class="metric-value">16</div><small>6 <code>wrkq</code> projects closed work in the slice.</small></div>
+            <div class="metric"><div class="metric-label">Proven unpushed</div><div class="metric-value">33</div><small>10 were authored inside this window; 23 are older carry-over local-only commits.</small></div>
+            <div class="metric"><div class="metric-label">Fresh unchecked-in</div><div class="metric-value">6</div><small>2 repos show visible path mtimes inside the same local window.</small></div>
+          </div>
+        </div>
+      </section>
+      <div class="content">
+        <section id="workstreams">
+          <div class="section-title">
+            <h2>Workstreams</h2>
+            <p>The grouping below follows operational stories rather than raw repo names so the workflow engine, transcript contract, and Taskboard surface work stay connected.</p>
+          </div>
+          <div class="stream-grid">
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3><code>wrkq</code> and agent-loop carried the day with executable-action and runner work</h3>
+                  <p>This was the densest lane in the slice: WRKF v2 executable actions, recovery and ACP integration, action claim/settle/next work, identity migration, version metadata, and the implementation-loop phase decomposition all moved together instead of as isolated patches.</p>
+                </div>
+                <div class="chips"><span class="chip green">33 commits</span><span class="chip blue">10 completed tasks</span><span class="chip amber">2 current ahead commits</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>ad714a8</code> feat(wrkf): add v2 executable action flow <span class="inline-time">Jun 30 22:19</span></li><li><code>a6bc4db</code> build: inject version metadata into Go binaries + wrkf version cmd <span class="inline-time">Jun 30 20:31</span></li><li><code>67307a5</code> fix(wrkf): T-05372 — migration backfill derives bare agent slugs directly <span class="inline-time">Jun 30 19:20</span></li><li><code>1d40ab5</code> fix(wrkf): T-05372 — dual-write principal_ref on the transitioned event <span class="inline-time">Jun 30 19:11</span></li><li><code>8df5c44</code> docs(wrkf): T-05372 — principal_ref terminology + protocol 2026-06-30 <span class="inline-time">Jun 30 19:03</span></li><li><code>9ef3565</code> fix(client): T-05372 — wrkf principal_ref cutover + protocol bump <span class="inline-time">Jun 30 19:00</span></li></ul></div>
+                <div class="note-box"><strong>Task closure pattern</strong><ul class="evidence-list"><li><code>T-05388</code> PR 5: WRKF recovery and runner/ACP integration <span class="inline-time">Jun 30 22:22</span></li><li><code>T-05387</code> PR 4: WRKF action.settle atomic semantic write path <span class="inline-time">Jun 30 22:22</span></li><li><code>T-05386</code> PR 3: WRKF action.claim and active-run ownership <span class="inline-time">Jun 30 22:22</span></li><li><code>T-05385</code> PR 2: WRKF action.next candidate API <span class="inline-time">Jun 30 22:22</span></li><li><code>T-05384</code> PR 1: WRKF executable action model and simple-task v2 <span class="inline-time">Jun 30 22:22</span></li><li><code>T-05372</code> wrkf: convert workflow identity from actor to principal_ref <span class="inline-time">Jun 30 19:20</span></li><li><strong><code>wrkq</code> alone closed 9 tasks</strong>, making it the highest-throughput completion project in this slice by a wide margin.</li></ul></div>
+              </div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>Transcript-event parity and identity cleanup crossed ASP, HRC, and ACP boundaries</h3>
+                  <p>This lane is smaller in count but stronger architecturally. ASP emitted the broker transcript event, HRC consumed it with schema carry-through, and ACP plus the surrounding repos aligned on the actor-to-<code>principal_ref</code> / principal-only attribution cleanup.</p>
+                </div>
+                <div class="chips"><span class="chip green">11 commits</span><span class="chip blue">3 completed tasks</span><span class="chip amber">19 current ahead commits</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>2711984</code> fix(agent-spaces): principal-only session env for wrkq attribution (T-05381) <span class="inline-time">Jun 30 18:26</span></li><li><code>a7e500d</code> docs: add daily-accomplishments report 2026-06-30 <span class="inline-time">Jun 30 09:45</span></li><li><code>cbdf576</code> feat(T-05374): provider.transcript.reported producer + protocol contract <span class="inline-time">Jun 30 09:44</span></li><li><code>8a57eb5</code> feat(hrc): T-05375 — carry ASP producer transcript content schema in consumer metadata <span class="inline-time">Jun 30 11:10</span></li><li><code>c3d5e79</code> test: add provider transcript drift red bar <span class="inline-time">Jun 30 11:00</span></li><li><code>3eb2f12</code> chore(hrc): sync ASP deps to 0.1.1-dev.20260630094704 (producer) <span class="inline-time">Jun 30 10:53</span></li></ul></div>
+                <div class="note-box"><strong>Task closure pattern</strong><ul class="evidence-list"><li><code>T-05374</code> ASP: emit provider.transcript.reported from codex-app-server broker driver (protocol contract + live producer) <span class="inline-time">Jun 30 10:44</span></li><li><code>T-05375</code> HRC: consume producer-emitted provider.transcript.reported (sync ASP, drift-proof, e2e verify) <span class="inline-time">Jun 30 12:36</span></li><li><code>T-05379</code> acp-sync: sync:asp never updates root package.json ASP/HRC pins (packageManifestPaths omits root) <span class="inline-time">Jun 30 10:34</span></li><li><strong><code>T-05374</code> and <code>T-05375</code></strong> are especially important together because they prove the producer and consumer sides both moved, not just one repo.</li></ul></div>
+              </div>
+            </article>
+            <article class="stream-card">
+              <div class="stream-head">
+                <div>
+                  <h3>Taskboard kept landing operator-facing responsive fixes while fresh unchecked-in pressure moved there too</h3>
+                  <p>Taskboard had only one new commit in the exact window, but three same-day task completions and four fresh dirty paths show the repo is still actively being shaped around responsive workspace behavior and Inbox Hub flows.</p>
+                </div>
+                <div class="chips"><span class="chip green">1 commit</span><span class="chip blue">3 completed tasks</span><span class="chip rose">4 fresh dirty paths</span></div>
+              </div>
+              <div class="stream-columns">
+                <div class="note-box"><strong>Commit evidence</strong><ul class="evidence-list"><li><code>f4f4e1c</code> fix(taskboard): adopt principal-only wrkq surface (T-05381) <span class="inline-time">Jun 30 18:26</span></li><li><strong>Fresh dirty paths</strong> are concentrated in <code>apps/api/package.json</code>, <code>bun.lock</code>, <code>justfile</code>, and <code>packages/taskboard-cli/src/server/supervisor.js</code>.</li></ul></div>
+                <div class="note-box"><strong>Task closure pattern</strong><ul class="evidence-list"><li><code>T-05382</code> Preserve Inbox Hub responsive scroll during refresh <span class="inline-time">Jun 30 12:33</span></li><li><code>T-05376</code> Responsive workspace view hides columns <span class="inline-time">Jun 30 09:58</span></li><li><code>T-05377</code> defect: Inbox Hub quick-add should create in normal inbox container <span class="inline-time">Jun 30 09:23</span></li></ul></div>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section id="tasks">
+          <div class="section-title">
+            <h2>Completed Tasks</h2>
+            <p>The grid keeps every active project in view while compressing detail enough to stay skimmable at mobile width.</p>
+          </div>
+          <div class="task-grid"><article class="task-card"><div class="task-meta"><span>wrkq</span><span>9 completed</span></div><h3>WRKF action model, recovery, and identity cutover</h3><p>The busiest completion project in this slice, with a tightly related cluster rather than scattered chores.</p><ul class="evidence-list"><li><code>T-05388</code> PR 5: WRKF recovery and runner/ACP integration <span class="inline-time">Jun 30 22:22</span></li><li><code>T-05387</code> PR 4: WRKF action.settle atomic semantic write path <span class="inline-time">Jun 30 22:22</span></li><li><code>T-05386</code> PR 3: WRKF action.claim and active-run ownership <span class="inline-time">Jun 30 22:22</span></li><li><code>T-05385</code> PR 2: WRKF action.next candidate API <span class="inline-time">Jun 30 22:22</span></li><li><code>T-05384</code> PR 1: WRKF executable action model and simple-task v2 <span class="inline-time">Jun 30 22:22</span></li><li><code>T-05372</code> wrkf: convert workflow identity from actor to principal_ref <span class="inline-time">Jun 30 19:20</span></li></ul></article><article class="task-card"><div class="task-meta"><span>taskboard</span><span>3 completed</span></div><h3>Responsive workspace and Inbox Hub cleanup</h3><p>Three UI-facing closeouts landed in the same day the repo also adopted the principal-only wrkq surface.</p><ul class="evidence-list"><li><code>T-05382</code> Preserve Inbox Hub responsive scroll during refresh <span class="inline-time">Jun 30 12:33</span></li><li><code>T-05376</code> Responsive workspace view hides columns <span class="inline-time">Jun 30 09:58</span></li><li><code>T-05377</code> defect: Inbox Hub quick-add should create in normal inbox container <span class="inline-time">Jun 30 09:23</span></li></ul></article><article class="task-card"><div class="task-meta"><span>agent-control-plane</span><span>1 completed</span></div><h3>Manifest sync and ACP flow follow-through</h3><p>ACP only closed one task in-window, but it lines up with the day&#39;s manifest and flow-step work.</p><ul class="evidence-list"><li><code>T-05379</code> acp-sync: sync:asp never updates root package.json ASP/HRC pins (packageManifestPaths omits root) <span class="inline-time">Jun 30 10:34</span></li></ul></article><article class="task-card"><div class="task-meta"><span>agent-loop</span><span>1 completed</span></div><h3>Implementation-loop phase decomposition</h3><p>This closeout reframed the implementation loop without letting the phases drift from the existing contract.</p><ul class="evidence-list"><li><code>T-05380</code> Decompose wrkq-task-impl phases without contract divergence <span class="inline-time">Jun 30 11:55</span></li></ul></article><article class="task-card"><div class="task-meta"><span>agent-spaces</span><span>1 completed</span></div><h3>Broker transcript producer contract</h3><p>ASP&#39;s single completion mattered because it established the producer side of the transcript event contract.</p><ul class="evidence-list"><li><code>T-05374</code> ASP: emit provider.transcript.reported from codex-app-server broker driver (protocol contract + live producer) <span class="inline-time">Jun 30 10:44</span></li></ul></article><article class="task-card"><div class="task-meta"><span>hrc-runtime</span><span>1 completed</span></div><h3>Broker transcript consumer parity</h3><p>HRC&#39;s single completion closes the consumer side of the same transcript lane, with drift-proofing in the task title itself.</p><ul class="evidence-list"><li><code>T-05375</code> HRC: consume producer-emitted provider.transcript.reported (sync ASP, drift-proof, e2e verify) <span class="inline-time">Jun 30 12:36</span></li></ul></article></div>
+        </section>
+        <section id="validation">
+          <div class="section-title">
+            <h2>Validation Evidence</h2>
+            <p>The brief is grounded in live git and <code>wrkq</code> surfaces gathered during this run and filtered to the same local-time window used in the scorecard and email body.</p>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-card good">
+              <h3>Evidence collection</h3>
+              <ul class="evidence-list"><li>Scanned 18 visible project repos under <code>/Users/lherron/praesidium</code> and counted 45 current-branch commits across 6 active repos inside 2026-06-30 05:01:01 CDT to 2026-07-01 05:01:01 CDT.</li><li>Enumerated <code>wrkq projects --json</code>, queried each project locally, and filtered completed task rows by <code>updated_at</code>, producing 16 closeouts across 6 projects.</li><li>Checked every visible repo for current ahead-of-upstream state and working-tree dirt, separating 10 same-window ahead commits and 6 fresh dirty paths from older carry-over state.</li></ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Verification boundaries</h3>
+              <ul class="evidence-list"><li>Direct browser verification was not available through a purpose-built browser surface in this thread, so this run relies on static checks for anchors, mobile breakpoint rules, and horizontal-overflow guards.</li><li>Ahead-of-upstream is a current snapshot. Those commits are proven local-only, but only 10 of 33 were authored in this exact reporting window.</li><li>Dirty-path freshness is based on visible path mtimes inside the same local slice; older dirty paths remain reported separately as carry-over pressure.</li></ul>
+            </article>
+            <article class="evidence-card good">
+              <h3>Email delivery contract</h3>
+              <ul class="evidence-list"><li>This artifact is intended for attachment delivery with subject <code>Praesidium accomplishments for 2026-07-01</code>.</li><li>The plain-text email body states the exact covered window, the attachment filename, and five top accomplishments from this page.</li><li>Delivery is gated on successful artifact generation plus static verification, so a send failure cannot silently bless a broken report.</li></ul>
+            </article>
+            <article class="evidence-card warn">
+              <h3>Open-state readout</h3>
+              <ul class="evidence-list"><li><code>hrc-runtime</code> leads the current ahead backlog with <strong>13</strong> local-only commits, followed by <strong>taskboard</strong> at <strong>8</strong>, <strong>agent-spaces</strong> at <strong>5</strong>, <strong>semantic-capabilities</strong> at <strong>3</strong>, and <strong>agent-control-plane</strong>, <strong>agent-loop</strong>, and <strong>wrkq</strong> at <strong>1</strong> each.</li><li>Fresh dirty state is concentrated in <code>taskboard</code> (<strong>4</strong> paths) and <code>wrkq</code> (<strong>2</strong> docs paths).</li><li><code>explainer</code> still holds the biggest older dirty carry-over worktree with <strong>10</strong> paths.</li></ul>
+            </article>
+          </div>
+        </section>
+        <section id="open-state">
+          <div class="section-title">
+            <h2>Open Repo State</h2>
+            <p>Open state stays separate from shipped history so current delivery lag and local-only work remain visible without being mistaken for completed throughput.</p>
+          </div>
+          <div class="repo-grid">
+            <article class="repo-card pressure">
+              <div class="task-meta"><span>Current ahead backlog</span><span>33 local-only commits</span></div>
+              <h3>Most ahead-of-upstream pressure predates this exact slice</h3>
+              <p>The backlog is real, but it is not mostly same-day throughput. Today added only 10 new ahead commits to a larger carry-over stack.</p>
+              <ul class="repo-list"><li><strong>hrc-runtime</strong> is <strong>13</strong> commits ahead, with <strong>3</strong> from this exact window.</li><li><strong>taskboard</strong> is <strong>8</strong> commits ahead, with <strong>1</strong> from this exact window.</li><li><strong>agent-spaces</strong> is <strong>5</strong> commits ahead, with <strong>3</strong> from this exact window.</li><li><strong>semantic-capabilities</strong> is <strong>3</strong> commits ahead, with <strong>0</strong> from this exact window.</li><li><strong>agent-control-plane</strong> is <strong>1</strong> commit ahead, with <strong>1</strong> from this exact window.</li><li><strong>agent-loop</strong> is <strong>1</strong> commit ahead, with <strong>1</strong> from this exact window.</li><li><strong>spaces-repo</strong> is <strong>1</strong> commit ahead, with <strong>0</strong> from this exact window.</li><li><strong>wrkq</strong> is <strong>1</strong> commit ahead, with <strong>1</strong> from this exact window.</li></ul>
+            </article>
+            <article class="repo-card pressure">
+              <div class="task-meta"><span>Fresh dirty worktrees</span><span>6 paths across 2 repos</span></div>
+              <h3>Fresh unchecked-in work is narrow today</h3>
+              <p>Only two repos show fresh dirty paths in this slice, which makes the remaining local pressure easy to locate.</p>
+              <ul class="repo-list"><li><strong>taskboard</strong>: <code>apps/api/package.json</code>, <code>bun.lock</code>, <code>justfile</code>, <code>packages/taskboard-cli/src/server/supervisor.js</code>.</li><li><strong>wrkq</strong>: <code>docs/samples.md</code>, <code>docs/wrkf-lean-agentic-workflow-spec.md</code>.</li></ul>
+            </article>
+            <article class="repo-card pressure">
+              <div class="task-meta"><span>Older carry-over</span><span>23 ahead commits, 14 dirty paths</span></div>
+              <h3>Carry-over state is visible without inflating today&apos;s scorecard</h3>
+              <p>The older pressure is mostly in repos that were quiet or quieter during the current slice.</p>
+              <ul class="repo-list"><li><strong>hrc-runtime</strong> still has <strong>10</strong> older ahead commits.</li><li><strong>taskboard</strong> still has <strong>7</strong> older ahead commits.</li><li><strong>agent-spaces</strong> still has <strong>2</strong> older ahead commits.</li><li><strong>semantic-capabilities</strong> still has <strong>3</strong> older ahead commits.</li><li><strong>spaces-repo</strong> still has <strong>1</strong> older ahead commit.</li><li><strong>explainer</strong> still carries <strong>10</strong> older dirty paths.</li><li><strong>ghostmux</strong> still carries <strong>1</strong> older dirty path.</li><li><strong>scriptable-ghostty</strong> still carries <strong>1</strong> older dirty path.</li><li><strong>workboard</strong> still carries <strong>1</strong> older dirty path.</li></ul>
+            </article>
+            <article class="repo-card">
+              <div class="task-meta"><span>Representative local-only evidence</span><span>Current snapshot</span></div>
+              <h3>The remaining local-only state matches the active feature lanes</h3>
+              <p>The visible open state is not random drift; it mirrors the same repos that carried today&apos;s implementation and UI work.</p>
+              <ul class="repo-list"><li><code>docs/samples.md</code> and <code>docs/wrkf-lean-agentic-workflow-spec.md</code> keep <code>wrkq</code> documentation pressure visible while the WRKF action model is still being shaped.</li><li><code>apps/api/package.json</code> and <code>packages/taskboard-cli/src/server/supervisor.js</code> keep Taskboard&apos;s operator-surface lane visible even after three closeouts landed.</li><li><code>agent-spaces</code> and <code>hrc-runtime</code> have no dirty paths in the slice, which means their transcript-contract work is currently represented as commits rather than lingering unstaged churn.</li></ul>
+            </article>
+          </div>
+        </section>
+        <div class="footer">Generated from live Praesidium repo and <code>wrkq</code> state at 2026-07-01 05:01:01 CDT. Root umbrella repo commit noise was intentionally excluded from accomplishment totals.</div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
