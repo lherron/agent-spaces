@@ -7,7 +7,7 @@ Generated from `agent-enablement.json`. This markdown is a projection, not autho
 Rubric: rubric.md@d793717
 Catalog: not-recorded
 AE assessment: 2026-07-02 (agent-enablement/assessments/agent-spaces/assessment.json)
-PM floor: 2026-07-02 (etag 2)
+PM floor: 2026-07-02 (etag 4)
 
 ## Profile Summary
 Required: 18
@@ -38,7 +38,7 @@ Failing/open axes: S1, S4, TA, TA.actuatorSplit, TB.lifecycleHealth, TD, TD.self
 - validate-tests: PRESENT (S6, S7) - justfile: test recipe present; package test present; Go tests not found
 
 ## Escalations
-- F0: floor-gap (pending-task)
+- F0: floor-gap / open (T-05447)
 
 ## Depth Axes
 - F0: PRESENT.DORMANT.satisfied.dormant
