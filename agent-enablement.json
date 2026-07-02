@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "rubricVersion": "rubric.md@d793717",
+  "catalogVersion": "not-recorded",
+  "floor": {
+    "lastSweep": "2026-07-02",
+    "sweepId": "ae-phase3-agent-spaces-2026-07-02",
+    "sweptBy": "agent-enablement phase-3 projection sweep",
+    "writer": "pm",
+    "etag": 1,
+    "axes": {
+      "F0": "PRESENT"
+    }
+  },
+  "observations": [],
+  "depth": {
+    "lastAssess": "2026-07-02",
+    "writer": "ae",
+    "etag": 1,
+    "assessment": "agent-enablement/assessments/agent-spaces/assessment.json",
+    "axes": {
+      "F0": "PRESENT.DORMANT.satisfied.dormant",
+      "P0": "PRESENT.EXERCISED.satisfied.exercised",
+      "S1": "PARTIAL.EXERCISED.open_delta",
+      "S1.authorityChannelSplit": "PRESENT.EXERCISED.satisfied.exercised",
+      "S2": "PRESENT.EXERCISED.satisfied.exercised",
+      "S3": "PRESENT.EXERCISED.satisfied.exercised",
+      "S3.affordanceGating": "PRESENT.EXERCISED.satisfied.exercised",
+      "S4": "PARTIAL.EXERCISED.open_delta",
+      "S5": "PRESENT.EXERCISED.satisfied.exercised",
+      "S6": "PRESENT.EXERCISED.satisfied.exercised",
+      "S7": "PRESENT.EXERCISED.satisfied.exercised",
+      "S7.contractHashClosure": "PRESENT.EXERCISED.satisfied.exercised",
+      "S8": "PRESENT.EXERCISED.satisfied.exercised",
+      "TA": "PARTIAL.EXERCISED.open_delta",
+      "TA.actuatorSplit": "ABSENT.DORMANT.open_delta",
+      "TB": "PRESENT.EXERCISED.satisfied.exercised",
+      "TB.lifecycleHealth": "UNKNOWN.DORMANT.deferred",
+      "TC": "PRESENT.EXERCISED.satisfied.exercised",
+      "TD": "PARTIAL.EXERCISED.open_delta",
+      "TD.selfDescribingSurfaceConformance": "ABSENT.DORMANT.open_delta",
+      "TE": "PRESENT.EXERCISED.satisfied.exercised",
+      "TE.claimScopedEvidenceRouting": "PRESENT.DORMANT.satisfied.dormant",
+      "TE.crossHarnessConformanceMatrix": "PRESENT.DORMANT.satisfied.dormant",
+      "TF": "PARTIAL.EXERCISED.open_delta",
+      "TF.workflowAdoption": "PARTIAL.DORMANT.open_delta"
+    },
+    "profileSummary": {
+      "generatedBy": "agent-enablement/validate-contract.mjs --sync-target",
+      "source": {
+        "profile": "agent-enablement/assessments/agent-spaces/profile.json",
+        "assessment": "agent-enablement/assessments/agent-spaces/assessment.json",
+        "deltas": "agent-enablement/assessments/agent-spaces/deltas.json",
+        "profileHash": "e69aff4ec1a1ac95a1558dd831813a00ad47a55bd4d3ee1b84e5eccbece8b33d",
+        "assessmentHash": "1a596fe912f1f479561bb32d3e4e48faa4b81b369be955771c612399bcf8efae",
+        "deltasHash": "f77135eb0e456521ba2cec683a9b7ff56014c9c4f9965aace7c309f23c9d71ca"
+      },
+      "decidedAt": "2026-07-02",
+      "assessedAt": "2026-07-02",
+      "profileStatusCounts": {
+        "required": 18,
+        "frontier": 5,
+        "deferred": 2
+      },
+      "openDeltaIds": [
+        "delta:add-asp-cli-surface-drift-gate",
+        "delta:measure-closeout-workflow-adoption-tail",
+        "delta:repair-runtime-contract-diagnostic-conformance",
+        "delta:route-actuator-split-cross-repo"
+      ],
+      "failingOpenAxes": [
+        "S1",
+        "S4",
+        "TA",
+        "TA.actuatorSplit",
+        "TB.lifecycleHealth",
+        "TD",
+        "TD.selfDescribingSurfaceConformance",
+        "TF",
+        "TF.workflowAdoption"
+      ],
+      "axes": {
+        "F0": {
+          "status": "required",
+          "rationale": "Baseline hygiene remains PM/floor-owned and presence-only; it may seed escalation but cannot satisfy depth axes."
+        },
+        "P0": {
+          "status": "required",
+          "minimumRung": "GUARD-local-hook-gate",
+          "rationale": "agent-spaces is the ASP/runtime layer; installed local hook verification is the substrate for every deeper agent-facing guard."
+        },
+        "S1": {
+          "status": "required",
+          "minimumRung": "ELIMINATE-for-authority-ingress",
+          "rationale": "Harness dispatch, runtime environment, scope identity, and config materialization cross authority boundaries where illegal states should become unrepresentable when expressible."
+        },
+        "S1.authorityChannelSplit": {
+          "status": "frontier",
+          "rationale": "agent-spaces is the N=1 source for authority-channel split evidence through DispatchEnv and disjoint runtime env handling; assessment should record current exercise evidence without making the frontier item required."
+        },
+        "S2": {
+          "status": "required",
+          "minimumRung": "TRAIN/GUARD-scaffold",
+          "rationale": "Spaces, commands, harness adapters, and package boundaries repeat enough that blessed shapes and scaffolds materially improve agent construction priors."
+        },
+        "S3": {
+          "status": "required",
+          "minimumRung": "TRAIN-plus-reachability-guard",
+          "rationale": "Agents enter through AGENTS.md, package-local routers, and runtime context assembly; disclosure must be reachable and target-specific."
+        },
+        "S3.affordanceGating": {
+          "status": "required",
+          "minimumRung": "TRAIN-condition-aware-context",
+          "rationale": "Unlike wrkq, agent-spaces dynamically projects context by run mode, path, and environment; this is target-shaping vocabulary, not a schema exception."
+        },
+        "S4": {
+          "status": "required",
+          "minimumRung": "GUARD-with-teaching-diagnostics",
+          "rationale": "Boundary and manifest checks are verify-gating; every firing diagnostic should carry fix/why/exception/do-not-suppress fields."
+        },
+        "S5": {
+          "status": "required",
+          "minimumRung": "GUARD-suppression-cost",
+          "rationale": "agent-spaces has multiple structural checks; suppression growth must stay ticketed and visible before adding more guards."
+        },
+        "S6": {
+          "status": "required",
+          "minimumRung": "GUARD-local-hook-gate",
+          "rationale": "The local hook-enforced verify path is the handoff gate for this local-first repo; cloud publish workflows are not a substitute or requirement."
+        },
+        "S7": {
+          "status": "required",
+          "minimumRung": "GUARD-public-surface-and-contract-rot",
+          "rationale": "Public package surfaces, runtime contract hashes, and generated runtime plans can silently rot without executable sensors."
+        },
+        "S7.contractHashClosure": {
+          "status": "frontier",
+          "rationale": "agent-spaces is the N=1 source for compile/profile/spec/start contract hash closure; assessment should record current exercise evidence while the graduation ladder waits for corroboration elsewhere."
+        },
+        "S8": {
+          "status": "required",
+          "minimumRung": "GUARD-rule-authoring-ledger",
+          "rationale": "The repo already carries several verify-gating checks; rule authoring and sunset discipline prevent guard sprawl."
+        },
+        "TA": {
+          "status": "required",
+          "minimumRung": "team-role-separation",
+          "rationale": "agent-spaces work already relies on coordinator/architect/implementer/verifier separation; high-risk mutation paths still need explicit authority design."
+        },
+        "TA.actuatorSplit": {
+          "status": "deferred",
+          "until": "T-05439 hrc-runtime actuator or credential split route is designed and owned",
+          "note": "Cross-repo residency is expressed by deferred+until+route at N=2; revisit the vocabulary if a third target hits the same shape.",
+          "rationale": "Credential/actuator separation can be mechanized but partly resides outside agent-spaces."
+        },
+        "TB": {
+          "status": "required",
+          "minimumRung": "process-carrier",
+          "rationale": "Skills and package guidance are active process carriers for this repo."
+        },
+        "TB.lifecycleHealth": {
+          "status": "frontier",
+          "rationale": "Lifecycle telemetry, state, and rollback are the section 10-B frontier refinement; agent-spaces should record evidence, but the frontier row is not required."
+        },
+        "TC": {
+          "status": "required",
+          "minimumRung": "TRAIN-retro-cadence",
+          "rationale": "The target already has an enablement changelog; continued assessment value depends on harvesting changes after substantial work."
+        },
+        "TD": {
+          "status": "required",
+          "minimumRung": "GUARD-live-code-discovery",
+          "rationale": "A large Bun/TS monorepo benefits from executable entry-point and area explainers computed from live code instead of stale prose."
+        },
+        "TD.selfDescribingSurfaceConformance": {
+          "status": "required",
+          "minimumRung": "registry-derived-help-docs-plus-drift-gate",
+          "rationale": "agent-spaces ships the asp CLI, and praesidium CLI surface drift was the original coordinator nomination for this axis."
+        },
+        "TE": {
+          "status": "required",
+          "minimumRung": "TRAIN-acceptance-behavioral-specs",
+          "rationale": "Harness and runtime changes need acceptance and behavioral specs before claim-scoped evidence routing is considered."
+        },
+        "TE.claimScopedEvidenceRouting": {
+          "status": "frontier",
+          "rationale": "The likely enforcement home is a wrkf closeout workflow rather than a simple commit hook; treat as frontier until the workflow carrier proves usable."
+        },
+        "TE.crossHarnessConformanceMatrix": {
+          "status": "frontier",
+          "rationale": "agent-spaces is the N=1 source for the section 10-J cross-harness conformance matrix; assessment should record current exercise evidence without making it a required row."
+        },
+        "TF": {
+          "status": "required",
+          "minimumRung": "work-state-control-plane-adopted",
+          "rationale": "wrkf exists globally, but agent-spaces should prove adoption on real high-risk tasks before TF is treated as exercised."
+        },
+        "TF.workflowAdoption": {
+          "status": "deferred",
+          "until": "T-05438 measures the closeout workflow adoption tail over real high-risk agent-spaces tasks",
+          "rationale": "The target needs live workflow transitions with role bindings, obligations, and evidence before adoption can be scored as exercised."
+        }
+      }
+    }
+  },
+  "escalations": []
+}
