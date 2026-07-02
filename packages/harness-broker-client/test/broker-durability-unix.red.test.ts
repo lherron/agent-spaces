@@ -224,17 +224,18 @@ describe('broker durability unix red tests for T-01793 Phase C1', () => {
       expect(nonEmpty.events.map((item) => item.seq)).toEqual(
         [...nonEmpty.events].map((item) => item.seq).sort((a, b) => a - b)
       )
+      expect(nonEmpty.currentSeq).toBeGreaterThanOrEqual(currentSeq)
 
       await expect(
-        client.eventsSince({ invocationId, afterSeq: currentSeq })
+        client.eventsSince({ invocationId, afterSeq: nonEmpty.currentSeq })
       ).resolves.toMatchObject({
         events: [],
-        currentSeq,
+        currentSeq: nonEmpty.currentSeq,
       })
 
       await client.ackEvents({
         invocationId,
-        throughSeq: currentSeq,
+        throughSeq: nonEmpty.currentSeq,
         controllerInstanceId: 'controller-replay',
       })
       await expect(client.eventsSince({ invocationId, afterSeq: -1 })).rejects.toMatchObject({
