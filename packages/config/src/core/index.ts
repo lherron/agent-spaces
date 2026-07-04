@@ -71,6 +71,7 @@ export {
   LockError,
   LockTimeoutError,
   MaterializationError,
+  MaterializationHygieneError,
   MissingDependencyError,
   PiBundleError,
   PiError,
@@ -82,6 +83,7 @@ export {
   SnapshotError,
   StoreError,
 } from './errors.js'
+export type { HygieneGateFinding } from './errors.js'
 
 // Locks
 export {

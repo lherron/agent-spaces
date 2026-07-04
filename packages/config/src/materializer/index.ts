@@ -129,3 +129,13 @@ export {
   type MaterializeOptions,
   type FullMaterializationResult,
 } from './materialize.js'
+
+// Compose-time hygiene gate (cache-admission)
+export {
+  evaluateHygieneGate,
+  forceComposeEnabled,
+  FORCE_COMPOSE_ENV,
+  HYGIENE_BASELINE_FILENAME,
+  type HygieneGateInput,
+  type HygieneGateResult,
+} from './hygiene-gate.js'

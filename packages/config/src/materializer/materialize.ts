@@ -7,8 +7,8 @@
 
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Sha256Integrity, SpaceKey, SpaceManifest } from '../core/index.js'
-import { MaterializationError } from '../core/index.js'
+import type { HygieneGateFinding, Sha256Integrity, SpaceKey, SpaceManifest } from '../core/index.js'
+import { MaterializationError, MaterializationHygieneError } from '../core/index.js'
 import {
   type CacheMetadata,
   type PathResolver,
@@ -18,6 +18,7 @@ import {
 } from '../store/index.js'
 import { ensureHooksExecutable, validateHooks } from './hooks-builder.js'
 import { hooksTomlExists, readHooksToml, writeClaudeHooksJson } from './hooks-toml.js'
+import { evaluateHygieneGate, forceComposeEnabled } from './hygiene-gate.js'
 import { linkComponents } from './link-components.js'
 import { composeMcpFromSpaces } from './mcp-composer.js'
 import { writePluginJson } from './plugin-json.js'
@@ -50,6 +51,12 @@ export interface MaterializeResult {
   cached: boolean
   /** Warnings generated during materialization */
   warnings: string[]
+  /**
+   * Hygiene findings force-admitted to cache under force-compose (Cond 4). Present
+   * only when `ASP_FORCE_COMPOSE_HYGIENE` overrode an error-severity block; empty/
+   * absent on a clean gate pass. Callers surface these as warning diagnostics.
+   */
+  hygieneWarnings?: HygieneGateFinding[] | undefined
 }
 
 /**
@@ -125,6 +132,24 @@ export async function materializeSpace(
     }
     await ensureHooksExecutable(pluginPath)
 
+    // Compose-time hygiene gate (cache-admission). Runs on the materialized tree
+    // BEFORE the reusable cache entry is written — a block leaves no blessed cache
+    // entry (the catch below removes the partial plugin dir). Force-compose
+    // (ASP_FORCE_COMPOSE_HYGIENE) admits the write and carries the findings out as
+    // warnings. See T-05574.
+    const gate = await evaluateHygieneGate({
+      pluginPath,
+      sourceRoot: input.snapshotPath,
+      spaceKey: input.spaceKey,
+    })
+    let hygieneWarnings: HygieneGateFinding[] | undefined
+    if (gate.blocking.length > 0) {
+      if (!forceComposeEnabled()) {
+        throw new MaterializationHygieneError(input.spaceKey, pluginPath, gate.blocking)
+      }
+      hygieneWarnings = gate.blocking
+    }
+
     // Write cache metadata
     const metadata: CacheMetadata = {
       pluginName,
@@ -142,10 +167,17 @@ export async function materializeSpace(
       cacheKey,
       cached: false,
       warnings,
+      ...(hygieneWarnings !== undefined ? { hygieneWarnings } : {}),
     }
   } catch (err) {
     // Clean up on failure
     await rm(pluginPath, { recursive: true, force: true }).catch(() => {})
+    // A hygiene-gate block is a TYPED failure — surface it verbatim so the compile
+    // path can convert it to a `materialization_hygiene_error` diagnostic rather
+    // than degrading it to a generic materialization/compiler exception.
+    if (err instanceof MaterializationHygieneError) {
+      throw err
+    }
     throw new MaterializationError(
       err instanceof Error ? err.message : String(err),
       input.manifest.id

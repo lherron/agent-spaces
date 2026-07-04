@@ -32,9 +32,11 @@ import {
   DEFAULT_HARNESS,
   type HarnessAdapter,
   type HarnessId,
+  type HygieneGateFinding,
   LOCK_FILENAME,
   type LockFile,
   type LockSpaceEntry,
+  MaterializationHygieneError,
   type MaterializeSpaceInput,
   type ResolvedSpaceArtifact,
   type ResolvedSpaceManifest,
@@ -54,6 +56,7 @@ import {
   withProjectLock,
 } from '../core/index.js'
 
+import { evaluateHygieneGate, forceComposeEnabled } from '../materializer/hygiene-gate.js'
 import { linkDirectory } from '../materializer/link-components.js'
 import {
   classifySpaceEntry,
@@ -173,6 +176,12 @@ export interface TargetMaterializationResult {
   mcpConfigPath?: string | undefined
   /** Path to composed settings.json (if any) */
   settingsPath?: string | undefined
+  /**
+   * Hygiene findings force-admitted to reusable cache under force-compose
+   * (`ASP_FORCE_COMPOSE_HYGIENE`). Empty/absent on a clean gate pass. Threaded up
+   * so the compile path can surface them as deterministic warning diagnostics.
+   */
+  hygieneWarnings?: HygieneGateFinding[] | undefined
 }
 
 /**
@@ -455,7 +464,11 @@ function targetRequiredPaths(bundle: {
 async function materializeSpaceEntry(
   entry: LockSpaceEntry,
   ctx: MaterializeTargetContext
-): Promise<{ artifact: ResolvedSpaceArtifact; settings: SpaceSettings } | null> {
+): Promise<{
+  artifact: ResolvedSpaceArtifact
+  settings: SpaceSettings
+  hygieneWarnings?: HygieneGateFinding[] | undefined
+} | null> {
   const { paths, registryPath, harnessId, adapter, options } = ctx
 
   const kind = classifySpaceEntry(entry)
@@ -534,8 +547,15 @@ async function materializeSpaceEntry(
 
   const isMutableLocalSpace = isDev || isProjectSpace || isAgentSpace
   let artifactPath = publishedCacheDir
+  // Force-compose findings admitted to reusable cache under ASP_FORCE_COMPOSE_HYGIENE
+  // (immutable branch only). Empty on a clean gate pass; threaded up so the compile
+  // path can surface them as deterministic warning diagnostics.
+  let hygieneWarnings: HygieneGateFinding[] | undefined
 
   if (isMutableLocalSpace) {
+    // Mutable dev/project/agent staging is NEVER admitted to reusable cache, so the
+    // cache-admission hygiene gate does NOT apply here (T-05574 amendment). Widening
+    // it to this branch would turn the gate into boot-time content policy.
     artifactPath = uniqueStagingDir(
       paths,
       `space-${sanitizeProjectAgentScopeSegment(String(spaceKey))}`
@@ -554,6 +574,24 @@ async function materializeSpaceEntry(
           force: false,
           useHardlinks: true,
         })
+
+        // Compose-time hygiene gate (cache-admission) — immutable REGISTRY fresh
+        // write. Runs on the materialized staging tree BEFORE writeCacheMetadataAt;
+        // a block throws (the catch below removes the staging dir, so no blessed
+        // cache entry is left). Force-compose admits the write and carries findings
+        // out as warnings. See T-05574.
+        const gate = await evaluateHygieneGate({
+          pluginPath: stagingDir,
+          sourceRoot: snapshotPath,
+          spaceKey,
+        })
+        if (gate.blocking.length > 0) {
+          if (!forceComposeEnabled()) {
+            throw new MaterializationHygieneError(spaceKey, stagingDir, gate.blocking)
+          }
+          hygieneWarnings = gate.blocking
+        }
+
         const files = Array.from(new Set(result.files)).sort()
         await writeCacheMetadataAt(stagingDir, {
           schemaVersion: 1,
@@ -601,6 +639,7 @@ async function materializeSpaceEntry(
     },
     // Read settings from snapshot's space.toml for composition
     settings: manifest?.settings ?? {},
+    ...(hygieneWarnings !== undefined ? { hygieneWarnings } : {}),
   }
 }
 
@@ -671,6 +710,7 @@ export async function materializeTarget(
   const ctx: MaterializeTargetContext = { paths, registryPath, harnessId, adapter, options }
   const artifacts: ResolvedSpaceArtifact[] = []
   const settingsInputs: SpaceSettings[] = []
+  const hygieneWarnings: HygieneGateFinding[] = []
 
   for (const entry of entries) {
     const result = await materializeSpaceEntry(entry, ctx)
@@ -680,6 +720,9 @@ export async function materializeTarget(
     }
     artifacts.push(result.artifact)
     settingsInputs.push(result.settings)
+    if (result.hygieneWarnings) {
+      hygieneWarnings.push(...result.hygieneWarnings)
+    }
   }
 
   // Phase 1b: Materialize agent-local components as a synthetic plugin (appended last)
@@ -824,6 +867,7 @@ export async function materializeTarget(
     pluginDirs: bundle.pluginDirs ?? [],
     mcpConfigPath: bundle.mcpConfigPath,
     settingsPath: bundle.settingsPath,
+    ...(hygieneWarnings.length > 0 ? { hygieneWarnings } : {}),
   }
 }
 

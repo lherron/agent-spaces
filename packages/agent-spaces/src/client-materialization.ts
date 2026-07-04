@@ -5,6 +5,7 @@ import { isAbsolute, join } from 'node:path'
 import {
   type AgentLocalComponents,
   type HarnessId,
+  type HygieneGateFinding,
   type LintWarning,
   type LockFile,
   PathResolver,
@@ -39,6 +40,12 @@ export interface MaterializedSpec {
     mcpConfigPath?: string | undefined
   }
   skills: string[]
+  /**
+   * Hygiene findings force-admitted to reusable cache under force-compose
+   * (`ASP_FORCE_COMPOSE_HYGIENE`). Absent on a clean gate pass. Surfaced by the
+   * compile path as deterministic warning diagnostics (T-05574).
+   */
+  hygieneWarnings?: HygieneGateFinding[] | undefined
 }
 
 export function validateSpec(spec: SpaceSpec): ValidatedSpec {
@@ -186,6 +193,9 @@ export async function materializeSpec(
         mcpConfigPath: materialization.mcpConfigPath,
       },
       skills: skillMetadata.map((skill) => skill.name),
+      ...(materialization.hygieneWarnings !== undefined
+        ? { hygieneWarnings: materialization.hygieneWarnings }
+        : {}),
     }
   }
 
@@ -223,6 +233,9 @@ export async function materializeSpec(
         mcpConfigPath: materialized.materialization.mcpConfigPath,
       },
       skills: materialized.skills.map((skill) => skill.name),
+      ...(materialized.materialization.hygieneWarnings !== undefined
+        ? { hygieneWarnings: materialized.materialization.hygieneWarnings }
+        : {}),
     }
   }
 
@@ -255,6 +268,9 @@ export async function materializeSpec(
       mcpConfigPath: materialized.materialization.mcpConfigPath,
     },
     skills: materialized.skills.map((skill) => skill.name),
+    ...(materialized.materialization.hygieneWarnings !== undefined
+      ? { hygieneWarnings: materialized.materialization.hygieneWarnings }
+      : {}),
   }
 }
 

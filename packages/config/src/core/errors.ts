@@ -229,6 +229,57 @@ export class MaterializationError extends AspError {
   }
 }
 
+/**
+ * A single hygiene finding contributing to a compose-time cache-admission block.
+ *
+ * Plain data (no lint-layer dependency) so `core` stays a leaf and the shape can
+ * cross the config→agent-spaces boundary that maps it onto a `CompileDiagnostic`.
+ */
+export interface HygieneGateFinding {
+  /** Space key of the materialized artifact the finding was raised against. */
+  spaceKey: string
+  /** Materialized plugin/staging tree path the finding was evaluated in. */
+  pluginPath: string
+  /** Hygiene rule code (e.g. W421). Not frozen into a list — carried verbatim. */
+  code: string
+  /** Finding severity as reported by the hygiene rule ('error' is the blocker). */
+  severity: string
+  /** Path (relative to the materialized tree) the finding anchors to, if any. */
+  path?: string | undefined
+  /** Human-readable finding message. */
+  message: string
+}
+
+/**
+ * Error thrown at a materialization cache-admission seam when the compose-time
+ * hygiene gate rejects a FRESH reusable-cache write: the materialized plugin tree
+ * carries one or more `error`-severity hygiene findings that survive the local
+ * baseline, and force-compose is not enabled.
+ *
+ * WHY a typed error (not a bare throw): the public compile path converts this to a
+ * typed `materialization_hygiene_error` diagnostic (`ok: false`) at/below
+ * `compileRuntimePlan`, BEFORE the aspc facade's generic catch can degrade it to
+ * `compiler_exception`. The stable `name`/`code` is the discriminator that
+ * conversion keys on.
+ */
+export class MaterializationHygieneError extends AspError {
+  readonly spaceKey: string
+  readonly pluginPath: string
+  readonly findings: HygieneGateFinding[]
+
+  constructor(spaceKey: string, pluginPath: string, findings: HygieneGateFinding[]) {
+    super(
+      `Materialization hygiene gate blocked "${spaceKey}": ${findings.length} ` +
+        `error-severity finding(s) [${findings.map((f) => f.code).join(', ')}]`,
+      'MATERIALIZATION_HYGIENE_ERROR'
+    )
+    this.name = 'MaterializationHygieneError'
+    this.spaceKey = spaceKey
+    this.pluginPath = pluginPath
+    this.findings = findings
+  }
+}
+
 // ============================================================================
 // Lock errors
 // ============================================================================
