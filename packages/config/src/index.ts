@@ -115,6 +115,9 @@ export {
   type WarningCode,
 } from './lint/index.js'
 
+// Agent-hygiene linter (two-tier: W4xx deterministic rules + --judge)
+export * as hygiene from './lint/hygiene/index.js'
+
 // Orchestration - config-time workflows
 export * from './orchestration/index.js'
 

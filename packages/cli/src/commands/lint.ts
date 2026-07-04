@@ -12,6 +12,7 @@ import type { Command } from 'commander'
 import { LOCK_FILENAME, explain, lockFileExists } from 'spaces-config'
 
 import { type CommonOptions, exitWithAspError, getProjectContext } from '../helpers.js'
+import { type HygieneCliOptions, runHygieneCommand, runJudgeCommand } from './lint-hygiene.js'
 
 /** W101 warning code for missing lock file */
 const WARNING_CODE_LOCK_MISSING = 'W101'
@@ -139,8 +140,30 @@ export function registerLintCommand(program: Command): void {
     .option('--project <path>', 'Project directory (default: auto-detect)')
     .option('--registry <path>', 'Registry path override')
     .option('--asp-home <path>', 'ASP_HOME override')
-    .action(async (target: string | undefined, options: CommonOptions) => {
+    .option(
+      '--hygiene [path]',
+      'Run agent-hygiene lint (W4xx) over a skill / prompt / agent root / var/agents tree'
+    )
+    .option('--strict', 'With --hygiene: exit nonzero on error-severity findings')
+    .option('--baseline <path>', 'With --hygiene: baseline file for suppression')
+    .option('--update-baseline', 'With --hygiene: (re)write the baseline from current findings')
+    .option(
+      '--judge <path>',
+      'Run the tier-2 rubric judge over one unit; emit the §7 JSON scorecard'
+    )
+    .option('--agent-hygiene-root <path>', 'Override the agent-hygiene criteria source root')
+    .action(async (target: string | undefined, options: CommonOptions & HygieneCliOptions) => {
       try {
+        // Tier-2 judge mode.
+        if (options.judge !== undefined) {
+          process.exit(await runJudgeCommand(options.judge, options))
+        }
+        // Tier-1 hygiene mode.
+        if (options.hygiene !== undefined) {
+          const path = typeof options.hygiene === 'string' ? options.hygiene : target
+          process.exit(await runHygieneCommand(path, options))
+        }
+
         const ctx = await getProjectContext(options)
         const allWarnings: LintRow[] = []
 
