@@ -10,6 +10,14 @@ nonzero only on `error`-severity findings). It is deliberately NOT wired into
 verify-gating `scripts/check-*.ts` only, and an unwired row is a `RULE-AUTHORING-STALE-ROW`
 violation. This file is the W4xx ledger instead.
 
+The compose-time hygiene gate is narrower than the linter: it is a reusable-cache
+admission check at materializer cache-write seams. Runtime mutable staging for
+`space:dev`, `space:agent:*`, and `space:project:*` remains advisory-only because
+those artifacts are not admitted to reusable cache. T-05575 also characterizes the
+current `asp build` path for project spaces: project-space source content does not
+materialize into the build-path plugin tree, so project-space skill findings do not
+reach that gate target.
+
 | code | criterion (source) | applies to | severity | check |
 |------|--------------------|-----------|----------|-------|
 | W400 | U1 / BP-64 name==dirname + kebab | skills | warning | frontmatter `name` equals dir basename and is kebab-case (M2) |

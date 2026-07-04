@@ -8,20 +8,23 @@
  * carries findings out as `hygieneWarnings`.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import {
+  type LockFile,
   MaterializationHygieneError,
+  PROJECT_COMMIT_MARKER,
   type SpaceKey,
   type SpaceManifest,
   asSha256Integrity,
   asSpaceId,
 } from '../core/index.js'
 import { hygiene } from '../index.js'
+import { build } from '../orchestration/build.js'
 import { PathResolver, computePluginCacheKey, getCacheMetadata } from '../store/index.js'
 import { evaluateHygieneGate } from './hygiene-gate.js'
 import { materializeSpace } from './materialize.js'
@@ -227,5 +230,78 @@ describe('materialize.ts cache-admission seam', () => {
       if (prev === undefined) Reflect.deleteProperty(process.env, 'ASP_FORCE_COMPOSE_HYGIENE')
       else process.env['ASP_FORCE_COMPOSE_HYGIENE'] = prev
     }
+  })
+})
+
+describe('build-path project-space characterization (T-05575)', () => {
+  test('project-space skills do not enter the build-path plugin tree, so W421 does not gate', async () => {
+    const projectPath = join(root, 'project')
+    const registryPath = join(root, 'registry')
+    const aspHome = join(root, 'asp-home')
+    const outputDir = join(root, 'build-out')
+    const projectSpacePath = join(projectPath, 'spaces', 'probe')
+    const skillDir = join(projectSpacePath, 'skills', 'probe-skill')
+    await mkdir(skillDir, { recursive: true })
+    await mkdir(registryPath, { recursive: true })
+    await writeFile(
+      join(projectSpacePath, 'space.toml'),
+      'schema = 1\nid = "probe"\nversion = "1.0.0"\n\n[plugin]\nname = "probe"\nversion = "1.0.0"\n'
+    )
+    await writeFile(join(skillDir, 'SKILL.md'), BROKEN_POINTER_SKILL)
+
+    const sourceHygiene = await hygiene.runHygieneTarget(join(projectSpacePath, 'skills'))
+    expect(sourceHygiene.warnings.some((f) => f.code === 'W421' && f.severity === 'error')).toBe(
+      true
+    )
+
+    const integrity = asSha256Integrity(`sha256:${'b'.repeat(64)}`)
+    const spaceKey = 'probe@project' as SpaceKey
+    const lock: LockFile = {
+      lockfileVersion: 1,
+      resolverVersion: 1,
+      generatedAt: '2026-07-04T00:00:00.000Z',
+      registry: { type: 'git', url: registryPath },
+      spaces: {
+        [spaceKey]: {
+          id: asSpaceId('probe'),
+          commit: PROJECT_COMMIT_MARKER,
+          path: 'spaces/probe',
+          integrity,
+          plugin: { name: 'probe', version: '1.0.0' },
+          deps: { spaces: [] },
+          resolvedFrom: { selector: 'dev' },
+          projectSpace: true,
+        },
+      },
+      targets: {
+        default: {
+          compose: ['space:project:probe@dev'],
+          roots: [spaceKey],
+          loadOrder: [spaceKey],
+          envHash: integrity,
+        },
+      },
+    }
+    await writeFile(join(projectPath, 'asp-lock.json'), `${JSON.stringify(lock, null, 2)}\n`)
+
+    const result = await build('default', {
+      aspHome,
+      projectPath,
+      registryPath,
+      outputDir,
+      autoInstall: false,
+      runLint: false,
+    })
+
+    expect(result.pluginDirs).toHaveLength(1)
+    const pluginDir = result.pluginDirs[0]
+    expect(pluginDir).toBeDefined()
+    expect(await readFile(join(pluginDir!, '.claude-plugin', 'plugin.json'), 'utf8')).toContain(
+      '"name": "probe"'
+    )
+    await expect(
+      readFile(join(pluginDir!, 'skills', 'probe-skill', 'SKILL.md'), 'utf8')
+    ).rejects.toThrow()
+    expect(result.warnings).toHaveLength(0)
   })
 })
