@@ -31,6 +31,7 @@ import { registerResourcesCommands } from './commands/resources/index.js'
 import { registerRunCommand } from './commands/run.js'
 import { registerSelfCommands } from './commands/self/index.js'
 import { registerSpacesCommands } from './commands/spaces/index.js'
+import { registerTokenRentCommand } from './commands/token-rent.js'
 import { registerUpgradeCommand } from './commands/upgrade.js'
 
 /**
@@ -65,6 +66,7 @@ const COMMAND_REGISTRARS: readonly RegisterCommandFn[] = [
   registerSpacesCommands,
   registerResourcesCommands,
   registerAgentCommands,
+  registerTokenRentCommand,
 ]
 
 /**
