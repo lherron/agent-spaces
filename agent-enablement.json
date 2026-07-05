@@ -182,7 +182,7 @@
         "assessment": "agent-enablement/assessments/agent-spaces/assessment.json",
         "deltas": "agent-enablement/assessments/agent-spaces/deltas.json",
         "profileHash": "e69aff4ec1a1ac95a1558dd831813a00ad47a55bd4d3ee1b84e5eccbece8b33d",
-        "assessmentHash": "c5817eaefcbf9967b97f6fc319b4cb9f7a4fca2f4888d3f30e372a5fdf50a806",
+        "assessmentHash": "912be24e58a810f6f7b5ef9349c76f75250264f7fd4d7912b00dd62ac3190f0a",
         "deltasHash": "f77135eb0e456521ba2cec683a9b7ff56014c9c4f9965aace7c309f23c9d71ca"
       },
       "decidedAt": "2026-07-02",

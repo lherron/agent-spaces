@@ -434,6 +434,11 @@ async function validateMaterializedTarget(
   }
 }
 
+function isPublishCollision(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code
+  return code === 'EEXIST' || code === 'ENOTEMPTY'
+}
+
 function targetRequiredPaths(bundle: {
   rootDir: string
   settingsPath?: string | undefined
@@ -814,11 +819,14 @@ export async function materializeTarget(
         )}\n`
       )
       await mkdir(join(publicScopeRoot, 'bundles', '.versions'), { recursive: true })
+      if (!(await validateMaterializedTarget(outputPath, fingerprint))) {
+        await rm(versionRoot, { recursive: true, force: true }).catch(() => {})
+      }
       try {
         await rename(stagingRoot, versionRoot)
       } catch (error) {
         await rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        if (!isPublishCollision(error)) {
           throw error
         }
         if (!(await validateMaterializedTarget(outputPath, fingerprint))) {
