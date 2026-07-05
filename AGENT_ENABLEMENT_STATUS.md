@@ -6,15 +6,15 @@ Generated from `agent-enablement.json`. This markdown is a projection, not autho
 
 Rubric: rubric.md@d793717
 Catalog: not-recorded
-AE assessment: 2026-07-02 (agent-enablement/assessments/agent-spaces/assessment.json)
+AE assessment: 2026-07-05 (agent-enablement/assessments/agent-spaces/assessment.json)
 PM floor: 2026-07-02 (etag 4)
 
 ## Profile Summary
 Required: 18
 Frontier: 5
 Deferred: 2
-Open deltas: delta:add-asp-cli-surface-drift-gate, delta:measure-closeout-workflow-adoption-tail, delta:repair-runtime-contract-diagnostic-conformance, delta:route-actuator-split-cross-repo
-Failing/open axes: S1, S4, TA, TA.actuatorSplit, TB.lifecycleHealth, TD, TD.selfDescribingSurfaceConformance, TF, TF.workflowAdoption
+Open deltas: delta:add-asp-cli-surface-drift-gate, delta:legibility-cli-surface-registry, delta:legibility-refresh-pm-floor-anchor, delta:legibility-wrkq-adoption-probe, delta:measure-closeout-workflow-adoption-tail, delta:repair-runtime-contract-diagnostic-conformance, delta:route-actuator-split-cross-repo
+Failing/open axes: S4, TA.actuatorSplit, TB.lifecycleHealth, TD.selfDescribingSurfaceConformance, TF.workflowAdoption
 
 ## PM Floor Axes
 - F0: PARTIAL
@@ -43,7 +43,7 @@ Failing/open axes: S1, S4, TA, TA.actuatorSplit, TB.lifecycleHealth, TD, TD.self
 ## Depth Axes
 - F0: PRESENT.DORMANT.satisfied.dormant
 - P0: PRESENT.EXERCISED.satisfied.exercised
-- S1: PARTIAL.EXERCISED.open_delta
+- S1: PRESENT.EXERCISED.satisfied.exercised
 - S1.authorityChannelSplit: PRESENT.EXERCISED.satisfied.exercised
 - S2: PRESENT.EXERCISED.satisfied.exercised
 - S3: PRESENT.EXERCISED.satisfied.exercised
@@ -54,15 +54,15 @@ Failing/open axes: S1, S4, TA, TA.actuatorSplit, TB.lifecycleHealth, TD, TD.self
 - S7: PRESENT.EXERCISED.satisfied.exercised
 - S7.contractHashClosure: PRESENT.EXERCISED.satisfied.exercised
 - S8: PRESENT.EXERCISED.satisfied.exercised
-- TA: PARTIAL.EXERCISED.open_delta
+- TA: PRESENT.EXERCISED.satisfied.exercised
 - TA.actuatorSplit: ABSENT.DORMANT.open_delta
 - TB: PRESENT.EXERCISED.satisfied.exercised
-- TB.lifecycleHealth: UNKNOWN.DORMANT.deferred
+- TB.lifecycleHealth: ABSENT.DORMANT.deferred
 - TC: PRESENT.EXERCISED.satisfied.exercised
-- TD: PARTIAL.EXERCISED.open_delta
-- TD.selfDescribingSurfaceConformance: ABSENT.DORMANT.open_delta
+- TD: PRESENT.EXERCISED.satisfied.exercised
+- TD.selfDescribingSurfaceConformance: PARTIAL.EXERCISED.open_delta
 - TE: PRESENT.EXERCISED.satisfied.exercised
 - TE.claimScopedEvidenceRouting: PRESENT.DORMANT.satisfied.dormant
 - TE.crossHarnessConformanceMatrix: PRESENT.DORMANT.satisfied.dormant
-- TF: PARTIAL.EXERCISED.open_delta
+- TF: PRESENT.EXERCISED.satisfied.exercised
 - TF.workflowAdoption: PARTIAL.DORMANT.open_delta
