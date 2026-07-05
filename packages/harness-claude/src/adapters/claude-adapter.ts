@@ -5,7 +5,7 @@
  * existing functionality from spaces-claude and spaces-materializer.
  */
 
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { chmod, copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -573,6 +573,14 @@ function buildSessionArgs(options: HarnessRunOptions): string[] {
 /**
  * Build the remote-control arguments (session name derivation + flags) for a run.
  */
+const REMOTE_CONTROL_SESSION_SUFFIX_LENGTH = 4
+const REMOTE_CONTROL_SESSION_SUFFIX_CARDINALITY = 36 ** REMOTE_CONTROL_SESSION_SUFFIX_LENGTH
+
+function buildRemoteControlSessionSuffix(): string {
+  const value = randomBytes(4).readUInt32BE(0) % REMOTE_CONTROL_SESSION_SUFFIX_CARDINALITY
+  return value.toString(36).padStart(REMOTE_CONTROL_SESSION_SUFFIX_LENGTH, '0')
+}
+
 function buildRemoteControlArgs(
   bundle: ComposedTargetBundle,
   options: HarnessRunOptions
@@ -588,7 +596,10 @@ function buildRemoteControlArgs(
     (part): part is string => part !== undefined && part.length > 0
   )
   const autoName = nameParts.join('-')
-  const name = options.sessionNamePrefix ? `${options.sessionNamePrefix}-${autoName}` : autoName
+  const suffixedAutoName = `${autoName}-${buildRemoteControlSessionSuffix()}`
+  const name = options.sessionNamePrefix
+    ? `${options.sessionNamePrefix}-${suffixedAutoName}`
+    : suffixedAutoName
   return ['--remote-control', '--remote-control-session-name-prefix', name, '--name', name]
 }
 

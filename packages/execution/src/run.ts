@@ -407,6 +407,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
   const cliRunOptions: HarnessRunOptions = toHarnessRunOptions(options, {
     aspHome,
     projectPath: options.projectPath,
+    projectId,
     taskId,
     cwd: options.cwd,
     prompt: effectivePrompt,

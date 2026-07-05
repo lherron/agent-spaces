@@ -293,7 +293,16 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
 function normalizeGeneratedSessionIds(value: string): string {
   return value
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/g, '<session-id>')
+    .replace(/\bparityagent-project-primary-[0-9a-z]{4}\b/g, 'parityagent-project-primary-<suffix>')
     .replace(/\/\.versions\/[0-9a-f]{64}\//g, '/.versions/<fingerprint>/')
+}
+
+function flagValue(args: string[], flag: string): string {
+  const index = args.indexOf(flag)
+  expect(index).toBeGreaterThanOrEqual(0)
+  const value = args[index + 1]
+  expect(value).toBeDefined()
+  return value!
 }
 
 function normalizeArgv(argv: string[], harness?: string): string[] {
@@ -432,9 +441,18 @@ describe('asp run <-> compiler foreground byte-parity', () => {
         expect(compiledArgv).toContain('--remote-control')
         expect(compiledArgv).toContain('--remote-control-session-name-prefix')
         expect(compiledArgv).toContain('--name')
-        // The session-name VALUE (`<targetName>-<project>-<task>`) is a launch-shape value
-        // and must match legacy exactly (NOT the materialized cache-dir name).
-        expect(compiledArgv).toContain('parityagent-project-primary')
+        // The session-name base (`<targetName>-<project>-<task>`) is a launch-shape
+        // value. The final 4-char suffix is per-launch entropy.
+        const compiledSessionName = flagValue(compiledArgv, '--name')
+        expect(compiledSessionName).toMatch(/^parityagent-project-primary-[0-9a-z]{4}$/)
+        expect(flagValue(compiledArgv, '--remote-control-session-name-prefix')).toBe(
+          compiledSessionName
+        )
+        const legacySessionName = flagValue(legacyArgv, '--name')
+        expect(legacySessionName).toMatch(/^parityagent-project-primary-[0-9a-z]{4}$/)
+        expect(flagValue(legacyArgv, '--remote-control-session-name-prefix')).toBe(
+          legacySessionName
+        )
       }
 
       if (testCase.harness === 'pi') {
@@ -455,7 +473,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
         expect(compiledReminder).toContain('session reminder block')
       }
 
-      // argv: byte-identical except for generated session ids.
+      // argv: byte-identical except for generated launch entropy.
       if (testCase.harness === 'codex') {
         // T-03939: the materialized system prompt + session reminder reach codex
         // via the runtime-home AGENTS.md, NEVER concatenated ahead of the priming

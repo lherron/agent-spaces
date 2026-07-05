@@ -38,6 +38,14 @@ function createSpaceKey(id = 'test-space', commit = 'abc123'): SpaceKey {
   return `${id}@${commit}` as SpaceKey
 }
 
+function flagValue(args: string[], flag: string): string {
+  const index = args.indexOf(flag)
+  expect(index).toBeGreaterThanOrEqual(0)
+  const value = args[index + 1]
+  expect(value).toBeDefined()
+  return value!
+}
+
 /**
  * Create MaterializeSpaceInput for testing
  */
@@ -742,9 +750,10 @@ paths = ["/var/log"]
         remoteControl: true,
       })
 
-      expect(args).toContain('--remote-control-session-name-prefix')
-      expect(args).toContain('--name')
-      expect(args).toContain('agent-project-task')
+      const sessionNamePrefix = flagValue(args, '--remote-control-session-name-prefix')
+      const name = flagValue(args, '--name')
+      expect(sessionNamePrefix).toBe(name)
+      expect(name).toMatch(/^agent-project-task-[0-9a-z]{4}$/)
     })
 
     test('keeps remote-control prefix before agent-project-task name', () => {
@@ -762,7 +771,7 @@ paths = ["/var/log"]
         sessionNamePrefix: 'dev',
       })
 
-      expect(args).toContain('dev-agent-project-task')
+      expect(flagValue(args, '--name')).toMatch(/^dev-agent-project-task-[0-9a-z]{4}$/)
     })
 
     test('prefers handle projectId over cwd basename for the project segment', () => {
@@ -782,8 +791,9 @@ paths = ["/var/log"]
         remoteControl: true,
       })
 
-      expect(args).toContain('clod-wrkq-blah-latent-spaces')
-      expect(args).not.toContain('clod-clod-blah-latent-spaces')
+      const name = flagValue(args, '--name')
+      expect(name).toMatch(/^clod-wrkq-blah-latent-spaces-[0-9a-z]{4}$/)
+      expect(name).not.toContain('clod-clod-blah-latent-spaces')
     })
 
     test('falls back to cwd basename when no projectId is threaded', () => {
@@ -800,7 +810,7 @@ paths = ["/var/log"]
         remoteControl: true,
       })
 
-      expect(args).toContain('agent-project-task')
+      expect(flagValue(args, '--name')).toMatch(/^agent-project-task-[0-9a-z]{4}$/)
     })
 
     test('fresh launches include a generated session id and do not resume', () => {
