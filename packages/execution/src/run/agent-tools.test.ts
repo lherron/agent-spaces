@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'bun:test'
-import { type AgentLocalComponents, getProjectStorageId } from 'spaces-config'
+import {
+  type AgentLocalComponents,
+  getProjectStorageId,
+  sanitizeProjectAgentScopeSegment,
+} from 'spaces-config'
 
 import { prepareAgentToolRuntime, validateAgentTools } from './agent-tools.js'
 
@@ -165,6 +169,27 @@ describe('prepareAgentToolRuntime', () => {
       components: components(agentRoot),
     })
     const projectId = getProjectStorageId(projectRoot, basename(agentRoot))
+
+    expect(result.env['ASP_PROJECT_ROOT']).toBe(projectRoot)
+    expect(result.env['ASP_PROJECT_ID']).toBe(projectId)
+    expect(result.env['ASP_PROJECT_STATE_DIR']).toBe(
+      join(agentRoot, 'var', 'state', 'projects', projectId)
+    )
+    await expect(stat(result.env['ASP_PROJECT_STATE_DIR'] as string)).resolves.toMatchObject({})
+  })
+
+  test('prefers semantic project id over worktree basename for project state directory', async () => {
+    const agentRoot = await createTempDir('agent-tools-semantic-project-')
+    const projectRoot = await createTempDir('agent-spaces-T-05831-worktree-enablement-')
+    await writeTool(agentRoot, 'spark-tool')
+
+    const result = await prepareAgentToolRuntime({
+      agentRoot,
+      projectRoot,
+      projectId: 'agent-spaces',
+      components: components(agentRoot),
+    })
+    const projectId = `agent-spaces_${sanitizeProjectAgentScopeSegment(basename(agentRoot))}`
 
     expect(result.env['ASP_PROJECT_ROOT']).toBe(projectRoot)
     expect(result.env['ASP_PROJECT_ID']).toBe(projectId)

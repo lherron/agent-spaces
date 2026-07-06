@@ -1,5 +1,5 @@
 {"invocationId":"inv_resume_missing_start_fresh","seq":1,"time":"<time>","type":"driver.notice","payload":{"message":"Codex thread thread_missing was not found; starting a fresh thread","code":"resume_fallback_start_fresh","data":{"missingThreadId":"thread_missing"}}}
-{"invocationId":"inv_resume_missing_start_fresh","seq":2,"time":"<time>","type":"invocation.started","payload":{"pid":"<pid>","command":"<bun>","args":["/Users/lherron/praesidium/agent-spaces/packages/harness-broker/test/fixtures/fake-codex/resume-missing-start-fresh.ts","--literal","$NO_EXPAND","*.ts"],"cwd":"<cwd>"}}
+{"invocationId":"inv_resume_missing_start_fresh","seq":2,"time":"<time>","type":"invocation.started","payload":{"pid":"<pid>","command":"<bun>","args":["<cwd>/packages/harness-broker/test/fixtures/fake-codex/resume-missing-start-fresh.ts","--literal","$NO_EXPAND","*.ts"],"cwd":"<cwd>"}}
 {"invocationId":"inv_resume_missing_start_fresh","seq":3,"time":"<time>","type":"continuation.updated","payload":{"provider":"codex","kind":"thread","key":"thread_fallback"}}
 {"invocationId":"inv_resume_missing_start_fresh","seq":4,"time":"<time>","type":"invocation.ready","payload":{"state":"ready"}}
 {"invocationId":"inv_resume_missing_start_fresh","seq":5,"time":"<time>","type":"input.accepted","inputId":"input_1","payload":{"inputId":"input_1","disposition":"started"}}

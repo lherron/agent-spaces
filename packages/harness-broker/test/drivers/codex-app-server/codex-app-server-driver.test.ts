@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import type {
@@ -256,6 +256,22 @@ async function runScenario(
 }
 
 describe('Codex app-server driver red scenarios', () => {
+  test('golden fixtures stay independent of the checkout path used by drain worktrees', async () => {
+    // T-05831: drain-depth worktrees live under under-construction, so app-server
+    // golden expectations must not bake in the canonical repo checkout path.
+    const files = (await readdir(goldenDir)).filter((file) => file.endsWith('.golden.jsonl'))
+    const checkoutSpecificFixtures: string[] = []
+
+    for (const file of files) {
+      const contents = await readFile(join(goldenDir, file), 'utf8')
+      if (contents.includes('/Users/lherron/praesidium/agent-spaces/')) {
+        checkoutSpecificFixtures.push(file)
+      }
+    }
+
+    expect(checkoutSpecificFixtures).toEqual([])
+  })
+
   test('maps each input responseFormat JSON Schema to that turn/start outputSchema only', () => {
     const firstSchema = {
       type: 'object',

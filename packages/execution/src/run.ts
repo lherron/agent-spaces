@@ -10,7 +10,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   type AgentLocalComponents,
   type BuildResult,
@@ -374,7 +374,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
     agentId !== undefined
       ? {
           agentId,
-          projectId: options.projectId ?? basename(options.projectPath),
+          projectId,
           frontend: harnessId,
         }
       : undefined
@@ -496,6 +496,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
           agentToolRuntime: {
             agentRoot: agentProfile.agentRoot,
             projectRoot: options.projectPath,
+            projectId,
             ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
           },
         }

@@ -41,22 +41,21 @@ export interface ResolveRunIdentityArgs {
 
 /**
  * Derive the agent/project/task identity for a run and the final prompt after
- * template expansion. Mirrors the prior inline logic byte-for-byte; identity
- * fallbacks read `ASP_PROJECT` / `ASP_TASK_ID` from the injected env.
+ * template expansion. Project identity prefers explicit input, then the
+ * projectPath marker/git root, then `ASP_PROJECT`; task identity still falls
+ * back to `ASP_TASK_ID`.
  */
 export function resolveRunIdentity(args: ResolveRunIdentityArgs): RunIdentity {
   const { agentProfile, projectPath, aspHome } = args
   const env = args.env ?? process.env
   const combinedPrompt = combinePrompts(args.defaultPrompt, args.userPrompt)
   const agentId = agentProfile ? basename(agentProfile.agentRoot) : undefined
+  const inferredProjectId = inferProjectIdFromCwd({
+    cwd: projectPath,
+    ...(aspHome !== undefined ? { aspHome } : {}),
+  })
   const projectId =
-    args.projectId ??
-    env['ASP_PROJECT'] ??
-    inferProjectIdFromCwd({
-      cwd: projectPath,
-      ...(aspHome !== undefined ? { aspHome } : {}),
-    }) ??
-    basename(projectPath)
+    args.projectId ?? inferredProjectId ?? env['ASP_PROJECT'] ?? basename(projectPath)
   const taskId = args.taskId ?? env['ASP_TASK_ID'] ?? DEFAULT_RUN_TASK_ID
   const expansionContext = agentProfile
     ? {

@@ -1,0 +1,11 @@
+[commands]
+# Batch worktree install is intentionally worktree-local. The full `just install`
+# publishes ASP packages to local Verdaccio, links the CLI, and syncs downstream
+# consumers ../hrc-runtime and ../agent-control-plane; those publisher/consumer
+# restamps are release/interactive-install work and must not run in isolated
+# batch worktrees.
+# This repo currently has no file:/link: sibling dependencies; package-local deps
+# are workspace:* entries resolved inside this worktree.
+prep = "bun install && bun run prepare"
+install = "bun run clean && bun install && bun run build"
+test = "just verify"

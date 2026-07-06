@@ -85,10 +85,12 @@ export async function composeAgentLocalEnv(
   let pathPrepend: string[] = []
   const warnings: string[] = []
   if (placement.agentRoot) {
+    const projectId = correlationEnv['AGENT_PROJECT']
     const toolRuntime = await prepareAgentToolRuntime(
       {
         agentRoot: placement.agentRoot,
         projectRoot: placement.projectRoot,
+        ...(projectId !== undefined ? { projectId } : {}),
         ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
       },
       env

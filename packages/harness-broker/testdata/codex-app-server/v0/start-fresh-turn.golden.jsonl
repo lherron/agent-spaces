@@ -1,4 +1,4 @@
-{"invocationId":"inv_start_fresh_turn","seq":1,"time":"<time>","type":"invocation.started","payload":{"pid":"<pid>","command":"<bun>","args":["/Users/lherron/praesidium/agent-spaces/packages/harness-broker/test/fixtures/fake-codex/start-fresh-turn.ts","--literal","$NO_EXPAND","*.ts"],"cwd":"<cwd>"}}
+{"invocationId":"inv_start_fresh_turn","seq":1,"time":"<time>","type":"invocation.started","payload":{"pid":"<pid>","command":"<bun>","args":["<cwd>/packages/harness-broker/test/fixtures/fake-codex/start-fresh-turn.ts","--literal","$NO_EXPAND","*.ts"],"cwd":"<cwd>"}}
 {"invocationId":"inv_start_fresh_turn","seq":2,"time":"<time>","type":"continuation.updated","payload":{"provider":"codex","kind":"thread","key":"thread_fresh"}}
 {"invocationId":"inv_start_fresh_turn","seq":3,"time":"<time>","type":"invocation.ready","payload":{"state":"ready"}}
 {"invocationId":"inv_start_fresh_turn","seq":4,"time":"<time>","type":"input.accepted","inputId":"input_1","payload":{"inputId":"input_1","disposition":"started"}}

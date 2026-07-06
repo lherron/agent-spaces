@@ -16,6 +16,7 @@ import { AGENT_COMMIT_MARKER, PROJECT_COMMIT_MARKER, asSha256Integrity } from '.
 import { type TreeEntry, filterTreeEntries, listTreeRecursive } from '../git/index.js'
 
 import { DEV_COMMIT_MARKER } from './closure.js'
+import { shouldUseFilesystemRegistryFallback } from './filesystem-registry.js'
 
 /** Placeholder integrity for @dev refs (filesystem is mutable, uses special marker) */
 export const DEV_INTEGRITY = 'sha256:dev' as Sha256Integrity
@@ -73,6 +74,10 @@ export async function computeIntegrity(
 
   const treePath = `spaces/${spaceId}`
   const ref = commit
+
+  if (await shouldUseFilesystemRegistryFallback(options.cwd)) {
+    return computeFilesystemIntegrity(join(options.cwd, treePath))
+  }
 
   // Get all files recursively
   let entries: TreeEntry[]

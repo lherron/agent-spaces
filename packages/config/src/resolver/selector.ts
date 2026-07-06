@@ -9,6 +9,7 @@ import type { CommitSha, Selector, SpaceId, SpaceRef } from '../core/index.js'
 import { SelectorResolutionError, asCommitSha } from '../core/index.js'
 import { getHead, getTagCommit } from '../git/index.js'
 import { resolveDistTag, versionToGitTag } from './dist-tags.js'
+import { computeFilesystemRegistryCommit } from './filesystem-registry.js'
 import { type VersionInfo, resolveExactVersion, resolveSemverRange } from './git-tags.js'
 
 /**
@@ -117,6 +118,16 @@ async function resolveDistTagSelector(
 
   // Convert version to git tag and resolve to commit
   const gitTag = versionToGitTag(spaceId, version)
+  const filesystemCommit = await computeFilesystemRegistryCommit(spaceId, version, options.cwd)
+  if (filesystemCommit !== null) {
+    return {
+      commit: filesystemCommit,
+      selector: { kind: 'dist-tag', tag: tagName },
+      tag: gitTag,
+      semver: version.startsWith('v') ? version.slice(1) : version,
+    }
+  }
+
   let commit: string
   try {
     commit = await getTagCommit(gitTag, { cwd: options.cwd })

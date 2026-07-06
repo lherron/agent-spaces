@@ -358,7 +358,7 @@ export async function preparePlacementCliRuntime(
     AGENTCHAT_ID: basename(placement.agentRoot),
   }
   if (placement.projectRoot) {
-    agentchatEnv['ASP_PROJECT'] = basename(resolve(placement.projectRoot))
+    agentchatEnv['ASP_PROJECT'] = handleParts.projectId ?? basename(resolve(placement.projectRoot))
   }
 
   // Compose the agent-local env channels. The CLI path folds adapterEnv +

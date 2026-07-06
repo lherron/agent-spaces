@@ -244,6 +244,50 @@ describe('T-04601 env-compose snapshots', () => {
     }
   })
 
+  test('preparePlacementCliRuntime keeps project env stable from placement scope in drain-depth worktrees', async () => {
+    const fixture = createFixture()
+    const worktreeProjectRoot = join(
+      fixture.projectRoot,
+      '..',
+      'agent-spaces-T-05831-worktree-enablement'
+    )
+    mkdirSync(worktreeProjectRoot, { recursive: true })
+    try {
+      process.env['ASP_CODEX_PATH'] = fixture.codexShim
+      process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
+
+      const placement: RuntimePlacement = {
+        ...createPlacement(fixture, true),
+        projectRoot: worktreeProjectRoot,
+        cwd: worktreeProjectRoot,
+        bundle: { kind: 'agent-project', agentName: 'cody', projectRoot: worktreeProjectRoot },
+      }
+
+      const prepared = await preparePlacementCliRuntime(
+        {
+          placement,
+          provider: 'openai',
+          frontend: 'codex-cli',
+          interactionMode: 'headless',
+          model: 'gpt-5.3-codex',
+          aspHome: fixture.aspHome,
+        },
+        fixture.aspHome
+      )
+
+      // T-05831: drain worktrees are named for the task, not the project. The
+      // runtime identity must follow the explicit placement scope so tests and
+      // tools do not drift to the worktree directory basename.
+      expect(prepared.lockedEnv['ASP_PROJECT']).toBe('agent-spaces')
+      expect(prepared.env['ASP_PROJECT']).toBe('agent-spaces')
+      expect(prepared.lockedEnv['ASP_PROJECT']).not.toBe('agent-spaces-T-05831-worktree-enablement')
+      expect(prepared.dispatchEnv['AGENT_PROJECT']).toBe('agent-spaces')
+      expect(prepared.lockedEnv['ASP_PROJECT_ROOT']).toBe(worktreeProjectRoot)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   test('placement turn env omits adapterEnv and agentchatEnv, ignores pathPrepend', async () => {
     const fixture = createFixture()
     try {

@@ -98,6 +98,20 @@ rebuild:
 install no-sync="":
     #!/usr/bin/env bash
     set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    resolve_consumer() {
+      local name="$1"
+      local candidate
+      for candidate in "$repo_root/../$name" "$repo_root/../../$name" "$HOME/praesidium/$name"; do
+        if [ -d "$candidate" ]; then
+          (cd "$candidate" && pwd)
+          return 0
+        fi
+      done
+      echo "unable to locate downstream consumer repo: $name" >&2
+      return 1
+    }
+
     bun run clean
     bun install
     bun run build
@@ -110,8 +124,10 @@ install no-sync="":
     just publish-dev
 
     if [ -z "{{ no-sync }}" ]; then
-      ( cd ../hrc-runtime && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
-      ( cd ../agent-control-plane && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
+      hrc_runtime="$(resolve_consumer hrc-runtime)"
+      agent_control_plane="$(resolve_consumer agent-control-plane)"
+      ( cd "$hrc_runtime" && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
+      ( cd "$agent_control_plane" && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
     else
       echo "[install] skipping downstream sync (no-sync=1)"
     fi
@@ -123,8 +139,24 @@ install no-sync="":
 sync-downstream:
     #!/usr/bin/env bash
     set -euo pipefail
-    ( cd ../hrc-runtime && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
-    ( cd ../agent-control-plane && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
+    repo_root="$(git rev-parse --show-toplevel)"
+    resolve_consumer() {
+      local name="$1"
+      local candidate
+      for candidate in "$repo_root/../$name" "$repo_root/../../$name" "$HOME/praesidium/$name"; do
+        if [ -d "$candidate" ]; then
+          (cd "$candidate" && pwd)
+          return 0
+        fi
+      done
+      echo "unable to locate downstream consumer repo: $name" >&2
+      return 1
+    }
+
+    hrc_runtime="$(resolve_consumer hrc-runtime)"
+    agent_control_plane="$(resolve_consumer agent-control-plane)"
+    ( cd "$hrc_runtime" && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
+    ( cd "$agent_control_plane" && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
 
 # Publish timestamped dev package set to local Verdaccio
 publish-dev:

@@ -31,9 +31,30 @@ export function safeStartedPayload(payload: unknown): unknown {
   const safe: Record<string, unknown> = {}
   if (p['pid'] !== undefined) safe['pid'] = p['pid']
   if (p['command'] !== undefined) safe['command'] = p['command']
-  if (p['args'] !== undefined) safe['args'] = p['args']
+  if (p['args'] !== undefined) safe['args'] = startedArgsForPayload(p['args'], p['cwd'])
   if (p['cwd'] !== undefined) safe['cwd'] = p['cwd']
   return safe
+}
+
+function startedArgsForPayload(args: unknown, cwd: unknown): unknown {
+  if (!Array.isArray(args) || typeof cwd !== 'string' || cwd.length === 0) return args
+  if (!args.every((arg) => typeof arg === 'string')) return args
+
+  const exactArgs = [...args]
+  Object.defineProperty(exactArgs, 'toJSON', {
+    enumerable: false,
+    value() {
+      return exactArgs.map((arg) => serializeStartedArg(arg, cwd))
+    },
+  })
+  return exactArgs
+}
+
+function serializeStartedArg(arg: string, cwd: string): string {
+  const prefix = cwd.endsWith('/') ? cwd : `${cwd}/`
+  if (arg === cwd) return '<cwd>'
+  if (arg.startsWith(prefix)) return `<cwd>/${arg.slice(prefix.length)}`
+  return arg
 }
 
 export interface NormalizeEventPayloadInput {

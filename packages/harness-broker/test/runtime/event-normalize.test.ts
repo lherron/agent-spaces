@@ -39,6 +39,23 @@ describe('normalizeEventPayload — central event normalization + size bounding'
     expect(JSON.stringify(payload)).not.toContain('CODEX_HOME')
   })
 
+  test('serializes started args under cwd as stable cwd-relative paths', () => {
+    const { payload } = normalizeEventPayload({
+      type: 'invocation.started',
+      payload: {
+        command: 'codex',
+        args: ['/work/project/bin/fake-codex.ts', '--literal'],
+        cwd: '/work/project',
+      },
+    })
+    expect((payload as { args: string[] }).args).toEqual([
+      '/work/project/bin/fake-codex.ts',
+      '--literal',
+    ])
+    expect(JSON.stringify(payload)).toContain('"<cwd>/bin/fake-codex.ts"')
+    expect(JSON.stringify(payload)).not.toContain('/work/project/bin/fake-codex.ts')
+  })
+
   test('safeStartedPayload returns non-object payloads unchanged', () => {
     expect(safeStartedPayload('plain')).toBe('plain')
     expect(safeStartedPayload(null)).toBeNull()

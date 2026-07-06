@@ -1,11 +1,16 @@
 import { lstat, mkdir, open, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, delimiter, join, sep } from 'node:path'
 
-import { type AgentLocalComponents, getProjectStorageId } from 'spaces-config'
+import {
+  type AgentLocalComponents,
+  getProjectStorageId,
+  sanitizeProjectAgentScopeSegment,
+} from 'spaces-config'
 
 export interface AgentToolRuntimeContext {
   agentRoot: string
   projectRoot?: string | undefined
+  projectId?: string | undefined
   components?: AgentLocalComponents | undefined
 }
 
@@ -97,7 +102,10 @@ export async function prepareAgentToolRuntime(
   }
 
   if (projectRoot) {
-    const projectId = getProjectStorageId(projectRoot, agentName)
+    const projectId =
+      context.projectId !== undefined
+        ? `${sanitizeProjectAgentScopeSegment(context.projectId)}_${sanitizeProjectAgentScopeSegment(agentName)}`
+        : getProjectStorageId(projectRoot, agentName)
     const projectStateDir = join(stateDir, 'projects', projectId)
     await mkdir(projectStateDir, { recursive: true })
     env['ASP_PROJECT_ROOT'] = projectRoot

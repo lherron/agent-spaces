@@ -186,7 +186,8 @@ export async function executeHarnessRun(
     const projectEnv: Record<string, string> = {}
     const projectPath = preparedRunOptions.projectPath ?? runOptions.projectPath
     if (projectPath) {
-      projectEnv['ASP_PROJECT'] = basename(resolve(projectPath))
+      projectEnv['ASP_PROJECT'] =
+        preparedRunOptions.projectId ?? runOptions.projectId ?? basename(resolve(projectPath))
     }
     projectEnv['AGENTCHAT_ID'] = bundle.targetName
 

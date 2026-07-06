@@ -344,6 +344,8 @@ describe('existing CLI compatibility (T-00867)', () => {
         { env: { ASP_HOME: aspHome } }
       )
 
+      const output = result.stdout + result.stderr
+      expect(output).not.toContain("Dist-tag 'stable' not found for space 'frontend'")
       expect(result.exitCode).toBe(0)
       expect(result.stderr).not.toContain('EISDIR')
       expect(JSON.parse(result.stdout)).toMatchObject({
@@ -358,6 +360,48 @@ describe('existing CLI compatibility (T-00867)', () => {
       })
     } finally {
       await rm(aspHome, { recursive: true, force: true })
+    }
+  })
+
+  cliTest('asp diff --json resolves copied project fixtures from explicit registry', async () => {
+    const aspHome = await mkdtemp(join(tmpdir(), 'asp-diff-copy-home-'))
+    const projectDir = await mkdtemp(join(tmpdir(), 'asp-diff-copy-project-'))
+    try {
+      // T-05831 regression guard: drain worktrees place the project outside the
+      // repo fixture tree, so --registry must remain the shared-space source.
+      await cp(join(SAMPLE_FIXTURES_DIR, 'sample-project'), projectDir, { recursive: true })
+
+      const result = runAsp(
+        [
+          'diff',
+          '--project',
+          projectDir,
+          '--registry',
+          join(SAMPLE_FIXTURES_DIR, 'sample-registry'),
+          '--target',
+          'dev',
+          '--json',
+        ],
+        { env: { ASP_HOME: aspHome } }
+      )
+
+      const output = result.stdout + result.stderr
+      expect(output).not.toContain("Dist-tag 'stable' not found for space 'frontend'")
+      expect(result.exitCode).toBe(0)
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        diffs: [
+          {
+            target: 'dev',
+            changes: expect.arrayContaining([
+              expect.objectContaining({ spaceId: 'base', type: 'added' }),
+              expect.objectContaining({ spaceId: 'frontend', type: 'added' }),
+            ]),
+          },
+        ],
+      })
+    } finally {
+      await rm(aspHome, { recursive: true, force: true })
+      await rm(projectDir, { recursive: true, force: true })
     }
   })
 

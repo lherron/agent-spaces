@@ -13,6 +13,7 @@ import TOML from '@iarna/toml'
 import type { CommitSha, SpaceId, SpaceManifest, SpaceRefString } from '../core/index.js'
 import { ConfigParseError, validateSpaceManifest as coreValidateManifest } from '../core/index.js'
 import { showFileOrNull } from '../git/index.js'
+import { readRegistryFileFromFilesystemOrNull } from './filesystem-registry.js'
 
 /**
  * Options for manifest reading.
@@ -33,14 +34,16 @@ export async function readSpaceManifest(
 ): Promise<SpaceManifest> {
   const path = `spaces/${spaceId}/space.toml`
 
+  const filesystemContent = await readRegistryFileFromFilesystemOrNull(options.cwd, path)
   // showFileOrNull takes (commitish, path, options)
-  const content = await showFileOrNull(commit, path, { cwd: options.cwd })
-  if (content === null) {
+  const resolvedContent =
+    filesystemContent ?? (await showFileOrNull(commit, path, { cwd: options.cwd }))
+  if (resolvedContent === null) {
     throw new ConfigParseError(`Space manifest not found at ${commit}:${path}`, path)
   }
 
   try {
-    const data = TOML.parse(content)
+    const data = TOML.parse(resolvedContent)
     const result = coreValidateManifest(data)
     if (!result.valid) {
       throw new ConfigParseError(

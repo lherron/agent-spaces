@@ -7,6 +7,7 @@
 
 import type { DistTagsFile, SpaceId } from '../core/index.js'
 import { showFileOrNull } from '../git/index.js'
+import { readRegistryFileFromFilesystemOrNull } from './filesystem-registry.js'
 
 // Re-export for backwards compatibility
 export type { DistTagsFile } from '../core/index.js'
@@ -29,14 +30,16 @@ export async function readDistTags(options: DistTagsOptions): Promise<DistTagsFi
   const ref = options.ref ?? 'HEAD'
   const path = 'registry/dist-tags.json'
 
+  const filesystemContent = await readRegistryFileFromFilesystemOrNull(options.cwd, path)
   // showFileOrNull takes (commitish, path, options)
-  const content = await showFileOrNull(ref, path, { cwd: options.cwd })
-  if (content === null) {
+  const resolvedContent =
+    filesystemContent ?? (await showFileOrNull(ref, path, { cwd: options.cwd }))
+  if (resolvedContent === null) {
     return null
   }
 
   try {
-    return JSON.parse(content) as DistTagsFile
+    return JSON.parse(resolvedContent) as DistTagsFile
   } catch {
     return null
   }
