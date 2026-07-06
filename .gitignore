@@ -1,3 +1,4 @@
+.asp.lock
 node_modules/
 dist/
 asp_modules/
