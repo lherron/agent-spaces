@@ -33,6 +33,12 @@ export interface ComposedSettings {
         command: string
       }
     | undefined
+  /**
+   * Idle timeout for AskUserQuestion dialogs. Duration string (e.g. "2m").
+   * When set, dialogs auto-continue with the default choice after the timeout
+   * instead of blocking indefinitely.
+   */
+  askUserQuestionTimeout?: string | undefined
 }
 
 /**

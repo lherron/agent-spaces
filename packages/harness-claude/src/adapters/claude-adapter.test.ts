@@ -566,6 +566,8 @@ allow = ["/tmp"]
         expect(settings.statusLine.type).toBe('command')
         expect(settings.statusLine.command).toContain('statusline.sh')
         expect(settings.statusLine.command).toContain(outputDir)
+        // Agents opt into a bounded AskUserQuestion idle timeout
+        expect(settings.askUserQuestionTimeout).toBe('2m')
       }
     })
 

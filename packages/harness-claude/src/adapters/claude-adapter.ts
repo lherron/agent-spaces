@@ -68,6 +68,13 @@ const STATUSLINE_ASSET_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
   '../../assets/statusline.sh'
 )
+
+/**
+ * Idle timeout applied to AskUserQuestion dialogs. Claude Code no longer
+ * auto-continues these by default; this opts agents back into a bounded wait so
+ * a headless run does not block forever on an unanswered dialog.
+ */
+const ASK_USER_QUESTION_TIMEOUT = '2m'
 /**
  * ClaudeAdapter implements the HarnessAdapter interface for Claude Code.
  *
@@ -377,6 +384,11 @@ export class ClaudeAdapter implements HarnessAdapter {
       settingsInputs,
       settingsOutputPath
     )
+
+    // Opt agents into an AskUserQuestion idle timeout so dialogs auto-continue
+    // with the default choice instead of blocking a headless run indefinitely.
+    composedSettings.askUserQuestionTimeout = ASK_USER_QUESTION_TIMEOUT
+    await writeFile(settingsOutputPath, JSON.stringify(composedSettings, null, 2))
 
     // Install statusline script and add to settings (best-effort)
     const statuslineWarning = await installStatusline(
