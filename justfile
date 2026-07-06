@@ -91,14 +91,17 @@ rebuild:
 
 # Install dependencies
 # Pass no-sync=1 to skip syncing downstream consumer repos (hrc-runtime, agent-control-plane).
+# Linked Git worktrees auto-disable downstream sync and wrapper linking unless force-sync=1
+# and/or force-link=1 is passed explicitly.
 # After `bun install`, the dependency graph forks:
 #   build ─┬─→ publish-dev ─→ (hrc sync ∥ acp sync)
 #          └─→ bun link
 # bun link runs alongside publish+sync; the two downstream syncs run in parallel.
-install no-sync="":
+install no-sync="" force-sync="" force-link="":
     #!/usr/bin/env bash
     set -euo pipefail
     repo_root="$(git rev-parse --show-toplevel)"
+    eval "$(bun scripts/install-policy.ts shell --no-sync="{{ no-sync }}" --force-sync="{{ force-sync }}" --force-link="{{ force-link }}")"
     resolve_consumer() {
       local name="$1"
       local candidate
@@ -112,27 +115,45 @@ install no-sync="":
       return 1
     }
 
+    echo "[install] context=${PRAESIDIUM_INSTALL_CONTEXT} sync=${PRAESIDIUM_INSTALL_SYNC_MODE} link=${PRAESIDIUM_INSTALL_LINK_MODE} publish=${PRAESIDIUM_INSTALL_PUBLISH_CHANNEL} tag=${PRAESIDIUM_INSTALL_PUBLISH_TAG}"
     bun run clean
     bun install
     bun run build
 
-    # Fire bun link in the background — only depends on build, not publish.
-    ( cd packages/cli && bun link 2>&1 | sed 's/^/[bun-link] /' ) &
-    link_pid=$!
+    link_pid=""
+    if [ "$PRAESIDIUM_INSTALL_LINK_MODE" != "off" ]; then
+      if [ "$PRAESIDIUM_INSTALL_LINK_MODE" = "forced" ]; then
+        echo "[install] WARNING: force-link enabled from ${PRAESIDIUM_INSTALL_CONTEXT}; updating the local asp wrapper"
+      fi
+      # Fire bun link in the background — only depends on build, not publish.
+      ( cd packages/cli && bun link 2>&1 | sed 's/^/[bun-link] /' ) &
+      link_pid=$!
+    else
+      echo "[install] skipping bun link; linked worktree installs must not update the local asp wrapper"
+    fi
 
     # Publish must complete before downstream sync.
-    just publish-dev
+    if [ "$PRAESIDIUM_INSTALL_PUBLISH_CHANNEL" = "worktree" ]; then
+      just publish-worktree
+    else
+      just publish-dev
+    fi
 
-    if [ -z "{{ no-sync }}" ]; then
+    if [ "$PRAESIDIUM_INSTALL_SYNC_MODE" != "off" ]; then
+      if [ "$PRAESIDIUM_INSTALL_SYNC_MODE" = "forced" ]; then
+        echo "[install] WARNING: force-sync enabled from ${PRAESIDIUM_INSTALL_CONTEXT}; syncing downstream repos"
+      fi
       hrc_runtime="$(resolve_consumer hrc-runtime)"
       agent_control_plane="$(resolve_consumer agent-control-plane)"
       ( cd "$hrc_runtime" && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
       ( cd "$agent_control_plane" && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
     else
-      echo "[install] skipping downstream sync (no-sync=1)"
+      echo "[install] skipping downstream sync (${PRAESIDIUM_INSTALL_CONTEXT}, sync=${PRAESIDIUM_INSTALL_SYNC_MODE})"
     fi
 
-    wait $link_pid
+    if [ -n "$link_pid" ]; then
+      wait $link_pid
+    fi
 
 # Sync downstream consumer repos in parallel (hrc-runtime ∥ agent-control-plane).
 # This is the only place ASP knows where its consumers live; it never appears in source.
@@ -165,6 +186,14 @@ publish-dev:
 # Validate timestamped dev package set without publishing
 publish-dev-dry-run:
     bun scripts/publish-local-verdaccio.ts --dry-run
+
+# Publish isolated worktree package set to local Verdaccio
+publish-worktree:
+    bun scripts/publish-local-verdaccio.ts --channel worktree
+
+# Validate isolated worktree package set without publishing
+publish-worktree-dry-run:
+    bun scripts/publish-local-verdaccio.ts --channel worktree --dry-run
 
 # Publish exact semver package set to local Verdaccio
 publish-semver version tag="latest" force="":
