@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Praesidium Accomplishments - 2026-07-07</title>
+<style>
+:root {
+  --bg: #f3efe7;
+  --paper: rgba(255,255,255,0.97);
+  --ink: #162128;
+  --muted: #5d6770;
+  --line: #d7d0c4;
+  --shadow: 0 20px 46px rgba(22,33,40,0.11);
+  --green: #155843;
+  --green-soft: #dceee7;
+  --blue: #2c5d87;
+  --blue-soft: #dce8f5;
+  --amber: #8f611d;
+  --amber-soft: #f6e6c8;
+  --rose: #8f4051;
+  --rose-soft: #f7e3e9;
+  --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+  --serif: Georgia, "Iowan Old Style", serif;
+  --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+body {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(44,93,135,0.12), transparent 28%),
+    radial-gradient(circle at 100% 0%, rgba(21,88,67,0.10), transparent 24%),
+    linear-gradient(90deg, rgba(22,33,40,0.03) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(0deg, rgba(22,33,40,0.02) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--bg);
+  color: var(--ink);
+  font: 16px/1.56 var(--sans);
+}
+a { color: var(--green); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+main, section, article, div, ul, li { min-width: 0; }
+.page { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
+.sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; padding: 24px 20px 28px; border-right: 1px solid var(--line); background: rgba(243,239,231,0.97); backdrop-filter: blur(8px); }
+.brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card { display: grid; gap: 10px; }
+.kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a, .status-pill { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.055em; }
+.brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { margin: 0; font-family: var(--serif); line-height: 1.05; }
+.brand h1 { font-size: 30px; }
+.brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p { margin: 0; color: var(--muted); }
+.kicker { color: var(--amber); font-size: 12px; font-weight: 900; }
+.nav { margin: 18px 0; }
+.nav a { display: block; padding: 8px 10px; border-left: 3px solid transparent; color: var(--muted); font-size: 11px; font-weight: 800; text-decoration: none; }
+.nav a:hover, .nav a:focus { border-left-color: var(--green); background: rgba(255,255,255,0.84); color: var(--ink); }
+.sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+.legend-item { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
+.dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+.fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+.fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+main { min-width: 0; }
+.hero { padding: 44px min(5vw, 62px) 34px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(21,88,67,0.15), transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.90)); }
+.hero-grid, .content { width: min(1220px, 100%); }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1.16fr) minmax(320px, 0.84fr); gap: 28px; }
+.eyebrow { color: var(--green); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+.hero h2 { font-size: clamp(2.08rem, 4vw, 3.16rem); margin-bottom: 14px; }
+.hero p { max-width: 78ch; font-size: 1.02rem; }
+.hero-note, .note-box { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--line); box-shadow: var(--shadow); min-width: 0; }
+.hero-note { background: rgba(255,255,255,0.9); }
+.hero-note strong, .note-box strong { display: block; margin-bottom: 6px; }
+.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+.metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+.metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+.metric-value { margin-top: 8px; font-size: clamp(1.8rem, 2.8vw, 2.7rem); }
+.metric small { display: block; margin-top: 8px; color: var(--muted); }
+.content { padding: 30px min(5vw, 62px) 64px; }
+section { margin-top: 34px; }
+section:first-child { margin-top: 0; }
+.section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+.section-title p { max-width: 82ch; }
+.stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.stream-card, .task-card, .evidence-card, .repo-card { min-width: 0; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); padding: 20px; }
+.stream-card { grid-column: span 12; }
+.task-card, .evidence-card, .repo-card { grid-column: span 6; }
+.stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.28rem; }
+.stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.chip { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; font-weight: 800; max-width: 100%; overflow-wrap: anywhere; }
+.chip.green { background: var(--green-soft); color: var(--green); border-color: rgba(21,88,67,0.18); }
+.chip.blue { background: var(--blue-soft); color: var(--blue); border-color: rgba(44,93,135,0.18); }
+.chip.amber { background: var(--amber-soft); color: var(--amber); border-color: rgba(143,97,29,0.18); }
+.chip.rose { background: var(--rose-soft); color: var(--rose); border-color: rgba(143,64,81,0.18); }
+.stream-columns { display: grid; grid-template-columns: 1.02fr 0.98fr; gap: 18px; min-width: 0; }
+.note-box { background: linear-gradient(180deg, rgba(220,232,246,0.72), rgba(255,255,255,0.92)); }
+.inline-time { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.task-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.status-pill { display: inline-flex; padding: 3px 6px; border: 1px solid var(--line); border-radius: 999px; font-size: 10px; font-weight: 800; background: rgba(255,255,255,0.9); }
+.evidence-card.good { background: linear-gradient(180deg, rgba(216,239,231,0.92), rgba(255,255,255,0.97)); }
+.evidence-card.warn { background: linear-gradient(180deg, rgba(245,231,207,0.92), rgba(255,255,255,0.97)); }
+.repo-card.pressure { background: linear-gradient(180deg, rgba(247,224,229,0.92), rgba(255,255,255,0.97)); }
+.footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 800; }
+@media (max-width: 980px) {
+  .page { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+  .task-card, .evidence-card, .repo-card { grid-column: span 12; }
+}
+@media (max-width: 640px) {
+  .hero, .content { padding-left: 18px; padding-right: 18px; }
+  .metrics { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="kicker">Praesidium Daily Brief</div>
+      <h1>2026-07-07</h1>
+      <p>Previous 24 hours in local time, covering landed commits, completed <code>wrkq</code> tasks, proven local-only branches, and visible unchecked-in pressure across Praesidium.</p>
+    </div>
+    <nav class="nav">
+      <a href="#scorecard">Scorecard</a>
+      <a href="#workstreams">Workstreams</a>
+      <a href="#tasks">Completed Tasks</a>
+      <a href="#validation">Validation</a>
+      <a href="#open-state">Open Repo State</a>
+    </nav>
+    <div class="sidebar-block">
+      <div class="legend-item"><span class="dot" style="background: var(--green);"></span>Landed commits inside the exact local window</div>
+      <div class="legend-item"><span class="dot" style="background: var(--blue);"></span><code>wrkq</code> completion evidence across projects</div>
+      <div class="legend-item"><span class="dot" style="background: var(--amber);"></span>Current ahead-of-upstream carry-over</div>
+      <div class="legend-item"><span class="dot" style="background: var(--rose);"></span>Visible unchecked-in repo pressure</div>
+    </div>
+    <div class="sidebar-block sidebar-note">
+      <strong>Window</strong><br />2026-07-06 05:04:06 CDT to 2026-07-07 05:04:06 CDT
+    </div>
+    <div class="sidebar-block sidebar-note">
+      <strong>Top accomplishments</strong>
+      <ul class="fact-list"><li>The heaviest landed repo was <code>agent-loop</code> with <strong>43</strong> current-branch commits; <code>agent-control-plane</code> followed with <strong>36</strong>.</li><li><code>agent-loop</code> alone closed <strong>36</strong> tasks, just over half of the full-window total of <strong>71</strong>.</li><li><code>taskboard</code> delivered the clearest user-facing lane with <strong>23</strong> commits and <strong>8</strong> completed tasks around the WRKF visualizer.</li><li>Open repo pressure stayed narrow: only <strong>7</strong> fresh dirty paths were detected, concentrated in <code>archagent</code> (<strong>4</strong>) and <code>media-ingest</code> (<strong>3</strong>).</li><li>Local-only commit carry-over remains meaningful at <strong>117</strong> total ahead commits, but fewer than half of them (<strong>54</strong>) were authored inside this exact slice.</li></ul>
+    </div>
+  </aside>
+  <main>
+    <section class="hero" id="scorecard">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow">Praesidium-wide accomplishments for 2026-07-07</div>
+          <h2>Workflow landing throughput was led by <code>agent-loop</code>, while runtime/package hardening across <code>agent-control-plane</code>, <code>hrc-runtime</code>, and <code>agent-spaces</code> formed the second major lane and <code>taskboard</code> carried the clearest user-facing feature motion.</h2>
+          <p>The slice produced <strong>140</strong> landed commits across <strong>11</strong> repos and <strong>71</strong> completed tasks across <strong>10</strong> projects. The bulk of visible throughput came from workflow/drain landing work and cross-repo install/runtime coordination, while the taskboard visualizer supplied the main product-facing feature stream. Open repo pressure remained narrow rather than broad: only <strong>7</strong> fresh dirty paths were visible across <strong>2</strong> repos, though older carry-over still exists in a few repositories.</p>
+          <div class="hero-note"><strong>Scope note</strong>The scorecard counts only current-branch commits inside the exact local 24-hour window. Ahead-of-upstream state and current dirty paths are reported later as operational pressure, not blended into accomplishment totals.</div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><div class="metric-label">Committed window</div><div class="metric-value">140</div><small>11 repos contributed current-branch commits inside the slice.</small></div>
+          <div class="metric"><div class="metric-label">Completed tasks</div><div class="metric-value">71</div><small>10 <code>wrkq</code> projects closed work inside the slice.</small></div>
+          <div class="metric"><div class="metric-label">Proven local-only</div><div class="metric-value">117</div><small>54 were authored inside this window; 63 are older carry-over ahead commits.</small></div>
+          <div class="metric"><div class="metric-label">Fresh unchecked-in</div><div class="metric-value">7</div><small>2 repos show fresh dirty state; 105 older dirty paths remain visible.</small></div>
+        </div>
+      </div>
+    </section>
+    <div class="content">
+      <section id="workstreams">
+        <div class="section-title">
+          <h2>Workstreams</h2>
+          <p>The grouping follows the real operating lanes in this window: workflow landing and enablement first, install/runtime hardening second, and taskboard product motion third.</p>
+        </div>
+        <div class="stream-grid">
+          
+          <article class="stream-card">
+            <div class="stream-head">
+              <div>
+                <h3>Drain landing, workflow planning, and worktree enablement carried the largest closeout lane</h3>
+                <p><code>agent-loop</code> dominated both landed history and task closure volume, with the slice centered on drain landings, planner waves, typed admission, selection provenance, and manifest-aware worktree provisioning. <code>wrkq</code>, <code>explainer</code>, <code>safoundry</code>, and <code>stackctl</code> contributed supporting landings around stdin conventions and shared worktree enablement.</p>
+              </div>
+              <div class="chips">
+                <span class="chip green">43 commits in agent-loop</span><span class="chip blue">36 completed agent-loop tasks</span><span class="chip amber">6 supporting closeouts</span><span class="chip rose">1 current-window local-only wrkq commits</span>
+              </div>
+            </div>
+            <div class="stream-columns">
+              <div class="note-box">
+                <strong>Representative commits</strong>
+                <ul class="evidence-list"><li><code>447e875</code> chore(wrkq-drain): T-05569 - land verified drain work <span class="inline-time">2026-07-07 02:39:56 CDT</span></li><li><code>d5402de</code> chore(wrkq-drain): T-05880 - land verified drain work <span class="inline-time">2026-07-07 02:12:11 CDT</span></li><li><code>3dd140c</code> chore(wrkq-drain): T-05870 - land verified drain work <span class="inline-time">2026-07-07 01:30:51 CDT</span></li><li><code>4d0208d</code> chore(wrkq-drain): T-05869 - land verified drain work <span class="inline-time">2026-07-07 00:57:37 CDT</span></li><li><code>3380590</code> chore: restore bun.lock configVersion stanza (Bun version ping-pong) <span class="inline-time">2026-07-07 00:46:24 CDT</span></li><li><code>c420993</code> chore(wrkq-drain): T-05868 - land verified drain work <span class="inline-time">2026-07-07 00:38:56 CDT</span></li><li><code>66a31d0</code> fix(cli): unify stdin text inputs <span class="inline-time">2026-07-06 10:13:09 CDT</span></li><li><code>b978c74</code> chore(wrkq-drain): T-05822 - land verified drain work <span class="inline-time">2026-07-06 07:49:34 CDT</span></li><li><code>1bb071d</code> chore(wrkq-drain): T-05833 - land verified drain work <span class="inline-time">2026-07-06 23:05:28 CDT</span></li><li><code>dd322eb</code> chore(wrkq-drain): T-05835 - land verified drain work <span class="inline-time">2026-07-06 23:25:24 CDT</span></li></ul>
+              </div>
+              <div class="note-box">
+                <strong>Representative task closeouts</strong>
+                <ul class="evidence-list"><li><code>T-05569</code> agent-enablement: carrier-vs-target-hook-policy: repo-root status carrier collides with target md-location hooks <span class="inline-time">2026-07-07 02:40:30 CDT</span></li><li><code>T-05880</code> Determine what runbook or toolkit is using AE as task prefix <span class="inline-time">2026-07-07 02:16:56 CDT</span></li><li><code>T-05870</code> S3: wave dispatch + dry-run wave rendering <span class="inline-time">2026-07-07 01:37:08 CDT</span></li><li><code>T-05869</code> S2: compose.ts pure planner — waves, publisher-before-consumer, verdaccio-publish mutex <span class="inline-time">2026-07-07 00:57:41 CDT</span></li><li><code>T-05868</code> S1: [edges] manifest schema + loader — publishes/consumes, edges_unknown semantics <span class="inline-time">2026-07-07 00:38:57 CDT</span></li><li><code>T-05871</code> Selection provenance stamp — proof-grade acceptance boundary (explicit vs scan) <span class="inline-time">2026-07-07 00:17:13 CDT</span></li><li><code>T-05850</code> CLI: unify dash-stdin convention — text flags read stdin on &#39;-&#39;, single-consumer + TTY guards <span class="inline-time">2026-07-06 10:13:26 CDT</span></li><li><code>T-05686</code> wrkq-simple-task@2: pre-specified tasks cannot enter the workflow (triage refuses, no skip path) <span class="inline-time">2026-07-06 09:10:32 CDT</span></li><li><code>T-05833</code> worktree enablement: praesidium.toml + drain-depth validation <span class="inline-time">2026-07-06 23:05:29 CDT</span></li><li><code>T-05835</code> worktree enablement: praesidium.toml + drain-depth validation <span class="inline-time">2026-07-06 23:25:24 CDT</span></li></ul>
+              </div>
+            </div>
+          </article>
+          <article class="stream-card">
+            <div class="stream-head">
+              <div>
+                <h3>Install/runtime safety and publish coordination formed the second cluster</h3>
+                <p><code>agent-control-plane</code>, <code>hrc-runtime</code>, <code>agent-spaces</code>, and <code>archagent</code> moved together around worktree-safe installs, Verdaccio publish race tolerance, viewer-policy cleanup, HRC status diagnostics, and worktree enablement manifests. This cluster mixed infrastructure fixes with packaging hygiene instead of a single-feature push.</p>
+              </div>
+              <div class="chips">
+                <span class="chip green">68 commits across ACP/HRC/ASP/archagent</span><span class="chip blue">21 completed tasks in the cluster</span><span class="chip amber">36 current-window local-only commits remain visible</span><span class="chip rose">4 fresh archagent dirty paths remain open</span>
+              </div>
+            </div>
+            <div class="stream-columns">
+              <div class="note-box">
+                <strong>Representative commits</strong>
+                <ul class="evidence-list"><li><code>fefdaf8</code> chore: sync bun.lock (ASP@0.1.1-dev.20260706162931  HRC@0.1.0-dev.20260707001925) <span class="inline-time">2026-07-07 00:25:06 CDT</span></li><li><code>7b9ad1c</code> chore: sync bun.lock (ASP@0.1.1-dev.20260706162931  HRC@0.1.0-dev.20260707001346) <span class="inline-time">2026-07-07 00:15:32 CDT</span></li><li><code>0c2dfa5</code> chore: sync HRC dev snapshot <span class="inline-time">2026-07-07 00:02:21 CDT</span></li><li><code>f756288</code> Pass action stdinJson to triage runner <span class="inline-time">2026-07-06 23:59:01 CDT</span></li><li><code>5923e73</code> Suppress viewers for attached hrc run <span class="inline-time">2026-07-07 00:24:05 CDT</span></li><li><code>0683b03</code> Bound HRC status diagnostics <span class="inline-time">2026-07-07 00:14:09 CDT</span></li><li><code>d094190</code> Centralize Ghostty viewer policy <span class="inline-time">2026-07-07 00:01:37 CDT</span></li><li><code>685667f</code> chore(wrkq-drain): T-05866 - land verified drain work <span class="inline-time">2026-07-06 22:55:56 CDT</span></li><li><code>6ddadaf</code> fix(install): T-05861 make worktree installs side-effect safe <span class="inline-time">2026-07-06 17:30:54 CDT</span></li><li><code>dee925f</code> fix(worktree): T-05832 — guard wrapper install in linked worktrees <span class="inline-time">2026-07-06 18:41:18 CDT</span></li></ul>
+              </div>
+              <div class="note-box">
+                <strong>Representative task closeouts</strong>
+                <ul class="evidence-list"><li><code>T-05858</code> ASP/ACP verdaccio publish: shrink and tolerate the read-during-publish race <span class="inline-time">2026-07-06 22:43:45 CDT</span></li><li><code>T-05413</code> Job/flow system refinement (robustness) <span class="inline-time">2026-07-06 22:33:33 CDT</span></li><li><code>T-04517</code> [acp-core] F6 — Consolidate two deepFreeze implementations <span class="inline-time">2026-07-06 15:50:55 CDT</span></li><li><code>T-05791</code> refactor(agent-control-plane): extract-acp-adoption-probe <span class="inline-time">2026-07-06 15:39:20 CDT</span></li><li><code>T-05881</code> hrc run pops a duplicate Ghostty viewer alongside the operator&#39;s terminal <span class="inline-time">2026-07-07 00:25:31 CDT</span></li><li><code>T-05879</code> Bound hrc server status over stale btmux sockets <span class="inline-time">2026-07-07 00:15:53 CDT</span></li><li><code>T-05876</code> Centralize Ghostty viewer policy: run/start doctrine, spawn gate, linger <span class="inline-time">2026-07-07 00:04:36 CDT</span></li><li><code>T-04150</code> Model pin integrity: doctor reporting + archagent benchmark pin cleanup <span class="inline-time">2026-07-06 23:11:43 CDT</span></li><li><code>T-05392</code> Inject WRKQ_PRINCIPAL_REF=agent:&lt;id&gt; into broker/harness run env <span class="inline-time">2026-07-06 23:11:09 CDT</span></li><li><code>T-05435</code> agent-enablement: teaching-guards (S4): make runtime-contract harness diagnostics conformant <span class="inline-time">2026-07-06 23:10:44 CDT</span></li></ul>
+              </div>
+            </div>
+          </article>
+          <article class="stream-card">
+            <div class="stream-head">
+              <div>
+                <h3>Taskboard visualizer work supplied the main user-facing product motion</h3>
+                <p><code>taskboard</code> shipped the most cohesive feature lane of the day: the WRKF visualizer advanced through overlay, blocked-transition mapping, search/minimap/deep-link work, and projector extraction into shared code. <code>eqlegends</code> added a smaller docs-and-assets lane alongside it.</p>
+              </div>
+              <div class="chips">
+                <span class="chip green">23 taskboard commits</span><span class="chip blue">8 completed taskboard tasks</span><span class="chip amber">15 taskboard commits still local-only</span><span class="chip rose">1 supporting eqlegends commit</span>
+              </div>
+            </div>
+            <div class="stream-columns">
+              <div class="note-box">
+                <strong>Representative commits</strong>
+                <ul class="evidence-list"><li><code>a13e8a5</code> fix: move workflow graph projectors to shared <span class="inline-time">2026-07-07 00:47:56 CDT</span></li><li><code>216f067</code> feat(wrkf-visualizer): slice 3 — search, minimap, orientation, deep links <span class="inline-time">2026-07-07 00:40:31 CDT</span></li><li><code>916004c</code> chore(worktree): T-05838 - land verified drain work <span class="inline-time">2026-07-07 00:29:58 CDT</span></li><li><code>222663d</code> test: add wrkf visualizer slice 3 reds <span class="inline-time">2026-07-07 00:28:09 CDT</span></li><li><code>78f070c</code> fix(wrkf-visualizer): map real blocked transition refs <span class="inline-time">2026-07-07 00:24:26 CDT</span></li><li><code>2cbd198</code> feat(wrkf-visualizer): add task overlay graph <span class="inline-time">2026-07-07 00:01:01 CDT</span></li><li><code>e1ebfed</code> Forward triage worker agent <span class="inline-time">2026-07-06 23:59:01 CDT</span></li><li><code>fd39ff8</code> test: add task workflow overlay reds <span class="inline-time">2026-07-06 23:47:34 CDT</span></li><li><code>1b49e16</code> Add race unlock docs and web map assets <span class="inline-time">2026-07-06 12:49:04 CDT</span></li></ul>
+              </div>
+              <div class="note-box">
+                <strong>Representative task closeouts</strong>
+                <ul class="evidence-list"><li><code>T-05877</code> Visualizer design review: chrome walkthrough + frontend-design pass <span class="inline-time">2026-07-07 01:03:06 CDT</span></li><li><code>T-05883</code> Move workflow graph projectors into @webwrkq/shared <span class="inline-time">2026-07-07 00:48:23 CDT</span></li><li><code>T-05819</code> Visualizer slice 3: search, minimap, deep links <span class="inline-time">2026-07-07 00:40:40 CDT</span></li><li><code>T-05838</code> worktree enablement: praesidium.toml + drain-depth validation <span class="inline-time">2026-07-07 00:31:29 CDT</span></li><li><code>T-05818</code> Visualizer slice 2: task runtime overlay <span class="inline-time">2026-07-07 00:24:42 CDT</span></li><li><code>T-05817</code> Visualizer slice 1: template graph <span class="inline-time">2026-07-06 23:42:44 CDT</span></li><li><code>T-05317</code> Add “start terminal” button <span class="inline-time">2026-07-06 23:10:45 CDT</span></li><li><code>T-05630</code> Decompose PromptShapingRoute task detail page into reusable panels <span class="inline-time">2026-07-06 23:10:44 CDT</span></li></ul>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+      <section id="tasks">
+        <div class="section-title">
+          <h2>Completed Task Grid</h2>
+          <p>Each card keeps the cross-project <code>wrkq</code> evidence visible without collapsing it into repo history. Counts are filtered to task rows only and sliced locally by exact local-window completion timestamps.</p>
+        </div>
+        <div class="task-grid">
+<article class="task-card">
+  <div class="task-meta"><span>agent-loop</span><span>36 completed</span></div>
+  <h3>agent-loop</h3>
+  <p>Latest closeout: <span class="inline-time">2026-07-07 02:40:30 CDT</span></p>
+  <ul class="evidence-list"><li><code>T-05569</code> agent-enablement: carrier-vs-target-hook-policy: repo-root status carrier collides with target md-location hooks</li><li><code>T-05880</code> Determine what runbook or toolkit is using AE as task prefix</li><li><code>T-05870</code> S3: wave dispatch + dry-run wave rendering</li><li><code>T-05869</code> S2: compose.ts pure planner — waves, publisher-before-consumer, verdaccio-publish mutex</li></ul>
+</article>
+<article class="task-card">
+  <div class="task-meta"><span>taskboard</span><span>8 completed</span></div>
+  <h3>taskboard</h3>
+  <p>Latest closeout: <span class="inline-time">2026-07-07 01:03:06 CDT</span></p>
+  <ul class="evidence-list"><li><code>T-05877</code> Visualizer design review: chrome walkthrough + frontend-design pass</li><li><code>T-05883</code> Move workflow graph projectors into @webwrkq/shared</li><li><code>T-05819</code> Visualizer slice 3: search, minimap, deep links</li><li><code>T-05838</code> worktree enablement: praesidium.toml + drain-depth validation</li></ul>
+</article>
+<article class="task-card">
+  <div class="task-meta"><span>agent-control-plane</span><span>7 completed</span></div>
+  <h3>agent-control-plane</h3>
+  <p>Latest closeout: <span class="inline-time">2026-07-06 22:43:45 CDT</span></p>
+  <ul class="evidence-list"><li><code>T-05858</code> ASP/ACP verdaccio publish: shrink and tolerate the read-during-publish race</li><li><code>T-05413</code> Job/flow system refinement (robustness)</li><li><code>T-04517</code> [acp-core] F6 — Consolidate two deepFreeze implementations</li><li><code>T-05791</code> refactor(agent-control-plane): extract-acp-adoption-probe</li></ul>
+</article>
+<article class="task-card">
+  <div class="task-meta"><span>agent-spaces</span><span>7 completed</span></div>
+  <h3>agent-spaces</h3>
+  <p>Latest closeout: <span class="inline-time">2026-07-06 23:11:43 CDT</span></p>
+  <ul class="evidence-list"><li><code>T-04150</code> Model pin integrity: doctor reporting + archagent benchmark pin cleanup</li><li><code>T-05392</code> Inject WRKQ_PRINCIPAL_REF=agent:&lt;id&gt; into broker/harness run env</li><li><code>T-05435</code> agent-enablement: teaching-guards (S4): make runtime-contract harness diagnostics conformant</li><li><code>T-05447</code> agent-enablement: hygiene-floor (F0): PM floor gap for agent-spaces</li></ul>
+</article>
+<article class="task-card">
+  <div class="task-meta"><span>archagent</span><span>4 completed</span></div>
+  <h3>archagent</h3>
+  <p>Latest closeout: <span class="inline-time">2026-07-07 01:35:22 CDT</span></p>
+  <ul class="evidence-list"><li><code>T-05738</code> AE verify-only RED 2026-07-05T21:55:12.492Z</li><li><code>T-05764</code> AE verify-only RED 2026-07-06T00:59:24.019Z</li><li><code>T-05832</code> worktree enablement: praesidium.toml + drain-depth validation</li><li><code>T-05816</code> Refresh taskboard F0 structural pin range-touched by d2f936b (nightly 08:40Z)</li></ul>
+</article>
+<article class="task-card">
+  <div class="task-meta"><span>hrc-runtime</span><span>3 completed</span></div>
+  <h3>hrc-runtime</h3>
+  <p>Latest closeout: <span class="inline-time">2026-07-07 00:25:31 CDT</span></p>
+  <ul class="evidence-list"><li><code>T-05881</code> hrc run pops a duplicate Ghostty viewer alongside the operator&#39;s terminal</li><li><code>T-05879</code> Bound hrc server status over stale btmux sockets</li><li><code>T-05876</code> Centralize Ghostty viewer policy: run/start doctrine, spawn gate, linger</li></ul>
+</article>
+<article class="task-card">
+  <div class="task-meta"><span>wrkq</span><span>3 completed</span></div>
+  <h3>wrkq</h3>
+  <p>Latest closeout: <span class="inline-time">2026-07-06 10:13:26 CDT</span></p>
+  <ul class="evidence-list"><li><code>T-05850</code> CLI: unify dash-stdin convention — text flags read stdin on &#39;-&#39;, single-consumer + TTY guards</li><li><code>T-05686</code> wrkq-simple-task@2: pre-specified tasks cannot enter the workflow (triage refuses, no skip path)</li><li><code>T-05822</code> wrkf: attach-supersede lane — clean @N-&gt;@N+1 workflow replacement without cancelling the wrkq task</li></ul>
+</article>
+<article class="task-card">
+  <div class="task-meta"><span>explainer</span><span>1 completed</span></div>
+  <h3>explainer</h3>
+  <p>Latest closeout: <span class="inline-time">2026-07-06 23:05:29 CDT</span></p>
+  <ul class="evidence-list"><li><code>T-05833</code> worktree enablement: praesidium.toml + drain-depth validation</li></ul>
+</article>
+<article class="task-card">
+  <div class="task-meta"><span>safoundry</span><span>1 completed</span></div>
+  <h3>safoundry</h3>
+  <p>Latest closeout: <span class="inline-time">2026-07-06 23:25:24 CDT</span></p>
+  <ul class="evidence-list"><li><code>T-05835</code> worktree enablement: praesidium.toml + drain-depth validation</li></ul>
+</article>
+<article class="task-card">
+  <div class="task-meta"><span>stackctl</span><span>1 completed</span></div>
+  <h3>stackctl</h3>
+  <p>Latest closeout: <span class="inline-time">2026-07-06 23:44:06 CDT</span></p>
+  <ul class="evidence-list"><li><code>T-05837</code> worktree enablement: praesidium.toml + drain-depth validation</li></ul>
+</article></div>
+      </section>
+      <section id="validation">
+        <div class="section-title">
+          <h2>Validation Evidence</h2>
+          <p>The artifact is only deliverable after the evidence pass and the HTML gate. This section records what was actually checked in this run.</p>
+        </div>
+        <div class="evidence-grid">
+<article class="evidence-card good">
+  <h3>Evidence coverage</h3>
+  <p>The run scanned <strong>32</strong> visible repos under <code>~/praesidium</code> and completed-task slices for <strong>23</strong> <code>wrkq</code> projects. Activity was found in <strong>11</strong> repos and <strong>10</strong> projects inside the exact local window.</p>
+  <ul class="evidence-list"><li>140 landed current-branch commits were counted from repo-local HEAD history only.</li><li>71 completed tasks were filtered locally from JSON results because this CLI surface does not expose exact-window flags.</li><li>Ahead-of-upstream counts and dirty worktrees were kept separate from accomplishment totals.</li></ul>
+</article>
+<article class="evidence-card good">
+  <h3>Static artifact gate</h3>
+  <p>The brief was generated as a standalone HTML file with embedded CSS and then checked for the required section anchors, overflow-safe layout rules, responsive breakpoint rules, suspicious generated strings, and balanced structural tags before delivery.</p>
+  <ul class="evidence-list"><li>Required anchors: <code>#scorecard</code>, <code>#workstreams</code>, <code>#tasks</code>, <code>#validation</code>, <code>#open-state</code>.</li><li>Layout gate includes <code>overflow-x: hidden</code> plus mobile breakpoint collapse rules.</li><li>Content sanity includes nested-list, stray timezone-token, <code>undefined</code>, and <code>null</code> scans.</li></ul>
+</article>
+<article class="evidence-card warn">
+  <h3>Browser verification path</h3>
+  <p>No DOM-capable browser surface was used in this run, so verification stayed static-only. That keeps the artifact honest about what was proven: structure and overflow-safe CSS were checked, but no live screenshot or DOM scroll-width proof was captured.</p>
+  <ul class="evidence-list"><li>This matches the established fallback path for runs where browser tooling is unavailable or not surfaced.</li><li>Delivery remains gated on successful artifact generation plus static verification.</li></ul>
+</article></div>
+      </section>
+      <section id="open-state">
+        <div class="section-title">
+          <h2>Open Repo State</h2>
+          <p>These cards show where local-only commit pressure and fresh unchecked-in files still exist after the accomplishment slice. They are intentionally separated from accomplishment totals.</p>
+        </div>
+        <div class="repo-grid">
+<article class="repo-card ">
+  <h3>agents</h3>
+  <p>Branch <code>main</code> tracking <code>origin/main</code>.</p>
+  <ul class="repo-list">
+    <li><strong>35</strong> ahead commits total; <strong>0</strong> were authored inside the slice.</li>
+    <li><strong>17</strong> dirty paths total; <strong>0</strong> are fresh to this window.</li>
+    <li>Sample visible paths<ul class="evidence-list"><li><span class="status-pill"> M</span> <code>looper/skills/wrkq-task-triage/SKILL.md</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>argus/</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>cody/artifacts/wrkq-task-dto-contract-desktop.png</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>cody/artifacts/wrkq-task-dto-contract-hosted-raw-desktop.png</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>cody/artifacts/wrkq-task-dto-contract-hosted-raw-mobile.png</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>cody/artifacts/wrkq-task-dto-contract-hosted-viewer.png</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>cody/artifacts/wrkq-task-dto-contract-mobile.png</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>cody/artifacts/wrkq-task-dto-contract-spa-detail.png</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>cody/artifacts/wrkq-task-dto-contract.html</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>cody/render-wrkq-task-dto-contract.mjs</code> <span class="inline-time">older</span></li></ul></li>
+  </ul>
+</article>
+<article class="repo-card ">
+  <h3>taskboard</h3>
+  <p>Branch <code>main</code> tracking <code>origin/main</code>.</p>
+  <ul class="repo-list">
+    <li><strong>15</strong> ahead commits total; <strong>15</strong> were authored inside the slice.</li>
+    <li><strong>0</strong> dirty paths total; <strong>0</strong> are fresh to this window.</li>
+    <li>No dirty paths; pressure is commit-only.</li>
+  </ul>
+</article>
+<article class="repo-card pressure">
+  <h3>media-ingest</h3>
+  <p>Branch <code>main</code> tracking <code>origin/main</code>.</p>
+  <ul class="repo-list">
+    <li><strong>13</strong> ahead commits total; <strong>0</strong> were authored inside the slice.</li>
+    <li><strong>41</strong> dirty paths total; <strong>3</strong> are fresh to this window.</li>
+    <li>Sample visible paths<ul class="evidence-list"><li><span class="status-pill">??</span> <code>book_recommendations.md</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>transcripts/ai-daily-brief/5-ways-claude-tag-could-change-how-you-use-ai.md</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>transcripts/ai-daily-brief/9-codex-tips-from-the-codex-team.md</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>transcripts/ai-daily-brief/a-big-shift-in-the-ai-race.md</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>transcripts/ai-daily-brief/ai-companies-are-hiring-more.md</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>transcripts/ai-daily-brief/ai-is-making-one-person-million-dollar-companies-more-common.md</code> <span class="inline-time">fresh</span></li><li><span class="status-pill">??</span> <code>transcripts/ai-daily-brief/fable-is-back-here-s-what-you-should-try-first.md</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>transcripts/ai-daily-brief/how-big-is-the-ai-economy.md</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>transcripts/ai-daily-brief/the-5-minute-ai-weekly-recap-realignment-week.md</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>transcripts/ai-daily-brief/the-big-ways-ai-just-changed.md</code> <span class="inline-time">older</span></li></ul></li>
+  </ul>
+</article>
+<article class="repo-card ">
+  <h3>hrc-runtime</h3>
+  <p>Branch <code>main</code> tracking <code>origin/main</code>.</p>
+  <ul class="repo-list">
+    <li><strong>13</strong> ahead commits total; <strong>13</strong> were authored inside the slice.</li>
+    <li><strong>0</strong> dirty paths total; <strong>0</strong> are fresh to this window.</li>
+    <li>No dirty paths; pressure is commit-only.</li>
+  </ul>
+</article>
+<article class="repo-card ">
+  <h3>agent-control-plane</h3>
+  <p>Branch <code>main</code> tracking <code>origin/main</code>.</p>
+  <ul class="repo-list">
+    <li><strong>11</strong> ahead commits total; <strong>11</strong> were authored inside the slice.</li>
+    <li><strong>0</strong> dirty paths total; <strong>0</strong> are fresh to this window.</li>
+    <li>No dirty paths; pressure is commit-only.</li>
+  </ul>
+</article>
+<article class="repo-card pressure">
+  <h3>archagent</h3>
+  <p>Branch <code>main</code> tracking <code>origin/main</code>.</p>
+  <ul class="repo-list">
+    <li><strong>6</strong> ahead commits total; <strong>6</strong> were authored inside the slice.</li>
+    <li><strong>43</strong> dirty paths total; <strong>4</strong> are fresh to this window.</li>
+    <li>Sample visible paths<ul class="evidence-list"><li><span class="status-pill">??</span> <code>.agent-loop/</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>runs/ae-verify-only-2026-07-04T16-29-02-602Z/</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>runs/ae-verify-only-2026-07-04T16-33-04-539Z/</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>runs/ae-verify-only-2026-07-04T16-42-02-973Z/</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>runs/ae-verify-only-2026-07-04T16-46-06-478Z/</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>runs/ae-verify-only-2026-07-04T16-46-06-531Z/</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>runs/ae-verify-only-2026-07-04T16-51-32-041Z/</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>runs/ae-verify-only-2026-07-04T17-01-58-771Z/</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>runs/ae-verify-only-2026-07-04T17-04-39-931Z/</code> <span class="inline-time">older</span></li><li><span class="status-pill">??</span> <code>runs/ae-verify-only-2026-07-04T17-04-59-593Z/</code> <span class="inline-time">older</span></li></ul></li>
+  </ul>
+</article></div>
+      </section>
+      <div class="footer">Generated from live repo and <code>wrkq</code> evidence at 2026-07-07 05:04:06 CDT.</div>
+    </div>
+  </main>
+</div>
+</body>
+</html>
