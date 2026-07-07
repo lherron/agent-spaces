@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -51,9 +52,56 @@ type Options = {
 }
 
 type RegistryMetadata = {
-  versions?: Record<string, unknown>
+  versions?: Record<string, RegistryPackageVersion>
   'dist-tags'?: Record<string, string>
 }
+
+type RegistryPackageVersion = {
+  dist?: {
+    tarball?: string
+  }
+}
+
+type FingerprintInput = {
+  manifest: Manifest
+  files: Record<string, string>
+  internalPackageNames: string[]
+}
+
+type PublishDecisionInput = {
+  tag: string
+  normalTimestampedDevPublish: boolean
+  packages: Array<{
+    name: string
+    localVersion: string
+    localFingerprint: string
+    activeTagVersion?: string | undefined
+    registryVersions: Record<string, { fingerprint?: string | undefined }>
+  }>
+}
+
+type PublishPlan = {
+  action: 'skip' | 'publish'
+  publishPackageNames: string[]
+  reason: string
+}
+
+type PackedPackage = {
+  name: string
+  version: string
+  tarballPath: string
+  tmp: string
+  fingerprint: string
+}
+
+const DEPENDENCY_FIELDS = [
+  'dependencies',
+  'devDependencies',
+  'peerDependencies',
+  'optionalDependencies',
+] as const
+
+const INTERNAL_ASP_DEPENDENCY_SPEC = '<asp-internal-package>'
 
 function parseArgs(argv: string[]): Options {
   const options: Options = {
@@ -163,6 +211,125 @@ function run(cmd: string, args: string[], cwd = ROOT): { status: number; out: st
   }
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(',')}]`
+  }
+  if (!value || typeof value !== 'object') {
+    return JSON.stringify(value)
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, child]) => child !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+  return `{${entries
+    .map(([key, child]) => `${JSON.stringify(key)}:${stableJson(child)}`)
+    .join(',')}}`
+}
+
+function normalizeInternalDependencySpecs(
+  deps: Record<string, string> | undefined,
+  internalPackageNames: Set<string>
+): Record<string, string> | undefined {
+  if (!deps) return undefined
+
+  const next: Record<string, string> = {}
+  for (const [name, spec] of Object.entries(deps)) {
+    next[name] = internalPackageNames.has(name) ? INTERNAL_ASP_DEPENDENCY_SPEC : spec
+  }
+  return next
+}
+
+function normalizeManifestForFingerprint(
+  manifest: Manifest,
+  internalPackageNames: Set<string>
+): Record<string, unknown> {
+  const { version: _version, ...manifestWithoutVersion } = manifest
+  const normalized: Record<string, unknown> = { ...manifestWithoutVersion }
+  for (const field of DEPENDENCY_FIELDS) {
+    normalized[field] = normalizeInternalDependencySpecs(manifest[field], internalPackageNames)
+  }
+  return normalized
+}
+
+export function materialPackageFingerprint(input: FingerprintInput): string {
+  const internalPackageNames = new Set(input.internalPackageNames)
+  const payload = {
+    manifest: normalizeManifestForFingerprint(input.manifest, internalPackageNames),
+    files: input.files,
+  }
+  return createHash('sha256').update(stableJson(payload)).digest('hex')
+}
+
+export function resolvePublishPlanForActiveTag(input: PublishDecisionInput): PublishPlan {
+  const publishPackageNames = input.packages.map((pkg) => pkg.name)
+  if (!input.normalTimestampedDevPublish) {
+    return {
+      action: 'publish',
+      publishPackageNames,
+      reason: 'active-tag skip only applies to the normal timestamped dev publish path',
+    }
+  }
+
+  const activeTagVersions: string[] = []
+  for (const pkg of input.packages) {
+    const activeTagVersion = pkg.activeTagVersion
+    if (!activeTagVersion) {
+      return {
+        action: 'publish',
+        publishPackageNames,
+        reason: `${pkg.name} does not have active tag ${input.tag}`,
+      }
+    }
+
+    const registryVersion = pkg.registryVersions[activeTagVersion]
+    if (!registryVersion) {
+      return {
+        action: 'publish',
+        publishPackageNames,
+        reason: `${pkg.name}@${activeTagVersion} is missing from the registry`,
+      }
+    }
+
+    if (!registryVersion.fingerprint) {
+      return {
+        action: 'publish',
+        publishPackageNames,
+        reason: `${pkg.name}@${activeTagVersion} could not be fingerprinted`,
+      }
+    }
+
+    activeTagVersions.push(activeTagVersion)
+  }
+
+  if (new Set(activeTagVersions).size !== 1) {
+    return {
+      action: 'publish',
+      publishPackageNames,
+      reason: `active tag ${input.tag} is not version-coherent across the ASP publish set`,
+    }
+  }
+
+  for (const pkg of input.packages) {
+    const activeTagVersion = pkg.activeTagVersion
+    if (!activeTagVersion) continue
+    const registryVersion = pkg.registryVersions[activeTagVersion]
+    if (registryVersion?.fingerprint !== pkg.localFingerprint) {
+      return {
+        action: 'publish',
+        publishPackageNames,
+        reason: `${pkg.name} differs from the active ${input.tag} package`,
+      }
+    }
+  }
+
+  return {
+    action: 'skip',
+    publishPackageNames: [],
+    reason: `active tag ${input.tag} already contains a coherent unchanged ASP publish set`,
+  }
+}
+
 function stripBunConditions(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripBunConditions)
   if (!value || typeof value !== 'object') return value
@@ -214,6 +381,64 @@ async function registryMetadata(name: string): Promise<RegistryMetadata | undefi
   if (!response.ok) return undefined
 
   return (await response.json()) as RegistryMetadata
+}
+
+async function collectPackedFiles(packageDir: string, base = ''): Promise<Record<string, string>> {
+  const files: Record<string, string> = {}
+  const entries = await readdir(join(packageDir, base), { withFileTypes: true })
+
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const rel = base ? `${base}/${entry.name}` : entry.name
+    if (entry.isDirectory()) {
+      Object.assign(files, await collectPackedFiles(packageDir, rel))
+    } else if (entry.isFile() && rel !== 'package.json') {
+      const content = await readFile(join(packageDir, rel))
+      files[rel] = createHash('sha256').update(content).digest('hex')
+    }
+  }
+
+  return files
+}
+
+async function extractedPackageFingerprint(
+  packageDir: string,
+  internalPackageNames: string[]
+): Promise<string> {
+  const manifest = JSON.parse(await readFile(join(packageDir, 'package.json'), 'utf8')) as Manifest
+  const files = await collectPackedFiles(packageDir)
+  return materialPackageFingerprint({ manifest, files, internalPackageNames })
+}
+
+async function fingerprintRegistryTarball(
+  version: string,
+  metadata: RegistryMetadata,
+  internalPackageNames: string[]
+): Promise<string | undefined> {
+  const tarballUrl = metadata.versions?.[version]?.dist?.tarball
+  if (!tarballUrl) return undefined
+
+  let tmp = ''
+  try {
+    tmp = await mkdtemp(join(tmpdir(), 'asp-registry-publish-'))
+    const response = await fetch(tarballUrl)
+    if (!response.ok) return undefined
+
+    const tarballPath = join(tmp, 'package.tgz')
+    await writeFile(tarballPath, new Uint8Array(await response.arrayBuffer()))
+
+    const extractDir = join(tmp, 'extract')
+    const mkdir = run('mkdir', ['-p', extractDir])
+    if (mkdir.status !== 0) return undefined
+
+    const tar = run('tar', ['-xzf', tarballPath, '-C', extractDir])
+    if (tar.status !== 0) return undefined
+
+    return await extractedPackageFingerprint(join(extractDir, 'package'), internalPackageNames)
+  } catch {
+    return undefined
+  } finally {
+    if (tmp) await rm(tmp, { recursive: true, force: true })
+  }
 }
 
 async function taggedVersion(name: string, tag: string): Promise<string | undefined> {
@@ -288,6 +513,7 @@ async function packForPublish(rel: string): Promise<{
   version: string
   tarballPath: string
   tmp: string
+  fingerprint: string
 }> {
   const pkgDir = join(ROOT, rel)
   const packageJsonPath = join(pkgDir, 'package.json')
@@ -362,7 +588,11 @@ async function packForPublish(rel: string): Promise<{
       await assertPackagedFile(extractedPackageDir, path, manifest.name)
     }
 
-    return { name: manifest.name, version: packagePublishVersion, tarballPath, tmp }
+    const fingerprint = await extractedPackageFingerprint(extractedPackageDir, [
+      ...publishVersionsByName.keys(),
+    ])
+
+    return { name: manifest.name, version: packagePublishVersion, tarballPath, tmp, fingerprint }
   } catch (error) {
     if (tmp) await rm(tmp, { recursive: true, force: true })
     throw error
@@ -371,54 +601,98 @@ async function packForPublish(rel: string): Promise<{
   }
 }
 
-async function publishPackage(rel: string): Promise<void> {
-  const packed = await packForPublish(rel)
-  const id = `${packed.name}@${packed.version}`
+function isNormalTimestampedDevPublish(options: Options, publishTag: string): boolean {
+  return (
+    !options.force &&
+    !options.skipExisting &&
+    !options.sourceVersions &&
+    !options.version &&
+    !process.env.ASP_PUBLISH_VERSION &&
+    (options.channel === undefined || options.channel === 'dev') &&
+    publishTag === 'latest'
+  )
+}
 
-  try {
-    const exists = await versionExists(packed.name, packed.version)
-    if (exists && options.skipExisting) {
-      console.log(`SKIPPED    ${id} already exists in ${REGISTRY}`)
-      return
-    }
-    if (exists && !options.force) {
-      throw new Error(`${id} already exists in ${REGISTRY}; use --force to replace it`)
-    }
+async function resolvePublishPlanForPackedPackages(
+  packedPackages: PackedPackage[]
+): Promise<PublishPlan> {
+  const internalPackageNames = [...publishVersionsByName.keys()]
+  const packages: PublishDecisionInput['packages'] = []
 
-    if (options.dryRun) {
-      console.log(`DRY_RUN  ${id} --tag ${publishTag}`)
-      return
-    }
+  for (const packed of packedPackages) {
+    const metadata = await registryMetadata(packed.name)
+    const activeTagVersion = metadata?.['dist-tags']?.[publishTag]
+    const registryVersions: Record<string, { fingerprint?: string | undefined }> = {}
 
-    if (options.force) {
-      const unpublish = run('npm', ['unpublish', id, '--force', '--registry', REGISTRY])
-      if (unpublish.status !== 0 && !/E404|404 Not Found|not found/i.test(unpublish.out)) {
-        throw new Error(`npm unpublish failed for ${id}: ${unpublish.out}`)
+    if (metadata && activeTagVersion && metadata.versions?.[activeTagVersion]) {
+      registryVersions[activeTagVersion] = {
+        fingerprint: await fingerprintRegistryTarball(
+          activeTagVersion,
+          metadata,
+          internalPackageNames
+        ),
       }
     }
 
-    const publish = run('npm', [
-      'publish',
-      packed.tarballPath,
-      '--ignore-scripts',
-      '--registry',
-      REGISTRY,
-      '--tag',
-      publishTag,
-    ])
-    if (publish.status !== 0) {
-      throw new Error(`npm publish failed for ${id}: ${publish.out}`)
-    }
-
-    const tagged = await taggedVersion(packed.name, publishTag)
-    if (tagged !== packed.version) {
-      throw new Error(`registry ${publishTag} after publishing ${id} is ${tagged ?? '<missing>'}`)
-    }
-
-    console.log(`PUBLISHED  ${id} --tag ${publishTag}`)
-  } finally {
-    await rm(packed.tmp, { recursive: true, force: true })
+    packages.push({
+      name: packed.name,
+      localVersion: packed.version,
+      localFingerprint: packed.fingerprint,
+      activeTagVersion,
+      registryVersions,
+    })
   }
+
+  return resolvePublishPlanForActiveTag({
+    tag: publishTag,
+    normalTimestampedDevPublish: isNormalTimestampedDevPublish(options, publishTag),
+    packages,
+  })
+}
+
+async function publishPackedPackage(packed: PackedPackage): Promise<void> {
+  const id = `${packed.name}@${packed.version}`
+
+  const exists = await versionExists(packed.name, packed.version)
+  if (exists && options.skipExisting) {
+    console.log(`SKIPPED    ${id} already exists in ${REGISTRY}`)
+    return
+  }
+  if (exists && !options.force) {
+    throw new Error(`${id} already exists in ${REGISTRY}; use --force to replace it`)
+  }
+
+  if (options.dryRun) {
+    console.log(`DRY_RUN  ${id} --tag ${publishTag}`)
+    return
+  }
+
+  if (options.force) {
+    const unpublish = run('npm', ['unpublish', id, '--force', '--registry', REGISTRY])
+    if (unpublish.status !== 0 && !/E404|404 Not Found|not found/i.test(unpublish.out)) {
+      throw new Error(`npm unpublish failed for ${id}: ${unpublish.out}`)
+    }
+  }
+
+  const publish = run('npm', [
+    'publish',
+    packed.tarballPath,
+    '--ignore-scripts',
+    '--registry',
+    REGISTRY,
+    '--tag',
+    publishTag,
+  ])
+  if (publish.status !== 0) {
+    throw new Error(`npm publish failed for ${id}: ${publish.out}`)
+  }
+
+  const tagged = await taggedVersion(packed.name, publishTag)
+  if (tagged !== packed.version) {
+    throw new Error(`registry ${publishTag} after publishing ${id} is ${tagged ?? '<missing>'}`)
+  }
+
+  console.log(`PUBLISHED  ${id} --tag ${publishTag}`)
 }
 
 let options: Options
@@ -448,8 +722,30 @@ async function main(argv = process.argv.slice(2)) {
   console.log(
     `${mode} ${PACKAGES.length} ASP package(s) as ${versionLabel} --tag ${publishTag} to ${REGISTRY}`
   )
-  for (const rel of PACKAGES) {
-    await publishPackage(rel)
+
+  const packedPackages: PackedPackage[] = []
+  try {
+    for (const rel of PACKAGES) {
+      packedPackages.push(await packForPublish(rel))
+    }
+
+    const plan = await resolvePublishPlanForPackedPackages(packedPackages)
+    if (plan.action === 'skip') {
+      console.log(`SKIPPED    ${PACKAGES.length} ASP package(s): ${plan.reason}`)
+      return
+    }
+
+    if (isNormalTimestampedDevPublish(options, publishTag)) {
+      console.log(`PUBLISHING full ASP wave: ${plan.reason}`)
+    }
+
+    for (const packed of packedPackages) {
+      await publishPackedPackage(packed)
+    }
+  } finally {
+    await Promise.all(
+      packedPackages.map((packed) => rm(packed.tmp, { recursive: true, force: true }))
+    )
   }
 }
 
