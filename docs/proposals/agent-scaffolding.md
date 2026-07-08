@@ -31,13 +31,19 @@ Scaffold a valid v2 agent root and refuse to leave an invalid one behind.
 - Placement: `--agents-root <path>` override; default is the canonical agents root. With
   `--project`, place under `<projectRoot>/agents/<agentId>/` (requires the `agents-root`
   key in `asp-targets.toml`, per T-04141).
-- Emits:
+- Emits (contract-required files only by default):
   - `SOUL.md` — from a template (`--soul-template <path>` to override); identity, mission,
     and operating-notes sections with TODO markers.
   - `agent-profile.toml` — schemaVersion 2 minimal: `[identity]`, `priming_prompt` stub,
     `harnessDefaults` seeded from `--harness <id>` (default claude).
   - `spaces/` — empty agent-local spaces dir.
-  - `HEARTBEAT.md` — only with `--with-heartbeat`.
+- Opt-in build-out flags:
+  - `--with-heartbeat` — emit `HEARTBEAT.md`.
+  - `--with-skills` — emit `skills/` with an example `SKILL.md`.
+  - `--with-starter-space` — scaffold an example agent-local space under
+    `spaces/<agentId>-ops/`.
+- Never emits `brain/` or a `[brain]` profile section — decommissioned (T-04978 Phase 4;
+  the profile parser rejects `[brain]` as an unknown key).
 - Exit path runs `validateAgentRoot` + profile parse on the result; failure deletes the
   partial scaffold and reports why.
 - `--dry-run` prints the file plan without writing.
@@ -53,8 +59,8 @@ flagging shadowed homes. `--json` for machine output.
 
 ### `asp agents validate <agentId|path>`
 
-User-facing wrapper over `validateAgentRoot` + `agent-profile.toml` parse, with
-`--hygiene` to chain into the existing `asp lint --hygiene <agentRoot>` pass. Today this
+User-facing wrapper over `validateAgentRoot` + `agent-profile.toml` parse. Hygiene lint
+(`asp lint --hygiene <agentRoot>`) runs by default; `--no-hygiene` skips it. Today this
 validation only fires deep inside resolution; surfacing it makes "is my agent well-formed?"
 a one-liner and gives CI a hook.
 
@@ -87,14 +93,17 @@ project-local shadowing).
   could grow into this).
 - Registry-based agent distribution.
 
-## Open questions
+## Resolved questions (Lance, 2026-07-08)
 
-1. Should `init` seed state dirs (`brain/`, `var/`) that real homes have but the contract
-   doesn't require? Recommendation: no — emit only contract-required files; state dirs are
-   runtime-owned.
-2. Should `validate` fold hygiene lint in by default rather than behind `--hygiene`?
-   Recommendation: opt-in first; flip after W4xx noise is measured on the live fleet.
-3. Does the SOUL.md template live in-repo or resolve from
-   `agents-root:///references/templates/` so the fleet's live conventions win?
-   Recommendation: in-repo default with `--soul-template` escape hatch, revisit once
-   template churn is observed.
+1. **State dirs:** emit contract-required files only, with `--with-*` flags for optional
+   build-out (see `init` spec above). `brain/` is decommissioned and must never be
+   scaffolded.
+2. **Hygiene lint in `validate`:** default-on from the start; `--no-hygiene` to skip.
+3. **Template placement:** in-repo default with `--soul-template` escape hatch.
+
+## Anticipated change: SOUL → persona naming
+
+Lance plans to rename the soul concept to *persona* (consistent with the existing
+`asp self memory` persona target). The scaffolder should keep the reserved filename in one
+shared constant with `validateAgentRoot` so the rename lands in a single place, and the
+template/flag naming (`--soul-template`) should be revisited when that change ships.
