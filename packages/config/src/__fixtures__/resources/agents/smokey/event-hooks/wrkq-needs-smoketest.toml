@@ -10,9 +10,7 @@ source = "wrkq"
 event = ["updated", "transitioned"]
 project_scope_id = "agent-spaces"
 kind = "task"
-
-[match.transition]
-to = "in_progress"
+labels = ["needs_smoketest"]
 
 [target]
 project = "{{ project_scope_id }}"
@@ -24,7 +22,7 @@ task = "{{ticket_id}}"
 content = "Run the smoke-test workflow for {{ticket_id}}."
 
 [originPolicy]
-agent = "deny"
+agent = "deny-self"
 
 [cooldown]
 seconds = 300

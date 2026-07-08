@@ -389,16 +389,18 @@ function assertSameOwnerEventTarget(target: Target, owner: Owner, relPath: strin
   }
 }
 
-function readOriginPolicy(source: ParsedToml, relPath: string): { agent: 'deny' } {
+function readOriginPolicy(source: ParsedToml, relPath: string): { agent: 'deny' | 'deny-self' } {
   const originPolicy = source['originPolicy']
-  if (!isRecord(originPolicy)) return { agent: 'deny' }
+  if (!isRecord(originPolicy)) return { agent: 'deny-self' }
   if (originPolicy['agent'] === 'allow') {
     throw resourceError(
       'ORIGIN_AGENT_ALLOW_UNSUPPORTED',
       `${relPath}: originPolicy.agent allow is unsupported`
     )
   }
-  return { agent: 'deny' }
+  if (originPolicy['agent'] === 'deny') return { agent: 'deny' }
+  if (originPolicy['agent'] === 'deny-self') return { agent: 'deny-self' }
+  return { agent: 'deny-self' }
 }
 
 function readCooldown(source: ParsedToml, relPath: string): string {

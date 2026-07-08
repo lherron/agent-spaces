@@ -386,9 +386,12 @@ describe('agent-authored runtime resources plan compiler', () => {
     })
   })
 
-  test('rejects originPolicy.agent allow and accepts explicit/default deny policy', async () => {
+  test('rejects originPolicy.agent allow and accepts explicit deny-self, deny, and default deny-self policy', async () => {
     const deny = await compileFixture('agents/smokey', ['event-hooks/wrkq-needs-smoketest.toml'])
-    const defaultDeny = await compileFixture('../../variants', ['event-hook-default-deny.toml'])
+    const explicitDenySelf = await compileFixture('../../variants', [
+      'event-hook-origin-deny-self.toml',
+    ])
+    const defaultDenySelf = await compileFixture('../../variants', ['event-hook-default-deny.toml'])
     const allow = await compileFixture('../../invalid', ['event-hook-origin-allow.toml'])
 
     expect(deny).toEqual({
@@ -398,21 +401,35 @@ describe('agent-authored runtime resources plan compiler', () => {
           expect.objectContaining({
             desiredJson: expect.objectContaining({
               trigger: expect.objectContaining({
-                originPolicy: { agent: 'deny' },
+                originPolicy: { agent: 'deny-self' },
               }),
             }),
           }),
         ],
       }),
     })
-    expect(defaultDeny).toEqual({
+    expect(explicitDenySelf).toEqual({
       ok: true,
       plan: expect.objectContaining({
         resources: [
           expect.objectContaining({
             desiredJson: expect.objectContaining({
               trigger: expect.objectContaining({
-                originPolicy: { agent: 'deny' },
+                originPolicy: { agent: 'deny-self' },
+              }),
+            }),
+          }),
+        ],
+      }),
+    })
+    expect(defaultDenySelf).toEqual({
+      ok: true,
+      plan: expect.objectContaining({
+        resources: [
+          expect.objectContaining({
+            desiredJson: expect.objectContaining({
+              trigger: expect.objectContaining({
+                originPolicy: { agent: 'deny-self' },
               }),
             }),
           }),

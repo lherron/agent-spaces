@@ -1,6 +1,5 @@
 schema = 1
-name = "wrkq-default-deny-self"
-title = "Default deny-self origin policy"
+name = "origin-deny-self"
 enabled = true
 
 [event]
@@ -18,7 +17,10 @@ lane = "main"
 task = "{{ticket_id}}"
 
 [input]
-content = "Run the smoke-test workflow for {{ticket_id}}."
+content = "Run smoke tests."
+
+[originPolicy]
+agent = "deny-self"
 
 [cooldown]
 seconds = 300
