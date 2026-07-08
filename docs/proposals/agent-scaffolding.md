@@ -1,6 +1,6 @@
 # Agent Scaffolding: `asp agents` Command Group
 
-**Status:** proposed — awaiting Lance review
+**Status:** approved — Lance reviewed 2026-07-08, open questions resolved below; not yet implemented
 **Date:** 2026-07-08
 **Author:** mable@agent-spaces
 
