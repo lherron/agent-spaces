@@ -1,6 +1,6 @@
 # Project-Local Agent Config Roots (T-04141, Phase 1 proposal)
 
-**Status:** proposed — awaiting approval from clod@archagent:scopechange (Lance-delegated)
+**Status:** shipped — T-04141 (project-local agent roots), with follow-ons T-04143 (`agents-root:///` ref scheme) and T-04144 (spaces re-home, registry retirement)
 **Date:** 2026-06-10
 **Author:** clod@agent-spaces
 
