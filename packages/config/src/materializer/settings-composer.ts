@@ -39,6 +39,12 @@ export interface ComposedSettings {
    * instead of blocking indefinitely.
    */
   askUserQuestionTimeout?: string | undefined
+  /**
+   * TUI rendering mode. "fullscreen" selects the alt-screen renderer with the
+   * app's own virtualized scrollback; "default" is the classic main-screen
+   * renderer. Corresponds to Claude Code's /tui command.
+   */
+  tui?: 'fullscreen' | 'default' | undefined
 }
 
 /**

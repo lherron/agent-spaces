@@ -568,6 +568,8 @@ allow = ["/tmp"]
         expect(settings.statusLine.command).toContain(outputDir)
         // Agents opt into a bounded AskUserQuestion idle timeout
         expect(settings.askUserQuestionTimeout).toBe('2m')
+        // Every agent run renders in the fullscreen (alt-screen) TUI
+        expect(settings.tui).toBe('fullscreen')
       }
     })
 

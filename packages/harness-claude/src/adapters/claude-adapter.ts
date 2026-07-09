@@ -388,6 +388,11 @@ export class ClaudeAdapter implements HarnessAdapter {
     // Opt agents into an AskUserQuestion idle timeout so dialogs auto-continue
     // with the default choice instead of blocking a headless run indefinitely.
     composedSettings.askUserQuestionTimeout = ASK_USER_QUESTION_TIMEOUT
+    // Render every agent run in the fullscreen (alt-screen) TUI, which owns its
+    // own virtualized scrollback. Applied unconditionally so all claude launches
+    // — headless, hrc run, and broker-tmux (whose overlay preserves this key) —
+    // share one renderer.
+    composedSettings.tui = 'fullscreen'
     await writeFile(settingsOutputPath, JSON.stringify(composedSettings, null, 2))
 
     // Install statusline script and add to settings (best-effort)
