@@ -418,7 +418,8 @@ exit 1
 
       const configRaw = await readFile(join(outputDir, 'codex.home', 'config.toml'), 'utf-8')
       const parsed = TOML.parse(configRaw) as Record<string, unknown>
-      expect(parsed['model']).toBe('gpt-5.5')
+      expect(parsed['model']).toBe('gpt-5.6-terra')
+      expect(parsed['model_reasoning_effort']).toBe('high')
       expect((parsed['features'] as Record<string, unknown>)['hooks']).toBe(true)
       expect((parsed['tui'] as Record<string, unknown>)['status_line']).toEqual([
         'model-with-reasoning',
@@ -485,13 +486,16 @@ exit 1
       expect(args).not.toContain('model_reasoning_effort="high"')
     })
 
-    test('marks gpt-5.5 as the default supported model', () => {
+    test('marks GPT-5.6 Terra as the default and exposes every GPT-5.6 variant', () => {
       expect(adapter.models[0]).toEqual({
-        id: 'gpt-5.5',
-        name: 'GPT-5.5',
+        id: 'gpt-5.6-terra',
+        name: 'GPT-5.6-Terra',
         default: true,
         identityKind: 'full',
       })
+      expect(adapter.models.map((model) => model.id)).toEqual(
+        expect.arrayContaining(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'])
+      )
     })
   })
 

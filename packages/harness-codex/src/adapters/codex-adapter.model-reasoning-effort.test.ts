@@ -177,7 +177,7 @@ describe('CodexAdapter.composeTarget: model_reasoning_effort in config.toml', ()
     expect(parsed['model_reasoning_effort']).toBe('high')
   })
 
-  test('omits model_reasoning_effort from config.toml when not set in codexOptions', async () => {
+  test('defaults model_reasoning_effort to high when not set in codexOptions', async () => {
     const input = {
       targetName: 'test-target',
       compose: [],
@@ -202,7 +202,7 @@ describe('CodexAdapter.composeTarget: model_reasoning_effort in config.toml', ()
 
     const configRaw = await readFile(join(outputDir, 'codex.home', 'config.toml'), 'utf-8')
     const parsed = TOML.parse(configRaw) as Record<string, unknown>
-    expect(parsed['model_reasoning_effort']).toBeUndefined()
+    expect(parsed['model_reasoning_effort']).toBe('high')
   })
 
   test('preserves other codexOptions fields alongside model_reasoning_effort', async () => {

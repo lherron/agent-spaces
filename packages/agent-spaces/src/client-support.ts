@@ -34,6 +34,24 @@ const PI_SDK_MODELS = [
 ]
 
 const CODEX_CLI_MODELS = [
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
+  'gpt-5.5',
+  'gpt-5.3-codex',
+  'gpt-5.3',
+  'gpt-5.2-codex',
+  'gpt-5.1-codex-mini',
+  'gpt-5.1-codex-max',
+  'gpt-5.2',
+  'gpt-5.1',
+  'gpt-5.1-codex',
+  'gpt-5-codex',
+  'gpt-5-codex-mini',
+  'gpt-5',
+]
+
+const PI_CLI_MODELS = [
   'gpt-5.5',
   'gpt-5.3-codex',
   'gpt-5.3',
@@ -49,7 +67,8 @@ const CODEX_CLI_MODELS = [
 ]
 
 const DEFAULT_PI_SDK_MODEL = 'openai-codex/gpt-5.5'
-const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.5'
+const DEFAULT_PI_CLI_MODEL = 'gpt-5.5'
+const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.6-terra'
 
 export class CodedError extends Error {
   readonly code: NonNullable<AgentSpacesError['code']>
@@ -105,7 +124,7 @@ export const FRONTEND_DEFS = new Map<HarnessFrontend, FrontendDef>([
     CODEX_CLI_FRONTEND,
     createFrontendDef(CODEX_CLI_FRONTEND, CODEX_CLI_MODELS, DEFAULT_CODEX_CLI_MODEL),
   ],
-  [PI_CLI_FRONTEND, createFrontendDef(PI_CLI_FRONTEND, CODEX_CLI_MODELS, DEFAULT_CODEX_CLI_MODEL)],
+  [PI_CLI_FRONTEND, createFrontendDef(PI_CLI_FRONTEND, PI_CLI_MODELS, DEFAULT_PI_CLI_MODEL)],
 ])
 
 export function resolveFrontend(

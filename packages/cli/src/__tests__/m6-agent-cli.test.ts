@@ -801,7 +801,7 @@ describe('placement invocation produces full argv (T-00874)', () => {
     expect(parsed.spec.argv).not.toContain('exec')
     expect(parsed.spec.argv).not.toContain('--model')
     expect(parsed.spec.codexAppServer).toMatchObject({
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-terra',
       approvalPolicy: 'never',
       featureFlags: ['goals'],
     })
@@ -1025,7 +1025,7 @@ describe('gpt-5.5 model support (T-00878)', () => {
     expect(parsed.spec.codexAppServer?.model).toBe('gpt-5.5')
   })
 
-  cliTest('codex-cli default model is gpt-5.5 in dry-run', () => {
+  cliTest('codex-cli default model is GPT-5.6 Terra in dry-run', () => {
     const agentRoot = resolveAgentRoot()
 
     const result = runAsp(
@@ -1046,8 +1046,7 @@ describe('gpt-5.5 model support (T-00878)', () => {
 
     const parsed = JSON.parse(result.stdout)
     expect(parsed.spec.argv).not.toContain('--model')
-    // Default should be gpt-5.5
-    expect(parsed.spec.codexAppServer?.model).toBe('gpt-5.5')
+    expect(parsed.spec.codexAppServer?.model).toBe('gpt-5.6-terra')
   })
 })
 
