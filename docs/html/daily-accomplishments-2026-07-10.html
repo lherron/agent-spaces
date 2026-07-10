@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Praesidium Accomplishments - 2026-07-10</title>
+<style>
+:root {
+  --bg: #f3efe7;
+  --paper: rgba(255,255,255,0.97);
+  --ink: #162128;
+  --muted: #5d6770;
+  --line: #d7d0c4;
+  --shadow: 0 20px 46px rgba(22,33,40,0.11);
+  --green: #155843;
+  --green-soft: #dceee7;
+  --blue: #2c5d87;
+  --blue-soft: #dce8f5;
+  --amber: #8f611d;
+  --amber-soft: #f6e6c8;
+  --rose: #8f4051;
+  --rose-soft: #f7e3e9;
+  --sans: "Avenir Next", "Trebuchet MS", Verdana, sans-serif;
+  --serif: Georgia, "Iowan Old Style", serif;
+  --mono: "SFMono-Regular", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, body { margin: 0; max-width: 100%; overflow-x: hidden; }
+body {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(44,93,135,0.12), transparent 28%),
+    radial-gradient(circle at 100% 0%, rgba(21,88,67,0.10), transparent 24%),
+    linear-gradient(90deg, rgba(22,33,40,0.03) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(0deg, rgba(22,33,40,0.02) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--bg);
+  color: var(--ink);
+  font: 16px/1.56 var(--sans);
+}
+a { color: var(--green); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+code { font-family: var(--mono); font-size: 0.92em; word-break: break-word; }
+main, section, article, div, ul, li { min-width: 0; }
+.page { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
+.sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto; padding: 24px 20px 28px; border-right: 1px solid var(--line); background: rgba(243,239,231,0.97); backdrop-filter: blur(8px); }
+.brand, .nav, .sidebar-block, .hero-copy, .section-title, .stream-card, .task-card, .evidence-card, .repo-card { display: grid; gap: 10px; }
+.kicker, .eyebrow, .metric-label, .chip, .task-meta, .footer, .nav a { font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.055em; }
+.brand h1, .hero h2, .section-title h2, .metric-value, .stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { margin: 0; font-family: var(--serif); line-height: 1.05; }
+.brand h1 { font-size: 30px; }
+.brand p, .sidebar-note, .hero p, .section-title p, .stream-card p, .task-card p, .evidence-card p, .repo-card p { margin: 0; color: var(--muted); }
+.kicker { color: var(--amber); font-size: 12px; font-weight: 900; }
+.nav { margin: 18px 0; }
+.nav a { display: block; padding: 8px 10px; border-left: 3px solid transparent; color: var(--muted); font-size: 11px; font-weight: 800; text-decoration: none; }
+.nav a:hover, .nav a:focus { border-left-color: var(--green); background: rgba(255,255,255,0.84); color: var(--ink); }
+.sidebar-block { padding-top: 16px; border-top: 1px solid var(--line); }
+.legend-item { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
+.dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
+.fact-list, .evidence-list, .repo-list { margin: 0; padding-left: 18px; display: grid; gap: 10px; }
+.fact-list li, .evidence-list li, .repo-list li { padding-left: 4px; overflow-wrap: anywhere; }
+main { min-width: 0; }
+.hero { padding: 44px min(5vw, 62px) 34px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(21,88,67,0.15), transparent 58%), linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.90)); }
+.hero-grid, .content { width: min(1220px, 100%); }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 1.16fr) minmax(320px, 0.84fr); gap: 28px; }
+.eyebrow { color: var(--green); font-size: 12px; font-weight: 900; margin-bottom: 12px; }
+.hero h2 { font-size: clamp(2.08rem, 4vw, 3.16rem); margin-bottom: 14px; }
+.hero p { max-width: 78ch; font-size: 1.02rem; }
+.hero-note, .note-box { margin-top: 18px; padding: 16px 18px; border: 1px solid var(--line); box-shadow: var(--shadow); min-width: 0; }
+.hero-note { background: rgba(255,255,255,0.9); }
+.hero-note strong, .note-box strong { display: block; margin-bottom: 6px; }
+.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-content: start; }
+.metric { min-width: 0; padding: 18px; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); }
+.metric-label { font-size: 11px; color: var(--muted); font-weight: 800; }
+.metric-value { margin-top: 8px; font-size: clamp(1.8rem, 2.8vw, 2.7rem); }
+.metric small { display: block; margin-top: 8px; color: var(--muted); }
+.content { padding: 30px min(5vw, 62px) 64px; }
+section { margin-top: 34px; }
+section:first-child { margin-top: 0; }
+.section-title h2 { font-size: clamp(1.95rem, 3vw, 2.5rem); }
+.section-title p { max-width: 82ch; }
+.stream-grid, .task-grid, .evidence-grid, .repo-grid { display: grid; gap: 18px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.stream-card, .task-card, .evidence-card, .repo-card { min-width: 0; border: 1px solid var(--line); background: var(--paper); box-shadow: var(--shadow); padding: 20px; }
+.stream-card { grid-column: span 12; }
+.task-card, .evidence-card, .repo-card { grid-column: span 6; }
+.stream-card h3, .task-card h3, .evidence-card h3, .repo-card h3 { font-size: 1.28rem; }
+.stream-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.chip { display: inline-flex; align-items: center; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; font-weight: 800; max-width: 100%; overflow-wrap: anywhere; }
+.chip.green { background: var(--green-soft); color: var(--green); border-color: rgba(21,88,67,0.18); }
+.chip.blue { background: var(--blue-soft); color: var(--blue); border-color: rgba(44,93,135,0.18); }
+.chip.amber { background: var(--amber-soft); color: var(--amber); border-color: rgba(143,97,29,0.18); }
+.chip.rose { background: var(--rose-soft); color: var(--rose); border-color: rgba(143,64,81,0.18); }
+.stream-columns { display: grid; grid-template-columns: 1.02fr 0.98fr; gap: 18px; min-width: 0; }
+.note-box { background: linear-gradient(180deg, rgba(220,232,246,0.72), rgba(255,255,255,0.92)); }
+.inline-time { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.task-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.evidence-card.good { background: linear-gradient(180deg, rgba(216,239,231,0.92), rgba(255,255,255,0.97)); }
+.evidence-card.warn { background: linear-gradient(180deg, rgba(245,231,207,0.92), rgba(255,255,255,0.97)); }
+.repo-card.pressure { background: linear-gradient(180deg, rgba(247,224,229,0.92), rgba(255,255,255,0.97)); }
+.footer { margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 800; }
+@media (max-width: 980px) {
+  .page { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  .hero-grid, .stream-columns { grid-template-columns: 1fr; }
+  .task-card, .evidence-card, .repo-card { grid-column: span 12; }
+}
+@media (max-width: 640px) {
+  .hero, .content { padding-left: 18px; padding-right: 18px; }
+  .metrics { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="kicker">Praesidium Daily Brief</div>
+      <h1>2026-07-10</h1>
+      <p>Previous 24 hours in local time, covering landed commits, completed <code>wrkq</code> tasks, proven local-only branches, and visible unchecked-in pressure across Praesidium.</p>
+    </div>
+    <nav class="nav">
+      <a href="#scorecard">Scorecard</a>
+      <a href="#workstreams">Workstreams</a>
+      <a href="#tasks">Completed Tasks</a>
+      <a href="#validation">Validation</a>
+      <a href="#open-state">Open Repo State</a>
+    </nav>
+    <div class="sidebar-block">
+      <div class="legend-item"><span class="dot" style="background: var(--green);"></span>Landed commits inside the exact local window</div>
+      <div class="legend-item"><span class="dot" style="background: var(--blue);"></span><code>wrkq</code> completion evidence across projects</div>
+      <div class="legend-item"><span class="dot" style="background: var(--amber);"></span>Current ahead-of-upstream carry-over</div>
+      <div class="legend-item"><span class="dot" style="background: var(--rose);"></span>Visible unchecked-in repo pressure</div>
+    </div>
+    <div class="sidebar-block sidebar-note"><strong>Window</strong><br />2026-07-09 05:02:07 CDT to 2026-07-10 05:02:07 CDT</div>
+    <div class="sidebar-block sidebar-note"><strong>Top accomplishments</strong><ul class="fact-list"><li><code>agent-loop</code> dominated the slice with <strong>48</strong> landed commits and <strong>17</strong> completed tasks, driving the <code>wrkq-leaf-drain</code> resume, direct-landing, and preflight-exclusion work through to real closes.</li><li><code>eqlegends</code> formed the clearest outward-facing product stream with <strong>8</strong> landed commits for the Vercel atlas, full-screen zone connections, and social-preview polish, backed by completed Praesidium task <code>T-06074</code>.</li><li><code>wrkq</code>, <code>agent-spaces</code>, <code>agent-control-plane</code>, and <code>hrc-runtime</code> added the supporting defaults-and-contract lane with <strong>7</strong> landed commits and <strong>1</strong> completed task around engine-runner contract pinning and agent default updates.</li><li>Only <strong>6</strong> of <strong>62</strong> proven local-only commits were authored in this slice, so most open-state pressure is older carry-over rather than same-window backlog growth.</li><li>Fresh unchecked-in child-repo pressure is minimal: just <strong>1</strong> new dirty path in <code>signal-pipeline</code>, while the remaining visible residue is <strong>43</strong> older untracked paths in <code>archagent</code>.</li></ul></div>
+  </aside>
+  <main>
+    <section class="hero" id="scorecard">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow">Praesidium-wide accomplishments for 2026-07-10</div>
+          <h2>The day was concentrated rather than broad: agent-loop drove almost all landing and closeout volume, eqlegends shipped the main outward-facing surface, and the rest of the fleet mostly tightened contracts and defaults while older backlog, not fresh churn, remained the main open-state story.</h2>
+          <p>The scored slice produced <strong>63</strong> landed commits across <strong>6</strong> repos and <strong>19</strong> completed tasks across <strong>3</strong> <code>wrkq</code> projects. Nearly all execution energy sat in the <code>wrkq-leaf-drain</code> campaign inside <code>agent-loop</code>; the clearest ship-to-surface lane was <code>eqlegends</code>; and the smaller platform lane aligned <code>wrkq</code> contract fixtures with new default agent settings in <code>agent-spaces</code>, plus lock syncs in ACP and HRC. Open-state pressure stayed real, but it was mostly old carry-over in <code>taskboard</code> and <code>archagent</code>, not fresh dirt created during this window.</p>
+          <div class="hero-note"><strong>Scope note</strong>The scorecard counts child repos under <code>/Users/lherron/praesidium</code> and keeps the umbrella-root repo separate. Root-level churn still exists, but it is surfaced later as operational context so it does not swamp the actual repo-level work delivered in this slice.</div>
+        </div>
+        <div class="metrics">
+          <div class="metric"><div class="metric-label">Committed window</div><div class="metric-value">63</div><small>6 repos contributed current-branch commits inside the slice.</small></div>
+          <div class="metric"><div class="metric-label">Completed tasks</div><div class="metric-value">19</div><small>3 <code>wrkq</code> projects closed work inside the slice.</small></div>
+          <div class="metric"><div class="metric-label">Proven local-only</div><div class="metric-value">62</div><small>6 were authored in-window; 56 are older carry-over ahead commits.</small></div>
+          <div class="metric"><div class="metric-label">Fresh unchecked-in</div><div class="metric-value">1</div><small>Child repos show one fresh dirty path and 43 older residue paths.</small></div>
+        </div>
+      </div>
+    </section>
+    <div class="content">
+      <section id="workstreams">
+        <div class="section-title"><h2>Workstreams</h2><p>Today&apos;s grouping follows the actual operating shape of the slice: one dominant engineering lane, one outward-facing ship lane, and one smaller platform-defaults/contracts lane.</p></div>
+        <div class="stream-grid">
+          <article class="stream-card">
+            <div class="stream-head">
+              <div>
+                <h3>Agent-loop carried nearly the entire engineering load</h3>
+                <p><code>agent-loop</code> was the story of the day. The slice landed a dense run of <code>wrkq-leaf-drain</code> fixes and tests covering resume after operational failure, help/version CLI support, direct landing, verdict normalization, seat redispatch recovery, evidence hydration, and preflight exclusion rendering. The matching task closures confirm this was not speculative scaffolding; it was closing live rows in the active drain campaign.</p>
+              </div>
+              <div class="chips">
+                <span class="chip green">48 landed commits</span>
+                <span class="chip blue">17 completed tasks</span>
+                <span class="chip amber">2 local-only commits still ahead</span>
+                <span class="chip rose">resume + landing + preflight theme</span>
+              </div>
+            </div>
+            <div class="stream-columns">
+              <div class="note-box">
+                <strong>Representative commits</strong>
+                <ul class="evidence-list">
+                  <li><code>2ff7629</code> fix(wrkq-drain): render preflight exclusions in waves <span class="inline-time">2026-07-10 03:52:44 CDT</span></li>
+                  <li><code>0c8bc04</code> test(wrkq-drain): T-06002 prove preflight exclusions render in wave plan <span class="inline-time">2026-07-10 03:44:10 CDT</span></li>
+                  <li><code>0fb1531</code> fix(wrkq-leaf-drain): T-06080 attempt-aware claim idempotency key <span class="inline-time">2026-07-09 23:42:05 CDT</span></li>
+                  <li><code>8369523</code> fix(wrkq-leaf-drain): T-06080 evidence.list requires task path on resume hydration <span class="inline-time">2026-07-09 23:37:41 CDT</span></li>
+                  <li><code>7f99d26</code> fix(wrkq-leaf-drain): T-06080 resume after operational failure <span class="inline-time">2026-07-09 21:05:47 CDT</span></li>
+                  <li><code>2c1ba26</code> fix(wrkq-drain): T-06050 add operator_required outcome to direct landing <span class="inline-time">2026-07-09 19:42:28 CDT</span></li>
+                  <li><code>1aa6c93</code> fix(wrkq-leaf-drain): T-06064 recover timed-out seat dispatches <span class="inline-time">2026-07-09 17:21:51 CDT</span></li>
+                  <li><code>afe6f87</code> feat(wrkq-drain): T-05821 add engine-runner contract fixtures <span class="inline-time">2026-07-09 11:32:53 CDT</span></li>
+                </ul>
+              </div>
+              <div class="note-box">
+                <strong>Representative task closures</strong>
+                <ul class="evidence-list">
+                  <li><code>T-06080</code> resume a task after <code>operational_failed</code> instead of requiring a fresh task <span class="inline-time">2026-07-09 23:46:18 CDT</span></li>
+                  <li><code>T-05821</code> engine-runner shared-assumption contract suite <span class="inline-time">2026-07-09 21:30:26 CDT</span></li>
+                  <li><code>T-06082</code> row-2 check must compare installed template hash vs repo file <span class="inline-time">2026-07-09 21:10:13 CDT</span></li>
+                  <li><code>T-06050</code> direct landing tail via evidence.add + system transition <span class="inline-time">2026-07-09 20:13:10 CDT</span></li>
+                  <li><code>T-06079</code> support <code>--version</code> flag in parseArgs <span class="inline-time">2026-07-09 20:11:49 CDT</span></li>
+                  <li><code>T-06069</code> support <code>--help</code> flag in parseArgs <span class="inline-time">2026-07-09 20:02:09 CDT</span></li>
+                  <li><code>T-06064</code> seat-turn dispatch deadline + single redispatch <span class="inline-time">2026-07-09 17:22:10 CDT</span></li>
+                  <li><code>T-06053</code> rewind loops, test_fix, and blocked paths <span class="inline-time">2026-07-09 16:45:51 CDT</span></li>
+                </ul>
+              </div>
+            </div>
+          </article>
+          <article class="stream-card">
+            <div class="stream-head">
+              <div>
+                <h3>Eqlegends shipped the clearest outward-facing surface work</h3>
+                <p><code>eqlegends</code> was the second real lane, but unlike the drain work it was visibly product-facing. The slice introduced a Vercel-deployable atlas, zone and race guides, a zone-connections graph on the home route, full-screen page treatment, and a full pass on favicon and social-preview polish. The matching project closeout in Praesidium shows this was treated as a real ship target, not just a side experiment.</p>
+              </div>
+              <div class="chips">
+                <span class="chip green">8 landed commits</span>
+                <span class="chip blue">1 related Praesidium task close</span>
+                <span class="chip amber">0 local-only carry-over</span>
+                <span class="chip rose">public-facing site polish</span>
+              </div>
+            </div>
+            <div class="stream-columns">
+              <div class="note-box">
+                <strong>Representative commits</strong>
+                <ul class="evidence-list">
+                  <li><code>eabf4a9</code> add Vercel-deployable web atlas with interactive map <span class="inline-time">2026-07-09 19:06:44 CDT</span></li>
+                  <li><code>0f6a807</code> feature Buddy&apos;s zone-connections graph on the home route <span class="inline-time">2026-07-09 19:19:30 CDT</span></li>
+                  <li><code>7d641cd</code> open zone connections in full screen page <span class="inline-time">2026-07-09 20:24:24 CDT</span></li>
+                  <li><code>94e76e6</code> add social preview metadata and favicon <span class="inline-time">2026-07-09 19:35:07 CDT</span></li>
+                  <li><code>92635c7</code> add wax seal to social preview <span class="inline-time">2026-07-09 20:07:43 CDT</span></li>
+                </ul>
+              </div>
+              <div class="note-box">
+                <strong>Task evidence and interpretation</strong>
+                <ul class="evidence-list">
+                  <li><code>T-06074</code> EQL Legends to Vercel site closed in Praesidium at <span class="inline-time">2026-07-09 19:10:54 CDT</span>.</li>
+                  <li>The task count understates the visible shipping work here: one project task closed, but the repo landed eight commits in-window.</li>
+                  <li>This is the clearest example in the slice where repo history carries more of the accomplishment signal than cross-project <code>wrkq</code> volume.</li>
+                </ul>
+              </div>
+            </div>
+          </article>
+          <article class="stream-card">
+            <div class="stream-head">
+              <div>
+                <h3>Contracts, defaults, and lock syncs formed the smaller platform lane</h3>
+                <p>The rest of the active slice was narrower but still real. <code>wrkq</code> pinned the canonical engine-runner contract for direct landing, <code>agent-spaces</code> changed the default Codex and Claude launch experience, and ACP/HRC picked up matching lock syncs. This lane is smaller than the drain campaign, but it changes how the rest of Praesidium runs.</p>
+              </div>
+              <div class="chips">
+                <span class="chip green">7 landed commits</span>
+                <span class="chip blue">1 wrkq task close</span>
+                <span class="chip amber">4 local-only commits in-window</span>
+                <span class="chip rose">agent defaults and contract alignment</span>
+              </div>
+            </div>
+            <div class="stream-columns">
+              <div class="note-box">
+                <strong>Representative commits</strong>
+                <ul class="evidence-list">
+                  <li><code>a3bf6c0</code> merge PR for engine-runner contract update <span class="inline-time">2026-07-09 21:26:39 CDT</span></li>
+                  <li><code>c2ae2da</code> pin direct-landing operator-required contract <span class="inline-time">2026-07-09 21:19:41 CDT</span></li>
+                  <li><code>12e1c2d</code> add engine-runner fixture contract docs <span class="inline-time">2026-07-09 11:32:54 CDT</span></li>
+                  <li><code>5400e3a</code> default Codex to <code>gpt-5.6 terra</code> <span class="inline-time">2026-07-09 13:59:08 CDT</span></li>
+                  <li><code>5d83906</code> default all Claude agent runs to fullscreen TUI <span class="inline-time">2026-07-09 12:56:18 CDT</span></li>
+                  <li><code>a8463c3</code> ACP lock sync for new ASP and HRC packages <span class="inline-time">2026-07-09 14:04:40 CDT</span></li>
+                  <li><code>197e55c</code> HRC lock sync for new ASP packages <span class="inline-time">2026-07-09 14:04:21 CDT</span></li>
+                </ul>
+              </div>
+              <div class="note-box">
+                <strong>Task and open-state context</strong>
+                <ul class="evidence-list">
+                  <li><code>T-06084</code> updated the canonical engine-runner contract for <code>@4 operator_required</code> landing <span class="inline-time">2026-07-09 21:26:54 CDT</span>.</li>
+                  <li><code>agent-spaces</code>, <code>agent-control-plane</code>, and <code>hrc-runtime</code> each still show in-window ahead commits, so part of this lane remains local-only rather than pushed.</li>
+                  <li>The result is a small but high-leverage lane: few repos, little noise, and changes that affect default operator behavior.</li>
+                </ul>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+      <section id="tasks">
+        <div class="section-title"><h2>Completed Task Grid</h2><p>Task counts are filtered to task rows only and sliced locally by exact completion timestamps inside the reporting window, so this section shows real closeouts rather than broad project motion.</p></div>
+        <div class="task-grid">
+          <article class="task-card">
+            <div class="task-meta"><span>agent-loop</span><span>17 completed</span></div>
+            <h3>agent-loop</h3>
+            <p>Latest closeout: <span class="inline-time">2026-07-09 23:46:18 CDT</span></p>
+            <ul class="evidence-list">
+              <li><code>T-06080</code> resume after <code>operational_failed</code></li>
+              <li><code>T-05821</code> engine-runner contract test suite</li>
+              <li><code>T-06082</code> template drift guard for installed hash comparison</li>
+              <li><code>T-06050</code> direct landing tail and system transition</li>
+            </ul>
+          </article>
+          <article class="task-card">
+            <div class="task-meta"><span>praesidium</span><span>1 completed</span></div>
+            <h3>praesidium</h3>
+            <p>Latest closeout: <span class="inline-time">2026-07-09 19:10:54 CDT</span></p>
+            <ul class="evidence-list">
+              <li><code>T-06074</code> EQL Legends to Vercel site</li>
+            </ul>
+          </article>
+          <article class="task-card">
+            <div class="task-meta"><span>wrkq</span><span>1 completed</span></div>
+            <h3>wrkq</h3>
+            <p>Latest closeout: <span class="inline-time">2026-07-09 21:26:54 CDT</span></p>
+            <ul class="evidence-list">
+              <li><code>T-06084</code> update canonical engine-runner contract for <code>@4 operator_required</code> landing</li>
+            </ul>
+          </article>
+          <article class="task-card">
+            <div class="task-meta"><span>Interpretation</span><span>narrow closeout set</span></div>
+            <h3>Today&apos;s completed-task surface was focused, not broad</h3>
+            <p>Only three projects closed work in-window, and <code>agent-loop</code> accounts for almost all of it. That matches the git evidence: one dominant execution campaign, one visible ship lane, and a smaller defaults/contracts lane.</p>
+            <ul class="evidence-list">
+              <li>No other <code>wrkq</code> projects showed completed tasks inside the exact local window.</li>
+              <li>That does not mean the rest of the fleet was idle; it means those repos did not cross the finish line through <code>wrkq</code> in this slice.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+      <section id="validation">
+        <div class="section-title"><h2>Validation Evidence</h2><p>The report stays explicit about what was proven this run, what was checked statically, and how send should remain gated.</p></div>
+        <div class="evidence-grid">
+          <article class="evidence-card good">
+            <h3>Evidence coverage</h3>
+            <ul class="evidence-list">
+              <li>Window: <strong>2026-07-09 05:02:07 CDT</strong> to <strong>2026-07-10 05:02:07 CDT</strong>.</li>
+              <li>Scored inputs covered <strong>63</strong> current-branch commits across <strong>6</strong> child repos plus <strong>19</strong> completed <code>wrkq</code> tasks across <strong>3</strong> projects.</li>
+              <li>Open-state evidence also captured <strong>62</strong> current local-only commits ahead of upstream across scored repos, plus separate umbrella-root churn at <code>/Users/lherron/praesidium</code>.</li>
+            </ul>
+          </article>
+          <article class="evidence-card good">
+            <h3>Static verification bundle</h3>
+            <ul class="evidence-list">
+              <li>Required anchors <code>#scorecard</code>, <code>#workstreams</code>, <code>#tasks</code>, <code>#validation</code>, and <code>#open-state</code> are present.</li>
+              <li>CSS includes <code>overflow-x: hidden</code>, responsive mobile breakpoints, and <code>min-width: 0</code> on content containers to reduce horizontal overflow risk.</li>
+              <li>Sanity checks cover suspicious generated strings, nested-list risk, and balanced counts for <code>li</code>, <code>ul</code>, <code>article</code>, <code>section</code>, and <code>div</code> tags.</li>
+            </ul>
+          </article>
+          <article class="evidence-card warn">
+            <h3>Browser verification status</h3>
+            <ul class="evidence-list">
+              <li>This run used the static verification bundle only. No practical localhost browser DOM or evaluate tool was exposed in the current session.</li>
+              <li>The artifact still follows the established <code>docs/html</code> daily-brief structure and the same overflow-safe CSS pattern as recent verified runs.</li>
+              <li>If browser tooling is exposed in a later run, the localhost preview path should be checked at desktop and mobile widths before send.</li>
+            </ul>
+          </article>
+          <article class="evidence-card warn">
+            <h3>Email delivery contract</h3>
+            <ul class="evidence-list">
+              <li>The intended subject is <code>Praesidium accomplishments for 2026-07-10</code>.</li>
+              <li>The plain-text body must state the exact covered window, the attachment filename <code>daily-accomplishments-2026-07-10.html</code>, and three to five top accomplishments from this page.</li>
+              <li>Delivery remains gated on artifact generation plus the static verification checks above; if send blocks on auth or policy, that blocker is reported verbatim instead of bypassed.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+      <section id="open-state">
+        <div class="section-title"><h2>Open Repo State</h2><p>This section separates delivered work from the repos that are still ahead, dirty, or carrying operational residue into the next slice.</p></div>
+        <div class="repo-grid">
+          <article class="repo-card">
+            <div class="task-meta"><span>Ahead-of-upstream backlog</span><span>62 total commits</span></div>
+            <h3>Most local-only pressure is old carry-over, led by taskboard</h3>
+            <p>Ten scored repos show proven ahead-of-upstream history, but only <strong>6</strong> of the <strong>62</strong> total ahead commits were authored in this slice. The biggest live pressure pocket is still <code>taskboard</code>, yet its backlog is entirely older than this reporting window.</p>
+            <ul class="repo-list">
+              <li><strong>taskboard</strong>: <strong>39</strong> ahead, all older carry-over.</li>
+              <li><strong>archagent</strong>: <strong>8</strong> ahead, all older carry-over.</li>
+              <li><strong>semantic-capabilities</strong>: <strong>4</strong> ahead, all older carry-over.</li>
+              <li><strong>agent-loop</strong>: <strong>2</strong> ahead, both authored in-window.</li>
+              <li><strong>agent-spaces</strong>: <strong>2</strong> ahead, both authored in-window.</li>
+              <li><strong>agent-control-plane</strong> and <strong>hrc-runtime</strong>: <strong>1</strong> ahead each, both authored in-window.</li>
+            </ul>
+          </article>
+          <article class="repo-card pressure">
+            <div class="task-meta"><span>Scored dirty-state residue</span><span>1 fresh + 43 older</span></div>
+            <h3>Fresh child-repo dirt is minimal; older archagent residue still dominates</h3>
+            <p>Only one child-repo path appears fresh inside the exact local window, and it is a new transcript artifact in <code>signal-pipeline</code>. The remaining scored dirty state is older untracked residue in <code>archagent</code>.</p>
+            <ul class="repo-list">
+              <li><strong>signal-pipeline</strong>: fresh untracked transcript <code>transcripts/morning-brew-daily/people-love-watching-the-world-cup-in-spanish-dating-coworkers-is-ok-again.md</code>.</li>
+              <li><strong>archagent</strong>: <strong>43</strong> older untracked paths, concentrated under <code>.agent-loop/</code> and <code>runs/ae-verify-only-*</code>.</li>
+              <li>All other scored child repos were clean at the path-mtime level when this report was generated.</li>
+            </ul>
+          </article>
+          <article class="repo-card">
+            <div class="task-meta"><span>Umbrella-root context</span><span>2 fresh + 164 older</span></div>
+            <h3>Umbrella repo noise stays visible but separate from the scorecard</h3>
+            <p>The root <code>/Users/lherron/praesidium</code> repo still shows broad deletion-heavy churn. Inside this slice, the only fresh root-level entries were the child directories <code>agent-loop/</code> and <code>eqlegends/</code>; the rest is older residue that would overwhelm the brief if blended into scored totals.</p>
+            <ul class="repo-list">
+              <li>Fresh root entries in-window: <code>agent-loop/</code> and <code>eqlegends/</code>.</li>
+              <li>Older root churn still includes <strong>164</strong> paths, including legacy deletions under <code>animata/</code> and older agent file removals.</li>
+            </ul>
+          </article>
+          <article class="repo-card">
+            <div class="task-meta"><span>Upstream gaps and caveats</span><span>interpret with care</span></div>
+            <h3>Open-state counts only prove what the current git topology can prove</h3>
+            <p>Repos without configured upstreams do not contribute ahead counts, and the report does not guess at unpublished work beyond that. Current-branch <code>HEAD</code> history is used throughout; the evidence pass does not traverse <code>--all</code> history.</p>
+            <ul class="repo-list">
+              <li>Examples of no-upstream repos remain outside the ahead totals, such as <code>personalos</code>.</li>
+              <li>This keeps the open-state readout strict rather than inflated.</li>
+            </ul>
+          </article>
+        </div>
+        <div class="footer">Source window: 2026-07-09 05:02:07 CDT to 2026-07-10 05:02:07 CDT. Scored inputs: current-branch git history and git status across child repos under <code>/Users/lherron/praesidium</code>, per-project completed <code>wrkq</code> task scans, and strict ahead-of-upstream checks where upstreams are configured. Separate context: umbrella-root repo state at <code>/Users/lherron/praesidium</code>. Artifact: <code>daily-accomplishments-2026-07-10.html</code>.</div>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>
