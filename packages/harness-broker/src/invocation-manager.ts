@@ -764,8 +764,16 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     if (type === 'turn.started' && event.turnId !== undefined) {
       inv.startedTurns.set(event.turnId, event as InvocationEventEnvelope)
     }
-    applyEventState(inv, event as InvocationEventEnvelope)
+    // Deliver BEFORE projecting state: applyEventState can synchronously emit
+    // follow-on events (turn terminal → drain dequeues input.accepted /
+    // user.message; invocation.stopping → queue eviction input.rejected). If
+    // delivery ran after projection, those cascade events (seq N+1…) would hit
+    // the ledger/wire before this event (seq N), and downstream monotonic-seq
+    // dedup (harness-broker-client InvocationEventHub) would then drop seq N as
+    // a duplicate — T-06088: a queued input at turn end lost the active turn's
+    // terminal. onEvent reads only the envelope, never invocation state.
     onEvent(event as InvocationEventEnvelope)
+    applyEventState(inv, event as InvocationEventEnvelope)
 
     // Follow-on diagnostics (e.g. truncation notices) are emitted as their own
     // events. Their payloads are small, so they never re-trigger truncation.
