@@ -149,7 +149,7 @@
         "@types/proper-lockfile": "^4.1.4",
         "@types/semver": "^7.7.0",
         "agent-scope": "*",
-        "agent-spaces": "*",
+        "agent-spaces": "workspace:*",
         "typescript": "^5.8.3",
       },
     },
