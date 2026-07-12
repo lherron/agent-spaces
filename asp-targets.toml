@@ -19,7 +19,7 @@ priming_prompt_append = """
 """
 
 [targets.smokey.codex]
-model_reasoning_effort = "medium"
+model_reasoning_effort = "high"
 [targets.curly]
 description = "Curly for agent-spaces"
 compose = ["space:defaults@dev", "space:praesidium-defaults@dev"]
