@@ -605,6 +605,11 @@ export function createCodexTranscriptModel(
         emit(line([{ text: '◼ interrupted', fg: 'brass' }]))
         return
 
+      // Broker provenance — a sidecar-path record, not operator-facing. Kept in
+      // the durable stream for downstream consumers; folded out of the pane.
+      case 'provider.transcript.reported':
+        return
+
       default:
         emit(dimLine(`${event.type} ${clip(str(event.payload))}`))
     }
