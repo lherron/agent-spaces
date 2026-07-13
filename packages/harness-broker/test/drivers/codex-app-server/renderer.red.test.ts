@@ -190,7 +190,7 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
 
     const rendered = textLines(projection).join('\n')
     expectTextInOrder(rendered, [
-      '▷ Run the check', // user prompt preview
+      '❯ Run the check', // user prompt — full input, indigo band
       '● ready', // ready beat
       '▶ turn', // turn header
       '$ command', // grouped tool (started)
@@ -247,13 +247,91 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
       'process pid=91871',
       'thread thr_1',
       'input started',
-      '20,140 tok', // usage, comma-grouped
       'From content array', // assistant content[] extracted
     ])
+    // Per-step usage updates are folded into the turn footer, never rendered as
+    // their own line (a codex turn emits dozens of them).
+    expect(rendered).not.toContain('20,140 tok')
     // None may degrade to a raw-JSON object dump.
     for (const line of lines) {
       expect(line, `event rendered via raw-JSON fallback:\n${line}`).not.toMatch(/\s\{".*":/)
     }
+    projection.close()
+  })
+
+  test('renders the FULL multi-line user input, not just the clipped priming first line (T-06325)', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'user.message', {
+        role: 'user',
+        inputId: 'input_1',
+        // The priming preamble is the first line; the real dispatched
+        // instruction follows on later lines and must NOT be truncated away.
+        content: 'You are cody working on T-1.\n\nTake T-1 end to end and commit on main.',
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+
+    await projection.start()
+    const rendered = textLines(projection).join('\n')
+    expectTextInOrder(rendered, [
+      '❯ You are cody working on T-1.',
+      'Take T-1 end to end and commit on main.',
+    ])
+    projection.close()
+  })
+
+  test('renders plan and diff updates as structured cards, folds debug diagnostics (T-06325)', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'diagnostic', {
+        level: 'info',
+        source: 'driver',
+        kind: 'plan',
+        message: 'plan updated (2 steps)',
+        data: {
+          steps: [
+            { step: 'Write the failing test', status: 'inProgress' },
+            { step: 'Ship the fix', status: 'pending' },
+          ],
+        },
+      }),
+      event(2, 'diagnostic', {
+        level: 'info',
+        source: 'driver',
+        kind: 'diff',
+        message: 'diff updated',
+        data: {
+          files: [{ path: 'src/renderer.ts', added: 18, removed: 6 }],
+          totalAdded: 18,
+          totalRemoved: 6,
+          truncated: 0,
+        },
+      }),
+      // A debug diagnostic (unknown native notification) is folded away entirely.
+      event(3, 'diagnostic', {
+        level: 'debug',
+        source: 'driver',
+        message: 'Unhandled Codex notification: thread/whatever',
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+
+    await projection.start()
+    const rendered = textLines(projection).join('\n')
+    expectTextInOrder(rendered, [
+      'plan',
+      'Write the failing test',
+      'Ship the fix',
+      'src/renderer.ts',
+    ])
+    expect(rendered).not.toContain('Unhandled Codex notification')
     projection.close()
   })
 

@@ -534,6 +534,82 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         rawType: 'thread/somethingNew',
       })
     })
+
+    test.each([
+      'account/rateLimits/updated',
+      'thread/status/changed',
+      'remoteControl/status/changed',
+      'mcpServer/startupStatus/updated',
+    ])('known-noise method %s is dropped (no event)', (method) => {
+      expect(mapCodexNotification(note(method, { foo: 1 }))).toEqual([])
+    })
+  })
+
+  describe('turn/plan/updated (T-06325)', () => {
+    test('projects a plan diagnostic carrying structured steps for the renderer', () => {
+      const events = mapCodexNotification(
+        note('turn/plan/updated', {
+          explanation: null,
+          plan: [
+            { step: 'Add failing tests', status: 'inProgress' },
+            { step: 'Implement', status: 'pending' },
+          ],
+        })
+      )
+      expect(events).toHaveLength(1)
+      expect(events[0]?.type).toBe('diagnostic')
+      const payload = events[0]?.payload as Record<string, unknown>
+      expect(payload['kind']).toBe('plan')
+      expect(payload['data']).toEqual({
+        steps: [
+          { step: 'Add failing tests', status: 'inProgress' },
+          { step: 'Implement', status: 'pending' },
+        ],
+      })
+      expect(events[0]?.extra?.driver?.rawType).toBe('turn/plan/updated')
+    })
+
+    test('empty plan yields no event', () => {
+      expect(mapCodexNotification(note('turn/plan/updated', { plan: [] }))).toEqual([])
+    })
+  })
+
+  describe('turn/diff/updated (T-06325)', () => {
+    test('summarizes a unified diff into compact per-file add/remove counts', () => {
+      const diff = [
+        'diff --git a/src/a.ts b/src/a.ts',
+        'index 000..111 100644',
+        '--- a/src/a.ts',
+        '+++ b/src/a.ts',
+        '@@ -1,2 +1,3 @@',
+        ' context',
+        '-old line',
+        '+new line',
+        '+extra line',
+        'diff --git a/src/b.ts b/src/b.ts',
+        '--- a/src/b.ts',
+        '+++ b/src/b.ts',
+        '@@ -1 +1 @@',
+        '-removed',
+      ].join('\n')
+      const events = mapCodexNotification(note('turn/diff/updated', { diff }))
+      expect(events).toHaveLength(1)
+      const payload = events[0]?.payload as Record<string, unknown>
+      expect(payload['kind']).toBe('diff')
+      expect(payload['data']).toEqual({
+        files: [
+          { path: 'src/a.ts', added: 2, removed: 1 },
+          { path: 'src/b.ts', added: 0, removed: 1 },
+        ],
+        totalAdded: 2,
+        totalRemoved: 2,
+        truncated: 0,
+      })
+    })
+
+    test('empty diff yields no event', () => {
+      expect(mapCodexNotification(note('turn/diff/updated', { diff: '   ' }))).toEqual([])
+    })
   })
 
   describe('minimal fields', () => {

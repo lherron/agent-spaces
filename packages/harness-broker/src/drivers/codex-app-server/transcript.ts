@@ -1,71 +1,89 @@
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 
 /**
- * T-04963 — operator transcript renderer for the Codex app-server pane.
+ * T-04963 / T-06325 — operator transcript renderer for the Codex app-server pane.
  *
- * Mirrors the visual language of `hrcchat turn` (amber accent / teal done / red
- * error palette, a `┊` activity rail, `↳` tool output, a glyph-led turn header,
- * and a bold assistant answer) but is self-contained: the renderer process is
+ * "Forge lanes" design: each operational region of a turn is a full-width tinted
+ * band carrying a bright left keyline (`▎`) in the region's accent hue, so
+ * consecutive rows form one continuous coloured spine — the eye reads the user's
+ * input, tool activity, plan, and diffs as distinct lanes running down the pane
+ * rather than one flat monochrome stream. The agent's own prose is deliberately
+ * the ONE thing with no lane (open, full-width, warm) — structurally marking it
+ * as the agent speaking, not operational work. The renderer process is
  * `exec bun`-launched from source into a tmux pane and cannot reach the
- * hrc-runtime render packages, so the styling is reimplemented here with raw
- * ANSI and no extra dependencies.
+ * hrc-runtime render packages, so the styling is raw truecolor ANSI with no
+ * dependencies.
+ *
+ * Region vocabulary (see the FG/BG "forge lanes" palette below):
+ *   - user input      → violet lane, full multi-line text, `❯` gutter
+ *   - agent prose     → NO lane (the primary voice), warm off-white
+ *   - turn divider    → open molten `▶ turn` (the one bold hue)
+ *   - tool call       → kiln-green lane, `$`/glyph gutter, grouped output
+ *   - failed tool     → red lane
+ *   - plan update     → brass lane, `☑/▸/☐` checklist
+ *   - diff update     → teal lane, per-file `+a -r` filestat
+ *   - turn footer     → kiln lane `✓ done · <tokens> · <elapsed>`
+ *   - startup/chrome  → dim `·` lines (recede)
  *
  * Unlike `hrcchat turn` (one redrawn frame), this appends to a long-lived,
  * multi-turn scrollback pane, so it commits each event as it finalizes rather
- * than redrawing in place. The Codex broker emits a wider event vocabulary than
- * the HRC gateway (policy/surface/continuation/usage/lifecycle), so every event
- * type renders — ONLY the streaming `*.delta` events are folded away, since their
- * content is fully reconstructed by the matching `*.completed` event.
+ * than redrawing in place. Streaming `*.delta` events are folded into the
+ * matching `*.completed`; per-step token usage is folded into the footer;
+ * high-frequency telemetry (rate limits, thread status) is dropped upstream in
+ * the mapper; and debug-level driver diagnostics (unknown native notifications)
+ * are folded away here so the pane stays quiet.
  */
-
-const ANSI = {
-  bold: '1',
-  dim: '2',
-  accent: '38;2;217;119;6', // amber — active / structural
-  done: '38;2;13;148;136', // teal — success
-  error: '38;2;185;28;28', // red — failure
-  warn: '38;2;202;138;4', // gold — caution
-  rule: '38;2;87;83;78', // grey — separators
-} as const
-
-export interface TranscriptStyle {
-  bold: (value: string) => string
-  dim: (value: string) => string
-  accent: (value: string) => string
-  done: (value: string) => string
-  error: (value: string) => string
-  warn: (value: string) => string
-  rule: (value: string) => string
-}
 
 /**
- * Build the ANSI palette. Each segment is wrapped-and-reset independently; we
- * never wrap an already-wrapped string, so a trailing reset can't truncate an
- * outer colour. Concatenate styled segments instead of nesting them.
+ * "Forge lanes" palette (T-06325). An original scheme, not the hrc-ios one: the
+ * agent is smithing code in a leased pane, so each operational actor is a
+ * saturated material hue, and one bold molten accent is reserved for the turn
+ * divider alone. Truecolor foregrounds — bright accents for lane keylines/glyphs
+ * and a warm off-white for prose.
  */
-export function createTranscriptStyle(color: boolean): TranscriptStyle {
-  const wrap =
-    (code: string) =>
-    (value: string): string =>
-      color ? `\x1b[${code}m${value}\x1b[0m` : value
-  return {
-    bold: wrap(ANSI.bold),
-    dim: wrap(ANSI.dim),
-    accent: wrap(ANSI.accent),
-    done: wrap(ANSI.done),
-    error: wrap(ANSI.error),
-    warn: wrap(ANSI.warn),
-    rule: wrap(ANSI.rule),
-  }
+const FG = {
+  text: '38;2;237;230;218', // warm off-white — the agent's prose
+  muted: '38;2;150;144;134', // secondary detail
+  dim: '38;2;104;99;92', // chrome / de-emphasis
+  iris: '38;2;150;134;248', // violet — the user's input lane (nothing else is violet)
+  molten: '38;2;242;107;30', // the ONE bold hue — turn divider only
+  kiln: '38;2;61;220;132', // phosphor green — tool/shell lane, success
+  teal: '38;2;45;212;191', // cyan-teal — diff lane
+  brass: '38;2;224;168;46', // warm gold — plan lane, caution
+  red: '38;2;242;85;90', // failure lane
+} as const
+
+// Deep, low-lightness band tints — each keyed to its lane accent's hue.
+const BG = {
+  prompt: '48;2;32;28;52', // deep indigo — user input
+  tool: '48;2;18;38;28', // deep kiln — tool call
+  patch: '48;2;16;38;38', // deep teal — diff
+  notice: '48;2;30;27;20', // warm neutral — plan / notices
+  error: '48;2;46;20;22', // deep red — failure
+  endturn: '48;2;18;34;26', // green-teal — turn footer
+} as const
+
+type Fg = keyof typeof FG
+type Bg = keyof typeof BG
+
+/** The signature device: a bright left keyline that turns a band into a lane. */
+const KEYLINE = '▎ '
+
+interface Seg {
+  text: string
+  fg?: Fg
+  bold?: boolean
 }
 
 const BODY = '  '
-const RAIL = '┊'
 const DEFAULT_WIDTH = 96
 const MIN_WIDTH = 48
 const MAX_WIDTH = 120
 const MAX_TOOL_OUTPUT_LINES = 3
 const MAX_PREVIEW = 120
+const MAX_INPUT_LINES = 40
+const MAX_PLAN_STEPS = 12
+const RESET = '\x1b[0m'
 
 const TOOL_GLYPH: Record<string, string> = {
   command: '$',
@@ -73,6 +91,21 @@ const TOOL_GLYPH: Record<string, string> = {
   mcp_tool: '⚡',
   web_search: '⌕',
   image_view: '◐',
+}
+
+interface PlanMark {
+  glyph: string
+  fg: Fg
+  dim: boolean
+}
+
+const PENDING_MARK: PlanMark = { glyph: '☐', fg: 'dim', dim: false }
+
+const PLAN_GLYPH: Record<string, PlanMark> = {
+  completed: { glyph: '☑', fg: 'kiln', dim: true },
+  inProgress: { glyph: '▸', fg: 'brass', dim: false },
+  in_progress: { glyph: '▸', fg: 'brass', dim: false },
+  pending: PENDING_MARK,
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -83,11 +116,6 @@ function str(value: unknown): string {
   if (value === undefined || value === null) return ''
   if (typeof value === 'string') return value
   return JSON.stringify(value)
-}
-
-function firstLine(value: string): string {
-  const idx = value.indexOf('\n')
-  return idx === -1 ? value : value.slice(0, idx)
 }
 
 function clip(value: string, max = MAX_PREVIEW): string {
@@ -212,14 +240,14 @@ export interface CodexTranscriptModel {
 
 /**
  * Stateful transcript model. Coalesces assistant `*.delta` streams into the
- * finalized message, pairs `tool.call.started`/`completed` into a grouped block,
- * tracks per-turn usage + elapsed for the footer, and styles every other event
- * type with the shared palette.
+ * finalized message, pairs `tool.call.started`/`completed` into a grouped band,
+ * tracks per-turn usage + elapsed for the footer, renders plan/diff updates as
+ * cards, and folds high-frequency telemetry away.
  */
 export function createCodexTranscriptModel(
   options: CodexTranscriptModelOptions
 ): CodexTranscriptModel {
-  const style = createTranscriptStyle(options.color ?? false)
+  const color = options.color ?? false
   const width = clampWidth(options.width)
   const contentWidth = Math.max(MIN_WIDTH - BODY.length, width - BODY.length)
   const emit = options.emit
@@ -232,20 +260,186 @@ export function createCodexTranscriptModel(
   let latestTokens: unknown
   let headerShown = false
 
-  const railLine = (body: string): string => `${BODY}${style.accent(RAIL)} ${body}`
-  const railCont = (body: string): string => `${BODY}${style.accent(RAIL)}   ${body}`
-  const dimLine = (body: string): string => `${BODY}${style.dim(`· ${body}`)}`
+  // ── ANSI primitives ────────────────────────────────────────────────────
+  // A segment's foreground and intensity are BOTH re-asserted so a preceding
+  // bold/coloured segment never bleeds into the next; the band background is set
+  // once and only cleared by the trailing reset, so `\x1b[39m`-style resets can
+  // never punch a hole in the band.
+  function paint(segs: Seg[]): string {
+    return segs
+      .map((s) => `\x1b[${s.bold ? '1' : '22'};${s.fg ? FG[s.fg] : '39'}m${s.text}`)
+      .join('')
+  }
 
+  /**
+   * A full-width tinted lane row: a bright left keyline in the lane accent, the
+   * band tint behind, painted segments, pad, reset. Consecutive rows of a region
+   * share the accent, so the keyline forms one continuous coloured spine down the
+   * pane. The fill stops one column short of the pane width so a band never lands
+   * a glyph in the final column, where a tmux/terminal auto-wrap would spill an
+   * empty tinted continuation line.
+   */
+  function band(bg: Bg, accent: Fg, segs: Seg[]): string {
+    const rowSegs: Seg[] = [{ text: KEYLINE, fg: accent, bold: true }, ...segs]
+    const plain = rowSegs.map((s) => s.text).join('')
+    if (!color) return plain
+    const pad = Math.max(0, width - 1 - plain.length)
+    return `\x1b[${BG[bg]}m${paint(rowSegs)}${' '.repeat(pad)}${RESET}`
+  }
+
+  /** An unbanded (native-bg) styled line, indented under BODY. */
+  function line(segs: Seg[]): string {
+    if (!color) return `${BODY}${segs.map((s) => s.text).join('')}`
+    return `${BODY}${paint(segs)}${RESET}`
+  }
+
+  const dimLine = (body: string): string => line([{ text: `· ${body}`, fg: 'dim' }])
+
+  // ── Region renderers ───────────────────────────────────────────────────
   function flushAssistant(payload: Record<string, unknown>): void {
     const text = extractAssistantText(payload) || assistantBuffer
     assistantBuffer = ''
     assistantOpen = false
     const trimmed = text.trim()
     if (trimmed.length === 0) return
+    // Prose is the primary voice: UNbanded, bright text; only headings bold,
+    // bullets get a dim marker. Light-touch markdown, no full parser.
     emit('')
-    for (const line of wrap(trimmed, contentWidth)) {
-      emit(`${BODY}${style.bold(line)}`)
+    for (const raw of wrap(trimmed, contentWidth)) {
+      const heading = /^#{1,3}\s+/.exec(raw)
+      const bullet = /^[-*]\s+/.exec(raw)
+      if (heading) {
+        emit(line([{ text: raw.slice(heading[0].length), fg: 'text', bold: true }]))
+      } else if (bullet) {
+        emit(
+          line([
+            { text: '– ', fg: 'dim' },
+            { text: raw.slice(bullet[0].length), fg: 'text' },
+          ])
+        )
+      } else {
+        emit(line([{ text: raw, fg: 'text' }]))
+      }
     }
+  }
+
+  /** The user's input — indigo prompt band, full multi-line text (the fix for a
+   *  truncated dispatch that previously showed only its priming first line). */
+  function renderUserInput(content: string): void {
+    const wrapped = wrap(content.trim(), contentWidth)
+    if (wrapped.length === 0 || wrapped.every((l) => l.length === 0)) return
+    const shown = wrapped.slice(0, MAX_INPUT_LINES)
+    const hidden = wrapped.length - shown.length
+    emit('')
+    shown.forEach((body, idx) => {
+      emit(
+        band('prompt', 'iris', [
+          { text: idx === 0 ? '❯ ' : '  ', fg: 'iris', bold: idx === 0 },
+          { text: body, fg: 'text' },
+        ])
+      )
+    })
+    if (hidden > 0) {
+      emit(
+        band('prompt', 'iris', [
+          { text: `  … ${hidden} more line${hidden === 1 ? '' : 's'}`, fg: 'dim' },
+        ])
+      )
+    }
+    emit('')
+  }
+
+  function renderPlan(data: Record<string, unknown>): void {
+    const steps = Array.isArray(data['steps']) ? data['steps'] : []
+    if (steps.length === 0) return
+    const shown = steps.slice(0, MAX_PLAN_STEPS)
+    const hidden = steps.length - shown.length
+    emit('')
+    emit(
+      band('notice', 'brass', [
+        { text: '◇ ', fg: 'brass', bold: true },
+        { text: 'plan', fg: 'brass', bold: true },
+        { text: `  ${steps.length} step${steps.length === 1 ? '' : 's'}`, fg: 'dim' },
+      ])
+    )
+    for (const entry of shown) {
+      const rec = asRecord(entry)
+      const status = str(rec['status']) || 'pending'
+      const mark = PLAN_GLYPH[status] ?? PENDING_MARK
+      const stepText = clip(str(rec['step']), contentWidth - 6)
+      emit(
+        band('notice', 'brass', [
+          { text: `${mark.glyph} `, fg: mark.fg, bold: !mark.dim },
+          { text: stepText, fg: mark.dim ? 'dim' : 'text' },
+        ])
+      )
+    }
+    if (hidden > 0) {
+      emit(band('notice', 'brass', [{ text: `… ${hidden} more`, fg: 'dim' }]))
+    }
+    emit('')
+  }
+
+  function renderDiff(data: Record<string, unknown>): void {
+    const files = Array.isArray(data['files']) ? data['files'] : []
+    if (files.length === 0) return
+    const added = Number(data['totalAdded']) || 0
+    const removed = Number(data['totalRemoved']) || 0
+    const truncated = Number(data['truncated']) || 0
+    emit('')
+    emit(
+      band('patch', 'teal', [
+        { text: '± ', fg: 'teal', bold: true },
+        { text: `${files.length} file${files.length === 1 ? '' : 's'}`, fg: 'text', bold: true },
+        { text: '  +', fg: 'dim' },
+        { text: String(added), fg: 'kiln' },
+        { text: ' -', fg: 'dim' },
+        { text: String(removed), fg: 'red' },
+      ])
+    )
+    for (const entry of files) {
+      const rec = asRecord(entry)
+      emit(
+        band('patch', 'teal', [
+          { text: clip(str(rec['path']), contentWidth - 14), fg: 'muted' },
+          { text: '  +', fg: 'dim' },
+          { text: String(Number(rec['added']) || 0), fg: 'kiln' },
+          { text: ' -', fg: 'dim' },
+          { text: String(Number(rec['removed']) || 0), fg: 'red' },
+        ])
+      )
+    }
+    if (truncated > 0) {
+      emit(
+        band('patch', 'teal', [
+          { text: `… ${truncated} more file${truncated === 1 ? '' : 's'}`, fg: 'dim' },
+        ])
+      )
+    }
+    emit('')
+  }
+
+  function renderDiagnostic(p: Record<string, unknown>): void {
+    // Plan / diff updates ride on `diagnostic` (discriminated by `kind`) so the
+    // renderer can present them without a new protocol event type.
+    const kind = str(p['kind'])
+    if (kind === 'plan') {
+      renderPlan(asRecord(p['data']))
+      return
+    }
+    if (kind === 'diff') {
+      renderDiff(asRecord(p['data']))
+      return
+    }
+    const level = str(p['level']) || 'info'
+    // Debug-level diagnostics are the unknown-native-notification trace; keep
+    // them in the durable stream for observability, fold them out of the pane.
+    if (level === 'debug' || level === 'trace') return
+    const message = str(p['message'])
+    if (message.length === 0) return
+    if (level === 'error') emit(line([{ text: `✗ ${message}`, fg: 'red' }]))
+    else if (level === 'warn') emit(line([{ text: `⚠ ${message}`, fg: 'brass' }]))
+    else emit(line([{ text: `ℹ ${message}`, fg: 'teal' }]))
   }
 
   function apply(event: InvocationEventEnvelope): void {
@@ -274,36 +468,43 @@ export function createCodexTranscriptModel(
         if (!headerShown) {
           headerShown = true
           emit('')
-          emit(`${BODY}${style.dim(`codex-app-server · ${shortId(options.invocationId)}`)}`)
+          emit(line([{ text: `codex-app-server · ${shortId(options.invocationId)}`, fg: 'dim' }]))
         }
-        emit(`${BODY}${style.done('●')} ${style.bold('ready')}`)
+        emit(
+          line([
+            { text: '● ', fg: 'kiln' },
+            { text: 'ready', fg: 'text', bold: true },
+          ])
+        )
         return
       }
       case 'invocation.exited':
         emit(dimLine(`exited code=${str(p['exitCode'])} signal=${str(p['signal'])}`))
         return
       case 'invocation.failed':
-        emit(`${BODY}${style.error(`✗ ${str(p['message'])}`)}`)
+        emit(line([{ text: `✗ ${str(p['message'])}`, fg: 'red', bold: true }]))
         return
       case 'invocation.summary':
         emit(dimLine(`summary ${str(p['summary'] ?? p)}`))
         return
       case 'driver.notice':
-        emit(`${BODY}${style.warn(`⚠ ${str(p['message'])}`)}`)
+        emit(line([{ text: `⚠ ${str(p['message'])}`, fg: 'brass' }]))
         return
 
       // ── Turn + message flow ─────────────────────────────────────────────
-      case 'user.message': {
-        const preview = clip(firstLine(str(p['content'])), 96)
-        if (preview.length > 0) emit(`${BODY}${style.dim(`▷ ${preview}`)}`)
+      case 'user.message':
+        renderUserInput(str(p['content']))
         return
-      }
       case 'turn.started':
         turnStartMs = parseMs(event.time)
         latestTokens = undefined
         emit('')
         emit(
-          `${BODY}${style.accent('▶')} ${style.bold('turn')} ${style.dim(shortId(str(p['turnId'])))}`
+          line([
+            { text: '▶ ', fg: 'molten', bold: true },
+            { text: 'turn', fg: 'text', bold: true },
+            { text: ` ${shortId(str(p['turnId']))}`, fg: 'dim' },
+          ])
         )
         return
       case 'assistant.message.started':
@@ -317,12 +518,16 @@ export function createCodexTranscriptModel(
         flushAssistant(p)
         return
 
-      // ── Tool calls (grouped: started line + ↳ output) ───────────────────
+      // ── Tool calls (grouped: started band + ↳ output) ───────────────────
       case 'tool.call.started': {
         const name = str(p['name']) || 'tool'
         toolNames.set(str(p['toolCallId'] ?? p['callId']), name)
         emit(
-          railLine(`${toolGlyph(name)} ${style.bold(name)}  ${style.dim(toolPreview(p['input']))}`)
+          band('tool', 'kiln', [
+            { text: `${toolGlyph(name)} `, fg: 'kiln', bold: true },
+            { text: name, fg: 'text', bold: true },
+            { text: `  ${toolPreview(p['input'])}`, fg: 'muted' },
+          ])
         )
         return
       }
@@ -331,31 +536,38 @@ export function createCodexTranscriptModel(
       case 'tool.call.completed': {
         const output = toolOutput(p)
         const lines = output.trim().length > 0 ? truncateOutput(output) : []
-        lines.forEach((line, idx) => {
-          emit(railCont(style.dim(idx === 0 ? `↳ ${line}` : `  ${line}`)))
+        lines.forEach((body, idx) => {
+          emit(
+            band('tool', 'kiln', [
+              { text: idx === 0 ? '↳ ' : '  ', fg: 'dim' },
+              { text: body, fg: 'muted' },
+            ])
+          )
         })
         return
       }
       case 'tool.call.failed': {
         const name = str(p['name']) || toolNames.get(str(p['toolCallId'] ?? p['callId'])) || 'tool'
-        emit(railLine(style.error(`✗ ${name}  ${clip(str(p['message']))}`)))
+        emit(
+          band('error', 'red', [
+            { text: '✗ ', fg: 'red', bold: true },
+            { text: name, fg: 'red', bold: true },
+            { text: `  ${clip(str(p['message']))}`, fg: 'red' },
+          ])
+        )
         return
       }
 
-      // ── Diagnostics + telemetry (every level renders) ───────────────────
-      case 'diagnostic': {
-        const level = str(p['level']) || 'info'
-        const message = str(p['message'])
-        if (level === 'error') emit(`${BODY}${style.error(`✗ ${message}`)}`)
-        else if (level === 'warn') emit(`${BODY}${style.warn(`⚠ ${message}`)}`)
-        else if (level === 'info') emit(`${BODY}${style.dim(`ℹ ${message}`)}`)
-        else emit(dimLine(message))
+      // ── Diagnostics + telemetry ─────────────────────────────────────────
+      case 'diagnostic':
+        renderDiagnostic(p)
         return
-      }
       case 'usage.updated': {
+        // Track for the turn footer only — a codex turn emits a token update per
+        // step, so rendering each one floods the pane. The final `✓ done` line
+        // carries the total.
         const total = asRecord(asRecord(p['usage'])['total'])
         latestTokens = total['totalTokens']
-        emit(dimLine(`${formatTokens(latestTokens)} tok`))
         return
       }
       case 'turn.completed': {
@@ -366,16 +578,31 @@ export function createCodexTranscriptModel(
         ]
           .filter((s) => s.length > 0)
           .join(' · ')
-        emit(`${BODY}${style.done('✓ done')}${stats.length > 0 ? style.dim(` · ${stats}`) : ''}`)
+        emit('')
+        emit(
+          band('endturn', 'kiln', [
+            { text: '✓ ', fg: 'kiln', bold: true },
+            { text: 'done', fg: 'text', bold: true },
+            ...(stats.length > 0 ? [{ text: ` · ${stats}`, fg: 'dim' as Fg }] : []),
+          ])
+        )
         return
       }
       case 'turn.failed':
+        emit('')
         emit(
-          `${BODY}${style.error('✗ failed')}${style.dim(` · ${clip(str(p['message'] ?? p['finalOutput'] ?? p['code']))}`)}`
+          band('error', 'red', [
+            { text: '✗ ', fg: 'red', bold: true },
+            { text: 'failed', fg: 'red', bold: true },
+            {
+              text: `  ${clip(str(p['message'] ?? p['finalOutput'] ?? p['code']))}`,
+              fg: 'red',
+            },
+          ])
         )
         return
       case 'turn.interrupted':
-        emit(`${BODY}${style.warn('◼ interrupted')}`)
+        emit(line([{ text: '◼ interrupted', fg: 'brass' }]))
         return
 
       default:
@@ -384,7 +611,7 @@ export function createCodexTranscriptModel(
   }
 
   function readFailure(text: string): void {
-    emit(`${BODY}${style.error(`✗ ${text}`)}`)
+    emit(line([{ text: `✗ ${text}`, fg: 'red', bold: true }]))
   }
 
   return { apply, readFailure }

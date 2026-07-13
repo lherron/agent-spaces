@@ -31,6 +31,70 @@ const TOOL_NAMES: Record<string, string> = {
 
 const TOOL_TYPES = new Set(Object.keys(TOOL_NAMES))
 
+/**
+ * Native Codex notifications that are pure state churn or account telemetry with
+ * no operator value in the transcript. Dropped at the mapper so they never enter
+ * the durable event stream (and thus never reach the renderer pane).
+ */
+const SUPPRESSED_METHODS = new Set<string>([
+  'account/rateLimits/updated',
+  'thread/status/changed',
+  'remoteControl/status/changed',
+  'mcpServer/startupStatus/updated',
+])
+
+export interface DiffFileStat {
+  path: string
+  added: number
+  removed: number
+}
+
+export interface DiffSummary {
+  files: DiffFileStat[]
+  totalAdded: number
+  totalRemoved: number
+  /** Files beyond the per-summary cap, elided from `files`. */
+  truncated: number
+}
+
+const MAX_DIFF_FILES = 8
+
+/**
+ * Summarize a unified diff into compact per-file add/remove counts. Only the
+ * `diff --git` file boundaries and `+`/`-` body lines are counted; the `+++`/
+ * `---` headers and hunk markers are excluded. The full diff body is discarded —
+ * only counts survive, keeping the derived event payload small.
+ */
+export function summarizeUnifiedDiff(diff: string): DiffSummary {
+  const files: DiffFileStat[] = []
+  let current: DiffFileStat | undefined
+  let totalAdded = 0
+  let totalRemoved = 0
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --git')) {
+      const match = /[ ]b\/(.+)$/.exec(line)
+      current = { path: match?.[1] ?? 'file', added: 0, removed: 0 }
+      files.push(current)
+      continue
+    }
+    if (current === undefined) continue
+    if (line.startsWith('+++') || line.startsWith('---')) continue
+    if (line.startsWith('+')) {
+      current.added += 1
+      totalAdded += 1
+    } else if (line.startsWith('-')) {
+      current.removed += 1
+      totalRemoved += 1
+    }
+  }
+  return {
+    files: files.slice(0, MAX_DIFF_FILES),
+    totalAdded,
+    totalRemoved,
+    truncated: Math.max(0, files.length - MAX_DIFF_FILES),
+  }
+}
+
 type HeldAssistantCompletions = Map<string, MappedEvent>
 
 const defaultHeldAssistantCompletions: HeldAssistantCompletions = new Map()
@@ -91,6 +155,57 @@ function mapCodexNotificationInner(
     case 'thread/tokenUsage/updated': {
       const usage = params['usage'] ?? params['tokenUsage'] ?? params['token_usage']
       return [{ type: 'usage.updated', payload: { usage } }]
+    }
+
+    case 'turn/plan/updated': {
+      const rawPlan = params['plan']
+      const steps = Array.isArray(rawPlan)
+        ? rawPlan.flatMap((entry) => {
+            const rec = asRecord(entry)
+            const step = stringValue(rec['step'])
+            return step !== undefined
+              ? [{ step, status: stringValue(rec['status']) ?? 'pending' }]
+              : []
+          })
+        : []
+      if (steps.length === 0) return []
+      const explanation = stringValue(params['explanation'])
+      // Routed through `diagnostic` (no strict payload validator) rather than a
+      // new protocol event type, so the renderer gets the structured plan without
+      // a cross-repo protocol bump. `kind` discriminates it from a log line.
+      return [
+        {
+          type: 'diagnostic',
+          payload: {
+            level: 'info',
+            source: 'driver',
+            kind: 'plan',
+            message: `plan updated (${steps.length} step${steps.length === 1 ? '' : 's'})`,
+            data: { steps, ...(explanation !== undefined ? { explanation } : {}) },
+          },
+        },
+      ]
+    }
+
+    case 'turn/diff/updated': {
+      const diff = stringValue(params['diff'])
+      if (diff === undefined || diff.trim().length === 0) return []
+      const summary = summarizeUnifiedDiff(diff)
+      if (summary.files.length === 0) return []
+      // Only the compact per-file +/- summary is carried (never the full diff
+      // body), so the payload stays small and survives event-size truncation.
+      return [
+        {
+          type: 'diagnostic',
+          payload: {
+            level: 'info',
+            source: 'driver',
+            kind: 'diff',
+            message: `diff updated (${summary.files.length} file${summary.files.length === 1 ? '' : 's'}, +${summary.totalAdded} -${summary.totalRemoved})`,
+            data: summary,
+          },
+        },
+      ]
     }
 
     case 'item/started': {
@@ -251,9 +366,15 @@ function mapCodexNotificationInner(
     }
 
     default:
-      // Unknown native notification: surface as a trace-level diagnostic so it
-      // is observable but never leaks the native method name as a normalized
-      // event `type`. The native method is preserved in `extra.driver.rawType`.
+      // Known high-frequency state-churn / telemetry methods carry no operator
+      // value in the transcript. Explicitly classified as non-events (NOT the
+      // same as silently dropping an unrecognized method) so the pane is not
+      // flooded with rate-limit / thread-status / remote-control churn.
+      if (SUPPRESSED_METHODS.has(notification.method)) return []
+      // Any other unknown native notification: surface as a trace-level
+      // diagnostic so it is observable but never leaks the native method name as
+      // a normalized event `type`. The native method is preserved in
+      // `extra.driver.rawType`; the renderer folds debug-level diagnostics away.
       return [
         {
           type: 'diagnostic',
