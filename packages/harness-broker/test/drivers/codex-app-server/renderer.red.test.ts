@@ -556,6 +556,78 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
   })
 })
 
+describe('codex-app-server renderer region spacing (T-06365)', () => {
+  test('agent prose is bracketed by a blank row on BOTH sides, like every other region', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'turn.started', { turnId: 'turn_1' }),
+      event(2, 'assistant.message.completed', { messageId: 'm1', text: 'Here is the plan.' }),
+      // The band that used to butt straight up against the prose.
+      event(3, 'tool.call.started', {
+        toolCallId: 'c1',
+        name: 'command',
+        input: { command: 'bun test' },
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+    await projection.start()
+
+    const rendered = projection.lines().map((l) => visible(l))
+    const prose = rendered.findIndex((l) => l.includes('Here is the plan.'))
+    const band = rendered.findIndex((l) => l.includes('bun test'))
+    expect(prose).toBeGreaterThan(-1)
+    expect(band).toBeGreaterThan(prose)
+    // Prose has no lane, so the negative space around it IS its boundary. Equal on
+    // both sides: one blank above, one blank below.
+    expect(rendered[prose - 1]).toBe('')
+    expect(rendered[prose + 1]).toBe('')
+    projection.close()
+  })
+
+  test('every content region brackets itself, so none of them runs into the next', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'user.message', { content: 'do the thing' }),
+      event(2, 'turn.started', { turnId: 'turn_1' }),
+      event(3, 'assistant.message.completed', { messageId: 'm1', text: 'Doing the thing.' }),
+      event(4, 'diagnostic', {
+        level: 'info',
+        source: 'driver',
+        kind: 'diff',
+        message: 'diff updated',
+        data: { totalAdded: 1, totalRemoved: 0, files: [{ path: 'a.ts', added: 1, removed: 0 }] },
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+    await projection.start()
+
+    const rendered = projection.lines().map((l) => visible(l))
+    // A region is a contiguous block of non-blank rows (a diff card is a header row
+    // plus a row per file). The rule is about the block, not any single row: it is
+    // separated from whatever precedes and follows it by a blank.
+    for (const marker of ['do the thing', 'Doing the thing.', 'a.ts']) {
+      const at = rendered.findIndex((l) => l.includes(marker))
+      expect(at, `missing ${marker}`).toBeGreaterThan(-1)
+      let start = at
+      while (start > 0 && rendered[start - 1] !== '') start -= 1
+      let end = at
+      while (end < rendered.length - 1 && rendered[end + 1] !== '') end += 1
+      // Not at an edge: a blank row actually exists on each side of the block.
+      expect(start, `${marker} block opens the pane with no blank above`).toBeGreaterThan(0)
+      expect(end, `${marker} block ends the pane with no blank below`).toBeLessThan(
+        rendered.length - 1
+      )
+    }
+    projection.close()
+  })
+})
+
 describe('codex-app-server renderer redraw on pane resize (T-06365)', () => {
   test('re-renders committed rows at the NEW width, so a pane widened after launch is not stuck with 80-column rows', async () => {
     const { createCodexAppServerRendererProjection } = await loadRendererModule()

@@ -516,6 +516,12 @@ export function createCodexTranscriptModel(
     if (trimmed.length === 0) return
     // Prose is the primary voice: UNbanded, bright text; only headings bold,
     // bullets get a dim marker. Light-touch markdown, no full parser.
+    //
+    // Bracketed by a blank row on BOTH sides, like every other region (user input,
+    // plan, diff). Prose is the one thing with no lane, so the negative space
+    // around it is what marks where it starts and stops — opening that space and
+    // not closing it left the agent's voice running straight into the next tool
+    // band, which is the one boundary the design most wants to be legible.
     emit('')
     for (const raw of wrap(trimmed, contentWidth())) {
       const heading = /^#{1,3}\s+/.exec(raw)
@@ -533,6 +539,7 @@ export function createCodexTranscriptModel(
         emit(line([{ text: raw, fg: 'text' }]))
       }
     }
+    emit('')
   }
 
   /** The user's input — indigo prompt band, full multi-line text (the fix for a
