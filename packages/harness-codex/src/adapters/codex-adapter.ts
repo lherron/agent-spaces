@@ -601,6 +601,7 @@ export class CodexAdapter implements HarnessAdapter {
       const overrideKeyMap: Array<[keyof CodexOptionsWithStatusLine, string]> = [
         ['model', 'model'],
         ['model_reasoning_effort', 'model_reasoning_effort'],
+        ['model_reasoning_summary', 'model_reasoning_summary'],
         ['status_line', 'tui.status_line'],
         ['approval_policy', 'approval_policy'],
         ['sandbox_mode', 'sandbox_mode'],

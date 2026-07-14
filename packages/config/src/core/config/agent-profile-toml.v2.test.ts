@@ -292,6 +292,7 @@ model = "claude-opus-4-6"
 
 [harnessDefaults.codex]
 model_reasoning_effort = "high"
+model_reasoning_summary = "detailed"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 status_line = ["model", "context-remaining", "git-branch"]
@@ -299,10 +300,22 @@ status_line = ["model", "context-remaining", "git-branch"]
     const result = parseAgentProfile(toml)
     expect(result.harnessDefaults?.codex).toEqual({
       model_reasoning_effort: 'high',
+      model_reasoning_summary: 'detailed',
       approval_policy: 'on-request',
       sandbox_mode: 'workspace-write',
       status_line: ['model', 'context-remaining', 'git-branch'],
     })
+  })
+
+  test('rejects an unsupported model_reasoning_summary', () => {
+    const toml = `
+schemaVersion = 2
+
+[harnessDefaults.codex]
+model_reasoning_summary = "verbose"
+`
+
+    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
   })
 
   test('parses harnessDefaults with model, yolo, claude, and codex together', () => {

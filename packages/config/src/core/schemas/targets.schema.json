@@ -33,6 +33,10 @@
       "properties": {
         "model": { "type": "string" },
         "model_reasoning_effort": { "type": "string" },
+        "model_reasoning_summary": {
+          "type": "string",
+          "enum": ["auto", "concise", "detailed", "none"]
+        },
         "status_line": {
           "type": "array",
           "items": { "type": "string" }
@@ -93,6 +97,10 @@
           "properties": {
             "model": { "type": "string" },
             "model_reasoning_effort": { "type": "string" },
+            "model_reasoning_summary": {
+              "type": "string",
+              "enum": ["auto", "concise", "detailed", "none"]
+            },
             "status_line": {
               "type": "array",
               "items": { "type": "string" }

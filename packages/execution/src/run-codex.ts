@@ -99,6 +99,8 @@ function computeCodexRuntimeFingerprint(input: {
   // never session state) so stale praesidium blocks self-heal. Same content =>
   // same fingerprint => the locked rebuild short-circuits (write-if-changed).
   praesidiumBlock?: string | undefined
+  /** Hash of config.toml so composed config changes refresh the stable runtime home. */
+  configHash?: string | undefined
 }): string {
   return createHash('sha256')
     .update(
@@ -111,6 +113,7 @@ function computeCodexRuntimeFingerprint(input: {
         cwd: input.cwd ? resolve(input.cwd) : undefined,
         interactive: input.interactive === true,
         praesidiumBlock: input.praesidiumBlock,
+        configHash: input.configHash,
       })
     )
     .digest('hex')
@@ -290,6 +293,10 @@ export async function prepareCodexRuntimeHome(
     systemPrompt: runOptions.systemPrompt,
     reminderContent: runOptions.reminderContent,
   })
+  const templateConfigPath = join(templateHome, 'config.toml')
+  const configHash = await readFile(templateConfigPath)
+    .then((content) => createHash('sha256').update(content).digest('hex'))
+    .catch(() => undefined)
   const fingerprint = computeCodexRuntimeFingerprint({
     templateHome,
     bundleRoot: bundle.rootDir,
@@ -298,6 +305,7 @@ export async function prepareCodexRuntimeHome(
     cwd: runOptions.cwd,
     interactive: runOptions.interactive,
     praesidiumBlock,
+    configHash,
   })
   await mkdir(runtimeHome, { recursive: true })
 

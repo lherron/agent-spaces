@@ -11,6 +11,7 @@ const AGENT_PROFILE_FILENAME = 'agent-profile.toml'
 const RUN_MODES = new Set<RunMode>(['query', 'heartbeat', 'task', 'maintenance'])
 const CODEX_APPROVAL_POLICIES = new Set(['untrusted', 'on-failure', 'on-request', 'never'])
 const CODEX_SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
+const CODEX_REASONING_SUMMARIES = new Set(['auto', 'concise', 'detailed', 'none'])
 
 interface ValidationIssue {
   path: string
@@ -337,6 +338,7 @@ function parseCodexOptions(value: unknown, source: string, path: string): CodexO
     [
       'model',
       'model_reasoning_effort',
+      'model_reasoning_summary',
       'status_line',
       'approval_policy',
       'sandbox_mode',
@@ -354,6 +356,17 @@ function parseCodexOptions(value: unknown, source: string, path: string): CodexO
   const reasoningEffort = parseOptionalString(value, 'model_reasoning_effort', source, path)
   if (reasoningEffort !== undefined) {
     options.model_reasoning_effort = reasoningEffort
+  }
+  const reasoningSummary = parseOptionalEnum(
+    value,
+    'model_reasoning_summary',
+    CODEX_REASONING_SUMMARIES,
+    'reasoning summary mode',
+    source,
+    path
+  )
+  if (reasoningSummary !== undefined) {
+    options.model_reasoning_summary = reasoningSummary as CodexOptions['model_reasoning_summary']
   }
   if (value['status_line'] !== undefined) {
     const statusLine = parseStringArray(value['status_line'], source, `${path}/status_line`)

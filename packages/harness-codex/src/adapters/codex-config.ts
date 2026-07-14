@@ -8,6 +8,7 @@ const DEFAULT_SANDBOX_MODE = 'workspace-write'
 const DEFAULT_APPROVAL_POLICY = 'on-request'
 export const DEFAULT_CODEX_CLI_MODEL = 'gpt-5.6-terra'
 export const DEFAULT_CODEX_REASONING_EFFORT = 'high'
+export const DEFAULT_CODEX_REASONING_SUMMARY = 'detailed'
 const DEFAULT_TUI_STATUS_LINE = ['model-with-reasoning', 'context-remaining', 'current-dir']
 
 function applyDottedKey(target: Record<string, unknown>, dottedKey: string, value: unknown): void {
@@ -64,6 +65,7 @@ export function buildCodexConfig(
   const base: Record<string, unknown> = {
     model: DEFAULT_CODEX_CLI_MODEL,
     model_reasoning_effort: DEFAULT_CODEX_REASONING_EFFORT,
+    model_reasoning_summary: DEFAULT_CODEX_REASONING_SUMMARY,
     sandbox_mode: DEFAULT_SANDBOX_MODE,
     approval_policy: DEFAULT_APPROVAL_POLICY,
     project_doc_fallback_filenames: ['AGENTS.md', 'AGENT.md'],

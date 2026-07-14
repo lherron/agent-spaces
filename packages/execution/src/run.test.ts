@@ -212,6 +212,55 @@ describe('prepareCodexRuntimeHome', () => {
     expect(metadata.projectPath).toBe(projectPath)
   })
 
+  test('refreshes the stable home when composed config.toml changes', async () => {
+    const root = await createTempDir('run-runtime-config-refresh-')
+    const aspHome = join(root, 'asp-home')
+    const projectPath = join(root, 'agent-spaces')
+    const bundleRoot = getProjectHarnessOutputPath(projectPath, 'smokey', 'codex', aspHome)
+    const templateHome = join(bundleRoot, 'codex.home')
+    const runtimeHome = getProjectCodexRuntimeHomePath(aspHome, projectPath, 'smokey')
+
+    await mkdir(join(templateHome, 'skills'), { recursive: true })
+    await mkdir(join(templateHome, 'prompts'), { recursive: true })
+    await writeFile(join(templateHome, 'AGENTS.md'), 'agents\n')
+    await writeFile(join(templateHome, 'config.toml'), 'model = "gpt-5.6-terra"\n')
+
+    const bundle = {
+      harnessId: 'codex' as const,
+      targetName: 'smokey',
+      rootDir: bundleRoot,
+      pluginDirs: [templateHome],
+      codex: {
+        homeTemplatePath: templateHome,
+        configPath: join(templateHome, 'config.toml'),
+        agentsPath: join(templateHome, 'AGENTS.md'),
+        skillsDir: join(templateHome, 'skills'),
+        promptsDir: join(templateHome, 'prompts'),
+      },
+    }
+    const runOptions = { aspHome, projectPath }
+
+    await prepareCodexRuntimeHome(bundle, runOptions)
+    await mkdir(join(runtimeHome, 'sessions'), { recursive: true })
+    await writeFile(join(runtimeHome, 'sessions', 'keep.jsonl'), 'session state\n')
+    expect(await readFile(join(runtimeHome, 'config.toml'), 'utf-8')).not.toContain(
+      'model_reasoning_summary'
+    )
+
+    await writeFile(
+      join(templateHome, 'config.toml'),
+      'model = "gpt-5.6-terra"\nmodel_reasoning_summary = "detailed"\n'
+    )
+    await prepareCodexRuntimeHome(bundle, runOptions)
+
+    expect(await readFile(join(runtimeHome, 'config.toml'), 'utf-8')).toContain(
+      'model_reasoning_summary = "detailed"'
+    )
+    expect(await readFile(join(runtimeHome, 'sessions', 'keep.jsonl'), 'utf-8')).toBe(
+      'session state\n'
+    )
+  })
+
   test('uses codexRuntimeTargetName for stable project runtime homes outside project-target output', async () => {
     const root = await createTempDir('run-agent-project-runtime-')
     const aspHome = join(root, 'asp-home')

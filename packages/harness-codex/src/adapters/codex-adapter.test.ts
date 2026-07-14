@@ -335,6 +335,7 @@ exit 1
         codexOptions: {
           model: 'gpt-5.3-codex',
           model_reasoning_effort: 'medium',
+          model_reasoning_summary: 'none',
           status_line: ['model', 'context-remaining', 'git-branch'],
           approval_policy: 'on-request',
           sandbox_mode: 'danger-full-access',
@@ -365,6 +366,7 @@ exit 1
       expect(parsed['sandbox_mode']).toBe('danger-full-access')
       expect(parsed['model']).toBe('gpt-5.3-codex')
       expect(parsed['model_reasoning_effort']).toBe('medium')
+      expect(parsed['model_reasoning_summary']).toBe('none')
       expect(parsed['profile']).toBe('default')
       expect((parsed['features'] as Record<string, unknown>)['hooks']).toBe(true)
       expect((parsed['tui'] as Record<string, unknown>)['status_line']).toEqual([
@@ -420,6 +422,7 @@ exit 1
       const parsed = TOML.parse(configRaw) as Record<string, unknown>
       expect(parsed['model']).toBe('gpt-5.6-terra')
       expect(parsed['model_reasoning_effort']).toBe('high')
+      expect(parsed['model_reasoning_summary']).toBe('detailed')
       expect((parsed['features'] as Record<string, unknown>)['hooks']).toBe(true)
       expect((parsed['tui'] as Record<string, unknown>)['status_line']).toEqual([
         'model-with-reasoning',
@@ -484,6 +487,13 @@ exit 1
 
       expect(args).toEqual(['--enable', 'goals', 'app-server'])
       expect(args).not.toContain('model_reasoning_effort="high"')
+    })
+
+    test('delivers model reasoning summary through CODEX_HOME, not app-server argv', () => {
+      const args = adapter.buildRunArgs(bundle, { interactive: false })
+
+      expect(args).toEqual(['--enable', 'goals', 'app-server'])
+      expect(args.some((arg) => arg.includes('model_reasoning_summary'))).toBe(false)
     })
 
     test('marks GPT-5.6 Terra as the default and exposes every GPT-5.6 variant', () => {
