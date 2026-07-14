@@ -60,6 +60,14 @@ export interface DiffSummary {
 const MAX_DIFF_FILES = 8
 
 /**
+ * Reasoning summaries are durable churn-forensics evidence, not a token stream.
+ * Keep one bounded summary per completed reasoning item: enough to explain the
+ * model's next action without turning the broker ledger into a second rollout.
+ */
+const MAX_REASONING_SUMMARY_PARTS = 8
+const MAX_REASONING_SUMMARY_CHARS = 4_096
+
+/**
  * Summarize a unified diff into compact per-file add/remove counts. Only the
  * `diff --git` file boundaries and `+`/`-` body lines are counted; the `+++`/
  * `---` headers and hunk markers are excluded. The full diff body is discarded —
@@ -254,6 +262,15 @@ function mapCodexNotificationInner(
     case 'turn/diff/updated':
       return mapDiffUpdated(params, lastDiffSignatures)
 
+    // Summary deltas are aggregated by Codex into the completed reasoning item.
+    // Do not emit one diagnostic per delta: that is high-volume UI/ledger spam.
+    // Raw reasoning text is also intentionally excluded; only the provider's
+    // user-facing reasoning summary is eligible for durable capture.
+    case 'item/reasoning/summaryPartAdded':
+    case 'item/reasoning/summaryTextDelta':
+    case 'item/reasoning/textDelta':
+      return []
+
     case 'item/started': {
       const turnId = stringValue(params['turnId'])
       const item = asRecord(params['item'])
@@ -352,6 +369,24 @@ function mapCodexNotificationInner(
           assistantCompletionEvent(turnId, itemId, normalizeMessageContent(item), true)
         )
         return previous
+      }
+
+      if (itemType === 'reasoning') {
+        const summary = normalizeReasoningSummary(item)
+        if (summary === undefined) return []
+        return [
+          {
+            type: 'diagnostic',
+            payload: {
+              level: 'debug',
+              source: 'driver',
+              kind: 'reasoning',
+              message: 'Codex reasoning summary captured',
+              data: summary,
+            },
+            extra: { turnId: asTurnId(turnId), itemId },
+          },
+        ]
       }
 
       if (TOOL_TYPES.has(itemType)) {
@@ -504,6 +539,27 @@ function normalizeMessageContent(
 
   const text = stringValue(item['text']) ?? ''
   return [{ type: 'text', text }]
+}
+
+function normalizeReasoningSummary(
+  item: Record<string, unknown>
+): { summary: string; truncated: boolean } | undefined {
+  const rawSummary = item['summary']
+  if (!Array.isArray(rawSummary)) return undefined
+
+  const parts = rawSummary.flatMap((part) => {
+    const text = stringValue(part)?.trim()
+    return text !== undefined && text.length > 0 ? [text] : []
+  })
+  if (parts.length === 0) return undefined
+
+  const selected = parts.slice(0, MAX_REASONING_SUMMARY_PARTS)
+  const joined = selected.join('\n\n')
+  const truncated = parts.length > selected.length || joined.length > MAX_REASONING_SUMMARY_CHARS
+  return {
+    summary: joined.slice(0, MAX_REASONING_SUMMARY_CHARS),
+    truncated,
+  }
 }
 
 function normalizeToolInput(itemType: string, item: Record<string, unknown>): unknown {

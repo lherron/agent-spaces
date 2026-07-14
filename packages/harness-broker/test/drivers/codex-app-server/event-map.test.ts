@@ -575,6 +575,109 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
     })
   })
 
+  describe('reasoning summary capture (T-06380)', () => {
+    test('collapses streamed summary churn into one durable diagnostic at item completion', () => {
+      const map = createCodexNotificationMapper()
+      const beforeCompletion = [
+        note('item/started', {
+          turnId: 'turn_1',
+          item: { type: 'reasoning', id: 'reason_1', summary: [], content: [] },
+        }),
+        note('item/reasoning/summaryPartAdded', {
+          turnId: 'turn_1',
+          itemId: 'reason_1',
+          summaryIndex: 0,
+        }),
+        note('item/reasoning/summaryTextDelta', {
+          turnId: 'turn_1',
+          itemId: 'reason_1',
+          summaryIndex: 0,
+          delta: '**Planning the inspection**',
+        }),
+      ].flatMap(map)
+
+      expect(beforeCompletion).toEqual([])
+
+      const events = map(
+        note('item/completed', {
+          turnId: 'turn_1',
+          item: {
+            type: 'reasoning',
+            id: 'reason_1',
+            summary: ['**Planning the inspection**', 'Checking the package name'],
+            content: [],
+          },
+        })
+      )
+
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        type: 'diagnostic',
+        payload: {
+          level: 'debug',
+          source: 'driver',
+          kind: 'reasoning',
+          message: 'Codex reasoning summary captured',
+          data: {
+            summary: '**Planning the inspection**\n\nChecking the package name',
+            truncated: false,
+          },
+        },
+        extra: {
+          turnId: 'turn_1',
+          itemId: 'reason_1',
+          driver: { kind: CODEX_DRIVER_KIND, rawType: 'item/completed' },
+        },
+      })
+    })
+
+    test('never persists raw reasoning text when no provider summary is present', () => {
+      const map = createCodexNotificationMapper()
+      expect(
+        map(
+          note('item/reasoning/textDelta', {
+            turnId: 'turn_1',
+            itemId: 'reason_1',
+            contentIndex: 0,
+            delta: 'raw chain of thought',
+          })
+        )
+      ).toEqual([])
+      expect(
+        map(
+          note('item/completed', {
+            turnId: 'turn_1',
+            item: {
+              type: 'reasoning',
+              id: 'reason_1',
+              summary: [],
+              content: ['raw chain of thought'],
+            },
+          })
+        )
+      ).toEqual([])
+    })
+
+    test('bounds a captured summary by both part count and character count', () => {
+      const map = createCodexNotificationMapper()
+      const events = map(
+        note('item/completed', {
+          turnId: 'turn_1',
+          item: {
+            type: 'reasoning',
+            id: 'reason_1',
+            summary: ['x'.repeat(5_000), ...Array.from({ length: 9 }, (_, i) => `part ${i}`)],
+          },
+        })
+      )
+      const payload = events[0]?.payload as {
+        data: { summary: string; truncated: boolean }
+      }
+      expect(payload.data.summary).toHaveLength(4_096)
+      expect(payload.data.truncated).toBe(true)
+    })
+  })
+
   describe('turn/diff/updated (T-06325)', () => {
     test('summarizes a unified diff into compact per-file add/remove counts', () => {
       const diff = [
