@@ -97,7 +97,15 @@ export function summarizeUnifiedDiff(diff: string): DiffSummary {
 
 type HeldAssistantCompletions = Map<string, MappedEvent>
 
+/**
+ * The last diff summary emitted per turn, so an unchanged repeat can be dropped
+ * (T-06350). Keyed by turnId and cleared on `turn/started`, so each turn always
+ * renders its first diff even if it happens to match the previous turn's last.
+ */
+type LastDiffSignatures = Map<string, string>
+
 const defaultHeldAssistantCompletions: HeldAssistantCompletions = new Map()
+const defaultLastDiffSignatures: LastDiffSignatures = new Map()
 
 function asTurnId(value: string): TurnId {
   return value as TurnId
@@ -111,30 +119,85 @@ function asTurnId(value: string): TurnId {
  * (again carrying `rawType`) rather than being silently dropped.
  */
 export function mapCodexNotification(notification: JsonRpcNotification): MappedEvent[] {
-  return mapCodexNotificationWithState(notification, defaultHeldAssistantCompletions)
+  return mapCodexNotificationWithState(
+    notification,
+    defaultHeldAssistantCompletions,
+    defaultLastDiffSignatures
+  )
 }
 
 export function createCodexNotificationMapper(): (
   notification: JsonRpcNotification
 ) => MappedEvent[] {
   const heldAssistantCompletions: HeldAssistantCompletions = new Map()
-  return (notification) => mapCodexNotificationWithState(notification, heldAssistantCompletions)
+  const lastDiffSignatures: LastDiffSignatures = new Map()
+  return (notification) =>
+    mapCodexNotificationWithState(notification, heldAssistantCompletions, lastDiffSignatures)
 }
 
 function mapCodexNotificationWithState(
   notification: JsonRpcNotification,
-  heldAssistantCompletions: HeldAssistantCompletions
+  heldAssistantCompletions: HeldAssistantCompletions,
+  lastDiffSignatures: LastDiffSignatures
 ): MappedEvent[] {
   const driver = { kind: CODEX_DRIVER_KIND, rawType: notification.method }
-  return mapCodexNotificationInner(notification, heldAssistantCompletions).map((event) => ({
-    ...event,
-    extra: { ...event.extra, driver: event.extra?.driver ?? driver },
-  }))
+  return mapCodexNotificationInner(notification, heldAssistantCompletions, lastDiffSignatures).map(
+    (event) => ({
+      ...event,
+      extra: { ...event.extra, driver: event.extra?.driver ?? driver },
+    })
+  )
+}
+
+/**
+ * `turn/diff/updated` → a compact per-file filestat card, deduped per turn.
+ *
+ * Codex sends this event carrying a CUMULATIVE snapshot of the whole turn's diff
+ * rather than a delta, and re-sends it unchanged on every
+ * `account/rateLimits/updated` telemetry heartbeat. Measured over the largest real
+ * captured transcripts: of 992 fires, the 822 that followed a heartbeat carried a
+ * byte-identical diff (100%), while the 170 that followed an actual
+ * `item/completed(fileChange)` carried none (0%). Mapping each fire repainted the
+ * same card down the pane (T-06350).
+ *
+ * Dedupe on the SUMMARY rather than on which method preceded the event: it states
+ * the real invariant — never emit a card that says nothing new — and it does not
+ * couple us to a heartbeat-pairing detail of a provider we do not control. It also
+ * correctly drops the case where the diff body moved but the rendered `+/-` stats
+ * did not (an in-place edit at equal line counts), where the card would be identical.
+ */
+function mapDiffUpdated(
+  params: Record<string, unknown>,
+  lastDiffSignatures: LastDiffSignatures
+): MappedEvent[] {
+  const diff = stringValue(params['diff'])
+  if (diff === undefined || diff.trim().length === 0) return []
+  const summary = summarizeUnifiedDiff(diff)
+  if (summary.files.length === 0) return []
+  const turnId = stringValue(params['turnId']) ?? ''
+  const signature = JSON.stringify(summary)
+  if (lastDiffSignatures.get(turnId) === signature) return []
+  lastDiffSignatures.set(turnId, signature)
+  // Only the compact per-file +/- summary is carried (never the full diff body), so
+  // the payload stays small and survives event-size truncation.
+  return [
+    {
+      type: 'diagnostic',
+      payload: {
+        level: 'info',
+        source: 'driver',
+        kind: 'diff',
+        message: `diff updated (${summary.files.length} file${summary.files.length === 1 ? '' : 's'}, +${summary.totalAdded} -${summary.totalRemoved})`,
+        data: summary,
+      },
+    },
+  ]
 }
 
 function mapCodexNotificationInner(
   notification: JsonRpcNotification,
-  heldAssistantCompletions: HeldAssistantCompletions
+  heldAssistantCompletions: HeldAssistantCompletions,
+  lastDiffSignatures: LastDiffSignatures
 ): MappedEvent[] {
   const params = asRecord(notification.params)
 
@@ -143,6 +206,7 @@ function mapCodexNotificationInner(
       const turnId = stringValue(params['turnId']) ?? stringValue(asRecord(params['turn'])['id'])
       if (!turnId) return []
       heldAssistantCompletions.delete(turnId)
+      lastDiffSignatures.delete(turnId)
       return [
         {
           type: 'turn.started',
@@ -187,26 +251,8 @@ function mapCodexNotificationInner(
       ]
     }
 
-    case 'turn/diff/updated': {
-      const diff = stringValue(params['diff'])
-      if (diff === undefined || diff.trim().length === 0) return []
-      const summary = summarizeUnifiedDiff(diff)
-      if (summary.files.length === 0) return []
-      // Only the compact per-file +/- summary is carried (never the full diff
-      // body), so the payload stays small and survives event-size truncation.
-      return [
-        {
-          type: 'diagnostic',
-          payload: {
-            level: 'info',
-            source: 'driver',
-            kind: 'diff',
-            message: `diff updated (${summary.files.length} file${summary.files.length === 1 ? '' : 's'}, +${summary.totalAdded} -${summary.totalRemoved})`,
-            data: summary,
-          },
-        },
-      ]
-    }
+    case 'turn/diff/updated':
+      return mapDiffUpdated(params, lastDiffSignatures)
 
     case 'item/started': {
       const turnId = stringValue(params['turnId'])

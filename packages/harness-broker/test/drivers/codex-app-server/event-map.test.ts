@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   CODEX_DRIVER_KIND,
+  createCodexNotificationMapper,
   mapCodexNotification,
 } from '../../../src/drivers/codex-app-server/event-map'
 
@@ -609,6 +610,61 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
 
     test('empty diff yields no event', () => {
       expect(mapCodexNotification(note('turn/diff/updated', { diff: '   ' }))).toEqual([])
+    })
+  })
+
+  describe('turn/diff/updated dedupe (T-06350)', () => {
+    // Codex re-emits the whole turn's CUMULATIVE diff on every rate-limit telemetry
+    // heartbeat, unchanged. Measured over real captures: 822/822 heartbeat-triggered
+    // fires carried a byte-identical diff, so the pane repainted the same card.
+    const diffFor = (added: string[]) =>
+      [
+        'diff --git a/src/a.ts b/src/a.ts',
+        '--- a/src/a.ts',
+        '+++ b/src/a.ts',
+        '@@ -0,0 +1 @@',
+        ...added.map((l) => `+${l}`),
+      ].join('\n')
+
+    const diffNote = (diff: string, turnId = 'turn_1') =>
+      note('turn/diff/updated', { threadId: 'thread_1', turnId, diff })
+    const heartbeat = () => note('account/rateLimits/updated', { rateLimits: { used: 1 } })
+    const diffEvents = (events: ReturnType<typeof mapCodexNotification>) =>
+      events.filter((e) => (e.payload as Record<string, unknown>)['kind'] === 'diff')
+
+    test('an unchanged cumulative diff re-sent on heartbeats renders once, not once per beat', () => {
+      const map = createCodexNotificationMapper()
+      const diff = diffFor(['one'])
+      const first = diffEvents(map(diffNote(diff)))
+      expect(first).toHaveLength(1)
+      // The real firing pattern: heartbeat, then the same diff again, over and over.
+      for (let i = 0; i < 5; i++) {
+        expect(map(heartbeat())).toEqual([])
+        expect(diffEvents(map(diffNote(diff)))).toEqual([])
+      }
+    })
+
+    test('a diff that actually changed still renders', () => {
+      const map = createCodexNotificationMapper()
+      expect(diffEvents(map(diffNote(diffFor(['one']))))).toHaveLength(1)
+      expect(diffEvents(map(diffNote(diffFor(['one']))))).toHaveLength(0)
+      // An edit lands: the cumulative diff grows, so the summary changes.
+      expect(diffEvents(map(diffNote(diffFor(['one', 'two']))))).toHaveLength(1)
+    })
+
+    test('a new turn re-renders its first diff even if identical to the previous turn', () => {
+      const map = createCodexNotificationMapper()
+      const diff = diffFor(['one'])
+      expect(diffEvents(map(diffNote(diff, 'turn_1')))).toHaveLength(1)
+      expect(diffEvents(map(diffNote(diff, 'turn_1')))).toHaveLength(0)
+      map(note('turn/started', { turnId: 'turn_1' }))
+      expect(diffEvents(map(diffNote(diff, 'turn_1')))).toHaveLength(1)
+    })
+
+    test('dedupe is per-invocation, so a fresh mapper never inherits another turn state', () => {
+      const diff = diffFor(['one'])
+      expect(diffEvents(createCodexNotificationMapper()(diffNote(diff)))).toHaveLength(1)
+      expect(diffEvents(createCodexNotificationMapper()(diffNote(diff)))).toHaveLength(1)
     })
   })
 
