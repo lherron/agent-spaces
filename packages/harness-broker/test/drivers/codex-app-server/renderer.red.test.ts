@@ -28,6 +28,8 @@ type RendererModule = {
   createCodexAppServerRendererProjection?: (options: {
     invocationId: string
     readSurface: DurableReadSurface
+    color?: boolean | undefined
+    width?: number | (() => number | undefined) | undefined
   }) => RendererProjection
 }
 
@@ -99,6 +101,24 @@ function createReadSurface(replay: InvocationEventEnvelope[]): {
 
 function textLines(projection: RendererProjection): string[] {
   return projection.lines().filter((line) => line.trim().length > 0)
+}
+
+const ESC = '\x1b'
+/** Erase-in-line: what fills a band to the pane edge in the current background. */
+const ERASE_TO_EOL = `${ESC}[K`
+const RESET = `${ESC}[0m`
+// Built from ESC rather than written as a regex literal: a literal control
+// character in a pattern is invisible in a diff and trips the lint rule.
+const ANSI = new RegExp(`${ESC}\\[[0-9;]*[A-Za-z]`, 'g')
+
+/** Strip SGR/EL escapes to leave the cells a band actually occupies. */
+function visible(line: string): string {
+  return line.replace(ANSI, '')
+}
+
+/** The tinted band rows — the keyline is what makes a row a lane. */
+function bandLines(projection: RendererProjection): string[] {
+  return projection.lines().filter((line) => visible(line).startsWith('▎'))
 }
 
 function expectTextInOrder(text: string, snippets: string[]): void {
@@ -332,6 +352,106 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
       'src/renderer.ts',
     ])
     expect(rendered).not.toContain('Unhandled Codex notification')
+    projection.close()
+  })
+
+  test('fills tinted bands to the pane edge with erase-to-EOL, never computed padding (T-06343)', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'tool.call.started', {
+        toolCallId: 'c1',
+        name: 'command',
+        input: { command: 'ls' },
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+      color: true,
+      width: 200,
+    })
+
+    await projection.start()
+    const bands = bandLines(projection)
+    expect(bands.length).toBeGreaterThan(0)
+    for (const line of bands) {
+      // The band tint reaches the row's true end via EL, so there is no trailing
+      // run of padding spaces to get wrong — that padding was what left the
+      // operator's own background showing on the right of every band.
+      expect(line).toContain(ERASE_TO_EOL)
+      expect(line.endsWith(RESET)).toBe(true)
+      expect(visible(line)).not.toMatch(/ {4,}$/)
+    }
+    projection.close()
+  })
+
+  test('clips band content one column short of the pane so a row never wraps away its keyline (T-06343)', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'tool.call.started', {
+        toolCallId: 'c1',
+        name: 'command',
+        // Longer than the pane AND longer than the renderer's own 120-char preview
+        // clip — the preview budget is independent of the pane, so only a band-level
+        // clip keeps this row on one physical line.
+        input: { command: `/bin/zsh -lc '${'git status --short && '.repeat(20)}'` },
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+      color: true,
+      width: 60,
+    })
+
+    await projection.start()
+    const bands = bandLines(projection)
+    expect(bands.length).toBeGreaterThan(0)
+    for (const line of bands) {
+      expect(visible(line).length).toBeLessThanOrEqual(59)
+    }
+    projection.close()
+  })
+
+  test('resolves pane width per row, so a resize after launch is picked up (T-06343)', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface, emitLive } = createReadSurface([
+      event(1, 'tool.call.started', {
+        toolCallId: 'c1',
+        name: 'command',
+        input: { command: 'a'.repeat(300) },
+      }),
+    ])
+    // The pane starts at tmux's 80-column default and is widened once a client
+    // attaches — exactly the sequence that pinned every band to 80 when the width
+    // was snapshotted at construction.
+    let columns = 80
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+      color: true,
+      width: () => columns,
+    })
+
+    await projection.start()
+    // Narrow pane: the row is clipped to one column short of it.
+    const beforeResize = bandLines(projection).at(-1)
+    expect(visible(beforeResize ?? '').length).toBe(79)
+
+    columns = 200
+    emitLive(
+      event(2, 'tool.call.started', {
+        toolCallId: 'c2',
+        name: 'command',
+        input: { command: 'b'.repeat(300) },
+      })
+    )
+    // Wide pane: the same row is no longer clipped at the stale 79 (it now runs to
+    // the preview budget, and EL carries the tint the rest of the way). A width
+    // snapshotted at construction would still cut it at 79.
+    const afterResize = bandLines(projection).at(-1)
+    expect(visible(afterResize ?? '').length).toBeGreaterThan(79)
+    expect(visible(afterResize ?? '').length).toBeLessThanOrEqual(199)
     projection.close()
   })
 

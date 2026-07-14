@@ -143,14 +143,18 @@ async function main(): Promise<void> {
   )
   const { surface, close } = connectReadSurface(observerSocketPath)
   // The renderer writes into a real tmux pane (a TTY): enable colour unless the
-  // operator opted out via NO_COLOR, and wrap to the pane width.
+  // operator opted out via NO_COLOR, and wrap/fill to the pane width.
   const color = process.env['NO_COLOR'] === undefined && process.stdout.isTTY === true
   const projection = createCodexAppServerRendererProjection({
     invocationId,
     readSurface: surface,
     sink: (line) => process.stdout.write(`${line}\n`),
     color,
-    ...(typeof process.stdout.columns === 'number' ? { width: process.stdout.columns } : {}),
+    // A THUNK, not a snapshot (T-06343). This process is exec'd into an HRC-leased
+    // pane that is commonly still at tmux's 80-column default, then resized once a
+    // client attaches. Reading `columns` once at startup pinned every tinted band
+    // to the launch-time width for the life of the pane.
+    width: () => process.stdout.columns,
   })
   await projection.start()
   let quitPosted = false

@@ -2,7 +2,7 @@ import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { shellQuote } from '../tmux-shared'
-import { createCodexTranscriptModel } from './transcript'
+import { type CodexTranscriptWidth, createCodexTranscriptModel } from './transcript'
 
 /**
  * T-04906 / T-04909 Phase B — the Codex app-server operator renderer.
@@ -55,8 +55,12 @@ export interface RendererProjectionOptions {
   sink?: (line: string) => void
   /** Emit ANSI colour (default false — enable on a TTY pane). */
   color?: boolean | undefined
-  /** Wrap width for assistant prose (default 96). */
-  width?: number | undefined
+  /**
+   * Pane width, or a thunk resolved per row. Drives BOTH prose wrap (clamped for
+   * readability, default 96) and how far a tinted band fills (unclamped — the real
+   * pane). Pass a thunk from a live pane so a resize after launch is picked up.
+   */
+  width?: CodexTranscriptWidth | undefined
 }
 
 /**

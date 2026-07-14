@@ -69,6 +69,14 @@ type Bg = keyof typeof BG
 /** The signature device: a bright left keyline that turns a band into a lane. */
 const KEYLINE = '▎ '
 
+/**
+ * Erase-in-line (EL0). With a background SGR active, this erases from the cursor
+ * to the true end of the physical row IN THE CURRENT BACKGROUND COLOUR
+ * (background-colour erase — both tmux and Ghostty implement it). It is how a
+ * band reaches the pane edge without knowing the pane width.
+ */
+const ERASE_TO_EOL = '\x1b[K'
+
 interface Seg {
   text: string
   fg?: Fg
@@ -79,6 +87,8 @@ const BODY = '  '
 const DEFAULT_WIDTH = 96
 const MIN_WIDTH = 48
 const MAX_WIDTH = 120
+/** Fallback pane width when the live thunk has nothing to report (not a TTY). */
+const FALLBACK_PANE_WIDTH = 80
 const MAX_TOOL_OUTPUT_LINES = 3
 const MAX_PREVIEW = 120
 const MAX_INPUT_LINES = 40
@@ -123,9 +133,47 @@ function clip(value: string, max = MAX_PREVIEW): string {
   return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine
 }
 
+/**
+ * The TYPOGRAPHIC measure: how wide prose may wrap and stay readable. Clamped at
+ * both ends on purpose — a 200-column pane should not produce 200-column prose.
+ * Deliberately NOT the measure a band fills to (see `paneWidth`).
+ */
 function clampWidth(width: number | undefined): number {
   if (width === undefined || !Number.isFinite(width)) return DEFAULT_WIDTH
   return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.floor(width)))
+}
+
+/**
+ * The PHYSICAL measure: how many cells a band row may occupy. A pane is as wide
+ * as it is, so this is never clamped upward — clamping the fill is what left
+ * bands short of the edge (T-06343). Resolved fresh per row from the caller's
+ * thunk, so a mid-stream pane resize is picked up without a SIGWINCH handler.
+ */
+function resolvePaneWidth(raw: number | undefined): number {
+  if (raw === undefined || !Number.isFinite(raw)) return FALLBACK_PANE_WIDTH
+  return Math.max(MIN_WIDTH, Math.floor(raw))
+}
+
+/**
+ * Truncate a styled row to `budget` cells, preserving per-segment styling. A band
+ * row must never wrap: a wrapped row splits the keyline off from its content and
+ * lands the erase-to-EOL on the wrong physical row.
+ */
+function clipSegs(segs: Seg[], budget: number): Seg[] {
+  const out: Seg[] = []
+  let used = 0
+  for (const seg of segs) {
+    const room = budget - used
+    if (room <= 0) break
+    if (seg.text.length <= room) {
+      out.push(seg)
+      used += seg.text.length
+      continue
+    }
+    out.push({ ...seg, text: `${seg.text.slice(0, room - 1)}…` })
+    break
+  }
+  return out
 }
 
 /** Greedy word-wrap to a content width, preserving explicit newlines. */
@@ -224,11 +272,20 @@ function extractAssistantText(payload: Record<string, unknown>): string {
     .join('')
 }
 
+/**
+ * A fixed width, or a thunk resolved fresh per band row. Pass the thunk from a
+ * live pane (`() => process.stdout.columns`): the renderer is exec'd into an
+ * HRC-leased pane that may still be at tmux's 80-column default, and is resized
+ * once a client attaches — a value snapshotted at construction goes stale and
+ * pins every band to the launch-time width (T-06343).
+ */
+export type CodexTranscriptWidth = number | (() => number | undefined)
+
 export interface CodexTranscriptModelOptions {
   invocationId: string
   emit: (line: string) => void
   color?: boolean | undefined
-  width?: number | undefined
+  width?: CodexTranscriptWidth | undefined
 }
 
 export interface CodexTranscriptModel {
@@ -248,9 +305,17 @@ export function createCodexTranscriptModel(
   options: CodexTranscriptModelOptions
 ): CodexTranscriptModel {
   const color = options.color ?? false
-  const width = clampWidth(options.width)
-  const contentWidth = Math.max(MIN_WIDTH - BODY.length, width - BODY.length)
   const emit = options.emit
+
+  // Both measures resolve fresh per row from the caller's width source, so a pane
+  // resize after launch is picked up with no SIGWINCH handler (T-06343).
+  const rawWidth = (): number | undefined =>
+    typeof options.width === 'function' ? options.width() : options.width
+  /** Typographic: prose wrap/clip. Clamped — readability, not the pane. */
+  const contentWidth = (): number =>
+    Math.max(MIN_WIDTH - BODY.length, clampWidth(rawWidth()) - BODY.length)
+  /** Physical: how far a band fills. Never clamped upward. */
+  const paneWidth = (): number => resolvePaneWidth(rawWidth())
 
   // Per-turn rolling state.
   const toolNames = new Map<string, string>()
@@ -273,18 +338,26 @@ export function createCodexTranscriptModel(
 
   /**
    * A full-width tinted lane row: a bright left keyline in the lane accent, the
-   * band tint behind, painted segments, pad, reset. Consecutive rows of a region
-   * share the accent, so the keyline forms one continuous coloured spine down the
-   * pane. The fill stops one column short of the pane width so a band never lands
-   * a glyph in the final column, where a tmux/terminal auto-wrap would spill an
-   * empty tinted continuation line.
+   * band tint behind, painted segments, erase-to-EOL, reset. Consecutive rows of a
+   * region share the accent, so the keyline forms one continuous coloured spine
+   * down the pane.
+   *
+   * The fill is `ESC[K` rather than computed padding (T-06343). Padding to a width
+   * the renderer believes the pane to be left every band short of the real edge —
+   * the operator's own terminal background showed through on the right, so bands
+   * read as jagged against a pane with a background colour set. Erase-to-EOL fills
+   * to the row's TRUE end in the band tint, so there is no width arithmetic to get
+   * wrong (and no UTF-16-vs-cells miscount on wide glyphs in tool output).
+   *
+   * Content is still clipped one column short of the pane so a row never reaches
+   * the final column, where a tmux/terminal auto-wrap would spill an empty tinted
+   * continuation line — and so an over-long preview can never wrap away its keyline.
    */
   function band(bg: Bg, accent: Fg, segs: Seg[]): string {
     const rowSegs: Seg[] = [{ text: KEYLINE, fg: accent, bold: true }, ...segs]
-    const plain = rowSegs.map((s) => s.text).join('')
-    if (!color) return plain
-    const pad = Math.max(0, width - 1 - plain.length)
-    return `\x1b[${BG[bg]}m${paint(rowSegs)}${' '.repeat(pad)}${RESET}`
+    if (!color) return rowSegs.map((s) => s.text).join('')
+    const fitted = clipSegs(rowSegs, paneWidth() - 1)
+    return `\x1b[${BG[bg]}m${paint(fitted)}${ERASE_TO_EOL}${RESET}`
   }
 
   /** An unbanded (native-bg) styled line, indented under BODY. */
@@ -305,7 +378,7 @@ export function createCodexTranscriptModel(
     // Prose is the primary voice: UNbanded, bright text; only headings bold,
     // bullets get a dim marker. Light-touch markdown, no full parser.
     emit('')
-    for (const raw of wrap(trimmed, contentWidth)) {
+    for (const raw of wrap(trimmed, contentWidth())) {
       const heading = /^#{1,3}\s+/.exec(raw)
       const bullet = /^[-*]\s+/.exec(raw)
       if (heading) {
@@ -326,7 +399,7 @@ export function createCodexTranscriptModel(
   /** The user's input — indigo prompt band, full multi-line text (the fix for a
    *  truncated dispatch that previously showed only its priming first line). */
   function renderUserInput(content: string): void {
-    const wrapped = wrap(content.trim(), contentWidth)
+    const wrapped = wrap(content.trim(), contentWidth())
     if (wrapped.length === 0 || wrapped.every((l) => l.length === 0)) return
     const shown = wrapped.slice(0, MAX_INPUT_LINES)
     const hidden = wrapped.length - shown.length
@@ -366,7 +439,7 @@ export function createCodexTranscriptModel(
       const rec = asRecord(entry)
       const status = str(rec['status']) || 'pending'
       const mark = PLAN_GLYPH[status] ?? PENDING_MARK
-      const stepText = clip(str(rec['step']), contentWidth - 6)
+      const stepText = clip(str(rec['step']), contentWidth() - 6)
       emit(
         band('notice', 'brass', [
           { text: `${mark.glyph} `, fg: mark.fg, bold: !mark.dim },
@@ -401,7 +474,7 @@ export function createCodexTranscriptModel(
       const rec = asRecord(entry)
       emit(
         band('patch', 'teal', [
-          { text: clip(str(rec['path']), contentWidth - 14), fg: 'muted' },
+          { text: clip(str(rec['path']), contentWidth() - 14), fg: 'muted' },
           { text: '  +', fg: 'dim' },
           { text: String(Number(rec['added']) || 0), fg: 'kiln' },
           { text: ' -', fg: 'dim' },
