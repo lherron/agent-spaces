@@ -94,6 +94,10 @@ const MAX_PREVIEW = 120
 const MAX_INPUT_LINES = 40
 const MAX_PLAN_STEPS = 12
 const RESET = '\x1b[0m'
+/** Tab stop used to expand tabs in foreign tool output into cells that paint. */
+const TAB_WIDTH = 8
+/** Stands in for a C0 control character that must never reach the terminal. */
+const CONTROL_PLACEHOLDER = '·'
 
 const TOOL_GLYPH: Record<string, string> = {
   command: '$',
@@ -152,6 +156,50 @@ function clampWidth(width: number | undefined): number {
 function resolvePaneWidth(raw: number | undefined): number {
   if (raw === undefined || !Number.isFinite(raw)) return FALLBACK_PANE_WIDTH
   return Math.max(MIN_WIDTH, Math.floor(raw))
+}
+
+/**
+ * Rewrite a styled row so every character it carries actually PAINTS a cell
+ * (T-06351).
+ *
+ * Tool output is arbitrary bytes from someone else's program, and two kinds of
+ * character punch a hole in a tinted band:
+ *
+ *  - TAB advances the cursor instead of writing cells, so the cells it skips keep
+ *    whatever background was already there — the operator's pane colour, not the
+ *    band tint. Tab-indented output (Go source via rg/sed is the common case) left
+ *    visible rectangles of pane background mid-row. Expanded here to real spaces,
+ *    which do paint, against tab stops measured across the whole row so the
+ *    original column alignment survives.
+ *  - ESC (and other C0 controls) would be interpreted by the terminal: a stray
+ *    `ESC[0m` in tool output clears the band background for the remainder of the
+ *    row, and any cursor-moving sequence corrupts the lane. Replaced with a visible
+ *    placeholder rather than passed through.
+ *
+ * Runs before `clipSegs` so the clip budget counts cells, not source characters —
+ * a tab counts as 1 character but occupies up to TAB_WIDTH cells.
+ */
+function paintableSegs(segs: Seg[]): Seg[] {
+  let column = 0
+  return segs.map((seg) => {
+    let text = ''
+    for (const ch of seg.text) {
+      if (ch === '\t') {
+        const stop = TAB_WIDTH - (column % TAB_WIDTH)
+        text += ' '.repeat(stop)
+        column += stop
+        continue
+      }
+      // C0 controls (and DEL) are interpreted by the terminal, not printed: a stray
+      // ESC[0m from a foreign program would clear the band background for the rest of
+      // the row. Compared by code point rather than matched by a regex literal, which
+      // would need a literal control character in the source.
+      const code = ch.codePointAt(0) ?? 0
+      text += code < 0x20 || code === 0x7f ? CONTROL_PLACEHOLDER : ch
+      column += 1
+    }
+    return { ...seg, text }
+  })
 }
 
 /**
@@ -352,11 +400,15 @@ export function createCodexTranscriptModel(
    * Content is still clipped one column short of the pane so a row never reaches
    * the final column, where a tmux/terminal auto-wrap would spill an empty tinted
    * continuation line — and so an over-long preview can never wrap away its keyline.
+   *
+   * `paintableSegs` runs first so every character the row carries actually paints a
+   * cell: a tab would otherwise skip cells and leave the pane's own background
+   * showing INSIDE the band (T-06351).
    */
   function band(bg: Bg, accent: Fg, segs: Seg[]): string {
     const rowSegs: Seg[] = [{ text: KEYLINE, fg: accent, bold: true }, ...segs]
     if (!color) return rowSegs.map((s) => s.text).join('')
-    const fitted = clipSegs(rowSegs, paneWidth() - 1)
+    const fitted = clipSegs(paintableSegs(rowSegs), paneWidth() - 1)
     return `\x1b[${BG[bg]}m${paint(fitted)}${ERASE_TO_EOL}${RESET}`
   }
 

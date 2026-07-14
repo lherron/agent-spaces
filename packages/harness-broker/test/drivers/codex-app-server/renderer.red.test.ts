@@ -355,6 +355,77 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     projection.close()
   })
 
+  test('expands tabs in tool output so a band never shows pane background mid-row (T-06351)', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    // The real shape from captured transcripts: `rg -n` over tab-indented Go source.
+    const { surface } = createReadSurface([
+      event(1, 'tool.call.started', {
+        toolCallId: 'c1',
+        name: 'command',
+        input: { command: 'rg' },
+      }),
+      event(2, 'tool.call.completed', {
+        toolCallId: 'c1',
+        result: { output: 'internal/workflow/errors.go-245-\tcode: wrkfCodeLeaseConflict,' },
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+      color: true,
+      width: 200,
+    })
+
+    await projection.start()
+    const bands = bandLines(projection)
+    expect(bands.length).toBeGreaterThan(0)
+    // A tab advances the cursor without painting, so any tab reaching the pane leaves
+    // the operator's background showing inside the band.
+    for (const line of bands) expect(line).not.toContain('\t')
+    const output = bands.find((l) => visible(l).includes('errors.go-245-'))
+    expect(output).toBeDefined()
+    // Expanded to real spaces that paint, and out to a tab stop so the column
+    // alignment survives. Stops are measured across the whole physical row — the
+    // `▎ ↳ ` gutter puts this tab at column 36, so it runs to the next stop at 40.
+    const text = visible(output ?? '')
+    expect(text).toBe('▎ ↳ internal/workflow/errors.go-245-    code: wrkfCodeLeaseConflict,')
+    expect(text.indexOf('code:') % 8).toBe(0)
+  })
+
+  test('neutralizes C0 controls in tool output so they cannot clear the band tint (T-06351)', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'tool.call.started', {
+        toolCallId: 'c1',
+        name: 'command',
+        input: { command: 'ls' },
+      }),
+      // A program that emits its own colour: the reset would clear OUR band background
+      // for the remainder of the row if passed through.
+      event(2, 'tool.call.completed', {
+        toolCallId: 'c1',
+        result: { output: `${ESC}[31mred${ESC}[0m plain` },
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+      color: true,
+      width: 200,
+    })
+
+    await projection.start()
+    const output = bandLines(projection).find((l) => visible(l).includes('plain'))
+    expect(output).toBeDefined()
+    // The only escapes left in the row are the ones the renderer itself emitted: the
+    // band's own SGR, the erase-to-EOL, and the trailing reset. The foreign ESC bytes
+    // are gone, so the tint survives to the end of the row.
+    expect(output).toContain(ERASE_TO_EOL)
+    expect(output?.endsWith(RESET)).toBe(true)
+    expect(output?.split(ERASE_TO_EOL)[0]).not.toContain(`${ESC}[31m`)
+    expect(output?.split(ERASE_TO_EOL)[0]).not.toContain(`${ESC}[0m`)
+  })
+
   test('fills tinted bands to the pane edge with erase-to-EOL, never computed padding (T-06343)', async () => {
     const { createCodexAppServerRendererProjection } = await loadRendererModule()
     const { surface } = createReadSurface([
