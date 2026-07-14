@@ -21,6 +21,7 @@ type DurableReadSurface = {
 type RendererProjection = {
   start: () => Promise<void>
   lines: () => string[]
+  redraw: () => void
   close: () => void
 }
 
@@ -28,6 +29,8 @@ type RendererModule = {
   createCodexAppServerRendererProjection?: (options: {
     invocationId: string
     readSurface: DurableReadSurface
+    sink?: ((line: string) => void) | undefined
+    onEvent?: ((event: InvocationEventEnvelope) => void) | undefined
     color?: boolean | undefined
     width?: number | (() => number | undefined) | undefined
   }) => RendererProjection
@@ -549,6 +552,119 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     expect(rendered).toContain('retention')
     expect(rendered).toContain('seq 7')
     expect(rendered).toContain(String(BrokerErrorCode.EventReplayUnavailable))
+    projection.close()
+  })
+})
+
+describe('codex-app-server renderer redraw on pane resize (T-06365)', () => {
+  test('re-renders committed rows at the NEW width, so a pane widened after launch is not stuck with 80-column rows', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const prose = 'word '.repeat(60).trim()
+    const { surface } = createReadSurface([event(1, 'user.message', { content: prose })])
+
+    // The real launch shape: exec'd into a pane still at tmux's 80-column default.
+    let columns = 80
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+      color: true,
+      width: () => columns,
+    })
+    await projection.start()
+
+    const narrowest = Math.max(...bandLines(projection).map((line) => visible(line).length))
+    expect(narrowest).toBeLessThanOrEqual(80)
+
+    // A client attaches and the pane widens.
+    columns = 130
+    projection.redraw()
+
+    const widest = Math.max(...bandLines(projection).map((line) => visible(line).length))
+    // The rows are re-wrapped to the wider measure — the whole point. Without the
+    // redraw these rows keep the ~78-column wrap they were committed with.
+    expect(widest).toBeGreaterThan(narrowest)
+    expect(widest).toBeLessThanOrEqual(130)
+    projection.close()
+  })
+
+  test('a redraw replaces the transcript rather than appending a second copy', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'assistant.message.completed', { messageId: 'm1', text: 'Only once please' }),
+    ])
+    const emitted: string[] = []
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+      sink: (line) => emitted.push(line),
+    })
+    await projection.start()
+    projection.redraw()
+
+    // `lines()` is the pane's content, not a log: it must hold ONE transcript.
+    expect(
+      projection
+        .lines()
+        .join('\n')
+        .match(/Only once please/g)
+    ).toHaveLength(1)
+    // The sink, by contrast, legitimately sees it twice — the caller clears the
+    // pane between the two, which is exactly why lines() must not accumulate.
+    expect(emitted.join('\n').match(/Only once please/g)).toHaveLength(2)
+    projection.close()
+  })
+
+  test('a redraw does not re-fire onEvent, so the status row keeps its elapsed clock', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'turn.started', { turnId: 'turn_1' }),
+      event(2, 'tool.call.started', { toolCallId: 'c1', name: 'command', input: {} }),
+    ])
+    const observed: string[] = []
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+      onEvent: (e) => observed.push(e.type),
+    })
+    await projection.start()
+    expect(observed).toEqual(['turn.started', 'tool.call.started'])
+
+    projection.redraw()
+    // Re-observing a replayed turn.started would restart the running row's clock,
+    // so a mid-turn resize would visibly reset a counter timing a real wait.
+    expect(observed).toEqual(['turn.started', 'tool.call.started'])
+    projection.close()
+  })
+
+  test('a read failure survives a redraw, in the place it happened', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const readError = Object.assign(new Error('events before seq 7 are no longer retained'), {
+      code: BrokerErrorCode.EventReplayUnavailable,
+      data: { retentionFloorSeq: 7 },
+    })
+    const handlers = new Set<(event: InvocationEventEnvelope) => void>()
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: {
+        eventsSince: async () => {
+          throw readError
+        },
+        observe: (handler) => {
+          handlers.add(handler)
+          return { close: () => handlers.delete(handler) }
+        },
+      },
+    })
+    await projection.start()
+    for (const handler of handlers) {
+      handler(event(8, 'assistant.message.completed', { messageId: 'm1', text: 'after the gap' }))
+    }
+    projection.redraw()
+
+    // A retention gap is never silently dropped (daedalus invariant) — and a
+    // resize is not a licence to drop it either. It stays ahead of the events
+    // that followed it.
+    expectTextInOrder(textLines(projection).join('\n'), ['retention', 'after the gap'])
     projection.close()
   })
 })

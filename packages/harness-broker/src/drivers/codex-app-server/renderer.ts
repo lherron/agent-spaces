@@ -2,7 +2,11 @@ import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { shellQuote } from '../tmux-shared'
-import { type CodexTranscriptWidth, createCodexTranscriptModel } from './transcript'
+import {
+  type CodexTranscriptModel,
+  type CodexTranscriptWidth,
+  createCodexTranscriptModel,
+} from './transcript'
 
 /**
  * T-04906 / T-04909 Phase B — the Codex app-server operator renderer.
@@ -45,6 +49,25 @@ export interface RendererProjection {
   start: () => Promise<void>
   /** The rendered transcript lines, in seq order. */
   lines: () => string[]
+  /**
+   * Re-render everything seen so far, at whatever the width source now reports
+   * (T-06365).
+   *
+   * A row is styled once, when it is committed, and a terminal keeps the cells it
+   * was given — so every measure baked into a row is frozen at its write-time pane
+   * width. The renderer is exec'd into a pane that is commonly still at tmux's
+   * 80-column default and is widened moments later when a client attaches, which
+   * left the whole priming block wrapped to ~78 columns and tinted only that far
+   * into a much wider pane, while everything written after the attach reached the
+   * edge (the T-06343 caveat). No fill strategy can fix an already-committed row;
+   * the row has to be rendered again.
+   *
+   * Replaying the retained history through a FRESH transcript model reproduces the
+   * pane exactly, because the model is a deterministic fold over the event stream
+   * given a width. The CALLER is responsible for clearing the pane (and its
+   * scrollback) first — this only re-emits.
+   */
+  redraw: () => void
   close: () => void
 }
 
@@ -90,6 +113,18 @@ export function createCodexAppServerRendererProjection(
   let subscription: { close: () => void } | undefined
   let closed = false
 
+  /**
+   * Everything committed to the pane, in the order it was committed, so a redraw
+   * can reproduce it at a new width. Read failures are retained ALONGSIDE the
+   * events rather than in a side list: they must survive a redraw (a retention gap
+   * is never silently dropped — daedalus invariant), and only an ordered log keeps
+   * one sitting where it actually happened.
+   */
+  type HistoryEntry =
+    | { kind: 'event'; event: InvocationEventEnvelope }
+    | { kind: 'readFailure'; text: string }
+  const history: HistoryEntry[] = []
+
   function pushLine(line: string): void {
     lines.push(line)
     sink?.(line)
@@ -99,18 +134,31 @@ export function createCodexAppServerRendererProjection(
   // hrcchat-turn-style transcript (palette + glyphs + rail, assistant deltas
   // coalesced, tool calls grouped). The projection owns ordering/dedup; the
   // model owns styling.
-  const transcript = createCodexTranscriptModel({
-    invocationId,
-    emit: pushLine,
-    ...(options.color !== undefined ? { color: options.color } : {}),
-    ...(options.width !== undefined ? { width: options.width } : {}),
-  })
+  const buildTranscript = (): CodexTranscriptModel =>
+    createCodexTranscriptModel({
+      invocationId,
+      emit: pushLine,
+      ...(options.color !== undefined ? { color: options.color } : {}),
+      ...(options.width !== undefined ? { width: options.width } : {}),
+    })
+
+  let transcript = buildTranscript()
+
+  function applyEntry(entry: HistoryEntry): void {
+    if (entry.kind === 'event') transcript.apply(entry.event)
+    else transcript.readFailure(entry.text)
+  }
 
   function render(event: InvocationEventEnvelope): void {
     if (event.invocationId !== invocationId) return
     if (seenSeqs.has(event.seq)) return
     seenSeqs.add(event.seq)
-    transcript.apply(event)
+    const entry: HistoryEntry = { kind: 'event', event }
+    history.push(entry)
+    applyEntry(entry)
+    // Live path only. A redraw must NOT re-fire this: re-observing a replayed
+    // `turn.started` would restart the status row's elapsed clock, so a pane resize
+    // would visibly reset a counter the operator is timing a real wait against.
     options.onEvent?.(event)
   }
 
@@ -135,7 +183,9 @@ export function createCodexAppServerRendererProjection(
           render(event)
         }
       } catch (error) {
-        transcript.readFailure(formatReadFailure(error))
+        const entry: HistoryEntry = { kind: 'readFailure', text: formatReadFailure(error) }
+        history.push(entry)
+        applyEntry(entry)
       } finally {
         bootstrapping = false
         // Flush any live events captured during bootstrap, in seq order.
@@ -147,6 +197,12 @@ export function createCodexAppServerRendererProjection(
     },
     lines(): string[] {
       return [...lines]
+    },
+    redraw(): void {
+      if (closed) return
+      lines.length = 0
+      transcript = buildTranscript()
+      for (const entry of history) applyEntry(entry)
     },
     close(): void {
       closed = true

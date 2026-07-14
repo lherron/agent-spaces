@@ -30,6 +30,9 @@ import {
 import { createStatusLine } from './status-line'
 import { createCodexStatusRow } from './transcript'
 
+/** How long a pane resize must settle before the transcript is re-rendered. */
+const RESIZE_SETTLE_MS = 120
+
 interface RendererArgs {
   invocationId: string
   observerSocketPath: string
@@ -174,6 +177,35 @@ async function main(): Promise<void> {
     width,
   })
   await projection.start()
+
+  // Re-render the pane when its WIDTH changes (T-06365). Every measure in a row —
+  // the prose wrap, the clip, how far the tint was filled — is frozen when the row
+  // is committed, and this process is launched into a pane still at tmux's 80-column
+  // default that widens the moment a client attaches. Without this, the entire
+  // priming block stays wrapped and tinted to ~78 columns for the life of a much
+  // wider pane, while everything after the attach reaches the edge.
+  //
+  // The scrollback is cleared along with the screen and then rebuilt from the same
+  // history, so the operator does not end up with two copies of the transcript —
+  // one narrow, one wide. Height changes are ignored: nothing is measured against it.
+  if (isTty) {
+    let lastColumns = process.stdout.columns
+    let redrawTimer: ReturnType<typeof setTimeout> | undefined
+    process.stdout.on('resize', () => {
+      if (process.stdout.columns === lastColumns) return
+      lastColumns = process.stdout.columns
+      // A drag-resize arrives as a burst; redraw once it settles.
+      if (redrawTimer !== undefined) clearTimeout(redrawTimer)
+      redrawTimer = setTimeout(() => {
+        redrawTimer = undefined
+        // Home, clear screen, clear scrollback — then rebuild from the history.
+        process.stdout.write('\x1b[H\x1b[2J\x1b[3J')
+        statusLine.invalidate()
+        projection.redraw()
+      }, RESIZE_SETTLE_MS)
+    })
+  }
+
   let quitPosted = false
   let exitPosted = false
 

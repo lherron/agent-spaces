@@ -82,6 +82,12 @@ export interface StatusLine {
   writeLine: (line: string) => void
   /** Fold in one broker event; drives the state machine. */
   observe: (event: { type: string }) => void
+  /**
+   * Declare that the pane was cleared by someone else, so the row is no longer on
+   * screen (a resize redraw). Without this the next write would erase a row that is
+   * gone — landing a stray erase on whatever now occupies the cursor's row.
+   */
+  invalidate: () => void
   /** Stop animating, erase the row, restore the cursor. Idempotent. */
   dispose: () => void
 }
@@ -176,6 +182,13 @@ export function createStatusLine(options: StatusLineOptions): StatusLine {
       stopTimer()
       erase()
       restoreCursor()
+    },
+
+    invalidate(): void {
+      // The cells are already gone; writing an erase for them would corrupt the
+      // freshly cleared pane. Drop the claim, keep the state and the clock.
+      painted = false
+      cursorHidden = false
     },
 
     dispose(): void {
