@@ -27,6 +27,8 @@ import {
   type RendererEventsSinceResponse,
   createCodexAppServerRendererProjection,
 } from './renderer'
+import { createStatusLine } from './status-line'
+import { createCodexStatusRow } from './transcript'
 
 interface RendererArgs {
   invocationId: string
@@ -144,17 +146,32 @@ async function main(): Promise<void> {
   const { surface, close } = connectReadSurface(observerSocketPath)
   // The renderer writes into a real tmux pane (a TTY): enable colour unless the
   // operator opted out via NO_COLOR, and wrap/fill to the pane width.
-  const color = process.env['NO_COLOR'] === undefined && process.stdout.isTTY === true
+  const isTty = process.stdout.isTTY === true
+  const color = process.env['NO_COLOR'] === undefined && isTty
+  // A THUNK, not a snapshot (T-06343). This process is exec'd into an HRC-leased
+  // pane that is commonly still at tmux's 80-column default, then resized once a
+  // client attaches. Reading `columns` once at startup pinned every tinted band
+  // to the launch-time width for the life of the pane.
+  const width = (): number | undefined => process.stdout.columns
+
+  // The live status row (T-06365). Cursor control is meaningless off a TTY, so the
+  // row is TTY-gated independently of colour: NO_COLOR asks for no colour, not for
+  // a frozen pane. All transcript output funnels through `writeLine` so the row is
+  // always erased before a line is committed and never lands in scrollback.
+  const statusRow = createCodexStatusRow({ color, width })
+  const statusLine = createStatusLine({
+    write: (chunk) => process.stdout.write(chunk),
+    renderRow: (frame, elapsedMs) => statusRow.running(frame, elapsedMs),
+    enabled: isTty,
+  })
+
   const projection = createCodexAppServerRendererProjection({
     invocationId,
     readSurface: surface,
-    sink: (line) => process.stdout.write(`${line}\n`),
+    sink: (line) => statusLine.writeLine(line),
+    onEvent: (event) => statusLine.observe(event),
     color,
-    // A THUNK, not a snapshot (T-06343). This process is exec'd into an HRC-leased
-    // pane that is commonly still at tmux's 80-column default, then resized once a
-    // client attaches. Reading `columns` once at startup pinned every tinted band
-    // to the launch-time width for the life of the pane.
-    width: () => process.stdout.columns,
+    width,
   })
   await projection.start()
   let quitPosted = false
@@ -184,6 +201,7 @@ async function main(): Promise<void> {
         callbackSocket: controlSocketPath,
         reason: 'prompt_input_exit',
       }).catch(() => undefined)
+      statusLine.dispose()
       projection.close()
       close()
       process.exit(0)
@@ -194,12 +212,20 @@ async function main(): Promise<void> {
   // (or the broker connection) is torn down.
   process.on('SIGINT', () => {
     void postRendererExit(null, 'SIGINT')
+    statusLine.dispose()
     projection.close()
     close()
     process.exit(0)
   })
   process.on('beforeExit', (code) => {
     void postRendererExit(code, null)
+  })
+  // Last line of defence for the cursor. The status row hides it while animating,
+  // and a renderer that dies mid-turn by any path we did not enumerate would
+  // otherwise leave the operator's pane with no cursor. `dispose` is idempotent and
+  // writes synchronously, which is all an `exit` handler may do.
+  process.on('exit', () => {
+    statusLine.dispose()
   })
 }
 

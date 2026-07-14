@@ -23,6 +23,7 @@ import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
  *   - plan update     → brass lane, `☑/▸/☐` checklist
  *   - diff update     → teal lane, per-file `+a -r` filestat
  *   - turn footer     → kiln lane `✓ done · <tokens> · <elapsed>`
+ *   - running row     → molten lane, live ember bar (ephemeral, never scrollback)
  *   - startup/chrome  → dim `·` lines (recede)
  *
  * Unlike `hrcchat turn` (one redrawn frame), this appends to a long-lived,
@@ -47,6 +48,8 @@ const FG = {
   dim: '38;2;104;99;92', // chrome / de-emphasis
   iris: '38;2;150;134;248', // violet — the user's input lane (nothing else is violet)
   molten: '38;2;242;107;30', // the ONE bold hue — turn divider only
+  hot: '38;2;255;226;168', // white-hot — the leading coal of the running row
+  ember: '38;2;122;56;22', // a coal that has cooled — trails the running row
   kiln: '38;2;61;220;132', // phosphor green — tool/shell lane, success
   teal: '38;2;45;212;191', // cyan-teal — diff lane
   brass: '38;2;224;168;46', // warm gold — plan lane, caution
@@ -61,6 +64,7 @@ const BG = {
   notice: '48;2;30;27;20', // warm neutral — plan / notices
   error: '48;2;46;20;22', // deep red — failure
   endturn: '48;2;18;34;26', // green-teal — turn footer
+  forge: '48;2;44;24;12', // deep molten — the live running row (T-06365)
 } as const
 
 type Fg = keyof typeof FG
@@ -306,6 +310,20 @@ function shortId(id: string): string {
   return cleaned.length <= 12 ? cleaned : `${cleaned.slice(0, 8)}…`
 }
 
+/**
+ * Elapsed for a row that repaints several times a second (T-06365). Deliberately
+ * NOT `formatElapsed`: that renders sub-second precision, which on a live counter
+ * churns every frame and reads as noise rather than a stopwatch. Whole seconds
+ * only, and nothing at all under one second — a turn that finishes that fast
+ * should not flash a number on its way past.
+ */
+function formatLiveElapsed(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 1000) return ''
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}m${s % 60}s`
+}
+
 function extractAssistantText(payload: Record<string, unknown>): string {
   if (typeof payload['text'] === 'string') return payload['text']
   const content = payload['content']
@@ -344,45 +362,37 @@ export interface CodexTranscriptModel {
 }
 
 /**
- * Stateful transcript model. Coalesces assistant `*.delta` streams into the
- * finalized message, pairs `tool.call.started`/`completed` into a grouped band,
- * tracks per-turn usage + elapsed for the footer, renders plan/diff updates as
- * cards, and folds high-frequency telemetry away.
+ * The ANSI primitives, shared by everything that paints a row in this design
+ * language. Hoisted out of the transcript model (T-06365) so the live status row
+ * — which is NOT part of the append-only transcript — renders as a real forge
+ * lane instead of reimplementing the band assembly beside it.
+ *
+ * The PHYSICAL pane measure stays private: `band` is the only thing that may fill
+ * to it, and it does that with erase-to-EOL rather than width arithmetic (T-06343).
+ * Handing callers a pane width invites exactly the padding that bug was.
  */
-export function createCodexTranscriptModel(
-  options: CodexTranscriptModelOptions
-): CodexTranscriptModel {
-  const color = options.color ?? false
-  const emit = options.emit
+interface Styler {
+  /** Typographic: prose wrap/clip. Clamped — readability, not the pane. */
+  contentWidth: () => number
+  band: (bg: Bg, accent: Fg, segs: Seg[]) => string
+  line: (segs: Seg[]) => string
+  dimLine: (body: string) => string
+}
 
+function createStyler(color: boolean, width: CodexTranscriptWidth | undefined): Styler {
   // Both measures resolve fresh per row from the caller's width source, so a pane
   // resize after launch is picked up with no SIGWINCH handler (T-06343).
-  const rawWidth = (): number | undefined =>
-    typeof options.width === 'function' ? options.width() : options.width
-  /** Typographic: prose wrap/clip. Clamped — readability, not the pane. */
+  const rawWidth = (): number | undefined => (typeof width === 'function' ? width() : width)
   const contentWidth = (): number =>
     Math.max(MIN_WIDTH - BODY.length, clampWidth(rawWidth()) - BODY.length)
-  /** Physical: how far a band fills. Never clamped upward. */
   const paneWidth = (): number => resolvePaneWidth(rawWidth())
 
-  // Per-turn rolling state.
-  const toolNames = new Map<string, string>()
-  let assistantBuffer = ''
-  let assistantOpen = false
-  let turnStartMs = Number.NaN
-  let latestTokens: unknown
-  let headerShown = false
-
-  // ── ANSI primitives ────────────────────────────────────────────────────
   // A segment's foreground and intensity are BOTH re-asserted so a preceding
   // bold/coloured segment never bleeds into the next; the band background is set
   // once and only cleared by the trailing reset, so `\x1b[39m`-style resets can
   // never punch a hole in the band.
-  function paint(segs: Seg[]): string {
-    return segs
-      .map((s) => `\x1b[${s.bold ? '1' : '22'};${s.fg ? FG[s.fg] : '39'}m${s.text}`)
-      .join('')
-  }
+  const paint = (segs: Seg[]): string =>
+    segs.map((s) => `\x1b[${s.bold ? '1' : '22'};${s.fg ? FG[s.fg] : '39'}m${s.text}`).join('')
 
   /**
    * A full-width tinted lane row: a bright left keyline in the lane accent, the
@@ -418,7 +428,84 @@ export function createCodexTranscriptModel(
     return `${BODY}${paint(segs)}${RESET}`
   }
 
-  const dimLine = (body: string): string => line([{ text: `· ${body}`, fg: 'dim' }])
+  return {
+    contentWidth,
+    band,
+    line,
+    dimLine: (body: string): string => line([{ text: `· ${body}`, fg: 'dim' }]),
+  }
+}
+
+/**
+ * The live "running" status row (T-06365).
+ *
+ * Structurally this is the UNRESOLVED form of the `✓ done` turn footer: same lane
+ * position at the foot of the turn, replaced in place by the footer the moment the
+ * turn lands. So it is a real band, and it takes the molten accent the turn divider
+ * already owns — `▶ turn` opens the turn, this holds it open, `✓ done` closes it.
+ *
+ * The animation is a bar of metal in a fire rather than the braille dots every CLI
+ * spinner reaches for: a white-hot coal breathes back and forth along `━━━━━━`, and
+ * the cells behind it cool through molten → brass → dead ember. It ping-pongs
+ * instead of marching in one direction — a conveyor reads as progress toward a
+ * known end, and a turn has no known end. Heat only says "still working".
+ */
+export interface CodexStatusRow {
+  /** One frame of the running row. `frame` is taken modulo the frame count. */
+  running: (frame: number, elapsedMs: number) => string
+}
+
+const EMBER_CELLS = 6
+const EMBER_GLYPH = '━'
+/** Heat by distance behind the coal: white-hot, molten, brass, then dead ember. */
+const EMBER_HEAT: readonly Fg[] = ['hot', 'molten', 'brass', 'ember']
+/** Ping-pong period: out along the bar and back, with no held frame at either end. */
+export const CODEX_STATUS_FRAME_COUNT = (EMBER_CELLS - 1) * 2
+
+export function createCodexStatusRow(options: {
+  color?: boolean | undefined
+  width?: CodexTranscriptWidth | undefined
+}): CodexStatusRow {
+  const styler = createStyler(options.color ?? false, options.width)
+  return {
+    running(frame: number, elapsedMs: number): string {
+      const phase =
+        ((frame % CODEX_STATUS_FRAME_COUNT) + CODEX_STATUS_FRAME_COUNT) % CODEX_STATUS_FRAME_COUNT
+      const coal = phase < EMBER_CELLS ? phase : CODEX_STATUS_FRAME_COUNT - phase
+      const bar: Seg[] = Array.from({ length: EMBER_CELLS }, (_, i) => ({
+        text: EMBER_GLYPH,
+        fg: EMBER_HEAT[Math.min(Math.abs(i - coal), EMBER_HEAT.length - 1)] as Fg,
+        bold: Math.abs(i - coal) <= 1,
+      }))
+      const elapsed = formatLiveElapsed(elapsedMs)
+      return styler.band('forge', 'molten', [
+        ...bar,
+        { text: '  running', fg: 'text', bold: true },
+        ...(elapsed.length > 0 ? [{ text: ` · ${elapsed}`, fg: 'dim' as Fg }] : []),
+      ])
+    },
+  }
+}
+
+/**
+ * Stateful transcript model. Coalesces assistant `*.delta` streams into the
+ * finalized message, pairs `tool.call.started`/`completed` into a grouped band,
+ * tracks per-turn usage + elapsed for the footer, renders plan/diff updates as
+ * cards, and folds high-frequency telemetry away.
+ */
+export function createCodexTranscriptModel(
+  options: CodexTranscriptModelOptions
+): CodexTranscriptModel {
+  const emit = options.emit
+  const { contentWidth, band, line, dimLine } = createStyler(options.color ?? false, options.width)
+
+  // Per-turn rolling state.
+  const toolNames = new Map<string, string>()
+  let assistantBuffer = ''
+  let assistantOpen = false
+  let turnStartMs = Number.NaN
+  let latestTokens: unknown
+  let headerShown = false
 
   // ── Region renderers ───────────────────────────────────────────────────
   function flushAssistant(payload: Record<string, unknown>): void {

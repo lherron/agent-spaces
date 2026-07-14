@@ -61,6 +61,15 @@ export interface RendererProjectionOptions {
    * pane). Pass a thunk from a live pane so a resize after launch is picked up.
    */
   width?: CodexTranscriptWidth | undefined
+  /**
+   * Called once per accepted event, AFTER its transcript lines are emitted, in the
+   * same seq order and with the same dedup as the transcript itself (T-06365).
+   * Exists so a pane-level presentation concern — the live status row — can follow
+   * the invocation's state without opening a second subscription to the read
+   * surface, which would reintroduce exactly the replay/live ordering gap this
+   * projection exists to close. Observation only: it must not emit lines.
+   */
+  onEvent?: ((event: InvocationEventEnvelope) => void) | undefined
 }
 
 /**
@@ -102,6 +111,7 @@ export function createCodexAppServerRendererProjection(
     if (seenSeqs.has(event.seq)) return
     seenSeqs.add(event.seq)
     transcript.apply(event)
+    options.onEvent?.(event)
   }
 
   function onLive(event: InvocationEventEnvelope): void {
