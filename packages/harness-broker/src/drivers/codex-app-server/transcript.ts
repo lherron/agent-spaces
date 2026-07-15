@@ -816,9 +816,11 @@ export function createCodexTranscriptModel(
       case 'usage.updated': {
         // Track for the turn footer only — a codex turn emits a token update per
         // step, so rendering each one floods the pane. The final `✓ done` line
-        // carries the total.
-        const total = asRecord(asRecord(p['usage'])['total'])
-        latestTokens = total['totalTokens']
+        // carries the final request's context usage. `usage.total` is cumulative
+        // across every request in the invocation and would mislabel millions of
+        // lifetime tokens as one turn's context size (T-06423).
+        const last = asRecord(asRecord(p['usage'])['last'])
+        latestTokens = last['totalTokens']
         return
       }
       case 'turn.completed': {

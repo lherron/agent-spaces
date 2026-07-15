@@ -196,7 +196,12 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
       }),
       event(9, 'tool.call.failed', { toolCallId: 'tool_2', name: 'command', message: 'boom' }),
       event(10, 'diagnostic', { level: 'warn', source: 'harness', message: 'slow read' }),
-      event(11, 'usage.updated', { usage: { total: { totalTokens: 12345 } } }),
+      event(11, 'usage.updated', {
+        usage: {
+          total: { totalTokens: 24690 },
+          last: { totalTokens: 12345 },
+        },
+      }),
       event(12, 'assistant.message.completed', { messageId: 'msg_1', text: 'All set.' }),
       event(13, 'turn.completed', {
         turnId: 'turn_1',
@@ -227,6 +232,41 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     // rendered per-chunk.
     expect(rendered).not.toContain('I will run it.')
     expect(rendered).not.toContain('streaming-chunk')
+    projection.close()
+  })
+
+  test('renders the final request usage for a turn, not the lifetime cumulative total (T-06423)', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'turn.started', { turnId: 'turn_1' }),
+      event(2, 'usage.updated', {
+        usage: {
+          total: { totalTokens: 7522456 },
+          last: { totalTokens: 178404 },
+          modelContextWindow: 258400,
+        },
+      }),
+      // Final shape captured from burn-in 04 (rt-d0e66738): `total` is the
+      // lifetime additive counter across requests, while `last` is this request.
+      event(3, 'usage.updated', {
+        usage: {
+          total: { totalTokens: 7701776 },
+          last: { totalTokens: 179320 },
+          modelContextWindow: 258400,
+        },
+      }),
+      event(4, 'turn.completed', { turnId: 'turn_1', status: 'completed' }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+
+    await projection.start()
+
+    const rendered = textLines(projection).join('\n')
+    expect(rendered).toContain('✓ done · 179,320 tok')
+    expect(rendered).not.toContain('7,701,776 tok')
     projection.close()
   })
 
