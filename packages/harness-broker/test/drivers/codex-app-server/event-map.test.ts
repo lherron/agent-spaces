@@ -520,6 +520,86 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
     })
   })
 
+  describe('notice-shaped server notifications', () => {
+    test('deprecationNotice emits a driver.notice with migration details', () => {
+      const events = mapCodexNotification(
+        note('deprecationNotice', {
+          summary: 'The legacy_sandbox config key is deprecated.',
+          details: 'Use sandbox_mode instead.',
+        })
+      )
+
+      expect(events).toEqual([
+        {
+          type: 'driver.notice',
+          payload: {
+            message: 'The legacy_sandbox config key is deprecated.',
+            code: 'deprecationNotice',
+            data: { details: 'Use sandbox_mode instead.' },
+          },
+          extra: {
+            driver: { kind: CODEX_DRIVER_KIND, rawType: 'deprecationNotice' },
+          },
+        },
+      ])
+    })
+
+    test('configWarning emits a driver.notice with warning details', () => {
+      const events = mapCodexNotification(
+        note('configWarning', {
+          summary: 'Ignored invalid value for model_reasoning_effort.',
+          details: 'Expected low, medium, or high.',
+        })
+      )
+
+      expect(events).toEqual([
+        {
+          type: 'driver.notice',
+          payload: {
+            message: 'Ignored invalid value for model_reasoning_effort.',
+            code: 'configWarning',
+            data: { details: 'Expected low, medium, or high.' },
+          },
+          extra: {
+            driver: { kind: CODEX_DRIVER_KIND, rawType: 'configWarning' },
+          },
+        },
+      ])
+    })
+
+    test('windows/worldWritableWarning emits a driver.notice preserving every structured field', () => {
+      const events = mapCodexNotification(
+        note('windows/worldWritableWarning', {
+          extraCount: 2,
+          failedScan: true,
+          samplePaths: ['C:\\Temp', 'C:\\Shared'],
+        })
+      )
+
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        type: 'driver.notice',
+        payload: {
+          code: 'windows/worldWritableWarning',
+          data: {
+            extraCount: 2,
+            failedScan: true,
+            samplePaths: ['C:\\Temp', 'C:\\Shared'],
+          },
+        },
+        extra: {
+          driver: { kind: CODEX_DRIVER_KIND, rawType: 'windows/worldWritableWarning' },
+        },
+      })
+      const message = (events[0]?.payload as { message: string }).message
+      expect(message).toContain('world-writable')
+      expect(message).toContain('C:\\Temp')
+      expect(message).toContain('C:\\Shared')
+      expect(message).toContain('2')
+      expect(message).toMatch(/scan[^.]*fail|fail[^.]*scan/i)
+    })
+  })
+
   describe('unknown native notification (H6)', () => {
     test('unknown method → trace diagnostic, never leaks native type as normalized type', () => {
       const events = mapCodexNotification(note('thread/somethingNew', { foo: 1 }))
