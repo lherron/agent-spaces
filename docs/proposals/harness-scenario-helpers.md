@@ -1,10 +1,11 @@
 # Deterministic Harness Scenario Helpers
 
-- **Status**: proposal; no implementation
+- **Status**: proposal; rollout tracked; no implementation
 - **Date**: 2026-07-15
 - **Scope**: `agent-spaces` first, with an intentional consumption seam for `hrc-runtime`
 - **Proposed package**: `packages/harness-scenarios` published as `spaces-harness-scenarios`
 - **Architecture review**: Daedalus approved with the conditions incorporated below (hrcchat message 14755)
+- **Rollout container**: `agent-spaces/harness-scenario-helpers` (`T-06393` through `T-06397`)
 
 ## Decision
 
@@ -460,17 +461,41 @@ The implementation needs the normal publishable-package plumbing:
 
 `spaces-harness-scenarios` depends on `spaces-harness-broker-protocol`; it does not depend on `spaces-harness-broker`. `spaces-harness-broker` may take a dev dependency on the scenarios package for tests. If the workspace tooling treats that dev-only edge as a cycle, keep the integration tests at the repository root rather than reversing the production graph.
 
-## Implementation sequence
+## Phased rollout
+
+The rollout is tracked in the `agent-spaces/harness-scenario-helpers` wrkq feature container. Each task treats its linked phase section below as its implementation contract.
+
+| Phase | Task | Depends on | Owned delivery | Exit gate |
+| --- | --- | --- | --- | --- |
+| 0 | `T-06393` | none | type-coupled broker envelopes and exhaustive runtime validation | protocol tests and repository contract checks pass |
+| 1 | `T-06394` | `T-06393` | scenario core, direct broker compiler, durable read-surface fixture | representative renderer and replay/failure proofs pass |
+| 2 | `T-06395` | `T-06394` | generated Codex protocol snapshot, native compiler/player, mapper parity | schema, native parity, and fake-server-to-renderer proofs pass |
+| 3 | `T-06396` | `T-06395` | published package consumption through HRC's real mapper | broker-to-HRC-to-frame integration passes from the real HRC checkout |
+| 4 | `T-06397` | `T-06396` | selective fixture migration and duplicate-helper cleanup | final cross-package/cross-repo matrix and real-surface smokes pass |
+
+The phases are sequential by default. A phase is ready to start only after the preceding task records its exit evidence; task state alone is not sufficient. Each phase keeps its explicitly deferred work in the next phase rather than widening its package or ownership boundary.
 
 ### Phase 0 — Make broker fixtures authoritative
+
+**Tracked task:** `T-06393` — `phase-0-broker-fixture-contract`
+
+**Entry condition:** the approved proposal and current broker protocol behavior are the baseline; there is no earlier implementation dependency.
+
+**Owned delivery:**
 
 1. Introduce `InvocationEventPayloadMap` and migrate typed emitters.
 2. Make payload validation exhaustive.
 3. Add protocol tests proving type/payload coupling and runtime rejection.
 
-This phase is a prerequisite, not incidental cleanup.
+**Exit gate:** incorrect event/payload pairs fail at compile time and runtime, every scenario-emittable broker event has protocol-owned validation, and the existing broker protocol/harness-broker contract checks pass. This phase is a prerequisite, not incidental cleanup.
 
 ### Phase 1 — Core and direct broker path
+
+**Tracked task:** `T-06394` — `phase-1-core-broker-adapter`
+
+**Entry condition:** `T-06393` is complete with its protocol validation evidence recorded.
+
+**Owned delivery:**
 
 1. Scaffold `spaces-harness-scenarios` with root and `./broker` exports.
 2. Implement the immutable scenario model, deterministic id/clock, validation, and schedule.
@@ -478,9 +503,15 @@ This phase is a prerequisite, not incidental cleanup.
 4. Implement the durable read-surface fixture.
 5. Convert a representative renderer happy path, a replay/live race, and a retention failure. Keep some low-level tests to prove raw handling.
 
-The first usable milestone is a much shorter renderer test that still exercises the production projection.
+**Exit gate:** the representative renderer scenario removes manual envelope ceremony, every compiled broker frame passes the real validator, deterministic/failure invariants pass, and replay/live/retention behavior is proven through the production renderer projection. This is the first usable package milestone.
 
 ### Phase 2 — Exact Codex path
+
+**Tracked task:** `T-06395` — `phase-2-codex-app-server-adapter`
+
+**Entry condition:** `T-06394` is complete and the package's root/broker API is stable enough to consume without redesign.
+
+**Owned delivery:**
 
 1. Add generated Codex protocol snapshot and refresh/check commands.
 2. Implement semantic lowering for user, turn, assistant, one canonical generic tool representation, usage, and terminal outcomes.
@@ -488,7 +519,15 @@ The first usable milestone is a much shorter renderer test that still exercises 
 4. Add the structural app-server sink/player and adapt the existing fake server.
 5. Add native-to-broker parity and provider-specific golden tests.
 
+**Exit gate:** every safe native frame passes the generated schema, the canonical scenario is semantically equivalent through native and direct broker paths, provider-specific cases begin with exact native input, and a fake app-server handshake reaches the renderer through the production mapper, sequencer, and ledger.
+
 ### Phase 3 — HRC consumption
+
+**Tracked task:** `T-06396` — `phase-3-hrc-consumption`
+
+**Entry condition:** `T-06395` is complete and the full package is available through the normal Verdaccio development publication flow.
+
+**Owned delivery:**
 
 1. Publish the package through the existing Verdaccio dev flow.
 2. Add it as an HRC test-only dependency.
@@ -496,9 +535,23 @@ The first usable milestone is a much shorter renderer test that still exercises 
 4. Add the required broker → real mapper → frame renderer integration proof.
 5. Keep HRC-local post-mapping builders small and explicitly named by altitude.
 
+**Exit gate:** the published package is installed in the real HRC checkout, generated broker events traverse the real `BrokerEventMapper` into persisted lifecycle rows and the frame renderer, and ASP boundary checks prove no HRC vocabulary or dependency leaked into the package.
+
 ### Phase 4 — Selective migration
 
-Convert fixtures when the helper makes intent clearer. Do not mechanically replace every raw event test. Protocol validators, unknown-event behavior, malformed input, exact edge ordering, and regression goldens often read better as explicit frames.
+**Tracked task:** `T-06397` — `phase-4-selective-migration`
+
+**Entry condition:** `T-06396` is complete, so all supported fixture altitudes have a proven production-path integration.
+
+**Owned delivery:**
+
+1. Inventory duplicated builders in the affected ASP and HRC tests.
+2. Convert fixtures when the helper makes intent and proof altitude clearer.
+3. Remove only helpers whose consumers were migrated or deliberately replaced.
+4. Retain explicit raw events for protocol validators, unknown-event behavior, malformed input, exact edge ordering, and regression goldens.
+5. Run the final cross-package and cross-repo verification matrix and required real-surface smokes.
+
+**Exit gate:** remaining tests declare their altitude accurately, intentionally raw coverage is documented, removed helpers have no consumers, and the proposal's complete acceptance criteria are proven. This phase is selective cleanup, not a mandate to convert every fixture.
 
 ## Acceptance criteria
 
