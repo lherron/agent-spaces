@@ -112,6 +112,13 @@ export interface SdkSessionIdEvent {
   sdkSessionId: string
 }
 
+/** Operator-visible warning or informational notice emitted by a harness. */
+export interface NoticeEvent {
+  type: 'notice'
+  level: 'info' | 'warn'
+  message: string
+}
+
 export type UnifiedSessionEvent =
   | AgentStartEvent
   | AgentEndEvent
@@ -124,6 +131,7 @@ export type UnifiedSessionEvent =
   | ToolExecutionUpdateEvent
   | ToolExecutionEndEvent
   | SdkSessionIdEvent
+  | NoticeEvent
 
 export type UnifiedSessionState = 'idle' | 'running' | 'streaming' | 'stopped' | 'error'
 

@@ -210,6 +210,31 @@ export function classifyNotification(
   params: unknown
 ): UnifiedSessionEvent[] | null {
   switch (method) {
+    case 'deprecationNotice':
+    case 'configWarning': {
+      const noticeParams = asRecord(params)
+      const summary =
+        stringValue(noticeParams['summary']) ??
+        (method === 'deprecationNotice'
+          ? 'Codex reported a deprecation.'
+          : 'Codex reported a configuration warning.')
+      return [{ type: 'notice', level: 'warn', message: summary }]
+    }
+    case 'windows/worldWritableWarning': {
+      const noticeParams = asRecord(params)
+      const extraCount = numberValue(noticeParams['extraCount']) ?? 0
+      const failedScan = noticeParams['failedScan'] === true
+      const samplePaths = Array.isArray(noticeParams['samplePaths'])
+        ? noticeParams['samplePaths'].filter((path): path is string => typeof path === 'string')
+        : []
+      return [
+        {
+          type: 'notice',
+          level: 'warn',
+          message: worldWritableWarningMessage(extraCount, failedScan, samplePaths),
+        },
+      ]
+    }
     case 'item/agentMessage/delta': {
       const deltaParams = params as AgentMessageDeltaNotification
       return [
@@ -236,6 +261,34 @@ export function classifyNotification(
     default:
       return null
   }
+}
+
+function worldWritableWarningMessage(
+  extraCount: number,
+  failedScan: boolean,
+  samplePaths: string[]
+): string {
+  const pathSummary =
+    samplePaths.length > 0
+      ? ` Sample paths: ${samplePaths.join(', ')}.`
+      : ' No sample paths were provided.'
+  const extraSummary = ` ${extraCount} additional world-writable path${extraCount === 1 ? '' : 's'} were found.`
+  const scanSummary = failedScan
+    ? ' The world-writable path scan failed before completion.'
+    : ' The world-writable path scan completed.'
+  return `Codex detected world-writable paths.${pathSummary}${extraSummary}${scanSummary}`
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined
 }
 
 /**

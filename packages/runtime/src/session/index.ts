@@ -11,6 +11,7 @@ export type {
   AttachmentRef,
   PromptOptions,
   SdkSessionIdEvent,
+  NoticeEvent,
 } from './types.js'
 export type { PermissionHandler, PermissionRequest, PermissionResult } from './permissions.js'
 export type { CreateSessionOptions, CodexApprovalPolicy, CodexSandboxMode } from './options.js'

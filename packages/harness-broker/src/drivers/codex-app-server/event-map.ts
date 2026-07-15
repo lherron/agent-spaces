@@ -208,6 +208,8 @@ function mapCodexNotificationInner(
   lastDiffSignatures: LastDiffSignatures
 ): MappedEvent[] {
   const params = asRecord(notification.params)
+  const notice = mapCodexNotice(notification.method, params)
+  if (notice !== undefined) return notice
 
   switch (notification.method) {
     case 'turn/started': {
@@ -467,6 +469,68 @@ function mapCodexNotificationInner(
         },
       ]
   }
+}
+
+function mapCodexNotice(
+  method: string,
+  params: Record<string, unknown>
+): MappedEvent[] | undefined {
+  switch (method) {
+    case 'deprecationNotice':
+    case 'configWarning': {
+      const summary =
+        stringValue(params['summary']) ??
+        (method === 'deprecationNotice'
+          ? 'Codex reported a deprecation.'
+          : 'Codex reported a configuration warning.')
+      const details = stringValue(params['details'])
+      return [
+        {
+          type: 'driver.notice',
+          payload: {
+            message: summary,
+            code: method,
+            ...(details !== undefined ? { data: { details } } : {}),
+          },
+        },
+      ]
+    }
+    case 'windows/worldWritableWarning': {
+      const extraCount = numberValue(params['extraCount']) ?? 0
+      const failedScan = params['failedScan'] === true
+      const samplePaths = Array.isArray(params['samplePaths'])
+        ? params['samplePaths'].filter((path): path is string => typeof path === 'string')
+        : []
+      return [
+        {
+          type: 'driver.notice',
+          payload: {
+            message: worldWritableWarningMessage(extraCount, failedScan, samplePaths),
+            code: method,
+            data: { extraCount, failedScan, samplePaths },
+          },
+        },
+      ]
+    }
+    default:
+      return undefined
+  }
+}
+
+function worldWritableWarningMessage(
+  extraCount: number,
+  failedScan: boolean,
+  samplePaths: string[]
+): string {
+  const pathSummary =
+    samplePaths.length > 0
+      ? ` Sample paths: ${samplePaths.join(', ')}.`
+      : ' No sample paths were provided.'
+  const extraSummary = ` ${extraCount} additional world-writable path${extraCount === 1 ? '' : 's'} were found.`
+  const scanSummary = failedScan
+    ? ' The world-writable path scan failed before completion.'
+    : ' The world-writable path scan completed.'
+  return `Codex detected world-writable paths.${pathSummary}${extraSummary}${scanSummary}`
 }
 
 function assistantCompletionEvent(
