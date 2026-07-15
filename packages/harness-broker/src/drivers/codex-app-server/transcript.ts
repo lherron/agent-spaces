@@ -295,6 +295,27 @@ function toolOutput(payload: Record<string, unknown>): string {
   return raw
 }
 
+/**
+ * Headline for a failed tool call. Only some drivers set `message`; a codex
+ * `commandExecution` reports its failure as `result.exitCode` and an
+ * `mcpToolCall` as `result.error`, so a message-only read renders a bare `✗
+ * command` with no reason at all (T-06401).
+ */
+function toolFailure(payload: Record<string, unknown>): string {
+  const message = str(payload['message']).trim()
+  if (message.length > 0) return message
+
+  const result = asRecord(payload['result'])
+  const error = str(result['error']).trim()
+  if (error.length > 0) return error
+
+  const exitCode = result['exitCode']
+  if (typeof exitCode === 'number') return `exit ${exitCode}`
+
+  const status = str(payload['status']).trim()
+  return status.length > 0 ? status : 'failed'
+}
+
 function truncateOutput(output: string): string[] {
   const lines = output.replace(/\r\n/g, '\n').replace(/\s+$/, '').split('\n')
   if (lines.length <= MAX_TOOL_OUTPUT_LINES) return lines
@@ -771,9 +792,20 @@ export function createCodexTranscriptModel(
           band('error', 'red', [
             { text: '✗ ', fg: 'red', bold: true },
             { text: name, fg: 'red', bold: true },
-            { text: `  ${clip(str(p['message']))}`, fg: 'red' },
+            { text: `  ${clip(toolFailure(p))}`, fg: 'red' },
           ])
         )
+        const output = toolOutput(p)
+        if (output.trim().length > 0) {
+          truncateOutput(output).forEach((body, idx) => {
+            emit(
+              band('error', 'red', [
+                { text: idx === 0 ? '↳ ' : '  ', fg: 'dim' },
+                { text: body, fg: 'red' },
+              ])
+            )
+          })
+        }
         return
       }
 

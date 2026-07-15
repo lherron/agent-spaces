@@ -230,6 +230,53 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     projection.close()
   })
 
+  // The live codex event-map never sets `message` on a tool.call.failed: a
+  // commandExecution reports its failure as `result.exitCode` and an mcpToolCall
+  // as `result.error`. A message-only read rendered a bare `✗ command` with no
+  // reason (T-06401), which is why the synthetic `message: 'boom'` case above
+  // did not catch it.
+  test('renders a failure reason for real codex tool.call.failed payloads, which carry no message', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'turn.started', { turnId: 'turn_1' }),
+      event(2, 'tool.call.started', {
+        toolCallId: 'tool_1',
+        name: 'command',
+        input: { command: 'bunx biome check' },
+      }),
+      // Exactly the shape event-map.ts builds for a failed commandExecution.
+      event(3, 'tool.call.failed', {
+        toolCallId: 'tool_1',
+        name: 'command',
+        result: { output: 'scope.ts:12 lint/style/useConst\n  Prefer const', exitCode: 1 },
+        isError: true,
+      }),
+      // ...and for a failed mcpToolCall, which reports `result.error`.
+      event(4, 'tool.call.failed', {
+        toolCallId: 'tool_2',
+        name: 'fetch',
+        result: { error: 'connection refused' },
+        isError: true,
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+
+    await projection.start()
+
+    const rendered = textLines(projection).join('\n')
+    expectTextInOrder(rendered, [
+      '✗ command  exit 1', // exit code stands in as the reason
+      '↳ scope.ts:12 lint/style/useConst', // failing output is shown, not swallowed
+      '✗ fetch  connection refused', // mcp error text stands in as the reason
+    ])
+    // A reason is always rendered — never a bare glyph+name with a blank tail.
+    expect(rendered).not.toMatch(/✗ command\s*$/m)
+    projection.close()
+  })
+
   test('renders every emitted lifecycle/telemetry event type with a dedicated form, never the raw-JSON fallback', async () => {
     const { createCodexAppServerRendererProjection } = await loadRendererModule()
     // The exact set the live codex-app-server invocation emits that previously
