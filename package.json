@@ -17,7 +17,7 @@
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "test": "bash -lc 'for pkg in \"agent-scope\" \"cli-kit\" \"spaces-config\" \"spaces-runtime\" \"spaces-harness-claude\" \"spaces-harness-codex\" \"spaces-harness-pi\" \"spaces-harness-pi-sdk\" \"spaces-execution\" \"spaces-harness-broker-protocol\" \"spaces-runtime-contracts\" \"spaces-aspc-protocol\" \"spaces-harness-broker-client\" \"spaces-harness-broker\" \"agent-spaces\" \"spaces-aspc\" \"@lherron/agent-spaces\"; do bun run --filter \"$pkg\" test || exit $?; done'",
+    "test": "bash -lc 'for pkg in \"agent-scope\" \"cli-kit\" \"spaces-config\" \"spaces-runtime\" \"spaces-harness-claude\" \"spaces-harness-codex\" \"spaces-harness-pi\" \"spaces-harness-pi-sdk\" \"spaces-execution\" \"spaces-harness-broker-protocol\" \"spaces-runtime-contracts\" \"spaces-aspc-protocol\" \"spaces-harness-broker-client\" \"spaces-harness-broker\" \"agent-spaces\" \"spaces-aspc\" \"@lherron/agent-spaces\"; do bun run --filter \"$pkg\" test || exit $?; done; bun test scripts/'",
     "test:fast": "bun scripts/test-fast.ts",
     "test:integration": "bun test integration-tests/tests",
     "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",
