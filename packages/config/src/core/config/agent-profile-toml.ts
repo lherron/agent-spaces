@@ -1,4 +1,5 @@
 import TOML from '@iarna/toml'
+import { validateToken } from 'agent-scope'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import type { AgentRuntimeProfile, HarnessSettings, RunMode } from '../types/agent-profile.js'
@@ -278,7 +279,7 @@ function parseIdentity(value: unknown, source: string, path: string): AgentIdent
     fail(source, path, 'must be a table', 'type')
   }
 
-  assertOnlyKeys(value, ['display', 'role', 'harness'], source, path)
+  assertOnlyKeys(value, ['display', 'role', 'default_scope_role', 'harness'], source, path)
 
   const identity: AgentIdentity = {}
   for (const [key, raw] of Object.entries(value)) {
@@ -287,6 +288,12 @@ function parseIdentity(value: unknown, source: string, path: string): AgentIdent
     }
     if (key === 'harness' && !resolveHarnessCatalogEntry(raw)) {
       fail(source, `${path}/${key}`, `unsupported harness "${raw}"`, 'enum')
+    }
+    if (key === 'default_scope_role') {
+      const error = validateToken(raw, 'default_scope_role')
+      if (error !== undefined) {
+        fail(source, `${path}/${key}`, error, 'pattern')
+      }
     }
     identity[key as keyof AgentIdentity] = raw
   }

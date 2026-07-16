@@ -1,3 +1,4 @@
+export { TOKEN_PATTERN, validateToken } from './types.js'
 export type { LaneRef, SessionRef, ValidationResult } from './types.js'
 export {
   parseScopeRef,

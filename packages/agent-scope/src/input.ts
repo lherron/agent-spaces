@@ -33,6 +33,11 @@ export type ResolveQualifiedScopeOptions = {
    * Defaults to "primary".
    */
   defaultTaskId?: string
+  /**
+   * Role default applied only when the parsed input carries a task and omits a role.
+   * Explicit roles always take precedence.
+   */
+  defaultRoleName?: string
 }
 
 /**
@@ -133,9 +138,14 @@ export function resolveQualifiedScopeInput(
   opts: ResolveQualifiedScopeOptions = {}
 ): ResolvedScopeInput {
   const base = parseScopeInput(input, opts.defaultLaneId)
-  const { agentId, roleName } = base
+  const { agentId } = base
   let projectId = base.projectId
   let taskId = base.taskId
+  let roleName = base.roleName
+
+  if (base.taskId !== undefined && base.roleName === undefined) {
+    roleName = opts.defaultRoleName
+  }
 
   if (projectId === undefined && opts.projectId !== undefined && opts.projectId !== '') {
     projectId = opts.projectId

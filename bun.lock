@@ -138,6 +138,7 @@
       "version": "0.1.1",
       "dependencies": {
         "@iarna/toml": "^2.2.5",
+        "agent-scope": "*",
         "ajv": "^8.17.1",
         "ajv-formats": "^3.0.1",
         "proper-lockfile": "^4.1.2",
@@ -148,7 +149,6 @@
         "@types/bun": "latest",
         "@types/proper-lockfile": "^4.1.4",
         "@types/semver": "^7.7.0",
-        "agent-scope": "*",
         "agent-spaces": "workspace:*",
         "typescript": "^5.8.3",
       },

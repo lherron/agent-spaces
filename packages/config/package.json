@@ -66,6 +66,7 @@
     "@iarna/toml": "^2.2.5",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
+    "agent-scope": "*",
     "proper-lockfile": "^4.1.2",
     "semver": "^7.7.2",
     "spaces-runtime-contracts": "*"
@@ -74,7 +75,6 @@
     "@types/proper-lockfile": "^4.1.4",
     "@types/semver": "^7.7.0",
     "@types/bun": "latest",
-    "agent-scope": "*",
     "agent-spaces": "workspace:*",
     "typescript": "^5.8.3"
   }

@@ -5,7 +5,10 @@ export type RunMode = 'query' | 'heartbeat' | 'task' | 'maintenance'
 
 export interface AgentIdentity {
   display?: string | undefined
+  /** Descriptive profile metadata; parsed but currently consumed nowhere. */
   role?: string | undefined
+  /** Default role used by scope resolution for task-bearing handles that omit a role. */
+  default_scope_role?: string | undefined
   harness?: string | undefined
 }
 
