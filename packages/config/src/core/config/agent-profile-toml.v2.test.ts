@@ -109,6 +109,52 @@ display = 42
 `
     expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
   })
+
+  describe('default_scope_role (T-06355)', () => {
+    test.each(['coordinator', 'Coordinator'])(
+      'parses canonical role token %j into the snake_case identity field',
+      (defaultScopeRole) => {
+        const result = parseAgentProfile(`
+schemaVersion = 2
+
+[identity]
+default_scope_role = "${defaultScopeRole}"
+`)
+
+        expect(result.identity?.default_scope_role).toBe(defaultScopeRole)
+        expect(result.identity).not.toHaveProperty('defaultScopeRole')
+      }
+    )
+
+    test.each(['co ordinator', 'a/b', ''])(
+      'rejects invalid role token %j with the source file and identity key',
+      (defaultScopeRole) => {
+        const source = '/tmp/t-06355-agent-profile.toml'
+        let caught: unknown
+
+        try {
+          parseAgentProfile(
+            `
+schemaVersion = 2
+
+[identity]
+default_scope_role = "${defaultScopeRole}"
+`,
+            source
+          )
+        } catch (error) {
+          caught = error
+        }
+
+        expect(caught).toBeInstanceOf(ConfigValidationError)
+        const validationError = caught as ConfigValidationError
+        expect(validationError.source).toBe(source)
+        expect(validationError.validationErrors).toEqual([
+          expect.objectContaining({ path: '/identity/default_scope_role' }),
+        ])
+      }
+    )
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

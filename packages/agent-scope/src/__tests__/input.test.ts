@@ -158,4 +158,139 @@ describe('resolveQualifiedScopeInput', () => {
       scopeRef: 'agent:larry',
     })
   })
+
+  describe('defaultRoleName (T-06355)', () => {
+    const defaultRoleName = 'coordinator'
+
+    test.each([
+      {
+        label: 'does not apply to a project-only handle before task:primary is synthesized',
+        input: 'cody@agent-spaces',
+        options: {},
+        expectedScopeRef: 'agent:cody:project:agent-spaces:task:primary',
+        expectedLaneRef: 'main',
+      },
+      {
+        label: 'does not apply when opts.defaultTaskId supplies the task',
+        input: 'cody@agent-spaces',
+        options: { defaultTaskId: 'T-1' },
+        expectedScopeRef: 'agent:cody:project:agent-spaces:task:T-1',
+        expectedLaneRef: 'main',
+      },
+      {
+        label: 'does not apply when opts.taskId supplies the task',
+        input: 'cody@agent-spaces',
+        options: { taskId: 'T-1' },
+        expectedScopeRef: 'agent:cody:project:agent-spaces:task:T-1',
+        expectedLaneRef: 'main',
+      },
+      {
+        label: 'applies to a task carried by a scope handle',
+        input: 'cody@agent-spaces:T-1',
+        options: {},
+        expectedScopeRef: 'agent:cody:project:agent-spaces:task:T-1:role:coordinator',
+        expectedLaneRef: 'main',
+      },
+      {
+        label: 'preserves an explicit role on a task-bearing scope handle',
+        input: 'cody@agent-spaces:T-1/tester',
+        options: {},
+        expectedScopeRef: 'agent:cody:project:agent-spaces:task:T-1:role:tester',
+        expectedLaneRef: 'main',
+      },
+      {
+        label: 'applies to a task carried by a canonical ScopeRef',
+        input: 'agent:cody:project:agent-spaces:task:T-1',
+        options: {},
+        expectedScopeRef: 'agent:cody:project:agent-spaces:task:T-1:role:coordinator',
+        expectedLaneRef: 'main',
+      },
+      {
+        label: 'preserves an explicit role on a canonical ScopeRef',
+        input: 'agent:cody:project:agent-spaces:task:T-1:role:tester',
+        options: {},
+        expectedScopeRef: 'agent:cody:project:agent-spaces:task:T-1:role:tester',
+        expectedLaneRef: 'main',
+      },
+      {
+        label: 'applies to a task carried by a session handle and preserves its lane',
+        input: 'cody@agent-spaces:T-1~repair',
+        options: {},
+        expectedScopeRef: 'agent:cody:project:agent-spaces:task:T-1:role:coordinator',
+        expectedLaneRef: 'lane:repair',
+      },
+      {
+        label: 'does not apply to a task synthesized for a project-only session handle',
+        input: 'cody@agent-spaces~repair',
+        options: {},
+        expectedScopeRef: 'agent:cody:project:agent-spaces:task:primary',
+        expectedLaneRef: 'lane:repair',
+      },
+      {
+        label: 'preserves an explicit role when the input carries no task',
+        input: 'cody@agent-spaces/reviewer',
+        options: {},
+        expectedScopeRef: 'agent:cody:project:agent-spaces:task:primary:role:reviewer',
+        expectedLaneRef: 'main',
+      },
+    ])('$label', ({ input, options, expectedScopeRef, expectedLaneRef }) => {
+      const result = resolveQualifiedScopeInput(input, { ...options, defaultRoleName })
+
+      expect(result.scopeRef).toBe(expectedScopeRef)
+      expect(result.parsed.roleName).toBe(
+        expectedScopeRef.includes(':role:') ? expectedScopeRef.split(':role:')[1] : undefined
+      )
+      expect(result.laneRef).toBe(expectedLaneRef)
+    })
+
+    test.each([
+      ['cody@agent-spaces', {}, 'agent:cody:project:agent-spaces:task:primary', 'main'],
+      [
+        'cody@agent-spaces',
+        { defaultTaskId: 'T-1' },
+        'agent:cody:project:agent-spaces:task:T-1',
+        'main',
+      ],
+      ['cody@agent-spaces', { taskId: 'T-1' }, 'agent:cody:project:agent-spaces:task:T-1', 'main'],
+      ['cody@agent-spaces:T-1', {}, 'agent:cody:project:agent-spaces:task:T-1', 'main'],
+      [
+        'cody@agent-spaces:T-1/tester',
+        {},
+        'agent:cody:project:agent-spaces:task:T-1:role:tester',
+        'main',
+      ],
+      [
+        'agent:cody:project:agent-spaces:task:T-1',
+        {},
+        'agent:cody:project:agent-spaces:task:T-1',
+        'main',
+      ],
+      [
+        'agent:cody:project:agent-spaces:task:T-1:role:tester',
+        {},
+        'agent:cody:project:agent-spaces:task:T-1:role:tester',
+        'main',
+      ],
+      [
+        'cody@agent-spaces:T-1~repair',
+        {},
+        'agent:cody:project:agent-spaces:task:T-1',
+        'lane:repair',
+      ],
+      [
+        'cody@agent-spaces/reviewer',
+        {},
+        'agent:cody:project:agent-spaces:task:primary:role:reviewer',
+        'main',
+      ],
+    ])(
+      'preserves current output when defaultRoleName is absent: %s',
+      (input, options, expectedScopeRef, expectedLaneRef) => {
+        expect(resolveQualifiedScopeInput(input, options)).toMatchObject({
+          scopeRef: expectedScopeRef,
+          laneRef: expectedLaneRef,
+        })
+      }
+    )
+  })
 })
