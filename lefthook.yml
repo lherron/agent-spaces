@@ -31,6 +31,36 @@ pre-push:
   parallel: false
   commands:
     install:
-      run: bun install
+      use_stdin: true
+      run: |
+        zero_sha=0000000000000000000000000000000000000000
+        saw_ref=false
+        deletion_only=true
+        while IFS= read -r refspec || [ -n "$refspec" ]; do
+          saw_ref=true
+          set -- $refspec
+          if [ "$#" -ne 4 ] || [ "$1" != "(delete)" ] || [ "$2" != "$zero_sha" ]; then
+            deletion_only=false
+          fi
+        done
+        if [ "$saw_ref" = true ] && [ "$deletion_only" = true ]; then
+          exit 0
+        fi
+        bun install
     test:
-      run: bun run test:fast
+      use_stdin: true
+      run: |
+        zero_sha=0000000000000000000000000000000000000000
+        saw_ref=false
+        deletion_only=true
+        while IFS= read -r refspec || [ -n "$refspec" ]; do
+          saw_ref=true
+          set -- $refspec
+          if [ "$#" -ne 4 ] || [ "$1" != "(delete)" ] || [ "$2" != "$zero_sha" ]; then
+            deletion_only=false
+          fi
+        done
+        if [ "$saw_ref" = true ] && [ "$deletion_only" = true ]; then
+          exit 0
+        fi
+        bun run test:fast
