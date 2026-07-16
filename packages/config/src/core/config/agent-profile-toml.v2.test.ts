@@ -22,6 +22,8 @@
  */
 
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { ConfigValidationError } from '../errors.js'
 import { parseAgentProfile } from './agent-profile-toml.js'
 
@@ -154,6 +156,13 @@ default_scope_role = "${defaultScopeRole}"
         ])
       }
     )
+
+    test('declares agent-scope as a runtime dependency of spaces-config', () => {
+      const packageJsonPath = join(import.meta.dirname, '..', '..', '..', 'package.json')
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'))
+
+      expect(packageJson.dependencies?.['agent-scope']).toBe('*')
+    })
   })
 })
 
