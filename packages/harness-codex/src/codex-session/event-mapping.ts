@@ -400,7 +400,13 @@ export function mapItemCompleted(item: CodexThreadItem): {
     }
     case 'commandExecution': {
       const cmdItem = item as Extract<CodexThreadItem, { type: 'commandExecution' }>
-      const result = buildToolResult(cmdItem.aggregatedOutput ?? '', {
+      const isError = cmdItem.exitCode !== null && cmdItem.exitCode !== 0
+      const output = cmdItem.aggregatedOutput ?? ''
+      const content =
+        isError && output.length === 0
+          ? `command exited with code ${cmdItem.exitCode}${cmdItem.durationMs !== null ? ` after ${cmdItem.durationMs}ms` : ''}; no output captured`
+          : output
+      const result = buildToolResult(content, {
         exitCode: cmdItem.exitCode,
         durationMs: cmdItem.durationMs,
       })
@@ -411,7 +417,7 @@ export function mapItemCompleted(item: CodexThreadItem): {
             toolUseId: cmdItem.id,
             toolName: 'command_execution',
             result,
-            ...(cmdItem.exitCode !== null && cmdItem.exitCode !== 0 ? { isError: true } : {}),
+            ...(isError ? { isError: true } : {}),
             ...(cmdItem.durationMs !== null ? { durationMs: cmdItem.durationMs } : {}),
             payload: cmdItem,
           },
