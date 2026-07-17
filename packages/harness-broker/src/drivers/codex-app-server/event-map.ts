@@ -404,6 +404,7 @@ function mapCodexNotificationInner(
               name: stringValue(item['name']) ?? TOOL_NAMES[itemType] ?? itemType,
               ...(result !== undefined ? { result } : {}),
               isError,
+              ...commandFailurePayload(itemType, item, isError),
               ...(durationMs !== undefined ? { durationMs } : {}),
             },
             extra: { turnId: asTurnId(turnId), itemId },
@@ -692,6 +693,23 @@ function normalizeToolResult(itemType: string, item: Record<string, unknown>): u
     default:
       return undefined
   }
+}
+
+function commandFailurePayload(
+  itemType: string,
+  item: Record<string, unknown>,
+  isError: boolean
+): { message?: string | undefined } {
+  if (itemType !== 'commandExecution' || !isError) return {}
+
+  const output = stringValue(item['aggregatedOutput'])
+  if (output !== undefined && output.length > 0) return {}
+
+  const exitCode = numberValue(item['exitCode'])
+  const durationMs = numberValue(item['durationMs'])
+  const failure = exitCode !== undefined ? `command exited with code ${exitCode}` : 'command failed'
+  const duration = durationMs !== undefined ? ` after ${durationMs}ms` : ''
+  return { message: `${failure}${duration}; no output captured` }
 }
 
 function isToolError(itemType: string, item: Record<string, unknown>): boolean {
