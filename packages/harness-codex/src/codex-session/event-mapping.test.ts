@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { classifyNotification } from './event-mapping'
+import { classifyNotification, mapItemCompleted } from './event-mapping'
 
 describe('classifyNotification — notice-shaped server notifications', () => {
   test('deprecationNotice becomes a warning notice using the provider summary', () => {
@@ -51,5 +51,58 @@ describe('classifyNotification — notice-shaped server notifications', () => {
 
   test('a genuinely unknown notification remains unclassified', () => {
     expect(classifyNotification('thread/somethingNew', { foo: 1 })).toBeNull()
+  })
+})
+
+describe('mapItemCompleted — failed command execution', () => {
+  test('preserves captured command output in error content', () => {
+    const { events } = mapItemCompleted({
+      type: 'commandExecution',
+      id: 'command-with-output',
+      command: 'failing-command',
+      cwd: '/workspace',
+      aggregatedOutput: 'stdout from command\nstderr from command\n',
+      exitCode: 9,
+      durationMs: 125,
+    })
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'tool_execution_end',
+        isError: true,
+        result: expect.objectContaining({
+          content: [
+            {
+              type: 'text',
+              text: 'stdout from command\nstderr from command\n',
+            },
+          ],
+        }),
+      }),
+    ])
+  })
+
+  test('provides an exit-code diagnostic when no command output was captured', () => {
+    const { events } = mapItemCompleted({
+      type: 'commandExecution',
+      id: 'command-without-output',
+      command: 'silent-failing-command',
+      cwd: '/workspace',
+      aggregatedOutput: null,
+      exitCode: 17,
+      durationMs: 250,
+    })
+
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ type: 'tool_execution_end', isError: true })
+
+    const result = (events[0] as { result: { content: Array<{ type: string; text?: string }> } })
+      .result
+    expect(result.content).toEqual([
+      expect.objectContaining({
+        type: 'text',
+        text: expect.stringMatching(/\b17\b/),
+      }),
+    ])
   })
 })
