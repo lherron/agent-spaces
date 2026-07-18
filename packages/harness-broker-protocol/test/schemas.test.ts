@@ -1160,7 +1160,12 @@ describe('validateEventEnvelope', () => {
     'tool.call.started': { toolCallId: 'tool_1', name: 'read' },
     'tool.call.delta': { toolCallId: 'tool_1', text: 'chunk' },
     'tool.call.completed': { toolCallId: 'tool_1', name: 'read' },
-    'tool.call.failed': { toolCallId: 'tool_1', name: 'read', message: 'failed' },
+    'tool.call.failed': {
+      toolCallId: 'tool_1',
+      name: 'read',
+      message: 'failed',
+      code: 'codex_failed',
+    },
     'usage.updated': { usage: { inputTokens: 1 } },
     diagnostic: { level: 'info', message: 'notice' },
     'driver.notice': { message: 'notice' },
@@ -1374,6 +1379,39 @@ describe('validateEventEnvelope', () => {
         code: 'invalid_literal',
       }
     )
+  })
+
+  // Terminal-outcome contract (T-06550): the tool.call.* payloads are the
+  // normative carrier. tool.call.failed REQUIRES both message and an
+  // always-populated machine-readable code; tool.call.started/completed require
+  // toolCallId + name.
+  test('tool.call.failed requires message AND an always-populated code', () => {
+    expectInvalidEventEnvelope(
+      envelope('tool.call.failed', { toolCallId: 'tool_1', name: 'read', code: 'x' }),
+      { path: 'payload.message', code: 'required' }
+    )
+    expectInvalidEventEnvelope(
+      envelope('tool.call.failed', { toolCallId: 'tool_1', name: 'read', message: 'boom' }),
+      { path: 'payload.code', code: 'required' }
+    )
+    const valid = envelope('tool.call.failed', {
+      toolCallId: 'tool_1',
+      name: 'read',
+      message: 'boom',
+      code: 'codex_mcp_error',
+    })
+    expect(validateEventEnvelope(valid)).toEqual(valid)
+  })
+
+  test('tool.call.started and tool.call.completed require toolCallId and name', () => {
+    expectInvalidEventEnvelope(envelope('tool.call.started', { name: 'read' }), {
+      path: 'payload.toolCallId',
+      code: 'required',
+    })
+    expectInvalidEventEnvelope(envelope('tool.call.completed', { toolCallId: 'tool_1' }), {
+      path: 'payload.name',
+      code: 'required',
+    })
   })
 
   test('validates lifecycle event payloads and generation fences', () => {

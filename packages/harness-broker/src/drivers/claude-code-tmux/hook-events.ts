@@ -545,7 +545,9 @@ export function createClaudeCodeHookEventNormalizer(
           toolCallId: failure.toolCallId as ToolCallId,
           name: failure.name,
           message: failure.message,
-          ...(failure.code !== undefined ? { code: failure.code } : {}),
+          // ToolCallFailedPayload.code is always-populated (T-06550): fall back
+          // to a driver-scoped code when the caller supplies none.
+          code: failure.code ?? 'claude_code_driver_failure',
           ...(failure.data !== undefined ? { data: failure.data } : {}),
         },
         {

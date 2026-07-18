@@ -300,6 +300,32 @@ export interface ToolCallDeltaPayload {
   data?: unknown
 }
 
+/**
+ * Terminal-outcome contract (T-06550, daedalus-ruled 2026-07-18).
+ *
+ * `tool.call.completed` means the provider reached its terminal RESULT
+ * BOUNDARY. Unsuccessful results STAY completed: a domain operation that ran
+ * and returned an error (`isError:true`), a rejected domain op, and — critically
+ * — a nonzero process exit are all `completed`, NOT `failed`. `isError` reports
+ * a DOMAIN error signal only; it is NEVER derived from a process exit code.
+ *
+ * Process-backed tools carry the raw status at the neutral path
+ * `result.exitCode` and NOWHERE else — consumers read forensic exit status from
+ * there and must not infer the event type or `isError` from it. Canonical
+ * `exitCode` location per driver family (verified against real tool_response
+ * payloads):
+ *   - codex-app-server: `result.exitCode` (mapper projects the item's top-level
+ *     `exitCode` into the neutral `result.exitCode`).
+ *   - claude-code-tmux / codex-cli-tmux / pi-tui-tmux: the driver passes the raw
+ *     hook `tool_response` through VERBATIM as `result.details` and derives no
+ *     exit code of its own. Any exit status therefore surfaces at exactly the
+ *     key the hook used — `result.details.exit_code` (snake_case) in the repo's
+ *     fixtures — NOT a top-level `result.exitCode` and NOT `result.details.exitCode`.
+ *     UNVERIFIED against a live Claude Code CLI capture: no real Bash
+ *     `tool_response` is recorded in-repo, and the one real SDK-side synthesizer
+ *     omits an exit code entirely, so whether the live CLI populates it at all is
+ *     unconfirmed — consumers must treat `result.details.exit_code` as best-effort.
+ */
 export interface ToolCallCompletedPayload {
   toolCallId: ToolCallId
   name: string
@@ -337,11 +363,26 @@ export interface TurnInterruptedPayload {
   reason?: string | undefined
 }
 
+/**
+ * Terminal-outcome contract (T-06550). `tool.call.failed` means the call
+ * terminated WITHOUT reaching a result boundary: the invocation failed or was
+ * rejected before a result existed (malformed args pre-execution, spawn /
+ * transport / handler failure, timeout, cancellation) — OR the broker
+ * synthesized this terminal because the provider started the call and never
+ * closed it (the burn-in-19 vanished-call defect; see the tool-call bracket in
+ * `invocation-manager`). A nonzero process exit is NOT a failure — it reached a
+ * result boundary and is reported as `completed`.
+ *
+ * `message` is REQUIRED and `code` is ALWAYS populated: the machine-readable
+ * `code` is the sole stable discriminator downstream, so it is a required field
+ * (not optional) — every producer, including the broker's teardown synthesizer,
+ * must set it. The `validateEventEnvelope` contract test pins both.
+ */
 export interface ToolCallFailedPayload {
   toolCallId: ToolCallId
   name: string
   message: string
-  code?: string | undefined
+  code: string
   data?: unknown
 }
 

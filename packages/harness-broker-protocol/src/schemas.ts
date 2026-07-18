@@ -1370,6 +1370,26 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
     )
     optionalEnum(payload['semantics'], ['at-least-once'], 'payload.semantics', issues, true)
   },
+  'tool.call.started': (payload, issues) => {
+    requireString(payload['toolCallId'], 'payload.toolCallId', issues)
+    requireString(payload['name'], 'payload.name', issues)
+  },
+  'tool.call.completed': (payload, issues) => {
+    requireString(payload['toolCallId'], 'payload.toolCallId', issues)
+    requireString(payload['name'], 'payload.name', issues)
+    optionalBoolean(payload['isError'], 'payload.isError', issues)
+    optionalNumber(payload['durationMs'], 'payload.durationMs', issues)
+  },
+  // Terminal-outcome contract (T-06550): a failed tool call carries a REQUIRED
+  // human `message` and an ALWAYS-populated machine-readable `code` — the code
+  // is required, not optional, so the normative carrier rejects any producer
+  // (driver or the broker teardown synthesizer) that omits it.
+  'tool.call.failed': (payload, issues) => {
+    requireString(payload['toolCallId'], 'payload.toolCallId', issues)
+    requireString(payload['name'], 'payload.name', issues)
+    requireString(payload['message'], 'payload.message', issues)
+    requireString(payload['code'], 'payload.code', issues)
+  },
   'terminal.surface.reported': validateTerminalSurfaceReportedPayload,
   'provider.transcript.reported': (payload, issues) => {
     if (payload['kind'] !== PROVIDER_TRANSCRIPT_ARTIFACT_KIND) {

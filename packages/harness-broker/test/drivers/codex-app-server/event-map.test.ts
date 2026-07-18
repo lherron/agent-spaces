@@ -180,7 +180,12 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       })
     })
 
-    test('item/completed with exitCode non-zero emits tool.call.failed and isError:true', () => {
+    // Scope-1 regression tripwire (T-06550): a nonzero process exit reached its
+    // result boundary — it STAYS tool.call.completed with isError:false, and the
+    // raw exit is carried ONLY at the neutral result.exitCode. The exit-type
+    // aliasing ternary and the exit-code isError branch are both deleted, so the
+    // event type and isError are never derived from the exit code.
+    test('item/completed with exitCode non-zero STAYS completed with isError:false and result.exitCode carried', () => {
       const events = mapCodexNotification(
         note('item/completed', {
           turnId: 'turn_1',
@@ -196,11 +201,39 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         })
       )
       expect(events).toHaveLength(1)
-      expect(events[0]?.type).toBe('tool.call.failed')
-      expect((events[0]?.payload as { isError: boolean }).isError).toBe(true)
+      expect(events[0]?.type).toBe('tool.call.completed')
+      expect((events[0]?.payload as { isError: boolean }).isError).toBe(false)
       expect((events[0]?.payload as { result: unknown }).result).toEqual({
         output: '',
         exitCode: 1,
+      })
+    })
+
+    // Precedence (scope 2a): even when Codex ALSO stamps a non-'completed'
+    // status, a defined exitCode is a reached result boundary → completed. The
+    // status branch must not re-alias an ordinary nonzero exit (acceptance 1
+    // wins). The repo cannot prove whether Codex sets status:'failed' for
+    // ordinary exits, so this guard is load-bearing either way.
+    test('item/completed with nonzero exitCode AND status="failed" STAYS completed (exitCode boundary wins)', () => {
+      const events = mapCodexNotification(
+        note('item/completed', {
+          turnId: 'turn_1',
+          item: {
+            type: 'commandExecution',
+            id: 'cmd_1',
+            command: 'false',
+            cwd: '/tmp/work',
+            aggregatedOutput: 'boom',
+            exitCode: 2,
+            durationMs: 4,
+            status: 'failed',
+          },
+        })
+      )
+      expect(events[0]?.type).toBe('tool.call.completed')
+      expect((events[0]?.payload as { isError: boolean }).isError).toBe(false)
+      expect((events[0]?.payload as { result: Record<string, unknown> }).result).toMatchObject({
+        exitCode: 2,
       })
     })
 
@@ -250,7 +283,11 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       expect(payload.result).toEqual({ exitCode: 0 })
     })
 
-    test('item/completed with status="failed" emits tool.call.failed even if exitCode is null', () => {
+    // No result boundary (exitCode null) + non-'completed' status → failed, with
+    // the contract ToolCallFailedPayload: required message, always-populated
+    // machine-readable code (status-derived), and NO isError (that field is a
+    // completed-payload concept).
+    test('item/completed with status="failed" and NO exitCode emits contract tool.call.failed', () => {
       const events = mapCodexNotification(
         note('item/completed', {
           turnId: 'turn_1',
@@ -267,7 +304,11 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         })
       )
       expect(events[0]?.type).toBe('tool.call.failed')
-      expect((events[0]?.payload as { isError: boolean }).isError).toBe(true)
+      const p = events[0]?.payload as Record<string, unknown>
+      expect(p['code']).toBe('codex_failed')
+      expect(typeof p['message']).toBe('string')
+      expect((p['message'] as string).length).toBeGreaterThan(0)
+      expect(p).not.toHaveProperty('isError')
     })
   })
 
@@ -311,7 +352,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       })
     })
 
-    test('item/completed with status="failed" emits tool.call.failed', () => {
+    test('item/completed with status="failed" emits contract tool.call.failed', () => {
       const events = mapCodexNotification(
         note('item/completed', {
           turnId: 'turn_1',
@@ -324,7 +365,10 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         })
       )
       expect(events[0]?.type).toBe('tool.call.failed')
-      expect((events[0]?.payload as { isError: boolean }).isError).toBe(true)
+      const p = events[0]?.payload as Record<string, unknown>
+      expect(p['code']).toBe('codex_failed')
+      expect(typeof p['message']).toBe('string')
+      expect(p).not.toHaveProperty('isError')
     })
   })
 
@@ -372,7 +416,13 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       expect(p.durationMs).toBe(8)
     })
 
-    test('item/completed with error non-null emits tool.call.failed and preserves both error + result', () => {
+    // Scope 2(b), evidence-locked: the v2 mcpToolCall `error` field is the
+    // TRANSPORT/execution channel (McpToolCallError = { message }, the Err side
+    // of Result<CallToolResult,String>); the success result type has no isError.
+    // A non-null error → contract tool.call.failed with message from the error
+    // channel and a machine-readable code. Forensics (result + error) are
+    // preserved under data.result.
+    test('item/completed with error non-null emits contract tool.call.failed (transport channel)', () => {
       const events = mapCodexNotification(
         note('item/completed', {
           turnId: 'turn_1',
@@ -389,15 +439,17 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         })
       )
       expect(events[0]?.type).toBe('tool.call.failed')
-      const p = events[0]?.payload as { isError: boolean; result: Record<string, unknown> }
-      expect(p.isError).toBe(true)
-      expect(p.result).toEqual({
+      const p = events[0]?.payload as Record<string, unknown>
+      expect(p['code']).toBe('codex_mcp_error')
+      expect(p['message']).toBe('permission denied')
+      expect(p).not.toHaveProperty('isError')
+      expect((p['data'] as { result?: unknown })?.result).toEqual({
         error: { message: 'permission denied' },
         result: { partial: 'data' },
       })
     })
 
-    test('item/completed with error non-null and result null preserves only error', () => {
+    test('item/completed with error as a raw string emits tool.call.failed carrying that message', () => {
       const events = mapCodexNotification(
         note('item/completed', {
           turnId: 'turn_1',
@@ -413,8 +465,11 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
           },
         })
       )
-      const p = events[0]?.payload as { result: unknown }
-      expect(p.result).toEqual({ error: 'boom' })
+      expect(events[0]?.type).toBe('tool.call.failed')
+      const p = events[0]?.payload as Record<string, unknown>
+      expect(p['code']).toBe('codex_mcp_error')
+      expect(p['message']).toBe('boom')
+      expect((p['data'] as { result?: unknown })?.result).toEqual({ error: 'boom' })
     })
   })
 

@@ -24,6 +24,16 @@ export interface TestDriverController {
   completeActiveTurn(finalOutput?: string): void
   failActiveTurn(message?: string): void
   interruptActiveTurn(reason?: string): void
+  /** Emit a `tool.call.started` on the active turn (opens a bracket, T-06550). */
+  startToolCall(toolCallId: string, name?: string): void
+  /** Emit a `tool.call.completed` closing the bracket for `toolCallId`. */
+  completeToolCall(toolCallId: string, name?: string): void
+  /**
+   * Model provider death: emit `invocation.failed` directly (as a driver would
+   * on a harness stall/crash), without closing any open tool call — exercises
+   * the teardown-synthesized `tool.call.failed` path (T-06550, acceptance 3).
+   */
+  crashProvider(message?: string): void
   /** Emit a continuation.cleared with the given reason (simulates /quit, /clear). */
   clearContinuation(reason: string): void
 }
@@ -150,6 +160,29 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
         { turnId: active.turnId, status: 'interrupted', reason },
         { turnId: active.turnId, inputId: active.input.inputId }
       )
+    },
+
+    startToolCall(toolCallId: string, name = 'command'): void {
+      const active = requireActiveTurn()
+      requireCtx().emit(
+        'tool.call.started',
+        { toolCallId, name },
+        { turnId: active.turnId, itemId: toolCallId }
+      )
+    },
+
+    completeToolCall(toolCallId: string, name = 'command'): void {
+      const active = requireActiveTurn()
+      requireCtx().emit(
+        'tool.call.completed',
+        { toolCallId, name, isError: false },
+        { turnId: active.turnId, itemId: toolCallId }
+      )
+    },
+
+    crashProvider(message = 'provider died'): void {
+      clearActiveTurn()
+      requireCtx().emit('invocation.failed', { message, reason: 'harness-stalled' })
     },
 
     clearContinuation(reason: string): void {

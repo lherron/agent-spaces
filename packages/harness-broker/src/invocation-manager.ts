@@ -35,6 +35,7 @@ import type {
   PermissionDecision,
   PermissionRequestId,
   PermissionRequestParams,
+  ToolCallId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode, acceptedLifecyclePolicy } from 'spaces-harness-broker-protocol'
@@ -65,6 +66,60 @@ type PermissionDecidedBy = 'policy' | 'user' | 'api' | 'timeout'
 
 /** Terminal states that allow dispose. */
 const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
+
+// ---------------------------------------------------------------------------
+// Tool-call terminal-outcome invariant (T-06550)
+// ---------------------------------------------------------------------------
+/**
+ * Turn-terminal event types. When a turn closes, every `tool.call.started`
+ * scoped to it MUST have already reached a terminal; any still open is the
+ * burn-in-19 vanished-call defect and the broker synthesizes its `failed`.
+ */
+const TURN_TERMINAL_TYPES = new Set<InvocationEventType>([
+  'turn.completed',
+  'turn.failed',
+  'turn.interrupted',
+])
+/**
+ * Invocation-teardown event types. On provider death mid-turn (the turn itself
+ * may never close) these are the catch-all boundary that synthesizes `failed`
+ * for ALL still-open tool calls.
+ */
+const INVOCATION_TEARDOWN_TYPES = new Set<InvocationEventType>([
+  'invocation.exited',
+  'invocation.failed',
+])
+/** Machine-readable `code` for a tool call left open when its turn closed. */
+const TOOL_CALL_UNTERMINATED_CODE = 'broker_unterminated_tool_call'
+/** Machine-readable `code` for a tool call left open when the invocation tore down. */
+const TOOL_CALL_TEARDOWN_CODE = 'broker_provider_teardown'
+
+/** Broker-side record of an open `tool.call.started` awaiting its terminal. */
+interface StartedToolCall {
+  toolCallId: ToolCallId
+  name: string
+  turnId?: TurnId | undefined
+}
+
+/**
+ * Extract the `{ toolCallId, name, turnId }` bracket key from a
+ * `tool.call.started` payload, or undefined when the payload lacks a usable
+ * toolCallId (nothing to bracket). `name` falls back to `'tool'` so a
+ * synthesized failure always carries the required `name` field.
+ */
+function asStartedToolCall(
+  payload: unknown,
+  turnId?: TurnId | undefined
+): StartedToolCall | undefined {
+  const record = payload as { toolCallId?: unknown; name?: unknown } | undefined
+  const toolCallId = record?.toolCallId
+  if (typeof toolCallId !== 'string') return undefined
+  return {
+    toolCallId: toolCallId as ToolCallId,
+    name: typeof record?.name === 'string' ? record.name : 'tool',
+    turnId,
+  }
+}
 
 /**
  * continuation.cleared reasons that mean the operator LEFT the session (vs.
@@ -246,6 +301,18 @@ export interface Invocation {
    * the first (winning) start, returned to callers on a suppressed duplicate.
    */
   startedTurns: Map<TurnId, InvocationEventEnvelope>
+  /**
+   * Exactly-one-terminal bracket ledger for tool calls (T-06550), keyed by
+   * toolCallId. Every `tool.call.started` that flows through `emit` is recorded
+   * here and cleared by its `tool.call.completed`/`tool.call.failed` terminal.
+   * When a turn closes (or the invocation tears down) with calls still open —
+   * the provider started a tool and never closed it, the burn-in-19
+   * vanished-call defect (84 started vs 83 completed) — the broker synthesizes a
+   * provenance-tagged `tool.call.failed` for each so no `tool.call.started` is
+   * ever left unterminated. Broker-central: covers all five drivers + teardown
+   * in one seam, exactly as `startedTurns` does for `turn.started` (T-04846).
+   */
+  startedToolCalls: Map<ToolCallId, StartedToolCall>
   /**
    * Broker-owned pending permission requests, keyed by permissionRequestId.
    * Retained across controller disconnect until each request's absolute
@@ -714,6 +781,48 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   }
 
   // ---------------------------------------------------------------------------
+  // Tool-call terminal-outcome invariant (T-06550)
+  // ---------------------------------------------------------------------------
+  /**
+   * Synthesize a broker-owned `tool.call.failed` for every open tool call
+   * matching `predicate`, closing the started→exactly-one-terminal bracket when
+   * the provider tore down without emitting a terminal. Snapshots the matching
+   * entries first (the recursive `emit` deletes them from `startedToolCalls`),
+   * so mutation during iteration is safe. Each synthesized event is tagged with
+   * a machine-readable `code`, `data.synthesized:true`, and a `broker` driver
+   * kind so it is traceable as broker-originated, mirroring how the T-04846
+   * bracket marks a synthesized `turn.started` with `source:'broker-delivery'`.
+   */
+  function synthesizeOpenToolFailures(
+    inv: Invocation,
+    code: string,
+    message: string,
+    predicate: (call: StartedToolCall) => boolean
+  ): void {
+    if (inv.startedToolCalls.size === 0) return
+    const open = [...inv.startedToolCalls.values()].filter(predicate)
+    for (const call of open) {
+      inv.startedToolCalls.delete(call.toolCallId)
+      emit(
+        inv,
+        'tool.call.failed',
+        {
+          toolCallId: call.toolCallId,
+          name: call.name,
+          message,
+          code,
+          data: { synthesized: true, reason: code },
+        },
+        {
+          ...(call.turnId !== undefined ? { turnId: call.turnId } : {}),
+          itemId: call.toolCallId,
+          driver: { kind: 'broker', rawType: 'tool-call-invariant' },
+        }
+      )
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Emit helper
   // ---------------------------------------------------------------------------
   function emit<TPayload>(
@@ -729,6 +838,30 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       turnAttempt?: number | undefined
     }
   ): InvocationEventEnvelope<TPayload> {
+    // Tool-call exactly-one-terminal bracket (T-06550). A turn or invocation
+    // teardown is the point every open `tool.call.started` MUST have closed; any
+    // still open is the burn-in-19 vanished-call defect. Synthesize its `failed`
+    // BEFORE this boundary event is sequenced so the synthesized terminal lands
+    // with a lower seq — inside the closing bracket, ahead of the turn/invocation
+    // terminal. The synthesized `tool.call.failed` re-enters `emit`, but it is
+    // neither a turn nor an invocation terminal, so it cannot re-trigger this.
+    if (TURN_TERMINAL_TYPES.has(type)) {
+      const turnId = extra?.turnId ?? (payload as { turnId?: TurnId } | undefined)?.turnId
+      synthesizeOpenToolFailures(
+        inv,
+        TOOL_CALL_UNTERMINATED_CODE,
+        'Tool call did not report a terminal result before the turn ended',
+        (call) => turnId === undefined || call.turnId === turnId
+      )
+    } else if (INVOCATION_TEARDOWN_TYPES.has(type)) {
+      synthesizeOpenToolFailures(
+        inv,
+        TOOL_CALL_TEARDOWN_CODE,
+        'Tool call did not report a terminal result before the invocation terminated',
+        () => true
+      )
+    }
+
     // Exactly-once `turn.started` bracket (T-04846). A turn may be started from
     // two seams — the broker synthesizing it from a delivered input
     // (`source:'broker-delivery'`) and a driver/hook observing the harness open
@@ -763,6 +896,21 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // above and resolves back to this same envelope (T-04846).
     if (type === 'turn.started' && event.turnId !== undefined) {
       inv.startedTurns.set(event.turnId, event as InvocationEventEnvelope)
+    }
+    // Tool-call bracket bookkeeping (T-06550): open the bracket on a start, close
+    // it on either terminal. A real driver terminal AND a broker-synthesized one
+    // both flow through here, so a synthesized close deletes the same entry the
+    // synthesizer already snapshotted — exactly one terminal per started call.
+    if (type === 'tool.call.started') {
+      const started = asStartedToolCall(safePayload, event.turnId)
+      if (started !== undefined) {
+        inv.startedToolCalls.set(started.toolCallId, started)
+      }
+    } else if (type === 'tool.call.completed' || type === 'tool.call.failed') {
+      const toolCallId = (safePayload as { toolCallId?: ToolCallId } | undefined)?.toolCallId
+      if (toolCallId !== undefined) {
+        inv.startedToolCalls.delete(toolCallId)
+      }
     }
     // Deliver BEFORE projecting state: applyEventState can synchronously emit
     // follow-on events (turn terminal → drain dequeues input.accepted /
@@ -1132,6 +1280,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         inputCounter: 0,
         inputDispositions: new Map(),
         startedTurns: new Map(),
+        startedToolCalls: new Map(),
         pendingPermissions: new Map(),
         settledPermissions: new Map(),
       }
