@@ -1,11 +1,18 @@
 import type { ValidationIssue } from 'spaces-harness-broker-protocol'
 import { isJsonRpcRequest } from 'spaces-harness-broker-protocol'
+import {
+  AgentInspectionValidationError,
+  validateAgentInspectionEvaluationContext,
+  validateAgentInspectionRequest,
+} from 'spaces-runtime-contracts'
 import type {
+  AspcCatalogAgentsRequest,
   AspcCommand,
   AspcCompileAndStartRequest,
   AspcCompileHarnessInvocationRequest,
   AspcCompileRuntimePlanRequest,
   AspcHelloRequest,
+  AspcInspectAgentRequest,
   AspcMethod,
 } from './types.js'
 import { ASPC_METHODS, ASPC_PROTOCOL_VERSION } from './types.js'
@@ -66,6 +73,22 @@ export class AspcCompileRuntimePlanRequestValidationError extends AspcValidation
   }
 }
 
+export class AspcCatalogAgentsRequestValidationError extends AspcValidationError {
+  readonly code = 'INVALID_ASPC_CATALOG_AGENTS_REQUEST'
+
+  constructor(issues: ValidationIssue[]) {
+    super('AspcCatalogAgentsRequestValidationError', 'Invalid ASPC catalogAgents request', issues)
+  }
+}
+
+export class AspcInspectAgentRequestValidationError extends AspcValidationError {
+  readonly code = 'INVALID_ASPC_INSPECT_AGENT_REQUEST'
+
+  constructor(issues: ValidationIssue[]) {
+    super('AspcInspectAgentRequestValidationError', 'Invalid ASPC inspectAgent request', issues)
+  }
+}
+
 export class AspcCompileHarnessInvocationRequestValidationError extends AspcValidationError {
   readonly code = 'INVALID_ASPC_COMPILE_HARNESS_INVOCATION_REQUEST'
 
@@ -117,6 +140,20 @@ export function validateAspcCompileHarnessInvocationRequest(
   return value as AspcCompileHarnessInvocationRequest
 }
 
+export function validateAspcCatalogAgentsRequest(value: unknown): AspcCatalogAgentsRequest {
+  const issues: ValidationIssue[] = []
+  validateCatalogAgents(value, 'params', issues)
+  if (issues.length > 0) throw new AspcCatalogAgentsRequestValidationError(issues)
+  return value as AspcCatalogAgentsRequest
+}
+
+export function validateAspcInspectAgentRequest(value: unknown): AspcInspectAgentRequest {
+  const issues: ValidationIssue[] = []
+  validateInspectAgent(value, 'params', issues)
+  if (issues.length > 0) throw new AspcInspectAgentRequestValidationError(issues)
+  return value as AspcInspectAgentRequest
+}
+
 export function validateAspcCompileAndStartRequest(value: unknown): AspcCompileAndStartRequest {
   return validateAspcCompileHarnessInvocationRequest(value)
 }
@@ -131,8 +168,69 @@ type ParamsValidator = (value: unknown, basePath: string, issues: ValidationIssu
 const ASPC_PARAMS_VALIDATORS: Record<AspcMethod, ParamsValidator> = {
   'aspc.hello': validateHello,
   'aspc.compileRuntimePlan': validateCompileRuntimePlan,
+  'aspc.catalogAgents': validateCatalogAgents,
+  'aspc.inspectAgent': validateInspectAgent,
   'aspc.compileHarnessInvocation': validateCompileHarnessInvocation,
   'aspc.compileAndStart': validateCompileHarnessInvocation,
+}
+
+function validateCatalogAgents(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+  const params = requireRecord(value, basePath, issues)
+  if (params === undefined) return
+  appendInspectionIssues(
+    () => validateAgentInspectionEvaluationContext(params['evaluationContext']),
+    path(basePath, 'evaluationContext'),
+    issues
+  )
+  rejectUnknownParams(params, new Set(['evaluationContext']), basePath, issues)
+}
+
+function validateInspectAgent(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+  const params = requireRecord(value, basePath, issues)
+  if (params === undefined) return
+  appendInspectionIssues(
+    () => validateAgentInspectionRequest(params['request']),
+    path(basePath, 'request'),
+    issues
+  )
+  appendInspectionIssues(
+    () => validateAgentInspectionEvaluationContext(params['evaluationContext']),
+    path(basePath, 'evaluationContext'),
+    issues
+  )
+  rejectUnknownParams(params, new Set(['request', 'evaluationContext']), basePath, issues)
+}
+
+function appendInspectionIssues(
+  validate: () => unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  try {
+    validate()
+  } catch (error) {
+    if (!(error instanceof AgentInspectionValidationError)) throw error
+    issues.push(
+      ...error.issues.map((item) => ({
+        ...item,
+        path: item.path.length === 0 ? basePath : `${basePath}.${item.path}`,
+      }))
+    )
+  }
+}
+
+function rejectUnknownParams(
+  params: SchemaRecord,
+  allowed: ReadonlySet<string>,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  for (const key of Object.keys(params)) {
+    if (allowed.has(key)) continue
+    issues.push(
+      issue(path(basePath, key), 'forbidden_input', `${path(basePath, key)} is not accepted`)
+    )
+  }
 }
 
 export function validateAspcCommand(value: unknown): AspcCommand {

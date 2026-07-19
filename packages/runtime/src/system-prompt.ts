@@ -12,6 +12,7 @@ import type {
   AgentInspectionProvenance,
 } from 'spaces-runtime-contracts'
 import {
+  type ContextResolverContext,
   type ResolvedContextDiagnostics,
   type ResolvedContextSection,
   resolveContextTemplateDetailed,
@@ -82,7 +83,14 @@ export interface AgentCompilationProvenanceRecord {
   order: number
 }
 
-export interface InspectAgentSystemPromptInput extends MaterializeSystemPromptInput {}
+export interface InspectAgentSystemPromptInput extends MaterializeSystemPromptInput {
+  /**
+   * Fully pinned resolver inputs for read-only inspection. Callers that provide
+   * this value have already crossed the agent-inspection context seam; no
+   * ambient cwd, environment, clock, probe, or exec input is consulted.
+   */
+  resolverContext?: ContextResolverContext | undefined
+}
 
 export interface InspectedContextTemplateSource {
   kind: 'context' | 'built-in'
@@ -205,31 +213,34 @@ export async function inspectAgentSystemPrompt(
 
   const template =
     templateSource?.template ?? buildDefaultTemplate(profile.additionalBase, input.scaffoldPackets)
-  const resolved = await resolveContextTemplateDetailed(template, {
-    agentRoot: input.agentRoot,
-    agentName: basename(input.agentRoot),
-    agentId: input.agentId ?? basename(input.agentRoot),
-    agentsRoot,
-    agentRootSearchPath,
-    projectRoot: input.projectRoot,
-    projectId: input.projectId,
-    taskId: input.taskId,
-    lane: input.lane,
-    runMode: input.runMode,
-    scaffoldPackets: input.scaffoldPackets,
-    env: input.env,
-    ...(templateSource
-      ? { agentProfile: profile.rawProfile }
-      : profile.additionalBase
-        ? {
-            agentProfile: {
-              instructions: {
-                additionalBase: profile.additionalBase,
+  const resolved = await resolveContextTemplateDetailed(
+    template,
+    input.resolverContext ?? {
+      agentRoot: input.agentRoot,
+      agentName: basename(input.agentRoot),
+      agentId: input.agentId ?? basename(input.agentRoot),
+      agentsRoot,
+      agentRootSearchPath,
+      projectRoot: input.projectRoot,
+      projectId: input.projectId,
+      taskId: input.taskId,
+      lane: input.lane,
+      runMode: input.runMode,
+      scaffoldPackets: input.scaffoldPackets,
+      env: input.env,
+      ...(templateSource
+        ? { agentProfile: profile.rawProfile }
+        : profile.additionalBase
+          ? {
+              agentProfile: {
+                instructions: {
+                  additionalBase: profile.additionalBase,
+                },
               },
-            },
-          }
-        : {}),
-  })
+            }
+          : {}),
+    }
+  )
 
   const promptContent = resolved.prompt?.content ?? ''
   const promptSections = resolved.promptSections

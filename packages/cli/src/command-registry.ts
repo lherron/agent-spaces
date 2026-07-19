@@ -11,6 +11,7 @@ import type { Command } from 'commander'
 
 import { registerAddCommand } from './commands/add.js'
 import { registerAgentCommands } from './commands/agent/index.js'
+import { registerAgentInspectionCommands } from './commands/agents.js'
 import { registerBuildCommand } from './commands/build.js'
 import { registerDescribeCommand } from './commands/describe.js'
 import { registerDiffCommand } from './commands/diff.js'
@@ -66,6 +67,7 @@ const COMMAND_REGISTRARS: readonly RegisterCommandFn[] = [
   registerSpacesCommands,
   registerResourcesCommands,
   registerAgentCommands,
+  registerAgentInspectionCommands,
   registerTokenRentCommand,
 ]
 

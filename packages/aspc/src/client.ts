@@ -1,4 +1,6 @@
 import type {
+  AspcCatalogAgentsRequest,
+  AspcCatalogAgentsResponse,
   AspcCompileAndStartRequest,
   AspcCompileAndStartResponse,
   AspcCompileHarnessInvocationRequest,
@@ -6,6 +8,8 @@ import type {
   AspcCompileRuntimePlanRequest,
   AspcHelloRequest,
   AspcHelloResponse,
+  AspcInspectAgentRequest,
+  AspcInspectAgentResponse,
 } from 'spaces-aspc-protocol'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import { StdioTransport } from 'spaces-harness-broker-client'
@@ -48,6 +52,14 @@ export class AspcClient {
 
   compileRuntimePlan(req: AspcCompileRuntimePlanRequest): Promise<RuntimeCompileResponse> {
     return this.#transport.request('aspc.compileRuntimePlan', req)
+  }
+
+  catalogAgents(req: AspcCatalogAgentsRequest): Promise<AspcCatalogAgentsResponse> {
+    return this.#transport.request('aspc.catalogAgents', req)
+  }
+
+  inspectAgent(req: AspcInspectAgentRequest): Promise<AspcInspectAgentResponse> {
+    return this.#transport.request('aspc.inspectAgent', req)
   }
 
   compileHarnessInvocation(

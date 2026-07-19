@@ -64,3 +64,13 @@ export {
 } from './foreground-launch.js'
 
 export { createCompileRuntimeFn } from './run-compile.js'
+
+export {
+  catalogAgentsForContext,
+  inspectAgentForContext,
+  type AgentCatalogDiagnostic,
+  type AgentCatalogResult,
+  type AgentCatalogRow,
+  type AgentInspectionOperationOutcome,
+  type InspectAgentForContextOptions,
+} from './agent-inspection.js'

@@ -207,6 +207,30 @@
     },
     {
       "package": "asp-cli",
+      "symbol": "asp agents catalog",
+      "kind": "command",
+      "file": "packages/cli/src/commands/agents.ts",
+      "hash": "asp-cli|asp agents catalog|command",
+      "count": 1
+    },
+    {
+      "package": "asp-cli",
+      "symbol": "asp agents inspect",
+      "kind": "command",
+      "file": "packages/cli/src/commands/agents.ts",
+      "hash": "asp-cli|asp agents inspect|command",
+      "count": 1
+    },
+    {
+      "package": "asp-cli",
+      "symbol": "asp agents",
+      "kind": "command",
+      "file": "packages/cli/src/commands/agents.ts",
+      "hash": "asp-cli|asp agents|command",
+      "count": 1
+    },
+    {
+      "package": "asp-cli",
       "symbol": "asp build",
       "kind": "command",
       "file": "packages/cli/src/commands/build.ts",
@@ -423,6 +447,38 @@
     },
     {
       "package": "spaces-aspc-protocol",
+      "symbol": "AspcAgentCatalogRow",
+      "kind": "type",
+      "file": "packages/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcAgentCatalogRow|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcCatalogAgentsRequest",
+      "kind": "type",
+      "file": "packages/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcCatalogAgentsRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcCatalogAgentsRequestValidationError",
+      "kind": "value",
+      "file": "packages/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|AspcCatalogAgentsRequestValidationError|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcCatalogAgentsResponse",
+      "kind": "type",
+      "file": "packages/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcCatalogAgentsResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
       "symbol": "AspcCommand",
       "kind": "type",
       "file": "packages/aspc-protocol/src/types.ts",
@@ -519,6 +575,38 @@
     },
     {
       "package": "spaces-aspc-protocol",
+      "symbol": "AspcInspectAgentRequest",
+      "kind": "type",
+      "file": "packages/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcInspectAgentRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcInspectAgentRequestValidationError",
+      "kind": "value",
+      "file": "packages/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|AspcInspectAgentRequestValidationError|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcInspectAgentResponse",
+      "kind": "type",
+      "file": "packages/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcInspectAgentResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "AspcInspectionDiagnostic",
+      "kind": "type",
+      "file": "packages/aspc-protocol/src/types.ts",
+      "hash": "spaces-aspc-protocol|AspcInspectionDiagnostic|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
       "symbol": "AspcMethod",
       "kind": "type",
       "file": "packages/aspc-protocol/src/types.ts",
@@ -547,6 +635,14 @@
       "kind": "value",
       "file": "packages/aspc-protocol/src/schemas.ts",
       "hash": "spaces-aspc-protocol|AspcValidationError|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "validateAspcCatalogAgentsRequest",
+      "kind": "value",
+      "file": "packages/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|validateAspcCatalogAgentsRequest|value",
       "count": 1
     },
     {
@@ -587,6 +683,14 @@
       "kind": "value",
       "file": "packages/aspc-protocol/src/schemas.ts",
       "hash": "spaces-aspc-protocol|validateAspcHelloRequest|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-aspc-protocol",
+      "symbol": "validateAspcInspectAgentRequest",
+      "kind": "value",
+      "file": "packages/aspc-protocol/src/schemas.ts",
+      "hash": "spaces-aspc-protocol|validateAspcInspectAgentRequest|value",
       "count": 1
     },
     {

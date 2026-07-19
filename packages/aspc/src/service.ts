@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs'
 
-import { createAgentSpacesClient } from 'agent-spaces'
+import {
+  catalogAgentsForContext,
+  createAgentSpacesClient,
+  inspectAgentForContext,
+} from 'agent-spaces'
 import type {
+  AspcCatalogAgentsRequest,
+  AspcCatalogAgentsResponse,
   AspcCompileAndStartRequest,
   AspcCompileAndStartResponse,
   AspcCompileHarnessInvocationRequest,
@@ -9,6 +15,8 @@ import type {
   AspcCompileRuntimePlanRequest,
   AspcHelloRequest,
   AspcHelloResponse,
+  AspcInspectAgentRequest,
+  AspcInspectAgentResponse,
 } from 'spaces-aspc-protocol'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import type { Broker } from 'spaces-harness-broker'
@@ -57,6 +65,8 @@ export interface AspcServiceOptions {
 export interface AspcService {
   hello(req: AspcHelloRequest): Promise<AspcHelloResponse>
   compileRuntimePlan(req: AspcCompileRuntimePlanRequest): Promise<RuntimeCompileResponse>
+  catalogAgents(req: AspcCatalogAgentsRequest): Promise<AspcCatalogAgentsResponse>
+  inspectAgent(req: AspcInspectAgentRequest): Promise<AspcInspectAgentResponse>
   compileHarnessInvocation(
     req: AspcCompileHarnessInvocationRequest
   ): Promise<AspcCompileHarnessInvocationResponse>
@@ -77,6 +87,8 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
         protocolVersion: ASPC_PROTOCOL_VERSION,
         capabilities: {
           compileRuntimePlan: true,
+          catalogAgents: true,
+          inspectAgent: true,
           compileHarnessInvocation: true,
           compileAndStart: broker !== undefined,
           cohostedBroker: broker !== undefined,
@@ -88,6 +100,19 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
 
     async compileRuntimePlan(req: AspcCompileRuntimePlanRequest): Promise<RuntimeCompileResponse> {
       return compileRuntimePlanSafe(compiler, req.compileRequest, req.aspHome, req.compileContext)
+    },
+
+    async catalogAgents(req: AspcCatalogAgentsRequest): Promise<AspcCatalogAgentsResponse> {
+      return catalogAgentsForContext(req)
+    },
+
+    async inspectAgent(req: AspcInspectAgentRequest): Promise<AspcInspectAgentResponse> {
+      return inspectAgentForContext(req, {
+        compileRuntimePlan: (compileRequest, compileOptions) =>
+          compiler(compileRequest, {
+            compileContext: compileOptions?.compileContext,
+          }),
+      })
     },
 
     async compileHarnessInvocation(

@@ -6,6 +6,9 @@ import type {
   JsonRpcRequest,
 } from 'spaces-harness-broker-protocol'
 import type {
+  AgentInspectionEvaluationContext,
+  AgentInspectionRequest,
+  AgentInspectionResult,
   BrokerExecutionProfile,
   CompileContext,
   CompileDiagnostic,
@@ -35,6 +38,8 @@ export const ASPC_COMPILE_AND_START_RESPONSE_VERSION = 'aspc-compile-and-start-r
 export const ASPC_METHODS = [
   'aspc.hello',
   'aspc.compileRuntimePlan',
+  'aspc.catalogAgents',
+  'aspc.inspectAgent',
   'aspc.compileHarnessInvocation',
   'aspc.compileAndStart',
 ] as const
@@ -44,6 +49,8 @@ export type AspcMethod = (typeof ASPC_METHODS)[number]
 export type AspcCommand =
   | JsonRpcRequest<'aspc.hello', AspcHelloRequest>
   | JsonRpcRequest<'aspc.compileRuntimePlan', AspcCompileRuntimePlanRequest>
+  | JsonRpcRequest<'aspc.catalogAgents', AspcCatalogAgentsRequest>
+  | JsonRpcRequest<'aspc.inspectAgent', AspcInspectAgentRequest>
   | JsonRpcRequest<'aspc.compileHarnessInvocation', AspcCompileHarnessInvocationRequest>
   | JsonRpcRequest<'aspc.compileAndStart', AspcCompileAndStartRequest>
 
@@ -56,6 +63,8 @@ export interface AspcHelloRequest {
   capabilities?:
     | {
         compileRuntimePlan?: boolean | undefined
+        catalogAgents?: boolean | undefined
+        inspectAgent?: boolean | undefined
         compileHarnessInvocation?: boolean | undefined
         compileAndStart?: boolean | undefined
       }
@@ -70,6 +79,8 @@ export interface AspcHelloResponse {
   protocolVersion: AspcProtocolVersion
   capabilities: {
     compileRuntimePlan: true
+    catalogAgents: true
+    inspectAgent: true
     compileHarnessInvocation: true
     compileAndStart: boolean
     cohostedBroker: boolean
@@ -88,6 +99,49 @@ export interface AspcCompileRuntimePlanRequest {
    */
   compileContext?: CompileContext | undefined
 }
+
+export interface AspcCatalogAgentsRequest {
+  evaluationContext: AgentInspectionEvaluationContext
+}
+
+export interface AspcInspectAgentRequest {
+  request: AgentInspectionRequest
+  evaluationContext: AgentInspectionEvaluationContext
+}
+
+export type AspcInspectionDiagnostic = {
+  severity: 'info' | 'warning' | 'error'
+  code: string
+  message: string
+}
+
+export type AspcInspectAgentResponse =
+  | { ok: true; inspection: AgentInspectionResult }
+  | { ok: false; diagnostics: AspcInspectionDiagnostic[] }
+
+export type AspcAgentCatalogRow = {
+  agentId: string
+  displayName: string
+  role: string | null
+  sourceAvailability: {
+    profile: boolean
+    soul: boolean
+    contextTemplate: boolean
+  }
+  defaultContextSummary: {
+    projectId: string
+    mode: string
+    lane: string
+    harness: string
+    frontend: string
+    interaction: string
+  }
+  diagnostics: AspcInspectionDiagnostic[]
+  warningCount: number
+  errorCount: number
+}
+
+export type AspcCatalogAgentsResponse = { agents: AspcAgentCatalogRow[] }
 
 export type AspcProfileSelector = {
   profileId?: string | undefined

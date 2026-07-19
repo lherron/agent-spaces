@@ -1,10 +1,12 @@
 import type { Readable, Writable } from 'node:stream'
 import {
+  validateAspcCatalogAgentsRequest,
   validateAspcCommand,
   validateAspcCompileAndStartRequest,
   validateAspcCompileHarnessInvocationRequest,
   validateAspcCompileRuntimePlanRequest,
   validateAspcHelloRequest,
+  validateAspcInspectAgentRequest,
 } from 'spaces-aspc-protocol'
 import { createDefaultBroker, createProtocolServer } from 'spaces-harness-broker'
 import type { Broker, ProtocolServer } from 'spaces-harness-broker'
@@ -34,6 +36,8 @@ const JSONRPC_VERSION = '2.0'
 const ASPC_METHODS = {
   hello: 'aspc.hello',
   compileRuntimePlan: 'aspc.compileRuntimePlan',
+  catalogAgents: 'aspc.catalogAgents',
+  inspectAgent: 'aspc.inspectAgent',
   compileHarnessInvocation: 'aspc.compileHarnessInvocation',
   compileAndStart: 'aspc.compileAndStart',
 } as const
@@ -92,6 +96,12 @@ export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServ
     ASPC_METHODS.compileRuntimePlan,
     validateAspcCompileRuntimePlanRequest,
     (req) => aspc.compileRuntimePlan(req)
+  )
+  registerAspcMethod(ASPC_METHODS.catalogAgents, validateAspcCatalogAgentsRequest, (req) =>
+    aspc.catalogAgents(req)
+  )
+  registerAspcMethod(ASPC_METHODS.inspectAgent, validateAspcInspectAgentRequest, (req) =>
+    aspc.inspectAgent(req)
   )
   registerAspcMethod(
     ASPC_METHODS.compileHarnessInvocation,
