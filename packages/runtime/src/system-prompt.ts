@@ -7,6 +7,10 @@ import {
   getAgentRootSearchPathForProject,
   getAspHome,
 } from 'spaces-config'
+import type {
+  AgentInspectionDisposition,
+  AgentInspectionProvenance,
+} from 'spaces-runtime-contracts'
 import {
   type ResolvedContextDiagnostics,
   type ResolvedContextSection,
@@ -65,6 +69,17 @@ export interface DiscoveredContextTemplate {
   agentRootSearchPath: string[]
   profile: TemplateDiscoveryProfile
   templateSource?: DiscoveredTemplateSource | undefined
+  provenanceRecords: AgentCompilationProvenanceRecord[]
+}
+
+export interface AgentCompilationProvenanceRecord {
+  partId: string
+  sourceRef: string
+  disposition: AgentInspectionDisposition
+  provenance: AgentInspectionProvenance
+  stage: 'template-discovery' | 'search-root-resolution'
+  operation: 'select-template' | 'deduplicate-search-root'
+  order: number
 }
 
 export interface InspectAgentSystemPromptInput extends MaterializeSystemPromptInput {}
@@ -98,6 +113,7 @@ export interface AgentSystemPromptInspection {
   prompt: InspectedSystemPromptZone
   reminder: InspectedPromptZone
   diagnostics: ResolvedContextDiagnostics
+  provenanceRecords: AgentCompilationProvenanceRecord[]
 }
 
 export function discoverContextTemplate(
@@ -105,15 +121,16 @@ export function discoverContextTemplate(
 ): DiscoveredContextTemplate {
   const aspHome = input.aspHome ?? getAspHome()
   const agentsRoot = input.agentsRoot ?? dirname(resolve(input.agentRoot))
-  const agentRootSearchPath = resolveSharedAgentRootSearchPath({
+  const searchRoots = resolveSharedAgentRootSearchPath({
     agentRoot: input.agentRoot,
     agentsRoot,
     projectRoot: input.projectRoot,
     agentsRootWasProvided: input.agentsRoot !== undefined,
     agentRootSearchPath: input.agentRootSearchPath,
   })
+  const agentRootSearchPath = searchRoots.roots
   const profile = loadTemplateDiscoveryProfile(input.agentRoot)
-  const templateSource = loadSystemPromptTemplate({
+  const templateDiscovery = loadSystemPromptTemplate({
     agentRoot: input.agentRoot,
     agentsRoot,
     agentRootSearchPath,
@@ -125,7 +142,8 @@ export function discoverContextTemplate(
     agentsRoot,
     agentRootSearchPath,
     profile,
-    templateSource,
+    templateSource: templateDiscovery.source,
+    provenanceRecords: [...searchRoots.records, ...templateDiscovery.records],
   }
 }
 
@@ -241,6 +259,7 @@ export async function inspectAgentSystemPrompt(
       sections: resolved.reminderSections,
     },
     diagnostics: resolved.diagnostics,
+    provenanceRecords: discovered.provenanceRecords,
   }
 }
 
@@ -250,7 +269,7 @@ function loadSystemPromptTemplate(input: {
   agentRootSearchPath: string[]
   aspHome: string
   profileTemplateRef?: string | undefined
-}): DiscoveredTemplateSource | undefined {
+}): { source: DiscoveredTemplateSource | undefined; records: AgentCompilationProvenanceRecord[] } {
   const searchPathTemplateRef = input.profileTemplateRef ?? 'context-template.toml'
   const searchPathCandidates =
     input.profileTemplateRef && isAbsolute(input.profileTemplateRef)
@@ -274,16 +293,28 @@ function loadSystemPromptTemplate(input: {
     },
   ]
 
-  for (const candidate of candidates) {
-    if (!candidate) {
-      continue
+  const existingCandidates = candidates.filter(
+    (candidate): candidate is { path: string; required: boolean } =>
+      candidate !== undefined && existsSync(candidate.path)
+  )
+  const winner = existingCandidates[0]
+  if (winner !== undefined) {
+    const winnerPartId = 'template-candidate:0'
+    return {
+      source: parseTemplateFile(winner.path),
+      records: existingCandidates.map((candidate, order) =>
+        provenanceRecord({
+          partId: `template-candidate:${order}`,
+          sourceRef: candidate.path,
+          disposition:
+            order === 0 ? { kind: 'effective' } : { kind: 'overridden', byPartId: winnerPartId },
+          stage: 'template-discovery',
+          operation: 'select-template',
+          order,
+          contributionKind: 'template',
+        })
+      ),
     }
-
-    if (!existsSync(candidate.path)) {
-      continue
-    }
-
-    return parseTemplateFile(candidate.path)
   }
 
   if (input.profileTemplateRef) {
@@ -294,7 +325,7 @@ function loadSystemPromptTemplate(input: {
     throw new Error(`Configured system prompt template not found. Searched: ${searched}`)
   }
 
-  return undefined
+  return { source: undefined, records: [] }
 }
 
 function buildProfileTemplateCandidates(input: {
@@ -359,7 +390,7 @@ function resolveSharedAgentRootSearchPath(input: {
   projectRoot?: string | undefined
   agentsRootWasProvided?: boolean | undefined
   agentRootSearchPath?: string[] | undefined
-}): string[] {
+}): { roots: string[]; records: AgentCompilationProvenanceRecord[] } {
   const roots = resolveInitialSharedAgentRoots(input)
   return dedupeRoots([...roots, input.agentsRoot, dirname(resolve(input.agentRoot))])
 }
@@ -387,18 +418,63 @@ function resolveInitialSharedAgentRoots(input: {
   }).roots
 }
 
-function dedupeRoots(roots: string[]): string[] {
-  const seen = new Set<string>()
+function dedupeRoots(roots: string[]): {
+  roots: string[]
+  records: AgentCompilationProvenanceRecord[]
+} {
+  const seen = new Map<string, string>()
   const result: string[] = []
-  for (const root of roots) {
+  const records: AgentCompilationProvenanceRecord[] = []
+  for (const [order, root] of roots.entries()) {
     const resolved = resolve(root)
-    if (seen.has(resolved)) {
+    const canonicalPartId = seen.get(resolved)
+    if (canonicalPartId !== undefined) {
+      records.push(
+        provenanceRecord({
+          partId: `search-root:${order}`,
+          sourceRef: root,
+          disposition: { kind: 'deduplicated', canonicalPartId },
+          stage: 'search-root-resolution',
+          operation: 'deduplicate-search-root',
+          order,
+          contributionKind: 'compiler',
+        })
+      )
       continue
     }
-    seen.add(resolved)
+    const partId = `search-root:${order}`
+    seen.set(resolved, partId)
     result.push(root)
   }
-  return result
+  return { roots: result, records }
+}
+
+function provenanceRecord(input: {
+  partId: string
+  sourceRef: string
+  disposition: AgentInspectionDisposition
+  stage: AgentCompilationProvenanceRecord['stage']
+  operation: AgentCompilationProvenanceRecord['operation']
+  order: number
+  contributionKind: 'template' | 'compiler'
+}): AgentCompilationProvenanceRecord {
+  return {
+    partId: input.partId,
+    sourceRef: input.sourceRef,
+    disposition: input.disposition,
+    provenance: {
+      contributions: [
+        {
+          kind: input.contributionKind,
+          sourceId: input.partId,
+          sourceRef: input.sourceRef,
+        },
+      ],
+    },
+    stage: input.stage,
+    operation: input.operation,
+    order: input.order,
+  }
 }
 
 function parseStringArray(input: unknown): string[] | undefined {

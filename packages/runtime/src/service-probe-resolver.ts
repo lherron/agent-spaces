@@ -1,6 +1,10 @@
 import type { ContextResolverContext } from './context-resolver.js'
 import type { ServiceProbeSectionDef } from './context-template.js'
-import { displayServiceEndpoint, probeServiceEndpoint } from './service-probe.js'
+import {
+  displayServiceEndpoint,
+  parseServiceEndpoint,
+  probeServiceEndpoint,
+} from './service-probe.js'
 import { interpolateVariables } from './template-vars.js'
 
 const DEFAULT_SERVICE_PROBE_TIMEOUT_MS = 250
@@ -24,6 +28,14 @@ export async function resolveServiceProbeSection(
   }))
   if (services.length === 0) {
     return undefined
+  }
+  const invalid = services.find(
+    (spec) =>
+      context.serviceProbeResponses === undefined &&
+      parseServiceEndpoint(spec.endpoint) === undefined
+  )
+  if (invalid !== undefined) {
+    throw new Error(`Unsupported service probe endpoint for ${invalid.name}: ${invalid.endpoint}`)
   }
 
   const results = await Promise.all(

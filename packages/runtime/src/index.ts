@@ -16,6 +16,7 @@ export type { ContextTemplate, SectionWrap } from './context-template.js'
 export type {
   ContextResolverContext,
   ResolvedContextSection,
+  ResolvedContextContribution,
   ResolvedContextZoneName,
   ResolvedContext,
   ResolvedContextDetailed,
@@ -27,6 +28,7 @@ export type {
   DiscoverContextTemplateInput,
   DiscoveredContextTemplate,
   DiscoveredTemplateSource,
+  AgentCompilationProvenanceRecord,
   AgentSystemPromptInspection,
   InspectedContextTemplateSource,
   InspectedPromptZone,

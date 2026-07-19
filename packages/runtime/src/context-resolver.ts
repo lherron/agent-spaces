@@ -3,7 +3,12 @@ import { existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveRootRelativeRef } from 'spaces-config'
-import type { AgentInspectionServiceProbeResponse } from 'spaces-runtime-contracts'
+import type {
+  AgentInspectionDisposition,
+  AgentInspectionFailureSource,
+  AgentInspectionProvenance,
+  AgentInspectionServiceProbeResponse,
+} from 'spaces-runtime-contracts'
 import type {
   ContextSection,
   ContextSectionType,
@@ -26,6 +31,7 @@ const SLOT_SEPARATOR = '\n\n'
 const COMMAND_SEPARATOR = '\n'
 const TRUNCATION_MARKER = '[truncated]'
 const EXEC_MAX_BUFFER_BYTES = 1024 * 1024
+const FAILURE_REASON_MAX_CHARS = 8192
 
 export interface ContextResolverContext {
   agentRoot: string
@@ -84,6 +90,7 @@ export interface ResolvedZoneDiagnostics {
 export type ResolvedContextZoneName = 'prompt' | 'reminder'
 
 export interface ResolvedContextSection {
+  partId: string
   zone: ResolvedContextZoneName
   name: string
   type: ContextSectionType
@@ -97,6 +104,22 @@ export interface ResolvedContextSection {
   maxChars?: number | undefined
   content?: string | undefined
   skippedReason?: 'when' | 'empty' | undefined
+  disposition: AgentInspectionDisposition
+  provenance: AgentInspectionProvenance
+  stage: 'context-resolution'
+  operation: string
+  order: number
+  contributionRecords: ResolvedContextContribution[]
+}
+
+export interface ResolvedContextContribution {
+  partId: string
+  source: string
+  disposition: AgentInspectionDisposition
+  provenance: AgentInspectionProvenance
+  stage: 'context-resolution'
+  operation: 'resolve-slot-file' | 'resolve-slot-exec'
+  order: number
 }
 
 export interface ResolvedContextDiagnostics {
@@ -186,25 +209,64 @@ type ResolvedSectionOutcome =
 async function resolveZoneSection(
   section: ContextSection,
   context: ContextResolverContext,
-  zoneName: ResolvedContextZoneName
+  zoneName: ResolvedContextZoneName,
+  order: number
 ): Promise<ResolvedSectionOutcome> {
-  const base = sectionReportBase(section, context, zoneName)
+  const base = sectionReportBase(section, context, zoneName, order)
 
   if (!matchesWhenPredicate(section, context)) {
-    return { included: false, report: { ...base, skippedReason: 'when' } }
+    return {
+      included: false,
+      report: {
+        ...base,
+        skippedReason: 'when',
+        disposition: { kind: 'skipped', reason: 'predicate' },
+      },
+    }
   }
 
-  const content = await resolveSection(section, context)
-  if (content === undefined || content.length === 0) {
-    return { included: false, report: { ...base, skippedReason: 'empty' } }
+  const resolution = await resolveSection(section, context)
+  if (resolution.kind === 'failed') {
+    return {
+      included: false,
+      report: {
+        ...base,
+        contributionRecords: resolution.contributionRecords,
+        disposition: {
+          kind: 'failed',
+          source: resolution.source,
+          reason: resolution.reason,
+        },
+      },
+    }
   }
+  if (resolution.kind === 'empty') {
+    return {
+      included: false,
+      report: {
+        ...base,
+        contributionRecords: resolution.contributionRecords,
+        skippedReason: 'empty',
+        disposition: { kind: 'skipped', reason: 'empty' },
+      },
+    }
+  }
+  const content = resolution.content
 
   const wrapResult = applyWrap(content, section.wrap, context)
   const wasTruncated =
     section.maxChars !== undefined && wrapResult.content.length > section.maxChars
   const truncated = truncateSectionContent(wrapResult.content, section.maxChars)
   if (truncated.length === 0) {
-    return { included: false, report: { ...base, skippedReason: 'empty' } }
+    return {
+      included: false,
+      report: {
+        ...base,
+        contributionRecords: resolution.contributionRecords,
+        skippedReason: 'empty',
+        disposition: { kind: 'skipped', reason: 'empty' },
+      },
+    }
   }
 
   return {
@@ -218,6 +280,8 @@ async function resolveZoneSection(
       truncated: wasTruncated,
       wrapped: wrapResult.wrapped,
       content: truncated,
+      disposition: { kind: 'effective' },
+      contributionRecords: resolution.contributionRecords,
     },
   }
 }
@@ -236,8 +300,8 @@ async function resolveZone(
   const sectionSizes: string[] = []
   const inspectedSections: ResolvedContextSection[] = []
 
-  for (const section of sections) {
-    const outcome = await resolveZoneSection(section, context, zoneName)
+  for (const [order, section] of sections.entries()) {
+    const outcome = await resolveZoneSection(section, context, zoneName, order)
     inspectedSections.push(outcome.report)
     if (!outcome.included) {
       continue
@@ -277,18 +341,30 @@ function emptyZone(): ResolvedZone {
 function sectionReportBase(
   section: ContextSection,
   context: ContextResolverContext,
-  zone: ResolvedContextZoneName
+  zone: ResolvedContextZoneName,
+  order: number
 ): ResolvedContextSection {
+  const partId = `context-section:${zone}/${order}/${section.name}`
+  const source = describeSectionSource(section, context)
   return {
+    partId,
     zone,
     name: section.name,
     type: section.type,
-    source: describeSectionSource(section, context),
+    source,
     included: false,
     chars: 0,
     bytes: 0,
     truncated: false,
     wrapped: false,
+    disposition: { kind: 'skipped', reason: 'empty' },
+    provenance: {
+      contributions: [{ kind: 'template', sourceId: partId, sourceRef: source }],
+    },
+    stage: 'context-resolution',
+    operation: `resolve-${section.type}`,
+    order,
+    contributionRecords: [],
     ...(section.when !== undefined ? { when: section.when } : {}),
     ...(section.maxChars !== undefined ? { maxChars: section.maxChars } : {}),
   }
@@ -362,32 +438,65 @@ function matchesWhenPredicate(section: ContextSection, context: ContextResolverC
   return true
 }
 
+type SectionResolution =
+  | { kind: 'content'; content: string; contributionRecords: ResolvedContextContribution[] }
+  | { kind: 'empty'; contributionRecords: ResolvedContextContribution[] }
+  | {
+      kind: 'failed'
+      source: AgentInspectionFailureSource
+      reason: string
+      contributionRecords: ResolvedContextContribution[]
+    }
+
 async function resolveSection(
   section: ContextSection,
   context: ContextResolverContext
-): Promise<string | undefined> {
+): Promise<SectionResolution> {
   switch (section.type) {
     case 'file':
       return resolveFileSection(section, context)
     case 'inline': {
       const content = interpolateVariables(section.content, context)
-      return content.length > 0 ? content : undefined
+      return asSectionResolution(content.length > 0 ? content : undefined)
     }
     case 'exec':
       return resolveExecSection(section, context)
     case 'slot':
       return resolveSlotSection(section, context)
     case 'service-probe':
-      return resolveServiceProbeSection(section, context)
+      try {
+        return asSectionResolution(await resolveServiceProbeSection(section, context))
+      } catch (error) {
+        return {
+          kind: 'failed',
+          source: { kind: 'service-probe', services: section.services.map(({ name }) => name) },
+          reason: boundedReason(`Service probe execution failed: ${errorMessage(error)}`),
+          contributionRecords: [],
+        }
+      }
   }
 }
 
 async function resolveFileSection(
   section: FileSectionDef,
   context: ContextResolverContext
-): Promise<string | undefined> {
-  const filePath = await resolveTemplateFileRef(section.path, context)
-  const content = await readFileOrUndefined(filePath)
+): Promise<SectionResolution> {
+  let filePath: string
+  let content: string | undefined
+  try {
+    filePath = await resolveTemplateFileRef(section.path, context)
+    content = await readFileOrUndefined(filePath)
+  } catch (error) {
+    if (section.required) {
+      throw error
+    }
+    return {
+      kind: 'failed',
+      source: { kind: 'file', ref: section.path },
+      reason: boundedReason(`Unreadable context file ${section.path}: ${errorMessage(error)}`),
+      contributionRecords: [],
+    }
+  }
 
   if (content === undefined || content.length === 0) {
     if (section.required) {
@@ -395,16 +504,17 @@ async function resolveFileSection(
         `Required context template file section "${section.name}" is missing: ${filePath}`
       )
     }
-    return undefined
+    return asSectionResolution(undefined)
   }
 
-  return interpolateVariables(content, context)
+  const interpolated = interpolateVariables(content, context)
+  return asSectionResolution(interpolated.length > 0 ? interpolated : undefined)
 }
 
 async function resolveExecSection(
   section: ExecSectionDef,
   context: ContextResolverContext
-): Promise<string | undefined> {
+): Promise<SectionResolution> {
   const timeout = section.timeout ?? DEFAULT_EXEC_TIMEOUT_MS
   const cwd = context.execCwd ?? context.agentRoot ?? context.agentsRoot
 
@@ -418,77 +528,223 @@ async function resolveExecSection(
       windowsHide: true,
     })
     const content = stdout.trim()
-    return content.length > 0 ? content : undefined
-  } catch {
-    // Intentional: an exec section that fails (non-zero exit, timeout, missing
-    // command) contributes no content rather than aborting prompt assembly.
-    return undefined
+    return asSectionResolution(content.length > 0 ? content : undefined)
+  } catch (error) {
+    return {
+      kind: 'failed',
+      source: { kind: 'exec', command: section.command },
+      reason: formatExecFailure(error),
+      contributionRecords: [],
+    }
   }
 }
 
 async function resolveSlotSection(
   section: Extract<ContextSection, { type: 'slot' }>,
   context: ContextResolverContext
-): Promise<string | undefined> {
+): Promise<SectionResolution> {
   // The parser requires `source` for every slot section (context-template.ts
   // parseSection: parseRequiredString(input['source'])), so a sourceless slot is
   // unreachable by construction; the optional type is retained only for shape parity.
   if (section.source === undefined) {
-    return undefined
+    return failedSlotResolution(
+      section.name,
+      `Slot section ${section.name} has no resolvable source`
+    )
   }
 
   const sourceValue = resolveSourcePath(context.agentProfile, section.source)
   if (sourceValue === undefined) {
-    return undefined
+    return failedSlotResolution(
+      section.source,
+      `Slot source ${section.source} could not be resolved from the agent profile`
+    )
   }
 
   const entries = normalizeStringEntries(sourceValue)
-  if (entries === undefined || entries.length === 0) {
-    return undefined
+  if (entries === undefined) {
+    return failedSlotResolution(
+      section.source,
+      `Slot source ${section.source} must resolve to a string or string array`
+    )
+  }
+  if (entries.length === 0) {
+    return asSectionResolution(undefined)
   }
 
   if (section.source.endsWith('Exec')) {
-    return resolveCommandSlot(entries, context)
+    return resolveCommandSlot(entries, context, section.source)
   }
 
-  return resolveFileRefSlot(entries, context)
+  return resolveFileRefSlot(entries, context, section.source)
 }
 
 async function resolveFileRefSlot(
   refs: string[],
-  context: ContextResolverContext
-): Promise<string | undefined> {
+  context: ContextResolverContext,
+  slotSource: string
+): Promise<SectionResolution> {
   const contents: Array<string | undefined> = []
+  const contributionRecords: ResolvedContextContribution[] = []
 
-  for (const ref of refs) {
-    const filePath = await resolveTemplateFileRef(ref, context)
-    const content = await readFileOrUndefined(filePath)
-    contents.push(content === undefined ? undefined : interpolateVariables(content, context))
+  for (const [order, ref] of refs.entries()) {
+    try {
+      const filePath = await resolveTemplateFileRef(ref, context)
+      const content = await readFileOrUndefined(filePath)
+      const resolved = content === undefined ? undefined : interpolateVariables(content, context)
+      contents.push(resolved)
+      contributionRecords.push(
+        slotContributionRecord(
+          slotSource,
+          ref,
+          order,
+          'resolve-slot-file',
+          resolved === undefined || resolved.length === 0
+            ? { kind: 'skipped', reason: 'empty' }
+            : { kind: 'effective' }
+        )
+      )
+    } catch (error) {
+      contents.push(undefined)
+      contributionRecords.push(
+        slotContributionRecord(slotSource, ref, order, 'resolve-slot-file', {
+          kind: 'failed',
+          source: { kind: 'file', ref },
+          reason: boundedReason(`Unreadable slot file ${ref}: ${errorMessage(error)}`),
+        })
+      )
+    }
   }
 
-  return joinResolvedContent(contents)
+  return slotAggregateResolution(slotSource, joinResolvedContent(contents), contributionRecords)
 }
 
 async function resolveCommandSlot(
   commands: string[],
-  context: ContextResolverContext
-): Promise<string | undefined> {
+  context: ContextResolverContext,
+  slotSource: string
+): Promise<SectionResolution> {
   const contents: Array<string | undefined> = []
+  const contributionRecords: ResolvedContextContribution[] = []
 
-  for (const command of commands) {
-    contents.push(
-      await resolveExecSection(
-        {
-          name: command,
-          type: 'exec',
-          command,
-        },
-        context
+  for (const [order, command] of commands.entries()) {
+    const resolution = await resolveExecSection(
+      {
+        name: command,
+        type: 'exec',
+        command,
+      },
+      context
+    )
+    contents.push(sectionResolutionContent(resolution))
+    contributionRecords.push(
+      slotContributionRecord(
+        slotSource,
+        command,
+        order,
+        'resolve-slot-exec',
+        resolution.kind === 'content'
+          ? { kind: 'effective' }
+          : resolution.kind === 'empty'
+            ? { kind: 'skipped', reason: 'empty' }
+            : { kind: 'failed', source: resolution.source, reason: resolution.reason }
       )
     )
   }
 
-  return joinCommandContent(contents)
+  return slotAggregateResolution(slotSource, joinCommandContent(contents), contributionRecords)
+}
+
+function asSectionResolution(
+  content: string | undefined,
+  contributionRecords: ResolvedContextContribution[] = []
+): SectionResolution {
+  return content === undefined || content.length === 0
+    ? { kind: 'empty', contributionRecords }
+    : { kind: 'content', content, contributionRecords }
+}
+
+function sectionResolutionContent(resolution: SectionResolution): string | undefined {
+  return resolution.kind === 'content' ? resolution.content : undefined
+}
+
+function failedSlotResolution(source: string, reason: string): SectionResolution {
+  return {
+    kind: 'failed',
+    source: { kind: 'slot', source },
+    reason: boundedReason(reason),
+    contributionRecords: [],
+  }
+}
+
+function slotAggregateResolution(
+  slotSource: string,
+  content: string | undefined,
+  contributionRecords: ResolvedContextContribution[]
+): SectionResolution {
+  if (content !== undefined) {
+    return asSectionResolution(content, contributionRecords)
+  }
+  const failures = contributionRecords.filter(({ disposition }) => disposition.kind === 'failed')
+  if (failures.length > 0) {
+    return {
+      kind: 'failed',
+      source: { kind: 'slot', source: slotSource },
+      reason: boundedReason(
+        `Slot source ${slotSource} failed to resolve ${failures.length} contribution(s): ${failures
+          .map(({ disposition }) => (disposition.kind === 'failed' ? disposition.reason : ''))
+          .join('; ')}`
+      ),
+      contributionRecords,
+    }
+  }
+  return asSectionResolution(undefined, contributionRecords)
+}
+
+function slotContributionRecord(
+  slotSource: string,
+  sourceRef: string,
+  order: number,
+  operation: ResolvedContextContribution['operation'],
+  disposition: AgentInspectionDisposition
+): ResolvedContextContribution {
+  const partId = `slot-contribution:${slotSource}/${order}`
+  return {
+    partId,
+    source: sourceRef,
+    disposition,
+    provenance: {
+      contributions: [{ kind: 'template', sourceId: partId, sourceRef }],
+    },
+    stage: 'context-resolution',
+    operation,
+    order,
+  }
+}
+
+function formatExecFailure(error: unknown): string {
+  const details = isRecord(error) ? error : {}
+  const exitCode = details['code'] ?? 'unknown'
+  const signal = details['signal'] ?? 'none'
+  const timeout = details['killed'] === true
+  const stderr = textValue(details['stderr']) || errorMessage(error)
+  return boundedReason(
+    `Exec failed; exit code: ${String(exitCode)}; signal: ${String(signal)}; timeout: ${String(timeout)}; stderr: ${stderr}`
+  )
+}
+
+function boundedReason(reason: string): string {
+  return reason.slice(0, FAILURE_REASON_MAX_CHARS)
+}
+
+function textValue(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value instanceof Uint8Array) return Buffer.from(value).toString('utf8')
+  return ''
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function resolveSourcePath(root: Record<string, unknown> | undefined, source: string): unknown {
