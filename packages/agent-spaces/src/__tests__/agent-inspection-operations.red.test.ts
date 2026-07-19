@@ -124,8 +124,8 @@ describe('T-06330 agent catalog and contextual inspection operations', () => {
     )
 
     const [cliSources, wireSources] = await Promise.all([
-      readTypeScriptTree(new URL('../../../cli/src', import.meta.url)),
-      readTypeScriptTree(new URL('../../../aspc/src', import.meta.url)),
+      readTypeScriptTree(new URL('../../../cli/src/', import.meta.url)),
+      readTypeScriptTree(new URL('../../../aspc/src/', import.meta.url)),
     ])
     for (const [surface, sources] of [
       ['CLI', cliSources],
