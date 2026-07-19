@@ -32,6 +32,7 @@ type Manifest = {
   private?: boolean
   main?: string
   types?: string
+  bin?: string | Record<string, string>
   exports?: unknown
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
@@ -367,6 +368,19 @@ function exportedFilePaths(value: unknown): string[] {
   return Object.values(value as Record<string, unknown>).flatMap(exportedFilePaths)
 }
 
+// WHY: `bin` was the one manifest surface this packer never checked, so a bin
+// excluded from `files` shipped a binary that cannot start.
+// NOTE the limit: this asserts the bin entry itself is packaged, NOT that what
+// the bin imports is packaged. The bug that motivated it (a shipped bin
+// importing unshipped ../src) passes this check. Only installing the tarball
+// outside the monorepo and starting the binary catches that.
+function binFilePaths(value: Manifest['bin']): string[] {
+  if (typeof value === 'string') return [value]
+  if (!value || typeof value !== 'object') return []
+
+  return Object.values(value)
+}
+
 async function assertPackagedFile(packageDir: string, path: string, name: string): Promise<void> {
   const normalized = path.replace(/^\.\//, '')
   try {
@@ -582,6 +596,7 @@ async function packForPublish(rel: string): Promise<{
     const referencedFiles = [
       stagedManifest.main,
       stagedManifest.types,
+      ...binFilePaths(stagedManifest.bin),
       ...exportedFilePaths(stagedManifest.exports),
     ].filter((path): path is string => Boolean(path))
     for (const path of new Set(referencedFiles)) {
