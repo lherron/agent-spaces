@@ -22,7 +22,7 @@ import {
 } from 'spaces-runtime-contracts'
 
 import { createAgentSpacesClient } from './client.js'
-import { foregroundLaunchFromResponse } from './foreground-launch.js'
+import { projectAgentCompileForDryRun } from './dry-run-projection.js'
 
 function rid(prefix: string): string {
   return `${prefix}_${randomUUID()}`
@@ -175,15 +175,13 @@ export function createCompileRuntimeFn(aspHome?: string | undefined): CompileRun
       ...(registryPath !== undefined ? { registryPath } : {}),
     })
     const response = await client.compileRuntimePlan(request)
-    const foreground = foregroundLaunchFromResponse(response)
+    const projection = projectAgentCompileForDryRun({ response })
     return {
-      ok: response.ok,
+      ok: projection.accepted,
       request,
       response,
-      ...(foreground ? { foreground } : {}),
-      ...(response.ok
-        ? {}
-        : { diagnostics: response.diagnostics.map((d) => `${d.code}: ${d.message}`) }),
+      ...(projection.foreground ? { foreground: projection.foreground } : {}),
+      ...(projection.diagnostics ? { diagnostics: projection.diagnostics } : {}),
     }
   }
 }

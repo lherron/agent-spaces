@@ -66,6 +66,13 @@ export {
 export { createCompileRuntimeFn } from './run-compile.js'
 
 export {
+  type AgentCompileDryRunProjection,
+  projectAgentCompileForDryRun,
+  type RuntimeCompileDryRunProjection,
+  type StableAgentCompileIdentity,
+} from './dry-run-projection.js'
+
+export {
   catalogAgentsForContext,
   inspectAgentForContext,
   type AgentCatalogDiagnostic,
