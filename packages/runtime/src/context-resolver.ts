@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveRootRelativeRef } from 'spaces-config'
+import type { AgentInspectionServiceProbeResponse } from 'spaces-runtime-contracts'
 import type {
   ContextSection,
   ContextSectionType,
@@ -53,6 +54,16 @@ export interface ContextResolverContext {
    * instead of dependent on the caller's ambient working directory.
    */
   cwd?: string | undefined
+  /** Inspection-only pinned base directory for predicate path checks. */
+  predicateCwd?: string | undefined
+  /** Inspection-only pinned environment for predicate checks. */
+  predicateEnv?: Record<string, string | undefined> | undefined
+  /** Inspection-only pinned working directory for exec sections. */
+  execCwd?: string | undefined
+  /** Inspection-only pinned environment for exec sections. */
+  execEnv?: Record<string, string | undefined> | undefined
+  /** Inspection-only recorded service outcomes; presence disables live probes. */
+  serviceProbeResponses?: AgentInspectionServiceProbeResponse[] | undefined
 }
 
 export interface ResolvedContext {
@@ -318,11 +329,14 @@ function matchesWhenPredicate(section: ContextSection, context: ContextResolverC
     return false
   }
 
-  if (when.exists !== undefined && !existsSync(join(context.cwd ?? process.cwd(), when.exists))) {
+  if (
+    when.exists !== undefined &&
+    !existsSync(join(context.predicateCwd ?? context.cwd ?? process.cwd(), when.exists))
+  ) {
     return false
   }
 
-  const env = context.env ?? process.env
+  const env = context.predicateEnv ?? context.env ?? process.env
 
   if (when.envSet !== undefined) {
     const value = env[when.envSet]
@@ -392,11 +406,12 @@ async function resolveExecSection(
   context: ContextResolverContext
 ): Promise<string | undefined> {
   const timeout = section.timeout ?? DEFAULT_EXEC_TIMEOUT_MS
-  const cwd = context.agentRoot || context.agentsRoot
+  const cwd = context.execCwd ?? context.agentRoot ?? context.agentsRoot
 
   try {
     const { stdout } = await execFileAsync('bash', ['-c', section.command], {
       cwd,
+      ...(context.execEnv !== undefined ? { env: context.execEnv } : {}),
       timeout,
       encoding: 'utf8',
       maxBuffer: EXEC_MAX_BUFFER_BYTES,

@@ -27,10 +27,19 @@ export async function resolveServiceProbeSection(
   }
 
   const results = await Promise.all(
-    services.map(async (spec) => ({
-      spec,
-      up: await probeServiceEndpoint(spec.endpoint, timeout),
-    }))
+    services.map(async (spec) => {
+      const recorded = context.serviceProbeResponses?.find(
+        (response) => response.name === spec.name && response.endpoint === spec.endpoint
+      )
+      return {
+        spec,
+        up:
+          recorded?.up ??
+          (context.serviceProbeResponses === undefined
+            ? await probeServiceEndpoint(spec.endpoint, timeout)
+            : false),
+      }
+    })
   )
 
   const nameWidth = services.reduce((max, spec) => Math.max(max, spec.name.length), 0)

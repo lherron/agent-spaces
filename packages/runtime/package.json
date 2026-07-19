@@ -33,7 +33,8 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
-    "spaces-config": "*"
+    "spaces-config": "*",
+    "spaces-runtime-contracts": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",

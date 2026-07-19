@@ -1,4 +1,5 @@
 export * from './boundary-checks'
+export * from './agent-inspection'
 export * from './capabilities'
 export * from './compile-context'
 export * from './compiler-plan'

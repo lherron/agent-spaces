@@ -23,14 +23,6 @@
     },
     {
       "package": "agent-scope",
-      "symbol": "DEFAULT_PRIMARY_TASK_ID",
-      "kind": "value",
-      "file": "packages/agent-scope/src/input.ts",
-      "hash": "agent-scope|DEFAULT_PRIMARY_TASK_ID|value",
-      "count": 1
-    },
-    {
-      "package": "agent-scope",
       "symbol": "formatScopeHandle",
       "kind": "value",
       "file": "packages/agent-scope/src/scope-handle.ts",
@@ -79,14 +71,6 @@
     },
     {
       "package": "agent-scope",
-      "symbol": "laneRefFromId",
-      "kind": "value",
-      "file": "packages/agent-scope/src/lane-ref.ts",
-      "hash": "agent-scope|laneRefFromId|value",
-      "count": 1
-    },
-    {
-      "package": "agent-scope",
       "symbol": "normalizeLaneRef",
       "kind": "value",
       "file": "packages/agent-scope/src/lane-ref.ts",
@@ -99,14 +83,6 @@
       "kind": "value",
       "file": "packages/agent-scope/src/session-ref.ts",
       "hash": "agent-scope|normalizeSessionRef|value",
-      "count": 1
-    },
-    {
-      "package": "agent-scope",
-      "symbol": "ParsedScopeRef",
-      "kind": "type",
-      "file": "packages/agent-scope/src/types.ts",
-      "hash": "agent-scope|ParsedScopeRef|type",
       "count": 1
     },
     {
@@ -159,14 +135,6 @@
     },
     {
       "package": "agent-scope",
-      "symbol": "ResolveQualifiedScopeOptions",
-      "kind": "type",
-      "file": "packages/agent-scope/src/input.ts",
-      "hash": "agent-scope|ResolveQualifiedScopeOptions|type",
-      "count": 1
-    },
-    {
-      "package": "agent-scope",
       "symbol": "resolveScopeInput",
       "kind": "value",
       "file": "packages/agent-scope/src/input.ts",
@@ -175,34 +143,10 @@
     },
     {
       "package": "agent-scope",
-      "symbol": "ScopeKind",
-      "kind": "type",
-      "file": "packages/agent-scope/src/types.ts",
-      "hash": "agent-scope|ScopeKind|type",
-      "count": 1
-    },
-    {
-      "package": "agent-scope",
       "symbol": "SessionRef",
       "kind": "type",
       "file": "packages/agent-scope/src/types.ts",
       "hash": "agent-scope|SessionRef|type",
-      "count": 1
-    },
-    {
-      "package": "agent-scope",
-      "symbol": "TOKEN_MAX_LENGTH",
-      "kind": "value",
-      "file": "packages/agent-scope/src/types.ts",
-      "hash": "agent-scope|TOKEN_MAX_LENGTH|value",
-      "count": 1
-    },
-    {
-      "package": "agent-scope",
-      "symbol": "TOKEN_MIN_LENGTH",
-      "kind": "value",
-      "file": "packages/agent-scope/src/types.ts",
-      "hash": "agent-scope|TOKEN_MIN_LENGTH|value",
       "count": 1
     },
     {
@@ -219,14 +163,6 @@
       "kind": "value",
       "file": "packages/agent-scope/src/lane-ref.ts",
       "hash": "agent-scope|validateLaneRef|value",
-      "count": 1
-    },
-    {
-      "package": "agent-scope",
-      "symbol": "validateScopeHandle",
-      "kind": "value",
-      "file": "packages/agent-scope/src/scope-handle.ts",
-      "hash": "agent-scope|validateScopeHandle|value",
       "count": 1
     },
     {
@@ -399,6 +335,22 @@
     },
     {
       "package": "asp-cli",
+      "symbol": "asp resources plan",
+      "kind": "command",
+      "file": "packages/cli/src/commands/resources/index.ts",
+      "hash": "asp-cli|asp resources plan|command",
+      "count": 1
+    },
+    {
+      "package": "asp-cli",
+      "symbol": "asp resources",
+      "kind": "command",
+      "file": "packages/cli/src/commands/resources/index.ts",
+      "hash": "asp-cli|asp resources|command",
+      "count": 1
+    },
+    {
+      "package": "asp-cli",
       "symbol": "asp run",
       "kind": "command",
       "file": "packages/cli/src/commands/run.ts",
@@ -419,6 +371,14 @@
       "kind": "command",
       "file": "packages/cli/src/commands/spaces/index.ts",
       "hash": "asp-cli|asp spaces|command",
+      "count": 1
+    },
+    {
+      "package": "asp-cli",
+      "symbol": "asp token-rent",
+      "kind": "command",
+      "file": "packages/cli/src/commands/token-rent.ts",
+      "hash": "asp-cli|asp token-rent|command",
       "count": 1
     },
     {
@@ -975,6 +935,14 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "emitProviderTranscriptReported",
+      "kind": "value",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|emitProviderTranscriptReported|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "encodeNdjsonFrame",
       "kind": "value",
       "file": "packages/harness-broker-protocol/src/ndjson.ts",
@@ -1371,6 +1339,14 @@
       "kind": "type",
       "file": "packages/harness-broker-protocol/src/events.ts",
       "hash": "spaces-harness-broker-protocol|InvocationReadyPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "InvocationResponseFormat",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/commands.ts",
+      "hash": "spaces-harness-broker-protocol|InvocationResponseFormat|type",
       "count": 1
     },
     {
@@ -1823,6 +1799,70 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "PROVIDER_TRANSCRIPT_ARTIFACT_KIND",
+      "kind": "value",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|PROVIDER_TRANSCRIPT_ARTIFACT_KIND|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "PROVIDER_TRANSCRIPT_MEDIA_TYPE",
+      "kind": "value",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|PROVIDER_TRANSCRIPT_MEDIA_TYPE|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "PROVIDER_TRANSCRIPT_REPORTED_EVENT_TYPE",
+      "kind": "value",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|PROVIDER_TRANSCRIPT_REPORTED_EVENT_TYPE|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "PROVIDER_TRANSCRIPT_SCHEMA",
+      "kind": "value",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|PROVIDER_TRANSCRIPT_SCHEMA|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "PROVIDER_TRANSCRIPT_STORAGE",
+      "kind": "value",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|PROVIDER_TRANSCRIPT_STORAGE|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ProviderTranscriptEmitContext",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|ProviderTranscriptEmitContext|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ProviderTranscriptReportedExtra",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|ProviderTranscriptReportedExtra|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "ProviderTranscriptReportedPayload",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|ProviderTranscriptReportedPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "RESERVED_ENV_KEY_PREFIXES",
       "kind": "value",
       "file": "packages/harness-broker-protocol/src/env-keys.ts",
@@ -2071,10 +2111,242 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "AGENT_INSPECTION_EVALUATION_CONTEXT_SCHEMA_VERSION",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AGENT_INSPECTION_EVALUATION_CONTEXT_SCHEMA_VERSION|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AGENT_INSPECTION_REQUEST_SCHEMA_VERSION",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AGENT_INSPECTION_REQUEST_SCHEMA_VERSION|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AGENT_INSPECTION_SCHEMA_VERSION",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AGENT_INSPECTION_SCHEMA_VERSION|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "AgentchatExposurePolicy",
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/exposure.ts",
       "hash": "spaces-runtime-contracts|AgentchatExposurePolicy|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionArtifactPart",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionArtifactPart|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionCapabilityPart",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionCapabilityPart|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionCompileContext",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionCompileContext|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionCompleteness",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionCompleteness|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionContribution",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionContribution|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionDeclaredOverrides",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionDeclaredOverrides|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionDiagnostic",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionDiagnostic|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionDisposition",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionDisposition|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionEvaluationContext",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionEvaluationContext|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionExecutionProfilePart",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionExecutionProfilePart|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionFailureSource",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionFailureSource|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionFreshness",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionFreshness|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionHarnessPart",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionHarnessPart|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionIdentity",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionIdentity|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionJsonValue",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionJsonValue|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionModelPart",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionModelPart|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionPart",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionPart|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionPartId",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionPartId|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionPromptPart",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionPromptPart|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionProvenance",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionProvenance|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionRequest",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionRequest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionResult",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionResult|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionRuntimeSettingPart",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionRuntimeSettingPart|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionScaffoldPacket",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionScaffoldPacket|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionServiceProbeResponse",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionServiceProbeResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "AgentInspectionValidationError",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|AgentInspectionValidationError|value",
       "count": 1
     },
     {
@@ -2367,6 +2639,14 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "CompileContext",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/compile-context.ts",
+      "hash": "spaces-runtime-contracts|CompileContext|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "CompileDiagnostic",
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/compiler-plan.ts",
@@ -2403,6 +2683,14 @@
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/ids.ts",
       "hash": "spaces-runtime-contracts|CompileId|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "CompileToolchainManifest",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/compile-context.ts",
+      "hash": "spaces-runtime-contracts|CompileToolchainManifest|type",
       "count": 1
     },
     {
@@ -2775,6 +3063,22 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "isRuntimeStateStatus",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/primitives.ts",
+      "hash": "spaces-runtime-contracts|isRuntimeStateStatus|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "isRuntimeStatus",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/primitives.ts",
+      "hash": "spaces-runtime-contracts|isRuntimeStatus|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "JsonObject",
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/primitives.ts",
@@ -2843,6 +3147,54 @@
       "kind": "type",
       "file": "packages/harness-broker-protocol/src/ids.ts",
       "hash": "spaces-runtime-contracts|MessageId|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OUTPUT_MANIFEST_SCHEMA_VERSION",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OUTPUT_MANIFEST_SCHEMA_VERSION|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OutputManifest",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OutputManifest|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OutputManifestEntry",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OutputManifestEntry|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OutputManifestEntryKind",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OutputManifestEntryKind|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OutputManifestExclusion",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OutputManifestExclusion|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "OutputManifestExclusionReason",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
+      "hash": "spaces-runtime-contracts|OutputManifestExclusionReason|type",
       "count": 1
     },
     {
@@ -2971,6 +3323,22 @@
       "kind": "value",
       "file": "packages/spaces-runtime-contracts/src/route-catalog.ts",
       "hash": "spaces-runtime-contracts|RUNTIME_ROUTE_CATALOG|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "RUNTIME_STATE_STATUS_VALUES",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/primitives.ts",
+      "hash": "spaces-runtime-contracts|RUNTIME_STATE_STATUS_VALUES|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "RUNTIME_STATUS_VALUES",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/primitives.ts",
+      "hash": "spaces-runtime-contracts|RUNTIME_STATUS_VALUES|value",
       "count": 1
     },
     {
@@ -3343,6 +3711,14 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "RuntimeStateStatus",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/primitives.ts",
+      "hash": "spaces-runtime-contracts|RuntimeStateStatus|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "RuntimeStatus",
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/primitives.ts",
@@ -3495,6 +3871,30 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "validateAgentInspectionEvaluationContext",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|validateAgentInspectionEvaluationContext|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "validateAgentInspectionRequest",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|validateAgentInspectionRequest|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "validateAgentInspectionResult",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/agent-inspection.ts",
+      "hash": "spaces-runtime-contracts|validateAgentInspectionResult|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "validateBrokerExecutionProfile",
       "kind": "value",
       "file": "packages/spaces-runtime-contracts/src/validate-execution-profile.ts",
@@ -3523,102 +3923,6 @@
       "kind": "value",
       "file": "packages/spaces-runtime-contracts/src/validate-execution-profile.ts",
       "hash": "spaces-runtime-contracts|validateTerminalExecutionProfile|value",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "CompileContext",
-      "kind": "type",
-      "file": "packages/spaces-runtime-contracts/src/compile-context.ts",
-      "hash": "spaces-runtime-contracts|CompileContext|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "CompileToolchainManifest",
-      "kind": "type",
-      "file": "packages/spaces-runtime-contracts/src/compile-context.ts",
-      "hash": "spaces-runtime-contracts|CompileToolchainManifest|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "OUTPUT_MANIFEST_SCHEMA_VERSION",
-      "kind": "value",
-      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
-      "hash": "spaces-runtime-contracts|OUTPUT_MANIFEST_SCHEMA_VERSION|value",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "OutputManifest",
-      "kind": "type",
-      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
-      "hash": "spaces-runtime-contracts|OutputManifest|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "OutputManifestEntry",
-      "kind": "type",
-      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
-      "hash": "spaces-runtime-contracts|OutputManifestEntry|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "OutputManifestEntryKind",
-      "kind": "type",
-      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
-      "hash": "spaces-runtime-contracts|OutputManifestEntryKind|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "OutputManifestExclusion",
-      "kind": "type",
-      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
-      "hash": "spaces-runtime-contracts|OutputManifestExclusion|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "OutputManifestExclusionReason",
-      "kind": "type",
-      "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
-      "hash": "spaces-runtime-contracts|OutputManifestExclusionReason|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-harness-broker-protocol",
-      "symbol": "emitProviderTranscriptReported",
-      "kind": "value",
-      "file": "packages/harness-broker-protocol/src/events.ts",
-      "hash": "spaces-harness-broker-protocol|emitProviderTranscriptReported|value",
-      "count": 1
-    },
-    {
-      "package": "spaces-harness-broker-protocol",
-      "symbol": "ProviderTranscriptEmitContext",
-      "kind": "type",
-      "file": "packages/harness-broker-protocol/src/events.ts",
-      "hash": "spaces-harness-broker-protocol|ProviderTranscriptEmitContext|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-harness-broker-protocol",
-      "symbol": "ProviderTranscriptReportedExtra",
-      "kind": "type",
-      "file": "packages/harness-broker-protocol/src/events.ts",
-      "hash": "spaces-harness-broker-protocol|ProviderTranscriptReportedExtra|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-harness-broker-protocol",
-      "symbol": "ProviderTranscriptReportedPayload",
-      "kind": "type",
-      "file": "packages/harness-broker-protocol/src/events.ts",
-      "hash": "spaces-harness-broker-protocol|ProviderTranscriptReportedPayload|type",
       "count": 1
     }
   ]
