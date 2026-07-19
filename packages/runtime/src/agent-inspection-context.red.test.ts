@@ -134,7 +134,7 @@ when = { envEquals = { name = "${AMBIENT_EQUALS}", value = "explicit-equal" } }
 [[prompt]]
 name = "exec-cwd"
 type = "exec"
-command = "printf '%s' \"$PWD\""
+command = "printf '%s' \\"$PWD\\""
 `)
 
     const resolveUnderAmbient = async (ambientCwd: string, envValue: string) => {
