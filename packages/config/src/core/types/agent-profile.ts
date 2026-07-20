@@ -46,7 +46,7 @@ export interface AgentProfileSession {
 export interface AgentProfilePlacement {
   default_home_node?: string | undefined
   pins: Record<string, string>
-  task_defaults: Record<string, string>
+  task_defaults?: Record<string, string> | undefined
 }
 
 export interface AgentRuntimeProfile {

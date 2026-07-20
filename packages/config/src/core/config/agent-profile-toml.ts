@@ -320,12 +320,13 @@ function parsePlacement(
     fail(source, path, 'must be a table', 'type')
   }
 
-  const placement: AgentProfilePlacement = { pins: {}, task_defaults: {} }
+  const placement: AgentProfilePlacement = { pins: {} }
   for (const [key, rawNodeId] of Object.entries(value)) {
     if (key === 'task-defaults') {
       if (!isPlainObject(rawNodeId)) {
         fail(source, `${path}/${key}`, 'must be a table', 'type')
       }
+      const taskDefaults: Record<string, string> = {}
       for (const [taskKey, taskNodeId] of Object.entries(rawNodeId)) {
         if (!TASK_DEFAULT_PATTERN.test(taskKey)) {
           fail(
@@ -354,8 +355,9 @@ function parsePlacement(
             'pattern'
           )
         }
-        placement.task_defaults[taskKey] = taskNodeId
+        taskDefaults[taskKey] = taskNodeId
       }
+      placement.task_defaults = taskDefaults
       continue
     }
     if (typeof rawNodeId !== 'string') {

@@ -1388,7 +1388,7 @@ base = []
       if (!response.ok) throw new Error('expected compile success')
 
       expect(response.plan.agentPolicy).toEqual({
-        placement: { defaultHomeNode: 'svc', pins: {}, taskDefaults: {} },
+        placement: { defaultHomeNode: 'svc', pins: {} },
         claimsTask: false,
       })
     } finally {

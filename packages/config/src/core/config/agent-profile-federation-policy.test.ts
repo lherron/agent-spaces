@@ -42,7 +42,7 @@ svcprimary = "svc_1"
   test('accepts an empty placement table as a declared policy with no pins', () => {
     const profile = parseAgentProfile('schemaVersion = 2\n\n[placement]\n')
 
-    expect(profile.placement).toEqual({ pins: {}, task_defaults: {} })
+    expect(profile.placement).toEqual({ pins: {} })
   })
 
   test.each(['lab', 'node.example', 'node_1', 'node-1', 'A9'])(
@@ -59,7 +59,6 @@ default_home_node = "${nodeId}"
       expect(profile.placement).toEqual({
         default_home_node: nodeId,
         pins: { 'project:task': nodeId },
-        task_defaults: {},
       })
     }
   )
