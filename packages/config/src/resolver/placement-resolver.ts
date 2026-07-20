@@ -203,6 +203,7 @@ function resolveAgentPolicy(profile: AgentRuntimeProfile): ResolvedAgentPolicy |
               ? { defaultHomeNode: profile.placement.default_home_node }
               : {}),
             pins: { ...profile.placement.pins },
+            taskDefaults: { ...profile.placement.task_defaults },
           },
         }
       : {}),

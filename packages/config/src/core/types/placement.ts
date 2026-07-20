@@ -110,6 +110,7 @@ export interface ResolvedAgentPolicy {
   placement?: {
     defaultHomeNode?: string | undefined
     pins: Record<string, string>
+    taskDefaults: Record<string, string>
   }
   claimsTask: boolean
 }

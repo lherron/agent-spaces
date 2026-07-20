@@ -12,6 +12,10 @@ claims_task = true
 default_home_node = "local"
 "agent-spaces:T-06604" = "lab.node-1"
 "hrc-runtime:primary" = "svc_1"
+
+[placement.task-defaults]
+labprimary = "lab.node-1"
+svcprimary = "svc_1"
 `)
 
     expect(profile.claims_task).toBe(true)
@@ -20,6 +24,10 @@ default_home_node = "local"
       pins: {
         'agent-spaces:T-06604': 'lab.node-1',
         'hrc-runtime:primary': 'svc_1',
+      },
+      task_defaults: {
+        labprimary: 'lab.node-1',
+        svcprimary: 'svc_1',
       },
     })
   })
@@ -34,7 +42,7 @@ default_home_node = "local"
   test('accepts an empty placement table as a declared policy with no pins', () => {
     const profile = parseAgentProfile('schemaVersion = 2\n\n[placement]\n')
 
-    expect(profile.placement).toEqual({ pins: {} })
+    expect(profile.placement).toEqual({ pins: {}, task_defaults: {} })
   })
 
   test.each(['lab', 'node.example', 'node_1', 'node-1', 'A9'])(
@@ -51,6 +59,7 @@ default_home_node = "${nodeId}"
       expect(profile.placement).toEqual({
         default_home_node: nodeId,
         pins: { 'project:task': nodeId },
+        task_defaults: {},
       })
     }
   )
@@ -102,6 +111,34 @@ schemaVersion = 2
 `)
     ).toThrow(ConfigValidationError)
   })
+
+  test.each(['', 'bad/task', 'bad task', '*', 'a'.repeat(65)])(
+    'rejects invalid task-default key %j',
+    (taskKey) => {
+      expect(() =>
+        parseAgentProfile(`
+schemaVersion = 2
+
+[placement.task-defaults]
+"${taskKey}" = "lab"
+`)
+      ).toThrow(ConfigValidationError)
+    }
+  )
+
+  test.each(['local', '', 'bad/node', 'bad node', '*', 'a'.repeat(65)])(
+    'rejects invalid task-default node %j',
+    (nodeId) => {
+      expect(() =>
+        parseAgentProfile(`
+schemaVersion = 2
+
+[placement.task-defaults]
+labprimary = "${nodeId}"
+`)
+      ).toThrow(ConfigValidationError)
+    }
+  )
 
   test.each(['"yes"', '1', '[]'])('rejects non-boolean claims_task source %s', (rawValue) => {
     expect(() =>

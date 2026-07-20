@@ -1342,6 +1342,9 @@ claims_task = true
 default_home_node = "local"
 "agent-spaces:T-06604" = "lab.node-1"
 
+[placement.task-defaults]
+labprimary = "lab.node-1"
+
 [spaces]
 base = []
 `,
@@ -1356,6 +1359,7 @@ base = []
         placement: {
           defaultHomeNode: 'local',
           pins: { 'agent-spaces:T-06604': 'lab.node-1' },
+          taskDefaults: { labprimary: 'lab.node-1' },
         },
         claimsTask: true,
       })
@@ -1384,7 +1388,7 @@ base = []
       if (!response.ok) throw new Error('expected compile success')
 
       expect(response.plan.agentPolicy).toEqual({
-        placement: { defaultHomeNode: 'svc', pins: {} },
+        placement: { defaultHomeNode: 'svc', pins: {}, taskDefaults: {} },
         claimsTask: false,
       })
     } finally {

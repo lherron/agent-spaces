@@ -19,6 +19,7 @@ const CODEX_APPROVAL_POLICIES = new Set(['untrusted', 'on-failure', 'on-request'
 const CODEX_SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 const CODEX_REASONING_SUMMARIES = new Set(['auto', 'concise', 'detailed', 'none'])
 const NODE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/
+const TASK_DEFAULT_PATTERN = NODE_ID_PATTERN
 const SCOPE_PIN_PATTERN = /^[A-Za-z0-9._-]{1,64}:[A-Za-z0-9._-]{1,64}$/
 
 interface ValidationIssue {
@@ -319,8 +320,44 @@ function parsePlacement(
     fail(source, path, 'must be a table', 'type')
   }
 
-  const placement: AgentProfilePlacement = { pins: {} }
+  const placement: AgentProfilePlacement = { pins: {}, task_defaults: {} }
   for (const [key, rawNodeId] of Object.entries(value)) {
+    if (key === 'task-defaults') {
+      if (!isPlainObject(rawNodeId)) {
+        fail(source, `${path}/${key}`, 'must be a table', 'type')
+      }
+      for (const [taskKey, taskNodeId] of Object.entries(rawNodeId)) {
+        if (!TASK_DEFAULT_PATTERN.test(taskKey)) {
+          fail(
+            source,
+            `${path}/${key}/${taskKey}`,
+            'must be an exact task name with token characters [A-Za-z0-9._-]',
+            'pattern'
+          )
+        }
+        if (typeof taskNodeId !== 'string') {
+          fail(source, `${path}/${key}/${taskKey}`, 'must be a string', 'type')
+        }
+        if (taskNodeId === 'local') {
+          fail(
+            source,
+            `${path}/${key}/${taskKey}`,
+            '"local" is reserved for default_home_node',
+            'const'
+          )
+        }
+        if (!NODE_ID_PATTERN.test(taskNodeId)) {
+          fail(
+            source,
+            `${path}/${key}/${taskKey}`,
+            'must be a node id matching [A-Za-z0-9._-]{1,64}',
+            'pattern'
+          )
+        }
+        placement.task_defaults[taskKey] = taskNodeId
+      }
+      continue
+    }
     if (typeof rawNodeId !== 'string') {
       fail(source, `${path}/${key}`, 'must be a string', 'type')
     }
