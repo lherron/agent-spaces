@@ -98,6 +98,14 @@ export type RuntimeCompileResponse =
       diagnostics: CompileDiagnostic[]
     }
 
+export type CompiledAgentPolicy = {
+  placement?: {
+    defaultHomeNode?: string | undefined
+    pins: Record<string, string>
+  }
+  claimsTask: boolean
+}
+
 export type CompiledRuntimePlan = {
   schemaVersion: 'agent-runtime-plan/v1'
   compiler: {
@@ -110,6 +118,7 @@ export type CompiledRuntimePlan = {
 
   identity: RuntimeIdentityAllocation
   placement: RuntimePlacement
+  agentPolicy?: CompiledAgentPolicy | undefined
   resolvedBundle: ResolvedRuntimeBundle
 
   harness: {

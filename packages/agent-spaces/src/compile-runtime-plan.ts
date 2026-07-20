@@ -21,6 +21,7 @@ import {
   type CompileContext,
   type CompileDiagnostic,
   type CompileId,
+  type CompiledAgentPolicy,
   type CompiledRuntimePlan,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
   type EmbeddedSdkExecutionProfile,
@@ -202,6 +203,7 @@ interface AssemblePlanInput {
   compileId: CompileId
   createdAt: string
   compiledPlacement: CompiledRuntimePlan['placement']
+  agentPolicy?: CompiledAgentPolicy | undefined
   resolvedBundle: CompiledRuntimePlan['resolvedBundle']
   harness: CompiledRuntimePlan['harness']
   model: CompiledRuntimePlan['model']
@@ -228,6 +230,7 @@ function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
     compileId,
     createdAt,
     compiledPlacement,
+    agentPolicy,
     resolvedBundle,
     harness,
     model,
@@ -246,6 +249,7 @@ function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
     createdAt,
     identity: req.identity,
     placement: compiledPlacement,
+    ...(agentPolicy !== undefined ? { agentPolicy } : {}),
     resolvedBundle,
     harness,
     model,
@@ -267,6 +271,7 @@ function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
       compiler: planMaterial.compiler,
       identity: hashNeutralCompileIdentity(req.identity),
       placement: hashNeutralPlacement(compiledPlacement),
+      ...(agentPolicy !== undefined ? { agentPolicy } : {}),
       harness: planMaterial.harness,
       model: planMaterial.model,
       executionProfiles: planMaterial.executionProfiles.map((profile) => ({
@@ -327,6 +332,7 @@ interface FinalizePlanInput {
   resolvedBundleSource: PreparedResolvedBundle | undefined
   bundleIdentity: string
   placement: CompilePlacement
+  agentPolicy?: CompiledAgentPolicy | undefined
   harness: CompiledRuntimePlan['harness']
   model: CompiledRuntimePlan['model']
   executionProfiles: CompiledRuntimePlan['executionProfiles']
@@ -381,6 +387,7 @@ function finalizePlan(input: FinalizePlanInput): RuntimeCompileResponse {
     compileId,
     createdAt,
     compiledPlacement,
+    ...(input.agentPolicy !== undefined ? { agentPolicy: input.agentPolicy } : {}),
     resolvedBundle,
     harness: input.harness,
     model: input.model,
@@ -1186,6 +1193,7 @@ async function compileBrokerPlan(
     resolvedBundleSource: brokerInvocation.resolvedBundle,
     bundleIdentity,
     placement,
+    agentPolicy: prepared.placementContext.agentPolicy,
     harness: {
       family: 'codex',
       runtime: 'codex-cli',
@@ -1341,6 +1349,7 @@ async function compileForegroundPlan(
     resolvedBundleSource: prepared.resolvedBundle,
     bundleIdentity,
     placement,
+    agentPolicy: prepared.placementContext.agentPolicy,
     harness: {
       family: route.family,
       runtime: route.runtime,
@@ -1629,6 +1638,7 @@ async function compileEmbeddedSdkPlan(
     resolvedBundleSource: prepared.resolvedBundle,
     bundleIdentity,
     placement,
+    agentPolicy: prepared.placementContext.agentPolicy,
     harness: {
       family: 'pi',
       runtime: 'pi-sdk',
@@ -1956,6 +1966,7 @@ async function compileTmuxBrokerPlan(
     resolvedBundleSource: prepared.resolvedBundle,
     bundleIdentity,
     placement,
+    agentPolicy: prepared.placementContext.agentPolicy,
     harness: {
       family: route.family,
       runtime: route.runtime,

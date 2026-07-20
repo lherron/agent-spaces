@@ -51,7 +51,10 @@ test.each = <T extends readonly unknown[]>(table: readonly T[]) => {
 }
 
 type CompileClient = AgentSpacesClient & {
-  compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
+  compileRuntimePlan(
+    req: RuntimeCompileRequest,
+    options?: { compileContext?: { nowIso?: string | undefined } | undefined }
+  ): Promise<RuntimeCompileResponse>
 }
 
 type BrokerClient = AgentSpacesClient & {
@@ -1326,5 +1329,94 @@ exit 0
     const legacy = await createBrokerClient().buildHarnessBrokerInvocation(legacyBrokerRequest(req))
 
     expect(legacy.startRequest).toEqual(profile.harnessInvocation.startRequest)
+  })
+
+  test('emits compiled placement policy and claims-task declaration for HRC', async () => {
+    const profilePath = join(fixture.agentRoot, 'agent-profile.toml')
+    writeFileSync(
+      profilePath,
+      `schemaVersion = 2
+claims_task = true
+
+[placement]
+default_home_node = "local"
+"agent-spaces:T-06604" = "lab.node-1"
+
+[spaces]
+base = []
+`,
+      'utf8'
+    )
+
+    try {
+      const response = await createClient().compileRuntimePlan(baseCompileRequest())
+      if (!response.ok) throw new Error('expected compile success')
+
+      expect(response.plan.agentPolicy).toEqual({
+        placement: {
+          defaultHomeNode: 'local',
+          pins: { 'agent-spaces:T-06604': 'lab.node-1' },
+        },
+        claimsTask: true,
+      })
+    } finally {
+      writeFileSync(profilePath, 'schemaVersion = 2\n\n[spaces]\nbase = []\n', 'utf8')
+    }
+  })
+
+  test('emits claimsTask false when placement is declared without claims_task', async () => {
+    const profilePath = join(fixture.agentRoot, 'agent-profile.toml')
+    writeFileSync(
+      profilePath,
+      `schemaVersion = 1
+
+[placement]
+default_home_node = "svc"
+
+[spaces]
+base = []
+`,
+      'utf8'
+    )
+
+    try {
+      const response = await createClient().compileRuntimePlan(baseCompileRequest())
+      if (!response.ok) throw new Error('expected compile success')
+
+      expect(response.plan.agentPolicy).toEqual({
+        placement: { defaultHomeNode: 'svc', pins: {} },
+        claimsTask: false,
+      })
+    } finally {
+      writeFileSync(profilePath, 'schemaVersion = 2\n\n[spaces]\nbase = []\n', 'utf8')
+    }
+  })
+
+  test('keeps absent and explicit-false agent policy plans byte-identical', async () => {
+    const profilePath = join(fixture.agentRoot, 'agent-profile.toml')
+    const compileOptions = { compileContext: { nowIso: '2026-07-19T00:00:00.000Z' } }
+
+    writeFileSync(profilePath, 'schemaVersion = 2\n\n[spaces]\nbase = []\n', 'utf8')
+    const absent = await createClient().compileRuntimePlan(baseCompileRequest(), compileOptions)
+
+    writeFileSync(
+      profilePath,
+      'schemaVersion = 2\nclaims_task = false\n\n[spaces]\nbase = []\n',
+      'utf8'
+    )
+    try {
+      const explicitFalse = await createClient().compileRuntimePlan(
+        baseCompileRequest(),
+        compileOptions
+      )
+      if (!absent.ok || !explicitFalse.ok) throw new Error('expected compile success')
+
+      expect(absent.plan).not.toHaveProperty('agentPolicy')
+      expect(explicitFalse.plan).not.toHaveProperty('agentPolicy')
+      expect(explicitFalse.plan.planHash).toBe(absent.plan.planHash)
+      expect(explicitFalse.plan).toEqual(absent.plan)
+    } finally {
+      writeFileSync(profilePath, 'schemaVersion = 2\n\n[spaces]\nbase = []\n', 'utf8')
+    }
   })
 })

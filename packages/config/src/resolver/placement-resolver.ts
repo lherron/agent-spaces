@@ -32,6 +32,7 @@ import type {
   TargetDefinition,
 } from '../core/types/index.js'
 import type {
+  ResolvedAgentPolicy,
   ResolvedInstruction,
   ResolvedPlacementContext,
   ResolvedPlacementMaterialization,
@@ -78,13 +79,16 @@ export async function resolvePlacementContext(
     // dry-run: agentRoot doesn't exist or SOUL.md missing — allow for invocation building
   }
 
+  const agentProfile = loadAgentProfile(placement.agentRoot)
+  const agentPolicy = resolveAgentPolicy(agentProfile)
+
   // 2. Determine base bundle spaces and materialization inputs from RuntimeBundleRef
-  const { bundleSpaces, materialization } = resolvePlacementMaterialization(placement)
+  const { bundleSpaces, materialization } = resolvePlacementMaterialization(placement, agentProfile)
 
   // 3. Compute instruction audit metadata
   let instructions: ResolvedInstruction[]
   try {
-    instructions = resolvePlacementInstructions(placement)
+    instructions = resolvePlacementInstructions(placement, agentProfile)
   } catch (err) {
     if (!placement.dryRun) {
       throw err
@@ -124,6 +128,7 @@ export async function resolvePlacementContext(
       spaces: resolvedSpaces,
     },
     materialization,
+    ...(agentPolicy !== undefined ? { agentPolicy } : {}),
   }
 }
 
@@ -147,13 +152,13 @@ interface PlacementMaterializationResolution {
  * Extract materialization inputs and compose-space list from a RuntimeBundleRef.
  */
 function resolvePlacementMaterialization(
-  placement: RuntimePlacement
+  placement: RuntimePlacement,
+  profile: AgentRuntimeProfile
 ): PlacementMaterializationResolution {
   const { bundle } = placement
 
   switch (bundle.kind) {
     case 'agent-project': {
-      const profile = loadAgentProfile(placement.agentRoot)
       const projectTarget = loadProjectTargetOptional(bundle.projectRoot, bundle.agentName)
       const primingPrompt = resolveAgentPrimingPrompt(profile, placement.agentRoot)
       const effective = mergeAgentWithProjectTarget(
@@ -182,6 +187,26 @@ function resolvePlacementMaterialization(
         },
       }
     }
+  }
+}
+
+function resolveAgentPolicy(profile: AgentRuntimeProfile): ResolvedAgentPolicy | undefined {
+  const claimsTask = profile.claims_task === true
+  if (profile.placement === undefined && !claimsTask) {
+    return undefined
+  }
+  return {
+    ...(profile.placement !== undefined
+      ? {
+          placement: {
+            ...(profile.placement.default_home_node !== undefined
+              ? { defaultHomeNode: profile.placement.default_home_node }
+              : {}),
+            pins: { ...profile.placement.pins },
+          },
+        }
+      : {}),
+    claimsTask,
   }
 }
 
@@ -321,7 +346,10 @@ interface PlacementInstructionSlot {
   ref?: string | undefined
 }
 
-function resolvePlacementInstructions(placement: RuntimePlacement): ResolvedInstruction[] {
+function resolvePlacementInstructions(
+  placement: RuntimePlacement,
+  profile: AgentRuntimeProfile
+): ResolvedInstruction[] {
   const soulPath = join(placement.agentRoot, SOUL_FILENAME)
   if (!existsSync(soulPath)) {
     if (placement.dryRun) {
@@ -337,7 +365,7 @@ function resolvePlacementInstructions(placement: RuntimePlacement): ResolvedInst
       ref: `${AGENT_ROOT_REF_PREFIX}${SOUL_FILENAME}`,
     },
   ]
-  const instructions = loadAgentProfile(placement.agentRoot).instructions
+  const instructions = profile.instructions
 
   for (const ref of instructions?.additionalBase ?? []) {
     const content = resolveInstructionRef(ref, placement)

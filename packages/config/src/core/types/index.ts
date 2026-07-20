@@ -80,6 +80,7 @@ export type { DistTagsFile } from './dist-tags.js'
 export type {
   AgentIdentity,
   AgentProfileInstructions,
+  AgentProfilePlacement,
   AgentProfileSession,
   AgentProfileSpaces,
   AgentProfileTarget,
@@ -91,6 +92,7 @@ export type {
 // Placement types
 export type {
   HostCorrelation,
+  ResolvedAgentPolicy,
   ResolvedPlacementContext,
   ResolvedPlacementMaterialization,
   ResolvedPlacementSpec,

@@ -105,8 +105,18 @@ export interface ResolvedPlacementMaterialization {
   manifest?: ProjectManifest | undefined
 }
 
+/** Normalized agent policy emitted to runtime-plan compilation for HRC. */
+export interface ResolvedAgentPolicy {
+  placement?: {
+    defaultHomeNode?: string | undefined
+    pins: Record<string, string>
+  }
+  claimsTask: boolean
+}
+
 /** Full placement resolution result including audit bundle and materialization context */
 export interface ResolvedPlacementContext {
   resolvedBundle: ResolvedRuntimeBundle
   materialization: ResolvedPlacementMaterialization
+  agentPolicy?: ResolvedAgentPolicy | undefined
 }

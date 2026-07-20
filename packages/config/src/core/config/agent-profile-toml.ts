@@ -2,7 +2,12 @@ import TOML from '@iarna/toml'
 import { validateToken } from 'agent-scope'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
-import type { AgentRuntimeProfile, HarnessSettings, RunMode } from '../types/agent-profile.js'
+import type {
+  AgentProfilePlacement,
+  AgentRuntimeProfile,
+  HarnessSettings,
+  RunMode,
+} from '../types/agent-profile.js'
 import type { AgentIdentity } from '../types/agent-profile.js'
 import { resolveHarnessCatalogEntry } from '../types/harness.js'
 import { type SpaceRefString, isSpaceRefString } from '../types/refs.js'
@@ -13,6 +18,8 @@ const RUN_MODES = new Set<RunMode>(['query', 'heartbeat', 'task', 'maintenance']
 const CODEX_APPROVAL_POLICIES = new Set(['untrusted', 'on-failure', 'on-request', 'never'])
 const CODEX_SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 const CODEX_REASONING_SUMMARIES = new Set(['auto', 'concise', 'detailed', 'none'])
+const NODE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/
+const SCOPE_PIN_PATTERN = /^[A-Za-z0-9._-]{1,64}:[A-Za-z0-9._-]{1,64}$/
 
 interface ValidationIssue {
   path: string
@@ -300,6 +307,54 @@ function parseIdentity(value: unknown, source: string, path: string): AgentIdent
   return identity
 }
 
+function parsePlacement(
+  value: unknown,
+  source: string,
+  path: string
+): AgentProfilePlacement | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (!isPlainObject(value)) {
+    fail(source, path, 'must be a table', 'type')
+  }
+
+  const placement: AgentProfilePlacement = { pins: {} }
+  for (const [key, rawNodeId] of Object.entries(value)) {
+    if (typeof rawNodeId !== 'string') {
+      fail(source, `${path}/${key}`, 'must be a string', 'type')
+    }
+    if (key === 'default_home_node') {
+      if (rawNodeId !== 'local' && !NODE_ID_PATTERN.test(rawNodeId)) {
+        fail(
+          source,
+          `${path}/${key}`,
+          'must be "local" or a node id matching [A-Za-z0-9._-]{1,64}',
+          'pattern'
+        )
+      }
+      placement.default_home_node = rawNodeId
+      continue
+    }
+    if (!SCOPE_PIN_PATTERN.test(key)) {
+      fail(
+        source,
+        `${path}/${key}`,
+        'must be an exact project:task scope key with token characters [A-Za-z0-9._-]',
+        'pattern'
+      )
+    }
+    if (rawNodeId === 'local') {
+      fail(source, `${path}/${key}`, '"local" is reserved for default_home_node', 'const')
+    }
+    if (!NODE_ID_PATTERN.test(rawNodeId)) {
+      fail(source, `${path}/${key}`, 'must be a node id matching [A-Za-z0-9._-]{1,64}', 'pattern')
+    }
+    placement.pins[key] = rawNodeId
+  }
+  return placement
+}
+
 function parseClaudeOptions(
   value: unknown,
   source: string,
@@ -429,6 +484,8 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
     parsed,
     [
       'schemaVersion',
+      'claims_task',
+      'placement',
       'identity',
       'priming_prompt',
       'priming_prompt_file',
@@ -450,6 +507,17 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
 
   const profile: AgentRuntimeProfile = {
     schemaVersion,
+  }
+
+  if (parsed['claims_task'] !== undefined) {
+    if (typeof parsed['claims_task'] !== 'boolean') {
+      fail(source, '/claims_task', 'must be a boolean', 'type')
+    }
+    profile.claims_task = parsed['claims_task']
+  }
+  const placement = parsePlacement(parsed['placement'], source, '/placement')
+  if (placement !== undefined) {
+    profile.placement = placement
   }
 
   if (schemaVersion === 1) {
