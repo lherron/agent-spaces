@@ -95,8 +95,8 @@ rebuild:
 # and/or force-link=1 is passed explicitly.
 # After `bun install`, the dependency graph forks:
 #   build ─┬─→ publish-dev ─→ (hrc sync ∥ acp sync)
-#          └─→ bun link
-# bun link runs alongside publish+sync; the two downstream syncs run in parallel.
+#          └─→ bun link (asp + harness-broker)
+# Executable package links run alongside publish+sync; the two downstream syncs run in parallel.
 install no-sync="" force-sync="" force-link="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -120,16 +120,18 @@ install no-sync="" force-sync="" force-link="":
     bun install
     bun run build
 
-    link_pid=""
+    link_pids=()
     if [ "$PRAESIDIUM_INSTALL_LINK_MODE" != "off" ]; then
       if [ "$PRAESIDIUM_INSTALL_LINK_MODE" = "forced" ]; then
-        echo "[install] WARNING: force-link enabled from ${PRAESIDIUM_INSTALL_CONTEXT}; updating the local asp wrapper"
+        echo "[install] WARNING: force-link enabled from ${PRAESIDIUM_INSTALL_CONTEXT}; updating local asp and harness-broker executables"
       fi
-      # Fire bun link in the background — only depends on build, not publish.
-      ( cd packages/cli && bun link 2>&1 | sed 's/^/[bun-link] /' ) &
-      link_pid=$!
+      # Fire executable package links in the background — they only depend on build, not publish.
+      ( cd packages/cli && bun link 2>&1 | sed 's/^/[bun-link:asp] /' ) &
+      link_pids+=("$!")
+      ( cd packages/harness-broker && bun link 2>&1 | sed 's/^/[bun-link:harness-broker] /' ) &
+      link_pids+=("$!")
     else
-      echo "[install] skipping bun link; linked worktree installs must not update the local asp wrapper"
+      echo "[install] skipping executable links; linked worktree installs must not update local asp or harness-broker executables"
     fi
 
     # Publish must complete before downstream sync.
@@ -151,9 +153,9 @@ install no-sync="" force-sync="" force-link="":
       echo "[install] skipping downstream sync (${PRAESIDIUM_INSTALL_CONTEXT}, sync=${PRAESIDIUM_INSTALL_SYNC_MODE})"
     fi
 
-    if [ -n "$link_pid" ]; then
+    for link_pid in "${link_pids[@]}"; do
       wait $link_pid
-    fi
+    done
 
 # Sync downstream consumer repos in parallel (hrc-runtime ∥ agent-control-plane).
 # This is the only place ASP knows where its consumers live; it never appears in source.

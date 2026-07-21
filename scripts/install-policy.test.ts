@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { computeInstallPolicy, detectContextFromGitDirs } from './install-policy'
 
+const justfile = await Bun.file(new URL('../justfile', import.meta.url)).text()
+
 describe('install policy', () => {
   test('detects the primary checkout when git dir and common git dir match', () => {
     expect(detectContextFromGitDirs('/repo', '.git', '.git')).toBe('main')
@@ -47,6 +49,12 @@ describe('install policy', () => {
       syncMode: 'forced',
       linkMode: 'forced',
     })
+  })
+
+  test('links every executable package when install linking is enabled', () => {
+    expect(justfile).toContain('( cd packages/cli && bun link')
+    expect(justfile).toContain('( cd packages/harness-broker && bun link')
+    expect(justfile).toContain('skipping executable links')
   })
 
   test('rejects contradictory sync controls', () => {
