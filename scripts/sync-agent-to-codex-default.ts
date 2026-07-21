@@ -997,6 +997,7 @@ async function planSkills(input: {
 async function materializeAgent(input: {
   agentId: string
   agentRoot: string
+  agentsRoot: string
   aspHome: string
   projectRoot: string
   fetchRegistry: boolean
@@ -1020,7 +1021,7 @@ async function materializeAgent(input: {
   const materialized = await materializeFromRefs({
     targetName,
     refs,
-    registryPath: paths.repo,
+    registryPath: input.agentsRoot,
     aspHome: input.aspHome,
     lockPath,
     harness: 'codex',
@@ -1063,6 +1064,7 @@ async function buildPlan(args: SyncAgentToCodexDefaultOptions): Promise<SyncPlan
   const materialized = await materializeAgent({
     agentId: args.agentId,
     agentRoot,
+    agentsRoot: args.agentsRoot,
     aspHome: args.aspHome,
     projectRoot: args.projectRoot,
     fetchRegistry: args.fetchRegistry,
