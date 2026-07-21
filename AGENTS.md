@@ -7,6 +7,24 @@ bun install       # Install dependencies
 bun run build     # Build all packages
 ```
 
+## Install and Publish Contract
+
+On the main checkout, `just install` cleans, installs, and builds; links both
+the `asp` CLI and `harness-broker`; publishes one coherent timestamped ASP
+package set to the producer's loopback Verdaccio; and synchronizes HRC/ACP consumers
+unless `no-sync=1` is passed. All packages in a published ASP set must share the
+same version.
+
+Linked worktrees default to the isolated worktree publication channel and do
+not repoint global wrappers or synchronize consumer checkouts. Use
+`force-link=1` / `force-sync=1` only for an intentional cutover.
+
+The estate has multiple registry stores, and each consumer resolves the endpoint
+in its own `.npmrc`. Publish the coherent set once, then mirror those exact
+immutable package tarballs into any other store that must satisfy the lock.
+Running producer `just install` independently on each node creates timestamp
+churn rather than deploying the same artifact.
+
 ## Codex Overlay
 
 When changing Codex-facing agent defaults, edit the source under
@@ -65,6 +83,9 @@ enforced by `bun run check:boundaries`:
 
 - ASP source **must not** import any `hrc-*`, `acp-*`, `gateway-*`,
   `coordination-substrate`, `wrkq-lib`, or `wlearn` package.
+- ASP may compile placement policy and task defaults as intent, but HRC's
+  binding registry and local placement ledger remain authority. ASP must not
+  infer node identity from a host or mutate established placement.
 - Cross-repo publishable boundary packages (10 of them — agent-scope, cli-kit,
   spaces-{config,runtime,execution,harness-*}, agent-spaces) MUST have a
   `prepack` step that strips `exports.*.bun` from the published manifest so
