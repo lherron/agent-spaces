@@ -16,6 +16,7 @@ import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
+  CompiledAgentPolicy,
   EmbeddedSdkExecutionProfile,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
@@ -1355,14 +1356,15 @@ base = []
       const response = await createClient().compileRuntimePlan(baseCompileRequest())
       if (!response.ok) throw new Error('expected compile success')
 
-      expect(response.plan.agentPolicy).toEqual({
+      const expectedPolicy: CompiledAgentPolicy = {
         placement: {
           defaultHomeNode: 'local',
           pins: { 'agent-spaces:T-06604': 'lab.node-1' },
           taskDefaults: { labprimary: 'lab.node-1' },
         },
         claimsTask: true,
-      })
+      }
+      expect(response.plan.agentPolicy).toEqual(expectedPolicy)
     } finally {
       writeFileSync(profilePath, 'schemaVersion = 2\n\n[spaces]\nbase = []\n', 'utf8')
     }
