@@ -768,9 +768,11 @@ interface TranscriptSidecar {
  *
  * The directory is taken from a broker-owned artifact root on `dispatchEnv`
  * (`HARNESS_BROKER_ARTIFACT_DIR`, supplied by HRC in production) when present;
- * otherwise it falls back to a deterministic broker-owned subtree under the
- * system temp root. The path is always ABSOLUTE. The file is opened with `'w'`
- * so each invocation starts a fresh transcript (the path is per-invocation).
+ * otherwise it falls back to a deterministic, per-user broker-owned subtree
+ * under the system temp root. The user fence matters on same-host multi-user
+ * estates: one account must never inherit another account's unwritable temp
+ * directory. The path is always ABSOLUTE. The file is opened with `'w'` so
+ * each invocation starts a fresh transcript (the path is per-invocation).
  */
 function openTranscriptSidecar(ctx: DriverContext): TranscriptSidecar {
   const fromDispatch = ctx.dispatchEnv?.['HARNESS_BROKER_ARTIFACT_DIR']
@@ -785,15 +787,23 @@ function openTranscriptSidecar(ctx: DriverContext): TranscriptSidecar {
 }
 
 /**
- * Deterministic broker-owned fallback root for provider transcripts. A fixed
- * `/tmp`-rooted path (vs `mkdtemp`) keeps the absolute artifact path stable
- * per-invocation so durable goldens stay reproducible; HRC overrides it with a
- * runtime-owned artifact root via `HARNESS_BROKER_ARTIFACT_DIR`.
+ * Deterministic broker-owned fallback root for provider transcripts. The root
+ * is stable per OS user (vs `mkdtemp`) so artifacts remain discoverable while
+ * sibling accounts cannot collide on ownership/permissions. HRC normally
+ * overrides it with a runtime-owned artifact root via
+ * `HARNESS_BROKER_ARTIFACT_DIR`.
  */
-const DEFAULT_PROVIDER_TRANSCRIPT_DIR = join(
-  process.platform === 'win32' ? tmpdir() : '/tmp',
-  'spaces-harness-broker-provider-transcripts'
-)
+export function defaultProviderTranscriptDir(
+  tempRoot = tmpdir(),
+  uid: number | null = typeof process.getuid === 'function' ? process.getuid() : null
+): string {
+  return join(
+    tempRoot,
+    `spaces-harness-broker-provider-transcripts-${uid === null ? 'current-user' : `uid-${uid}`}`
+  )
+}
+
+const DEFAULT_PROVIDER_TRANSCRIPT_DIR = defaultProviderTranscriptDir()
 
 function buildRendererControlSocketPath(
   driverCtx: DriverContext,

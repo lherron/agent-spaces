@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 import type {
   HarnessInvocationSpec,
   InvocationEventEnvelope,
@@ -12,6 +12,7 @@ import { createBroker } from '../../../src/broker'
 import {
   buildThreadStartParams,
   createCodexAppServerDriver,
+  defaultProviderTranscriptDir,
   validateInitializeHandshake,
 } from '../../../src/drivers/codex-app-server/driver'
 import { buildTurnStartParams } from '../../../src/drivers/codex-app-server/input'
@@ -216,6 +217,15 @@ function normalizeEvent(event: InvocationEventEnvelope): InvocationEventEnvelope
       if (key === 'durationMs') return '<durationMs>'
       if (key === 'command' && value === Bun.execPath) return '<bun>'
       if (key === 'cwd' && value === process.cwd()) return '<cwd>'
+      if (
+        key === 'artifactPath' &&
+        typeof value === 'string' &&
+        value.endsWith('.provider-transcript.jsonl')
+      ) {
+        // Golden files assert the event contract, not the account-specific
+        // temp root. The dedicated fallback-root test below owns that seam.
+        return join('/tmp/spaces-harness-broker-provider-transcripts', basename(value))
+      }
       return value
     })
   ) as InvocationEventEnvelope
@@ -256,6 +266,21 @@ async function runScenario(
 }
 
 describe('Codex app-server driver red scenarios', () => {
+  test('fallback provider transcript roots are fenced by OS user', () => {
+    expect(defaultProviderTranscriptDir('/tmp', 501)).toBe(
+      '/tmp/spaces-harness-broker-provider-transcripts-uid-501'
+    )
+    expect(defaultProviderTranscriptDir('/tmp', 502)).toBe(
+      '/tmp/spaces-harness-broker-provider-transcripts-uid-502'
+    )
+    expect(defaultProviderTranscriptDir('/tmp', null)).toBe(
+      '/tmp/spaces-harness-broker-provider-transcripts-current-user'
+    )
+    expect(defaultProviderTranscriptDir('/tmp', 501)).not.toBe(
+      defaultProviderTranscriptDir('/tmp', 502)
+    )
+  })
+
   test('golden fixtures stay independent of the checkout path used by drain worktrees', async () => {
     // T-05831: drain-depth worktrees live under under-construction, so app-server
     // golden expectations must not bake in the canonical repo checkout path.
