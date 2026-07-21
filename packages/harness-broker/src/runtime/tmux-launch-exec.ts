@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { buildProcessEnv } from './env'
 import { shellQuote } from './shell-quote'
 
 export type TmuxLaunchExecPrompts = {
@@ -23,11 +24,36 @@ export type TmuxLaunchExecArtifact = {
   prompts?: TmuxLaunchExecPrompts | undefined
 }
 
+export type TmuxLaunchExecInput = TmuxLaunchExecArtifact & {
+  /** Validated PATH prefixes from the invocation spec. */
+  pathPrepend?: string[] | undefined
+}
+
 export type TmuxLaunchExecFiles = {
   launchFilePath: string
   /** Absolute path to the real launch-runner module the command line invokes. */
   runnerPath: string
   commandLine: string
+}
+
+/**
+ * Materialize the complete environment that crosses the tmux launch boundary.
+ * Ambient values are reduced to the broker allowlist before the driver-owned
+ * artifact values are applied. The launch runner must not consult its own
+ * ambient process environment after this point.
+ */
+export function buildTmuxLaunchArtifactEnv(
+  env: TmuxLaunchExecArtifact['env'],
+  pathPrepend?: string[] | undefined
+): Record<string, string> {
+  const complete: Record<string, string> = {}
+  for (const [key, value] of Object.entries(buildProcessEnv({ pathPrepend }))) {
+    if (typeof value === 'string') complete[key] = value
+  }
+  for (const [key, value] of Object.entries(env ?? {})) {
+    if (typeof value === 'string') complete[key] = value
+  }
+  return complete
 }
 
 /**
@@ -48,11 +74,16 @@ function resolveRunnerPath(): string {
  */
 export async function writeTmuxLaunchExecFiles(
   basePath: string,
-  artifact: TmuxLaunchExecArtifact
+  input: TmuxLaunchExecInput
 ): Promise<TmuxLaunchExecFiles> {
+  const { pathPrepend, ...artifact } = input
+  const persistedArtifact: TmuxLaunchExecArtifact = {
+    ...artifact,
+    env: buildTmuxLaunchArtifactEnv(artifact.env, pathPrepend),
+  }
   const launchFilePath = `${basePath}.launch.json`
   await mkdir(dirname(basePath), { recursive: true })
-  await writeFile(launchFilePath, `${JSON.stringify(artifact, null, 2)}\n`, 'utf8')
+  await writeFile(launchFilePath, `${JSON.stringify(persistedArtifact, null, 2)}\n`, 'utf8')
   const runnerPath = resolveRunnerPath()
   return {
     launchFilePath,

@@ -424,6 +424,7 @@ async function buildLaunchCommandLine(
     argv: [spec.process.command, ...spec.process.args],
     cwd: spec.process.cwd,
     env,
+    pathPrepend: spec.process.pathPrepend,
     ...(spec.launch !== undefined ? { prompts: spec.launch } : {}),
   })
   return launch.commandLine

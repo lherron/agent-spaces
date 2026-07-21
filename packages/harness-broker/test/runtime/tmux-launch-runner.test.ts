@@ -4,7 +4,79 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { postSyntheticSessionEnd } from '../../src/runtime/tmux-launch-runner'
+import { buildTmuxLaunchArtifactEnv } from '../../src/runtime/tmux-launch-exec'
+import {
+  buildTmuxHarnessSpawnEnv,
+  postSyntheticSessionEnd,
+} from '../../src/runtime/tmux-launch-runner'
+
+describe('buildTmuxLaunchArtifactEnv', () => {
+  test('copies allowlisted ambient values without copying ambient credentials', () => {
+    const credentialKey = 'WRKQD_TOKEN'
+    const homeKey = 'HOME'
+    const previousCredential = process.env[credentialKey]
+    const previousHome = process.env[homeKey]
+    process.env[credentialKey] = 'stale-ambient-token'
+    process.env[homeKey] = '/Users/runner'
+    try {
+      const env = buildTmuxLaunchArtifactEnv({ WRKQD_TOKEN_FILE: '/run/secrets/wrkqd-token' }, [
+        '/broker/bin',
+      ])
+
+      expect(env['HOME']).toBe('/Users/runner')
+      expect(env['PATH']).toStartWith('/broker/bin:')
+      expect(env['WRKQD_TOKEN_FILE']).toBe('/run/secrets/wrkqd-token')
+      expect(env).not.toHaveProperty(credentialKey)
+    } finally {
+      if (previousCredential === undefined) delete process.env[credentialKey]
+      else process.env[credentialKey] = previousCredential
+      if (previousHome === undefined) delete process.env[homeKey]
+      else process.env[homeKey] = previousHome
+    }
+  })
+})
+
+describe('buildTmuxHarnessSpawnEnv', () => {
+  test('does not reintroduce ambient credentials omitted by the broker artifact', () => {
+    const credentialKey = 'WRKQD_TOKEN'
+    const previous = process.env[credentialKey]
+    process.env[credentialKey] = 'stale-ambient-token'
+    try {
+      const env = buildTmuxHarnessSpawnEnv({
+        argv: ['/usr/bin/true'],
+        cwd: '/tmp',
+        env: {
+          HOME: '/Users/tester',
+          PATH: '/usr/bin:/bin',
+          WRKQD_TOKEN_FILE: '/run/secrets/wrkqd-token',
+        },
+      })
+
+      expect(env).toEqual({
+        HOME: '/Users/tester',
+        PATH: '/usr/bin:/bin',
+        WRKQD_TOKEN_FILE: '/run/secrets/wrkqd-token',
+      })
+      expect(env).not.toHaveProperty(credentialKey)
+    } finally {
+      if (previous === undefined) {
+        delete process.env[credentialKey]
+      } else {
+        process.env[credentialKey] = previous
+      }
+    }
+  })
+
+  test('drops non-string artifact values instead of inheriting an ambient replacement', () => {
+    const env = buildTmuxHarnessSpawnEnv({
+      argv: ['/usr/bin/true'],
+      cwd: '/tmp',
+      env: { KEEP: 'yes', INVALID: 42 as unknown as string },
+    })
+
+    expect(env).toEqual({ KEEP: 'yes' })
+  })
+})
 
 /**
  * Bind a one-shot unix socket that captures the single JSON envelope a client

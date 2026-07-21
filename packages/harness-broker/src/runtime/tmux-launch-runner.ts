@@ -86,7 +86,14 @@ export async function printLaunchHeader(
   }
 }
 
-function envFromArtifact(artifact: TmuxLaunchExecArtifact): Record<string, string> {
+/**
+ * Treat the broker-composed launch artifact as the complete harness environment.
+ *
+ * The broker already reduced ambient state to its explicit allowlist before it
+ * wrote this artifact. Merging the runner's own process.env here would bypass
+ * that fence and could reintroduce credentials the broker deliberately omitted.
+ */
+export function buildTmuxHarnessSpawnEnv(artifact: TmuxLaunchExecArtifact): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [key, value] of Object.entries(artifact.env ?? {})) {
     if (typeof value === 'string') {
@@ -177,13 +184,13 @@ export async function runTmuxLaunch(launchFilePath: string): Promise<never> {
     process.stderr.write('harness-broker tmux launch: empty argv in launch artifact\n')
     process.exit(1)
   }
-  const env = envFromArtifact(artifact)
+  const env = buildTmuxHarnessSpawnEnv(artifact)
 
   await printLaunchHeader(artifact.prompts, env)
 
   const child: ChildProcess = spawn(command, argv.slice(1), {
     cwd: typeof artifact.cwd === 'string' ? artifact.cwd : process.cwd(),
-    env: { ...process.env, ...env },
+    env,
     stdio: 'inherit',
   })
 
