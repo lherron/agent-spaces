@@ -149,10 +149,22 @@ install no-sync="" force-sync="" force-link="":
       if [ "$PRAESIDIUM_INSTALL_SYNC_MODE" = "forced" ]; then
         echo "[install] WARNING: force-sync enabled from ${PRAESIDIUM_INSTALL_CONTEXT}; syncing downstream repos"
       fi
-      hrc_runtime="$(resolve_consumer hrc-runtime)"
-      agent_control_plane="$(resolve_consumer agent-control-plane)"
-      ( cd "$hrc_runtime" && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
-      ( cd "$agent_control_plane" && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
+      # Resolve + sync each consumer INDEPENDENTLY (T-06819): a repo absent on this
+      # node degrades to a warning and never aborts the other consumer's sync. An
+      # unguarded `var="$(resolve_consumer …)"` inherits the failing substitution's
+      # status under `set -e`, so a missing agent-control-plane used to kill the
+      # hrc-runtime sync before it ran. In an `if` condition, `set -e` is suppressed
+      # for the substitution, so a missing repo takes the else branch cleanly.
+      if hrc_runtime="$(resolve_consumer hrc-runtime 2>/dev/null)"; then
+        ( cd "$hrc_runtime" && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
+      else
+        echo "[install] downstream consumer hrc-runtime not present on this node; skipping hrc sync" >&2
+      fi
+      if agent_control_plane="$(resolve_consumer agent-control-plane 2>/dev/null)"; then
+        ( cd "$agent_control_plane" && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
+      else
+        echo "[install] downstream consumer agent-control-plane not present on this node; skipping acp sync" >&2
+      fi
     else
       echo "[install] skipping downstream sync (${PRAESIDIUM_INSTALL_CONTEXT}, sync=${PRAESIDIUM_INSTALL_SYNC_MODE})"
     fi
@@ -180,10 +192,19 @@ sync-downstream:
       return 1
     }
 
-    hrc_runtime="$(resolve_consumer hrc-runtime)"
-    agent_control_plane="$(resolve_consumer agent-control-plane)"
-    ( cd "$hrc_runtime" && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
-    ( cd "$agent_control_plane" && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
+    # Resolve + sync each consumer INDEPENDENTLY (T-06819): a repo absent on this
+    # node degrades to a warning instead of aborting the other consumer's sync
+    # (an unguarded assignment from a failing substitution trips `set -e`).
+    if hrc_runtime="$(resolve_consumer hrc-runtime 2>/dev/null)"; then
+      ( cd "$hrc_runtime" && bun run sync:asp && bun run build && just publish-dev ) 2>&1 | sed 's/^/[hrc-sync] /'
+    else
+      echo "[sync-downstream] hrc-runtime not present on this node; skipping hrc sync" >&2
+    fi
+    if agent_control_plane="$(resolve_consumer agent-control-plane 2>/dev/null)"; then
+      ( cd "$agent_control_plane" && bun run sync:asp ) 2>&1 | sed 's/^/[acp-sync] /'
+    else
+      echo "[sync-downstream] agent-control-plane not present on this node; skipping acp sync" >&2
+    fi
 
 # Publish timestamped dev package set to local Verdaccio
 publish-dev:
