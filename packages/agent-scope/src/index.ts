@@ -12,6 +12,8 @@ export { formatSessionRef, normalizeSessionRef, parseSessionRef } from './sessio
 export { parseScopeHandle, formatScopeHandle } from './scope-handle.js'
 export { parseSessionHandle, formatSessionHandle } from './session-handle.js'
 export {
+  ASP_DEFAULT_TASK_ENV,
+  DEFAULT_PRIMARY_TASK_ID,
   resolveQualifiedScopeInput,
   resolveScopeInput,
   type ResolvedScopeInput,

@@ -12,11 +12,21 @@ export type ResolvedScopeInput = {
 }
 
 /**
- * Canonical default for task qualification when no explicit task is supplied.
- * User-facing resolvers fill missing taskId with this value so that scope refs
- * are always agent+project+task qualified.
+ * Environment variable used as the operator-level task default.
+ * Explicit input and option defaults take precedence over this value.
+ */
+export const ASP_DEFAULT_TASK_ENV = 'ASP_DEFAULT_TASK'
+
+/**
+ * Canonical final fallback for task qualification when no explicit task,
+ * option default, or environment default is supplied.
  */
 export const DEFAULT_PRIMARY_TASK_ID = 'primary'
+
+function envDefaultTask(): string | undefined {
+  const value = process.env[ASP_DEFAULT_TASK_ENV]?.trim()
+  return value === '' ? undefined : value
+}
 
 export type ResolveQualifiedScopeOptions = {
   /** Lane id to apply when no `~lane` suffix is present (defaults to "main"). */
@@ -26,11 +36,14 @@ export type ResolveQualifiedScopeOptions = {
    * Callers typically pass `explicitOption ?? process.env.ASP_PROJECT ?? inferProjectIdFromCwd()`.
    */
   projectId?: string
-  /** Fallback taskId when the input handle does not include one (and a project is present). */
+  /**
+   * Fallback taskId when the input handle does not include one (and a project is present).
+   * Takes precedence over `defaultTaskId` and `ASP_DEFAULT_TASK`.
+   */
   taskId?: string
   /**
-   * Ultimate task default when nothing else fills it (and a project is present).
-   * Defaults to "primary".
+   * Caller-supplied task default when neither the input nor `taskId` fills it
+   * (and a project is present). Takes precedence over `ASP_DEFAULT_TASK`.
    */
   defaultTaskId?: string
   /**
@@ -105,10 +118,10 @@ function parseScopeInput(input: string, defaultLaneId?: string): ScopeInputParts
  * Resolve a scope input to a fully qualified ScopeRef.
  *
  * When the input includes a project, the result is always
- * agent+project+task-qualified — missing `taskId` is filled with `"primary"`
- * (see `resolveQualifiedScopeInput`). Bare agent inputs (`"cody"`,
- * `"agent:cody"`) remain `agent:<id>` because there is no project to attach a
- * task to.
+ * agent+project+task-qualified — missing `taskId` is filled from
+ * `ASP_DEFAULT_TASK`, then `"primary"` (see `resolveQualifiedScopeInput`).
+ * Bare agent inputs (`"cody"`, `"agent:cody"`) remain `agent:<id>` because
+ * there is no project to attach a task to.
  */
 export function resolveScopeInput(input: string, defaultLaneId?: string): ResolvedScopeInput {
   return resolveQualifiedScopeInput(input, defaultLaneId !== undefined ? { defaultLaneId } : {})
@@ -125,9 +138,10 @@ export function resolveScopeInput(input: string, defaultLaneId?: string): Resolv
  *   3. If `projectId` is missing, fill from `opts.projectId`. Callers should
  *      compose this from explicit option → ASP_PROJECT → cwd inference.
  *   4. If `taskId` is missing AND a `projectId` is present, fill from
- *      `opts.taskId`, else `opts.defaultTaskId`, else `"primary"`.
- *   5. Role-without-task collapses to task-role with `primary` once filled —
- *      e.g. `cody@agent-spaces/reviewer` →
+ *      `opts.taskId`, else `opts.defaultTaskId`, else a non-empty trimmed
+ *      `ASP_DEFAULT_TASK`, else `"primary"`.
+ *   5. Role-without-task collapses to task-role once the configured default is
+ *      filled — with no overrides, `cody@agent-spaces/reviewer` becomes
  *      `agent:cody:project:agent-spaces:task:primary:role:reviewer`.
  *
  * If no `projectId` can be determined, the result remains agent-only
@@ -152,7 +166,7 @@ export function resolveQualifiedScopeInput(
   }
 
   if (taskId === undefined && projectId !== undefined) {
-    taskId = opts.taskId ?? opts.defaultTaskId ?? DEFAULT_PRIMARY_TASK_ID
+    taskId = opts.taskId ?? opts.defaultTaskId ?? envDefaultTask() ?? DEFAULT_PRIMARY_TASK_ID
   }
 
   // A task with no project is not a legal scope. This is the project-deferred

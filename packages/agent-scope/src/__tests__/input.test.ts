@@ -1,6 +1,26 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
-import { DEFAULT_PRIMARY_TASK_ID, resolveQualifiedScopeInput, resolveScopeInput } from '../input.js'
+import {
+  ASP_DEFAULT_TASK_ENV,
+  DEFAULT_PRIMARY_TASK_ID,
+  resolveQualifiedScopeInput,
+  resolveScopeInput,
+} from '../input.js'
+
+let savedDefaultTask: string | undefined
+
+beforeEach(() => {
+  savedDefaultTask = process.env[ASP_DEFAULT_TASK_ENV]
+  Reflect.deleteProperty(process.env, ASP_DEFAULT_TASK_ENV)
+})
+
+afterEach(() => {
+  if (savedDefaultTask === undefined) {
+    Reflect.deleteProperty(process.env, ASP_DEFAULT_TASK_ENV)
+  } else {
+    process.env[ASP_DEFAULT_TASK_ENV] = savedDefaultTask
+  }
+})
 
 describe('resolveScopeInput', () => {
   test('canonicalizes scope handles with default main lane', () => {
@@ -65,7 +85,8 @@ describe('resolveScopeInput', () => {
 })
 
 describe('resolveQualifiedScopeInput', () => {
-  test('exposes the canonical primary task id', () => {
+  test('exposes the task-default environment name and canonical primary fallback', () => {
+    expect(ASP_DEFAULT_TASK_ENV).toBe('ASP_DEFAULT_TASK')
     expect(DEFAULT_PRIMARY_TASK_ID).toBe('primary')
   })
 
@@ -123,6 +144,77 @@ describe('resolveQualifiedScopeInput', () => {
       resolveQualifiedScopeInput('cody@agent-spaces', { defaultTaskId: 'default' })
     ).toMatchObject({
       scopeRef: 'agent:cody:project:agent-spaces:task:default',
+    })
+  })
+
+  describe('ASP_DEFAULT_TASK precedence', () => {
+    test.each([
+      ['scope handle', 'mable@proj:T-1'],
+      ['session handle', 'mable@proj:T-1~repair'],
+      ['ScopeRef', 'agent:mable:project:proj:task:T-1'],
+    ])('explicit task in a %s beats the environment default', (_label, input) => {
+      process.env[ASP_DEFAULT_TASK_ENV] = 'minilab'
+
+      expect(resolveQualifiedScopeInput(input)).toMatchObject({
+        scopeRef: 'agent:mable:project:proj:task:T-1',
+      })
+    })
+
+    test('opts.taskId beats the environment default', () => {
+      process.env[ASP_DEFAULT_TASK_ENV] = 'minilab'
+
+      expect(resolveQualifiedScopeInput('mable@proj', { taskId: 'caller-session' })).toMatchObject({
+        scopeRef: 'agent:mable:project:proj:task:caller-session',
+      })
+    })
+
+    test('opts.defaultTaskId beats the environment default', () => {
+      process.env[ASP_DEFAULT_TASK_ENV] = 'minilab'
+
+      expect(
+        resolveQualifiedScopeInput('mable@proj', { defaultTaskId: 'caller-default' })
+      ).toMatchObject({
+        scopeRef: 'agent:mable:project:proj:task:caller-default',
+      })
+    })
+
+    test('trimmed environment default beats primary', () => {
+      process.env[ASP_DEFAULT_TASK_ENV] = '  minilab  '
+
+      expect(resolveQualifiedScopeInput('mable@proj')).toMatchObject({
+        scopeRef: 'agent:mable:project:proj:task:minilab',
+      })
+    })
+
+    test.each([undefined, '', '   \t'])(
+      'unset or blank environment value %p falls through to primary',
+      (value) => {
+        if (value === undefined) {
+          Reflect.deleteProperty(process.env, ASP_DEFAULT_TASK_ENV)
+        } else {
+          process.env[ASP_DEFAULT_TASK_ENV] = value
+        }
+
+        expect(resolveQualifiedScopeInput('mable@proj')).toMatchObject({
+          scopeRef: 'agent:mable:project:proj:task:primary',
+        })
+      }
+    )
+
+    test('bare agent without a resolvable project remains agent-only', () => {
+      process.env[ASP_DEFAULT_TASK_ENV] = 'minilab'
+
+      expect(resolveQualifiedScopeInput('mable')).toMatchObject({
+        scopeRef: 'agent:mable',
+      })
+    })
+
+    test('invalid environment default fails loud and names its value', () => {
+      process.env[ASP_DEFAULT_TASK_ENV] = 'not valid'
+
+      expect(() => resolveQualifiedScopeInput('mable@proj')).toThrow(
+        /Invalid ScopeRef ".*not valid.*": taskId contains invalid characters/
+      )
     })
   })
 
