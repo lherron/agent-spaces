@@ -9,6 +9,7 @@
     "check:boundaries": "bun scripts/check-boundaries.ts && bun scripts/check-runtime-contract-harness-boundaries.ts",
     "check:harness-boundaries": "bun scripts/check-runtime-contract-harness-boundaries.ts",
     "check:manifests": "bun scripts/check-manifest-edges.ts",
+    "check:architecture-records": "bun scripts/check-architecture-records.ts",
     "check:packs": "bun scripts/smoke-pack-cross-repo.ts",
     "check:precommit": "bun run lint && bun scripts/check-boundaries.ts && bun scripts/check-runtime-contract-harness-boundaries.ts && bun scripts/check-manifest-edges.ts && bun run build",
     "smoke:matrix": "bun scripts/pre-hrc-broker-matrix-e2e.ts",

@@ -1,0 +1,37 @@
+id: acp.jobs.node-execution-ownership
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: schedule execution-owner producer contract
+predicate: >
+  Agent profiles may declare jobs.default_node and schedules may override it
+  with execution.node. Each accepts one logical HRC node ID, a non-empty list,
+  or the reserved all wildcard. Compilation emits canonical
+  desiredJson.execution.nodes: concrete members are validated, deduplicated,
+  and sorted; all remains exactly ["all"]; local and all mixed with concrete
+  members are rejected. The owner set authorizes deliberate independent
+  per-node fan-out in ACP and is never a source for a JobRun's singular
+  execution identity. This contract is separate from HRC scope placement.
+authority:
+  repo: agent-spaces
+  surface: agent profile and scheduled-resource compiler
+source:
+  - packages/config/src/core/config/job-execution-nodes.ts
+  - packages/config/src/core/config/agent-profile-toml.ts
+  - packages/config/src/resources/compiler.ts
+  - packages/config/src/core/config/agent-profile-toml.v2.test.ts
+  - packages/config/src/__tests__/resources-plan.red.test.ts
+  - wrkq:T-06804
+  - hrcchat#16152
+required_tests:
+  - bun test packages/config/src/core/config/agent-profile-toml.v2.test.ts exits 0
+  - bun test packages/config/src/__tests__/resources-plan.red.test.ts exits 0
+last_verified:
+  date: 2026-07-23
+  evidence: T-06804 phase 1 normalization and compiler bundle
+reopen_when:
+  - owner sets become dynamic, coordinated, or registry-expanded
+  - the managed resource schema changes execution placement
+  - HRC changes logical node ID validation
+supersedes: []
+superseded_by: null
