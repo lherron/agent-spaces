@@ -5,6 +5,7 @@ import {
   readAll,
   runHookBridgeCli,
 } from '../hook-bridge-transport'
+import { queryMailStopDecision } from '../mail-stop-gate'
 import { buildHookEnvelopeFromEnv } from './hook-ingestion'
 
 /**
@@ -23,6 +24,7 @@ export interface HookBridgeOptions {
   socketPath: string
   stdin?: NodeJS.ReadableStream | undefined
   env?: Record<string, string | undefined> | undefined
+  stdout?: Pick<NodeJS.WriteStream, 'write'> | undefined
 }
 
 export async function runClaudeHookBridge(options: HookBridgeOptions): Promise<void> {
@@ -37,13 +39,18 @@ export async function runClaudeHookBridge(options: HookBridgeOptions): Promise<v
 export async function runClaudeHookDecisionBridge(options: HookBridgeOptions): Promise<void> {
   const env = options.env ?? process.env
   const stdin = options.stdin ?? process.stdin
+  const stdout = options.stdout ?? process.stdout
   const raw = await readAll(stdin)
   const hookData = parseHookJson(raw)
+  const mailStopDecision = await queryMailStopDecision(hookData, env)
   const envelope = buildHookEnvelopeFromEnv(hookData, env)
-  const response = await postEnvelopeAndRead(options.socketPath, envelope)
+  const response = await postEnvelopeAndRead(options.socketPath, {
+    ...envelope,
+    ...(mailStopDecision !== undefined ? { mailStopDecision } : {}),
+  })
   const decision = parseClaudeHookDecisionResponse(response)
   if (decision !== undefined) {
-    process.stdout.write(JSON.stringify(decision))
+    stdout.write(JSON.stringify(decision))
   }
 }
 

@@ -35,7 +35,9 @@ type PaneLease = {
   }
 }
 
-type HookHandler = (envelope: ClaudeCodeHookEnvelope) => Promise<void>
+type HookHandler = (
+  envelope: ClaudeCodeHookEnvelope
+) => Promise<Record<string, unknown> | undefined>
 
 const now = () => new Date('2026-06-24T02:20:00.000Z')
 
@@ -207,9 +209,10 @@ function completedText(event: InvocationEventEnvelope): string {
 async function stop(
   hookHandler: HookHandler,
   turnId: string,
-  lastAssistantMessage?: string | undefined
+  lastAssistantMessage?: string | undefined,
+  mailStopReason?: string | undefined
 ) {
-  await hookHandler({
+  return await hookHandler({
     invocationId: 'inv_claude_structured',
     runtimeId: 'runtime-structured',
     generation: 1,
@@ -221,6 +224,9 @@ async function stop(
         ? { last_assistant_message: lastAssistantMessage }
         : {}),
     },
+    ...(mailStopReason !== undefined
+      ? { mailStopDecision: { decision: 'block' as const, reason: mailStopReason } }
+      : {}),
   })
 }
 
@@ -327,6 +333,29 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  test('4. composes mailbox and structured-output Stop gates without completing early', async () => {
+    const { driver, events, hookHandler } = await setupDriver()
+    const applied = await driver.applyInputNow(
+      input('input_composed_stop', 'return status', schemaResponse(statusSchema))
+    )
+    const turnId = applied.turnId ?? 'missing'
+
+    const combined = await stop(hookHandler, turnId, '{"wrong":true}', 'drain hrcmail inbox')
+    const combinedReason = String(combined?.['reason'] ?? '')
+    expect(combined?.['decision']).toBe('block')
+    expect(combinedReason).toContain('Mailbox drain is also required')
+    expect(combinedReason).toContain('drain hrcmail inbox')
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(0)
+
+    const mailboxOnly = await stop(hookHandler, turnId, '{"status":"ok"}', 'drain hrcmail inbox')
+    expect(mailboxOnly).toEqual({ decision: 'block', reason: 'drain hrcmail inbox' })
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(0)
+
+    const cleared = await stop(hookHandler, turnId, '{"status":"ok"}')
+    expect(cleared).toBeUndefined()
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
   })
 
   test('5. validates bare JSON and a whole-message fenced block, emitting normalized JSON once', async () => {

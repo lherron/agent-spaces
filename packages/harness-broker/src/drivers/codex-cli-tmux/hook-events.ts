@@ -9,6 +9,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { createInvocationEventSequencer } from '../../events'
 import { asRecord as asHookRecord, getString, unwrapHookPayload } from '../hook-json'
+import type { MailStopDecision } from '../mail-stop-gate'
 import { USER_INITIATED_END_REASONS } from '../tmux-shared'
 
 export const CODEX_CLI_TMUX_DRIVER_KIND = 'codex-cli-tmux'
@@ -31,6 +32,7 @@ export type CodexCliTmuxHookEnvelope = {
   hookData?: unknown
   hookEvent?: unknown
   payload?: unknown
+  mailStopDecision?: MailStopDecision | undefined
 }
 
 export type NormalizeCodexHookEnvelopeOptions = {

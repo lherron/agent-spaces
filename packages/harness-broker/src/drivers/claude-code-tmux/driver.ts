@@ -513,6 +513,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     const hook = asHookRecord(envelope.hookData)
     const rawType =
       typeof hook['hook_event_name'] === 'string' ? hook['hook_event_name'] : undefined
+    const mailDecision = rawType === 'Stop' ? envelope.mailStopDecision : undefined
     const turnId = envelope.turnId
     if (
       turnId !== undefined &&
@@ -522,11 +523,15 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       return { action: 'drop' }
     }
     if (turnId === undefined) {
-      return { action: 'continue', envelope }
+      return mailDecision === undefined
+        ? { action: 'continue', envelope }
+        : { action: 'drop', decision: mailDecision }
     }
     const state = structuredTurns.get(turnId)
     if (state === undefined) {
-      return { action: 'continue', envelope }
+      return mailDecision === undefined
+        ? { action: 'continue', envelope }
+        : { action: 'drop', decision: mailDecision }
     }
 
     if (rawType === 'MessageDisplay') {
@@ -548,6 +553,9 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       typeof hook['last_assistant_message'] === 'string' ? hook['last_assistant_message'] : ''
     const validation = validateStructuredCandidate(state, candidate)
     if (validation.valid) {
+      if (mailDecision !== undefined) {
+        return { action: 'drop', decision: mailDecision }
+      }
       structuredTurns.delete(turnId)
       completedStructuredTurns.add(turnId)
       return {
@@ -566,7 +574,16 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     const reason = formatValidationErrors(validation.errors)
     emitStructuredValidationNotice(state, reason, validation.errors)
     if (state.attempts < STRUCTURED_OUTPUT_MAX_ATTEMPTS) {
-      return { action: 'drop', decision: { decision: 'block', reason } }
+      return {
+        action: 'drop',
+        decision: {
+          decision: 'block',
+          reason:
+            mailDecision === undefined
+              ? reason
+              : `${reason}\n\nMailbox drain is also required:\n${mailDecision.reason}`,
+        },
+      }
     }
 
     emitStructuredDiagnostic(state, candidate)

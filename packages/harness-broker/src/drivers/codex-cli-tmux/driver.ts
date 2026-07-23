@@ -18,6 +18,7 @@ import { writeTmuxLaunchExecFiles } from '../../runtime/tmux-launch-exec'
 import type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from '../driver'
 import { getString } from '../hook-json'
 import {
+  type HookEnvelopeResult,
   type HookListenerHandle,
   buildHookSocketPath,
   consumePaneLease,
@@ -102,7 +103,9 @@ export interface CodexHookListenerContext {
   runtimeId?: string | undefined
 }
 
-export type CodexHookEnvelopeHandler = (envelope: CodexCliTmuxHookEnvelope) => Promise<void>
+export type CodexHookEnvelopeHandler = (
+  envelope: CodexCliTmuxHookEnvelope
+) => Promise<HookEnvelopeResult> | HookEnvelopeResult
 
 export interface CodexCliTmuxDriverOptions {
   tmux: {
@@ -140,7 +143,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
   let surface: SurfaceState | undefined
   let hookListener: CodexHookListenerHandle | undefined
   let transcriptReader: CodexHookTranscriptReader | undefined
-  let hookDrain: Promise<void> = Promise.resolve()
+  let hookDrain: Promise<HookEnvelopeResult> = Promise.resolve(undefined)
   let currentTurnId: string | undefined
   let paneController: TmuxPaneController | undefined
 
@@ -202,7 +205,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
         now,
       })
       currentTurnId = undefined
-      hookDrain = Promise.resolve()
+      hookDrain = Promise.resolve(undefined)
       // Hook-driven rollout transcript reader (T-01710): reads newly appended
       // transcript bytes synchronously from hook processing — NO polling timer —
       // so interim agent prose is emitted in hook order, attributed to the live
@@ -220,7 +223,7 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
           ...(event.driver !== undefined ? { driver: event.driver } : {}),
         })
       }
-      const handleHookEnvelope = (envelope: CodexCliTmuxHookEnvelope): void => {
+      const handleHookEnvelope = (envelope: CodexCliTmuxHookEnvelope): HookEnvelopeResult => {
         // T-01794 Phase D: durable identity fencing. Reject an envelope whose
         // invocation/runtime/generation/callback-socket does not match the live
         // invocation — but STRICTLY only for fields the durable unix mode
@@ -250,6 +253,12 @@ export function createCodexCliTmuxDriver(options: CodexCliTmuxDriverOptions): Dr
           return
         }
         const hook = extractCodexHookRecord(envelope)
+        if (
+          getString(hook, 'hook_event_name') === 'Stop' &&
+          envelope.mailStopDecision !== undefined
+        ) {
+          return envelope.mailStopDecision
+        }
         const envelopeTurnId = getString(hook, 'turn_id') ?? envelope.turnId
         if (envelopeTurnId !== undefined) {
           currentTurnId = envelopeTurnId

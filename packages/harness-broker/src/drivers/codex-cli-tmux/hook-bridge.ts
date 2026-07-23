@@ -1,4 +1,10 @@
-import { parseHookJson, postEnvelope, readAll, runHookBridgeCli } from '../hook-bridge-transport'
+import {
+  parseHookJson,
+  postEnvelopeAndRead,
+  readAll,
+  runHookBridgeCli,
+} from '../hook-bridge-transport'
+import { queryMailStopDecision } from '../mail-stop-gate'
 import { buildCodexHookEnvelopeFromEnv } from './hook-ingestion'
 
 /**
@@ -14,15 +20,42 @@ export interface CodexHookBridgeOptions {
   socketPath: string
   stdin?: NodeJS.ReadableStream | undefined
   env?: Record<string, string | undefined> | undefined
+  stdout?: Pick<NodeJS.WriteStream, 'write'> | undefined
 }
 
 export async function runCodexHookBridge(options: CodexHookBridgeOptions): Promise<void> {
   const env = options.env ?? process.env
   const stdin = options.stdin ?? process.stdin
+  const stdout = options.stdout ?? process.stdout
   const raw = await readAll(stdin)
   const hookData = parseHookJson(raw)
+  const mailStopDecision = await queryMailStopDecision(hookData, env)
   const envelope = buildCodexHookEnvelopeFromEnv(hookData, env)
-  await postEnvelope(options.socketPath, envelope)
+  const response = await postEnvelopeAndRead(options.socketPath, {
+    ...envelope,
+    ...(mailStopDecision !== undefined ? { mailStopDecision } : {}),
+  })
+  const decision = parseBrokerStopDecision(response)
+  if (decision !== undefined) {
+    stdout.write(JSON.stringify({ decision: 'block', reason: decision.reason }))
+  }
+}
+
+function parseBrokerStopDecision(raw: string): { reason: string } | undefined {
+  const trimmed = raw.trim()
+  if (trimmed.length === 0 || trimmed === 'ok') return undefined
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (!isRecord(parsed) || parsed['decision'] !== 'block') return undefined
+    const reason = parsed['reason']
+    return typeof reason === 'string' && reason.length > 0 ? { reason } : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** CLI entrypoint: `harness-broker codex-hook --socket <path>`. */

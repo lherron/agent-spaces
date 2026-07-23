@@ -9,6 +9,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { createInvocationEventSequencer } from '../../events'
 import { asRecord as asHookRecord, getNumber, getString, unwrapHookPayload } from '../hook-json'
+import type { MailStopDecision } from '../mail-stop-gate'
 import { USER_INITIATED_END_REASONS } from '../tmux-shared'
 
 export const CLAUDE_CODE_TMUX_DRIVER_KIND = 'claude-code-tmux'
@@ -52,6 +53,7 @@ export type ClaudeCodeHookEnvelope = {
   runtimeId?: string | undefined
   turnId?: string | undefined
   hookData: unknown
+  mailStopDecision?: MailStopDecision | undefined
 }
 
 export type NormalizeHookEnvelopeOptions = {

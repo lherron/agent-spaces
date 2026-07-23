@@ -18,7 +18,10 @@ type HookEnvelope = {
   runtimeId?: string | undefined
   turnId?: string | undefined
   hookData?: unknown
+  mailStopDecision?: { decision: 'block'; reason: string } | undefined
 }
+
+type HookResult = Record<string, unknown> | undefined
 
 type LaunchArtifact = {
   argv: string[]
@@ -36,7 +39,7 @@ type CodexCliTmuxDriverFactory = (options: {
     ) => Promise<{ stdout: string; stderr: string }>
   }
   hooks: {
-    listen: (handler: (envelope: HookEnvelope) => Promise<void>) => Promise<{
+    listen: (handler: (envelope: HookEnvelope) => Promise<HookResult> | HookResult) => Promise<{
       socketPath: string
       close: () => Promise<void>
     }>
@@ -445,7 +448,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     const events: InvocationEventEnvelope[] = []
-    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult>) | undefined
     const hookSocket =
       '/tmp/praesidium/runtime/broker-ipc/runtime-codex/hooks/codex-hooks.live.sock'
     const liveInvocationId = 'inv_codex_identity_live'
@@ -499,7 +502,7 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     const events: InvocationEventEnvelope[] = []
-    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult>) | undefined
     const hookSocket = '/tmp/harness-broker/codex-hooks.sock'
     const driver = createDriver({
       tmux: {
@@ -535,6 +538,63 @@ describe('codex-cli-tmux driver: runtime pane lease', () => {
       'user.message',
     ])
   })
+
+  test('mail Stop block suppresses terminal events until the composed gate clears', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    const events: InvocationEventEnvelope[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult>) | undefined
+    const hookSocket = '/tmp/harness-broker/codex-mail-stop.sock'
+    const driver = createDriver({
+      tmux: {
+        socketPath: '/tmp/harness-broker/hidden-default-should-not-be-used.sock',
+        tmuxBin: '/opt/bin/tmux',
+        exec: recordingExec(tmuxCalls),
+      },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler
+          return { socketPath: hookSocket, close: async () => undefined }
+        },
+      },
+      now,
+    })
+    await driver.start(codexTmuxSpec(), createCtx(events, { terminalSurface: paneLease() }))
+    if (hookHandler === undefined) throw new Error('hook handler was not captured')
+
+    const base: HookEnvelope = {
+      invocationId,
+      runtimeId: 'runtime-codex-driver',
+      generation: 1,
+      callbackSocket: hookSocket,
+      turnId: 'turn_codex_mail_stop',
+      hookData: {
+        hook_event_name: 'UserPromptSubmit',
+        turn_id: 'turn_codex_mail_stop',
+        prompt: 'finish after mail',
+      },
+    }
+    await hookHandler(base)
+    const stop: HookEnvelope = {
+      ...base,
+      hookData: {
+        hook_event_name: 'Stop',
+        turn_id: 'turn_codex_mail_stop',
+        last_assistant_message: 'draft',
+      },
+    }
+
+    expect(
+      await hookHandler({
+        ...stop,
+        mailStopDecision: { decision: 'block', reason: 'Run hrcmail inbox.' },
+      })
+    ).toEqual({ decision: 'block', reason: 'Run hrcmail inbox.' })
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(0)
+
+    expect(await hookHandler(stop)).toBeUndefined()
+    expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+  })
 })
 
 describe('codex-cli-tmux driver: hook-ordered transcript reading', () => {
@@ -545,7 +605,7 @@ describe('codex-cli-tmux driver: hook-ordered transcript reading', () => {
     try {
       const createDriver = await loadFactory()
       const tmuxCalls: TmuxExecCall[] = []
-      let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+      let hookHandler: ((envelope: HookEnvelope) => Promise<HookResult>) | undefined
       const events: InvocationEventEnvelope[] = []
       const socketPath = '/tmp/harness-broker/codex-tmux.sock'
       const driver = createDriver({

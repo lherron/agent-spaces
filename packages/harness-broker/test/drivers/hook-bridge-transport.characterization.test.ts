@@ -45,9 +45,18 @@ const captureOnePost = async (): Promise<{
   })
   const server = createServer((conn) => {
     const chunks: Buffer[] = []
-    conn.on('data', (chunk: Buffer) => chunks.push(chunk))
-    conn.on('end', () => {
+    let clientEnded = false
+    let responseTimer: ReturnType<typeof setTimeout> | undefined
+    conn.on('data', (chunk: Buffer) => {
+      chunks.push(chunk)
       resolveBytes(Buffer.concat(chunks).toString('utf8'))
+      responseTimer = setTimeout(() => {
+        if (!clientEnded) conn.end('ok')
+      }, 10)
+    })
+    conn.on('end', () => {
+      clientEnded = true
+      if (responseTimer !== undefined) clearTimeout(responseTimer)
       conn.end()
     })
   })
