@@ -32,15 +32,23 @@ const TOOL_NAMES: Record<string, string> = {
 const TOOL_TYPES = new Set(Object.keys(TOOL_NAMES))
 
 /**
- * Native Codex notifications that are pure state churn or account telemetry with
- * no operator value in the transcript. Dropped at the mapper so they never enter
- * the durable event stream (and thus never reach the renderer pane).
+ * Native Codex notifications given an INTENTIONAL non-event treatment: pure state
+ * churn, account/capability telemetry, and provider-internal lifecycle signals
+ * with no defined broker consumer. Dropped at the mapper so they never enter the
+ * durable event stream (and thus never reach the renderer pane) — deliberately
+ * classified here, NOT silently falling through the unknown-method diagnostic.
+ * Adding a method here is the "intentionally ignore without diagnostic spam"
+ * disposition; give one a first-class mapping instead only once a concrete
+ * consumer and payload contract exist.
  */
 const SUPPRESSED_METHODS = new Set<string>([
-  'account/rateLimits/updated',
-  'thread/status/changed',
-  'remoteControl/status/changed',
-  'mcpServer/startupStatus/updated',
+  'account/rateLimits/updated', // T-06191 — account rate-limit telemetry heartbeat
+  'thread/status/changed', // T-06193 — provider thread active/idle churn
+  'remoteControl/status/changed', // T-06198 — provider capability telemetry
+  'mcpServer/startupStatus/updated', // T-06194 — MCP server lifecycle, distinct from tool calls
+  'hook/started', // T-06195 — provider-internal hook progress, no broker consumer
+  'hook/completed', // T-06196 — hook lifecycle edge, NOT a broker turn terminal
+  'thread/started', // T-06197 — optional metadata; start-response thread id stays authoritative
 ])
 
 export interface DiffFileStat {
@@ -444,7 +452,11 @@ function mapCodexNotificationInner(
       // Any other unknown native notification: surface as a trace-level
       // diagnostic so it is observable but never leaks the native method name as
       // a normalized event `type`. The native method is preserved in
-      // `extra.driver.rawType`; the renderer folds debug-level diagnostics away.
+      // `extra.driver.rawType` (the single method authority — never duplicated
+      // into `payload.data`); the raw params ride on `payload.data.params` so a
+      // genuinely-novel method is legible on the durable stream and in-pane
+      // instead of a bare method name (T-05219). Data-less debug diagnostics are
+      // still folded out of the pane by the renderer.
       return [
         {
           type: 'diagnostic',
@@ -452,6 +464,7 @@ function mapCodexNotificationInner(
             level: 'debug',
             message: `Unhandled Codex notification: ${notification.method}`,
             source: 'driver',
+            data: { params: notification.params ?? {} },
           },
         },
       ]

@@ -655,8 +655,8 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
     })
   })
 
-  describe('unknown native notification (H6)', () => {
-    test('unknown method → trace diagnostic, never leaks native type as normalized type', () => {
+  describe('unknown native notification (H6, T-05219)', () => {
+    test('unknown method → trace diagnostic carrying params, never leaks native type as normalized type', () => {
       const events = mapCodexNotification(note('thread/somethingNew', { foo: 1 }))
       expect(events).toHaveLength(1)
       expect(events[0]?.type).toBe('diagnostic')
@@ -664,6 +664,7 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
         level: 'debug',
         message: 'Unhandled Codex notification: thread/somethingNew',
         source: 'driver',
+        data: { params: { foo: 1 } },
       })
       expect(events[0]?.extra?.driver).toEqual({
         kind: CODEX_DRIVER_KIND,
@@ -671,12 +672,32 @@ describe('mapCodexNotification — tool item projection (T-01554)', () => {
       })
     })
 
+    test('nested params ride on payload.data.params verbatim; the native method is NOT duplicated there (T-05219)', () => {
+      const params = { detail: 'not-in-the-contract', nested: { count: 3, items: ['a', 'b'] } }
+      const events = mapCodexNotification(note('thread/experimentalSignal', params))
+      expect(events).toHaveLength(1)
+      const payload = events[0]?.payload as Record<string, unknown>
+      expect(payload['data']).toEqual({ params })
+      // driver.rawType is the single method authority — the method never appears in data.
+      expect(JSON.stringify(payload['data'])).not.toContain('thread/experimentalSignal')
+      expect(events[0]?.extra?.driver?.rawType).toBe('thread/experimentalSignal')
+      expect(events[0]?.type).toBe('diagnostic')
+    })
+
+    test('an unknown method with no params carries data.params as an empty object (T-05219)', () => {
+      const events = mapCodexNotification(note('thread/bareSignal', undefined))
+      expect((events[0]?.payload as Record<string, unknown>)['data']).toEqual({ params: {} })
+    })
+
     test.each([
       'account/rateLimits/updated',
       'thread/status/changed',
       'remoteControl/status/changed',
       'mcpServer/startupStatus/updated',
-    ])('known-noise method %s is dropped (no event)', (method) => {
+      'hook/started',
+      'hook/completed',
+      'thread/started',
+    ])('intentionally-suppressed method %s is dropped (no event, no diagnostic)', (method) => {
       expect(mapCodexNotification(note(method, { foo: 1 }))).toEqual([])
     })
   })

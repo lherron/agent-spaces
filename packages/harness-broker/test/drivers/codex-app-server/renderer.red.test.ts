@@ -445,6 +445,73 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     projection.close()
   })
 
+  test('an unknown-notification diagnostic carrying params renders message + labeled compact data, never the raw fallback (T-05219)', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      // A debug diagnostic WITH data (unknown native notification, params attached
+      // by the mapper) surfaces in-pane as `data={…}`.
+      event(1, 'diagnostic', {
+        level: 'debug',
+        source: 'driver',
+        message: 'Unhandled Codex notification: thread/experimentalSignal',
+        data: { params: { detail: 'not-in-the-contract', nested: { count: 3 } } },
+      }),
+      // A BARE debug diagnostic (no data) is still folded away entirely.
+      event(2, 'diagnostic', {
+        level: 'debug',
+        source: 'driver',
+        message: 'Unhandled Codex notification: thread/bareSignal',
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+
+    await projection.start()
+    const rendered = textLines(projection).join('\n')
+    // The data-carrying diagnostic is visible, through the diagnostic path…
+    expectTextInOrder(rendered, [
+      'Unhandled Codex notification: thread/experimentalSignal',
+      'data=',
+      'not-in-the-contract',
+    ])
+    // …labeled as JSON, never `[object Object]`, and not via the raw-event fallback.
+    expect(rendered).toContain('data={"params"')
+    expect(rendered).not.toContain('[object Object]')
+    // The bare, data-less debug diagnostic stays folded out of the pane.
+    expect(rendered).not.toContain('thread/bareSignal')
+    projection.close()
+  })
+
+  test('long diagnostic data is clipped to the shared preview budget, so it stays a single readable row (T-05219)', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const bigParams: Record<string, string> = {}
+    for (let i = 0; i < 40; i++) bigParams[`field_${i}`] = 'x'.repeat(20)
+    const { surface } = createReadSurface([
+      event(1, 'diagnostic', {
+        level: 'debug',
+        source: 'driver',
+        message: 'Unhandled Codex notification: thread/verbose',
+        data: { params: bigParams },
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+
+    await projection.start()
+    const rendered = textLines(projection).join('\n')
+    // Clipped with the ellipsis marker rather than dumping the whole blob.
+    expect(rendered).toContain('data={"params"')
+    expect(rendered).toContain('…')
+    // Not every one of the 40 fields is present — the preview is bounded.
+    expect(rendered).not.toContain('field_39')
+    expect(rendered).not.toContain('[object Object]')
+    projection.close()
+  })
+
   test('expands tabs in tool output so a band never shows pane background mid-row (T-06351)', async () => {
     const { createCodexAppServerRendererProjection } = await loadRendererModule()
     // The real shape from captured transcripts: `rg -n` over tab-indented Go source.

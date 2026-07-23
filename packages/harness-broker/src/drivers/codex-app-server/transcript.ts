@@ -31,8 +31,9 @@ import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
  * than redrawing in place. Streaming `*.delta` events are folded into the
  * matching `*.completed`; per-step token usage is folded into the footer;
  * high-frequency telemetry (rate limits, thread status) is dropped upstream in
- * the mapper; and debug-level driver diagnostics (unknown native notifications)
- * are folded away here so the pane stays quiet.
+ * the mapper; and bare debug-level driver diagnostics are folded away here so the
+ * pane stays quiet — but an unknown-notification diagnostic that carries native
+ * params surfaces them as a labeled `data={…}` preview (T-05219).
  */
 
 /**
@@ -139,6 +140,27 @@ function str(value: unknown): string {
 function clip(value: string, max = MAX_PREVIEW): string {
   const oneLine = value.replace(/\s+/g, ' ').trim()
   return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine
+}
+
+/**
+ * A bounded, labeled `data={…}` preview of a diagnostic `payload.data` (T-05219).
+ * Unknown Codex notifications carry their native params here; this surfaces them
+ * in-pane so a novel method is legible. Always goes through `JSON.stringify` (so
+ * an object is never rendered as `[object Object]`) with a readable marker for
+ * unserializable values, then clips to the shared preview budget. Returns
+ * undefined when there is nothing to show — a bare debug diagnostic still folds
+ * out of the pane.
+ */
+function diagnosticDataPreview(data: unknown): string | undefined {
+  if (data === undefined || data === null) return undefined
+  let json: string | undefined
+  try {
+    json = JSON.stringify(data)
+  } catch {
+    json = undefined
+  }
+  const rendered = json ?? '<unserializable>'
+  return `data=${clip(rendered)}`
 }
 
 /**
@@ -672,10 +694,20 @@ export function createCodexTranscriptModel(
       return
     }
     const level = str(p['level']) || 'info'
-    // Debug-level diagnostics are the unknown-native-notification trace; keep
-    // them in the durable stream for observability, fold them out of the pane.
-    if (level === 'debug' || level === 'trace') return
     const message = str(p['message'])
+    // Debug/trace diagnostics are the unknown-native-notification trace. The
+    // high-frequency native methods are already dropped upstream in the mapper,
+    // so what reaches here is a genuinely-novel method. Fold the BARE ones out of
+    // the pane (T-06325 quiet-pane rule), but when one carries structured params
+    // surface them as a bounded, labeled compact preview so the novel method is
+    // legible in-pane, not just on the durable stream (T-05219).
+    if (level === 'debug' || level === 'trace') {
+      const preview = diagnosticDataPreview(p['data'])
+      if (preview === undefined) return
+      const body = message.length > 0 ? `· ${message}  ${preview}` : `· ${preview}`
+      emit(line([{ text: body, fg: 'dim' }]))
+      return
+    }
     if (message.length === 0) return
     if (level === 'error') emit(line([{ text: `✗ ${message}`, fg: 'red' }]))
     else if (level === 'warn') emit(line([{ text: `⚠ ${message}`, fg: 'brass' }]))

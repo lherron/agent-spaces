@@ -529,6 +529,11 @@ describe('Codex app-server driver red scenarios', () => {
       kind: 'codex-app-server',
       rawType: 'thread/experimentalSignal',
     })
+    // Native params ride verbatim on payload.data.params through the full driver
+    // pipeline, not just the mapper unit (T-05219).
+    expect((diagnostic?.payload as { data?: unknown }).data).toEqual({
+      params: { detail: 'not-in-the-contract', nested: { count: 3, items: ['a', 'b'] } },
+    })
     await expectGolden('unknown-notification', events)
   })
 
