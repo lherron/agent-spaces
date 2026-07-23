@@ -402,6 +402,25 @@ async function runSdkFrontend(
   frontend: string,
   { placement, continuation, envVars, prompt, options }: FrontendExecContext
 ): Promise<void> {
+  if (options.dryRun || options.printCommand) {
+    const invocation = {
+      frontend,
+      bundle: placement.bundle,
+      model: options.model ?? null,
+      hasPrompt: Boolean(prompt),
+    }
+    if (options.json) {
+      console.log(JSON.stringify({ invocation }, null, 2))
+    } else {
+      console.log('Dry run — would execute (in-process SDK turn, not spawned):')
+      console.log(`  frontend: ${frontend}`)
+      console.log(`  bundle:   ${JSON.stringify(placement.bundle)}`)
+      console.log(`  model:    ${options.model ?? '(profile default)'}`)
+      console.log(`  prompt:   ${prompt ? 'provided' : '(none)'}`)
+    }
+    return
+  }
+
   const client = createAgentSpacesClient()
   const response = await client.runTurnNonInteractive({
     placement,
