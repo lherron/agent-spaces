@@ -168,3 +168,35 @@ schemaVersion = 2
     }
   })
 })
+
+describe('agent-profile job execution ownership (T-06804)', () => {
+  test.each([
+    ['"svc"', ['svc']],
+    ['["svc", "max3", "svc"]', ['max3', 'svc']],
+    ['"all"', ['all']],
+    ['["all", "all"]', ['all']],
+  ])('normalizes jobs.default_node from %s', (authored, expected) => {
+    const profile = parseAgentProfile(`
+schemaVersion = 2
+
+[jobs]
+default_node = ${authored}
+`)
+
+    expect(profile.jobs).toEqual({ default_node: expected })
+  })
+
+  test.each(['[]', '"local"', '["local"]', '["svc", "local"]', '["all", "svc"]'])(
+    'rejects invalid jobs.default_node %s',
+    (authored) => {
+      expect(() =>
+        parseAgentProfile(`
+schemaVersion = 2
+
+[jobs]
+default_node = ${authored}
+`)
+      ).toThrow(ConfigValidationError)
+    }
+  )
+})

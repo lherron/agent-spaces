@@ -3,6 +3,7 @@ import { validateToken } from 'agent-scope'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
 import type {
+  AgentProfileJobs,
   AgentProfilePlacement,
   AgentRuntimeProfile,
   HarnessSettings,
@@ -12,6 +13,7 @@ import type { AgentIdentity } from '../types/agent-profile.js'
 import { resolveHarnessCatalogEntry } from '../types/harness.js'
 import { type SpaceRefString, isSpaceRefString } from '../types/refs.js'
 import type { ClaudeOptions, CodexOptions } from '../types/targets.js'
+import { normalizeJobExecutionNodes } from './job-execution-nodes.js'
 
 const AGENT_PROFILE_FILENAME = 'agent-profile.toml'
 const RUN_MODES = new Set<RunMode>(['query', 'heartbeat', 'task', 'maintenance'])
@@ -394,6 +396,26 @@ function parsePlacement(
   return placement
 }
 
+function parseJobs(value: unknown, source: string, path: string): AgentProfileJobs | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (!isPlainObject(value)) {
+    fail(source, path, 'must be a table', 'type')
+  }
+  assertOnlyKeys(value, ['default_node'], source, path)
+
+  const jobs: AgentProfileJobs = {}
+  if (value['default_node'] !== undefined) {
+    const result = normalizeJobExecutionNodes(value['default_node'])
+    if (!result.ok) {
+      fail(source, `${path}/default_node`, result.message, result.code)
+    }
+    jobs.default_node = result.nodes
+  }
+  return jobs
+}
+
 function parseClaudeOptions(
   value: unknown,
   source: string,
@@ -525,6 +547,7 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
       'schemaVersion',
       'claims_task',
       'placement',
+      'jobs',
       'identity',
       'priming_prompt',
       'priming_prompt_file',
@@ -557,6 +580,10 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
   const placement = parsePlacement(parsed['placement'], source, '/placement')
   if (placement !== undefined) {
     profile.placement = placement
+  }
+  const jobs = parseJobs(parsed['jobs'], source, '/jobs')
+  if (jobs !== undefined) {
+    profile.jobs = jobs
   }
 
   if (schemaVersion === 1) {

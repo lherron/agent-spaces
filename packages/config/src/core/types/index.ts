@@ -80,6 +80,7 @@ export type { DistTagsFile } from './dist-tags.js'
 export type {
   AgentIdentity,
   AgentProfileInstructions,
+  AgentProfileJobs,
   AgentProfilePlacement,
   AgentProfileSession,
   AgentProfileSpaces,

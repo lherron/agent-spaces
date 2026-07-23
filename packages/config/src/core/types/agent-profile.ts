@@ -42,6 +42,11 @@ export interface AgentProfileSession {
   additionalExec?: string[] | undefined
 }
 
+/** Source policy for managed scheduled-job execution ownership. */
+export interface AgentProfileJobs {
+  default_node?: string[] | undefined
+}
+
 /** Source-shaped federation placement declaration from agent-profile.toml. */
 export interface AgentProfilePlacement {
   default_home_node?: string | undefined
@@ -53,6 +58,7 @@ export interface AgentRuntimeProfile {
   schemaVersion: 1 | 2
   claims_task?: boolean | undefined
   placement?: AgentProfilePlacement | undefined
+  jobs?: AgentProfileJobs | undefined
   identity?: AgentIdentity | undefined
   priming_prompt?: string | undefined
   priming_prompt_file?: string | undefined

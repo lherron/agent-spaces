@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync, readdirSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import expectedPlan from '../__fixtures__/resources/expected-plan.json'
@@ -35,6 +37,49 @@ async function compileFixture(agentRoot: string, includePaths?: string[]): Promi
     }
   }
 }
+
+async function compileInlineResource(options: {
+  profile?: string
+  schedule: string
+}): Promise<CompileResult> {
+  const agentRoot = mkdtempSync(join(tmpdir(), 'asp-resource-owner-set-'))
+  mkdirSync(join(agentRoot, 'schedules'))
+  writeFileSync(join(agentRoot, 'schedules', 'job.toml'), options.schedule)
+  if (options.profile !== undefined) {
+    writeFileSync(join(agentRoot, 'agent-profile.toml'), options.profile)
+  }
+  try {
+    const plan = await compileResourcesPlan({
+      agentRoot,
+      owner: smokeyOwner,
+    })
+    return { ok: true, plan }
+  } catch (error) {
+    return {
+      ok: false,
+      code: error instanceof Error && 'code' in error ? String(error.code) : 'UNKNOWN',
+      message: error instanceof Error ? error.message : String(error),
+    }
+  } finally {
+    rmSync(agentRoot, { recursive: true, force: true })
+  }
+}
+
+const inlineSchedule = `
+schema = 1
+name = "owner-set-test"
+enabled = true
+
+[target]
+project = "agent-spaces"
+agent = "smokey"
+
+[trigger]
+cron = "0 * * * *"
+
+[input]
+content = "test owner set"
+`
 
 function findByKind(plan: typeof expectedPlan, kind: string) {
   const resource = plan.resources.find((item) => item.resourceKind === kind)
@@ -125,6 +170,120 @@ describe('agent-authored runtime resources plan compiler', () => {
           expect.anything(),
         ],
       }),
+    })
+  })
+
+  test('uses the canonical profile default owner set when a schedule has no override', async () => {
+    const result = await compileInlineResource({
+      profile: `
+schemaVersion = 2
+
+[jobs]
+default_node = ["svc", "max3", "svc"]
+`,
+      schedule: inlineSchedule,
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      plan: expect.objectContaining({
+        resources: [
+          expect.objectContaining({
+            desiredJson: expect.objectContaining({
+              execution: { nodes: ['max3', 'svc'] },
+            }),
+          }),
+        ],
+      }),
+    })
+  })
+
+  test.each([
+    ['node scalar', 'node = "svc"', ['svc']],
+    ['node list', 'node = ["svc", "max3", "svc"]', ['max3', 'svc']],
+    ['all wildcard', 'node = "all"', ['all']],
+  ])('normalizes schedule execution override: %s', async (_label, authored, expected) => {
+    const result = await compileInlineResource({
+      profile: `
+schemaVersion = 2
+
+[jobs]
+default_node = "fallback"
+`,
+      schedule: `${inlineSchedule}
+
+[execution]
+${authored}
+`,
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      plan: expect.objectContaining({
+        resources: [
+          expect.objectContaining({
+            desiredJson: expect.objectContaining({
+              execution: { nodes: expected },
+            }),
+          }),
+        ],
+      }),
+    })
+  })
+
+  test('omits execution placement when neither the profile nor schedule declares it', async () => {
+    const result = await compileInlineResource({ schedule: inlineSchedule })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.plan.resources[0]?.desiredJson).not.toHaveProperty('execution')
+  })
+
+  test('canonicalizes duplicate and reordered owner sets to identical desired state', async () => {
+    const first = await compileInlineResource({
+      schedule: `${inlineSchedule}
+
+[execution]
+node = ["svc", "max3", "svc"]
+`,
+    })
+    const second = await compileInlineResource({
+      schedule: `${inlineSchedule}
+
+[execution]
+node = ["max3", "svc"]
+`,
+    })
+
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+    expect(first.plan.resources[0]?.desiredJson).toEqual(second.plan.resources[0]?.desiredJson)
+    expect(first.plan.resources[0]?.desiredProjectionHash).toBe(
+      second.plan.resources[0]?.desiredProjectionHash
+    )
+  })
+
+  test.each([
+    ['empty set', 'node = []'],
+    ['local scalar', 'node = "local"'],
+    ['local list', 'node = ["local"]'],
+    ['local mixed list', 'node = ["svc", "local"]'],
+    ['all mixed with concrete', 'node = ["all", "svc"]'],
+    ['malformed node', 'node = "bad/node"'],
+  ])('rejects invalid schedule execution placement: %s', async (_label, authored) => {
+    const result = await compileInlineResource({
+      schedule: `${inlineSchedule}
+
+[execution]
+${authored}
+`,
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'INVALID_EXECUTION_PLACEMENT',
+      message: expect.any(String),
     })
   })
 

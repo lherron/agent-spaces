@@ -3,6 +3,9 @@ import { readFile, readdir } from 'node:fs/promises'
 import { basename, dirname, join, normalize, sep } from 'node:path'
 import TOML from '@iarna/toml'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
+import { parseAgentProfile } from '../core/config/agent-profile-toml.js'
+import { normalizeJobExecutionNodes } from '../core/config/job-execution-nodes.js'
+import { readAgentProfileSource } from '../resolver/agent-profile-source.js'
 
 export type ResourcesPlanCompileOptions = {
   agentRoot: string
@@ -82,9 +85,14 @@ const RESOURCE_DIRECTORIES: ReadonlyArray<{ dir: string; kind: ResourceKind }> =
 export async function compileResourcesPlan(
   options: ResourcesPlanCompileOptions
 ): Promise<ResourcesPlan> {
+  const profileSource = readAgentProfileSource(options.agentRoot)
+  const defaultExecutionNodes =
+    profileSource === undefined
+      ? undefined
+      : parseAgentProfile(profileSource.content, profileSource.path).jobs?.default_node
   const resources = []
   for (const file of await discoverResourceFiles(options)) {
-    resources.push(compileResource(file, options.owner, options.agentRoot))
+    resources.push(compileResource(file, options.owner, options.agentRoot, defaultExecutionNodes))
   }
 
   return {
@@ -99,10 +107,15 @@ export async function compileResourcesPlan(
   }
 }
 
-function compileResource(file: ResourceFile, owner: Owner, agentRoot: string): ResourceProjection {
+function compileResource(
+  file: ResourceFile,
+  owner: Owner,
+  agentRoot: string,
+  defaultExecutionNodes: string[] | undefined
+): ResourceProjection {
   switch (file.kind) {
     case 'scheduled-job':
-      return compileSchedule(file, owner)
+      return compileSchedule(file, owner, defaultExecutionNodes)
     case 'interface-binding':
       return compileChannel(file, owner)
     case 'event-hook':
@@ -175,7 +188,11 @@ function classifyResource(relPath: string, parsed: ParsedToml): ResourceKind {
   throw resourceError('UNKNOWN_RESOURCE_KIND', `Could not classify runtime resource ${relPath}`)
 }
 
-function compileSchedule(file: ResourceFile, owner: Owner): ResourceProjection {
+function compileSchedule(
+  file: ResourceFile,
+  owner: Owner,
+  defaultExecutionNodes: string[] | undefined
+): ResourceProjection {
   const source = file.parsed
   if (source['timezone'] !== undefined) {
     throw resourceError('UNSUPPORTED_TIMEZONE', `${file.relPath}: timezone is unsupported in v1`)
@@ -188,6 +205,7 @@ function compileSchedule(file: ResourceFile, owner: Owner): ResourceProjection {
   const task = target.task ?? 'primary'
   const lane = target.lane ?? 'main'
   const scopeRef = scopeRefFor(owner.agentId, owner.projectId, task)
+  const executionNodes = readScheduleExecutionNodes(source, file.relPath, defaultExecutionNodes)
   const desiredJson = {
     kind: 'scheduled-job',
     slug: projectionPk(owner.agentId, name),
@@ -206,11 +224,42 @@ function compileSchedule(file: ResourceFile, owner: Owner): ResourceProjection {
       windowEnd: optionalNestedString(source, 'trigger', 'windowEnd'),
       windowMinutes: optionalNestedNumber(source, 'trigger', 'windowMinutes'),
     },
+    ...(executionNodes !== undefined ? { execution: { nodes: executionNodes } } : {}),
     input: cloneRecord(source['input']),
     ...(isRecord(source['flow']) ? { flow: cloneRecord(source['flow']) } : {}),
   }
 
   return resourceProjection(file, owner, name, 'scheduled-job', 'jobs', desiredJson)
+}
+
+function readScheduleExecutionNodes(
+  source: ParsedToml,
+  relPath: string,
+  defaultExecutionNodes: string[] | undefined
+): string[] | undefined {
+  const execution = source['execution']
+  if (execution === undefined) return defaultExecutionNodes
+  if (!isRecord(execution)) {
+    throw resourceError('INVALID_EXECUTION_PLACEMENT', `${relPath}: [execution] must be a table`)
+  }
+  const keys = Object.keys(execution)
+  if (keys.some((key) => key !== 'node')) {
+    throw resourceError('INVALID_EXECUTION_PLACEMENT', `${relPath}: [execution] only supports node`)
+  }
+  if (execution['node'] === undefined) {
+    throw resourceError(
+      'INVALID_EXECUTION_PLACEMENT',
+      `${relPath}: execution.node is required when [execution] is declared`
+    )
+  }
+  const result = normalizeJobExecutionNodes(execution['node'])
+  if (!result.ok) {
+    throw resourceError(
+      'INVALID_EXECUTION_PLACEMENT',
+      `${relPath}: execution.node ${result.message}`
+    )
+  }
+  return result.nodes
 }
 
 function compileChannel(file: ResourceFile, owner: Owner): ResourceProjection {
