@@ -42,8 +42,10 @@ export function getAgentsRoot(opts?: ConfigOptions): string | undefined {
   const explicit = getConfiguredRoot('ASP_AGENTS_ROOT', 'agents-root', opts)
   if (explicit) return explicit
 
-  const env = opts?.env
-  const home = env?.['HOME'] ?? (!opts ? homedir() : undefined)
+  // An explicitly supplied env is authoritative, including an empty object:
+  // hermetic callers must not leak the host HOME. When env is omitted, use the
+  // host environment (then os.homedir()) even if runtime placement supplied `{}`.
+  const home = opts?.env === undefined ? (process.env['HOME'] ?? homedir()) : opts.env['HOME']
   if (!home) return undefined
   const conventionPath = join(home, 'praesidium', 'var', 'agents')
   return existsSync(conventionPath) ? conventionPath : undefined
