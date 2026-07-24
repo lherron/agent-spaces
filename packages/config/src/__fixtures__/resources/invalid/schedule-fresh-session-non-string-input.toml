@@ -1,0 +1,14 @@
+schema = 1
+name = "fresh-session-non-string-input"
+enabled = true
+freshSession = true
+
+[trigger]
+cron = "0 * * * *"
+
+[target]
+project = "agent-spaces"
+agent = "smokey"
+
+[input]
+content = 42

@@ -314,6 +314,102 @@ ${authored}
     })
   })
 
+  test('lowers freshSession schedule sugar to one fresh flow step with the original input', async () => {
+    const first = await compileFixture('../../variants', ['schedule-fresh-session.toml'])
+    const second = await compileFixture('../../variants', ['schedule-fresh-session.toml'])
+
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) return
+
+    const resource = first.plan.resources[0]
+    expect(resource).toEqual(
+      expect.objectContaining({
+        resourceKind: 'scheduled-job',
+        sourceOwnerScopeRef: smokeyOwner.scopeRef,
+        resourceName: 'fresh-session-triage',
+        sourceHash: expect.stringMatching(/^sha256-canonical-json\/v1:/),
+        desiredProjectionHash: expect.stringMatching(/^sha256-canonical-json\/v1:/),
+        desiredJson: expect.objectContaining({
+          scopeRef: 'agent:smokey:project:agent-spaces:task:fresh-session-triage',
+          laneRef: 'main',
+          disabled: true,
+          trigger: { kind: 'schedule' },
+          schedule: {
+            cron: '15 9 * * 1-5',
+            windowStart: '09:00',
+            windowEnd: '17:00',
+            windowMinutes: 20,
+          },
+          input: { content: '  Run fresh triage with the authored spacing.  ' },
+          flow: {
+            sequence: [
+              {
+                id: 'run',
+                fresh: true,
+                input: '  Run fresh triage with the authored spacing.  ',
+              },
+            ],
+          },
+        }),
+      })
+    )
+    expect(second.plan.resources[0]).toEqual(resource)
+  })
+
+  test('treats freshSession = false as a no-op', async () => {
+    const result = await compileInlineResource({
+      schedule: inlineSchedule.replace(
+        'enabled = true',
+        `enabled = true
+freshSession = false`
+      ),
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.plan.resources[0]?.desiredJson).not.toHaveProperty('flow')
+  })
+
+  test.each([
+    ['authored flow', 'schedule-fresh-session-flow.toml', 'AMBIGUOUS_SCHEDULE_FLOW', 'flow'],
+    [
+      'non-boolean sugar',
+      'schedule-fresh-session-invalid-type.toml',
+      'INVALID_FRESH_SESSION',
+      'freshSession',
+    ],
+    [
+      'missing input',
+      'schedule-fresh-session-missing-input.toml',
+      'MISSING_FRESH_SESSION_INPUT',
+      '[input].content',
+    ],
+    [
+      'blank input',
+      'schedule-fresh-session-blank-input.toml',
+      'MISSING_FRESH_SESSION_INPUT',
+      '[input].content',
+    ],
+    [
+      'non-string input',
+      'schedule-fresh-session-non-string-input.toml',
+      'MISSING_FRESH_SESSION_INPUT',
+      '[input].content',
+    ],
+  ])(
+    'rejects invalid freshSession declaration with %s',
+    async (_label, filename, code, messageFragment) => {
+      const result = await compileFixture('../../invalid', [filename])
+
+      expect(result).toEqual({
+        ok: false,
+        code,
+        message: expect.stringContaining(messageFragment),
+      })
+    }
+  )
+
   test('projects channel resources with gateway lookup, routing, status, and provenance', async () => {
     const result = await compileFixture('agents/smokey')
     expect(result).toEqual({

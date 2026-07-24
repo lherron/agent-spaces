@@ -197,6 +197,7 @@ function compileSchedule(
   if (source['timezone'] !== undefined) {
     throw resourceError('UNSUPPORTED_TIMEZONE', `${file.relPath}: timezone is unsupported in v1`)
   }
+  const freshSessionFlow = readFreshSessionFlow(source, file.relPath)
 
   const target = readTarget(source)
   assertSameOwnerTarget(target, owner, file.relPath)
@@ -226,10 +227,47 @@ function compileSchedule(
     },
     ...(executionNodes !== undefined ? { execution: { nodes: executionNodes } } : {}),
     input: cloneRecord(source['input']),
-    ...(isRecord(source['flow']) ? { flow: cloneRecord(source['flow']) } : {}),
+    ...(freshSessionFlow !== undefined
+      ? { flow: freshSessionFlow }
+      : isRecord(source['flow'])
+        ? { flow: cloneRecord(source['flow']) }
+        : {}),
   }
 
   return resourceProjection(file, owner, name, 'scheduled-job', 'jobs', desiredJson)
+}
+
+function readFreshSessionFlow(
+  source: ParsedToml,
+  relPath: string
+): { sequence: Array<{ id: 'run'; fresh: true; input: string }> } | undefined {
+  const freshSession = source['freshSession']
+  if (freshSession === undefined || freshSession === false) return undefined
+  if (freshSession !== true) {
+    throw resourceError(
+      'INVALID_FRESH_SESSION',
+      `${relPath}: freshSession must be a boolean when declared`
+    )
+  }
+  if (source['flow'] !== undefined) {
+    throw resourceError(
+      'AMBIGUOUS_SCHEDULE_FLOW',
+      `${relPath}: freshSession cannot be combined with an authored flow`
+    )
+  }
+
+  const input = source['input']
+  const content = isRecord(input) ? input['content'] : undefined
+  if (typeof content !== 'string' || content.trim().length === 0) {
+    throw resourceError(
+      'MISSING_FRESH_SESSION_INPUT',
+      `${relPath}: freshSession requires non-empty [input].content`
+    )
+  }
+
+  return {
+    sequence: [{ id: 'run', fresh: true, input: content }],
+  }
 }
 
 function readScheduleExecutionNodes(
