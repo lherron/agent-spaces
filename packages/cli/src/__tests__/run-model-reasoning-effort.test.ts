@@ -150,20 +150,23 @@ model = "gpt-5.5"
   test('--print-command output contains model_reasoning_effort="high" when flag set', async () => {
     await setupMinimalProject()
     try {
-      const { stdout, stderr } = runAsp([
-        'run',
-        'codex-target',
-        '--harness',
-        'codex',
-        '--model-reasoning-effort',
-        'high',
-        '--print-command',
-        '--no-refresh',
-        '--asp-home',
-        aspHome,
-        '--project',
-        projectDir,
-      ])
+      const { stdout, stderr } = runAsp(
+        [
+          'run',
+          'codex-target',
+          '--harness',
+          'codex',
+          '--model-reasoning-effort',
+          'high',
+          '--print-command',
+          '--no-refresh',
+          '--asp-home',
+          aspHome,
+          '--project',
+          projectDir,
+        ],
+        { env: { ASP_AGENTS_ROOT: join(aspHome, 'agents') } }
+      )
       const combined = stdout + stderr
 
       // Should NOT print "unknown option" error
@@ -179,18 +182,21 @@ model = "gpt-5.5"
   test('command does not include model_reasoning_effort when flag omitted', async () => {
     await setupMinimalProject()
     try {
-      const { stdout, stderr } = runAsp([
-        'run',
-        'codex-target',
-        '--harness',
-        'codex',
-        '--print-command',
-        '--no-refresh',
-        '--asp-home',
-        aspHome,
-        '--project',
-        projectDir,
-      ])
+      const { stdout, stderr } = runAsp(
+        [
+          'run',
+          'codex-target',
+          '--harness',
+          'codex',
+          '--print-command',
+          '--no-refresh',
+          '--asp-home',
+          aspHome,
+          '--project',
+          projectDir,
+        ],
+        { env: { ASP_AGENTS_ROOT: join(aspHome, 'agents') } }
+      )
       const combined = stdout + stderr
       expect(combined).not.toContain('model_reasoning_effort')
     } finally {
