@@ -8,7 +8,7 @@ import type {
   InputDispositionPayload,
   InputId,
   InvocationEventEnvelope,
-  InvocationEventPayload,
+  InvocationEventPayloadMap,
   InvocationEventType,
   InvocationFailedPayload,
   InvocationId,
@@ -22,6 +22,7 @@ import type {
   TurnId,
   TurnStartedPayload,
 } from 'spaces-harness-broker-protocol'
+import { validateEventEnvelope } from 'spaces-harness-broker-protocol'
 import type {
   LoadPiSdkBundleOptions,
   PiSdkBundleLoadResult,
@@ -144,13 +145,13 @@ export async function executeEmbeddedSdkTurn(
 
   const events: InvocationEventEnvelope[] = []
   let seq = 0
-  const emit = (
-    type: InvocationEventType,
-    payload: InvocationEventPayload,
+  const emit = <K extends InvocationEventType>(
+    type: K,
+    payload: InvocationEventPayloadMap[K],
     extra?: { turnId?: TurnId | undefined; inputId?: InputId | undefined }
   ): void => {
     seq += 1
-    const envelope: InvocationEventEnvelope = {
+    const envelope = validateEventEnvelope({
       invocationId,
       seq,
       time: now(),
@@ -159,7 +160,7 @@ export async function executeEmbeddedSdkTurn(
       driver: { kind: `embedded-sdk:${profile.sdk.runtime}` },
       ...(extra?.turnId !== undefined ? { turnId: extra.turnId } : {}),
       ...(extra?.inputId !== undefined ? { inputId: extra.inputId } : {}),
-    }
+    })
     events.push(envelope)
     input.onEvent?.(envelope)
   }

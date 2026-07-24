@@ -3,7 +3,9 @@ import type {
   HarnessInvocationSpec,
   InputId,
   InvocationCapabilities,
+  InvocationEvent,
   InvocationEventEnvelope,
+  InvocationEventPayloadMap,
   InvocationEventType,
   InvocationId,
   InvocationInput,
@@ -54,9 +56,9 @@ export interface DriverContext {
    * `terminalSurface`.
    */
   runtime?: InvocationRuntimeContext | undefined
-  emit<TPayload>(
-    type: InvocationEventType,
-    payload: TPayload,
+  emit<K extends InvocationEventType>(
+    type: K,
+    payload: InvocationEventPayloadMap[K],
     extra?: {
       turnId?: TurnId | undefined
       inputId?: InputId | undefined
@@ -65,7 +67,18 @@ export interface DriverContext {
       harnessGeneration?: number | undefined
       turnAttempt?: number | undefined
     }
-  ): InvocationEventEnvelope<TPayload>
+  ): InvocationEventEnvelope<K>
+  emitEvent(
+    event: InvocationEvent,
+    extra?: {
+      turnId?: TurnId | undefined
+      inputId?: InputId | undefined
+      itemId?: string | undefined
+      driver?: { kind: string; rawType?: string | undefined } | undefined
+      harnessGeneration?: number | undefined
+      turnAttempt?: number | undefined
+    }
+  ): InvocationEventEnvelope
   /**
    * Ask the connected client to decide a permission request via the
    * broker→client JSON-RPC request transport. Provided only when the broker

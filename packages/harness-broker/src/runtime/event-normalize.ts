@@ -17,7 +17,11 @@
  * echoed into events; credentials live on disk via CODEX_HOME).
  */
 
-import type { DiagnosticPayload, InvocationEventType } from 'spaces-harness-broker-protocol'
+import type {
+  DiagnosticPayload,
+  InvocationEventPayloadMap,
+  InvocationEventType,
+} from 'spaces-harness-broker-protocol'
 
 const TRUNCATED = '[TRUNCATED]'
 
@@ -57,14 +61,14 @@ function serializeStartedArg(arg: string, cwd: string): string {
   return arg
 }
 
-export interface NormalizeEventPayloadInput {
-  type: InvocationEventType
-  payload: unknown
+export interface NormalizeEventPayloadInput<K extends InvocationEventType> {
+  type: K
+  payload: InvocationEventPayloadMap[K]
   maxEventBytes?: number | undefined
 }
 
-export interface NormalizeEventPayloadResult {
-  payload: unknown
+export interface NormalizeEventPayloadResult<K extends InvocationEventType> {
+  payload: InvocationEventPayloadMap[K]
   diagnostics?: DiagnosticPayload[] | undefined
 }
 
@@ -82,9 +86,9 @@ export interface NormalizeEventPayloadResult {
  * Returns the safe payload plus any diagnostics the manager should emit as
  * follow-on events. Truncation is preferred over failing the invocation.
  */
-export function normalizeEventPayload(
-  input: NormalizeEventPayloadInput
-): NormalizeEventPayloadResult {
+export function normalizeEventPayload<K extends InvocationEventType>(
+  input: NormalizeEventPayloadInput<K>
+): NormalizeEventPayloadResult<K> {
   const { type, payload, maxEventBytes } = input
 
   // 1 + 2. Constrain / normalize well-known payload shapes.
@@ -111,11 +115,14 @@ export function normalizeEventPayload(
           truncatedFields: result.truncatedPaths,
         },
       }
-      return { payload: result.payload, diagnostics: [diagnostic] }
+      return {
+        payload: result.payload as InvocationEventPayloadMap[K],
+        diagnostics: [diagnostic],
+      }
     }
   }
 
-  return { payload: safe }
+  return { payload: safe as InvocationEventPayloadMap[K] }
 }
 
 interface TruncateResult {

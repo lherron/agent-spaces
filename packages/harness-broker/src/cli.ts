@@ -655,17 +655,14 @@ function notifyObserverClient(client: ObserverClient, event: InvocationEventEnve
 
 function eventForObserverNotification(event: InvocationEventEnvelope): InvocationEventEnvelope {
   if (event.type !== 'turn.completed') return event
-  const payload = event.payload as unknown
-  if (payload === null || typeof payload !== 'object') return event
-  const fields = payload as Record<string, unknown>
-  if (fields['result'] !== undefined || fields['finalOutput'] === undefined) return event
+  if (event.payload.result !== undefined || event.payload.finalOutput === undefined) return event
   return {
     ...event,
     payload: {
-      ...fields,
-      result: fields['finalOutput'],
+      ...event.payload,
+      result: event.payload.finalOutput,
     },
-  } as InvocationEventEnvelope
+  }
 }
 
 /** Probe an existing socket node and unlink it only if no live listener answers. */

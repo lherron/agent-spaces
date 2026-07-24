@@ -1,8 +1,9 @@
 import type {
   InvocationEventEnvelope,
-  InvocationEventPayload,
+  InvocationEventFor,
   InvocationEventType,
   InvocationId,
+  MessageId,
   ToolCallId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
@@ -28,11 +29,11 @@ export type NormalizePiHookEnvelopeOptions = {
 }
 
 type MappedHookEvent = {
-  type: InvocationEventType
-  payload: unknown
-  turnId?: TurnId | undefined
-  itemId?: string | undefined
-}
+  [K in InvocationEventType]: InvocationEventFor<K> & {
+    turnId?: TurnId | undefined
+    itemId?: string | undefined
+  }
+}[InvocationEventType]
 
 type HeldAssistantMessage = {
   messageId: string
@@ -76,7 +77,7 @@ export function createPiTuiTmuxHookEventNormalizer(
     })
 
   const emit = (rawType: string, event: MappedHookEvent): InvocationEventEnvelope => {
-    return sequencer.next(invocationId, event.type, event.payload as InvocationEventPayload, {
+    return sequencer.nextEvent(invocationId, event, {
       ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
       ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
       driver: { kind: PI_TUI_TMUX_DRIVER_KIND, rawType },
@@ -94,7 +95,7 @@ export function createPiTuiTmuxHookEventNormalizer(
       emit('message_end', {
         type: 'assistant.message.completed',
         payload: {
-          messageId: message.messageId,
+          messageId: message.messageId as MessageId,
           content: [{ type: 'text', text: message.content }],
           final,
         },
@@ -131,7 +132,7 @@ export function createPiTuiTmuxHookEventNormalizer(
         return [
           emit(eventName, {
             type: 'turn.started',
-            payload: { turnId: resolved, source: 'hook-observed' },
+            payload: { turnId: resolved as TurnId, source: 'hook-observed' },
             turnId: resolved as TurnId,
           }),
         ]
@@ -143,7 +144,7 @@ export function createPiTuiTmuxHookEventNormalizer(
         return [
           emit(eventName, {
             type: 'turn.started',
-            payload: { turnId: resolved, source: 'hook-observed' },
+            payload: { turnId: resolved as TurnId, source: 'hook-observed' },
             turnId: resolved as TurnId,
           }),
         ]
@@ -161,7 +162,7 @@ export function createPiTuiTmuxHookEventNormalizer(
         return [
           emit(eventName, {
             type: 'assistant.message.delta',
-            payload: { messageId, text: delta },
+            payload: { messageId: messageId as MessageId, text: delta },
             turnId,
             itemId: messageId,
           }),
@@ -246,7 +247,7 @@ export function createPiTuiTmuxHookEventNormalizer(
             emit(eventName, {
               type: 'turn.completed',
               payload: {
-                turnId: turnIdText,
+                turnId,
                 status: 'completed',
                 producedContent: events.length > 0,
               },
@@ -266,7 +267,7 @@ export function createPiTuiTmuxHookEventNormalizer(
             emit(eventName, {
               type: 'turn.completed',
               payload: {
-                turnId: turnIdText,
+                turnId,
                 status: 'completed',
                 producedContent: events.length > 0,
               },

@@ -21,12 +21,10 @@ import type {
 } from './lifecycle'
 import type { IsoTimestamp } from './primitives'
 
-export interface InvocationEventEnvelope<TPayload = InvocationEventPayload> {
+export interface InvocationEventEnvelopeBase {
   invocationId: InvocationId
   seq: number
   time: IsoTimestamp
-  type: InvocationEventType
-  payload: TPayload
   turnId?: TurnId | undefined
   inputId?: InputId | undefined
   itemId?: string | undefined
@@ -41,48 +39,36 @@ export interface InvocationEventEnvelope<TPayload = InvocationEventPayload> {
   turnAttempt?: number | undefined
 }
 
-export type InvocationEventType =
-  | 'invocation.started'
-  | 'invocation.ready'
-  | 'invocation.stopping'
-  | 'invocation.exited'
-  | 'invocation.failed'
-  | 'invocation.disposed'
-  | 'invocation.summary'
-  | 'lifecycle.policy.accepted'
-  | 'lifecycle.escalation'
-  | 'harness.started'
-  | 'harness.exited'
-  | 'harness.recovery.started'
-  | 'harness.recovery.completed'
-  | 'harness.recovery.failed'
-  | 'continuation.updated'
-  | 'continuation.cleared'
-  | 'input.accepted'
-  | 'input.rejected'
-  | 'input.queued'
-  | 'turn.started'
-  | 'turn.stalled'
-  | 'turn.retry'
-  | 'turn.completed'
-  | 'turn.failed'
-  | 'turn.interrupted'
-  | 'assistant.message.started'
-  | 'assistant.message.delta'
-  | 'assistant.message.completed'
-  | 'user.message'
-  | 'tool.call.started'
-  | 'tool.call.delta'
-  | 'tool.call.completed'
-  | 'tool.call.failed'
-  | 'usage.updated'
-  | 'diagnostic'
-  | 'driver.notice'
-  | 'terminal.surface.reported'
-  | 'permission.requested'
-  | 'permission.resolved'
-  | 'permission.cancelled'
-  | 'provider.transcript.reported'
+/**
+ * A single invocation event with its name and payload coupled by
+ * {@link InvocationEventPayloadMap}. This non-distributive form is useful to
+ * generic producers that already hold one concrete event key.
+ */
+export type InvocationEventEnvelopeFor<K extends InvocationEventType> =
+  InvocationEventEnvelopeBase & {
+    type: K
+    payload: InvocationEventPayloadMap[K]
+  }
+
+export type InvocationEventFor<K extends InvocationEventType> = {
+  type: K
+  payload: InvocationEventPayloadMap[K]
+}
+
+/** A correlated event-name/payload pair without envelope metadata. */
+export type InvocationEvent<K extends InvocationEventType = InvocationEventType> =
+  K extends InvocationEventType ? InvocationEventFor<K> : never
+
+/**
+ * The public discriminated envelope union. With the default type argument,
+ * narrowing `type` also narrows `payload`; passing a concrete K selects the
+ * corresponding envelope member.
+ */
+export type InvocationEventEnvelope<K extends InvocationEventType = InvocationEventType> =
+  K extends InvocationEventType ? InvocationEventEnvelopeFor<K> : never
+
+/** Invocation event names are authoritative map keys, never a parallel union. */
+export type InvocationEventType = keyof InvocationEventPayloadMap
 
 /**
  * Provider-transcript provenance contract (T-05374).
@@ -136,11 +122,11 @@ export interface ProviderTranscriptReportedExtra {
  * any HRC package.
  */
 export interface ProviderTranscriptEmitContext {
-  emit<TPayload>(
-    type: InvocationEventType,
-    payload: TPayload,
+  emit<K extends InvocationEventType>(
+    type: K,
+    payload: InvocationEventPayloadMap[K],
     extra?: ProviderTranscriptReportedExtra
-  ): InvocationEventEnvelope<TPayload>
+  ): InvocationEventEnvelopeFor<K>
 }
 
 /**
@@ -154,7 +140,7 @@ export function emitProviderTranscriptReported(
   ctx: ProviderTranscriptEmitContext,
   payload: ProviderTranscriptReportedPayload,
   extra: ProviderTranscriptReportedExtra = {}
-): InvocationEventEnvelope<ProviderTranscriptReportedPayload> {
+): InvocationEventEnvelopeFor<typeof PROVIDER_TRANSCRIPT_REPORTED_EVENT_TYPE> {
   const harnessGeneration = payload.harnessGeneration ?? extra.harnessGeneration
   const mergedPayload: ProviderTranscriptReportedPayload =
     harnessGeneration !== undefined ? { ...payload, harnessGeneration } : payload
@@ -176,46 +162,56 @@ export interface InvocationSummaryPayload {
   reason?: string | undefined
 }
 
-export type InvocationEventPayload =
-  | InvocationStartedPayload
-  | InvocationSummaryPayload
-  | InvocationReadyPayload
-  | InvocationStoppingPayload
-  | InvocationExitedPayload
-  | InvocationFailedPayload
-  | InvocationDisposedPayload
-  | LifecyclePolicyAcceptedPayload
-  | LifecycleEscalationPayload
-  | HarnessStartedPayload
-  | HarnessExitedPayload
-  | HarnessRecoveryStartedPayload
-  | HarnessRecoveryCompletedPayload
-  | HarnessRecoveryFailedPayload
-  | ContinuationUpdate
-  | ContinuationCleared
-  | InputDispositionPayload
-  | TurnStartedPayload
-  | TurnStalledPayload
-  | TurnRetryPayload
-  | TurnCompletedPayload
-  | TurnFailedPayload
-  | TurnInterruptedPayload
-  | AssistantMessageStartedPayload
-  | AssistantMessageDeltaPayload
-  | AssistantMessageCompletedPayload
-  | UserMessagePayload
-  | ToolCallStartedPayload
-  | ToolCallDeltaPayload
-  | ToolCallCompletedPayload
-  | ToolCallFailedPayload
-  | UsageUpdatedPayload
-  | DiagnosticPayload
-  | DriverNoticePayload
-  | TerminalSurfaceReportedPayload
-  | PermissionRequestedPayload
-  | PermissionResolvedPayload
-  | PermissionCancelledPayload
-  | ProviderTranscriptReportedPayload
+/**
+ * Canonical invocation event contract. This is the only event-name to payload
+ * mapping; event-name unions, envelope members, sequencers, and emitters derive
+ * from it so adding an event cannot leave the compile-time relationship behind.
+ */
+export interface InvocationEventPayloadMap {
+  'invocation.started': InvocationStartedPayload
+  'invocation.ready': InvocationReadyPayload
+  'invocation.stopping': InvocationStoppingPayload
+  'invocation.exited': InvocationExitedPayload
+  'invocation.failed': InvocationFailedPayload
+  'invocation.disposed': InvocationDisposedPayload
+  'invocation.summary': InvocationSummaryPayload
+  'lifecycle.policy.accepted': LifecyclePolicyAcceptedPayload
+  'lifecycle.escalation': LifecycleEscalationPayload
+  'harness.started': HarnessStartedPayload
+  'harness.exited': HarnessExitedPayload
+  'harness.recovery.started': HarnessRecoveryStartedPayload
+  'harness.recovery.completed': HarnessRecoveryCompletedPayload
+  'harness.recovery.failed': HarnessRecoveryFailedPayload
+  'continuation.updated': ContinuationUpdate
+  'continuation.cleared': ContinuationCleared
+  'input.accepted': InputDispositionPayload
+  'input.rejected': InputDispositionPayload
+  'input.queued': InputDispositionPayload
+  'turn.started': TurnStartedPayload
+  'turn.stalled': TurnStalledPayload
+  'turn.retry': TurnRetryPayload
+  'turn.completed': TurnCompletedPayload
+  'turn.failed': TurnFailedPayload
+  'turn.interrupted': TurnInterruptedPayload
+  'assistant.message.started': AssistantMessageStartedPayload
+  'assistant.message.delta': AssistantMessageDeltaPayload
+  'assistant.message.completed': AssistantMessageCompletedPayload
+  'user.message': UserMessagePayload
+  'tool.call.started': ToolCallStartedPayload
+  'tool.call.delta': ToolCallDeltaPayload
+  'tool.call.completed': ToolCallCompletedPayload
+  'tool.call.failed': ToolCallFailedPayload
+  'usage.updated': UsageUpdatedPayload
+  diagnostic: DiagnosticPayload
+  'driver.notice': DriverNoticePayload
+  'terminal.surface.reported': TerminalSurfaceReportedPayload
+  'permission.requested': PermissionRequestedPayload
+  'permission.resolved': PermissionResolvedPayload
+  'permission.cancelled': PermissionCancelledPayload
+  'provider.transcript.reported': ProviderTranscriptReportedPayload
+}
+
+export type InvocationEventPayload = InvocationEventPayloadMap[InvocationEventType]
 
 export interface InvocationStartedPayload {
   pid?: number | undefined
@@ -257,6 +253,9 @@ export interface TurnStartedPayload {
   turnId: TurnId
   inputId?: InputId | undefined
   turnAttempt?: number | undefined
+  source?: 'broker-delivery' | 'hook-observed' | undefined
+  sessionId?: string | undefined
+  prompt?: string | undefined
 }
 
 /**
@@ -338,6 +337,8 @@ export interface TurnCompletedPayload {
   turnId: TurnId
   status: 'completed' | 'failed' | 'interrupted'
   finalOutput?: string | undefined
+  /** Compatibility projection included on observer notifications. */
+  result?: unknown
   /**
    * Whether the turn produced observable content (assistant text OR tool
    * activity). A tool-only turn sets this true even with an empty finalOutput;
@@ -349,7 +350,9 @@ export interface TurnCompletedPayload {
 
 export interface TurnFailedPayload {
   turnId: TurnId
-  message: string
+  status?: 'failed' | undefined
+  message?: string | undefined
+  finalOutput?: string | undefined
   code?: string | undefined
   data?: unknown
   retryable?: boolean | undefined
@@ -360,6 +363,8 @@ export interface TurnFailedPayload {
 
 export interface TurnInterruptedPayload {
   turnId: TurnId
+  status?: 'interrupted' | undefined
+  finalOutput?: string | undefined
   reason?: string | undefined
 }
 
@@ -390,6 +395,7 @@ export interface DiagnosticPayload {
   level: 'debug' | 'info' | 'warn' | 'error'
   message: string
   source?: 'broker' | 'harness' | 'driver' | undefined
+  kind?: string | undefined
   data?: unknown
 }
 

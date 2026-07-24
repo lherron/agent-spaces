@@ -1,6 +1,6 @@
 import type {
   InvocationEventEnvelope,
-  InvocationEventPayload,
+  InvocationEventFor,
   InvocationEventType,
   InvocationId,
   PermissionRequestId,
@@ -90,12 +90,12 @@ export function normalizeCodexHookEnvelope(
 }
 
 type MappedHookEvent = {
-  type: InvocationEventType
-  payload: unknown
-  turnId?: TurnId | undefined
-  itemId?: string | undefined
-  correlation?: Record<string, string> | undefined
-}
+  [K in InvocationEventType]: InvocationEventFor<K> & {
+    turnId?: TurnId | undefined
+    itemId?: string | undefined
+    correlation?: Record<string, string> | undefined
+  }
+}[InvocationEventType]
 
 type ActiveTool = {
   toolCallId: string
@@ -112,16 +112,11 @@ export function createCodexCliTmuxHookEventNormalizer(
   let permissionCounter = 0
 
   const emit = (rawType: string, event: MappedHookEvent): InvocationEventEnvelope => {
-    const envelope = sequencer.next(
-      invocationId,
-      event.type,
-      event.payload as InvocationEventPayload,
-      {
-        ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
-        ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
-        driver: { kind: CODEX_CLI_TMUX_DRIVER_KIND, rawType },
-      }
-    )
+    const envelope = sequencer.nextEvent(invocationId, event, {
+      ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+      ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
+      driver: { kind: CODEX_CLI_TMUX_DRIVER_KIND, rawType },
+    })
     if (event.correlation !== undefined) {
       envelope.correlation = event.correlation
     }
@@ -143,7 +138,7 @@ export function createCodexCliTmuxHookEventNormalizer(
           emit(rawType, {
             type: 'turn.started',
             payload: {
-              turnId: turnIdText,
+              turnId,
               ...(sessionId !== undefined ? { sessionId } : {}),
               ...(promptText !== undefined ? { prompt: promptText } : {}),
             },
@@ -255,7 +250,7 @@ export function createCodexCliTmuxHookEventNormalizer(
           emit(rawType, {
             type: 'turn.completed',
             payload: {
-              turnId: turnIdText,
+              turnId,
               status: 'completed',
               finalOutput,
               producedContent: finalOutput.length > 0,

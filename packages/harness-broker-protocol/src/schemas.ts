@@ -219,6 +219,10 @@ export function validateCommand(value: unknown): BrokerCommand {
   return value as BrokerCommand
 }
 
+export function validateEventEnvelope<K extends InvocationEventType>(
+  value: InvocationEventEnvelope<K>
+): InvocationEventEnvelope<K>
+export function validateEventEnvelope(value: unknown): InvocationEventEnvelope
 export function validateEventEnvelope(value: unknown): InvocationEventEnvelope {
   const issues: ValidationIssue[] = []
   const envelope = asRecord(value)
@@ -228,19 +232,21 @@ export function validateEventEnvelope(value: unknown): InvocationEventEnvelope {
     requireString(envelope['invocationId'], 'invocationId', issues)
     requireNumber(envelope['seq'], 'seq', issues)
     requireString(envelope['time'], 'time', issues)
-    if (
+    const eventType =
       typeof envelope['type'] !== 'string' ||
       !eventTypes.has(envelope['type'] as InvocationEventType)
-    ) {
+        ? undefined
+        : (envelope['type'] as InvocationEventType)
+    if (eventType === undefined) {
       issues.push(makeIssue('type', 'invalid_event_type', 'Unsupported event type'))
     }
     if (!Object.hasOwn(envelope, 'payload')) {
       issues.push(makeIssue('payload', 'required', 'payload is required'))
-    } else if (typeof envelope['type'] === 'string') {
+    } else if (eventType !== undefined) {
       const driverKind = asRecord(envelope['driver'])?.['kind']
       validateOptionalPositiveInteger(envelope['harnessGeneration'], 'harnessGeneration', issues)
       validateOptionalPositiveInteger(envelope['turnAttempt'], 'turnAttempt', issues)
-      validateEventPayload(envelope['type'] as InvocationEventType, envelope['payload'], issues, {
+      validateEventPayload(eventType, envelope['payload'], issues, {
         driverKind: typeof driverKind === 'string' ? driverKind : undefined,
       })
     }
@@ -1178,11 +1184,10 @@ interface EventPayloadContext {
 }
 
 /**
- * One validator per event type that carries a payload contract. Each receives
- * the already-unwrapped payload record (the `requirePayloadRecord` guard is
- * applied once in {@link validateEventPayload}). Event types without a payload
- * contract are simply absent from the table — the dispatcher no-ops on them,
- * replacing the former 27-case switch + `default: return`.
+ * One validator per event type. Each receives the already-unwrapped payload
+ * record (the `requirePayloadRecord` guard is applied once in
+ * {@link validateEventPayload}). The mapped table is deliberately total so a
+ * new map key cannot ship without an explicit runtime validation decision.
  */
 type EventPayloadValidator = (
   payload: SchemaRecord,
@@ -1190,7 +1195,50 @@ type EventPayloadValidator = (
   context: EventPayloadContext
 ) => void
 
-const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayloadValidator>> = {
+type EventPayloadValidators = {
+  [K in InvocationEventType]: EventPayloadValidator
+}
+
+const EVENT_PAYLOAD_VALIDATORS = {
+  'invocation.started': (payload, issues) => {
+    optionalNumber(payload['pid'], 'payload.pid', issues)
+    requireString(payload['command'], 'payload.command', issues)
+    requireStringArray(payload['args'], 'payload.args', issues)
+    requireString(payload['cwd'], 'payload.cwd', issues)
+  },
+  'invocation.ready': (payload, issues) => {
+    optionalEnum(payload['state'], ['ready'], 'payload.state', issues, true)
+  },
+  'invocation.stopping': (payload, issues) => {
+    optionalString(payload['reason'], 'payload.reason', issues)
+  },
+  'invocation.exited': (payload, issues) => {
+    optionalNumberOrNull(payload['exitCode'], 'payload.exitCode', issues)
+    optionalStringOrNull(payload['signal'], 'payload.signal', issues)
+    optionalString(payload['reason'], 'payload.reason', issues)
+    optionalBoolean(payload['droppedContinuation'], 'payload.droppedContinuation', issues)
+  },
+  'invocation.failed': (payload, issues) => {
+    requireString(payload['message'], 'payload.message', issues)
+    optionalString(payload['code'], 'payload.code', issues)
+    optionalBoolean(payload['retryable'], 'payload.retryable', issues)
+    optionalString(payload['reason'], 'payload.reason', issues)
+  },
+  'invocation.disposed': (payload, issues) => {
+    requireTrue(payload['disposed'], 'payload.disposed', issues)
+  },
+  'invocation.summary': (payload, issues) => {
+    if (!asRecord(payload['summary'])) {
+      issues.push(
+        makeIssue(
+          'payload.summary',
+          payload['summary'] === undefined ? 'required' : 'invalid_type',
+          'payload.summary must be an object'
+        )
+      )
+    }
+    optionalString(payload['reason'], 'payload.reason', issues)
+  },
   'lifecycle.policy.accepted': (payload, issues) => {
     requireString(payload['policyId'], 'payload.policyId', issues)
     requireString(payload['policyHash'], 'payload.policyHash', issues)
@@ -1306,26 +1354,24 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
     )
     optionalEnum(payload['requestedAction'], ['hard-reap'], 'payload.requestedAction', issues)
   },
-  'invocation.ready': (payload, issues) => {
-    optionalEnum(payload['state'], ['ready'], 'payload.state', issues, true)
+  'continuation.updated': (payload, issues) => {
+    requireString(payload['provider'], 'payload.provider', issues)
+    requireString(payload['key'], 'payload.key', issues)
+    optionalString(payload['kind'], 'payload.kind', issues)
   },
-  'invocation.disposed': (payload, issues) => {
-    requireTrue(payload['disposed'], 'payload.disposed', issues)
+  'continuation.cleared': (payload, issues) => {
+    optionalString(payload['reason'], 'payload.reason', issues)
   },
-  'permission.requested': (payload, issues) => {
-    requireString(payload['permissionRequestId'], 'payload.permissionRequestId', issues)
-    requireString(payload['kind'], 'payload.kind', issues)
-    if (!Object.hasOwn(payload, 'subjectDisplay')) {
-      issues.push(makeIssue('payload.subjectDisplay', 'required', 'subjectDisplay is required'))
-    }
-    optionalEnum(
-      payload['defaultDecision'],
-      ['allow', 'deny'],
-      'payload.defaultDecision',
-      issues,
-      true
-    )
-    optionalNumber(payload['deadlineMs'], 'payload.deadlineMs', issues)
+  'input.accepted': validateInputDispositionPayload,
+  'input.rejected': validateInputDispositionPayload,
+  'input.queued': validateInputDispositionPayload,
+  'turn.started': (payload, issues) => {
+    requireString(payload['turnId'], 'payload.turnId', issues)
+    optionalString(payload['inputId'], 'payload.inputId', issues)
+    validateOptionalPositiveInteger(payload['turnAttempt'], 'payload.turnAttempt', issues)
+    optionalEnum(payload['source'], ['broker-delivery', 'hook-observed'], 'payload.source', issues)
+    optionalString(payload['sessionId'], 'payload.sessionId', issues)
+    optionalString(payload['prompt'], 'payload.prompt', issues)
   },
   'turn.stalled': (payload, issues) => {
     requireString(payload['inputId'], 'payload.inputId', issues)
@@ -1370,9 +1416,60 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
     )
     optionalEnum(payload['semantics'], ['at-least-once'], 'payload.semantics', issues, true)
   },
+  'turn.completed': (payload, issues) => {
+    requireString(payload['turnId'], 'payload.turnId', issues)
+    optionalEnum(
+      payload['status'],
+      ['completed', 'failed', 'interrupted'],
+      'payload.status',
+      issues,
+      true
+    )
+    optionalString(payload['finalOutput'], 'payload.finalOutput', issues)
+    optionalBoolean(payload['producedContent'], 'payload.producedContent', issues)
+  },
+  'turn.failed': (payload, issues) => {
+    requireString(payload['turnId'], 'payload.turnId', issues)
+    optionalEnum(payload['status'], ['failed'], 'payload.status', issues)
+    optionalString(payload['message'], 'payload.message', issues)
+    optionalString(payload['finalOutput'], 'payload.finalOutput', issues)
+    optionalString(payload['code'], 'payload.code', issues)
+    optionalBoolean(payload['retryable'], 'payload.retryable', issues)
+    optionalString(payload['reason'], 'payload.reason', issues)
+    validateOptionalPositiveInteger(payload['turnAttempt'], 'payload.turnAttempt', issues)
+    optionalBoolean(payload['retrySuppressed'], 'payload.retrySuppressed', issues)
+  },
+  'turn.interrupted': (payload, issues) => {
+    requireString(payload['turnId'], 'payload.turnId', issues)
+    optionalEnum(payload['status'], ['interrupted'], 'payload.status', issues)
+    optionalString(payload['finalOutput'], 'payload.finalOutput', issues)
+    optionalString(payload['reason'], 'payload.reason', issues)
+  },
+  'assistant.message.started': (payload, issues) => {
+    requireString(payload['messageId'], 'payload.messageId', issues)
+  },
+  'assistant.message.delta': (payload, issues) => {
+    requireString(payload['messageId'], 'payload.messageId', issues)
+    requireString(payload['text'], 'payload.text', issues)
+  },
+  'assistant.message.completed': (payload, issues) => {
+    requireString(payload['messageId'], 'payload.messageId', issues)
+    validateAssistantMessageContent(payload['content'], issues)
+    optionalBoolean(payload['final'], 'payload.final', issues)
+  },
+  'user.message': (payload, issues) => {
+    requireString(payload['content'], 'payload.content', issues)
+    optionalString(payload['inputId'], 'payload.inputId', issues)
+    optionalEnum(payload['role'], ['user'], 'payload.role', issues)
+    optionalString(payload['turnId'], 'payload.turnId', issues)
+  },
   'tool.call.started': (payload, issues) => {
     requireString(payload['toolCallId'], 'payload.toolCallId', issues)
     requireString(payload['name'], 'payload.name', issues)
+  },
+  'tool.call.delta': (payload, issues) => {
+    requireString(payload['toolCallId'], 'payload.toolCallId', issues)
+    optionalString(payload['text'], 'payload.text', issues)
   },
   'tool.call.completed': (payload, issues) => {
     requireString(payload['toolCallId'], 'payload.toolCallId', issues)
@@ -1390,7 +1487,43 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
     requireString(payload['message'], 'payload.message', issues)
     requireString(payload['code'], 'payload.code', issues)
   },
+  'usage.updated': (payload, issues) => {
+    if (!Object.hasOwn(payload, 'usage')) {
+      issues.push(makeIssue('payload.usage', 'required', 'usage is required'))
+    }
+  },
+  diagnostic: (payload, issues) => {
+    optionalEnum(
+      payload['level'],
+      ['debug', 'info', 'warn', 'error'],
+      'payload.level',
+      issues,
+      true
+    )
+    requireString(payload['message'], 'payload.message', issues)
+    optionalEnum(payload['source'], ['broker', 'harness', 'driver'], 'payload.source', issues)
+    optionalString(payload['kind'], 'payload.kind', issues)
+  },
+  'driver.notice': (payload, issues) => {
+    requireString(payload['message'], 'payload.message', issues)
+    optionalString(payload['code'], 'payload.code', issues)
+  },
   'terminal.surface.reported': validateTerminalSurfaceReportedPayload,
+  'permission.requested': (payload, issues) => {
+    requireString(payload['permissionRequestId'], 'payload.permissionRequestId', issues)
+    requireString(payload['kind'], 'payload.kind', issues)
+    if (!Object.hasOwn(payload, 'subjectDisplay')) {
+      issues.push(makeIssue('payload.subjectDisplay', 'required', 'subjectDisplay is required'))
+    }
+    optionalEnum(
+      payload['defaultDecision'],
+      ['allow', 'deny'],
+      'payload.defaultDecision',
+      issues,
+      true
+    )
+    optionalNumber(payload['deadlineMs'], 'payload.deadlineMs', issues)
+  },
   'provider.transcript.reported': (payload, issues) => {
     if (payload['kind'] !== PROVIDER_TRANSCRIPT_ARTIFACT_KIND) {
       issues.push(
@@ -1441,6 +1574,40 @@ const EVENT_PAYLOAD_VALIDATORS: Partial<Record<InvocationEventType, EventPayload
     )
     validateOptionalPositiveInteger(payload['turnAttempt'], 'payload.turnAttempt', issues)
   },
+} satisfies EventPayloadValidators
+
+function optionalStringOrNull(value: unknown, basePath: string, issues: ValidationIssue[]): void {
+  if (value !== null) {
+    optionalString(value, basePath, issues)
+  }
+}
+
+function validateInputDispositionPayload(payload: SchemaRecord, issues: ValidationIssue[]): void {
+  requireString(payload['inputId'], 'payload.inputId', issues)
+  optionalEnum(
+    payload['disposition'],
+    ['started', 'queued', 'attempted_steer', 'rejected'],
+    'payload.disposition',
+    issues
+  )
+  optionalString(payload['reason'], 'payload.reason', issues)
+}
+
+function validateAssistantMessageContent(value: unknown, issues: ValidationIssue[]): void {
+  const content = requireArray(value, 'payload.content', issues)
+  if (!content) {
+    return
+  }
+  content.forEach((item, index) => {
+    const path = `payload.content.${index}`
+    const record = asRecord(item)
+    if (!record) {
+      issues.push(makeIssue(path, 'invalid_type', `${path} must be an object`))
+      return
+    }
+    optionalEnum(record['type'], ['text'], `${path}.type`, issues, true)
+    requireString(record['text'], `${path}.text`, issues)
+  })
 }
 
 function validateTerminalSurfaceReportedPayload(
@@ -1484,7 +1651,6 @@ function validateEventPayload(
   context: EventPayloadContext = {}
 ): void {
   const validator = EVENT_PAYLOAD_VALIDATORS[eventType]
-  if (!validator) return
   const payload = requirePayloadRecord(value, issues)
   if (!payload) return
   validator(payload, issues, context)
