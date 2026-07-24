@@ -52,18 +52,21 @@ export function parseIntegerValue(flag: string, raw: string, options: { min: num
   return value
 }
 
-// The positional value that signals "read the body from stdin", and the path the
-// stdin read is routed to. Behaviour is identical to the inline literals these
-// replace — `'-'` still means stdin, still read from `/dev/stdin`.
+// The positional value that signals "read the body from stdin", and the file
+// descriptor already attached to the process. Reading fd 0 directly works even
+// when stdin is a socket; reopening it through `/dev/stdin` fails with ENXIO on
+// Linux for socket-backed stdin.
 const STDIN_SENTINEL = '-'
-const STDIN_PATH = '/dev/stdin'
+const STDIN_FD = 0
+
+type BodySource = string | number
 
 export function consumeBody(
   opts: {
     positional?: string | undefined
     file?: string | undefined
   },
-  deps: { readFile?: (path: string, encoding: 'utf8') => string } = {}
+  deps: { readFile?: (source: BodySource, encoding: 'utf8') => string } = {}
 ): string | undefined {
   const { readFile = readFileSync } = deps
 
@@ -72,7 +75,7 @@ export function consumeBody(
   }
 
   if (opts.positional === STDIN_SENTINEL) {
-    return readBody(readFile, STDIN_PATH, 'stdin')
+    return readBody(readFile, STDIN_FD, 'stdin')
   }
 
   return opts.positional
@@ -83,12 +86,12 @@ export function consumeBody(
 // 2 (usage) instead of 1 (internal), matching the other input validators. This
 // rethrows with a clearer message — it does not swallow the failure.
 function readBody(
-  readFile: (path: string, encoding: 'utf8') => string,
-  path: string,
+  readFile: (source: BodySource, encoding: 'utf8') => string,
+  source: BodySource,
   label: string
 ): string {
   try {
-    return readFile(path, 'utf8')
+    return readFile(source, 'utf8')
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
     throw new CliUsageError(`cannot read ${label}: ${detail}`)

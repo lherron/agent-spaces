@@ -98,13 +98,40 @@ describe('validators', () => {
   })
 
   test('consumeBody reads stdin for a "-" positional via the injected reader', () => {
-    const reads: string[] = []
-    const readFile = (p: string) => {
-      reads.push(p)
+    const reads: Array<string | number> = []
+    const readFile = (source: string | number) => {
+      reads.push(source)
       return 'from-stdin'
     }
     expect(consumeBody({ positional: '-' }, { readFile })).toBe('from-stdin')
-    expect(reads).toEqual(['/dev/stdin'])
+    expect(reads).toEqual([0])
+  })
+
+  test('consumeBody reads socket-backed stdin in a spawned Bun process', async () => {
+    const moduleUrl = new URL('./index.ts', import.meta.url).href
+    const script = [
+      `import { consumeBody } from ${JSON.stringify(moduleUrl)}`,
+      "process.stdout.write(consumeBody({ positional: '-' }) ?? '')",
+    ].join('\n')
+    const child = Bun.spawn({
+      cmd: [process.execPath, '-e', script],
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+
+    child.stdin.write('from-socket-stdin')
+    child.stdin.end()
+
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ])
+
+    expect(exitCode).toBe(0)
+    expect(stderr).toBe('')
+    expect(stdout).toBe('from-socket-stdin')
   })
 
   test('consumeBody wraps an unreadable file path as a CliUsageError', () => {
