@@ -17,3 +17,27 @@ computed from `desiredJson`. Both use `createCanonicalHasher()` with
 
 The fixture root is `agents/smokey`, representing source owner
 `agent:smokey:project:agent-spaces`.
+
+Scheduled resources can request a new agent context on every run with top-level
+`freshSession = true` and a non-empty `[input].content`:
+
+```toml
+freshSession = true
+
+[input]
+content = "Run this scheduled prompt in a fresh context."
+```
+
+The compiler preserves the normal top-level `input` projection and lowers this
+sugar to `flow.sequence = [{ id = "run", fresh = true, input = content }]`.
+When a flow is present, the flow owns dispatch semantics. Advanced or multi-step
+jobs should omit `freshSession` and author the existing explicit form instead:
+
+```toml
+[[flow.sequence]]
+id = "run"
+fresh = true
+input = "Run the first step in a fresh context."
+```
+
+`freshSession = true` cannot be combined with any authored `flow`.
