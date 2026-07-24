@@ -1,6 +1,7 @@
 .asp.lock
 node_modules/
 dist/
+.asp-prepack-backup/
 asp_modules/
 asp-lock.json
 *.log

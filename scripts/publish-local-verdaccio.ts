@@ -7,7 +7,9 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dir, '..')
 const REGISTRY = process.env.VERDACCIO_REGISTRY ?? 'http://mini:4873/'
 
-const PACKAGES = [
+const PUBLIC_CLI_PACKAGE = 'packages/cli'
+
+const DEV_PUBLISH_PACKAGES = [
   'packages/agent-scope',
   'packages/cli-kit',
   'packages/config',
@@ -26,6 +28,13 @@ const PACKAGES = [
   'packages/aspc',
 ] as const
 
+export const RELEASE_PUBLISH_PACKAGES = [
+  ...DEV_PUBLISH_PACKAGES,
+  // Keep the public CLI last: its prepack bundles the already-built workspace
+  // packages into the installable @lherron/agent-spaces artifact.
+  PUBLIC_CLI_PACKAGE,
+] as const
+
 type Manifest = {
   name?: string
   version?: string
@@ -41,6 +50,7 @@ type Manifest = {
 }
 
 let publishVersionsByName = new Map<string, string>()
+let publishPackages: readonly string[] = DEV_PUBLISH_PACKAGES
 
 type Options = {
   dryRun: boolean
@@ -491,7 +501,7 @@ export function timestampVersion(
 
 async function packageVersionsByName(versionOverride?: string): Promise<Map<string, string>> {
   const entries = await Promise.all(
-    PACKAGES.map(async (rel) => {
+    publishPackages.map(async (rel) => {
       const manifest = (await Bun.file(join(ROOT, rel, 'package.json')).json()) as Manifest
       if (!manifest.name || !manifest.version) {
         throw new Error(`${rel}/package.json must include name and version`)
@@ -533,6 +543,9 @@ async function packForPublish(rel: string): Promise<{
   const packageJsonPath = join(pkgDir, 'package.json')
   const originalPackageJson = await readFile(packageJsonPath, 'utf8')
   let tmp = ''
+  let ranPackagePrepack = false
+  let packedPackage: PackedPackage | undefined
+  let operationError: unknown
 
   try {
     tmp = await mkdtemp(join(tmpdir(), 'asp-publish-'))
@@ -560,6 +573,17 @@ async function packForPublish(rel: string): Promise<{
     }
 
     await writeFile(packageJsonPath, `${JSON.stringify(publishManifest, null, 2)}\n`)
+
+    if (rel === PUBLIC_CLI_PACKAGE) {
+      // The public CLI's package is self-contained. Its prepack copies and
+      // rewrites workspace dependencies under node_modules; --ignore-scripts
+      // intentionally prevents npm/bun from doing this implicitly.
+      ranPackagePrepack = true
+      const prepack = run('bun', ['scripts/prepack.ts'], pkgDir)
+      if (prepack.status !== 0) {
+        throw new Error(`prepack failed for ${manifest.name}: ${prepack.out}`)
+      }
+    }
 
     const pack = run('bun', ['pm', 'pack', '--destination', tmp, '--ignore-scripts'], pkgDir)
     if (pack.status !== 0) {
@@ -607,13 +631,38 @@ async function packForPublish(rel: string): Promise<{
       ...publishVersionsByName.keys(),
     ])
 
-    return { name: manifest.name, version: packagePublishVersion, tarballPath, tmp, fingerprint }
+    packedPackage = {
+      name: manifest.name,
+      version: packagePublishVersion,
+      tarballPath,
+      tmp,
+      fingerprint,
+    }
   } catch (error) {
-    if (tmp) await rm(tmp, { recursive: true, force: true })
-    throw error
-  } finally {
-    await writeFile(packageJsonPath, originalPackageJson)
+    operationError = error
   }
+
+  const cleanupErrors: Error[] = []
+  if (ranPackagePrepack) {
+    const postpack = run('bun', ['scripts/postpack.ts'], pkgDir)
+    if (postpack.status !== 0) {
+      cleanupErrors.push(new Error(`postpack failed for ${rel}: ${postpack.out}`))
+    }
+  }
+  try {
+    await writeFile(packageJsonPath, originalPackageJson)
+  } catch (error) {
+    cleanupErrors.push(error instanceof Error ? error : new Error(String(error)))
+  }
+
+  const failures = operationError ? [operationError, ...cleanupErrors] : cleanupErrors
+  if (failures.length > 0) {
+    if (tmp) await rm(tmp, { recursive: true, force: true })
+    if (failures.length === 1) throw failures[0]
+    throw new AggregateError(failures, `packing ${rel} failed and cleanup also reported errors`)
+  }
+  if (!packedPackage) throw new Error(`packing ${rel} produced no package`)
+  return packedPackage
 }
 
 function isNormalTimestampedDevPublish(options: Options, publishTag: string): boolean {
@@ -715,14 +764,20 @@ let publishTag = 'latest'
 
 async function main(argv = process.argv.slice(2)) {
   options = parseArgs(argv)
+  publishPackages =
+    options.version || options.sourceVersions || process.env.ASP_PUBLISH_VERSION
+      ? RELEASE_PUBLISH_PACKAGES
+      : DEV_PUBLISH_PACKAGES
   const ping = run('npm', ['ping', '--registry', REGISTRY])
   if (ping.status !== 0) {
     throw new Error(`Verdaccio is not reachable at ${REGISTRY}: ${ping.out}`)
   }
 
-  const firstManifest = (await Bun.file(join(ROOT, PACKAGES[0], 'package.json')).json()) as Manifest
+  const firstManifest = (await Bun.file(
+    join(ROOT, publishPackages[0], 'package.json')
+  ).json()) as Manifest
   if (!firstManifest.version) {
-    throw new Error(`${PACKAGES[0]}/package.json must include version`)
+    throw new Error(`${publishPackages[0]}/package.json must include version`)
   }
   publishTag = resolveTag(options)
   const versionOverride = options.sourceVersions
@@ -735,18 +790,18 @@ async function main(argv = process.argv.slice(2)) {
     ? 'source manifest versions'
     : [...new Set(publishVersionsByName.values())].join(', ')
   console.log(
-    `${mode} ${PACKAGES.length} ASP package(s) as ${versionLabel} --tag ${publishTag} to ${REGISTRY}`
+    `${mode} ${publishPackages.length} ASP package(s) as ${versionLabel} --tag ${publishTag} to ${REGISTRY}`
   )
 
   const packedPackages: PackedPackage[] = []
   try {
-    for (const rel of PACKAGES) {
+    for (const rel of publishPackages) {
       packedPackages.push(await packForPublish(rel))
     }
 
     const plan = await resolvePublishPlanForPackedPackages(packedPackages)
     if (plan.action === 'skip') {
-      console.log(`SKIPPED    ${PACKAGES.length} ASP package(s): ${plan.reason}`)
+      console.log(`SKIPPED    ${publishPackages.length} ASP package(s): ${plan.reason}`)
       return
     }
 

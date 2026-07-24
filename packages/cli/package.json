@@ -87,6 +87,8 @@
     "cli-kit",
     "spaces-config",
     "spaces-execution",
+    "spaces-harness-broker-client",
+    "spaces-harness-broker-protocol",
     "spaces-runtime-contracts",
     "spaces-runtime",
     "spaces-harness-claude",
@@ -120,6 +122,8 @@
     "semver": "^7.7.2",
     "spaces-config": "*",
     "spaces-execution": "*",
+    "spaces-harness-broker-client": "*",
+    "spaces-harness-broker-protocol": "*",
     "spaces-runtime-contracts": "*",
     "spaces-runtime": "*"
   },

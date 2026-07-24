@@ -11,15 +11,19 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CLI_ROOT = dirname(HERE)
 const BUNDLED = join(CLI_ROOT, 'node_modules')
+const BACKUP = join(CLI_ROOT, '.asp-prepack-backup')
 
 const WORKSPACES: Array<{ src: string; dest: string }> = [
   { src: '../config', dest: 'spaces-config' },
   { src: '../runtime', dest: 'spaces-runtime' },
+  { src: '../harness-broker-client', dest: 'spaces-harness-broker-client' },
+  { src: '../harness-broker-protocol', dest: 'spaces-harness-broker-protocol' },
   { src: '../harness-claude', dest: 'spaces-harness-claude' },
   { src: '../harness-pi', dest: 'spaces-harness-pi' },
   { src: '../harness-pi-sdk', dest: 'spaces-harness-pi-sdk' },
   { src: '../harness-codex', dest: 'spaces-harness-codex' },
   { src: '../execution', dest: 'spaces-execution' },
+  { src: '../spaces-runtime-contracts', dest: 'spaces-runtime-contracts' },
   { src: '../agent-spaces', dest: 'agent-spaces' },
   { src: '../agent-scope', dest: 'agent-scope' },
   { src: '../cli-kit', dest: 'cli-kit' },
@@ -29,6 +33,8 @@ const SPECIFIER_TARGETS: Record<string, string> = {
   'spaces-config': 'spaces-config/dist/index.js',
   'spaces-runtime': 'spaces-runtime/dist/index.js',
   'spaces-runtime/session': 'spaces-runtime/dist/session/index.js',
+  'spaces-harness-broker-client': 'spaces-harness-broker-client/dist/index.js',
+  'spaces-harness-broker-protocol': 'spaces-harness-broker-protocol/dist/index.js',
   'spaces-harness-claude': 'spaces-harness-claude/dist/index.js',
   'spaces-harness-claude/claude': 'spaces-harness-claude/dist/claude/index.js',
   'spaces-harness-claude/agent-sdk': 'spaces-harness-claude/dist/agent-sdk/index.js',
@@ -39,6 +45,7 @@ const SPECIFIER_TARGETS: Record<string, string> = {
   'spaces-harness-pi-sdk/adapter': 'spaces-harness-pi-sdk/dist/adapters/pi-sdk-adapter.js',
   'spaces-harness-pi-sdk/pi-session': 'spaces-harness-pi-sdk/dist/pi-session/index.js',
   'spaces-execution': 'spaces-execution/dist/index.js',
+  'spaces-runtime-contracts': 'spaces-runtime-contracts/dist/index.js',
   'agent-spaces': 'agent-spaces/dist/index.js',
   'agent-scope': 'agent-scope/dist/index.js',
   'cli-kit': 'cli-kit/dist/index.js',
@@ -55,6 +62,27 @@ const SHIMS = [
   'claude.js',
   'lint.js',
 ]
+
+async function backupMutableFiles() {
+  try {
+    await mkdir(BACKUP)
+  } catch {
+    throw new Error(
+      `${BACKUP} already exists; run bun scripts/postpack.ts before starting another pack`
+    )
+  }
+
+  try {
+    await cp(join(CLI_ROOT, 'package.json'), join(BACKUP, 'package.json'))
+    await cp(join(CLI_ROOT, 'dist'), join(BACKUP, 'dist'), { recursive: true })
+    for (const shim of SHIMS) {
+      await cp(join(CLI_ROOT, shim), join(BACKUP, shim))
+    }
+  } catch (error) {
+    await rm(BACKUP, { recursive: true, force: true })
+    throw error
+  }
+}
 
 const BARE_IMPORT_RE =
   /((?:from|import)\s*['"])(spaces-[a-z][a-z-]*(?:\/[a-z][a-z-]*)?|agent-spaces|agent-scope|cli-kit)(['"])/g
@@ -108,7 +136,8 @@ async function rewriteFile(filePath: string) {
 async function stripBunExportCondition() {
   // The `bun` export condition points at ./src/*.ts which is not shipped
   // (not in files) and would shadow `import` for Bun consumers. Drop it
-  // so published consumers resolve to ./dist/*.js. Postpack reverts via git.
+  // so published consumers resolve to ./dist/*.js. Postpack restores the
+  // exact prepack snapshot.
   // Also demote bundled workspace packages from dependencies to
   // optionalDependencies in the published manifest so Bun consumers
   // (which do not honor bundleDependencies) soft-fail registry resolution
@@ -139,6 +168,7 @@ async function stripBunExportCondition() {
 }
 
 async function main() {
+  await backupMutableFiles()
   await copyWorkspaces()
 
   for (const { dest } of WORKSPACES) {

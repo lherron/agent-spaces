@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { timestampVersion } from './publish-local-verdaccio'
+import { RELEASE_PUBLISH_PACKAGES, timestampVersion } from './publish-local-verdaccio'
+
+test('publishes the installable public CLI after its workspace package set', () => {
+  expect(RELEASE_PUBLISH_PACKAGES.at(-1)).toBe('packages/cli')
+  expect(RELEASE_PUBLISH_PACKAGES.filter((rel) => rel === 'packages/cli')).toHaveLength(1)
+})
 
 describe('publish-local-verdaccio channel versions', () => {
   const now = new Date('2026-07-06T22:13:14Z')
