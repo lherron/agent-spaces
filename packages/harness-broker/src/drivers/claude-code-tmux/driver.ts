@@ -9,6 +9,7 @@ import type {
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  TurnId,
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
@@ -779,7 +780,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     ctx?.emit(
       'turn.failed',
       {
-        turnId: state.turnId,
+        turnId: state.turnId as TurnId,
         status: 'failed',
         message: reason,
         code: 'StructuredOutputValidationFailed',

@@ -12,7 +12,10 @@ import type {
   InvocationCurrentTurnSummary,
   InvocationDisposeRequest,
   InvocationDisposeResponse,
+  InvocationEvent,
   InvocationEventEnvelope,
+  InvocationEventFor,
+  InvocationEventPayloadMap,
   InvocationEventType,
   InvocationId,
   InvocationInput,
@@ -38,11 +41,15 @@ import type {
   ToolCallId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
-import { BrokerErrorCode, acceptedLifecyclePolicy } from 'spaces-harness-broker-protocol'
+import {
+  BrokerErrorCode,
+  acceptedLifecyclePolicy,
+  validateEventEnvelope,
+} from 'spaces-harness-broker-protocol'
 import type { Driver, DriverContext } from './drivers/driver'
 import { BrokerError } from './errors'
 import { stableJsonStringify } from './event-ledger'
-import type { InvocationEventSequencer } from './events'
+import type { InvocationEventExtra, InvocationEventSequencer } from './events'
 import type { DispatchEnv } from './runtime/env'
 import { normalizeEventPayload } from './runtime/event-normalize'
 
@@ -75,11 +82,6 @@ const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
  * scoped to it MUST have already reached a terminal; any still open is the
  * burn-in-19 vanished-call defect and the broker synthesizes its `failed`.
  */
-const TURN_TERMINAL_TYPES = new Set<InvocationEventType>([
-  'turn.completed',
-  'turn.failed',
-  'turn.interrupted',
-])
 /**
  * Invocation-teardown event types. On provider death mid-turn (the turn itself
  * may never close) these are the catch-all boundary that synthesizes `failed`
@@ -300,7 +302,7 @@ export interface Invocation {
    * dedupes on this map so a turn is never double-opened. The stored envelope is
    * the first (winning) start, returned to callers on a suppressed duplicate.
    */
-  startedTurns: Map<TurnId, InvocationEventEnvelope>
+  startedTurns: Map<TurnId, InvocationEventEnvelope<'turn.started'>>
   /**
    * Exactly-one-terminal bracket ledger for tool calls (T-06550), keyed by
    * toolCallId. Every `tool.call.started` that flows through `emit` is recorded
@@ -825,19 +827,26 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   // ---------------------------------------------------------------------------
   // Emit helper
   // ---------------------------------------------------------------------------
-  function emit<TPayload>(
+  function emit<K extends InvocationEventType>(
     inv: Invocation,
-    type: InvocationEventEnvelope['type'],
-    payload: TPayload,
-    extra?: {
-      turnId?: TurnId | undefined
-      inputId?: InputId | undefined
-      itemId?: string | undefined
-      driver?: { kind: string; rawType?: string | undefined } | undefined
-      harnessGeneration?: number | undefined
-      turnAttempt?: number | undefined
-    }
-  ): InvocationEventEnvelope<TPayload> {
+    type: K,
+    payload: InvocationEventPayloadMap[K],
+    extra?: InvocationEventExtra
+  ): InvocationEventEnvelope<K> {
+    return emitEvent(inv, { type, payload }, extra)
+  }
+
+  function emitEvent<K extends InvocationEventType>(
+    inv: Invocation,
+    descriptor: InvocationEventFor<K>,
+    extra?: InvocationEventExtra
+  ): InvocationEventEnvelope<K>
+  function emitEvent(
+    inv: Invocation,
+    descriptor: InvocationEvent,
+    extra?: InvocationEventExtra
+  ): InvocationEventEnvelope {
+    const { type, payload } = descriptor
     // Tool-call exactly-one-terminal bracket (T-06550). A turn or invocation
     // teardown is the point every open `tool.call.started` MUST have closed; any
     // still open is the burn-in-19 vanished-call defect. Synthesize its `failed`
@@ -845,8 +854,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // with a lower seq — inside the closing bracket, ahead of the turn/invocation
     // terminal. The synthesized `tool.call.failed` re-enters `emit`, but it is
     // neither a turn nor an invocation terminal, so it cannot re-trigger this.
-    if (TURN_TERMINAL_TYPES.has(type)) {
-      const turnId = extra?.turnId ?? (payload as { turnId?: TurnId } | undefined)?.turnId
+    if (
+      descriptor.type === 'turn.completed' ||
+      descriptor.type === 'turn.failed' ||
+      descriptor.type === 'turn.interrupted'
+    ) {
+      const turnId = extra?.turnId ?? descriptor.payload.turnId
       synthesizeOpenToolFailures(
         inv,
         TOOL_CALL_UNTERMINATED_CODE,
@@ -869,12 +882,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // opened exactly once: the first start wins and is recorded; a later start
     // for the same turn is suppressed (not sequenced, not projected) and the
     // original winning envelope is returned to the (return-ignoring) caller.
-    if (type === 'turn.started') {
-      const turnId = extra?.turnId ?? (payload as { turnId?: TurnId } | undefined)?.turnId
+    if (descriptor.type === 'turn.started') {
+      const turnId = extra?.turnId ?? descriptor.payload.turnId
       if (turnId !== undefined) {
         const existing = inv.startedTurns.get(turnId)
         if (existing !== undefined) {
-          return existing as InvocationEventEnvelope<TPayload>
+          return existing
         }
       }
     }
@@ -887,30 +900,35 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       maxEventBytes: inv.spec.process.limits?.maxEventBytes,
     })
 
-    const event = sequencer.next(inv.invocationId, type, safePayload, extra)
+    const sequencedEvent = sequencer.nextEvent(inv.invocationId, descriptor, extra)
+    // Runtime producer boundary: validate the fully normalized, sequenced
+    // envelope before it can reach state projection, observers, or the durable
+    // ledger. The protocol package owns both the map and these validators.
+    const candidate: unknown = {
+      ...sequencedEvent,
+      payload: safePayload,
+    }
+    const event = validateEventEnvelope(candidate)
     if (inv.spec.correlation !== undefined) {
       event.correlation = inv.spec.correlation
     }
     // Record the winning `turn.started` so any subsequent start for this turn
     // (e.g. a hook-observed start after a broker-delivery synthesis) is deduped
     // above and resolves back to this same envelope (T-04846).
-    if (type === 'turn.started' && event.turnId !== undefined) {
-      inv.startedTurns.set(event.turnId, event as InvocationEventEnvelope)
+    if (event.type === 'turn.started' && event.turnId !== undefined) {
+      inv.startedTurns.set(event.turnId, event)
     }
     // Tool-call bracket bookkeeping (T-06550): open the bracket on a start, close
     // it on either terminal. A real driver terminal AND a broker-synthesized one
     // both flow through here, so a synthesized close deletes the same entry the
     // synthesizer already snapshotted — exactly one terminal per started call.
-    if (type === 'tool.call.started') {
-      const started = asStartedToolCall(safePayload, event.turnId)
+    if (event.type === 'tool.call.started') {
+      const started = asStartedToolCall(event.payload, event.turnId)
       if (started !== undefined) {
         inv.startedToolCalls.set(started.toolCallId, started)
       }
-    } else if (type === 'tool.call.completed' || type === 'tool.call.failed') {
-      const toolCallId = (safePayload as { toolCallId?: ToolCallId } | undefined)?.toolCallId
-      if (toolCallId !== undefined) {
-        inv.startedToolCalls.delete(toolCallId)
-      }
+    } else if (event.type === 'tool.call.completed' || event.type === 'tool.call.failed') {
+      inv.startedToolCalls.delete(event.payload.toolCallId)
     }
     // Deliver BEFORE projecting state: applyEventState can synchronously emit
     // follow-on events (turn terminal → drain dequeues input.accepted /
@@ -920,8 +938,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // dedup (harness-broker-client InvocationEventHub) would then drop seq N as
     // a duplicate — T-06088: a queued input at turn end lost the active turn's
     // terminal. onEvent reads only the envelope, never invocation state.
-    onEvent(event as InvocationEventEnvelope)
-    applyEventState(inv, event as InvocationEventEnvelope)
+    onEvent(event)
+    applyEventState(inv, event)
 
     // Follow-on diagnostics (e.g. truncation notices) are emitted as their own
     // events. Their payloads are small, so they never re-trigger truncation.
@@ -936,8 +954,8 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // downstream BEFORE the lease is reaped, so the operator shutdown report reads
     // a pushed-and-recorded summary instead of pulling the (by-then gone) live
     // broker read model. Guarded so it fires exactly once per invocation.
-    if (type === 'continuation.cleared' && !inv.summaryEmitted) {
-      const reason = (safePayload as { reason?: unknown } | undefined)?.reason
+    if (event.type === 'continuation.cleared' && !inv.summaryEmitted) {
+      const reason = event.payload.reason
       if (typeof reason === 'string' && SESSION_LEAVE_REASONS.has(reason)) {
         inv.summaryEmitted = true
         emit(inv, 'invocation.summary', {
@@ -947,13 +965,13 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       }
     }
 
-    return event as InvocationEventEnvelope<TPayload>
+    return event
   }
 
-  function emitTerminal(
+  function emitTerminal<K extends 'invocation.exited' | 'invocation.failed'>(
     inv: Invocation,
-    type: 'invocation.exited' | 'invocation.failed',
-    payload: unknown
+    type: K,
+    payload: InvocationEventPayloadMap[K]
   ): void {
     if (inv.terminalEmitted) {
       return
@@ -1291,13 +1309,14 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         clientCapabilities: getClientCapabilities(),
         ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
         ...(runtime !== undefined ? { runtime } : {}),
-        emit<TPayload>(
-          type: InvocationEventType,
-          payload: TPayload,
+        emit<K extends InvocationEventType>(
+          type: K,
+          payload: InvocationEventPayloadMap[K],
           extra?: Parameters<typeof emit>[3]
         ) {
           return emit(inv, type, payload, extra)
         },
+        emitEvent: (event, extra) => emitEvent(inv, event, extra),
         ...(onPermissionRequest !== undefined
           ? {
               // Broker-owned permission lifecycle (C2): the driver hands the

@@ -2,6 +2,15 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as protocol from '../src'
+import type {
+  InputId,
+  InvocationEventPayloadMap,
+  InvocationId,
+  MessageId,
+  PermissionRequestId,
+  ToolCallId,
+  TurnId,
+} from '../src'
 import { conservativeDefaultLifecyclePolicyOverlay, lifecyclePolicyHash } from '../src/lifecycle'
 import {
   validateCommand,
@@ -1132,7 +1141,7 @@ describe('validateEventEnvelope', () => {
     payload,
   })
 
-  const eventPayloads: Record<string, unknown> = {
+  const eventPayloads = {
     'invocation.started': {
       command: 'codex',
       args: ['app-server'],
@@ -1143,25 +1152,90 @@ describe('validateEventEnvelope', () => {
     'invocation.exited': { exitCode: 0, signal: null },
     'invocation.failed': { message: 'failed' },
     'invocation.disposed': { disposed: true },
+    'invocation.summary': {
+      summary: {
+        invocationId: 'inv_1' as InvocationId,
+        state: 'ready',
+        driver: 'codex-app-server',
+        startedAt: '2026-05-24T00:00:00.000Z',
+        lastActivityAt: '2026-05-24T00:00:00.000Z',
+      },
+    },
+    'lifecycle.policy.accepted': {
+      policyId: 'policy_1',
+      policyHash: 'hash_1',
+      retentionMode: 'keep-alive',
+      harnessRecoveryMode: 'none',
+      turnRetryMode: 'none',
+    },
+    'lifecycle.escalation': {
+      reason: 'broker-degraded',
+      requestedAction: 'operator-attention',
+    },
+    'harness.started': {
+      generation: 1,
+      mode: 'initial',
+      mechanism: 'direct-child',
+    },
+    'harness.exited': {
+      generation: 1,
+      reason: 'process-exit',
+      exitCode: 0,
+    },
+    'harness.recovery.started': {
+      fromGeneration: 1,
+      reason: 'child-exit',
+      activeTurnDisposition: 'none',
+    },
+    'harness.recovery.completed': {
+      fromGeneration: 1,
+      toGeneration: 2,
+      ready: true,
+    },
+    'harness.recovery.failed': {
+      fromGeneration: 1,
+      reason: 'spawn-failed',
+    },
     'continuation.updated': { provider: 'openai', key: 'thread_1' },
-    'input.accepted': { inputId: 'input_1' },
-    'input.rejected': { inputId: 'input_1', reason: 'busy' },
-    'input.queued': { inputId: 'input_1' },
-    'turn.started': { turnId: 'turn_1' },
-    'turn.completed': { turnId: 'turn_1', status: 'completed' },
-    'turn.failed': { turnId: 'turn_1', message: 'failed' },
-    'turn.interrupted': { turnId: 'turn_1', reason: 'requested' },
-    'assistant.message.started': { messageId: 'msg_1' },
-    'assistant.message.delta': { messageId: 'msg_1', text: 'hello' },
+    'continuation.cleared': { reason: 'prompt_input_exit' },
+    'input.accepted': { inputId: 'input_1' as InputId },
+    'input.rejected': { inputId: 'input_1' as InputId, reason: 'busy' },
+    'input.queued': { inputId: 'input_1' as InputId },
+    'turn.started': { turnId: 'turn_1' as TurnId },
+    'turn.stalled': {
+      inputId: 'input_1' as InputId,
+      turnId: 'turn_1' as TurnId,
+      noProgressMs: 1000,
+      thresholdMs: 1000,
+      healthProbe: 'driver-status',
+      harnessGeneration: 1,
+      turnAttempt: 1,
+    },
+    'turn.retry': {
+      inputId: 'input_1' as InputId,
+      turnId: 'turn_1' as TurnId,
+      fromAttempt: 1,
+      toAttempt: 2,
+      fromHarnessGeneration: 1,
+      toHarnessGeneration: 2,
+      reason: 'harness-stalled',
+      semantics: 'at-least-once',
+    },
+    'turn.completed': { turnId: 'turn_1' as TurnId, status: 'completed' },
+    'turn.failed': { turnId: 'turn_1' as TurnId, message: 'failed' },
+    'turn.interrupted': { turnId: 'turn_1' as TurnId, reason: 'requested' },
+    'assistant.message.started': { messageId: 'msg_1' as MessageId },
+    'assistant.message.delta': { messageId: 'msg_1' as MessageId, text: 'hello' },
     'assistant.message.completed': {
-      messageId: 'msg_1',
+      messageId: 'msg_1' as MessageId,
       content: [{ type: 'text', text: 'hello' }],
     },
-    'tool.call.started': { toolCallId: 'tool_1', name: 'read' },
-    'tool.call.delta': { toolCallId: 'tool_1', text: 'chunk' },
-    'tool.call.completed': { toolCallId: 'tool_1', name: 'read' },
+    'user.message': { content: 'hello', role: 'user' },
+    'tool.call.started': { toolCallId: 'tool_1' as ToolCallId, name: 'read' },
+    'tool.call.delta': { toolCallId: 'tool_1' as ToolCallId, text: 'chunk' },
+    'tool.call.completed': { toolCallId: 'tool_1' as ToolCallId, name: 'read' },
     'tool.call.failed': {
-      toolCallId: 'tool_1',
+      toolCallId: 'tool_1' as ToolCallId,
       name: 'read',
       message: 'failed',
       code: 'codex_failed',
@@ -1176,19 +1250,28 @@ describe('validateEventEnvelope', () => {
       paneId: '%1',
     },
     'permission.requested': {
-      permissionRequestId: 'perm_1',
+      permissionRequestId: 'perm_1' as PermissionRequestId,
       kind: 'command',
       subjectDisplay: { argv: ['ls'] },
       defaultDecision: 'deny',
       deadlineMs: 1000,
     },
     'permission.resolved': {
-      permissionRequestId: 'perm_1',
+      permissionRequestId: 'perm_1' as PermissionRequestId,
       decision: 'deny',
       decidedBy: 'policy',
       message: 'blocked',
     },
-  }
+    'permission.cancelled': {
+      permissionRequestId: 'perm_1' as PermissionRequestId,
+      reason: 'invocation-stopping',
+    },
+    'provider.transcript.reported': {
+      kind: 'provider-transcript-jsonl',
+      artifactPath: '/tmp/provider-transcript.jsonl',
+      provider: 'codex',
+    },
+  } satisfies InvocationEventPayloadMap
 
   test('accepts every final v1 invocation event type', () => {
     for (const [type, payload] of Object.entries(eventPayloads)) {
@@ -1212,6 +1295,19 @@ describe('validateEventEnvelope', () => {
       path: 'payload.disposed',
       code: 'required',
     })
+  })
+
+  test('rejects a valid event name paired with another event payload', () => {
+    expectInvalidEventEnvelope(
+      envelope('assistant.message.delta', {
+        turnId: 'turn_1',
+        status: 'completed',
+      }),
+      {
+        path: 'payload.messageId',
+        code: 'required',
+      }
+    )
   })
 
   test('accepts terminal.surface.reported with kind:tmux-pane and full tmux ids', () => {
@@ -1471,6 +1567,14 @@ describe('validateEventEnvelope', () => {
 })
 
 describe('package boundaries', () => {
+  test('event validator registry remains a total mapped type', () => {
+    const schemasSource = readFileSync(join(import.meta.dir, '..', 'src', 'schemas.ts'), 'utf8')
+    expect(schemasSource).toContain('satisfies EventPayloadValidators')
+    expect(schemasSource).not.toContain(
+      'Partial<Record<InvocationEventType, EventPayloadValidator>>'
+    )
+  })
+
   test('protocol source does not import spaces-runtime-contracts', () => {
     const sourceRoot = join(import.meta.dir, '..', 'src')
     for (const file of [

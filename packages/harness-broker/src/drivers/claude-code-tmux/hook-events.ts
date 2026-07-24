@@ -1,8 +1,9 @@
 import type {
   InvocationEventEnvelope,
-  InvocationEventPayload,
+  InvocationEventFor,
   InvocationEventType,
   InvocationId,
+  MessageId,
   PermissionRequestId,
   ToolCallId,
   TurnId,
@@ -94,11 +95,11 @@ export function normalizeHookEnvelope(
 }
 
 type MappedHookEvent = {
-  type: InvocationEventType
-  payload: unknown
-  turnId?: TurnId | undefined
-  itemId?: string | undefined
-}
+  [K in InvocationEventType]: InvocationEventFor<K> & {
+    turnId?: TurnId | undefined
+    itemId?: string | undefined
+  }
+}[InvocationEventType]
 
 type MessageContent =
   | Array<{ type: string; text?: string | undefined; [key: string]: unknown }>
@@ -130,7 +131,7 @@ export function createClaudeCodeHookEventNormalizer(
     })
 
   const emit = (rawType: string, event: MappedHookEvent): InvocationEventEnvelope => {
-    return sequencer.next(invocationId, event.type, event.payload as InvocationEventPayload, {
+    return sequencer.nextEvent(invocationId, event, {
       ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
       ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
       driver: { kind: CLAUDE_CODE_TMUX_DRIVER_KIND, rawType },
@@ -148,7 +149,7 @@ export function createClaudeCodeHookEventNormalizer(
       emit('MessageDisplay', {
         type: 'assistant.message.completed',
         payload: {
-          messageId: message.messageId,
+          messageId: message.messageId as MessageId,
           content: [{ type: 'text', text: message.content }],
           final,
         },
@@ -244,7 +245,7 @@ export function createClaudeCodeHookEventNormalizer(
             // Claude UserPromptSubmit hook, distinct from a broker-delivery
             // synthesized start. The broker dedupes by turnId, so whichever
             // seam lands first wins and its `source` reflects the live path.
-            payload: { turnId: resolvedText, source: 'hook-observed' },
+            payload: { turnId: asTurnId(resolvedText), source: 'hook-observed' },
             turnId: asTurnId(resolvedText),
           }),
         ]
@@ -274,7 +275,7 @@ export function createClaudeCodeHookEventNormalizer(
           emit(rawType, {
             type: 'tool.call.started',
             payload: {
-              toolCallId,
+              toolCallId: toolCallId as ToolCallId,
               name: getString(unwrapped, 'tool_name') ?? 'tool',
               ...(unwrapped['tool_input'] !== undefined ? { input: unwrapped['tool_input'] } : {}),
             },
@@ -301,7 +302,7 @@ export function createClaudeCodeHookEventNormalizer(
           emit(rawType, {
             type: 'tool.call.completed',
             payload: {
-              toolCallId,
+              toolCallId: toolCallId as ToolCallId,
               name,
               isError,
               result: {
@@ -328,7 +329,7 @@ export function createClaudeCodeHookEventNormalizer(
             emit(rawType, {
               type: 'tool.call.delta',
               payload: {
-                toolCallId,
+                toolCallId: toolCallId as ToolCallId,
                 text: message,
                 data: { rawHook: unwrapped },
               },
@@ -396,7 +397,7 @@ export function createClaudeCodeHookEventNormalizer(
             emit('MessageDisplay', {
               type: 'assistant.message.completed',
               payload: {
-                messageId,
+                messageId: messageId as MessageId,
                 content: [{ type: 'text', text: lastAssistantMessage }],
                 final: true,
               },
@@ -421,7 +422,7 @@ export function createClaudeCodeHookEventNormalizer(
         events.push(
           emit(rawType, {
             type: 'turn.completed',
-            payload: { turnId: turnIdText, status: 'completed' },
+            payload: { turnId, status: 'completed' },
             turnId,
           })
         )

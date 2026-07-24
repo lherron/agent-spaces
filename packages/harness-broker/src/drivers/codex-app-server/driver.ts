@@ -249,7 +249,7 @@ export function createCodexAppServerDriver(): Driver {
         mapped.type === 'turn.started' || isTurnTerminal
           ? { ...mapped.extra, inputId: currentInputId }
           : mapped.extra
-      const event = requireCtx().emit(mapped.type, mapped.payload, extra)
+      const event = requireCtx().emitEvent(mapped, extra)
       if (event.type === 'turn.started') {
         currentTurnId = event.turnId
         turnActive = true
@@ -585,7 +585,7 @@ export function createCodexAppServerDriver(): Driver {
         kind: 'thread',
         key: threadId,
       })
-      requireCtx().emit('invocation.ready', {})
+      requireCtx().emit('invocation.ready', { state: 'ready' })
       starting = false
       rejectStartup = undefined
       startupFailure = undefined

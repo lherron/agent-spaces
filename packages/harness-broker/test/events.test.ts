@@ -76,6 +76,32 @@ describe('invocation event sequencing', () => {
 })
 
 describe('final-contract event payloads', () => {
+  test('rejects a malformed producer payload before observer or durable-stream delivery', async () => {
+    const events: InvocationEventEnvelope[] = []
+    const { driver: baseDriver } = createTestDriver()
+    const driver: Driver = {
+      ...baseDriver,
+      async start(_spec, ctx) {
+        Reflect.apply(ctx.emit, ctx, [
+          'assistant.message.delta',
+          { turnId: 'turn_wrong_payload', status: 'completed' },
+        ])
+        return { ok: true }
+      },
+    }
+    const broker = createBroker({ drivers: [driver], onEvent: (event) => events.push(event), now })
+
+    await expect(
+      broker.start({ spec: testDriverSpec('inv_reject_malformed_producer') })
+    ).rejects.toMatchObject({
+      code: 'INVALID_EVENT_ENVELOPE',
+      issues: expect.arrayContaining([
+        expect.objectContaining({ path: 'payload.messageId', code: 'required' }),
+      ]),
+    })
+    expect(events.some((event) => event.type === 'assistant.message.delta')).toBe(false)
+  })
+
   test('every manager-emitted event validates and seq increments exactly once per event', async () => {
     const events: InvocationEventEnvelope[] = []
     const { driver, controller } = createTestDriver()

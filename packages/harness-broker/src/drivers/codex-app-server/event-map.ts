@@ -1,9 +1,14 @@
-import type { InputId, InvocationEventType, TurnId } from 'spaces-harness-broker-protocol'
+import type {
+  InputId,
+  InvocationEventFor,
+  InvocationEventType,
+  MessageId,
+  ToolCallId,
+  TurnId,
+} from 'spaces-harness-broker-protocol'
 import type { JsonRpcNotification } from './rpc-client'
 
-export interface MappedEvent {
-  type: InvocationEventType
-  payload: unknown
+export type MappedEventFor<K extends InvocationEventType> = InvocationEventFor<K> & {
   extra?: {
     turnId?: TurnId | undefined
     inputId?: InputId | undefined
@@ -11,6 +16,10 @@ export interface MappedEvent {
     driver?: { kind: string; rawType?: string | undefined } | undefined
   }
 }
+
+export type MappedEvent = {
+  [K in InvocationEventType]: MappedEventFor<K>
+}[InvocationEventType]
 
 export interface CodexErrorInfo {
   message: string
@@ -111,7 +120,7 @@ export function summarizeUnifiedDiff(diff: string): DiffSummary {
   }
 }
 
-type HeldAssistantCompletions = Map<string, MappedEvent>
+type HeldAssistantCompletions = Map<string, MappedEventFor<'assistant.message.completed'>>
 
 /**
  * The last diff summary emitted per turn, so an unchanged repeat can be dropped
@@ -125,6 +134,14 @@ const defaultLastDiffSignatures: LastDiffSignatures = new Map()
 
 function asTurnId(value: string): TurnId {
   return value as TurnId
+}
+
+function asMessageId(value: string): MessageId {
+  return value as MessageId
+}
+
+function asToolCallId(value: string): ToolCallId {
+  return value as ToolCallId
 }
 
 /**
@@ -228,7 +245,7 @@ function mapCodexNotificationInner(
       return [
         {
           type: 'turn.started',
-          payload: { turnId },
+          payload: { turnId: asTurnId(turnId) },
           extra: { turnId: asTurnId(turnId) },
         },
       ]
@@ -293,7 +310,7 @@ function mapCodexNotificationInner(
           ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
           {
             type: 'assistant.message.started',
-            payload: { messageId: itemId },
+            payload: { messageId: asMessageId(itemId) },
             extra: { turnId: asTurnId(turnId), itemId },
           },
         ]
@@ -306,7 +323,7 @@ function mapCodexNotificationInner(
           {
             type: 'tool.call.started',
             payload: {
-              toolCallId: itemId,
+              toolCallId: asToolCallId(itemId),
               name: TOOL_NAMES[itemType] ?? itemType,
               ...(input !== undefined ? { input } : {}),
             },
@@ -326,7 +343,7 @@ function mapCodexNotificationInner(
         ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
         {
           type: 'assistant.message.delta',
-          payload: { messageId: itemId, text },
+          payload: { messageId: asMessageId(itemId), text },
           extra: { turnId: asTurnId(turnId), itemId },
         },
       ]
@@ -342,7 +359,7 @@ function mapCodexNotificationInner(
         ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, false),
         {
           type: 'tool.call.delta',
-          payload: { toolCallId: itemId, text },
+          payload: { toolCallId: asToolCallId(itemId), text },
           extra: { turnId: asTurnId(turnId), itemId },
         },
       ]
@@ -357,7 +374,7 @@ function mapCodexNotificationInner(
         {
           type: 'tool.call.delta',
           payload: {
-            toolCallId: itemId,
+            toolCallId: asToolCallId(itemId),
             ...(params['data'] !== undefined ? { data: params['data'] } : { data: params }),
           },
           extra: { turnId: asTurnId(turnId), itemId },
@@ -420,24 +437,38 @@ function mapCodexNotificationInner(
           : rawStatus === 'interrupted'
             ? 'interrupted'
             : 'completed'
+      const finalOutput = stringValue(params['finalOutput']) ?? stringValue(turn['finalOutput'])
+      const terminal: MappedEvent =
+        status === 'failed'
+          ? {
+              type: 'turn.failed',
+              payload: {
+                turnId: asTurnId(turnId),
+                status,
+                ...(finalOutput !== undefined ? { finalOutput } : {}),
+              },
+            }
+          : status === 'interrupted'
+            ? {
+                type: 'turn.interrupted',
+                payload: {
+                  turnId: asTurnId(turnId),
+                  status,
+                  ...(finalOutput !== undefined ? { finalOutput } : {}),
+                },
+              }
+            : {
+                type: 'turn.completed',
+                payload: {
+                  turnId: asTurnId(turnId),
+                  status,
+                  ...(finalOutput !== undefined ? { finalOutput } : {}),
+                },
+              }
       return [
         ...flushHeldAssistantCompletion(heldAssistantCompletions, turnId, true),
         {
-          type:
-            status === 'failed'
-              ? 'turn.failed'
-              : status === 'interrupted'
-                ? 'turn.interrupted'
-                : 'turn.completed',
-          payload: {
-            turnId,
-            status,
-            ...(params['finalOutput'] !== undefined
-              ? { finalOutput: params['finalOutput'] }
-              : turn['finalOutput'] !== undefined
-                ? { finalOutput: turn['finalOutput'] }
-                : {}),
-          },
+          ...terminal,
           extra: { turnId: asTurnId(turnId) },
         },
       ]
@@ -538,11 +569,11 @@ function assistantCompletionEvent(
   itemId: string,
   content: Array<{ type: 'text'; text: string }>,
   final: boolean
-): MappedEvent {
+): MappedEventFor<'assistant.message.completed'> {
   return {
     type: 'assistant.message.completed',
     payload: {
-      messageId: itemId,
+      messageId: asMessageId(itemId),
       content,
       final,
     },
@@ -565,7 +596,7 @@ function flushHeldAssistantCompletion(
   return [
     {
       ...held,
-      payload: { ...(asRecord(held.payload) as Record<string, unknown>), final },
+      payload: { ...held.payload, final },
     },
   ]
 }
@@ -728,7 +759,7 @@ function mapToolItemCompleted(
     return {
       type: 'tool.call.failed',
       payload: {
-        toolCallId: itemId,
+        toolCallId: asToolCallId(itemId),
         name,
         message: outcome.message,
         code: outcome.code,
@@ -741,7 +772,7 @@ function mapToolItemCompleted(
   return {
     type: 'tool.call.completed',
     payload: {
-      toolCallId: itemId,
+      toolCallId: asToolCallId(itemId),
       name,
       ...(result !== undefined ? { result } : {}),
       // isError reports a DOMAIN error signal only. Codex surfaces none on a

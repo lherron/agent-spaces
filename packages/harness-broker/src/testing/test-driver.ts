@@ -7,6 +7,7 @@ import type {
   InvocationInterruptResponse,
   InvocationStopRequest,
   InvocationStopResponse,
+  ToolCallId,
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import {
@@ -166,7 +167,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
       const active = requireActiveTurn()
       requireCtx().emit(
         'tool.call.started',
-        { toolCallId, name },
+        { toolCallId: toolCallId as ToolCallId, name },
         { turnId: active.turnId, itemId: toolCallId }
       )
     },
@@ -175,7 +176,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
       const active = requireActiveTurn()
       requireCtx().emit(
         'tool.call.completed',
-        { toolCallId, name, isError: false },
+        { toolCallId: toolCallId as ToolCallId, name, isError: false },
         { turnId: active.turnId, itemId: toolCallId }
       )
     },
