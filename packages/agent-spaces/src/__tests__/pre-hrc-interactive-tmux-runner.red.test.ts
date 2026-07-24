@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -13,7 +13,23 @@ import {
 
 const REPO_ROOT = new URL('../../../..', import.meta.url).pathname
 const PROJECT_ROOT = REPO_ROOT
-const AGENT_ROOT = '/Users/lherron/praesidium/var/agents/smokey'
+// The runner materializes the live `smokey@agent-spaces` persona, resolved from
+// ASP_AGENTS_ROOT (agent personas are runtime data, never image substrate), so
+// this test only runs where that agents root is populated — the maintainer host
+// and the outside merge gate. A fresh no-mount room-readiness container (T-06887)
+// has no personas, and the old absolute /Users/lherron path made the test
+// lherron-specific even off-container. Derive the root from env and skip with a
+// greppable marker when the space is absent, rather than failing the ASP suite.
+const AGENTS_ROOT = process.env['ASP_AGENTS_ROOT'] ?? '/Users/lherron/praesidium/var/agents'
+const AGENT_ROOT = join(AGENTS_ROOT, 'smokey')
+const SMOKEY_PRESENT = existsSync(join(AGENTS_ROOT, 'spaces', 'smokey', 'space.toml'))
+
+if (!SMOKEY_PRESENT) {
+  // agent-fixture: smokey@agent-spaces persona absent — greppable skip marker.
+  console.warn(
+    `agent-fixture: smokey@agent-spaces space absent under ${AGENTS_ROOT} — skipping the pre-HRC interactive Claude tmux runner test. Runs where the live agents root is populated (maintainer host, outside merge gate).`
+  )
+}
 
 function fakeTmuxBin(dir: string): string {
   const tmux = join(dir, 'tmux')
@@ -134,57 +150,61 @@ function runnerDeps(): {
   return { deps, getStartSpec: () => startSpec }
 }
 
-test('pre-HRC interactive Claude tmux runner keeps launch priming separate from scripted turn 1 and counts only UserPromptSubmit duplicates', async () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'asp-prehrc-runner-red-'))
-  try {
-    const firstPrompt = 'T-04797 first scenario prompt'
-    const { deps, getStartSpec } = runnerDeps()
-    const output = await runInteractiveClaudeTmuxSession(
-      {
-        repoRoot: REPO_ROOT,
-        scopeRef: 'smokey@agent-spaces',
-        agentRoot: AGENT_ROOT,
-        projectRoot: PROJECT_ROOT,
-        cwd: PROJECT_ROOT,
-        aspHome: join(tmp, 'asp-home'),
-        artifactDir: join(tmp, 'artifacts'),
-        socketPath: join(tmp, 'tmux.sock'),
-        tmuxBin: fakeTmuxBin(tmp),
-        model: 'claude-sonnet-4-5',
-        prompts: [firstPrompt, 'T-04797 second scenario prompt'],
-        bootWaitMs: 0,
-        turnTimeoutMs: 1_000,
-        keepAlive: true,
-        mockClaude: false,
-        anthropicKeySource: 'inherit',
-        invocationId: 'inv_T04797_red',
-        initialInputId: 'input_T04797_red',
-        idempotencyKey: 'T-04797-red-runner',
-      },
-      deps
-    )
+test.skipIf(!SMOKEY_PRESENT)(
+  'pre-HRC interactive Claude tmux runner keeps launch priming separate from scripted turn 1 and counts only UserPromptSubmit duplicates',
+  async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'asp-prehrc-runner-red-'))
+    try {
+      const firstPrompt = 'T-04797 first scenario prompt'
+      const { deps, getStartSpec } = runnerDeps()
+      const output = await runInteractiveClaudeTmuxSession(
+        {
+          repoRoot: REPO_ROOT,
+          scopeRef: 'smokey@agent-spaces',
+          agentRoot: AGENT_ROOT,
+          projectRoot: PROJECT_ROOT,
+          cwd: PROJECT_ROOT,
+          aspHome: join(tmp, 'asp-home'),
+          artifactDir: join(tmp, 'artifacts'),
+          socketPath: join(tmp, 'tmux.sock'),
+          tmuxBin: fakeTmuxBin(tmp),
+          model: 'claude-sonnet-4-5',
+          prompts: [firstPrompt, 'T-04797 second scenario prompt'],
+          bootWaitMs: 0,
+          turnTimeoutMs: 1_000,
+          keepAlive: true,
+          mockClaude: false,
+          anthropicKeySource: 'inherit',
+          invocationId: 'inv_T04797_red',
+          initialInputId: 'input_T04797_red',
+          idempotencyKey: 'T-04797-red-runner',
+        },
+        deps
+      )
 
-    const launchPrompt = getStartSpec()?.launch?.initialPrompt
-    expect(launchPrompt).toBeString()
-    expect(launchPrompt).not.toBe(firstPrompt)
+      const launchPrompt = getStartSpec()?.launch?.initialPrompt
+      expect(launchPrompt).toBeString()
+      expect(launchPrompt).not.toBe(firstPrompt)
 
-    const firstPromptStructuredSubmits = output.events.filter(
-      (event) =>
-        event.type === 'user.message' &&
-        event.driver?.rawType === 'UserPromptSubmit' &&
-        asPayloadContent(event) === firstPrompt
-    )
-    const firstPromptQueueOperations = output.events.filter(
-      (event) =>
-        event.type === 'user.message' &&
-        event.driver?.rawType === 'queue-operation' &&
-        asPayloadContent(event) === firstPrompt
-    )
+      const firstPromptStructuredSubmits = output.events.filter(
+        (event) =>
+          event.type === 'user.message' &&
+          event.driver?.rawType === 'UserPromptSubmit' &&
+          asPayloadContent(event) === firstPrompt
+      )
+      const firstPromptQueueOperations = output.events.filter(
+        (event) =>
+          event.type === 'user.message' &&
+          event.driver?.rawType === 'queue-operation' &&
+          asPayloadContent(event) === firstPrompt
+      )
 
-    expect(firstPromptStructuredSubmits).toHaveLength(1)
-    expect(firstPromptQueueOperations).toHaveLength(1)
-    expect(output.result.turns[0]).toMatchObject({ index: 1, prompt: firstPrompt })
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
-  }
-}, 60_000)
+      expect(firstPromptStructuredSubmits).toHaveLength(1)
+      expect(firstPromptQueueOperations).toHaveLength(1)
+      expect(output.result.turns[0]).toMatchObject({ index: 1, prompt: firstPrompt })
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  },
+  60_000
+)

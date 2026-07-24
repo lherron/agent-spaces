@@ -3,7 +3,11 @@ import { join } from 'node:path'
 import type { InvocationEventEnvelope, InvocationEventType } from 'spaces-harness-broker-protocol'
 
 const invocationId = 'inv_codex_cli_tmux_1'
-const payloadRoot = '/Users/lherron/praesidium/var/wrkq-artifacts/T-01681/payloads'
+// In-repo fixtures (T-06915): these captured codex hook payloads used to be read
+// from an absolute host path under var/wrkq-artifacts, so the suite only ran on
+// the machine that recorded them — ENOENT from any fresh clone or container.
+// Vendored beside the test and resolved relative to it so the suite is hermetic.
+const payloadRoot = join(import.meta.dir, 'fixtures', 'hook-payloads')
 
 type CodexCliTmuxHookEventNormalizer = {
   normalizeHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]

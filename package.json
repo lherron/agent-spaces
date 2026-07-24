@@ -23,7 +23,7 @@
     "test:integration": "bun test integration-tests/tests",
     "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",
     "rebuild": "bun run clean && bun run build",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install || true"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

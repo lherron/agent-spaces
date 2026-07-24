@@ -29,6 +29,61 @@ test:
 test-integration:
     bun run test:integration
 
+# --- Room-readiness env lifecycle (T-06887 convention; host-agnostic names) ---
+# The e2e suite (integration-tests/tests) is hermetic: it drives the asp CLI
+# against in-repo fixtures using the claude/codex SHIMS, never real agent binaries
+# or the verdaccio registry, so env-up needs no host services — only the image
+# substrate (bun/node/git) plus a built workspace. The deeper real-binary broker
+# matrix (`bun run smoke:matrix`) is a separate, credential-gated e2e and is NOT
+# wired here on purpose: it needs live codex/claude auth, which is not substrate.
+
+# Provision the e2e environment (idempotent, self-healing, no host services)
+env-up:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> env-up: agent-spaces"
+    # Substrate preflight — name the one missing tool instead of failing deep in
+    # a test with a bare 127. These are image substrate, not project env.
+    missing=()
+    for tool in bun node git; do
+      command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+    done
+    if (( ${#missing[@]} > 0 )); then
+      echo "env-up: missing substrate: ${missing[*]}" >&2
+      echo "        bun/node: build+test runner · git: the integration suite inits a fixture repo" >&2
+      exit 1
+    fi
+    echo "  ok    substrate present: bun node git"
+    # Deps + build are what the hermetic e2e cannot do for itself: consumer
+    # packages import built workspace dist. Frozen install keeps the lock honest.
+    LEFTHOOK=0 bun install --frozen-lockfile >/dev/null
+    echo "  ok    dependencies installed (frozen lockfile)"
+    bun run build >/dev/null
+    echo "  ok    workspace built (packages/*/dist)"
+    echo "==> env-up: ready — run 'just e2e'"
+
+# Tear down the e2e environment (safe to run when nothing is up, and twice)
+env-down:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> env-down: agent-spaces"
+    # The suite git-inits fixture registries and writes a shim output file; nothing
+    # long-lived is started. Teardown is those ephemeral artifacts alone, kept
+    # unconditional so a crashed env-up never blocks cleanup.
+    for g in integration-tests/fixtures/*/.git; do
+      [[ -e "$g" ]] && rm -rf "$g" && echo "  ok    removed ${g}"
+    done
+    rm -f /tmp/claude-shim-output.json && echo "  ok    removed shim output"
+    echo "==> env-down: clean"
+
+# Run the hermetic e2e suite (provisions its own environment first)
+e2e: env-up
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "==> e2e: agent-spaces integration suite"
+    bun test integration-tests/tests
+    echo "==> e2e: green"
+
 # Run linter
 lint:
     bun run lint
@@ -82,8 +137,13 @@ overlay-codex *args:
 architecture-records *args:
     bun scripts/check-architecture-records.ts {{args}}
 
-# Run all verification (architecture + check + lint + typecheck + test)
-verify: architecture-records check lint typecheck test
+# Run all verification (build + architecture + check + lint + typecheck + test)
+# `build` runs FIRST so the gate is self-provisioning from a virgin clone: consumer
+# packages typecheck/test against the workspace's built dist/*.d.ts (imports like
+# `spaces-execution` / `agent-scope` resolve from dist, and source-only inference
+# widens some keyof types to `string | symbol`). Without a prior build a fresh clone
+# fails typecheck where a warm host tree passes — room-readiness gate (T-06887).
+verify: build architecture-records check lint typecheck test
 
 # Clean build artifacts
 clean:
