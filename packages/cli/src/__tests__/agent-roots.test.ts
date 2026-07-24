@@ -17,13 +17,15 @@ describe('agent root provenance reporting', () => {
   // fixture (buildAgentRootReport returned ~194 real agents instead of the two
   // seeded here). Isolate the env so these unit tests exercise only the fixture
   // roots (T-06915 room-readiness).
+  // Reflect.deleteProperty (not `delete`, which biome's noDelete rejects; not
+  // `= undefined`, which sets the literal string "undefined" on process.env).
   let savedAgentsRoot: string | undefined
   beforeEach(() => {
     savedAgentsRoot = process.env['ASP_AGENTS_ROOT']
-    delete process.env['ASP_AGENTS_ROOT']
+    Reflect.deleteProperty(process.env, 'ASP_AGENTS_ROOT')
   })
   afterEach(() => {
-    if (savedAgentsRoot === undefined) delete process.env['ASP_AGENTS_ROOT']
+    if (savedAgentsRoot === undefined) Reflect.deleteProperty(process.env, 'ASP_AGENTS_ROOT')
     else process.env['ASP_AGENTS_ROOT'] = savedAgentsRoot
   })
 
