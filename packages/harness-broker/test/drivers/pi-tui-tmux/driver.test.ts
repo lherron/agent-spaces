@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs'
 import type { HarnessInvocationSpec, InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import type { DriverContext } from '../../../src/drivers/driver'
 
-type TmuxExecCall = { argv: string[]; env?: Record<string, string | undefined> | undefined }
+type TmuxExecCall = {
+  argv: string[]
+  env?: Record<string, string | undefined> | undefined
+  loadedText?: string | undefined
+}
 
 type LaunchArtifact = {
   argv: string[]
@@ -68,7 +72,11 @@ const recordingExec = (calls: TmuxExecCall[]) => {
     argv: string[],
     options?: { env?: Record<string, string | undefined> | undefined }
   ): Promise<{ stdout: string; stderr: string }> => {
-    calls.push({ argv, env: options?.env })
+    const call: TmuxExecCall = { argv, env: options?.env }
+    calls.push(call)
+    if (argv.includes('load-buffer')) {
+      call.loadedText = readFileSync(argv.at(-1) ?? '', 'utf8')
+    }
     if (argv.includes('display-message')) return { stdout: '$9\t@4\t%42\n', stderr: '' }
     if (argv.includes('capture-pane')) return { stdout: '$ pi\n', stderr: '' }
     return { stdout: '', stderr: '' }
@@ -77,9 +85,8 @@ const recordingExec = (calls: TmuxExecCall[]) => {
 
 function launchArtifact(calls: TmuxExecCall[]): LaunchArtifact {
   const pasted = calls
-    .map((call) => call.argv)
-    .filter((argv) => argv.includes('set-buffer'))
-    .map((argv) => argv.at(-1) ?? '')
+    .filter((call) => call.argv.includes('load-buffer'))
+    .map((call) => call.loadedText ?? '')
     .find((text) => text.includes('.pi.launch.json'))
   if (pasted === undefined) throw new Error('tmux launch artifact command was not pasted')
   const match = pasted.match(/\/tmp\/[^ ]+\.pi\.launch\.json/)

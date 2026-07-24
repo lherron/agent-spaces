@@ -1,3 +1,6 @@
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../errors'
 import { sanitizeTmuxClientEnv } from './tmux-env'
@@ -134,7 +137,7 @@ export class TmuxPaneController {
   }
 
   async sendKeys(keys: string): Promise<void> {
-    await this.sendLiteral(keys)
+    await this.pasteBuffer(keys)
     await sleep(1_000)
     await this.sendEnter()
   }
@@ -209,11 +212,41 @@ export class TmuxPaneController {
     }
   }
 
-  /** set-buffer + paste-buffer the text into the leased pane (not yet submitted). */
+  /**
+   * Load text through a private file and paste it into the leased pane.
+   *
+   * Prompt-sized text must not ride in the tmux client's argv: concurrent large
+   * inputs can exceed the OS command-line limit before tmux sees them. A unique
+   * named buffer prevents independent broker panes from contending with tmux's
+   * default buffer, while paste-buffer -d removes it after a successful paste.
+   */
   private async pasteBuffer(text: string): Promise<void> {
     const bufferName = `harness-broker-${Date.now()}-${Math.random().toString(16).slice(2)}`
-    await this.exec(['set-buffer', '-b', bufferName, '-t', this.lease.paneId, text])
-    await this.exec(['paste-buffer', '-d', '-b', bufferName, '-t', this.lease.paneId])
+    const tempDirectory = await mkdtemp(join(tmpdir(), 'harness-broker-tmux-'))
+    const tempPath = join(tempDirectory, 'input')
+    let bufferLoaded = false
+
+    try {
+      await chmod(tempDirectory, 0o700)
+      await writeFile(tempPath, text, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+      await this.exec(['load-buffer', '-b', bufferName, tempPath])
+      bufferLoaded = true
+      await this.exec(['paste-buffer', '-d', '-b', bufferName, '-t', this.lease.paneId])
+      bufferLoaded = false
+    } finally {
+      if (bufferLoaded) {
+        try {
+          await this.exec(['delete-buffer', '-b', bufferName])
+        } catch {
+          // Best-effort cleanup: preserve the original paste failure.
+        }
+      }
+      try {
+        await rm(tempDirectory, { recursive: true, force: true })
+      } catch {
+        // Best-effort cleanup: preserve the original paste failure.
+      }
+    }
   }
 
   /**

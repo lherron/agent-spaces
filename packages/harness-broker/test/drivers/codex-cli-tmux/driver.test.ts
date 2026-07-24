@@ -9,7 +9,11 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import type { DriverContext } from '../../../src/drivers/driver'
 
-type TmuxExecCall = { argv: string[]; env?: Record<string, string | undefined> | undefined }
+type TmuxExecCall = {
+  argv: string[]
+  env?: Record<string, string | undefined> | undefined
+  loadedText?: string | undefined
+}
 
 type HookEnvelope = {
   invocationId?: string | undefined
@@ -125,7 +129,11 @@ const recordingExec = (calls: TmuxExecCall[]) => {
     argv: string[],
     options?: { env?: Record<string, string | undefined> | undefined }
   ): Promise<{ stdout: string; stderr: string }> => {
-    calls.push({ argv, env: options?.env })
+    const call: TmuxExecCall = { argv, env: options?.env }
+    calls.push(call)
+    if (argv.includes('load-buffer')) {
+      call.loadedText = readFileSync(argv.at(-1) ?? '', 'utf8')
+    }
     if (argv.includes('display-message')) return { stdout: '$9\t@4\t%42\n', stderr: '' }
     if (argv.includes('list-panes')) throw new Error("can't find session")
     if (argv.includes('new-session')) {
@@ -190,10 +198,7 @@ const taskComplete = (last: string): string =>
 const tmuxArgv = (calls: TmuxExecCall[]): string[][] => calls.map((call) => call.argv)
 
 const pastedTexts = (calls: TmuxExecCall[]): string[] =>
-  calls
-    .map((call) => call.argv)
-    .filter((argv) => argv.includes('set-buffer'))
-    .map((argv) => argv.at(-1) ?? '')
+  calls.filter((call) => call.argv.includes('load-buffer')).map((call) => call.loadedText ?? '')
 
 function launchArtifact(calls: TmuxExecCall[]): LaunchArtifact {
   const launchCommand = pastedTexts(calls).find((text) =>
@@ -228,7 +233,6 @@ const expectTargetedToPane = (calls: TmuxExecCall[], paneId: string): void => {
   for (const argv of tmuxArgv(calls)) {
     if (
       argv.includes('send-keys') ||
-      argv.includes('set-buffer') ||
       argv.includes('paste-buffer') ||
       argv.includes('display-message')
     ) {

@@ -12,6 +12,7 @@ import type { DriverContext } from '../../../src/drivers/driver'
 type TmuxExecCall = {
   argv: string[]
   env?: Record<string, string | undefined> | undefined
+  loadedText?: string | undefined
 }
 
 type HookEnvelope = {
@@ -186,7 +187,7 @@ const loadSocketPathBuilder = async (): Promise<
  */
 function createRecordingExec(calls: TmuxExecCall[], lease: PaneLease = defaultLease()) {
   // Stateful so the launch's sendPastedLine confirm path (capture: true) resolves
-  // deterministically: set-buffer stages the pasted line, capture-pane echoes it
+  // deterministically: load-buffer stages the pasted line, capture-pane echoes it
   // back (so the render check sees the command present), and Enter clears it (so
   // the submit check sees the prompt advance). Without this the confirm path
   // would poll an empty capture until timeout on every start().
@@ -195,15 +196,17 @@ function createRecordingExec(calls: TmuxExecCall[], lease: PaneLease = defaultLe
     argv: string[],
     options?: { env?: Record<string, string | undefined> | undefined }
   ): Promise<{ stdout: string; stderr: string }> => {
-    calls.push({ argv, env: options?.env })
+    const call: TmuxExecCall = { argv, env: options?.env }
+    calls.push(call)
     if (argv.includes('display-message')) {
       return {
         stdout: `${lease.sessionId}\t${lease.windowId}\t${lease.paneId}\n`,
         stderr: '',
       }
     }
-    if (argv.includes('set-buffer')) {
-      pendingLine = argv.at(-1) ?? ''
+    if (argv.includes('load-buffer')) {
+      pendingLine = readFileSync(argv.at(-1) ?? '', 'utf8')
+      call.loadedText = pendingLine
       return { stdout: '', stderr: '' }
     }
     if (argv.includes('send-keys') && argv.includes('Enter')) {
@@ -283,9 +286,8 @@ function specWithIds(invocationId: string, runtimeId: string): HarnessInvocation
 
 function pastedTexts(calls: TmuxExecCall[]): string[] {
   return calls
-    .map((call) => call.argv)
-    .filter((argv) => argv.includes('set-buffer'))
-    .map((argv) => argv.at(-1) ?? '')
+    .filter((call) => call.argv.includes('load-buffer'))
+    .map((call) => call.loadedText ?? '')
 }
 
 function tmuxArgv(calls: TmuxExecCall[]): string[][] {
@@ -297,7 +299,7 @@ function launchArtifact(calls: TmuxExecCall[]): LaunchArtifact {
 }
 
 function launchFilePath(calls: TmuxExecCall[]): string {
-  // The launch command is delivered via sendPastedLine (set-buffer + paste-buffer),
+  // The launch command is delivered via sendPastedLine (load-buffer + paste-buffer),
   // so it lands in the pasted-buffer text, not a send-keys -l literal.
   const command = pastedTexts(calls).find((text) =>
     text.includes('/tmp/harness-broker/claude-hooks.sock.claude.launch.json')
@@ -310,7 +312,7 @@ function launchFilePath(calls: TmuxExecCall[]): string {
 
 function expectTargetsLeasedPane(calls: TmuxExecCall[], leasedPaneId: string): void {
   // Every send-keys / paste-buffer call must target the leased pane id via
-  // `-t <leasedPaneId>`. set-buffer does not take a target. capture-pane is
+  // `-t <leasedPaneId>`. load-buffer does not take a target. capture-pane is
   // only emitted if the test exercises capture; when present, it too must
   // target the leased pane.
   const targetingVerbs = new Set(['send-keys', 'paste-buffer', 'capture-pane'])
@@ -434,7 +436,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expectTargetsLeasedPane(tmuxCalls, DEFAULT_LEASE_PANE)
   })
 
-  test('applyInputNow delivers user text as literal tmux input followed by Enter targeting the leased pane', async () => {
+  test('applyInputNow loads user text from a file, pastes it, and presses Enter', async () => {
     const createDriver = await loadFactory()
     const tmuxCalls: TmuxExecCall[] = []
     const driver = createDriver({
@@ -453,22 +455,25 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     const events: InvocationEventEnvelope[] = []
     await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
 
+    const prompt = `T05577_BEGIN\n${'x'.repeat(100 * 1024)}\nT05577_END`
     await driver.applyInputNow({
       inputId: 'input_apply_1',
       kind: 'user',
-      content: [{ type: 'text', text: 'please continue $WITHOUT_EXPANSION' }],
+      content: [{ type: 'text', text: prompt }],
     })
 
-    expect(tmuxCalls.map((call) => call.argv)).toContainEqual([
-      '/opt/bin/tmux',
-      '-S',
-      DEFAULT_LEASE_SOCKET,
-      'send-keys',
-      '-l',
-      '-t',
-      DEFAULT_LEASE_PANE,
-      'please continue $WITHOUT_EXPANSION',
-    ])
+    const inputLoad = tmuxCalls.find((call) => call.loadedText === prompt)
+    expect(inputLoad?.argv).toContain('load-buffer')
+    expect(tmuxCalls.flatMap((call) => call.argv)).not.toContain(prompt)
+    expect(tmuxCalls.some((call) => call.argv.includes('set-buffer'))).toBe(false)
+    expect(
+      tmuxCalls.some(
+        (call) =>
+          call.argv.includes('paste-buffer') &&
+          call.argv.includes('-d') &&
+          call.argv.includes(DEFAULT_LEASE_PANE)
+      )
+    ).toBe(true)
     expect(tmuxCalls.map((call) => call.argv)).toContainEqual([
       '/opt/bin/tmux',
       '-S',
@@ -733,15 +738,17 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     // command line is, with the binary path captured inside the JSON artifact.
     expect(pastedTexts(tmuxCalls).some((text) => text.includes('/opt/bin/claude'))).toBe(false)
     // T-01747 parity with codex-cli-tmux: the launch is delivered via the
-    // paste-confirm-submit path (set-buffer + paste-buffer), NOT a blind
+    // paste-confirm-submit path (load-buffer + paste-buffer), NOT a blind
     // send-keys -l. The command runs the real launch-runner module against the
     // JSON launch artifact written beside the hook socket.
-    const launchSetBuffer = tmuxArgv(tmuxCalls).find(
-      (argv) => argv.includes('set-buffer') && (argv.at(-1) ?? '').includes('tmux-launch-runner')
+    const launchLoadBuffer = tmuxCalls.find(
+      (call) =>
+        call.argv.includes('load-buffer') && (call.loadedText ?? '').includes('tmux-launch-runner')
     )
-    expect(launchSetBuffer?.at(-1)).toMatch(
+    expect(launchLoadBuffer?.loadedText).toMatch(
       /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \/tmp\/harness-broker\/claude-hooks\.sock\.claude\.launch\.json$/
     )
+    expect(launchLoadBuffer?.argv.some((arg) => arg.includes('tmux-launch-runner'))).toBe(false)
     // The launch command is NOT typed as a send-keys -l literal (that path is the
     // pre-T-01747 blind delivery the codex driver already abandoned).
     const launchSendKeys = tmuxArgv(tmuxCalls).find(

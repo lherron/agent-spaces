@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -17,6 +18,7 @@ import { listenForHookEnvelopes } from '../../../src/drivers/tmux-shared'
 type TmuxExecCall = {
   argv: string[]
   env?: Record<string, string | undefined> | undefined
+  loadedText?: string | undefined
 }
 
 type PaneLease = {
@@ -127,15 +129,17 @@ function createRecordingExec(calls: TmuxExecCall[], paneLease: PaneLease = lease
     argv: string[],
     options?: { env?: Record<string, string | undefined> | undefined }
   ): Promise<{ stdout: string; stderr: string }> => {
-    calls.push({ argv, env: options?.env })
+    const call: TmuxExecCall = { argv, env: options?.env }
+    calls.push(call)
     if (argv.includes('display-message')) {
       return {
         stdout: `${paneLease.sessionId}\t${paneLease.windowId}\t${paneLease.paneId}\n`,
         stderr: '',
       }
     }
-    if (argv.includes('set-buffer')) {
-      pendingLine = argv.at(-1) ?? ''
+    if (argv.includes('load-buffer')) {
+      pendingLine = readFileSync(argv.at(-1) ?? '', 'utf8')
+      call.loadedText = pendingLine
       return { stdout: '', stderr: '' }
     }
     if (argv.includes('send-keys') && argv.includes('Enter')) {
@@ -196,9 +200,8 @@ async function setupDriver() {
 
 function sentLiteralInputs(calls: TmuxExecCall[]): string[] {
   return calls
-    .map((call) => call.argv)
-    .filter((argv) => argv.includes('send-keys') && argv.includes('-l'))
-    .map((argv) => argv.at(-1) ?? '')
+    .filter((call) => call.argv.includes('load-buffer'))
+    .map((call) => call.loadedText ?? '')
 }
 
 function completedText(event: InvocationEventEnvelope): string {

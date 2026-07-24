@@ -115,7 +115,12 @@ if [[ "$1" == "display-message" ]]; then
   printf '%s\\t%s\\t%s\\n' '${inspected.sessionId}' '${inspected.windowId}' '${inspected.paneId}'
   exit 0
 fi
-if [[ "$1" == "set-buffer" || "$1" == "paste-buffer" || "$1" == "send-keys" ]]; then
+if [[ "$1" == "load-buffer" ]]; then
+  input_path="\${@: -1}"
+  printf 'loaded-buffer %s\\n' "$(cat "$input_path")" >> ${JSON.stringify(logPath)}
+  exit 0
+fi
+if [[ "$1" == "delete-buffer" || "$1" == "paste-buffer" || "$1" == "send-keys" ]]; then
   exit 0
 fi
 printf 'unexpected fake tmux argv: %s\\n' "$*" >&2
@@ -150,7 +155,9 @@ const tmuxLines = async (logPath: string): Promise<string[]> =>
 function rendererLaunchLines(lines: string[]): string[] {
   return lines.filter(
     (line) =>
-      line.includes('set-buffer') && line.includes('codex-app-server') && line.includes('renderer')
+      line.includes('loaded-buffer') &&
+      line.includes('codex-app-server') &&
+      line.includes('renderer')
   )
 }
 
@@ -822,12 +829,25 @@ describe('Codex app-server renderer process red tests (T-04909 Phase B)', () => 
         // viewer mode by swapping to codex-cli-tmux or only reporting the pane.
         expect(launchLines, `tmux log:\n${lines.join('\n')}`).toHaveLength(1)
         for (const line of launchLines) {
-          expect(line).toContain('-S /tmp/harness-broker/codex-app-server-viewer.sock')
-          expect(line).toContain('-t %42')
           expect(line).toContain('invocation.eventsSince')
           expect(line).toContain('invocation.event')
           expect(line).not.toContain('codex-cli-tmux')
         }
+        expect(
+          lines.some(
+            (line) =>
+              line.includes('-S /tmp/harness-broker/codex-app-server-viewer.sock') &&
+              line.includes('load-buffer')
+          )
+        ).toBe(true)
+        expect(
+          lines.some(
+            (line) =>
+              line.includes('-S /tmp/harness-broker/codex-app-server-viewer.sock') &&
+              line.includes('paste-buffer') &&
+              line.includes('-t %42')
+          )
+        ).toBe(true)
       }
     )
 

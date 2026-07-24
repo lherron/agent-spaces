@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { existsSync, readFileSync } from 'node:fs'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../src/errors'
 import { TmuxPaneController, createTmuxPaneController } from '../../src/runtime/tmux'
@@ -11,10 +12,11 @@ type FakeExecCall = {
 
 const ALLOWED_TMUX_VERBS = new Set([
   'capture-pane',
+  'delete-buffer',
   'display-message',
+  'load-buffer',
   'paste-buffer',
   'send-keys',
-  'set-buffer',
 ])
 
 const FORBIDDEN_TMUX_VERBS = [
@@ -63,8 +65,8 @@ function createRecordingController(allowedOps: TmuxPaneAllowedOps = baseLease.al
     exec: async (argv, options) => {
       calls.push({ argv, env: options?.env })
       const verb = argv.find((part) => ALLOWED_TMUX_VERBS.has(part))
-      if (verb === 'set-buffer') {
-        lastPasted = argv[argv.length - 1] ?? ''
+      if (verb === 'load-buffer') {
+        lastPasted = readFileSync(argv[argv.length - 1] ?? '', 'utf8')
         awaitingSubmit = true
         return { stdout: '', stderr: '' }
       }
@@ -129,13 +131,53 @@ describe('TmuxPaneController', () => {
       if (
         argv.includes('display-message') ||
         argv.includes('send-keys') ||
-        argv.includes('set-buffer') ||
+        argv.includes('load-buffer') ||
         argv.includes('paste-buffer')
       ) {
-        expect(argv).toContain('-t')
-        expect(argv).toContain(baseLease.paneId)
+        if (!argv.includes('load-buffer')) {
+          expect(argv).toContain('-t')
+          expect(argv).toContain(baseLease.paneId)
+        }
       }
     }
+  })
+
+  test('delivers a 100KB prompt through a private file without putting payload bytes in argv', async () => {
+    const prompt = `T05577_BEGIN\n${'x'.repeat(100 * 1024)}\nT05577_END`
+    const calls: FakeExecCall[] = []
+    let loadedText = ''
+    let loadedPath = ''
+    const controller = createTmuxPaneController({
+      socketPath: '/tmp/harness-broker-tmux.sock',
+      tmuxBin: '/opt/bin/tmux',
+      lease: { ...baseLease },
+      exec: async (argv, options) => {
+        calls.push({ argv, env: options?.env })
+        if (argv.includes('load-buffer')) {
+          loadedPath = argv.at(-1) ?? ''
+          loadedText = readFileSync(loadedPath, 'utf8')
+        }
+        return { stdout: '', stderr: '' }
+      },
+    })
+
+    await controller.sendKeys(prompt)
+
+    expect(loadedText).toBe(prompt)
+    expect(loadedPath).not.toBe('')
+    expect(existsSync(loadedPath)).toBe(false)
+    expect(calls.some((call) => call.argv.includes('load-buffer'))).toBe(true)
+    expect(
+      calls.some(
+        (call) =>
+          call.argv.includes('paste-buffer') &&
+          call.argv.includes('-d') &&
+          call.argv.includes(baseLease.paneId)
+      )
+    ).toBe(true)
+    expect(calls.some((call) => call.argv.includes('Enter'))).toBe(true)
+    expect(calls.flatMap((call) => call.argv)).not.toContain(prompt)
+    expect(calls.some((call) => call.argv.includes('set-buffer'))).toBe(false)
   })
 
   test('re-presses Enter while the pasted command stays unexecuted, then stops once it advances', async () => {
@@ -150,8 +192,8 @@ describe('TmuxPaneController', () => {
       lease: { ...baseLease },
       exec: async (argv) => {
         const verb = argv.find((part) => ALLOWED_TMUX_VERBS.has(part))
-        if (verb === 'set-buffer') {
-          lastPasted = argv[argv.length - 1] ?? ''
+        if (verb === 'load-buffer') {
+          lastPasted = readFileSync(argv[argv.length - 1] ?? '', 'utf8')
           return { stdout: '', stderr: '' }
         }
         if (argv.includes('send-keys') && argv.includes('Enter')) {
@@ -232,8 +274,8 @@ describe('TmuxPaneController', () => {
       lease: { ...baseLease },
       exec: async (argv) => {
         const verb = argv.find((part) => ALLOWED_TMUX_VERBS.has(part))
-        if (verb === 'set-buffer') {
-          lastPasted = argv[argv.length - 1] ?? ''
+        if (verb === 'load-buffer') {
+          lastPasted = readFileSync(argv[argv.length - 1] ?? '', 'utf8')
           return { stdout: '', stderr: '' }
         }
         if (verb === 'paste-buffer') {
