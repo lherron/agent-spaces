@@ -1,0 +1,20 @@
+schema = 1
+name = "fresh-session-triage"
+title = "Fresh session triage"
+enabled = false
+freshSession = true
+
+[trigger]
+cron = "15 9 * * 1-5"
+windowStart = "09:00"
+windowEnd = "17:00"
+windowMinutes = 20
+
+[target]
+project = "agent-spaces"
+agent = "smokey"
+lane = "main"
+task = "fresh-session-triage"
+
+[input]
+content = "  Run fresh triage with the authored spacing.  "

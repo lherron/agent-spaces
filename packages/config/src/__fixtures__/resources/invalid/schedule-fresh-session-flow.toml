@@ -1,0 +1,15 @@
+schema = 1
+name = "fresh-session-flow"
+enabled = true
+freshSession = true
+flow = "malformed but still authored"
+
+[trigger]
+cron = "0 * * * *"
+
+[target]
+project = "agent-spaces"
+agent = "smokey"
+
+[input]
+content = "Run with a fresh context."
