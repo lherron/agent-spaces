@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { Socket } from 'node:net'
 import { join } from 'node:path'
 import type { HarnessInvocationSpec, InvocationInput } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
@@ -83,7 +84,10 @@ export async function listenForHookEnvelopes<TEnvelope>(
   await mkdir(dirname(socketPath), { recursive: true }).catch(() => undefined)
   await rm(socketPath, { force: true }).catch(() => undefined)
 
+  const connections = new Set<Socket>()
   const server = createServer({ allowHalfOpen: true }, (conn) => {
+    connections.add(conn)
+    conn.once('close', () => connections.delete(conn))
     const chunks: Buffer[] = []
     let responded = false
     const respond = (body: string) => {
@@ -146,12 +150,19 @@ export async function listenForHookEnvelopes<TEnvelope>(
     })
   })
 
+  let closePromise: Promise<void> | undefined
   return {
     socketPath,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve())
-      }),
+    close: () => {
+      closePromise ??= (async () => {
+        await new Promise<void>((resolve) => {
+          server.close(() => resolve())
+          for (const connection of connections) connection.destroy()
+        })
+        await rm(socketPath, { force: true }).catch(() => undefined)
+      })()
+      return closePromise
+    },
   }
 }
 
