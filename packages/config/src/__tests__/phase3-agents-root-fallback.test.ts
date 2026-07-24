@@ -16,12 +16,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, rmSync } from 'node:fs'
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { getAgentsRoot } from '../store/asp-config.js'
+import { resolveAgentPlacementPaths } from '../store/runtime-placement.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper: set up a fake HOME with optional ~/praesidium/var/agents directory
@@ -113,5 +113,81 @@ describe('getAgentsRoot: ~/praesidium/var/agents convention fallback (T-00993)',
     })
     // Should use HOME env, not process.env.HOME or os.homedir()
     expect(result).toBe(join(customHome, 'praesidium', 'var', 'agents'))
+  })
+})
+
+// ===========================================================================
+// T-06927: callers that omit `env` still receive the convention fallback
+// ===========================================================================
+describe('agents-root convention fallback when options omit env (T-06927)', () => {
+  let fakeHome: string
+  let aspHome: string
+  let originalHome: string | undefined
+  let originalAspAgentsRoot: string | undefined
+  let originalAspHome: string | undefined
+
+  function restoreEnvironmentVariable(key: string, value: string | undefined): void {
+    if (value === undefined) {
+      Reflect.deleteProperty(process.env, key)
+      return
+    }
+    process.env[key] = value
+  }
+
+  function conventionAgentsRoot(): string {
+    return join(fakeHome, 'praesidium', 'var', 'agents')
+  }
+
+  beforeEach(() => {
+    originalHome = process.env['HOME']
+    originalAspAgentsRoot = process.env['ASP_AGENTS_ROOT']
+    originalAspHome = process.env['ASP_HOME']
+
+    fakeHome = mkdtempSync(join(tmpdir(), 'agents-root-options-home-'))
+    aspHome = mkdtempSync(join(tmpdir(), 'agents-root-options-asp-home-'))
+    process.env['HOME'] = fakeHome
+    process.env['ASP_HOME'] = aspHome
+    Reflect.deleteProperty(process.env, 'ASP_AGENTS_ROOT')
+  })
+
+  afterEach(() => {
+    restoreEnvironmentVariable('HOME', originalHome)
+    restoreEnvironmentVariable('ASP_AGENTS_ROOT', originalAspAgentsRoot)
+    restoreEnvironmentVariable('ASP_HOME', originalAspHome)
+    rmSync(fakeHome, { recursive: true, force: true })
+    rmSync(aspHome, { recursive: true, force: true })
+  })
+
+  test('getAgentsRoot({}) uses HOME when the options object omits env', () => {
+    // Regression context: runtime placement turns absent options into `{}`.
+    mkdirSync(conventionAgentsRoot(), { recursive: true })
+
+    expect(getAgentsRoot({})).toBe(conventionAgentsRoot())
+  })
+
+  test('getAgentsRoot({ aspHome }) uses HOME when the options object omits env', () => {
+    // An explicit ASP home controls config lookup but must not disable HOME discovery.
+    mkdirSync(conventionAgentsRoot(), { recursive: true })
+
+    expect(getAgentsRoot({ aspHome })).toBe(conventionAgentsRoot())
+  })
+
+  test('getAgentsRoot({ env: {} }) keeps an explicitly supplied env hermetic', () => {
+    // Scope guard: an env object is authoritative even when process.env.HOME has the convention.
+    mkdirSync(conventionAgentsRoot(), { recursive: true })
+
+    expect(getAgentsRoot({ aspHome, env: {} })).toBeUndefined()
+  })
+
+  test('resolveAgentPlacementPaths finds an agent through the convention root without env options', () => {
+    // This is the public placement path that failed on the mini node:
+    // toConfigOptions({ agentId }) produces `{}`, yet convention discovery must remain live.
+    const agentRoot = join(conventionAgentsRoot(), 'mable')
+    mkdirSync(agentRoot, { recursive: true })
+    writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+
+    const placement = resolveAgentPlacementPaths({ agentId: 'mable' })
+
+    expect(placement.agentRoot).toBe(agentRoot)
   })
 })
