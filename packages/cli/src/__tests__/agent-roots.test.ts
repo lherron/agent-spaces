@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +11,22 @@ async function writeAgent(root: string, id: string): Promise<void> {
 }
 
 describe('agent root provenance reporting', () => {
+  // The canonical root resolves from ASP_AGENTS_ROOT env FIRST, then the fixture
+  // config.toml. On any machine where that env is set — the maintainer host and
+  // the devbox room alike — the ambient live var/agents leaks in ahead of the
+  // fixture (buildAgentRootReport returned ~194 real agents instead of the two
+  // seeded here). Isolate the env so these unit tests exercise only the fixture
+  // roots (T-06915 room-readiness).
+  let savedAgentsRoot: string | undefined
+  beforeEach(() => {
+    savedAgentsRoot = process.env['ASP_AGENTS_ROOT']
+    delete process.env['ASP_AGENTS_ROOT']
+  })
+  afterEach(() => {
+    if (savedAgentsRoot === undefined) delete process.env['ASP_AGENTS_ROOT']
+    else process.env['ASP_AGENTS_ROOT'] = savedAgentsRoot
+  })
+
   test('dedupes local-first agents and reports canonical shadows', async () => {
     const base = await mkdtemp(join(tmpdir(), 'asp-agent-roots-'))
     const projectRoot = join(base, 'project')
