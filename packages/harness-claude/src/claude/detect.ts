@@ -10,8 +10,11 @@
  */
 
 import { constants, access } from 'node:fs/promises'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { ClaudeNotFoundError } from 'spaces-config'
+
+export const CLAUDE_PATH_ENV = 'ASP_CLAUDE_PATH'
+export const CLAUDE_SKIP_COMMON_PATHS_ENV = 'ASP_CLAUDE_SKIP_COMMON_PATHS'
 
 /**
  * Information about the detected Claude installation.
@@ -66,23 +69,37 @@ async function isExecutable(path: string): Promise<boolean> {
   }
 }
 
-/**
- * Search PATH for the claude binary.
- *
- * @returns Path to claude binary, or null if not found
- */
-async function searchPath(): Promise<string | null> {
-  const pathEnv = process.env['PATH'] || ''
-  const pathDirs = pathEnv.split(':')
-
-  for (const dir of pathDirs) {
-    const claudePath = join(dir, 'claude')
-    if (await isExecutable(claudePath)) {
-      return claudePath
-    }
+/** Remove empty and duplicate candidates while retaining first-seen order. */
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    result.push(value)
   }
+  return result
+}
 
-  return null
+function pathCandidatesForCommand(command: string): string[] {
+  return (process.env['PATH'] ?? '')
+    .split(delimiter)
+    .filter(Boolean)
+    .map((dir) => join(dir, command))
+}
+
+/**
+ * Enumerate Claude candidates without changing the legacy common-path order.
+ *
+ * PATH is deliberately a fallback: an existing host that resolves Claude from
+ * a common location must keep resolving the same binary after PATH discovery
+ * is added.
+ */
+export function claudeCommandCandidates(): string[] {
+  const commonCandidates =
+    process.env[CLAUDE_SKIP_COMMON_PATHS_ENV] === '1' ? [] : COMMON_CLAUDE_PATHS
+
+  return dedupeStrings([...commonCandidates, ...pathCandidatesForCommand('claude')])
 }
 
 /**
@@ -90,8 +107,8 @@ async function searchPath(): Promise<string | null> {
  *
  * Priority:
  * 1. ASP_CLAUDE_PATH environment variable
- * 2. PATH environment variable
- * 3. Common installation locations
+ * 2. Common installation locations
+ * 3. PATH environment variable
  *
  * @returns Absolute path to the claude binary
  * @throws ClaudeNotFoundError if claude cannot be found
@@ -100,7 +117,7 @@ export async function findClaudeBinary(): Promise<string> {
   const searchedPaths: string[] = []
 
   // 1. Check ASP_CLAUDE_PATH environment variable
-  const envPath = process.env['ASP_CLAUDE_PATH']
+  const envPath = process.env[CLAUDE_PATH_ENV]
   if (envPath) {
     searchedPaths.push(envPath)
     if (await isExecutable(envPath)) {
@@ -110,17 +127,11 @@ export async function findClaudeBinary(): Promise<string> {
     throw new ClaudeNotFoundError(searchedPaths)
   }
 
-  // 2. Search PATH
-  const pathResult = await searchPath()
-  if (pathResult) {
-    return pathResult
-  }
-
-  // 3. Check common locations
-  for (const commonPath of COMMON_CLAUDE_PATHS) {
-    searchedPaths.push(commonPath)
-    if (await isExecutable(commonPath)) {
-      return commonPath
+  // 2. Preserve common-location precedence, then fall back to PATH.
+  for (const candidate of claudeCommandCandidates()) {
+    searchedPaths.push(candidate)
+    if (await isExecutable(candidate)) {
+      return candidate
     }
   }
 

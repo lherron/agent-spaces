@@ -81,8 +81,8 @@ export function codexCommandCandidates(): string[] {
 
   return dedupeStrings([
     process.env[CODEX_PATH_ENV] ?? '',
-    ...pathCandidatesForCommand('codex'),
     ...commonCandidates,
+    ...pathCandidatesForCommand('codex'),
   ])
 }
 

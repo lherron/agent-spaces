@@ -6,12 +6,61 @@
  */
 
 import { afterEach, describe, expect, it } from 'bun:test'
-import { clearClaudeCache } from './detect.js'
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  CLAUDE_SKIP_COMMON_PATHS_ENV,
+  claudeCommandCandidates,
+  clearClaudeCache,
+  findClaudeBinary,
+} from './detect.js'
 import { buildClaudeArgs } from './invoke.js'
+
+const originalPath = process.env.PATH
+const originalSkipCommonPaths = process.env[CLAUDE_SKIP_COMMON_PATHS_ENV]
 
 // Clear cache after each test to ensure isolation
 afterEach(() => {
   clearClaudeCache()
+  process.env.PATH = originalPath
+  if (originalSkipCommonPaths === undefined) {
+    process.env[CLAUDE_SKIP_COMMON_PATHS_ENV] = undefined
+  } else {
+    process.env[CLAUDE_SKIP_COMMON_PATHS_ENV] = originalSkipCommonPaths
+  }
+})
+
+describe('findClaudeBinary', () => {
+  it('finds a Claude binary reachable only through PATH', async () => {
+    const tempDir = join(tmpdir(), `claude-path-detect-${Date.now()}`)
+    const shim = join(tempDir, 'claude')
+    await mkdir(tempDir, { recursive: true })
+    await writeFile(shim, '#!/bin/sh\nexit 0\n')
+    await chmod(shim, 0o755)
+
+    try {
+      process.env[CLAUDE_SKIP_COMMON_PATHS_ENV] = '1'
+      process.env.PATH = tempDir
+
+      expect(await findClaudeBinary()).toBe(shim)
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps common install paths ahead of PATH candidates', () => {
+    process.env[CLAUDE_SKIP_COMMON_PATHS_ENV] = undefined
+    process.env.PATH = '/path-first:/path-second'
+
+    const candidates = claudeCommandCandidates()
+
+    expect(candidates[0]).toBe('/opt/homebrew/bin/claude')
+    expect(candidates.indexOf('/usr/local/bin/claude')).toBeLessThan(
+      candidates.indexOf('/path-first/claude')
+    )
+    expect(candidates.at(-1)).toBe('/path-second/claude')
+  })
 })
 
 describe('buildClaudeArgs', () => {

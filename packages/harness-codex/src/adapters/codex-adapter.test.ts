@@ -23,6 +23,7 @@ import {
   buildCodexHookTrustState,
   buildHrcCodexHooksConfig,
 } from './codex-adapter.js'
+import { codexCommandCandidates } from './codex-discovery.js'
 
 function createTestManifest(overrides: Partial<ResolvedSpaceManifest> = {}): ResolvedSpaceManifest {
   return {
@@ -164,6 +165,19 @@ exit 1
 
       expect(detection.available).toBe(true)
       expect(detection.path).toBe(overrideShim)
+    })
+
+    test('keeps common install paths ahead of PATH candidates', () => {
+      process.env.ASP_CODEX_SKIP_COMMON_PATHS = undefined
+      process.env.PATH = join(tmpDir, 'path-bin')
+
+      const candidates = codexCommandCandidates()
+      const fixedCandidate = '/opt/homebrew/bin/codex'
+      const pathCandidate = join(tmpDir, 'path-bin', 'codex')
+
+      expect(candidates).toContain(fixedCandidate)
+      expect(candidates.indexOf(fixedCandidate)).toBeLessThan(candidates.indexOf(pathCandidate))
+      expect(candidates.at(-1)).toBe(pathCandidate)
     })
   })
 
