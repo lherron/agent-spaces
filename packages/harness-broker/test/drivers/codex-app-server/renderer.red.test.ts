@@ -512,6 +512,48 @@ describe('codex-app-server renderer durable read projection (T-04909 Phase B red
     projection.close()
   })
 
+  test('renders a reasoning summary as quiet prose notes, never the raw JSON blob', async () => {
+    const { createCodexAppServerRendererProjection } = await loadRendererModule()
+    const { surface } = createReadSurface([
+      event(1, 'diagnostic', {
+        level: 'debug',
+        source: 'driver',
+        kind: 'reasoning',
+        message: 'Codex reasoning summary captured',
+        data: {
+          summary:
+            '**Evaluating unique constraint adjustments**\n\n**Planning HRC event schema extension**\n\nConfirming hold status for next request',
+          truncated: true,
+        },
+      }),
+    ])
+    const projection = createCodexAppServerRendererProjection({
+      invocationId: 'inv_renderer',
+      readSurface: surface,
+    })
+
+    await projection.start()
+    const rendered = textLines(projection).join('\n')
+    // Header + each title as plain prose, in order.
+    expectTextInOrder(rendered, [
+      'thinking',
+      '3 notes',
+      'Evaluating unique constraint adjustments',
+      'Planning HRC event schema extension',
+      'Confirming hold status for next request',
+      '… more',
+    ])
+    // The markdown emphasis is stripped, not rendered…
+    expect(rendered).not.toContain('**')
+    // …and the raw `data={…}` JSON preview never surfaces for reasoning.
+    expect(rendered).not.toContain('data=')
+    expect(rendered).not.toContain('"summary"')
+    expect(rendered).not.toContain('"truncated"')
+    // Reasoning shares prose's lane-less register — it is NOT a tinted band row.
+    expect(bandLines(projection).some((line) => line.includes('thinking'))).toBe(false)
+    projection.close()
+  })
+
   test('expands tabs in tool output so a band never shows pane background mid-row (T-06351)', async () => {
     const { createCodexAppServerRendererProjection } = await loadRendererModule()
     // The real shape from captured transcripts: `rg -n` over tab-indented Go source.

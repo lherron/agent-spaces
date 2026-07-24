@@ -17,6 +17,7 @@ import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
  * Region vocabulary (see the FG/BG "forge lanes" palette below):
  *   - user input      → violet lane, full multi-line text, `❯` gutter
  *   - agent prose     → NO lane (the primary voice), warm off-white
+ *   - agent reasoning → NO lane, quiet muted-grey echo, `∴ thinking` header
  *   - turn divider    → open molten `▶ turn` (the one bold hue)
  *   - tool call       → kiln-green lane, `$`/glyph gutter, grouped output
  *   - failed tool     → red lane
@@ -272,6 +273,23 @@ function wrap(text: string, width: number): string[] {
     if (line.length > 0) out.push(line)
   }
   return out
+}
+
+/**
+ * Flatten one codex reasoning-summary title to plain prose. Codex ships each
+ * summary part as a markdown-bold header (`**Evaluating the constraint**`) and
+ * occasionally with backticks or `#` markers; the pane renders reasoning as quiet
+ * prose, not a markdown document, so the emphasis syntax is stripped rather than
+ * styled. Whitespace (including the `\n\n` seams between parts) is collapsed.
+ */
+function cleanReasoningTitle(raw: string): string {
+  return raw
+    .replace(/`/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/__/g, '')
+    .replace(/^#{1,6}\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function formatTokens(value: unknown): string {
@@ -642,6 +660,41 @@ export function createCodexTranscriptModel(
     emit('')
   }
 
+  /**
+   * The agent's interior reasoning — its private train of thought, surfaced by
+   * codex as a handful of section titles. It is the SAME actor as the agent's
+   * prose, so like prose it takes NO lane; but it is thought, not speech, so it is
+   * rendered a register quieter — a cool `muted` grey echo rather than the warm
+   * off-white of the spoken voice. The `∴` header glyph is owned by nothing else
+   * in the vocabulary, and the whole block is blank-line bracketed, so it never
+   * reads as a chrome `·` line, as the agent speaking, or as the `✓ done` footer.
+   * The raw summary object never reaches the pane as a `data={…}` JSON preview.
+   */
+  function renderReasoning(data: Record<string, unknown>): void {
+    const notes = str(data['summary'])
+      .split(/\n{2,}/)
+      .map(cleanReasoningTitle)
+      .filter((title) => title.length > 0)
+    if (notes.length === 0) return
+    emit('')
+    emit(
+      line([
+        { text: '∴ ', fg: 'muted', bold: true },
+        { text: 'thinking', fg: 'muted', bold: true },
+        { text: `  ${notes.length} note${notes.length === 1 ? '' : 's'}`, fg: 'dim' },
+      ])
+    )
+    for (const note of notes) {
+      for (const body of wrap(note, contentWidth() - 2)) {
+        emit(line([{ text: `  ${body}`, fg: 'muted' }]))
+      }
+    }
+    if (data['truncated'] === true) {
+      emit(line([{ text: '  … more', fg: 'dim' }]))
+    }
+    emit('')
+  }
+
   function renderDiff(data: Record<string, unknown>): void {
     const files = Array.isArray(data['files']) ? data['files'] : []
     if (files.length === 0) return
@@ -691,6 +744,10 @@ export function createCodexTranscriptModel(
     }
     if (kind === 'diff') {
       renderDiff(asRecord(p['data']))
+      return
+    }
+    if (kind === 'reasoning') {
+      renderReasoning(asRecord(p['data']))
       return
     }
     const level = str(p['level']) || 'info'
