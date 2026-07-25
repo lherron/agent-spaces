@@ -44,7 +44,12 @@ if (HRC_REPO_ROOT === undefined) {
   )
 }
 
-const EXPECTED_HRC_RUNTIME_STATE_JSON_STATUSES = ['awaiting_input', 'stale', 'terminated'] as const
+const EXPECTED_HRC_RUNTIME_STATE_JSON_STATUSES = [
+  'awaiting_input',
+  'stale',
+  'terminated',
+  'crashed',
+] as const
 
 const EXPECTED_HRC_RUNTIME_ROW_STATUSES = [
   ...EXPECTED_HRC_RUNTIME_STATE_JSON_STATUSES,
@@ -106,6 +111,7 @@ describe('T-05007 runtime status vocabulary contract', () => {
       'awaiting_input',
       'stale',
       'terminated',
+      'crashed',
     ])
 
     expect(RUNTIME_STATUS_VALUES).toEqual([...RUNTIME_STATE_STATUS_VALUES, 'dead', 'adopted'])
