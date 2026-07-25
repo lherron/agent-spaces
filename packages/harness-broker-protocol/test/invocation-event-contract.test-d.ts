@@ -54,3 +54,13 @@ emitContext.emit('assistant.message.delta', {
   turnId: 'turn_1' as TurnId,
   status: 'completed',
 })
+
+emitContext.emit('turn.failed', {
+  turnId: 'turn_1' as TurnId,
+  message: 'provider failed',
+})
+// @ts-expect-error EXCEPTION(T-06534): failed turns require an operator-visible message.
+emitContext.emit('turn.failed', {
+  turnId: 'turn_1' as TurnId,
+  status: 'failed',
+})
