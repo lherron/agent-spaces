@@ -106,6 +106,7 @@ describe('T-05007 runtime status vocabulary contract', () => {
       'awaiting_input',
       'stale',
       'terminated',
+      'crashed',
     ])
 
     expect(RUNTIME_STATUS_VALUES).toEqual([...RUNTIME_STATE_STATUS_VALUES, 'dead', 'adopted'])
