@@ -767,7 +767,7 @@ function resolveSourcePath(root: Record<string, unknown> | undefined, source: st
 
 function normalizeStringEntries(value: unknown): string[] | undefined {
   if (typeof value === 'string') {
-    return value.length > 0 ? [value] : undefined
+    return value.length > 0 ? [value] : []
   }
 
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
@@ -775,7 +775,7 @@ function normalizeStringEntries(value: unknown): string[] | undefined {
   }
 
   const entries = value.filter((entry): entry is string => entry.length > 0)
-  return entries.length > 0 ? [...entries] : undefined
+  return [...entries]
 }
 
 /**
