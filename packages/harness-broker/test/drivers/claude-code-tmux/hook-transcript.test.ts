@@ -310,9 +310,40 @@ describe('createClaudeHookTranscriptReader', () => {
 
     const events = reader.handleHook(postToolUse())
     expect(eventTypes(events)).toEqual(['diagnostic'])
-    expect(dataOf(events[0]!)).toMatchObject({ code: 'api_error', apiErrorStatus: 529 })
+    expect(dataOf(events[0]!)).toMatchObject({
+      code: 'api_error',
+      apiErrorStatus: 529,
+      errorClass: 'overloaded',
+    })
     // No active turn → no turnId required.
     expect(events[0]!.turnId).toBeUndefined()
+  })
+
+  test.each([
+    [{ status: 429 }, 'API Error: Too many requests', 'rate_limit'],
+    [{ status: 529 }, 'API Error: Overloaded', 'overloaded'],
+    [{ status: 503 }, 'API Error: Service unavailable', 'server_error'],
+    [{ status: 401 }, 'API Error: Unauthorized', 'auth'],
+    [{ status: 402 }, 'API Error: Payment required', 'quota'],
+    [{ error: 'rate_limit_error' }, 'API Error', 'rate_limit'],
+    [{ error: 'overloaded_error' }, 'API Error', 'overloaded'],
+    [{ error: 'internal_server_error' }, 'API Error', 'server_error'],
+    [{ error: 'invalid_api_key' }, 'API Error', 'auth'],
+    [{ error: 'credit balance is too low' }, 'API Error', 'quota'],
+  ])('classifies API error metadata %#', async (extra, text, expectedClass) => {
+    const create = await loadFactory()
+    const path = tempTranscript()
+    const reader = create({
+      now: () => new Date('2026-06-22T19:34:10.000Z'),
+      invocationId,
+      getCurrentTurnId: () => 'turn_active_1',
+    })
+
+    reader.handleHook(sessionStart(path))
+    appendFileSync(path, apiError(text, extra))
+
+    const events = reader.handleHook(postToolUse())
+    expect(dataOf(events[0]!)).toMatchObject({ errorClass: expectedClass })
   })
 
   test('non-API assistant rows, false flag, empty text, and malformed JSON emit nothing', async () => {

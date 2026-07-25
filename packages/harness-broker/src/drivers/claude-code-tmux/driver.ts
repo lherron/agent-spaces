@@ -197,6 +197,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   let turnCounter = 0
   const structuredTurns = new Map<string, StructuredTurnState>()
   const completedStructuredTurns = new Set<string>()
+  const apiErrorTurns = new Set<string>()
 
   // Single shared per-invocation turn-id allocator (cody's blessed scheme,
   // C-02755). BOTH applyInputNow (manager path) and the hook normalizer (which
@@ -264,6 +265,8 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         invocationId: driverCtx.invocationId,
         now,
         allocateTurnId,
+        hasApiErrorForTurn: (turnId) => apiErrorTurns.has(turnId),
+        clearApiErrorForTurn: (turnId) => apiErrorTurns.delete(turnId),
       })
       const expectedRuntimeId = getInvocationRuntimeId(spec)
       hookDrain = Promise.resolve(undefined)
@@ -275,6 +278,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         invocationId: driverCtx.invocationId,
         now,
         getCurrentTurnId: () => activeTurnId,
+        onApiError: (turnId) => apiErrorTurns.add(turnId),
       })
       transcriptReader = reader
       const handleHookEnvelope = async (
@@ -311,22 +315,27 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           envelope.turnId === undefined && activeTurnId !== undefined
             ? { ...envelope, turnId: activeTurnId }
             : envelope
-        const structuredDecision = handleStructuredOutputHook(effectiveEnvelope)
-        if (structuredDecision.action === 'drop') {
-          return structuredDecision.decision
-        }
-        effectiveEnvelope = structuredDecision.envelope
         // T-02027: read the session transcript BEFORE normalizing the triggering
         // hook so a mid-turn/steered prompt's `user.message` lands in hook order
         // ahead of this hook's normalized events. SessionStart captures the
-        // transcript path; every other hook reads newly appended bytes.
-        for (const event of reader.handleHook(asHookRecord(effectiveEnvelope.hookData))) {
+        // transcript path; every other hook reads newly appended bytes. This also
+        // records same-turn API-error state before structured Stop validation, so
+        // a truncated candidate is attributed to the provider instead of Ajv.
+        for (const event of reader.handleHook(
+          asHookRecord(effectiveEnvelope.hookData),
+          effectiveEnvelope.turnId
+        )) {
           driverCtx.emit(event.type, event.payload, {
             ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
             ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
             ...(event.driver !== undefined ? { driver: event.driver } : {}),
           })
         }
+        const structuredDecision = handleStructuredOutputHook(effectiveEnvelope)
+        if (structuredDecision.action === 'drop') {
+          return structuredDecision.decision
+        }
+        effectiveEnvelope = structuredDecision.envelope
         for (const event of normalizeHookEnvelope(effectiveEnvelope, { normalizer })) {
           driverCtx.emit(event.type, event.payload, {
             ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
@@ -339,7 +348,11 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
           // after a terminal, clear it so the next turn-id-less prompt mints.
           if (event.type === 'turn.started' && event.turnId !== undefined) {
             activeTurnId = event.turnId
-          } else if (event.type === 'turn.completed' || event.type === 'turn.failed') {
+          } else if (
+            event.type === 'turn.completed' ||
+            event.type === 'turn.failed' ||
+            event.type === 'turn.interrupted'
+          ) {
             if (activeTurnId === event.turnId) {
               activeTurnId = undefined
             }
@@ -487,6 +500,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       activeTurnId = undefined
       structuredTurns.clear()
       completedStructuredTurns.clear()
+      apiErrorTurns.clear()
     },
   }
 
@@ -752,6 +766,9 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
   }
 
   function emitStructuredDiagnostic(state: StructuredTurnState, candidate: string): void {
+    const code = apiErrorTurns.has(state.turnId)
+      ? 'provider_error_truncated_output'
+      : 'StructuredOutputValidationFailed'
     ctx?.emit(
       'diagnostic',
       {
@@ -759,7 +776,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
         source: 'harness',
         message: 'Structured output validation failed after retry cap',
         data: {
-          code: 'StructuredOutputValidationFailed',
+          code,
           rawCandidate: candidate,
         },
       },
@@ -775,15 +792,20 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
     reason: string,
     errors: ErrorObject[] = []
   ): void {
+    const providerError = apiErrorTurns.has(state.turnId)
+    const code = providerError
+      ? 'provider_error_truncated_output'
+      : 'StructuredOutputValidationFailed'
     structuredTurns.delete(state.turnId)
     completedStructuredTurns.add(state.turnId)
+    apiErrorTurns.delete(state.turnId)
     ctx?.emit(
       'turn.failed',
       {
         turnId: state.turnId as TurnId,
         status: 'failed',
         message: reason,
-        code: 'StructuredOutputValidationFailed',
+        code,
         retryable: false,
         data: {
           validation: formatValidationData(errors),

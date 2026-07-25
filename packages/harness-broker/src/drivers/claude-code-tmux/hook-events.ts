@@ -30,6 +30,8 @@ export type ClaudeCodeHookEventNormalizer = {
 export type ClaudeCodeHookEventNormalizerOptions = {
   invocationId: string
   now: () => Date
+  hasApiErrorForTurn?: ((turnId: string) => boolean) | undefined
+  clearApiErrorForTurn?: ((turnId: string) => void) | undefined
   /**
    * Shared per-invocation turn-id allocator (cody's blessed scheme, C-02755).
    * MUST be the SAME closure the driver's `applyInputNow` uses so manager-minted
@@ -419,13 +421,46 @@ export function createClaudeCodeHookEventNormalizer(
         if (activeTurnId === turnIdText) {
           activeTurnId = undefined
         }
-        events.push(
-          emit(rawType, {
-            type: 'turn.completed',
-            payload: { turnId, status: 'completed' },
-            turnId,
-          })
-        )
+        const hasApiError = options.hasApiErrorForTurn?.(turnIdText) === true
+        const endReason = rawType === 'SessionEnd' ? getString(unwrapped, 'reason') : undefined
+        const userInitiatedSessionEnd =
+          endReason !== undefined && USER_INITIATED_END_REASONS.has(endReason)
+        if (hasApiError) {
+          events.push(
+            emit(rawType, {
+              type: 'turn.failed',
+              payload: {
+                turnId,
+                status: 'failed',
+                message: 'Claude Code provider API error',
+                code: 'provider_api_error',
+                data: { diagnosticCode: 'api_error' },
+              },
+              turnId,
+            })
+          )
+        } else if (rawType === 'SessionEnd' && !userInitiatedSessionEnd) {
+          events.push(
+            emit(rawType, {
+              type: 'turn.interrupted',
+              payload: {
+                turnId,
+                status: 'interrupted',
+                reason: endReason ?? 'session_end',
+              },
+              turnId,
+            })
+          )
+        } else {
+          events.push(
+            emit(rawType, {
+              type: 'turn.completed',
+              payload: { turnId, status: 'completed' },
+              turnId,
+            })
+          )
+        }
+        options.clearApiErrorForTurn?.(turnIdText)
         return [...prefix, ...events]
       }
 

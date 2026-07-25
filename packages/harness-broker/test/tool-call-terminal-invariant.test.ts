@@ -6,7 +6,7 @@ import {
   validateEventEnvelope,
 } from 'spaces-harness-broker-protocol'
 import { createBroker } from '../src/broker'
-import { createTestDriver } from '../src/testing/test-driver'
+import { type TestDriverController, createTestDriver } from '../src/testing/test-driver'
 
 // T-06550: the broker MUST guarantee that every `tool.call.started` gets EXACTLY
 // ONE terminal (`tool.call.completed` | `tool.call.failed`). The burn-in-19
@@ -152,6 +152,28 @@ describe('broker-guaranteed tool.call terminal bracket (T-06550)', () => {
       turnCompletions[0]?.seq ?? Number.POSITIVE_INFINITY
     )
   })
+
+  test.each([
+    ['turn.failed', (controller: TestDriverController) => controller.failActiveTurn()],
+    ['turn.interrupted', (controller: TestDriverController) => controller.interruptActiveTurn()],
+  ] as const)(
+    'an open call is synthesized as failed before a %s terminal',
+    async (terminalType, terminate) => {
+      const { broker, controller, events, invocationId } = await setup(`inv_${terminalType}`)
+      await broker.input({ invocationId, input: userInput('input_1', 'go') })
+      controller.startToolCall('call_open', 'command')
+      terminate(controller)
+      await flushMicrotasks()
+
+      const toolFailureIndex = seqOfFirst(events, 'tool.call.failed')
+      const turnTerminalIndex = seqOfFirst(events, terminalType)
+      expect(toolFailureIndex).toBeGreaterThanOrEqual(0)
+      expect(toolFailureIndex).toBeLessThan(turnTerminalIndex)
+      expect(
+        (ofType(events, 'tool.call.failed')[0]?.payload as Record<string, unknown>)['code']
+      ).toBe('broker_unterminated_tool_call')
+    }
+  )
 
   test('provider death mid-tool-call synthesizes failed at invocation teardown', async () => {
     const { broker, controller, events, invocationId } = await setup('inv_provider_death')

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -512,6 +512,60 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
       },
     })
     expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(0)
+  })
+
+  test('11b. same-turn API error attributes truncated structured output before generic validation', async () => {
+    const { driver, events, hookHandler } = await setupDriver()
+    const root = await mkdtemp(join(tmpdir(), 'claude-structured-api-error-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    writeFileSync(transcriptPath, '')
+
+    try {
+      const applied = await driver.applyInputNow(
+        input('input_provider_truncated', 'return status', schemaResponse(statusSchema))
+      )
+      await hookHandler({
+        invocationId: 'inv_claude_structured',
+        runtimeId: 'runtime-structured',
+        generation: 1,
+        callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
+        turnId: applied.turnId,
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      appendFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: 'assistant',
+          isApiErrorMessage: true,
+          status: 503,
+          requestId: 'req_truncated',
+          error: 'internal_server_error',
+          message: { content: [{ type: 'text', text: 'API Error: Internal server error' }] },
+        })}\n`
+      )
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await stop(hookHandler, applied.turnId ?? 'missing', '{"status":"trunc')
+      }
+
+      expect(events.find((event) => event.type === 'diagnostic')).toMatchObject({
+        turnId: applied.turnId,
+        payload: {
+          level: 'error',
+          data: { code: 'api_error', errorClass: 'server_error' },
+        },
+      })
+      expect(events.find((event) => event.type === 'turn.failed')).toMatchObject({
+        turnId: applied.turnId,
+        payload: {
+          turnId: applied.turnId,
+          code: 'provider_error_truncated_output',
+          retryable: false,
+        },
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   test('12. terminal paths without validator clearance fail closed instead of completing invalid content', async () => {
