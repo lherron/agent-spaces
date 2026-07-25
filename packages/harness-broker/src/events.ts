@@ -52,7 +52,6 @@ export function createInvocationEventSequencer(
   ): InvocationEventEnvelope {
     const current = counters.get(invocationId) ?? 0
     const seq = current + 1
-    counters.set(invocationId, seq)
 
     const envelopeMetadata: InvocationEventEnvelopeBase & { type: InvocationEventType } = {
       invocationId,
@@ -62,7 +61,9 @@ export function createInvocationEventSequencer(
     }
     applyExtra(envelopeMetadata, extra, correlation)
     const candidate: unknown = Object.assign(envelopeMetadata, { payload: event.payload })
-    return validateEventEnvelope(candidate)
+    const validated = validateEventEnvelope(candidate)
+    counters.set(invocationId, seq)
+    return validated
   }
 
   return {
@@ -74,7 +75,6 @@ export function createInvocationEventSequencer(
     ): InvocationEventEnvelopeFor<K> {
       const current = counters.get(invocationId) ?? 0
       const seq = current + 1
-      counters.set(invocationId, seq)
       const envelopeMetadata: InvocationEventEnvelopeBase & { type: K } = {
         invocationId,
         seq,
@@ -82,7 +82,10 @@ export function createInvocationEventSequencer(
         type,
       }
       applyExtra(envelopeMetadata, extra, correlation)
-      return Object.assign(envelopeMetadata, { payload })
+      const candidate: InvocationEventEnvelopeFor<K> = Object.assign(envelopeMetadata, { payload })
+      validateEventEnvelope(candidate)
+      counters.set(invocationId, seq)
+      return candidate
     },
     nextEvent,
   }
