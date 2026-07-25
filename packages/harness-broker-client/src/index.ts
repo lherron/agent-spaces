@@ -1,5 +1,6 @@
 export { BrokerClient } from './client'
 export type {
+  BrokerClientOptions,
   ConnectUnixOptions,
   Disposer,
   InvocationStartDispatchOptions,
