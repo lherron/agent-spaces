@@ -351,7 +351,7 @@ export interface TurnCompletedPayload {
 export interface TurnFailedPayload {
   turnId: TurnId
   status?: 'failed' | undefined
-  message?: string | undefined
+  message: string
   finalOutput?: string | undefined
   code?: string | undefined
   data?: unknown

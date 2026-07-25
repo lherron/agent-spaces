@@ -23,8 +23,10 @@ export type MappedEvent = {
 
 export interface CodexErrorInfo {
   message: string
-  code?: string | undefined
-  data?: unknown
+  code: string
+  data: Record<string, unknown>
+  retryable?: boolean | undefined
+  reason?: string | undefined
 }
 
 /** Stable driver identity stamped onto every event derived from a native notification. */
@@ -445,6 +447,7 @@ function mapCodexNotificationInner(
               payload: {
                 turnId: asTurnId(turnId),
                 status,
+                message: failedTurnMessage(finalOutput),
                 ...(finalOutput !== undefined ? { finalOutput } : {}),
               },
             }
@@ -604,18 +607,32 @@ function flushHeldAssistantCompletion(
 export function parseCodexError(params: unknown): CodexErrorInfo {
   const root = asRecord(params)
   const nested = asRecord(root['error'])
+  const rawMessage = stringValue(root['message']) ?? stringValue(nested['message'])
   const message =
-    stringValue(root['message']) ?? stringValue(nested['message']) ?? 'Codex app-server error'
+    rawMessage !== undefined && rawMessage.trim().length > 0 ? rawMessage : 'Codex app-server error'
+  const codexErrorInfo = nested['codexErrorInfo']
   const code =
     stringValue(root['code']) ??
     stringValue(nested['code']) ??
-    stringValue(asRecord(nested['codexErrorInfo'])['code'])
-  const data = Object.keys(root).length > 0 ? root : undefined
+    stringValue(codexErrorInfo) ??
+    stringValue(asRecord(codexErrorInfo)['code']) ??
+    'codex_app_server_error'
+  const retryable = typeof root['willRetry'] === 'boolean' ? root['willRetry'] : undefined
+  const reason = stringValue(root['reason']) ?? stringValue(nested['reason'])
+  const data = { ...root, code }
   return {
     message,
-    ...(code !== undefined ? { code } : {}),
-    ...(data !== undefined ? { data } : {}),
+    code,
+    data,
+    ...(retryable !== undefined ? { retryable } : {}),
+    ...(reason !== undefined ? { reason } : {}),
   }
+}
+
+function failedTurnMessage(finalOutput: string | undefined): string {
+  return finalOutput !== undefined && finalOutput.trim().length > 0
+    ? finalOutput
+    : 'Codex turn failed'
 }
 
 function normalizeMessageContent(

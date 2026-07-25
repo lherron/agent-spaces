@@ -57,6 +57,15 @@ interface ThreadResponse {
 }
 
 type ChildProcess = Awaited<ReturnType<typeof spawnHarnessProcess>>
+type DriverEventExtra = NonNullable<Parameters<DriverContext['emit']>[2]>
+
+interface TurnFailure {
+  message: string
+  code: string
+  data?: unknown
+  retryable?: boolean | undefined
+  reason?: string | undefined
+}
 
 type RendererControlEnvelope =
   | {
@@ -176,24 +185,69 @@ export function createCodexAppServerDriver(): Driver {
   function emitDiagnostic(
     level: 'debug' | 'info' | 'warn' | 'error',
     message: string,
-    data?: unknown
+    data?: unknown,
+    extra?: DriverEventExtra
   ): void {
-    requireCtx().emit('diagnostic', {
-      level,
-      message,
-      source: 'harness',
-      ...(data !== undefined ? { data } : {}),
-    })
+    requireCtx().emit(
+      'diagnostic',
+      {
+        level,
+        message,
+        source: 'harness',
+        ...(data !== undefined ? { data } : {}),
+      },
+      extra
+    )
   }
 
-  function emitTerminalFailure(message: string, code?: string, data?: unknown): void {
+  function emitTerminalFailure(
+    message: string,
+    code?: string,
+    data?: unknown,
+    retryable?: boolean,
+    reason?: string
+  ): void {
     if (terminalEmitted) return
     terminalEmitted = true
     requireCtx().emit('invocation.failed', {
       message,
       ...(code !== undefined ? { code } : {}),
       ...(data !== undefined ? { data } : {}),
+      ...(retryable !== undefined ? { retryable } : {}),
+      ...(reason !== undefined ? { reason } : {}),
     })
+  }
+
+  function activeTurnExtra(): DriverEventExtra {
+    return {
+      ...(currentTurnId !== undefined ? { turnId: currentTurnId } : {}),
+      ...(currentInputId !== undefined ? { inputId: currentInputId } : {}),
+      driver: { kind: 'codex-app-server' },
+    }
+  }
+
+  function failActiveTurn(failure: TurnFailure): boolean {
+    if (!turnActive || currentTurnId === undefined) return false
+    requireCtx().emit(
+      'turn.failed',
+      {
+        turnId: currentTurnId,
+        status: 'failed',
+        message: failure.message,
+        code: failure.code,
+        ...(failure.data !== undefined ? { data: failure.data } : {}),
+        ...(failure.retryable !== undefined ? { retryable: failure.retryable } : {}),
+        ...(failure.reason !== undefined ? { reason: failure.reason } : {}),
+      },
+      activeTurnExtra()
+    )
+    turnActive = false
+    if (turnTimeout !== undefined) {
+      clearTimeout(turnTimeout)
+      turnTimeout = undefined
+    }
+    reportProviderTranscript()
+    return true
   }
 
   function onNotification(notification: JsonRpcNotification): void {
@@ -203,23 +257,17 @@ export function createCodexAppServerDriver(): Driver {
 
     if (notification.method === 'error') {
       const error = parseCodexError(notification.params)
-      emitDiagnostic(
-        'error',
-        error.message,
-        error.code !== undefined ? { code: error.code } : error.data
-      )
-      if (turnActive && currentTurnId) {
-        requireCtx().emit(
-          'turn.failed',
-          {
-            turnId: currentTurnId,
-            status: 'failed',
-            finalOutput: error.message,
-          },
-          { turnId: currentTurnId, inputId: currentInputId }
-        )
-      } else {
-        emitTerminalFailure(error.message, error.code)
+      emitDiagnostic('error', error.message, error.data, activeTurnExtra())
+      if (
+        !failActiveTurn({
+          message: error.message,
+          code: error.code,
+          data: error.data,
+          ...(error.retryable !== undefined ? { retryable: error.retryable } : {}),
+          ...(error.reason !== undefined ? { reason: error.reason } : {}),
+        })
+      ) {
+        emitTerminalFailure(error.message, error.code, error.data, error.retryable, error.reason)
       }
 
       if (starting) {
@@ -285,17 +333,33 @@ export function createCodexAppServerDriver(): Driver {
       return
     }
 
-    if (turnActive && currentTurnId) {
-      requireCtx().emit(
-        stopping ? 'turn.interrupted' : 'turn.failed',
-        {
-          turnId: currentTurnId,
-          status: stopping ? 'interrupted' : 'failed',
-          ...(!stopping ? { finalOutput: 'Harness process exited during active turn' } : {}),
-        },
-        { turnId: currentTurnId, inputId: currentInputId }
-      )
-      turnActive = false
+    if (turnActive && currentTurnId !== undefined) {
+      if (stopping) {
+        requireCtx().emit(
+          'turn.interrupted',
+          {
+            turnId: currentTurnId,
+            status: 'interrupted',
+          },
+          { turnId: currentTurnId, inputId: currentInputId }
+        )
+        turnActive = false
+      } else {
+        const data = { exitCode: code, signal }
+        emitDiagnostic(
+          'error',
+          'Codex app-server process exited during active turn',
+          { code: 'codex_process_exit', ...data },
+          activeTurnExtra()
+        )
+        failActiveTurn({
+          message: 'Harness process exited during active turn',
+          code: 'codex_process_exit',
+          data,
+          retryable: false,
+          reason: 'process-exit',
+        })
+      }
     }
 
     terminalEmitted = true
@@ -528,6 +592,21 @@ export function createCodexAppServerDriver(): Driver {
         onError: (error) => {
           if (starting) {
             rejectStartup?.(error)
+            return
+          }
+          if (terminalEmitted || stopping) return
+          const failure = classifyRpcFailure(error)
+          emitDiagnostic('error', failure.message, failure.data, activeTurnExtra())
+          failActiveTurn(failure)
+          emitTerminalFailure(
+            failure.message,
+            failure.code,
+            failure.data,
+            failure.retryable,
+            failure.reason
+          )
+          if (proc !== undefined && proc.exitCode === null) {
+            proc.kill('SIGTERM')
           }
         },
       })
@@ -627,6 +706,7 @@ export function createCodexAppServerDriver(): Driver {
               {
                 turnId: currentTurnId,
                 status: 'failed',
+                message: 'Turn timed out',
                 code: 'Timeout',
               },
               { turnId: currentTurnId, inputId: currentInputId }
@@ -756,6 +836,26 @@ function resolveRendererObserverSocket(
     ? surface.socketPath.slice(0, surface.socketPath.lastIndexOf('/'))
     : '.'
   return `${dir}/${driverCtx.invocationId}.observer.sock`
+}
+
+function classifyRpcFailure(error: Error): TurnFailure {
+  const protocolFailure =
+    error.message.startsWith('Failed to parse JSON-RPC message:') ||
+    error.message.startsWith('Unexpected JSON-RPC response id:')
+  const code = protocolFailure ? 'codex_rpc_protocol_error' : 'codex_rpc_transport_error'
+  const causeCode = (error as Error & { code?: unknown }).code
+  return {
+    message: error.message.trim().length > 0 ? error.message : 'Codex app-server RPC failed',
+    code,
+    data: {
+      code,
+      fatal: true,
+      errorName: error.name,
+      ...(typeof causeCode === 'string' || typeof causeCode === 'number' ? { causeCode } : {}),
+    },
+    retryable: false,
+    reason: 'transport-error',
+  }
 }
 
 interface TranscriptSidecar {

@@ -552,6 +552,105 @@ describe('Codex app-server driver red scenarios', () => {
     await expectGolden('startup-error', events)
   })
 
+  test.each([
+    {
+      scenario: 'turn-error-server-overloaded',
+      message: 'Selected model is at capacity',
+      code: 'serverOverloaded',
+      retryable: false,
+      reason: undefined,
+    },
+    {
+      scenario: 'turn-error-rate-limit',
+      message: 'Too many requests',
+      code: 'rateLimitExceeded',
+      retryable: true,
+      reason: undefined,
+    },
+    {
+      scenario: 'turn-error-auth',
+      message: 'Authentication failed',
+      code: 'authenticationFailed',
+      retryable: false,
+      reason: 'authentication',
+    },
+  ])(
+    'correlates and preserves $scenario error notification details',
+    async ({ scenario, message, code, retryable, reason }) => {
+      const events = await runScenario(scenario)
+      await waitFor(
+        () => events.some((event) => event.type === 'turn.failed'),
+        `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+      )
+      const diagnostic = events.find((event) => event.type === 'diagnostic')
+      const failed = events.find((event) => event.type === 'turn.failed')
+
+      expect(diagnostic).toMatchObject({
+        turnId: 'turn_1',
+        payload: {
+          level: 'error',
+          message,
+          data: expect.objectContaining({
+            code,
+            willRetry: retryable,
+          }),
+        },
+      })
+      expect(failed).toMatchObject({
+        turnId: 'turn_1',
+        payload: {
+          turnId: 'turn_1',
+          message,
+          code,
+          data: expect.objectContaining({
+            turnId: 'turn_1',
+            willRetry: retryable,
+          }),
+          retryable,
+          ...(reason !== undefined ? { reason } : {}),
+        },
+      })
+      expect(events.filter((event) => event.type === 'turn.failed')).toHaveLength(1)
+      expect(events.some((event) => event.type === 'invocation.failed')).toBe(false)
+    }
+  )
+
+  test('classifies a fatal mid-turn RPC protocol error with correlated durable terminals', async () => {
+    const events = await runScenario('mid-turn-rpc-protocol-error')
+    await waitFor(
+      () => events.some((event) => event.type === 'invocation.failed'),
+      `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+    )
+
+    const diagnostic = events.find(
+      (event) =>
+        event.type === 'diagnostic' &&
+        (event.payload as { data?: { code?: string } }).data?.code === 'codex_rpc_protocol_error'
+    )
+    expect(diagnostic).toMatchObject({
+      turnId: 'turn_1',
+      payload: {
+        level: 'error',
+        data: {
+          code: 'codex_rpc_protocol_error',
+          fatal: true,
+        },
+      },
+    })
+    expect(events.filter((event) => event.type === 'turn.failed')).toHaveLength(1)
+    expect(events.find((event) => event.type === 'turn.failed')).toMatchObject({
+      turnId: 'turn_1',
+      payload: {
+        message: expect.stringContaining('Failed to parse JSON-RPC message'),
+        code: 'codex_rpc_protocol_error',
+        retryable: false,
+        reason: 'transport-error',
+      },
+    })
+    expect(events.filter((event) => event.type === 'invocation.failed')).toHaveLength(1)
+    expect(events.some((event) => event.type === 'invocation.exited')).toBe(false)
+  })
+
   test('rejects an unsupported initialize protocol version with a terminal invocation.failed', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({
@@ -614,6 +713,52 @@ describe('Codex app-server driver red scenarios', () => {
   test('maps child exit during an active turn to turn.failed and invocation.exited', async () => {
     const events = await runScenario('exit-during-turn')
     await expectGolden('exit-during-turn', events)
+  })
+
+  test('provider death preserves diagnostic, tool bracket, and terminal ordering', async () => {
+    const events = await runScenario('provider-death-open-tool')
+    await waitFor(
+      () => events.some((event) => event.type === 'invocation.exited'),
+      `events:\n${events.map((event) => JSON.stringify(event)).join('\n')}`
+    )
+    const types = eventTypes(events)
+    const diagnosticIndex = events.findIndex(
+      (event) =>
+        event.type === 'diagnostic' &&
+        (event.payload as { data?: { code?: string } }).data?.code === 'codex_process_exit'
+    )
+    const toolFailureIndex = types.indexOf('tool.call.failed')
+    const turnFailureIndex = types.indexOf('turn.failed')
+    const invocationExitIndex = types.indexOf('invocation.exited')
+
+    expect(diagnosticIndex).toBeGreaterThanOrEqual(0)
+    expect(events[diagnosticIndex]).toMatchObject({
+      turnId: 'turn_1',
+      payload: {
+        level: 'error',
+        data: { code: 'codex_process_exit', exitCode: 42, signal: null },
+      },
+    })
+    expect(events.filter((event) => event.type === 'tool.call.started')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'tool.call.failed')).toHaveLength(1)
+    expect(events[toolFailureIndex]).toMatchObject({
+      turnId: 'turn_1',
+      payload: {
+        toolCallId: 'cmd_open',
+        code: 'broker_unterminated_tool_call',
+      },
+    })
+    expect(events.filter((event) => event.type === 'turn.failed')).toHaveLength(1)
+    expect(events[turnFailureIndex]).toMatchObject({
+      payload: {
+        message: 'Harness process exited during active turn',
+        code: 'codex_process_exit',
+        data: { exitCode: 42, signal: null },
+      },
+    })
+    expect(diagnosticIndex).toBeLessThan(toolFailureIndex)
+    expect(toolFailureIndex).toBeLessThan(turnFailureIndex)
+    expect(turnFailureIndex).toBeLessThan(invocationExitIndex)
   })
 
   test('stops an active invocation with graceful child termination', async () => {

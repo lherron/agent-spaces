@@ -58,6 +58,7 @@ import {
   optionalString,
   optionalStringArray,
   requireArray,
+  requireNonEmptyString,
   requireNumber,
   requirePayloadRecord,
   requireString,
@@ -1431,7 +1432,7 @@ const EVENT_PAYLOAD_VALIDATORS = {
   'turn.failed': (payload, issues) => {
     requireString(payload['turnId'], 'payload.turnId', issues)
     optionalEnum(payload['status'], ['failed'], 'payload.status', issues)
-    optionalString(payload['message'], 'payload.message', issues)
+    requireNonEmptyString(payload['message'], 'payload.message', issues)
     optionalString(payload['finalOutput'], 'payload.finalOutput', issues)
     optionalString(payload['code'], 'payload.code', issues)
     optionalBoolean(payload['retryable'], 'payload.retryable', issues)

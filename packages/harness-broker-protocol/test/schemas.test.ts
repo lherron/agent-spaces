@@ -1310,6 +1310,19 @@ describe('validateEventEnvelope', () => {
     )
   })
 
+  test('turn.failed requires a non-empty message with a stable validation issue', () => {
+    for (const payload of [
+      { turnId: 'turn_1', status: 'failed', finalOutput: 'legacy failure' },
+      { turnId: 'turn_1', message: '' },
+      { turnId: 'turn_1', message: '   ' },
+    ]) {
+      expectInvalidEventEnvelope(envelope('turn.failed', payload), {
+        path: 'payload.message',
+        code: 'required',
+      })
+    }
+  })
+
   test('accepts terminal.surface.reported with kind:tmux-pane and full tmux ids', () => {
     const env = envelope('terminal.surface.reported', {
       kind: 'tmux-pane',

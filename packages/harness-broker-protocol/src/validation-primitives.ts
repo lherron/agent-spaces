@@ -17,6 +17,17 @@ export function requireString(value: unknown, basePath: string, issues: Validati
   }
 }
 
+export function requireNonEmptyString(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  requireString(value, basePath, issues)
+  if (typeof value === 'string' && value.trim().length === 0) {
+    issues.push(makeIssue(basePath, 'required', `${basePath} must be a non-empty string`))
+  }
+}
+
 export function requireNumber(value: unknown, basePath: string, issues: ValidationIssue[]): void {
   if (value === undefined) {
     issues.push(makeIssue(basePath, 'required', `${basePath} is required`))
