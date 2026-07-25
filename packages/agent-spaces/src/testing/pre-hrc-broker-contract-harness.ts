@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { BrokerClient } from 'spaces-harness-broker-client'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
@@ -1057,6 +1058,7 @@ async function runInteractiveTmuxInvocation(
     socketPath: string
   }> = []
   const driverTmuxArgv: string[][] = []
+  const driverTmuxLoadedText: string[] = []
   let hookHandler:
     | ((envelope: {
         invocationId: string
@@ -1164,8 +1166,10 @@ async function runInteractiveTmuxInvocation(
               stderr: '',
             }
           }
-          if (argv.includes('set-buffer')) {
-            pendingLine = argv.at(-1) ?? ''
+          if (argv.includes('load-buffer')) {
+            const bufferPath = argv.at(-1) ?? ''
+            pendingLine = readFileSync(bufferPath, 'utf8')
+            driverTmuxLoadedText.push(pendingLine)
             return { stdout: '', stderr: '' }
           }
           if (argv.includes('capture-pane')) {
@@ -1344,6 +1348,7 @@ async function runInteractiveTmuxInvocation(
       socketPath,
       tmuxServerEvents,
       driverTmuxArgv,
+      driverTmuxLoadedText,
       hookListenerClosed,
       driverDisposed,
       queuedInputLeft,

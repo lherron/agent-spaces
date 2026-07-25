@@ -238,6 +238,7 @@ export type PreHrcBrokerContractHarnessResult = {
           socketPath: string
         }>
         driverTmuxArgv: string[][]
+        driverTmuxLoadedText: string[]
         hookListenerClosed: boolean
         driverDisposed: boolean
         queuedInputLeft: boolean

@@ -584,6 +584,7 @@ describe('asp run <-> compiler foreground byte-parity', () => {
       '../../../harness-broker/src/drivers/claude-code-tmux/driver'
     )
     const tmuxArgv: string[][] = []
+    const tmuxLoadedText: string[] = []
     // T-01725 Phase C: the driver consumes a pane lease — synthesize one with
     // valid tmux id shapes ($N session, @N window, %N pane) and answer the
     // driver's inspect() probe (`display-message`) with matching identifiers
@@ -605,8 +606,10 @@ describe('asp run <-> compiler foreground byte-parity', () => {
               stderr: '',
             }
           }
-          if (argv.includes('set-buffer')) {
-            pendingLine = argv.at(-1) ?? ''
+          if (argv.includes('load-buffer')) {
+            const bufferPath = argv.at(-1) ?? ''
+            pendingLine = readFileSync(bufferPath, 'utf8')
+            tmuxLoadedText.push(pendingLine)
             return { stdout: '', stderr: '' }
           }
           if (argv.includes('capture-pane')) {
@@ -657,10 +660,9 @@ describe('asp run <-> compiler foreground byte-parity', () => {
     // <…>.launch.json` via the paste-confirm path. The actual command line — including
     // `--settings <durable>` and the merged hook overlay — lives in the JSON
     // launch artifact's `argv`, not in the staged tmux command text.
-    const launchCommandLine = tmuxArgv
-      .filter((argv) => argv.includes('set-buffer'))
-      .map((argv) => argv.at(-1) ?? '')
-      .find((text) => /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \S+$/.test(text))
+    const launchCommandLine = tmuxLoadedText.find((text) =>
+      /^exec bun \S*tmux-launch-runner\.(ts|js) --launch-file \S+$/.test(text)
+    )
     if (launchCommandLine === undefined) throw new Error('tmux launch command was not staged')
     const launchFilePath = launchCommandLine.replace(/^.*--launch-file /, '')
     const launchArtifact = JSON.parse(readFileSync(launchFilePath, 'utf8')) as { argv: string[] }
