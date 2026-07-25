@@ -22,6 +22,7 @@ import {
   PathResolver,
   type SpaceRefString,
   install as configInstall,
+  ensureImmutableRegistry,
   getAgentsRoot,
   getAspHome,
   getLegacyProjectHarnessOutputPath,
@@ -161,10 +162,21 @@ async function installRunTarget(args: RunInstallArgs): Promise<string> {
 async function materializeComposedRunTarget(
   args: RunInstallArgs & { effectiveCompose: SpaceRefString[] }
 ): Promise<string> {
+  const immutableRegistryPath = await ensureImmutableRegistry(
+    {
+      projectPath: args.options.projectPath,
+      ...(args.options.aspHome !== undefined ? { aspHome: args.options.aspHome } : {}),
+      ...(args.options.registryPath !== undefined
+        ? { registryPath: args.effectiveRegistryPath }
+        : {}),
+    },
+    { fetch: false }
+  )
   const materializeOptions = {
     targetName: args.targetName,
     refs: args.effectiveCompose,
     registryPath: args.effectiveRegistryPath,
+    immutableRegistryPath,
     lockPath: args.lockPath,
     projectPath: args.options.projectPath,
     harness: args.harnessId,
@@ -188,11 +200,22 @@ async function materializeComposedRunTarget(
 }
 
 async function installConfiguredRunTarget(args: RunInstallArgs): Promise<string> {
+  const immutableRegistryPath = await ensureImmutableRegistry(
+    {
+      projectPath: args.options.projectPath,
+      ...(args.options.aspHome !== undefined ? { aspHome: args.options.aspHome } : {}),
+      ...(args.options.registryPath !== undefined
+        ? { registryPath: args.effectiveRegistryPath }
+        : {}),
+    },
+    { fetch: false }
+  )
   const installOptions = {
     ...args.options,
     harness: args.harnessId,
     targets: [args.targetName],
     registryPath: args.effectiveRegistryPath,
+    immutableRegistryPath,
     adapter: args.adapter,
     fetchRegistry: false,
     ...(args.agentRoot ? { agentPath: args.agentRoot } : {}),

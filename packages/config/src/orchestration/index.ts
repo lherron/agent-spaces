@@ -11,6 +11,8 @@ export {
   loadProjectManifest,
   loadLockFileIfExists,
   getRegistryPath,
+  getImmutableRegistryPath,
+  ensureImmutableRegistry,
   getSpacesInOrder,
   type ResolveOptions,
   type ResolveResult,

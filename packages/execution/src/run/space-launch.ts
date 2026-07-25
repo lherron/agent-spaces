@@ -10,6 +10,7 @@ import {
   type HarnessId,
   type HarnessRunOptions,
   type LockFile,
+  PORTABLE_SPACES_REGISTRY,
   PathResolver,
   type ResolvedSpaceArtifact,
   type SpaceKey,
@@ -18,6 +19,7 @@ import {
   computeClosure,
   createSnapshot,
   ensureDir,
+  ensureImmutableRegistry,
   generateLockFileForTarget,
   getAspHome,
   getRegistryPath,
@@ -300,17 +302,26 @@ export async function runGlobalSpace(
     return runLocalSpace(spacePath, options)
   }
 
-  const closure = await computeClosure([spaceRefString], { cwd: registryPath })
+  const immutableRegistryPath = await ensureImmutableRegistry({
+    projectPath: process.cwd(),
+    aspHome,
+    ...(options.registryPath ? { registryPath: options.registryPath } : {}),
+  })
+  const closure = await computeClosure([spaceRefString], {
+    cwd: registryPath,
+    immutableCwd: immutableRegistryPath,
+  })
 
   for (const spaceKey of closure.loadOrder) {
     const space = closure.spaces.get(spaceKey)
     if (!space) continue
-    await createSnapshot(space.id, space.commit, { paths, cwd: registryPath })
+    await createSnapshot(space.id, space.commit, { paths, cwd: immutableRegistryPath })
   }
 
   const lock = await generateLockFileForTarget('_global', [spaceRefString], closure, {
     cwd: registryPath,
-    registry: { type: 'git', url: registryPath },
+    immutableCwd: immutableRegistryPath,
+    registry: PORTABLE_SPACES_REGISTRY,
   })
 
   await persistGlobalLock(lock, paths.globalLock)

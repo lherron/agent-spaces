@@ -302,7 +302,7 @@ export async function explain(options: ExplainOptions): Promise<ExplainResult> {
   }
 
   return {
-    registryUrl: lock.registry.url,
+    registryUrl: lock.registry.url ?? lock.registry.canonicalRemote,
     lockVersion: lock.lockfileVersion,
     generatedAt: lock.generatedAt,
     targets,

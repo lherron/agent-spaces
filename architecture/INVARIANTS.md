@@ -10,6 +10,14 @@ Agent profiles may declare jobs.default_node and schedules may override it with 
 
 Active records under architecture/records are agent-spaces' durable architecture law. ADRs, generated projections, docs, tasks, chats, and comments are provenance unless an active record imports a predicate.
 
+## agent-spaces.canonical-package-publication
+
+Every staged ASP package manifest carries exactly {schema,repository,canonicalRemote,sourceCommit,setName,setVersion,builtAt} under praesidiumBuild. Canonical publication freshly fetches its named remote tracking ref, requires a clean source tree and sourceCommit containment by that fetched ref, preflights the coherent set against same-name/version replacement, and cache-empty fetches every published tarball while verifying its build tuple. Dev, force, skip-existing, and worktree publication paths are explicitly non-canonical and cannot emit canonical proof.
+
+## agent-spaces.portable-immutable-source
+
+A generated portable ASP lock records immutable space source authority only as repository identity plus canonical remote. Node-local mirror and store paths are explicit ASP-owned placement state and are never serialized into the lock. Immutable entries, including historical pins, resolve and populate snapshots from that canonical mirror placement; mutable @dev entries continue to resolve from the node-local agents root. Legacy path-bearing locks may be read only to regenerate them and are never repaired by rewriting path strings.
+
 ## agent-spaces.verify-gate
 
 just verify is agent-spaces' local handoff gate and must include the architecture-records structure and projection-freshness check.

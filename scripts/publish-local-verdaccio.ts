@@ -47,16 +47,65 @@ type Manifest = {
   devDependencies?: Record<string, string>
   peerDependencies?: Record<string, string>
   optionalDependencies?: Record<string, string>
+  praesidiumBuild?: PraesidiumBuild
+}
+
+export const PRAESIDIUM_BUILD_FIELDS = [
+  'schema',
+  'repository',
+  'canonicalRemote',
+  'sourceCommit',
+  'setName',
+  'setVersion',
+  'builtAt',
+] as const
+
+export type PraesidiumBuild = {
+  schema: 1
+  repository: string
+  canonicalRemote: string
+  sourceCommit: string
+  setName: 'asp'
+  setVersion: string
+  builtAt: string
+}
+
+type SourceProof = {
+  repository: string
+  canonicalRemote: string
+  sourceCommit: string
+  canonicalRef: string
+  canonical: boolean
+}
+
+export function createPraesidiumBuild(input: {
+  repository: string
+  canonicalRemote: string
+  sourceCommit: string
+  setVersion: string
+  builtAt: string
+}): PraesidiumBuild {
+  return {
+    schema: 1,
+    repository: input.repository,
+    canonicalRemote: input.canonicalRemote,
+    sourceCommit: input.sourceCommit,
+    setName: 'asp',
+    setVersion: input.setVersion,
+    builtAt: input.builtAt,
+  }
 }
 
 let publishVersionsByName = new Map<string, string>()
 let publishPackages: readonly string[] = DEV_PUBLISH_PACKAGES
+let publicationSource: SourceProof
+let publicationBuiltAt = ''
 
 type Options = {
   dryRun: boolean
   force: boolean
   skipExisting: boolean
-  channel?: 'dev' | 'worktree'
+  channel?: 'canonical' | 'dev' | 'worktree'
   tag?: string
   version?: string
   sourceVersions: boolean
@@ -134,14 +183,14 @@ function parseArgs(argv: string[]): Options {
       options.sourceVersions = true
     } else if (arg === '--channel') {
       const value = argv[++i]
-      if (value !== 'dev' && value !== 'worktree') {
-        throw new Error('--channel must be "dev" or "worktree"')
+      if (value !== 'canonical' && value !== 'dev' && value !== 'worktree') {
+        throw new Error('--channel must be "canonical", "dev", or "worktree"')
       }
       options.channel = value
     } else if (arg.startsWith('--channel=')) {
       const value = arg.slice('--channel='.length)
-      if (value !== 'dev' && value !== 'worktree') {
-        throw new Error('--channel must be "dev" or "worktree"')
+      if (value !== 'canonical' && value !== 'dev' && value !== 'worktree') {
+        throw new Error('--channel must be "canonical", "dev", or "worktree"')
       }
       options.channel = value
     } else if (arg === '--version') {
@@ -177,11 +226,13 @@ function parseArgs(argv: string[]): Options {
 function printHelp(): void {
   console.log(`Usage:
   bun scripts/publish-local-verdaccio.ts [--dry-run]
+  bun scripts/publish-local-verdaccio.ts --channel canonical [--dry-run]
   bun scripts/publish-local-verdaccio.ts --channel worktree [--dry-run]
   bun scripts/publish-local-verdaccio.ts --source-versions [--tag <tag>] [--force|--skip-existing] [--dry-run]
   bun scripts/publish-local-verdaccio.ts --version <semver> [--tag <tag>] [--force|--skip-existing] [--dry-run]
 
-Default mode publishes a timestamped dev set as <base>-dev.YYYYMMDDHHMMSS tagged latest.
+Default mode publishes a non-canonical timestamped dev set as <base>-dev.YYYYMMDDHHMMSS.
+Canonical mode applies source/ref refusal gates and cache-empty published-set verification.
 Worktree channel publishes <base>-worktree.YYYYMMDDHHMMSS.<shortsha> tagged worktree.
 Source-version mode publishes each package at the version declared in its package.json.
 Explicit --version publishes that exact version. Stable versions default to --tag latest.
@@ -222,6 +273,91 @@ function run(cmd: string, args: string[], cwd = ROOT): { status: number; out: st
   }
 }
 
+function requiredCommandOutput(cmd: string, args: string[], cwd = ROOT): string {
+  const result = run(cmd, args, cwd)
+  if (result.status !== 0 || !result.out.trim()) {
+    throw new Error(`${cmd} ${args.join(' ')} failed: ${result.out}`)
+  }
+  return result.out.trim()
+}
+
+function parseCanonicalRef(canonicalRef: string): { remote: string; branch: string } {
+  const slash = canonicalRef.indexOf('/')
+  if (slash <= 0 || slash === canonicalRef.length - 1) {
+    throw new Error('Canonical ref must be a remote-tracking ref (for example origin/main)')
+  }
+  return {
+    remote: canonicalRef.slice(0, slash),
+    branch: canonicalRef.slice(slash + 1),
+  }
+}
+
+/**
+ * Prove the source identity used by a publication.
+ *
+ * Canonical mode fetches the named remote branch into its tracking ref, then
+ * refuses a dirty tree or a HEAD not contained by that freshly fetched ref.
+ * Non-canonical modes still record source identity but make no landed claim.
+ */
+export function provePublicationSource(input: {
+  canonical: boolean
+  canonicalRef?: string | undefined
+  root?: string | undefined
+}): SourceProof {
+  const root = input.root ?? ROOT
+  const canonicalRef = input.canonicalRef ?? process.env.ASP_CANONICAL_REF ?? 'origin/main'
+  const { remote, branch } = parseCanonicalRef(canonicalRef)
+  const canonicalRemote = requiredCommandOutput('git', ['remote', 'get-url', remote], root)
+
+  if (input.canonical) {
+    const fetched = run(
+      'git',
+      ['fetch', '--prune', remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`],
+      root
+    )
+    if (fetched.status !== 0) {
+      throw new Error(
+        `Canonical publication could not freshly fetch ${canonicalRef}: ${fetched.out}`
+      )
+    }
+
+    const status = requiredCommandOutputOrEmpty(
+      'git',
+      ['status', '--porcelain=v1', '--untracked-files=all'],
+      root
+    )
+    if (status) {
+      throw new Error(`Canonical publication requires a clean source tree:\n${status}`)
+    }
+  }
+
+  const sourceCommit = requiredCommandOutput('git', ['rev-parse', 'HEAD'], root)
+  if (input.canonical) {
+    const contained = run('git', ['merge-base', '--is-ancestor', sourceCommit, canonicalRef], root)
+    if (contained.status !== 0) {
+      throw new Error(
+        `Canonical publication source ${sourceCommit} is not contained by freshly fetched ${canonicalRef}`
+      )
+    }
+  }
+
+  return {
+    repository: 'agent-spaces',
+    canonicalRemote,
+    sourceCommit,
+    canonicalRef,
+    canonical: input.canonical,
+  }
+}
+
+function requiredCommandOutputOrEmpty(cmd: string, args: string[], cwd = ROOT): string {
+  const result = run(cmd, args, cwd)
+  if (result.status !== 0) {
+    throw new Error(`${cmd} ${args.join(' ')} failed: ${result.out}`)
+  }
+  return result.out.trim()
+}
+
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => stableJson(item)).join(',')}]`
@@ -255,8 +391,14 @@ function normalizeManifestForFingerprint(
   manifest: Manifest,
   internalPackageNames: Set<string>
 ): Record<string, unknown> {
-  const { version: _version, ...manifestWithoutVersion } = manifest
-  const normalized: Record<string, unknown> = { ...manifestWithoutVersion }
+  const {
+    version: _version,
+    praesidiumBuild: _praesidiumBuild,
+    ...manifestWithoutGeneratedPublicationFields
+  } = manifest
+  const normalized: Record<string, unknown> = {
+    ...manifestWithoutGeneratedPublicationFields,
+  }
   for (const field of DEPENDENCY_FIELDS) {
     normalized[field] = normalizeInternalDependencySpecs(manifest[field], internalPackageNames)
   }
@@ -483,7 +625,7 @@ function gitShortSha(): string {
 
 export function timestampVersion(
   baseVersion: string,
-  channel: 'dev' | 'worktree' = 'dev',
+  channel: 'canonical' | 'dev' | 'worktree' = 'dev',
   now = new Date(),
   shortSha = gitShortSha()
 ): string {
@@ -562,6 +704,13 @@ async function packForPublish(rel: string): Promise<{
     const publishManifest = {
       ...manifestWithoutPrivate,
       version: packagePublishVersion,
+      praesidiumBuild: createPraesidiumBuild({
+        repository: publicationSource.repository,
+        canonicalRemote: publicationSource.canonicalRemote,
+        sourceCommit: publicationSource.sourceCommit,
+        setVersion: packagePublishVersion,
+        builtAt: publicationBuiltAt,
+      }),
       dependencies: pinInternalDependencies(manifest.dependencies, publishVersionsByName),
       devDependencies: pinInternalDependencies(manifest.devDependencies, publishVersionsByName),
       peerDependencies: pinInternalDependencies(manifest.peerDependencies, publishVersionsByName),
@@ -615,6 +764,15 @@ async function packForPublish(rel: string): Promise<{
     }
     if (stagedManifest.private) {
       throw new Error(`${manifest.name} tarball still has private=true`)
+    }
+    if (
+      !stagedManifest.praesidiumBuild ||
+      JSON.stringify(Object.keys(stagedManifest.praesidiumBuild)) !==
+        JSON.stringify(PRAESIDIUM_BUILD_FIELDS)
+    ) {
+      throw new Error(
+        `${manifest.name} tarball does not carry the exact normative praesidiumBuild tuple`
+      )
     }
     const extractedPackageDir = join(extractDir, 'package')
     const referencedFiles = [
@@ -759,11 +917,105 @@ async function publishPackedPackage(packed: PackedPackage): Promise<void> {
   console.log(`PUBLISHED  ${id} --tag ${publishTag}`)
 }
 
+export async function assertNoCanonicalVersionReplacement(
+  packages: Array<{ name: string; version: string }>,
+  exists: (name: string, version: string) => Promise<boolean> = versionExists
+): Promise<void> {
+  for (const packed of packages) {
+    if (await exists(packed.name, packed.version)) {
+      throw new Error(
+        `Canonical publication refuses same-name/version replacement: ${packed.name}@${packed.version} already exists in ${REGISTRY}`
+      )
+    }
+  }
+}
+
+async function verifyCanonicalPublishedSet(
+  packedPackages: PackedPackage[]
+): Promise<Array<{ name: string; version: string; tarball: string; bytes: number }>> {
+  const proof: Array<{ name: string; version: string; tarball: string; bytes: number }> = []
+
+  for (const packed of packedPackages) {
+    const metadata = await registryMetadata(packed.name)
+    const versionMetadata = metadata?.versions?.[packed.version]
+    const tarballUrl = versionMetadata?.dist?.tarball
+    if (!tarballUrl) {
+      throw new Error(`Published metadata is missing ${packed.name}@${packed.version}`)
+    }
+
+    const response = await fetch(
+      `${tarballUrl}${tarballUrl.includes('?') ? '&' : '?'}praesidium_no_cache=${Date.now()}`,
+      {
+        cache: 'no-store',
+        headers: {
+          'cache-control': 'no-cache, no-store, max-age=0',
+          pragma: 'no-cache',
+        },
+      }
+    )
+    if (!response.ok) {
+      throw new Error(
+        `Cache-empty tarball fetch failed for ${packed.name}@${packed.version}: ` +
+          `${response.status} ${response.statusText}`
+      )
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    if (bytes.byteLength === 0) {
+      throw new Error(`Cache-empty tarball fetch returned no bytes for ${packed.name}`)
+    }
+
+    let temp = ''
+    try {
+      temp = await mkdtemp(join(tmpdir(), 'asp-published-proof-'))
+      const tarballPath = join(temp, 'package.tgz')
+      await writeFile(tarballPath, bytes)
+      const extracted = join(temp, 'extract')
+      const mkdir = run('mkdir', ['-p', extracted])
+      if (mkdir.status !== 0) throw new Error(mkdir.out)
+      const tar = run('tar', ['-xzf', tarballPath, '-C', extracted])
+      if (tar.status !== 0) throw new Error(tar.out)
+      const manifest = JSON.parse(
+        await readFile(join(extracted, 'package', 'package.json'), 'utf8')
+      ) as Manifest
+      const expectedBuild = createPraesidiumBuild({
+        repository: publicationSource.repository,
+        canonicalRemote: publicationSource.canonicalRemote,
+        sourceCommit: publicationSource.sourceCommit,
+        setVersion: packed.version,
+        builtAt: publicationBuiltAt,
+      })
+      if (stableJson(manifest.praesidiumBuild) !== stableJson(expectedBuild)) {
+        throw new Error(`Published provenance mismatch for ${packed.name}@${packed.version}`)
+      }
+    } finally {
+      if (temp) await rm(temp, { recursive: true, force: true })
+    }
+
+    proof.push({
+      name: packed.name,
+      version: packed.version,
+      tarball: tarballUrl,
+      bytes: bytes.byteLength,
+    })
+  }
+
+  return proof
+}
+
 let options: Options
 let publishTag = 'latest'
 
 async function main(argv = process.argv.slice(2)) {
   options = parseArgs(argv)
+  const canonical = options.channel === 'canonical' && !options.force && !options.skipExisting
+  publicationSource = provePublicationSource({ canonical })
+  publicationBuiltAt = new Date().toISOString()
+  if (!canonical) {
+    console.log(
+      `NON_CANONICAL publication channel=${options.channel ?? 'dev'} ` +
+        `force=${options.force} skipExisting=${options.skipExisting}`
+    )
+  }
   publishPackages =
     options.version || options.sourceVersions || process.env.ASP_PUBLISH_VERSION
       ? RELEASE_PUBLISH_PACKAGES
@@ -809,8 +1061,29 @@ async function main(argv = process.argv.slice(2)) {
       console.log(`PUBLISHING full ASP wave: ${plan.reason}`)
     }
 
+    if (canonical) {
+      await assertNoCanonicalVersionReplacement(packedPackages)
+    }
+
     for (const packed of packedPackages) {
       await publishPackedPackage(packed)
+    }
+
+    if (canonical && !options.dryRun) {
+      const fetched = await verifyCanonicalPublishedSet(packedPackages)
+      console.log(
+        `PRAESIDIUM_PUBLISH_PROOF ${JSON.stringify({
+          schema: 1,
+          canonical: true,
+          canonicalRef: publicationSource.canonicalRef,
+          repository: publicationSource.repository,
+          canonicalRemote: publicationSource.canonicalRemote,
+          sourceCommit: publicationSource.sourceCommit,
+          setName: 'asp',
+          builtAt: publicationBuiltAt,
+          packages: fetched,
+        })}`
+      )
     }
   } finally {
     await Promise.all(

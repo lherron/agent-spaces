@@ -13,10 +13,25 @@
     "registry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "url"],
+      "required": ["type"],
+      "oneOf": [
+        {
+          "required": ["url"],
+          "properties": { "url": { "type": "string" } }
+        },
+        {
+          "required": ["repository", "canonicalRemote"],
+          "properties": {
+            "repository": { "type": "string" },
+            "canonicalRemote": { "type": "string" }
+          }
+        }
+      ],
       "properties": {
         "type": { "type": "string", "const": "git" },
         "url": { "type": "string" },
+        "repository": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "canonicalRemote": { "type": "string", "minLength": 1 },
         "defaultBranch": { "type": "string" }
       }
     },

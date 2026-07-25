@@ -7,15 +7,43 @@
 
 import type { CommitSha, Sha256Integrity, SpaceId, SpaceKey, SpaceRefString } from './refs.js'
 
-/** Registry information in lock file */
-export interface LockRegistry {
+interface LockRegistryBase {
   /** Registry type (currently only "git") */
   type: 'git'
-  /** Registry URL */
-  url: string
   /** Default branch name */
   defaultBranch?: string
 }
+
+/** Legacy path-bearing registry information, accepted only for regeneration. */
+export interface LegacyLockRegistry extends LockRegistryBase {
+  /**
+   * Legacy checkout locator. Accepted only so an old lock can be regenerated;
+   * newly generated portable locks never emit this node-local field.
+   */
+  url: string
+  repository?: never
+  canonicalRemote?: never
+}
+
+/** Portable canonical identity for immutable registry content. */
+export interface PortableLockRegistry extends LockRegistryBase {
+  /** Stable repository identity used by portable locks. */
+  repository: string
+  /** Canonical source remote for immutable commits. */
+  canonicalRemote: string
+  url?: never
+}
+
+/** Registry information in a lock file. */
+export type LockRegistry = LegacyLockRegistry | PortableLockRegistry
+
+/** Canonical immutable source identity emitted by newly generated ASP locks. */
+export const PORTABLE_SPACES_REGISTRY: PortableLockRegistry = Object.freeze({
+  type: 'git',
+  repository: 'spaces-repo',
+  canonicalRemote: 'git@github.com:lherron/spaces-repo.git',
+  defaultBranch: 'main',
+})
 
 /** Plugin identity stored in lock */
 export interface LockPluginInfo {

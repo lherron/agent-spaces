@@ -23,7 +23,7 @@ describe('install policy', () => {
       context: 'main',
       syncMode: 'on',
       linkMode: 'on',
-      publishChannel: 'dev',
+      publishChannel: 'canonical',
       publishTag: 'latest',
     })
   })

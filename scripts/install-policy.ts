@@ -3,7 +3,7 @@ import { existsSync, realpathSync } from 'node:fs'
 import { isAbsolute, normalize, resolve } from 'node:path'
 
 export type InstallContext = 'main' | 'linked-worktree'
-export type PublishChannel = 'dev' | 'worktree'
+export type PublishChannel = 'canonical' | 'worktree'
 export type SideEffectMode = 'on' | 'off' | 'forced'
 
 export type InstallPolicy = {
@@ -73,7 +73,7 @@ export function computeInstallPolicy(input: InstallPolicyInput): InstallPolicy {
       ? 'off'
       : 'on'
   const linkMode: SideEffectMode = forceLink ? 'forced' : isWorktree ? 'off' : 'on'
-  const publishChannel: PublishChannel = isWorktree ? 'worktree' : 'dev'
+  const publishChannel: PublishChannel = isWorktree ? 'worktree' : 'canonical'
 
   return {
     context: input.context,

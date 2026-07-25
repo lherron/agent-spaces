@@ -158,7 +158,7 @@ rebuild:
 # Linked Git worktrees auto-disable downstream sync and wrapper linking unless force-sync=1
 # and/or force-link=1 is passed explicitly.
 # After `bun install`, the dependency graph forks:
-#   build ─┬─→ publish-dev ─→ (hrc sync ∥ acp sync)
+#   build ─┬─→ publish-canonical ─→ (hrc sync ∥ acp sync)
 #          └─→ bun link (asp + harness-broker)
 # Executable package links run alongside publish+sync; the two downstream syncs run in parallel.
 install no-sync="" force-sync="" force-link="":
@@ -202,7 +202,7 @@ install no-sync="" force-sync="" force-link="":
     if [ "$PRAESIDIUM_INSTALL_PUBLISH_CHANNEL" = "worktree" ]; then
       just publish-worktree
     else
-      just publish-dev
+      just publish-canonical
     fi
 
     if [ "$PRAESIDIUM_INSTALL_SYNC_MODE" != "off" ]; then
@@ -269,6 +269,14 @@ sync-downstream:
 # Publish timestamped dev package set to local Verdaccio
 publish-dev:
     bun scripts/publish-local-verdaccio.ts
+
+# Publish canonical timestamped package set with landed-source/ref proof
+publish-canonical:
+    bun scripts/publish-local-verdaccio.ts --channel canonical
+
+# Validate canonical timestamped package set without publishing
+publish-canonical-dry-run:
+    bun scripts/publish-local-verdaccio.ts --channel canonical --dry-run
 
 # Validate timestamped dev package set without publishing
 publish-dev-dry-run:
