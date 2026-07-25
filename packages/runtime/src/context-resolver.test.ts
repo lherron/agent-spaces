@@ -308,6 +308,105 @@ source = "session.additionalExec"
     })
   })
 
+  test('T-06966 classifies an unconfigured slot as empty instead of failed', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "additional-base"
+type = "slot"
+source = "instructions.additionalBase"
+`),
+      defaultContext({ agentProfile: {} })
+    )
+
+    expect(resolved.prompt).toBeUndefined()
+    expect(resolved.promptSections[0]).toMatchObject({
+      included: false,
+      skippedReason: 'empty',
+      disposition: { kind: 'skipped', reason: 'empty' },
+    })
+  })
+
+  test('T-06966 keeps a wrong-typed slot source failed with its source and reason', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "additional-base"
+type = "slot"
+source = "instructions.additionalBase"
+`),
+      defaultContext({
+        agentProfile: {
+          instructions: {
+            additionalBase: { ref: 'agent-root:///base-agent.md' },
+          },
+        },
+      })
+    )
+
+    expect(resolved.prompt).toBeUndefined()
+    expect(resolved.promptSections[0]).toMatchObject({
+      included: false,
+      disposition: {
+        kind: 'failed',
+        source: { kind: 'slot', source: 'instructions.additionalBase' },
+        reason: 'Slot source instructions.additionalBase must resolve to a string or string array',
+      },
+    })
+  })
+
+  test('T-06966 keeps file and exec slot resolution errors failed with contribution detail', async () => {
+    const resolved = await resolveContextTemplateDetailed(
+      parseContextTemplate(`
+schema_version = 2
+
+[[reminder]]
+name = "additional-session"
+type = "slot"
+source = "session.additionalContext"
+
+[[reminder]]
+name = "additional-session-exec"
+type = "slot"
+source = "session.additionalExec"
+`),
+      defaultContext({
+        agentProfile: {
+          session: {
+            additionalContext: ['agent-root:///../../outside.md'],
+            additionalExec: ['exit 19'],
+          },
+        },
+      })
+    )
+
+    expect(resolved.reminder).toBeUndefined()
+    expect(resolved.reminderSections[0]?.disposition).toMatchObject({
+      kind: 'failed',
+      source: { kind: 'slot', source: 'session.additionalContext' },
+      reason: expect.stringContaining('Unreadable slot file agent-root:///../../outside.md'),
+    })
+    expect(resolved.reminderSections[0]?.contributionRecords[0]?.disposition).toMatchObject({
+      kind: 'failed',
+      source: { kind: 'file', ref: 'agent-root:///../../outside.md' },
+      reason: expect.stringMatching(/escapes.*root/i),
+    })
+    expect(resolved.reminderSections[1]?.disposition).toMatchObject({
+      kind: 'failed',
+      source: { kind: 'slot', source: 'session.additionalExec' },
+      reason: expect.stringMatching(/exit code: 19/i),
+    })
+    expect(resolved.reminderSections[1]?.contributionRecords[0]?.disposition).toMatchObject({
+      kind: 'failed',
+      source: { kind: 'exec', command: 'exit 19' },
+      reason: expect.stringMatching(/exit code: 19/i),
+    })
+  })
+
   test('T-04143 resolves agents-root scheme through the overlay-first agent-root search path', async () => {
     const localAgentsRoot = join(projectRoot, 'agents')
     await mkdir(localAgentsRoot, { recursive: true })

@@ -555,10 +555,7 @@ async function resolveSlotSection(
 
   const sourceValue = resolveSourcePath(context.agentProfile, section.source)
   if (sourceValue === undefined) {
-    return failedSlotResolution(
-      section.source,
-      `Slot source ${section.source} could not be resolved from the agent profile`
-    )
+    return asSectionResolution(undefined)
   }
 
   const entries = normalizeStringEntries(sourceValue)
