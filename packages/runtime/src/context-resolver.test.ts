@@ -329,6 +329,71 @@ source = "instructions.additionalBase"
     })
   })
 
+  test.each([
+    ['empty string', ''],
+    ['empty array', []],
+    ['array containing only empty strings', ['', '']],
+  ])('T-06969 classifies a present %s slot as empty instead of failed', async (_label, value) => {
+    const resolved = await resolveContextTemplateDetailed(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "additional-base"
+type = "slot"
+source = "instructions.additionalBase"
+`),
+      defaultContext({
+        agentProfile: {
+          instructions: {
+            additionalBase: value,
+          },
+        },
+      })
+    )
+
+    expect(resolved.prompt).toBeUndefined()
+    expect(resolved.promptSections[0]).toMatchObject({
+      included: false,
+      skippedReason: 'empty',
+      disposition: { kind: 'skipped', reason: 'empty' },
+    })
+  })
+
+  test.each([
+    ['number', 42],
+    ['object', { ref: 'agent-root:///base-agent.md' }],
+    ['mixed array', ['agent-root:///base-agent.md', 42]],
+  ])('T-06969 keeps a present wrong-typed %s slot failed', async (_label, value) => {
+    const resolved = await resolveContextTemplateDetailed(
+      parseContextTemplate(`
+schema_version = 2
+
+[[prompt]]
+name = "additional-base"
+type = "slot"
+source = "instructions.additionalBase"
+`),
+      defaultContext({
+        agentProfile: {
+          instructions: {
+            additionalBase: value,
+          },
+        },
+      })
+    )
+
+    expect(resolved.prompt).toBeUndefined()
+    expect(resolved.promptSections[0]).toMatchObject({
+      included: false,
+      disposition: {
+        kind: 'failed',
+        source: { kind: 'slot', source: 'instructions.additionalBase' },
+        reason: 'Slot source instructions.additionalBase must resolve to a string or string array',
+      },
+    })
+  })
+
   test('T-06966 keeps a wrong-typed slot source failed with its source and reason', async () => {
     const resolved = await resolveContextTemplateDetailed(
       parseContextTemplate(`
