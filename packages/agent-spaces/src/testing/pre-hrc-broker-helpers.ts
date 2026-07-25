@@ -22,7 +22,11 @@ import type {
   RuntimeIdentityAllocation,
   RuntimePlacement,
 } from 'spaces-runtime-contracts'
-import { createCanonicalHasher } from 'spaces-runtime-contracts'
+import {
+  createCanonicalHasher,
+  neutralSpecHash,
+  neutralStartRequestHash,
+} from 'spaces-runtime-contracts'
 
 import type { ContractHarnessFailure } from './pre-hrc-broker-contract-types.js'
 
@@ -301,51 +305,6 @@ function canonicalHash(value: unknown): string {
   return createCanonicalHasher().hash(value, { timestampMode: 'omit-ephemeral' }).value
 }
 
-function hashNeutralInvocationSpec(
-  spec: InvocationStartRequest['spec']
-): InvocationStartRequest['spec'] {
-  const {
-    invocationId: _invocationId,
-    correlation: _correlation,
-    ...hashSpec
-  } = spec as InvocationStartRequest['spec'] & { correlation?: unknown }
-  return hashSpec
-}
-
-/**
- * Mirror of the compiler's start-request hash projection (T-04133): retain the
- * deterministic `initialInput.inputId` and the per-turn `responseFormat`
- * (T-03779), drop content, and neutralize the per-dispatch `spec.invocationId` /
- * `correlation`. Must stay in lockstep with `hashNeutralStartRequest` in
- * compile-runtime-plan.ts so the pre-start gate recomputes the same
- * `startRequestHash` the compiler embedded — and so that post-compile content
- * drift is caught by `initialInputHash`, not this hash.
- */
-type StartRequestHashMaterial = Omit<InvocationStartRequest, 'initialInput'> & {
-  initialInput?: {
-    inputId: NonNullable<InvocationStartRequest['initialInput']>['inputId']
-    responseFormat?: NonNullable<InvocationStartRequest['initialInput']>['responseFormat']
-  }
-}
-
-function hashNeutralStartRequest(startRequest: InvocationStartRequest): StartRequestHashMaterial {
-  const { initialInput, ...rest } = startRequest
-  return {
-    ...rest,
-    spec: hashNeutralInvocationSpec(startRequest.spec),
-    ...(initialInput !== undefined
-      ? {
-          initialInput: {
-            inputId: initialInput.inputId,
-            ...(initialInput.responseFormat !== undefined
-              ? { responseFormat: initialInput.responseFormat }
-              : {}),
-          },
-        }
-      : {}),
-  }
-}
-
 /** Recursively freeze an object graph in place. */
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -391,8 +350,8 @@ export function verifyBrokerStartContract(
   }
 
   const startRequest = invocation.startRequest
-  const recomputedSpecHash = canonicalHash(hashNeutralInvocationSpec(startRequest.spec))
-  const recomputedStartRequestHash = canonicalHash(hashNeutralStartRequest(startRequest))
+  const recomputedSpecHash = neutralSpecHash(startRequest.spec)
+  const recomputedStartRequestHash = neutralStartRequestHash(startRequest)
   const recomputedInitialInputHash =
     startRequest.initialInput !== undefined ? canonicalHash(startRequest.initialInput) : undefined
 

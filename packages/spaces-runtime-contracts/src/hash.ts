@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { HarnessInvocationSpec, InvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type { JsonValue } from './primitives'
 
 export type HashAlgorithm = 'sha256-canonical-json/v1'
@@ -168,6 +169,68 @@ export type RuntimeContractProjection =
       startRequestHash: string
       value: JsonValue
     }
+
+type HashNeutralInvocationSpecMaterial = Omit<HarnessInvocationSpec, 'invocationId' | 'correlation'>
+
+type StartRequestHashMaterial = Omit<InvocationStartRequest, 'spec' | 'initialInput'> & {
+  spec: HashNeutralInvocationSpecMaterial
+  initialInput?:
+    | {
+        inputId: NonNullable<InvocationStartRequest['initialInput']>['inputId']
+        responseFormat?: NonNullable<InvocationStartRequest['initialInput']>['responseFormat']
+      }
+    | undefined
+}
+
+/**
+ * Remove per-dispatch identity from an invocation spec before projecting it.
+ * `project()` itself intentionally remains a raw projection of its input.
+ */
+export function hashNeutralInvocationSpec(
+  spec: HarnessInvocationSpec
+): HashNeutralInvocationSpecMaterial {
+  const { invocationId: _invocationId, correlation: _correlation, ...material } = spec
+  return material
+}
+
+/**
+ * Produce the shared start-request hash material.
+ *
+ * `initialInput.inputId` and `responseFormat` are request identity. Content and
+ * all other payload fields are excluded here and remain guarded separately by
+ * the caller's full-payload `initialInputHash`.
+ */
+export function hashNeutralStartRequest(
+  startRequest: InvocationStartRequest
+): StartRequestHashMaterial {
+  const { initialInput, spec, ...rest } = startRequest
+  return {
+    ...rest,
+    spec: hashNeutralInvocationSpec(spec),
+    ...(initialInput !== undefined
+      ? {
+          initialInput: {
+            inputId: initialInput.inputId,
+            ...(initialInput.responseFormat !== undefined
+              ? { responseFormat: initialInput.responseFormat }
+              : {}),
+          },
+        }
+      : {}),
+  }
+}
+
+export function neutralSpecHash(spec: HarnessInvocationSpec): string {
+  return (project(hashNeutralInvocationSpec(spec), 'spec') as { specHash: string }).specHash
+}
+
+export function neutralStartRequestHash(startRequest: InvocationStartRequest): string {
+  return (
+    project(hashNeutralStartRequest(startRequest), 'start-request') as {
+      startRequestHash: string
+    }
+  ).startRequestHash
+}
 
 export function project(
   source: unknown,
