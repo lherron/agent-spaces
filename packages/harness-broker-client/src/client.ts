@@ -35,13 +35,17 @@ import type {
   JsonRpcNotification,
 } from 'spaces-harness-broker-protocol'
 import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
-import { InvocationEventHub } from './invocation-event-hub'
+import { type DroppedInvocationEventHandler, InvocationEventHub } from './invocation-event-hub'
 import { type PermissionRequestHandler, PermissionRouter } from './permission-router'
 import { StdioTransport, type StdioTransportStartOptions } from './stdio-transport'
 import type { BrokerJsonRpcTransport, CloseHandler } from './transport'
 import { UnixSocketTransport } from './unix-socket-transport'
 
-export interface ConnectUnixOptions {
+export interface BrokerClientOptions {
+  onDroppedEvent?: DroppedInvocationEventHandler | undefined
+}
+
+export interface ConnectUnixOptions extends BrokerClientOptions {
   socketPath: string
   timeoutMs?: number | undefined
 }
@@ -82,12 +86,13 @@ const DISPATCH_OPTION_KEYS = [
 
 export class BrokerClient {
   #transport: BrokerJsonRpcTransport
-  #eventHub = new InvocationEventHub()
+  #eventHub: InvocationEventHub
   #permissions = new PermissionRouter()
   #closeHandlers = new Set<CloseHandler>()
 
-  private constructor(transport: BrokerJsonRpcTransport) {
+  private constructor(transport: BrokerJsonRpcTransport, options: BrokerClientOptions = {}) {
     this.#transport = transport
+    this.#eventHub = new InvocationEventHub(options)
     this.#transport.onNotification((notification) => {
       this.#handleNotification(notification)
     })
@@ -105,8 +110,14 @@ export class BrokerClient {
     })
   }
 
-  static async start(opts: StdioTransportStartOptions): Promise<BrokerClient> {
-    return new BrokerClient(await StdioTransport.start(opts))
+  static async start(
+    opts: StdioTransportStartOptions & BrokerClientOptions
+  ): Promise<BrokerClient> {
+    const { onDroppedEvent, ...transportOptions } = opts
+    return new BrokerClient(
+      await StdioTransport.start(transportOptions),
+      onDroppedEvent === undefined ? {} : { onDroppedEvent }
+    )
   }
 
   /**
@@ -115,12 +126,19 @@ export class BrokerClient {
    * destroys only the socket and leaves the broker process running.
    */
   static async connectUnix(opts: ConnectUnixOptions): Promise<BrokerClient> {
-    return new BrokerClient(await UnixSocketTransport.connect(opts))
+    const { onDroppedEvent, ...transportOptions } = opts
+    return new BrokerClient(
+      await UnixSocketTransport.connect(transportOptions),
+      onDroppedEvent === undefined ? {} : { onDroppedEvent }
+    )
   }
 
   /** Wrap an already-established transport (e.g. for tests or custom channels). */
-  static fromTransport(transport: BrokerJsonRpcTransport): BrokerClient {
-    return new BrokerClient(transport)
+  static fromTransport(
+    transport: BrokerJsonRpcTransport,
+    options: BrokerClientOptions = {}
+  ): BrokerClient {
+    return new BrokerClient(transport, options)
   }
 
   async hello(req: BrokerHelloRequest): Promise<BrokerHelloResponse> {

@@ -1,6 +1,15 @@
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
 import { EventIterator } from './event-iterator'
 
+export type DroppedInvocationEventHandler = (
+  event: InvocationEventEnvelope,
+  lastSeq: number
+) => void
+
+export interface InvocationEventHubOptions {
+  onDroppedEvent?: DroppedInvocationEventHandler | undefined
+}
+
 /**
  * Owns the per-invocation event-stream lifecycle for {@link BrokerClient}:
  * live {@link EventIterator} streams, buffered events that arrived before a
@@ -16,11 +25,21 @@ export class InvocationEventHub {
   #pendingEvents = new Map<string, InvocationEventEnvelope[]>()
   // Highest event seq already surfaced per invocation.
   #lastEventSeq = new Map<string, number>()
+  readonly #onDroppedEvent: DroppedInvocationEventHandler | undefined
+
+  constructor(options: InvocationEventHubOptions = {}) {
+    this.#onDroppedEvent = options.onDroppedEvent
+  }
 
   /** Surface an event to its stream, dropping duplicates by (invocationId, seq). */
   ingest(event: InvocationEventEnvelope): void {
     const lastSeq = this.#lastEventSeq.get(event.invocationId)
     if (lastSeq !== undefined && event.seq <= lastSeq) {
+      try {
+        this.#onDroppedEvent?.(event, lastSeq)
+      } catch {
+        // Observability must never break the monotonic event stream.
+      }
       return
     }
     this.#lastEventSeq.set(event.invocationId, event.seq)
