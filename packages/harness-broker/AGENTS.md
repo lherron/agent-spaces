@@ -37,13 +37,15 @@ Codex.app app-server shim experiment (T-04237) is off by default; enable by quit
 Cross-harness floor on every row: compile/select/verify start-contract (hashes +
 route invariants) + ledger integrity (monotonic seq / no dup / normalized vocab
 only) + invocation.started/ready + `assertSharedCommandTurn` on the command turn.
-The matrix also runs the `structured-output` scenario against every row. Rows
-whose advertised capabilities include `finalResponse.jsonSchema` and `perTurn`
-must accept a per-turn `responseFormat: { kind: "json_schema" }` input and emit
-exactly one normalized JSON `assistant.message.completed{final:true}` plus one
-`turn.completed`; rows that do not advertise that capability must reject the
-input as `UnsupportedCapability: finalResponse.jsonSchema` before
-`input.accepted`.
+The matrix also runs the `structured-output` scenario against every broker-managed
+row. Rows whose advertised capabilities include `finalResponse.jsonSchema` and
+`perTurn` must accept a per-turn `responseFormat: { kind: "json_schema" }` input
+and emit exactly one normalized JSON `assistant.message.completed{final:true}`
+plus one `turn.completed`; rows that do not advertise that capability must reject
+the input as `UnsupportedCapability: finalResponse.jsonSchema` before
+`input.accepted`. The `real-pi-sdk-embedded` row is the explicit exception: its
+one-turn in-process executor exposes no broker input/capability surface, so it
+records a machine-visible `not-applicable` disposition instead.
 Operator contract — `claude-code-tmux` structured output is WARM-ONLY (T-05156).
 The driver synthesizes enforcement on the in-flight turn (`applyInputNow` appends
 the schema directive; the Stop-hook validates/retries), so the schema only has a
