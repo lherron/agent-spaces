@@ -34,6 +34,9 @@ import {
   type RuntimeContractProjection,
   type TerminalExecutionProfile,
   createCanonicalHasher,
+  hashNeutralStartRequest,
+  neutralSpecHash,
+  neutralStartRequestHash,
   project,
   validateBrokerExecutionProfile,
   validateEmbeddedSdkExecutionProfile,
@@ -111,51 +114,6 @@ function hashNeutralPlacement(
       correlation?: unknown
     }
   return hashPlacement
-}
-
-function hashNeutralInvocationSpec(spec: HarnessInvocationSpec): HarnessInvocationSpec {
-  const {
-    invocationId: _invocationId,
-    correlation: _correlation,
-    ...hashSpec
-  } = spec as HarnessInvocationSpec & { correlation?: unknown }
-  return hashSpec
-}
-
-/**
- * Hash material for a start request. `spec.invocationId` / `correlation` stay
- * neutralized (per-dispatch identity). Of `initialInput` the deterministic
- * `inputId` is retained (T-04133): its derivation now folds generation + content,
- * so a changed generation moves the start-request hash while a pure correlation
- * change does not. Content is deliberately NOT hashed here — post-compile content
- * drift is caught by `initialInputHash`, keeping the two contract gates distinct.
- * The per-turn `responseFormat` (T-03779) IS retained: it is a caller-supplied
- * turn-identity field that need not move the deterministic `inputId` (callers may
- * pin `initialInputId`), so the start-request gate must observe it directly.
- */
-type StartRequestHashMaterial = Omit<InvocationStartRequest, 'initialInput'> & {
-  initialInput?: {
-    inputId: NonNullable<InvocationStartRequest['initialInput']>['inputId']
-    responseFormat?: NonNullable<InvocationStartRequest['initialInput']>['responseFormat']
-  }
-}
-
-function hashNeutralStartRequest(startRequest: InvocationStartRequest): StartRequestHashMaterial {
-  const { initialInput, ...rest } = startRequest
-  return {
-    ...rest,
-    spec: hashNeutralInvocationSpec(startRequest.spec),
-    ...(initialInput !== undefined
-      ? {
-          initialInput: {
-            inputId: initialInput.inputId,
-            ...(initialInput.responseFormat !== undefined
-              ? { responseFormat: initialInput.responseFormat }
-              : {}),
-          },
-        }
-      : {}),
-  }
 }
 
 function projectionHash<K extends 'plan' | 'profile' | 'spec' | 'start-request'>(
@@ -873,7 +831,7 @@ function expectedCapabilities(
 function buildCompatibilityMaterial(
   req: RuntimeCompileRequest,
   // Only `.spec` is read, so this accepts both the full start request and the
-  // neutralized {@link StartRequestHashMaterial} projection.
+  // neutralized start-request projection.
   startRequest: { spec: BrokerExecutionProfile['harnessInvocation']['startRequest']['spec'] },
   bundleIdentity: string,
   lockHash: string | undefined,
@@ -1103,7 +1061,6 @@ async function compileBrokerPlan(
     brokerInvocation.resolvedBundle as { lockHash?: string | undefined } | undefined
   )?.lockHash
   const hashStartRequest = hashNeutralStartRequest(startRequest)
-  const hashSpec = hashStartRequest.spec
   const profileId = stableId('profile', {
     kind: 'harness-broker',
     brokerDriver: 'codex-app-server',
@@ -1112,10 +1069,8 @@ async function compileBrokerPlan(
   const compatibilityHash = hashValue(
     buildCompatibilityMaterial(req, hashStartRequest, bundleIdentity, lockHash, lockedEnv)
   )
-  const specProjection = projectionHash(hashSpec, 'spec')
-  const specHash = specProjection.specHash
-  const startRequestProjection = projectionHash(hashStartRequest, 'start-request')
-  const startRequestHash = startRequestProjection.startRequestHash
+  const specHash = neutralSpecHash(spec)
+  const startRequestHash = neutralStartRequestHash(startRequest)
   const initialInputHash =
     startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
 
@@ -1868,7 +1823,6 @@ async function compileTmuxBrokerPlan(
   validateInvocationSpec(spec)
   const startRequest: InvocationStartRequest = { spec }
   const hashStartRequest = hashNeutralStartRequest(startRequest)
-  const hashSpec = hashStartRequest.spec
 
   const profileId = stableId('profile', {
     kind: 'harness-broker',
@@ -1878,8 +1832,8 @@ async function compileTmuxBrokerPlan(
   const compatibilityHash = hashValue(
     buildCompatibilityMaterial(req, hashStartRequest, bundleIdentity, lockHash, lockedEnv)
   )
-  const specHash = projectionHash(hashSpec, 'spec').specHash
-  const startRequestHash = projectionHash(hashStartRequest, 'start-request').startRequestHash
+  const specHash = neutralSpecHash(spec)
+  const startRequestHash = neutralStartRequestHash(startRequest)
 
   // T-01817: interactive v0.2 tmux broker profiles must not contradict a durable
   // Unix broker hello that advertises attachReplay:true. Emit attachReplay

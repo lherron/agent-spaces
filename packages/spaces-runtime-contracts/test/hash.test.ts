@@ -1,4 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import type {
+  HarnessInvocationSpec,
+  InvocationInput,
+  InvocationStartRequest,
+} from 'spaces-harness-broker-protocol'
 import * as contracts from '../src/index'
 import type { HashMaterialPolicy } from '../src/index'
 
@@ -257,5 +262,143 @@ describe('canonical projection helper', () => {
         process: { lockedEnv: { CODEX_HOME: '/workspace/.codex-home' } },
       },
     })
+  })
+})
+
+function brokerSpec(overrides: Partial<HarnessInvocationSpec> = {}): HarnessInvocationSpec {
+  return {
+    specVersion: 'harness-broker.invocation/v1',
+    invocationId: 'invocation_a',
+    correlation: { requestId: 'request_a' },
+    harness: {
+      frontend: 'codex',
+      provider: 'openai',
+      driver: 'codex-app-server',
+    },
+    process: {
+      command: 'codex',
+      args: ['app-server'],
+      cwd: '/workspace',
+      harnessTransport: { kind: 'jsonrpc-stdio' },
+    },
+    driver: { kind: 'codex-app-server' },
+    ...overrides,
+  }
+}
+
+function brokerStartRequest(
+  initialInput: InvocationInput = {
+    inputId: 'input_a',
+    kind: 'user',
+    content: [{ type: 'text', text: 'first prompt' }],
+    responseFormat: { kind: 'text' },
+    metadata: { source: 'test' },
+  }
+): InvocationStartRequest {
+  return { spec: brokerSpec(), initialInput }
+}
+
+describe('broker start-request neutral hash authority', () => {
+  test('neutral spec material excludes invocationId and correlation', () => {
+    expect(contracts.hashNeutralInvocationSpec(brokerSpec())).toEqual({
+      specVersion: 'harness-broker.invocation/v1',
+      harness: {
+        frontend: 'codex',
+        provider: 'openai',
+        driver: 'codex-app-server',
+      },
+      process: {
+        command: 'codex',
+        args: ['app-server'],
+        cwd: '/workspace',
+        harnessTransport: { kind: 'jsonrpc-stdio' },
+      },
+      driver: { kind: 'codex-app-server' },
+    })
+  })
+
+  test('invocationId and correlation changes do not change the neutral spec hash', () => {
+    const first = contracts.neutralSpecHash(brokerSpec())
+    const second = contracts.neutralSpecHash(
+      brokerSpec({
+        invocationId: 'invocation_b',
+        correlation: { requestId: 'request_b', traceId: 'trace_b' },
+      })
+    )
+
+    expect(second).toBe(first)
+  })
+
+  test('neutral start-request material retains only inputId and responseFormat', () => {
+    expect(contracts.hashNeutralStartRequest(brokerStartRequest())).toEqual({
+      spec: contracts.hashNeutralInvocationSpec(brokerSpec()),
+      initialInput: {
+        inputId: 'input_a',
+        responseFormat: { kind: 'text' },
+      },
+    })
+  })
+
+  test('inputId and responseFormat each change the neutral start-request hash', () => {
+    const base = contracts.neutralStartRequestHash(brokerStartRequest())
+    const changedInputId = contracts.neutralStartRequestHash(
+      brokerStartRequest({
+        inputId: 'input_b',
+        kind: 'user',
+        content: [{ type: 'text', text: 'first prompt' }],
+        responseFormat: { kind: 'text' },
+      })
+    )
+    const changedResponseFormat = contracts.neutralStartRequestHash(
+      brokerStartRequest({
+        inputId: 'input_a',
+        kind: 'user',
+        content: [{ type: 'text', text: 'first prompt' }],
+        responseFormat: {
+          kind: 'json_schema',
+          schema: { type: 'object', properties: { answer: { type: 'string' } } },
+        },
+      })
+    )
+
+    expect(changedInputId).not.toBe(base)
+    expect(changedResponseFormat).not.toBe(base)
+  })
+
+  test('content and all other initial-input payload fields are excluded', () => {
+    const base = brokerStartRequest()
+    const evolvedPayload = brokerStartRequest({
+      inputId: 'input_a',
+      kind: 'steer',
+      content: [{ type: 'text', text: 'different prompt' }],
+      responseFormat: { kind: 'text' },
+      metadata: { source: 'different' },
+      futurePayloadField: { nested: true },
+    } as InvocationInput)
+
+    expect(contracts.neutralStartRequestHash(evolvedPayload)).toBe(
+      contracts.neutralStartRequestHash(base)
+    )
+    expect(contracts.hashNeutralStartRequest(evolvedPayload)).toEqual(
+      contracts.hashNeutralStartRequest(base)
+    )
+  })
+
+  test('raw project semantics remain payload-sensitive', () => {
+    const base = brokerStartRequest()
+    const changedContent = brokerStartRequest({
+      inputId: 'input_a',
+      kind: 'user',
+      content: [{ type: 'text', text: 'different prompt' }],
+      responseFormat: { kind: 'text' },
+      metadata: { source: 'test' },
+    })
+
+    expect(
+      (contracts.project(changedContent, 'start-request') as { startRequestHash: string })
+        .startRequestHash
+    ).not.toBe(
+      (contracts.project(base, 'start-request') as { startRequestHash: string }).startRequestHash
+    )
   })
 })
