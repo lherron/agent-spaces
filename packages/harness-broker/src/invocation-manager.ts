@@ -82,6 +82,11 @@ const TERMINAL_STATES = new Set<InvocationState>(['exited', 'failed'])
  * scoped to it MUST have already reached a terminal; any still open is the
  * burn-in-19 vanished-call defect and the broker synthesizes its `failed`.
  */
+const TURN_TERMINAL_TYPES = new Set<InvocationEventType>([
+  'turn.completed',
+  'turn.failed',
+  'turn.interrupted',
+])
 /**
  * Invocation-teardown event types. On provider death mid-turn (the turn itself
  * may never close) these are the catch-all boundary that synthesizes `failed`
@@ -303,6 +308,15 @@ export interface Invocation {
    * the first (winning) start, returned to callers on a suppressed duplicate.
    */
   startedTurns: Map<TurnId, InvocationEventEnvelope<'turn.started'>>
+  /**
+   * Exactly-one turn-terminal bracket ledger, keyed by turnId. Provider error
+   * and recovery seams may both report a terminal for the same turn; the first
+   * terminal wins and every later completed/failed/interrupted variant is
+   * suppressed before it can re-project ready state or trigger another queue
+   * drain. This extends the broker-central bracket mechanism from T-06550
+   * instead of adding a queue-specific dedupe path.
+   */
+  terminalTurns: Map<TurnId, InvocationEventEnvelope>
   /**
    * Exactly-one-terminal bracket ledger for tool calls (T-06550), keyed by
    * toolCallId. Every `tool.call.started` that flows through `emit` is recorded
@@ -847,6 +861,22 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     extra?: InvocationEventExtra
   ): InvocationEventEnvelope {
     const { type, payload } = descriptor
+    const isTurnTerminal = TURN_TERMINAL_TYPES.has(type)
+    const terminalTurnId = isTurnTerminal
+      ? (extra?.turnId ?? (payload as { turnId?: TurnId } | undefined)?.turnId)
+      : undefined
+
+    // Exactly-one turn-terminal bracket. An error callback and a late recovery
+    // completion can race for the same turn; only the first terminal may reach
+    // sequencing, state projection, and queue draining. Input redelivery itself
+    // remains governed by the existing inputId disposition ledger.
+    if (terminalTurnId !== undefined) {
+      const existing = inv.terminalTurns.get(terminalTurnId)
+      if (existing !== undefined) {
+        return existing
+      }
+    }
+
     // Tool-call exactly-one-terminal bracket (T-06550). A turn or invocation
     // teardown is the point every open `tool.call.started` MUST have closed; any
     // still open is the burn-in-19 vanished-call defect. Synthesize its `failed`
@@ -854,17 +884,12 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // with a lower seq — inside the closing bracket, ahead of the turn/invocation
     // terminal. The synthesized `tool.call.failed` re-enters `emit`, but it is
     // neither a turn nor an invocation terminal, so it cannot re-trigger this.
-    if (
-      descriptor.type === 'turn.completed' ||
-      descriptor.type === 'turn.failed' ||
-      descriptor.type === 'turn.interrupted'
-    ) {
-      const turnId = extra?.turnId ?? descriptor.payload.turnId
+    if (isTurnTerminal) {
       synthesizeOpenToolFailures(
         inv,
         TOOL_CALL_UNTERMINATED_CODE,
         'Tool call did not report a terminal result before the turn ended',
-        (call) => turnId === undefined || call.turnId === turnId
+        (call) => terminalTurnId === undefined || call.turnId === terminalTurnId
       )
     } else if (INVOCATION_TEARDOWN_TYPES.has(type)) {
       synthesizeOpenToolFailures(
@@ -917,6 +942,9 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     // above and resolves back to this same envelope (T-04846).
     if (event.type === 'turn.started' && event.turnId !== undefined) {
       inv.startedTurns.set(event.turnId, event)
+    }
+    if (TURN_TERMINAL_TYPES.has(event.type) && event.turnId !== undefined) {
+      inv.terminalTurns.set(event.turnId, event)
     }
     // Tool-call bracket bookkeeping (T-06550): open the bracket on a start, close
     // it on either terminal. A real driver terminal AND a broker-synthesized one
@@ -1298,6 +1326,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
         inputCounter: 0,
         inputDispositions: new Map(),
         startedTurns: new Map(),
+        terminalTurns: new Map(),
         startedToolCalls: new Map(),
         pendingPermissions: new Map(),
         settledPermissions: new Map(),
