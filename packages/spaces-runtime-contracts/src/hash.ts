@@ -170,9 +170,12 @@ export type RuntimeContractProjection =
       value: JsonValue
     }
 
-type HashNeutralInvocationSpecMaterial = Omit<HarnessInvocationSpec, 'invocationId' | 'correlation'>
+export type HashNeutralInvocationSpecMaterial = Omit<
+  HarnessInvocationSpec,
+  'invocationId' | 'correlation'
+>
 
-type StartRequestHashMaterial = Omit<InvocationStartRequest, 'spec' | 'initialInput'> & {
+export type StartRequestHashMaterial = Omit<InvocationStartRequest, 'spec' | 'initialInput'> & {
   spec: HashNeutralInvocationSpecMaterial
   initialInput?:
     | {
