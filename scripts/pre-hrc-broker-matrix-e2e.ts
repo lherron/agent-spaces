@@ -138,28 +138,7 @@ import { allocatePreHrcTmuxPane } from '../packages/agent-spaces/src/testing/pre
 // CLI
 // ---------------------------------------------------------------------------
 
-type RowName =
-  | 'fake-codex'
-  | 'unix-jsonrpc-ndjson'
-  | 'real-codex'
-  | 'real-codex-tmux'
-  | 'codex-tmux-ghostmux'
-  | 'real-claude-tmux'
-  | 'real-claude-tmux-midturn'
-  | 'claude-tmux-ghostmux'
-  | 'real-pi-sdk-embedded'
-  | 'real-pi-tui-tmux'
-  | 'pi-tui-tmux-ghostmux'
-
-export const SPARKY_CODEX_MATRIX_ROWS = [
-  'real-codex',
-  'real-codex-tmux',
-  'codex-tmux-ghostmux',
-] as const
-export type SparkyCodexMatrixRow = (typeof SPARKY_CODEX_MATRIX_ROWS)[number]
-
-type CompileTransport = 'sdk' | 'aspc-rpc'
-const ALL_ROWS: RowName[] = [
+export const MATRIX_ROW_NAMES = [
   'fake-codex',
   'unix-jsonrpc-ndjson',
   'real-codex',
@@ -171,7 +150,22 @@ const ALL_ROWS: RowName[] = [
   'real-pi-sdk-embedded',
   'real-pi-tui-tmux',
   'pi-tui-tmux-ghostmux',
-]
+] as const
+export type RowName = (typeof MATRIX_ROW_NAMES)[number]
+
+export const BROKER_MANAGED_MATRIX_ROWS = MATRIX_ROW_NAMES.filter(
+  (name): name is Exclude<RowName, 'real-pi-sdk-embedded'> => name !== 'real-pi-sdk-embedded'
+)
+
+export const SPARKY_CODEX_MATRIX_ROWS = [
+  'real-codex',
+  'real-codex-tmux',
+  'codex-tmux-ghostmux',
+] as const
+export type SparkyCodexMatrixRow = (typeof SPARKY_CODEX_MATRIX_ROWS)[number]
+
+type CompileTransport = 'sdk' | 'aspc-rpc'
+const ALL_ROWS: readonly RowName[] = MATRIX_ROW_NAMES
 
 async function ghostmuxNewWithRetry(
   bin: string,
@@ -637,6 +631,57 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined
+}
+
+export function structuredOutputEvidenceFailures(row: {
+  name: RowName
+  notes: Record<string, unknown>
+}): Failure[] {
+  const evidence = asRecord(row.notes['structuredOutput'])
+  if (evidence === undefined) {
+    return [
+      {
+        code: 'structured_output_evidence_missing',
+        message: `${row.name} did not record structured-output scenario evidence`,
+      },
+    ]
+  }
+
+  if (row.name === 'real-pi-sdk-embedded') {
+    const exactDisposition =
+      evidence['scenario'] === EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION.scenario &&
+      evidence['disposition'] === EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION.disposition &&
+      evidence['reason'] === EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION.reason &&
+      Object.keys(evidence).length === Object.keys(EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION).length
+    return exactDisposition
+      ? []
+      : [
+          {
+            code: 'structured_output_evidence_invalid',
+            message:
+              'real-pi-sdk-embedded did not record the exact not-applicable structured-output disposition',
+          },
+        ]
+  }
+
+  if (evidence['disposition'] === 'not-applicable') {
+    return [
+      {
+        code: 'structured_output_evidence_invalid',
+        message: `${row.name} recorded structured-output as not applicable despite using the broker input/capability surface`,
+      },
+    ]
+  }
+
+  const scenario = evidence['scenario'] ?? evidence['structuredScenario']
+  return scenario === 'structured-output'
+    ? []
+    : [
+        {
+          code: 'structured_output_evidence_invalid',
+          message: `${row.name} did not identify its structured-output scenario evidence`,
+        },
+      ]
 }
 
 /**
@@ -3105,6 +3150,131 @@ async function unixSharedCommandTurn(ctx: RowContext, result: RowResult): Promis
     await client?.close().catch(() => {})
     await shutdownUnixBroker(handle, ctx.keepArtifacts)
   }
+
+  await unixUnsupportedStructuredInput(ctx, result)
+}
+
+function unixUnsupportedStructuredSpec(
+  repoRoot: string,
+  identity: UnixBrokerIdentity
+): HarnessInvocationSpec {
+  return {
+    specVersion: 'harness-broker.invocation/v1',
+    invocationId: identity.invocationId as InvocationId,
+    labels: { package: 'pre-hrc-matrix', scenario: 'structured-output-unsupported' },
+    harness: { frontend: 'codex', provider: 'openai', driver: 'codex-cli-tmux' },
+    process: {
+      command: '/bin/sleep',
+      args: ['10'],
+      cwd: repoRoot,
+      harnessTransport: { kind: 'pty' },
+      limits: { startupTimeoutMs: 5000, turnTimeoutMs: 15_000, stopGraceMs: 100 },
+    },
+    interaction: { mode: 'interactive', turnConcurrency: 'single', inputQueue: 'fifo' },
+    correlation: {
+      runtimeId: identity.runtimeId,
+      hostSessionId: identity.hostSessionId,
+      startRequestHash: identity.startRequestHash,
+      selectedProfileHash: identity.selectedProfileHash,
+    },
+    driver: { kind: 'codex-cli-tmux', terminalHost: 'tmux' },
+  }
+}
+
+/**
+ * The unix transport's unsupported structured-output proof uses a real durable
+ * broker plus an HRC-owned tmux lease. codex-cli-tmux intentionally omits the
+ * finalResponse.jsonSchema capability, so the broker must reject the canonical
+ * responseFormat before emitting input.accepted or delivering text to the pane.
+ */
+async function unixUnsupportedStructuredInput(ctx: RowContext, result: RowResult): Promise<void> {
+  const identity = unixIdentity(ctx.marker, 'structured')
+  const handle = await bootUnixBroker(ctx.repoRoot, identity)
+  const tmuxSocketPath = join(handle.dir, 'structured.tmux.sock')
+  let client: BrokerClient | undefined
+  let invocationStarted = false
+  const structuredFailures: Failure[] = []
+  const structuredInputId = `input_structured_unix_${ctx.marker}`
+  let structuredError = ''
+
+  try {
+    await runMatrixTmux(ctx.tmuxBin, ['-S', tmuxSocketPath, 'start-server'])
+    const allocated = await allocatePreHrcTmuxPane({
+      tmuxBin: ctx.tmuxBin,
+      socketPath: tmuxSocketPath,
+      sessionName: `matrix-unix-structured-${ctx.marker}`
+        .replace(/[^A-Za-z0-9_-]/g, '_')
+        .slice(0, 60),
+    })
+
+    client = await connectUnix(handle.socketPath)
+    await client.hello(unixHelloRequest)
+    const started = await client.startInvocationFromRequest(
+      { spec: unixUnsupportedStructuredSpec(ctx.repoRoot, identity) },
+      { runtime: { terminalSurface: allocated.lease } }
+    )
+    invocationStarted = true
+    await unixCollectUntil(started.events, 'invocation.ready', ctx.turnTimeoutMs)
+
+    const declaresJsonSchema =
+      started.response.capabilities.finalResponse?.jsonSchema === true &&
+      started.response.capabilities.finalResponse?.perTurn === true
+    if (declaresJsonSchema) {
+      structuredFailures.push({
+        code: 'structured_unsupported_capability_declared',
+        message: 'unix unsupported fixture unexpectedly declared finalResponse.jsonSchema',
+      })
+    }
+
+    try {
+      const structuredResponse = await client.input({
+        invocationId: identity.invocationId,
+        input: structuredUserInput(`STRUCT_${ctx.marker}_UNIX`, structuredInputId),
+      })
+      if (structuredResponse.accepted) {
+        structuredFailures.push({
+          code: 'structured_unsupported_call_succeeded',
+          message: 'unix structured-output input unexpectedly succeeded',
+        })
+      }
+    } catch (error) {
+      structuredError = error instanceof Error ? error.message : String(error)
+    }
+
+    const structuredEvents = await unixCollectUntil(started.events, 'input.rejected', 5_000).catch(
+      () => []
+    )
+    structuredFailures.push(
+      ...assertStructuredRejectedBeforeAccepted(structuredEvents, 0, structuredInputId)
+    )
+    if (!structuredError.includes('UnsupportedCapability: finalResponse.jsonSchema')) {
+      structuredFailures.push({
+        code: 'structured_unsupported_error',
+        message: `unix structured-output input threw unexpected error: ${structuredError}`,
+      })
+    }
+
+    result.notes['structuredOutput'] = {
+      scenario: 'structured-output',
+      declaresJsonSchema,
+      assertion: 'rejected-before-input.accepted',
+      failures: structuredFailures.length,
+    }
+  } finally {
+    result.extraFailures.push(...structuredFailures)
+    if (invocationStarted && client !== undefined) {
+      await client
+        .stop({
+          invocationId: identity.invocationId,
+          reason: 'matrix structured scenario complete',
+        })
+        .catch(() => undefined)
+      await client.dispose({ invocationId: identity.invocationId }).catch(() => undefined)
+    }
+    await client?.close().catch(() => {})
+    await runMatrixTmux(ctx.tmuxBin, ['-S', tmuxSocketPath, 'kill-server']).catch(() => undefined)
+    await shutdownUnixBroker(handle, ctx.keepArtifacts)
+  }
 }
 
 /**
@@ -4414,6 +4584,9 @@ export async function runPreHrcBrokerMatrixE2e(
 
     try {
       const row = await config.run(ctx)
+      const evidenceFailures = structuredOutputEvidenceFailures(row)
+      row.extraFailures.push(...evidenceFailures)
+      if (evidenceFailures.length > 0) row.status = 'FAIL'
       rows.push(row)
       printRow(row)
     } catch (error) {
