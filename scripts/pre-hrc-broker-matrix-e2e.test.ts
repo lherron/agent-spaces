@@ -7,9 +7,12 @@ import type { BrokerExecutionProfile, RuntimeCompileResponse } from 'spaces-runt
 
 import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.js'
 import {
+  BROKER_MANAGED_MATRIX_ROWS,
   EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION,
+  MATRIX_ROW_NAMES,
   SPARKY_CODEX_MATRIX_ROWS,
   createSparkyCodexMatrixCompileRequest,
+  structuredOutputEvidenceFailures,
 } from './pre-hrc-broker-matrix-e2e.ts'
 
 type CompileClient = ReturnType<typeof createAgentSpacesClient> & {
@@ -142,5 +145,57 @@ echo "codex shim"
       disposition: 'not-applicable',
       reason: 'this one-turn in-process executor exposes no broker input/capability surface',
     })
+  })
+
+  test('every broker-managed row fails closed when structured-output evidence is omitted', () => {
+    expect(new Set([...BROKER_MANAGED_MATRIX_ROWS, 'real-pi-sdk-embedded'])).toEqual(
+      new Set(MATRIX_ROW_NAMES)
+    )
+
+    for (const name of BROKER_MANAGED_MATRIX_ROWS) {
+      expect(structuredOutputEvidenceFailures({ name, notes: {} })).toEqual([
+        {
+          code: 'structured_output_evidence_missing',
+          message: `${name} did not record structured-output scenario evidence`,
+        },
+      ])
+
+      expect(
+        structuredOutputEvidenceFailures({
+          name,
+          notes: {
+            structuredOutput: {
+              scenario: 'structured-output',
+            },
+          },
+        })
+      ).toEqual([])
+    }
+  })
+
+  test('embedded is the only row allowed to record structured-output as not applicable', () => {
+    expect(
+      structuredOutputEvidenceFailures({
+        name: 'real-pi-sdk-embedded',
+        notes: {
+          structuredOutput: EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION,
+        },
+      })
+    ).toEqual([])
+
+    expect(
+      structuredOutputEvidenceFailures({
+        name: 'unix-jsonrpc-ndjson',
+        notes: {
+          structuredOutput: EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION,
+        },
+      })
+    ).toEqual([
+      {
+        code: 'structured_output_evidence_invalid',
+        message:
+          'unix-jsonrpc-ndjson recorded structured-output as not applicable despite using the broker input/capability surface',
+      },
+    ])
   })
 })
