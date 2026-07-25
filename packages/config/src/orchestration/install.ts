@@ -38,6 +38,7 @@ import {
   type LockSpaceEntry,
   MaterializationHygieneError,
   type MaterializeSpaceInput,
+  PORTABLE_SPACES_REGISTRY,
   type ResolvedSpaceArtifact,
   type ResolvedSpaceManifest,
   type Sha256Integrity,
@@ -94,6 +95,7 @@ import {
 import {
   type ResolveOptions,
   type ResolveResult,
+  ensureImmutableRegistry,
   getRegistryPath,
   loadLockFileIfExists,
   loadProjectManifest,
@@ -217,6 +219,8 @@ export async function ensureRegistry(options: InstallOptions): Promise<string> {
     }
   }
 
+  await ensureImmutableRegistry(options, { fetch: options.fetchRegistry !== false })
+
   return repoPath
 }
 
@@ -264,8 +268,8 @@ export async function populateSnapshotsFromLock(
  */
 export async function populateStore(lock: LockFile, options: InstallOptions): Promise<number> {
   const aspHome = options.aspHome ?? getAspHome()
-  const registryPath = getRegistryPath(options)
-  return populateSnapshotsFromLock(lock, registryPath, aspHome)
+  const immutableRegistryPath = await ensureImmutableRegistry(options, { fetch: false })
+  return populateSnapshotsFromLock(lock, immutableRegistryPath, aspHome)
 }
 
 /**
@@ -1011,10 +1015,7 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
   }
 
   // Merge lock files - start with empty and merge each result
-  let mergedLock = createEmptyLockFile({
-    type: 'git',
-    url: registryPath,
-  })
+  let mergedLock = createEmptyLockFile(PORTABLE_SPACES_REGISTRY)
   for (const result of results) {
     mergedLock = mergeLockFiles(mergedLock, result.lock)
   }

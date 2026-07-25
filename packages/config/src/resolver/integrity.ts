@@ -27,6 +27,8 @@ export const DEV_INTEGRITY = 'sha256:dev' as Sha256Integrity
 export interface IntegrityOptions {
   /** Working directory (registry repo root) */
   cwd: string
+  /** Node-local mirror used only for immutable registry entries. */
+  immutableCwd?: string | undefined
   /** Project root for project-local spaces */
   projectRoot?: string | undefined
   /** Agent root for agent-local spaces */
@@ -75,14 +77,16 @@ export async function computeIntegrity(
   const treePath = `spaces/${spaceId}`
   const ref = commit
 
-  if (await shouldUseFilesystemRegistryFallback(options.cwd)) {
-    return computeFilesystemIntegrity(join(options.cwd, treePath))
+  const immutableCwd = options.immutableCwd ?? options.cwd
+
+  if (await shouldUseFilesystemRegistryFallback(immutableCwd)) {
+    return computeFilesystemIntegrity(join(immutableCwd, treePath))
   }
 
   // Get all files recursively
   let entries: TreeEntry[]
   try {
-    entries = await listTreeRecursive(ref, treePath, { cwd: options.cwd })
+    entries = await listTreeRecursive(ref, treePath, { cwd: immutableCwd })
   } catch (_err) {
     // If the tree doesn't exist, return a hash of empty content
     const hash = createHash('sha256')

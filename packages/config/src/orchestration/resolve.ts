@@ -12,6 +12,7 @@ import { ConfigFileNotFoundError } from '../core/errors.js'
 import {
   LOCK_FILENAME,
   type LockFile,
+  PORTABLE_SPACES_REGISTRY,
   type ProjectManifest,
   TARGETS_FILENAME,
   type TargetDefinition,
@@ -34,7 +35,12 @@ import {
   generateLockFileForTarget,
 } from '../resolver/index.js'
 
-import { PathResolver, getAgentsRoot, getAspHome } from '../store/index.js'
+import {
+  PathResolver,
+  ensureImmutableSourceMirror,
+  getAgentsRoot,
+  getAspHome,
+} from '../store/index.js'
 
 /**
  * Options for resolving a target.
@@ -48,6 +54,11 @@ export interface ResolveOptions {
   useLock?: boolean | undefined
   /** Registry git repository path (default: from ASP_HOME) */
   registryPath?: string | undefined
+  /**
+   * Explicit node-local placement for immutable canonical content.
+   * This path is operational state and is never written to a lock.
+   */
+  immutableRegistryPath?: string | undefined
   /** Agent root directory for agent-local spaces */
   agentPath?: string | undefined
   /**
@@ -97,6 +108,32 @@ export function getRegistryPath(options: ResolveOptions): string {
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
   return paths.repo
+}
+
+/** Resolve the node-local immutable-source placement without serializing it. */
+export function getImmutableRegistryPath(options: ResolveOptions): string {
+  if (options.immutableRegistryPath) return options.immutableRegistryPath
+  // An explicit legacy registry override remains a valid test/dev placement.
+  if (options.registryPath) return options.registryPath
+
+  const aspHome = options.aspHome ?? getAspHome()
+  return new PathResolver({ aspHome }).immutableRepository(PORTABLE_SPACES_REGISTRY.repository)
+}
+
+/** Ensure the default ASP-owned immutable source mirror is present and fresh. */
+export async function ensureImmutableRegistry(
+  options: ResolveOptions,
+  mirrorOptions: { fetch?: boolean | undefined } = {}
+): Promise<string> {
+  if (options.immutableRegistryPath || options.registryPath) {
+    return getImmutableRegistryPath(options)
+  }
+  const aspHome = options.aspHome ?? getAspHome()
+  return ensureImmutableSourceMirror(
+    PORTABLE_SPACES_REGISTRY,
+    new PathResolver({ aspHome }),
+    mirrorOptions
+  )
 }
 
 /**
@@ -192,6 +229,7 @@ export async function resolveTarget(
 
   // Get registry path
   const registryPath = getRegistryPath(options)
+  const immutableRegistryPath = await ensureImmutableRegistry(options, { fetch: false })
 
   // All refs are now resolvable (including @dev)
   const refs = target.compose as SpaceRefString[]
@@ -199,6 +237,7 @@ export async function resolveTarget(
   // Build closure options
   const closureOptions: ClosureOptions = {
     cwd: registryPath,
+    immutableCwd: immutableRegistryPath,
     pinnedSpaces: options.pinnedSpaces,
     projectRoot: options.projectPath,
     agentRoot: options.agentPath,
@@ -210,10 +249,8 @@ export async function resolveTarget(
   // Generate lock file
   const lockOptions: LockGeneratorOptions = {
     cwd: registryPath,
-    registry: {
-      type: 'git',
-      url: registryPath,
-    },
+    immutableCwd: immutableRegistryPath,
+    registry: PORTABLE_SPACES_REGISTRY,
     projectRoot: options.projectPath,
     agentRoot: options.agentPath,
   }

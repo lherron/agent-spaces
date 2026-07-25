@@ -593,6 +593,7 @@ compose_mode = "merge"
         'aspHome',
         'fetchRegistry',
         'harness',
+        'immutableRegistryPath',
         'inheritProject',
         'inheritUser',
         'lockPath',
@@ -613,6 +614,7 @@ compose_mode = "merge"
       harness: 'claude',
       adapter,
       fetchRegistry: false,
+      immutableRegistryPath: expect.any(String),
       agentRoot: join(agentsDir, 'dev'),
       materializationIdentity: {
         agentId: 'dev',
@@ -751,6 +753,7 @@ compose = ["space:project@dev"]
         'dryRun',
         'fetchRegistry',
         'harness',
+        'immutableRegistryPath',
         'inheritProject',
         'inheritUser',
         'interactive',
@@ -773,6 +776,7 @@ compose = ["space:project@dev"]
       harness: 'claude',
       targets: ['dev'],
       registryPath: expect.any(String),
+      immutableRegistryPath: expect.any(String),
       adapter,
       fetchRegistry: false,
     })

@@ -1,0 +1,36 @@
+id: agent-spaces.canonical-package-publication
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: canonical ASP package-set publication
+predicate: >
+  Every staged ASP package manifest carries exactly
+  {schema,repository,canonicalRemote,sourceCommit,setName,setVersion,builtAt}
+  under praesidiumBuild. Canonical publication freshly fetches its named remote
+  tracking ref, requires a clean source tree and sourceCommit containment by
+  that fetched ref, preflights the coherent set against same-name/version
+  replacement, and cache-empty fetches every published tarball while verifying
+  its build tuple. Dev, force, skip-existing, and worktree publication paths are
+  explicitly non-canonical and cannot emit canonical proof.
+authority:
+  repo: agent-spaces
+  surface: ASP package-set publisher and install publication policy
+source:
+  - scripts/publish-local-verdaccio.ts
+  - scripts/publish-local-verdaccio.test.ts
+  - scripts/install-policy.ts
+  - scripts/install-policy.test.ts
+  - justfile
+required_tests:
+  - bun test scripts/publish-local-verdaccio.test.ts scripts/install-policy.test.ts exits 0
+  - bun scripts/publish-local-verdaccio.ts --channel canonical --dry-run exits 0 from clean contained source
+  - bun scripts/smoke-pack-cross-repo.ts exits 0
+last_verified:
+  date: 2026-07-25
+  evidence: T-06951 canonical publication provenance and refusal predicates
+reopen_when:
+  - the ASP coherent package set or registry changes
+  - canonical source authority or named-ref policy changes
+  - package manifest build provenance changes
+supersedes: []
+superseded_by: null

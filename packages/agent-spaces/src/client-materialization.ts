@@ -8,12 +8,14 @@ import {
   type HygieneGateFinding,
   type LintWarning,
   type LockFile,
+  PORTABLE_SPACES_REGISTRY,
   PathResolver,
   type SpaceRefString,
   asSha256Integrity,
   asSpaceId,
   computeClosure,
   discoverSkills,
+  ensureImmutableRegistry,
   generateLockFileForTarget,
   getRegistryPath,
   lintSpaces,
@@ -130,14 +132,24 @@ export async function resolveSpecToLock(
   const refs = spec.spaces as string[]
   const targetName = computeSpacesTargetName(refs)
   const registryPath = resolveSharedSpacesRoot(aspHome, registryPathOverride, options?.projectRoot)
+  const immutableRegistryPath = await ensureImmutableRegistry(
+    {
+      aspHome,
+      projectPath: options?.projectRoot ?? process.cwd(),
+      ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
+    },
+    { fetch: false }
+  )
   const closure = await computeClosure(refs as SpaceRefString[], {
     cwd: registryPath,
+    immutableCwd: immutableRegistryPath,
     ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
     ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
   })
   const lock = await generateLockFileForTarget(targetName, refs as SpaceRefString[], closure, {
     cwd: registryPath,
-    registry: { type: 'git', url: registryPath },
+    immutableCwd: immutableRegistryPath,
+    registry: PORTABLE_SPACES_REGISTRY,
     ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
     ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
   })
@@ -212,6 +224,14 @@ export async function materializeSpec(
       targetName,
       refs: [],
       registryPath,
+      immutableRegistryPath: await ensureImmutableRegistry(
+        {
+          aspHome,
+          projectPath: options?.projectRoot ?? process.cwd(),
+          ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
+        },
+        { fetch: false }
+      ),
       aspHome,
       lockPath: paths.globalLock,
       harness: harnessId,
@@ -242,10 +262,19 @@ export async function materializeSpec(
   const targetName = options?.materializationTargetName ?? computeSpacesTargetName(refs)
   const paths = new PathResolver({ aspHome })
   const registryPath = resolveSharedSpacesRoot(aspHome, registryPathOverride, options?.projectRoot)
+  const immutableRegistryPath = await ensureImmutableRegistry(
+    {
+      aspHome,
+      projectPath: options?.projectRoot ?? process.cwd(),
+      ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
+    },
+    { fetch: false }
+  )
   const materialized = await materializeFromRefs({
     targetName,
     refs: refs as SpaceRefString[],
     registryPath,
+    immutableRegistryPath,
     aspHome,
     lockPath: paths.globalLock,
     harness: harnessId,

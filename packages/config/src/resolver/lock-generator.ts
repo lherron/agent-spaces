@@ -77,6 +77,8 @@ function computePluginNameCollisions(
 export interface LockGeneratorOptions {
   /** Working directory (registry repo root) */
   cwd: string
+  /** Node-local mirror used only for immutable registry entries. */
+  immutableCwd?: string | undefined
   /** Registry information */
   registry: LockRegistry
   /** Project root for project-local spaces */
@@ -246,6 +248,7 @@ async function collectSpacesAndIntegrities(
         allSpaces.set(key, space)
         const integrity = await computeIntegrity(space.id, space.commit, {
           cwd: options.cwd,
+          immutableCwd: options.immutableCwd,
           projectRoot: options.projectRoot,
           agentRoot: options.agentRoot,
         })
@@ -310,6 +313,7 @@ export async function generateLockFileForTarget(
 export function mergeLockFiles(existing: LockFile, updates: LockFile): LockFile {
   const merged: LockFile = {
     ...existing,
+    registry: updates.registry,
     generatedAt: new Date().toISOString(),
     spaces: { ...existing.spaces },
     targets: { ...existing.targets },

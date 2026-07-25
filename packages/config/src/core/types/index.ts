@@ -109,6 +109,7 @@ export { createRuntimePlacement, isValidBundleRefKind, isValidRunMode } from './
 
 // Lock file types
 export type {
+  LegacyLockRegistry,
   LockFile,
   LockHarnessEntry,
   LockPluginInfo,
@@ -117,8 +118,10 @@ export type {
   LockSpaceEntry,
   LockTargetEntry,
   LockWarning,
+  PortableLockRegistry,
   ResolvedFrom,
 } from './lock.js'
+export { PORTABLE_SPACES_REGISTRY } from './lock.js'
 
 export {
   createEmptyLockFile,

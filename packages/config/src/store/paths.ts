@@ -46,6 +46,7 @@ export function getAspHome(): string {
  * │       ├── sessions/  # Codex runtime state
  * │       └── bundles/
  * │           └── <target>/<harness>/
+ * ├── sources/           # ASP-owned node-local immutable-source mirrors
  * └── tmp/               # Temporary files during operations
  */
 
@@ -174,6 +175,7 @@ export async function ensureAspHome(): Promise<void> {
   const paths = new PathResolver()
   await Promise.all([
     ensureDir(paths.repo),
+    ensureDir(paths.sources),
     ensureDir(paths.snapshots),
     ensureDir(paths.cache),
     ensureDir(paths.projects),
@@ -205,6 +207,10 @@ export class PathResolver {
 
   get snapshots(): string {
     return join(this.aspHome, 'snapshots')
+  }
+
+  get sources(): string {
+    return join(this.aspHome, 'sources')
   }
 
   get cache(): string {
@@ -252,9 +258,14 @@ export class PathResolver {
     return join(this.repo, 'spaces', spaceId)
   }
 
+  immutableRepository(repository: string): string {
+    return join(this.sources, sanitizeProjectAgentScopeSegment(repository))
+  }
+
   async ensureAll(): Promise<void> {
     await Promise.all([
       ensureDir(this.repo),
+      ensureDir(this.sources),
       ensureDir(this.snapshots),
       ensureDir(this.cache),
       ensureDir(this.projects),

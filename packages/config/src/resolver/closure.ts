@@ -75,6 +75,8 @@ export interface ClosureResult {
  * Options for closure computation.
  */
 export interface ClosureOptions extends SelectorResolveOptions, ManifestReadOptions {
+  /** Node-local mirror used only for immutable registry entries. */
+  immutableCwd?: string | undefined
   /**
    * Pinned spaces to use instead of resolving.
    * Map from SpaceId to CommitSha. When a space is in this map,
@@ -212,7 +214,10 @@ export async function computeClosure(
       }
       key = buildSpaceKey(ref.id, resolved.commit)
     } else {
-      resolved = await resolveSelector(ref.id, ref.selector, options)
+      resolved = await resolveSelector(ref.id, ref.selector, {
+        ...options,
+        cwd: options.immutableCwd ?? options.cwd,
+      })
       key = buildSpaceKey(ref.id, resolved.commit)
     }
 
@@ -253,7 +258,10 @@ export async function computeClosure(
       manifest = await readSpaceManifestFromFilesystem(manifestLocation, options)
     } else {
       // Registry space: read from git
-      manifest = await readSpaceManifest(ref.id, resolved.commit, options)
+      manifest = await readSpaceManifest(ref.id, resolved.commit, {
+        ...options,
+        cwd: options.immutableCwd ?? options.cwd,
+      })
     }
 
     // Get dependencies

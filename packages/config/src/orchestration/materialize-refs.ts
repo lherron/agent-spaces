@@ -17,6 +17,7 @@ import {
   type HarnessAdapter,
   type HarnessId,
   type LockFile,
+  PORTABLE_SPACES_REGISTRY,
   type SpaceId,
   type SpaceRefString,
   atomicWriteJson,
@@ -67,6 +68,8 @@ export interface MaterializeFromRefsOptions {
   registryPath: string
   /** ASP_HOME directory */
   aspHome?: string
+  /** Explicit node-local placement used only for immutable registry entries. */
+  immutableRegistryPath?: string
   /** Path to lock file (read and write) */
   lockPath: string
   /** Pinned spaces (skip re-resolution) */
@@ -150,6 +153,7 @@ export async function materializeFromRefs(
 
   const aspHome = options.aspHome ?? getAspHome()
   const projectPath = options.projectPath ?? dirname(lockPath)
+  const immutableRegistryPath = options.immutableRegistryPath ?? registryPath
 
   // Ensure ASP_HOME directories exist
   await ensureAspHome()
@@ -170,6 +174,7 @@ export async function materializeFromRefs(
   // Compute closure from refs
   const closureOptions: ClosureOptions = {
     cwd: registryPath,
+    immutableCwd: immutableRegistryPath,
     pinnedSpaces: effectivePinnedSpaces,
     ...(options.agentRoot ? { agentRoot: options.agentRoot } : {}),
     ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
@@ -179,10 +184,8 @@ export async function materializeFromRefs(
   // Generate lock file for target
   const lockOptions: LockGeneratorOptions = {
     cwd: registryPath,
-    registry: {
-      type: 'git',
-      url: registryPath,
-    },
+    immutableCwd: immutableRegistryPath,
+    registry: PORTABLE_SPACES_REGISTRY,
     ...(options.agentRoot ? { agentRoot: options.agentRoot } : {}),
     ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
   }
@@ -197,7 +200,11 @@ export async function materializeFromRefs(
   }
 
   // Populate store with snapshots
-  const snapshotsCreated = await populateSnapshotsFromLock(mergedLock, registryPath, aspHome)
+  const snapshotsCreated = await populateSnapshotsFromLock(
+    mergedLock,
+    immutableRegistryPath,
+    aspHome
+  )
 
   // Write lock file
   await ensureLockDir(lockPath)

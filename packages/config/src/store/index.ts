@@ -29,6 +29,7 @@ export {
   PathResolver,
   type PathOptions,
 } from './paths.js'
+export { ensureImmutableSourceMirror } from './immutable-source.js'
 export {
   getAgentRootSearchPathForProject,
   getAgentRootsForProject,
