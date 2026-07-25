@@ -47,7 +47,10 @@ export type ClaudeHookTranscriptReader = {
    * transcript path; every other hook reads newly appended transcript bytes and
    * emits one `user.message` per `queue-operation`/`enqueue` line.
    */
-  handleHook: (hook: Record<string, unknown>) => InvocationEventEnvelope[]
+  handleHook: (
+    hook: Record<string, unknown>,
+    turnId?: string | undefined
+  ) => InvocationEventEnvelope[]
   /**
    * Read any transcript bytes appended since the last read WITHOUT a triggering
    * hook, emitting the same events `handleHook` would. The driver calls this in
@@ -63,7 +66,10 @@ export type ClaudeHookTranscriptReaderOptions = {
   now: () => Date
   invocationId: string
   getCurrentTurnId: () => string | undefined
+  onApiError?: ((turnId: string) => void) | undefined
 }
+
+type ApiErrorClass = 'rate_limit' | 'overloaded' | 'server_error' | 'auth' | 'quota'
 
 export function createClaudeHookTranscriptReader(
   options: ClaudeHookTranscriptReaderOptions
@@ -98,13 +104,23 @@ export function createClaudeHookTranscriptReader(
     return getString(entry, 'text')?.trim() ?? ''
   }
 
-  const apiErrorDiagnosticEvent = (entry: Record<string, unknown>): InvocationEventEnvelope => {
-    const turnIdText = options.getCurrentTurnId()
+  const apiErrorDiagnosticEvent = (
+    entry: Record<string, unknown>,
+    turnIdText?: string | undefined
+  ): InvocationEventEnvelope => {
     const turnId = turnIdText !== undefined ? (turnIdText as TurnId) : undefined
     const message = extractAssistantText(entry)
     const requestId = getString(entry, 'requestId')
     const error = getString(entry, 'error')
     const status = entry['status']
+    const errorClass = classifyApiError({
+      message,
+      error,
+      status: typeof status === 'number' ? status : undefined,
+    })
+    if (turnIdText !== undefined) {
+      options.onApiError?.(turnIdText)
+    }
     return sequencer.next(
       invocationId,
       'diagnostic',
@@ -119,6 +135,7 @@ export function createClaudeHookTranscriptReader(
           ...(typeof status === 'number' ? { apiErrorStatus: status } : {}),
           ...(requestId !== undefined ? { requestId } : {}),
           ...(error !== undefined ? { error } : {}),
+          ...(errorClass !== undefined ? { errorClass } : {}),
         },
       },
       {
@@ -128,8 +145,10 @@ export function createClaudeHookTranscriptReader(
     )
   }
 
-  const userMessageEvent = (content: string): InvocationEventEnvelope => {
-    const turnIdText = options.getCurrentTurnId()
+  const userMessageEvent = (
+    content: string,
+    turnIdText?: string | undefined
+  ): InvocationEventEnvelope => {
     const turnId = turnIdText !== undefined ? (turnIdText as TurnId) : undefined
     return sequencer.next(
       invocationId,
@@ -145,7 +164,11 @@ export function createClaudeHookTranscriptReader(
     )
   }
 
-  const processLine = (line: string, into: InvocationEventEnvelope[]): void => {
+  const processLine = (
+    line: string,
+    into: InvocationEventEnvelope[],
+    turnIdText?: string | undefined
+  ): void => {
     if (line.trim().length === 0) return
     let entry: Record<string, unknown>
     try {
@@ -161,7 +184,7 @@ export function createClaudeHookTranscriptReader(
     // API failure: CC records an assistant row flagged isApiErrorMessage with no
     // hook. Emit a non-terminal diagnostic; never a terminal/lifecycle event.
     if (entryType === 'assistant' && entry['isApiErrorMessage'] === true) {
-      into.push(apiErrorDiagnosticEvent(entry))
+      into.push(apiErrorDiagnosticEvent(entry, turnIdText))
       return
     }
 
@@ -172,11 +195,14 @@ export function createClaudeHookTranscriptReader(
     if (getString(entry, 'operation') !== 'enqueue') return
     const content = getString(entry, 'content')
     if (content === undefined || content.length === 0) return
-    into.push(userMessageEvent(content))
+    into.push(userMessageEvent(content, turnIdText))
   }
 
   return {
-    handleHook(hook: Record<string, unknown>): InvocationEventEnvelope[] {
+    handleHook(
+      hook: Record<string, unknown>,
+      explicitTurnId?: string | undefined
+    ): InvocationEventEnvelope[] {
       const into: InvocationEventEnvelope[] = []
       const unwrapped = unwrapHookPayload(hook)
       const rawType = getString(unwrapped, 'hook_event_name')
@@ -189,18 +215,66 @@ export function createClaudeHookTranscriptReader(
         return into
       }
 
-      tailer.readNewLines((line) => processLine(line, into))
+      const turnIdText = explicitTurnId ?? options.getCurrentTurnId()
+      tailer.readNewLines((line) => processLine(line, into, turnIdText))
       return into
     },
 
     drain(): InvocationEventEnvelope[] {
       const into: InvocationEventEnvelope[] = []
-      tailer.readNewLines((line) => processLine(line, into))
+      const turnIdText = options.getCurrentTurnId()
+      tailer.readNewLines((line) => processLine(line, into, turnIdText))
       return into
     },
 
     reset(): void {
       tailer.clear()
     },
+  }
+}
+
+function classifyApiError(options: {
+  message: string
+  error?: string | undefined
+  status?: number | undefined
+}): ApiErrorClass | undefined {
+  const text = `${options.error ?? ''} ${options.message}`.toLowerCase()
+
+  // Text wins over status because providers sometimes reuse 429 for both
+  // rate-limiting and exhausted quota/billing states.
+  if (/\bquota\b|billing|credit|balance|payment required|insufficient funds/.test(text)) {
+    return 'quota'
+  }
+  if (
+    /invalid[_ -]?api[_ -]?key|authentication|unauthorized|forbidden|auth[_ -]?error/.test(text)
+  ) {
+    return 'auth'
+  }
+  if (/rate[_ -]?limit|too many requests/.test(text)) {
+    return 'rate_limit'
+  }
+  if (/overload|capacity/.test(text)) {
+    return 'overloaded'
+  }
+  if (
+    /server[_ -]?error|internal server|service unavailable|bad gateway|gateway timeout/.test(text)
+  ) {
+    return 'server_error'
+  }
+
+  switch (options.status) {
+    case 401:
+    case 403:
+      return 'auth'
+    case 402:
+      return 'quota'
+    case 429:
+      return 'rate_limit'
+    case 529:
+      return 'overloaded'
+    default:
+      return options.status !== undefined && options.status >= 500 && options.status <= 599
+        ? 'server_error'
+        : undefined
   }
 }

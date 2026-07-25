@@ -438,7 +438,7 @@ describe('claude-code-tmux hook event normalization', () => {
     expect(events).toEqual([])
   })
 
-  test.each(['Stop', 'SessionEnd', 'SubagentStop'])(
+  test.each(['Stop', 'SubagentStop'])(
     '%s emits idempotent turn.completed and never invocation.exited',
     async (hookName) => {
       const normalizer = await createNormalizer()
@@ -475,7 +475,7 @@ describe('claude-code-tmux hook event normalization', () => {
     }
   )
 
-  test('SessionEnd reason=other (external pane-kill) keeps the continuation', async () => {
+  test('SessionEnd reason=other (external pane-kill) keeps the continuation and interrupts the turn', async () => {
     const events = (await createNormalizer()).normalizeHook({
       hook_event_name: 'SessionEnd',
       turn_id: turnId,
@@ -483,16 +483,21 @@ describe('claude-code-tmux hook event normalization', () => {
     })
 
     expect(eventTypes(events)).not.toContain('continuation.cleared')
-    expect(eventTypes(events)).toEqual(['turn.completed'])
+    expect(eventTypes(events)).toEqual(['turn.interrupted'])
+    expect(events[0]).toMatchObject({
+      payload: { turnId, status: 'interrupted', reason: 'other' },
+      driver: { kind: 'claude-code-tmux', rawType: 'SessionEnd' },
+    })
   })
 
-  test('SessionEnd with no reason keeps the continuation', async () => {
+  test('SessionEnd with no reason keeps the continuation and interrupts the turn', async () => {
     const events = (await createNormalizer()).normalizeHook({
       hook_event_name: 'SessionEnd',
       turn_id: turnId,
     })
 
     expect(eventTypes(events)).not.toContain('continuation.cleared')
+    expect(eventTypes(events)).toEqual(['turn.interrupted'])
   })
 
   test('Stop never emits continuation.cleared even with a user-exit reason', async () => {

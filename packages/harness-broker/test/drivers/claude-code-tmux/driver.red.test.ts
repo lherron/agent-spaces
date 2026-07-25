@@ -934,6 +934,81 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     }
   })
 
+  test('same-turn API error diagnostic is followed by an attributed failed terminal on Stop', async () => {
+    const createDriver = await loadFactory()
+    const tmuxCalls: TmuxExecCall[] = []
+    let hookHandler: ((envelope: HookEnvelope) => Promise<void>) | undefined
+    const events: InvocationEventEnvelope[] = []
+    const driver = createDriver({
+      tmux: { tmuxBin: '/opt/bin/tmux', exec: createRecordingExec(tmuxCalls) },
+      hooks: {
+        listen: async (handler) => {
+          hookHandler = handler as (envelope: HookEnvelope) => Promise<void>
+          return {
+            socketPath: '/tmp/harness-broker/claude-hooks.sock',
+            close: async () => undefined,
+          }
+        },
+      },
+      now,
+    })
+
+    const root = mkdtempSync(join(tmpdir(), 'claude-api-error-terminal-'))
+    const transcriptPath = join(root, 'session.jsonl')
+    writeFileSync(transcriptPath, '')
+
+    try {
+      await driver.start(claudeTmuxSpec(), createCtx(events, { terminalSurface: defaultLease() }))
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+        hookData: { hook_event_name: 'SessionStart', transcript_path: transcriptPath },
+      })
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+        turnId: 'turn_api_error_1',
+        hookData: { hook_event_name: 'UserPromptSubmit', prompt: 'go' },
+      })
+      writeFileSync(
+        transcriptPath,
+        `${JSON.stringify({
+          type: 'assistant',
+          isApiErrorMessage: true,
+          status: 529,
+          requestId: 'req_terminal',
+          error: 'overloaded_error',
+          message: { content: [{ type: 'text', text: 'API Error: Overloaded' }] },
+        })}\n`
+      )
+
+      await hookHandler?.({
+        invocationId: 'inv_claude_tmux_1',
+        generation: 1,
+        callbackSocket: '/tmp/harness-broker/claude-hooks.sock',
+        turnId: 'turn_api_error_1',
+        hookData: { hook_event_name: 'Stop' },
+      })
+
+      const sameTurn = events.filter((event) => event.turnId === 'turn_api_error_1')
+      expect(sameTurn.map((event) => event.type)).toContain('diagnostic')
+      expect(sameTurn.map((event) => event.type)).not.toContain('turn.completed')
+      expect(sameTurn.find((event) => event.type === 'turn.failed')).toMatchObject({
+        payload: {
+          turnId: 'turn_api_error_1',
+          status: 'failed',
+          code: 'provider_api_error',
+          message: expect.stringContaining('provider API error'),
+        },
+        driver: { kind: 'claude-code-tmux', rawType: 'Stop' },
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('merges broker hooks into the effective pre-separator Claude settings file', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'claude-tmux-driver-settings-'))
     try {

@@ -317,13 +317,15 @@ export interface ToolCallDeltaPayload {
  *     `exitCode` into the neutral `result.exitCode`).
  *   - claude-code-tmux / codex-cli-tmux / pi-tui-tmux: the driver passes the raw
  *     hook `tool_response` through VERBATIM as `result.details` and derives no
- *     exit code of its own. Any exit status therefore surfaces at exactly the
- *     key the hook used — `result.details.exit_code` (snake_case) in the repo's
- *     fixtures — NOT a top-level `result.exitCode` and NOT `result.details.exitCode`.
- *     UNVERIFIED against a live Claude Code CLI capture: no real Bash
- *     `tool_response` is recorded in-repo, and the one real SDK-side synthesizer
- *     omits an exit code entirely, so whether the live CLI populates it at all is
- *     unconfirmed — consumers must treat `result.details.exit_code` as best-effort.
+ *     exit code of its own. Fixture-provided exit status therefore surfaces at
+ *     exactly the key the hook used: `result.details.exit_code` (snake_case), NOT
+ *     a top-level `result.exitCode` and NOT `result.details.exitCode`.
+ *   - claude-code-tmux live capture (2026-07-24): real Claude Code Bash
+ *     `PostToolUse.tool_response` carried `stdout`, `stderr`, `interrupted`,
+ *     `isImage`, and `noOutputExpected`, but NO exit-code field. Therefore current
+ *     live Claude Code events expose no process exit status at any path; consumers
+ *     must treat fixture-shaped `result.details.exit_code` as optional future /
+ *     compatibility data only.
  */
 export interface ToolCallCompletedPayload {
   toolCallId: ToolCallId
