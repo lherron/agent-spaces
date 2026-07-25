@@ -120,7 +120,9 @@ export function buildTmuxHarnessSpawnEnv(artifact: TmuxLaunchExecArtifact): Reco
  * a clean exit (`/quit`) is `prompt_input_exit` (drop continuation, reap); a
  * crash/signal is `other` (keep the continuation so resume durability survives —
  * T-01761). Gated by HARNESS_BROKER_SYNTH_SESSION_END so only the codex driver
- * opts in; the claude driver, which fires a real SessionEnd, is untouched.
+ * opts in. `HARNESS_BROKER_REPORT_PROCESS_EXIT` is the stronger Claude path:
+ * the runner owns the child process, so it reports the actual exit code/signal
+ * even when Claude dies without firing its native SessionEnd hook.
  */
 export async function postSyntheticSessionEnd(
   env: Record<string, string>,
@@ -132,7 +134,12 @@ export async function postSyntheticSessionEnd(
   if (!socketPath || !invocationId) {
     return
   }
-  const reason = signal === null && code === 0 ? 'prompt_input_exit' : 'other'
+  const reportsProcessExit = env['HARNESS_BROKER_REPORT_PROCESS_EXIT'] === '1'
+  const reason = reportsProcessExit
+    ? 'process-exit'
+    : signal === null && code === 0
+      ? 'prompt_input_exit'
+      : 'other'
   const generationRaw = env['HARNESS_BROKER_HOOK_GENERATION']
   const generation =
     generationRaw !== undefined && generationRaw !== '' && Number.isFinite(Number(generationRaw))
@@ -144,7 +151,11 @@ export async function postSyntheticSessionEnd(
     ...(runtimeId ? { runtimeId } : {}),
     ...(generation !== undefined ? { generation } : {}),
     callbackSocket: socketPath,
-    hookData: { hook_event_name: 'SessionEnd', reason },
+    hookData: {
+      hook_event_name: 'SessionEnd',
+      reason,
+      ...(reportsProcessExit ? { exit_code: code, signal } : {}),
+    },
   }
   await new Promise<void>((resolve) => {
     let settled = false
@@ -206,7 +217,7 @@ export async function runTmuxLaunch(launchFilePath: string): Promise<never> {
         // Synthesize the harness-exit teardown signal for drivers that opt in
         // (codex, which emits no SessionEnd hook of its own). Awaited so the
         // envelope flushes to the broker socket before we mirror the exit.
-        if (env['HARNESS_BROKER_SYNTH_SESSION_END']) {
+        if (env['HARNESS_BROKER_SYNTH_SESSION_END'] || env['HARNESS_BROKER_REPORT_PROCESS_EXIT']) {
           await postSyntheticSessionEnd(env, code, signal)
         }
         if (signal) {

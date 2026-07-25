@@ -238,6 +238,8 @@ export interface Invocation {
   driver: Driver
   continuation?: ContinuationUpdate | undefined
   terminalEmitted: boolean
+  /** Winning invocation.exited|failed envelope returned to duplicate terminal reporters. */
+  terminalEvent?: InvocationEventEnvelope | undefined
   /** True once invocation.disposed has been emitted — keeps it idempotent. */
   disposedEmitted: boolean
   /** Manager-owned public status projection, driven by applyEventState. */
@@ -838,6 +840,20 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       turnAttempt?: number | undefined
     }
   ): InvocationEventEnvelope<TPayload> {
+    // Exactly-one invocation terminal. Provider lifecycle can be observed at
+    // more than one seam (for example Claude's native SessionEnd racing the
+    // tmux launch runner's process-exit report). The invocation-manager latch
+    // is the authoritative dedupe seat: the first terminal wins and later
+    // reporters receive that same envelope without resequencing or delivery.
+    if (INVOCATION_TEARDOWN_TYPES.has(type) && inv.terminalEmitted) {
+      if (inv.terminalEvent !== undefined) {
+        return inv.terminalEvent as InvocationEventEnvelope<TPayload>
+      }
+      throw new Error(
+        `invocation ${String(inv.invocationId)} terminal latch set without a terminal event`
+      )
+    }
+
     // Tool-call exactly-one-terminal bracket (T-06550). A turn or invocation
     // teardown is the point every open `tool.call.started` MUST have closed; any
     // still open is the burn-in-19 vanished-call defect. Synthesize its `failed`
@@ -890,6 +906,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     const event = sequencer.next(inv.invocationId, type, safePayload, extra)
     if (inv.spec.correlation !== undefined) {
       event.correlation = inv.spec.correlation
+    }
+    if (INVOCATION_TEARDOWN_TYPES.has(type)) {
+      inv.terminalEmitted = true
+      inv.terminalEvent = event as InvocationEventEnvelope
     }
     // Record the winning `turn.started` so any subsequent start for this turn
     // (e.g. a hook-observed start after a broker-delivery synthesis) is deduped
@@ -958,7 +978,6 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     if (inv.terminalEmitted) {
       return
     }
-    inv.terminalEmitted = true
     emit(inv, type, payload)
   }
 

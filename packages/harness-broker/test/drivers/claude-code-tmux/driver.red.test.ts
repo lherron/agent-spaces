@@ -714,6 +714,7 @@ describe('claude-code-tmux driver RED lifecycle', () => {
     expect(artifact.env?.['HARNESS_BROKER_CALLBACK_SOCKET']).toBe(
       '/tmp/harness-broker/claude-hooks.sock'
     )
+    expect(artifact.env?.['HARNESS_BROKER_REPORT_PROCESS_EXIT']).toBe('1')
 
     // Env vars alone do not make Claude Code invoke hooks. The tmux launch must
     // include a Claude hook settings overlay / hook command so the real runtime

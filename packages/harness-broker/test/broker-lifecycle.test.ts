@@ -194,6 +194,50 @@ describe('broker lifecycle', () => {
     })
   })
 
+  test('dedupes racing driver terminal reports at the invocation-manager latch', async () => {
+    const events: InvocationEventEnvelope[] = []
+    let reportExit: (() => void) | undefined
+    const driver: Driver = {
+      kind: 'test-driver',
+      version: 'test',
+      capabilities: () => noopCapabilities,
+      start: async (_spec, ctx) => {
+        reportExit = () => {
+          ctx.emit('invocation.exited', {
+            exitCode: 23,
+            signal: null,
+            reason: 'process-exit',
+          })
+        }
+        return { ok: true }
+      },
+      applyInputNow: async () => ({}),
+      interrupt: async () => ({ accepted: false, effect: 'unsupported' }),
+      stop: async () => ({ accepted: true, state: 'exited' }),
+      dispose: async () => {},
+    }
+    const broker = createBroker({
+      drivers: [driver],
+      onEvent: (event) => events.push(event),
+      now,
+    })
+
+    await broker.start({
+      spec: testDriverSpec('inv_terminal_race'),
+    })
+    reportExit?.()
+    reportExit?.()
+
+    const terminalEvents = events.filter(
+      (event) => event.type === 'invocation.exited' || event.type === 'invocation.failed'
+    )
+    expect(terminalEvents).toHaveLength(1)
+    expect(terminalEvents[0]).toMatchObject({
+      type: 'invocation.exited',
+      payload: { exitCode: 23, signal: null, reason: 'process-exit' },
+    })
+  })
+
   test('invocation.ready event payload is { state: "ready" }', async () => {
     const events: InvocationEventEnvelope[] = []
     const broker = createBroker({

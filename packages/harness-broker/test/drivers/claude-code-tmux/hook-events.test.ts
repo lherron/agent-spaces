@@ -486,6 +486,24 @@ describe('claude-code-tmux hook event normalization', () => {
     expect(eventTypes(events)).toEqual(['turn.completed'])
   })
 
+  test('process-exit reports invocation.exited with process facts and keeps continuation', async () => {
+    const events = (await createNormalizer()).normalizeHook({
+      hook_event_name: 'SessionEnd',
+      turn_id: turnId,
+      reason: 'process-exit',
+      exit_code: 23,
+      signal: null,
+    })
+
+    expect(eventTypes(events)).toEqual(['turn.completed', 'invocation.exited'])
+    expect(eventTypes(events)).not.toContain('continuation.cleared')
+    expect(events.at(-1)).toMatchObject({
+      type: 'invocation.exited',
+      payload: { exitCode: 23, signal: null, reason: 'process-exit' },
+      driver: { kind: 'claude-code-tmux', rawType: 'SessionEnd' },
+    })
+  })
+
   test('SessionEnd with no reason keeps the continuation', async () => {
     const events = (await createNormalizer()).normalizeHook({
       hook_event_name: 'SessionEnd',

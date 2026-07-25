@@ -358,6 +358,9 @@ export function createClaudeCodeHookEventNormalizer(
         // reason `other` (or no SessionEnd), which we ignore so resume
         // durability survives pane recreation (T-01761 ariadne case).
         const prefix: InvocationEventEnvelope[] = []
+        let processExit:
+          | { exitCode: number | null; signal: string | null; reason: 'process-exit' }
+          | undefined
         if (rawType === 'SessionEnd') {
           const endReason = getString(unwrapped, 'reason')
           if (endReason !== undefined && USER_INITIATED_END_REASONS.has(endReason)) {
@@ -367,6 +370,13 @@ export function createClaudeCodeHookEventNormalizer(
                 payload: { reason: endReason },
               })
             )
+          }
+          if (endReason === 'process-exit') {
+            processExit = {
+              exitCode: typeof unwrapped['exit_code'] === 'number' ? unwrapped['exit_code'] : null,
+              signal: typeof unwrapped['signal'] === 'string' ? unwrapped['signal'] : null,
+              reason: 'process-exit',
+            }
           }
         }
         // Terminal assistant message is sourced from Stop's authoritative
@@ -407,8 +417,17 @@ export function createClaudeCodeHookEventNormalizer(
         } else {
           events = flushHeldAssistantMessage(true, turnId)
         }
+        const emitProcessExit = (): InvocationEventEnvelope[] =>
+          processExit === undefined
+            ? []
+            : [
+                emit(rawType, {
+                  type: 'invocation.exited',
+                  payload: processExit,
+                }),
+              ]
         if (turnIdText === undefined || turnId === undefined || completedTurns.has(turnIdText)) {
-          return [...prefix, ...events]
+          return [...prefix, ...events, ...emitProcessExit()]
         }
         // Emit exactly one terminal for this turn, mark it terminal for dedupe,
         // and clear the active turn when it matches so the NEXT turn-id-less
@@ -425,7 +444,7 @@ export function createClaudeCodeHookEventNormalizer(
             turnId,
           })
         )
-        return [...prefix, ...events]
+        return [...prefix, ...events, ...emitProcessExit()]
       }
 
       if (rawType === 'PreCompact') {

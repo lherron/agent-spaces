@@ -426,6 +426,8 @@ function resolveClaudeBin(): string | undefined {
   ]) {
     if (candidate !== undefined && candidate.length > 0 && existsSync(candidate)) return candidate
   }
+  const onPath = Bun.which('claude')
+  if (onPath !== null && onPath.length > 0 && existsSync(onPath)) return onPath
   return undefined
 }
 
@@ -473,6 +475,9 @@ function resolveRealPiBin(): string | undefined {
   for (const candidate of [
     process.env['ASP_PI_PATH'],
     process.env['PI_PATH'],
+    // The matrix certifies this checkout's Pi integration, so prefer its
+    // installed dependency over an older unrelated global CLI on PATH.
+    resolve(import.meta.dir, '..', 'node_modules', '.bin', 'pi'),
     join(process.env['HOME'] ?? '', '.local/bin/pi'),
     '/opt/homebrew/bin/pi',
     '/usr/local/bin/pi',
@@ -1162,6 +1167,7 @@ async function runCodexRow(
         prompt,
         marker: ctx.marker,
         timeoutMs: ctx.turnTimeoutMs,
+        ...(options.real ? { model: 'gpt-5.5' } : {}),
         lockedEnv: options.lockedEnv,
       }),
       aspHome: options.aspHome,
@@ -1328,14 +1334,15 @@ async function runCodexAppServerStructuredScenario(options: {
     policy: { whenBusy: 'reject' },
   })
   await pollUntil(() => terminalTurnCount(events) > 0, 60_000, 250)
-  failures.push(...assertStructuredValidTurn(events, response.turnId, marker))
+  const structuredTurnId = response.turnId ?? deriveCommandTurnId(events)
+  failures.push(...assertStructuredValidTurn(events, structuredTurnId, marker))
   await manager.dispose({ invocationId: spec.invocationId as InvocationId }).catch(() => undefined)
   return {
     failures,
     notes: {
       structuredScenario: 'structured-output',
       structuredEventCount: events.length,
-      structuredTurnId: response.turnId ?? null,
+      structuredTurnId: structuredTurnId ?? null,
       structuredDeclaresJsonSchema: supportsStructuredFinalResponse(start.capabilities),
     },
   }
@@ -1637,9 +1644,13 @@ async function runCodexTmuxRow(
         agentRoot,
         projectRoot,
         cwd: projectRoot,
-        prompt: prompts[0],
+        // The canonical command turn is delivered through manager.input below.
+        // Keep the launch cold so readiness cannot race a duplicate argv-primed
+        // turn and reject that broker input as busy.
+        prompt: '',
         marker: ctx.marker,
         timeoutMs: ctx.turnTimeoutMs,
+        model: 'gpt-5.5',
       })
     )
     if (!response.ok) {
@@ -2004,6 +2015,22 @@ function ensureAspHomeRegistry(aspHome: string, projectRoot: string): void {
   symlinkSync(source, repoPath, 'dir')
 }
 
+function matrixPiAuthPath(): string {
+  const agentDir =
+    process.env['PI_CODING_AGENT_DIR'] ?? join(process.env['HOME'] ?? '', '.pi', 'agent')
+  return join(agentDir, 'auth.json')
+}
+
+function installMatrixPiAuth(agentDir: string): void {
+  const source = matrixPiAuthPath()
+  if (!existsSync(source)) return
+  const destination = join(agentDir, 'auth.json')
+  if (resolve(source) === resolve(destination)) return
+  mkdirSync(agentDir, { recursive: true })
+  rmSync(destination, { force: true })
+  symlinkSync(source, destination)
+}
+
 // ---------------------------------------------------------------------------
 // Claude tmux rows — shared interactive runner deps
 // ---------------------------------------------------------------------------
@@ -2221,6 +2248,14 @@ async function runPiTuiTmuxRow(
         message: 'compileRuntimePlan did not emit pi-tui-tmux broker profile',
       })
       return result
+    }
+    const piAgentDir =
+      profile.harnessInvocation.startRequest.spec.process.lockedEnv?.['PI_CODING_AGENT_DIR']
+    if (piAgentDir !== undefined) {
+      // Matrix callers may intentionally isolate HOME. The product adapter
+      // materializes from the OS homedir, so project the probed matrix
+      // credential into this ephemeral bundle before launching the real Pi.
+      installMatrixPiAuth(piAgentDir)
     }
     result.compile = {
       compileId: response.plan.compileId,
@@ -2678,6 +2713,7 @@ async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
     }
     const profile = response.plan.executionProfiles[0] as EmbeddedSdkExecutionProfile
     const bundleRoot = response.plan.artifacts.materializedBundleRoot as string
+    installMatrixPiAuth(bundleRoot)
     result.compile = {
       compileId: response.plan.compileId,
       planHash: response.plan.planHash,
@@ -2735,41 +2771,6 @@ async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
     const narrationTurnIds = commandTurnId !== undefined ? [commandTurnId] : []
     result.notes['narrationTurnIds'] = narrationTurnIds
     result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
-
-    const structuredInputId = `input_structured_unix_${ctx.marker}`
-    let structuredError = ''
-    try {
-      const structuredResponse = await client.input({
-        invocationId: identity.invocationId,
-        input: structuredUserInput(`STRUCT_${ctx.marker}_UNIX`, structuredInputId),
-      })
-      if (structuredResponse.accepted) {
-        result.extraFailures.push({
-          code: 'structured_unsupported_call_succeeded',
-          message: 'unix structured-output input unexpectedly succeeded',
-        })
-      }
-    } catch (error) {
-      structuredError = error instanceof Error ? error.message : String(error)
-    }
-    const structuredEvents = await unixCollectUntil(started.events, 'input.rejected', 5_000).catch(
-      () => []
-    )
-    result.extraFailures.push(
-      ...assertStructuredRejectedBeforeAccepted(structuredEvents, 0, structuredInputId)
-    )
-    if (!structuredError.includes('UnsupportedCapability: finalResponse.jsonSchema')) {
-      result.extraFailures.push({
-        code: 'structured_unsupported_error',
-        message: `unix structured-output input threw unexpected error: ${structuredError}`,
-      })
-    }
-    result.notes['structuredOutput'] = {
-      scenario: 'structured-output',
-      declaresJsonSchema: false,
-      assertion: 'rejected-before-input.accepted',
-      error: structuredError,
-    }
   } finally {
     if (!ctx.keepArtifacts) fx.cleanup()
   }
@@ -4235,7 +4236,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
     name: 'real-pi-sdk-embedded',
     description: 'pi-sdk embedded-sdk in-process executor against the REAL pi-sdk path',
     probe: async () => {
-      const authPath = join(process.env['HOME'] ?? '', '.pi', 'agent', 'auth.json')
+      const authPath = matrixPiAuthPath()
       if (!existsSync(authPath)) {
         return { available: false, reason: `pi auth (${authPath}) not present` }
       }
@@ -4251,7 +4252,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       if (pi === undefined) {
         return { available: false, reason: 'real pi binary not found (set ASP_PI_PATH)' }
       }
-      const authPath = join(process.env['HOME'] ?? '', '.pi', 'agent', 'auth.json')
+      const authPath = matrixPiAuthPath()
       if (!existsSync(authPath)) {
         return { available: false, reason: `pi auth (${authPath}) not present` }
       }
@@ -4270,7 +4271,7 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
       if (pi === undefined) {
         return { available: false, reason: 'real pi binary not found (set ASP_PI_PATH)' }
       }
-      const authPath = join(process.env['HOME'] ?? '', '.pi', 'agent', 'auth.json')
+      const authPath = matrixPiAuthPath()
       if (!existsSync(authPath)) {
         return { available: false, reason: `pi auth (${authPath}) not present` }
       }

@@ -885,6 +885,10 @@ async function buildLaunchCommandLine(
     HARNESS_BROKER_CALLBACK_SOCKET: hookEnv.callbackSocket,
     HARNESS_BROKER_HOOK_EVENTS: HOOK_EVENT_NAMES.join(','),
     HARNESS_BROKER_HOOK_GENERATION: String(CLAUDE_HOOK_GENERATION),
+    // The launch runner directly owns the Claude child. Report its exit through
+    // the hook socket so a crash that skips Claude's native SessionEnd cannot
+    // leave the durable broker invocation stranded at invocation.ready.
+    HARNESS_BROKER_REPORT_PROCESS_EXIT: '1',
     ...(hookEnv.runtimeId !== undefined ? { HARNESS_BROKER_RUNTIME_ID: hookEnv.runtimeId } : {}),
   }
   const launchArgs = await buildArgsWithMergedSettings(spec.process.args, hookEnv)

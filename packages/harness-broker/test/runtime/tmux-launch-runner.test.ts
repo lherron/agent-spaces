@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -159,6 +160,35 @@ describe('postSyntheticSessionEnd', () => {
     }
   })
 
+  test('Claude process-exit reporting carries exit facts without clearing continuation', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'synth-session-end-'))
+    const socketPath = join(dir, 's.sock')
+    const cap = await captureOneEnvelope(socketPath)
+    try {
+      await postSyntheticSessionEnd(
+        {
+          HARNESS_BROKER_CALLBACK_SOCKET: socketPath,
+          HARNESS_BROKER_INVOCATION_ID: 'inv_process_exit',
+          HARNESS_BROKER_REPORT_PROCESS_EXIT: '1',
+        },
+        23,
+        null
+      )
+      const env = await cap.received
+      expect(env).toMatchObject({
+        hookData: {
+          hook_event_name: 'SessionEnd',
+          reason: 'process-exit',
+          exit_code: 23,
+          signal: null,
+        },
+      })
+    } finally {
+      cap.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test('no-op (no throw) when callback socket env is absent', async () => {
     await postSyntheticSessionEnd({ HARNESS_BROKER_INVOCATION_ID: 'inv_3' }, 0, null)
   })
@@ -180,4 +210,68 @@ describe('postSyntheticSessionEnd', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+})
+
+describe('runTmuxLaunch process-exit reporting', () => {
+  test.each([
+    {
+      name: 'nonzero no-hook exit',
+      childArgv: ['/bin/sh', '-c', 'exit 23'],
+      expectedCode: 23,
+      expectedSignal: null,
+    },
+    {
+      name: 'signal no-hook exit',
+      childArgv: ['/bin/sh', '-c', 'kill -TERM $$'],
+      expectedCode: null,
+      expectedSignal: 'SIGTERM',
+    },
+  ])(
+    '$name reports the owned child terminal before mirroring it',
+    async ({ childArgv, expectedCode, expectedSignal }) => {
+      const dir = await mkdtemp(join(tmpdir(), 'tmux-launch-process-exit-'))
+      const socketPath = join(dir, 'hooks.sock')
+      const launchFile = join(dir, 'launch.json')
+      const cap = await captureOneEnvelope(socketPath)
+      try {
+        await writeFile(
+          launchFile,
+          JSON.stringify({
+            argv: childArgv,
+            cwd: dir,
+            env: {
+              HARNESS_BROKER_CALLBACK_SOCKET: socketPath,
+              HARNESS_BROKER_INVOCATION_ID: 'inv_controlled_child',
+              HARNESS_BROKER_REPORT_PROCESS_EXIT: '1',
+            },
+          })
+        )
+        const runnerPath = join(import.meta.dir, '../../src/runtime/tmux-launch-runner.ts')
+        const terminal = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+          (resolve, reject) => {
+            const child = spawn(process.execPath, [runnerPath, '--launch-file', launchFile], {
+              stdio: 'ignore',
+            })
+            child.on('error', reject)
+            child.on('close', (code, signal) => resolve({ code, signal }))
+          }
+        )
+        const envelope = await cap.received
+
+        expect(terminal).toEqual({ code: expectedCode, signal: expectedSignal })
+        expect(envelope).toMatchObject({
+          invocationId: 'inv_controlled_child',
+          hookData: {
+            hook_event_name: 'SessionEnd',
+            reason: 'process-exit',
+            exit_code: expectedCode,
+            signal: expectedSignal,
+          },
+        })
+      } finally {
+        cap.close()
+        await rm(dir, { recursive: true, force: true })
+      }
+    }
+  )
 })
