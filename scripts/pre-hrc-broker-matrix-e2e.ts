@@ -151,6 +151,13 @@ type RowName =
   | 'real-pi-tui-tmux'
   | 'pi-tui-tmux-ghostmux'
 
+export const SPARKY_CODEX_MATRIX_ROWS = [
+  'real-codex',
+  'real-codex-tmux',
+  'codex-tmux-ghostmux',
+] as const
+export type SparkyCodexMatrixRow = (typeof SPARKY_CODEX_MATRIX_ROWS)[number]
+
 type CompileTransport = 'sdk' | 'aspc-rpc'
 const ALL_ROWS: RowName[] = [
   'fake-codex',
@@ -233,6 +240,12 @@ const STRUCTURED_OUTPUT_SCHEMA = {
 const STRUCTURED_OUTPUT_PROMPT =
   'Return ONLY a JSON object matching the provided schema. Do not use markdown fences, prose, or tool calls. ' +
   'Use status "ok" and copy this marker exactly into marker:'
+
+export const EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION = {
+  scenario: 'structured-output',
+  disposition: 'not-applicable',
+  reason: 'this one-turn in-process executor exposes no broker input/capability surface',
+} as const
 
 type CliArgs = {
   config?: RowName | undefined
@@ -919,6 +932,23 @@ function assertStructuredValidTurn(
   return failures
 }
 
+function turnIdFromEventsAfter(
+  events: InvocationEventEnvelope[],
+  baselineEventCount: number
+): string | undefined {
+  const scenarioEvents = events.slice(baselineEventCount)
+  const terminal = scenarioEvents.find(
+    (event) =>
+      (event.type === 'turn.completed' ||
+        event.type === 'turn.failed' ||
+        event.type === 'turn.interrupted') &&
+      typeof event.turnId === 'string' &&
+      event.turnId.length > 0
+  )
+  if (typeof terminal?.turnId === 'string') return terminal.turnId
+  return deriveCommandTurnId(scenarioEvents)
+}
+
 function assertStructuredRejectedBeforeAccepted(
   events: InvocationEventEnvelope[],
   baselineLength: number,
@@ -1154,16 +1184,27 @@ async function runCodexRow(
   try {
     const harnessResult = await runPreHrcBrokerContractHarness({
       schemaVersion: 'pre-hrc-broker-contract-harness-input/v1',
-      compileRequest: codexCompileRequest({
-        scopeRef: options.scopeRef,
-        agentRoot: options.agentRoot,
-        projectRoot: options.projectRoot,
-        cwd: options.projectRoot,
-        prompt,
-        marker: ctx.marker,
-        timeoutMs: ctx.turnTimeoutMs,
-        lockedEnv: options.lockedEnv,
-      }),
+      compileRequest: options.real
+        ? createSparkyCodexMatrixCompileRequest('real-codex', {
+            scopeRef: options.scopeRef,
+            agentRoot: options.agentRoot,
+            projectRoot: options.projectRoot,
+            cwd: options.projectRoot,
+            prompt,
+            marker: ctx.marker,
+            timeoutMs: ctx.turnTimeoutMs,
+            lockedEnv: options.lockedEnv,
+          })
+        : codexCompileRequest({
+            scopeRef: options.scopeRef,
+            agentRoot: options.agentRoot,
+            projectRoot: options.projectRoot,
+            cwd: options.projectRoot,
+            prompt,
+            marker: ctx.marker,
+            timeoutMs: ctx.turnTimeoutMs,
+            lockedEnv: options.lockedEnv,
+          }),
       aspHome: options.aspHome,
       artifactDir: options.artifactDir,
       compileRuntimePlan: (req, compileOptions) =>
@@ -1322,20 +1363,24 @@ async function runCodexAppServerStructuredScenario(options: {
       message: 'codex-app-server did not advertise finalResponse.jsonSchema + perTurn',
     })
   }
+  const baselineEventCount = events.length
+  const baselineTerminalTurns = terminalTurnCount(events)
   const response = await manager.input({
     invocationId: spec.invocationId as InvocationId,
     input: structuredUserInput(marker, `input_structured_codex_${options.marker}`),
     policy: { whenBusy: 'reject' },
   })
-  await pollUntil(() => terminalTurnCount(events) > 0, 60_000, 250)
-  failures.push(...assertStructuredValidTurn(events, response.turnId, marker))
+  await pollUntil(() => terminalTurnCount(events) > baselineTerminalTurns, 60_000, 250)
+  const structuredTurnId = response.turnId ?? turnIdFromEventsAfter(events, baselineEventCount)
+  failures.push(...assertStructuredValidTurn(events, structuredTurnId, marker))
   await manager.dispose({ invocationId: spec.invocationId as InvocationId }).catch(() => undefined)
   return {
     failures,
     notes: {
       structuredScenario: 'structured-output',
       structuredEventCount: events.length,
-      structuredTurnId: response.turnId ?? null,
+      structuredTurnId: structuredTurnId ?? null,
+      structuredInputResponseTurnId: response.turnId ?? null,
       structuredDeclaresJsonSchema: supportsStructuredFinalResponse(start.capabilities),
     },
   }
@@ -1409,6 +1454,25 @@ function codexInteractiveCompileRequest(input: {
       laneRef: 'main',
     },
   }
+}
+
+export function createSparkyCodexMatrixCompileRequest(
+  row: SparkyCodexMatrixRow,
+  input: {
+    scopeRef: string
+    agentRoot: string
+    projectRoot: string
+    cwd: string
+    prompt: string
+    marker: string
+    timeoutMs: number
+    lockedEnv?: Record<string, string> | undefined
+  }
+): RuntimeCompileRequest {
+  const withCodexModel = { ...input, model: 'gpt-5.5' }
+  return row === 'real-codex'
+    ? codexCompileRequest(withCodexModel)
+    : codexInteractiveCompileRequest(withCodexModel)
 }
 
 type MatrixTmuxExecResult = { stdout: string; stderr: string }
@@ -1584,7 +1648,9 @@ async function runCodexTmuxRow(
   const codex = resolveRealCodexBin()
   if (codex === undefined) throw new Error('real codex binary disappeared after probe')
 
-  const rowName: RowName = options.ghostmuxOperator ? 'codex-tmux-ghostmux' : 'real-codex-tmux'
+  const rowName: SparkyCodexMatrixRow = options.ghostmuxOperator
+    ? 'codex-tmux-ghostmux'
+    : 'real-codex-tmux'
   const operatorMarker = `${ctx.marker}_OP`
   const commandMarker = options.ghostmuxOperator ? operatorMarker : ctx.marker
   // Shared narration-inducing turn (NARRATION_PROMPT, Lance's live ghostmux demo,
@@ -1632,7 +1698,7 @@ async function runCodexTmuxRow(
     const response = await compileRuntimePlanForMatrix(
       ctx,
       aspHome,
-      codexInteractiveCompileRequest({
+      createSparkyCodexMatrixCompileRequest(rowName, {
         scopeRef,
         agentRoot,
         projectRoot,
@@ -1756,9 +1822,17 @@ async function runCodexTmuxRow(
       }
     }
 
-    const scriptedTurns: Array<{ prompt: string; terminalTurnObserved: boolean }> = []
+    // The compiler launches interactive Codex with materialization.initialPrompt
+    // in argv, so that prompt is already the first real turn. Wait for its
+    // normalized terminal event before applying later broker-managed inputs;
+    // sending it again races the active launch turn and correctly gets
+    // `busy_rejected`.
+    const initialTurnObserved = await waitForAdditionalTerminalTurn(events, 0, ctx.turnTimeoutMs)
+    const scriptedTurns: Array<{ prompt: string; terminalTurnObserved: boolean }> = [
+      { prompt: prompts[0], terminalTurnObserved: initialTurnObserved },
+    ]
     let narrationTurnIds: string[] = []
-    for (const prompt of prompts) {
+    for (const prompt of prompts.slice(1)) {
       const baseline = terminalTurnCount(events)
       const turnIdsBefore = new Set(observedTurnIds(events))
       await manager.input({
@@ -2736,40 +2810,7 @@ async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
     result.notes['narrationTurnIds'] = narrationTurnIds
     result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
 
-    const structuredInputId = `input_structured_unix_${ctx.marker}`
-    let structuredError = ''
-    try {
-      const structuredResponse = await client.input({
-        invocationId: identity.invocationId,
-        input: structuredUserInput(`STRUCT_${ctx.marker}_UNIX`, structuredInputId),
-      })
-      if (structuredResponse.accepted) {
-        result.extraFailures.push({
-          code: 'structured_unsupported_call_succeeded',
-          message: 'unix structured-output input unexpectedly succeeded',
-        })
-      }
-    } catch (error) {
-      structuredError = error instanceof Error ? error.message : String(error)
-    }
-    const structuredEvents = await unixCollectUntil(started.events, 'input.rejected', 5_000).catch(
-      () => []
-    )
-    result.extraFailures.push(
-      ...assertStructuredRejectedBeforeAccepted(structuredEvents, 0, structuredInputId)
-    )
-    if (!structuredError.includes('UnsupportedCapability: finalResponse.jsonSchema')) {
-      result.extraFailures.push({
-        code: 'structured_unsupported_error',
-        message: `unix structured-output input threw unexpected error: ${structuredError}`,
-      })
-    }
-    result.notes['structuredOutput'] = {
-      scenario: 'structured-output',
-      declaresJsonSchema: false,
-      assertion: 'rejected-before-input.accepted',
-      error: structuredError,
-    }
+    result.notes['structuredOutput'] = EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION
   } finally {
     if (!ctx.keepArtifacts) fx.cleanup()
   }
