@@ -900,7 +900,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
       maxEventBytes: inv.spec.process.limits?.maxEventBytes,
     })
 
-    const sequencedEvent = sequencer.nextEvent(inv.invocationId, descriptor, extra)
+    const sequencedEvent = sequencer.next(inv.invocationId, type, safePayload, extra)
     // Runtime producer boundary: validate the fully normalized, sequenced
     // envelope before it can reach state projection, observers, or the durable
     // ledger. The protocol package owns both the map and these validators.

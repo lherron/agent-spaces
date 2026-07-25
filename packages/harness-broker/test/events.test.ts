@@ -36,9 +36,17 @@ describe('invocation event sequencing', () => {
     })
 
     expect([
-      sequencer.next('inv_a', 'invocation.started', {}),
-      sequencer.next('inv_a', 'invocation.ready', {}),
-      sequencer.next('inv_b', 'invocation.started', {}),
+      sequencer.next('inv_a', 'invocation.started', {
+        command: 'test-driver',
+        args: [],
+        cwd: process.cwd(),
+      }),
+      sequencer.next('inv_a', 'invocation.ready', { state: 'ready' }),
+      sequencer.next('inv_b', 'invocation.started', {
+        command: 'test-driver',
+        args: [],
+        cwd: process.cwd(),
+      }),
     ]).toMatchObject([{ seq: 1 }, { seq: 2 }, { seq: 1 }])
   })
 
@@ -47,12 +55,12 @@ describe('invocation event sequencing', () => {
       now: () => new Date('2026-05-20T18:00:00.000Z'),
     })
 
-    expect(sequencer.next('inv_with_id', 'invocation.ready', {})).toMatchObject({
+    expect(sequencer.next('inv_with_id', 'invocation.ready', { state: 'ready' })).toMatchObject({
       invocationId: 'inv_with_id',
       seq: 1,
       time: '2026-05-20T18:00:00.000Z',
       type: 'invocation.ready',
-      payload: {},
+      payload: { state: 'ready' },
     })
   })
 
@@ -72,6 +80,39 @@ describe('invocation event sequencing', () => {
     expect(event.correlation).toEqual(correlation)
     expect(event.seq).toBe(1)
     expect(event.type).toBe('driver.notice')
+  })
+
+  test('rejected candidates do not consume a sequence number through either API', () => {
+    const sequencer = createInvocationEventSequencer({ now })
+    const malformedPayload = { turnId: 'turn_wrong_payload', status: 'completed' }
+
+    for (const [invocationId, reject] of [
+      [
+        'inv_rejected_next',
+        () =>
+          Reflect.apply(sequencer.next, sequencer, [
+            'inv_rejected_next',
+            'assistant.message.delta',
+            malformedPayload,
+          ]),
+      ],
+      [
+        'inv_rejected_next_event',
+        () =>
+          Reflect.apply(sequencer.nextEvent, sequencer, [
+            'inv_rejected_next_event',
+            { type: 'assistant.message.delta', payload: malformedPayload },
+          ]),
+      ],
+    ] as const) {
+      expect(reject).toThrow()
+      expect(sequencer.next(invocationId, 'driver.notice', { message: 'recovered' })).toMatchObject(
+        {
+          seq: 1,
+          type: 'driver.notice',
+        }
+      )
+    }
   })
 })
 
@@ -99,7 +140,9 @@ describe('final-contract event payloads', () => {
         expect.objectContaining({ path: 'payload.messageId', code: 'required' }),
       ]),
     })
-    expect(events.some((event) => event.type === 'assistant.message.delta')).toBe(false)
+    expect(events.map(({ seq, type }) => ({ seq, type }))).toEqual([
+      { seq: 1, type: 'invocation.failed' },
+    ])
   })
 
   test('every manager-emitted event validates and seq increments exactly once per event', async () => {
