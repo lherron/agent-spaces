@@ -13,4 +13,5 @@ const preferDist = process.env.HARNESS_BROKER_USE_DIST === '1'
 const entryPath =
   !preferDist && existsSync(srcPath) ? srcPath : existsSync(distPath) ? distPath : srcPath
 
-await import(pathToFileURL(entryPath).href)
+const { runBrokerCli } = await import(pathToFileURL(entryPath).href)
+await runBrokerCli({})

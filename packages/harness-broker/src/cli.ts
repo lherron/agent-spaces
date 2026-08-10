@@ -27,6 +27,7 @@ import {
   runClaudeHookDecisionBridgeCli,
 } from './drivers/claude-code-tmux/hook-bridge'
 import { runCodexHookBridgeCli } from './drivers/codex-cli-tmux/hook-bridge'
+import type { Driver } from './drivers/driver'
 import { runPiHookBridgeCli } from './drivers/pi-tui-tmux/hook-bridge'
 import { BrokerError } from './errors'
 import { createEventLedger } from './event-ledger'
@@ -52,7 +53,11 @@ interface ObserverClient {
   subscriptions: Map<string, ObserverSubscription>
 }
 
-async function main(): Promise<void> {
+export interface RunBrokerCliOptions {
+  additionalDrivers?: Array<() => Driver> | undefined
+}
+
+export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> {
   const args = process.argv.slice(2)
   const command = args[0]
 
@@ -61,16 +66,18 @@ async function main(): Promise<void> {
     const transport = transportIdx !== -1 ? args[transportIdx + 1] : undefined
 
     if (transport === 'stdio') {
-      await runStdio(args)
+      await runStdio(args, options)
     } else if (transport === 'unix') {
-      await runUnix(args)
+      await runUnix(args, options)
     } else {
       process.stderr.write(`Unknown or missing transport: ${transport ?? '(none)'}\n`)
       process.exit(1)
     }
   } else if (command === 'drivers') {
     const json = args.includes('--json')
-    const broker = createDefaultBroker()
+    const broker = createDefaultBroker(undefined, undefined, {
+      additionalDrivers: options.additionalDrivers,
+    })
     const hello = await broker.hello({
       clientInfo: { name: 'harness-broker-cli' },
       protocolVersions: ['harness-broker/0.2'],
@@ -91,7 +98,7 @@ async function main(): Promise<void> {
   } else if (command === 'pi-hook') {
     await runPiHookBridgeCli(args.slice(1))
   } else if (command === 'run-once') {
-    await runOnce(args.slice(1))
+    await runOnce(args.slice(1), options)
   } else if (command === 'validate-start-request') {
     await validateStartRequestCommand(args.slice(1))
   } else {
@@ -102,7 +109,7 @@ async function main(): Promise<void> {
   }
 }
 
-async function runStdio(args: string[]): Promise<void> {
+async function runStdio(args: string[], options: RunBrokerCliOptions): Promise<void> {
   const observerSocketPath =
     readFlag(args, '--experimental-observer-socket') ??
     process.env['HARNESS_BROKER_OBSERVER_SOCKET']
@@ -143,7 +150,7 @@ async function runStdio(args: string[]): Promise<void> {
     // Stdio broker event replay is ephemeral and process-local: it backs
     // inspection reads only. The path-backed, controller-fenced durable ledger
     // remains exclusive to the unix transport.
-    { eventLedger }
+    { eventLedger, additionalDrivers: options.additionalDrivers }
   )
 
   if (observerSocketPath !== undefined) {
@@ -279,7 +286,7 @@ function registerBrokerObserverMethods(server: ProtocolServer, broker: Broker): 
  * durable event ledger, attach identity gate, latest-valid-attach-wins fencing,
  * and the eventsSince/ackEvents/snapshot replay surface.
  */
-async function runUnix(args: string[]): Promise<void> {
+async function runUnix(args: string[], options: RunBrokerCliOptions): Promise<void> {
   const socketPath = readFlag(args, '--socket')
   if (!socketPath) {
     process.stderr.write('Usage: harness-broker run --transport unix --socket <path>\n')
@@ -383,6 +390,7 @@ async function runUnix(args: string[]): Promise<void> {
       // broker's --socket parent, so its tmux drivers bind per-invocation hook
       // sockets under it (never the global tmpdir socket two runtimes share).
       hookIpcDir: join(dirname(socketPath), 'hooks'),
+      additionalDrivers: options.additionalDrivers,
       ...(eventLedger !== undefined ? { eventLedger } : {}),
       ...(attachIdentity !== undefined ? { attachIdentity } : {}),
     }
@@ -689,7 +697,7 @@ function probeSocketAlive(socketPath: string): Promise<boolean> {
   })
 }
 
-async function runOnce(args: string[]): Promise<void> {
+async function runOnce(args: string[], options: RunBrokerCliOptions): Promise<void> {
   let request: InvocationStartRequest
   try {
     request = await loadStartRequest(args)
@@ -703,16 +711,20 @@ async function runOnce(args: string[]): Promise<void> {
     resolveTurnDone = resolve
   })
 
-  const broker = createDefaultBroker((event) => {
-    process.stdout.write(`${JSON.stringify(event)}\n`)
-    if (
-      event.type === 'turn.completed' ||
-      event.type === 'turn.failed' ||
-      event.type === 'turn.interrupted'
-    ) {
-      resolveTurnDone?.()
-    }
-  })
+  const broker = createDefaultBroker(
+    (event) => {
+      process.stdout.write(`${JSON.stringify(event)}\n`)
+      if (
+        event.type === 'turn.completed' ||
+        event.type === 'turn.failed' ||
+        event.type === 'turn.interrupted'
+      ) {
+        resolveTurnDone?.()
+      }
+    },
+    undefined,
+    { additionalDrivers: options.additionalDrivers }
+  )
 
   // Same path the BrokerClient drives: a single InvocationStartRequest with its
   // initialInput carries the first turn — no separate invocation.input call.
@@ -782,5 +794,3 @@ function readFlag(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag)
   return index === -1 ? undefined : args[index + 1]
 }
-
-void main()

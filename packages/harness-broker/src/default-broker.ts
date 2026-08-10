@@ -8,10 +8,12 @@ import { type BrokerAttachIdentity, createBroker } from './broker'
 import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from './drivers/codex-app-server/driver'
 import { createDefaultCodexCliTmuxDriver } from './drivers/codex-cli-tmux/driver'
+import type { Driver } from './drivers/driver'
 import { createDefaultPiTuiTmuxDriver } from './drivers/pi-tui-tmux/driver'
 import type { EventLedger } from './event-ledger'
 
 export interface DefaultBrokerOptions {
+  additionalDrivers?: Array<() => Driver> | undefined
   advertisedTransports?: BrokerTransportKind[] | undefined
   advertiseAttachReplay?: boolean | undefined
   eventLedger?: EventLedger | undefined
@@ -41,6 +43,7 @@ export function createDefaultBroker(
       createDefaultClaudeCodeTmuxDriver(options.hookIpcDir),
       createDefaultCodexCliTmuxDriver(options.hookIpcDir),
       createDefaultPiTuiTmuxDriver(options.hookIpcDir),
+      ...(options.additionalDrivers?.map((createDriver) => createDriver()) ?? []),
     ],
     ...(onEvent !== undefined ? { onEvent } : {}),
     ...(onPermissionRequest !== undefined ? { onPermissionRequest } : {}),
