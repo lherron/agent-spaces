@@ -393,14 +393,14 @@ async function createDefaultPiSdkSession(input: PiSdkSessionFactoryInput): Promi
     refreshOnCreate: false,
     allowModelNetwork: false,
   })
-  const credential = providerCredential(sdk.provider, input.environment)
+  const modelReference = resolvePiSdkModelReference(modelRuntime, sdk.provider, sdk.modelId)
+  const credential = providerCredential(modelReference.providerId, input.environment)
   if (credential !== undefined) {
-    await modelRuntime.setRuntimeApiKey(sdk.provider, credential)
+    await modelRuntime.setRuntimeApiKey(modelReference.providerId, credential)
   }
-  const modelId = stripProviderPrefix(sdk.provider, sdk.modelId)
-  const model = modelRuntime.getModel(sdk.provider, modelId)
+  const model = modelRuntime.getModel(modelReference.providerId, modelReference.modelId)
   if (model === undefined) {
-    throw new Error(`Unknown pi SDK model: ${sdk.provider}/${modelId}`)
+    throw new Error(`Unknown pi SDK model: ${modelReference.providerId}/${modelReference.modelId}`)
   }
 
   const settingsManager = SettingsManager.inMemory()
@@ -493,9 +493,36 @@ function providerCredential(provider: string, environment: NodeJS.ProcessEnv): s
   return environment[generic]
 }
 
-function stripProviderPrefix(provider: string, modelId: string): string {
+interface PiSdkProviderRegistry {
+  getProvider(providerId: string): unknown | undefined
+}
+
+export interface PiSdkModelReference {
+  providerId: string
+  modelId: string
+}
+
+export function resolvePiSdkModelReference(
+  registry: PiSdkProviderRegistry,
+  provider: string,
+  modelId: string
+): PiSdkModelReference {
+  const separator = modelId.indexOf('/')
+  if (separator > 0 && separator < modelId.length - 1) {
+    const qualifiedProvider = modelId.slice(0, separator)
+    if (registry.getProvider(qualifiedProvider) !== undefined) {
+      return {
+        providerId: qualifiedProvider,
+        modelId: modelId.slice(separator + 1),
+      }
+    }
+  }
+
   const prefix = `${provider}/`
-  return modelId.startsWith(prefix) ? modelId.slice(prefix.length) : modelId
+  return {
+    providerId: provider,
+    modelId: modelId.startsWith(prefix) ? modelId.slice(prefix.length) : modelId,
+  }
 }
 
 function extractText(input: InvocationInput): string {

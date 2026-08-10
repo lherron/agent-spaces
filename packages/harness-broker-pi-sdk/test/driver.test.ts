@@ -6,7 +6,12 @@ import type {
   InvocationEventEnvelope,
   InvocationInput,
 } from 'spaces-harness-broker-protocol'
-import { type PiSdkSession, type PiSdkSessionFactoryInput, createPiSdkDriver } from '../src/driver'
+import {
+  type PiSdkSession,
+  type PiSdkSessionFactoryInput,
+  createPiSdkDriver,
+  resolvePiSdkModelReference,
+} from '../src/driver'
 
 type CapturedEvent = Pick<InvocationEventEnvelope, 'type' | 'payload'>
 
@@ -100,6 +105,37 @@ describe('pi SDK driver structured output', () => {
     })
     expect(events.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
     expect(events.filter((event) => event.type === 'turn.failed')).toHaveLength(0)
+  })
+})
+
+describe('pi SDK model resolution', () => {
+  const registry = {
+    getProvider(providerId: string): unknown | undefined {
+      return ['anthropic', 'openai', 'openai-codex'].includes(providerId) ? {} : undefined
+    },
+  }
+
+  test('resolves an Anthropic-qualified model through its pi provider namespace', () => {
+    expect(
+      resolvePiSdkModelReference(registry, 'anthropic', 'anthropic/claude-sonnet-4-5')
+    ).toEqual({
+      providerId: 'anthropic',
+      modelId: 'claude-sonnet-4-5',
+    })
+  })
+
+  test('resolves an OpenAI-qualified model through the openai-codex pi provider', () => {
+    expect(resolvePiSdkModelReference(registry, 'openai', 'openai-codex/gpt-5.5')).toEqual({
+      providerId: 'openai-codex',
+      modelId: 'gpt-5.5',
+    })
+  })
+
+  test('keeps the ASP provider for an unqualified model id', () => {
+    expect(resolvePiSdkModelReference(registry, 'openai', 'gpt-4.1-nano')).toEqual({
+      providerId: 'openai',
+      modelId: 'gpt-4.1-nano',
+    })
   })
 })
 
