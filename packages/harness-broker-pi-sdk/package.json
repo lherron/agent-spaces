@@ -1,0 +1,38 @@
+{
+  "name": "spaces-harness-broker-pi-sdk",
+  "version": "0.1.1",
+  "description": "In-process pi SDK driver and composed harness broker binary",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "harness-broker-pi": "./bin/harness-broker-pi.js"
+  },
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepack": "bun ../../scripts/strip-bun-exports.ts",
+    "postpack": "git checkout HEAD -- package.json"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.1",
+    "spaces-harness-broker": "workspace:*",
+    "spaces-harness-broker-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

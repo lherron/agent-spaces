@@ -12,6 +12,12 @@ export type { InvocationEventSequencer, EventSequencerOptions } from './events'
 
 export { BrokerError, toJsonRpcError } from './errors'
 
+export { validateJsonSchemaValue } from './json-schema'
+export type { JsonSchemaValidationResult } from './json-schema'
+
+export { buildProcessEnv } from './runtime/env'
+export type { ProcessEnvChannels } from './runtime/env'
+
 export { createTmuxPaneController, TmuxPaneController } from './runtime/tmux'
 export type {
   TmuxExec,
@@ -42,4 +48,4 @@ export {
 export { createPiTuiTmuxDriver } from './drivers/pi-tui-tmux/driver'
 export type { NoopDriverOptions } from './drivers/noop-driver'
 
-export type { Driver, DriverContext, DriverStartResult } from './drivers/driver'
+export type { ApplyInputResult, Driver, DriverContext, DriverStartResult } from './drivers/driver'

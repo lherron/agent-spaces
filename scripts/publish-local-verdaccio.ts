@@ -18,6 +18,7 @@ const DEV_PUBLISH_PACKAGES = [
   'packages/harness-broker-protocol',
   'packages/harness-broker-client',
   'packages/harness-broker',
+  'packages/harness-broker-pi-sdk',
   'packages/spaces-runtime-contracts',
   'packages/aspc-protocol',
   'packages/harness-claude',

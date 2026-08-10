@@ -18,6 +18,7 @@ const fastSuiteArgs = [
   'packages/aspc-protocol',
   'packages/harness-broker-client',
   'packages/harness-broker',
+  'packages/harness-broker-pi-sdk',
   'packages/aspc',
   'packages/runtime',
   'packages/cli/src/index.test.ts',

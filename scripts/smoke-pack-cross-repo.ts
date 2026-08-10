@@ -24,6 +24,7 @@ const PACKAGES = [
   'packages/harness-codex',
   'packages/harness-pi',
   'packages/harness-pi-sdk',
+  'packages/harness-broker-pi-sdk',
   'packages/spaces-runtime-contracts',
   'packages/aspc-protocol',
   'packages/agent-spaces',
