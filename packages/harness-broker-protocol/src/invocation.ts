@@ -222,6 +222,7 @@ export interface HarnessInvocationSpec {
   interaction?: InteractionSpec | undefined
   continuation?: ContinuationSpec | undefined
   driver: CodexAppServerDriverSpec | UnknownDriverSpec
+  sdk?: HarnessSdkSpec | undefined
   /**
    * Harness-kind-agnostic startup payload consumed by launch wrappers BEFORE the
    * harness TUI/protocol is ready: the material needed to frame-print the launch
@@ -273,6 +274,14 @@ export type HarnessTransportSpec =
   | { kind: 'jsonrpc-stdio' }
   | { kind: 'pipes' }
   | { kind: 'pty'; cols?: number | undefined; rows?: number | undefined }
+  | { kind: 'in-process' }
+
+export interface HarnessSdkSpec {
+  runtime: 'pi-sdk'
+  provider: string
+  modelId: string
+  thinkingLevel?: string | undefined
+}
 
 export interface InteractionSpec {
   mode: 'headless' | 'interactive' | 'service'

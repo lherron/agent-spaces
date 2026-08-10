@@ -340,7 +340,76 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
     }
   }
 
+  validateSdkContract(spec, harness, process, prefix, issues)
   validateLaunch(spec['launch'], joinPath(prefix, 'launch'), issues)
+}
+
+function validateSdkContract(
+  spec: SchemaRecord,
+  harness: SchemaRecord | undefined,
+  process: SchemaRecord | undefined,
+  prefix: string,
+  issues: ValidationIssue[]
+): void {
+  const sdkPath = joinPath(prefix, 'sdk')
+  const isPiSdkDriver = harness?.['driver'] === 'pi-sdk'
+  const sdk = asRecord(spec['sdk'])
+
+  if (!isPiSdkDriver) {
+    if (Object.hasOwn(spec, 'sdk')) {
+      issues.push(makeIssue(sdkPath, 'forbidden', 'sdk is only supported by the pi-sdk driver'))
+    }
+    if (asRecord(process?.['harnessTransport'])?.['kind'] === 'in-process') {
+      issues.push(
+        makeIssue(
+          joinPath(prefix, 'process.harnessTransport.kind'),
+          'forbidden',
+          'in-process transport is only supported by the pi-sdk driver'
+        )
+      )
+    }
+    return
+  }
+
+  if (!sdk) {
+    issues.push(makeIssue(sdkPath, 'required', 'sdk is required for the pi-sdk driver'))
+  } else {
+    optionalEnum(sdk['runtime'], ['pi-sdk'], joinPath(sdkPath, 'runtime'), issues, true)
+    requireString(sdk['provider'], joinPath(sdkPath, 'provider'), issues)
+    requireString(sdk['modelId'], joinPath(sdkPath, 'modelId'), issues)
+    optionalString(sdk['thinkingLevel'], joinPath(sdkPath, 'thinkingLevel'), issues)
+  }
+
+  if (!process) {
+    return
+  }
+  if (asRecord(process['harnessTransport'])?.['kind'] !== 'in-process') {
+    issues.push(
+      makeIssue(
+        joinPath(prefix, 'process.harnessTransport.kind'),
+        'invalid_literal',
+        'pi-sdk requires in-process transport'
+      )
+    )
+  }
+  if (process['command'] !== 'in-process') {
+    issues.push(
+      makeIssue(
+        joinPath(prefix, 'process.command'),
+        'invalid_literal',
+        'pi-sdk requires the in-process command sentinel'
+      )
+    )
+  }
+  if (Array.isArray(process['args']) && process['args'].length !== 0) {
+    issues.push(
+      makeIssue(
+        joinPath(prefix, 'process.args'),
+        'invalid_literal',
+        'pi-sdk requires an empty args array'
+      )
+    )
+  }
 }
 
 function validateLaunch(value: unknown, prefix: string, issues: ValidationIssue[]): void {
@@ -1941,7 +2010,7 @@ function validateHarnessTransport(
   }
   optionalEnum(
     transport['kind'],
-    ['jsonrpc-stdio', 'pipes', 'pty'],
+    ['jsonrpc-stdio', 'pipes', 'pty', 'in-process'],
     joinPath(basePath, 'kind'),
     issues,
     true

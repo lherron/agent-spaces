@@ -121,6 +121,35 @@ const claudeCodeTmuxSpec = {
   },
 }
 
+const piSdkSpec = {
+  specVersion: 'harness-broker.invocation/v1',
+  harness: {
+    frontend: 'pi',
+    provider: 'anthropic',
+    driver: 'pi-sdk',
+  },
+  process: {
+    command: 'in-process',
+    args: [],
+    cwd: '/workspace/project',
+    harnessTransport: { kind: 'in-process' },
+  },
+  interaction: {
+    mode: 'headless',
+    turnConcurrency: 'single',
+    inputQueue: 'none',
+  },
+  driver: {
+    kind: 'pi-sdk',
+  },
+  sdk: {
+    runtime: 'pi-sdk',
+    provider: 'anthropic',
+    modelId: 'claude-sonnet-4-5',
+    thinkingLevel: 'medium',
+  },
+}
+
 const expectInvalidSpec = (value: unknown, expectedIssue: { path: string; code: string }) => {
   expect(() => validateInvocationSpec(value)).toThrow(
     expect.objectContaining({
@@ -375,6 +404,108 @@ describe('validateInvocationSpec', () => {
 
     expect(() => validateInvocationSpec(valid)).not.toThrow()
   })
+
+  test.each([
+    ['with thinkingLevel', piSdkSpec],
+    [
+      'without thinkingLevel',
+      (() => {
+        const spec = structuredClone(piSdkSpec)
+        Reflect.deleteProperty(spec.sdk, 'thinkingLevel')
+        return spec
+      })(),
+    ],
+  ])('accepts a pi-sdk in-process spec %s', (_name, spec) => {
+    expect(validateInvocationSpec(spec)).toEqual(spec)
+  })
+
+  test.each([
+    [
+      'process block',
+      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec, 'process'),
+      { path: 'process', code: 'required' },
+    ],
+    [
+      'sdk block',
+      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec, 'sdk'),
+      { path: 'sdk', code: 'required' },
+    ],
+    [
+      'in-process transport',
+      (spec: typeof piSdkSpec) => {
+        spec.process.harnessTransport.kind = 'pipes'
+      },
+      { path: 'process.harnessTransport.kind', code: 'invalid_literal' },
+    ],
+    [
+      'command sentinel',
+      (spec: typeof piSdkSpec) => {
+        spec.process.command = 'pi'
+      },
+      { path: 'process.command', code: 'invalid_literal' },
+    ],
+    [
+      'empty args',
+      (spec: typeof piSdkSpec) => {
+        spec.process.args = ['--print']
+      },
+      { path: 'process.args', code: 'invalid_literal' },
+    ],
+  ])('rejects a pi-sdk spec without the required %s', (_name, mutate, expectedIssue) => {
+    const invalid = structuredClone(piSdkSpec)
+    mutate(invalid)
+    expectInvalidSpec(invalid, expectedIssue)
+  })
+
+  test.each([
+    [
+      'runtime literal',
+      (spec: typeof piSdkSpec) => {
+        spec.sdk.runtime = 'other-sdk'
+      },
+      { path: 'sdk.runtime', code: 'invalid_literal' },
+    ],
+    [
+      'provider',
+      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec.sdk, 'provider'),
+      { path: 'sdk.provider', code: 'required' },
+    ],
+    [
+      'modelId',
+      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec.sdk, 'modelId'),
+      { path: 'sdk.modelId', code: 'required' },
+    ],
+    [
+      'thinkingLevel type',
+      (spec: typeof piSdkSpec) => {
+        spec.sdk.thinkingLevel = 42
+      },
+      { path: 'sdk.thinkingLevel', code: 'invalid_type' },
+    ],
+  ])('rejects a pi-sdk spec with invalid %s', (_name, mutate, expectedIssue) => {
+    const invalid = structuredClone(piSdkSpec)
+    mutate(invalid)
+    expectInvalidSpec(invalid, expectedIssue)
+  })
+
+  test('rejects an sdk block for another driver', () => {
+    const invalid = structuredClone(specSection62Example) as typeof specSection62Example & {
+      sdk?: typeof piSdkSpec.sdk
+    }
+    invalid.sdk = structuredClone(piSdkSpec.sdk)
+
+    expectInvalidSpec(invalid, { path: 'sdk', code: 'forbidden' })
+  })
+
+  test('rejects in-process transport for another driver', () => {
+    const invalid = structuredClone(specSection62Example)
+    invalid.process.harnessTransport.kind = 'in-process'
+
+    expectInvalidSpec(invalid, {
+      path: 'process.harnessTransport.kind',
+      code: 'forbidden',
+    })
+  })
 })
 
 describe('validateInvocationInput', () => {
@@ -553,6 +684,65 @@ describe('validateInvocationStartRequest', () => {
         code: 'stale_lifecycle_overlay',
       }
     )
+  })
+
+  test('accepts a pi-sdk in-process spec', () => {
+    const request = { spec: piSdkSpec }
+    expect(validateInvocationStartRequest(request)).toEqual(request)
+  })
+
+  test.each([
+    [
+      'missing sdk block',
+      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec, 'sdk'),
+      { path: 'spec.sdk', code: 'required' },
+    ],
+    [
+      'child-process transport',
+      (spec: typeof piSdkSpec) => {
+        spec.process.harnessTransport.kind = 'pipes'
+      },
+      { path: 'spec.process.harnessTransport.kind', code: 'invalid_literal' },
+    ],
+    [
+      'non-sentinel command',
+      (spec: typeof piSdkSpec) => {
+        spec.process.command = 'pi'
+      },
+      { path: 'spec.process.command', code: 'invalid_literal' },
+    ],
+    [
+      'non-empty args',
+      (spec: typeof piSdkSpec) => {
+        spec.process.args = ['--print']
+      },
+      { path: 'spec.process.args', code: 'invalid_literal' },
+    ],
+  ])('rejects a pi-sdk start request with %s', (_name, mutate, expectedIssue) => {
+    const invalidSpec = structuredClone(piSdkSpec)
+    mutate(invalidSpec)
+    expectInvalidStartRequest({ spec: invalidSpec }, expectedIssue)
+  })
+
+  test.each([
+    [
+      'sdk block',
+      (spec: typeof specSection19InvocationStartSpec & { sdk?: typeof piSdkSpec.sdk }) => {
+        spec.sdk = structuredClone(piSdkSpec.sdk)
+      },
+      { path: 'spec.sdk', code: 'forbidden' },
+    ],
+    [
+      'in-process transport',
+      (spec: typeof specSection19InvocationStartSpec) => {
+        spec.process.harnessTransport.kind = 'in-process'
+      },
+      { path: 'spec.process.harnessTransport.kind', code: 'forbidden' },
+    ],
+  ])('rejects a non-pi-sdk start request with %s', (_name, mutate, expectedIssue) => {
+    const invalidSpec = structuredClone(specSection19InvocationStartSpec)
+    mutate(invalidSpec)
+    expectInvalidStartRequest({ spec: invalidSpec }, expectedIssue)
   })
 })
 
