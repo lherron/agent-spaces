@@ -30,7 +30,13 @@ void _allRuntimeValuesAssignToRuntimeStatus
 const _allRuntimeStateValuesAreRuntimeStatuses: RuntimeStatus[] = [...RUNTIME_STATE_STATUS_VALUES]
 void _allRuntimeStateValuesAreRuntimeStatuses
 
-const _hrcRuntimeStateJsonValues: RuntimeStateStatus[] = ['awaiting_input', 'stale', 'terminated']
+const _hrcRuntimeStateJsonValues: RuntimeStateStatus[] = [
+  'awaiting_input',
+  'stale',
+  'terminated',
+  'crashed',
+  'detached',
+]
 void _hrcRuntimeStateJsonValues
 
 const _runtimeStateBaseUsesRuntimeStateStatus: RuntimeStateBase['status'] = 'awaiting_input'

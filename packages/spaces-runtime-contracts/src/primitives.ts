@@ -52,6 +52,8 @@ export const RUNTIME_STATE_STATUS_VALUES = [
   'awaiting_input',
   'stale',
   'terminated',
+  'crashed',
+  'detached',
 ] as const
 
 export type RuntimeStateStatus = (typeof RUNTIME_STATE_STATUS_VALUES)[number]

@@ -44,7 +44,13 @@ if (HRC_REPO_ROOT === undefined) {
   )
 }
 
-const EXPECTED_HRC_RUNTIME_STATE_JSON_STATUSES = ['awaiting_input', 'stale', 'terminated'] as const
+const EXPECTED_HRC_RUNTIME_STATE_JSON_STATUSES = [
+  'awaiting_input',
+  'stale',
+  'terminated',
+  'crashed',
+  'detached',
+] as const
 
 const EXPECTED_HRC_RUNTIME_ROW_STATUSES = [
   ...EXPECTED_HRC_RUNTIME_STATE_JSON_STATUSES,
@@ -106,6 +112,8 @@ describe('T-05007 runtime status vocabulary contract', () => {
       'awaiting_input',
       'stale',
       'terminated',
+      'crashed',
+      'detached',
     ])
 
     expect(RUNTIME_STATUS_VALUES).toEqual([...RUNTIME_STATE_STATUS_VALUES, 'dead', 'adopted'])
@@ -119,6 +127,8 @@ describe('T-05007 runtime status vocabulary contract', () => {
     expect(isRuntimeStatus('adopted')).toBe(true)
     expect(isRuntimeStateStatus('dead')).toBe(false)
     expect(isRuntimeStatus('dead')).toBe(true)
+    expect(isRuntimeStateStatus('detached')).toBe(true)
+    expect(isRuntimeStatus('detached')).toBe(true)
     expect(isRuntimeStateStatus('zombied')).toBe(false)
     expect(isRuntimeStatus('zombied')).toBe(false)
     expect(isRuntimeStateStatus('custom-plugin-status')).toBe(false)
