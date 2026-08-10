@@ -521,7 +521,7 @@ describe('compileRuntimePlan broker profile contract', () => {
       const spec = profile.harnessInvocation.startRequest.spec
 
       expect(profile.kind).toBe('harness-broker')
-      expect(profile.interactionMode).toBe('headless')
+      expect(profile.interactionMode).toBe('nonInteractive')
       expect(profile.brokerDriver).toBe('pi-sdk')
       expect(profile.brokerTerminal).toBeUndefined()
       expect(spec.harness).toEqual({

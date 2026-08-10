@@ -309,7 +309,7 @@ function codexCliTmuxBrokerProfile(
 
 const basePiSdkBrokerProfile = brokerProfile({
   profileId: 'profile:test-pi-sdk-broker',
-  interactionMode: 'headless',
+  interactionMode: 'nonInteractive',
   brokerDriver: 'pi-sdk',
   brokerTerminal: undefined,
   harnessInvocation: {
@@ -501,6 +501,22 @@ describe('validateBrokerExecutionProfile', () => {
 
   test('allows a valid pi-sdk in-process broker profile', () => {
     expect(validateBrokerExecutionProfile(piSdkBrokerProfile())).toEqual([])
+  })
+
+  test('rejects pi-sdk broker profiles that are not nonInteractive', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      piSdkBrokerProfile({ interactionMode: 'headless' })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('pi_sdk_requires_non_interactive')
+  })
+
+  test('rejects nonInteractive mode for non-pi-sdk broker profiles', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      codexBrokerProfile({ interactionMode: 'nonInteractive' })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('non_pi_sdk_forbids_non_interactive')
   })
 
   test('rejects pi-sdk profile/spec driver mismatches in both directions', () => {

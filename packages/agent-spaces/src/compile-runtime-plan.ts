@@ -1352,7 +1352,7 @@ async function compilePiSdkBrokerPlan(
     schemaVersion: 'agent-runtime-profile/v1' as const,
     profileId,
     kind: 'harness-broker' as const,
-    interactionMode: 'headless' as const,
+    interactionMode: 'nonInteractive' as const,
     expectedCapabilities: expectedCapabilities(permissionPolicy, {
       inputQueue: 'required',
       attachReplay: 'optional',

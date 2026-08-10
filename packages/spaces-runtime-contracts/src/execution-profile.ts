@@ -102,7 +102,7 @@ export type EmbeddedSdkExecutionProfile = RuntimeExecutionProfileBase & {
 
 export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {
   kind: 'harness-broker'
-  interactionMode: 'headless' | 'interactive'
+  interactionMode: 'headless' | 'interactive' | 'nonInteractive'
 
   brokerProtocol: 'harness-broker/0.2'
   brokerDriver: 'codex-app-server' | 'claude-code-tmux' | string

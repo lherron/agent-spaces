@@ -342,6 +342,22 @@ const PI_TUI_TMUX_RULES: BrokerLegalityRule[] = [
 
 const PI_SDK_RULES: BrokerLegalityRule[] = [
   (profile, facts) =>
+    facts.isPiSdk && profile.interactionMode !== 'nonInteractive'
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_sdk_requires_non_interactive',
+          'pi-sdk broker profiles must use interactionMode nonInteractive.'
+        )
+      : undefined,
+  (profile, facts) =>
+    !facts.isPiSdk && profile.interactionMode === 'nonInteractive'
+      ? executionProfileDiagnostic(
+          profile,
+          'non_pi_sdk_forbids_non_interactive',
+          'Only pi-sdk broker profiles may use interactionMode nonInteractive.'
+        )
+      : undefined,
+  (profile, facts) =>
     facts.profileClaimsPiSdk && facts.specDriverKind !== 'pi-sdk'
       ? executionProfileDiagnostic(
           profile,
