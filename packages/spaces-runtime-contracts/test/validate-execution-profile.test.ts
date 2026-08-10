@@ -897,6 +897,7 @@ describe('runtime route selection', () => {
   })
 
   test('selects the in-process pi-sdk broker for both providers', () => {
+    const selectedProviders: string[] = []
     for (const modelProvider of ['anthropic', 'openai'] as const) {
       const selectedRoute = RUNTIME_ROUTE_CATALOG.find(
         (route) =>
@@ -907,6 +908,8 @@ describe('runtime route selection', () => {
       )
 
       expect(selectedRoute?.controller).toBe('harness-broker')
+      expect(selectedRoute?.modelProvider).toBe(modelProvider)
+      selectedProviders.push(selectedRoute?.modelProvider ?? '')
       expect(selectedRoute?.startupMethods).toEqual(['create-broker-invocation', 'reuse-existing'])
       expect(selectedRoute?.turnDeliveries).toEqual(['broker-input'])
       expect(selectedRoute?.broker).toEqual({
@@ -915,6 +918,7 @@ describe('runtime route selection', () => {
         processTransport: 'in-process',
       })
     }
+    expect(selectedProviders.sort()).toEqual(['anthropic', 'openai'])
   })
 })
 

@@ -1237,8 +1237,11 @@ function piSdkRegistryModelId(
       : prepared.runtimePlan.model.ok === true
         ? prepared.runtimePlan.model.info.effectiveModel
         : 'gpt-5.5')
-  if (modelId.includes('/')) return modelId
-  return `${provider === 'openai' ? 'openai-codex' : 'anthropic'}/${modelId}`
+  // The broker injects API keys through ModelRuntime; normalize away Pi's
+  // OAuth/subscription-only openai-codex namespace into the ASP provider.
+  const separator = modelId.indexOf('/')
+  const unqualifiedModelId = separator >= 0 ? modelId.slice(separator + 1) : modelId
+  return `${provider}/${unqualifiedModelId}`
 }
 
 async function compilePiSdkBrokerPlan(

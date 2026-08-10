@@ -464,11 +464,12 @@ describe('compileRuntimePlan broker profile contract', () => {
   })
 
   test.each([
-    ['openai', 'gpt-5.5', 'openai-codex/gpt-5.5'],
-    ['anthropic', 'claude-sonnet-4-5', 'anthropic/claude-sonnet-4-5'],
+    ['bare OpenAI alias', 'openai', 'gpt-5.5', 'openai/gpt-5.5'],
+    ['legacy OAuth-only OpenAI alias', 'openai', 'openai-codex/gpt-5.5', 'openai/gpt-5.5'],
+    ['bare Anthropic alias', 'anthropic', 'claude-sonnet-4-5', 'anthropic/claude-sonnet-4-5'],
   ] as const)(
     'compiles %s pi-sdk nonInteractive to a validator-legal broker profile',
-    async (provider, model, expectedModelId) => {
+    async (_caseName, provider, model, expectedModelId) => {
       const response = await createClient().compileRuntimePlan(
         baseCompileRequest({
           requested: {
@@ -520,6 +521,8 @@ describe('compileRuntimePlan broker profile contract', () => {
         modelId: expectedModelId,
         thinkingLevel: 'medium',
       })
+      expect(spec.sdk?.modelId).toStartWith(`${provider}/`)
+      expect(spec.sdk?.modelId).not.toStartWith('openai-codex/')
       expect(spec.driver).toEqual({ kind: 'pi-sdk' })
       expect(validateInvocationStartRequest(profile.harnessInvocation.startRequest)).toEqual(
         profile.harnessInvocation.startRequest
