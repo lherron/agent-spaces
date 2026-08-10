@@ -17,7 +17,6 @@ import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
   CompiledAgentPolicy,
-  EmbeddedSdkExecutionProfile,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
   TerminalExecutionProfile,
@@ -60,7 +59,9 @@ type CompileClient = AgentSpacesClient & {
 
 type BrokerClient = AgentSpacesClient & {
   buildHarnessBrokerInvocation(
-    req: BuildHarnessBrokerInvocationRequest & { initialInputId?: InputId | undefined }
+    req: BuildHarnessBrokerInvocationRequest & {
+      initialInputId?: InputId | undefined
+    }
   ): Promise<BuildHarnessBrokerInvocationResponse>
 }
 
@@ -180,7 +181,11 @@ function placement(overrides: Record<string, unknown> = {}): RuntimeCompileReque
     projectRoot: fixture.projectRoot,
     cwd: fixture.projectRoot,
     runMode: 'task',
-    bundle: { kind: 'agent-project', agentName: 'cody', projectRoot: fixture.projectRoot },
+    bundle: {
+      kind: 'agent-project',
+      agentName: 'cody',
+      projectRoot: fixture.projectRoot,
+    },
     lockedEnv: { EXTRA_FLAG: '1' },
     correlation: {
       sessionRef: {
@@ -242,7 +247,12 @@ function baseCompileRequest(overrides: Partial<RuntimeCompileRequest> = {}): Run
     continuation: {
       schemaVersion: 'runtime-continuation/v1',
       hrc: { provider: 'openai', keyHash: 'thread-hash', key: 'thread_T01609' },
-      broker: { provider: 'codex', kind: 'thread', keyHash: 'thread-hash', key: 'thread_T01609' },
+      broker: {
+        provider: 'codex',
+        kind: 'thread',
+        keyHash: 'thread-hash',
+        key: 'thread_T01609',
+      },
       source: 'harness-broker',
       observedAt: '2026-05-24T07:05:32.000Z',
     },
@@ -276,7 +286,6 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
   return profiles[0]
 }
 
-type EmbeddedSdkProfileValidator = (profile: EmbeddedSdkExecutionProfile) => CompileDiagnostic[]
 type BrokerProfileValidator = (profile: BrokerExecutionProfile) => CompileDiagnostic[]
 
 function validateBrokerExecutionProfile(profile: BrokerExecutionProfile): CompileDiagnostic[] {
@@ -290,40 +299,12 @@ function validateBrokerExecutionProfile(profile: BrokerExecutionProfile): Compil
   return validator(profile)
 }
 
-function validateEmbeddedSdkExecutionProfile(
-  profile: EmbeddedSdkExecutionProfile
-): CompileDiagnostic[] {
-  const validator = (
-    RuntimeContracts as typeof RuntimeContracts & {
-      validateEmbeddedSdkExecutionProfile?: EmbeddedSdkProfileValidator | undefined
-    }
-  ).validateEmbeddedSdkExecutionProfile
-
-  expect(validator).toBeFunction()
-  return validator(profile)
-}
-
-function embeddedSdkProfile(response: RuntimeCompileResponse): EmbeddedSdkExecutionProfile {
-  expect(response.ok).toBe(true)
-  if (!response.ok) {
-    throw new Error(
-      `compileRuntimePlan returned diagnostics instead of an embedded-sdk plan: ${response.diagnostics
-        .map((diagnostic) => diagnostic.code)
-        .join(', ')}`
-    )
-  }
-  const profiles = response.plan.executionProfiles.filter(
-    (profile): profile is EmbeddedSdkExecutionProfile => profile.kind === 'embedded-sdk'
-  )
-  expect(profiles).toHaveLength(1)
-  return profiles[0]
-}
-
-function rejectedWithoutEmbeddedSdkProfile(response: RuntimeCompileResponse): CompileDiagnostic[] {
+function rejectedWithoutPiSdkBrokerProfile(response: RuntimeCompileResponse): CompileDiagnostic[] {
   expect(response.ok).toBe(false)
   expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
+  expect(JSON.stringify(response)).not.toContain('"brokerDriver":"pi-sdk"')
   if (response.ok) {
-    throw new Error('compileRuntimePlan returned an embedded-sdk plan for an invalid route')
+    throw new Error('compileRuntimePlan returned a pi-sdk broker plan for an invalid route')
   }
   return response.diagnostics
 }
@@ -383,9 +364,9 @@ function withDisallowedTools(req: RuntimeCompileRequest): RuntimeCompileRequest 
   }
 }
 
-function legacyBrokerRequest(
-  req: RuntimeCompileRequest
-): BuildHarnessBrokerInvocationRequest & { initialInputId?: InputId | undefined } {
+function legacyBrokerRequest(req: RuntimeCompileRequest): BuildHarnessBrokerInvocationRequest & {
+  initialInputId?: InputId | undefined
+} {
   return {
     placement: req.placement,
     provider: 'openai',
@@ -482,52 +463,75 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(profile.brokerDriver).toBe('codex-app-server')
   })
 
-  test('compiles openai pi-sdk nonInteractive to a validator-legal embedded-sdk profile', async () => {
-    const response = await createClient().compileRuntimePlan(
-      baseCompileRequest({
-        requested: {
-          modelProvider: 'openai',
-          model: 'gpt-5.5',
-          reasoningEffort: 'medium',
-          harnessFamily: 'pi',
-          preferredHarnessRuntime: 'pi-sdk',
-          interactionMode: 'nonInteractive',
-        },
-        materialization: {
-          ...baseCompileRequest().materialization,
-          attachments: [],
-          taskContext: {
-            taskId: 'T-01670',
-            phase: 'red',
-            role: 'smokey',
-            requiredEvidenceKinds: ['red-test'],
-            hintsText: 'pi-sdk nonInteractive must compile to embedded-sdk',
+  test.each([
+    ['openai', 'gpt-5.5', 'openai-codex/gpt-5.5'],
+    ['anthropic', 'claude-sonnet-4-5', 'anthropic/claude-sonnet-4-5'],
+  ] as const)(
+    'compiles %s pi-sdk nonInteractive to a validator-legal broker profile',
+    async (provider, model, expectedModelId) => {
+      const response = await createClient().compileRuntimePlan(
+        baseCompileRequest({
+          requested: {
+            modelProvider: provider,
+            model,
+            reasoningEffort: 'medium',
+            harnessFamily: 'pi',
+            preferredHarnessRuntime: 'pi-sdk',
+            interactionMode: 'nonInteractive',
           },
-        },
-        continuation: undefined,
-      })
-    )
-    const profile = embeddedSdkProfile(response)
+          materialization: {
+            ...baseCompileRequest().materialization,
+            attachments: [],
+            taskContext: {
+              taskId: 'T-01670',
+              phase: 'red',
+              role: 'smokey',
+              requiredEvidenceKinds: ['red-test'],
+              hintsText: 'pi-sdk nonInteractive must compile to the broker',
+            },
+          },
+          continuation: undefined,
+        })
+      )
+      const profile = brokerProfile(response)
+      const spec = profile.harnessInvocation.startRequest.spec
 
-    expect(profile).toEqual(
-      expect.objectContaining({
-        kind: 'embedded-sdk',
-        interactionMode: 'nonInteractive',
-        sdk: expect.objectContaining({
-          runtime: 'pi-sdk',
-          startupMethod: 'create-sdk-session',
-          turnDelivery: 'sdk-turn',
-        }),
-        session: expect.objectContaining({
-          provider: 'openai',
-          modelId: expect.any(String),
+      expect(profile.kind).toBe('harness-broker')
+      expect(profile.interactionMode).toBe('headless')
+      expect(profile.brokerDriver).toBe('pi-sdk')
+      expect(profile.brokerTerminal).toBeUndefined()
+      expect(spec.harness).toEqual({
+        frontend: 'pi-sdk',
+        provider,
+        driver: 'pi-sdk',
+      })
+      expect(spec.process).toEqual(
+        expect.objectContaining({
+          command: 'in-process',
+          args: [],
           cwd: fixture.projectRoot,
           lockedEnv: expect.not.objectContaining({ PATH: expect.any(String) }),
-        }),
+          harnessTransport: { kind: 'in-process' },
+        })
+      )
+      expect(spec.sdk).toEqual({
+        runtime: 'pi-sdk',
+        provider,
+        modelId: expectedModelId,
+        thinkingLevel: 'medium',
       })
-    )
-    expect(validateEmbeddedSdkExecutionProfile(profile)).toEqual([])
-  })
+      expect(spec.driver).toEqual({ kind: 'pi-sdk' })
+      expect(validateInvocationStartRequest(profile.harnessInvocation.startRequest)).toEqual(
+        profile.harnessInvocation.startRequest
+      )
+      expect(profile.harnessInvocation.specHash).toBe(RuntimeContracts.neutralSpecHash(spec))
+      expect(profile.harnessInvocation.startRequestHash).toBe(
+        RuntimeContracts.neutralStartRequestHash(profile.harnessInvocation.startRequest)
+      )
+      expect(validateBrokerExecutionProfile(profile)).toEqual([])
+      expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
+    }
+  )
 
   test('compiles pi-cli interactive requests to the pi-tui-tmux broker profile', async () => {
     const response = await createClient().compileRuntimePlan(
@@ -651,7 +655,7 @@ describe('compileRuntimePlan broker profile contract', () => {
     )
     expect(foreground.expectedCapabilities.control.attachReplay).toBe('forbidden')
 
-    const embedded = embeddedSdkProfile(
+    const piSdk = brokerProfile(
       await createClient().compileRuntimePlan(
         baseCompileRequest({
           requested: {
@@ -670,7 +674,8 @@ describe('compileRuntimePlan broker profile contract', () => {
         })
       )
     )
-    expect(embedded.expectedCapabilities.control.attachReplay).toBe('forbidden')
+    expect(piSdk.brokerDriver).toBe('pi-sdk')
+    expect(piSdk.expectedCapabilities.control.attachReplay).toBe('optional')
   })
 
   test('rejects pi-sdk headless requests instead of rewriting them to nonInteractive embedded-sdk', async () => {
@@ -692,7 +697,7 @@ describe('compileRuntimePlan broker profile contract', () => {
       })
     )
 
-    const diagnostics = rejectedWithoutEmbeddedSdkProfile(response)
+    const diagnostics = rejectedWithoutPiSdkBrokerProfile(response)
     expect(diagnostics).toContainEqual(
       expect.objectContaining({
         level: 'error',
@@ -720,7 +725,7 @@ describe('compileRuntimePlan broker profile contract', () => {
       })
     )
 
-    const diagnostics = rejectedWithoutEmbeddedSdkProfile(response)
+    const diagnostics = rejectedWithoutPiSdkBrokerProfile(response)
     expect(diagnostics).toContainEqual(
       expect.objectContaining({
         level: 'error',
@@ -752,7 +757,7 @@ describe('compileRuntimePlan broker profile contract', () => {
       })
     )
 
-    const diagnostics = rejectedWithoutEmbeddedSdkProfile(response)
+    const diagnostics = rejectedWithoutPiSdkBrokerProfile(response)
     expect(diagnostics).toContainEqual(
       expect.objectContaining({
         level: 'error',
@@ -1048,7 +1053,9 @@ exit 0
     const first = await client.compileRuntimePlan(baseCompileRequest())
     const second = await client.compileRuntimePlan(baseCompileRequest())
     const modelChanged = await client.compileRuntimePlan(
-      baseCompileRequest({ requested: { ...baseCompileRequest().requested, model: 'gpt-5.3' } })
+      baseCompileRequest({
+        requested: { ...baseCompileRequest().requested, model: 'gpt-5.3' },
+      })
     )
     const firstProfile = brokerProfile(first)
     const secondProfile = brokerProfile(second)
@@ -1094,7 +1101,10 @@ exit 0
       } else {
         process.env['PATH'] = originalPath
       }
-      rmSync(join(fixture.agentRoot, 'tools'), { recursive: true, force: true })
+      rmSync(join(fixture.agentRoot, 'tools'), {
+        recursive: true,
+        force: true,
+      })
     }
   })
 
@@ -1165,12 +1175,18 @@ exit 0
     const client = createClient()
     const withDispatchA = baseCompileRequest({
       placement: placement({
-        dispatchEnv: { AGENT_HOST_SESSION_ID: 'dispatch-host-a', AGENT_LANE_REF: 'main' },
+        dispatchEnv: {
+          AGENT_HOST_SESSION_ID: 'dispatch-host-a',
+          AGENT_LANE_REF: 'main',
+        },
       }),
     })
     const withDispatchB = baseCompileRequest({
       placement: placement({
-        dispatchEnv: { AGENT_HOST_SESSION_ID: 'dispatch-host-b', AGENT_LANE_REF: 'repair' },
+        dispatchEnv: {
+          AGENT_HOST_SESSION_ID: 'dispatch-host-b',
+          AGENT_LANE_REF: 'repair',
+        },
       }),
     })
 
@@ -1265,12 +1281,12 @@ exit 0
     expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
   })
 
-  test('rejects pi-sdk embedded compile requests for non-openai providers', async () => {
+  test('preserves a registry-qualified anthropic pi-sdk model alias', async () => {
     const response = await createClient().compileRuntimePlan(
       baseCompileRequest({
         requested: {
           modelProvider: 'anthropic',
-          model: 'claude-sonnet-4-5',
+          model: 'anthropic/claude-sonnet-4-5',
           harnessFamily: 'pi',
           preferredHarnessRuntime: 'pi-sdk',
           interactionMode: 'nonInteractive',
@@ -1283,13 +1299,9 @@ exit 0
       })
     )
 
-    expect(response.ok).toBe(false)
-    expect(response.diagnostics).toContainEqual(
-      expect.objectContaining({
-        code: 'unsupported_provider',
-        level: 'error',
-        plane: 'asp-compiler',
-      })
+    const profile = brokerProfile(response)
+    expect(profile.harnessInvocation.startRequest.spec.sdk?.modelId).toBe(
+      'anthropic/claude-sonnet-4-5'
     )
     expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
   })
@@ -1400,7 +1412,9 @@ base = []
 
   test('keeps absent and explicit-false agent policy plans byte-identical', async () => {
     const profilePath = join(fixture.agentRoot, 'agent-profile.toml')
-    const compileOptions = { compileContext: { nowIso: '2026-07-19T00:00:00.000Z' } }
+    const compileOptions = {
+      compileContext: { nowIso: '2026-07-19T00:00:00.000Z' },
+    }
 
     writeFileSync(profilePath, 'schemaVersion = 2\n\n[spaces]\nbase = []\n', 'utf8')
     const absent = await createClient().compileRuntimePlan(baseCompileRequest(), compileOptions)

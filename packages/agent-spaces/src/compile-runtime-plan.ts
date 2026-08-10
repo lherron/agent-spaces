@@ -534,8 +534,18 @@ const FOREGROUND_ROUTES: Record<HarnessFamily, ForegroundRoute> = {
     runtime: 'claude-code-cli',
     provider: 'anthropic',
   },
-  codex: { frontend: 'codex-cli', family: 'codex', runtime: 'codex-cli', provider: 'openai' },
-  pi: { frontend: 'pi-cli', family: 'pi', runtime: 'pi-cli', provider: 'openai' },
+  codex: {
+    frontend: 'codex-cli',
+    family: 'codex',
+    runtime: 'codex-cli',
+    provider: 'openai',
+  },
+  pi: {
+    frontend: 'pi-cli',
+    family: 'pi',
+    runtime: 'pi-cli',
+    provider: 'openai',
+  },
 }
 
 const RUNTIME_TO_FAMILY: Partial<Record<HarnessRuntime, HarnessFamily>> = {
@@ -832,7 +842,9 @@ function buildCompatibilityMaterial(
   req: RuntimeCompileRequest,
   // Only `.spec` is read, so this accepts both the full start request and the
   // neutralized start-request projection.
-  startRequest: { spec: BrokerExecutionProfile['harnessInvocation']['startRequest']['spec'] },
+  startRequest: {
+    spec: BrokerExecutionProfile['harnessInvocation']['startRequest']['spec']
+  },
   bundleIdentity: string,
   lockHash: string | undefined,
   lockedEnv: Record<string, string>
@@ -868,6 +880,7 @@ function buildCompatibilityMaterial(
       harnessTransport: startRequest.spec.process.harnessTransport,
       limits: startRequest.spec.process.limits,
     },
+    ...(startRequest.spec.sdk !== undefined ? { sdk: startRequest.spec.sdk } : {}),
     driver: driverMaterial,
     continuation:
       req.continuation !== undefined
@@ -967,12 +980,11 @@ export async function compileRuntimePlan(
       }
       return await compileForegroundPlan(req, placement, options)
     }
-    // nonInteractive + pi-sdk routes to the IN-PROCESS embedded-sdk controller.
-    // claude-agent-sdk stays UNEMITTED (impl deferred per Lance) — it falls through
-    // to the broker route, which rejects it. Any other nonInteractive/headless
-    // request stays on the codex headless broker path.
+    // nonInteractive + pi-sdk routes through the broker's in-process pi-sdk
+    // driver. The embedded-sdk compiler remains available for rollback/retirement
+    // sequencing but is no longer selected by runtime intent.
     if (req.requested.preferredHarnessRuntime === 'pi-sdk') {
-      return await compileEmbeddedSdkPlan(req, placement, options)
+      return await compilePiSdkBrokerPlan(req, placement, options)
     }
     return await compileBrokerPlan(req, placement, options)
   } catch (error) {
@@ -1004,7 +1016,10 @@ async function compileBrokerPlan(
     }
   }
 
-  const permissionPolicy = req.hrcPolicy.permissionPolicy ?? { mode: 'deny', audit: true }
+  const permissionPolicy = req.hrcPolicy.permissionPolicy ?? {
+    mode: 'deny',
+    audit: true,
+  }
   const inputPolicy: BrokerInputPolicy =
     req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
   const exposurePolicy: AgentchatExposurePolicy = req.hrcPolicy.exposurePolicy ?? { mode: 'none' }
@@ -1107,7 +1122,12 @@ async function compileBrokerPlan(
         : {}),
     },
     ...(req.continuation !== undefined
-      ? { continuation: { hrc: req.continuation, broker: req.continuation.broker } }
+      ? {
+          continuation: {
+            hrc: req.continuation,
+            broker: req.continuation.broker,
+          },
+        }
       : {}),
     observability: brokerObservability(
       req,
@@ -1176,6 +1196,240 @@ async function compileBrokerPlan(
   })
 }
 
+function validatePiSdkBrokerRoute(req: RuntimeCompileRequest): CompileDiagnostic[] {
+  const diagnostics: CompileDiagnostic[] = []
+  if (req.requested.interactionMode === undefined) {
+    diagnostics.push(
+      compileError(
+        'unsupported_interaction_mode',
+        'pi-sdk broker compile requires an explicit nonInteractive interactionMode',
+        { requested: null }
+      )
+    )
+  } else if (req.requested.interactionMode !== 'nonInteractive') {
+    diagnostics.push(
+      compileError(
+        'unsupported_interaction_mode',
+        'pi-sdk broker compile requires interactionMode nonInteractive',
+        { requested: req.requested.interactionMode }
+      )
+    )
+  }
+  if (req.requested.harnessFamily !== undefined && req.requested.harnessFamily !== 'pi') {
+    diagnostics.push(
+      compileError('unsupported_harness', 'pi-sdk broker compile requires harnessFamily pi', {
+        requested: req.requested.harnessFamily,
+      })
+    )
+  }
+  return diagnostics
+}
+
+function piSdkRegistryModelId(
+  provider: ProviderDomain,
+  requestedModel: string | undefined,
+  prepared: PreparedPlacementCliRuntime
+): string {
+  const modelId =
+    requestedModel ??
+    (provider === 'anthropic'
+      ? 'claude-sonnet-4-5'
+      : prepared.runtimePlan.model.ok === true
+        ? prepared.runtimePlan.model.info.effectiveModel
+        : 'gpt-5.5')
+  if (modelId.includes('/')) return modelId
+  return `${provider === 'openai' ? 'openai-codex' : 'anthropic'}/${modelId}`
+}
+
+async function compilePiSdkBrokerPlan(
+  req: RuntimeCompileRequest,
+  placement: CompilePlacement,
+  options?: CompileRuntimePlanOptions
+): Promise<RuntimeCompileResponse> {
+  const routeDiagnostics = validatePiSdkBrokerRoute(req)
+  if (routeDiagnostics.length > 0) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: routeDiagnostics,
+    }
+  }
+
+  const provider = req.requested.modelProvider ?? 'openai'
+  const prepared = await prepareEmbeddedSdkSession(req, placement, options)
+  const modelId = piSdkRegistryModelId(provider, req.requested.model, prepared)
+  const permissionPolicy = req.hrcPolicy.permissionPolicy ?? {
+    mode: 'deny',
+    audit: true,
+  }
+  const inputPolicy: BrokerInputPolicy =
+    req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
+  const exposurePolicy: AgentchatExposurePolicy = req.hrcPolicy.exposurePolicy ?? { mode: 'none' }
+  const attachments = toBrokerAttachments(req.materialization.attachments)
+  const taskId = req.materialization.taskContext?.taskId
+  const brokerReq: BuildHarnessBrokerInvocationRequest = {
+    placement,
+    provider,
+    frontend: 'pi-sdk',
+    interactionMode: 'headless',
+    brokerDriver: 'pi-sdk',
+    harnessTransport: { kind: 'in-process' },
+    sdk: {
+      runtime: 'pi-sdk',
+      provider,
+      modelId,
+      ...(req.requested.reasoningEffort !== undefined
+        ? { thinkingLevel: req.requested.reasoningEffort }
+        : {}),
+    },
+    ...(req.continuation?.hrc.key !== undefined
+      ? { continuation: { provider, key: req.continuation.hrc.key } }
+      : {}),
+    prompt: req.materialization.initialPrompt,
+    ...(req.materialization.responseFormat !== undefined
+      ? { responseFormat: req.materialization.responseFormat }
+      : {}),
+    ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
+    ...(req.identity.invocationId !== undefined ? { invocationId: req.identity.invocationId } : {}),
+    ...(req.identity.initialInputId !== undefined
+      ? { initialInputId: req.identity.initialInputId }
+      : {}),
+    ...(options?.compileContext?.idSalt !== undefined
+      ? { idSalt: options.compileContext.idSalt }
+      : {}),
+    generation: req.identity.generation,
+    ...(taskId !== undefined ? { labels: { task: taskId } } : {}),
+    correlation: brokerCorrelation(req),
+    permissionPolicy: toBrokerPermissionPolicy(permissionPolicy),
+    limits: toProcessLimits(req.hrcPolicy.resourceLimits),
+    interaction: { inputQueue: 'fifo' },
+    resumeFallback: 'fail',
+  }
+
+  validateBrokerInvocationRequest(brokerReq)
+  const brokerInvocation = toHarnessBrokerStartRequest(prepared, brokerReq)
+  const startRequest = brokerInvocation.startRequest
+  const spec = brokerInvocation.spec
+  const lockedEnv = spec.process.lockedEnv ?? {}
+  const lockedEnvKeys = Object.keys(lockedEnv).sort()
+  const bundleIdentity = brokerInvocation.resolvedBundle?.bundleIdentity ?? 'unknown'
+  const lockHash = (
+    brokerInvocation.resolvedBundle as { lockHash?: string | undefined } | undefined
+  )?.lockHash
+  const hashStartRequest = hashNeutralStartRequest(startRequest)
+  const profileId = stableId('profile', {
+    kind: 'harness-broker',
+    brokerDriver: 'pi-sdk',
+    startRequest: hashStartRequest,
+  }) as ProfileId
+  const compatibilityHash = hashValue(
+    buildCompatibilityMaterial(req, hashStartRequest, bundleIdentity, lockHash, lockedEnv)
+  )
+  const specHash = neutralSpecHash(spec)
+  const startRequestHash = neutralStartRequestHash(startRequest)
+  const initialInputHash =
+    startRequest.initialInput !== undefined ? hashValue(startRequest.initialInput) : undefined
+
+  const profileMaterial = {
+    schemaVersion: 'agent-runtime-profile/v1' as const,
+    profileId,
+    kind: 'harness-broker' as const,
+    interactionMode: 'headless' as const,
+    expectedCapabilities: expectedCapabilities(permissionPolicy, {
+      inputQueue: 'required',
+      attachReplay: 'optional',
+    }),
+    brokerProtocol: 'harness-broker/0.2' as const,
+    brokerDriver: 'pi-sdk',
+    brokerOwnership: 'hrc-owned-process' as const,
+    harnessInvocation: {
+      startRequest,
+      specHash,
+      startRequestHash,
+      ...(initialInputHash !== undefined ? { initialInputHash } : {}),
+    },
+    policy: {
+      permissionPolicy,
+      inputPolicy,
+      exposurePolicy,
+      ...(req.hrcPolicy.resourceLimits !== undefined
+        ? { resourceLimits: req.hrcPolicy.resourceLimits }
+        : {}),
+    },
+    ...(req.continuation !== undefined
+      ? {
+          continuation: {
+            hrc: req.continuation,
+            broker: req.continuation.broker,
+          },
+        }
+      : {}),
+    observability: brokerObservability(
+      req,
+      startRequest.spec.invocationId ??
+        req.identity.invocationId ??
+        (profileId as unknown as InvocationId)
+    ),
+  }
+  const profileHash = projectionHash(
+    {
+      ...profileMaterial,
+      harnessInvocation: {
+        startRequest: hashStartRequest,
+        specHash: profileMaterial.harnessInvocation.specHash,
+        startRequestHash: profileMaterial.harnessInvocation.startRequestHash,
+      },
+      observability: { correlation: hashNeutralCompileIdentity(req.identity) },
+      compatibilityHash,
+    },
+    'profile'
+  ).profileHash
+  const profile: BrokerExecutionProfile = {
+    ...profileMaterial,
+    profileHash,
+    compatibilityHash,
+  }
+
+  const validationDiagnostics = validateBrokerExecutionProfile(profile)
+  if (validationDiagnostics.length > 0) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: validationDiagnostics,
+    }
+  }
+
+  return finalizePlan({
+    req,
+    profileHash,
+    profileId,
+    preparedWarnings: brokerInvocation.warnings,
+    ...hygieneWarningsInput(prepared),
+    disallowedToolsContext: { selectedDriver: 'pi-sdk' },
+    resolvedBundleSource: brokerInvocation.resolvedBundle,
+    bundleIdentity,
+    placement,
+    agentPolicy: prepared.placementContext.agentPolicy,
+    harness: { family: 'pi', runtime: 'pi-sdk', provider },
+    model: {
+      provider,
+      modelId,
+      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
+      ...(req.requested.reasoningEffort !== undefined
+        ? { reasoningEffort: req.requested.reasoningEffort }
+        : {}),
+    },
+    executionProfiles: [profile],
+    materializedBundleRoot: prepared.materialized.materialization.outputPath,
+    ...(prepared.systemPrompt?.path !== undefined
+      ? { systemPromptFile: prepared.systemPrompt.path }
+      : {}),
+    ...(lockHash !== undefined ? { lockHash } : {}),
+    lockedEnvKeys,
+    nowIso: options?.compileContext?.nowIso,
+  })
+}
+
 /**
  * Compile an interactive request to a foreground TerminalExecutionProfile.
  *
@@ -1215,7 +1469,12 @@ async function compileForegroundPlan(
         ? { modelReasoningEffort: req.requested.reasoningEffort }
         : {}),
       ...(req.continuation?.hrc.key !== undefined
-        ? { continuation: { provider: route.provider, key: req.continuation.hrc.key } }
+        ? {
+            continuation: {
+              provider: route.provider,
+              key: req.continuation.hrc.key,
+            },
+          }
         : {}),
       ...(req.materialization.initialPrompt !== undefined
         ? { prompt: req.materialization.initialPrompt }
@@ -1300,7 +1559,9 @@ async function compileForegroundPlan(
     profileId,
     preparedWarnings: prepared.warnings,
     ...hygieneWarningsInput(prepared),
-    disallowedToolsContext: { selectedDriver: `${route.frontend}:foreground-terminal` },
+    disallowedToolsContext: {
+      selectedDriver: `${route.frontend}:foreground-terminal`,
+    },
     resolvedBundleSource: prepared.resolvedBundle,
     bundleIdentity,
     placement,
@@ -1421,7 +1682,12 @@ async function prepareEmbeddedSdkSession(
     frontend: PI_SDK_FRONTEND,
     interactionMode: 'nonInteractive' as const,
     ...(req.continuation?.hrc.key !== undefined
-      ? { continuation: { provider: 'openai' as ProviderDomain, key: req.continuation.hrc.key } }
+      ? {
+          continuation: {
+            provider: 'openai' as ProviderDomain,
+            key: req.continuation.hrc.key,
+          },
+        }
       : {}),
     ...(req.materialization.initialPrompt !== undefined
       ? { prompt: req.materialization.initialPrompt }
@@ -1434,7 +1700,10 @@ async function prepareEmbeddedSdkSession(
   }
   try {
     return await preparePlacementCliRuntime(
-      { ...baseReq, ...(req.requested.model !== undefined ? { model: req.requested.model } : {}) },
+      {
+        ...baseReq,
+        ...(req.requested.model !== undefined ? { model: req.requested.model } : {}),
+      },
       options?.clientAspHome,
       options?.clientRegistryPath
     )
@@ -1459,6 +1728,8 @@ async function prepareEmbeddedSdkSession(
  * channel; session.lockedEnv never carries PATH. claude-agent-sdk is intentionally
  * NOT emitted (impl deferred); only pi-sdk reaches this branch.
  */
+// EXCEPTION(T-07183): retain the fallback compiler until the gated embedded-sdk retirement task
+// biome-ignore lint/correctness/noUnusedVariables: rollback surface remains intentionally unselected
 async function compileEmbeddedSdkPlan(
   req: RuntimeCompileRequest,
   placement: CompilePlacement,
@@ -1746,7 +2017,12 @@ async function compileTmuxBrokerPlan(
         ? { modelReasoningEffort: req.requested.reasoningEffort }
         : {}),
       ...(req.continuation?.hrc.key !== undefined
-        ? { continuation: { provider: route.provider, key: req.continuation.hrc.key } }
+        ? {
+            continuation: {
+              provider: route.provider,
+              key: req.continuation.hrc.key,
+            },
+          }
         : {}),
       ...(req.materialization.initialPrompt !== undefined
         ? { prompt: req.materialization.initialPrompt }
@@ -1762,7 +2038,10 @@ async function compileTmuxBrokerPlan(
     options?.clientRegistryPath
   )
 
-  const permissionPolicy = req.hrcPolicy.permissionPolicy ?? { mode: 'deny', audit: true }
+  const permissionPolicy = req.hrcPolicy.permissionPolicy ?? {
+    mode: 'deny',
+    audit: true,
+  }
   const inputPolicy: BrokerInputPolicy =
     req.hrcPolicy.inputPolicy ?? DEFAULT_CODEX_BROKER_INPUT_POLICY
   const limits = toProcessLimits(req.hrcPolicy.resourceLimits)
@@ -1871,7 +2150,12 @@ async function compileTmuxBrokerPlan(
       ...(disallowedTools !== undefined ? { disallowedTools } : {}),
     },
     ...(req.continuation !== undefined
-      ? { continuation: { hrc: req.continuation, broker: req.continuation.broker } }
+      ? {
+          continuation: {
+            hrc: req.continuation,
+            broker: req.continuation.broker,
+          },
+        }
       : {}),
     observability: brokerObservability(
       req,

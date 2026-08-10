@@ -69,7 +69,11 @@ function parseShorthandHandle(scopeRef: string): HandleParts {
   if (colonIndex === -1) {
     return { agentId, projectId: rest }
   }
-  return { agentId, projectId: rest.slice(0, colonIndex), taskId: rest.slice(colonIndex + 1) }
+  return {
+    agentId,
+    projectId: rest.slice(0, colonIndex),
+    taskId: rest.slice(colonIndex + 1),
+  }
 }
 
 export function deriveHandleParts(placement: RuntimePlacement): HandleParts {
@@ -163,7 +167,11 @@ export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocatio
       frontend: CODEX_CLI_FRONTEND,
       driver: 'codex-cli-tmux',
     },
-    'pi-tui-tmux': { provider: 'openai', frontend: PI_CLI_FRONTEND, driver: 'pi-tui-tmux' },
+    'pi-tui-tmux': {
+      provider: 'openai',
+      frontend: PI_CLI_FRONTEND,
+      driver: 'pi-tui-tmux',
+    },
   }
   const interactiveRoute =
     broker.brokerDriver !== undefined ? interactiveTmuxRoutes[broker.brokerDriver] : undefined
@@ -188,6 +196,37 @@ export function validateBrokerInvocationRequest(req: BuildHarnessBrokerInvocatio
         `${interactiveRoute.driver} broker route requires "pty" harness transport; got "${transportKind}"`,
         'unsupported_frontend'
       )
+    }
+    return
+  }
+
+  if (broker.brokerDriver === 'pi-sdk') {
+    if (req.frontend !== 'pi-sdk') {
+      throw new CodedError(
+        `pi-sdk broker route requires frontend "pi-sdk"; got "${req.frontend}"`,
+        'unsupported_frontend'
+      )
+    }
+    if (req.provider !== 'anthropic' && req.provider !== 'openai') {
+      throw new CodedError(
+        `pi-sdk broker route requires provider "anthropic" or "openai"; got "${req.provider}"`,
+        'provider_mismatch'
+      )
+    }
+    if (req.interactionMode !== 'headless') {
+      throw new CodedError(
+        `pi-sdk broker route requires headless broker interaction mode; got "${req.interactionMode}"`,
+        'unsupported_frontend'
+      )
+    }
+    if (transportKind !== 'in-process') {
+      throw new CodedError(
+        `pi-sdk broker route requires "in-process" harness transport; got "${transportKind}"`,
+        'unsupported_frontend'
+      )
+    }
+    if (req.sdk?.runtime !== 'pi-sdk') {
+      throw new CodedError('pi-sdk broker route requires an sdk descriptor', 'unsupported_frontend')
     }
     return
   }
@@ -321,7 +360,9 @@ function deriveInitialInputId(
     generation: req.generation,
     content,
   }
-  const digest = createCanonicalHasher().hash(material, { timestampMode: 'omit-ephemeral' }).value
+  const digest = createCanonicalHasher().hash(material, {
+    timestampMode: 'omit-ephemeral',
+  }).value
   return `input_${digest.slice(0, 32)}` as InputId
 }
 
@@ -387,7 +428,13 @@ export function toHarnessBrokerStartRequest(
         inputQueue: req.interaction?.inputQueue ?? 'none',
       },
       ...(req.continuation?.key !== undefined
-        ? { continuation: { provider: req.provider, kind: 'session', key: req.continuation.key } }
+        ? {
+            continuation: {
+              provider: req.provider,
+              kind: 'session',
+              key: req.continuation.key,
+            },
+          }
         : {}),
       driver: {
         kind: driverKind,
@@ -403,6 +450,69 @@ export function toHarnessBrokerStartRequest(
     return {
       startRequest,
       spec,
+      resolvedBundle: prepared.resolvedBundle,
+      ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
+    }
+  }
+
+  if (isPiSdkBrokerRequest(req)) {
+    const spec: HarnessInvocationSpec = {
+      specVersion: 'harness-broker.invocation/v1',
+      ...(req.invocationId !== undefined ? { invocationId: req.invocationId } : {}),
+      ...(req.labels !== undefined ? { labels: req.labels } : {}),
+      harness: {
+        frontend: 'pi-sdk',
+        provider: req.provider,
+        driver: 'pi-sdk',
+      },
+      process: {
+        command: 'in-process',
+        args: [],
+        cwd: prepared.cwd,
+        lockedEnv: prepared.lockedEnv,
+        ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
+        harnessTransport: { kind: 'in-process' },
+        limits: req.limits ?? DEFAULT_BROKER_PROCESS_LIMITS,
+      },
+      interaction: {
+        mode: 'headless',
+        turnConcurrency: 'single',
+        inputQueue: req.interaction?.inputQueue ?? 'fifo',
+      },
+      ...(req.continuation?.key !== undefined
+        ? {
+            continuation: {
+              provider: req.provider,
+              kind: 'session',
+              key: req.continuation.key,
+            },
+          }
+        : {}),
+      driver: { kind: 'pi-sdk' },
+      sdk: req.sdk,
+      ...(prepared.systemPrompt?.path !== undefined
+        ? {
+            launch: {
+              systemPromptFile: prepared.systemPrompt.path,
+              ...(prepared.systemPrompt.mode !== undefined
+                ? { systemPromptMode: prepared.systemPrompt.mode }
+                : {}),
+            },
+          }
+        : {}),
+      correlation: req.correlation ?? brokerCorrelationFromPlacement(req.placement),
+    }
+    const initialInput = buildInitialInput(prepared, req)
+    const startRequest: InvocationStartRequest =
+      initialInput === undefined ? { spec } : { spec, initialInput }
+
+    validateInvocationSpec(spec)
+    if (initialInput !== undefined) validateInvocationInput(initialInput)
+
+    return {
+      startRequest,
+      spec,
+      ...(initialInput !== undefined ? { initialInput } : {}),
       resolvedBundle: prepared.resolvedBundle,
       ...(prepared.warnings.length > 0 ? { warnings: prepared.warnings } : {}),
     }
@@ -449,7 +559,13 @@ export function toHarnessBrokerStartRequest(
       inputQueue: 'fifo',
     },
     ...(req.continuation?.key !== undefined
-      ? { continuation: { provider: 'codex', kind: 'thread', key: req.continuation.key } }
+      ? {
+          continuation: {
+            provider: 'codex',
+            kind: 'thread',
+            key: req.continuation.key,
+          },
+        }
       : {}),
     driver,
     correlation: req.correlation ?? brokerCorrelationFromPlacement(req.placement),
@@ -482,5 +598,22 @@ function isInteractiveTmuxBrokerRequest(
     (req.brokerDriver === 'claude-code-tmux' ||
       req.brokerDriver === 'codex-cli-tmux' ||
       req.brokerDriver === 'pi-tui-tmux')
+  )
+}
+
+function isPiSdkBrokerRequest(
+  req: BuildHarnessBrokerInvocationRequest
+): req is BuildHarnessBrokerInvocationRequest & {
+  provider: 'anthropic' | 'openai'
+  frontend: 'pi-sdk'
+  brokerDriver: 'pi-sdk'
+  harnessTransport: { kind: 'in-process' }
+  sdk: NonNullable<BuildHarnessBrokerInvocationRequest['sdk']>
+} {
+  return (
+    req.frontend === 'pi-sdk' &&
+    req.brokerDriver === 'pi-sdk' &&
+    req.harnessTransport?.kind === 'in-process' &&
+    req.sdk?.runtime === 'pi-sdk'
   )
 }

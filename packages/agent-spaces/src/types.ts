@@ -6,6 +6,7 @@ import type {
 } from 'spaces-config'
 import type {
   HarnessInvocationSpec,
+  HarnessSdkSpec,
   InputId,
   InvocationId,
   InvocationInput,
@@ -216,15 +217,17 @@ export interface BuildProcessInvocationSpecResponse {
 export interface BuildHarnessBrokerInvocationRequest {
   placement: RuntimePlacement
   provider: ProviderDomain
-  frontend: 'codex-cli' | 'claude-code' | 'pi-cli'
+  frontend: 'codex-cli' | 'claude-code' | 'pi-cli' | 'pi-sdk'
   interactionMode: 'headless' | 'interactive'
   brokerDriver?:
     | 'codex-app-server'
     | 'claude-code-tmux'
     | 'codex-cli-tmux'
     | 'pi-tui-tmux'
+    | 'pi-sdk'
     | undefined
-  harnessTransport?: { kind: 'jsonrpc-stdio' | 'pty' } | undefined
+  harnessTransport?: { kind: 'jsonrpc-stdio' | 'pty' | 'in-process' } | undefined
+  sdk?: HarnessSdkSpec | undefined
   aspHome?: string | undefined
   model?: string | undefined
   modelReasoningEffort?: string | undefined
@@ -367,7 +370,11 @@ export interface BaseEvent {
  */
 export type AgentEvent =
   | (BaseEvent & { type: 'state'; state: SessionState })
-  | (BaseEvent & { type: 'message'; role: 'user' | 'assistant'; content: string })
+  | (BaseEvent & {
+      type: 'message'
+      role: 'user' | 'assistant'
+      content: string
+    })
   | (BaseEvent & { type: 'message_delta'; role: 'assistant'; delta: string })
   | (BaseEvent & {
       type: 'tool_call'

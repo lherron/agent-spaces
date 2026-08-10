@@ -23,7 +23,7 @@ export type RuntimeRouteCatalogEntry = {
     | {
         protocolVersion: 'harness-broker/0.2'
         driver: 'codex-app-server' | string
-        processTransport: 'jsonrpc-stdio' | 'pty'
+        processTransport: 'jsonrpc-stdio' | 'pty' | 'in-process'
       }
     | undefined
   removalGate?: string | undefined
@@ -126,16 +126,23 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     turnDeliveries: ['sdk-turn', 'sdk-inflight-input'],
     lifecycle: EMBEDDED_SDK_LIFECYCLE_BASELINE,
   },
-  {
-    controller: 'embedded-sdk',
-    modelProvider: 'openai',
-    harnessFamily: 'pi',
-    harnessRuntime: 'pi-sdk',
-    interactionMode: 'nonInteractive',
-    startupMethods: ['create-sdk-session', 'reuse-existing'],
-    turnDeliveries: ['sdk-turn', 'sdk-inflight-input'],
-    lifecycle: EMBEDDED_SDK_LIFECYCLE_BASELINE,
-  },
+  ...(['anthropic', 'openai'] as const).map(
+    (modelProvider): RuntimeRouteCatalogEntry => ({
+      controller: 'harness-broker',
+      modelProvider,
+      harnessFamily: 'pi',
+      harnessRuntime: 'pi-sdk',
+      interactionMode: 'nonInteractive',
+      startupMethods: ['create-broker-invocation', 'reuse-existing'],
+      turnDeliveries: ['broker-input'],
+      lifecycle: BROKER_LIFECYCLE_BASELINE,
+      broker: {
+        protocolVersion: 'harness-broker/0.2',
+        driver: 'pi-sdk',
+        processTransport: 'in-process',
+      },
+    })
+  ),
   {
     controller: 'harness-broker',
     modelProvider: 'openai',

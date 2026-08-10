@@ -144,6 +144,8 @@ type BrokerProfileFacts = {
   isCodexCliTmux: boolean
   profileClaimsPiTuiTmux: boolean
   isPiTuiTmux: boolean
+  profileClaimsPiSdk: boolean
+  isPiSdk: boolean
 }
 
 function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfileFacts {
@@ -152,6 +154,7 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
   const profileClaimsClaudeCodeTmux = profile.brokerDriver === 'claude-code-tmux'
   const profileClaimsCodexCliTmux = profile.brokerDriver === 'codex-cli-tmux'
   const profileClaimsPiTuiTmux = profile.brokerDriver === 'pi-tui-tmux'
+  const profileClaimsPiSdk = profile.brokerDriver === 'pi-sdk'
   return {
     specDriverKind,
     transportKind: spec.process.harnessTransport.kind,
@@ -166,6 +169,8 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
     isCodexCliTmux: profileClaimsCodexCliTmux || specDriverKind === 'codex-cli-tmux',
     profileClaimsPiTuiTmux,
     isPiTuiTmux: profileClaimsPiTuiTmux || specDriverKind === 'pi-tui-tmux',
+    profileClaimsPiSdk,
+    isPiSdk: profileClaimsPiSdk || specDriverKind === 'pi-sdk',
   }
 }
 
@@ -335,6 +340,57 @@ const PI_TUI_TMUX_RULES: BrokerLegalityRule[] = [
       : undefined,
 ]
 
+const PI_SDK_RULES: BrokerLegalityRule[] = [
+  (profile, facts) =>
+    facts.profileClaimsPiSdk && facts.specDriverKind !== 'pi-sdk'
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_sdk_requires_driver_kind',
+          'pi-sdk broker profiles must use pi-sdk in the hashed driver spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.specDriverKind === 'pi-sdk' && !facts.profileClaimsPiSdk
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_sdk_spec_requires_profile_driver',
+          'A pi-sdk hashed driver spec requires brokerDriver pi-sdk.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isPiSdk && facts.transportKind !== 'in-process'
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_sdk_requires_in_process_transport',
+          'pi-sdk broker profiles must use in-process harness transport.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isPiSdk && profile.harnessInvocation.startRequest.spec.sdk === undefined
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_sdk_requires_sdk_block',
+          'pi-sdk broker profiles must carry an sdk block in the hashed invocation spec.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isPiSdk && profile.brokerTerminal !== undefined
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_sdk_forbids_broker_terminal',
+          'pi-sdk broker profiles must not declare a brokerTerminal.'
+        )
+      : undefined,
+  (profile, facts) =>
+    facts.isPiSdk && facts.specDriverHookBridge !== undefined
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_sdk_forbids_hook_bridge',
+          'pi-sdk broker profiles must not declare a hookBridge.'
+        )
+      : undefined,
+]
+
 const INTERACTIVE_TMUX_RULES: BrokerLegalityRule[] = [
   (profile, facts) =>
     profile.interactionMode === 'interactive' && facts.specInteractionMode !== 'interactive'
@@ -386,6 +442,7 @@ const BROKER_RULES: BrokerLegalityRule[] = [
   ...CLAUDE_CODE_TMUX_RULES,
   ...CODEX_CLI_TMUX_RULES,
   ...PI_TUI_TMUX_RULES,
+  ...PI_SDK_RULES,
   ...INTERACTIVE_TMUX_RULES,
 ]
 

@@ -303,6 +303,53 @@ function codexCliTmuxBrokerProfile(
   return brokerProfileFrom(baseCodexCliTmuxProfile, overrides)
 }
 
+const basePiSdkBrokerProfile = brokerProfile({
+  profileId: 'profile:test-pi-sdk-broker',
+  interactionMode: 'headless',
+  brokerDriver: 'pi-sdk',
+  brokerTerminal: undefined,
+  harnessInvocation: {
+    startRequest: {
+      spec: {
+        harness: {
+          frontend: 'pi-sdk',
+          provider: 'anthropic',
+          driver: 'pi-sdk',
+        },
+        process: {
+          command: 'in-process',
+          args: [],
+          cwd: '/tmp',
+          lockedEnv: {},
+          harnessTransport: { kind: 'in-process' },
+        },
+        interaction: {
+          mode: 'headless',
+          turnConcurrency: 'single',
+          inputQueue: 'fifo',
+        },
+        driver: {
+          kind: 'pi-sdk',
+        },
+        sdk: {
+          runtime: 'pi-sdk',
+          provider: 'anthropic',
+          modelId: 'anthropic/claude-sonnet-4-5',
+          thinkingLevel: 'medium',
+        },
+      },
+    },
+  },
+  policy: {
+    ...baseBrokerProfile.policy,
+    exposurePolicy: noneExposurePolicy,
+  },
+})
+
+function piSdkBrokerProfile(overrides: Record<string, unknown> = {}): BrokerExecutionProfile {
+  return brokerProfileFrom(basePiSdkBrokerProfile, overrides)
+}
+
 const baseEmbeddedSdkProfile = {
   schemaVersion: 'agent-runtime-profile/v1',
   profileId: 'profile:test-embedded-sdk',
@@ -445,6 +492,68 @@ describe('validateBrokerExecutionProfile', () => {
 
   test('allows a valid codex-cli-tmux interactive broker profile', () => {
     expect(validateBrokerExecutionProfile(codexCliTmuxBrokerProfile())).toEqual([])
+  })
+
+  test('allows a valid pi-sdk in-process broker profile', () => {
+    expect(validateBrokerExecutionProfile(piSdkBrokerProfile())).toEqual([])
+  })
+
+  test('rejects pi-sdk profile/spec driver mismatches in both directions', () => {
+    const profileMismatch = validateBrokerExecutionProfile(
+      piSdkBrokerProfile({
+        harnessInvocation: {
+          startRequest: { spec: { driver: { kind: 'other-driver' } } },
+        },
+      })
+    )
+    const specMismatch = validateBrokerExecutionProfile(
+      piSdkBrokerProfile({ brokerDriver: 'other-driver' })
+    )
+
+    expect(diagnosticCodes(profileMismatch)).toContain('pi_sdk_requires_driver_kind')
+    expect(diagnosticCodes(specMismatch)).toContain('pi_sdk_spec_requires_profile_driver')
+  })
+
+  test('rejects pi-sdk profiles without in-process transport', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      piSdkBrokerProfile({
+        harnessInvocation: {
+          startRequest: {
+            spec: { process: { harnessTransport: { kind: 'pipes' } } },
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('pi_sdk_requires_in_process_transport')
+  })
+
+  test('rejects pi-sdk profiles without an sdk block', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      piSdkBrokerProfile({
+        harnessInvocation: { startRequest: { spec: { sdk: undefined } } },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('pi_sdk_requires_sdk_block')
+  })
+
+  test('rejects pi-sdk profiles with brokerTerminal or hookBridge', () => {
+    const withTerminal = validateBrokerExecutionProfile(
+      piSdkBrokerProfile({ brokerTerminal: baseBrokerProfile.brokerTerminal })
+    )
+    const withHookBridge = validateBrokerExecutionProfile(
+      piSdkBrokerProfile({
+        harnessInvocation: {
+          startRequest: {
+            spec: { driver: { hookBridge: 'pi-hrc-events/v1' } },
+          },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(withTerminal)).toContain('pi_sdk_forbids_broker_terminal')
+    expect(diagnosticCodes(withHookBridge)).toContain('pi_sdk_forbids_hook_bridge')
   })
 
   test('rejects codex-cli-tmux profiles without pty process transport', () => {
@@ -787,18 +896,25 @@ describe('runtime route selection', () => {
     }
   })
 
-  test('selects embedded-sdk for openai pi-sdk nonInteractive route', () => {
-    const selectedRoute = RUNTIME_ROUTE_CATALOG.find(
-      (route) =>
-        route.modelProvider === 'openai' &&
-        route.harnessFamily === 'pi' &&
-        route.harnessRuntime === 'pi-sdk' &&
-        route.interactionMode === 'nonInteractive'
-    )
+  test('selects the in-process pi-sdk broker for both providers', () => {
+    for (const modelProvider of ['anthropic', 'openai'] as const) {
+      const selectedRoute = RUNTIME_ROUTE_CATALOG.find(
+        (route) =>
+          route.modelProvider === modelProvider &&
+          route.harnessFamily === 'pi' &&
+          route.harnessRuntime === 'pi-sdk' &&
+          route.interactionMode === 'nonInteractive'
+      )
 
-    expect(selectedRoute?.controller).toBe('embedded-sdk')
-    expect(selectedRoute?.startupMethods).toEqual(['create-sdk-session', 'reuse-existing'])
-    expect(selectedRoute?.turnDeliveries).toEqual(['sdk-turn', 'sdk-inflight-input'])
+      expect(selectedRoute?.controller).toBe('harness-broker')
+      expect(selectedRoute?.startupMethods).toEqual(['create-broker-invocation', 'reuse-existing'])
+      expect(selectedRoute?.turnDeliveries).toEqual(['broker-input'])
+      expect(selectedRoute?.broker).toEqual({
+        protocolVersion: 'harness-broker/0.2',
+        driver: 'pi-sdk',
+        processTransport: 'in-process',
+      })
+    }
   })
 })
 
