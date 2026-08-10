@@ -1867,7 +1867,7 @@ function validateInputPolicy(value: unknown, basePath: string, issues: Validatio
   }
   optionalEnum(
     policy['whenBusy'],
-    ['reject', 'queue', 'interrupt_then_apply'],
+    ['reject', 'queue', 'interrupt_then_apply', 'steer'],
     joinPath(basePath, 'whenBusy'),
     issues,
     true

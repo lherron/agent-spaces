@@ -25,7 +25,7 @@ export function buildTurnStartParams(options: {
   }
 }
 
-function buildCodexInput(
+export function buildCodexInput(
   input: InvocationInput,
   defaultImageAttachments: string[] | undefined
 ): Array<Record<string, unknown>> {

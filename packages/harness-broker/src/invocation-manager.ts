@@ -43,6 +43,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
+  LEGACY_BUSY_POLICIES,
   acceptedLifecyclePolicy,
   validateEventEnvelope,
 } from 'spaces-harness-broker-protocol'
@@ -61,6 +62,7 @@ const REASON_QUEUE_FULL = 'queue_full'
 const REASON_QUEUE_NOT_SUPPORTED = 'queue_not_supported'
 const REASON_UNSUPPORTED_INPUT_KIND = 'unsupported_input_kind_for_queue'
 const REASON_UNSUPPORTED_BUSY_POLICY = 'unsupported_busy_policy'
+const REASON_STEER_NOT_SUPPORTED = 'steer_not_supported'
 const REASON_INVOCATION_TERMINATED = 'invocation_terminated'
 const REASON_INVOCATION_STOPPING = 'invocation_stopping'
 
@@ -624,6 +626,33 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     return response
   }
 
+  /**
+   * T-07155 — `whenBusy: 'steer'`. Applies the input to the ACTIVE turn instead
+   * of the FIFO drain queue, so a supervisor order preempts a busy worker.
+   *
+   * Deliberately separate from `handleQueueWhenBusy`, which is left untouched:
+   * `queue` keeps its existing interactive write-through branch and its headless
+   * enqueue, so no current caller changes behaviour. This handler never falls
+   * back to the tail queue — a driver that cannot steer is rejected typed, so an
+   * urgent order can never be silently downgraded into a deferred one.
+   */
+  async function handleSteerWhenBusy({
+    inv,
+    input,
+    inputId,
+    req,
+  }: BusyInputContext): Promise<InvocationInputResponse> {
+    if (input.kind !== 'user') {
+      return rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_INPUT_KIND)
+    }
+    if (inv.driver.applySteerNow === undefined) {
+      return rejectQueueInput(inv, inputId, REASON_STEER_NOT_SUPPORTED)
+    }
+    const response = await attemptSteerAndEmit(inv, input)
+    recordDisposition(inv, req, response)
+    return response
+  }
+
   const busyPolicyHandlers: Record<
     InputPolicy['whenBusy'],
     (ctx: BusyInputContext) => Promise<InvocationInputResponse>
@@ -638,6 +667,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     interrupt_then_apply: async ({ inv, inputId }) =>
       rejectQueueInput(inv, inputId, REASON_UNSUPPORTED_BUSY_POLICY),
     queue: handleQueueWhenBusy,
+    steer: handleSteerWhenBusy,
   }
 
   // ---------------------------------------------------------------------------
@@ -1311,6 +1341,14 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
           // Broker-composed: the public surface reflects the composed value,
           // NOT the raw driver-reported value.
           queue: composedQueue,
+          // T-07155: advertise what THIS broker process can execute. Clients
+          // negotiate against this instead of assuming an installed upgrade
+          // reached a long-lived broker; `steer` appears iff the driver can
+          // actually write into the active turn.
+          busyPolicies: [
+            ...LEGACY_BUSY_POLICIES,
+            ...(driver.applySteerNow !== undefined ? (['steer'] as const) : []),
+          ],
         },
       }
 

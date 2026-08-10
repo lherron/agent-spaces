@@ -2,6 +2,7 @@ import type {
   BrokerCapabilities,
   ClientCapabilities,
   DriverSummary,
+  InputPolicyWhenBusy,
   InvocationCapabilities,
 } from './capabilities'
 import type { ContinuationUpdate } from './events'
@@ -237,7 +238,14 @@ export type InputContent =
   | { type: 'file_ref'; path: string; mimeType?: string | undefined }
 
 export interface InputPolicy {
-  whenBusy: 'reject' | 'queue' | 'interrupt_then_apply'
+  /**
+   * `steer` (T-07155) applies the input to the ACTIVE turn through the driver's
+   * `applySteerNow` instead of the FIFO drain queue, so a supervisor order can
+   * preempt a busy worker. It is offered only to invocations whose composed
+   * capabilities advertise it in `input.busyPolicies`; every other broker
+   * rejects it rather than silently falling back to the tail queue.
+   */
+  whenBusy: InputPolicyWhenBusy
   timeoutMs?: number | undefined
 }
 

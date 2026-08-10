@@ -2,6 +2,16 @@ import type { InvocationLifecycleCapabilities } from './lifecycle'
 
 export type BrokerTransportKind = 'stdio-jsonrpc-ndjson' | 'unix-jsonrpc-ndjson'
 
+/**
+ * Busy-input policies an invocation can be asked to apply. Declared here rather
+ * than in `commands` because the composed capability set advertises it and
+ * `commands` already imports from this module.
+ */
+export type InputPolicyWhenBusy = 'reject' | 'queue' | 'interrupt_then_apply' | 'steer'
+
+/** The policies every broker has always supported; the pre-T-07155 baseline. */
+export const LEGACY_BUSY_POLICIES: InputPolicyWhenBusy[] = ['reject', 'queue']
+
 export interface InvocationCapabilities {
   input: {
     user: boolean
@@ -15,6 +25,16 @@ export interface InvocationCapabilities {
      * Drivers should set their raw queue-readiness; clients read the composed value.
      */
     queue: boolean
+    /**
+     * Broker-composed (T-07155): the `InputPolicy.whenBusy` values THIS broker
+     * process can actually execute for this invocation. Clients must negotiate
+     * against it rather than infer support from published code — a headless
+     * runtime owns a long-lived broker process that survives HRC restarts, so an
+     * installed upgrade does not change the code loaded in an existing broker.
+     * Absent means an older broker: treat every value beyond the historical
+     * `reject`/`queue` pair as unsupported.
+     */
+    busyPolicies?: InputPolicyWhenBusy[] | undefined
   }
   turns: {
     concurrency: 'single' | 'multiple'

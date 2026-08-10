@@ -33,7 +33,7 @@ import {
 } from '../tmux-shared'
 import { CODEX_CAPABILITIES } from './capabilities'
 import { createCodexNotificationMapper, parseCodexError } from './event-map'
-import { buildTurnStartParams } from './input'
+import { buildCodexInput, buildTurnStartParams } from './input'
 import {
   type PermissionHandlerContext,
   createPermissionRequestIdAllocator,
@@ -755,6 +755,61 @@ export function createCodexAppServerDriver(): Driver {
       turnTimeout = undefined
 
       return { ...(currentTurnId ? { turnId: currentTurnId } : {}) }
+    },
+
+    /**
+     * T-07155 — mid-turn steer via the app-server `turn/steer` RPC.
+     *
+     * The broker manager calls this only under `whenBusy: 'steer'` while a turn
+     * is active; it owns all policy and disposition. This method's contract is
+     * narrow: apply the text to the ACTIVE turn or throw. It never starts a
+     * turn, never queues, and never resolves without having applied — a silent
+     * resolve would report an order as delivered when it was not.
+     *
+     * `expectedTurnId` is the app-server's own active-turn precondition, so a
+     * turn that ended in the race window fails the RPC instead of leaking the
+     * text into an unrelated turn. It is a staleness fence only: duplicate
+     * suppression is the caller's job (HRC's contribution ledger), because the
+     * same turn stays active across a retry.
+     */
+    async applySteerNow(input: InvocationInput): Promise<void> {
+      if (!rpc || !spec || !driverSpec || !threadId) {
+        throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Invocation is not ready')
+      }
+      if (!turnActive || currentTurnId === undefined) {
+        throw new BrokerError(
+          BrokerErrorCode.InvalidInvocationState,
+          'Codex steer requires an active turn'
+        )
+      }
+      const steerTurnId = currentTurnId
+      try {
+        await rpc.sendRequest('turn/steer', {
+          threadId,
+          expectedTurnId: steerTurnId,
+          input: buildCodexInput(input, driverSpec.defaultImageAttachments),
+        })
+      } catch (error) {
+        throw new BrokerError(
+          BrokerErrorCode.HarnessError,
+          error instanceof Error ? error.message : 'Codex turn/steer failed'
+        )
+      }
+      // Mirror applyInputNow's user.message emission so the steered text is in
+      // the transcript on the turn it actually joined, not a turn of its own.
+      requireCtx().emit(
+        'user.message',
+        {
+          content: extractText(input),
+          inputId: input.inputId,
+          role: 'user' as const,
+        },
+        {
+          turnId: steerTurnId,
+          ...(input.inputId === undefined ? {} : { inputId: input.inputId }),
+          driver: { kind: 'codex-app-server', rawType: 'broker.steer' },
+        }
+      )
     },
 
     async interrupt(req: InvocationInterruptRequest): Promise<InvocationInterruptResponse> {
