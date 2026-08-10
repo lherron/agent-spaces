@@ -257,6 +257,16 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
       disposed = false
       exited = false
 
+      driverCtx.emit(
+        'invocation.started',
+        {
+          command: nextSpec.process.command,
+          args: nextSpec.process.args,
+          cwd: nextSpec.process.cwd,
+        },
+        { driver: { kind: PI_SDK_DRIVER_KIND } }
+      )
+
       let auth: PiSdkAuthResolution
       try {
         auth = await resolvePiSdkAuth(nextSpec, driverCtx)

@@ -17,7 +17,7 @@ import {
   resolvePiSdkModelReference,
 } from '../src/driver'
 
-type CapturedEvent = Pick<InvocationEventEnvelope, 'type' | 'payload'>
+type CapturedEvent = Pick<InvocationEventEnvelope, 'seq' | 'type' | 'payload'>
 
 describe('pi SDK driver structured output', () => {
   test('re-validates tool args and synthesizes canonical JSON after one retry', async () => {
@@ -171,6 +171,7 @@ describe('pi SDK authentication modes', () => {
       credentialType: 'api-key',
       storeBound: false,
     })
+    expectStartupSequence(events)
   })
 
   test('oauth mode binds an OAuth-typed store, starves credential env, and attests before input', async () => {
@@ -217,6 +218,7 @@ describe('pi SDK authentication modes', () => {
         credentialType: 'oauth',
         storeBound: true,
       })
+      expectStartupSequence(events)
 
       await driver.applyInputNow(userInput())
       events.push({ type: 'turn.started', payload: { turnId: 'synthetic' } } as CapturedEvent)
@@ -402,8 +404,10 @@ function createContext(
   events: CapturedEvent[],
   dispatchEnv?: Record<string, string>
 ): DriverContext {
+  let seq = 0
   const emit = ((type: string, payload: unknown) => {
-    const event = { type, payload } as CapturedEvent
+    seq += 1
+    const event = { seq, type, payload } as CapturedEvent
     events.push(event)
     return event
   }) as DriverContext['emit']
@@ -416,6 +420,16 @@ function createContext(
       throw new Error('unused')
     }) as DriverContext['emitEvent'],
   } as DriverContext
+}
+
+function expectStartupSequence(events: CapturedEvent[]): void {
+  const startup = events.slice(0, 3)
+  expect(startup.map((event) => event.type)).toEqual([
+    'invocation.started',
+    'driver.notice',
+    'invocation.ready',
+  ])
+  expect(startup.map((event) => event.seq)).toEqual([1, 2, 3])
 }
 
 function idleSession(): PiSdkSession {
