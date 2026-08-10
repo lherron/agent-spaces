@@ -116,14 +116,6 @@ const BROKER_LIFECYCLE_BASELINE: InvocationLifecycleCapabilities = {
   permissionCancellation: false,
 }
 
-const EMBEDDED_SDK_LIFECYCLE_BASELINE: InvocationLifecycleCapabilities = {
-  runtimeRetention: [],
-  harnessRecovery: ['none'],
-  turnRetry: ['none'],
-  generationFencing: false,
-  permissionCancellation: false,
-}
-
 const UNMANAGED_LIFECYCLE_BASELINE: InvocationLifecycleCapabilities = {
   runtimeRetention: ['unmanaged'],
   harnessRecovery: ['none'],
@@ -194,16 +186,6 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = defineRuntimeRo
     ],
     turnDeliveries: ['terminal-launch-input', 'terminal-literal-input'],
     lifecycle: UNMANAGED_LIFECYCLE_BASELINE,
-  },
-  {
-    controller: 'embedded-sdk',
-    modelProvider: 'anthropic',
-    harnessFamily: 'claude-code',
-    harnessRuntime: 'claude-agent-sdk',
-    interactionMode: 'nonInteractive',
-    startupMethods: ['create-sdk-session', 'reuse-existing'],
-    turnDeliveries: ['sdk-turn', 'sdk-inflight-input'],
-    lifecycle: EMBEDDED_SDK_LIFECYCLE_BASELINE,
   },
   ...(
     [

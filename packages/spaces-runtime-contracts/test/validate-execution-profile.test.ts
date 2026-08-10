@@ -3,7 +3,6 @@ import * as Contracts from '../src/index'
 import {
   type BrokerExecutionProfile,
   type CompileDiagnostic,
-  type EmbeddedSdkExecutionProfile,
   PI_SDK_MODEL_CATALOG,
   type PiSdkModelCatalogEntry,
   RUNTIME_ROUTE_CATALOG,
@@ -64,7 +63,6 @@ function diagnosticCodes(diagnostics: CompileDiagnostic[]): string[] {
 }
 
 type BrokerProfileValidator = (profile: BrokerExecutionProfile) => CompileDiagnostic[]
-type EmbeddedSdkProfileValidator = (profile: EmbeddedSdkExecutionProfile) => CompileDiagnostic[]
 
 function validateBrokerExecutionProfile(profile: BrokerExecutionProfile): CompileDiagnostic[] {
   const validator = (
@@ -72,19 +70,6 @@ function validateBrokerExecutionProfile(profile: BrokerExecutionProfile): Compil
       validateBrokerExecutionProfile?: BrokerProfileValidator | undefined
     }
   ).validateBrokerExecutionProfile
-
-  expect(validator).toBeFunction()
-  return validator(profile)
-}
-
-function validateEmbeddedSdkExecutionProfile(
-  profile: EmbeddedSdkExecutionProfile
-): CompileDiagnostic[] {
-  const validator = (
-    Contracts as typeof Contracts & {
-      validateEmbeddedSdkExecutionProfile?: EmbeddedSdkProfileValidator | undefined
-    }
-  ).validateEmbeddedSdkExecutionProfile
 
   expect(validator).toBeFunction()
   return validator(profile)
@@ -353,63 +338,6 @@ const basePiSdkBrokerProfile = brokerProfile({
 
 function piSdkBrokerProfile(overrides: Record<string, unknown> = {}): BrokerExecutionProfile {
   return brokerProfileFrom(basePiSdkBrokerProfile, overrides)
-}
-
-const baseEmbeddedSdkProfile = {
-  schemaVersion: 'agent-runtime-profile/v1',
-  profileId: 'profile:test-embedded-sdk',
-  profileHash: 'profile-hash',
-  compatibilityHash: 'compatibility-hash',
-  kind: 'embedded-sdk',
-  interactionMode: 'nonInteractive',
-  expectedCapabilities: {},
-  sdk: {
-    runtime: 'pi-sdk',
-    startupMethod: 'create-sdk-session',
-    turnDelivery: 'sdk-turn',
-  },
-  session: {
-    provider: 'openai',
-    modelId: 'gpt-5.5',
-    cwd: '/tmp',
-    lockedEnv: { ASP_HOME: '/tmp/asp-home' },
-    pathPrepend: ['/tmp/asp-home/bin'],
-  },
-  policy: {
-    inputPolicy: {
-      readyInput: 'start-turn',
-      busy: { whenBusy: 'reject' },
-      supportedKinds: ['user'],
-      attachmentPolicy: { localImages: true, fileRefs: false },
-    },
-  },
-} as unknown as EmbeddedSdkExecutionProfile
-
-function embeddedSdkProfile(overrides: Record<string, unknown> = {}): EmbeddedSdkExecutionProfile {
-  const sdkOverride = overrides.sdk as Partial<EmbeddedSdkExecutionProfile['sdk']> | undefined
-  const sessionOverride = overrides.session as
-    | Partial<EmbeddedSdkExecutionProfile['session']>
-    | undefined
-  const policyOverride = overrides.policy as
-    | Partial<EmbeddedSdkExecutionProfile['policy']>
-    | undefined
-
-  return {
-    ...baseEmbeddedSdkProfile,
-    ...overrides,
-    sdk: {
-      ...baseEmbeddedSdkProfile.sdk,
-      ...(sdkOverride ?? {}),
-    },
-    session: {
-      ...baseEmbeddedSdkProfile.session,
-      ...(sessionOverride ?? {}),
-    },
-    policy: {
-      ...baseEmbeddedSdkProfile.policy,
-      ...(policyOverride ?? {}),
-    },
-  } as unknown as EmbeddedSdkExecutionProfile
 }
 
 describe('validateTerminalExecutionProfile', () => {
@@ -784,92 +712,6 @@ describe('validateBrokerExecutionProfile', () => {
     )
 
     expect(diagnosticCodes(diagnostics)).toContain('broker_exposure_policy_mismatch')
-  })
-})
-
-describe('validateEmbeddedSdkExecutionProfile', () => {
-  test('allows a valid openai pi-sdk nonInteractive embedded profile', () => {
-    expect(validateEmbeddedSdkExecutionProfile(embeddedSdkProfile())).toEqual([])
-  })
-
-  test('rejects embedded profiles that use headless instead of nonInteractive', () => {
-    const diagnostics = validateEmbeddedSdkExecutionProfile(
-      embeddedSdkProfile({ interactionMode: 'headless' })
-    )
-
-    expect(diagnosticCodes(diagnostics)).toContain('embedded_sdk_requires_non_interactive')
-  })
-
-  test('rejects pi-sdk profiles with a non-openai provider', () => {
-    const diagnostics = validateEmbeddedSdkExecutionProfile(
-      embeddedSdkProfile({
-        session: {
-          provider: 'anthropic',
-        },
-      })
-    )
-
-    expect(diagnosticCodes(diagnostics)).toContain('pi_sdk_requires_openai_provider')
-  })
-
-  test('rejects PATH in session.lockedEnv while allowing typed session.pathPrepend', () => {
-    const diagnostics = validateEmbeddedSdkExecutionProfile(
-      embeddedSdkProfile({
-        session: {
-          lockedEnv: {
-            ASP_HOME: '/tmp/asp-home',
-            PATH: '/tmp/asp-home/bin:/usr/bin',
-          },
-          pathPrepend: ['/tmp/asp-home/bin'],
-        },
-      })
-    )
-
-    expect(diagnosticCodes(diagnostics)).toContain('embedded_sdk_forbids_path_locked_env')
-  })
-
-  test('rejects broker/process/transport/terminal fields on embedded profiles', () => {
-    const diagnostics = validateEmbeddedSdkExecutionProfile(
-      embeddedSdkProfile({
-        brokerProtocol: 'harness-broker/0.2',
-        brokerDriver: 'codex-app-server',
-        process: {
-          command: 'pi',
-          args: [],
-          cwd: '/tmp',
-          lockedEnv: {},
-        },
-        transport: { kind: 'jsonrpc-stdio' },
-        terminal: { host: 'tmux' },
-      })
-    )
-
-    expect(diagnosticCodes(diagnostics)).toEqual(
-      expect.arrayContaining([
-        'embedded_sdk_forbids_broker_fields',
-        'embedded_sdk_forbids_process_fields',
-        'embedded_sdk_forbids_transport_fields',
-        'embedded_sdk_forbids_terminal_fields',
-      ])
-    )
-  })
-
-  test('rejects startup and turn-delivery values outside the SDK contract', () => {
-    const diagnostics = validateEmbeddedSdkExecutionProfile(
-      embeddedSdkProfile({
-        sdk: {
-          startupMethod: 'create-broker-invocation',
-          turnDelivery: 'broker-input',
-        },
-      })
-    )
-
-    expect(diagnosticCodes(diagnostics)).toEqual(
-      expect.arrayContaining([
-        'embedded_sdk_invalid_startup_method',
-        'embedded_sdk_invalid_turn_delivery',
-      ])
-    )
   })
 })
 

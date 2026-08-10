@@ -19,7 +19,7 @@ export type RuntimeContinuationRef = {
   schemaVersion: 'runtime-continuation/v1'
   hrc: HrcContinuationRef
   broker?: BrokerContinuationRef | undefined
-  source: 'embedded-sdk' | 'harness-broker' | 'legacy-exec' | 'terminal-hook'
+  source: 'harness-broker' | 'legacy-exec' | 'terminal-hook'
   sourceEvent?:
     | {
         invocationId?: InvocationId | undefined

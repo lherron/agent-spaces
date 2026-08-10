@@ -7,7 +7,7 @@ import type { CompatibilityHash, ProfileHash, ProfileId, SpecHash, StartRequestH
 import type { BrokerInputPolicy } from './input'
 import type { BrokerObservabilityContract } from './observability'
 import type { BrokerPermissionPolicy } from './permissions'
-import type { InteractionMode, ProviderDomain, RuntimeExecutionProfileKind } from './primitives'
+import type { InteractionMode, RuntimeExecutionProfileKind } from './primitives'
 import type { RuntimeResourceLimits } from './resources'
 
 export type {
@@ -19,7 +19,6 @@ export type {
 
 export type RuntimeExecutionProfile =
   | TerminalExecutionProfile
-  | EmbeddedSdkExecutionProfile
   | BrokerExecutionProfile
   | CommandExecutionProfile
   | LegacyExecutionProfile
@@ -70,34 +69,6 @@ export type TerminalExecutionProfile = RuntimeExecutionProfileBase & {
     exposurePolicy: AgentchatExposurePolicy
     resourceLimits?: RuntimeResourceLimits | undefined
   }
-}
-
-export type EmbeddedSdkExecutionProfile = RuntimeExecutionProfileBase & {
-  kind: 'embedded-sdk'
-  interactionMode: 'nonInteractive'
-  sdk: {
-    runtime: 'claude-agent-sdk' | 'pi-sdk'
-    startupMethod: 'create-sdk-session' | 'reuse-existing'
-    turnDelivery: 'sdk-turn' | 'sdk-inflight-input'
-  }
-  session: {
-    provider: ProviderDomain
-    modelId: string
-    cwd: string
-    lockedEnv: Record<string, string>
-    /**
-     * Ordered directories prepended to the FINAL composed PATH (platform
-     * delimiter, array order). Mirrored for parity: an SDK session consumes
-     * env the same way a launched harness process does. PATH stays out of
-     * lockedEnv. Part of launch shape — included in profile hash material.
-     */
-    pathPrepend?: string[] | undefined
-  }
-  policy: {
-    inputPolicy?: BrokerInputPolicy | undefined
-    resourceLimits?: RuntimeResourceLimits | undefined
-  }
-  continuation?: RuntimeContinuationRef | undefined
 }
 
 export type BrokerExecutionProfile = RuntimeExecutionProfileBase & {

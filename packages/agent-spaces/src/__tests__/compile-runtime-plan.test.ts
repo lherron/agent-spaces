@@ -301,7 +301,6 @@ function validateBrokerExecutionProfile(profile: BrokerExecutionProfile): Compil
 
 function rejectedWithoutPiSdkBrokerProfile(response: RuntimeCompileResponse): CompileDiagnostic[] {
   expect(response.ok).toBe(false)
-  expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
   expect(JSON.stringify(response)).not.toContain('"brokerDriver":"pi-sdk"')
   if (response.ok) {
     throw new Error('compileRuntimePlan returned a pi-sdk broker plan for an invalid route')
@@ -557,7 +556,6 @@ describe('compileRuntimePlan broker profile contract', () => {
         RuntimeContracts.neutralStartRequestHash(profile.harnessInvocation.startRequest)
       )
       expect(validateBrokerExecutionProfile(profile)).toEqual([])
-      expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
     }
   )
 
@@ -730,7 +728,7 @@ describe('compileRuntimePlan broker profile contract', () => {
     expect(piSdk.expectedCapabilities.control.attachReplay).toBe('optional')
   })
 
-  test('rejects pi-sdk headless requests instead of rewriting them to nonInteractive embedded-sdk', async () => {
+  test('rejects pi-sdk headless requests instead of rewriting them to nonInteractive', async () => {
     const response = await createClient().compileRuntimePlan(
       baseCompileRequest({
         requested: {
@@ -1304,7 +1302,7 @@ exit 0
     expect('plan' in response).toBe(false)
   })
 
-  test('does not emit claude-agent-sdk embedded profiles while implementation is deferred', async () => {
+  test('does not emit claude-agent-sdk profiles while implementation is deferred', async () => {
     const response = await createClient().compileRuntimePlan(
       baseCompileRequest({
         requested: {
@@ -1330,7 +1328,6 @@ exit 0
       })
     )
     expect(JSON.stringify(response)).not.toContain('"runtime":"claude-agent-sdk"')
-    expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
   })
 
   test('preserves a registry-qualified anthropic pi-sdk model alias', async () => {
@@ -1356,10 +1353,9 @@ exit 0
       'anthropic/claude-sonnet-4-5'
     )
     expect(profile.harnessInvocation.startRequest.spec.sdk?.authMode).toBe('api-key')
-    expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
   })
 
-  test('rejects pi-sdk interactive requests instead of routing them to embedded-sdk', async () => {
+  test('rejects pi-sdk interactive requests instead of routing them to a nonInteractive controller', async () => {
     const response = await createClient().compileRuntimePlan(
       baseCompileRequest({
         requested: {
@@ -1385,7 +1381,6 @@ exit 0
         plane: 'asp-compiler',
       })
     )
-    expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
   })
 
   test('legacy buildHarnessBrokerInvocation delegates to the same compiled broker start request', async () => {

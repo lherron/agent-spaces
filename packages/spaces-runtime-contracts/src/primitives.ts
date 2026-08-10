@@ -26,7 +26,6 @@ export type HarnessRuntime =
 export type InteractionMode = 'interactive' | 'headless' | 'nonInteractive'
 export type RuntimeControllerKind =
   | 'terminal'
-  | 'embedded-sdk'
   | 'harness-broker'
   | 'command-process'
   | 'legacy-exec'

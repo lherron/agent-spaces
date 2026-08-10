@@ -24,7 +24,6 @@ import {
   type CompiledAgentPolicy,
   type CompiledRuntimePlan,
   DEFAULT_CODEX_BROKER_INPUT_POLICY,
-  type EmbeddedSdkExecutionProfile,
   type HarnessFamily,
   type HarnessRuntime,
   type PiSdkModelCatalogEntry,
@@ -41,7 +40,6 @@ import {
   neutralStartRequestHash,
   project,
   validateBrokerExecutionProfile,
-  validateEmbeddedSdkExecutionProfile,
   validateTerminalExecutionProfile,
 } from 'spaces-runtime-contracts'
 
@@ -150,8 +148,8 @@ function toResolvedBundle(
 }
 
 /**
- * Inputs for the shared plan-assembly tail. The four plan builders
- * (broker / foreground / embedded-sdk / tmux-broker) all assemble an identical
+ * Inputs for the shared plan-assembly tail. The three plan builders
+ * (broker / foreground / tmux-broker) all assemble an identical
  * `planMaterial` envelope — differing ONLY in the per-route `harness` and `model`
  * objects and in their `executionProfiles` payload. Everything else (schema,
  * compiler stamp, identity, placement, resolvedBundle, artifacts, lockedEnv,
@@ -259,7 +257,7 @@ function assemblePlan(input: AssemblePlanInput): RuntimeCompileResponse {
 
 /**
  * Inputs for {@link finalizePlan} — the shared pre-assembly preamble that the
- * four plan builders (broker / foreground / embedded-sdk / tmux-broker) each
+ * three plan builders (broker / foreground / tmux-broker) each
  * re-copied: build the `prepare_runtime_warning` diagnostics, append the
  * disallowed-tools diagnostic, stamp `compileId` + `createdAt`, coerce the
  * resolved bundle + placement, then call {@link assemblePlan}.
@@ -655,7 +653,7 @@ function foregroundCapabilities(): CapabilityRequirements {
 }
 
 function lifecycleCapabilityBaseline(
-  route: 'broker' | 'embedded-sdk' | 'unmanaged'
+  route: 'broker' | 'unmanaged'
 ): CapabilityRequirements['lifecycle'] {
   if (route === 'broker') {
     return {
@@ -667,7 +665,7 @@ function lifecycleCapabilityBaseline(
     }
   }
   return {
-    runtimeRetention: route === 'unmanaged' ? ['unmanaged'] : [],
+    runtimeRetention: ['unmanaged'],
     harnessRecovery: ['none'],
     turnRetry: ['none'],
     generationFencing: 'forbidden',
@@ -982,9 +980,7 @@ export async function compileRuntimePlan(
       }
       return await compileForegroundPlan(req, placement, options)
     }
-    // nonInteractive + pi-sdk routes through the broker's in-process pi-sdk
-    // driver. The embedded-sdk compiler remains available for rollback/retirement
-    // sequencing but is no longer selected by runtime intent.
+    // nonInteractive + pi-sdk routes through the broker's in-process pi-sdk driver.
     if (req.requested.preferredHarnessRuntime === 'pi-sdk') {
       return await compilePiSdkBrokerPlan(req, placement, options)
     }
@@ -1259,7 +1255,7 @@ async function compilePiSdkBrokerPlan(
   }
 
   const provider = req.requested.modelProvider ?? 'openai'
-  const prepared = await prepareEmbeddedSdkSession(req, placement, options)
+  const prepared = await preparePiSdkSession(req, placement, options)
   const selectedModel = selectPiSdkModelCatalogEntry(provider, req.requested.model, prepared)
   if (selectedModel === undefined) {
     return {
@@ -1611,85 +1607,16 @@ async function compileForegroundPlan(
   })
 }
 
-/** Capability requirements for an in-process, nonInteractive embedded-sdk session. */
-function embeddedSdkCapabilities(): CapabilityRequirements {
-  return {
-    input: {
-      user: 'required',
-      steer: 'optional',
-      appendContext: 'optional',
-      localImages: 'optional',
-      fileRefs: 'optional',
-      queue: 'optional',
-    },
-    turns: {
-      concurrency: 'single',
-      interrupt: 'optional',
-    },
-    continuation: 'optional',
-    permissions: 'none',
-    events: {
-      assistantDeltas: 'optional',
-      toolCalls: 'optional',
-      usage: 'optional',
-      diagnostics: 'optional',
-    },
-    control: {
-      stop: 'optional',
-      dispose: 'optional',
-      reconcile: 'optional',
-      attachReplay: 'forbidden',
-    },
-    lifecycle: lifecycleCapabilityBaseline('embedded-sdk'),
-  }
-}
-
-function buildEmbeddedSdkCompatibilityMaterial(
-  req: RuntimeCompileRequest,
-  session: EmbeddedSdkExecutionProfile['session'],
-  sdk: EmbeddedSdkExecutionProfile['sdk'],
-  bundleIdentity: string,
-  lockHash: string | undefined
-): unknown {
-  return {
-    bundle: { bundleIdentity, ...(lockHash !== undefined ? { lockHash } : {}) },
-    model: {
-      provider: session.provider,
-      requestedModel: req.requested.model,
-      reasoningEffort: req.requested.reasoningEffort,
-      modelId: session.modelId,
-    },
-    sdk,
-    session: {
-      provider: session.provider,
-      modelId: session.modelId,
-      cwd: session.cwd,
-      lockedEnv: session.lockedEnv,
-      pathPrepend: session.pathPrepend,
-    },
-    continuation:
-      req.continuation !== undefined
-        ? {
-            hrc: {
-              provider: req.continuation.hrc.provider,
-              continuationId: req.continuation.hrc.continuationId,
-            },
-            source: req.continuation.source,
-          }
-        : undefined,
-  }
-}
-
 /**
- * Prepare the pi-sdk session launch shape (cwd/lockedEnv/pathPrepend/model) from
+ * Prepare the pi-sdk broker launch shape (cwd/lockedEnv/pathPrepend/model) from
  * the SAME preparePlacementCliRuntime path the foreground/broker branches use, so
- * the embedded session composes env exactly like a launched harness process. The
+ * the driver composes env exactly like a launched harness process. The
  * pi-sdk model catalog is namespaced (`openai-codex/<model>`); a bare requested
  * model (e.g. `gpt-5.5`) that the adapter does not recognize falls back to the
  * pi-sdk default rather than failing the compile — honoring an explicit pi-sdk
  * model id when one is given.
  */
-async function prepareEmbeddedSdkSession(
+async function preparePiSdkSession(
   req: RuntimeCompileRequest,
   placement: CompilePlacement,
   options?: CompileRuntimePlanOptions
@@ -1736,175 +1663,6 @@ async function prepareEmbeddedSdkSession(
     }
     throw error
   }
-}
-
-/**
- * Compile a nonInteractive pi-sdk request to an in-process EmbeddedSdkExecutionProfile
- * (controller 'embedded-sdk'), per ARCPS §7.3.2 / FINAL_CONTRACTS §7.8. The profile
- * carries NO broker/process/transport/terminal launch fields — the SDK session runs
- * in-process inside hrc-server. PATH is emitted as the typed session.pathPrepend
- * channel; session.lockedEnv never carries PATH. claude-agent-sdk is intentionally
- * NOT emitted (impl deferred); only pi-sdk reaches this branch.
- */
-// EXCEPTION(T-07183): retain the fallback compiler until the gated embedded-sdk retirement task
-// biome-ignore lint/correctness/noUnusedVariables: rollback surface remains intentionally unselected
-async function compileEmbeddedSdkPlan(
-  req: RuntimeCompileRequest,
-  placement: CompilePlacement,
-  options?: CompileRuntimePlanOptions
-): Promise<RuntimeCompileResponse> {
-  // ARCPS §7.3.2 legality gate: an embedded-sdk pi-sdk profile is legal ONLY for
-  // openai + harnessFamily pi + interactionMode nonInteractive EXACTLY. Reject
-  // headless, an omitted interactionMode, and a non-pi family rather than
-  // silently rewriting interactionMode to nonInteractive.
-  const legalityDiagnostics: CompileDiagnostic[] = []
-  if (req.requested.modelProvider !== undefined && req.requested.modelProvider !== 'openai') {
-    legalityDiagnostics.push(
-      compileError('unsupported_provider', 'pi-sdk embedded compile requires the openai provider', {
-        requested: req.requested.modelProvider,
-      })
-    )
-  }
-  if (req.requested.interactionMode === undefined) {
-    legalityDiagnostics.push(
-      compileError(
-        'unsupported_interaction_mode',
-        'pi-sdk embedded compile requires an explicit nonInteractive interactionMode',
-        { requested: null }
-      )
-    )
-  } else if (req.requested.interactionMode !== 'nonInteractive') {
-    legalityDiagnostics.push(
-      compileError(
-        'unsupported_interaction_mode',
-        'pi-sdk embedded compile requires interactionMode nonInteractive (not headless)',
-        { requested: req.requested.interactionMode }
-      )
-    )
-  }
-  if (req.requested.harnessFamily !== undefined && req.requested.harnessFamily !== 'pi') {
-    legalityDiagnostics.push(
-      compileError('unsupported_harness', 'pi-sdk embedded compile requires harnessFamily pi', {
-        requested: req.requested.harnessFamily,
-      })
-    )
-  }
-  if (legalityDiagnostics.length > 0) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: legalityDiagnostics,
-    }
-  }
-
-  const prepared = await prepareEmbeddedSdkSession(req, placement, options)
-
-  const lockedEnv = prepared.lockedEnv
-  const lockedEnvKeys = Object.keys(lockedEnv).sort()
-  const bundleIdentity = prepared.resolvedBundle?.bundleIdentity ?? 'unknown'
-  const lockHash = (prepared.resolvedBundle as { lockHash?: string | undefined } | undefined)
-    ?.lockHash
-  // Emit the registry-qualified effectiveModel (e.g. `openai-codex/gpt-5.5`), not
-  // the de-namespaced `info.model` — the pi model registry is keyed by the
-  // namespaced provider, so the in-process executor must be able to recover
-  // (registryProvider, registryModel) to drive PiSession to legacy parity. The
-  // coarse session.provider stays the ProviderDomain ('openai') for validation.
-  const modelId =
-    prepared.runtimePlan.model.ok === true
-      ? prepared.runtimePlan.model.info.effectiveModel
-      : (req.requested.model ?? 'unknown')
-
-  const sdk: EmbeddedSdkExecutionProfile['sdk'] = {
-    runtime: 'pi-sdk',
-    startupMethod: 'create-sdk-session',
-    turnDelivery: 'sdk-turn',
-  }
-  const session: EmbeddedSdkExecutionProfile['session'] = {
-    provider: 'openai',
-    modelId,
-    cwd: prepared.cwd,
-    lockedEnv,
-    ...(prepared.pathPrepend.length > 0 ? { pathPrepend: prepared.pathPrepend } : {}),
-  }
-
-  const compatibilityHash = hashValue(
-    buildEmbeddedSdkCompatibilityMaterial(req, session, sdk, bundleIdentity, lockHash)
-  )
-  const profileId = stableId('profile', {
-    kind: 'embedded-sdk',
-    runtime: sdk.runtime,
-    cwd: session.cwd,
-    modelId: session.modelId,
-  }) as ProfileId
-
-  const profileMaterial = {
-    schemaVersion: 'agent-runtime-profile/v1' as const,
-    profileId,
-    kind: 'embedded-sdk' as const,
-    interactionMode: 'nonInteractive' as const,
-    expectedCapabilities: embeddedSdkCapabilities(),
-    sdk,
-    session,
-    policy: {
-      inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
-      ...(req.hrcPolicy.resourceLimits !== undefined
-        ? { resourceLimits: req.hrcPolicy.resourceLimits }
-        : {}),
-    },
-    ...(req.continuation !== undefined ? { continuation: req.continuation } : {}),
-  }
-  const profileHash = projectionHash(
-    { ...profileMaterial, compatibilityHash },
-    'profile'
-  ).profileHash
-  const profile: EmbeddedSdkExecutionProfile = {
-    ...profileMaterial,
-    profileHash,
-    compatibilityHash,
-  }
-
-  const validationDiagnostics = validateEmbeddedSdkExecutionProfile(profile)
-  if (validationDiagnostics.length > 0) {
-    return {
-      schemaVersion: 'agent-runtime-compile-response/v1',
-      ok: false,
-      diagnostics: validationDiagnostics,
-    }
-  }
-
-  return finalizePlan({
-    req,
-    profileHash,
-    profileId,
-    preparedWarnings: prepared.warnings,
-    ...hygieneWarningsInput(prepared),
-    disallowedToolsContext: { selectedDriver: 'pi-sdk' },
-    resolvedBundleSource: prepared.resolvedBundle,
-    bundleIdentity,
-    placement,
-    agentPolicy: prepared.placementContext.agentPolicy,
-    harness: {
-      family: 'pi',
-      runtime: 'pi-sdk',
-      provider: 'openai',
-    },
-    model: {
-      provider: 'openai',
-      modelId,
-      ...(req.requested.model !== undefined ? { requestedModel: req.requested.model } : {}),
-      ...(req.requested.reasoningEffort !== undefined
-        ? { reasoningEffort: req.requested.reasoningEffort }
-        : {}),
-    },
-    executionProfiles: [profile],
-    materializedBundleRoot: prepared.materialized.materialization.outputPath,
-    ...(prepared.systemPrompt?.path !== undefined
-      ? { systemPromptFile: prepared.systemPrompt.path }
-      : {}),
-    ...(lockHash !== undefined ? { lockHash } : {}),
-    lockedEnvKeys,
-    nowIso: options?.compileContext?.nowIso,
-  })
 }
 
 /**

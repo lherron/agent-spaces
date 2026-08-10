@@ -46,12 +46,9 @@ function compileInteractionMode(
   harnessId?: string
 ): RunCompilerDebugContext['requested']['interactionMode'] {
   if (interactive !== false) return 'interactive'
-  // Embedded-SDK runtimes (pi-sdk, claude-agent-sdk) run their turns IN-PROCESS,
-  // so a `--no-interactive` run compiles to the nonInteractive interaction mode
-  // that routes to the embedded-sdk controller — NOT the headless broker mode
-  // used by the spawned codex app-server. Without this distinction the real
-  // `asp run` pi-sdk path would never reach the embedded branch. The set of
-  // embedded runtimes is exactly the catalog's `transport: 'sdk'` harnesses.
+  // SDK-shaped runtimes use nonInteractive interaction semantics. pi-sdk now
+  // reaches the broker's in-process driver; claude-agent-sdk retains its legacy
+  // SDK route. The catalog's `transport: 'sdk'` flag identifies both frontends.
   if (harnessId !== undefined && isHarnessId(harnessId)) {
     if (getHarnessCatalogEntry(harnessId).transport === 'sdk') return 'nonInteractive'
   }

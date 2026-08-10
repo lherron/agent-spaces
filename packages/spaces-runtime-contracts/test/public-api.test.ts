@@ -14,7 +14,6 @@ describe('transportAliasFor', () => {
     expected: LegacyTransportAlias
   }> = [
     { controllerKind: 'terminal', expected: 'tmux' },
-    { controllerKind: 'embedded-sdk', expected: 'sdk' },
     { controllerKind: 'harness-broker', brokerTerminalHost: 'tmux', expected: 'tmux' },
     { controllerKind: 'harness-broker', expected: 'headless' },
     { controllerKind: 'command-process', expected: 'headless' },
@@ -48,10 +47,6 @@ describe('legacyTransportAlias', () => {
 
   test('terminal controller maps to tmux', () => {
     expect(legacyTransportAlias(view({ kind: 'terminal', terminalHost: 'tmux' }))).toBe('tmux')
-  })
-
-  test('embedded-sdk controller maps to sdk', () => {
-    expect(legacyTransportAlias(view({ kind: 'embedded-sdk' }))).toBe('sdk')
   })
 
   test('harness-broker with tmux terminal maps to tmux', () => {

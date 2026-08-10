@@ -47,7 +47,6 @@ const originalBulletSignals = [
   'ASPC_FACADE_VERSION',
   'parseSessionHandle',
   'LintOptions.rules',
-  'execute-embedded-sdk',
   'inferTargetFromBundleRoot',
   'notification-method dispatch',
 ]

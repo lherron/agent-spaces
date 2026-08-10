@@ -44,7 +44,6 @@ export type RuntimeExecutionView = {
 
   controller:
     | { kind: 'terminal'; terminalHost: ControllerOwnedTerminalHost }
-    | { kind: 'embedded-sdk' }
     | {
         kind: 'harness-broker'
         brokerDriver: string
@@ -92,8 +91,6 @@ export function transportAliasFor(
   switch (controllerKind) {
     case 'terminal':
       return 'tmux'
-    case 'embedded-sdk':
-      return 'sdk'
     case 'harness-broker':
       return brokerTerminalHost === 'tmux' ? 'tmux' : 'headless'
     case 'command-process':

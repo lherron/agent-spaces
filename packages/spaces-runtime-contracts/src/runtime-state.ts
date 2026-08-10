@@ -32,7 +32,6 @@ import type {
 
 export type RuntimeState =
   | TerminalRuntimeState
-  | EmbeddedSdkRuntimeState
   | BrokerRuntimeState
   | CommandProcessRuntimeState
   | LegacyExecRuntimeState
@@ -56,16 +55,6 @@ export type TerminalRuntimeState = RuntimeStateBase & {
     sessionId?: string | undefined
     windowId?: string | undefined
     paneId?: string | undefined
-  }
-  capabilities: RuntimeCapabilities
-  continuation?: RuntimeContinuationRef | undefined
-}
-
-export type EmbeddedSdkRuntimeState = RuntimeStateBase & {
-  kind: 'embedded-sdk'
-  sdk: {
-    runtime: 'claude-agent-sdk' | 'pi-sdk'
-    sessionKey?: string | undefined
   }
   capabilities: RuntimeCapabilities
   continuation?: RuntimeContinuationRef | undefined
