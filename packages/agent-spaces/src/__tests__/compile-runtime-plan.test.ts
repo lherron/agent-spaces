@@ -464,12 +464,35 @@ describe('compileRuntimePlan broker profile contract', () => {
   })
 
   test.each([
-    ['bare OpenAI alias', 'openai', 'gpt-5.5', 'openai/gpt-5.5'],
-    ['legacy OAuth-only OpenAI alias', 'openai', 'openai-codex/gpt-5.5', 'openai/gpt-5.5'],
-    ['bare Anthropic alias', 'anthropic', 'claude-sonnet-4-5', 'anthropic/claude-sonnet-4-5'],
+    ['bare OpenAI alias', 'openai', 'gpt-5.5', 'openai', 'openai/gpt-5.5', 'api-key'],
+    ['OpenAI API-key alias', 'openai', 'openai/gpt-5.5', 'openai', 'openai/gpt-5.5', 'api-key'],
+    [
+      'OpenAI OAuth alias',
+      'openai',
+      'openai-codex/gpt-5.5',
+      'openai-codex',
+      'openai-codex/gpt-5.5',
+      'oauth',
+    ],
+    [
+      'bare Anthropic alias',
+      'anthropic',
+      'claude-sonnet-4-5',
+      'anthropic',
+      'anthropic/claude-sonnet-4-5',
+      'api-key',
+    ],
+    [
+      'Anthropic OAuth alias',
+      'anthropic',
+      'anthropic-max/claude-sonnet-4-5',
+      'anthropic',
+      'anthropic/claude-sonnet-4-5',
+      'oauth',
+    ],
   ] as const)(
     'compiles %s pi-sdk nonInteractive to a validator-legal broker profile',
-    async (_caseName, provider, model, expectedModelId) => {
+    async (_caseName, provider, model, expectedPiProvider, expectedPiModelId, authMode) => {
       const response = await createClient().compileRuntimePlan(
         baseCompileRequest({
           requested: {
@@ -517,12 +540,14 @@ describe('compileRuntimePlan broker profile contract', () => {
       )
       expect(spec.sdk).toEqual({
         runtime: 'pi-sdk',
-        provider,
-        modelId: expectedModelId,
+        provider: expectedPiProvider,
+        modelId: expectedPiModelId,
+        authMode,
         thinkingLevel: 'medium',
       })
-      expect(spec.sdk?.modelId).toStartWith(`${provider}/`)
-      expect(spec.sdk?.modelId).not.toStartWith('openai-codex/')
+      expect(response.ok && response.plan.model.modelId).toBe(
+        model.includes('/') ? model : `${provider}/${model}`
+      )
       expect(spec.driver).toEqual({ kind: 'pi-sdk' })
       expect(validateInvocationStartRequest(profile.harnessInvocation.startRequest)).toEqual(
         profile.harnessInvocation.startRequest
@@ -535,6 +560,30 @@ describe('compileRuntimePlan broker profile contract', () => {
       expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
     }
   )
+
+  test('rejects a pi-sdk alias outside the selected ASP provider route', async () => {
+    const response = await createClient().compileRuntimePlan(
+      baseCompileRequest({
+        requested: {
+          modelProvider: 'openai',
+          model: 'anthropic-max/claude-sonnet-4-5',
+          harnessFamily: 'pi',
+          preferredHarnessRuntime: 'pi-sdk',
+          interactionMode: 'nonInteractive',
+        },
+        materialization: {
+          ...baseCompileRequest().materialization,
+          attachments: [],
+        },
+        continuation: undefined,
+      })
+    )
+
+    expect(response.ok).toBe(false)
+    expect(response.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'unsupported_model', level: 'error' })
+    )
+  })
 
   test('compiles pi-cli interactive requests to the pi-tui-tmux broker profile', async () => {
     const response = await createClient().compileRuntimePlan(
@@ -1306,6 +1355,7 @@ exit 0
     expect(profile.harnessInvocation.startRequest.spec.sdk?.modelId).toBe(
       'anthropic/claude-sonnet-4-5'
     )
+    expect(profile.harnessInvocation.startRequest.spec.sdk?.authMode).toBe('api-key')
     expect(JSON.stringify(response)).not.toContain('"kind":"embedded-sdk"')
   })
 

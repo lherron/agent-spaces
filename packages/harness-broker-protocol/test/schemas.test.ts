@@ -146,6 +146,7 @@ const piSdkSpec = {
     runtime: 'pi-sdk',
     provider: 'anthropic',
     modelId: 'claude-sonnet-4-5',
+    authMode: 'api-key',
     thinkingLevel: 'medium',
   },
 }
@@ -474,6 +475,18 @@ describe('validateInvocationSpec', () => {
       'modelId',
       (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec.sdk, 'modelId'),
       { path: 'sdk.modelId', code: 'required' },
+    ],
+    [
+      'authMode',
+      (spec: typeof piSdkSpec) => Reflect.deleteProperty(spec.sdk, 'authMode'),
+      { path: 'sdk.authMode', code: 'required' },
+    ],
+    [
+      'authMode literal',
+      (spec: typeof piSdkSpec) => {
+        spec.sdk.authMode = 'ambient'
+      },
+      { path: 'sdk.authMode', code: 'invalid_literal' },
     ],
     [
       'thinkingLevel type',

@@ -8,6 +8,7 @@ const piSdk = {
   runtime: 'pi-sdk',
   provider: 'anthropic',
   modelId: 'claude-sonnet-4-5',
+  authMode: 'api-key',
   thinkingLevel: 'medium',
 } satisfies HarnessSdkSpec
 
@@ -44,5 +45,6 @@ const invalidSdkRuntime: HarnessSdkSpec = {
   runtime: 'other-sdk',
   provider: 'anthropic',
   modelId: 'model',
+  authMode: 'api-key',
 }
 void invalidSdkRuntime

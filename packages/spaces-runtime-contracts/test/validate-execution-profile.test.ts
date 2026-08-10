@@ -4,8 +4,12 @@ import {
   type BrokerExecutionProfile,
   type CompileDiagnostic,
   type EmbeddedSdkExecutionProfile,
+  PI_SDK_MODEL_CATALOG,
+  type PiSdkModelCatalogEntry,
   RUNTIME_ROUTE_CATALOG,
   type TerminalExecutionProfile,
+  defineRuntimeRouteCatalog,
+  findPiSdkModelCatalogEntry,
   validateTerminalExecutionProfile,
 } from '../src/index'
 
@@ -335,6 +339,7 @@ const basePiSdkBrokerProfile = brokerProfile({
           runtime: 'pi-sdk',
           provider: 'anthropic',
           modelId: 'anthropic/claude-sonnet-4-5',
+          authMode: 'api-key',
           thinkingLevel: 'medium',
         },
       },
@@ -536,6 +541,31 @@ describe('validateBrokerExecutionProfile', () => {
     )
 
     expect(diagnosticCodes(diagnostics)).toContain('pi_sdk_requires_sdk_block')
+  })
+
+  test('accepts both explicit pi-sdk auth modes', () => {
+    expect(validateBrokerExecutionProfile(piSdkBrokerProfile())).toEqual([])
+    expect(
+      validateBrokerExecutionProfile(
+        piSdkBrokerProfile({
+          harnessInvocation: {
+            startRequest: { spec: { sdk: { authMode: 'oauth' } } },
+          },
+        })
+      )
+    ).toEqual([])
+  })
+
+  test('rejects pi-sdk profiles without sdk.authMode', () => {
+    const diagnostics = validateBrokerExecutionProfile(
+      piSdkBrokerProfile({
+        harnessInvocation: {
+          startRequest: { spec: { sdk: { authMode: undefined } } },
+        },
+      })
+    )
+
+    expect(diagnosticCodes(diagnostics)).toContain('pi_sdk_requires_auth_mode')
   })
 
   test('rejects pi-sdk profiles with brokerTerminal or hookBridge', () => {
@@ -917,8 +947,66 @@ describe('runtime route selection', () => {
         driver: 'pi-sdk',
         processTransport: 'in-process',
       })
+      expect(selectedRoute?.piSdkModels?.length).toBeGreaterThan(0)
     }
     expect(selectedProviders.sort()).toEqual(['anthropic', 'openai'])
+  })
+
+  test('catalogs API-key and OAuth aliases explicitly for both credential universes', () => {
+    expect(PI_SDK_MODEL_CATALOG).toEqual(
+      expect.arrayContaining([
+        {
+          alias: 'openai/gpt-5.5',
+          piProvider: 'openai',
+          piModelId: 'openai/gpt-5.5',
+          authMode: 'api-key',
+        },
+        {
+          alias: 'openai-codex/gpt-5.5',
+          piProvider: 'openai-codex',
+          piModelId: 'openai-codex/gpt-5.5',
+          authMode: 'oauth',
+        },
+        {
+          alias: 'anthropic/claude-sonnet-4-5',
+          piProvider: 'anthropic',
+          piModelId: 'anthropic/claude-sonnet-4-5',
+          authMode: 'api-key',
+        },
+        {
+          alias: 'anthropic-max/claude-sonnet-4-5',
+          piProvider: 'anthropic',
+          piModelId: 'anthropic/claude-sonnet-4-5',
+          authMode: 'oauth',
+        },
+      ])
+    )
+    expect(findPiSdkModelCatalogEntry('anthropic', 'anthropic-max/claude-sonnet-4-5')).toEqual({
+      alias: 'anthropic-max/claude-sonnet-4-5',
+      piProvider: 'anthropic',
+      piModelId: 'anthropic/claude-sonnet-4-5',
+      authMode: 'oauth',
+    })
+  })
+
+  test('rejects duplicate pi-sdk aliases while building the route catalog', () => {
+    const piRoute = RUNTIME_ROUTE_CATALOG.find(
+      (route) => route.harnessRuntime === 'pi-sdk' && route.modelProvider === 'openai'
+    )
+    if (piRoute === undefined) throw new Error('missing openai pi-sdk route fixture')
+    const duplicate: PiSdkModelCatalogEntry = {
+      alias: 'openai/gpt-5.5',
+      piProvider: 'openai',
+      piModelId: 'openai/gpt-5.5',
+      authMode: 'api-key',
+    }
+
+    expect(() =>
+      defineRuntimeRouteCatalog([
+        { ...piRoute, piSdkModels: [duplicate] },
+        { ...piRoute, piSdkModels: [duplicate] },
+      ])
+    ).toThrow('Duplicate pi-sdk model alias in runtime route catalog: openai/gpt-5.5')
   })
 })
 

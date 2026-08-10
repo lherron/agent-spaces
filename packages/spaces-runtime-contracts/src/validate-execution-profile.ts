@@ -374,6 +374,14 @@ const PI_SDK_RULES: BrokerLegalityRule[] = [
         )
       : undefined,
   (profile, facts) =>
+    facts.isPiSdk && profile.harnessInvocation.startRequest.spec.sdk?.authMode === undefined
+      ? executionProfileDiagnostic(
+          profile,
+          'pi_sdk_requires_auth_mode',
+          'pi-sdk broker profiles must select an authMode in the hashed sdk block.'
+        )
+      : undefined,
+  (profile, facts) =>
     facts.isPiSdk && profile.brokerTerminal !== undefined
       ? executionProfileDiagnostic(
           profile,

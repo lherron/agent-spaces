@@ -1,4 +1,7 @@
-import type { InvocationLifecycleCapabilities } from 'spaces-harness-broker-protocol'
+import type {
+  HarnessSdkSpec,
+  InvocationLifecycleCapabilities,
+} from 'spaces-harness-broker-protocol'
 import type { TerminalHost } from './execution-profile'
 import type {
   HarnessFamily,
@@ -26,7 +29,83 @@ export type RuntimeRouteCatalogEntry = {
         processTransport: 'jsonrpc-stdio' | 'pty' | 'in-process'
       }
     | undefined
+  piSdkModels?: readonly PiSdkModelCatalogEntry[] | undefined
   removalGate?: string | undefined
+}
+
+export type PiSdkModelCatalogEntry = {
+  /** Registry-qualified selection identity carried by requested.model. */
+  alias: string
+  /** Provider identifier passed to pi's ModelRuntime. */
+  piProvider: string
+  /** Registry-qualified Pi model identifier passed to the driver. */
+  piModelId: string
+  /** Credential universe selected by this alias. Never inferred from provider capability. */
+  authMode: HarnessSdkSpec['authMode']
+}
+
+const OPENAI_PI_MODEL_IDS = [
+  'gpt-5.5',
+  'gpt-5.3-codex',
+  'gpt-5.3',
+  'gpt-5.2-codex',
+  'gpt-5.2',
+] as const
+
+const ANTHROPIC_PI_MODEL_IDS = ['claude-sonnet-4-5'] as const
+
+const OPENAI_PI_SDK_MODELS: readonly PiSdkModelCatalogEntry[] = OPENAI_PI_MODEL_IDS.flatMap(
+  (piModelId) => [
+    {
+      alias: `openai/${piModelId}`,
+      piProvider: 'openai',
+      piModelId: `openai/${piModelId}`,
+      authMode: 'api-key',
+    },
+    {
+      alias: `openai-codex/${piModelId}`,
+      piProvider: 'openai-codex',
+      piModelId: `openai-codex/${piModelId}`,
+      authMode: 'oauth',
+    },
+  ]
+)
+
+const ANTHROPIC_PI_SDK_MODELS: readonly PiSdkModelCatalogEntry[] = ANTHROPIC_PI_MODEL_IDS.flatMap(
+  (piModelId) => [
+    {
+      alias: `anthropic/${piModelId}`,
+      piProvider: 'anthropic',
+      piModelId: `anthropic/${piModelId}`,
+      authMode: 'api-key',
+    },
+    {
+      alias: `anthropic-max/${piModelId}`,
+      piProvider: 'anthropic',
+      piModelId: `anthropic/${piModelId}`,
+      authMode: 'oauth',
+    },
+  ]
+)
+
+/**
+ * Build the runtime route catalog and fail immediately when two pi-sdk rows
+ * claim the same selection alias. This keeps alias -> authMode resolution
+ * deterministic even when multiple aliases share a pi provider id.
+ */
+export function defineRuntimeRouteCatalog(
+  entries: readonly RuntimeRouteCatalogEntry[]
+): RuntimeRouteCatalogEntry[] {
+  const seenAliases = new Set<string>()
+  for (const route of entries) {
+    for (const model of route.piSdkModels ?? []) {
+      if (seenAliases.has(model.alias)) {
+        throw new Error(`Duplicate pi-sdk model alias in runtime route catalog: ${model.alias}`)
+      }
+      seenAliases.add(model.alias)
+    }
+  }
+  return [...entries]
 }
 
 const BROKER_LIFECYCLE_BASELINE: InvocationLifecycleCapabilities = {
@@ -53,7 +132,7 @@ const UNMANAGED_LIFECYCLE_BASELINE: InvocationLifecycleCapabilities = {
   permissionCancellation: false,
 }
 
-export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
+export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = defineRuntimeRouteCatalog([
   {
     controller: 'harness-broker',
     modelProvider: 'anthropic',
@@ -126,8 +205,13 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     turnDeliveries: ['sdk-turn', 'sdk-inflight-input'],
     lifecycle: EMBEDDED_SDK_LIFECYCLE_BASELINE,
   },
-  ...(['anthropic', 'openai'] as const).map(
-    (modelProvider): RuntimeRouteCatalogEntry => ({
+  ...(
+    [
+      ['anthropic', ANTHROPIC_PI_SDK_MODELS],
+      ['openai', OPENAI_PI_SDK_MODELS],
+    ] as const
+  ).map(
+    ([modelProvider, piSdkModels]): RuntimeRouteCatalogEntry => ({
       controller: 'harness-broker',
       modelProvider,
       harnessFamily: 'pi',
@@ -141,6 +225,7 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
         driver: 'pi-sdk',
         processTransport: 'in-process',
       },
+      piSdkModels,
     })
   ),
   {
@@ -185,4 +270,20 @@ export const RUNTIME_ROUTE_CATALOG: RuntimeRouteCatalogEntry[] = [
     lifecycle: UNMANAGED_LIFECYCLE_BASELINE,
     removalGate: 'delete-after-broker-codex-cutover',
   },
-]
+])
+
+export const PI_SDK_MODEL_CATALOG: readonly PiSdkModelCatalogEntry[] =
+  RUNTIME_ROUTE_CATALOG.flatMap((route) => route.piSdkModels ?? [])
+
+export function findPiSdkModelCatalogEntry(
+  modelProvider: ProviderDomain,
+  alias: string
+): PiSdkModelCatalogEntry | undefined {
+  return RUNTIME_ROUTE_CATALOG.find(
+    (route) =>
+      route.modelProvider === modelProvider &&
+      route.harnessFamily === 'pi' &&
+      route.harnessRuntime === 'pi-sdk' &&
+      route.interactionMode === 'nonInteractive'
+  )?.piSdkModels?.find((model) => model.alias === alias)
+}

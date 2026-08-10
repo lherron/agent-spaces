@@ -6,6 +6,7 @@ import {
   type HarnessId,
   getHarnessCatalogEntryByFrontend,
 } from 'spaces-config'
+import { PI_SDK_MODEL_CATALOG } from 'spaces-runtime-contracts'
 
 import type {
   AgentSpacesError,
@@ -20,18 +21,7 @@ export const CLAUDE_CODE_FRONTEND: HarnessFrontend = 'claude-code'
 export const CODEX_CLI_FRONTEND: HarnessFrontend = 'codex-cli'
 export const PI_CLI_FRONTEND: HarnessFrontend = 'pi-cli'
 
-const PI_SDK_MODELS = [
-  'openai-codex/gpt-5.5',
-  'openai-codex/gpt-5.3-codex',
-  'openai-codex/gpt-5.3',
-  'openai-codex/gpt-5.2-codex',
-  'openai-codex/gpt-5.2',
-  'api/gpt-5.5',
-  'api/gpt-5.3-codex',
-  'api/gpt-5.3',
-  'api/gpt-5.2-codex',
-  'api/gpt-5.2',
-]
+const PI_SDK_MODELS = PI_SDK_MODEL_CATALOG.map((model) => model.alias)
 
 const CODEX_CLI_MODELS = [
   'gpt-5.6-sol',

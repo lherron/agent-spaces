@@ -377,6 +377,7 @@ function validateSdkContract(
     optionalEnum(sdk['runtime'], ['pi-sdk'], joinPath(sdkPath, 'runtime'), issues, true)
     requireString(sdk['provider'], joinPath(sdkPath, 'provider'), issues)
     requireString(sdk['modelId'], joinPath(sdkPath, 'modelId'), issues)
+    optionalEnum(sdk['authMode'], ['api-key', 'oauth'], joinPath(sdkPath, 'authMode'), issues, true)
     optionalString(sdk['thinkingLevel'], joinPath(sdkPath, 'thinkingLevel'), issues)
   }
 

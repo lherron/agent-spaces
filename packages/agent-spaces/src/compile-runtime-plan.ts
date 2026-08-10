@@ -27,6 +27,7 @@ import {
   type EmbeddedSdkExecutionProfile,
   type HarnessFamily,
   type HarnessRuntime,
+  type PiSdkModelCatalogEntry,
   type ProfileId,
   type ProviderDomain,
   type RuntimeCompileRequest,
@@ -34,6 +35,7 @@ import {
   type RuntimeContractProjection,
   type TerminalExecutionProfile,
   createCanonicalHasher,
+  findPiSdkModelCatalogEntry,
   hashNeutralStartRequest,
   neutralSpecHash,
   neutralStartRequestHash,
@@ -1225,23 +1227,21 @@ function validatePiSdkBrokerRoute(req: RuntimeCompileRequest): CompileDiagnostic
   return diagnostics
 }
 
-function piSdkRegistryModelId(
+function selectPiSdkModelCatalogEntry(
   provider: ProviderDomain,
   requestedModel: string | undefined,
   prepared: PreparedPlacementCliRuntime
-): string {
-  const modelId =
+): { alias: string; model: PiSdkModelCatalogEntry } | undefined {
+  const selectedModel =
     requestedModel ??
     (provider === 'anthropic'
-      ? 'claude-sonnet-4-5'
+      ? 'anthropic/claude-sonnet-4-5'
       : prepared.runtimePlan.model.ok === true
         ? prepared.runtimePlan.model.info.effectiveModel
-        : 'gpt-5.5')
-  // The broker injects API keys through ModelRuntime; normalize away Pi's
-  // OAuth/subscription-only openai-codex namespace into the ASP provider.
-  const separator = modelId.indexOf('/')
-  const unqualifiedModelId = separator >= 0 ? modelId.slice(separator + 1) : modelId
-  return `${provider}/${unqualifiedModelId}`
+        : 'openai-codex/gpt-5.5')
+  const alias = selectedModel.includes('/') ? selectedModel : `${provider}/${selectedModel}`
+  const model = findPiSdkModelCatalogEntry(provider, alias)
+  return model === undefined ? undefined : { alias, model }
 }
 
 async function compilePiSdkBrokerPlan(
@@ -1260,7 +1260,21 @@ async function compilePiSdkBrokerPlan(
 
   const provider = req.requested.modelProvider ?? 'openai'
   const prepared = await prepareEmbeddedSdkSession(req, placement, options)
-  const modelId = piSdkRegistryModelId(provider, req.requested.model, prepared)
+  const selectedModel = selectPiSdkModelCatalogEntry(provider, req.requested.model, prepared)
+  if (selectedModel === undefined) {
+    return {
+      schemaVersion: 'agent-runtime-compile-response/v1',
+      ok: false,
+      diagnostics: [
+        compileError(
+          'unsupported_model',
+          `No pi-sdk model catalog row matches provider ${provider} and model ${req.requested.model ?? '(default)'}`,
+          { requested: req.requested.model ?? null }
+        ),
+      ],
+    }
+  }
+  const { alias: modelId, model: modelRoute } = selectedModel
   const permissionPolicy = req.hrcPolicy.permissionPolicy ?? {
     mode: 'deny',
     audit: true,
@@ -1279,8 +1293,9 @@ async function compilePiSdkBrokerPlan(
     harnessTransport: { kind: 'in-process' },
     sdk: {
       runtime: 'pi-sdk',
-      provider,
-      modelId,
+      provider: modelRoute.piProvider,
+      modelId: modelRoute.piModelId,
+      authMode: modelRoute.authMode,
       ...(req.requested.reasoningEffort !== undefined
         ? { thinkingLevel: req.requested.reasoningEffort }
         : {}),

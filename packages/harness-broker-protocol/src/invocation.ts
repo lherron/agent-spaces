@@ -280,6 +280,7 @@ export interface HarnessSdkSpec {
   runtime: 'pi-sdk'
   provider: string
   modelId: string
+  authMode: 'api-key' | 'oauth'
   thinkingLevel?: string | undefined
 }
 
