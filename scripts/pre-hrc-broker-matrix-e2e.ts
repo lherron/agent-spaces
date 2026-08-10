@@ -28,7 +28,7 @@ import { spawn } from 'node:child_process'
  *   (b) real-codex            codex-app-server headless, REAL `codex`
  *   (c) real-claude-tmux      claude-code-tmux interactive-tmux, REAL `claude`
  *   (d) claude-tmux-ghostmux  claude-code-tmux + REAL ghostmux operator-attach
- *   (e) real-pi-sdk-embedded  in-process pi-sdk embedded executor, REAL pi auth
+ *   (e) real-pi-sdk-driver    pi-sdk headless broker driver, REAL API-key auth
  *
  * Cross-harness floor on EVERY row (cody bar C-02759 item 2):
  *   - compile/select/verify start contract (hashes + route invariants),
@@ -83,7 +83,6 @@ import type {
   InvocationId,
   InvocationInput,
   PermissionRequestParams,
-  TurnId,
 } from 'spaces-harness-broker-protocol'
 import {
   BrokerErrorCode,
@@ -92,15 +91,12 @@ import {
 import type {
   BrokerExecutionProfile,
   BrokerPermissionPolicy,
-  EmbeddedSdkExecutionProfile,
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY, project } from 'spaces-runtime-contracts'
 
-import { executeEmbeddedSdkTurn } from '../packages/agent-spaces/src/execute-embedded-sdk.js'
 import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.js'
-import { piSessionPath } from '../packages/agent-spaces/src/runtime-env.js'
 import { AspcClient } from '../packages/aspc/src/index.js'
 
 import { createClaudeCodeTmuxDriver } from '../packages/harness-broker/src/drivers/claude-code-tmux/driver'
@@ -147,15 +143,13 @@ export const MATRIX_ROW_NAMES = [
   'real-claude-tmux',
   'real-claude-tmux-midturn',
   'claude-tmux-ghostmux',
-  'real-pi-sdk-embedded',
+  'real-pi-sdk-driver',
   'real-pi-tui-tmux',
   'pi-tui-tmux-ghostmux',
 ] as const
 export type RowName = (typeof MATRIX_ROW_NAMES)[number]
 
-export const BROKER_MANAGED_MATRIX_ROWS = MATRIX_ROW_NAMES.filter(
-  (name): name is Exclude<RowName, 'real-pi-sdk-embedded'> => name !== 'real-pi-sdk-embedded'
-)
+export const BROKER_MANAGED_MATRIX_ROWS = MATRIX_ROW_NAMES
 
 export const SPARKY_CODEX_MATRIX_ROWS = [
   'real-codex',
@@ -234,12 +228,6 @@ const STRUCTURED_OUTPUT_SCHEMA = {
 const STRUCTURED_OUTPUT_PROMPT =
   'Return ONLY a JSON object matching the provided schema. Do not use markdown fences, prose, or tool calls. ' +
   'Use status "ok" and copy this marker exactly into marker:'
-
-export const EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION = {
-  scenario: 'structured-output',
-  disposition: 'not-applicable',
-  reason: 'this one-turn in-process executor exposes no broker input/capability surface',
-} as const
 
 type CliArgs = {
   config?: RowName | undefined
@@ -492,6 +480,11 @@ function resolveRealPiBin(): string | undefined {
   return undefined
 }
 
+function resolveHarnessBrokerPiBin(): string | undefined {
+  const onPath = Bun.which('harness-broker-pi')
+  return onPath !== null && onPath.length > 0 && existsSync(onPath) ? onPath : undefined
+}
+
 // ---------------------------------------------------------------------------
 // Shared cross-harness floor
 // ---------------------------------------------------------------------------
@@ -645,23 +638,6 @@ export function structuredOutputEvidenceFailures(row: {
         message: `${row.name} did not record structured-output scenario evidence`,
       },
     ]
-  }
-
-  if (row.name === 'real-pi-sdk-embedded') {
-    const exactDisposition =
-      evidence['scenario'] === EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION.scenario &&
-      evidence['disposition'] === EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION.disposition &&
-      evidence['reason'] === EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION.reason &&
-      Object.keys(evidence).length === Object.keys(EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION).length
-    return exactDisposition
-      ? []
-      : [
-          {
-            code: 'structured_output_evidence_invalid',
-            message:
-              'real-pi-sdk-embedded did not record the exact not-applicable structured-output disposition',
-          },
-        ]
   }
 
   if (evidence['disposition'] === 'not-applicable') {
@@ -2153,13 +2129,13 @@ function allowPermissionPolicy(): BrokerPermissionPolicy {
 }
 
 // ---------------------------------------------------------------------------
-// Real pi-sdk embedded-sdk row (in-process executor; NOT the broker harness)
+// Shared Pi matrix helpers
 // ---------------------------------------------------------------------------
 
 // pi-sdk surfaces the marker via the Bash tool command + output (and the
 // assistant reply); reuse the harness-agnostic shared floor with all three
 // marker sources, like the claude rows.
-const EMBEDDED_MARKER_SOURCES: readonly SharedCommandTurnMarkerSource[] = [
+const PI_MARKER_SOURCES: readonly SharedCommandTurnMarkerSource[] = [
   'tool-output',
   'tool-command',
   'assistant',
@@ -2537,7 +2513,7 @@ async function runPiTuiTmuxRow(
       commandMarker,
       commandTurnId,
       ctx.allowLegacyPermissionEvent,
-      EMBEDDED_MARKER_SOURCES
+      PI_MARKER_SOURCES
     )
     result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
     for (const required of [
@@ -2579,7 +2555,7 @@ function createPiSdkFixture(): {
   aspHome: string
   cleanup: () => void
 } {
-  const base = mkdtempSync(join(tmpdir(), 'asp-matrix-pi-embedded-'))
+  const base = mkdtempSync(join(tmpdir(), 'asp-matrix-pi-driver-'))
   const agentRoot = join(base, 'agents', 'curly')
   const projectRoot = join(base, 'project')
   const aspHome = join(base, 'asp-home')
@@ -2603,7 +2579,7 @@ function createPiSdkFixture(): {
   }
 }
 
-function embeddedCompileRequest(input: {
+function piSdkBrokerCompileRequest(input: {
   agentRoot: string
   projectRoot: string
   hostSessionId: string
@@ -2644,7 +2620,7 @@ function embeddedCompileRequest(input: {
     } as RuntimeCompileRequest['placement'],
     requested: {
       modelProvider: 'openai',
-      model: 'openai-codex/gpt-5.5',
+      model: 'openai/gpt-5.5',
       reasoningEffort: 'low',
       harnessFamily: 'pi',
       preferredHarnessRuntime: 'pi-sdk',
@@ -2657,7 +2633,7 @@ function embeddedCompileRequest(input: {
         phase: 'matrix',
         role: 'smoke',
         requiredEvidenceKinds: ['contract-artifacts'],
-        hintsText: 'pre-HRC matrix pi-sdk embedded row',
+        hintsText: 'pre-HRC matrix pi-sdk broker-driver row',
       },
     },
     hrcPolicy: {
@@ -2674,98 +2650,110 @@ function embeddedCompileRequest(input: {
   } as RuntimeCompileRequest
 }
 
-/** Embedded-specific extras: profile shape + producedContent + continuation. */
-function assertEmbeddedExtras(
-  profile: EmbeddedSdkExecutionProfile,
-  result: Awaited<ReturnType<typeof executeEmbeddedSdkTurn>>,
-  commandTurnId: string | undefined,
-  events: InvocationEventEnvelope[]
-): Failure[] {
+function assertPiSdkBrokerProfile(profile: BrokerExecutionProfile): Failure[] {
   const failures: Failure[] = []
-  const fields = profile as unknown as Record<string, unknown>
-  if (profile.kind !== 'embedded-sdk')
+  const spec = profile.harnessInvocation.startRequest.spec
+  if (profile.brokerDriver !== 'pi-sdk') {
     failures.push({
-      code: 'pi_profile_kind',
-      message: `expected embedded-sdk, got ${profile.kind}`,
+      code: 'pi_profile_driver',
+      message: `expected pi-sdk broker driver, got ${profile.brokerDriver}`,
     })
-  if (profile.interactionMode !== 'nonInteractive')
+  }
+  if (profile.interactionMode !== 'nonInteractive') {
     failures.push({
       code: 'pi_profile_mode',
       message: `expected nonInteractive, got ${profile.interactionMode}`,
     })
-  if (profile.sdk?.runtime !== 'pi-sdk')
-    failures.push({
-      code: 'pi_profile_runtime',
-      message: `expected pi-sdk, got ${String(profile.sdk?.runtime)}`,
-    })
-  if (profile.session?.provider !== 'openai')
-    failures.push({
-      code: 'pi_profile_provider',
-      message: `expected openai, got ${String(profile.session?.provider)}`,
-    })
-  for (const forbidden of [
-    'brokerProtocol',
-    'brokerDriver',
-    'brokerTerminal',
-    'process',
-    'transport',
-    'terminal',
-  ] as const) {
-    if (forbidden in fields)
-      failures.push({
-        code: 'pi_profile_forbidden_field',
-        message: `embedded profile must not declare ${forbidden}`,
-      })
   }
-  const commandTurnCompleted = events.find(
-    (e) => e.type === 'turn.completed' && e.turnId === commandTurnId
-  )
-  const producedContent = (commandTurnCompleted?.payload as { producedContent?: boolean })
-    ?.producedContent
-  if (producedContent !== true)
+  if (profile.brokerProtocol !== 'harness-broker/0.2') {
     failures.push({
-      code: 'pi_command_turn_no_content',
-      message: `command turn producedContent !== true (${String(producedContent)})`,
+      code: 'pi_profile_protocol',
+      message: `expected harness-broker/0.2, got ${profile.brokerProtocol}`,
     })
-  const continuation = events.find((e) => e.type === 'continuation.updated')
-  const cpayload = continuation?.payload as { kind?: string; key?: string } | undefined
-  if (continuation === undefined)
+  }
+  if (spec.driver.kind !== 'pi-sdk') {
     failures.push({
-      code: 'pi_continuation_missing',
-      message: 'no continuation.updated event emitted',
+      code: 'pi_spec_driver',
+      message: `expected spec.driver.kind pi-sdk, got ${spec.driver.kind}`,
     })
-  else if (cpayload?.kind !== 'session')
+  }
+  if (spec.process.harnessTransport.kind !== 'in-process') {
     failures.push({
-      code: 'pi_continuation_kind',
-      message: `continuation kind !== session (${String(cpayload?.kind)})`,
+      code: 'pi_spec_transport',
+      message: `expected in-process transport, got ${spec.process.harnessTransport.kind}`,
     })
-  if (typeof result.sessionKey !== 'string' || result.sessionKey.length === 0)
+  }
+  if (spec.sdk?.runtime !== 'pi-sdk') {
     failures.push({
-      code: 'pi_session_key_missing',
-      message: 'result.sessionKey is empty on the real path',
+      code: 'pi_spec_runtime',
+      message: `expected spec.sdk.runtime pi-sdk, got ${String(spec.sdk?.runtime)}`,
     })
+  }
+  if (spec.sdk?.authMode !== 'api-key') {
+    failures.push({
+      code: 'pi_spec_auth_mode',
+      message: `expected API-key certification row, got authMode ${String(spec.sdk?.authMode)}`,
+    })
+  }
+  if (spec.process.command !== 'in-process' || spec.process.args.length !== 0) {
+    failures.push({
+      code: 'pi_spec_process',
+      message: `expected in-process sentinel with no args, got ${spec.process.command} ${spec.process.args.join(' ')}`,
+    })
+  }
   return failures
 }
 
-async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
-  // Folds the SHARED narration scenario (NARRATION_PROMPT, T-01700) into the single
-  // command-turn prompt: the printf marker stays verbatim so the shared floor holds,
-  // and the narration drives the intermediate-message contract on this turn. The
-  // pi-sdk surfaces a complete message as final:true too early (no held-latest), so
-  // assertIntermediateMessages goes RED with intermediate_messages_missing — the
-  // intended T-01708 worklist signal.
-  const prompt = [
-    'Run the Bash command first:',
-    `printf '${ctx.marker}\\n'`,
-    'Tell me something interesting about this directory, then run pwd.',
-    'I want a short notification message in between each tool exec.',
-    `Then reply with exactly ${ctx.marker} and nothing else.`,
-  ].join('\n')
+function assertExactlyOneTerminalTurn(
+  events: InvocationEventEnvelope[],
+  turnId: string | undefined,
+  scenario: string
+): Failure[] {
+  if (turnId === undefined) {
+    return [{ code: 'pi_turn_id_missing', message: `${scenario} returned no turnId` }]
+  }
+  const terminals = events.filter(
+    (event) =>
+      event.turnId === turnId &&
+      (event.type === 'turn.completed' ||
+        event.type === 'turn.failed' ||
+        event.type === 'turn.interrupted')
+  )
+  if (terminals.length !== 1 || terminals[0]?.type !== 'turn.completed') {
+    return [
+      {
+        code: 'pi_terminal_turn_count',
+        message: `${scenario} must emit exactly one turn.completed terminal, got ${terminals.map((event) => event.type).join(', ') || '(none)'}`,
+      },
+    ]
+  }
+  return []
+}
+
+function assertPiSdkContinuation(events: InvocationEventEnvelope[]): Failure[] {
+  const continuation = events.find((event) => event.type === 'continuation.updated')
+  const payload = asRecord(continuation?.payload)
+  if (continuation === undefined) {
+    return [{ code: 'pi_continuation_missing', message: 'no continuation.updated event emitted' }]
+  }
+  if (payload?.['kind'] !== 'session' || typeof payload['key'] !== 'string') {
+    return [
+      {
+        code: 'pi_continuation_invalid',
+        message: `continuation.updated did not carry a session key: ${JSON.stringify(payload)}`,
+      },
+    ]
+  }
+  return []
+}
+
+async function runPiSdkDriverRow(ctx: RowContext): Promise<RowResult> {
+  const commandPrompt = `Run the Bash command: printf '${ctx.marker}' — then reply with exactly ${ctx.marker} and nothing else.`
   const result: RowResult = {
-    name: 'real-pi-sdk-embedded',
+    name: 'real-pi-sdk-driver',
     status: 'FAIL',
     marker: ctx.marker,
-    prompt,
+    prompt: commandPrompt,
     observedTurnIds: [],
     compile: {},
     floorFailures: [],
@@ -2775,15 +2763,18 @@ async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
   }
   const fx = createPiSdkFixture()
   const hostSessionId = `host_pi_${ctx.marker}`
+  let client: BrokerClient | undefined
+  let eventCollector: Promise<void> | undefined
+  const events: InvocationEventEnvelope[] = []
   try {
     const response = await compileRuntimePlanForMatrix(
       ctx,
       fx.aspHome,
-      embeddedCompileRequest({
+      piSdkBrokerCompileRequest({
         agentRoot: fx.agentRoot,
         projectRoot: fx.projectRoot,
         hostSessionId,
-        prompt,
+        prompt: commandPrompt,
         marker: ctx.marker,
         timeoutMs: ctx.turnTimeoutMs,
       })
@@ -2795,68 +2786,151 @@ async function runEmbeddedPiSdkRow(ctx: RowContext): Promise<RowResult> {
       })
       return result
     }
-    const profile = response.plan.executionProfiles[0] as EmbeddedSdkExecutionProfile
-    const bundleRoot = response.plan.artifacts.materializedBundleRoot as string
+
+    const profiles = response.plan.executionProfiles.filter(
+      (profile): profile is BrokerExecutionProfile =>
+        profile.kind === 'harness-broker' && profile.brokerDriver === 'pi-sdk'
+    )
+    if (profiles.length !== 1) {
+      result.contractFailures.push({
+        code: 'pi_profile_count',
+        message: `expected exactly one pi-sdk broker profile, got ${profiles.length}`,
+      })
+      return result
+    }
+    const profile = profiles[0] as BrokerExecutionProfile
     result.compile = {
       compileId: response.plan.compileId,
       planHash: response.plan.planHash,
       selectedProfileHash: profile.profileHash,
+      startRequestHash: profile.harnessInvocation.startRequestHash,
     }
-    // pi-sdk continuation IS the SessionManager session-file path; the CALLER
-    // derives it via the legacy piSessionPath shape and passes it explicitly.
-    const sessionPath = piSessionPath(fx.aspHome, hostSessionId)
-    mkdirSync(sessionPath, { recursive: true })
+    result.contractFailures.push(...assertPiSdkBrokerProfile(profile))
+    const verification = verifyBrokerStartContract(profile)
+    result.contractFailures.push(...verification.failures.map(toFailure))
+    if (!verification.ok || verification.startRequest === undefined) return result
 
-    const events: InvocationEventEnvelope[] = []
-    const turnResult = await executeEmbeddedSdkTurn({
-      profile,
-      prompt,
-      invocationId: `inv_pi_${ctx.marker}` as InvocationId,
-      inputId: `input_pi_${ctx.marker}` as InputId,
-      turnId: `turn_pi_${ctx.marker}` as TurnId,
-      runId: `run_pi_${ctx.marker}`,
-      bundleRoot,
-      sessionPath,
-      dispatchEnv: { AGENT_HOST_SESSION_ID: hostSessionId },
-      onEvent: (event) => events.push(event),
+    const brokerBin = resolveHarnessBrokerPiBin()
+    if (brokerBin === undefined) throw new Error('harness-broker-pi disappeared after probe')
+    client = await BrokerClient.start({
+      command: brokerBin,
+      args: ['run', '--transport', 'stdio'],
+      cwd: ctx.repoRoot,
     })
-
-    const commandTurnId = deriveCommandTurnId(events)
-    result.commandTurnId = commandTurnId
-    result.observedTurnIds = observedTurnIds(events)
-    result.notes['eventCount'] = events.length
-    result.notes['finalOutput'] = turnResult.finalOutput ?? null
-    result.notes['sessionKey'] = turnResult.sessionKey ?? null
-    result.notes['producedContent'] = turnResult.producedContent
-
-    if (!turnResult.success) {
+    const hello = await client.hello({
+      clientInfo: { name: 'pre-hrc-matrix-pi-sdk', version: '0.1.0' },
+      protocolVersions: ['harness-broker/0.2'],
+      capabilities: { permissionRequests: true },
+    })
+    const advertised = hello.drivers.find((driver) => driver.kind === 'pi-sdk')
+    if (advertised?.available !== true) {
       result.contractFailures.push({
-        code: 'pi_turn_failed',
-        message: `executeEmbeddedSdkTurn failed: ${JSON.stringify(turnResult.error)}`,
+        code: 'pi_driver_unavailable',
+        message: `harness-broker-pi did not advertise an available pi-sdk driver: ${JSON.stringify(advertised)}`,
+      })
+      return result
+    }
+    client.onPermissionRequest(async () => ({ decision: 'allow' }))
+
+    const started = await client.startInvocationFromRequest(verification.startRequest)
+    eventCollector = (async () => {
+      for await (const event of started.events) events.push(event)
+    })()
+    if (!supportsStructuredFinalResponse(started.response.capabilities)) {
+      result.contractFailures.push({
+        code: 'structured_capability_missing',
+        message: 'pi-sdk did not advertise finalResponse.jsonSchema + perTurn',
+      })
+    }
+    if (!(await waitForAdditionalTerminalTurn(events, 0, ctx.turnTimeoutMs))) {
+      result.contractFailures.push({
+        code: 'pi_command_turn_timeout',
+        message: 'pi-sdk command turn did not reach a terminal event',
+      })
+      return result
+    }
+    const commandTurnId =
+      findTurnWithToolCommandMarker(events, ctx.marker) ?? deriveCommandTurnId(events)
+    result.commandTurnId = commandTurnId
+
+    const narrationBaseline = terminalTurnCount(events)
+    const narrationResponse = await client.input({
+      invocationId: started.invocationId as InvocationId,
+      input: unixUserInput(NARRATION_PROMPT, `input_pi_narration_${ctx.marker}`),
+      policy: { whenBusy: 'reject' },
+    })
+    const narrationObserved = await waitForAdditionalTerminalTurn(
+      events,
+      narrationBaseline,
+      ctx.turnTimeoutMs
+    )
+    const narrationTurnId =
+      narrationResponse.turnId ?? turnIdFromEventsAfter(events, narrationBaseline)
+    if (!narrationObserved) {
+      result.extraFailures.push({
+        code: 'pi_narration_turn_timeout',
+        message: 'pi-sdk narration turn did not reach a terminal event',
       })
     }
 
+    const structuredMarker = `STRUCT_${ctx.marker}_PI_SDK`
+    const structuredBaseline = terminalTurnCount(events)
+    const structuredResponse = await client.input({
+      invocationId: started.invocationId as InvocationId,
+      input: structuredUserInput(structuredMarker, `input_pi_structured_${ctx.marker}`),
+      policy: { whenBusy: 'reject' },
+    })
+    const structuredObserved = await waitForAdditionalTerminalTurn(
+      events,
+      structuredBaseline,
+      ctx.turnTimeoutMs
+    )
+    const structuredTurnId =
+      structuredResponse.turnId ?? turnIdFromEventsAfter(events, structuredBaseline)
+    if (!structuredObserved) {
+      result.extraFailures.push({
+        code: 'pi_structured_turn_timeout',
+        message: 'pi-sdk structured-output turn did not reach a terminal event',
+      })
+    }
+
+    result.observedTurnIds = observedTurnIds(events)
+    result.notes['eventCount'] = events.length
+    result.notes['brokerBinary'] = brokerBin
+    result.notes['narrationTurnIds'] = narrationTurnId === undefined ? [] : [narrationTurnId]
+    result.notes['structuredOutput'] = {
+      scenario: 'structured-output',
+      declaresJsonSchema: supportsStructuredFinalResponse(started.response.capabilities),
+      structuredTurnId: structuredTurnId ?? null,
+    }
     result.floorFailures = runSharedFloor(
       events,
       ctx.marker,
       commandTurnId,
       ctx.allowLegacyPermissionEvent,
-      EMBEDDED_MARKER_SOURCES
+      PI_MARKER_SOURCES
     )
     result.notes['markerSatisfiedBy'] = markerSatisfiedBy(
       events,
       commandTurnId,
       ctx.marker,
-      EMBEDDED_MARKER_SOURCES
+      PI_MARKER_SOURCES
     )
-    result.extraFailures.push(...assertEmbeddedExtras(profile, turnResult, commandTurnId, events))
-    // Uniform intermediate-message contract, scoped to the single command turn.
-    const narrationTurnIds = commandTurnId !== undefined ? [commandTurnId] : []
-    result.notes['narrationTurnIds'] = narrationTurnIds
-    result.extraFailures.push(...assertIntermediateMessages(events, narrationTurnIds))
-
-    result.notes['structuredOutput'] = EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION
+    result.extraFailures.push(
+      ...assertExactlyOneTerminalTurn(events, commandTurnId, 'command turn'),
+      ...assertExactlyOneTerminalTurn(events, narrationTurnId, 'narration turn'),
+      ...assertExactlyOneTerminalTurn(events, structuredTurnId, 'structured-output turn'),
+      ...assertIntermediateMessages(events, narrationTurnId === undefined ? [] : [narrationTurnId]),
+      ...assertStructuredValidTurn(events, structuredTurnId, structuredMarker),
+      ...assertPiSdkContinuation(events)
+    )
   } finally {
+    if (client !== undefined) {
+      const invocationId = `inv_pi_${ctx.marker}` as InvocationId
+      await client.dispose({ invocationId }).catch(() => undefined)
+      await client.close().catch(() => undefined)
+    }
+    await eventCollector?.catch(() => undefined)
     if (!ctx.keepArtifacts) fx.cleanup()
   }
 
@@ -4443,16 +4517,19 @@ const HARNESS_CONFIGS: HarnessConfig[] = [
     },
   },
   {
-    name: 'real-pi-sdk-embedded',
-    description: 'pi-sdk embedded-sdk in-process executor against the REAL pi-sdk path',
+    name: 'real-pi-sdk-driver',
+    description: 'pi-sdk headless broker driver through the installed harness-broker-pi binary',
     probe: async () => {
-      const authPath = join(process.env['HOME'] ?? '', '.pi', 'agent', 'auth.json')
-      if (!existsSync(authPath)) {
-        return { available: false, reason: `pi auth (${authPath}) not present` }
+      const broker = resolveHarnessBrokerPiBin()
+      if (broker === undefined) {
+        return { available: false, reason: 'harness-broker-pi binary not found on PATH' }
       }
-      return { available: true, reason: `pi auth at ${authPath}` }
+      if (process.env['OPENAI_API_KEY'] === undefined) {
+        return { available: false, reason: 'OPENAI_API_KEY is not present for the pi SDK driver' }
+      }
+      return { available: true, reason: `installed broker at ${broker}; OPENAI_API_KEY present` }
     },
-    run: async (ctx) => runEmbeddedPiSdkRow(ctx),
+    run: async (ctx) => runPiSdkDriverRow(ctx),
   },
   {
     name: 'real-pi-tui-tmux',

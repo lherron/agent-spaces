@@ -32,7 +32,9 @@ bun run smoke:matrix --config claude-tmux-ghostmux  # real claude + ghostmux ope
 
 Rows: (a) fake-codex (codex-app-server headless against an in-repo fixture), (b)
 real-codex (real `codex`), (c) real-claude-tmux (claude-code-tmux interactive
-against real `claude`), (d) claude-tmux-ghostmux (real ghostmux operator-attach).
+against real `claude`), (d) claude-tmux-ghostmux (real ghostmux operator-attach),
+and (e) real-pi-sdk-driver (the installed `harness-broker-pi` binary against the
+real Pi SDK API-key path).
 Codex.app app-server shim experiment (T-04237) is off by default; enable by quitting Codex.app and copying `scripts/codex-app-bundle-wrapper` to `/Applications/Codex.app/Contents/Resources/codex` while `/Applications/Codex.app/Contents/Resources/codex.real` is the real binary.
 Cross-harness floor on every row: compile/select/verify start-contract (hashes +
 route invariants) + ledger integrity (monotonic seq / no dup / normalized vocab
@@ -43,9 +45,8 @@ row. Rows whose advertised capabilities include `finalResponse.jsonSchema` and
 and emit exactly one normalized JSON `assistant.message.completed{final:true}`
 plus one `turn.completed`; rows that do not advertise that capability must reject
 the input as `UnsupportedCapability: finalResponse.jsonSchema` before
-`input.accepted`. The `real-pi-sdk-embedded` row is the explicit exception: its
-one-turn in-process executor exposes no broker input/capability surface, so it
-records a machine-visible `not-applicable` disposition instead.
+`input.accepted`. No row has a `not-applicable` exemption; the Pi SDK driver row
+must produce a real structured-output PASS through the broker capability surface.
 Operator contract — `claude-code-tmux` structured output is WARM-ONLY (T-05156).
 The driver synthesizes enforcement on the in-flight turn (`applyInputNow` appends
 the schema directive; the Stop-hook validates/retries), so the schema only has a

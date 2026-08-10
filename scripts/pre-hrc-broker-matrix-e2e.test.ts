@@ -8,7 +8,6 @@ import type { BrokerExecutionProfile, RuntimeCompileResponse } from 'spaces-runt
 import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.js'
 import {
   BROKER_MANAGED_MATRIX_ROWS,
-  EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION,
   MATRIX_ROW_NAMES,
   SPARKY_CODEX_MATRIX_ROWS,
   createSparkyCodexMatrixCompileRequest,
@@ -139,18 +138,8 @@ echo "codex shim"
     ).rejects.toThrow('Model not supported for frontend codex-cli: openai-codex/gpt-5.5')
   })
 
-  test('embedded row records the explicit structured-output disposition', () => {
-    expect(EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION).toEqual({
-      scenario: 'structured-output',
-      disposition: 'not-applicable',
-      reason: 'this one-turn in-process executor exposes no broker input/capability surface',
-    })
-  })
-
   test('every broker-managed row fails closed when structured-output evidence is omitted', () => {
-    expect(new Set([...BROKER_MANAGED_MATRIX_ROWS, 'real-pi-sdk-embedded'])).toEqual(
-      new Set(MATRIX_ROW_NAMES)
-    )
+    expect(new Set(BROKER_MANAGED_MATRIX_ROWS)).toEqual(new Set(MATRIX_ROW_NAMES))
 
     for (const name of BROKER_MANAGED_MATRIX_ROWS) {
       expect(structuredOutputEvidenceFailures({ name, notes: {} })).toEqual([
@@ -173,28 +162,24 @@ echo "codex shim"
     }
   })
 
-  test('embedded is the only row allowed to record structured-output as not applicable', () => {
+  test('the pi-sdk driver row rejects structured-output as not applicable', () => {
+    const disposition = {
+      scenario: 'structured-output',
+      disposition: 'not-applicable',
+      reason: 'broker input/capability surface must produce a real structured result',
+    }
     expect(
       structuredOutputEvidenceFailures({
-        name: 'real-pi-sdk-embedded',
+        name: 'real-pi-sdk-driver',
         notes: {
-          structuredOutput: EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION,
-        },
-      })
-    ).toEqual([])
-
-    expect(
-      structuredOutputEvidenceFailures({
-        name: 'unix-jsonrpc-ndjson',
-        notes: {
-          structuredOutput: EMBEDDED_STRUCTURED_OUTPUT_DISPOSITION,
+          structuredOutput: disposition,
         },
       })
     ).toEqual([
       {
         code: 'structured_output_evidence_invalid',
         message:
-          'unix-jsonrpc-ndjson recorded structured-output as not applicable despite using the broker input/capability surface',
+          'real-pi-sdk-driver recorded structured-output as not applicable despite using the broker input/capability surface',
       },
     ])
   })
