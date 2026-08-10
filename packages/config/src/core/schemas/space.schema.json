@@ -105,6 +105,11 @@
         "model": {
           "type": "string",
           "description": "Override the default Claude model"
+        },
+        "cleanupPeriodDays": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Number of days Claude retains session transcripts"
         }
       }
     },
