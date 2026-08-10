@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentSessionEvent, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { DriverContext } from 'spaces-harness-broker'
 import type {
@@ -9,6 +12,7 @@ import type {
 import {
   type PiSdkSession,
   type PiSdkSessionFactoryInput,
+  applyPiSdkAuthentication,
   createPiSdkDriver,
   resolvePiSdkModelReference,
 } from '../src/driver'
@@ -139,6 +143,210 @@ describe('pi SDK model resolution', () => {
   })
 })
 
+describe('pi SDK authentication modes', () => {
+  test('api-key mode keeps the fresh store path and emits its resolved attestation', async () => {
+    const events: CapturedEvent[] = []
+    let factoryInput: PiSdkSessionFactoryInput | undefined
+    const driver = createPiSdkDriver({
+      async createSession(input) {
+        factoryInput = input
+        return idleSession()
+      },
+    })
+
+    await driver.start(spec('api-key'), createContext(events))
+
+    expect(requireFactoryInput(factoryInput).auth).toMatchObject({
+      authMode: 'api-key',
+      providerId: 'openai',
+      credentialType: 'api-key',
+      storeBound: false,
+    })
+    expect(requireFactoryInput(factoryInput).auth.authPath).toContain(
+      'harness-broker-pi-sdk/invocation-driver-test/auth.json'
+    )
+    expect(authNotice(events)).toMatchObject({
+      kind: 'auth-resolved',
+      providerId: 'openai',
+      credentialType: 'api-key',
+      storeBound: false,
+    })
+  })
+
+  test('oauth mode binds an OAuth-typed store, starves credential env, and attests before input', async () => {
+    const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-oauth-test-'))
+    const authPath = join(temporaryDir, 'auth.json')
+    await writeFile(
+      authPath,
+      JSON.stringify({
+        'openai-codex': {
+          type: 'oauth',
+          access: 'test-access',
+          refresh: 'test-refresh',
+          expires: Date.now() + 3_600_000,
+        },
+      })
+    )
+    const priorKey = process.env.OPENAI_API_KEY
+    process.env.OPENAI_API_KEY = 'must-not-reach-oauth'
+
+    try {
+      const events: CapturedEvent[] = []
+      let factoryInput: PiSdkSessionFactoryInput | undefined
+      const driver = createPiSdkDriver({
+        schedule() {},
+        async createSession(input) {
+          factoryInput = input
+          return idleSession()
+        },
+      })
+      const oauthSpec = spec('oauth', 'openai-codex', 'openai-codex/gpt-5.5')
+      await driver.start(oauthSpec, createContext(events, { HARNESS_PI_AUTH_STORE: authPath }))
+
+      expect(requireFactoryInput(factoryInput).auth).toEqual({
+        authMode: 'oauth',
+        authPath,
+        providerId: 'openai-codex',
+        credentialType: 'oauth',
+        storeBound: true,
+      })
+      expect(requireFactoryInput(factoryInput).environment.OPENAI_API_KEY).toBeUndefined()
+      expect(authNotice(events)).toMatchObject({
+        kind: 'auth-resolved',
+        providerId: 'openai-codex',
+        credentialType: 'oauth',
+        storeBound: true,
+      })
+
+      await driver.applyInputNow(userInput())
+      events.push({ type: 'turn.started', payload: { turnId: 'synthetic' } } as CapturedEvent)
+      expect(events.findIndex((event) => event.type === 'driver.notice')).toBeLessThan(
+        events.findIndex((event) => event.type === 'turn.started')
+      )
+    } finally {
+      if (priorKey === undefined) process.env.OPENAI_API_KEY = undefined
+      else process.env.OPENAI_API_KEY = priorKey
+      await rm(temporaryDir, { recursive: true, force: true })
+    }
+  })
+
+  test('oauth mode fails missing or unreadable stores before session construction', async () => {
+    const events: CapturedEvent[] = []
+    let factoryCalled = false
+    const driver = createPiSdkDriver({
+      async createSession() {
+        factoryCalled = true
+        return idleSession()
+      },
+    })
+
+    await expect(driver.start(spec('oauth'), createContext(events))).rejects.toThrow(
+      'HARNESS_PI_AUTH_STORE'
+    )
+    expect(factoryCalled).toBe(false)
+    expect(failure(events)).toMatchObject({ code: 'missing_auth_store' })
+  })
+
+  test('oauth mode classifies a malformed store as unreadable', async () => {
+    const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-malformed-test-'))
+    const authPath = join(temporaryDir, 'auth.json')
+    await writeFile(authPath, '{not-json')
+    try {
+      const events: CapturedEvent[] = []
+      let factoryCalled = false
+      const driver = createPiSdkDriver({
+        async createSession() {
+          factoryCalled = true
+          return idleSession()
+        },
+      })
+
+      await expect(
+        driver.start(spec('oauth'), createContext(events, { HARNESS_PI_AUTH_STORE: authPath }))
+      ).rejects.toThrow('missing or unreadable')
+      expect(factoryCalled).toBe(false)
+      expect(failure(events)).toMatchObject({ code: 'missing_auth_store' })
+    } finally {
+      await rm(temporaryDir, { recursive: true, force: true })
+    }
+  })
+
+  test('oauth mode rejects an api_key-typed provider entry', async () => {
+    const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-mismatch-test-'))
+    const authPath = join(temporaryDir, 'auth.json')
+    await writeFile(authPath, JSON.stringify({ openai: { type: 'api_key', key: 'test-key' } }))
+    try {
+      const events: CapturedEvent[] = []
+      let factoryCalled = false
+      const driver = createPiSdkDriver({
+        async createSession() {
+          factoryCalled = true
+          return idleSession()
+        },
+      })
+
+      await expect(
+        driver.start(spec('oauth'), createContext(events, { HARNESS_PI_AUTH_STORE: authPath }))
+      ).rejects.toThrow('not OAuth-typed')
+      expect(factoryCalled).toBe(false)
+      expect(failure(events)).toMatchObject({ code: 'auth_mode_mismatch' })
+    } finally {
+      await rm(temporaryDir, { recursive: true, force: true })
+    }
+  })
+
+  test('oauth mode rejects an absent provider entry', async () => {
+    const temporaryDir = await mkdtemp(join(tmpdir(), 'pi-sdk-auth-absent-test-'))
+    const authPath = join(temporaryDir, 'auth.json')
+    await writeFile(authPath, JSON.stringify({ anthropic: { type: 'api_key', key: 'unused' } }))
+    try {
+      const events: CapturedEvent[] = []
+      const driver = createPiSdkDriver({ createSession: async () => idleSession() })
+
+      await expect(
+        driver.start(spec('oauth'), createContext(events, { HARNESS_PI_AUTH_STORE: authPath }))
+      ).rejects.toThrow('not OAuth-typed')
+      expect(failure(events)).toMatchObject({ code: 'auth_mode_mismatch' })
+    } finally {
+      await rm(temporaryDir, { recursive: true, force: true })
+    }
+  })
+
+  test('oauth authentication never applies a runtime API key', async () => {
+    const calls: Array<[string, string]> = []
+    const runtime = {
+      async setRuntimeApiKey(providerId: string, key: string) {
+        calls.push([providerId, key])
+      },
+    }
+    await applyPiSdkAuthentication(
+      runtime,
+      {
+        authMode: 'oauth',
+        authPath: '/managed/auth.json',
+        providerId: 'anthropic',
+        credentialType: 'oauth',
+        storeBound: true,
+      },
+      { ANTHROPIC_API_KEY: 'must-not-apply' }
+    )
+    expect(calls).toEqual([])
+
+    await applyPiSdkAuthentication(
+      runtime,
+      {
+        authMode: 'api-key',
+        authPath: '/fresh/auth.json',
+        providerId: 'anthropic',
+        credentialType: 'api-key',
+        storeBound: false,
+      },
+      { ANTHROPIC_API_KEY: 'expected-key' }
+    )
+    expect(calls).toEqual([['anthropic', 'expected-key']])
+  })
+})
+
 async function executeTool(tool: ToolDefinition, params: unknown): Promise<unknown> {
   return tool.execute('structured', params, undefined, undefined, {} as never)
 }
@@ -170,13 +378,17 @@ function structuredInput(): InvocationInput {
   }
 }
 
-function spec(): HarnessInvocationSpec {
+function spec(
+  authMode: 'api-key' | 'oauth' = 'api-key',
+  provider = 'openai',
+  modelId = 'gpt-4.1-nano'
+): HarnessInvocationSpec {
   return {
     specVersion: 'harness-broker.invocation/v1',
     invocationId: 'invocation-driver-test',
     harness: { frontend: 'pi', provider: 'openai', driver: 'pi-sdk' },
     driver: { kind: 'pi-sdk', permissionPolicy: { mode: 'deny' } },
-    sdk: { runtime: 'pi-sdk', provider: 'openai', modelId: 'gpt-4.1-nano' },
+    sdk: { runtime: 'pi-sdk', provider, modelId, authMode },
     process: {
       command: 'in-process',
       args: [],
@@ -186,7 +398,10 @@ function spec(): HarnessInvocationSpec {
   }
 }
 
-function createContext(events: CapturedEvent[]): DriverContext {
+function createContext(
+  events: CapturedEvent[],
+  dispatchEnv?: Record<string, string>
+): DriverContext {
   const emit = ((type: string, payload: unknown) => {
     const event = { type, payload } as CapturedEvent
     events.push(event)
@@ -195,11 +410,52 @@ function createContext(events: CapturedEvent[]): DriverContext {
   return {
     invocationId: 'invocation-driver-test',
     clientCapabilities: {},
+    ...(dispatchEnv !== undefined ? { dispatchEnv } : {}),
     emit,
     emitEvent: (() => {
       throw new Error('unused')
     }) as DriverContext['emitEvent'],
   } as DriverContext
+}
+
+function idleSession(): PiSdkSession {
+  return {
+    sessionFile: '/tmp/pi-driver-auth-test.jsonl',
+    isStreaming: false,
+    agent: { state: { tools: [{ name: 'bash', parameters: {} }] } },
+    subscribe() {
+      return () => undefined
+    },
+    async prompt() {},
+    async steer() {},
+    async abort() {},
+    async waitForIdle() {},
+    getActiveToolNames() {
+      return this.agent.state.tools.map((tool) => tool.name)
+    },
+    setActiveToolsByName() {},
+    dispose() {},
+  }
+}
+
+function authNotice(events: CapturedEvent[]): Record<string, unknown> | undefined {
+  return events.find((event) => event.type === 'driver.notice')?.payload as
+    | Record<string, unknown>
+    | undefined
+}
+
+function failure(events: CapturedEvent[]): Record<string, unknown> | undefined {
+  return events.find((event) => event.type === 'invocation.failed')?.payload as
+    | Record<string, unknown>
+    | undefined
+}
+
+function userInput(): InvocationInput {
+  return {
+    inputId: 'input-auth-test',
+    kind: 'user',
+    content: [{ type: 'text', text: 'hello' }],
+  }
 }
 
 function piEvent(event: Record<string, unknown>): AgentSessionEvent {

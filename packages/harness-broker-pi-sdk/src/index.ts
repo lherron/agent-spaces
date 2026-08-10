@@ -1,10 +1,12 @@
 export { runBrokerCli } from 'spaces-harness-broker'
 export {
   PI_SDK_DRIVER_KIND,
+  applyPiSdkAuthentication,
   composePiSdkEnvironment,
   createPiSdkDriver,
 } from './driver'
 export type {
+  PiSdkAuthResolution,
   PiSdkDriverOptions,
   PiSdkSession,
   PiSdkSessionFactoryInput,

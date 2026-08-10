@@ -13,6 +13,7 @@ import {
   createAgentSession,
   createBashToolDefinition,
   defineTool,
+  readStoredCredential,
 } from '@earendil-works/pi-coding-agent'
 import {
   type ApplyInputResult,
@@ -104,8 +105,17 @@ export interface PiSdkSession {
 export interface PiSdkSessionFactoryInput {
   spec: HarnessInvocationSpec
   environment: NodeJS.ProcessEnv
+  auth: PiSdkAuthResolution
   permissionExtension: ExtensionFactory
   structuredTool: ToolDefinition
+}
+
+export interface PiSdkAuthResolution {
+  authMode: 'api-key' | 'oauth'
+  authPath: string
+  providerId: string
+  credentialType: 'api-key' | 'oauth'
+  storeBound: boolean
 }
 
 export interface PiSdkDriverOptions {
@@ -247,10 +257,24 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
       disposed = false
       exited = false
 
+      let auth: PiSdkAuthResolution
+      try {
+        auth = await resolvePiSdkAuth(nextSpec, driverCtx)
+      } catch (error) {
+        if (error instanceof PiSdkAuthError) {
+          driverCtx.emit(
+            'invocation.failed',
+            { message: error.message, code: error.code },
+            { driver: { kind: PI_SDK_DRIVER_KIND } }
+          )
+        }
+        throw error
+      }
+
       const environment = composePiSdkEnvironment(nextSpec, driverCtx)
       mapper = new PiSdkTurnEventMapper({
         ctx: driverCtx,
-        provider: nextSpec.sdk?.provider ?? nextSpec.harness.provider ?? 'unknown',
+        provider: auth.providerId,
         sessionFile: () => session?.sessionFile,
       })
       const permissionPolicy = readPermissionPolicy(nextSpec)
@@ -267,6 +291,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
       session = await createSession({
         spec: nextSpec,
         environment,
+        auth,
         permissionExtension,
         structuredTool,
       })
@@ -274,6 +299,17 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
       session.setActiveToolsByName(
         session.getActiveToolNames().filter((name) => name !== STRUCTURED_TOOL_NAME)
       )
+      const authNotice = {
+        message: `Resolved pi SDK authentication for ${auth.providerId}`,
+        code: 'auth-resolved',
+        kind: 'auth-resolved',
+        providerId: auth.providerId,
+        credentialType: auth.credentialType,
+        storeBound: auth.storeBound,
+      }
+      driverCtx.emit('driver.notice', authNotice, {
+        driver: { kind: PI_SDK_DRIVER_KIND },
+      })
       driverCtx.emit(
         'invocation.ready',
         { state: 'ready' },
@@ -366,8 +402,10 @@ export function composePiSdkEnvironment(
   ctx: Pick<DriverContext, 'dispatchEnv'>
 ): NodeJS.ProcessEnv {
   const credentials: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && isCredentialEnvKey(key)) credentials[key] = value
+  if (spec.sdk?.authMode === 'api-key') {
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined && isCredentialEnvKey(key)) credentials[key] = value
+    }
   }
   return buildProcessEnv({
     credentials,
@@ -377,27 +415,92 @@ export function composePiSdkEnvironment(
   })
 }
 
+class PiSdkAuthError extends Error {
+  constructor(
+    readonly code: 'missing_auth_store' | 'auth_mode_mismatch',
+    message: string
+  ) {
+    super(message)
+    this.name = 'PiSdkAuthError'
+  }
+}
+
+async function resolvePiSdkAuth(
+  spec: HarnessInvocationSpec,
+  ctx: Pick<DriverContext, 'dispatchEnv'>
+): Promise<PiSdkAuthResolution> {
+  const sdk = spec.sdk
+  if (sdk === undefined) throw new Error('pi-sdk invocation requires spec.sdk')
+
+  const providerId = sdk.provider
+  if (sdk.authMode === 'api-key') {
+    return {
+      authMode: 'api-key',
+      authPath: join(piSdkAgentDir(spec), 'auth.json'),
+      providerId,
+      credentialType: 'api-key',
+      storeBound: false,
+    }
+  }
+
+  const authPath = ctx.dispatchEnv?.['HARNESS_PI_AUTH_STORE']
+  if (authPath === undefined || authPath.trim().length === 0) {
+    throw new PiSdkAuthError(
+      'missing_auth_store',
+      'OAuth mode requires dispatchEnv.HARNESS_PI_AUTH_STORE'
+    )
+  }
+
+  try {
+    const encoded = await readFile(authPath, 'utf8')
+    JSON.parse(encoded)
+  } catch {
+    throw new PiSdkAuthError(
+      'missing_auth_store',
+      `OAuth auth store is missing or unreadable: ${authPath}`
+    )
+  }
+
+  const credential = readStoredCredential(providerId, authPath)
+  if (credential?.type !== 'oauth') {
+    throw new PiSdkAuthError(
+      'auth_mode_mismatch',
+      `OAuth auth store credential for provider ${providerId} is not OAuth-typed`
+    )
+  }
+
+  return {
+    authMode: 'oauth',
+    authPath,
+    providerId,
+    credentialType: credential.type,
+    storeBound: true,
+  }
+}
+
+function piSdkAgentDir(spec: HarnessInvocationSpec): string {
+  return join(tmpdir(), 'harness-broker-pi-sdk', String(spec.invocationId ?? 'session'))
+}
+
 async function createDefaultPiSdkSession(input: PiSdkSessionFactoryInput): Promise<PiSdkSession> {
   const sdk = input.spec.sdk
   if (sdk === undefined) throw new Error('pi-sdk invocation requires spec.sdk')
 
-  const agentDir = join(
-    tmpdir(),
-    'harness-broker-pi-sdk',
-    String(input.spec.invocationId ?? 'session')
-  )
+  const agentDir = piSdkAgentDir(input.spec)
   await mkdir(agentDir, { recursive: true })
   const modelRuntime = await ModelRuntime.create({
-    authPath: join(agentDir, 'auth.json'),
+    authPath: input.auth.authPath,
     modelsPath: join(agentDir, 'models.json'),
     refreshOnCreate: false,
     allowModelNetwork: false,
   })
   const modelReference = resolvePiSdkModelReference(modelRuntime, sdk.provider, sdk.modelId)
-  const credential = providerCredential(modelReference.providerId, input.environment)
-  if (credential !== undefined) {
-    await modelRuntime.setRuntimeApiKey(modelReference.providerId, credential)
+  if (modelReference.providerId !== input.auth.providerId) {
+    throw new Error(
+      `Resolved pi SDK provider ${modelReference.providerId} does not match authenticated provider ${input.auth.providerId}`
+    )
   }
+  await applyPiSdkAuthentication(modelRuntime, input.auth, input.environment)
   const model = modelRuntime.getModel(modelReference.providerId, modelReference.modelId)
   if (model === undefined) {
     throw new Error(`Unknown pi SDK model: ${modelReference.providerId}/${modelReference.modelId}`)
@@ -453,6 +556,22 @@ async function createDefaultPiSdkSession(input: PiSdkSessionFactoryInput): Promi
   return created.session as PiSdkSession
 }
 
+interface PiSdkApiKeyRuntime {
+  setRuntimeApiKey(providerId: string, apiKey: string): Promise<void>
+}
+
+export async function applyPiSdkAuthentication(
+  modelRuntime: PiSdkApiKeyRuntime,
+  auth: PiSdkAuthResolution,
+  environment: NodeJS.ProcessEnv
+): Promise<void> {
+  if (auth.authMode === 'oauth') return
+  const credential = providerCredential(auth.providerId, environment)
+  if (credential !== undefined) {
+    await modelRuntime.setRuntimeApiKey(auth.providerId, credential)
+  }
+}
+
 function configureStructuredTool(
   session: PiSdkSession,
   schema: Record<string, unknown> | undefined
@@ -477,6 +596,9 @@ function assertPiSdkSpec(spec: HarnessInvocationSpec): void {
   }
   if (spec.sdk?.runtime !== 'pi-sdk') {
     throw new Error('pi-sdk driver requires spec.sdk.runtime=pi-sdk')
+  }
+  if (spec.sdk.authMode !== 'api-key' && spec.sdk.authMode !== 'oauth') {
+    throw new Error('pi-sdk driver requires spec.sdk.authMode=api-key|oauth')
   }
 }
 

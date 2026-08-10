@@ -26,12 +26,36 @@ test('environment composition does not mutate broker process.env', () => {
   }
 })
 
-function spec(): HarnessInvocationSpec {
+test('oauth environment composition starves credential variables', () => {
+  const priorOpenAiKey = process.env.OPENAI_API_KEY
+  const priorAnthropicToken = process.env.ANTHROPIC_AUTH_TOKEN
+  process.env.OPENAI_API_KEY = 'openai-secret'
+  process.env.ANTHROPIC_AUTH_TOKEN = 'anthropic-secret'
+  const before = { ...process.env }
+  try {
+    const env = composePiSdkEnvironment(spec('oauth'), {
+      dispatchEnv: Object.freeze({
+        HARNESS_PI_AUTH_STORE: '/managed/auth.json',
+      }) as DriverContext['dispatchEnv'],
+    })
+    expect(env.OPENAI_API_KEY).toBeUndefined()
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+    expect(env.HARNESS_PI_AUTH_STORE).toBe('/managed/auth.json')
+    expect(process.env).toEqual(before)
+  } finally {
+    if (priorOpenAiKey === undefined) process.env.OPENAI_API_KEY = undefined
+    else process.env.OPENAI_API_KEY = priorOpenAiKey
+    if (priorAnthropicToken === undefined) process.env.ANTHROPIC_AUTH_TOKEN = undefined
+    else process.env.ANTHROPIC_AUTH_TOKEN = priorAnthropicToken
+  }
+})
+
+function spec(authMode: 'api-key' | 'oauth' = 'api-key'): HarnessInvocationSpec {
   return {
     specVersion: 'harness-broker.invocation/v1',
     harness: { frontend: 'pi', provider: 'openai', driver: 'pi-sdk' },
     driver: { kind: 'pi-sdk', permissionPolicy: { mode: 'deny' } },
-    sdk: { runtime: 'pi-sdk', provider: 'openai', modelId: 'gpt-4.1-nano' },
+    sdk: { runtime: 'pi-sdk', provider: 'openai', modelId: 'gpt-4.1-nano', authMode },
     process: {
       command: 'in-process',
       args: [],
