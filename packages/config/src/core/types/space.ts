@@ -56,6 +56,8 @@ export interface SpaceSettings {
   env?: Record<string, string> | undefined
   /** Override the default Claude model */
   model?: string | undefined
+  /** Number of days Claude retains session transcripts */
+  cleanupPeriodDays?: number | undefined
 }
 
 /** Multi-harness support configuration */

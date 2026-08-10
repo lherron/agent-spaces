@@ -152,6 +152,19 @@ spaces = ["space:dep-a@stable", "space:dep-b@^1.0.0"]
       expect(result.deps?.spaces).toContain('space:dep-b@^1.0.0')
     })
 
+    test('parses cleanupPeriodDays from Claude settings', () => {
+      const toml = `
+schema = 1
+id = "my-space"
+
+[settings]
+cleanupPeriodDays = 36500
+`
+      const result = parseSpaceToml(toml)
+
+      expect(result.settings?.cleanupPeriodDays).toBe(36500)
+    })
+
     test('parses manifest with codex config', () => {
       const toml = `
 schema = 1

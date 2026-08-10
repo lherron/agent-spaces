@@ -26,6 +26,8 @@ export interface ComposedSettings {
   env?: Record<string, string> | undefined
   /** Model override */
   model?: string | undefined
+  /** Number of days Claude retains session transcripts */
+  cleanupPeriodDays?: number | undefined
   /** Status line configuration */
   statusLine?:
     | {
@@ -65,6 +67,7 @@ export interface SettingsInput {
  * - permissions.deny: arrays are concatenated (all deny rules apply)
  * - env: later values override earlier ones for the same key
  * - model: last defined model wins
+ * - cleanupPeriodDays: last defined value wins
  */
 export function composeSettings(inputs: SettingsInput[]): ComposedSettings {
   const composed: ComposedSettings = {}
@@ -105,6 +108,11 @@ export function composeSettings(inputs: SettingsInput[]): ComposedSettings {
     if (settings.model) {
       composed.model = settings.model
     }
+
+    // Last cleanup period wins
+    if (settings.cleanupPeriodDays !== undefined) {
+      composed.cleanupPeriodDays = settings.cleanupPeriodDays
+    }
   }
 
   return composed
@@ -117,9 +125,10 @@ export function isEmptySettings(settings: ComposedSettings): boolean {
   const hasPermissions = settings.permissions?.allow?.length || settings.permissions?.deny?.length
   const hasEnv = settings.env && Object.keys(settings.env).length > 0
   const hasModel = !!settings.model
+  const hasCleanupPeriodDays = settings.cleanupPeriodDays !== undefined
   const hasStatusLine = !!settings.statusLine
 
-  return !hasPermissions && !hasEnv && !hasModel && !hasStatusLine
+  return !hasPermissions && !hasEnv && !hasModel && !hasCleanupPeriodDays && !hasStatusLine
 }
 
 /**
