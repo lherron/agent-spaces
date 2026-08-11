@@ -321,9 +321,15 @@ function buildBrokerInitialText(
   }
 
   const expansionContext = buildPromptExpansionContext(prepared.placement)
+  // A continuation already owns its established conversation context. Profile
+  // priming is a fresh-session default only; replaying it on resume would turn
+  // it into a new user message. An explicit caller prompt still passes through
+  // below so continuation-bearing headless starts can submit their intended turn.
   const defaultPrompt =
-    prepared.runtimePlan.defaultRunOptions.prompt ??
-    prepared.placementContext.materialization.effectiveConfig?.priming_prompt
+    req.continuation === undefined
+      ? (prepared.runtimePlan.defaultRunOptions.prompt ??
+        prepared.placementContext.materialization.effectiveConfig?.priming_prompt)
+      : undefined
   const primingPrompt =
     defaultPrompt !== undefined ? expandTemplate(defaultPrompt, expansionContext) : undefined
   const callerPrompt =

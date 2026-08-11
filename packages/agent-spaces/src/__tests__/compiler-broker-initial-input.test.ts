@@ -100,7 +100,8 @@ type Fixture = ReturnType<typeof createFixture>
 function compileRequest(
   fixture: Fixture,
   materialization: Partial<RuntimeCompileRequest['materialization']> = {},
-  identityOverrides: Partial<RuntimeCompileRequest['identity']> = {}
+  identityOverrides: Partial<RuntimeCompileRequest['identity']> = {},
+  continuation: RuntimeCompileRequest['continuation'] = undefined
 ): RuntimeCompileRequest {
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
@@ -141,6 +142,7 @@ function compileRequest(
       inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
       exposurePolicy: { mode: 'none' },
     },
+    ...(continuation !== undefined ? { continuation } : {}),
     correlation: {
       requestId: 'request_T01610',
       hostSessionId: 'hostSession_T01610',
@@ -166,13 +168,16 @@ function brokerProfile(response: RuntimeCompileResponse): BrokerExecutionProfile
 async function compile(
   fixture: Fixture,
   materialization: Partial<RuntimeCompileRequest['materialization']> = {},
-  identityOverrides: Partial<RuntimeCompileRequest['identity']> = {}
+  identityOverrides: Partial<RuntimeCompileRequest['identity']> = {},
+  continuation: RuntimeCompileRequest['continuation'] = undefined
 ): Promise<BrokerExecutionProfile> {
   process.env['ASP_CODEX_PATH'] = join(fixture.aspHome, 'codex')
   process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = '1'
   const client = createAgentSpacesClient({ aspHome: fixture.aspHome }) as CompileClient
   return brokerProfile(
-    await client.compileRuntimePlan(compileRequest(fixture, materialization, identityOverrides))
+    await client.compileRuntimePlan(
+      compileRequest(fixture, materialization, identityOverrides, continuation)
+    )
   )
 }
 
@@ -190,6 +195,23 @@ const jsonResponseFormat = (schema: Record<string, unknown>) =>
     kind: 'json_schema',
     schema,
   }) as unknown
+
+const continuation: NonNullable<RuntimeCompileRequest['continuation']> = {
+  schemaVersion: 'runtime-continuation/v1',
+  hrc: {
+    provider: 'openai',
+    continuationId: 'continuation_T07218',
+    key: 'thread_T07218',
+  },
+  broker: {
+    provider: 'codex',
+    kind: 'thread',
+    continuationId: 'continuation_T07218',
+    key: 'thread_T07218',
+  },
+  source: 'harness-broker',
+  observedAt: '2026-08-11T12:45:12.537Z',
+}
 
 describe('compiled broker initial input composition', () => {
   const originalCodexPath = process.env['ASP_CODEX_PATH']
@@ -234,6 +256,35 @@ describe('compiled broker initial input composition', () => {
           'Inspect agent-spaces as cody for T-01610 on repair.',
         ].join('\n\n')
       )
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  test('omits priming input when compiling a continuation without a caller prompt', async () => {
+    const fixture = createFixture({
+      primingPrompt: 'Agent {{agentId}} handles {{projectId}} task {{taskId}} on {{lane}}.',
+    })
+    try {
+      const profile = await compile(fixture, {}, {}, continuation)
+      expect(initialInput(profile)).toBeUndefined()
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  test('keeps only the caller prompt when compiling a continuation', async () => {
+    const fixture = createFixture({
+      primingPrompt: 'Agent {{agentId}} handles {{projectId}} task {{taskId}} on {{lane}}.',
+    })
+    try {
+      const profile = await compile(
+        fixture,
+        { initialPrompt: 'Continue {{taskId}} as {{agentId}}.' },
+        {},
+        continuation
+      )
+      expect(textContent(profile)).toBe('Continue T-01610 as cody.')
     } finally {
       fixture.cleanup()
     }
