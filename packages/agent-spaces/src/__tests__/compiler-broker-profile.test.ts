@@ -117,6 +117,8 @@ function createFixture(): {
     join(agentRoot, 'agent-profile.toml'),
     `schemaVersion = 2
 
+priming_prompt = "Agent {{agentId}} handles {{projectId}} task {{taskId}}."
+
 [spaces]
 base = []
 `,
@@ -546,6 +548,62 @@ describe('compiled broker profile field mapping', () => {
     expect(resumeIndex).toBeGreaterThanOrEqual(0)
     expect(spec.process.args[resumeIndex + 1]).toBe('claude-session-01769')
     expect(spec.process.args).not.toContain('--session-id')
+    expect(spec.process.args.slice(-2)).toEqual(['--', 'hello interactive claude tmux broker'])
+    expect(spec.process.args).not.toContain('Agent cody handles agent-spaces task T-01610.')
+  })
+
+  test('omits profile priming from a claude-code-tmux resume without a caller prompt', async () => {
+    const req = claudeTmuxCompileRequest()
+    const profile = brokerProfile(
+      await createClient().compileRuntimePlan(
+        claudeTmuxCompileRequest({
+          materialization: {
+            ...req.materialization,
+            initialPrompt: undefined,
+          },
+          continuation: {
+            schemaVersion: 'runtime-continuation/v1',
+            hrc: {
+              provider: 'anthropic',
+              keyHash: 'claude-session-hash',
+              key: 'claude-session-07218',
+            },
+            broker: {
+              provider: 'anthropic',
+              kind: 'session',
+              keyHash: 'claude-session-hash',
+              key: 'claude-session-07218',
+            },
+            source: 'harness-broker',
+            observedAt: '2026-08-11T12:45:12.537Z',
+          },
+        })
+      )
+    )
+    const spec = compiledSpec(profile)
+
+    expect(spec.process.args.slice(-2)).toEqual(['--resume', 'claude-session-07218'])
+    expect(spec.process.args).not.toContain('Agent cody handles agent-spaces task T-01610.')
+  })
+
+  test('keeps profile priming for a fresh claude-code-tmux launch without a caller prompt', async () => {
+    const req = claudeTmuxCompileRequest()
+    const profile = brokerProfile(
+      await createClient().compileRuntimePlan(
+        claudeTmuxCompileRequest({
+          materialization: {
+            ...req.materialization,
+            initialPrompt: undefined,
+          },
+          continuation: undefined,
+        })
+      )
+    )
+
+    expect(compiledSpec(profile).process.args.slice(-2)).toEqual([
+      '--',
+      'Agent cody handles agent-spaces task T-01610.',
+    ])
   })
 
   test('translates the OpenAI continuation into a broker Codex thread continuation', async () => {

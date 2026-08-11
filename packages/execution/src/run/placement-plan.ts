@@ -226,8 +226,15 @@ export async function planPlacementRuntime(
     defaultRunOptions,
     placementContext.materialization.effectiveConfig
   )
+  // Profile/default prompts prime a new conversation. A continuation already
+  // owns its conversation context, so applying this fallback would append the
+  // priming text as a fresh user turn (for interactive CLIs, directly on argv).
+  // Explicit caller prompts still win through `options.prompt` below.
   const defaultPrompt =
-    defaultRunOptions.prompt ?? placementContext.materialization.effectiveConfig?.priming_prompt
+    options.continuationKey === undefined
+      ? (defaultRunOptions.prompt ??
+        placementContext.materialization.effectiveConfig?.priming_prompt)
+      : undefined
   const prompt =
     options.promptOverrideMode === 'truthy'
       ? options.prompt || defaultPrompt
@@ -235,8 +242,12 @@ export async function planPlacementRuntime(
   const yolo =
     options.yolo ?? defaultRunOptions.yolo ?? placementContext.materialization.effectiveConfig?.yolo
   const cwd = placementContext.resolvedBundle.cwd
+  // Re-add only the resolved prompt below. Leaving the adapter's raw default in
+  // this spread would bypass the continuation gate (and template expansion).
+  const resolvedDefaultRunOptions = { ...defaultRunOptions }
+  resolvedDefaultRunOptions.prompt = undefined
   const runOptions: Partial<HarnessRunOptions> = {
-    ...defaultRunOptions,
+    ...resolvedDefaultRunOptions,
     aspHome,
     interactive: options.interactive,
     projectPath: cwd,
