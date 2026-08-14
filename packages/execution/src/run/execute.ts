@@ -235,6 +235,12 @@ export async function executeHarnessRun(
     }
   }
 
+  // Prepare harness-external workspace state (e.g. Claude workspace trust)
+  // for the effective launch cwd; failures surface as warnings, never block.
+  if (adapter.prepareWorkspace) {
+    warnings.push(...(await adapter.prepareWorkspace(launchCwd)))
+  }
+
   await displayPrompts({
     systemPrompt: preparedRunOptions.systemPrompt,
     systemPromptMode: preparedRunOptions.systemPromptMode,

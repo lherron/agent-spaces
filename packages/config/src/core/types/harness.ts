@@ -593,6 +593,19 @@ export interface HarnessAdapter {
    * @param targetName - Target name
    */
   getDefaultRunOptions(manifest: ProjectManifest, targetName: string): Partial<HarnessRunOptions>
+
+  /**
+   * Prepare harness-external workspace state for a launch into `cwd` —
+   * mutations the harness reads from outside the composed bundle (e.g. Claude
+   * Code's user-level workspace-trust store). Called at the last mile before a
+   * launch shape is spawned. Best-effort: implementations report problems as
+   * returned warnings rather than throwing, so seeding failures never block a
+   * launch.
+   *
+   * @param cwd - Effective launch working directory (skipped when undefined)
+   * @returns Warnings to surface alongside the launch
+   */
+  prepareWorkspace?(cwd: string | undefined): Promise<string[]>
 }
 
 // ============================================================================

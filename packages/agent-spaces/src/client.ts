@@ -322,6 +322,12 @@ export function createAgentSpacesClient(options?: AgentSpacesClientOptions): Age
           ...(isResume && req.continuation?.key ? { continuationKey: req.continuation.key } : {}),
         }
 
+        // Prepare harness-external workspace state (e.g. Claude workspace
+        // trust) for the launch cwd; failures surface as warnings, never block.
+        if (adapter.prepareWorkspace) {
+          warnings.push(...(await adapter.prepareWorkspace(req.cwd)))
+        }
+
         // Build argv and env using the adapter
         const args = adapter.buildRunArgs(bundle, runOptions)
         const adapterEnv = adapter.getRunEnv(bundle, runOptions)

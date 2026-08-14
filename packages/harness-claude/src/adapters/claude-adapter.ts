@@ -62,6 +62,7 @@ import {
   writePluginJson,
 } from 'spaces-config'
 import { buildClaudeArgs, detectClaude } from '../claude/index.js'
+import { ensureClaudeWorkspaceTrust } from '../claude/workspace-trust.js'
 
 /** Path to the bundled statusline script asset */
 const STATUSLINE_ASSET_PATH = join(
@@ -525,6 +526,18 @@ export class ClaudeAdapter implements HarnessAdapter {
       yolo: target?.yolo ?? false,
       remoteControl: target?.remote_control ?? false,
     }
+  }
+
+  /**
+   * Seed Claude Code's user-level workspace-trust store for the launch cwd.
+   * Since Claude Code 2.1.232 nested git repositories no longer inherit trust
+   * from a parent directory, and an interactive launch into an untrusted repo
+   * blocks on the trust prompt before executing the priming prompt.
+   */
+  async prepareWorkspace(cwd: string | undefined): Promise<string[]> {
+    if (!cwd) return []
+    const result = await ensureClaudeWorkspaceTrust(cwd)
+    return result.warnings
   }
 }
 
