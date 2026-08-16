@@ -10,6 +10,7 @@ export const CANONICAL_AGENT_SESSION_ENV_KEYS = new Set([
   'AGENT_SESSION_REF',
   'AGENT_RUN_ID',
   'AGENT_HOST_SESSION_ID',
+  'AGENT_GENERATION',
   'AGENT_PROJECT_ROOT',
   'AGENT_ACTOR',
 ])
@@ -23,6 +24,7 @@ export const PHASE1_AGENT_SESSION_COMPAT_ENV_KEYS = new Set([
   'HRC_SESSION_REF',
   'HRC_RUN_ID',
   'HRC_HOST_SESSION_ID',
+  'HRC_GENERATION',
 ])
 
 export const RESERVED_AGENT_SESSION_ENV_KEYS = new Set([
@@ -106,6 +108,11 @@ export function buildAgentSessionEnv(
   if (placement.correlation?.hostSessionId !== undefined) {
     env['AGENT_HOST_SESSION_ID'] = placement.correlation.hostSessionId
     env['HRC_HOST_SESSION_ID'] = placement.correlation.hostSessionId
+  }
+  if (placement.correlation?.generation !== undefined) {
+    const generation = String(placement.correlation.generation)
+    env['AGENT_GENERATION'] = generation
+    env['HRC_GENERATION'] = generation
   }
   if (placement.projectRoot !== undefined) {
     env['AGENT_PROJECT_ROOT'] = placement.projectRoot

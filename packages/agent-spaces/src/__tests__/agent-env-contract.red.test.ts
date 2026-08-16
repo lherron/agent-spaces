@@ -130,6 +130,7 @@ function placement(fixture: Fixture, overrides: Partial<RuntimePlacement> = {}):
       },
       hostSessionId: 'host-session-04218',
       runId: 'run-04218',
+      generation: 7,
     },
     ...overrides,
   }
@@ -247,6 +248,7 @@ describe('T-04218 canonical agent env contract', () => {
           AGENT_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04218/lane:repair',
           AGENT_RUN_ID: 'run-04218',
           AGENT_HOST_SESSION_ID: 'host-session-04218',
+          AGENT_GENERATION: '7',
           AGENT_PROJECT_ROOT: fixture.projectRoot,
           AGENT_ACTOR: 'cody',
           WRKQ_PRINCIPAL_REF: 'agent:cody',
@@ -254,6 +256,7 @@ describe('T-04218 canonical agent env contract', () => {
           HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04218/lane:repair',
           HRC_RUN_ID: 'run-04218',
           HRC_HOST_SESSION_ID: 'host-session-04218',
+          HRC_GENERATION: '7',
         })
       )
       expect(prepared.lockedEnv).toEqual(
@@ -271,10 +274,12 @@ describe('T-04218 canonical agent env contract', () => {
         'AGENT_SESSION_REF',
         'AGENT_RUN_ID',
         'AGENT_HOST_SESSION_ID',
+        'AGENT_GENERATION',
         'AGENT_PROJECT_ROOT',
         'AGENT_ACTOR',
         'WRKQ_PRINCIPAL_REF',
         'HRC_SESSION_REF',
+        'HRC_GENERATION',
       ]) {
         expect(prepared.lockedEnv).not.toHaveProperty(reservedKey)
       }
@@ -294,12 +299,14 @@ describe('T-04218 canonical agent env contract', () => {
         AGENT_LANE_REF: 'lane:attacker',
         AGENT_SESSION_REF: 'agent:attacker:project:other/lane:main',
         AGENT_HOST_SESSION_ID: 'attacker-host',
+        AGENT_GENERATION: '999',
         AGENT_PROJECT_ROOT: '/attacker/project',
         AGENT_ACTOR: 'attacker',
         WRKQ_PRINCIPAL_REF: 'agent:attacker',
         ASP_PROJECT_ROOT: '/attacker/asp-project',
         ASP_PROJECT: 'attacker-project',
         AGENTCHAT_ID: 'attacker-chat',
+        HRC_GENERATION: '999',
       })
 
       expect(prepared.dispatchEnv).toEqual(
@@ -311,9 +318,11 @@ describe('T-04218 canonical agent env contract', () => {
           AGENT_LANE_REF: 'lane:repair',
           AGENT_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04218/lane:repair',
           AGENT_HOST_SESSION_ID: 'host-session-04218',
+          AGENT_GENERATION: '7',
           AGENT_PROJECT_ROOT: fixture.projectRoot,
           AGENT_ACTOR: 'cody',
           WRKQ_PRINCIPAL_REF: 'agent:cody',
+          HRC_GENERATION: '7',
         })
       )
       expect(prepared.env['ASP_PROJECT']).toBe('agent-spaces')
@@ -352,6 +361,7 @@ describe('T-04218 canonical agent env contract', () => {
                 },
                 hostSessionId: 'host-session-changed',
                 runId: 'run-changed',
+                generation: 8,
               },
             }),
             correlation: {
@@ -386,12 +396,14 @@ describe('T-04218 canonical agent env contract', () => {
           'AGENT_SCOPE_REF',
           'AGENT_RUN_ID',
           'AGENT_HOST_SESSION_ID',
+          'AGENT_GENERATION',
           'AGENT_PROJECT_ROOT',
           'AGENT_ACTOR',
           'WRKQ_PRINCIPAL_REF',
           'HRC_SESSION_REF',
           'HRC_RUN_ID',
           'HRC_HOST_SESSION_ID',
+          'HRC_GENERATION',
         ]) {
           expect(
             firstProfile.harnessInvocation.startRequest.spec.process.lockedEnv
@@ -413,6 +425,7 @@ describe('T-04218 canonical agent env contract', () => {
     for (const requiredToken of [
       'AGENT_SCOPE_REF',
       'AGENT_SESSION_REF',
+      'AGENT_GENERATION',
       'AGENT_ACTOR',
       'WRKQ_ACTOR',
       'ACP_BASE_URL',
@@ -424,6 +437,7 @@ describe('T-04218 canonical agent env contract', () => {
       'PI_PATH',
       'WRKQD_URL',
       'WRKQD_ADDR',
+      'HRC_GENERATION',
     ]) {
       expect(doc).toContain(requiredToken)
     }

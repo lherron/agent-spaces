@@ -130,6 +130,7 @@ function createPlacement(fixture: Fixture, dryRun: boolean): RuntimePlacement {
         laneRef: 'snapshots',
       },
       hostSessionId: 'host-session-04601',
+      generation: 7,
     },
   }
 }
@@ -138,9 +139,11 @@ function pickEnv(env: Record<string, string>): Record<string, string | undefined
   return {
     ADAPTER_CODEX_HOME: env['CODEX_HOME'],
     AGENTCHAT_ID: env['AGENTCHAT_ID'],
+    AGENT_GENERATION: env['AGENT_GENERATION'],
     AGENT_HOST_SESSION_ID: env['AGENT_HOST_SESSION_ID'],
     AGENT_LANE_REF: env['AGENT_LANE_REF'],
     AGENT_SCOPE_REF: env['AGENT_SCOPE_REF'],
+    HRC_GENERATION: env['HRC_GENERATION'],
     ASP_AGENT_CACHE_DIR: env['ASP_AGENT_CACHE_DIR'],
     ASP_AGENT_LOG_DIR: env['ASP_AGENT_LOG_DIR'],
     ASP_AGENT_NAME: env['ASP_AGENT_NAME'],
@@ -185,9 +188,11 @@ describe('T-04601 env-compose snapshots', () => {
       expect(pickEnv(prepared.lockedEnv)).toEqual({
         ADAPTER_CODEX_HOME: join(fixture.aspHome, 'codex-homes', 'agent-spaces_cody'),
         AGENTCHAT_ID: 'cody',
+        AGENT_GENERATION: undefined,
         AGENT_HOST_SESSION_ID: undefined,
         AGENT_LANE_REF: undefined,
         AGENT_SCOPE_REF: undefined,
+        HRC_GENERATION: undefined,
         ASP_AGENT_CACHE_DIR: join(fixture.agentRoot, 'var', 'cache'),
         ASP_AGENT_LOG_DIR: join(fixture.agentRoot, 'var', 'logs'),
         ASP_AGENT_NAME: 'cody',
@@ -214,6 +219,7 @@ describe('T-04601 env-compose snapshots', () => {
       })
       expect(prepared.dispatchEnv).toEqual({
         AGENT_ACTOR: 'cody',
+        AGENT_GENERATION: '7',
         AGENT_HOST_SESSION_ID: 'host-session-04601',
         AGENT_ID: 'cody',
         AGENT_LANE: 'snapshots',
@@ -225,14 +231,17 @@ describe('T-04601 env-compose snapshots', () => {
         AGENT_TASK: 'T-04601',
         DISPATCH_ONLY: 'dispatch-env',
         HRC_HOST_SESSION_ID: 'host-session-04601',
+        HRC_GENERATION: '7',
         HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04601/lane:snapshots',
         WRKQ_PRINCIPAL_REF: 'agent:cody',
       })
       expect(pickEnv(prepared.env)).toEqual({
         ...pickEnv(prepared.lockedEnv),
         AGENT_HOST_SESSION_ID: 'host-session-04601',
+        AGENT_GENERATION: '7',
         AGENT_LANE_REF: 'snapshots',
         AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-04601',
+        HRC_GENERATION: '7',
         PATH: expect.stringContaining(fixture.toolsBin) as unknown as string,
       })
       expect(prepared.pathPrepend).toEqual([fixture.toolsBin])
@@ -331,9 +340,11 @@ describe('T-04601 env-compose snapshots', () => {
       expect(pickEnv(lockedEnv)).toEqual({
         ADAPTER_CODEX_HOME: undefined,
         AGENTCHAT_ID: undefined,
+        AGENT_GENERATION: undefined,
         AGENT_HOST_SESSION_ID: undefined,
         AGENT_LANE_REF: undefined,
         AGENT_SCOPE_REF: undefined,
+        HRC_GENERATION: undefined,
         ASP_AGENT_CACHE_DIR: join(fixture.agentRoot, 'var', 'cache'),
         ASP_AGENT_LOG_DIR: join(fixture.agentRoot, 'var', 'logs'),
         ASP_AGENT_NAME: 'cody',
@@ -360,6 +371,7 @@ describe('T-04601 env-compose snapshots', () => {
       })
       expect(dispatchEnv).toEqual({
         AGENT_ACTOR: 'cody',
+        AGENT_GENERATION: '7',
         AGENT_HOST_SESSION_ID: 'host-session-04601',
         AGENT_ID: 'cody',
         AGENT_LANE: 'snapshots',
@@ -371,14 +383,17 @@ describe('T-04601 env-compose snapshots', () => {
         AGENT_TASK: 'T-04601',
         DISPATCH_ONLY: 'dispatch-env',
         HRC_HOST_SESSION_ID: 'host-session-04601',
+        HRC_GENERATION: '7',
         HRC_SESSION_REF: 'agent:cody:project:agent-spaces:task:T-04601/lane:snapshots',
         WRKQ_PRINCIPAL_REF: 'agent:cody',
       })
       expect(pickEnv(harnessEnv)).toEqual({
         ...pickEnv(lockedEnv),
         AGENT_HOST_SESSION_ID: 'host-session-04601',
+        AGENT_GENERATION: '7',
         AGENT_LANE_REF: 'snapshots',
         AGENT_SCOPE_REF: 'agent:cody:project:agent-spaces:task:T-04601',
+        HRC_GENERATION: '7',
         PATH: expect.stringContaining(fixture.toolsBin) as unknown as string,
       })
       expect(toolRuntime.pathPrepend).toEqual([fixture.toolsBin])

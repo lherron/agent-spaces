@@ -29,6 +29,7 @@ Phase: Phase 1 writes canonical names plus compatibility aliases.
 | `AGENT_SESSION_REF` | Lane-aware session identity, `<scopeRef>/lane:<lane>` | `HRC_SESSION_REF` during migration |
 | `AGENT_RUN_ID` | Per-launch run id | `HRC_RUN_ID` during migration |
 | `AGENT_HOST_SESSION_ID` | Host session id | `HRC_HOST_SESSION_ID` during migration |
+| `AGENT_GENERATION` | Decimal generation of the authoritative host session | `HRC_GENERATION` during migration |
 | `AGENT_PROJECT_ROOT` | Absolute project root path | `ASP_PROJECT_ROOT` during migration |
 | `AGENT_ACTOR` | Bare actor slug for task writes | `WRKQ_ACTOR` is the killed legacy alias; wrkq now reads `WRKQ_PRINCIPAL_REF` |
 
@@ -42,7 +43,8 @@ the bare-slug `WRKQ_ACTOR` alias is no longer accepted by wrkq for attribution.
 
 Compatibility aliases written in Phase 1 are `WRKQ_PRINCIPAL_REF`, `AGENT_LANE_REF`,
 `ASP_PROJECT_ROOT`, `ASP_PROJECT`, `AGENTCHAT_ID`, `HRC_SESSION_REF`,
-`HRC_RUN_ID`, and `HRC_HOST_SESSION_ID`. They are not final contract names.
+`HRC_RUN_ID`, `HRC_HOST_SESSION_ID`, and `HRC_GENERATION`. They are not final
+contract names.
 
 ## Cross-Service Contract
 

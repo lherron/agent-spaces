@@ -103,6 +103,7 @@ launched agent process receives these variables so that its own actions
 | `AGENT_SESSION_REF` | Lane-aware session identity, `<scopeRef>/lane:<lane>` | `HRC_SESSION_REF` during migration |
 | `AGENT_RUN_ID` | Per-launch run id | `HRC_RUN_ID` during migration |
 | `AGENT_HOST_SESSION_ID` | Host session id | `HRC_HOST_SESSION_ID` during migration |
+| `AGENT_GENERATION` | Decimal generation of the authoritative host session | `HRC_GENERATION` during migration |
 | `AGENT_PROJECT_ROOT` | Absolute project root path | `ASP_PROJECT_ROOT` during migration |
 | `AGENT_ACTOR` | Bare actor slug for task writes | legacy `WRKQ_ACTOR` alias is killed; wrkq now reads `WRKQ_PRINCIPAL_REF` |
 

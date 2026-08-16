@@ -28,6 +28,7 @@ export type RuntimeBundleRef =
 export interface HostCorrelation {
   hostSessionId?: string | undefined
   runId?: string | undefined
+  generation?: number | undefined
   sessionRef?: { scopeRef: string; laneRef: string } | undefined
 }
 
