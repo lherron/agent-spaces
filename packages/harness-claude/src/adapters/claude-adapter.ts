@@ -433,6 +433,19 @@ export class ClaudeAdapter implements HarnessAdapter {
     const promptArgs = buildPromptArgs(options)
     const sessionArgs = buildSessionArgs(options)
 
+    // Name the starting permission mode explicitly for yolo targets instead of
+    // letting `--dangerously-skip-permissions` be the only thing that selects
+    // it. Agent launches pass `--setting-sources ''` and a generated settings
+    // file with no permissions block, so the flag is the sole assertion of the
+    // mode; whenever it fails to activate, nothing else names one and the run
+    // falls through to Claude Code's built-in starting default (now `auto`,
+    // which gates Bash on the auto-mode classifier). `--permission-mode` sits
+    // at the top of the documented starting-mode precedence and does not
+    // depend on the interactive danger-acceptance record. An explicit
+    // permission_mode from the target manifest still wins.
+    const permissionMode =
+      options.permissionMode ?? (options.yolo ? 'bypassPermissions' : undefined)
+
     // Insert '--' before a bare positional prompt to prevent boolean flags
     // (e.g. --remote-control) from consuming it as their value.
     const needsSeparator = promptArgs.length === 1 && promptArgs[0] !== '-p'
@@ -451,7 +464,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       pluginDirs: bundle.pluginDirs,
       mcpConfig: bundle.mcpConfigPath,
       settings: options.settings ?? bundle.settingsPath,
-      permissionMode: options.permissionMode,
+      permissionMode,
       ...(options.disallowedTools ? { disallowedTools: options.disallowedTools } : {}),
       settingSources,
       debug: options.debug,

@@ -653,6 +653,33 @@ paths = ["/var/log"]
   })
 
   describe('buildRunArgs', () => {
+    const yoloBundle = {
+      harnessId: 'claude' as const,
+      targetName: 'test',
+      rootDir: '/test',
+      pluginDirs: [],
+    }
+
+    test('names bypassPermissions explicitly for yolo targets', () => {
+      const args = adapter.buildRunArgs(yoloBundle, { yolo: true })
+
+      expect(args).toContain('--dangerously-skip-permissions')
+      expect(args[args.indexOf('--permission-mode') + 1]).toBe('bypassPermissions')
+    })
+
+    test('does not name a permission mode when yolo is off', () => {
+      const args = adapter.buildRunArgs(yoloBundle, {})
+
+      expect(args).not.toContain('--permission-mode')
+      expect(args).not.toContain('--dangerously-skip-permissions')
+    })
+
+    test('an explicit permission mode still wins over the yolo default', () => {
+      const args = adapter.buildRunArgs(yoloBundle, { yolo: true, permissionMode: 'plan' })
+
+      expect(args[args.indexOf('--permission-mode') + 1]).toBe('plan')
+    })
+
     test('builds args from bundle with plugin dirs', () => {
       const bundle = {
         harnessId: 'claude' as const,
