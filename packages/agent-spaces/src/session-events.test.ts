@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from 'bun:test'
 
+import type { AgentEvent, HarnessContinuationRef } from 'agent-spaces'
 import type { UnifiedSessionEvent } from 'spaces-execution'
 
 import {
@@ -15,7 +16,6 @@ import {
   mapContentToText,
   mapUnifiedEvents,
 } from './session-events.js'
-import type { AgentEvent, HarnessContinuationRef } from './types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -15,11 +15,14 @@ import { basename, join } from 'node:path'
 import type { RuntimePlacement } from 'spaces-config'
 import { type UnifiedSession, prepareAgentToolRuntime } from 'spaces-execution'
 
+import {
+  type InFlightRunContext,
+  completeInFlightSuccess,
+} from '../../../turn-runner/src/run-tracker.js'
+import { shouldDrainOutstandingTurn } from '../../../turn-runner/src/run-turn-helpers.js'
+import { createEventEmitter, mapUnifiedEvents } from '../../../turn-runner/src/session-events.js'
 import { buildCorrelationEnvVars } from '../placement-api.js'
 import { preparePlacementCliRuntime } from '../prepare-cli-runtime.js'
-import { type InFlightRunContext, completeInFlightSuccess } from '../run-tracker.js'
-import { shouldDrainOutstandingTurn } from '../run-turn-helpers.js'
-import { createEventEmitter, mapUnifiedEvents } from '../session-events.js'
 import type { AgentEvent } from '../types.js'
 
 type Fixture = {

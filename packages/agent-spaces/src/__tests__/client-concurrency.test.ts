@@ -19,8 +19,8 @@
  */
 import { afterEach, describe, expect, it, test } from 'bun:test'
 
-import { applyEnvOverlay } from '../runtime-env.js'
-import { createEventEmitter } from '../session-events.js'
+import { applyEnvOverlay } from '../../../turn-runner/src/runtime-env.js'
+import { createEventEmitter } from '../../../turn-runner/src/session-events.js'
 
 const PROBE_KEYS = ['ASP_TEST_CONCURRENCY_A', 'ASP_TEST_CONCURRENCY_B', 'ASP_TEST_CONCURRENCY_C']
 

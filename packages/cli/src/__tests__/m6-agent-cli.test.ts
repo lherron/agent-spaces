@@ -1056,7 +1056,7 @@ describe('gpt-5.5 model support (T-00878)', () => {
 describe('pi-sdk placement path (T-00879)', () => {
   cliTest('runPlacementTurnNonInteractive uses unified materializeSpec pipeline', () => {
     const source = readFileSync(
-      join(import.meta.dirname, '..', '..', '..', 'agent-spaces', 'src', 'run-placement-turn.ts'),
+      join(import.meta.dirname, '..', '..', '..', 'turn-runner', 'src', 'run-placement-turn.ts'),
       'utf8'
     )
     // Scope to the runPlacementTurnNonInteractive function via its declaration to

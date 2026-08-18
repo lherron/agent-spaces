@@ -26,7 +26,7 @@ const prepareCliRuntimeSource = readFileSync(
   'utf8'
 )
 const runPlacementTurnSource = readFileSync(
-  join(import.meta.dirname, '..', 'run-placement-turn.ts'),
+  join(import.meta.dirname, '..', '..', '..', 'turn-runner', 'src', 'run-placement-turn.ts'),
   'utf8'
 )
 const placementResolverSource = readFileSync(

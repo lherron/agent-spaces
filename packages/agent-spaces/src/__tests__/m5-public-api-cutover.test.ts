@@ -565,7 +565,10 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
     // Static regression: ensure the placement dispatch is present
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
-    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+    const source = readFileSync(
+      join(import.meta.dirname, '..', '..', '..', 'turn-runner', 'src', 'client.ts'),
+      'utf8'
+    )
     // Must have the placement check inside runTurnNonInteractive
     expect(source).toMatch(/runTurnNonInteractive[\s\S]*?if\s*\(req\.placement\)/)
     // Must have the placement handler function
@@ -582,12 +585,18 @@ describe('unified placement materialization (T-00876)', () => {
   test('both placement functions use resolvePlacementContext + planPlacementRuntime pipeline', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
-    const source = readFileSync(join(import.meta.dirname, '..', 'client.ts'), 'utf8')
+    const source = readFileSync(
+      join(import.meta.dirname, '..', '..', '..', 'turn-runner', 'src', 'client.ts'),
+      'utf8'
+    )
     const prepareSource = readFileSync(
       join(import.meta.dirname, '..', 'prepare-cli-runtime.ts'),
       'utf8'
     )
-    const runSource = readFileSync(join(import.meta.dirname, '..', 'run-placement-turn.ts'), 'utf8')
+    const runSource = readFileSync(
+      join(import.meta.dirname, '..', '..', '..', 'turn-runner', 'src', 'run-placement-turn.ts'),
+      'utf8'
+    )
 
     // Extract the two placement functions
     const buildFn = fnRegion(prepareSource, ...PREPARE_CLI_RUNTIME_REGION)
@@ -619,7 +628,10 @@ describe('non-interactive placement defaults (T-01092)', () => {
   test('runPlacementTurnNonInteractive consumes the shared placement runtime plan', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
-    const source = readFileSync(join(import.meta.dirname, '..', 'run-placement-turn.ts'), 'utf8')
+    const source = readFileSync(
+      join(import.meta.dirname, '..', '..', '..', 'turn-runner', 'src', 'run-placement-turn.ts'),
+      'utf8'
+    )
     const runFn = fnRegion(source, RUN_PLACEMENT_TURN_DECL)
 
     expect(runFn).toBeDefined()
@@ -632,7 +644,10 @@ describe('non-interactive placement defaults (T-01092)', () => {
   test('pi-sdk path does not hardcode yolo true', () => {
     const { readFileSync } = require('node:fs')
     const { join } = require('node:path')
-    const source = readFileSync(join(import.meta.dirname, '..', 'run-placement-turn.ts'), 'utf8')
+    const source = readFileSync(
+      join(import.meta.dirname, '..', '..', '..', 'turn-runner', 'src', 'run-placement-turn.ts'),
+      'utf8'
+    )
     const runFn = fnRegion(source, RUN_PLACEMENT_TURN_DECL)
 
     expect(runFn).toBeDefined()

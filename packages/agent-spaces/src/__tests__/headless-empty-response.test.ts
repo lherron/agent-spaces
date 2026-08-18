@@ -11,7 +11,10 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const runPlacementTurnSrc = readFileSync(resolve(__dirname, '..', 'run-placement-turn.ts'), 'utf8')
+const runPlacementTurnSrc = readFileSync(
+  resolve(__dirname, '..', '..', '..', 'turn-runner', 'src', 'run-placement-turn.ts'),
+  'utf8'
+)
 
 // Narrow named-region helper: bound runPlacementTurnNonInteractive by its
 // declaration to EOF (it is the only top-level function in the file) rather than
