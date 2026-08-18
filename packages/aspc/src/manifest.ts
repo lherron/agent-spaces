@@ -2,14 +2,12 @@
  * `aspc manifest` output-manifest builder (T-04133).
  *
  * Materializes a compile request under a throwaway/hermetic ASP_HOME WITHOUT
- * starting a harness or invoking an LLM, then enumerates the compiler-owned
- * runtime-home root into a canonical {@link OutputManifest}.
+ * starting a harness or invoking an LLM, then enumerates compiler-owned output
+ * into a canonical {@link OutputManifest}.
  *
- * Determinism: file digests are computed over NORMALIZED bytes (host roots,
- * `$HOME`, per-run staging segments and ISO-8601 timestamps replaced by stable
- * tokens), paths are home-relative, mtimes are never recorded, and ephemeral
- * lock files are excluded with an explicit reason. A fixed hermetic compile is
- * therefore byte-stable across machines and throwaway homes.
+ * Mode A computes digests over normalized bytes for cross-host self-stability.
+ * Mode B computes digests and sizes over literal emitted bytes for same-host,
+ * cross-implementation cutover evidence. Paths remain ASP_HOME-relative in both.
  */
 import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
@@ -22,6 +20,7 @@ import type {
   OutputManifest,
   OutputManifestEntry,
   OutputManifestExclusion,
+  OutputManifestExclusionReason,
   RuntimeCompileRequest,
 } from 'spaces-runtime-contracts'
 import { OUTPUT_MANIFEST_SCHEMA_VERSION } from 'spaces-runtime-contracts'
@@ -29,6 +28,7 @@ import { OUTPUT_MANIFEST_SCHEMA_VERSION } from 'spaces-runtime-contracts'
 export interface BuildOutputManifestInput {
   compileRequest: RuntimeCompileRequest
   aspHome: string
+  mode: 'A' | 'B'
   compileContext?: CompileContext | undefined
 }
 
@@ -44,8 +44,8 @@ interface NormalizationRoots {
   home: string | undefined
 }
 
-function sha256Hex(value: string): string {
-  return createHash('sha256').update(value, 'utf8').digest('hex')
+function sha256Hex(value: string | Buffer): string {
+  return createHash('sha256').update(value).digest('hex')
 }
 
 function escapeRegExp(value: string): string {
@@ -88,19 +88,58 @@ function octalMode(mode: number): string {
   return (mode & 0o777).toString(8)
 }
 
-function isExcludedLock(relPath: string): boolean {
-  return relPath.endsWith('.lock')
+interface DeclaredOutputExclusion {
+  matcher:
+    | { kind: 'exact-path'; path: string }
+    | { kind: 'exact-filename'; filename: string }
+    | { kind: 'bundle-scope-lock' }
+  reason: OutputManifestExclusionReason
 }
 
-/** Recursively collect file/symlink paths under `root` (sorted, deterministic). */
-function walkOwnedRoot(root: string): string[] {
+/**
+ * Audited, exact exclusions. Adding an emitted path here is an explicit bless
+ * operation; broad suffix/glob matchers are intentionally forbidden.
+ */
+const DECLARED_OUTPUT_EXCLUSIONS: readonly DeclaredOutputExclusion[] = [
+  {
+    matcher: { kind: 'exact-filename', filename: '.asp-runtime.lock' },
+    reason: 'ephemeral-lock',
+  },
+  {
+    matcher: { kind: 'exact-path', path: 'codex-homes/locks/runtime.lock' },
+    reason: 'ephemeral-lock',
+  },
+  {
+    matcher: { kind: 'bundle-scope-lock' },
+    reason: 'ephemeral-lock',
+  },
+]
+
+function declaredExclusion(relPath: string): DeclaredOutputExclusion | undefined {
+  const filename = relPath.split('/').at(-1)
+  return DECLARED_OUTPUT_EXCLUSIONS.find((declaration) => {
+    if (declaration.matcher.kind === 'exact-path') {
+      return declaration.matcher.path === relPath
+    }
+    if (declaration.matcher.kind === 'exact-filename') {
+      return declaration.matcher.filename === filename
+    }
+    return (
+      relPath.startsWith('tmp/locks/') && /^bundle-scope-[0-9a-f]{32}\.lock$/.test(filename ?? '')
+    )
+  })
+}
+
+/** Recursively collect file/symlink paths under ASP_HOME (sorted, deterministic). */
+function walkAspHome(root: string): string[] {
   const out: string[] = []
   const recurse = (dir: string): void => {
     let entries: Dirent[]
     try {
       entries = readdirSync(dir, { withFileTypes: true })
-    } catch {
-      return
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`manifest walk failed at ${dir}: ${detail}`, { cause: error })
     }
     for (const entry of [...entries].sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0
@@ -122,34 +161,41 @@ function walkOwnedRoot(root: string): string[] {
 function toEntry(
   fullPath: string,
   aspHome: string,
-  roots: NormalizationRoots
+  roots: NormalizationRoots,
+  mode: 'A' | 'B'
 ): OutputManifestEntry {
   const relPath = relative(aspHome, fullPath).split(sep).join('/')
   const stat = lstatSync(fullPath)
   if (stat.isSymbolicLink()) {
-    const target = normalizeBytes(readlinkSync(fullPath), roots)
+    const rawTarget = readlinkSync(fullPath, { encoding: 'buffer' })
+    const hashMaterial =
+      mode === 'A'
+        ? Buffer.from(`symlink:${normalizeBytes(rawTarget.toString('utf8'), roots)}`, 'utf8')
+        : Buffer.concat([Buffer.from('symlink:', 'utf8'), rawTarget])
     return {
       path: relPath,
       kind: 'symlink',
       size: 0,
-      sha256: sha256Hex(`symlink:${target}`),
+      sha256: sha256Hex(hashMaterial),
       mode: octalMode(stat.mode),
     }
   }
-  const normalized = normalizeBytes(readFileSync(fullPath, 'utf8'), roots)
+  const raw = readFileSync(fullPath)
+  const hashMaterial =
+    mode === 'A' ? Buffer.from(normalizeBytes(raw.toString('utf8'), roots), 'utf8') : raw
   return {
     path: relPath,
     kind: 'file',
-    size: Buffer.byteLength(normalized, 'utf8'),
-    sha256: sha256Hex(normalized),
+    size: hashMaterial.byteLength,
+    sha256: sha256Hex(hashMaterial),
     mode: octalMode(stat.mode),
   }
 }
 
 /**
- * Compile + materialize the request under `aspHome` and project the
- * compiler-owned runtime-home root into a canonical output manifest. No harness
- * is started and no LLM is invoked — `compileRuntimePlan` materializes only.
+ * Compile + materialize the request under `aspHome` and project the selected
+ * evidence root into a canonical output manifest. No harness is started and no
+ * LLM is invoked — `compileRuntimePlan` materializes only.
  */
 export async function buildOutputManifest(
   input: BuildOutputManifestInput
@@ -174,16 +220,22 @@ export async function buildOutputManifest(
     home: process.env['HOME'],
   }
 
-  const ownedRoot = join(input.aspHome, 'codex-homes')
   const entries: OutputManifestEntry[] = []
   const exclusions: OutputManifestExclusion[] = []
-  for (const fullPath of walkOwnedRoot(ownedRoot)) {
+  const walkRoot = input.mode === 'A' ? join(input.aspHome, 'codex-homes') : input.aspHome
+  for (const fullPath of walkAspHome(walkRoot)) {
     const relPath = relative(input.aspHome, fullPath).split(sep).join('/')
-    if (isExcludedLock(relPath)) {
-      exclusions.push({ path: relPath, reason: 'ephemeral-lock' })
+    const exclusion = declaredExclusion(relPath)
+    if (exclusion !== undefined) {
+      exclusions.push({ path: relPath, reason: exclusion.reason })
       continue
     }
-    entries.push(toEntry(fullPath, input.aspHome, roots))
+    if (relPath.endsWith('.lock')) {
+      throw new Error(
+        `manifest: ${relPath} is an ephemeral lock without a committed declared exclusion`
+      )
+    }
+    entries.push(toEntry(fullPath, input.aspHome, roots, input.mode))
   }
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   exclusions.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
@@ -193,10 +245,13 @@ export async function buildOutputManifest(
       ? sha256Hex(canonicalJson(input.compileContext.toolchainManifest))
       : undefined
 
-  const outputManifestHash = sha256Hex(canonicalJson({ entries, toolchainManifestHash }))
+  const outputManifestHash = sha256Hex(
+    canonicalJson({ mode: input.mode, entries, toolchainManifestHash })
+  )
 
   const manifest: OutputManifest = {
     schemaVersion: OUTPUT_MANIFEST_SCHEMA_VERSION,
+    mode: input.mode,
     outputManifestHash,
     startedHarness: false,
     ...(toolchainManifestHash !== undefined ? { toolchainManifestHash } : {}),

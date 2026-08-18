@@ -5,8 +5,8 @@
  * materialize/compare WITHOUT starting a harness or invoking an LLM.
  *
  * Usage:
- *   aspc manifest --request <file> --asp-home <dir> [--compile-context <json>]
- *   aspc verify-release --baseline <bin> --candidate <bin> --corpus <dir>
+ *   aspc manifest --mode a|b --request <file> --asp-home <dir> [--compile-context <json>]
+ *   aspc verify-release --mode a|b --baseline <bin> --candidate <bin> --corpus <dir>
  *                       [--compile-context <json>] [--bless]
  */
 import { readFileSync } from 'node:fs'
@@ -47,8 +47,16 @@ function parseCompileContext(flags: Map<string, string | true>): CompileContext 
   return JSON.parse(raw) as CompileContext
 }
 
+function requireMode(flags: Map<string, string | true>): 'A' | 'B' {
+  const value = flags.get('mode')
+  if (value === 'a') return 'A'
+  if (value === 'b') return 'B'
+  throw new Error('usage: --mode must be exactly a or b')
+}
+
 async function runManifest(args: string[]): Promise<number> {
   const flags = parseFlags(args)
+  const mode = requireMode(flags)
   const requestPath = requireString(flags, 'request')
   const aspHome = requireString(flags, 'asp-home')
   const compileContext = parseCompileContext(flags)
@@ -57,6 +65,7 @@ async function runManifest(args: string[]): Promise<number> {
   const result = await buildOutputManifest({
     compileRequest,
     aspHome,
+    mode,
     ...(compileContext !== undefined ? { compileContext } : {}),
   })
   if (!result.ok) {
@@ -69,16 +78,21 @@ async function runManifest(args: string[]): Promise<number> {
 
 function runVerifyRelease(args: string[]): number {
   const flags = parseFlags(args)
+  const mode = requireMode(flags)
   const baseline = requireString(flags, 'baseline')
   const candidate = requireString(flags, 'candidate')
   const corpus = requireString(flags, 'corpus')
   const compileContext = parseCompileContext(flags)
   const bless = flags.get('bless') === true
+  if (mode === 'B' && bless) {
+    throw new Error('verify-release: --bless is forbidden in mode b')
+  }
 
   const result = verifyRelease({
     baseline,
     candidate,
     corpus,
+    mode,
     bless,
     ...(compileContext !== undefined ? { compileContext } : {}),
   })
@@ -95,7 +109,7 @@ export async function runAspcCli(argv: string[]): Promise<number> {
       return runVerifyRelease(rest)
     default:
       process.stderr.write(
-        `Unknown command: ${command ?? '(none)'}\nUsage:\n  aspc manifest --request <file> --asp-home <dir> [--compile-context <json>]\n  aspc verify-release --baseline <bin> --candidate <bin> --corpus <dir> [--compile-context <json>] [--bless]\n`
+        `Unknown command: ${command ?? '(none)'}\nUsage:\n  aspc manifest --mode a|b --request <file> --asp-home <dir> [--compile-context <json>]\n  aspc verify-release --mode a|b --baseline <bin> --candidate <bin> --corpus <dir> [--compile-context <json>] [--bless]\n`
       )
       return 1
   }

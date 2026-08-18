@@ -3,29 +3,37 @@
  *
  * The gate runs over a committed hermetic corpus without invoking an LLM. The
  * corpus is a directory of scenario cases; each case carries a `request.json`
- * and either a `scenario.json` or a name that declares the deterministic
- * difference it intentionally introduces.
+ * and a mandatory `scenario.json` declaring its expected classification.
  *
- * Two shapes:
- *  - Corpus mode (the `--corpus` dir contains case SUBDIRECTORIES): a release
- *    reproducibility check. Identical baseline/candidate compiler binaries
- *    reproduce the corpus byte-for-byte (`byte-identical`). Differing binaries
- *    fall back to a per-case manifest recompile + compare.
- *  - Single-case mode (the `--corpus` dir itself contains `request.json`): the
- *    case's declared deterministic difference is surfaced and CLASSIFIED
- *    (mechanics vs content, with an attribution), grounded in the real
- *    request/compile-context inputs. A deterministic diff fails the gate
- *    (nonzero exit) unless `--bless` is passed.
+ * Mode A preserves the normalized self-stability/classification behavior and
+ * can never authorize compiler cutover. Mode B sequentially runs both compiler
+ * implementations against the same restored ASP_HOME path and compares their
+ * raw-byte manifests per emitted path. Mode B cannot be blessed.
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
-import type { CompileContext } from 'spaces-runtime-contracts'
+import type { CompileContext, OutputManifest, OutputManifestEntry } from 'spaces-runtime-contracts'
+import { OUTPUT_MANIFEST_SCHEMA_VERSION } from 'spaces-runtime-contracts'
+
+import { canonicalJson } from './manifest.js'
 
 export interface VerifyReleaseInput {
   baseline: string
   candidate: string
   corpus: string
+  mode: 'A' | 'B'
   compileContext?: CompileContext | undefined
   bless: boolean
 }
@@ -36,11 +44,14 @@ export interface ReleaseDifference {
   class: 'mechanics' | 'content'
   attribution: string
   caseId: string
+  path?: string | undefined
 }
 
 export interface VerifyReleaseReport {
+  mode: 'A' | 'B'
   verdict: VerifyReleaseVerdict
   differences: ReleaseDifference[]
+  authorizesCutover: boolean
   blessed?: boolean
 }
 
@@ -55,32 +66,25 @@ function hasRequest(dir: string): boolean {
   return existsSync(join(dir, 'request.json'))
 }
 
-/** Map a case directory name to the deterministic difference it declares. */
-function inferScenarioFromName(caseId: string): DeclaredScenario {
-  const lower = caseId.toLowerCase()
-  if (lower.startsWith('byte-identical')) return { expect: 'none' }
-  if (lower.startsWith('mechanics')) {
-    return { class: 'mechanics', attribution: attribution(lower) }
-  }
-  if (lower.startsWith('content')) {
-    return { class: 'content', attribution: attribution(lower) }
-  }
-  // Unknown scenario names are treated as content changes (the conservative,
-  // gate-failing default) rather than silently passing.
-  return { class: 'content', attribution: attribution(lower) }
-}
-
-function attribution(lowerCaseId: string): string {
-  if (lowerCaseId.includes('model') || lowerCaseId.includes('catalog')) return 'modelCatalog'
-  if (lowerCaseId.includes('prompt')) return 'prompt'
-  return lowerCaseId
-}
-
-/** Read an explicit `scenario.json` declaration if the case ships one. */
-function readDeclaredScenario(caseDir: string): DeclaredScenario | undefined {
+/** Read the mandatory explicit `scenario.json` declaration. */
+function readDeclaredScenario(caseDir: string): DeclaredScenario {
   const file = join(caseDir, 'scenario.json')
-  if (!existsSync(file)) return undefined
+  const caseId = basename(caseDir)
+  if (!existsSync(file)) {
+    throw new Error(`verify-release: case ${caseId} is missing required scenario.json`)
+  }
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as DeclaredScenario
+  if (
+    !(
+      ('expect' in parsed && parsed.expect === 'none') ||
+      ('class' in parsed &&
+        (parsed.class === 'mechanics' || parsed.class === 'content') &&
+        typeof parsed.attribution === 'string' &&
+        parsed.attribution.length > 0)
+    )
+  ) {
+    throw new Error(`verify-release: case ${caseId} has an invalid scenario.json`)
+  }
   return parsed
 }
 
@@ -94,12 +98,20 @@ function loadRequest(caseDir: string): Record<string, unknown> {
  */
 function verifySingleCase(input: VerifyReleaseInput): VerifyReleaseResult {
   const caseId = basename(input.corpus)
-  const scenario = readDeclaredScenario(input.corpus) ?? inferScenarioFromName(caseId)
+  const scenario = readDeclaredScenario(input.corpus)
   // Confirm the case actually carries a compilable request.
   const request = loadRequest(input.corpus)
 
   if ('expect' in scenario) {
-    return { report: { verdict: 'byte-identical', differences: [] }, exitCode: 0 }
+    return {
+      report: {
+        mode: 'A',
+        verdict: 'byte-identical',
+        differences: [],
+        authorizesCutover: false,
+      },
+      exitCode: 0,
+    }
   }
 
   // Ground the declared classification in the real inputs.
@@ -122,8 +134,10 @@ function verifySingleCase(input: VerifyReleaseInput): VerifyReleaseResult {
   }
 
   const report: VerifyReleaseReport = {
+    mode: 'A',
     verdict: 'deterministic-diff',
     differences: [{ class: scenario.class, attribution: scenario.attribution, caseId }],
+    authorizesCutover: false,
     ...(input.bless ? { blessed: true } : {}),
   }
   return { report, exitCode: input.bless ? 0 : 1 }
@@ -134,20 +148,35 @@ function verifySingleCase(input: VerifyReleaseInput): VerifyReleaseResult {
  * binaries reproduce byte-for-byte; differing binaries would require a per-case
  * recompile + compare (not reached by identical-build gates).
  */
-function verifyCorpus(input: VerifyReleaseInput): VerifyReleaseResult {
-  const cases = readdirSync(input.corpus, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && hasRequest(join(input.corpus, entry.name)))
-    .map((entry) => entry.name)
+function corpusCases(corpus: string): string[] {
+  if (hasRequest(corpus)) return [corpus]
+  const cases = readdirSync(corpus, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && hasRequest(join(corpus, entry.name)))
+    .map((entry) => join(corpus, entry.name))
     .sort()
   if (cases.length === 0) {
-    throw new Error(`verify-release: corpus ${input.corpus} contains no cases`)
+    throw new Error(`verify-release: corpus ${corpus} contains no cases`)
   }
+  return cases
+}
+
+function verifyModeACorpus(input: VerifyReleaseInput): VerifyReleaseResult {
+  const caseDirs = corpusCases(input.corpus)
+  for (const caseDir of caseDirs) readDeclaredScenario(caseDir)
 
   const baselineBytes = readFileSync(input.baseline)
   const candidateBytes = readFileSync(input.candidate)
   if (input.baseline === input.candidate || baselineBytes.equals(candidateBytes)) {
     // Same compiler bytes ⇒ deterministically identical outputs for every case.
-    return { report: { verdict: 'byte-identical', differences: [] }, exitCode: 0 }
+    return {
+      report: {
+        mode: 'A',
+        verdict: 'byte-identical',
+        differences: [],
+        authorizesCutover: false,
+      },
+      exitCode: 0,
+    }
   }
 
   // Differing binaries: the corpus would be recompiled per case and compared.
@@ -156,20 +185,202 @@ function verifyCorpus(input: VerifyReleaseInput): VerifyReleaseResult {
   return {
     report: {
       verdict: 'deterministic-diff',
-      differences: cases.map((caseId) => ({
+      mode: 'A',
+      differences: caseDirs.map((caseDir) => ({
         class: 'mechanics' as const,
         attribution: 'compilerBinary',
-        caseId,
+        caseId: basename(caseDir),
       })),
+      authorizesCutover: false,
       ...(input.bless ? { blessed: true } : {}),
     },
     exitCode: input.bless ? 0 : 1,
   }
 }
 
+function restoreAspHome(caseDir: string, aspHome: string): void {
+  rmSync(aspHome, { recursive: true, force: true })
+  const snapshot = join(caseDir, 'asp-home')
+  if (existsSync(snapshot)) {
+    cpSync(snapshot, aspHome, { recursive: true, dereference: false })
+  } else {
+    mkdirSync(aspHome, { recursive: true })
+  }
+}
+
+function runManifestEmitter(
+  binary: string,
+  caseDir: string,
+  aspHome: string,
+  compileContext: CompileContext
+): OutputManifest {
+  const result = spawnSync(
+    binary,
+    [
+      'manifest',
+      '--mode',
+      'b',
+      '--request',
+      join(caseDir, 'request.json'),
+      '--asp-home',
+      aspHome,
+      '--compile-context',
+      JSON.stringify(compileContext),
+    ],
+    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }
+  )
+  if (result.error !== undefined) {
+    throw new Error(`verify-release: failed to run ${binary}: ${result.error.message}`, {
+      cause: result.error,
+    })
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `verify-release: ${binary} manifest failed for case ${basename(caseDir)}: ${result.stderr.trim() || `exit ${String(result.status)}`}`
+    )
+  }
+  let manifest: OutputManifest
+  try {
+    manifest = JSON.parse(result.stdout) as OutputManifest
+  } catch (error) {
+    throw new Error(
+      `verify-release: ${binary} emitted invalid manifest JSON for case ${basename(caseDir)}`,
+      { cause: error }
+    )
+  }
+  if (manifest.mode !== 'B') {
+    throw new Error(
+      `verify-release: manifest mode mismatch for case ${basename(caseDir)}: expected B, received ${String(manifest.mode)}`
+    )
+  }
+  if (!Array.isArray(manifest.entries) || !Array.isArray(manifest.exclusions)) {
+    throw new Error(`verify-release: invalid Mode B manifest for case ${basename(caseDir)}`)
+  }
+  if (
+    manifest.schemaVersion !== OUTPUT_MANIFEST_SCHEMA_VERSION ||
+    manifest.startedHarness !== false
+  ) {
+    throw new Error(
+      `verify-release: invalid Mode B manifest contract from ${binary} for case ${basename(caseDir)}`
+    )
+  }
+  const expectedToolchainManifestHash =
+    compileContext.toolchainManifest === undefined
+      ? undefined
+      : createHash('sha256').update(canonicalJson(compileContext.toolchainManifest)).digest('hex')
+  if (manifest.toolchainManifestHash !== expectedToolchainManifestHash) {
+    throw new Error(
+      `verify-release: pinned toolchain manifest mismatch from ${binary} for case ${basename(caseDir)}`
+    )
+  }
+  const expectedHash = createHash('sha256')
+    .update(
+      canonicalJson({
+        mode: manifest.mode,
+        entries: manifest.entries,
+        toolchainManifestHash: manifest.toolchainManifestHash,
+      })
+    )
+    .digest('hex')
+  if (manifest.outputManifestHash !== expectedHash) {
+    throw new Error(
+      `verify-release: invalid outputManifestHash from ${binary} for case ${basename(caseDir)}`
+    )
+  }
+  return manifest
+}
+
+function indexEntries(manifest: OutputManifest, caseId: string): Map<string, OutputManifestEntry> {
+  const indexed = new Map<string, OutputManifestEntry>()
+  for (const entry of manifest.entries) {
+    if (indexed.has(entry.path)) {
+      throw new Error(`verify-release: duplicate manifest path ${entry.path} in case ${caseId}`)
+    }
+    indexed.set(entry.path, entry)
+  }
+  return indexed
+}
+
+function modeBDifferences(
+  caseDir: string,
+  scenario: DeclaredScenario,
+  baseline: OutputManifest,
+  candidate: OutputManifest
+): ReleaseDifference[] {
+  const caseId = basename(caseDir)
+  const baselineEntries = indexEntries(baseline, caseId)
+  const candidateEntries = indexEntries(candidate, caseId)
+  const paths = [...new Set([...baselineEntries.keys(), ...candidateEntries.keys()])].sort()
+  const classification =
+    'expect' in scenario
+      ? { class: 'mechanics' as const, attribution: 'rawOutput' }
+      : { class: scenario.class, attribution: scenario.attribution }
+  const differences: ReleaseDifference[] = []
+  for (const path of paths) {
+    const left = baselineEntries.get(path)
+    const right = candidateEntries.get(path)
+    if (
+      left === undefined ||
+      right === undefined ||
+      left.kind !== right.kind ||
+      left.size !== right.size ||
+      left.sha256 !== right.sha256 ||
+      left.mode !== right.mode
+    ) {
+      differences.push({ ...classification, caseId, path })
+    }
+  }
+  const exclusions = new Set([
+    ...baseline.exclusions.map((entry) => entry.path),
+    ...candidate.exclusions.map((entry) => entry.path),
+  ])
+  for (const path of [...exclusions].sort()) {
+    const left = baseline.exclusions.find((entry) => entry.path === path)
+    const right = candidate.exclusions.find((entry) => entry.path === path)
+    if (left?.reason !== right?.reason) {
+      differences.push({ ...classification, caseId, path })
+    }
+  }
+  return differences
+}
+
+function verifyModeB(input: VerifyReleaseInput): VerifyReleaseResult {
+  if (input.bless) throw new Error('verify-release: --bless is forbidden in mode b')
+  if (input.compileContext === undefined) {
+    throw new Error('verify-release: mode b requires a pinned --compile-context')
+  }
+  const caseDirs = corpusCases(input.corpus)
+  const workspace = mkdtempSync(join(tmpdir(), 'aspc-verify-mode-b-'))
+  const aspHome = join(workspace, 'asp-home')
+  const differences: ReleaseDifference[] = []
+  try {
+    for (const caseDir of caseDirs) {
+      const scenario = readDeclaredScenario(caseDir)
+      restoreAspHome(caseDir, aspHome)
+      const baseline = runManifestEmitter(input.baseline, caseDir, aspHome, input.compileContext)
+      restoreAspHome(caseDir, aspHome)
+      const candidate = runManifestEmitter(input.candidate, caseDir, aspHome, input.compileContext)
+      differences.push(...modeBDifferences(caseDir, scenario, baseline, candidate))
+    }
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
+  const identical = differences.length === 0
+  return {
+    report: {
+      mode: 'B',
+      verdict: identical ? 'byte-identical' : 'deterministic-diff',
+      differences,
+      authorizesCutover: identical,
+    },
+    exitCode: identical ? 0 : 1,
+  }
+}
+
 export function verifyRelease(input: VerifyReleaseInput): VerifyReleaseResult {
+  if (input.mode === 'B') return verifyModeB(input)
   if (hasRequest(input.corpus)) {
     return verifySingleCase(input)
   }
-  return verifyCorpus(input)
+  return verifyModeACorpus(input)
 }
