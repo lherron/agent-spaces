@@ -36,6 +36,7 @@ import { harnessRegistry } from '../harness/index.js'
 
 import { maybeCompileForRun } from './compiler-debug.js'
 import { executeHarnessRun } from './execute.js'
+import { assertHarnessAvailableForRun } from './placement-plan.js'
 import type { GlobalRunOptions, RunResult } from './types.js'
 import {
   cleanupTempDir,
@@ -287,6 +288,7 @@ export async function runGlobalSpace(
   const aspHome = options.aspHome ?? getAspHome()
   const paths = new PathResolver({ aspHome })
   const harnessId = options.harness ?? DEFAULT_HARNESS
+  assertHarnessAvailableForRun(harnessId)
   const adapter = harnessRegistry.getOrThrow(harnessId)
   const detection = await adapter.detect()
 
@@ -383,6 +385,7 @@ export async function runLocalSpace(
 ): Promise<RunResult> {
   const aspHome = options.aspHome ?? getAspHome()
   const harnessId = options.harness ?? DEFAULT_HARNESS
+  assertHarnessAvailableForRun(harnessId)
   const adapter = harnessRegistry.getOrThrow(harnessId)
   const detection = await adapter.detect()
 

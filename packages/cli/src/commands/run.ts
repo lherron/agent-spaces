@@ -333,9 +333,9 @@ export function registerRunCommand(program: Command): void {
     .argument('[prompt]', 'Optional initial prompt')
     .option(
       '--harness <id>',
-      'Coding agent harness to use (default: claude, e.g., claude-agent-sdk, codex, pi, pi-sdk)'
+      'Coding agent harness to use (default: claude; supported: claude, codex, pi)'
     )
-    .option('--model <model>', 'Model override (pi-sdk expects provider:model)')
+    .option('--model <model>', 'Model override')
     .option('--model-reasoning-effort <effort>', 'Codex model reasoning effort override')
     .option('--permission-mode <mode>', 'Claude permission mode (--permission-mode)')
     .option('--no-interactive', 'Run non-interactively')

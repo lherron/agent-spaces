@@ -80,6 +80,14 @@ export interface ProjectTargetRuntimePlan {
   defaultRunOptions: Partial<HarnessRunOptions>
 }
 
+export function assertHarnessAvailableForRun(harnessId: HarnessId): void {
+  if (harnessId === 'claude-agent-sdk' || harnessId === 'pi-sdk') {
+    throw new Error(
+      `Harness "${harnessId}" is retired from asp run; use hrc to spawn non-foreground runtimes.`
+    )
+  }
+}
+
 function parsePlacementRuntimeModelId(
   modelId: string
 ): Omit<PlacementRuntimeModelInfo, 'explicit'> | null {
@@ -182,6 +190,7 @@ export function planProjectTargetRuntime(
     resolveProfileHarnessForRun(agentDefaults?.harness) ??
     resolveProfileHarnessForRun(target?.harness) ??
     DEFAULT_HARNESS
+  assertHarnessAvailableForRun(harnessId)
   const adapter = harnessRegistry.getOrThrow(harnessId)
   const primingPrompt = resolveAgentPrimingPromptForRun(target, agentProfile)
   const effectiveManifest =

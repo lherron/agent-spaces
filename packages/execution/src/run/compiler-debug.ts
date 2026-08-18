@@ -11,7 +11,7 @@
  * the emitted shape.
  */
 
-import { type HarnessId, getHarnessCatalogEntry, isHarnessId } from 'spaces-config'
+import { type HarnessId, getHarnessCatalogEntry } from 'spaces-config'
 
 import type { CompileRuntimeFn, LaunchShape, RunCompileOutcome } from './types.js'
 import type { RunCompilerDebugContext } from './types.js'
@@ -20,7 +20,7 @@ function harnessFamilyForHarness(
   harnessId: string
 ): RunCompilerDebugContext['requested']['harnessFamily'] {
   if (harnessId === 'codex') return 'codex'
-  if (harnessId === 'pi' || harnessId === 'pi-sdk') return 'pi'
+  if (harnessId === 'pi') return 'pi'
   return 'claude-code'
 }
 
@@ -28,30 +28,19 @@ function harnessRuntimeForHarness(
   harnessId: string
 ): RunCompilerDebugContext['requested']['preferredHarnessRuntime'] {
   switch (harnessId) {
-    case 'claude-agent-sdk':
-      return 'claude-agent-sdk'
     case 'codex':
       return 'codex-cli'
     case 'pi':
       return 'pi-cli'
-    case 'pi-sdk':
-      return 'pi-sdk'
     default:
       return 'claude-code-cli'
   }
 }
 
 function compileInteractionMode(
-  interactive: boolean | undefined,
-  harnessId?: string
+  interactive: boolean | undefined
 ): RunCompilerDebugContext['requested']['interactionMode'] {
   if (interactive !== false) return 'interactive'
-  // SDK-shaped runtimes use nonInteractive interaction semantics. pi-sdk now
-  // reaches the broker's in-process driver; claude-agent-sdk retains its legacy
-  // SDK route. The catalog's `transport: 'sdk'` flag identifies both frontends.
-  if (harnessId !== undefined && isHarnessId(harnessId)) {
-    if (getHarnessCatalogEntry(harnessId).transport === 'sdk') return 'nonInteractive'
-  }
   return 'headless'
 }
 
@@ -120,7 +109,7 @@ function buildCompilerDebugContext(args: BuildCompilerDebugContextArgs): RunComp
       reasoningEffort: args.reasoningEffort,
       harnessFamily: harnessFamilyForHarness(args.harnessId),
       preferredHarnessRuntime: harnessRuntimeForHarness(args.harnessId),
-      interactionMode: compileInteractionMode(args.interactive, args.harnessId),
+      interactionMode: compileInteractionMode(args.interactive),
     },
     materialization: {
       initialPrompt: args.initialPrompt,
