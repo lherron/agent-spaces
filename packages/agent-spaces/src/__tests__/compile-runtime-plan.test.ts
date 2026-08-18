@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
+import { harnessRegistry, planPlacementRuntime } from 'spaces-execution'
 import type { InputId, InvocationId } from 'spaces-harness-broker-protocol'
 import { validateInvocationStartRequest } from 'spaces-harness-broker-protocol'
 import type {
@@ -427,6 +428,54 @@ describe('compileRuntimePlan broker profile contract', () => {
       process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = originalSkipCommon
     }
     fixture.cleanup()
+  })
+
+  test('keeps retired run IDs available to registry, broker compile, and shared placement', async () => {
+    expect(harnessRegistry.getOrThrow('claude-agent-sdk').id).toBe('claude-agent-sdk')
+    expect(harnessRegistry.getOrThrow('pi-sdk').id).toBe('pi-sdk')
+
+    const response = await createClient().compileRuntimePlan(
+      baseCompileRequest({
+        requested: {
+          modelProvider: 'openai',
+          model: 'gpt-5.5',
+          reasoningEffort: 'medium',
+          harnessFamily: 'pi',
+          preferredHarnessRuntime: 'pi-sdk',
+          interactionMode: 'nonInteractive',
+        },
+        materialization: {
+          ...baseCompileRequest().materialization,
+          attachments: [],
+        },
+        continuation: undefined,
+      })
+    )
+    expect(brokerProfile(response).brokerDriver).toBe('pi-sdk')
+
+    const placement = {
+      bundle: { kind: 'agent-project' as const, agentName: 'cody' },
+    } as unknown as Parameters<typeof planPlacementRuntime>[0]['placement']
+    const placementContext = {
+      materialization: { manifest: undefined, effectiveConfig: undefined },
+      resolvedBundle: { cwd: fixture.projectRoot },
+    } as unknown as Parameters<typeof planPlacementRuntime>[0]['placementContext']
+
+    const agentSdkPlan = await planPlacementRuntime({
+      placement,
+      placementContext,
+      frontend: 'agent-sdk',
+      aspHome: fixture.aspHome,
+    })
+    const piSdkPlan = await planPlacementRuntime({
+      placement,
+      placementContext,
+      frontend: 'pi-sdk',
+      aspHome: fixture.aspHome,
+    })
+
+    expect(agentSdkPlan.harnessId).toBe('claude-agent-sdk')
+    expect(piSdkPlan.harnessId).toBe('pi-sdk')
   })
 
   test('compiles openai codex headless to a validating harness-broker profile preserving caller ids', async () => {

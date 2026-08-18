@@ -17,7 +17,12 @@ import {
   getProjectHarnessOutputPath,
   resolveEffectiveCompose,
 } from 'spaces-config'
-import type { AgentRuntimeProfile, SpaceRefString, TargetDefinition } from 'spaces-config'
+import type {
+  AgentRuntimeProfile,
+  ProjectManifest,
+  SpaceRefString,
+  TargetDefinition,
+} from 'spaces-config'
 import { harnessRegistry } from './harness/index.js'
 import {
   ensureCodexProjectTrust,
@@ -839,6 +844,68 @@ describe('placement runtime planner (T-01097)', () => {
 })
 
 describe('project-target runtime planner (T-01099)', () => {
+  test('refuses retired SDK harnesses after resolving the effective project harness', async () => {
+    const { planProjectTargetRuntime } = await import('./run/placement-plan.js')
+    const root = await createTempDir('proj-target-retired-sdk-')
+    const manifest: ProjectManifest = {
+      schema: 1,
+      targets: {
+        sdk_target: {
+          compose: [],
+          harness: 'pi-sdk',
+        },
+      },
+    }
+
+    const explicitError = (() => {
+      try {
+        planProjectTargetRuntime(manifest, 'sdk_target', {
+          aspHome: join(root, 'asp-home'),
+          projectPath: root,
+          harness: 'claude-agent-sdk',
+        })
+        return undefined
+      } catch (error) {
+        return error
+      }
+    })()
+    const declaredError = (() => {
+      try {
+        planProjectTargetRuntime(manifest, 'sdk_target', {
+          aspHome: join(root, 'asp-home'),
+          projectPath: root,
+        })
+        return undefined
+      } catch (error) {
+        return error
+      }
+    })()
+
+    expect({
+      explicit: /claude-agent-sdk.*retired.*hrc/i.test(String(explicitError)),
+      declared: /pi-sdk.*retired.*hrc/i.test(String(declaredError)),
+    }).toEqual({ explicit: true, declared: true })
+  })
+
+  test('continues planning every retained project harness', async () => {
+    const { planProjectTargetRuntime } = await import('./run/placement-plan.js')
+    const root = await createTempDir('proj-target-retained-harness-')
+    const manifest: ProjectManifest = {
+      schema: 1,
+      targets: { retained_target: { compose: [] } },
+    }
+
+    for (const harnessId of ['claude', 'codex', 'pi'] as const) {
+      const plan = planProjectTargetRuntime(manifest, 'retained_target', {
+        aspHome: join(root, 'asp-home'),
+        projectPath: root,
+        harness: harnessId,
+      })
+      expect(plan.harnessId).toBe(harnessId)
+      expect(plan.adapter).toBe(harnessRegistry.getOrThrow(harnessId))
+    }
+  })
+
   test('planProjectTargetRuntime resolves a project target into a runtime plan', async () => {
     const { planProjectTargetRuntime } = await import('./run/placement-plan.js')
     const aspHome = await createTempDir('proj-target-plan-')
