@@ -7,7 +7,7 @@ import type {
   UnifiedSessionEvent,
 } from 'spaces-execution'
 
-import type { AgentEvent, HarnessContinuationRef } from './types.js'
+import type { AgentEvent, HarnessContinuationRef } from 'agent-spaces'
 
 // ---------------------------------------------------------------------------
 // Types

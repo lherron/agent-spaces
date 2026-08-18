@@ -1,7 +1,7 @@
 {
-  "name": "agent-spaces",
+  "name": "spaces-turn-runner",
   "version": "0.1.1",
-  "description": "Compiler client surface for Agent Spaces",
+  "description": "In-process SDK turn execution for Agent Spaces",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,11 +10,6 @@
       "bun": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./turn-support": {
-      "bun": "./src/turn-support.ts",
-      "types": "./dist/turn-support.d.ts",
-      "import": "./dist/turn-support.js"
     }
   },
   "files": [
@@ -28,14 +23,11 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
-    "agent-scope": "*",
+    "agent-spaces": "workspace:*",
     "spaces-config": "*",
     "spaces-execution": "*",
-    "spaces-harness-broker-client": "*",
-    "spaces-harness-broker-protocol": "*",
-    "spaces-harness-codex": "*",
-    "spaces-runtime": "*",
-    "spaces-runtime-contracts": "*"
+    "spaces-harness-pi-sdk": "*",
+    "spaces-runtime": "*"
   },
   "devDependencies": {
     "@types/bun": "latest",

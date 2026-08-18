@@ -25,6 +25,7 @@ const WORKSPACES: Array<{ src: string; dest: string }> = [
   { src: '../execution', dest: 'spaces-execution' },
   { src: '../spaces-runtime-contracts', dest: 'spaces-runtime-contracts' },
   { src: '../agent-spaces', dest: 'agent-spaces' },
+  { src: '../turn-runner', dest: 'spaces-turn-runner' },
   { src: '../agent-scope', dest: 'agent-scope' },
   { src: '../cli-kit', dest: 'cli-kit' },
 ]
@@ -47,6 +48,8 @@ const SPECIFIER_TARGETS: Record<string, string> = {
   'spaces-execution': 'spaces-execution/dist/index.js',
   'spaces-runtime-contracts': 'spaces-runtime-contracts/dist/index.js',
   'agent-spaces': 'agent-spaces/dist/index.js',
+  'agent-spaces/turn-support': 'agent-spaces/dist/turn-support.js',
+  'spaces-turn-runner': 'spaces-turn-runner/dist/index.js',
   'agent-scope': 'agent-scope/dist/index.js',
   'cli-kit': 'cli-kit/dist/index.js',
 }
@@ -85,7 +88,7 @@ async function backupMutableFiles() {
 }
 
 const BARE_IMPORT_RE =
-  /((?:from|import)\s*['"])(spaces-[a-z][a-z-]*(?:\/[a-z][a-z-]*)?|agent-spaces|agent-scope|cli-kit)(['"])/g
+  /((?:from|import)\s*['"])(spaces-[a-z][a-z-]*(?:\/[a-z][a-z-]*)?|agent-spaces(?:\/turn-support)?|agent-scope|cli-kit)(['"])/g
 
 async function copyWorkspaces() {
   for (const { src, dest } of WORKSPACES) {

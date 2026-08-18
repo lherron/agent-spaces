@@ -15,10 +15,26 @@
     },
     {
       "package": "agent-scope",
+      "symbol": "ASP_DEFAULT_TASK_ENV",
+      "kind": "value",
+      "file": "packages/agent-scope/src/input.ts",
+      "hash": "agent-scope|ASP_DEFAULT_TASK_ENV|value",
+      "count": 1
+    },
+    {
+      "package": "agent-scope",
       "symbol": "buildScopeRef",
       "kind": "value",
       "file": "packages/agent-scope/src/scope-ref.ts",
       "hash": "agent-scope|buildScopeRef|value",
+      "count": 1
+    },
+    {
+      "package": "agent-scope",
+      "symbol": "DEFAULT_PRIMARY_TASK_ID",
+      "kind": "value",
+      "file": "packages/agent-scope/src/input.ts",
+      "hash": "agent-scope|DEFAULT_PRIMARY_TASK_ID|value",
       "count": 1
     },
     {
@@ -1143,6 +1159,14 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "HarnessSdkSpec",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/invocation.ts",
+      "hash": "spaces-harness-broker-protocol|HarnessSdkSpec|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "HarnessStartedPayload",
       "kind": "type",
       "file": "packages/harness-broker-protocol/src/lifecycle.ts",
@@ -1195,6 +1219,14 @@
       "kind": "type",
       "file": "packages/harness-broker-protocol/src/commands.ts",
       "hash": "spaces-harness-broker-protocol|InputPolicy|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "InputPolicyWhenBusy",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/capabilities.ts",
+      "hash": "spaces-harness-broker-protocol|InputPolicyWhenBusy|type",
       "count": 1
     },
     {
@@ -1279,6 +1311,14 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "InvocationEvent",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|InvocationEvent|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "InvocationEventEnvelope",
       "kind": "type",
       "file": "packages/harness-broker-protocol/src/events.ts",
@@ -1287,10 +1327,42 @@
     },
     {
       "package": "spaces-harness-broker-protocol",
+      "symbol": "InvocationEventEnvelopeBase",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|InvocationEventEnvelopeBase|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "InvocationEventEnvelopeFor",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|InvocationEventEnvelopeFor|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "InvocationEventFor",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|InvocationEventFor|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
       "symbol": "InvocationEventPayload",
       "kind": "type",
       "file": "packages/harness-broker-protocol/src/events.ts",
       "hash": "spaces-harness-broker-protocol|InvocationEventPayload|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "InvocationEventPayloadMap",
+      "kind": "type",
+      "file": "packages/harness-broker-protocol/src/events.ts",
+      "hash": "spaces-harness-broker-protocol|InvocationEventPayloadMap|type",
       "count": 1
     },
     {
@@ -1715,6 +1787,14 @@
       "kind": "type",
       "file": "packages/harness-broker-protocol/src/primitives.ts",
       "hash": "spaces-harness-broker-protocol|JsonValue|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-harness-broker-protocol",
+      "symbol": "LEGACY_BUSY_POLICIES",
+      "kind": "value",
+      "file": "packages/harness-broker-protocol/src/capabilities.ts",
+      "hash": "spaces-harness-broker-protocol|LEGACY_BUSY_POLICIES|value",
       "count": 1
     },
     {
@@ -2751,6 +2831,14 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "CompiledAgentPolicy",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/compiler-plan.ts",
+      "hash": "spaces-runtime-contracts|CompiledAgentPolicy|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "CompileDiagnostic",
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/compiler-plan.ts",
@@ -2839,6 +2927,14 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "defineRuntimeRouteCatalog",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/route-catalog.ts",
+      "hash": "spaces-runtime-contracts|defineRuntimeRouteCatalog|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "DispatchTurnRequest",
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/public-api.ts",
@@ -2871,22 +2967,6 @@
     },
     {
       "package": "spaces-runtime-contracts",
-      "symbol": "EmbeddedSdkExecutionProfile",
-      "kind": "type",
-      "file": "packages/spaces-runtime-contracts/src/execution-profile.ts",
-      "hash": "spaces-runtime-contracts|EmbeddedSdkExecutionProfile|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "EmbeddedSdkRuntimeState",
-      "kind": "type",
-      "file": "packages/spaces-runtime-contracts/src/runtime-state.ts",
-      "hash": "spaces-runtime-contracts|EmbeddedSdkRuntimeState|type",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
       "symbol": "EnsureRuntimeRequest",
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/public-api.ts",
@@ -2899,6 +2979,14 @@
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/public-api.ts",
       "hash": "spaces-runtime-contracts|EnsureRuntimeResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "findPiSdkModelCatalogEntry",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/route-catalog.ts",
+      "hash": "spaces-runtime-contracts|findPiSdkModelCatalogEntry|value",
       "count": 1
     },
     {
@@ -2971,6 +3059,30 @@
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/hash.ts",
       "hash": "spaces-runtime-contracts|HashMaterialPolicy|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "hashNeutralInvocationSpec",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/hash.ts",
+      "hash": "spaces-runtime-contracts|hashNeutralInvocationSpec|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "HashNeutralInvocationSpecMaterial",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/hash.ts",
+      "hash": "spaces-runtime-contracts|HashNeutralInvocationSpecMaterial|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "hashNeutralStartRequest",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/hash.ts",
+      "hash": "spaces-runtime-contracts|hashNeutralStartRequest|value",
       "count": 1
     },
     {
@@ -3255,6 +3367,22 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "neutralSpecHash",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/hash.ts",
+      "hash": "spaces-runtime-contracts|neutralSpecHash|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "neutralStartRequestHash",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/hash.ts",
+      "hash": "spaces-runtime-contracts|neutralStartRequestHash|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "OUTPUT_MANIFEST_SCHEMA_VERSION",
       "kind": "value",
       "file": "packages/spaces-runtime-contracts/src/output-manifest.ts",
@@ -3323,6 +3451,22 @@
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/public-api.ts",
       "hash": "spaces-runtime-contracts|PermissionRespondResponse|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "PI_SDK_MODEL_CATALOG",
+      "kind": "value",
+      "file": "packages/spaces-runtime-contracts/src/route-catalog.ts",
+      "hash": "spaces-runtime-contracts|PI_SDK_MODEL_CATALOG|value",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
+      "symbol": "PiSdkModelCatalogEntry",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/route-catalog.ts",
+      "hash": "spaces-runtime-contracts|PiSdkModelCatalogEntry|type",
       "count": 1
     },
     {
@@ -3879,6 +4023,14 @@
     },
     {
       "package": "spaces-runtime-contracts",
+      "symbol": "StartRequestHashMaterial",
+      "kind": "type",
+      "file": "packages/spaces-runtime-contracts/src/hash.ts",
+      "hash": "spaces-runtime-contracts|StartRequestHashMaterial|type",
+      "count": 1
+    },
+    {
+      "package": "spaces-runtime-contracts",
       "symbol": "StartRuntimeRequest",
       "kind": "type",
       "file": "packages/spaces-runtime-contracts/src/public-api.ts",
@@ -4003,14 +4155,6 @@
       "kind": "value",
       "file": "packages/spaces-runtime-contracts/src/validate-execution-profile.ts",
       "hash": "spaces-runtime-contracts|validateBrokerExecutionProfile|value",
-      "count": 1
-    },
-    {
-      "package": "spaces-runtime-contracts",
-      "symbol": "validateEmbeddedSdkExecutionProfile",
-      "kind": "value",
-      "file": "packages/spaces-runtime-contracts/src/validate-execution-profile.ts",
-      "hash": "spaces-runtime-contracts|validateEmbeddedSdkExecutionProfile|value",
       "count": 1
     },
     {

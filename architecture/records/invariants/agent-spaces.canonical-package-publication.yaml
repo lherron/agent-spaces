@@ -26,8 +26,8 @@ required_tests:
   - bun scripts/publish-local-verdaccio.ts --channel canonical --dry-run exits 0 from clean contained source
   - bun scripts/smoke-pack-cross-repo.ts exits 0
 last_verified:
-  date: 2026-07-25
-  evidence: T-06951 canonical publication provenance and refusal predicates
+  date: 2026-08-18
+  evidence: spaces-turn-runner coherent package-set expansion approved in hrcchat#19483
 reopen_when:
   - the ASP coherent package set or registry changes
   - canonical source authority or named-ref policy changes

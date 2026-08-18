@@ -51,6 +51,7 @@ export const aspPackages = [
   'aspc-protocol',
   'harness-broker-client',
   'agent-spaces',
+  'turn-runner',
   'aspc',
   'cli',
 ]

@@ -1,9 +1,9 @@
 import type { UnifiedSessionEvent } from 'spaces-execution'
 
-import { CodedError } from './client-support.js'
+import type { AgentSpacesError, RunResult, RunTurnNonInteractiveResponse } from 'agent-spaces'
+import { CodedError } from 'agent-spaces/turn-support'
 import type { InFlightRunContext } from './run-tracker.js'
 import { type EventEmitter, type EventPayload, mapContentToText } from './session-events.js'
-import type { AgentSpacesError, RunResult, RunTurnNonInteractiveResponse } from './types.js'
 
 export function toAgentSpacesError(
   error: unknown,

@@ -7,6 +7,7 @@ const fastSuiteArgs = [
   `--timeout=${FAST_TEST_TIMEOUT_MS}`,
   'packages/agent-scope',
   'packages/agent-spaces',
+  'packages/turn-runner',
   'packages/cli-kit',
   'packages/config',
   'packages/execution',

@@ -26,6 +26,7 @@ const DEV_PUBLISH_PACKAGES = [
   'packages/harness-pi',
   'packages/harness-pi-sdk',
   'packages/agent-spaces',
+  'packages/turn-runner',
   'packages/aspc',
 ] as const
 

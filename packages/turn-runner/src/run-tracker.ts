@@ -9,7 +9,7 @@ import type {
   ProviderDomain,
   RunResult,
   RunTurnNonInteractiveResponse,
-} from './types.js'
+} from 'agent-spaces'
 
 // ---------------------------------------------------------------------------
 // Internal types

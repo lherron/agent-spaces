@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseScopeRef, resolveScopeInput } from 'agent-scope'
-import { type AgentEvent, createAgentSpacesClient } from 'agent-spaces'
+import type { AgentEvent } from 'agent-spaces'
 import type { Command } from 'commander'
 import {
   type RuntimePlacement,
@@ -26,6 +26,7 @@ import {
   resolveHarnessProvider,
   resolvePlacement,
 } from 'spaces-config'
+import { createAgentSpacesClient } from 'spaces-turn-runner'
 import { parseEnvFlags } from './shared.js'
 
 const VALID_MODES = ['query', 'heartbeat', 'task', 'maintenance', 'resolve'] as const

@@ -14,15 +14,21 @@ import {
 import { PiSession, loadPiSdkBundle } from 'spaces-harness-pi-sdk/pi-session'
 import { materializeSystemPrompt } from 'spaces-runtime'
 
-import { deriveHandleParts } from './broker-invocation.js'
-import { materializeSpec } from './client-materialization.js'
+import type {
+  HarnessContinuationRef,
+  RunResult,
+  RunTurnNonInteractiveRequest,
+  RunTurnNonInteractiveResponse,
+} from 'agent-spaces'
 import {
   AGENT_SDK_FRONTEND,
   PI_SDK_FRONTEND,
   assertProviderMatch,
+  composeAgentLocalEnv,
+  deriveHandleParts,
+  materializeSpec,
   resolveFrontend,
-} from './client-support.js'
-import { composeAgentLocalEnv } from './compose-agent-local-env.js'
+} from 'agent-spaces/turn-support'
 import type { InFlightRunContext } from './run-tracker.js'
 import { enqueueInFlightPrompt } from './run-tracker.js'
 import { emitTurnFailure, toAgentSpacesError } from './run-turn-helpers.js'
@@ -38,12 +44,6 @@ import {
   createEventEmitter,
 } from './session-events.js'
 import { attachTurnDriver } from './turn-driver.js'
-import type {
-  HarnessContinuationRef,
-  RunResult,
-  RunTurnNonInteractiveRequest,
-  RunTurnNonInteractiveResponse,
-} from './types.js'
 
 /**
  * Handle placement-based runTurnNonInteractive request.

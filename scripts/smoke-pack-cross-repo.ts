@@ -28,6 +28,7 @@ const PACKAGES = [
   'packages/spaces-runtime-contracts',
   'packages/aspc-protocol',
   'packages/agent-spaces',
+  'packages/turn-runner',
 ] as const
 
 type CheckOutcome =
