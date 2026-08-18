@@ -40,6 +40,11 @@ const PREPARE_CLI_RUNTIME_REGION = [
 const RUN_PLACEMENT_TURN_DECL = 'export async function runPlacementTurnNonInteractive'
 const HEAVY_TEST_TIMEOUT_MS = 60_000
 
+async function createTurnClient(options?: { aspHome?: string; registryPath?: string }) {
+  const { createAgentSpacesClient } = await import('../../../turn-runner/src/index.js')
+  return createAgentSpacesClient(options)
+}
+
 beforeAll(() => {
   const agentRoot = '/tmp/asp-test-m5/agent-root'
   mkdirSync(agentRoot, { recursive: true })
@@ -300,10 +305,8 @@ describe('resolvedBundle from APIs (T-00862)', () => {
 // ===================================================================
 describe('createAgentSpacesClient options (T-00863)', () => {
   test('accepts AgentSpacesClientOptions with aspHome', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
-
     // New signature should accept options object
-    const client = createAgentSpacesClient({
+    const client = await createTurnClient({
       aspHome: '/custom/asp/home',
     })
 
@@ -470,8 +473,7 @@ describe('correlation env vars (T-00864)', () => {
 // ===================================================================
 describe('placement-based runTurnNonInteractive (T-00873)', () => {
   test('placement dispatch returns model_not_supported with structured events', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+    const client = await createTurnClient({ aspHome: '/tmp/asp-test-m5' })
     const events: Array<{ type: string; seq: number }> = []
 
     const response = await client.runTurnNonInteractive({
@@ -502,8 +504,7 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
   })
 
   test('placement dispatch emits hostSessionId and runId on events', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+    const client = await createTurnClient({ aspHome: '/tmp/asp-test-m5' })
     const events: Array<{ hostSessionId: string; runId: string }> = []
 
     await client.runTurnNonInteractive({
@@ -532,8 +533,7 @@ describe('placement-based runTurnNonInteractive (T-00873)', () => {
   })
 
   test('placement dispatch catches provider mismatch', async () => {
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-m5' })
+    const client = await createTurnClient({ aspHome: '/tmp/asp-test-m5' })
     const events: Array<{ type: string }> = []
 
     const response = await client.runTurnNonInteractive({
@@ -672,8 +672,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
   test('placement.correlation.hostSessionId is used when top-level hostSessionId absent', async () => {
     // RED: Currently throws "hostSessionId is required" because
     // resolveHostSessionId(req) only reads req.hostSessionId
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-t891' })
+    const client = await createTurnClient({ aspHome: '/tmp/asp-test-t891' })
     const events: Array<{ hostSessionId: string; runId: string }> = []
 
     // Call with correlation nested in placement, NO top-level hostSessionId/runId
@@ -707,8 +706,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
   test('placement.correlation.runId is used when top-level runId absent', async () => {
     // RED: Currently passes undefined runId to createEventEmitter because
     // req.runId is not set and placement.correlation.runId is ignored
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-t891b' })
+    const client = await createTurnClient({ aspHome: '/tmp/asp-test-t891b' })
     const events: Array<{ runId: string }> = []
 
     await client.runTurnNonInteractive({
@@ -740,8 +738,7 @@ describe('placement.correlation for hostSessionId/runId (T-00891)', () => {
 
   test('top-level hostSessionId/runId still works (backward compat)', async () => {
     // GREEN: This should already pass — existing behavior
-    const { createAgentSpacesClient } = await import('../index.js')
-    const client = createAgentSpacesClient({ aspHome: '/tmp/asp-test-t891c' })
+    const client = await createTurnClient({ aspHome: '/tmp/asp-test-t891c' })
     const events: Array<{ hostSessionId: string; runId: string }> = []
 
     await client.runTurnNonInteractive({

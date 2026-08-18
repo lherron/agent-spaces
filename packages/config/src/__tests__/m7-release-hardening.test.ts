@@ -143,7 +143,7 @@ describe('final success criteria (T-00871)', () => {
 
   // Criterion 2: agent-spaces public APIs are placement-based
   test('criterion 2: public API has placement-based methods', async () => {
-    const { createAgentSpacesClient } = await import('agent-spaces')
+    const { createAgentSpacesClient } = await import('../../../turn-runner/src/index.js')
     const client = createAgentSpacesClient()
     expect(typeof client.buildProcessInvocationSpec).toBe('function')
     expect(typeof client.runTurnNonInteractive).toBe('function')

@@ -4,10 +4,12 @@ import { join } from 'node:path'
 
 import { describe, expect, test } from 'bun:test'
 
+import { createAgentSpacesClient as createTurnRunnerClient } from '../../turn-runner/src/index.js'
 import { createAgentSpacesClient } from './index.js'
 import type { AgentEvent } from './types.js'
 
 const client = createAgentSpacesClient()
+const turnClient = createTurnRunnerClient()
 
 // ---------------------------------------------------------------------------
 // getHarnessCapabilities
@@ -287,7 +289,7 @@ describe('runTurnNonInteractive', () => {
   test('returns model_not_supported and emits ordered events', async () => {
     const events: Array<{ type: string; seq: number }> = []
 
-    const response = await client.runTurnNonInteractive({
+    const response = await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-test',
       runId: 'run-test',
       aspHome: '/tmp/asp-test',
@@ -314,7 +316,7 @@ describe('runTurnNonInteractive', () => {
   test('emits events with hostSessionId and runId', async () => {
     const events: Array<{ hostSessionId: string; runId: string }> = []
 
-    await client.runTurnNonInteractive({
+    await turnClient.runTurnNonInteractive({
       hostSessionId: 'cp-session-123',
       runId: 'run-456',
       aspHome: '/tmp/asp-test',
@@ -341,7 +343,7 @@ describe('runTurnNonInteractive', () => {
     const missingSessionPath = join(tmpdir(), `asp-missing-${Date.now()}`)
     await rm(missingSessionPath, { recursive: true, force: true })
 
-    const response = await client.runTurnNonInteractive({
+    const response = await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-missing',
       runId: 'run-missing',
       aspHome: '/tmp/asp-test',
@@ -363,7 +365,7 @@ describe('runTurnNonInteractive', () => {
   test('returns provider_mismatch for wrong continuation provider', async () => {
     const events: Array<{ type: string }> = []
 
-    const response = await client.runTurnNonInteractive({
+    const response = await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-mismatch',
       runId: 'run-mismatch',
       aspHome: '/tmp/asp-test',
@@ -392,7 +394,7 @@ describe('runTurnNonInteractive', () => {
 
     // This will fail during materialization since we don't have a real registry,
     // but we can verify the continuation was set on events before the failure
-    await client.runTurnNonInteractive({
+    await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-pi-first',
       runId: 'run-pi-first',
       aspHome: '/tmp/asp-test',
@@ -419,7 +421,7 @@ describe('runTurnNonInteractive', () => {
   test('uses default model when none specified and passes model validation', async () => {
     const events: AgentEvent[] = []
 
-    const response = await client.runTurnNonInteractive({
+    const response = await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-default-model',
       runId: 'run-default-model',
       aspHome: '/tmp/asp-test',
@@ -443,7 +445,7 @@ describe('runTurnNonInteractive', () => {
   test('emits events with valid ISO timestamps', async () => {
     const events: AgentEvent[] = []
 
-    await client.runTurnNonInteractive({
+    await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-ts',
       runId: 'run-ts',
       aspHome: '/tmp/asp-test',
@@ -468,7 +470,7 @@ describe('runTurnNonInteractive', () => {
   test('seq counter starts at 1 and increments monotonically', async () => {
     const seqs: number[] = []
 
-    await client.runTurnNonInteractive({
+    await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-seq',
       runId: 'run-seq',
       aspHome: '/tmp/asp-test',
@@ -491,7 +493,7 @@ describe('runTurnNonInteractive', () => {
     const missingPath = join(tmpdir(), `asp-missing-ref-${Date.now()}`)
     await rm(missingPath, { recursive: true, force: true })
 
-    const response = await client.runTurnNonInteractive({
+    const response = await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-cont-ref',
       runId: 'run-cont-ref',
       aspHome: '/tmp/asp-test',
@@ -511,7 +513,7 @@ describe('runTurnNonInteractive', () => {
   })
 
   test('model_not_supported response includes the rejected model id', async () => {
-    const response = await client.runTurnNonInteractive({
+    const response = await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-bad-model',
       runId: 'run-bad-model',
       aspHome: '/tmp/asp-test',
@@ -534,7 +536,7 @@ describe('runTurnNonInteractive', () => {
 
     // Run twice with the same hostSessionId
     for (const events of [events1, events2]) {
-      await client.runTurnNonInteractive({
+      await turnClient.runTurnNonInteractive({
         hostSessionId: 'deterministic-session',
         runId: `run-${events === events1 ? '1' : '2'}`,
         aspHome: '/tmp/asp-test',
@@ -559,7 +561,7 @@ describe('runTurnNonInteractive', () => {
   test('user message event contains the prompt text', async () => {
     const events: AgentEvent[] = []
 
-    await client.runTurnNonInteractive({
+    await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-prompt',
       runId: 'run-prompt',
       aspHome: '/tmp/asp-test',
@@ -581,7 +583,7 @@ describe('runTurnNonInteractive', () => {
   })
 
   test('returns error for relative cwd path', async () => {
-    const response = await client.runTurnNonInteractive({
+    const response = await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-rel-cwd',
       runId: 'run-rel-cwd',
       aspHome: '/tmp/asp-test',
@@ -599,7 +601,7 @@ describe('runTurnNonInteractive', () => {
   test('complete event contains RunResult', async () => {
     const events: AgentEvent[] = []
 
-    await client.runTurnNonInteractive({
+    await turnClient.runTurnNonInteractive({
       hostSessionId: 'session-complete',
       runId: 'run-complete',
       aspHome: '/tmp/asp-test',
@@ -628,7 +630,7 @@ describe('runTurnInFlight', () => {
   test('returns unsupported_frontend for non-agent-sdk frontends', async () => {
     const events: Array<{ type: string }> = []
 
-    const response = await client.runTurnInFlight({
+    const response = await turnClient.runTurnInFlight({
       hostSessionId: 'inflight-unsupported',
       runId: 'run-inflight-unsupported',
       aspHome: '/tmp/asp-test',
@@ -653,7 +655,7 @@ describe('runTurnInFlight', () => {
 describe('in-flight control methods', () => {
   test('queueInFlightInput throws when no active run exists', async () => {
     await expect(
-      client.queueInFlightInput({
+      turnClient.queueInFlightInput({
         hostSessionId: 'missing-session',
         runId: 'missing-run',
         prompt: 'hello',
@@ -663,7 +665,7 @@ describe('in-flight control methods', () => {
 
   test('interruptInFlightTurn throws when no active run exists', async () => {
     await expect(
-      client.interruptInFlightTurn({
+      turnClient.interruptInFlightTurn({
         hostSessionId: 'missing-session',
       })
     ).rejects.toThrow(/No active in-flight run/)

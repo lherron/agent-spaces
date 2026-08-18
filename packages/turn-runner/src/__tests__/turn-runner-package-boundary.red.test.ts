@@ -75,7 +75,7 @@ describe('spaces-turn-runner package boundary', () => {
 
   test('AC3: relocated turn errors preserve the compiler CodedError identity and code', async () => {
     const [{ createAgentSpacesClient }, { CodedError }] = await Promise.all([
-      import('spaces-turn-runner'),
+      import('../index.js'),
       import('agent-spaces/turn-support'),
     ])
     const client = createAgentSpacesClient()
@@ -101,7 +101,7 @@ describe('spaces-turn-runner package boundary', () => {
   test('AC4: the turn-runner client exposes compiler capabilities and all turn methods', async () => {
     const [compilerModule, turnRunnerModule] = await Promise.all([
       import('agent-spaces'),
-      import('spaces-turn-runner'),
+      import('../index.js'),
     ])
     const compilerClient = compilerModule.createAgentSpacesClient()
     const turnRunnerClient = turnRunnerModule.createAgentSpacesClient()
