@@ -61,47 +61,6 @@ describe('asp run global mode', () => {
     await cleanupShimOutput()
   })
 
-  test('refuses retired SDK harnesses in global and local run modes', async () => {
-    const localSpacePath = await fs.mkdtemp('/tmp/asp-retired-sdk-space-')
-    await fs.writeFile(
-      path.join(localSpacePath, 'space.toml'),
-      'schema = 1\nid = "retired-sdk-test"\ndescription = "Retired SDK guard fixture"\n'
-    )
-
-    try {
-      const globalError = await runGlobalSpace('space:base@stable', {
-        aspHome,
-        registryPath: SAMPLE_REGISTRY_DIR,
-        harness: 'claude-agent-sdk',
-        interactive: false,
-        prompt: 'must not run',
-        dryRun: true,
-        printWarnings: false,
-      }).then(
-        () => undefined,
-        (error: unknown) => error
-      )
-      const localError = await runLocalSpace(localSpacePath, {
-        aspHome,
-        harness: 'pi-sdk',
-        interactive: false,
-        prompt: 'must not run',
-        dryRun: true,
-        printWarnings: false,
-      }).then(
-        () => undefined,
-        (error: unknown) => error
-      )
-
-      expect({
-        global: /claude-agent-sdk.*retired.*hrc/i.test(String(globalError)),
-        local: /pi-sdk.*retired.*hrc/i.test(String(localError)),
-      }).toEqual({ global: true, local: true })
-    } finally {
-      await fs.rm(localSpacePath, { recursive: true, force: true })
-    }
-  })
-
   describe('runGlobalSpace', () => {
     test('runs space reference without a project', async () => {
       const result = await runGlobalSpace('space:base@stable', {

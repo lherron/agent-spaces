@@ -882,9 +882,36 @@ describe('project-target runtime planner (T-01099)', () => {
     })()
 
     expect({
-      explicit: /claude-agent-sdk.*retired.*hrc/i.test(String(explicitError)),
-      declared: /pi-sdk.*retired.*hrc/i.test(String(declaredError)),
+      explicit: /claude-agent-sdk[\s\S]*retired[\s\S]*hrc/i.test(String(explicitError)),
+      declared: /pi-sdk[\s\S]*retired[\s\S]*hrc/i.test(String(declaredError)),
     }).toEqual({ explicit: true, declared: true })
+  })
+
+  test('refuses retired SDK harnesses in global and local run modes', async () => {
+    const root = await createTempDir('space-launch-retired-sdk-')
+    const globalError = await runModule
+      .runGlobalSpace('not-a-space-ref' as SpaceRefString, {
+        aspHome: join(root, 'asp-home'),
+        harness: 'claude-agent-sdk',
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      )
+    const localError = await runModule
+      .runLocalSpace(root, {
+        aspHome: join(root, 'asp-home'),
+        harness: 'pi-sdk',
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      )
+
+    expect({
+      global: /claude-agent-sdk[\s\S]*retired[\s\S]*hrc/i.test(String(globalError)),
+      local: /pi-sdk[\s\S]*retired[\s\S]*hrc/i.test(String(localError)),
+    }).toEqual({ global: true, local: true })
   })
 
   test('continues planning every retained project harness', async () => {
