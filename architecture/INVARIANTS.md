@@ -18,6 +18,10 @@ Every staged ASP package manifest carries exactly {schema,repository,canonicalRe
 
 A generated portable ASP lock records immutable space source authority only as repository identity plus canonical remote. Node-local mirror and store paths are explicit ASP-owned placement state and are never serialized into the lock. Immutable entries, including historical pins, resolve and populate snapshots from that canonical mirror placement; mutable @dev entries continue to resolve from the node-local agents root. Legacy path-bearing locks may be read only to regenerate them and are never repaired by rewriting path strings.
 
+## agent-spaces.raspc-migration-contract
+
+The compiler migration preserves the dependency direction harness to aspc to spaces-contracts: spaces-contracts owns the shared protocol and schema contracts, aspc owns compile-side materialization and the compile-only schema-backed facade, and HRC/harness retains process-spawn authority. During migration, normalized cross-host self-reproducibility is Mode A evidence only and can never authorize compiler substitution. The cutover gate is Mode B: aspc and rasp run on the same host against the same snapshotted ASP_HOME with identical pinned compile context and declared env/exec inputs; it compares every non-excluded emitted file's raw bytes and size without normalization, and deep-compares each complete schema-valid RPC response value, including plans, diagnostics, profiles, dispatch requests, prompts, attachments, and initial input. Only a green Mode B corpus and burn-in gate may authorize HRC cutover. TS byte compatibility is a migration oracle and retires after cutover in favor of the canonical format and schema contracts.
+
 ## agent-spaces.verify-gate
 
 just verify is agent-spaces' local handoff gate and must include the architecture-records structure and projection-freshness check.
