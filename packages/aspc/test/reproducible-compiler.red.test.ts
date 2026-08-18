@@ -410,14 +410,28 @@ describe('P0 red: verifier Mode A/B split', () => {
       ])
     )
 
-    const unreadable = join(fixture.aspHome, 'cache', 'unreadable-emissions')
+    const unreadable = join(fixture.aspHome, 'walk-error-probe')
     mkdirSync(unreadable, { recursive: true })
     writeFileSync(join(unreadable, 'must-not-disappear.txt'), 'emitted\n')
+    const readable = await buildManifest('B', 'readable_walk_control')
+    expect(readable.entries.map((entry) => entry.path)).toContain(
+      'walk-error-probe/must-not-disappear.txt'
+    )
+
     chmodSync(unreadable, 0o000)
     try {
-      await expect(buildManifest('B', 'unreadable_walk')).rejects.toThrow(
-        /unreadable-emissions|permission|EACCES/i
+      let caught: unknown
+      try {
+        await buildManifest('B', 'unreadable_walk')
+      } catch (error) {
+        caught = error
+      }
+      expect(caught).toBeInstanceOf(Error)
+      const message = caught instanceof Error ? caught.message : String(caught)
+      expect(message).toMatch(
+        /walk-error-probe.*(?:permission|EACCES)|(?:permission|EACCES).*walk-error-probe/i
       )
+      expect(message).not.toContain('manifest compile failed')
     } finally {
       chmodSync(unreadable, 0o755)
     }
@@ -443,21 +457,32 @@ describe('P0 red: verifier Mode A/B split', () => {
 
   test('AC6: Mode B compares identical binaries, rejects bless, and refuses Mode A evidence', () => {
     const corpusCase = writeScenarioCase('same-binary-raw-diff', { expect: 'none' })
-    const changingEmitter = writeManifestEmitter('B', 'changing-mode-b-emitter')
-    const baseArgs = [
+    const verifyArgs = (emitter: string) => [
       'verify-release',
       '--mode',
       'b',
       '--baseline',
-      changingEmitter,
+      emitter,
       '--candidate',
-      changingEmitter,
+      emitter,
       '--corpus',
       corpusCase,
       '--compile-context',
       JSON.stringify(fixedCompileContext),
     ]
 
+    const stableEmitter = writeManifestEmitter('B', 'stable-mode-b-emitter', false)
+    const stable = runAspcCli(verifyArgs(stableEmitter))
+    expect(stable.status, stable.stderr).toBe(0)
+    expect(JSON.parse(stable.stdout)).toMatchObject({
+      mode: 'B',
+      verdict: 'byte-identical',
+      differences: [],
+      authorizesCutover: true,
+    })
+
+    const changingEmitter = writeManifestEmitter('B', 'changing-mode-b-emitter')
+    const baseArgs = verifyArgs(changingEmitter)
     const compared = runAspcCli(baseArgs)
     expect(compared.status).not.toBe(0)
     expect(JSON.parse(compared.stdout)).toMatchObject({
@@ -472,14 +497,7 @@ describe('P0 red: verifier Mode A/B split', () => {
     expect(blessed.stdout).not.toContain('blessed')
 
     const modeAEmitter = writeManifestEmitter('A', 'mode-a-emitter')
-    const mismatched = runAspcCli([
-      ...baseArgs.slice(0, 3),
-      '--baseline',
-      modeAEmitter,
-      '--candidate',
-      modeAEmitter,
-      ...baseArgs.slice(9),
-    ])
+    const mismatched = runAspcCli(verifyArgs(modeAEmitter))
     expect(mismatched.status).not.toBe(0)
     expect(mismatched.stderr).toMatch(/mode.*(?:mismatch|A.*B)|A.*mode b/i)
     expect(mismatched.stdout).toBe('')
@@ -757,20 +775,31 @@ function writeScenarioCase(caseId: string, scenario: ScenarioFixture | undefined
   return caseDir
 }
 
-function writeManifestEmitter(mode: 'A' | 'B', name: string): string {
+function writeManifestEmitter(mode: 'A' | 'B', name: string, alternating = true): string {
   const emitterPath = join(fixture.base, `${name}.ts`)
   const statePath = join(fixture.base, `${name}.count`)
   const toolchainManifestHash = sha256Hex(canonicalJson(fixedCompileContext.toolchainManifest))
+  const digestExpression = alternating
+    ? "(count % 2 === 0 ? 'a' : 'b').repeat(64)"
+    : "'a'.repeat(64)"
   writeFileSync(
     emitterPath,
     `#!/usr/bin/env bun
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 
 const statePath = ${JSON.stringify(statePath)}
-const count = existsSync(statePath) ? Number(readFileSync(statePath, 'utf8')) : 0
-writeFileSync(statePath, String(count + 1), 'utf8')
-const sha256 = (count % 2 === 0 ? 'a' : 'b').repeat(64)
+let count = 0
+while (true) {
+  try {
+    mkdirSync(statePath + '.' + count)
+    break
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error
+    count += 1
+  }
+}
+const sha256 = ${digestExpression}
 const entries = [{ path: 'probe.bin', kind: 'file', size: 1, sha256, mode: '644' }]
 const toolchainManifestHash = ${JSON.stringify(toolchainManifestHash)}
 const canonicalJson = (value: unknown): string => {
