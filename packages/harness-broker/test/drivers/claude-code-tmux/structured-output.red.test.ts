@@ -602,6 +602,39 @@ describe('claude-code-tmux JSON Schema structured-output RED contract', () => {
     expect(sameTurnEvents.map((event) => event.type)).not.toContain('turn.completed')
   })
 
+  test('12b. SubagentStop does not fail or complete the live structured parent turn', async () => {
+    const { driver, events, hookHandler } = await setupDriver()
+
+    const applied = await driver.applyInputNow(
+      input('input_subagent_parent', 'return status', schemaResponse(statusSchema))
+    )
+    await hookHandler({
+      invocationId: 'inv_claude_structured',
+      runtimeId: 'runtime-structured',
+      generation: 1,
+      callbackSocket: '/tmp/harness-broker/claude-structured-output.sock',
+      hookData: {
+        hook_event_name: 'SubagentStop',
+        agent_id: 'agent-child',
+        agent_type: 'Explore',
+      },
+    })
+
+    const afterSubagent = events.filter((event) => event.turnId === applied.turnId)
+    expect(afterSubagent.map((event) => event.type)).toContain('driver.notice')
+    expect(afterSubagent.map((event) => event.type)).not.toContain('turn.failed')
+    expect(afterSubagent.map((event) => event.type)).not.toContain('turn.completed')
+
+    await stop(hookHandler, applied.turnId ?? 'missing', '{"status":"ok"}')
+
+    const terminalEvents = events.filter((event) => event.turnId === applied.turnId)
+    expect(terminalEvents.filter((event) => event.type === 'turn.failed')).toHaveLength(0)
+    expect(terminalEvents.filter((event) => event.type === 'turn.completed')).toHaveLength(1)
+    expect(
+      terminalEvents.filter((event) => event.type === 'assistant.message.completed')
+    ).toHaveLength(1)
+  })
+
   test('13. late terminal MessageDisplay after structured Stop does not emit another assistant completion', async () => {
     const { driver, events, hookHandler } = await setupDriver()
 

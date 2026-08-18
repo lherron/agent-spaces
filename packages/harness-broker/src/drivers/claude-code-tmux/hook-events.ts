@@ -353,7 +353,36 @@ export function createClaudeCodeHookEventNormalizer(
         ]
       }
 
-      if (rawType === 'Stop' || rawType === 'SessionEnd' || rawType === 'SubagentStop') {
+      if (rawType === 'SubagentStop') {
+        const agentId = getString(unwrapped, 'agent_id')
+        const agentType = getString(unwrapped, 'agent_type')
+        const label =
+          agentType !== undefined || agentId !== undefined
+            ? `${agentType ?? 'subagent'}${agentId !== undefined ? ` (${agentId})` : ''}`
+            : 'subagent'
+
+        // A nested agent shares the parent's hook bridge and often carries no
+        // turn_id. The driver therefore attributes the hook to the live parent
+        // turn, but stopping that child is evidence only: it must not flush the
+        // parent's held message, close the parent turn, or clear its active id.
+        return [
+          emit(rawType, {
+            type: 'driver.notice',
+            payload: {
+              message: `Subagent stop: ${label}`,
+              code: 'subagent_stop',
+              data: {
+                ...(agentId !== undefined ? { agentId } : {}),
+                ...(agentType !== undefined ? { agentType } : {}),
+                rawHook: unwrapped,
+              },
+            },
+            ...(turnId !== undefined ? { turnId } : {}),
+          }),
+        ]
+      }
+
+      if (rawType === 'Stop' || rawType === 'SessionEnd') {
         // A user-initiated SessionEnd (Claude `/quit`, `/logout`, `/clear`)
         // means the operator deliberately ended the conversation: DROP the
         // captured continuation so the next launch starts fresh instead of
@@ -383,7 +412,7 @@ export function createClaudeCodeHookEventNormalizer(
         // terminal final:true straight from it — race-free. The held terminal
         // message (present only when the MessageDisplay won the race) is discarded
         // to avoid a double final. Fall back to the held flush only when Stop has
-        // no last_assistant_message (SessionEnd/SubagentStop, older claude).
+        // no last_assistant_message (SessionEnd or older Claude versions).
         const lastAssistantMessage = getString(unwrapped, 'last_assistant_message')?.trim()
         const turnAlreadyDone = turnIdText !== undefined && completedTurns.has(turnIdText)
         let events: InvocationEventEnvelope[]

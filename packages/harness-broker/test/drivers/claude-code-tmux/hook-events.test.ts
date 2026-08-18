@@ -438,24 +438,89 @@ describe('claude-code-tmux hook event normalization', () => {
     expect(events).toEqual([])
   })
 
-  test.each(['Stop', 'SubagentStop'])(
-    '%s emits idempotent turn.completed and never invocation.exited',
-    async (hookName) => {
-      const normalizer = await createNormalizer()
-      const first = normalizer.normalizeHook({ hook_event_name: hookName, turn_id: turnId })
-      const second = normalizer.normalizeHook({ hook_event_name: hookName, turn_id: turnId })
+  test('Stop emits idempotent turn.completed and never invocation.exited', async () => {
+    const normalizer = await createNormalizer()
+    const first = normalizer.normalizeHook({ hook_event_name: 'Stop', turn_id: turnId })
+    const second = normalizer.normalizeHook({ hook_event_name: 'Stop', turn_id: turnId })
 
-      expect(eventTypes(first)).toEqual(['turn.completed'])
-      expect(first[0]).toMatchObject({
-        type: 'turn.completed',
-        turnId,
-        payload: { turnId, status: 'completed' },
-        driver: { kind: 'claude-code-tmux', rawType: hookName },
+    expect(eventTypes(first)).toEqual(['turn.completed'])
+    expect(first[0]).toMatchObject({
+      type: 'turn.completed',
+      turnId,
+      payload: { turnId, status: 'completed' },
+      driver: { kind: 'claude-code-tmux', rawType: 'Stop' },
+    })
+    expect(second).toEqual([])
+    expect(eventTypes([...first, ...second])).not.toContain('invocation.exited')
+  })
+
+  test('SubagentStop preserves the live parent turn until its genuine Stop', async () => {
+    const normalizer = await createNormalizer()
+
+    expect(
+      eventTypes(
+        normalizer.normalizeHook({
+          hook_event_name: 'UserPromptSubmit',
+          turn_id: turnId,
+          prompt: 'coordinate the room',
+        })
+      )
+    ).toEqual(['turn.started', 'user.message'])
+    expect(
+      normalizer.normalizeHook({
+        hook_event_name: 'MessageDisplay',
+        turn_id: turnId,
+        message_id: 'msg_parent_progress',
+        index: 0,
+        final: true,
+        delta: 'Parent is still coordinating.',
       })
-      expect(second).toEqual([])
-      expect(eventTypes([...first, ...second])).not.toContain('invocation.exited')
-    }
-  )
+    ).toEqual([])
+
+    const subagentStop = normalizer.normalizeHook({
+      hook_event_name: 'SubagentStop',
+      agent_id: 'agent-child',
+      agent_type: 'Explore',
+    })
+    expect(eventTypes(subagentStop)).toEqual(['driver.notice'])
+    expect(subagentStop[0]).toMatchObject({
+      type: 'driver.notice',
+      turnId,
+      payload: {
+        message: 'Subagent stop: Explore (agent-child)',
+        code: 'subagent_stop',
+      },
+      driver: { kind: 'claude-code-tmux', rawType: 'SubagentStop' },
+    })
+    expect(eventTypes(subagentStop)).not.toContain('assistant.message.completed')
+    expect(eventTypes(subagentStop)).not.toContain('turn.completed')
+
+    const nextParentTool = normalizer.normalizeHook({
+      hook_event_name: 'PreToolUse',
+      tool_use_id: 'toolu_parent_next',
+      tool_name: 'Bash',
+      tool_input: { command: 'wrkf-crank --task T-07315' },
+    })
+    expect(eventTypes(nextParentTool)).toEqual(['assistant.message.completed', 'tool.call.started'])
+    expect(nextParentTool[0]).toMatchObject({
+      turnId,
+      payload: { final: false },
+    })
+    expect(nextParentTool[1]).toMatchObject({
+      turnId,
+      payload: { toolCallId: 'toolu_parent_next' },
+    })
+
+    const parentStop = normalizer.normalizeHook({
+      hook_event_name: 'Stop',
+      last_assistant_message: 'Parent turn complete.',
+    })
+    expect(eventTypes(parentStop)).toEqual(['assistant.message.completed', 'turn.completed'])
+    expect(parentStop[1]).toMatchObject({
+      turnId,
+      driver: { kind: 'claude-code-tmux', rawType: 'Stop' },
+    })
+  })
 
   test.each(['prompt_input_exit', 'logout', 'clear'])(
     'SessionEnd reason=%s drops the continuation (continuation.cleared before turn.completed)',

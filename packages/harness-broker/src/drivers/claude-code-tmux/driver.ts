@@ -557,7 +557,7 @@ export function createClaudeCodeTmuxDriver(options: ClaudeCodeTmuxDriverOptions)
       return { action: 'drop' }
     }
     if (rawType !== 'Stop') {
-      if (rawType === 'SessionEnd' || rawType === 'SubagentStop') {
+      if (rawType === 'SessionEnd') {
         failStructuredTurn(state, 'Structured output ended before Stop validation cleared')
         return { action: 'drop' }
       }
