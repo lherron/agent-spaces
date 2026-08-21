@@ -14,21 +14,135 @@ import { CodexAdapter } from '../packages/harness-codex/src/adapters/codex-adapt
 
 const REPO_ROOT = join(import.meta.dir, '..')
 
+const SHARED_CANONICAL_JSON_MODULE = 'spaces-runtime-contracts'
 const CANONICAL_JSON_HOME = 'packages/spaces-runtime-contracts/src/hash.ts'
-const FORMER_CANONICAL_JSON_SITES = [
-  'packages/aspc/src/manifest.ts',
-  'packages/config/src/orchestration/install.ts',
-  'packages/execution/src/run-codex.ts',
-  'packages/harness-codex/src/adapters/codex-hooks.ts',
-] as const
 
-const HASH_MATERIAL_ORDERING_FILES = [
-  'packages/config/src/orchestration/install.ts',
-  'packages/config/src/resolver/filesystem-registry.ts',
-  'packages/config/src/resolver/integrity.ts',
-  // Snapshot verification must match resolver/integrity.ts byte-for-byte.
-  'packages/config/src/store/snapshot.ts',
-] as const
+/**
+ * Census sites are keyed `<repo-relative path>#<outermost enclosing declaration>` so the
+ * declarations survive unrelated edits that shift line numbers.
+ */
+
+/** In-scope residual canonical-JSON implementations: each must collapse into the shared home. */
+const MIGRATING_CANONICAL_JSON_SITES = new Map([
+  [
+    'packages/agent-spaces/src/agent-inspection.ts#sortJson',
+    'sortJson feeds stableHash (sha256 over JSON.stringify) for the inspection seed and contextHash',
+  ],
+  [
+    'packages/aspc/src/manifest.ts#sortKeys',
+    'sortKeys backs the local canonicalJson used for manifest hashes',
+  ],
+  [
+    'packages/config/src/orchestration/install.ts#stableJson',
+    'local stableJson serializer on the install hash path',
+  ],
+  [
+    'packages/execution/src/run-codex.ts#stableJson',
+    'local stableJson serializer on the codex runtime metadata path',
+  ],
+  [
+    'packages/harness-codex/src/adapters/codex-hooks.ts#canonicalJson',
+    'local canonicalJson serializer on the codex hooks artifact path',
+  ],
+])
+
+/** Discovered-but-out-of-scope canonicalization sites, each with the reason it is not migrated. */
+const CANONICAL_JSON_CENSUS_EXCLUSIONS = new Map([
+  [
+    'packages/agent-spaces/src/compile-runtime-plan.ts#compileBrokerPlan',
+    'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
+  ],
+  [
+    'packages/agent-spaces/src/compile-runtime-plan.ts#compileForegroundPlan',
+    'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
+  ],
+  [
+    'packages/agent-spaces/src/compile-runtime-plan.ts#compilePiSdkBrokerPlan',
+    'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
+  ],
+  [
+    'packages/agent-spaces/src/compile-runtime-plan.ts#compileTmuxBrokerPlan',
+    'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
+  ],
+  [
+    'packages/harness-codex/src/adapters/codex-adapter.ts#CodexAdapter',
+    'Object.keys(mcpConfig.mcpServers).sort() emits a sorted server NAME LIST field; it serializes no values',
+  ],
+  [
+    'packages/harness-broker-pi-sdk/src/driver.ts#canonicalize',
+    'live broker structured-response canonicalization; not compiled artifact bytes, and already codepoint-ordered',
+  ],
+  [
+    'packages/harness-broker-protocol/src/lifecycle.ts#canonicalizeJson',
+    'broker lifecycle/resume-token hashing over live process events; not compiled artifact bytes',
+  ],
+  [
+    'packages/harness-broker/src/event-ledger.ts#sortJson',
+    'event-ledger row canonicalization for runtime telemetry; not compiled artifact bytes',
+  ],
+])
+
+/** localeCompare sites that feed a digest or artifact hash: these must become codepoint ordering. */
+const HASH_MATERIAL_LOCALE_COMPARE_SITES = new Map([
+  [
+    'packages/agent-spaces/src/agent-inspection.ts#sortJson',
+    'key order feeds stableHash (sha256) for the inspection seed and contextHash',
+  ],
+  [
+    'packages/config/src/orchestration/install.ts#hashDirectory',
+    'entry order feeds the sha256 directory hash',
+  ],
+  [
+    'packages/config/src/resolver/filesystem-registry.ts#computeFilesystemRegistryCommit',
+    'entry order feeds the registry commit sha256',
+  ],
+  [
+    'packages/config/src/resolver/integrity.ts#computeFilesystemIntegrity',
+    'entry order feeds the canonical integrity representation',
+  ],
+  [
+    'packages/config/src/resolver/integrity.ts#computeIntegrity',
+    'entry order feeds the canonical integrity representation',
+  ],
+  [
+    'packages/config/src/store/snapshot.ts#computeSnapshotIntegrity',
+    'entry order must match resolver/integrity.ts byte-for-byte',
+  ],
+])
+
+/** localeCompare sites that never reach hash material or emitted artifact bytes. */
+const DISPLAY_ONLY_LOCALE_COMPARE_SITES = new Map([
+  [
+    'packages/agent-spaces/src/agent-inspection.ts#listAgentDirectories',
+    'agent-id listing order in inspection output; not hashed',
+  ],
+  [
+    'packages/agent-spaces/src/compile-runtime-plan.ts#sortHygieneFindings',
+    'diagnostic finding order only',
+  ],
+  ['packages/cli/src/agent-roots.ts#buildAgentRootReport', 'CLI agent-root report ordering'],
+  [
+    'packages/cli/src/commands/self/lib.ts#filterInjectedEnv',
+    'read-side env lookup for `asp self`; emits no artifact bytes',
+  ],
+  ['packages/cli/src/commands/spaces/list.ts#listSpaces', 'CLI spaces listing order'],
+  [
+    'packages/config/src/lint/hygiene/baseline.ts#writeBaseline',
+    'suppression-baseline row order; each entry fingerprint is computed before ordering, and the baseline is lint tooling output',
+  ],
+  [
+    'packages/config/src/lint/hygiene/rules/W42x-reference-graph.ts#listFiles',
+    'lint traversal order feeding warning order',
+  ],
+  ['packages/config/src/lint/hygiene/run.ts#lintHygiene', 'hygiene warning display order'],
+  ['packages/config/src/lint/index.ts#lint', 'lint warning display order'],
+  ['packages/config/src/store/gc.ts#pruneBundleVersions', 'GC deletion tiebreak; emits no bytes'],
+  ['packages/harness-broker/src/event-ledger.ts#rewriteLedger', 'runtime telemetry row order'],
+  [
+    'packages/harness-broker/src/runtime/event-normalize.ts#truncateToBudget',
+    'truncation priority for runtime telemetry',
+  ],
+])
 
 const AMBIENT_CLOCK_FILES = [
   'packages/config/src/core/types/lock.ts',
@@ -95,44 +209,141 @@ function isNamedPropertyCall(node: ts.Node, owner: string, property: string): bo
   )
 }
 
-function findObjectKeysSorts(sourceFile: ts.SourceFile): number[] {
-  const positions: number[] = []
-  visit(sourceFile, (node) => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === 'sort' &&
-      isNamedPropertyCall(node.expression.expression, 'Object', 'keys')
-    ) {
-      positions.push(sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1)
-    }
-  })
-  return positions
+/** Outermost named declaration containing `node`; stable across unrelated edits in the same file. */
+function enclosingDeclarationName(node: ts.Node): string {
+  let name = '<module>'
+  let ancestor: ts.Node | undefined = node.parent
+  while (ancestor) {
+    if (ts.isFunctionDeclaration(ancestor) && ancestor.name) name = ancestor.name.text
+    else if (ts.isClassDeclaration(ancestor) && ancestor.name) name = ancestor.name.text
+    else if (ts.isMethodDeclaration(ancestor) && ts.isIdentifier(ancestor.name))
+      name = ancestor.name.text
+    else if (ts.isVariableDeclaration(ancestor) && ts.isIdentifier(ancestor.name))
+      name = ancestor.name.text
+    ancestor = ancestor.parent
+  }
+  return name
 }
 
-function importsSharedCanonicalizer(sourceFile: ts.SourceFile): boolean {
-  return sourceFile.statements.some(
-    (statement) =>
-      ts.isImportDeclaration(statement) &&
-      ts.isStringLiteral(statement.moduleSpecifier) &&
-      statement.moduleSpecifier.text === 'spaces-runtime-contracts' &&
-      statement.importClause !== undefined &&
-      statement.importClause.isTypeOnly === false
+type CensusSite = { key: string; file: string; line: number }
+
+function isCanonicalKeyOrdering(node: ts.Node): boolean {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === 'sort' &&
+    (isNamedPropertyCall(node.expression.expression, 'Object', 'keys') ||
+      isNamedPropertyCall(node.expression.expression, 'Object', 'entries'))
   )
 }
 
-function findLocaleCompareCalls(sourceFile: ts.SourceFile): number[] {
-  const positions: number[] = []
+function isLocaleCompareCall(node: ts.Node): boolean {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === 'localeCompare'
+  )
+}
+
+function fixtureMatches(text: string, match: (candidate: ts.Node) => boolean): number[] {
+  const sourceFile = parseSource(text)
+  const lines: number[] = []
   visit(sourceFile, (node) => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === 'localeCompare'
-    ) {
-      positions.push(sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1)
-    }
+    if (match(node)) lines.push(sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1)
   })
-  return positions
+  return lines
+}
+
+async function productionTypeScriptFiles(root: string): Promise<string[]> {
+  const absoluteRoot = join(REPO_ROOT, root)
+  if (root.endsWith('.ts')) return [absoluteRoot]
+  const dirents = await readdir(absoluteRoot, { withFileTypes: true }).catch(() => [])
+  const nested = await Promise.all(
+    dirents.map(async (entry) => {
+      const path = join(absoluteRoot, entry.name)
+      if (entry.isDirectory()) return productionTypeScriptFiles(relative(REPO_ROOT, path))
+      if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) return [path]
+      return []
+    })
+  )
+  return nested.flat()
+}
+
+let packageSourceCache: Promise<ts.SourceFile[]> | undefined
+
+/** Every non-test .ts under packages/<pkg>/src — the census surface required by A1/A2. */
+function packageSources(): Promise<ts.SourceFile[]> {
+  packageSourceCache ??= (async () => {
+    const packageDirs = await readdir(join(REPO_ROOT, 'packages'), { withFileTypes: true })
+    const grouped = await Promise.all(
+      packageDirs
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => productionTypeScriptFiles(join('packages', entry.name, 'src')))
+    )
+    const absolutePaths = grouped.flat().sort()
+    return Promise.all(
+      absolutePaths.map(async (absolutePath) =>
+        parseSource(await readFile(absolutePath, 'utf8'), absolutePath)
+      )
+    )
+  })()
+  return packageSourceCache
+}
+
+async function collectCensus(match: (candidate: ts.Node) => boolean): Promise<CensusSite[]> {
+  const sites: CensusSite[] = []
+  for (const sourceFile of await packageSources()) {
+    const file = relative(REPO_ROOT, sourceFile.fileName)
+    visit(sourceFile, (node) => {
+      if (!match(node)) return
+      sites.push({
+        key: `${file}#${enclosingDeclarationName(node)}`,
+        file,
+        line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+      })
+    })
+  }
+  return sites
+}
+
+function formatSites(sites: CensusSite[]): string[] {
+  return [...new Set(sites.map((site) => `${site.file}:${site.line}`))].sort()
+}
+
+function undeclaredCanonicalSites(sites: CensusSite[]): string[] {
+  return formatSites(
+    sites.filter(
+      (site) =>
+        site.file !== CANONICAL_JSON_HOME &&
+        !MIGRATING_CANONICAL_JSON_SITES.has(site.key) &&
+        !CANONICAL_JSON_CENSUS_EXCLUSIONS.has(site.key)
+    )
+  )
+}
+
+function unclassifiedLocaleCompareSites(sites: CensusSite[]): string[] {
+  return formatSites(
+    sites.filter(
+      (site) =>
+        !HASH_MATERIAL_LOCALE_COMPARE_SITES.has(site.key) &&
+        !DISPLAY_ONLY_LOCALE_COMPARE_SITES.has(site.key)
+    )
+  )
+}
+
+function importsSharedCanonicalizer(sourceFile: ts.SourceFile): boolean {
+  return sourceFile.statements.some((statement) => {
+    if (!ts.isImportDeclaration(statement)) return false
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) return false
+    if (statement.moduleSpecifier.text !== SHARED_CANONICAL_JSON_MODULE) return false
+    const clause = statement.importClause
+    if (clause === undefined || clause.isTypeOnly) return false
+    const bindings = clause.namedBindings
+    if (bindings === undefined || !ts.isNamedImports(bindings)) return false
+    return bindings.elements.some(
+      (element) => element.isTypeOnly === false && /canonical/i.test(element.name.text)
+    )
+  })
 }
 
 function findAmbientClockReads(sourceFile: ts.SourceFile): number[] {
@@ -231,21 +442,6 @@ function nonLockOutputExclusions(sourceFile: ts.SourceFile): OutputExclusion[] {
   })
 }
 
-async function productionTypeScriptFiles(root: string): Promise<string[]> {
-  const absoluteRoot = join(REPO_ROOT, root)
-  if (root.endsWith('.ts')) return [absoluteRoot]
-  const entries = await readdir(absoluteRoot, { withFileTypes: true })
-  const nested = await Promise.all(
-    entries.map(async (entry) => {
-      const path = join(absoluteRoot, entry.name)
-      if (entry.isDirectory()) return productionTypeScriptFiles(relative(REPO_ROOT, path))
-      if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) return [path]
-      return []
-    })
-  )
-  return nested.flat()
-}
-
 function artifactWriterNames(sourceFile: ts.SourceFile): string[] {
   const names: string[] = []
   visit(sourceFile, (node) => {
@@ -332,27 +528,62 @@ async function composeCodexToml(serverOrder: string[], outputRoot: string): Prom
 
 describe('P0 single blessed hash epoch acceptance', () => {
   test('A1: one shared canonical JSON implementation owns every former call site', async () => {
-    const fixture = parseSource(`
-      function localCanonical(value: Record<string, unknown>) {
-        return Object.keys(value).sort().map((key) => JSON.stringify(value[key]))
-      }
-    `)
-    expect(findObjectKeysSorts(fixture)).toHaveLength(1)
-
-    const home = await readSource(CANONICAL_JSON_HOME)
     expect(
-      findObjectKeysSorts(home),
-      `${CANONICAL_JSON_HOME} must own canonical key ordering`
+      fixtureMatches('const a = Object.keys(value).sort()', isCanonicalKeyOrdering)
     ).toHaveLength(1)
+    expect(
+      fixtureMatches(
+        'const b = Object.entries(value).sort(([l], [r]) => (l < r ? -1 : 1))',
+        isCanonicalKeyOrdering
+      )
+    ).toHaveLength(1)
+    expect(fixtureMatches('const c = values.sort()', isCanonicalKeyOrdering)).toEqual([])
+    expect(
+      undeclaredCanonicalSites([
+        {
+          key: 'packages/new-pkg/src/x.ts#canonicalize',
+          file: 'packages/new-pkg/src/x.ts',
+          line: 7,
+        },
+      ]),
+      'an unclassified canonicalizer must be reported'
+    ).toEqual(['packages/new-pkg/src/x.ts:7'])
 
-    const residual: string[] = []
+    const sites = await collectCensus(isCanonicalKeyOrdering)
+    expect(sites.length, 'repo-wide canonicalizer census discovered nothing').toBeGreaterThan(0)
+
+    expect(
+      undeclaredCanonicalSites(sites),
+      'every canonicalizer under packages/*/src must be declared as migrating or excluded with a reason'
+    ).toEqual([])
+
+    const observed = new Set(sites.map((site) => site.key))
+    expect(
+      [...CANONICAL_JSON_CENSUS_EXCLUSIONS.keys()].filter((key) => !observed.has(key)),
+      'stale exclusion: declared out-of-scope canonicalizer no longer exists'
+    ).toEqual([])
+
+    expect(
+      sites.filter((site) => site.file === CANONICAL_JSON_HOME).length,
+      `${CANONICAL_JSON_HOME} must own exactly one canonical key ordering`
+    ).toBe(1)
+
+    expect(
+      formatSites(sites.filter((site) => MIGRATING_CANONICAL_JSON_SITES.has(site.key))),
+      'local canonical-JSON implementations remain'
+    ).toEqual([])
+
+    const migratingFiles = [
+      ...new Set(
+        [...MIGRATING_CANONICAL_JSON_SITES.keys()].flatMap((key) => key.split('#').slice(0, 1))
+      ),
+    ].sort()
     const missingImports: string[] = []
-    for (const relativePath of FORMER_CANONICAL_JSON_SITES) {
-      const sourceFile = await readSource(relativePath)
-      for (const line of findObjectKeysSorts(sourceFile)) residual.push(`${relativePath}:${line}`)
-      if (!importsSharedCanonicalizer(sourceFile)) missingImports.push(relativePath)
+    for (const relativePath of migratingFiles) {
+      if (!importsSharedCanonicalizer(await readSource(relativePath))) {
+        missingImports.push(relativePath)
+      }
     }
-    expect(residual, 'local canonical-JSON implementations remain').toEqual([])
     expect(
       missingImports,
       'former sites must import the shared runtime-contract implementation'
@@ -360,16 +591,44 @@ describe('P0 single blessed hash epoch acceptance', () => {
   })
 
   test('A2: hash-material ordering uses codepoint order without localeCompare', async () => {
-    const fixture = parseSource('values.sort((left, right) => left.path.localeCompare(right.path))')
-    expect(findLocaleCompareCalls(fixture)).toHaveLength(1)
+    expect(
+      fixtureMatches(
+        'values.sort((left, right) => left.path.localeCompare(right.path))',
+        isLocaleCompareCall
+      )
+    ).toHaveLength(1)
+    expect(
+      fixtureMatches('values.sort((left, right) => (left < right ? -1 : 1))', isLocaleCompareCall)
+    ).toEqual([])
+    expect(
+      unclassifiedLocaleCompareSites([
+        {
+          key: 'packages/new-pkg/src/y.ts#orderThings',
+          file: 'packages/new-pkg/src/y.ts',
+          line: 12,
+        },
+      ]),
+      'an unclassified localeCompare must be reported'
+    ).toEqual(['packages/new-pkg/src/y.ts:12'])
 
-    const violations: string[] = []
-    for (const relativePath of HASH_MATERIAL_ORDERING_FILES) {
-      const sourceFile = await readSource(relativePath)
-      for (const line of findLocaleCompareCalls(sourceFile))
-        violations.push(`${relativePath}:${line}`)
-    }
-    expect(violations, 'ICU-dependent ordering remains in hash material').toEqual([])
+    const sites = await collectCensus(isLocaleCompareCall)
+    expect(sites.length, 'repo-wide localeCompare census discovered nothing').toBeGreaterThan(0)
+
+    expect(
+      unclassifiedLocaleCompareSites(sites),
+      'every localeCompare under packages/*/src must be classified hash-material or display-only with a reason'
+    ).toEqual([])
+
+    const observed = new Set(sites.map((site) => site.key))
+    expect(
+      [...DISPLAY_ONLY_LOCALE_COMPARE_SITES.keys()].filter((key) => !observed.has(key)),
+      'stale classification: declared display-only localeCompare no longer exists'
+    ).toEqual([])
+
+    expect(
+      formatSites(sites.filter((site) => HASH_MATERIAL_LOCALE_COMPARE_SITES.has(site.key))),
+      'ICU-dependent ordering remains in hash material'
+    ).toEqual([])
   })
 
   test('B1: compiler output clocks are injected and Mode B exclusions bless locks only', async () => {
@@ -417,6 +676,18 @@ describe('P0 single blessed hash epoch acceptance', () => {
     const composeRoot = join(cleanupRoot, 'compose')
     const forward = await composeCodexToml(['alpha', 'omega'], composeRoot)
     const reverse = await composeCodexToml(['omega', 'alpha'], composeRoot)
+
+    const alphaIndex = forward.indexOf('[mcp_servers.alpha]')
+    const omegaIndex = forward.indexOf('[mcp_servers.omega]')
+    expect(
+      alphaIndex,
+      'composed TOML must actually emit the alpha server table'
+    ).toBeGreaterThanOrEqual(0)
+    expect(
+      omegaIndex,
+      'composed TOML must actually emit the omega server table'
+    ).toBeGreaterThanOrEqual(0)
+    expect(alphaIndex, 'alpha must precede omega in ascending key order').toBeLessThan(omegaIndex)
 
     expect(forward).toBe(reverse)
     expect(hasExactlyOneTrailingNewline(forward)).toBe(true)
