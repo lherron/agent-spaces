@@ -69,6 +69,21 @@ profile = "operator"
     })
   })
 
+  test('parses provisioning default_scope_role as a validated role token', () => {
+    const profile = parseAgentProfile(
+      `version = 3\n[provisioning]\nharness = "codex"\ndefault_scope_role = "implementer"\n`
+    )
+    expect(profile.provisioning).toEqual({ harness: 'codex', default_scope_role: 'implementer' })
+  })
+
+  test('rejects a provisioning default_scope_role that is not a role token', () => {
+    for (const bad of ['not/a/role', 'has space', '']) {
+      expect(() =>
+        parseAgentProfile(`version = 3\n[provisioning]\ndefault_scope_role = "${bad}"\n`)
+      ).toThrow(ConfigValidationError)
+    }
+  })
+
   test('rejects removed harnessDefaults and harnessByMode sections', () => {
     for (const section of ['harnessDefaults', 'harnessByMode.heartbeat']) {
       expect(() => parseAgentProfile(`version = 3\n[${section}]\nmodel = "x"\n`)).toThrow(

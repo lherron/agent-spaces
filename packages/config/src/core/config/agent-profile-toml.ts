@@ -209,6 +209,7 @@ function parseProvisioningSettings(
       'remote',
       'claude',
       'codex',
+      'default_scope_role',
     ],
     source,
     path
@@ -233,6 +234,14 @@ function parseProvisioningSettings(
     }
     if (typeof raw !== 'string') {
       fail(source, `${path}/${key}`, 'must be a string', 'type')
+    }
+    if (key === 'default_scope_role') {
+      const error = validateToken(raw, 'role')
+      if (error !== undefined) {
+        fail(source, `${path}/${key}`, error, 'pattern')
+      }
+      settings.default_scope_role = raw
+      continue
     }
     if (key === 'harness') {
       if (!resolveHarnessCatalogEntry(raw)) {

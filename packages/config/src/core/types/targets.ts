@@ -56,6 +56,8 @@ export interface CodexOptions {
 export type ProvisioningSettings = ProvisioningScalars & {
   claude?: ClaudeOptions | undefined
   codex?: CodexOptions | undefined
+  /** Default scope role applied when a scope handle names no role (profile-only, never directive-overridable) */
+  default_scope_role?: string | undefined
 }
 
 /** Resolver configuration for a target */
