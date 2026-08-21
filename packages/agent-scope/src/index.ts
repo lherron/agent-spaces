@@ -12,6 +12,12 @@ export { formatSessionRef, normalizeSessionRef, parseSessionRef } from './sessio
 export { parseScopeHandle, formatScopeHandle } from './scope-handle.js'
 export { parseSessionHandle, formatSessionHandle } from './session-handle.js'
 export {
+  DENIED_PROVISION_OVERRIDE_KEYS,
+  ProvisionDirectiveError,
+  type ProvisionVocabulary,
+  type ProvisioningScalars,
+} from './provisioning.js'
+export {
   ASP_DEFAULT_TASK_ENV,
   DEFAULT_PRIMARY_TASK_ID,
   resolveQualifiedScopeInput,

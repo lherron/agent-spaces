@@ -5,7 +5,18 @@
  * that compose Spaces for project-local execution.
  */
 
+import type { ProvisioningScalars } from 'agent-scope'
+
 import type { SpaceRefString } from './refs.js'
+
+/**
+ * The overridable top-level scalars of `[provisioning]`. Defined ONCE, upstream
+ * in `agent-scope` (which owns the directive grammar and is zero-dependency);
+ * spaces-config depends on agent-scope, so it re-exports that single definition
+ * rather than restating it. Same for the deny-list constant below.
+ */
+export type { ProvisioningScalars }
+export { DENIED_PROVISION_OVERRIDE_KEYS } from 'agent-scope'
 
 /** Claude CLI options */
 export interface ClaudeOptions {
@@ -37,23 +48,15 @@ export interface CodexOptions {
   profile?: string | undefined
 }
 
-/** Birth-time defaults shared by agent profiles and project target overlays. */
-export interface ProvisioningSettings {
-  harness?: string | undefined
-  model?: string | undefined
-  reasoning?: string | undefined
-  node?: string | undefined
-  yolo?: boolean | undefined
-  sandbox?: string | undefined
-  approval?: string | undefined
-  remote?: boolean | undefined
-  /** Harness escape hatches are profile/target configuration, never directive scalars. */
+/**
+ * Birth-time defaults shared by agent profiles and project target overlays:
+ * the overridable scalars plus the profile-only harness escape hatches, which
+ * are never directive-overridable (no dotted keys exist in the grammar).
+ */
+export type ProvisioningSettings = ProvisioningScalars & {
   claude?: ClaudeOptions | undefined
   codex?: CodexOptions | undefined
 }
-
-/** The structurally overridable, top-level scalar portion of provisioning. */
-export type ProvisioningScalars = Omit<ProvisioningSettings, 'claude' | 'codex'>
 
 /** Resolver configuration for a target */
 export interface ResolverConfig {

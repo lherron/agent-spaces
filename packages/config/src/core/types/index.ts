@@ -54,6 +54,7 @@ export type {
 export { derivePluginIdentity, resolveSpaceManifest } from './space.js'
 
 // Project targets types
+export { DENIED_PROVISION_OVERRIDE_KEYS } from './targets.js'
 export type {
   ClaudeOptions,
   CodexOptions,

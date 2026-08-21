@@ -1,4 +1,10 @@
 import { laneIdFromRef, laneRefFromInput } from './lane-ref.js'
+import {
+  type ProvisionVocabulary,
+  type ProvisioningScalars,
+  parseProvisionDirectives,
+  splitProvisionDirectiveBlock,
+} from './provisioning.js'
 import { splitHandle, validateScopeHandle } from './scope-handle.js'
 import { buildScopeRef, parseScopeRef, validateScopeRef } from './scope-ref.js'
 import { parseSessionHandle } from './session-handle.js'
@@ -9,6 +15,13 @@ export type ResolvedScopeInput = {
   scopeRef: string
   laneId: string
   laneRef: LaneRef
+  /**
+   * Out-of-band provisioning overrides carried by the input's `+` block.
+   * Absent when the input carries no block. Directives are deliberately NOT
+   * part of the canonical identity above: `scopeRef`, `parsed` and `laneRef`
+   * are byte-identical with and without a block (T-07398 Part 2 core invariant).
+   */
+  directives?: Partial<ProvisioningScalars>
 }
 
 /**
@@ -51,6 +64,19 @@ export type ResolveQualifiedScopeOptions = {
    * Explicit roles always take precedence.
    */
   defaultRoleName?: string
+  /**
+   * Closed-namespace vocabulary for the summoned agent's resolved harness, used
+   * to resolve bare-token sugar and to validate directive values at the sender.
+   * This is the injection seam for that validation: `agent-scope` is
+   * zero-dependency and cannot reach the profile merge layer, so the caller
+   * that owns the merge passes the resolved vocabulary in.
+   *
+   * When omitted, bare tokens cannot resolve (no namespace is open, so they are
+   * `UNKNOWN_PROVISION_KEY`) and `key=value` directives pass through with their
+   * keys checked but their values unvalidated. Structural checks — deny-list,
+   * unknown key, value kind — always apply.
+   */
+  provisionVocabulary?: ProvisionVocabulary
 }
 
 /**
@@ -151,7 +177,12 @@ export function resolveQualifiedScopeInput(
   input: string,
   opts: ResolveQualifiedScopeOptions = {}
 ): ResolvedScopeInput {
-  const base = parseScopeInput(input, opts.defaultLaneId)
+  // The block from the first "+" is stripped BEFORE handle/session parsing:
+  // "+" is outside the segment token charset, so any handle parser would
+  // otherwise swallow it into the trailing token (a "~lane" input, for one).
+  const { handle, directiveTokens } = splitProvisionDirectiveBlock(input)
+
+  const base = parseScopeInput(handle, opts.defaultLaneId)
   const { agentId } = base
   let projectId = base.projectId
   let taskId = base.taskId
@@ -181,10 +212,16 @@ export function resolveQualifiedScopeInput(
 
   const scopeRef = buildScopeRef({ agentId, projectId, taskId, roleName })
 
+  const directives =
+    directiveTokens === undefined
+      ? undefined
+      : parseProvisionDirectives(directiveTokens, opts.provisionVocabulary)
+
   return {
     parsed: parseScopeRef(scopeRef),
     scopeRef,
     laneId: base.laneId,
     laneRef: base.laneRef,
+    ...(directives === undefined ? {} : { directives }),
   }
 }

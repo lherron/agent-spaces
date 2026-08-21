@@ -1,3 +1,4 @@
+import { DIRECTIVE_SEPARATOR } from './provisioning.js'
 import { buildScopeRef, parseScopeRef } from './scope-ref.js'
 import type { ParsedScopeRef, ScopeFields, ValidationResult } from './types.js'
 import { validateTokenField } from './types.js'
@@ -77,6 +78,18 @@ export function splitHandle(handle: string): ScopeFields {
 export function validateScopeHandle(handle: string): ValidationResult {
   if (handle.length === 0) {
     return { ok: false, error: 'ScopeHandle must not be empty' }
+  }
+
+  // A canonical handle is pure identity. Provisioning directives are an input
+  // grammar carried alongside a handle, never part of one, so the strict parser
+  // names them rather than failing later on an incidental charset error.
+  if (handle.includes(DIRECTIVE_SEPARATOR)) {
+    return {
+      ok: false,
+      error:
+        'provisioning directives ("+key=value") are not part of a ScopeHandle; ' +
+        'pass the directed input to resolveQualifiedScopeInput instead',
+    }
   }
 
   const { agentId, projectId, taskId, roleName } = splitHandle(handle)
