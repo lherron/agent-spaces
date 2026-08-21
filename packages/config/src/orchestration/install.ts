@@ -24,6 +24,10 @@ import {
 } from 'node:fs/promises'
 import { basename, join, relative } from 'node:path'
 
+import { createCanonicalHasher } from 'spaces-runtime-contracts'
+
+import { resolveNowIso } from '../core/compile-clock.js'
+
 import {
   type AgentLocalComponents,
   type CodexOptions,
@@ -310,18 +314,15 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+/**
+ * Install-path hash material is serialized by the single shared canonical-JSON
+ * implementation in spaces-runtime-contracts (codepoint key ordering), not a
+ * local serializer.
+ */
+const canonicalHasher = createCanonicalHasher()
+
 function stableJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableJson(entry)).join(',')}]`
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
-      .join(',')}}`
-  }
-  return JSON.stringify(value)
+  return canonicalHasher.canonicalize(value)
 }
 
 function sha256Hex(value: string): string {
@@ -337,7 +338,7 @@ async function hashDirectory(
 
   async function visit(dir: string, prefix: string): Promise<void> {
     const dirents = await readdir(dir, { withFileTypes: true })
-    for (const dirent of dirents.sort((a, b) => a.name.localeCompare(b.name))) {
+    for (const dirent of dirents.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
       const fullPath = join(dir, dirent.name)
       const relativePath = prefix ? `${prefix}/${dirent.name}` : dirent.name
       if (excludeRelativePaths.has(relativePath)) {
@@ -609,7 +610,7 @@ async function materializeSpaceEntry(
           pluginVersion,
           integrity: entry.integrity as Sha256Integrity,
           cacheKey,
-          createdAt: new Date().toISOString(),
+          createdAt: resolveNowIso(options.compileContext),
           spaceKey,
           files,
           requiredEntries: await buildCacheRequiredEntries(stagingDir, files),
@@ -815,7 +816,7 @@ export async function materializeTarget(
             harnessId,
             targetName,
             identity: options.materializationIdentity,
-            generatedAt: new Date().toISOString(),
+            generatedAt: resolveNowIso(options.compileContext),
             requiredPaths,
           },
           null,
@@ -1015,9 +1016,9 @@ export async function install(options: InstallOptions): Promise<InstallResult> {
   }
 
   // Merge lock files - start with empty and merge each result
-  let mergedLock = createEmptyLockFile(PORTABLE_SPACES_REGISTRY)
+  let mergedLock = createEmptyLockFile(PORTABLE_SPACES_REGISTRY, options.compileContext)
   for (const result of results) {
-    mergedLock = mergeLockFiles(mergedLock, result.lock)
+    mergedLock = mergeLockFiles(mergedLock, result.lock, options.compileContext)
   }
 
   // Populate store with snapshots

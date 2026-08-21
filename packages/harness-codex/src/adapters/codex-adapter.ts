@@ -46,6 +46,7 @@ import {
   getEffectiveCodexOptions,
   linkOrCopy,
 } from 'spaces-config'
+import { createCanonicalHasher } from 'spaces-runtime-contracts'
 import { errorMessage } from '../errors.js'
 import { CODEX_AGENTS_FILE, buildAgentsMarkdown } from './codex-agents.js'
 import { DEFAULT_CODEX_CLI_MODEL, buildCodexConfig } from './codex-config.js'
@@ -165,6 +166,24 @@ async function assertExists(path: string, kind: 'file' | 'dir', message: string)
     throw new Error(message)
   }
 }
+
+/**
+ * Render config.toml bytes.
+ *
+ * `TOML.stringify` emits tables in INSERTION order, so two composes that
+ * discovered the same servers in a different order produced different bytes for
+ * identical configuration. Round-tripping through the single shared
+ * canonical-JSON serializer (spaces-runtime-contracts) reorders every object key
+ * into codepoint order — and drops `undefined` fields, which TOML cannot
+ * represent anyway — so the emitted bytes are a pure function of the config's
+ * content. Exactly one trailing newline: `TOML.stringify` already ends in one.
+ */
+function renderCodexConfigToml(config: Record<string, unknown>): string {
+  const canonical = JSON.parse(canonicalHasher.canonicalize(config)) as TOML.JsonMap
+  return `${TOML.stringify(canonical).replace(/\n+$/, '')}\n`
+}
+
+const canonicalHasher = createCanonicalHasher()
 
 async function writeJson(path: string, data: unknown): Promise<void> {
   const content = `${JSON.stringify(data, null, 2)}\n`
@@ -642,8 +661,7 @@ export class CodexAdapter implements HarnessAdapter {
       hooksConfig
     )
     const configPath = join(codexHome, CODEX_CONFIG_FILE)
-    const configToml = TOML.stringify(config as TOML.JsonMap)
-    await writeFile(configPath, `${configToml}\n`)
+    await writeFile(configPath, renderCodexConfigToml(config))
 
     await writeJson(hooksPath, hooksConfig)
 

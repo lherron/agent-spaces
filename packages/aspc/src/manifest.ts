@@ -23,7 +23,7 @@ import type {
   OutputManifestExclusionReason,
   RuntimeCompileRequest,
 } from 'spaces-runtime-contracts'
-import { OUTPUT_MANIFEST_SCHEMA_VERSION } from 'spaces-runtime-contracts'
+import { OUTPUT_MANIFEST_SCHEMA_VERSION, createCanonicalHasher } from 'spaces-runtime-contracts'
 
 export interface BuildOutputManifestInput {
   compileRequest: RuntimeCompileRequest
@@ -261,19 +261,15 @@ export async function buildOutputManifest(
   return { ok: true, manifest }
 }
 
-/** Stable JSON with sorted object keys, for content-addressing. */
-export function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortKeys(value))
-}
+const canonicalHasher = createCanonicalHasher()
 
-function sortKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeys)
-  if (value !== null && typeof value === 'object') {
-    const sorted: Record<string, unknown> = {}
-    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      sorted[key] = sortKeys((value as Record<string, unknown>)[key])
-    }
-    return sorted
-  }
-  return value
+/**
+ * Stable JSON with sorted object keys, for content-addressing.
+ *
+ * Thin delegate over the single shared canonical-JSON implementation in
+ * spaces-runtime-contracts; kept exported because verify-release and the
+ * reproducible-compiler gate hash against the same bytes.
+ */
+export function canonicalJson(value: unknown): string {
+  return canonicalHasher.canonicalize(value)
 }

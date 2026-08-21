@@ -7,6 +7,8 @@
 
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { CompileContext } from 'spaces-runtime-contracts'
+import { resolveNowIso } from '../core/compile-clock.js'
 import type { HygieneGateFinding, Sha256Integrity, SpaceKey, SpaceManifest } from '../core/index.js'
 import { MaterializationError, MaterializationHygieneError } from '../core/index.js'
 import {
@@ -67,6 +69,8 @@ export interface MaterializeOptions {
   paths: PathResolver
   /** Force re-materialization even if cached */
   force?: boolean | undefined
+  /** Pinned compile clock; when supplied it, not the host clock, stamps `createdAt`. */
+  compileContext?: CompileContext | undefined
 }
 
 /**
@@ -156,7 +160,7 @@ export async function materializeSpace(
       pluginVersion,
       integrity: input.integrity,
       cacheKey,
-      createdAt: new Date().toISOString(),
+      createdAt: resolveNowIso(options.compileContext),
       spaceKey: input.spaceKey,
     }
     await writeCacheMetadata(cacheKey, metadata, { paths: options.paths })

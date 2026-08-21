@@ -139,7 +139,7 @@ export async function writeSettingsFile(
   outputPath: string
 ): Promise<void> {
   await ensureDir(join(outputPath, '..'))
-  await writeFile(outputPath, JSON.stringify(settings, null, 2))
+  await writeFile(outputPath, `${JSON.stringify(settings, null, 2)}\n`)
 }
 
 /**

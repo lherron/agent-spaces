@@ -8,6 +8,9 @@
 // Types
 export * from './types/index.js'
 
+// Compile-time clock (single blessed ambient-clock fallback for the config plane)
+export { resolveNowDate, resolveNowIso, resolveNowMs } from './compile-clock.js'
+
 // Schemas
 export {
   distTagsSchema,

@@ -98,7 +98,7 @@ export async function computeIntegrity(
   const filtered = filterTreeEntries(entries)
 
   // Sort by path (lexicographic)
-  filtered.sort((a, b) => a.path.localeCompare(b.path))
+  filtered.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 
   // Build canonical representation
   const hash = createHash('sha256')
@@ -209,7 +209,7 @@ export async function computeFilesystemIntegrity(spacePath: string): Promise<Sha
   const entries = await collectFilesystemEntries(spacePath, '')
 
   // Sort by path (lexicographic)
-  entries.sort((a, b) => a.path.localeCompare(b.path))
+  entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 
   // Build canonical representation (same as git-based)
   const hash = createHash('sha256')

@@ -341,7 +341,7 @@ export function toClaudeHooksConfig(hooks: CanonicalHookDefinition[]): ClaudeHoo
  */
 export function generateClaudeHooksJson(hooks: CanonicalHookDefinition[]): string {
   const config = toClaudeHooksConfig(hooks)
-  return JSON.stringify(config, null, 2)
+  return `${JSON.stringify(config, null, 2)}\n`
 }
 
 /**

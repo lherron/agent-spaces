@@ -5,6 +5,8 @@
  * commits and stores integrity hashes for reproducibility.
  */
 
+import type { CompileContext } from 'spaces-runtime-contracts'
+import { resolveNowIso } from '../compile-clock.js'
 import type { CommitSha, Sha256Integrity, SpaceId, SpaceKey, SpaceRefString } from './refs.js'
 
 interface LockRegistryBase {
@@ -151,11 +153,14 @@ export interface LockFile {
 // ============================================================================
 
 /** Create an empty lock file structure */
-export function createEmptyLockFile(registry: LockRegistry): LockFile {
+export function createEmptyLockFile(
+  registry: LockRegistry,
+  compileContext?: CompileContext | undefined
+): LockFile {
   return {
     lockfileVersion: 1,
     resolverVersion: 1,
-    generatedAt: new Date().toISOString(),
+    generatedAt: resolveNowIso(compileContext),
     registry,
     spaces: {},
     targets: {},

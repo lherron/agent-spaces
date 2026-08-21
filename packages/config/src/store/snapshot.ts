@@ -165,7 +165,7 @@ async function computeSnapshotIntegrity(snapshotPath: string): Promise<Sha256Int
   const filtered = entries.filter((e) => e.path !== '.asp-snapshot.json')
 
   // Sort by path
-  filtered.sort((a, b) => a.path.localeCompare(b.path))
+  filtered.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 
   // Build canonical representation
   const hash = createHash('sha256')

@@ -166,6 +166,7 @@
         "spaces-harness-pi": "*",
         "spaces-harness-pi-sdk": "*",
         "spaces-runtime": "*",
+        "spaces-runtime-contracts": "*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -242,6 +243,7 @@
         "@iarna/toml": "^2.2.5",
         "spaces-config": "*",
         "spaces-runtime": "*",
+        "spaces-runtime-contracts": "*",
       },
       "devDependencies": {
         "@types/bun": "latest",

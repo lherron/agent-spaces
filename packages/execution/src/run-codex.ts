@@ -29,6 +29,7 @@ import {
   renderPraesidiumContextBlock,
   trustCodexHooksInConfigToml,
 } from 'spaces-harness-codex'
+import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
 import { moveDirWithCopyFallback, pathExists } from './run/util.js'
 
@@ -72,18 +73,15 @@ function getLegacyProjectCodexRuntimeHomePath(projectPath: string, targetName: s
 
 const CODEX_RUNTIME_METADATA_FILE = '.asp-runtime.json'
 
+/**
+ * Codex runtime-home fingerprint material is serialized by the single shared
+ * canonical-JSON implementation in spaces-runtime-contracts (codepoint key
+ * ordering, undefined fields omitted), not a local serializer.
+ */
+const canonicalHasher = createCanonicalHasher()
+
 function stableJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableJson(entry)).join(',')}]`
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
-      .join(',')}}`
-  }
-  return JSON.stringify(value)
+  return canonicalHasher.canonicalize(value)
 }
 
 function computeCodexRuntimeFingerprint(input: {

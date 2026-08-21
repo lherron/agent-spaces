@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
@@ -21,6 +20,7 @@ import {
   type CompileDiagnostic,
   type RuntimeCompileRequest,
   type RuntimeCompileResponse,
+  createCanonicalHasher,
   validateAgentInspectionRequest,
   validateAgentInspectionResult,
 } from 'spaces-runtime-contracts'
@@ -554,20 +554,17 @@ function deduplicateDiagnostics(
   })
 }
 
-function stableHash(value: AgentInspectionJsonValue | object): string {
-  return createHash('sha256')
-    .update(JSON.stringify(sortJson(value)))
-    .digest('hex')
-}
+/**
+ * Inspection seed/contextHash digest.
+ *
+ * Delegates to the single shared canonical-JSON implementation in
+ * spaces-runtime-contracts (codepoint key ordering, no ICU/locale input) so the
+ * inspection hash cannot drift from every other hash-material serializer.
+ */
+const canonicalHasher = createCanonicalHasher()
 
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJson)
-  if (value === null || typeof value !== 'object') return value
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => [key, sortJson(item)])
-  )
+function stableHash(value: AgentInspectionJsonValue | object): string {
+  return canonicalHasher.hash(value).value
 }
 
 function asRunMode(value: string): 'query' | 'heartbeat' | 'task' | 'maintenance' {

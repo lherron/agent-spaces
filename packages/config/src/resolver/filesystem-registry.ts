@@ -119,7 +119,7 @@ export async function computeFilesystemRegistryCommit(
     return null
   }
 
-  entries.sort((a, b) => a.path.localeCompare(b.path))
+  entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 
   const hash = createHash('sha256')
   hash.update(`filesystem-registry-v1\0${spaceId}\0${version}\0`)

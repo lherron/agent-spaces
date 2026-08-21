@@ -10,6 +10,8 @@ import { existsSync } from 'node:fs'
 import { mkdir, readdir } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
 
+import type { CompileContext } from 'spaces-runtime-contracts'
+
 import {
   type AgentLocalComponents,
   type CommitSha,
@@ -99,6 +101,8 @@ export interface MaterializeFromRefsOptions {
   agentLocalComponents?: AgentLocalComponents | undefined
   /** Semantic stable identity for agent/project placement materialization. */
   materializationIdentity?: InstallOptions['materializationIdentity'] | undefined
+  /** Pinned compile clock; when supplied it, not the host clock, stamps lock/metadata timestamps. */
+  compileContext?: CompileContext | undefined
 }
 
 /**
@@ -188,13 +192,14 @@ export async function materializeFromRefs(
     registry: PORTABLE_SPACES_REGISTRY,
     ...(options.agentRoot ? { agentRoot: options.agentRoot } : {}),
     ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
+    compileContext: options.compileContext,
   }
   const newLock = await generateLockFileForTarget(targetName, refs, closure, lockOptions)
 
   // Merge with existing lock if present (preserves other targets)
   let mergedLock: LockFile
   if (existingLock) {
-    mergedLock = mergeLockFiles(existingLock, newLock)
+    mergedLock = mergeLockFiles(existingLock, newLock, options.compileContext)
   } else {
     mergedLock = newLock
   }

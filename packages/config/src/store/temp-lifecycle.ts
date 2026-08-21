@@ -3,6 +3,10 @@ import type { Dirent } from 'node:fs'
 import { lstat, mkdir, readdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import type { CompileContext } from 'spaces-runtime-contracts'
+
+import { resolveNowDate, resolveNowMs } from '../core/compile-clock.js'
+
 import { getAspHome } from './paths.js'
 
 export const DEFAULT_LAUNCH_OVERLAY_MAX_AGE_MS = 15 * 60 * 1000
@@ -26,6 +30,8 @@ export interface AspTempSweepResult {
 export interface SweepAspTempArtifactsOptions {
   aspHome?: string | undefined
   nowMs?: number | undefined
+  /** Pinned compile clock; when supplied it, not the host clock, dates the sweep. */
+  compileContext?: CompileContext | undefined
   launchOverlayMaxAgeMs?: number | undefined
   stagingMaxAgeMs?: number | undefined
 }
@@ -39,6 +45,8 @@ export interface WriteRuntimeSystemPromptArtifactInput {
   aspHome?: string | undefined
   artifactRoot?: string | undefined
   content: string
+  /** Pinned compile clock; when supplied it, not the host clock, stamps the artifact mtime. */
+  compileContext?: CompileContext | undefined
 }
 
 function emptyStats(root: string): TempSweepStats {
@@ -124,7 +132,7 @@ export async function sweepAspTempArtifacts(
   options: SweepAspTempArtifactsOptions = {}
 ): Promise<AspTempSweepResult> {
   const aspHome = options.aspHome ?? getAspHome()
-  const nowMs = options.nowMs ?? Date.now()
+  const nowMs = options.nowMs ?? resolveNowMs(options.compileContext)
   const launchRoot = join(aspHome, 'tmp', 'launch-overlays')
   const stagingRoot = join(aspHome, 'tmp', '.staging')
   const [launchOverlays, staging] = await Promise.all([
@@ -153,7 +161,7 @@ export async function writeRuntimeSystemPromptArtifact(
   const systemPromptPath = join(artifactDir, 'system-prompt.md')
   await mkdir(artifactDir, { recursive: true })
   await writeFile(systemPromptPath, input.content, 'utf8')
-  const now = new Date()
+  const now = resolveNowDate(input.compileContext)
   await utimes(systemPromptPath, now, now).catch(() => {})
   return { systemPromptPath, contentHash }
 }

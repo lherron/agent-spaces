@@ -28,7 +28,7 @@ function buildCanonicalVariables(context: ContextResolverContext): Record<string
     handle,
     lane,
     runMode: context.runMode,
-    date: formatLocalDate(now),
+    date: formatUtcDate(now),
     dateUtc: now.toISOString(),
     agentRoot: context.agentRoot,
     agentsRoot: context.agentsRoot,
@@ -87,10 +87,18 @@ function buildHandle(agentId: string, projectId: string, taskId: string, lane: s
   return lane.length > 0 ? `${base}~${lane}` : base
 }
 
-function formatLocalDate(now: Date): string {
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
+/**
+ * Calendar date of the injected instant in UTC.
+ *
+ * WHY UTC: `{{date}}` is interpolated into prompt bytes that are hashed and
+ * cached. Deriving it from the host time zone made the same instant render as
+ * two different dates on two machines, so identical inputs produced different
+ * artifact bytes. UTC makes the value a pure function of the injected clock.
+ */
+function formatUtcDate(now: Date): string {
+  const year = now.getUTCFullYear()
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(now.getUTCDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
 }
 

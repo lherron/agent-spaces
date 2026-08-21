@@ -104,7 +104,7 @@ export function checkMcpCollisions(
  */
 export async function writeMcpConfig(config: McpConfig, outputPath: string): Promise<void> {
   await ensureDir(join(outputPath, '..'))
-  await writeFile(outputPath, JSON.stringify(config, null, 2))
+  await writeFile(outputPath, `${JSON.stringify(config, null, 2)}\n`)
 }
 
 /**

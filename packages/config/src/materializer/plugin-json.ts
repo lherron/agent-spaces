@@ -100,7 +100,7 @@ export async function writePluginJson(manifest: SpaceManifest, outputDir: string
   const pluginJson = generatePluginJson(manifest)
   const jsonPath = join(pluginDir, 'plugin.json')
 
-  await writeFile(jsonPath, JSON.stringify(pluginJson, null, 2))
+  await writeFile(jsonPath, `${JSON.stringify(pluginJson, null, 2)}\n`)
 }
 
 /**

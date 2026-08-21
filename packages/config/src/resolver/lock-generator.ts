@@ -5,6 +5,8 @@
  * exact versions resolved during installation.
  */
 
+import type { CompileContext } from 'spaces-runtime-contracts'
+import { resolveNowIso } from '../core/compile-clock.js'
 import type {
   LockFile,
   LockHarnessEntry,
@@ -85,6 +87,8 @@ export interface LockGeneratorOptions {
   projectRoot?: string | undefined
   /** Agent root for agent-local spaces */
   agentRoot?: string | undefined
+  /** Pinned compile clock; when supplied it, not the host clock, stamps `generatedAt`. */
+  compileContext?: CompileContext | undefined
 }
 
 /**
@@ -270,7 +274,7 @@ export async function generateLockFile(
   const lock: LockFile = {
     lockfileVersion: 1,
     resolverVersion: 1,
-    generatedAt: new Date().toISOString(),
+    generatedAt: resolveNowIso(options.compileContext),
     registry: options.registry,
     spaces: {},
     targets: {},
@@ -310,11 +314,15 @@ export async function generateLockFileForTarget(
  * Merge a new lock file into an existing one.
  * Updates or adds targets while preserving existing ones.
  */
-export function mergeLockFiles(existing: LockFile, updates: LockFile): LockFile {
+export function mergeLockFiles(
+  existing: LockFile,
+  updates: LockFile,
+  compileContext?: CompileContext | undefined
+): LockFile {
   const merged: LockFile = {
     ...existing,
     registry: updates.registry,
-    generatedAt: new Date().toISOString(),
+    generatedAt: resolveNowIso(compileContext),
     spaces: { ...existing.spaces },
     targets: { ...existing.targets },
   }

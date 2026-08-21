@@ -2,10 +2,10 @@
  * Codex hooks: HRC hooks.json construction, deterministic hook-trust hashing,
  * and the helpers that seed/refresh a config.toml's hook-trust store.
  */
-import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import TOML from '@iarna/toml'
+import { createCanonicalHasher } from 'spaces-runtime-contracts'
 
 /** Codex defaults the hook execution timeout to 600 seconds. */
 const DEFAULT_HOOK_TIMEOUT_SECONDS = 600
@@ -77,26 +77,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
-function canonicalJson(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalJson)
-  }
-  if (isRecord(value)) {
-    const sorted: Record<string, unknown> = {}
-    for (const key of Object.keys(value).sort()) {
-      const entry = value[key]
-      if (entry !== undefined) {
-        sorted[key] = canonicalJson(entry)
-      }
-    }
-    return sorted
-  }
-  return value
-}
+/**
+ * Hook-trust versions hash the single shared canonical-JSON serialization from
+ * spaces-runtime-contracts (codepoint key ordering, undefined fields omitted)
+ * rather than a local canonicalizer.
+ */
+const canonicalHasher = createCanonicalHasher()
 
 function versionForCodexTomlValue(value: Record<string, unknown>): string {
-  const serialized = JSON.stringify(canonicalJson(value))
-  return `sha256:${createHash('sha256').update(serialized).digest('hex')}`
+  return `sha256:${canonicalHasher.hash(value).value}`
 }
 
 function normalizedCodexHookHash(

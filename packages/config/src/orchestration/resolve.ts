@@ -7,6 +7,8 @@
 
 import * as path from 'node:path'
 
+import type { CompileContext } from 'spaces-runtime-contracts'
+
 import { ConfigFileNotFoundError } from '../core/errors.js'
 
 import {
@@ -69,6 +71,12 @@ export interface ResolveOptions {
    * keeping others at their locked versions).
    */
   pinnedSpaces?: Map<SpaceId, CommitSha> | undefined
+  /**
+   * Pinned compile clock. When supplied, every timestamp stamped into resolved
+   * output (lock `generatedAt`, cache/target metadata) derives from it instead
+   * of the host wall clock. Production callers omit it.
+   */
+  compileContext?: CompileContext | undefined
 }
 
 /**
@@ -253,6 +261,7 @@ export async function resolveTarget(
     registry: PORTABLE_SPACES_REGISTRY,
     projectRoot: options.projectPath,
     agentRoot: options.agentPath,
+    compileContext: options.compileContext,
   }
 
   const lock = await generateLockFileForTarget(targetName, refs, closure, lockOptions)

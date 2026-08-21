@@ -22,6 +22,7 @@ authority: hrcchat#19467
 source:
   - hrcchat#19465
   - hrcchat#19467
+  - docs/p0-hash-epoch.md
   - packages/aspc/src/manifest.ts
   - packages/aspc/src/verify-release.ts
   - packages/aspc/src/service.ts
