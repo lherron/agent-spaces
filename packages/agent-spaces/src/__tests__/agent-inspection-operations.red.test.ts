@@ -71,7 +71,7 @@ beforeEach(async () => {
   }
   await writeFile(
     join(validRoot, 'agent-profile.toml'),
-    'schemaVersion = 2\n\n[spaces]\nbase = []\n\n[instructions]\ntemplate = "context-template.toml"\n'
+    'version = 3\n\n[spaces]\nbase = []\n\n[instructions]\ntemplate = "context-template.toml"\n'
   )
   await writeFile(join(validRoot, 'SOUL.md'), 'valid agent soul\n')
   await writeFile(join(brokenRoot, 'agent-profile.toml'), 'schemaVersion = [ definitely invalid')

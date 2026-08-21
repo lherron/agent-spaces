@@ -1,5 +1,5 @@
 /**
- * Project targets types for Agent Spaces v2
+ * Project targets types for Agent Spaces v3
  *
  * The project manifest (asp-targets.toml) defines Run Targets
  * that compose Spaces for project-local execution.
@@ -37,6 +37,24 @@ export interface CodexOptions {
   profile?: string | undefined
 }
 
+/** Birth-time defaults shared by agent profiles and project target overlays. */
+export interface ProvisioningSettings {
+  harness?: string | undefined
+  model?: string | undefined
+  reasoning?: string | undefined
+  node?: string | undefined
+  yolo?: boolean | undefined
+  sandbox?: string | undefined
+  approval?: string | undefined
+  remote?: boolean | undefined
+  /** Harness escape hatches are profile/target configuration, never directive scalars. */
+  claude?: ClaudeOptions | undefined
+  codex?: CodexOptions | undefined
+}
+
+/** The structurally overridable, top-level scalar portion of provisioning. */
+export type ProvisioningScalars = Omit<ProvisioningSettings, 'claude' | 'codex'>
+
 /** Resolver configuration for a target */
 export interface ResolverConfig {
   /** Whether to use locked versions (default: true) */
@@ -50,25 +68,17 @@ export interface TargetDefinition {
   /** Human-readable description */
   description?: string | undefined
   /** Initial prompt sent when running this target unless overridden by CLI prompt */
-  priming_prompt?: string | undefined
+  priming?: string | undefined
   /** Prompt text to append to the agent-level priming prompt */
-  priming_prompt_append?: string | undefined
+  priming_append?: string | undefined
   /** Ordered list of space refs to compose (optional when agent-profile provides defaults) */
   compose?: SpaceRefString[] | undefined
   /** How project compose should interact with agent-level compose defaults */
   compose_mode?: 'replace' | 'merge' | undefined
-  /** Target-specific claude options (override defaults) */
-  claude?: ClaudeOptions | undefined
-  /** Target-specific codex options (override defaults) */
-  codex?: CodexOptions | undefined
+  /** Project-local birth defaults overriding the agent profile. */
+  provisioning?: ProvisioningSettings | undefined
   /** Resolver configuration */
   resolver?: ResolverConfig | undefined
-  /** Skip all permission prompts (--dangerously-skip-permissions) */
-  yolo?: boolean | undefined
-  /** Enable remote control via TCP (--remote-control) */
-  remote_control?: boolean | undefined
-  /** Preferred harness for this target (overrides agent-profile identity.harness) */
-  harness?: string | undefined
 }
 
 /**
@@ -151,7 +161,9 @@ export function getEffectiveClaudeOptions(
   targetName: TargetName
 ): ClaudeOptions {
   const target = manifest.targets[targetName]
-  return mergeClaudeOptions(manifest.claude, target?.claude)
+  const options = mergeClaudeOptions(manifest.claude, target?.provisioning?.claude)
+  if (target?.provisioning?.model !== undefined) options.model = target.provisioning.model
+  return options
 }
 
 /**
@@ -191,5 +203,17 @@ export function getEffectiveCodexOptions(
   targetName: TargetName
 ): CodexOptions {
   const target = manifest.targets[targetName]
-  return mergeCodexOptions(manifest.codex, target?.codex)
+  const options = mergeCodexOptions(manifest.codex, target?.provisioning?.codex)
+  const provisioning = target?.provisioning
+  if (provisioning?.model !== undefined) options.model = provisioning.model
+  if (provisioning?.reasoning !== undefined) {
+    options.model_reasoning_effort = provisioning.reasoning
+  }
+  if (provisioning?.approval !== undefined) {
+    options.approval_policy = provisioning.approval as CodexOptions['approval_policy']
+  }
+  if (provisioning?.sandbox !== undefined) {
+    options.sandbox_mode = provisioning.sandbox as CodexOptions['sandbox_mode']
+  }
+  return options
 }

@@ -765,10 +765,10 @@ export class CodexAdapter implements HarnessAdapter {
       approvalPolicy: codexOptions.approval_policy,
       sandboxMode: codexOptions.sandbox_mode,
       profile: codexOptions.profile,
-      prompt: target?.priming_prompt,
+      prompt: target?.priming,
     }
 
-    if (target?.yolo) {
+    if (target?.provisioning?.yolo) {
       defaults.approvalPolicy = 'never'
       defaults.sandboxMode = 'danger-full-access'
     }

@@ -81,7 +81,7 @@ describe('asp run --print-command: model_reasoning_effort in codex invocation (T
 [targets.codex-target]
 compose = []
 
-[targets.codex-target.codex]
+[targets.codex-target.provisioning]
 model = "gpt-5.5"
 `
     )

@@ -340,9 +340,9 @@ describe('asp run', () => {
       agentsRoot,
       'dev',
       `
-schemaVersion = 2
+version = 3
 
-priming_prompt = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
+priming = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
 `
     )
     process.env['ASP_AGENTS_ROOT'] = agentsRoot
@@ -373,9 +373,9 @@ priming_prompt = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
       agentsRoot,
       'cody',
       `
-schemaVersion = 2
+version = 3
 
-priming_prompt = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
+priming = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
 `
     )
 
@@ -428,7 +428,7 @@ priming_prompt = "You are {{agentId}} in {{projectId}} working on {{taskId}}."
       tempAgentsRoot,
       'animan',
       `
-schema_version = 2
+version = 3
 
 [spaces]
 base = ["space:base@stable"]
@@ -485,7 +485,7 @@ base = ["space:base@stable"]
       tempAgentsRoot,
       'animan',
       `
-schema_version = 2
+version = 3
 
 [spaces]
 base = ["space:frontend@stable"]

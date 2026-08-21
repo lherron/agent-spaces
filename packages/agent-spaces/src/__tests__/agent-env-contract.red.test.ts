@@ -71,13 +71,13 @@ function createFixture(): Fixture {
   writeFileSync(imagePath, 'not-really-a-png', 'utf8')
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `schemaVersion = 2
-priming_prompt = "Agent {{agentId}} handles {{projectId}} task {{taskId}} on {{lane}}."
+    `version = 3
+priming = "Agent {{agentId}} handles {{projectId}} task {{taskId}} on {{lane}}."
 
 [spaces]
 base = []
 
-[harnessDefaults.codex]
+[provisioning.codex]
 model = "gpt-5.5"
 model_reasoning_effort = "medium"
 approval_policy = "on-failure"

@@ -32,9 +32,7 @@ describe('syncAgentToCodexDefault', () => {
       await writeFile(join(agentRoot, 'SOUL.md'), '# Cody\n')
       await writeFile(
         join(agentRoot, 'agent-profile.toml'),
-        ['schemaVersion = 2', '', '[spaces]', 'base = ["space:console-defaults@dev"]', ''].join(
-          '\n'
-        )
+        ['version = 3', '', '[spaces]', 'base = ["space:console-defaults@dev"]', ''].join('\n')
       )
       await writeFile(
         join(sharedSpace, 'space.toml'),

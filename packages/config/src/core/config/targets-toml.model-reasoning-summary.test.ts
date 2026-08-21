@@ -14,12 +14,12 @@ model_reasoning_summary = "concise"
 [targets.default]
 compose = ["space:test@stable"]
 
-[targets.default.codex]
+[targets.default.provisioning.codex]
 model_reasoning_summary = "detailed"
 `)
 
     expect(parsed.codex?.model_reasoning_summary).toBe('concise')
-    expect(parsed.targets.default.codex?.model_reasoning_summary).toBe('detailed')
+    expect(parsed.targets.default.provisioning?.codex?.model_reasoning_summary).toBe('detailed')
   })
 
   test('rejects unsupported values', () => {
@@ -44,7 +44,7 @@ model_reasoning_summary = "verbose"
       schema: 1,
       codex: { model_reasoning_summary: 'auto' },
       targets: {
-        default: { codex: { model_reasoning_summary: 'concise' } },
+        default: { provisioning: { codex: { model_reasoning_summary: 'concise' } } },
       },
     }
     expect(getEffectiveCodexOptions(manifest, 'default').model_reasoning_summary).toBe('concise')
@@ -55,12 +55,12 @@ model_reasoning_summary = "verbose"
       schema: 1,
       codex: { model_reasoning_summary: 'auto' },
       targets: {
-        default: { codex: { model_reasoning_summary: 'none' } },
+        default: { provisioning: { codex: { model_reasoning_summary: 'none' } } },
       },
     }
 
     const parsed = parseTargetsToml(serializeTargetsToml(original))
     expect(parsed.codex?.model_reasoning_summary).toBe('auto')
-    expect(parsed.targets.default.codex?.model_reasoning_summary).toBe('none')
+    expect(parsed.targets.default.provisioning?.codex?.model_reasoning_summary).toBe('none')
   })
 })

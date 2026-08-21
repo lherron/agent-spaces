@@ -45,13 +45,14 @@ import {
 
 function makeProfile(overrides: Partial<AgentRuntimeProfile> = {}): AgentRuntimeProfile {
   return {
-    schemaVersion: 2,
-    identity: { display: 'TestAgent', role: 'coder', harness: 'codex' },
-    priming_prompt: 'You are TestAgent.',
+    version: 3,
+    identity: { display: 'TestAgent', role: 'coder' },
+    priming: 'You are TestAgent.',
     spaces: {
       base: ['space:defaults@dev' as SpaceRefString],
     },
-    harnessDefaults: {
+    provisioning: {
+      harness: 'codex',
       model: 'claude-opus-4-6',
       yolo: false,
       claude: { permission_mode: 'default' },
@@ -76,7 +77,7 @@ describe('mergeAgentWithProjectTarget: agent-only', () => {
   test('no project target → agent defaults pass through', () => {
     const profile = makeProfile()
     const result = mergeAgentWithProjectTarget(profile, undefined, 'query')
-    expect(result.priming_prompt).toBe('You are TestAgent.')
+    expect(result.priming).toBe('You are TestAgent.')
     expect(result.compose).toEqual(['space:defaults@dev'])
     expect(result.harness).toBe('codex')
     expect(result.model).toBe('claude-opus-4-6')
@@ -87,7 +88,7 @@ describe('mergeAgentWithProjectTarget: agent-only', () => {
     const profile = makeProfile({
       spaces: {
         base: ['space:defaults@dev' as SpaceRefString],
-        byMode: {
+        modes: {
           heartbeat: ['space:heartbeat-extra@dev' as SpaceRefString],
         },
       },
@@ -147,7 +148,7 @@ describe('mergeAgentWithProjectTarget: compose merge', () => {
     const profile = makeProfile({
       spaces: {
         base: ['space:a@dev' as SpaceRefString],
-        byMode: {
+        modes: {
           heartbeat: ['space:hb@dev' as SpaceRefString],
         },
       },
@@ -175,21 +176,21 @@ describe('mergePrimingPrompt', () => {
 
   test('project priming_prompt → replaces agent default', () => {
     const result = mergePrimingPrompt('Agent prompt.', {
-      priming_prompt: 'Project prompt.',
+      priming: 'Project prompt.',
     })
     expect(result).toBe('Project prompt.')
   })
 
   test('project priming_prompt_append → appended to agent default', () => {
     const result = mergePrimingPrompt('Agent prompt.', {
-      priming_prompt_append: '## Extra context',
+      priming_append: '## Extra context',
     })
     expect(result).toBe('Agent prompt.\n## Extra context')
   })
 
   test('priming_prompt_append with no agent default → agent default unchanged', () => {
     const result = mergePrimingPrompt(undefined, {
-      priming_prompt_append: '## Extra context',
+      priming_append: '## Extra context',
     })
     expect(result).toBeUndefined()
   })
@@ -197,8 +198,8 @@ describe('mergePrimingPrompt', () => {
   test('both priming_prompt + priming_prompt_append → ConfigValidationError', () => {
     expect(() =>
       mergePrimingPrompt('Agent prompt.', {
-        priming_prompt: 'Replace.',
-        priming_prompt_append: 'Append.',
+        priming: 'Replace.',
+        priming_append: 'Append.',
       })
     ).toThrow(ConfigValidationError)
   })
@@ -211,12 +212,12 @@ describe('mergePrimingPrompt', () => {
 describe('mergeAgentWithProjectTarget: harness option merge', () => {
   test('project claude options override agent claude defaults', () => {
     const profile = makeProfile({
-      harnessDefaults: {
+      provisioning: {
         claude: { permission_mode: 'default', args: ['--verbose'] },
       },
     })
     const target = makeTarget({
-      claude: { permission_mode: 'auto-accept' },
+      provisioning: { claude: { permission_mode: 'auto-accept' } },
     })
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
     expect(result.claude.permission_mode).toBe('auto-accept')
@@ -226,12 +227,12 @@ describe('mergeAgentWithProjectTarget: harness option merge', () => {
 
   test('project codex options override agent codex defaults', () => {
     const profile = makeProfile({
-      harnessDefaults: {
+      provisioning: {
         codex: { model_reasoning_effort: 'high', approval_policy: 'on-request' },
       },
     })
     const target = makeTarget({
-      codex: { model_reasoning_effort: 'low' },
+      provisioning: { codex: { model_reasoning_effort: 'low' } },
     })
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
     expect(result.codex.model_reasoning_effort).toBe('low')
@@ -247,16 +248,16 @@ describe('mergeAgentWithProjectTarget: harness option merge', () => {
 describe('mergeAgentWithProjectTarget: yolo and model', () => {
   test('project yolo overrides agent default', () => {
     const profile = makeProfile({
-      harnessDefaults: { yolo: false },
+      provisioning: { yolo: false },
     })
-    const target = makeTarget({ yolo: true })
+    const target = makeTarget({ provisioning: { yolo: true } })
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
     expect(result.yolo).toBe(true)
   })
 
   test('agent yolo used when project does not set it', () => {
     const profile = makeProfile({
-      harnessDefaults: { yolo: true },
+      provisioning: { yolo: true },
     })
     const target = makeTarget({})
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
@@ -265,7 +266,7 @@ describe('mergeAgentWithProjectTarget: yolo and model', () => {
 
   test('model from agent harnessDefaults when project has none', () => {
     const profile = makeProfile({
-      harnessDefaults: { model: 'claude-opus-4-6' },
+      provisioning: { model: 'claude-opus-4-6' },
     })
     const target = makeTarget({})
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
@@ -280,16 +281,16 @@ describe('mergeAgentWithProjectTarget: yolo and model', () => {
 describe('mergeAgentWithProjectTarget: remoteControl', () => {
   test('project remote_control overrides agent default', () => {
     const profile = makeProfile({
-      harnessDefaults: { remote_control: false },
+      provisioning: { remote: false },
     })
-    const target = makeTarget({ remote_control: true })
+    const target = makeTarget({ provisioning: { remote: true } })
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
     expect(result.remoteControl).toBe(true)
   })
 
   test('agent remote_control used when project does not set it', () => {
     const profile = makeProfile({
-      harnessDefaults: { remote_control: true },
+      provisioning: { remote: true },
     })
     const target = makeTarget({})
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
@@ -318,10 +319,11 @@ describe('mergeAgentWithProjectTarget: remoteControl', () => {
 describe('mergeAgentWithProjectTarget: target-level harness (T-00996)', () => {
   test('target.harness overrides profile identity.harness', () => {
     const profile = makeProfile({
-      identity: { display: 'Larry', role: 'implementer', harness: 'codex' },
+      identity: { display: 'Larry', role: 'implementer' },
+      provisioning: { harness: 'codex' },
     })
     const target = makeTarget({
-      harness: 'claude-code',
+      provisioning: { harness: 'claude-code' },
     } as Partial<TargetDefinition>) // cast: harness not on TargetDefinition yet
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
     expect(result.harness).toBe('claude-code')
@@ -329,7 +331,8 @@ describe('mergeAgentWithProjectTarget: target-level harness (T-00996)', () => {
 
   test('profile identity.harness used when target has no harness', () => {
     const profile = makeProfile({
-      identity: { display: 'Larry', role: 'implementer', harness: 'codex' },
+      identity: { display: 'Larry', role: 'implementer' },
+      provisioning: { harness: 'codex' },
     })
     const target = makeTarget({}) // no harness field
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
@@ -339,6 +342,7 @@ describe('mergeAgentWithProjectTarget: target-level harness (T-00996)', () => {
   test('defaults to claude-code when neither target nor profile set harness', () => {
     const profile = makeProfile({
       identity: { display: 'Smokey', role: 'tester' },
+      provisioning: undefined,
     })
     const target = makeTarget({})
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
@@ -347,10 +351,11 @@ describe('mergeAgentWithProjectTarget: target-level harness (T-00996)', () => {
 
   test('target.harness = "agent-sdk" overrides profile harness = "claude-code"', () => {
     const profile = makeProfile({
-      identity: { display: 'Animata', role: 'coordinator', harness: 'claude-code' },
+      identity: { display: 'Animata', role: 'coordinator' },
+      provisioning: { harness: 'claude-code' },
     })
     const target = makeTarget({
-      harness: 'agent-sdk',
+      provisioning: { harness: 'agent-sdk' },
     } as Partial<TargetDefinition>)
     const result = mergeAgentWithProjectTarget(profile, target, 'query')
     expect(result.harness).toBe('agent-sdk')
@@ -373,7 +378,7 @@ describe('resolveAgentPrimingPrompt', () => {
   })
 
   test('returns priming_prompt when set directly', () => {
-    const profile = makeProfile({ priming_prompt: 'Direct prompt.' })
+    const profile = makeProfile({ priming: 'Direct prompt.' })
     const result = resolveAgentPrimingPrompt(profile, agentRoot)
     expect(result).toBe('Direct prompt.')
   })
@@ -381,8 +386,8 @@ describe('resolveAgentPrimingPrompt', () => {
   test('reads priming_prompt_file from agent root', async () => {
     await writeFile(join(agentRoot, 'PRIMING.md'), '# Agent Priming\nYou are a test agent.')
     const profile = makeProfile({
-      priming_prompt: undefined,
-      priming_prompt_file: 'PRIMING.md',
+      priming: undefined,
+      priming_file: 'PRIMING.md',
     } as Partial<AgentRuntimeProfile>)
     const result = resolveAgentPrimingPrompt(profile, agentRoot)
     expect(result).toContain('# Agent Priming')
@@ -391,7 +396,7 @@ describe('resolveAgentPrimingPrompt', () => {
 
   test('returns undefined when neither priming_prompt nor priming_prompt_file set', () => {
     const profile = makeProfile({
-      priming_prompt: undefined,
+      priming: undefined,
     } as Partial<AgentRuntimeProfile>)
     const result = resolveAgentPrimingPrompt(profile, agentRoot)
     expect(result).toBeUndefined()

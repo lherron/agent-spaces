@@ -535,9 +535,9 @@ export class ClaudeAdapter implements HarnessAdapter {
       model: claudeOptions.model,
       permissionMode: claudeOptions.permission_mode,
       extraArgs: claudeOptions.args,
-      prompt: target?.priming_prompt,
-      yolo: target?.yolo ?? false,
-      remoteControl: target?.remote_control ?? false,
+      prompt: target?.priming,
+      yolo: target?.provisioning?.yolo ?? false,
+      remoteControl: target?.provisioning?.remote ?? false,
     }
   }
 

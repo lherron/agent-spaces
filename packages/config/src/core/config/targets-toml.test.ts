@@ -44,10 +44,12 @@ function createFullManifest(): ProjectManifest {
     targets: {
       default: {
         description: 'Default development target',
-        priming_prompt: 'Initialize tools and announce ready status.',
+        priming: 'Initialize tools and announce ready status.',
         compose: ['space:core@stable', 'space:frontend@^1.0.0'],
-        claude: {
-          model: 'claude-3-sonnet',
+        provisioning: {
+          claude: {
+            model: 'claude-3-sonnet',
+          },
         },
         resolver: {
           locked: true,
@@ -83,18 +85,20 @@ function toToml(manifest: ProjectManifest): string {
     lines.push('')
     lines.push(`[targets.${name}]`)
     if (target.description) lines.push(`description = "${target.description}"`)
-    if (target.priming_prompt) lines.push(`priming_prompt = "${target.priming_prompt}"`)
+    if (target.priming) lines.push(`priming = "${target.priming}"`)
     lines.push(`compose = [${target.compose.map((c) => `"${c}"`).join(', ')}]`)
 
-    if (target.claude) {
+    if (target.provisioning?.claude) {
       lines.push('')
-      lines.push(`[targets.${name}.claude]`)
-      if (target.claude.model) lines.push(`model = "${target.claude.model}"`)
-      if (target.claude.permission_mode) {
-        lines.push(`permission_mode = "${target.claude.permission_mode}"`)
+      lines.push(`[targets.${name}.provisioning.claude]`)
+      if (target.provisioning.claude.model) {
+        lines.push(`model = "${target.provisioning.claude.model}"`)
       }
-      if (target.claude.args) {
-        lines.push(`args = [${target.claude.args.map((a) => `"${a}"`).join(', ')}]`)
+      if (target.provisioning.claude.permission_mode) {
+        lines.push(`permission_mode = "${target.provisioning.claude.permission_mode}"`)
+      }
+      if (target.provisioning.claude.args) {
+        lines.push(`args = [${target.provisioning.claude.args.map((a) => `"${a}"`).join(', ')}]`)
       }
     }
 
@@ -198,7 +202,7 @@ profile = "default"
 [targets.default]
 compose = ["space:my-space@stable"]
 
-[targets.default.codex]
+[targets.default.provisioning.codex]
 model = "gpt-5.1-codex-mini"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
@@ -210,10 +214,10 @@ profile = "dev"
       expect(result.codex?.approval_policy).toBe('on-request')
       expect(result.codex?.sandbox_mode).toBe('workspace-write')
       expect(result.codex?.profile).toBe('default')
-      expect(result.targets.default.codex?.model).toBe('gpt-5.1-codex-mini')
-      expect(result.targets.default.codex?.approval_policy).toBe('never')
-      expect(result.targets.default.codex?.sandbox_mode).toBe('danger-full-access')
-      expect(result.targets.default.codex?.profile).toBe('dev')
+      expect(result.targets.default.provisioning?.codex?.model).toBe('gpt-5.1-codex-mini')
+      expect(result.targets.default.provisioning?.codex?.approval_policy).toBe('never')
+      expect(result.targets.default.provisioning?.codex?.sandbox_mode).toBe('danger-full-access')
+      expect(result.targets.default.provisioning?.codex?.profile).toBe('dev')
     })
 
     test('parses manifest with target-specific claude options', () => {
@@ -223,12 +227,12 @@ schema = 1
 [targets.default]
 compose = ["space:my-space@stable"]
 
-[targets.default.claude]
+[targets.default.provisioning.claude]
 model = "claude-3-sonnet"
 `
       const result = parseTargetsToml(toml)
 
-      expect(result.targets.default.claude?.model).toBe('claude-3-sonnet')
+      expect(result.targets.default.provisioning?.claude?.model).toBe('claude-3-sonnet')
     })
 
     test('parses manifest with resolver options', () => {
@@ -261,17 +265,17 @@ compose = ["space:my-space@stable"]
       expect(result.targets.default.description).toBe('My development target')
     })
 
-    test('parses manifest with priming_prompt', () => {
+    test('parses manifest with priming', () => {
       const toml = `
 schema = 1
 
 [targets.default]
-priming_prompt = "Register with agentchat and send READY"
+priming = "Register with agentchat and send READY"
 compose = ["space:my-space@stable"]
 `
       const result = parseTargetsToml(toml)
 
-      expect(result.targets.default.priming_prompt).toBe('Register with agentchat and send READY')
+      expect(result.targets.default.priming).toBe('Register with agentchat and send READY')
     })
 
     test('parses manifest with multiple compose entries', () => {
@@ -548,6 +552,6 @@ describe('serializeTargetsToml', () => {
     expect(parsed.claude?.model).toBe(original.claude?.model)
     expect(parsed.targets.default.compose).toEqual(original.targets.default.compose)
     expect(parsed.targets.default.resolver?.locked).toBe(original.targets.default.resolver?.locked)
-    expect(parsed.targets.default.priming_prompt).toBe(original.targets.default.priming_prompt)
+    expect(parsed.targets.default.priming).toBe(original.targets.default.priming)
   })
 })

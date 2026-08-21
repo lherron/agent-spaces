@@ -7,7 +7,7 @@ import { buildAgentRootReport } from '../agent-roots.js'
 
 async function writeAgent(root: string, id: string): Promise<void> {
   await mkdir(join(root, id), { recursive: true })
-  await writeFile(join(root, id, 'agent-profile.toml'), 'schemaVersion = 2\n')
+  await writeFile(join(root, id, 'agent-profile.toml'), 'version = 3\n')
 }
 
 describe('agent root provenance reporting', () => {

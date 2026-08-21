@@ -98,8 +98,8 @@ describe('resolvePlacementContext returns effectiveConfig for agent-project (T-0
     const agentProjectStart = fn.indexOf("case 'agent-project'")
     const caseBody = fn.slice(agentProjectStart, agentProjectStart + 1200)
 
-    // The case must capture priming_prompt from the merge result
-    expect(caseBody).toMatch(/priming_prompt/)
+    // The case must capture priming from the merge result
+    expect(caseBody).toMatch(/primingPrompt/)
   })
 
   test('effectiveConfig includes yolo from merged config', () => {

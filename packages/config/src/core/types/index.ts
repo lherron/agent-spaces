@@ -58,6 +58,8 @@ export type {
   ClaudeOptions,
   CodexOptions,
   ProjectManifest,
+  ProvisioningScalars,
+  ProvisioningSettings,
   ResolverConfig,
   TargetDefinition,
   TargetName,
@@ -86,9 +88,9 @@ export type {
   AgentProfileSpaces,
   AgentProfileTarget,
   AgentRuntimeProfile,
-  HarnessSettings,
   RunMode,
 } from './agent-profile.js'
+export { ROSTER_SLOT_TOKENS } from './agent-profile.js'
 
 // Placement types
 export type {

@@ -13,7 +13,7 @@ import {
 function writeAgentProfile(agentsRoot: string, agentId: string): string {
   const agentRoot = join(agentsRoot, agentId)
   mkdirSync(agentRoot, { recursive: true })
-  writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+  writeFileSync(join(agentRoot, 'agent-profile.toml'), 'version = 3\n')
   return agentRoot
 }
 
@@ -22,7 +22,7 @@ describe('runtime placement helpers', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'runtime-placement-'))
     const agentRoot = join(tmp, 'agents', 'larry')
     mkdirSync(agentRoot, { recursive: true })
-    writeFileSync(join(agentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+    writeFileSync(join(agentRoot, 'agent-profile.toml'), 'version = 3\n')
 
     expect(
       buildRuntimeBundleRef({

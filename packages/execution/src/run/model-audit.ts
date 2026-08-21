@@ -99,15 +99,18 @@ function selectTargetModelSource(args: {
     return { sourceModel: args.cliModel, sourceMode: 'cli_override' }
   }
 
-  const targetModel = args.target?.claude?.model ?? args.target?.codex?.model
+  const targetModel =
+    args.target?.provisioning?.model ??
+    args.target?.provisioning?.claude?.model ??
+    args.target?.provisioning?.codex?.model
   if (targetModel !== undefined) {
     return { sourceModel: targetModel, sourceMode: 'project_target' }
   }
 
   const agentProfileModel =
-    args.agentProfile?.profile.harnessDefaults?.model ??
-    args.agentProfile?.profile.harnessDefaults?.claude?.model ??
-    args.agentProfile?.profile.harnessDefaults?.codex?.model
+    args.agentProfile?.profile.provisioning?.model ??
+    args.agentProfile?.profile.provisioning?.claude?.model ??
+    args.agentProfile?.profile.provisioning?.codex?.model
   if (agentProfileModel !== undefined) {
     return { sourceModel: agentProfileModel, sourceMode: 'explicit_profile' }
   }
@@ -179,7 +182,7 @@ export async function auditProjectModels(
     )
     const harnessId =
       resolveProfileHarnessForRun(agentDefaults.harness) ??
-      resolveProfileHarnessForRun(runtimePlan.target?.harness) ??
+      resolveProfileHarnessForRun(runtimePlan.target?.provisioning?.harness) ??
       DEFAULT_HARNESS
     const adapter = harnessRegistry.getOrThrow(harnessId)
     const frontend = getHarnessCatalogEntry(harnessId).frontend

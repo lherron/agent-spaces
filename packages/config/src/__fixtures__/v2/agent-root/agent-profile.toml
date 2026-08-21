@@ -1,12 +1,12 @@
-schemaVersion = 1
+version = 3
 
 [instructions]
-additionalBase = ["agent-root:///SOUL.md"]
+base = ["agent-root:///SOUL.md"]
 
 [spaces]
 base = ["space:agent:private-ops"]
 
-[spaces.byMode.heartbeat]
+[spaces.modes.heartbeat]
 base = ["space:agent:task-worker"]
 
 [targets.review]
@@ -15,6 +15,6 @@ compose = ["space:agent:private-ops", "space:project:repo-defaults"]
 [targets.delivery]
 compose = ["space:agent:task-worker", "space:project:task-scaffolds"]
 
-[harnessDefaults]
-sandboxMode = "workspace-write"
-approvalPolicy = "on-request"
+[provisioning]
+sandbox = "workspace-write"
+approval = "on-request"

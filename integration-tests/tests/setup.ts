@@ -198,7 +198,7 @@ export async function createTempProject(
       toml += `description = "${target.description}"\n`
     }
     if (target.priming_prompt) {
-      toml += `priming_prompt = "${target.priming_prompt}"\n`
+      toml += `priming = "${target.priming_prompt}"\n`
     }
     toml += 'compose = [\n'
     for (const ref of target.compose) {

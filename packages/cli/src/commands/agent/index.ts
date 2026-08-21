@@ -72,10 +72,7 @@ function loadAgentProfile(agentRoot: string): ReturnType<typeof parseAgentProfil
     return undefined
   }
 
-  const source = readFileSync(profilePath, 'utf8').replace(
-    /^(\s*)schema_version(\s*=)/m,
-    '$1schemaVersion$2'
-  )
+  const source = readFileSync(profilePath, 'utf8')
   return parseAgentProfile(source, profilePath)
 }
 
@@ -114,7 +111,7 @@ function resolveHarnessOption(
     const effective = mergeAgentWithProjectTarget(
       {
         ...profile,
-        ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
+        ...(primingPrompt !== undefined ? { priming: primingPrompt } : {}),
       },
       loadProjectTarget(bundle.projectRoot, bundle.agentName),
       runMode
@@ -122,7 +119,7 @@ function resolveHarnessOption(
     return normalizeConfiguredHarness(effective.harness) ?? 'claude-code'
   }
 
-  return normalizeConfiguredHarness(profile.identity?.harness) ?? 'claude-code'
+  return normalizeConfiguredHarness(profile.provisioning?.harness) ?? 'claude-code'
 }
 
 interface AgentCommandOptions {

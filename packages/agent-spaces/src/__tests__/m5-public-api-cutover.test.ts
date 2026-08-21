@@ -50,7 +50,7 @@ beforeAll(() => {
   mkdirSync(agentRoot, { recursive: true })
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    'schemaVersion = 2\n\n[spaces]\nbase = []\n',
+    'version = 3\n\n[spaces]\nbase = []\n',
     'utf8'
   )
 })
@@ -799,7 +799,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
 
     // After T-01564 the byMode logic lives in resolveInstructions, not
     // the deleted loadAgentDefaultSpaces helper.
-    expect(source).toMatch(/byMode/)
+    expect(source).toMatch(/instructions\?\.modes/)
   })
 
   test(
@@ -811,7 +811,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
       writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
       writeFileSync(
         join(agentRoot, 'agent-profile.toml'),
-        `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
+        `version = 3\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.modes.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
       )
       // Create spaces with manifests
       for (const id of ['base-space', 'heartbeat-monitor']) {
@@ -867,7 +867,7 @@ describe('audit bundle includes byMode space overlays (T-00890)', () => {
       writeFileSync(join(agentRoot, 'SOUL.md'), 'You are a test agent.\n')
       writeFileSync(
         join(agentRoot, 'agent-profile.toml'),
-        `schemaVersion = 2\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.byMode.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
+        `version = 3\n\n[spaces]\nbase = ["space:agent:base-space"]\n\n[spaces.modes.heartbeat]\nbase = ["space:agent:heartbeat-monitor"]\n`
       )
       for (const id of ['base-space', 'heartbeat-monitor']) {
         mkdirSync(join(agentRoot, 'spaces', id, 'claude', 'plugins'), { recursive: true })

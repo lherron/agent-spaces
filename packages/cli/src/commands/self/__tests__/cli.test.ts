@@ -37,7 +37,7 @@ async function setupFixture(): Promise<{
   await writeFile(join(agentRoot, 'SOUL.md'), '# Clod\nAgent identity.')
   await writeFile(
     join(agentRoot, 'agent-profile.toml'),
-    'schemaVersion = 2\n[identity]\ndisplay = "Clod"\n'
+    'version = 3\n[identity]\ndisplay = "Clod"\n'
   )
 
   const bundleRoot = join(dir, 'bundle', 'claude')

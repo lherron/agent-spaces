@@ -1016,7 +1016,7 @@ paths = ["/var/log"]
         targets: {
           claude: {
             compose: ['space:claude-space@stable'],
-            priming_prompt: 'Register and send READY',
+            priming: 'Register and send READY',
           },
         },
       }

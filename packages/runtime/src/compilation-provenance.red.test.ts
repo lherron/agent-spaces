@@ -210,7 +210,7 @@ describe('T-06329 compilation provenance', () => {
     await mkdir(shadowRoot, { recursive: true })
     await writeFile(
       join(agentRoot, 'agent-profile.toml'),
-      'schemaVersion = 2\n\n[instructions]\ntemplate = "selected.toml"\n'
+      'version = 3\n\n[instructions]\ntemplate = "selected.toml"\n'
     )
     const selectedPath = join(agentRoot, 'selected.toml')
     const shadowedPath = join(shadowRoot, 'selected.toml')

@@ -108,10 +108,12 @@ export interface ResolvedPlacementMaterialization {
 
 /** Normalized agent policy emitted to runtime-plan compilation for HRC. */
 export interface ResolvedAgentPolicy {
+  provisioning?: {
+    node?: string | undefined
+  }
   placement?: {
-    defaultHomeNode?: string | undefined
     pins: Record<string, string>
-    taskDefaults?: Record<string, string> | undefined
+    homes: Record<string, string>
   }
   claimsTask: boolean
 }

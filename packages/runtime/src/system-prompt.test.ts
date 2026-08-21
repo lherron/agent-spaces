@@ -127,7 +127,7 @@ content = "remember this"
   test('canonical helper returns the structured materialization result shape', async () => {
     // T-01016 red gate: Step 4 migrates callers off the V2 name onto the canonical helper.
     await writeAgentProfile(`
-schemaVersion = 2
+version = 3
 
 [instructions]
 template = "append-template.toml"
@@ -162,7 +162,7 @@ content = "append me"
 
   test('passes materialization env into context template predicates', async () => {
     await writeAgentProfile(`
-schemaVersion = 2
+version = 3
 
 [instructions]
 template = "overlay-template.toml"
@@ -201,7 +201,7 @@ when = { envEquals = { name = "ASP_CODEX_APP_OVERLAY", value = "1" } }
 
   test('prefers agent-profile instructions.template over agentsRoot and built-in fallbacks', async () => {
     await writeAgentProfile(`
-schemaVersion = 2
+version = 3
 
 [instructions]
 template = "agent-template.toml"
@@ -249,7 +249,7 @@ template = "agent-template.toml"
     await mkdir(localAgentRoot, { recursive: true })
     await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
     await writeFile(join(localAgentRoot, 'SOUL.md'), 'local soul')
-    await writeFile(join(localAgentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+    await writeFile(join(localAgentRoot, 'agent-profile.toml'), 'version = 3\n')
     await writeFile(
       join(agentsRoot, 'context-template.toml'),
       replaceTemplate('canonical template')
@@ -277,7 +277,7 @@ template = "agent-template.toml"
     await writeFile(join(localAgentRoot, 'SOUL.md'), 'local soul')
     await writeFile(
       join(localAgentRoot, 'agent-profile.toml'),
-      'schemaVersion = 2\n\n[instructions]\ntemplate = "context-template.toml"\n'
+      'version = 3\n\n[instructions]\ntemplate = "context-template.toml"\n'
     )
     await writeFile(
       join(agentsRoot, 'context-template.toml'),
@@ -304,7 +304,7 @@ template = "agent-template.toml"
     const localAgentsRoot = join(projectRoot, 'agents')
     await mkdir(canonicalAgentRoot, { recursive: true })
     await mkdir(localAgentsRoot, { recursive: true })
-    await writeFile(join(canonicalAgentRoot, 'agent-profile.toml'), 'schemaVersion = 2\n')
+    await writeFile(join(canonicalAgentRoot, 'agent-profile.toml'), 'version = 3\n')
     await writeFile(join(projectRoot, 'asp-targets.toml'), 'schema = 1\nagents-root = "agents"\n')
     await writeFile(join(agentsRoot, 'AGENT_MOTD.md'), 'canonical motd')
     await writeFile(
@@ -406,12 +406,12 @@ content = "context template wins"
   test('built-in default fallback reproduces the legacy system prompt assembly with the canonical result shape', async () => {
     await writeFile(join(agentRoot, 'SOUL.md'), 'Soul')
     await writeAgentProfile(`
-schemaVersion = 2
+version = 3
 
 [instructions]
-additionalBase = ["agent-root:///base.md"]
+base = ["agent-root:///base.md"]
 
-[instructions.byMode]
+[instructions.modes]
 heartbeat = ["agent-root:///by-mode.md"]
 `)
     await writeFile(join(agentRoot, 'base.md'), 'Base')
@@ -464,7 +464,7 @@ heartbeat = ["agent-root:///by-mode.md"]
 
   test('propagates append mode from a resolved template and writes the content to disk', async () => {
     await writeAgentProfile(`
-schemaVersion = 2
+version = 3
 
 [instructions]
 template = "append-template.toml"

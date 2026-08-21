@@ -158,11 +158,14 @@ export function buildSyntheticRunManifest(
     targets: {
       [targetName]: {
         compose: defaults.compose ?? [],
-        ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
-        ...(defaults.yolo ? { yolo: true } : {}),
-        ...(defaults.remoteControl ? { remote_control: true } : {}),
-        ...(Object.keys(claude).length > 0 ? { claude } : {}),
-        ...(Object.keys(codex).length > 0 ? { codex } : {}),
+        ...(primingPrompt !== undefined ? { priming: primingPrompt } : {}),
+        provisioning: {
+          ...(defaults.model !== undefined ? { model: defaults.model } : {}),
+          ...(defaults.yolo ? { yolo: true } : {}),
+          ...(defaults.remoteControl ? { remote: true } : {}),
+          ...(Object.keys(claude).length > 0 ? { claude } : {}),
+          ...(Object.keys(codex).length > 0 ? { codex } : {}),
+        },
       },
     },
   }
@@ -188,7 +191,7 @@ export function planProjectTargetRuntime(
   const harnessId =
     options.harness ??
     resolveProfileHarnessForRun(agentDefaults?.harness) ??
-    resolveProfileHarnessForRun(target?.harness) ??
+    resolveProfileHarnessForRun(target?.provisioning?.harness) ??
     DEFAULT_HARNESS
   assertHarnessAvailableForRun(harnessId)
   const adapter = harnessRegistry.getOrThrow(harnessId)
@@ -241,8 +244,7 @@ export async function planPlacementRuntime(
   // Explicit caller prompts still win through `options.prompt` below.
   const defaultPrompt =
     options.continuationKey === undefined
-      ? (defaultRunOptions.prompt ??
-        placementContext.materialization.effectiveConfig?.priming_prompt)
+      ? (defaultRunOptions.prompt ?? placementContext.materialization.effectiveConfig?.priming)
       : undefined
   const prompt =
     options.promptOverrideMode === 'truthy'

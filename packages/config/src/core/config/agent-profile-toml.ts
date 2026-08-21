@@ -6,13 +6,12 @@ import type {
   AgentProfileJobs,
   AgentProfilePlacement,
   AgentRuntimeProfile,
-  HarnessSettings,
   RunMode,
 } from '../types/agent-profile.js'
-import type { AgentIdentity } from '../types/agent-profile.js'
+import { type AgentIdentity, ROSTER_SLOT_TOKENS } from '../types/agent-profile.js'
 import { resolveHarnessCatalogEntry } from '../types/harness.js'
 import { type SpaceRefString, isSpaceRefString } from '../types/refs.js'
-import type { ClaudeOptions, CodexOptions } from '../types/targets.js'
+import type { ClaudeOptions, CodexOptions, ProvisioningSettings } from '../types/targets.js'
 import { normalizeJobExecutionNodes } from './job-execution-nodes.js'
 
 const AGENT_PROFILE_FILENAME = 'agent-profile.toml'
@@ -21,7 +20,7 @@ const CODEX_APPROVAL_POLICIES = new Set(['untrusted', 'on-failure', 'on-request'
 const CODEX_SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
 const CODEX_REASONING_SUMMARIES = new Set(['auto', 'concise', 'detailed', 'none'])
 const NODE_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/
-const TASK_DEFAULT_PATTERN = NODE_ID_PATTERN
+const HOME_PATTERN = NODE_ID_PATTERN
 const SCOPE_PIN_PATTERN = /^[A-Za-z0-9._-]{1,64}:[A-Za-z0-9._-]{1,64}$/
 
 interface ValidationIssue {
@@ -136,7 +135,11 @@ function parseByModeStringArrays(
     if (!RUN_MODES.has(mode as RunMode)) {
       fail(source, `${path}/${mode}`, `unsupported run mode "${mode}"`, 'enum')
     }
-    const parsedRefs = parseStringArray(refs, source, `${path}/${mode}`)
+    const rawRefs = isPlainObject(refs) ? refs['base'] : refs
+    if (isPlainObject(refs)) {
+      assertOnlyKeys(refs, ['base'], source, `${path}/${mode}`)
+    }
+    const parsedRefs = parseStringArray(rawRefs, source, `${path}/${mode}`)
     if (parsedRefs) {
       result[mode as RunMode] = parsedRefs
     }
@@ -181,12 +184,11 @@ function parseByModeSpaceRefs(
   return result
 }
 
-function parseHarnessSettings(
+function parseProvisioningSettings(
   value: unknown,
   source: string,
-  path: string,
-  schemaVersion: 1 | 2
-): HarnessSettings | undefined {
+  path: string
+): ProvisioningSettings | undefined {
   if (value === undefined) {
     return undefined
   }
@@ -194,35 +196,31 @@ function parseHarnessSettings(
     fail(source, path, 'must be a table', 'type')
   }
 
-  const allowedKeys =
-    schemaVersion >= 2
-      ? [
-          'model',
-          'sandboxMode',
-          'approvalPolicy',
-          'profile',
-          'yolo',
-          'remote_control',
-          'claude',
-          'codex',
-        ]
-      : ['model', 'sandboxMode', 'approvalPolicy', 'profile']
-  assertOnlyKeys(value, allowedKeys, source, path)
+  assertOnlyKeys(
+    value,
+    [
+      'harness',
+      'model',
+      'reasoning',
+      'node',
+      'yolo',
+      'sandbox',
+      'approval',
+      'remote',
+      'claude',
+      'codex',
+    ],
+    source,
+    path
+  )
 
-  const settings: HarnessSettings = {}
+  const settings: ProvisioningSettings = {}
   for (const [key, raw] of Object.entries(value)) {
-    if (key === 'yolo') {
+    if (key === 'yolo' || key === 'remote') {
       if (typeof raw !== 'boolean') {
         fail(source, `${path}/${key}`, 'must be a boolean', 'type')
       }
-      settings.yolo = raw
-      continue
-    }
-    if (key === 'remote_control') {
-      if (typeof raw !== 'boolean') {
-        fail(source, `${path}/${key}`, 'must be a boolean', 'type')
-      }
-      settings.remote_control = raw
+      settings[key] = raw
       continue
     }
     if (key === 'claude') {
@@ -236,49 +234,27 @@ function parseHarnessSettings(
     if (typeof raw !== 'string') {
       fail(source, `${path}/${key}`, 'must be a string', 'type')
     }
-    if (key === 'model') {
-      settings.model = raw
+    if (key === 'harness') {
+      if (!resolveHarnessCatalogEntry(raw)) {
+        fail(source, `${path}/${key}`, `unsupported harness "${raw}"`, 'enum')
+      }
+      settings.harness = raw
       continue
     }
-    if (key === 'sandboxMode') {
-      settings.sandboxMode = raw
-      continue
+    if (key === 'node' && raw === 'local') {
+      fail(
+        source,
+        `${path}/${key}`,
+        '"local" is not a registry node id; omit node for local birth',
+        'const'
+      )
     }
-    if (key === 'approvalPolicy') {
-      settings.approvalPolicy = raw
-      continue
+    if (key === 'node' && !NODE_ID_PATTERN.test(raw)) {
+      fail(source, `${path}/${key}`, 'must be a node id matching [A-Za-z0-9._-]{1,64}', 'pattern')
     }
-    if (key === 'profile') {
-      settings.profile = raw
-    }
+    settings[key as 'model' | 'reasoning' | 'node' | 'sandbox' | 'approval'] = raw
   }
   return settings
-}
-
-function parseHarnessByMode(
-  value: unknown,
-  source: string,
-  path: string,
-  schemaVersion: 1 | 2
-): Partial<Record<RunMode, HarnessSettings>> | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-  if (!isPlainObject(value)) {
-    fail(source, path, 'must be a table', 'type')
-  }
-
-  const result: Partial<Record<RunMode, HarnessSettings>> = {}
-  for (const [mode, settings] of Object.entries(value)) {
-    if (!RUN_MODES.has(mode as RunMode)) {
-      fail(source, `${path}/${mode}`, `unsupported run mode "${mode}"`, 'enum')
-    }
-    const parsedSettings = parseHarnessSettings(settings, source, `${path}/${mode}`, schemaVersion)
-    if (parsedSettings) {
-      result[mode as RunMode] = parsedSettings
-    }
-  }
-  return result
 }
 
 function parseIdentity(value: unknown, source: string, path: string): AgentIdentity | undefined {
@@ -289,18 +265,15 @@ function parseIdentity(value: unknown, source: string, path: string): AgentIdent
     fail(source, path, 'must be a table', 'type')
   }
 
-  assertOnlyKeys(value, ['display', 'role', 'default_scope_role', 'harness'], source, path)
+  assertOnlyKeys(value, ['display', 'role'], source, path)
 
   const identity: AgentIdentity = {}
   for (const [key, raw] of Object.entries(value)) {
     if (typeof raw !== 'string') {
       fail(source, `${path}/${key}`, 'must be a string', 'type')
     }
-    if (key === 'harness' && !resolveHarnessCatalogEntry(raw)) {
-      fail(source, `${path}/${key}`, `unsupported harness "${raw}"`, 'enum')
-    }
-    if (key === 'default_scope_role') {
-      const error = validateToken(raw, 'default_scope_role')
+    if (key === 'role') {
+      const error = validateToken(raw, 'role')
       if (error !== undefined) {
         fail(source, `${path}/${key}`, error, 'pattern')
       }
@@ -322,78 +295,79 @@ function parsePlacement(
     fail(source, path, 'must be a table', 'type')
   }
 
-  const placement: AgentProfilePlacement = { pins: {} }
+  assertOnlyKeys(value, ['pins', 'homes'], source, path)
+  const placement: AgentProfilePlacement = { pins: {}, homes: {} }
+  parsePlacementMap(value['pins'], placement.pins, SCOPE_PIN_PATTERN, source, `${path}/pins`, true)
+  parsePlacementMap(value['homes'], placement.homes, HOME_PATTERN, source, `${path}/homes`, false)
+  assertConsistentFamilyHomes(placement, source, path)
+  return placement
+}
+
+function parsePlacementMap(
+  value: unknown,
+  output: Record<string, string>,
+  keyPattern: RegExp,
+  source: string,
+  path: string,
+  pin: boolean
+): void {
+  if (value === undefined) return
+  if (!isPlainObject(value)) fail(source, path, 'must be a table', 'type')
   for (const [key, rawNodeId] of Object.entries(value)) {
-    if (key === 'task-defaults') {
-      if (!isPlainObject(rawNodeId)) {
-        fail(source, `${path}/${key}`, 'must be a table', 'type')
-      }
-      const taskDefaults: Record<string, string> = {}
-      for (const [taskKey, taskNodeId] of Object.entries(rawNodeId)) {
-        if (!TASK_DEFAULT_PATTERN.test(taskKey)) {
-          fail(
-            source,
-            `${path}/${key}/${taskKey}`,
-            'must be an exact task name with token characters [A-Za-z0-9._-]',
-            'pattern'
-          )
-        }
-        if (typeof taskNodeId !== 'string') {
-          fail(source, `${path}/${key}/${taskKey}`, 'must be a string', 'type')
-        }
-        if (taskNodeId === 'local') {
-          fail(
-            source,
-            `${path}/${key}/${taskKey}`,
-            '"local" is reserved for default_home_node',
-            'const'
-          )
-        }
-        if (!NODE_ID_PATTERN.test(taskNodeId)) {
-          fail(
-            source,
-            `${path}/${key}/${taskKey}`,
-            'must be a node id matching [A-Za-z0-9._-]{1,64}',
-            'pattern'
-          )
-        }
-        taskDefaults[taskKey] = taskNodeId
-      }
-      placement.task_defaults = taskDefaults
-      continue
-    }
-    if (typeof rawNodeId !== 'string') {
-      fail(source, `${path}/${key}`, 'must be a string', 'type')
-    }
-    if (key === 'default_home_node') {
-      if (rawNodeId !== 'local' && !NODE_ID_PATTERN.test(rawNodeId)) {
-        fail(
-          source,
-          `${path}/${key}`,
-          'must be "local" or a node id matching [A-Za-z0-9._-]{1,64}',
-          'pattern'
-        )
-      }
-      placement.default_home_node = rawNodeId
-      continue
-    }
-    if (!SCOPE_PIN_PATTERN.test(key)) {
+    if (!keyPattern.test(key)) {
       fail(
         source,
         `${path}/${key}`,
-        'must be an exact project:task scope key with token characters [A-Za-z0-9._-]',
+        pin
+          ? 'must be an exact project:task scope key with token characters [A-Za-z0-9._-]'
+          : 'must be an exact task name with token characters [A-Za-z0-9._-]',
         'pattern'
       )
     }
+    if (typeof rawNodeId !== 'string') fail(source, `${path}/${key}`, 'must be a string', 'type')
     if (rawNodeId === 'local') {
-      fail(source, `${path}/${key}`, '"local" is reserved for default_home_node', 'const')
+      fail(
+        source,
+        `${path}/${key}`,
+        '"local" is not a registry node id; omit provisioning.node for local birth',
+        'const'
+      )
     }
     if (!NODE_ID_PATTERN.test(rawNodeId)) {
       fail(source, `${path}/${key}`, 'must be a node id matching [A-Za-z0-9._-]{1,64}', 'pattern')
     }
-    placement.pins[key] = rawNodeId
+    output[key] = rawNodeId
   }
-  return placement
+}
+
+function assertConsistentFamilyHomes(
+  placement: AgentProfilePlacement,
+  source: string,
+  path: string
+): void {
+  for (const base of Object.keys(placement.homes)) {
+    for (const suffix of ROSTER_SLOT_TOKENS) {
+      const member = `${base}-${suffix}`
+      if (placement.homes[member] !== undefined) {
+        fail(
+          source,
+          `${path}/homes/${member}`,
+          `reserved family member "${member}" cannot declare a home while base "${base}" is declared`,
+          'INCONSISTENT_FAMILY_HOME'
+        )
+      }
+      for (const pinKey of Object.keys(placement.pins)) {
+        if (pinKey.slice(pinKey.indexOf(':') + 1) === member) {
+          fail(
+            source,
+            `${path}/pins/${pinKey}`,
+            `reserved family member "${member}" cannot be pinned while base "${base}" is declared`,
+            'INCONSISTENT_FAMILY_HOME'
+          )
+        }
+      }
+    }
+  }
 }
 
 function parseJobs(value: unknown, source: string, path: string): AgentProfileJobs | undefined {
@@ -544,31 +518,30 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
   assertOnlyKeys(
     parsed,
     [
-      'schemaVersion',
+      'version',
       'claims_task',
       'placement',
+      'provisioning',
       'jobs',
       'identity',
-      'priming_prompt',
-      'priming_prompt_file',
+      'priming',
+      'priming_file',
       'instructions',
       'session',
       'spaces',
       'targets',
-      'harnessDefaults',
-      'harnessByMode',
     ],
     source,
     ''
   )
 
-  const schemaVersion = parsed['schemaVersion']
-  if (schemaVersion !== 1 && schemaVersion !== 2) {
-    fail(source, '/schemaVersion', 'unsupported schema version; expected 1 or 2', 'const')
+  const version = parsed['version']
+  if (version !== 3) {
+    fail(source, '/version', 'unsupported profile version; expected 3', 'const')
   }
 
   const profile: AgentRuntimeProfile = {
-    schemaVersion,
+    version,
   }
 
   if (parsed['claims_task'] !== undefined) {
@@ -581,42 +554,33 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
   if (placement !== undefined) {
     profile.placement = placement
   }
+  const provisioning = parseProvisioningSettings(parsed['provisioning'], source, '/provisioning')
+  if (provisioning !== undefined) {
+    profile.provisioning = provisioning
+  }
   const jobs = parseJobs(parsed['jobs'], source, '/jobs')
   if (jobs !== undefined) {
     profile.jobs = jobs
   }
 
-  if (schemaVersion === 1) {
-    for (const key of ['identity', 'priming_prompt', 'priming_prompt_file']) {
-      if (parsed[key] !== undefined) {
-        fail(source, `/${key}`, 'unsupported in schemaVersion 1; requires schemaVersion 2', 'const')
-      }
-    }
-  }
-
   profile.identity = parseIdentity(parsed['identity'], source, '/identity')
 
-  if (parsed['priming_prompt'] !== undefined) {
-    if (typeof parsed['priming_prompt'] !== 'string') {
-      fail(source, '/priming_prompt', 'must be a string', 'type')
+  if (parsed['priming'] !== undefined) {
+    if (typeof parsed['priming'] !== 'string') {
+      fail(source, '/priming', 'must be a string', 'type')
     }
-    profile.priming_prompt = parsed['priming_prompt']
+    profile.priming = parsed['priming']
   }
 
-  if (parsed['priming_prompt_file'] !== undefined) {
-    if (typeof parsed['priming_prompt_file'] !== 'string') {
-      fail(source, '/priming_prompt_file', 'must be a string', 'type')
+  if (parsed['priming_file'] !== undefined) {
+    if (typeof parsed['priming_file'] !== 'string') {
+      fail(source, '/priming_file', 'must be a string', 'type')
     }
-    profile.priming_prompt_file = parsed['priming_prompt_file']
+    profile.priming_file = parsed['priming_file']
   }
 
-  if (profile.priming_prompt !== undefined && profile.priming_prompt_file !== undefined) {
-    fail(
-      source,
-      '/priming_prompt_file',
-      'cannot set both priming_prompt and priming_prompt_file',
-      'conflict'
-    )
+  if (profile.priming !== undefined && profile.priming_file !== undefined) {
+    fail(source, '/priming_file', 'cannot set both priming and priming_file', 'conflict')
   }
 
   if (parsed['instructions'] !== undefined) {
@@ -624,22 +588,14 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
     if (!isPlainObject(instructions)) {
       fail(source, '/instructions', 'must be a table', 'type')
     }
-    assertOnlyKeys(instructions, ['additionalBase', 'byMode', 'template'], source, '/instructions')
+    assertOnlyKeys(instructions, ['base', 'modes', 'template'], source, '/instructions')
     profile.instructions = {
-      additionalBase: parseStringArray(
-        instructions['additionalBase'],
-        source,
-        '/instructions/additionalBase'
-      ),
-      byMode: parseByModeStringArrays(instructions['byMode'], source, '/instructions/byMode'),
+      base: parseStringArray(instructions['base'], source, '/instructions/base'),
+      modes: parseByModeStringArrays(instructions['modes'], source, '/instructions/modes'),
     }
   }
 
   if (parsed['session'] !== undefined) {
-    if (schemaVersion === 1) {
-      fail(source, '/session', 'unsupported in schemaVersion 1; requires schemaVersion 2', 'const')
-    }
-
     const session = parsed['session']
     if (!isPlainObject(session)) {
       fail(source, '/session', 'must be a table', 'type')
@@ -665,10 +621,10 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
     if (!isPlainObject(spaces)) {
       fail(source, '/spaces', 'must be a table', 'type')
     }
-    assertOnlyKeys(spaces, ['base', 'byMode'], source, '/spaces')
+    assertOnlyKeys(spaces, ['base', 'modes'], source, '/spaces')
     profile.spaces = {
       base: parseSpaceRefArray(spaces['base'], source, '/spaces/base'),
-      byMode: parseByModeSpaceRefs(spaces['byMode'], source, '/spaces/byMode'),
+      modes: parseByModeSpaceRefs(spaces['modes'], source, '/spaces/modes'),
     }
   }
 
@@ -699,19 +655,6 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
       profile.targets[targetName] = { compose }
     }
   }
-
-  profile.harnessDefaults = parseHarnessSettings(
-    parsed['harnessDefaults'],
-    source,
-    '/harnessDefaults',
-    schemaVersion
-  )
-  profile.harnessByMode = parseHarnessByMode(
-    parsed['harnessByMode'],
-    source,
-    '/harnessByMode',
-    schemaVersion
-  )
 
   return profile
 }

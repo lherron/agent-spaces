@@ -42,7 +42,7 @@ function createTempAgentRoot(opts: {
   // Minimal agent-profile.toml so placement resolution doesn't fail
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    'schemaVersion = 2\n\n[spaces]\nbase = []\n',
+    'version = 3\n\n[spaces]\nbase = []\n',
     'utf8'
   )
 

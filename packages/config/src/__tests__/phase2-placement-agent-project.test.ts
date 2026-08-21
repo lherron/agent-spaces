@@ -92,15 +92,15 @@ describe('placement resolver: agent-project bundle (T-00993)', () => {
     const agentRoot = createAgentRoot(
       tempDir,
       `
-schemaVersion = 2
+version = 3
 
 [spaces]
 base = ["space:defaults@dev"]
 
-[spaces.byMode.heartbeat]
+[spaces.modes.heartbeat]
 base = ["space:heartbeat-extra@dev"]
 
-[harnessDefaults]
+[provisioning]
 model = "claude-opus-4-6"
 `
     )
@@ -124,7 +124,7 @@ model = "claude-opus-4-6"
     const agentRoot = createAgentRoot(
       tempDir,
       `
-schemaVersion = 2
+version = 3
 
 [spaces]
 base = ["space:agent-base@dev"]
@@ -164,7 +164,7 @@ compose = ["space:project-only@dev"]
     const agentRoot = createAgentRoot(
       tempDir,
       `
-schemaVersion = 2
+version = 3
 
 [spaces]
 base = ["space:a@dev", "space:b@dev"]
@@ -209,7 +209,7 @@ compose = ["space:b@dev", "space:c@dev"]
     const agentRoot = createAgentRoot(
       tempDir,
       `
-schemaVersion = 2
+version = 3
 
 [spaces]
 base = ["space:fallback@dev"]
@@ -240,7 +240,7 @@ base = ["space:fallback@dev"]
     const agentRoot = createAgentRoot(
       tempDir,
       `
-schemaVersion = 2
+version = 3
 
 [spaces]
 base = ["space:defaults@dev"]

@@ -68,7 +68,7 @@ async function setupCliFixture() {
   await writeFile(
     join(agentRoot, 'agent-profile.toml'),
     `
-schemaVersion = 2
+version = 3
 
 [identity]
 display = "Smokey"
@@ -83,7 +83,7 @@ schema = 1
 [targets.${targetName}]
 compose = []
 
-[targets.${targetName}.codex]
+[targets.${targetName}.provisioning]
 model = "gpt-5.5"
 `.trimStart()
   )
@@ -211,7 +211,7 @@ content = "second reminder"
     await writeFile(
       join(fixture.agentRoot, 'agent-profile.toml'),
       `
-schemaVersion = 2
+version = 3
 
 [session]
 additionalContext = ["agent-root:///session-note.md"]
@@ -427,7 +427,7 @@ content = "abcdefghijk"
     await writeFile(
       join(fixture.agentRoot, 'agent-profile.toml'),
       `
-schemaVersion = 2
+version = 3
 
 [identity]
 display = "Smokey"

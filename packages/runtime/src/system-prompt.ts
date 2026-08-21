@@ -47,7 +47,7 @@ export interface MaterializeSystemPromptInput {
 
 export interface TemplateDiscoveryProfile {
   template?: string | undefined
-  additionalBase?: string[] | undefined
+  base?: string[] | undefined
   rawProfile?: Record<string, unknown> | undefined
 }
 
@@ -212,7 +212,7 @@ export async function inspectAgentSystemPrompt(
   }
 
   const template =
-    templateSource?.template ?? buildDefaultTemplate(profile.additionalBase, input.scaffoldPackets)
+    templateSource?.template ?? buildDefaultTemplate(profile.base, input.scaffoldPackets)
   const resolved = await resolveContextTemplateDetailed(
     template,
     input.resolverContext ?? {
@@ -230,11 +230,11 @@ export async function inspectAgentSystemPrompt(
       env: input.env,
       ...(templateSource
         ? { agentProfile: profile.rawProfile }
-        : profile.additionalBase
+        : profile.base
           ? {
               agentProfile: {
                 instructions: {
-                  additionalBase: profile.additionalBase,
+                  base: profile.base,
                 },
               },
             }
@@ -390,7 +390,7 @@ function loadTemplateDiscoveryProfile(agentRoot: string): TemplateDiscoveryProfi
 
   return {
     template: typeof instructions['template'] === 'string' ? instructions['template'] : undefined,
-    additionalBase: parseStringArray(instructions['additionalBase']),
+    base: parseStringArray(instructions['base']),
     rawProfile: parsed,
   }
 }

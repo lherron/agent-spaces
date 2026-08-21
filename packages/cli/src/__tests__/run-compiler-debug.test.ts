@@ -110,19 +110,20 @@ async function setupProject(): Promise<{
   await writeFile(join(agentRoot, 'SOUL.md'), 'You are Alice.\n')
   await writeFile(
     join(agentRoot, 'agent-profile.toml'),
-    `schemaVersion = 2
-priming_prompt = "Profile prompt for {{agentId}}"
+    `version = 3
+priming = "Profile prompt for {{agentId}}"
 
 [identity]
-harness = "codex"
+role = "worker"
 
 [spaces]
 base = []
 
-[harnessDefaults]
+[provisioning]
+harness = "codex"
 model = "gpt-5.5"
 
-[harnessDefaults.codex]
+[provisioning.codex]
 model_reasoning_effort = "high"
 approval_policy = "never"
 sandbox_mode = "workspace-write"

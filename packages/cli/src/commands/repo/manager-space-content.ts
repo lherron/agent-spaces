@@ -909,7 +909,7 @@ compose = [
 ]
 
 # Override Claude options per target (optional)
-[targets.review.claude]
+[targets.review.provisioning.claude]
 model = "claude-sonnet-4-5"
 \`\`\`
 

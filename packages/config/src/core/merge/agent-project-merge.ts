@@ -9,12 +9,15 @@ import { type TargetDefinition, mergeClaudeOptions, mergeCodexOptions } from '..
 import type { ClaudeOptions, CodexOptions } from '../types/targets.js'
 
 export interface EffectiveTargetConfig {
-  priming_prompt?: string | undefined
+  priming?: string | undefined
   compose: SpaceRefString[]
   yolo: boolean
   remoteControl: boolean
   harness: string
   model?: string | undefined
+  reasoning?: string | undefined
+  sandbox?: string | undefined
+  approval?: string | undefined
   claude: ClaudeOptions
   codex: CodexOptions
   description?: string | undefined
@@ -48,7 +51,7 @@ function deduplicateSpaces(refs: readonly SpaceRefString[]): SpaceRefString[] {
 function getAgentCompose(profile: AgentRuntimeProfile, runMode: RunMode): SpaceRefString[] {
   return deduplicateSpaces([
     ...(profile.spaces?.base ?? []),
-    ...(profile.spaces?.byMode?.[runMode] ?? []),
+    ...(profile.spaces?.modes?.[runMode] ?? []),
   ])
 }
 
@@ -77,20 +80,17 @@ export function mergePrimingPrompt(
   if (!projectTarget) {
     return agentDefault
   }
-  if (
-    projectTarget.priming_prompt !== undefined &&
-    projectTarget.priming_prompt_append !== undefined
-  ) {
+  if (projectTarget.priming !== undefined && projectTarget.priming_append !== undefined) {
     throw conflict(
       '/targets/<target>',
-      'cannot set both priming_prompt and priming_prompt_append on the same target'
+      'cannot set both priming and priming_append on the same target'
     )
   }
-  if (projectTarget.priming_prompt !== undefined) {
-    return projectTarget.priming_prompt
+  if (projectTarget.priming !== undefined) {
+    return projectTarget.priming
   }
-  if (projectTarget.priming_prompt_append !== undefined && agentDefault) {
-    return `${agentDefault}\n${projectTarget.priming_prompt_append}`
+  if (projectTarget.priming_append !== undefined && agentDefault) {
+    return `${agentDefault}\n${projectTarget.priming_append}`
   }
   return agentDefault
 }
@@ -99,11 +99,11 @@ export function resolveAgentPrimingPrompt(
   profile: AgentRuntimeProfile,
   agentRoot: string
 ): string | undefined {
-  if (profile.priming_prompt) {
-    return profile.priming_prompt
+  if (profile.priming) {
+    return profile.priming
   }
-  if (profile.priming_prompt_file) {
-    return readFileSync(join(agentRoot, profile.priming_prompt_file), 'utf8')
+  if (profile.priming_file) {
+    return readFileSync(join(agentRoot, profile.priming_file), 'utf8')
   }
   return undefined
 }
@@ -113,17 +113,29 @@ export function mergeAgentWithProjectTarget(
   projectTarget: TargetDefinition | undefined,
   runMode: RunMode
 ): EffectiveTargetConfig {
+  const agentProvisioning = profile.provisioning
+  const targetProvisioning = projectTarget?.provisioning
+  const reasoning = targetProvisioning?.reasoning ?? agentProvisioning?.reasoning
+  const sandbox = targetProvisioning?.sandbox ?? agentProvisioning?.sandbox
+  const approval = targetProvisioning?.approval ?? agentProvisioning?.approval
+  const claude = mergeClaudeOptions(agentProvisioning?.claude, targetProvisioning?.claude)
+  const codex = mergeCodexOptions(agentProvisioning?.codex, targetProvisioning?.codex)
+  if (reasoning !== undefined) codex.model_reasoning_effort = reasoning
+  if (sandbox !== undefined) codex.sandbox_mode = sandbox as CodexOptions['sandbox_mode']
+  if (approval !== undefined) codex.approval_policy = approval as CodexOptions['approval_policy']
+
   return {
-    priming_prompt: mergePrimingPrompt(profile.priming_prompt, projectTarget),
+    priming: mergePrimingPrompt(profile.priming, projectTarget),
     compose: resolveEffectiveCompose(profile, projectTarget, runMode),
-    yolo: projectTarget?.yolo ?? profile.harnessDefaults?.yolo ?? false,
-    remoteControl:
-      projectTarget?.remote_control ?? profile.harnessDefaults?.remote_control ?? false,
-    harness: projectTarget?.harness ?? profile.identity?.harness ?? 'claude-code',
-    model:
-      projectTarget?.claude?.model ?? projectTarget?.codex?.model ?? profile.harnessDefaults?.model,
-    claude: mergeClaudeOptions(profile.harnessDefaults?.claude, projectTarget?.claude),
-    codex: mergeCodexOptions(profile.harnessDefaults?.codex, projectTarget?.codex),
+    yolo: targetProvisioning?.yolo ?? agentProvisioning?.yolo ?? false,
+    remoteControl: targetProvisioning?.remote ?? agentProvisioning?.remote ?? false,
+    harness: targetProvisioning?.harness ?? agentProvisioning?.harness ?? 'claude-code',
+    model: targetProvisioning?.model ?? agentProvisioning?.model,
+    reasoning,
+    sandbox,
+    approval,
+    claude,
+    codex,
     description: projectTarget?.description,
   }
 }

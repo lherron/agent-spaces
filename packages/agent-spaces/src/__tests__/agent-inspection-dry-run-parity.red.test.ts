@@ -99,7 +99,7 @@ compose = []
   )
   await writeFile(
     join(agentRoot, 'agent-profile.toml'),
-    `schemaVersion = 2
+    `version = 3
 
 [identity]
 display = "Parity Agent"

@@ -328,7 +328,7 @@ function buildBrokerInitialText(
   const defaultPrompt =
     req.continuation === undefined
       ? (prepared.runtimePlan.defaultRunOptions.prompt ??
-        prepared.placementContext.materialization.effectiveConfig?.priming_prompt)
+        prepared.placementContext.materialization.effectiveConfig?.priming)
       : undefined
   const primingPrompt =
     defaultPrompt !== undefined ? expandTemplate(defaultPrompt, expansionContext) : undefined

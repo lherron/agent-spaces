@@ -143,7 +143,7 @@ function createFixture(): {
   writeFileSync(imagePath, 'not-really-a-png', 'utf8')
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `schemaVersion = 2
+    `version = 3
 
 [spaces]
 base = []
@@ -1445,15 +1445,19 @@ exit 0
     const profilePath = join(fixture.agentRoot, 'agent-profile.toml')
     writeFileSync(
       profilePath,
-      `schemaVersion = 2
+      `version = 3
 claims_task = true
 
 [placement]
-default_home_node = "local"
+
+[provisioning]
+node = "max3"
+
+[placement.pins]
 "agent-spaces:T-06604" = "lab.node-1"
 
-[placement.task-defaults]
-labprimary = "lab.node-1"
+[placement.homes]
+primary = "lab.node-1"
 
 [spaces]
 base = []
@@ -1466,16 +1470,16 @@ base = []
       if (!response.ok) throw new Error('expected compile success')
 
       const expectedPolicy: CompiledAgentPolicy = {
+        provisioning: { node: 'max3' },
         placement: {
-          defaultHomeNode: 'local',
           pins: { 'agent-spaces:T-06604': 'lab.node-1' },
-          taskDefaults: { labprimary: 'lab.node-1' },
+          homes: { primary: 'lab.node-1' },
         },
         claimsTask: true,
       }
       expect(response.plan.agentPolicy).toEqual(expectedPolicy)
     } finally {
-      writeFileSync(profilePath, 'schemaVersion = 2\n\n[spaces]\nbase = []\n', 'utf8')
+      writeFileSync(profilePath, 'version = 3\n\n[spaces]\nbase = []\n', 'utf8')
     }
   })
 
@@ -1483,10 +1487,12 @@ base = []
     const profilePath = join(fixture.agentRoot, 'agent-profile.toml')
     writeFileSync(
       profilePath,
-      `schemaVersion = 1
+      `version = 3
 
 [placement]
-default_home_node = "svc"
+
+[placement.homes]
+primary = "svc"
 
 [spaces]
 base = []
@@ -1499,11 +1505,11 @@ base = []
       if (!response.ok) throw new Error('expected compile success')
 
       expect(response.plan.agentPolicy).toEqual({
-        placement: { defaultHomeNode: 'svc', pins: {} },
+        placement: { pins: {}, homes: { primary: 'svc' } },
         claimsTask: false,
       })
     } finally {
-      writeFileSync(profilePath, 'schemaVersion = 2\n\n[spaces]\nbase = []\n', 'utf8')
+      writeFileSync(profilePath, 'version = 3\n\n[spaces]\nbase = []\n', 'utf8')
     }
   })
 
@@ -1513,14 +1519,10 @@ base = []
       compileContext: { nowIso: '2026-07-19T00:00:00.000Z' },
     }
 
-    writeFileSync(profilePath, 'schemaVersion = 2\n\n[spaces]\nbase = []\n', 'utf8')
+    writeFileSync(profilePath, 'version = 3\n\n[spaces]\nbase = []\n', 'utf8')
     const absent = await createClient().compileRuntimePlan(baseCompileRequest(), compileOptions)
 
-    writeFileSync(
-      profilePath,
-      'schemaVersion = 2\nclaims_task = false\n\n[spaces]\nbase = []\n',
-      'utf8'
-    )
+    writeFileSync(profilePath, 'version = 3\nclaims_task = false\n\n[spaces]\nbase = []\n', 'utf8')
     try {
       const explicitFalse = await createClient().compileRuntimePlan(
         baseCompileRequest(),
@@ -1533,7 +1535,7 @@ base = []
       expect(explicitFalse.plan.planHash).toBe(absent.plan.planHash)
       expect(explicitFalse.plan).toEqual(absent.plan)
     } finally {
-      writeFileSync(profilePath, 'schemaVersion = 2\n\n[spaces]\nbase = []\n', 'utf8')
+      writeFileSync(profilePath, 'version = 3\n\n[spaces]\nbase = []\n', 'utf8')
     }
   })
 })

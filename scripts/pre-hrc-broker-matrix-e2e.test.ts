@@ -46,17 +46,17 @@ describe('pre-HRC MATRIX fixture contracts', () => {
     mkdirSync(aspHome, { recursive: true })
     writeFileSync(
       join(agentRoot, 'agent-profile.toml'),
-      `schemaVersion = 2
+      `version = 3
 
 [identity]
 display = "Sparky"
 role = "smoke"
-harness = "pi-sdk"
 
 [spaces]
 base = []
 
-[harnessDefaults]
+[provisioning]
+harness = "pi-sdk"
 model = "openai-codex/gpt-5.5"
 `,
       'utf8'

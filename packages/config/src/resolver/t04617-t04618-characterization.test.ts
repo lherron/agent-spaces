@@ -75,9 +75,9 @@ describe('T-04617 loadAgentProfile reader tolerance characterization', () => {
     const agentRoot = writeAgentRoot(
       tempDir,
       `
-schemaVersion = 2
+version = 3
 
-[spaces.byMode.query]
+[spaces.modes.query]
 base = ["space:query-only@dev"]
 `
     )
@@ -106,7 +106,7 @@ base = ["space:query-only@dev"]
 [spaces]
 base = ["space:raw-base@dev"]
 
-[spaces.byMode.query]
+[spaces.modes.query]
 base = ["space:raw-query@dev"]
 `
     )
@@ -127,7 +127,7 @@ base = ["space:raw-query@dev"]
     expect(result.kind).toBe('threw')
     if (result.kind === 'threw') {
       expect(result.error).toBeInstanceOf(ConfigValidationError)
-      expect(String((result.error as Error).message)).toContain('/schemaVersion')
+      expect(String((result.error as Error).message)).toContain('/version')
     }
   })
 
@@ -135,7 +135,7 @@ base = ["space:raw-query@dev"]
     const agentRoot = writeAgentRoot(
       tempDir,
       `
-schemaVersion = 2
+version = 3
 unknown = "still parsed by raw reader"
 
 [spaces]
@@ -166,7 +166,7 @@ base = ["space:raw-base@dev"]
     const agentRoot = writeAgentRoot(
       tempDir,
       `
-schemaVersion = 2
+version = 3
 
 [spaces]
 base = "space:not-an-array@dev"

@@ -40,8 +40,8 @@ function createFixture(): {
 
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `schemaVersion = 2
-priming_prompt = "You are {{agentId}} in {{projectId}} working on {{taskId}}. {{agentId}} code rules the world."
+    `version = 3
+priming = "You are {{agentId}} in {{projectId}} working on {{taskId}}. {{agentId}} code rules the world."
 
 [spaces]
 base = []

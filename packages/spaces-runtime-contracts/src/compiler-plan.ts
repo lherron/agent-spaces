@@ -99,10 +99,12 @@ export type RuntimeCompileResponse =
     }
 
 export type CompiledAgentPolicy = {
+  provisioning?: {
+    node?: string | undefined
+  }
   placement?: {
-    defaultHomeNode?: string | undefined
     pins: Record<string, string>
-    taskDefaults?: Record<string, string> | undefined
+    homes: Record<string, string>
   }
   claimsTask: boolean
 }

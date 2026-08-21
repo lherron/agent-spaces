@@ -108,10 +108,7 @@ export function loadAgentProfileForRun(
   if (!existsSync(profilePath)) {
     return undefined
   }
-  const profileSource = readFileSync(profilePath, 'utf8').replace(
-    /^(\s*)schema_version(\s*=)/m,
-    '$1schemaVersion$2'
-  )
+  const profileSource = readFileSync(profilePath, 'utf8')
 
   return {
     agentRoot,
@@ -126,25 +123,25 @@ export function resolveProfileHarnessForRun(harness: string | undefined): Harnes
 export function resolveAgentPrimingPromptForRun(
   target:
     | {
-        priming_prompt?: string | undefined
-        priming_prompt_append?: string | undefined
+        priming?: string | undefined
+        priming_append?: string | undefined
       }
     | undefined,
   agentProfile: LoadedAgentProfile | undefined
 ): string | undefined {
-  if (target?.priming_prompt !== undefined) {
-    return target.priming_prompt
+  if (target?.priming !== undefined) {
+    return target.priming
   }
 
   const basePrompt = agentProfile
     ? resolveAgentPrimingPrompt(agentProfile.profile, agentProfile.agentRoot)
     : undefined
 
-  if (target?.priming_prompt_append) {
+  if (target?.priming_append) {
     if (basePrompt) {
-      return `${basePrompt}\n${target.priming_prompt_append}`
+      return `${basePrompt}\n${target.priming_append}`
     }
-    return target.priming_prompt_append
+    return target.priming_append
   }
 
   return basePrompt
@@ -158,7 +155,7 @@ export function resolveAgentRunDefaultsFromProfile(
   const effective = mergeAgentWithProjectTarget(
     {
       ...agentProfile.profile,
-      ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
+      ...(primingPrompt !== undefined ? { priming: primingPrompt } : {}),
     },
     target,
     'task'

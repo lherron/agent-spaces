@@ -433,10 +433,7 @@ describe('SOUL.md enforcement (T-00889)', () => {
     noSoulDir = mkdtempSync(join(tmpdir(), 'no-soul-'))
     const agentRoot = join(noSoulDir, 'agent-root')
     mkdirSync(agentRoot, { recursive: true })
-    writeFileSync(
-      join(agentRoot, 'agent-profile.toml'),
-      'schemaVersion = 2\n\n[spaces]\nbase = []\n'
-    )
+    writeFileSync(join(agentRoot, 'agent-profile.toml'), 'version = 3\n\n[spaces]\nbase = []\n')
   })
 
   afterEach(() => {
@@ -490,16 +487,17 @@ describe('resolvePlacementContext materialization (T-01094)', () => {
       writeFileSync(
         join(agentRoot, 'agent-profile.toml'),
         `
-schemaVersion = 2
-priming_prompt = "Agent prompt"
+version = 3
+priming = "Agent prompt"
 
 [identity]
-harness = "codex"
+role = "worker"
 
 [spaces]
 base = ["space:agent-base@dev"]
 
-[harnessDefaults]
+[provisioning]
+harness = "codex"
 model = "gpt-5.5"
 `
       )
@@ -512,11 +510,14 @@ schema = 1
 [targets.smokey]
 compose_mode = "merge"
 compose = ["space:project-extra@dev"]
-priming_prompt_append = "Project append"
-yolo = true
-harness = "codex"
+priming_append = "Project append"
 
-[targets.smokey.codex]
+[targets.smokey.provisioning]
+harness = "codex"
+yolo = true
+model = "gpt-5.3-codex"
+
+[targets.smokey.provisioning.codex]
 model = "gpt-5.3-codex"
 `
       )
@@ -538,16 +539,15 @@ model = "gpt-5.3-codex"
         spaces: ['space:agent-base@dev', 'space:project-extra@dev'],
       })
       expect(context.materialization.effectiveConfig).toMatchObject({
-        priming_prompt: 'Agent prompt\nProject append',
+        priming: 'Agent prompt\nProject append',
         yolo: true,
         harness: 'codex',
         model: 'gpt-5.3-codex',
       })
       expect(context.materialization.manifest?.targets.smokey).toMatchObject({
         compose: ['space:agent-base@dev', 'space:project-extra@dev'],
-        priming_prompt: 'Agent prompt\nProject append',
-        yolo: true,
-        harness: 'codex',
+        priming: 'Agent prompt\nProject append',
+        provisioning: expect.objectContaining({ yolo: true, harness: 'codex' }),
       })
     } finally {
       rmSync(tempDir, { recursive: true, force: true })

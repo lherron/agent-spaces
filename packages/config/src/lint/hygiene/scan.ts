@@ -157,7 +157,7 @@ async function collectReferencedFiles(root: string, sharedRoot: string): Promise
     if (text === null) {
       continue
     }
-    // path = "agent-root:///SOUL.md" | "AGENT_MOTD.md" | additionalBase = ["foo.md"]
+    // path = "agent-root:///SOUL.md" | "AGENT_MOTD.md" | base = ["foo.md"]
     for (const m of text.matchAll(/([A-Za-z0-9_.-]+\.md)/g)) {
       const name = m[1]
       if (name) {

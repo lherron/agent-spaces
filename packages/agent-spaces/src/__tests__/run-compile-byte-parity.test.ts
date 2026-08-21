@@ -81,7 +81,7 @@ function createFixture(): {
   // so the launch shape stays minimal and the expansion context cannot diverge.
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `schemaVersion = 2
+    `version = 3
 
 [spaces]
 base = []
@@ -118,7 +118,9 @@ content = "REMINDER: this is the session reminder block that must ride the pi la
 
 [targets.${AGENT_NAME}]
 compose = []
-remote_control = true
+
+[targets.${AGENT_NAME}.provisioning]
+remote = true
 `,
     'utf8'
   )

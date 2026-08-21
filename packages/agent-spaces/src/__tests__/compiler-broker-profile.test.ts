@@ -115,9 +115,9 @@ function createFixture(): {
   writeFileSync(imagePath, 'not-really-a-png', 'utf8')
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `schemaVersion = 2
+    `version = 3
 
-priming_prompt = "Agent {{agentId}} handles {{projectId}} task {{taskId}}."
+priming = "Agent {{agentId}} handles {{projectId}} task {{taskId}}."
 
 [spaces]
 base = []

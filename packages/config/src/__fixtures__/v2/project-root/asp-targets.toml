@@ -11,21 +11,26 @@ profile = "workspace"
 
 [targets.default]
 description = "Default project-local fixture target"
-compose = ["space:project:repo-defaults", "space:project:task-scaffolds"]
+compose = [
+  "space:project:repo-defaults",
+  "space:project:task-scaffolds"
+]
 
 [targets.claude-review]
 description = "Anthropic review bundle"
-compose = ["space:project:repo-defaults"]
+compose = [ "space:project:repo-defaults" ]
 
-[targets.claude-review.claude]
-model = "claude-opus-4-6"
+  [targets.claude-review.provisioning]
+  model = "claude-opus-4-6"
 
 [targets.codex-fast]
 description = "OpenAI fast bundle"
-compose = ["space:project:task-scaffolds"]
+compose = [ "space:project:task-scaffolds" ]
 
-[targets.codex-fast.codex]
-model = "gpt-5.1-codex-mini"
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
-profile = "fast"
+  [targets.codex-fast.provisioning]
+  model = "gpt-5.1-codex-mini"
+  sandbox = "danger-full-access"
+  approval = "never"
+
+    [targets.codex-fast.provisioning.codex]
+    profile = "fast"

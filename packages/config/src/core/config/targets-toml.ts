@@ -45,11 +45,11 @@ export function parseTargetsToml(content: string, filePath?: string): ProjectMan
   }
 
   for (const [targetName, target] of Object.entries(result.data.targets)) {
-    if (target.priming_prompt !== undefined && target.priming_prompt_append !== undefined) {
+    if (target.priming !== undefined && target.priming_append !== undefined) {
       throw new ConfigValidationError('Invalid asp-targets.toml', source, [
         {
           path: `/targets/${targetName}`,
-          message: 'cannot set both priming_prompt and priming_prompt_append',
+          message: 'cannot set both priming and priming_append',
           keyword: 'conflict',
           params: {},
         },

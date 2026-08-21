@@ -240,12 +240,12 @@ describe('default frontend', () => {
     const profilePath = join(agentsRoot, 'alice', 'agent-profile.toml')
     try {
       const profile = (await Bun.file(profilePath).text()).replace(
-        /^schemaVersion = 1$/m,
-        'schemaVersion = 2'
+        /^\[provisioning\]$/m,
+        '[provisioning]\nharness = "codex"'
       )
       await writeFile(
         profilePath,
-        `${profile}\n[identity]\ndisplay = "Alice"\nrole = "assistant"\nharness = "codex"\n`,
+        `${profile}\n[identity]\ndisplay = "Alice"\nrole = "assistant"\n`,
         'utf8'
       )
 

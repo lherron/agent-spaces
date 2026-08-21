@@ -530,7 +530,7 @@ exit 1
         targets: {
           codex: {
             compose: ['space:codex-space@stable'],
-            priming_prompt: 'Register and send READY',
+            priming: 'Register and send READY',
           },
         },
       }
@@ -548,8 +548,10 @@ exit 1
         targets: {
           codex: {
             compose: ['space:codex-space@stable'],
-            codex: {
-              model_reasoning_effort: 'high',
+            provisioning: {
+              codex: {
+                model_reasoning_effort: 'high',
+              },
             },
           },
         },

@@ -246,7 +246,7 @@ function dedupe<T>(items: T[]): T[] {
 }
 
 function refsForProfile(profile: AgentRuntimeProfile): SpaceRefString[] {
-  return dedupe([...(profile.spaces?.base ?? []), ...(profile.spaces?.byMode?.[RUN_MODE] ?? [])])
+  return dedupe([...(profile.spaces?.base ?? []), ...(profile.spaces?.modes?.[RUN_MODE] ?? [])])
 }
 
 function readAgentProfile(agentRoot: string): AgentRuntimeProfile {
@@ -254,10 +254,7 @@ function readAgentProfile(agentRoot: string): AgentRuntimeProfile {
   if (!existsSync(profilePath)) {
     throw new Error(`agent-profile.toml not found: ${profilePath}`)
   }
-  const source = readFileSync(profilePath, 'utf8').replace(
-    /^(\s*)schema_version(\s*=)/m,
-    '$1schemaVersion$2'
-  )
+  const source = readFileSync(profilePath, 'utf8')
   return parseAgentProfile(source, profilePath)
 }
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agent-spaces/spec/v2/targets.schema.json",
-  "title": "Agent Spaces v2 - asp-targets.toml",
+  "$id": "https://agent-spaces/spec/v3/targets.schema.json",
+  "title": "Agent Spaces v3 - asp-targets.toml",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema"],
@@ -69,8 +69,8 @@
       "additionalProperties": false,
       "properties": {
         "description": { "type": "string", "maxLength": 300 },
-        "priming_prompt": { "type": "string" },
-        "priming_prompt_append": { "type": "string" },
+        "priming": { "type": "string" },
+        "priming_append": { "type": "string" },
 
         "compose": {
           "type": "array",
@@ -82,38 +82,49 @@
           "enum": ["replace", "merge"]
         },
 
-        "claude": {
+        "provisioning": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "harness": { "type": "string" },
             "model": { "type": "string" },
-            "permission_mode": { "type": "string" },
-            "args": { "type": "array", "items": { "type": "string" } }
-          }
-        },
-        "codex": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "model": { "type": "string" },
-            "model_reasoning_effort": { "type": "string" },
-            "model_reasoning_summary": {
-              "type": "string",
-              "enum": ["auto", "concise", "detailed", "none"]
+            "reasoning": { "type": "string" },
+            "node": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+            "yolo": { "type": "boolean" },
+            "sandbox": { "type": "string" },
+            "approval": { "type": "string" },
+            "remote": { "type": "boolean" },
+            "claude": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": { "type": "string" },
+                "permission_mode": { "type": "string" },
+                "args": { "type": "array", "items": { "type": "string" } }
+              }
             },
-            "status_line": {
-              "type": "array",
-              "items": { "type": "string" }
-            },
-            "approval_policy": {
-              "type": "string",
-              "enum": ["untrusted", "on-failure", "on-request", "never"]
-            },
-            "sandbox_mode": {
-              "type": "string",
-              "enum": ["read-only", "workspace-write", "danger-full-access"]
-            },
-            "profile": { "type": "string" }
+            "codex": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": { "type": "string" },
+                "model_reasoning_effort": { "type": "string" },
+                "model_reasoning_summary": {
+                  "type": "string",
+                  "enum": ["auto", "concise", "detailed", "none"]
+                },
+                "status_line": { "type": "array", "items": { "type": "string" } },
+                "approval_policy": {
+                  "type": "string",
+                  "enum": ["untrusted", "on-failure", "on-request", "never"]
+                },
+                "sandbox_mode": {
+                  "type": "string",
+                  "enum": ["read-only", "workspace-write", "danger-full-access"]
+                },
+                "profile": { "type": "string" }
+              }
+            }
           }
         },
 
@@ -124,21 +135,6 @@
             "locked": { "type": "boolean", "default": true },
             "allow_dirty": { "type": "boolean", "default": true }
           }
-        },
-
-        "yolo": {
-          "type": "boolean",
-          "description": "Skip all permission prompts (--dangerously-skip-permissions)"
-        },
-
-        "remote_control": {
-          "type": "boolean",
-          "description": "Enable remote control via TCP (--remote-control)"
-        },
-
-        "harness": {
-          "type": "string",
-          "description": "Preferred harness for this target (overrides agent-profile identity.harness)"
         }
       }
     }

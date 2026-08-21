@@ -468,7 +468,7 @@ export async function run(targetName: string, options: RunOptions): Promise<RunR
 
   if (runOptions.interactive === false && runOptions.prompt === undefined) {
     throw new Error(
-      'Non-interactive mode requires a prompt (provide [prompt] or configure targets.<name>.priming_prompt)'
+      'Non-interactive mode requires a prompt (provide [prompt] or configure targets.<name>.priming)'
     )
   }
 

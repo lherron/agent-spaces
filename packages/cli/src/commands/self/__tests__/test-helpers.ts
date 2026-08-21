@@ -46,7 +46,7 @@ export async function setupSelfFixture(options: SelfFixtureOptions = {}): Promis
   await writeFile(join(agentRoot, 'SOUL.md'), `# ${agentName}\nAgent identity.\n`)
   await writeFile(
     join(agentRoot, 'agent-profile.toml'),
-    options.profileToml ?? 'schemaVersion = 2\n[identity]\ndisplay = "Clod"\n'
+    options.profileToml ?? 'version = 3\n[identity]\ndisplay = "Clod"\n'
   )
   await writeFile(join(agentsRoot, 'AGENT_MOTD.md'), 'shared motd\n')
   await writeFile(join(agentsRoot, 'conventions.md'), 'shared conventions\n')

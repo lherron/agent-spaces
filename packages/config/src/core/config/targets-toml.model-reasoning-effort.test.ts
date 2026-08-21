@@ -41,18 +41,18 @@ compose = ["space:my-space@stable"]
     expect(result.codex?.model_reasoning_effort).toBe('high')
   })
 
-  test('parses target-level [targets.default.codex] model_reasoning_effort', () => {
+  test('parses target-level [targets.default.provisioning.codex] model_reasoning_effort', () => {
     const toml = `
 schema = 1
 
 [targets.default]
 compose = ["space:my-space@stable"]
 
-[targets.default.codex]
+[targets.default.provisioning.codex]
 model_reasoning_effort = "low"
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.default.codex?.model_reasoning_effort).toBe('low')
+    expect(result.targets.default.provisioning?.codex?.model_reasoning_effort).toBe('low')
   })
 
   test('parses both top-level and target-level together', () => {
@@ -65,7 +65,7 @@ model_reasoning_effort = "medium"
 [targets.heavy]
 compose = ["space:heavy@stable"]
 
-[targets.heavy.codex]
+[targets.heavy.provisioning.codex]
 model_reasoning_effort = "high"
 
 [targets.light]
@@ -73,9 +73,9 @@ compose = ["space:light@stable"]
 `
     const result = parseTargetsToml(toml)
     expect(result.codex?.model_reasoning_effort).toBe('medium')
-    expect(result.targets.heavy.codex?.model_reasoning_effort).toBe('high')
+    expect(result.targets.heavy.provisioning?.codex?.model_reasoning_effort).toBe('high')
     // light target inherits top-level, has no override
-    expect(result.targets.light.codex?.model_reasoning_effort).toBeUndefined()
+    expect(result.targets.light.provisioning?.codex?.model_reasoning_effort).toBeUndefined()
   })
 })
 
@@ -120,7 +120,7 @@ describe('getEffectiveCodexOptions: model_reasoning_effort', () => {
       targets: {
         fast: {
           compose: ['space:fast@stable'],
-          codex: { model_reasoning_effort: 'low' },
+          provisioning: { codex: { model_reasoning_effort: 'low' } },
         },
       },
     }
@@ -159,18 +159,18 @@ describe('round-trip: model_reasoning_effort', () => {
     expect(parsed.codex?.model_reasoning_effort).toBe('high')
   })
 
-  test('target-level [targets.x.codex] model_reasoning_effort survives serialize/parse cycle', () => {
+  test('target-level [targets.x.provisioning.codex] model_reasoning_effort survives serialize/parse cycle', () => {
     const original: ProjectManifest = {
       schema: 1,
       targets: {
         reasoning: {
           compose: ['space:reasoning@stable'],
-          codex: { model_reasoning_effort: 'medium' },
+          provisioning: { codex: { model_reasoning_effort: 'medium' } },
         },
       },
     }
     const serialized = serializeTargetsToml(original)
     const parsed = parseTargetsToml(serialized)
-    expect(parsed.targets.reasoning.codex?.model_reasoning_effort).toBe('medium')
+    expect(parsed.targets.reasoning.provisioning?.codex?.model_reasoning_effort).toBe('medium')
   })
 })

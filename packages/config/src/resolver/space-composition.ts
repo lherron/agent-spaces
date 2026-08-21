@@ -5,7 +5,7 @@
  *
  * Order:
  * 1. agent-profile.toml -> spaces.base
- * 2. agent-profile.toml -> spaces.byMode[runMode]
+ * 2. agent-profile.toml -> spaces.modes[runMode]
  * 3. spaces from the selected RuntimeBundleRef
  *
  * Deduplicate by resolved space key.
@@ -35,7 +35,7 @@ export interface SpaceCompositionInput {
  *
  * Reads agent-profile.toml from disk and composes spaces from:
  * 1. profile spaces.base
- * 2. profile spaces.byMode[runMode]
+ * 2. profile spaces.modes[runMode]
  * 3. bundle spaces (from RuntimeBundleRef)
  */
 export async function resolveSpaceComposition(
@@ -67,11 +67,11 @@ export async function resolveSpaceComposition(
       }
     }
 
-    // 2. agent-profile.toml -> spaces.byMode[runMode]
+    // 2. agent-profile.toml -> spaces.modes[runMode]
     if (spaces) {
-      const byMode = spaces['byMode'] as Record<string, unknown> | undefined
-      if (byMode) {
-        const modeConfig = byMode[input.runMode] as Record<string, unknown> | undefined
+      const modes = spaces['modes'] as Record<string, unknown> | undefined
+      if (modes) {
+        const modeConfig = modes[input.runMode] as Record<string, unknown> | undefined
         if (modeConfig) {
           const modeBase = modeConfig['base']
           if (Array.isArray(modeBase)) {

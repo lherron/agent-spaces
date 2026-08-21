@@ -164,7 +164,7 @@ function resolvePlacementMaterialization(
       const effective = mergeAgentWithProjectTarget(
         {
           ...profile,
-          ...(primingPrompt !== undefined ? { priming_prompt: primingPrompt } : {}),
+          ...(primingPrompt !== undefined ? { priming: primingPrompt } : {}),
         },
         projectTarget,
         placement.runMode
@@ -192,20 +192,18 @@ function resolvePlacementMaterialization(
 
 function resolveAgentPolicy(profile: AgentRuntimeProfile): ResolvedAgentPolicy | undefined {
   const claimsTask = profile.claims_task === true
-  if (profile.placement === undefined && !claimsTask) {
+  if (profile.placement === undefined && profile.provisioning?.node === undefined && !claimsTask) {
     return undefined
   }
   return {
+    ...(profile.provisioning?.node === undefined
+      ? {}
+      : { provisioning: { node: profile.provisioning.node } }),
     ...(profile.placement !== undefined
       ? {
           placement: {
-            ...(profile.placement.default_home_node !== undefined
-              ? { defaultHomeNode: profile.placement.default_home_node }
-              : {}),
             pins: { ...profile.placement.pins },
-            ...(profile.placement.task_defaults === undefined
-              ? {}
-              : { taskDefaults: { ...profile.placement.task_defaults } }),
+            homes: { ...profile.placement.homes },
           },
         }
       : {}),
@@ -370,7 +368,7 @@ function resolvePlacementInstructions(
   ]
   const instructions = profile.instructions
 
-  for (const ref of instructions?.additionalBase ?? []) {
+  for (const ref of instructions?.base ?? []) {
     const content = resolveInstructionRef(ref, placement)
     if (content !== undefined) {
       slots.push({ slot: 'additional-base', content, ref })
@@ -389,7 +387,7 @@ function resolvePlacementInstructions(
     }
   }
 
-  for (const ref of instructions?.byMode?.[placement.runMode] ?? []) {
+  for (const ref of instructions?.modes?.[placement.runMode] ?? []) {
     const content = resolveInstructionRef(ref, placement)
     if (content !== undefined) {
       slots.push({ slot: 'by-mode', content, ref })
@@ -455,7 +453,7 @@ function resolveInstructionRef(ref: string, placement: RuntimePlacement): string
 function loadAgentProfile(agentRoot: string): AgentRuntimeProfile {
   const source = readAgentProfileSource(agentRoot)
   if (source === undefined) {
-    return { schemaVersion: 1 }
+    return { version: 3 }
   }
   return parseAgentProfile(source.content, source.path)
 }
@@ -498,16 +496,24 @@ function buildSyntheticAgentProjectManifest(
         ...(effectiveConfig.description !== undefined
           ? { description: effectiveConfig.description }
           : {}),
-        ...(effectiveConfig.priming_prompt !== undefined
-          ? { priming_prompt: effectiveConfig.priming_prompt }
-          : {}),
-        ...(effectiveConfig.yolo ? { yolo: effectiveConfig.yolo } : {}),
-        ...(effectiveConfig.remoteControl ? { remote_control: effectiveConfig.remoteControl } : {}),
-        ...(Object.keys(effectiveConfig.claude).length > 0
-          ? { claude: effectiveConfig.claude }
-          : {}),
-        ...(Object.keys(effectiveConfig.codex).length > 0 ? { codex: effectiveConfig.codex } : {}),
-        ...(effectiveConfig.harness ? { harness: effectiveConfig.harness } : {}),
+        ...(effectiveConfig.priming !== undefined ? { priming: effectiveConfig.priming } : {}),
+        provisioning: {
+          harness: effectiveConfig.harness,
+          ...(effectiveConfig.model === undefined ? {} : { model: effectiveConfig.model }),
+          ...(effectiveConfig.reasoning === undefined
+            ? {}
+            : { reasoning: effectiveConfig.reasoning }),
+          ...(effectiveConfig.sandbox === undefined ? {} : { sandbox: effectiveConfig.sandbox }),
+          ...(effectiveConfig.approval === undefined ? {} : { approval: effectiveConfig.approval }),
+          yolo: effectiveConfig.yolo,
+          remote: effectiveConfig.remoteControl,
+          ...(Object.keys(effectiveConfig.claude).length > 0
+            ? { claude: effectiveConfig.claude }
+            : {}),
+          ...(Object.keys(effectiveConfig.codex).length > 0
+            ? { codex: effectiveConfig.codex }
+            : {}),
+        },
       },
     },
   }

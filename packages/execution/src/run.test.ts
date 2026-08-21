@@ -532,7 +532,7 @@ describe('run() install selection field sets (T-04621)', () => {
       agentsDir,
       'dev',
       `
-schema_version = 2
+version = 3
 
 [spaces]
 base = ["space:agent@dev"]
@@ -654,7 +654,7 @@ compose = ["space:project@dev"]
       agentsDir,
       'dev',
       `
-schemaVersion = 2
+version = 3
 `
     )
     await writeFile(join(agentRoot, 'SOUL.md'), 'profile-only direct run fixture\n')
@@ -852,7 +852,7 @@ describe('project-target runtime planner (T-01099)', () => {
       targets: {
         sdk_target: {
           compose: [],
-          harness: 'pi-sdk',
+          provisioning: { harness: 'pi-sdk' },
         },
       },
     }
@@ -941,7 +941,7 @@ describe('project-target runtime planner (T-01099)', () => {
       targets: {
         my_target: {
           compose: ['space:defaults@stable' as SpaceRefString],
-          priming_prompt: 'hello',
+          priming: 'hello',
         },
       },
     }
@@ -1208,9 +1208,9 @@ describe('agent-profile integration (asp run gaps)', () => {
       agentsDir,
       'animan',
       `
-schema_version = 2
+version = 3
 
-[harnessDefaults]
+[provisioning]
 yolo = true
 `
     )
@@ -1239,9 +1239,9 @@ yolo = true
       agentsDir,
       'larry',
       `
-schema_version = 2
+version = 3
 
-[harnessDefaults]
+[provisioning]
 model = "claude-opus-4-6"
 `
     )
@@ -1263,9 +1263,9 @@ model = "claude-opus-4-6"
       agentsDir,
       'larry',
       `
-schema_version = 2
+version = 3
 
-[harnessDefaults]
+[provisioning]
 model = "claude-opus-4-6"
 `
     )
@@ -1273,7 +1273,7 @@ model = "claude-opus-4-6"
     // Target specifies a codex model — should take precedence
     const target: TargetDefinition = {
       compose: ['space:defaults@stable' as SpaceRefString],
-      codex: { model: 'gpt-5.3-codex' },
+      provisioning: { model: 'gpt-5.3-codex' },
     }
 
     expect(resolveAgentRunDefaults).toBeDefined()
@@ -1295,10 +1295,12 @@ model = "claude-opus-4-6"
       agentsDir,
       'animata',
       `
-schema_version = 2
+version = 3
 
-[harnessDefaults.codex]
+[provisioning]
 model = "gpt-5.3-codex"
+
+[provisioning.codex]
 model_reasoning_effort = "medium"
 approval_policy = "on-failure"
 sandbox_mode = "workspace-write"
@@ -1308,7 +1310,7 @@ sandbox_mode = "workspace-write"
     // Target overrides only model — other codex defaults should come from profile
     const target: TargetDefinition = {
       compose: ['space:defaults@stable' as SpaceRefString],
-      codex: { model: 'gpt-5.5-codex' },
+      provisioning: { model: 'gpt-5.5-codex' },
     }
 
     expect(resolveAgentRunDefaults).toBeDefined()
@@ -1316,7 +1318,7 @@ sandbox_mode = "workspace-write"
     expect(defaults).toBeDefined()
     expect(defaults!.codex).toBeDefined()
     // Target model wins
-    expect(defaults!.codex!['model']).toBe('gpt-5.5-codex')
+    expect(defaults!.model).toBe('gpt-5.5-codex')
     // Profile defaults fill in the rest
     expect(defaults!.codex!['model_reasoning_effort']).toBe('medium')
     expect(defaults!.codex!['approval_policy']).toBe('on-failure')
@@ -1329,10 +1331,12 @@ sandbox_mode = "workspace-write"
       agentsDir,
       'smokey',
       `
-schema_version = 2
+version = 3
 
-[harnessDefaults.claude]
+[provisioning]
 model = "claude-sonnet-4-6"
+
+[provisioning.claude]
 permission_mode = "plan"
 `
     )
@@ -1340,7 +1344,7 @@ permission_mode = "plan"
     // Target overrides permission_mode only
     const target: TargetDefinition = {
       compose: ['space:defaults@stable' as SpaceRefString],
-      claude: { permission_mode: 'bypassPermissions' },
+      provisioning: { claude: { permission_mode: 'bypassPermissions' } },
     }
 
     expect(resolveAgentRunDefaults).toBeDefined()
@@ -1350,7 +1354,7 @@ permission_mode = "plan"
     // Target override wins
     expect(defaults!.claude!['permission_mode']).toBe('bypassPermissions')
     // Profile default fills in
-    expect(defaults!.claude!['model']).toBe('claude-sonnet-4-6')
+    expect(defaults!.model).toBe('claude-sonnet-4-6')
   })
 
   // -------------------------------------------------------------------------
@@ -1365,11 +1369,13 @@ permission_mode = "plan"
       agentsDir,
       'larry',
       `
-schema_version = 2
+version = 3
 
 [identity]
 display = "Larry"
 role = "implementer"
+
+[provisioning]
 harness = "codex"
 `
     )
@@ -1398,7 +1404,7 @@ harness = "codex"
       agentsDir,
       'smokey',
       `
-schema_version = 2
+version = 3
 
 [spaces]
 base = ["space:smokey@dev"]
@@ -1412,7 +1418,7 @@ base = ["space:smokey@dev"]
 
     // First: verify resolveEffectiveCompose itself works correctly (this should pass)
     const profile: AgentRuntimeProfile = {
-      schemaVersion: 2,
+      version: 3,
       spaces: { base: ['space:smokey@dev' as SpaceRefString] },
     }
     const merged = resolveEffectiveCompose(profile, target, 'task')
@@ -1451,11 +1457,13 @@ base = ["space:smokey@dev"]
       agentsDir,
       'larry',
       `
-schema_version = 2
+version = 3
 
 [identity]
 display = "Larry"
 role = "implementer"
+
+[provisioning]
 harness = "codex"
 `
     )
@@ -1463,8 +1471,8 @@ harness = "codex"
     // Target explicitly sets harness = "claude-code" → should override profile's "codex"
     const target: TargetDefinition = {
       compose: ['space:defaults@stable' as SpaceRefString],
-      harness: 'claude-code',
-    } as TargetDefinition // cast needed: harness field does not exist on TargetDefinition yet
+      provisioning: { harness: 'claude-code' },
+    }
 
     expect(resolveAgentRunDefaults).toBeDefined()
     const defaults = resolveAgentRunDefaults!('larry', target, { agentsRoot: agentsDir })
@@ -1478,11 +1486,13 @@ harness = "codex"
       agentsDir,
       'larry',
       `
-schema_version = 2
+version = 3
 
 [identity]
 display = "Larry"
 role = "implementer"
+
+[provisioning]
 harness = "codex"
 `
     )
@@ -1505,7 +1515,7 @@ harness = "codex"
       agentsDir,
       'smokey',
       `
-schema_version = 2
+version = 3
 
 [identity]
 display = "Smokey"

@@ -77,8 +77,8 @@ function createFixture(options: { primingPrompt?: string | undefined } = {}): {
   writeFileSync(imagePath2, 'also-not-really-a-png', 'utf8')
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `schemaVersion = 2
-${options.primingPrompt !== undefined ? `priming_prompt = "${options.primingPrompt}"\n` : ''}
+    `version = 3
+${options.primingPrompt !== undefined ? `priming = "${options.primingPrompt}"\n` : ''}
 [spaces]
 base = []
 `,

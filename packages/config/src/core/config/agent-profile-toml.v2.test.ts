@@ -1,519 +1,173 @@
-/**
- * RED tests: agent-profile.toml v2 parser — identity, priming prompt, extended harness (T-00992)
- *
- * WHY: Agent-level defaults require schemaVersion 2 support in agent-profile.toml.
- * New sections: [identity], priming_prompt, priming_prompt_file, [harnessDefaults.claude],
- * [harnessDefaults.codex], harnessDefaults.yolo, and extended harnessByMode with sub-tables.
- *
- * PASS CONDITIONS (all tests green when):
- * 1. parseAgentProfile accepts schemaVersion = 2
- * 2. [identity] section parsed with display, role, harness fields
- * 3. priming_prompt parsed as top-level string
- * 4. priming_prompt_file parsed as top-level string
- * 5. Both priming_prompt + priming_prompt_file simultaneously → ConfigValidationError
- * 6. harnessDefaults.yolo parsed as boolean
- * 7. harnessDefaults.claude parsed as ClaudeOptions sub-table
- * 8. harnessDefaults.codex parsed as CodexOptions sub-table
- * 9. harnessByMode.<mode>.claude and .codex parsed as sub-tables
- * 10. schemaVersion 1 profiles continue to parse unchanged (backward compat)
- * 11. AgentRuntimeProfile type has schemaVersion: 1 | 2 and new optional fields
- *
- * wrkq task: T-00992
- */
-
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+
 import { ConfigValidationError } from '../errors.js'
 import { parseAgentProfile } from './agent-profile-toml.js'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 1. schemaVersion 2 acceptance
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('parseAgentProfile: schemaVersion 2', () => {
-  test('accepts schemaVersion = 2', () => {
-    const toml = `
-schemaVersion = 2
-`
-    const result = parseAgentProfile(toml)
-    expect(result.schemaVersion).toBe(2)
-  })
-
-  test('schemaVersion 1 still parses (backward compat)', () => {
-    const toml = `
-schemaVersion = 1
-`
-    const result = parseAgentProfile(toml)
-    expect(result.schemaVersion).toBe(1)
-  })
-
-  test('rejects schemaVersion = 3', () => {
-    const toml = `
-schemaVersion = 3
-`
-    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. [identity] section
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('parseAgentProfile: identity section', () => {
-  test('parses identity with display, role, harness', () => {
-    const toml = `
-schemaVersion = 2
-
-[identity]
-display = "Larry"
-role = "coder"
-harness = "codex"
-`
-    const result = parseAgentProfile(toml)
-    expect(result.identity).toEqual({
-      display: 'Larry',
-      role: 'coder',
-      harness: 'codex',
-    })
-  })
-
-  test('parses identity with only display', () => {
-    const toml = `
-schemaVersion = 2
-
-[identity]
-display = "Smokey"
-`
-    const result = parseAgentProfile(toml)
-    expect(result.identity?.display).toBe('Smokey')
-    expect(result.identity?.role).toBeUndefined()
-    expect(result.identity?.harness).toBeUndefined()
-  })
-
-  test('rejects unknown keys in identity', () => {
-    const toml = `
-schemaVersion = 2
-
-[identity]
-display = "Larry"
-favorite_color = "blue"
-`
-    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
-  })
-
-  test('rejects non-string identity values', () => {
-    const toml = `
-schemaVersion = 2
-
-[identity]
-display = 42
-`
-    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
-  })
-
-  describe('default_scope_role (T-06355)', () => {
-    test.each(['coordinator', 'Coordinator'])(
-      'parses canonical role token %j into the snake_case identity field',
-      (defaultScopeRole) => {
-        const result = parseAgentProfile(`
-schemaVersion = 2
-
-[identity]
-default_scope_role = "${defaultScopeRole}"
-`)
-
-        expect(result.identity?.default_scope_role).toBe(defaultScopeRole)
-        expect(result.identity).not.toHaveProperty('defaultScopeRole')
-      }
-    )
-
-    test.each(['co ordinator', 'a/b', ''])(
-      'rejects invalid role token %j with the source file and identity key',
-      (defaultScopeRole) => {
-        const source = '/tmp/t-06355-agent-profile.toml'
-        let caught: unknown
-
-        try {
-          parseAgentProfile(
-            `
-schemaVersion = 2
-
-[identity]
-default_scope_role = "${defaultScopeRole}"
-`,
-            source
-          )
-        } catch (error) {
-          caught = error
-        }
-
-        expect(caught).toBeInstanceOf(ConfigValidationError)
-        const validationError = caught as ConfigValidationError
-        expect(validationError.source).toBe(source)
-        expect(validationError.validationErrors).toEqual([
-          expect.objectContaining({ path: '/identity/default_scope_role' }),
-        ])
-      }
-    )
-
-    test('declares agent-scope as a runtime dependency of spaces-config', () => {
-      const packageJsonPath = join(import.meta.dirname, '..', '..', '..', 'package.json')
-      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'))
-
-      expect(packageJson.dependencies?.['agent-scope']).toBe('*')
-    })
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 2b. [session] section for reminder customization
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('parseAgentProfile: session section (T-01045)', () => {
-  test('parses session.additionalContext and session.additionalExec', () => {
-    const toml = `
-schemaVersion = 2
-
-[session]
-additionalContext = ["banner.md", "project-root:///README.md"]
-additionalExec = ["printf 'task context'", "printf 'queue context'"]
-`
-    const result = parseAgentProfile(toml)
-    expect(result.session).toEqual({
-      additionalContext: ['banner.md', 'project-root:///README.md'],
-      additionalExec: ["printf 'task context'", "printf 'queue context'"],
-    })
-  })
-
-  test('rejects unknown keys in session', () => {
-    const toml = `
-schemaVersion = 2
-
-[session]
-additionalContext = ["banner.md"]
-unexpected = "nope"
-`
-    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 2c. [brain] decommissioned — now an unknown top-level key (T-04978 Phase 4)
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('parseAgentProfile: [brain] section is decommissioned', () => {
-  test('rejects [brain] as an unknown top-level key', () => {
-    const toml = `
-schemaVersion = 2
-
-[brain]
-enabled = false
-`
-    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
-    // The unknown-key contract: assertOnlyKeys fails at path '/brain' with the
-    // additionalProperties keyword, identical to any other unexpected top-level key.
-    try {
-      parseAgentProfile(toml)
-      throw new Error('expected parseAgentProfile to throw')
-    } catch (err) {
-      expect(err).toBeInstanceOf(ConfigValidationError)
-      const validationErrors = (err as ConfigValidationError).validationErrors
-      expect(validationErrors).toEqual([
-        expect.objectContaining({
-          path: '/brain',
-          keyword: 'additionalProperties',
-        }),
-      ])
+describe('parseAgentProfile: v3 hard cutover', () => {
+  test('accepts version 3 and rejects v1/v2 spellings', () => {
+    expect(parseAgentProfile('version = 3\n').version).toBe(3)
+    for (const source of ['version = 1\n', 'version = 2\n', 'schemaVersion = 2\n']) {
+      expect(() => parseAgentProfile(source)).toThrow(ConfigValidationError)
     }
   })
-})
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. priming_prompt and priming_prompt_file
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('parseAgentProfile: priming prompt fields', () => {
-  test('parses priming_prompt as string', () => {
-    const toml = `
-schemaVersion = 2
-
-priming_prompt = "You are Larry, a coding agent."
-`
-    const result = parseAgentProfile(toml)
-    expect(result.priming_prompt).toBe('You are Larry, a coding agent.')
+  test('parses identity.role as the default scope role', () => {
+    const profile = parseAgentProfile(`
+version = 3
+[identity]
+display = "Cody"
+role = "implementer"
+`)
+    expect(profile.identity).toEqual({ display: 'Cody', role: 'implementer' })
   })
 
-  test('parses multiline priming_prompt', () => {
-    const toml = `
-schemaVersion = 2
-
-priming_prompt = """
-You are Larry.
-
-## Startup
-1. Run agentchat info.
-2. Wait for requests.
-"""
-`
-    const result = parseAgentProfile(toml)
-    expect(result.priming_prompt).toContain('You are Larry.')
-    expect(result.priming_prompt).toContain('## Startup')
+  test('rejects removed descriptive/default-role and identity harness keys', () => {
+    for (const line of ['default_scope_role = "implementer"', 'harness = "codex"']) {
+      expect(() => parseAgentProfile(`version = 3\n[identity]\n${line}\n`)).toThrow(
+        ConfigValidationError
+      )
+    }
   })
 
-  test('parses priming_prompt_file as string', () => {
-    const toml = `
-schemaVersion = 2
-
-priming_prompt_file = "PRIMING.md"
-`
-    const result = parseAgentProfile(toml)
-    expect(result.priming_prompt_file).toBe('PRIMING.md')
-  })
-
-  test('rejects both priming_prompt and priming_prompt_file', () => {
-    const toml = `
-schemaVersion = 2
-
-priming_prompt = "inline prompt"
-priming_prompt_file = "PRIMING.md"
-`
-    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
-  })
-
-  test('neither priming_prompt nor priming_prompt_file is fine', () => {
-    const toml = `
-schemaVersion = 2
-`
-    const result = parseAgentProfile(toml)
-    expect(result.priming_prompt).toBeUndefined()
-    expect(result.priming_prompt_file).toBeUndefined()
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 4. harnessDefaults extended fields
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('parseAgentProfile: extended harnessDefaults', () => {
-  test('parses harnessDefaults.yolo as boolean', () => {
-    const toml = `
-schemaVersion = 2
-
-[harnessDefaults]
-model = "claude-opus-4-6"
+  test('parses first-class provisioning scalars and profile-only harness tables', () => {
+    const profile = parseAgentProfile(`
+version = 3
+[provisioning]
+harness = "codex"
+model = "gpt-5.6-sol"
+reasoning = "high"
+node = "svc"
 yolo = true
-`
-    const result = parseAgentProfile(toml)
-    expect(result.harnessDefaults?.yolo).toBe(true)
-  })
+sandbox = "workspace-write"
+approval = "never"
+remote = true
 
-  test('parses harnessDefaults.remote_control as boolean', () => {
-    const toml = `
-schemaVersion = 2
-
-[harnessDefaults]
-model = "claude-opus-4-6"
-remote_control = true
-`
-    const result = parseAgentProfile(toml)
-    expect(result.harnessDefaults?.remote_control).toBe(true)
-  })
-
-  test('parses harnessDefaults.claude sub-table', () => {
-    const toml = `
-schemaVersion = 2
-
-[harnessDefaults]
-model = "claude-opus-4-6"
-
-[harnessDefaults.claude]
+[provisioning.claude]
 permission_mode = "default"
 args = ["--verbose"]
-`
-    const result = parseAgentProfile(toml)
-    expect(result.harnessDefaults?.claude).toEqual({
-      permission_mode: 'default',
-      args: ['--verbose'],
+
+[provisioning.codex]
+model_reasoning_summary = "concise"
+status_line = ["model", "cwd"]
+profile = "operator"
+`)
+    expect(profile.provisioning).toEqual({
+      harness: 'codex',
+      model: 'gpt-5.6-sol',
+      reasoning: 'high',
+      node: 'svc',
+      yolo: true,
+      sandbox: 'workspace-write',
+      approval: 'never',
+      remote: true,
+      claude: { permission_mode: 'default', args: ['--verbose'] },
+      codex: {
+        model_reasoning_summary: 'concise',
+        status_line: ['model', 'cwd'],
+        profile: 'operator',
+      },
     })
   })
 
-  test('parses harnessDefaults.codex sub-table', () => {
-    const toml = `
-schemaVersion = 2
-
-[harnessDefaults]
-model = "claude-opus-4-6"
-
-[harnessDefaults.codex]
-model_reasoning_effort = "high"
-model_reasoning_summary = "detailed"
-approval_policy = "on-request"
-sandbox_mode = "workspace-write"
-status_line = ["model", "context-remaining", "git-branch"]
-`
-    const result = parseAgentProfile(toml)
-    expect(result.harnessDefaults?.codex).toEqual({
-      model_reasoning_effort: 'high',
-      model_reasoning_summary: 'detailed',
-      approval_policy: 'on-request',
-      sandbox_mode: 'workspace-write',
-      status_line: ['model', 'context-remaining', 'git-branch'],
-    })
+  test('rejects removed harnessDefaults and harnessByMode sections', () => {
+    for (const section of ['harnessDefaults', 'harnessByMode.heartbeat']) {
+      expect(() => parseAgentProfile(`version = 3\n[${section}]\nmodel = "x"\n`)).toThrow(
+        ConfigValidationError
+      )
+    }
   })
 
-  test('rejects an unsupported model_reasoning_summary', () => {
-    const toml = `
-schemaVersion = 2
-
-[harnessDefaults.codex]
-model_reasoning_summary = "verbose"
-`
-
-    expect(() => parseAgentProfile(toml)).toThrow(ConfigValidationError)
-  })
-
-  test('parses harnessDefaults with model, yolo, claude, and codex together', () => {
-    const toml = `
-schemaVersion = 2
-
-[harnessDefaults]
-model = "claude-opus-4-6"
-yolo = false
-
-[harnessDefaults.claude]
-permission_mode = "default"
-
-[harnessDefaults.codex]
-model_reasoning_effort = "high"
-`
-    const result = parseAgentProfile(toml)
-    expect(result.harnessDefaults?.model).toBe('claude-opus-4-6')
-    expect(result.harnessDefaults?.yolo).toBe(false)
-    expect(result.harnessDefaults?.claude?.permission_mode).toBe('default')
-    expect(result.harnessDefaults?.codex?.model_reasoning_effort).toBe('high')
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 5. harnessByMode with extended sub-tables
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('parseAgentProfile: extended harnessByMode', () => {
-  test('parses harnessByMode.<mode>.claude sub-table', () => {
-    const toml = `
-schemaVersion = 2
-
-[harnessByMode.heartbeat]
-model = "claude-haiku-4-5"
-
-[harnessByMode.heartbeat.claude]
-permission_mode = "auto-accept"
-`
-    const result = parseAgentProfile(toml)
-    const heartbeat = result.harnessByMode?.heartbeat
-    expect(heartbeat?.model).toBe('claude-haiku-4-5')
-    expect(heartbeat?.claude?.permission_mode).toBe('auto-accept')
-  })
-
-  test('parses harnessByMode.<mode>.codex sub-table', () => {
-    const toml = `
-schemaVersion = 2
-
-[harnessByMode.heartbeat]
-model = "claude-haiku-4-5"
-
-[harnessByMode.heartbeat.codex]
-approval_policy = "never"
-status_line = ["model-with-reasoning", "context-remaining", "current-dir"]
-`
-    const result = parseAgentProfile(toml)
-    expect(result.harnessByMode?.heartbeat?.codex?.approval_policy).toBe('never')
-    expect(result.harnessByMode?.heartbeat?.codex?.status_line).toEqual([
-      'model-with-reasoning',
-      'context-remaining',
-      'current-dir',
-    ])
-  })
-})
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 6. Full v2 profile
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('parseAgentProfile: full v2 profile', () => {
-  test('parses complete v2 profile with all new fields', () => {
-    const toml = `
-schemaVersion = 2
-
-priming_prompt = "You are Larry, a coding agent."
-
-[identity]
-display = "Larry"
-role = "coder"
-harness = "codex"
-
+  test('parses priming, priming_file, spaces.modes, and instructions base/modes', () => {
+    const profile = parseAgentProfile(`
+version = 3
+priming = "Stand by"
 [spaces]
 base = ["space:defaults@dev"]
-
+[spaces.modes.heartbeat]
+base = ["space:heartbeat@dev"]
 [instructions]
-additionalBase = ["agent-root:///SOUL.md"]
-
-[harnessDefaults]
-model = "claude-opus-4-6"
-yolo = false
-
-[harnessDefaults.claude]
-permission_mode = "default"
-
-[harnessDefaults.codex]
-model_reasoning_effort = "high"
-approval_policy = "on-request"
-
-[harnessByMode.heartbeat]
-model = "claude-haiku-4-5"
-
-[harnessByMode.heartbeat.codex]
-approval_policy = "never"
-
-[targets.review]
-compose = ["space:agent-private-ops@dev"]
-`
-    const result = parseAgentProfile(toml)
-    expect(result.schemaVersion).toBe(2)
-    expect(result.identity?.display).toBe('Larry')
-    expect(result.identity?.role).toBe('coder')
-    expect(result.identity?.harness).toBe('codex')
-    expect(result.priming_prompt).toBe('You are Larry, a coding agent.')
-    expect(result.spaces?.base).toEqual(['space:defaults@dev'])
-    expect(result.harnessDefaults?.model).toBe('claude-opus-4-6')
-    expect(result.harnessDefaults?.yolo).toBe(false)
-    expect(result.harnessDefaults?.claude?.permission_mode).toBe('default')
-    expect(result.harnessDefaults?.codex?.model_reasoning_effort).toBe('high')
-    expect(result.harnessByMode?.heartbeat?.model).toBe('claude-haiku-4-5')
-    expect(result.harnessByMode?.heartbeat?.codex?.approval_policy).toBe('never')
-    expect(result.targets?.review?.compose).toEqual(['space:agent-private-ops@dev'])
+base = ["agent-root:///EXTRA.md"]
+[instructions.modes.task]
+base = ["agent-root:///TASK.md"]
+`)
+    expect(profile.priming).toBe('Stand by')
+    expect(profile.spaces?.modes?.heartbeat).toEqual(['space:heartbeat@dev'])
+    expect(profile.instructions?.base).toEqual(['agent-root:///EXTRA.md'])
+    expect(profile.instructions?.modes?.task).toEqual(['agent-root:///TASK.md'])
   })
 
-  test('v1 profile with existing fields still works unchanged', () => {
-    const toml = `
-schemaVersion = 1
+  test('rejects both priming and priming_file', () => {
+    expect(() =>
+      parseAgentProfile('version = 3\npriming = "inline"\npriming_file = "PRIMING.md"\n')
+    ).toThrow(ConfigValidationError)
+  })
 
-[spaces]
-base = ["space:defaults@dev"]
+  test('parses placement pins and homes', () => {
+    const profile = parseAgentProfile(`
+version = 3
+[placement.pins]
+"hrc-runtime:hrcdev" = "hrcdev"
+[placement.homes]
+primary = "max3"
+minisvc = "svc"
+`)
+    expect(profile.placement).toEqual({
+      pins: { 'hrc-runtime:hrcdev': 'hrcdev' },
+      homes: { primary: 'max3', minisvc: 'svc' },
+    })
+  })
 
-[harnessDefaults]
-model = "claude-opus-4-6"
+  test('rejects local as a node sentinel everywhere', () => {
+    for (const source of [
+      'version = 3\n[provisioning]\nnode = "local"\n',
+      'version = 3\n[placement.homes]\nprimary = "local"\n',
+      'version = 3\n[placement.pins]\n"p:t" = "local"\n',
+    ]) {
+      expect(() => parseAgentProfile(source)).toThrow(ConfigValidationError)
+    }
+  })
 
-[harnessByMode.heartbeat]
-model = "claude-haiku-4-5"
-`
-    const result = parseAgentProfile(toml)
-    expect(result.schemaVersion).toBe(1)
-    expect(result.spaces?.base).toEqual(['space:defaults@dev'])
-    expect(result.harnessDefaults?.model).toBe('claude-opus-4-6')
-    // v1 should NOT have identity/priming fields
-    expect(result.identity).toBeUndefined()
-    expect(result.priming_prompt).toBeUndefined()
+  test('rejects reserved family members in homes with INCONSISTENT_FAMILY_HOME', () => {
+    try {
+      parseAgentProfile(`
+version = 3
+[placement.homes]
+primary = "max3"
+primary-nova = "max3"
+`)
+      throw new Error('expected parser to reject')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigValidationError)
+      expect((error as ConfigValidationError).validationErrors[0]?.keyword).toBe(
+        'INCONSISTENT_FAMILY_HOME'
+      )
+    }
+  })
+
+  test('rejects reserved family members in pins with INCONSISTENT_FAMILY_HOME', () => {
+    try {
+      parseAgentProfile(`
+version = 3
+[placement.homes]
+primary = "max3"
+[placement.pins]
+"hrc-runtime:primary-comet" = "svc"
+`)
+      throw new Error('expected parser to reject')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigValidationError)
+      expect((error as ConfigValidationError).validationErrors[0]?.keyword).toBe(
+        'INCONSISTENT_FAMILY_HOME'
+      )
+    }
+  })
+
+  test('does not reserve suffixes for undeclared bases', () => {
+    const profile = parseAgentProfile(`
+version = 3
+[placement.homes]
+research-nova = "svc"
+`)
+    expect(profile.placement?.homes).toEqual({ 'research-nova': 'svc' })
   })
 })

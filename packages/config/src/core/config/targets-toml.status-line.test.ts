@@ -22,18 +22,18 @@ compose = ["space:my-space@stable"]
     ])
   })
 
-  test('parses target-level [targets.default.codex] status_line', () => {
+  test('parses target-level [targets.default.provisioning.codex] status_line', () => {
     const toml = `
 schema = 1
 
 [targets.default]
 compose = ["space:my-space@stable"]
 
-[targets.default.codex]
+[targets.default.provisioning.codex]
 status_line = ["model", "context-remaining", "git-branch"]
 `
     const result = parseTargetsToml(toml)
-    expect(result.targets.default.codex?.status_line).toEqual([
+    expect(result.targets.default.provisioning?.codex?.status_line).toEqual([
       'model',
       'context-remaining',
       'git-branch',
@@ -67,7 +67,7 @@ describe('getEffectiveCodexOptions: status_line', () => {
       targets: {
         fast: {
           compose: ['space:fast@stable'],
-          codex: { status_line: ['model', 'git-branch'] },
+          provisioning: { codex: { status_line: ['model', 'git-branch'] } },
         },
       },
     }

@@ -556,7 +556,7 @@ function createFixture(): Fixture {
   mkdirSync(aspHome, { recursive: true })
   writeFileSync(
     join(agentRoot, 'agent-profile.toml'),
-    `schemaVersion = 2
+    `version = 3
 
 [spaces]
 base = []

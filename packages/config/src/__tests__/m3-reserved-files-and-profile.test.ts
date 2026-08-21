@@ -111,26 +111,26 @@ describe('agent-profile.toml parser (T-00853)', () => {
     const content = readFileSync(join(resolveAgentRoot(), 'agent-profile.toml'), 'utf8')
     const profile = parseAgentProfile(content)
 
-    expect(profile.schemaVersion).toBe(1)
+    expect(profile.version).toBe(3)
   })
 
-  test('parses instructions.additionalBase', async () => {
+  test('parses instructions.base', async () => {
     const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
     const content = readFileSync(join(resolveAgentRoot(), 'agent-profile.toml'), 'utf8')
     const profile = parseAgentProfile(content)
 
     expect(profile.instructions).toBeDefined()
-    expect(profile.instructions!.additionalBase).toEqual(['agent-root:///SOUL.md'])
+    expect(profile.instructions!.base).toEqual(['agent-root:///SOUL.md'])
   })
 
-  test('parses spaces.base and spaces.byMode', async () => {
+  test('parses spaces.base and spaces.modes', async () => {
     const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
     const content = readFileSync(join(resolveAgentRoot(), 'agent-profile.toml'), 'utf8')
     const profile = parseAgentProfile(content)
 
     expect(profile.spaces).toBeDefined()
     expect(profile.spaces!.base).toEqual(['space:agent:private-ops'])
-    expect(profile.spaces!.byMode?.heartbeat).toBeDefined()
+    expect(profile.spaces!.modes?.heartbeat).toBeDefined()
   })
 
   test('parses targets with compose lists', async () => {
@@ -150,15 +150,15 @@ describe('agent-profile.toml parser (T-00853)', () => {
     ])
   })
 
-  test('parses harnessDefaults', async () => {
+  test('parses provisioning', async () => {
     const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
     const content = readFileSync(join(resolveAgentRoot(), 'agent-profile.toml'), 'utf8')
     const profile = parseAgentProfile(content)
 
-    expect(profile.harnessDefaults).toBeDefined()
-    expect(profile.harnessDefaults!.model).toBeUndefined()
-    expect(profile.harnessDefaults!.sandboxMode).toBe('workspace-write')
-    expect(profile.harnessDefaults!.approvalPolicy).toBe('on-request')
+    expect(profile.provisioning).toBeDefined()
+    expect(profile.provisioning!.model).toBeUndefined()
+    expect(profile.provisioning!.sandbox).toBe('workspace-write')
+    expect(profile.provisioning!.approval).toBe('on-request')
   })
 
   test('rejects invalid schemaVersion', async () => {
@@ -175,37 +175,36 @@ describe('agent-profile.toml parser (T-00853)', () => {
     expect(() => parseAgentProfile('this is not valid toml {{{{')).toThrow()
   })
 
-  test('parses minimal valid profile (schemaVersion only)', async () => {
+  test('parses minimal valid profile (version only)', async () => {
     const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
 
-    const profile = parseAgentProfile('schemaVersion = 1\n')
-    expect(profile.schemaVersion).toBe(1)
+    const profile = parseAgentProfile('version = 3\n')
+    expect(profile.version).toBe(3)
     expect(profile.instructions).toBeUndefined()
     expect(profile.spaces).toBeUndefined()
     expect(profile.targets).toBeUndefined()
-    expect(profile.harnessDefaults).toBeUndefined()
+    expect(profile.provisioning).toBeUndefined()
   })
 
-  test('parses harnessByMode', async () => {
+  test('rejects removed harnessByMode', async () => {
     const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
 
-    const profile = parseAgentProfile(`
-schemaVersion = 1
+    expect(() =>
+      parseAgentProfile(`
+version = 3
 
 [harnessByMode.heartbeat]
 model = "claude/haiku"
 sandboxMode = "read-only"
 `)
-    expect(profile.harnessByMode).toBeDefined()
-    expect(profile.harnessByMode!['heartbeat']).toBeDefined()
-    expect(profile.harnessByMode!['heartbeat']!.model).toBe('claude/haiku')
+    ).toThrow()
   })
 
   test('parses schemaVersion 2 session reminder config', async () => {
     const { parseAgentProfile } = await import('../core/config/agent-profile-toml.js')
 
     const profile = parseAgentProfile(`
-schemaVersion = 2
+version = 3
 
 [session]
 additionalContext = ["agent-root:///session-banner.md"]
