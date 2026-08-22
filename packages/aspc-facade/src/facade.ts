@@ -1,13 +1,16 @@
+/**
+ * The co-hosted `aspc-facade` JSON-RPC server (T-07314).
+ *
+ * Composition only: it owns the transport (from `spaces-harness-broker`), binds
+ * the compile plane through `spaces-aspc`'s transport-injected registration
+ * seam, then adds the routes that require a live broker — `aspc.compileAndStart`,
+ * `broker.*` and `invocation.*` — plus the server->client `invocation.event`
+ * notification and `invocation.permission.request` callback.
+ */
 import type { Readable, Writable } from 'node:stream'
-import {
-  validateAspcCatalogAgentsRequest,
-  validateAspcCommand,
-  validateAspcCompileAndStartRequest,
-  validateAspcCompileHarnessInvocationRequest,
-  validateAspcCompileRuntimePlanRequest,
-  validateAspcHelloRequest,
-  validateAspcInspectAgentRequest,
-} from 'spaces-aspc-protocol'
+import type { AspcCompiler } from 'spaces-aspc'
+import { JSONRPC_VERSION, registerAspcCompileMethods, registerAspcMethod } from 'spaces-aspc'
+import { validateAspcCompileAndStartRequest } from 'spaces-aspc-protocol'
 import { createDefaultBroker, createProtocolServer } from 'spaces-harness-broker'
 import type { Broker, ProtocolServer } from 'spaces-harness-broker'
 import type {
@@ -17,8 +20,7 @@ import type {
   PermissionDecision,
 } from 'spaces-harness-broker-protocol'
 import { validateCommand } from 'spaces-harness-broker-protocol'
-import type { AspcCompiler } from './service.js'
-import { createAspcService, startFromDispatch } from './service.js'
+import { createCohostedAspcService, startFromDispatch } from './service.js'
 
 export interface AspcFacadeOptions {
   stdin: Readable
@@ -28,19 +30,7 @@ export interface AspcFacadeOptions {
   compiler?: AspcCompiler | undefined
 }
 
-// Single source of truth for the JSON-RPC method names this facade serves, so
-// the wire strings live in one place rather than scattered across registration
-// sites.
-const JSONRPC_VERSION = '2.0'
-
-const ASPC_METHODS = {
-  hello: 'aspc.hello',
-  compileRuntimePlan: 'aspc.compileRuntimePlan',
-  catalogAgents: 'aspc.catalogAgents',
-  inspectAgent: 'aspc.inspectAgent',
-  compileHarnessInvocation: 'aspc.compileHarnessInvocation',
-  compileAndStart: 'aspc.compileAndStart',
-} as const
+const ASPC_COMPILE_AND_START_METHOD = 'aspc.compileAndStart'
 
 const BROKER_METHODS = {
   hello: 'broker.hello',
@@ -75,41 +65,14 @@ export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServ
       (event) => emitEvent(event),
       (params) => server.request<PermissionDecision>('invocation.permission.request', params)
     )
-  const aspc = createAspcService({ broker, compiler: options.compiler })
+  const aspc = createCohostedAspcService({ broker, compiler: options.compiler })
 
-  // Each ASPC route validates the JSON-RPC envelope, narrows params with its
-  // typed validator, then forwards to the service. `registerAspcMethod` factors
-  // out the shared envelope validation while preserving per-method typing.
-  function registerAspcMethod<Params, Result>(
-    method: string,
-    validateRequest: (params: unknown) => Params,
-    handle: (req: Params) => Promise<Result>
-  ): void {
-    server.register(method, async ({ id, params }) => {
-      validateAspcCommand({ jsonrpc: JSONRPC_VERSION, id, method, params })
-      return handle(validateRequest(params))
-    })
-  }
-
-  registerAspcMethod(ASPC_METHODS.hello, validateAspcHelloRequest, (req) => aspc.hello(req))
+  registerAspcCompileMethods(server, { service: aspc })
   registerAspcMethod(
-    ASPC_METHODS.compileRuntimePlan,
-    validateAspcCompileRuntimePlanRequest,
-    (req) => aspc.compileRuntimePlan(req)
-  )
-  registerAspcMethod(ASPC_METHODS.catalogAgents, validateAspcCatalogAgentsRequest, (req) =>
-    aspc.catalogAgents(req)
-  )
-  registerAspcMethod(ASPC_METHODS.inspectAgent, validateAspcInspectAgentRequest, (req) =>
-    aspc.inspectAgent(req)
-  )
-  registerAspcMethod(
-    ASPC_METHODS.compileHarnessInvocation,
-    validateAspcCompileHarnessInvocationRequest,
-    (req) => aspc.compileHarnessInvocation(req)
-  )
-  registerAspcMethod(ASPC_METHODS.compileAndStart, validateAspcCompileAndStartRequest, (req) =>
-    aspc.compileAndStart(req)
+    server,
+    ASPC_COMPILE_AND_START_METHOD,
+    validateAspcCompileAndStartRequest,
+    (req) => aspc.compileAndStart(req)
   )
 
   registerBrokerMethods(server, broker)

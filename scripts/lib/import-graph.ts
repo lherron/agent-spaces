@@ -53,6 +53,7 @@ export const aspPackages = [
   'agent-spaces',
   'turn-runner',
   'aspc',
+  'aspc-facade',
   'cli',
 ]
 

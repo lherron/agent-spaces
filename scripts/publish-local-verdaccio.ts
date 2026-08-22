@@ -28,6 +28,7 @@ const DEV_PUBLISH_PACKAGES = [
   'packages/agent-spaces',
   'packages/turn-runner',
   'packages/aspc',
+  'packages/aspc-facade',
 ] as const
 
 export const RELEASE_PUBLISH_PACKAGES = [

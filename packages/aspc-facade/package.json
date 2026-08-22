@@ -1,12 +1,12 @@
 {
-  "name": "spaces-aspc",
+  "name": "spaces-aspc-facade",
   "version": "0.1.1",
-  "description": "ASPC compile-plane service, registration seam, and JSON-RPC client",
+  "description": "Cohosted ASPC facade: composes the spaces-aspc compile plane with a live harness broker",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "aspc": "./bin/aspc.js"
+    "aspc-facade": "./bin/aspc-facade.js"
   },
   "exports": {
     ".": {
@@ -22,16 +22,15 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "cd ../.. && bun test packages/aspc/test",
+    "test": "cd ../.. && bun test packages/aspc-facade/test",
     "prepack": "bun ../../scripts/strip-bun-exports.ts",
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
-    "agent-spaces": "workspace:*",
+    "spaces-aspc": "workspace:*",
     "spaces-aspc-protocol": "workspace:*",
-    "spaces-harness-broker-client": "workspace:*",
-    "spaces-harness-broker-protocol": "workspace:*",
-    "spaces-runtime-contracts": "workspace:*"
+    "spaces-harness-broker": "workspace:*",
+    "spaces-harness-broker-protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",

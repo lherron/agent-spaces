@@ -150,12 +150,23 @@ false negatives in transcript-tailing smoke rows.
 
 ## ASPC compiler
 
-`spaces-aspc` (`packages/aspc`, `bin: aspc`, `aspc-facade`) is a JSON-RPC
-service that compiles a `CompiledRuntimePlan` and harness invocation.
-Methods: `aspc.compileRuntimePlan`, `aspc.compileHarnessInvocation`,
-`aspc.compileAndStart` (`packages/aspc/src/facade.ts`). It also serves as a
-broker facade, forwarding broker methods over the same JSON-RPC surface.
-Protocol types live in `spaces-aspc-protocol` (`packages/aspc-protocol`).
+`spaces-aspc` (`packages/aspc`, `bin: aspc`) is the COMPILE-ONLY plane: it
+compiles a `CompiledRuntimePlan` and harness invocation and serves
+`aspc.hello`, `aspc.compileRuntimePlan`, `aspc.catalogAgents`,
+`aspc.inspectAgent`, `aspc.compileHarnessInvocation`. It carries no live
+broker and owns no transport; `registerAspcCompileMethods`
+(`packages/aspc/src/registration.ts`) binds those five methods onto a
+caller-supplied JSON-RPC server.
+
+`spaces-aspc-facade` (`packages/aspc-facade`, `bin: aspc-facade`) is the
+cohosted composition: it wires the `spaces-aspc` compile plane to a live
+`spaces-harness-broker`, adds `aspc.compileAndStart` plus the `broker.*` /
+`invocation.*` routes, and emits `invocation.event` notifications and
+`invocation.permission.request` callbacks
+(`packages/aspc-facade/src/facade.ts`). Out-of-repo consumers (taskboard's
+agent viewer, hrc-server) spawn `aspc-facade run --transport stdio`.
+Protocol types for both facades live in `spaces-aspc-protocol`
+(`packages/aspc-protocol`).
 
 ## Repo boundary rule
 

@@ -402,7 +402,7 @@ async function compileRuntimePlanForMatrix(
 
   const client = await AspcClient.start({
     command: process.execPath,
-    args: ['packages/aspc/bin/aspc-facade.js', 'run', '--transport', 'stdio'],
+    args: ['packages/aspc-facade/bin/aspc-facade.js', 'run', '--transport', 'stdio'],
     cwd: ctx.repoRoot,
   })
   try {

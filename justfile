@@ -196,10 +196,14 @@ install no-sync="" force-sync="" force-link="":
       link_pids+=("$!")
       ( cd packages/harness-broker-pi-sdk && bun link 2>&1 | sed 's/^/[bun-link:harness-broker-pi] /' ) &
       link_pids+=("$!")
-      # spaces-aspc ships `aspc` + `aspc-facade`; out-of-repo consumers (taskboard's
-      # agent viewer) spawn `aspc-facade run --transport stdio` as a bare executable,
-      # so the facade has to be a linked binary like asp, not only a workspace bin.
+      # spaces-aspc ships the compile-only `aspc` CLI; the cohosted facade bin
+      # `aspc-facade` now ships from spaces-aspc-facade. Out-of-repo consumers
+      # (taskboard's agent viewer, hrc-server) spawn `aspc-facade run --transport
+      # stdio` as a bare executable, so the facade package has to be a linked
+      # binary like asp, not only a workspace bin.
       ( cd packages/aspc && bun link 2>&1 | sed 's/^/[bun-link:aspc] /' ) &
+      link_pids+=("$!")
+      ( cd packages/aspc-facade && bun link 2>&1 | sed 's/^/[bun-link:aspc-facade] /' ) &
       link_pids+=("$!")
     else
       echo "[install] skipping executable links; linked worktree installs must not update local asp or harness-broker executables"

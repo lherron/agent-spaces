@@ -8,8 +8,6 @@ import {
 import type {
   AspcCatalogAgentsRequest,
   AspcCatalogAgentsResponse,
-  AspcCompileAndStartRequest,
-  AspcCompileAndStartResponse,
   AspcCompileHarnessInvocationRequest,
   AspcCompileHarnessInvocationResponse,
   AspcCompileRuntimePlanRequest,
@@ -19,9 +17,7 @@ import type {
   AspcInspectAgentResponse,
 } from 'spaces-aspc-protocol'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
-import type { Broker } from 'spaces-harness-broker'
 import type { InvocationDispatchRequest } from 'spaces-harness-broker-protocol'
-import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
 import type {
   BrokerExecutionProfile,
   CompileContext,
@@ -48,7 +44,6 @@ function readPackageVersion(): string {
 
 const ASPC_FACADE_VERSION = readPackageVersion()
 
-const ASPC_COMPILE_AND_START_SCHEMA = 'aspc-compile-and-start-response/v1'
 const ASPC_COMPILE_HARNESS_INVOCATION_SCHEMA = 'aspc-compile-harness-invocation-response/v1'
 const RUNTIME_COMPILE_RESPONSE_SCHEMA = 'agent-runtime-compile-response/v1'
 
@@ -58,7 +53,6 @@ export type AspcCompiler = (
 ) => Promise<RuntimeCompileResponse>
 
 export interface AspcServiceOptions {
-  broker?: Broker | undefined
   compiler?: AspcCompiler | undefined
 }
 
@@ -70,12 +64,10 @@ export interface AspcService {
   compileHarnessInvocation(
     req: AspcCompileHarnessInvocationRequest
   ): Promise<AspcCompileHarnessInvocationResponse>
-  compileAndStart(req: AspcCompileAndStartRequest): Promise<AspcCompileAndStartResponse>
 }
 
 export function createAspcService(options: AspcServiceOptions = {}): AspcService {
   const compiler = options.compiler ?? defaultCompiler
-  const broker = options.broker
 
   return {
     async hello(_req: AspcHelloRequest): Promise<AspcHelloResponse> {
@@ -90,11 +82,10 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
           catalogAgents: true,
           inspectAgent: true,
           compileHarnessInvocation: true,
-          compileAndStart: broker !== undefined,
-          cohostedBroker: broker !== undefined,
+          compileAndStart: false,
+          cohostedBroker: false,
           transports: ['stdio-jsonrpc-ndjson'],
         },
-        ...(broker !== undefined ? { brokerProtocol: SUPPORTED_BROKER_PROTOCOL_VERSIONS[0] } : {}),
       }
     },
 
@@ -120,43 +111,7 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
     ): Promise<AspcCompileHarnessInvocationResponse> {
       return compileHarnessInvocation(compiler, req)
     },
-
-    async compileAndStart(req: AspcCompileAndStartRequest): Promise<AspcCompileAndStartResponse> {
-      if (broker === undefined) {
-        throw new Error('aspc.compileAndStart requires a co-hosted broker')
-      }
-
-      const compile = await compileHarnessInvocation(compiler, req)
-      if (!compile.ok) {
-        return failCompileAndStart(compile)
-      }
-
-      const startResponse = await startFromDispatch(broker, compile.dispatchRequest)
-      return {
-        schemaVersion: ASPC_COMPILE_AND_START_SCHEMA,
-        ok: true,
-        compile,
-        startResponse,
-      }
-    },
   }
-}
-
-/**
- * Spreads an `InvocationDispatchRequest` into the positional `Broker.start`
- * call shape. Single source for the arg order so the facade's broker-start row
- * and `compileAndStart` cannot drift apart. Internal-only — not re-exported.
- */
-export function startFromDispatch(
-  broker: Broker,
-  dispatch: InvocationDispatchRequest
-): ReturnType<Broker['start']> {
-  return broker.start(
-    dispatch.startRequest,
-    dispatch.dispatchEnv,
-    dispatch.runtime,
-    dispatch.lifecyclePolicy
-  )
 }
 
 async function defaultCompiler(
@@ -267,16 +222,5 @@ function failHarnessInvocation(
     ok: false,
     compileResponse,
     diagnostics,
-  }
-}
-
-function failCompileAndStart(
-  compile: Extract<AspcCompileHarnessInvocationResponse, { ok: false }>
-): Extract<AspcCompileAndStartResponse, { ok: false }> {
-  return {
-    schemaVersion: ASPC_COMPILE_AND_START_SCHEMA,
-    ok: false,
-    compile,
-    diagnostics: compile.diagnostics,
   }
 }
