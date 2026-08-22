@@ -47,6 +47,7 @@ export const aspPackages = [
   'harness-pi',
   'harness-pi-sdk',
   'harness-broker-protocol',
+  'harness-broker-pi-sdk',
   'spaces-runtime-contracts',
   'aspc-protocol',
   'harness-broker-client',
@@ -70,6 +71,14 @@ export const hrcPackages = [
 ]
 
 export const layers: Layer[] = [
+  // CONTRACTS seam (future `spaces-contracts` repo): the zero-dep wire protocol,
+  // the innermost layer of the ratified `agent-spaces.raspc-migration-contract`
+  // direction harness -> aspc -> spaces-contracts.
+  // Its spaces-runtime-contracts prohibition is ratified-deliberate, not an
+  // accident of history: primary ruling #20151 classifies the broker-plane
+  // canonical-JSON implementations as a permanent exclusion from the
+  // single-implementation property, so this layer must not reach up into
+  // spaces-runtime-contracts to share them.
   {
     name: 'Harness Broker Protocol',
     roots: ['packages/harness-broker-protocol/src'],
@@ -85,6 +94,8 @@ export const layers: Layer[] = [
       '@lherron/agent-spaces',
       'spaces-aspc-protocol',
       'spaces-aspc',
+      'spaces-aspc-facade',
+      'spaces-turn-runner',
       'hrc-',
       'acp-',
       'gateway-',
@@ -93,6 +104,9 @@ export const layers: Layer[] = [
       'wlearn',
     ],
   },
+  // CONTRACTS seam: forbids every downstream ASP package. Intra-CONTRACTS edges
+  // (this layer's own dependency on spaces-harness-broker-protocol) are not
+  // re-litigated here.
   {
     name: 'Runtime Contracts',
     roots: ['packages/spaces-runtime-contracts/src'],
@@ -107,8 +121,12 @@ export const layers: Layer[] = [
       'spaces-harness-pi',
       'spaces-harness-pi-sdk',
       'spaces-harness-broker',
+      'spaces-harness-broker-client',
+      'spaces-harness-broker-pi-sdk',
       'spaces-aspc-protocol',
       'spaces-aspc',
+      'spaces-aspc-facade',
+      'spaces-turn-runner',
       'agent-spaces',
       '@lherron/agent-spaces',
       'hrc-',
@@ -119,6 +137,7 @@ export const layers: Layer[] = [
       'wlearn',
     ],
   },
+  // CONTRACTS seam: forbids every downstream ASP package.
   {
     name: 'ASPC Protocol',
     roots: ['packages/aspc-protocol/src'],
@@ -133,10 +152,39 @@ export const layers: Layer[] = [
       'spaces-harness-pi',
       'spaces-harness-pi-sdk',
       'spaces-harness-broker-client',
+      'spaces-harness-broker-pi-sdk',
       'spaces-harness-broker',
       'agent-spaces',
       '@lherron/agent-spaces',
       'spaces-aspc',
+      'spaces-aspc-facade',
+      'spaces-turn-runner',
+      'hrc-',
+      'acp-',
+      'gateway-',
+      'coordination-substrate',
+      'wrkq-lib',
+      'wlearn',
+    ],
+  },
+  // CONTRACTS seam: agent-scope is the zero-dep root of the contracts repo, so
+  // every non-contracts ASP package is downstream of it.
+  {
+    name: 'Agent Scope',
+    roots: ['packages/agent-scope/src'],
+    forbidden: [
+      'cli-kit',
+      'spaces-config',
+      'spaces-runtime',
+      'spaces-runtime-contracts',
+      'spaces-execution',
+      'spaces-harness-',
+      'agent-spaces',
+      '@lherron/agent-spaces',
+      'spaces-aspc-protocol',
+      'spaces-aspc',
+      'spaces-aspc-facade',
+      'spaces-turn-runner',
       'hrc-',
       'acp-',
       'gateway-',
@@ -171,6 +219,16 @@ export const layers: Layer[] = [
       'wlearn',
     ],
   },
+  // HARNESS seam (future harness repo). Compiler-side packages are forbidden so
+  // P2's split is a file move: spaces-aspc-facade and spaces-turn-runner are
+  // named explicitly because 'spaces-aspc' is exact-or-slash and never reaches
+  // the facade.
+  // Deliberate exception: spaces-harness-pi-sdk is NOT forbidden here. The
+  // broker owns its own driver plane, and this omission is intentional rather
+  // than an oversight — 'spaces-harness-pi' is exact-or-slash and does not reach
+  // 'spaces-harness-pi-sdk', so without this note the exception would be silent.
+  // Ratified permitted-not-compelled (primary #20151): spaces-runtime-contracts
+  // stays importable here, but nothing compels its use.
   {
     name: 'Harness Broker',
     roots: ['packages/harness-broker/src'],
@@ -187,6 +245,75 @@ export const layers: Layer[] = [
       '@lherron/agent-spaces',
       'spaces-aspc-protocol',
       'spaces-aspc',
+      'spaces-aspc-facade',
+      'spaces-turn-runner',
+      'hrc-',
+      'acp-',
+      'gateway-',
+      'coordination-substrate',
+      'wrkq-lib',
+      'wlearn',
+    ],
+  },
+  // HARNESS seam: the broker's pi-sdk driver. Matched by no layer before
+  // T-07317, so it escaped even the broad ASP prohibitions. Its real
+  // dependencies — spaces-harness-broker and spaces-harness-broker-protocol —
+  // stay permitted; every compiler-side package is forbidden.
+  {
+    name: 'Harness Broker Pi SDK',
+    roots: ['packages/harness-broker-pi-sdk/src'],
+    forbidden: [
+      'agent-scope',
+      'cli-kit',
+      'spaces-config',
+      'spaces-runtime',
+      'spaces-execution',
+      'spaces-harness-claude',
+      'spaces-harness-codex',
+      'spaces-harness-pi',
+      'agent-spaces',
+      '@lherron/agent-spaces',
+      'spaces-aspc-protocol',
+      'spaces-aspc',
+      'spaces-aspc-facade',
+      'spaces-turn-runner',
+      'hrc-',
+      'acp-',
+      'gateway-',
+      'coordination-substrate',
+      'wrkq-lib',
+      'wlearn',
+    ],
+  },
+  // COMPILER seam (future `aspc` repo). The compiler plane owns mechanics only,
+  // so post carve-out it must not reach the SDK/session plane, nor anything
+  // downstream of itself (turn-runner, the aspc facade, the CLI).
+  // Tokens are enumerated rather than written as a 'spaces-harness-' prefix,
+  // because a prefix would swallow three deliberate, named exceptions:
+  //   - spaces-harness-codex: `buildCodexAppServerLaunchDescriptor` (3 call
+  //     sites) is a declarative compile-plane descriptor builder, not an
+  //     SDK/session import.
+  //   - spaces-harness-broker-protocol and spaces-harness-broker-client: these
+  //     edges are retained deliberately — T-07314 AC-1 asserts they REMAIN
+  //     after the aspc facade split, so forbidding them would break landed work.
+  // 'spaces-harness-broker' is exact-or-slash, which is what leaves those two
+  // permitted while still forbidding the broker itself.
+  // Accepted residual: this is a DIRECT-import guard only. The chain
+  // agent-spaces -> spaces-execution -> spaces-harness-pi-sdk/pi-session still
+  // leaks the SDK transitively; removing the spaces-execution edge is a refactor
+  // and is out of scope here.
+  {
+    name: 'ASPC Compiler',
+    roots: ['packages/agent-spaces/src', 'packages/aspc/src'],
+    forbidden: [
+      'spaces-harness-claude',
+      'spaces-harness-pi',
+      'spaces-harness-pi-sdk',
+      'spaces-harness-broker',
+      'spaces-harness-broker-pi-sdk',
+      'spaces-turn-runner',
+      'spaces-aspc-facade',
+      '@lherron/agent-spaces',
       'hrc-',
       'acp-',
       'gateway-',
