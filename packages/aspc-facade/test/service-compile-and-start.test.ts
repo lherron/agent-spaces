@@ -1,6 +1,6 @@
 /**
  * Moved from packages/aspc/test/service.test.ts and
- * packages/aspc/test/hygiene-surfacing.test.ts by the T-07318 facade split:
+ * packages/aspc/test/hygiene-surfacing.test.ts by the T-07314 facade split:
  * `compileAndStart` is no longer part of `spaces-aspc`'s `AspcService`, so its
  * unit coverage moves to the composition package that owns the start plane.
  *

@@ -19,7 +19,7 @@ import { createAspcService } from '../src/service.js'
 //    and the single-match (length === 1) happy path (A5 regression guard)
 //
 // `compileAndStart` coverage moved to packages/aspc-facade/test/ with the start
-// plane itself (T-07318 facade split).
+// plane itself (T-07314 facade split).
 
 const COMPILE_REQUEST = {
   schemaVersion: 'agent-runtime-compile-request/v1',

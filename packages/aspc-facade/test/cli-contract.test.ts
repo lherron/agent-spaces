@@ -1,5 +1,5 @@
 /**
- * T-07318 RED (AC-6): the composition package preserves taskboard's bare
+ * T-07314 RED (AC-6): the composition package preserves taskboard's bare
  * `aspc-facade run --transport stdio` global-bin contract byte-for-byte.
  *
  * Every case drives the REAL bin file, spawned exactly the way an out-of-repo

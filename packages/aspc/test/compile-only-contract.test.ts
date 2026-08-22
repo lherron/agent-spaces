@@ -1,5 +1,5 @@
 /**
- * T-07318 RED (AC-1, AC-2, AC-5): after the facade split, `spaces-aspc` is a
+ * T-07314 RED (AC-1, AC-2, AC-5): after the facade split, `spaces-aspc` is a
  * COMPILE-ONLY package. It must carry no live-broker dependency, must no longer
  * own the `aspc-facade` bin, and its `AspcService` must have lost the start
  * plane. The cohosted plane moves to the `spaces-aspc-facade` composition

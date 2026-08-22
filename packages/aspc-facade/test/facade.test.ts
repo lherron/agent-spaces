@@ -1,5 +1,5 @@
 /**
- * Moved from packages/aspc/test/facade.test.ts by the T-07318 facade split: the
+ * Moved from packages/aspc/test/facade.test.ts by the T-07314 facade split: the
  * cohosted cases now drive the `spaces-aspc-facade` composition bin, which is
  * where the `aspc-facade` executable lives. These are RE-PINS of existing
  * behavior, plus AC-8 (cohosted capability flags, the `true` direction of the

@@ -1,5 +1,5 @@
 /**
- * Moved from packages/aspc/test/v01-removal.red.test.ts by the T-07318 facade
+ * Moved from packages/aspc/test/v01-removal.red.test.ts by the T-07314 facade
  * split. Ph6 (T-01867) pinned that a CO-HOSTED `aspc.hello` surfaces
  * `brokerProtocol: 'harness-broker/0.2'`; after the split the co-hosted service
  * lives in the composition package, so the pin moves with it. The broker-less

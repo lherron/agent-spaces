@@ -7,7 +7,7 @@
  * returns that converted response and assert the compile-plane aspc entry
  * points surface the typed diagnostics unchanged (not degraded to
  * `compiler_exception`). The `compileAndStart` case moved to
- * packages/aspc-facade/test/ with the start plane (T-07318 facade split).
+ * packages/aspc-facade/test/ with the start plane (T-07314 facade split).
  */
 
 import { describe, expect, test } from 'bun:test'

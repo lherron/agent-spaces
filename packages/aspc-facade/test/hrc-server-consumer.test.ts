@@ -1,5 +1,5 @@
 /**
- * T-07318 RED (AC-10): durable record of the hrc-server consumer contract.
+ * T-07314 RED (AC-10): durable record of the hrc-server consumer contract.
  *
  * The task description's premise that hrc-server is a compile-plane-only
  * consumer is FALSIFIED by source: `hrc-runtime/packages/hrc-server/src/

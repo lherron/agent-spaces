@@ -1,5 +1,5 @@
 /**
- * T-07318 RED (AC-3, AC-4): the compile-only facade is transport-injected.
+ * T-07314 RED (AC-3, AC-4): the compile-only facade is transport-injected.
  *
  * `spaces-aspc` no longer builds its own JSON-RPC transport (that lived in
  * `spaces-harness-broker`); it exposes a registration entrypoint that binds the

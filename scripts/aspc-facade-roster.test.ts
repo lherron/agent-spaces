@@ -1,5 +1,5 @@
 /**
- * T-07318 RED (AC-11): every closed roster must admit the new composition
+ * T-07314 RED (AC-11): every closed roster must admit the new composition
  * package. A package that builds, tests, publishes and links only because
  * someone remembered to add it by hand is a package that silently drops out of
  * one of those rosters later; this test is the guard.
