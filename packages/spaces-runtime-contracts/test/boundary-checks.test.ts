@@ -1,5 +1,5 @@
 /**
- * T-07319 RED (AC-5, AC-6): REQUIRED_BOUNDARY_CHECKS is wired deliberately, not
+ * T-07317 RED (AC-5, AC-6): REQUIRED_BOUNDARY_CHECKS is wired deliberately, not
  * left dormant. Ruled addendum (b), primary #20151: agent-spaces KEEPS the
  * export as the contract-side statement of the compiler-owns-mechanics
  * invariant and guards its SHAPE here; consumption (running the `rg` targets in
@@ -115,6 +115,15 @@ function boundaryCheckProblems(check: BoundaryCheck): string[] {
   return problems
 }
 
+/**
+ * Pure predicate: the split-literal half of AC-5(c). Returns the ids of every
+ * check whose WHOLE command appears verbatim in `sourceText` — i.e. the ids of
+ * the literals someone has reunited. Kept pure so AC-6 can prove it fires.
+ */
+function reunitedLiterals(sourceText: string, checks: BoundaryCheck[]): string[] {
+  return checks.filter((check) => sourceText.includes(check.command)).map((check) => check.id)
+}
+
 describe('REQUIRED_BOUNDARY_CHECKS', () => {
   test('AC-5: shape holds, commands parse, and the split literals stay split', () => {
     expect(Array.isArray(REQUIRED_BOUNDARY_CHECKS)).toBe(true)
@@ -133,10 +142,14 @@ describe('REQUIRED_BOUNDARY_CHECKS', () => {
     const sourcePath = fileURLToPath(new URL('../src/boundary-checks.ts', import.meta.url))
     const source = readFileSync(sourcePath, 'utf8')
     const self = readFileSync(fileURLToPath(import.meta.url), 'utf8')
-    const reunited = REQUIRED_BOUNDARY_CHECKS.flatMap((check) => [
-      ...(source.includes(check.command) ? [`${check.id}: verbatim in boundary-checks.ts`] : []),
-      ...(self.includes(check.command) ? [`${check.id}: verbatim in the guard`] : []),
-    ])
+    const reunited = [
+      ...reunitedLiterals(source, REQUIRED_BOUNDARY_CHECKS).map(
+        (id) => `${id}: verbatim in boundary-checks.ts`
+      ),
+      ...reunitedLiterals(self, REQUIRED_BOUNDARY_CHECKS).map(
+        (id) => `${id}: verbatim in the guard`
+      ),
+    ]
     expect(reunited).toEqual([])
   })
 
@@ -168,5 +181,18 @@ describe('REQUIRED_BOUNDARY_CHECKS', () => {
       .filter((fixture) => boundaryCheckProblems(fixture.check).length === 0)
       .map((fixture) => fixture.label)
     expect(accepted).toEqual([])
+
+    // Positive control for the split-literal detector of AC-5(c): a detector
+    // never shown to fire is decoration. Both fixtures are locally built from
+    // the synthetic command above — no real command literal is written here,
+    // which would itself defeat the property under test.
+    const synthetic: BoundaryCheck = { ...valid, id: 'synthetic-reunion' }
+    const cut = Math.floor(synthetic.command.length / 2)
+    const head = synthetic.command.slice(0, cut)
+    const tail = synthetic.command.slice(cut)
+    const reunitedSource = `const command =\n  '${synthetic.command}'\n`
+    const splitSource = `const command =\n  '${head}' +\n  '${tail}'\n`
+    expect(reunitedLiterals(reunitedSource, [synthetic])).toEqual([synthetic.id])
+    expect(reunitedLiterals(splitSource, [synthetic])).toEqual([])
   })
 })

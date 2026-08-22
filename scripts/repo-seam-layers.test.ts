@@ -1,5 +1,5 @@
 /**
- * T-07319 RED (AC-1…AC-4): the three FUTURE repo seams — spaces-contracts,
+ * T-07317 RED (AC-1…AC-4): the three FUTURE repo seams — spaces-contracts,
  * aspc, harness — guarded NOW in the layer table so P2's split is a file move,
  * not a refactor. Authority: the ratified `agent-spaces.raspc-migration-contract`
  * invariant fixes the direction harness -> aspc -> spaces-contracts.
