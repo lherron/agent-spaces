@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import type { AspcCompileHarnessInvocationRequest, AspcProfileSelector } from 'spaces-aspc-protocol'
-import type { Broker } from 'spaces-harness-broker'
 import type {
   BrokerExecutionProfile,
   CompiledRuntimePlan,
@@ -12,13 +11,15 @@ import type { AspcCompiler } from '../src/service.js'
 import { createAspcService } from '../src/service.js'
 
 // These unit tests exercise the failure/diagnostic branches of `AspcService`
-// using injected `compiler`/`broker` stubs, without spawning the subprocess
-// facade (facade.test.ts already covers the happy-path E2E flow). They cover:
+// using an injected `compiler` stub, without spawning a subprocess facade
+// (packages/aspc-facade/test/facade.test.ts covers the E2E happy path). They
+// cover:
 //  - compileRuntimePlan `compiler_exception`
 //  - compileHarnessInvocation `broker_profile_missing` / `broker_profile_ambiguous`
 //    and the single-match (length === 1) happy path (A5 regression guard)
-//  - compileAndStart compile-failure short-circuit
-//  - compileAndStart "requires a co-hosted broker" guard
+//
+// `compileAndStart` coverage moved to packages/aspc-facade/test/ with the start
+// plane itself (T-07318 facade split).
 
 const COMPILE_REQUEST = {
   schemaVersion: 'agent-runtime-compile-request/v1',
@@ -185,74 +186,5 @@ describe('AspcService.compileHarnessInvocation profile selection', () => {
     if (response.ok) return
     expect(response.diagnostics.map((d) => d.code)).toEqual(['upstream_failure'])
     expect(response.compileResponse.ok).toBe(false)
-  })
-})
-
-describe('AspcService.compileAndStart', () => {
-  test('throws when no co-hosted broker is configured', async () => {
-    const service = createAspcService({
-      compiler: compilerReturning(okPlanResponse([fakeProfile()])),
-    })
-
-    await expect(
-      service.compileAndStart(buildRequest({ brokerDriver: 'codex-app-server' }))
-    ).rejects.toThrow('requires a co-hosted broker')
-  })
-
-  test('short-circuits with ok:false when compilation fails (broker.start not called)', async () => {
-    let startCalled = false
-    const broker = {
-      start: async () => {
-        startCalled = true
-        return {} as never
-      },
-    } as unknown as Broker
-
-    const service = createAspcService({
-      broker,
-      compiler: compilerReturning({
-        schemaVersion: 'agent-runtime-compile-response/v1',
-        ok: false,
-        diagnostics: [
-          {
-            level: 'error',
-            code: 'upstream_failure',
-            message: 'compile failed',
-            plane: 'asp-compiler',
-          },
-        ],
-      }),
-    })
-
-    const response = await service.compileAndStart(buildRequest())
-    expect(response.ok).toBe(false)
-    if (response.ok) return
-    expect(response.schemaVersion).toBe('aspc-compile-and-start-response/v1')
-    expect(response.compile.ok).toBe(false)
-    expect(response.diagnostics.map((d) => d.code)).toEqual(['upstream_failure'])
-    expect(startCalled).toBe(false)
-  })
-
-  test('compileAndStart short-circuits when profile selection fails', async () => {
-    let startCalled = false
-    const broker = {
-      start: async () => {
-        startCalled = true
-        return {} as never
-      },
-    } as unknown as Broker
-
-    const service = createAspcService({
-      broker,
-      compiler: compilerReturning(
-        okPlanResponse([fakeProfile({ brokerDriver: 'codex-app-server' })])
-      ),
-    })
-
-    const response = await service.compileAndStart(buildRequest({ brokerDriver: 'no-match' }))
-    expect(response.ok).toBe(false)
-    if (response.ok) return
-    expect(response.compile.ok).toBe(false)
-    expect(startCalled).toBe(false)
   })
 })

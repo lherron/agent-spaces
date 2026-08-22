@@ -4,13 +4,14 @@
  * to an `ok: false` response carrying `materialization_hygiene_error`
  * `CompileDiagnostic[]` BEFORE it reaches the aspc facade — so the facade's generic
  * `compiler_exception` catch never sees it. These tests inject a compiler that
- * returns that converted response and assert all three aspc entry points surface
- * the typed diagnostics unchanged (not degraded to `compiler_exception`).
+ * returns that converted response and assert the compile-plane aspc entry
+ * points surface the typed diagnostics unchanged (not degraded to
+ * `compiler_exception`). The `compileAndStart` case moved to
+ * packages/aspc-facade/test/ with the start plane (T-07318 facade split).
  */
 
 import { describe, expect, test } from 'bun:test'
 import type { AspcCompileHarnessInvocationRequest } from 'spaces-aspc-protocol'
-import type { Broker } from 'spaces-harness-broker'
 import type { CompileDiagnostic, RuntimeCompileRequest } from 'spaces-runtime-contracts'
 import type { AspcCompiler } from '../src/service.js'
 import { createAspcService } from '../src/service.js'
@@ -66,25 +67,5 @@ describe('ASPC surfaces materialization_hygiene_error (not compiler_exception)',
     expect(codes).toContain('materialization_hygiene_error')
     expect(codes).not.toContain('compiler_exception')
     expect(response.compileResponse.ok).toBe(false)
-  })
-
-  test('compileAndStart short-circuits with the typed hygiene diagnostics; broker.start not called', async () => {
-    let startCalled = false
-    const broker = {
-      start: async () => {
-        startCalled = true
-        return {} as never
-      },
-    } as unknown as Broker
-
-    const service = createAspcService({ broker, compiler: hygieneBlockingCompiler })
-    const response = await service.compileAndStart(buildRequest())
-    expect(response.ok).toBe(false)
-    if (response.ok) return
-    expect(response.compile.ok).toBe(false)
-    const codes = response.diagnostics.map((d) => d.code)
-    expect(codes).toContain('materialization_hygiene_error')
-    expect(codes).not.toContain('compiler_exception')
-    expect(startCalled).toBe(false)
   })
 })

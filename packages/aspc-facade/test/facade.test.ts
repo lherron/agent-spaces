@@ -1,26 +1,24 @@
+/**
+ * Moved from packages/aspc/test/facade.test.ts by the T-07318 facade split: the
+ * cohosted cases now drive the `spaces-aspc-facade` composition bin, which is
+ * where the `aspc-facade` executable lives. These are RE-PINS of existing
+ * behavior, plus AC-8 (cohosted capability flags, the `true` direction of the
+ * flags packages/aspc/test/compile-only-registration.test.ts pins `false`) and
+ * AC-9's success case (compileAndStart starts through the co-hosted broker).
+ */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { createAgentSpacesClient } from 'agent-spaces'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import type { BrokerHelloResponse } from 'spaces-harness-broker-protocol'
 import { conservativeDefaultLifecyclePolicyOverlay } from 'spaces-harness-broker-protocol'
-import type { BrokerExecutionProfile, RuntimeCompileRequest } from 'spaces-runtime-contracts'
-import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
+import type { BrokerExecutionProfile } from 'spaces-runtime-contracts'
 import {
-  allocatePreHrcRuntimeIdentity,
-  buildPlacementFromScopeRef,
-} from '../../agent-spaces/src/testing/pre-hrc-broker-helpers.js'
-import { AspcClient } from '../src/index.js'
-
-type Fixture = {
-  base: string
-  agentRoot: string
-  projectRoot: string
-  aspHome: string
-  codexPath: string
-}
+  type Fixture,
+  buildCompileRequest,
+  createFixture,
+  removeFixture,
+  startFacadeClient,
+} from './helpers'
 
 const originalCodexPath = process.env['ASP_CODEX_PATH']
 const originalSkipCommon = process.env['ASP_CODEX_SKIP_COMMON_PATHS']
@@ -36,16 +34,18 @@ beforeEach(() => {
 afterEach(() => {
   process.env['ASP_CODEX_PATH'] = originalCodexPath
   process.env['ASP_CODEX_SKIP_COMMON_PATHS'] = originalSkipCommon
-  rmSync(fixture.base, { recursive: true, force: true })
+  removeFixture(fixture)
 })
 
-describe('ASPC combined facade', () => {
-  test('co-hosts ASPC and broker hello methods', async () => {
-    const client = await startFacadeClient()
+describe('ASPC cohosted composition facade', () => {
+  test('AC-8: co-hosts ASPC and broker and reports cohosted capabilities honestly', async () => {
+    const client = await startFacadeClient(fixture)
     try {
       const aspcHello = await client.hello()
       expect(aspcHello.protocolVersion).toBe(ASPC_PROTOCOL_VERSION)
       expect(aspcHello.capabilities.cohostedBroker).toBe(true)
+      expect(aspcHello.capabilities.compileAndStart).toBe(true)
+      expect(aspcHello.brokerProtocol).toBeDefined()
 
       const brokerHello = await client.request<BrokerHelloResponse>('broker.hello', {
         clientInfo: { name: 'aspc-facade-test' },
@@ -59,12 +59,12 @@ describe('ASPC combined facade', () => {
   })
 
   test('ASPC compileRuntimePlan is equivalent to SDK compileRuntimePlan', async () => {
-    const compileRequest = buildCompileRequest('equivalence')
+    const compileRequest = buildCompileRequest(fixture, 'equivalence')
     const sdk = createAgentSpacesClient({ aspHome: fixture.aspHome })
     const sdkResponse = await sdk.compileRuntimePlan(compileRequest)
     expect(sdkResponse.ok).toBe(true)
 
-    const client = await startFacadeClient()
+    const client = await startFacadeClient(fixture)
     try {
       const rpcResponse = await client.compileRuntimePlan({
         compileRequest,
@@ -90,10 +90,10 @@ describe('ASPC combined facade', () => {
   })
 
   test('compileHarnessInvocation returns selected profile and exact dispatch start request', async () => {
-    const client = await startFacadeClient()
+    const client = await startFacadeClient(fixture)
     try {
       const response = await client.compileHarnessInvocation({
-        compileRequest: buildCompileRequest('harness_invocation'),
+        compileRequest: buildCompileRequest(fixture, 'harness_invocation'),
         aspHome: fixture.aspHome,
         profileSelector: { brokerDriver: 'codex-app-server' },
         dispatchEnv: { EXTRA_FLAG: 'aspc' },
@@ -111,11 +111,11 @@ describe('ASPC combined facade', () => {
   })
 
   test('compileHarnessInvocation carries lifecycle policy only on dispatch envelope', async () => {
-    const client = await startFacadeClient()
+    const client = await startFacadeClient(fixture)
     const lifecyclePolicy = conservativeDefaultLifecyclePolicyOverlay('policy_aspc_default')
     try {
       const response = await client.compileHarnessInvocation({
-        compileRequest: buildCompileRequest('harness_invocation_lifecycle'),
+        compileRequest: buildCompileRequest(fixture, 'harness_invocation_lifecycle'),
         aspHome: fixture.aspHome,
         profileSelector: { brokerDriver: 'codex-app-server' },
         lifecyclePolicy,
@@ -132,7 +132,7 @@ describe('ASPC combined facade', () => {
   })
 
   test('client onRequest/onNotification reject double registration (single-writer contract)', async () => {
-    const client = await startFacadeClient()
+    const client = await startFacadeClient(fixture)
     try {
       client.onRequest(async () => undefined)
       expect(() => client.onRequest(async () => undefined)).toThrow(
@@ -148,11 +148,11 @@ describe('ASPC combined facade', () => {
     }
   })
 
-  test('compileAndStart compiles through ASPC and starts through the co-hosted broker', async () => {
-    const client = await startFacadeClient()
+  test('AC-9: compileAndStart compiles through ASPC and starts through the co-hosted broker', async () => {
+    const client = await startFacadeClient(fixture)
     try {
       const response = await client.compileAndStart({
-        compileRequest: buildCompileRequest('compile_and_start'),
+        compileRequest: buildCompileRequest(fixture, 'compile_and_start'),
         aspHome: fixture.aspHome,
         profileSelector: { brokerDriver: 'codex-app-server' },
       })
@@ -177,127 +177,3 @@ describe('ASPC combined facade', () => {
     }
   })
 })
-
-function createFixture(): Fixture {
-  const base = mkdtempSync(join(tmpdir(), 'aspc-facade-test-'))
-  const agentRoot = join(base, 'agents', 'sparky')
-  const projectRoot = join(base, 'agent-spaces')
-  const aspHome = join(base, 'asp-home')
-  mkdirSync(agentRoot, { recursive: true })
-  mkdirSync(projectRoot, { recursive: true })
-  mkdirSync(aspHome, { recursive: true })
-  writeFileSync(
-    join(agentRoot, 'agent-profile.toml'),
-    `version = 3
-
-[spaces]
-base = []
-`,
-    'utf8'
-  )
-  return {
-    base,
-    agentRoot,
-    projectRoot,
-    aspHome,
-    codexPath: createCodexShim(aspHome),
-  }
-}
-
-function createCodexShim(dir: string): string {
-  const shimPath = join(dir, 'codex')
-  const fixturePath = new URL(
-    '../../harness-broker/test/fixtures/fake-codex/start-fresh-turn.ts',
-    import.meta.url
-  ).pathname
-  writeFileSync(
-    shimPath,
-    `#!/usr/bin/env bash
-if [[ "$*" == *"--version"* ]]; then
-  echo "codex 999.0.0"
-  exit 0
-fi
-if [[ "$*" == *"app-server"* && "$*" == *"--help"* ]]; then
-  echo "app-server"
-  exit 0
-fi
-if [[ "$*" == *"app-server"* ]]; then
-  exec bun "${fixturePath}"
-fi
-echo "codex shim"
-`,
-    'utf8'
-  )
-  chmodSync(shimPath, 0o755)
-  return shimPath
-}
-
-function buildCompileRequest(namespace: string): RuntimeCompileRequest {
-  const identity = allocatePreHrcRuntimeIdentity({
-    namespace: `aspc_${namespace}`,
-    invocationId: `inv_aspc_${namespace}`,
-    initialInputId: `input_aspc_${namespace}`,
-  })
-  const placement = buildPlacementFromScopeRef({
-    scopeRef: 'sparky@agent-spaces',
-    agentRoot: fixture.agentRoot,
-    projectRoot: fixture.projectRoot,
-    cwd: fixture.projectRoot,
-    hostSessionId: identity.hostSessionId,
-  })
-  return {
-    schemaVersion: 'agent-runtime-compile-request/v1',
-    identity,
-    placement,
-    requested: {
-      modelProvider: 'openai',
-      reasoningEffort: 'medium',
-      harnessFamily: 'codex',
-      preferredHarnessRuntime: 'codex-cli',
-      interactionMode: 'headless',
-    },
-    materialization: {
-      initialPrompt: `Say ${namespace}`,
-      taskContext: {
-        taskId: 'T-01747',
-        phase: 'aspc-test',
-        role: 'smoke',
-        requiredEvidenceKinds: ['contract-artifacts'],
-      },
-    },
-    hrcPolicy: {
-      permissionPolicy: { mode: 'deny', audit: true },
-      inputPolicy: DEFAULT_CODEX_BROKER_INPUT_POLICY,
-      exposurePolicy: { mode: 'none' },
-      resourceLimits: { startupTimeoutMs: 10_000, turnTimeoutMs: 10_000 },
-      observability: { traceId: identity.traceId },
-      capabilityPolicy: { allowDegrade: false, requireBrokerDefaultForCodexHeadless: true },
-    },
-    correlation: {
-      requestId: identity.requestId,
-      operationId: identity.operationId,
-      hostSessionId: identity.hostSessionId,
-      generation: identity.generation,
-      runtimeId: identity.runtimeId,
-      runId: identity.runId,
-      invocationId: identity.invocationId,
-      traceId: identity.traceId,
-      appId: 'agent-spaces',
-      appSessionKey: `aspc-${namespace}`,
-      scopeRef: 'sparky@agent-spaces',
-      laneRef: 'main',
-    },
-  }
-}
-
-async function startFacadeClient(): Promise<AspcClient> {
-  return AspcClient.start({
-    command: process.execPath,
-    args: ['packages/aspc/bin/aspc-facade.js', 'run', '--transport', 'stdio'],
-    cwd: new URL('../../..', import.meta.url).pathname,
-    env: {
-      ASP_CODEX_PATH: fixture.codexPath,
-      ASP_CODEX_SKIP_COMMON_PATHS: '1',
-    },
-  })
-}

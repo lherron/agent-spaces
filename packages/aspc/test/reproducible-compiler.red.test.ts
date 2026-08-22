@@ -691,7 +691,7 @@ function brokerProfile(plan: ReturnType<typeof expectOkPlan>): BrokerExecutionPr
 async function startFacadeClient(): Promise<AspcClient> {
   return AspcClient.start({
     command: process.execPath,
-    args: ['packages/aspc/bin/aspc-facade.js', 'run', '--transport', 'stdio'],
+    args: ['packages/aspc-facade/bin/aspc-facade.js', 'run', '--transport', 'stdio'],
     cwd: repoRoot,
     env: brokerEnvOverrides({
       ASP_CODEX_PATH: fixture.codexPath,
