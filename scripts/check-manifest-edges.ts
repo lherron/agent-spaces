@@ -51,9 +51,30 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+/**
+ * Reads a directory's package.json, treating an ABSENT manifest as "not a
+ * workspace package" rather than an error. A `packages/<name>/` directory can
+ * legitimately exist without a manifest — most often mid-split, when a new
+ * package's tests land before its manifest does — and bun's own `packages/*`
+ * workspace glob skips such directories too. Only ENOENT is tolerated:
+ * malformed JSON still throws, so a broken manifest can never be silently
+ * dropped from the edge check.
+ */
+async function readManifest(dir: string): Promise<PackageJson | undefined> {
+  try {
+    return JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as PackageJson
+  } catch (error) {
+    const code = error instanceof Error && 'code' in error ? error.code : undefined
+    if (code === 'ENOENT') {
+      return undefined
+    }
+    throw error
+  }
+}
+
 async function readPackageInfo(dir: string): Promise<PackageInfo | undefined> {
-  const packageJson = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as PackageJson
-  if (typeof packageJson.name !== 'string') {
+  const packageJson = await readManifest(dir)
+  if (packageJson === undefined || typeof packageJson.name !== 'string') {
     return undefined
   }
 

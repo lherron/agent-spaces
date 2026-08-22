@@ -32,7 +32,7 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test'
-import { rm, writeFile } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 // Repo root — CWD for all subprocess invocations.
@@ -183,5 +183,44 @@ describe('check-manifest-edges.ts — IGNORED KINDS: non-workspace imports never
 
     // The ignored-kinds fixture must not appear in any diagnostic output.
     expect(combined).not.toMatch(/__relation_ignored_fixture__\.ts/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test 4: MANIFEST-LESS PACKAGE DIRECTORY — skipped, never a crash
+// ---------------------------------------------------------------------------
+
+// A `packages/<name>/` directory with no package.json is not a workspace package.
+// It occurs legitimately mid-split, when a new package's tests land before its
+// manifest does. `workspacePackages()` must skip it. Before this guard existed,
+// `readPackageInfo` let the ENOENT escape and the whole check died with an
+// unhandled error — turning "this directory is not a package yet" into a total
+// failure of the edge relation.
+const MANIFESTLESS_DIR_REL = 'packages/__manifestless_fixture__'
+const MANIFESTLESS_FILE_REL = `${MANIFESTLESS_DIR_REL}/test/placeholder.test.ts`
+const MANIFESTLESS_FILE_CONTENT = [
+  '// __manifestless_fixture__: package dir with no package.json — DO NOT COMMIT',
+  'export const placeholder = true',
+].join('\n')
+
+describe('check-manifest-edges.ts — MANIFEST-LESS DIR: skipped, not a crash', () => {
+  afterEach(async () => {
+    await rm(join(REPO_ROOT, MANIFESTLESS_DIR_REL), { force: true, recursive: true })
+  })
+
+  test('a packages/ directory without package.json is skipped and the check still passes', async () => {
+    await mkdir(join(REPO_ROOT, MANIFESTLESS_DIR_REL, 'test'), { recursive: true })
+    await writeFile(join(REPO_ROOT, MANIFESTLESS_FILE_REL), MANIFESTLESS_FILE_CONTENT)
+
+    const result = await runManifestCheck()
+    const combined = out(result)
+
+    // Skipped, not fatal: the relation check completes and reports clean.
+    expect(result.exitCode).toBe(0)
+    expect(combined).toMatch(/Manifest edge check passed\./i)
+
+    // And it must not die on the absent manifest.
+    expect(combined).not.toMatch(/ENOENT/)
+    expect(combined).not.toMatch(/__manifestless_fixture__/)
   })
 })
