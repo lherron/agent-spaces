@@ -36,6 +36,8 @@ export { createDriverRegistry } from './drivers/registry'
 export type { DriverRegistry } from './drivers/registry'
 
 export { createNoopDriver } from './drivers/noop-driver'
+export { CLAUDE_CODE_TMUX_DRIVER_KIND } from './drivers/claude-code-tmux/hook-events'
+export { CODEX_DRIVER_KIND } from './drivers/codex-app-server/event-map'
 export {
   CODEX_CLI_TMUX_DRIVER_KIND,
   createCodexCliTmuxHookEventNormalizer,
