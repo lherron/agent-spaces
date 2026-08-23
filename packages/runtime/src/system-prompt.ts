@@ -228,6 +228,7 @@ export async function inspectAgentSystemPrompt(
       runMode: input.runMode,
       scaffoldPackets: input.scaffoldPackets,
       env: input.env,
+      ...(input.env !== undefined ? { execEnv: input.env } : {}),
       ...(templateSource
         ? { agentProfile: profile.rawProfile }
         : profile.base

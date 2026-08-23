@@ -32,6 +32,7 @@ import {
   resolveFrontend,
 } from './client-support.js'
 import { composeAgentLocalEnv } from './compose-agent-local-env.js'
+import { buildCorrelationEnvVars } from './placement-api.js'
 import type {
   BuildProcessInvocationSpecRequest,
   BuildProcessInvocationSpecResponse,
@@ -231,6 +232,22 @@ export async function preparePlacementCliRuntime(
         })()
       : undefined
 
+  // Context-template exec sections run while the launch is compiled, before
+  // the final adapter environment is composed. Give them the same canonical
+  // principal/project identity the launched session will receive, while
+  // retaining ambient tool discovery (PATH, HOME, credentials, and *_FILE
+  // indirection) required by commands such as wrkq.
+  const contextTemplateEnv: Record<string, string | undefined> = {
+    ...process.env,
+    ...buildCorrelationEnvVars(placement),
+    AGENTCHAT_ID: basename(placement.agentRoot),
+    ...(handleParts.projectId !== undefined
+      ? { ASP_PROJECT: handleParts.projectId }
+      : placement.projectRoot
+        ? { ASP_PROJECT: basename(resolve(placement.projectRoot)) }
+        : {}),
+  }
+
   // Unified materialization: use the shared placement context, then materialize the resolved spec.
   const materialized = await materializeSpec(spec, aspHome, runtimePlan.harnessId, {
     ...(defaultRegistryPath !== undefined ? { registryPathOverride: defaultRegistryPath } : {}),
@@ -251,6 +268,7 @@ export async function preparePlacementCliRuntime(
       ...(handleParts.projectId !== undefined ? { projectId: handleParts.projectId } : {}),
       ...(handleParts.taskId !== undefined ? { taskId: handleParts.taskId } : {}),
       ...(handleParts.lane !== undefined ? { lane: handleParts.lane } : {}),
+      env: contextTemplateEnv,
     })
     systemPrompt =
       materializedSystemPrompt !== undefined

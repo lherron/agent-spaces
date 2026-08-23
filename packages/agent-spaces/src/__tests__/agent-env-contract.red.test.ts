@@ -233,6 +233,37 @@ async function prepareCodexRuntime(fixture: Fixture, reqDispatchEnv?: Record<str
 }
 
 describe('T-04218 canonical agent env contract', () => {
+  test('context-template exec sees the canonical session principal and project', async () => {
+    const fixture = createFixture()
+    try {
+      writeFileSync(join(fixture.agentRoot, 'SOUL.md'), '# Cody\n', 'utf8')
+      writeFileSync(
+        join(fixture.agentRoot, 'context-template.toml'),
+        `schema_version = 2
+mode = "append"
+
+[[prompt]]
+name = "soul"
+type = "file"
+path = "agent-root:///SOUL.md"
+required = true
+
+[[reminder]]
+name = "session-identity"
+type = "exec"
+command = '''printf '%s|%s' "$WRKQ_PRINCIPAL_REF" "$ASP_PROJECT"'''
+`,
+        'utf8'
+      )
+
+      const prepared = await prepareCodexRuntime(fixture)
+
+      expect(prepared.systemPrompt?.reminderContent).toBe('agent:cody|agent-spaces')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   test('prepared agent runtime env exposes canonical AGENT_* contract plus Phase 0/1 aliases outside lockedEnv', async () => {
     const fixture = createFixture()
     try {
