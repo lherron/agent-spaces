@@ -1,0 +1,38 @@
+id: agent-spaces.agent-inspection-authority
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: canonical agent roster and contextual inspection authority
+predicate: >
+  Agent Spaces is the sole authority for canonical agent roster discovery and
+  contextual inspection assembly. Its consumer-facing catalog and inspection
+  operations accept only validated agent and project identifiers plus declared
+  inspection overrides; filesystem paths, roots, environment snapshots, clocks,
+  probe results, scaffolds, and compile options never cross that boundary.
+  Agent Spaces resolves trusted project placement, current producer sources,
+  and runtime context internally, validates a requested agent against that
+  freshly resolved context, and returns only the shared public DTO. A
+  project-neutral catalog never invents a project or emits project-contextual
+  compile options, and lower-level context-taking primitives remain internal to
+  the producer boundary for external consumers.
+authority: hrcchat#20422
+source:
+  - hrcchat#20422
+  - packages/aspc/src/service.ts
+  - packages/aspc-protocol/src/types.ts
+required_tests:
+  - consumer-facing catalog and inspection operations reject any path root environment clock probe scaffold or compile-option input
+  - catalog and inspection DTOs contain no filesystem path or ambient environment field
+  - contextual inspection resolves a requested agent only against the freshly resolved canonical producer catalog
+  - project-neutral catalog behavior is independent of process cwd and ambient environment
+  - project-neutral catalog emits no fabricated project or project-contextual compile options
+last_verified:
+  date: 2026-08-23
+  evidence: hrcchat#20422 revision 2 approved by daedalus
+reopen_when:
+  - agent roster discovery or inspection-context authority moves outside Agent Spaces
+  - a consumer-facing operation accepts producer context rather than identifiers
+  - project-neutral catalog semantics change
+  - evaluation context becomes part of the public DTO or transport contract
+supersedes: []
+superseded_by: null

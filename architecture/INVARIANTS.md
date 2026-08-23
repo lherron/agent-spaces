@@ -6,6 +6,10 @@
 
 Agent profiles may declare jobs.default_node and schedules may override it with execution.node. Each accepts one logical HRC node ID, a non-empty list, or the reserved all wildcard. Compilation emits canonical desiredJson.execution.nodes: concrete members are validated, deduplicated, and sorted; all remains exactly ["all"]; local and all mixed with concrete members are rejected. The owner set authorizes deliberate independent per-node fan-out in ACP and is never a source for a JobRun's singular execution identity. This contract is separate from HRC scope placement.
 
+## agent-spaces.agent-inspection-authority
+
+Agent Spaces is the sole authority for canonical agent roster discovery and contextual inspection assembly. Its consumer-facing catalog and inspection operations accept only validated agent and project identifiers plus declared inspection overrides; filesystem paths, roots, environment snapshots, clocks, probe results, scaffolds, and compile options never cross that boundary. Agent Spaces resolves trusted project placement, current producer sources, and runtime context internally, validates a requested agent against that freshly resolved context, and returns only the shared public DTO. A project-neutral catalog never invents a project or emits project-contextual compile options, and lower-level context-taking primitives remain internal to the producer boundary for external consumers.
+
 ## agent-spaces.architecture-law
 
 Active records under architecture/records are agent-spaces' durable architecture law. ADRs, generated projections, docs, tasks, chats, and comments are provenance unless an active record imports a predicate.
