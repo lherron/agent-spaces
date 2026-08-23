@@ -3,6 +3,16 @@ export type { AspcRequestHandler } from './client.js'
 export { createAspcService } from './service.js'
 export type { AspcCompiler, AspcService, AspcServiceOptions } from './service.js'
 export {
+  AspcInspectionAuthorityError,
+  createAspcInspectionAuthority,
+} from './agent-inspection-authority.js'
+export type {
+  AspcInspectionAuthority,
+  AspcInspectionAuthorityErrorCode,
+  AspcInspectionAuthorityOptions,
+  AspcProjectRootResolver,
+} from './agent-inspection-authority.js'
+export {
   ASPC_COMPILE_METHODS,
   JSONRPC_VERSION,
   registerAspcCompileMethods,

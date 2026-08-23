@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "agent-spaces": "workspace:*",
+    "spaces-config": "workspace:*",
     "spaces-aspc-protocol": "workspace:*",
     "spaces-harness-broker-client": "workspace:*",
     "spaces-harness-broker-protocol": "workspace:*",

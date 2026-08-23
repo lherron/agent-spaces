@@ -10,6 +10,18 @@
       "bun": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./agent-inspection": {
+      "bun": "./src/agent-inspection.ts",
+      "types": "./dist/agent-inspection.d.ts",
+      "import": "./dist/agent-inspection.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "agent-inspection": [
+        "dist/agent-inspection.d.ts"
+      ]
     }
   },
   "files": [

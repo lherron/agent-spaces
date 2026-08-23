@@ -3,18 +3,20 @@
  *
  * `spaces-aspc` is compile-only: it owns no JSON-RPC transport of its own (the
  * concrete NDJSON server lives in `spaces-harness-broker`, which this package
- * deliberately does not depend on). Instead it binds its five compile methods
+ * deliberately does not depend on). Instead it binds its seven compile methods
  * onto any caller-supplied server object that can `register(method, handler)` —
  * the co-hosted composition facade passes a real `ProtocolServer`, and a raspc
  * binary can pass its own transport.
  */
 import {
+  validateAspcCatalogAgentInspectionRequest,
   validateAspcCatalogAgentsRequest,
   validateAspcCommand,
   validateAspcCompileHarnessInvocationRequest,
   validateAspcCompileRuntimePlanRequest,
   validateAspcHelloRequest,
   validateAspcInspectAgentRequest,
+  validateAspcInspectAgentSelectionRequest,
 } from 'spaces-aspc-protocol'
 import type { AspcService } from './service.js'
 import { createAspcService } from './service.js'
@@ -27,6 +29,8 @@ export const ASPC_COMPILE_METHODS = {
   compileRuntimePlan: 'aspc.compileRuntimePlan',
   catalogAgents: 'aspc.catalogAgents',
   inspectAgent: 'aspc.inspectAgent',
+  catalogAgentInspection: 'aspc.catalogAgentInspection',
+  inspectAgentSelection: 'aspc.inspectAgentSelection',
   compileHarnessInvocation: 'aspc.compileHarnessInvocation',
 } as const
 
@@ -68,7 +72,7 @@ export function registerAspcMethod<Params, Result>(
 }
 
 /**
- * Binds exactly the five compile methods onto `server`. Registers no
+ * Binds exactly the seven compile methods onto `server`. Registers no
  * `aspc.compileAndStart`, no `broker.*` and no `invocation.*` route: the start
  * plane belongs to the co-hosted composition facade.
  */
@@ -98,6 +102,18 @@ export function registerAspcCompileMethods(
     ASPC_COMPILE_METHODS.inspectAgent,
     validateAspcInspectAgentRequest,
     (req) => service.inspectAgent(req)
+  )
+  registerAspcMethod(
+    server,
+    ASPC_COMPILE_METHODS.catalogAgentInspection,
+    validateAspcCatalogAgentInspectionRequest,
+    (req) => service.catalogAgentInspection(req)
+  )
+  registerAspcMethod(
+    server,
+    ASPC_COMPILE_METHODS.inspectAgentSelection,
+    validateAspcInspectAgentSelectionRequest,
+    (req) => service.inspectAgentSelection(req)
   )
   registerAspcMethod(
     server,

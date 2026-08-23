@@ -1,4 +1,6 @@
 import type {
+  AspcAgentInspectionCatalogResponse,
+  AspcCatalogAgentInspectionRequest,
   AspcCatalogAgentsRequest,
   AspcCatalogAgentsResponse,
   AspcCompileAndStartRequest,
@@ -10,6 +12,7 @@ import type {
   AspcHelloResponse,
   AspcInspectAgentRequest,
   AspcInspectAgentResponse,
+  AspcInspectAgentSelectionRequest,
 } from 'spaces-aspc-protocol'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import { StdioTransport } from 'spaces-harness-broker-client'
@@ -60,6 +63,16 @@ export class AspcClient {
 
   inspectAgent(req: AspcInspectAgentRequest): Promise<AspcInspectAgentResponse> {
     return this.#transport.request('aspc.inspectAgent', req)
+  }
+
+  catalogAgentInspection(
+    req: AspcCatalogAgentInspectionRequest = {}
+  ): Promise<AspcAgentInspectionCatalogResponse> {
+    return this.#transport.request('aspc.catalogAgentInspection', req)
+  }
+
+  inspectAgentSelection(req: AspcInspectAgentSelectionRequest): Promise<AspcInspectAgentResponse> {
+    return this.#transport.request('aspc.inspectAgentSelection', req)
   }
 
   compileHarnessInvocation(

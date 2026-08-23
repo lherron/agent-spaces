@@ -8,7 +8,7 @@
  * notification and `invocation.permission.request` callback.
  */
 import type { Readable, Writable } from 'node:stream'
-import type { AspcCompiler } from 'spaces-aspc'
+import type { AspcCompiler, AspcServiceOptions } from 'spaces-aspc'
 import { JSONRPC_VERSION, registerAspcCompileMethods, registerAspcMethod } from 'spaces-aspc'
 import { validateAspcCompileAndStartRequest } from 'spaces-aspc-protocol'
 import { createDefaultBroker, createProtocolServer } from 'spaces-harness-broker'
@@ -22,7 +22,16 @@ import type {
 import { validateCommand } from 'spaces-harness-broker-protocol'
 import { createCohostedAspcService, startFromDispatch } from './service.js'
 
-export interface AspcFacadeOptions {
+export interface AspcFacadeOptions
+  extends Pick<
+    AspcServiceOptions,
+    | 'agentsRoot'
+    | 'resolveProjectRoot'
+    | 'environment'
+    | 'now'
+    | 'serviceProbeResponses'
+    | 'scaffoldPackets'
+  > {
   stdin: Readable
   stdout: Writable
   stderr: Writable
@@ -65,7 +74,20 @@ export function createAspcFacadeServer(options: AspcFacadeOptions): ProtocolServ
       (event) => emitEvent(event),
       (params) => server.request<PermissionDecision>('invocation.permission.request', params)
     )
-  const aspc = createCohostedAspcService({ broker, compiler: options.compiler })
+  const aspc = createCohostedAspcService({
+    broker,
+    ...(options.compiler !== undefined ? { compiler: options.compiler } : {}),
+    ...(options.agentsRoot !== undefined ? { agentsRoot: options.agentsRoot } : {}),
+    ...(options.resolveProjectRoot !== undefined
+      ? { resolveProjectRoot: options.resolveProjectRoot }
+      : {}),
+    ...(options.environment !== undefined ? { environment: options.environment } : {}),
+    ...(options.now !== undefined ? { now: options.now } : {}),
+    ...(options.serviceProbeResponses !== undefined
+      ? { serviceProbeResponses: options.serviceProbeResponses }
+      : {}),
+    ...(options.scaffoldPackets !== undefined ? { scaffoldPackets: options.scaffoldPackets } : {}),
+  })
 
   registerAspcCompileMethods(server, { service: aspc })
   registerAspcMethod(

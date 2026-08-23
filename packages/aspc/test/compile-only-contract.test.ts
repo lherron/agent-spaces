@@ -85,12 +85,14 @@ describe('spaces-aspc is compile-only', () => {
     const service = createAspcService({})
 
     expect('compileAndStart' in service).toBe(false)
-    // Positive control: the five compile members remain on the service.
+    // Positive control: the seven compile members remain on the service.
     for (const member of [
       'hello',
       'compileRuntimePlan',
       'catalogAgents',
       'inspectAgent',
+      'catalogAgentInspection',
+      'inspectAgentSelection',
       'compileHarnessInvocation',
     ]) {
       expect(typeof (service as unknown as Record<string, unknown>)[member]).toBe('function')

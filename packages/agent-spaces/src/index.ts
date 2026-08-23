@@ -74,6 +74,7 @@ export {
 
 export {
   catalogAgentsForContext,
+  catalogAgentSources,
   inspectAgentForContext,
   type AgentCatalogDiagnostic,
   type AgentCatalogResult,

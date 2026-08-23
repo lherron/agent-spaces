@@ -6,6 +6,8 @@ import {
   inspectAgentForContext,
 } from 'agent-spaces'
 import type {
+  AspcAgentInspectionCatalogResponse,
+  AspcCatalogAgentInspectionRequest,
   AspcCatalogAgentsRequest,
   AspcCatalogAgentsResponse,
   AspcCompileHarnessInvocationRequest,
@@ -15,6 +17,7 @@ import type {
   AspcHelloResponse,
   AspcInspectAgentRequest,
   AspcInspectAgentResponse,
+  AspcInspectAgentSelectionRequest,
 } from 'spaces-aspc-protocol'
 import { ASPC_PROTOCOL_VERSION } from 'spaces-aspc-protocol'
 import type { InvocationDispatchRequest } from 'spaces-harness-broker-protocol'
@@ -25,6 +28,10 @@ import type {
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
+import {
+  type AspcInspectionAuthorityOptions,
+  createAspcInspectionAuthority,
+} from './agent-inspection-authority.js'
 import { DIAGNOSTIC_CODES, compilerDiagnostic, errorDetails, formatError } from './diagnostics.js'
 import { selectBrokerProfile } from './profileSelector.js'
 
@@ -54,6 +61,12 @@ export type AspcCompiler = (
 
 export interface AspcServiceOptions {
   compiler?: AspcCompiler | undefined
+  agentsRoot?: AspcInspectionAuthorityOptions['agentsRoot']
+  resolveProjectRoot?: AspcInspectionAuthorityOptions['resolveProjectRoot']
+  environment?: AspcInspectionAuthorityOptions['environment']
+  now?: AspcInspectionAuthorityOptions['now']
+  serviceProbeResponses?: AspcInspectionAuthorityOptions['serviceProbeResponses']
+  scaffoldPackets?: AspcInspectionAuthorityOptions['scaffoldPackets']
 }
 
 export interface AspcService {
@@ -61,6 +74,10 @@ export interface AspcService {
   compileRuntimePlan(req: AspcCompileRuntimePlanRequest): Promise<RuntimeCompileResponse>
   catalogAgents(req: AspcCatalogAgentsRequest): Promise<AspcCatalogAgentsResponse>
   inspectAgent(req: AspcInspectAgentRequest): Promise<AspcInspectAgentResponse>
+  catalogAgentInspection(
+    req: AspcCatalogAgentInspectionRequest
+  ): Promise<AspcAgentInspectionCatalogResponse>
+  inspectAgentSelection(req: AspcInspectAgentSelectionRequest): Promise<AspcInspectAgentResponse>
   compileHarnessInvocation(
     req: AspcCompileHarnessInvocationRequest
   ): Promise<AspcCompileHarnessInvocationResponse>
@@ -68,6 +85,7 @@ export interface AspcService {
 
 export function createAspcService(options: AspcServiceOptions = {}): AspcService {
   const compiler = options.compiler ?? defaultCompiler
+  const inspectionAuthority = createAspcInspectionAuthority(compiler, options)
 
   return {
     async hello(_req: AspcHelloRequest): Promise<AspcHelloResponse> {
@@ -81,6 +99,8 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
           compileRuntimePlan: true,
           catalogAgents: true,
           inspectAgent: true,
+          catalogAgentInspection: true,
+          inspectAgentSelection: true,
           compileHarnessInvocation: true,
           compileAndStart: false,
           cohostedBroker: false,
@@ -104,6 +124,18 @@ export function createAspcService(options: AspcServiceOptions = {}): AspcService
             compileContext: compileOptions?.compileContext,
           }),
       })
+    },
+
+    async catalogAgentInspection(
+      req: AspcCatalogAgentInspectionRequest
+    ): Promise<AspcAgentInspectionCatalogResponse> {
+      return inspectionAuthority.catalogAgentInspection(req)
+    },
+
+    async inspectAgentSelection(
+      req: AspcInspectAgentSelectionRequest
+    ): Promise<AspcInspectAgentResponse> {
+      return inspectionAuthority.inspectAgentSelection(req)
     },
 
     async compileHarnessInvocation(

@@ -6,7 +6,7 @@
  * `cohostedBroker` false; this composition wraps it, reports both true, and
  * surfaces the broker protocol version it co-hosts.
  */
-import type { AspcCompiler, AspcService } from 'spaces-aspc'
+import type { AspcCompiler, AspcService, AspcServiceOptions } from 'spaces-aspc'
 import { createAspcService } from 'spaces-aspc'
 import type {
   AspcCompileAndStartRequest,
@@ -21,7 +21,16 @@ import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protoc
 
 const ASPC_COMPILE_AND_START_SCHEMA = 'aspc-compile-and-start-response/v1'
 
-export interface CohostedAspcServiceOptions {
+export interface CohostedAspcServiceOptions
+  extends Pick<
+    AspcServiceOptions,
+    | 'agentsRoot'
+    | 'resolveProjectRoot'
+    | 'environment'
+    | 'now'
+    | 'serviceProbeResponses'
+    | 'scaffoldPackets'
+  > {
   broker: Broker
   compiler?: AspcCompiler | undefined
 }
@@ -50,9 +59,19 @@ export function startFromDispatch(
 export function createCohostedAspcService(
   options: CohostedAspcServiceOptions
 ): CohostedAspcService {
-  const compile = createAspcService(
-    options.compiler !== undefined ? { compiler: options.compiler } : {}
-  )
+  const compile = createAspcService({
+    ...(options.compiler !== undefined ? { compiler: options.compiler } : {}),
+    ...(options.agentsRoot !== undefined ? { agentsRoot: options.agentsRoot } : {}),
+    ...(options.resolveProjectRoot !== undefined
+      ? { resolveProjectRoot: options.resolveProjectRoot }
+      : {}),
+    ...(options.environment !== undefined ? { environment: options.environment } : {}),
+    ...(options.now !== undefined ? { now: options.now } : {}),
+    ...(options.serviceProbeResponses !== undefined
+      ? { serviceProbeResponses: options.serviceProbeResponses }
+      : {}),
+    ...(options.scaffoldPackets !== undefined ? { scaffoldPackets: options.scaffoldPackets } : {}),
+  })
 
   return {
     ...compile,

@@ -6,6 +6,7 @@ import {
   validateAgentInspectionRequest,
 } from 'spaces-runtime-contracts'
 import type {
+  AspcCatalogAgentInspectionRequest,
   AspcCatalogAgentsRequest,
   AspcCommand,
   AspcCompileAndStartRequest,
@@ -13,6 +14,7 @@ import type {
   AspcCompileRuntimePlanRequest,
   AspcHelloRequest,
   AspcInspectAgentRequest,
+  AspcInspectAgentSelectionRequest,
   AspcMethod,
 } from './types.js'
 import { ASPC_METHODS, ASPC_PROTOCOL_VERSION } from './types.js'
@@ -89,6 +91,30 @@ export class AspcInspectAgentRequestValidationError extends AspcValidationError 
   }
 }
 
+export class AspcCatalogAgentInspectionRequestValidationError extends AspcValidationError {
+  readonly code = 'INVALID_ASPC_CATALOG_AGENT_INSPECTION_REQUEST'
+
+  constructor(issues: ValidationIssue[]) {
+    super(
+      'AspcCatalogAgentInspectionRequestValidationError',
+      'Invalid ASPC catalogAgentInspection request',
+      issues
+    )
+  }
+}
+
+export class AspcInspectAgentSelectionRequestValidationError extends AspcValidationError {
+  readonly code = 'INVALID_ASPC_INSPECT_AGENT_SELECTION_REQUEST'
+
+  constructor(issues: ValidationIssue[]) {
+    super(
+      'AspcInspectAgentSelectionRequestValidationError',
+      'Invalid ASPC inspectAgentSelection request',
+      issues
+    )
+  }
+}
+
 export class AspcCompileHarnessInvocationRequestValidationError extends AspcValidationError {
   readonly code = 'INVALID_ASPC_COMPILE_HARNESS_INVOCATION_REQUEST'
 
@@ -154,6 +180,24 @@ export function validateAspcInspectAgentRequest(value: unknown): AspcInspectAgen
   return value as AspcInspectAgentRequest
 }
 
+export function validateAspcCatalogAgentInspectionRequest(
+  value: unknown
+): AspcCatalogAgentInspectionRequest {
+  const issues: ValidationIssue[] = []
+  validateCatalogAgentInspection(value, 'params', issues)
+  if (issues.length > 0) throw new AspcCatalogAgentInspectionRequestValidationError(issues)
+  return value as AspcCatalogAgentInspectionRequest
+}
+
+export function validateAspcInspectAgentSelectionRequest(
+  value: unknown
+): AspcInspectAgentSelectionRequest {
+  const issues: ValidationIssue[] = []
+  validateInspectAgentSelection(value, 'params', issues)
+  if (issues.length > 0) throw new AspcInspectAgentSelectionRequestValidationError(issues)
+  return value as AspcInspectAgentSelectionRequest
+}
+
 export function validateAspcCompileAndStartRequest(value: unknown): AspcCompileAndStartRequest {
   return validateAspcCompileHarnessInvocationRequest(value)
 }
@@ -170,8 +214,110 @@ const ASPC_PARAMS_VALIDATORS: Record<AspcMethod, ParamsValidator> = {
   'aspc.compileRuntimePlan': validateCompileRuntimePlan,
   'aspc.catalogAgents': validateCatalogAgents,
   'aspc.inspectAgent': validateInspectAgent,
+  'aspc.catalogAgentInspection': validateCatalogAgentInspection,
+  'aspc.inspectAgentSelection': validateInspectAgentSelection,
   'aspc.compileHarnessInvocation': validateCompileHarnessInvocation,
   'aspc.compileAndStart': validateCompileHarnessInvocation,
+}
+
+const INSPECTION_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/
+const INSPECTION_IDENTIFIER_MAX_LENGTH = 160
+
+function validateCatalogAgentInspection(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  const params = requireRecord(value, basePath, issues)
+  if (params === undefined) return
+  validateOptionalInspectionIdentifier(params['projectId'], path(basePath, 'projectId'), issues)
+  rejectUnknownParams(params, new Set(['projectId']), basePath, issues)
+}
+
+function validateInspectAgentSelection(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  const params = requireRecord(value, basePath, issues)
+  if (params === undefined) return
+  validateInspectionIdentifier(params['agentId'], path(basePath, 'agentId'), issues)
+  appendInspectionIssues(
+    () => validateAgentInspectionRequest(params['request']),
+    path(basePath, 'request'),
+    issues
+  )
+  validateStrictInspectionRequest(params['request'], path(basePath, 'request'), issues)
+  rejectUnknownParams(params, new Set(['agentId', 'request']), basePath, issues)
+}
+
+function validateStrictInspectionRequest(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  const request = requireRecord(value, basePath, issues)
+  if (request === undefined) return
+  rejectUnknownParams(
+    request,
+    new Set(['schemaVersion', 'identifiers', 'declaredOverrides']),
+    basePath,
+    issues
+  )
+  const identifiersPath = path(basePath, 'identifiers')
+  const identifiers = requireRecord(request['identifiers'], identifiersPath, issues)
+  if (identifiers === undefined) return
+  const required = [
+    'agentId',
+    'projectId',
+    'mode',
+    'scope',
+    'lane',
+    'harness',
+    'frontend',
+    'interaction',
+  ] as const
+  for (const field of required) {
+    validateInspectionIdentifier(identifiers[field], path(identifiersPath, field), issues)
+  }
+  for (const field of ['agentName', 'taskId'] as const) {
+    validateOptionalInspectionIdentifier(identifiers[field], path(identifiersPath, field), issues)
+  }
+  rejectUnknownParams(
+    identifiers,
+    new Set([...required, 'agentName', 'taskId']),
+    identifiersPath,
+    issues
+  )
+}
+
+function validateInspectionIdentifier(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > INSPECTION_IDENTIFIER_MAX_LENGTH ||
+    !INSPECTION_IDENTIFIER_PATTERN.test(value)
+  ) {
+    issues.push(
+      issue(
+        basePath,
+        ISSUE_CODE.invalidType,
+        `${basePath} must be a validated identifier of at most ${INSPECTION_IDENTIFIER_MAX_LENGTH} characters`
+      )
+    )
+  }
+}
+
+function validateOptionalInspectionIdentifier(
+  value: unknown,
+  basePath: string,
+  issues: ValidationIssue[]
+): void {
+  if (value !== undefined) validateInspectionIdentifier(value, basePath, issues)
 }
 
 function validateCatalogAgents(value: unknown, basePath: string, issues: ValidationIssue[]): void {

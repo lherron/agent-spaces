@@ -8,7 +8,6 @@ import type {
 import type {
   AgentInspectionEvaluationContext,
   AgentInspectionRequest,
-  AgentInspectionResult,
   BrokerExecutionProfile,
   CompileContext,
   CompileDiagnostic,
@@ -16,6 +15,12 @@ import type {
   RuntimeCompileRequest,
   RuntimeCompileResponse,
 } from 'spaces-runtime-contracts'
+import type {
+  AspcCatalogAgentInspectionRequest,
+  AspcInspectAgentSelectionRequest,
+} from './agent-inspection-types.js'
+
+export type * from './agent-inspection-types.js'
 
 export const ASPC_PROTOCOL_VERSION = 'aspc/0.1' as const
 
@@ -40,6 +45,8 @@ export const ASPC_METHODS = [
   'aspc.compileRuntimePlan',
   'aspc.catalogAgents',
   'aspc.inspectAgent',
+  'aspc.catalogAgentInspection',
+  'aspc.inspectAgentSelection',
   'aspc.compileHarnessInvocation',
   'aspc.compileAndStart',
 ] as const
@@ -51,6 +58,8 @@ export type AspcCommand =
   | JsonRpcRequest<'aspc.compileRuntimePlan', AspcCompileRuntimePlanRequest>
   | JsonRpcRequest<'aspc.catalogAgents', AspcCatalogAgentsRequest>
   | JsonRpcRequest<'aspc.inspectAgent', AspcInspectAgentRequest>
+  | JsonRpcRequest<'aspc.catalogAgentInspection', AspcCatalogAgentInspectionRequest>
+  | JsonRpcRequest<'aspc.inspectAgentSelection', AspcInspectAgentSelectionRequest>
   | JsonRpcRequest<'aspc.compileHarnessInvocation', AspcCompileHarnessInvocationRequest>
   | JsonRpcRequest<'aspc.compileAndStart', AspcCompileAndStartRequest>
 
@@ -65,6 +74,8 @@ export interface AspcHelloRequest {
         compileRuntimePlan?: boolean | undefined
         catalogAgents?: boolean | undefined
         inspectAgent?: boolean | undefined
+        catalogAgentInspection?: boolean | undefined
+        inspectAgentSelection?: boolean | undefined
         compileHarnessInvocation?: boolean | undefined
         compileAndStart?: boolean | undefined
       }
@@ -81,6 +92,8 @@ export interface AspcHelloResponse {
     compileRuntimePlan: true
     catalogAgents: true
     inspectAgent: true
+    catalogAgentInspection: true
+    inspectAgentSelection: true
     compileHarnessInvocation: true
     compileAndStart: boolean
     cohostedBroker: boolean
@@ -108,40 +121,6 @@ export interface AspcInspectAgentRequest {
   request: AgentInspectionRequest
   evaluationContext: AgentInspectionEvaluationContext
 }
-
-export type AspcInspectionDiagnostic = {
-  severity: 'info' | 'warning' | 'error'
-  code: string
-  message: string
-}
-
-export type AspcInspectAgentResponse =
-  | { ok: true; inspection: AgentInspectionResult }
-  | { ok: false; diagnostics: AspcInspectionDiagnostic[] }
-
-export type AspcAgentCatalogRow = {
-  agentId: string
-  displayName: string
-  role: string | null
-  sourceAvailability: {
-    profile: boolean
-    soul: boolean
-    contextTemplate: boolean
-  }
-  defaultContextSummary: {
-    projectId: string
-    mode: string
-    lane: string
-    harness: string
-    frontend: string
-    interaction: string
-  }
-  diagnostics: AspcInspectionDiagnostic[]
-  warningCount: number
-  errorCount: number
-}
-
-export type AspcCatalogAgentsResponse = { agents: AspcAgentCatalogRow[] }
 
 export type AspcProfileSelector = {
   profileId?: string | undefined

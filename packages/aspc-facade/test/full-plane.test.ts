@@ -61,7 +61,7 @@ describe('cohosted facade full plane', () => {
       })
       expect(brokerHello.protocolVersion).toBe('harness-broker/0.2')
 
-      // --- the five compile methods ---
+      // --- the seven compile methods ---
       const hello = await client.hello()
       expect(hello.facadeInfo.name).toBe('aspc-facade')
       const compiled = await client.compileRuntimePlan({

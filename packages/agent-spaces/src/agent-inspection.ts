@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-import { buildRuntimeBundleRef, parseAgentProfile } from 'spaces-config'
+import { buildRuntimeBundleRef, parseAgentProfile, resolveHarnessCatalogEntry } from 'spaces-config'
 import {
   type ResolvedContextSection,
   inspectAgentSystemPrompt,
@@ -42,14 +42,16 @@ export type AgentCatalogRow = {
     soul: boolean
     contextTemplate: boolean
   }
-  defaultContextSummary: {
-    projectId: string
-    mode: string
-    lane: string
-    harness: string
-    frontend: string
-    interaction: string
-  }
+  defaultContextSummary?:
+    | {
+        projectId: string
+        mode: string
+        lane: string
+        harness: string
+        frontend: string
+        interaction: string
+      }
+    | undefined
   diagnostics: AgentCatalogDiagnostic[]
   warningCount: number
   errorCount: number
@@ -92,6 +94,21 @@ export async function catalogAgentsForContext(input: {
   const entries = listAgentDirectories(evaluationContext.paths.agentsRoot)
   return {
     agents: entries.map((agentId) => catalogRow(agentId, evaluationContext)),
+  }
+}
+
+/**
+ * Enumerate the canonical source roster without inventing project context.
+ * The caller must supply a producer-trusted root; consumers reach this only
+ * through the identifier-only ASPC authority operation.
+ */
+export async function catalogAgentSources(input: {
+  agentsRoot: string
+}): Promise<AgentCatalogResult> {
+  return {
+    agents: listAgentDirectories(input.agentsRoot).map((agentId) =>
+      catalogRow(agentId, input.agentsRoot)
+    ),
   }
 }
 
@@ -210,8 +227,12 @@ export async function inspectAgentForContext(
   return { ok: true, inspection: validateAgentInspectionResult(inspection) }
 }
 
-function catalogRow(agentId: string, context: AgentInspectionEvaluationContext): AgentCatalogRow {
-  const root = join(context.paths.agentsRoot, agentId)
+function catalogRow(
+  agentId: string,
+  context: AgentInspectionEvaluationContext | string
+): AgentCatalogRow {
+  const agentsRoot = typeof context === 'string' ? context : context.paths.agentsRoot
+  const root = join(agentsRoot, agentId)
   const profilePath = join(root, 'agent-profile.toml')
   const diagnostics: AgentCatalogDiagnostic[] = []
   let displayName = agentId
@@ -235,6 +256,17 @@ function catalogRow(agentId: string, context: AgentInspectionEvaluationContext):
       })
     }
   }
+  const defaultContextSummary =
+    typeof context === 'string'
+      ? undefined
+      : {
+          projectId: context.identifiers.projectId,
+          mode: context.identifiers.mode,
+          lane: context.identifiers.lane,
+          harness: context.identifiers.harness,
+          frontend: context.identifiers.frontend,
+          interaction: context.identifiers.interaction,
+        }
   return {
     agentId,
     displayName,
@@ -244,14 +276,7 @@ function catalogRow(agentId: string, context: AgentInspectionEvaluationContext):
       soul: existsSync(join(root, 'SOUL.md')),
       contextTemplate: existsSync(join(root, 'context-template.toml')),
     },
-    defaultContextSummary: {
-      projectId: context.identifiers.projectId,
-      mode: context.identifiers.mode,
-      lane: context.identifiers.lane,
-      harness: context.identifiers.harness,
-      frontend: context.identifiers.frontend,
-      interaction: context.identifiers.interaction,
-    },
+    ...(defaultContextSummary !== undefined ? { defaultContextSummary } : {}),
     diagnostics,
     warningCount: diagnostics.filter(({ severity }) => severity === 'warning').length,
     errorCount: diagnostics.filter(({ severity }) => severity === 'error').length,
@@ -263,11 +288,7 @@ function listAgentDirectories(agentsRoot: string): string[] {
     return readdirSync(agentsRoot, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
-      .filter(
-        (agentId) =>
-          existsSync(join(agentsRoot, agentId, 'agent-profile.toml')) ||
-          existsSync(join(agentsRoot, agentId, 'SOUL.md'))
-      )
+      .filter((agentId) => existsSync(join(agentsRoot, agentId, 'agent-profile.toml')))
       .sort((left, right) => left.localeCompare(right))
   } catch {
     return []
@@ -313,7 +334,7 @@ function buildInspectionCompileRequest(
     traceId: `trace_${seed}`,
     idempotencyKey: `agent-inspection:${seed}`,
   } as RuntimeCompileRequest['identity']
-  const harness = requestedHarness(request.identifiers.harness)
+  const harness = requestedHarness(request.identifiers.harness, request.identifiers.frontend)
   return {
     schemaVersion: 'agent-runtime-compile-request/v1',
     identity,
@@ -577,18 +598,30 @@ function asInteractionMode(value: string): 'interactive' | 'nonInteractive' | 'h
   return 'headless'
 }
 
-function requestedHarness(value: string): {
+function requestedHarness(
+  value: string,
+  frontend: string
+): {
   family: RuntimeCompileRequest['requested']['harnessFamily']
   runtime: RuntimeCompileRequest['requested']['preferredHarnessRuntime']
   provider: RuntimeCompileRequest['requested']['modelProvider']
 } {
-  if (value.includes('claude')) {
-    return { family: 'claude-code', runtime: 'claude-code-cli', provider: 'anthropic' }
+  const entry = resolveHarnessCatalogEntry(value) ?? resolveHarnessCatalogEntry(frontend)
+  if (entry?.id === 'claude' || entry?.id === 'claude-agent-sdk') {
+    return {
+      family: 'claude-code',
+      runtime: entry.id === 'claude-agent-sdk' ? 'claude-agent-sdk' : 'claude-code-cli',
+      provider: 'anthropic',
+    }
   }
-  if (value.includes('pi')) {
-    return { family: 'pi', runtime: 'pi-cli', provider: 'openai' }
+  if (entry?.id === 'pi' || entry?.id === 'pi-sdk') {
+    return {
+      family: 'pi',
+      runtime: entry.id === 'pi-sdk' ? 'pi-sdk' : 'pi-cli',
+      provider: entry.provider,
+    }
   }
-  return { family: 'codex', runtime: 'codex-cli', provider: 'openai' }
+  return { family: 'codex', runtime: 'codex-cli', provider: entry?.provider ?? 'openai' }
 }
 
 function formatError(error: unknown): string {
