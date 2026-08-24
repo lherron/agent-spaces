@@ -1,25 +1,46 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-interface HookCommand {
-  name: string
+interface HookCommandConfig {
+  files?: string
   run: string
-  useStdin: boolean
+  stage_fixed?: boolean
+  use_stdin?: boolean
 }
 
-interface HookExecution {
-  name: string
-  exitCode: number
-  output: string
-  invocations: string[]
+interface HookConfig {
+  min_version: string
+  'pre-commit': {
+    commands: Record<string, HookCommandConfig>
+  }
+  'pre-push': {
+    files: string
+    commands: Record<string, HookCommandConfig>
+  }
+}
+
+interface HookFixture {
+  binDir: string
+  logPath: string
+  remote: string
+  work: string
 }
 
 const repoRoot = resolve(new URL('..', import.meta.url).pathname)
-const zeroSha = '0'.repeat(40)
-const localSha = 'a'.repeat(40)
-const remoteSha = 'b'.repeat(40)
+const lefthookBinary = join(repoRoot, 'node_modules', '.bin', 'lefthook')
+const scopeScript = join(repoRoot, 'scripts', 'run-if-code-changed.ts')
+const codeOnlyPreCommitCommands = [
+  'lint',
+  'boundaries',
+  'harness-boundaries',
+  'manifests',
+  'suppressions',
+  'public-surface',
+  'rule-authoring',
+  'build',
+]
 const temporaryRoots: string[] = []
 
 afterEach(async () => {
@@ -28,161 +49,282 @@ afterEach(async () => {
   )
 })
 
-async function prePushCommands(): Promise<HookCommand[]> {
-  const lines = (await readFile(join(repoRoot, 'lefthook.yml'), 'utf8')).split('\n')
-  const prePushIndex = lines.findIndex((line) => line === 'pre-push:')
-  expect(prePushIndex, 'lefthook.yml must define pre-push').toBeGreaterThanOrEqual(0)
-  const nextHookIndex = lines.findIndex(
-    (line, index) => index > prePushIndex && /^[A-Za-z][A-Za-z0-9_-]*:\s*$/.test(line)
-  )
-  const prePushEnd = nextHookIndex === -1 ? lines.length : nextHookIndex
-  const commands: HookCommand[] = []
-
-  for (let index = prePushIndex + 1; index < prePushEnd; index += 1) {
-    const commandMatch = /^ {4}([A-Za-z0-9_-]+):\s*$/.exec(lines[index] ?? '')
-    if (commandMatch?.[1] === undefined) continue
-
-    const name = commandMatch[1]
-    const commandLines: string[] = []
-    index += 1
-    while (index < prePushEnd && !/^ {4}[A-Za-z0-9_-]+:\s*$/.test(lines[index] ?? '')) {
-      commandLines.push(lines[index] ?? '')
-      index += 1
-    }
-    index -= 1
-
-    const useStdin = commandLines.some((line) => /^ {6}use_stdin:\s*true\s*$/.test(line))
-    const runIndex = commandLines.findIndex((line) => /^ {6}run:\s*/.test(line))
-    expect(runIndex, `pre-push ${name} must define run`).toBeGreaterThanOrEqual(0)
-
-    const runLine = commandLines[runIndex] ?? ''
-    const inlineRun = /^ {6}run:\s*(.+)$/.exec(runLine)?.[1]
-    const run =
-      inlineRun === '|'
-        ? commandLines
-            .slice(runIndex + 1)
-            .filter((line) => line.startsWith('        ') || line.length === 0)
-            .map((line) => (line.startsWith('        ') ? line.slice(8) : line))
-            .join('\n')
-        : (inlineRun ?? '')
-
-    commands.push({ name, run, useStdin })
-  }
-
-  expect(commands.length, 'pre-push must define at least one command').toBeGreaterThan(0)
-  return commands
+function run(command: string[], cwd: string, env: Record<string, string | undefined> = {}): string {
+  const result = Bun.spawnSync(command, {
+    cwd,
+    env: { ...process.env, ...env },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const output = `${result.stdout.toString()}${result.stderr.toString()}`
+  expect(result.exitCode, `${command.join(' ')}\n${output}`).toBe(0)
+  return output
 }
 
-async function makeToolShims(): Promise<{ binDir: string; logPath: string }> {
-  const root = await mkdtemp(join(tmpdir(), 'agent-spaces-pre-push-'))
+async function readConfig(): Promise<HookConfig> {
+  return Bun.YAML.parse(await readFile(join(repoRoot, 'lefthook.yml'), 'utf8')) as HookConfig
+}
+
+async function readInvocations(logPath: string): Promise<string[]> {
+  return readFile(logPath, 'utf8')
+    .then((text) => text.trim().split('\n').filter(Boolean))
+    .catch(() => [])
+}
+
+function hookEnvironment(fixture: HookFixture): Record<string, string> {
+  return {
+    HOOK_INVOCATIONS: fixture.logPath,
+    PATH: `${fixture.binDir}:${process.env['PATH'] ?? ''}`,
+  }
+}
+
+async function makeHookFixture(): Promise<HookFixture> {
+  const root = await mkdtemp(join(tmpdir(), 'agent-spaces-lefthook-'))
   temporaryRoots.push(root)
+  const remote = join(root, 'remote.git')
+  const work = join(root, 'work')
   const binDir = join(root, 'bin')
   const logPath = join(root, 'invocations.log')
+
   await mkdir(binDir, { recursive: true })
-
-  for (const executable of ['bun', 'just']) {
-    await writeFile(
-      join(binDir, executable),
-      `#!/usr/bin/env bash
-set -u
-printf '%s\\t%s\\n' "$HOOK_COMMAND" '${executable} '"$*" >> "$HOOK_INVOCATIONS"
+  await writeFile(
+    join(binDir, 'hook-probe'),
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$HOOK_INVOCATIONS"
 `
-    )
-    await chmod(join(binDir, executable), 0o755)
-  }
+  )
+  await chmod(join(binDir, 'hook-probe'), 0o755)
 
-  return { binDir, logPath }
+  run(['git', 'init', '--bare', remote], root)
+  run(['git', 'init', '-b', 'main', work], root)
+  run(['git', 'config', 'user.name', 'Hook Test'], work)
+  run(['git', 'config', 'user.email', 'hook-test@example.com'], work)
+  run(['git', 'config', 'commit.gpgSign', 'false'], work)
+  await mkdir(join(work, 'src'), { recursive: true })
+  await writeFile(join(work, 'README.md'), '# baseline\n')
+  await writeFile(join(work, 'src', 'app.ts'), 'export const baseline = true\n')
+  run(['git', 'add', 'README.md', 'src/app.ts'], work)
+  run(['git', 'commit', '-m', 'baseline'], work)
+  run(['git', 'remote', 'add', 'origin', remote], work)
+  run(['git', 'push', '-u', 'origin', 'main'], work)
+
+  await mkdir(join(work, 'scripts'), { recursive: true })
+  await writeFile(join(work, 'scripts', 'run-if-code-changed.ts'), await readFile(scopeScript))
+  await writeFile(
+    join(work, 'lefthook.yml'),
+    `min_version: "2.1.10"
+pre-commit:
+  parallel: false
+  commands:
+    gitleaks:
+      run: hook-probe gitleaks
+    code:
+      run: bun scripts/run-if-code-changed.ts pre-commit -- hook-probe code
+    docs:
+      run: hook-probe docs
+pre-push:
+  parallel: false
+  files: printf 'lefthook.yml\\n'
+  commands:
+    validation:
+      use_stdin: true
+      run: bun scripts/run-if-code-changed.ts pre-push -- sh -c 'hook-probe validation' {files}
+`
+  )
+  run([lefthookBinary, 'install'], work)
+
+  return { binDir, logPath, remote, work }
 }
 
-async function runPrePush(stdin: string): Promise<HookExecution[]> {
-  const [commands, shims] = await Promise.all([prePushCommands(), makeToolShims()])
-  const results: HookExecution[] = []
+async function commit(
+  fixture: HookFixture,
+  message: string,
+  paths: string[],
+  verify = false
+): Promise<string[]> {
+  run(['git', 'add', '--all', '--', ...paths], fixture.work)
+  await writeFile(fixture.logPath, '')
+  run(
+    ['git', 'commit', ...(verify ? [] : ['--no-verify']), '-m', message],
+    fixture.work,
+    hookEnvironment(fixture)
+  )
+  return readInvocations(fixture.logPath)
+}
 
-  for (const command of commands) {
-    const result = Bun.spawnSync(['bash', '-c', command.run], {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        PATH: `${shims.binDir}:${process.env['PATH'] ?? ''}`,
-        HOOK_COMMAND: command.name,
-        HOOK_INVOCATIONS: shims.logPath,
-      },
-      stdin: Buffer.from(command.useStdin ? stdin : ''),
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    const invocations = await readFile(shims.logPath, 'utf8')
-      .then((text) =>
-        text
-          .trim()
-          .split('\n')
-          .filter((line) => line.startsWith(`${command.name}\t`))
-          .map((line) => line.slice(command.name.length + 1))
+async function push(fixture: HookFixture, args: string[] = ['origin']): Promise<string[]> {
+  await writeFile(fixture.logPath, '')
+  run(['git', 'push', ...args], fixture.work, hookEnvironment(fixture))
+  return readInvocations(fixture.logPath)
+}
+
+describe('lefthook v2 configuration', () => {
+  test('pins the installed major and validates the configuration', async () => {
+    const packageJson = (await Bun.file(join(repoRoot, 'package.json')).json()) as {
+      devDependencies: Record<string, string>
+    }
+    const config = await readConfig()
+
+    expect(packageJson.devDependencies['lefthook']).toBe('2.1.10')
+    expect(config.min_version).toBe('2.1.10')
+    run([lefthookBinary, 'validate'], repoRoot)
+  })
+
+  test('keeps secret and documentation checks unconditional', async () => {
+    const commands = (await readConfig())['pre-commit'].commands
+
+    expect(commands['gitleaks']?.run).toBe('gitleaks protect --staged --redact')
+    expect(commands['doc-reachability']?.run).toBe('bun scripts/check-doc-reachability.ts')
+    for (const name of codeOnlyPreCommitCommands) {
+      expect(commands[name]?.run, name).toStartWith(
+        'bun scripts/run-if-code-changed.ts pre-commit -- '
       )
-      .catch(() => [])
-    results.push({
-      name: command.name,
-      exitCode: result.exitCode,
-      output: `${result.stdout.toString()}${result.stderr.toString()}`,
-      invocations,
+    }
+  })
+
+  test('uses one fail-safe pre-push stdin consumer', async () => {
+    const prePush = (await readConfig())['pre-push']
+    expect(prePush.files).toBe("printf 'lefthook.yml\\n'")
+    expect(prePush.commands).toEqual({
+      'code-validation': {
+        use_stdin: true,
+        run: "bun scripts/run-if-code-changed.ts pre-push -- sh -c 'bun install && bun run test:fast' {files}",
+      },
     })
-  }
+  })
+})
 
-  return results
-}
+describe('lefthook v2 real pre-commit boundaries', () => {
+  test('runs only unconditional checks for documentation extensions regardless of case', async () => {
+    const fixture = await makeHookFixture()
+    await mkdir(join(fixture.work, 'docs'), { recursive: true })
+    const files = ['README.MARKDOWN', 'docs/Reference.HTML', 'docs/notes.TxT', 'docs/legacy.HtM']
+    for (const file of files) await writeFile(join(fixture.work, file), 'documentation\n')
 
-function expectEveryCommandRan(results: HookExecution[]): void {
-  for (const result of results) {
-    expect(result.exitCode, `${result.name}: ${result.output}`).toBe(0)
-    expect(result.invocations, `${result.name} must run for this push`).not.toEqual([])
-  }
-}
+    expect((await commit(fixture, 'documentation files', files, true)).sort()).toEqual([
+      'docs',
+      'gitleaks',
+    ])
+  })
 
-describe('lefthook pre-push deletion boundary', () => {
-  test('every command opts in to git pre-push stdin', async () => {
-    const commands = await prePushCommands()
+  test('runs code checks for a code deletion', async () => {
+    const fixture = await makeHookFixture()
+    await rm(join(fixture.work, 'src', 'app.ts'))
 
-    for (const command of commands) {
-      expect(command.useStdin, `pre-push ${command.name} must set use_stdin: true`).toBe(true)
+    expect((await commit(fixture, 'delete code', ['src/app.ts'], true)).sort()).toEqual([
+      'code',
+      'docs',
+      'gitleaks',
+    ])
+  })
+
+  test('runs code checks for a code-to-document rename', async () => {
+    const fixture = await makeHookFixture()
+    await mkdir(join(fixture.work, 'docs'), { recursive: true })
+    await rename(join(fixture.work, 'src', 'app.ts'), join(fixture.work, 'docs', 'app.md'))
+
+    expect(
+      (await commit(fixture, 'rename code to docs', ['src/app.ts', 'docs/app.md'], true)).sort()
+    ).toEqual(['code', 'docs', 'gitleaks'])
+  })
+})
+
+describe('lefthook v2 real pre-push boundaries', () => {
+  test('skips a documentation-only update on an existing branch', async () => {
+    const fixture = await makeHookFixture()
+    await writeFile(join(fixture.work, 'README.md'), '# docs update\n')
+    await commit(fixture, 'docs update', ['README.md'])
+
+    expect(await push(fixture)).toEqual([])
+  })
+
+  test('skips a documentation-only update on a new branch', async () => {
+    const fixture = await makeHookFixture()
+    run(['git', 'switch', '-c', 'docs-only'], fixture.work)
+    await writeFile(join(fixture.work, 'README.md'), '# branch docs update\n')
+    await commit(fixture, 'branch docs update', ['README.md'])
+
+    expect(await push(fixture, ['origin', 'docs-only'])).toEqual([])
+  })
+
+  test('runs validation for a code update', async () => {
+    const fixture = await makeHookFixture()
+    await writeFile(join(fixture.work, 'src', 'app.ts'), 'export const changed = true\n')
+    await commit(fixture, 'code update', ['src/app.ts'])
+
+    expect(await push(fixture)).toEqual(['validation'])
+  })
+
+  test('skips a deletion-only push', async () => {
+    const fixture = await makeHookFixture()
+    run(['git', 'branch', 'obsolete'], fixture.work)
+    run(['git', 'push', '--no-verify', 'origin', 'obsolete'], fixture.work)
+
+    expect(await push(fixture, ['origin', '--delete', 'obsolete'])).toEqual([])
+  })
+
+  test('runs validation when a code file is deleted', async () => {
+    const fixture = await makeHookFixture()
+    await rm(join(fixture.work, 'src', 'app.ts'))
+    await commit(fixture, 'delete code', ['src/app.ts'])
+
+    expect(await push(fixture)).toEqual(['validation'])
+  })
+
+  test('runs validation when code is renamed to documentation', async () => {
+    const fixture = await makeHookFixture()
+    await mkdir(join(fixture.work, 'docs'), { recursive: true })
+    await rename(join(fixture.work, 'src', 'app.ts'), join(fixture.work, 'docs', 'app.md'))
+    await commit(fixture, 'rename code to docs', ['src/app.ts', 'docs/app.md'])
+
+    expect(await push(fixture)).toEqual(['validation'])
+  })
+
+  test('runs validation once when any ref in a multi-ref push changes code', async () => {
+    const fixture = await makeHookFixture()
+    run(['git', 'switch', '-c', 'docs-ref'], fixture.work)
+    await writeFile(join(fixture.work, 'README.md'), '# multi-ref docs update\n')
+    await commit(fixture, 'multi-ref docs', ['README.md'])
+    run(['git', 'switch', 'main'], fixture.work)
+    run(['git', 'switch', '-c', 'code-ref'], fixture.work)
+    await writeFile(join(fixture.work, 'src', 'app.ts'), 'export const multiRef = true\n')
+    await commit(fixture, 'multi-ref code', ['src/app.ts'])
+
+    expect(
+      await push(fixture, [
+        'origin',
+        'docs-ref:refs/heads/docs-ref',
+        'code-ref:refs/heads/code-ref',
+      ])
+    ).toEqual(['validation'])
+  })
+
+  test('fails safe by running validation for malformed or empty stdin', async () => {
+    const fixture = await makeHookFixture()
+    const command = [
+      'bun',
+      'scripts/run-if-code-changed.ts',
+      'pre-push',
+      '--',
+      'hook-probe',
+      'validation',
+    ]
+
+    for (const stdin of [
+      '',
+      'malformed input\n',
+      `(delete) 0 refs/heads/obsolete ${'a'.repeat(40)}\n`,
+    ]) {
+      await writeFile(fixture.logPath, '')
+      const result = Bun.spawnSync(command, {
+        cwd: fixture.work,
+        env: { ...process.env, ...hookEnvironment(fixture) },
+        stdin: Buffer.from(stdin),
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      expect(result.exitCode, result.stderr.toString()).toBe(0)
+      expect(await readInvocations(fixture.logPath)).toEqual(['validation'])
     }
-  })
-
-  test('skips every command for a deletion-only push', async () => {
-    const results = await runPrePush(`(delete) ${zeroSha} refs/heads/obsolete ${remoteSha}\n`)
-
-    for (const result of results) {
-      expect(result.exitCode, `${result.name}: ${result.output}`).toBe(0)
-      expect(result.invocations, `${result.name} must skip deletion-only pushes`).toEqual([])
-    }
-  })
-
-  test('runs every command for a new branch whose remote sha is all zeros', async () => {
-    const results = await runPrePush(`refs/heads/new ${localSha} refs/heads/new ${zeroSha}\n`)
-
-    expectEveryCommandRan(results)
-  })
-
-  test('runs every command for mixed deletion and normal ref updates', async () => {
-    const results = await runPrePush(
-      [
-        `(delete) ${zeroSha} refs/heads/obsolete ${remoteSha}`,
-        `refs/heads/main ${localSha} refs/heads/main ${remoteSha}`,
-        '',
-      ].join('\n')
-    )
-
-    expectEveryCommandRan(results)
-  })
-
-  test('runs every command when pre-push stdin is empty', async () => {
-    const results = await runPrePush('')
-
-    expectEveryCommandRan(results)
-  })
-
-  test('runs every command for a normal code push', async () => {
-    const results = await runPrePush(`refs/heads/main ${localSha} refs/heads/main ${remoteSha}\n`)
-
-    expectEveryCommandRan(results)
   })
 })

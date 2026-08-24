@@ -2,65 +2,39 @@
 # Install: lefthook install
 # Docs: https://github.com/evilmartians/lefthook
 
+min_version: "2.1.10"
+
 pre-commit:
   parallel: false
   commands:
     gitleaks:
       run: gitleaks protect --staged --redact
     lint:
-      run: bun run lint
+      run: bun scripts/run-if-code-changed.ts pre-commit -- bun run lint
       stage_fixed: true
     boundaries:
-      run: bun scripts/check-boundaries.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-boundaries.ts
     harness-boundaries:
-      run: bun scripts/check-runtime-contract-harness-boundaries.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-runtime-contract-harness-boundaries.ts
     manifests:
-      run: bun scripts/check-manifest-edges.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-manifest-edges.ts
     suppressions:
-      run: bun scripts/check-suppressions.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-suppressions.ts
     public-surface:
-      run: bun scripts/check-public-surface.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-public-surface.ts
     doc-reachability:
       run: bun scripts/check-doc-reachability.ts
     rule-authoring:
-      run: bun scripts/check-rule-authoring.ts
+      run: bun scripts/run-if-code-changed.ts pre-commit -- bun scripts/check-rule-authoring.ts
     build:
-      run: bun run build
+      run: bun scripts/run-if-code-changed.ts pre-commit -- bun run build
 
 pre-push:
   parallel: false
+  # Keep the hook alive for deleted paths, which Lefthook omits from push_files.
+  files: printf 'lefthook.yml\n'
   commands:
-    install:
+    code-validation:
       use_stdin: true
-      run: |
-        zero_sha=0000000000000000000000000000000000000000
-        saw_ref=false
-        deletion_only=true
-        while IFS= read -r refspec || [ -n "$refspec" ]; do
-          saw_ref=true
-          set -- $refspec
-          if [ "$#" -ne 4 ] || [ "$1" != "(delete)" ] || [ "$2" != "$zero_sha" ]; then
-            deletion_only=false
-          fi
-        done
-        if [ "$saw_ref" = true ] && [ "$deletion_only" = true ]; then
-          exit 0
-        fi
-        bun install
-    test:
-      use_stdin: true
-      run: |
-        zero_sha=0000000000000000000000000000000000000000
-        saw_ref=false
-        deletion_only=true
-        while IFS= read -r refspec || [ -n "$refspec" ]; do
-          saw_ref=true
-          set -- $refspec
-          if [ "$#" -ne 4 ] || [ "$1" != "(delete)" ] || [ "$2" != "$zero_sha" ]; then
-            deletion_only=false
-          fi
-        done
-        if [ "$saw_ref" = true ] && [ "$deletion_only" = true ]; then
-          exit 0
-        fi
-        bun run test:fast
+      # One stdin consumer is intentional: Lefthook cannot fan pre-push stdin out to commands.
+      run: bun scripts/run-if-code-changed.ts pre-push -- sh -c 'bun install && bun run test:fast' {files}
