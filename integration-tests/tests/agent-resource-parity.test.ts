@@ -74,7 +74,7 @@ describe('agent resource parity task fixture', () => {
     )
   })
 
-  test('observes matching task-mode resources through compiler lowering and SDK Pi loading', async () => {
+  test('observes every run mode through compiler lowering and SDK Pi loading', async () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-resource-parity-observe-'))
     const aspHome = join(root, 'asp-home')
     const agentSpaces = join(root, 'agents', 'spaces')
@@ -106,6 +106,9 @@ describe('agent resource parity task fixture', () => {
 [spaces]
 base = ["space:base@dev"]
 
+[spaces.modes.heartbeat]
+base = ["space:mode-space@dev"]
+
 [instructions]
 template = "context-template.toml"
 `
@@ -120,6 +123,30 @@ mode = "replace"
 name = "task"
 type = "inline"
 content = "task={{taskId}} lane={{lane}}"
+
+[[prompt]]
+name = "task-mode"
+type = "inline"
+content = "mode=task"
+when = { runMode = "task" }
+
+[[prompt]]
+name = "query-mode"
+type = "inline"
+content = "mode=query"
+when = { runMode = "query" }
+
+[[prompt]]
+name = "heartbeat-mode"
+type = "inline"
+content = "mode=heartbeat"
+when = { runMode = "heartbeat" }
+
+[[prompt]]
+name = "maintenance-mode"
+type = "inline"
+content = "mode=maintenance"
+when = { runMode = "maintenance" }
 
 [[prompt]]
 name = "exec"
@@ -142,95 +169,110 @@ type = "inline"
 content = "remember task={{taskId}}"
 `
     )
-    const resolverContext = createParityReplayContext({
-      agentRoot,
-      agentsRoot: dirname(agentRoot),
-      agentRootSearchPath: [agentRoot, dirname(agentRoot)],
-      projectRoot,
-      projectId: 'agent-spaces',
-      agentId: 'fixture-agent',
-      agentName: 'Fixture Agent',
-      taskId: 'T-PARITY',
-      lane: 'main',
-      runMode: 'task',
-      env: {},
-      cwd: projectRoot,
-      predicateCwd: projectRoot,
-      predicateEnv: {},
-      execCwd: projectRoot,
-      execEnv: {},
-      execResults: [
-        {
-          sectionName: 'exec',
-          command: execCommand,
-          occurrence: 1,
-          exitStatus: 0,
-          stdout: 'replayed exec',
-          stderr: '',
-        },
-        {
-          sectionName: 'failed-exec',
-          command: "printf 'failure detail' >&2; exit 23",
-          occurrence: 1,
-          exitStatus: 23,
-          stdout: '',
-          stderr: 'failure detail',
-        },
-      ],
-      serviceProbeResponses: [{ name: 'broker', endpoint: 'tcp://127.0.0.1:1', up: false }],
-    })
-    const placement = {
-      agentRoot,
-      projectRoot,
-      cwd: projectRoot,
-      runMode: 'task' as const,
-      bundle: { kind: 'agent-project' as const, agentName: 'fixture-agent', projectRoot },
-      correlation: {
-        sessionRef: {
-          scopeRef: 'agent:fixture-agent:project:agent-spaces:task:T-PARITY',
-          laneRef: 'main',
-        },
-      },
-    }
+    await cp(join(agentSpaces, 'base'), join(agentSpaces, 'mode-space'), { recursive: true })
+    await writeFile(
+      join(agentSpaces, 'mode-space', 'space.toml'),
+      'schema = 1\nid = "mode-space"\nversion = "1.0.0"\ndescription = "Mode fixture"\n[plugin]\nname = "mode-space"\n'
+    )
+    await writeSkill(join(agentSpaces, 'mode-space', 'skills'), 'heartbeat-space', 'heartbeat only')
     process.env['ASP_CODEX_PATH'] = codexShim
     process.env['ASP_AGENTS_ROOT'] = dirname(agentRoot)
     try {
-      const compiler = await observeCompiler({
-        agentId: 'fixture-agent',
-        mode: 'task',
-        aspHome,
-        runtime: compilerRuntime,
-        request: {
-          placement,
-          aspHome,
-          provider: 'openai',
-          frontend: 'codex-cli',
-          interactionMode: 'headless',
-          model: 'gpt-5.6-sol',
-          resolverContext,
-        },
-      })
-      const sdk = await observeSdk({
-        agentId: 'fixture-agent',
-        mode: 'task',
-        options: {
-          agentId: 'fixture-agent',
+      for (const mode of ['task', 'query', 'heartbeat', 'maintenance'] as const) {
+        const taskId = mode === 'task' ? 'T-PARITY' : undefined
+        const scopeRef =
+          taskId === undefined
+            ? 'agent:fixture-agent:project:agent-spaces'
+            : `agent:fixture-agent:project:agent-spaces:task:${taskId}`
+        const resolverContext = createParityReplayContext({
+          agentRoot,
+          agentsRoot: dirname(agentRoot),
+          agentRootSearchPath: [agentRoot, dirname(agentRoot)],
+          projectRoot,
           projectId: 'agent-spaces',
+          agentId: 'fixture-agent',
+          agentName: 'Fixture Agent',
+          ...(taskId === undefined ? {} : { taskId }),
+          lane: 'main',
+          runMode: mode,
+          env: {},
+          cwd: projectRoot,
+          predicateCwd: projectRoot,
+          predicateEnv: {},
+          execCwd: projectRoot,
+          execEnv: {},
+          execResults: [
+            {
+              sectionName: 'exec',
+              command: execCommand,
+              occurrence: 1,
+              exitStatus: 0,
+              stdout: 'replayed exec',
+              stderr: '',
+            },
+            {
+              sectionName: 'failed-exec',
+              command: "printf 'failure detail' >&2; exit 23",
+              occurrence: 1,
+              exitStatus: 23,
+              stdout: '',
+              stderr: 'failure detail',
+            },
+          ],
+          serviceProbeResponses: [{ name: 'broker', endpoint: 'tcp://127.0.0.1:1', up: false }],
+        })
+        const placement = {
           agentRoot,
           projectRoot,
           cwd: projectRoot,
+          runMode: mode,
+          bundle: { kind: 'agent-project' as const, agentName: 'fixture-agent', projectRoot },
+          correlation: { sessionRef: { scopeRef, laneRef: 'main' } },
+        }
+        const compiler = await observeCompiler({
+          agentId: 'fixture-agent',
+          mode,
           aspHome,
-          runMode: 'task',
-          scopeRef: placement.correlation.sessionRef.scopeRef,
-          laneRef: 'main',
-          resolverContext,
-        },
-      })
-      expect(() => verifyParityRows([{ compiler, sdk }])).not.toThrow()
-      expect(compiler.prompt.content.toString()).toContain('task=T-PARITY lane=main')
-      expect(compiler.prompt.content.toString()).toContain('replayed exec')
-      expect(compiler.skills.catalog.map((skill) => skill.name)).toEqual(['local', 'composed'])
-      expect(compiler.skills.catalog[0]?.description).toBe('agent-local skill')
+          runtime: compilerRuntime,
+          request: {
+            placement,
+            aspHome,
+            provider: 'openai',
+            frontend: 'codex-cli',
+            interactionMode: 'headless',
+            model: 'gpt-5.6-sol',
+            resolverContext,
+          },
+        })
+        const sdk = await observeSdk({
+          agentId: 'fixture-agent',
+          mode,
+          options: {
+            agentId: 'fixture-agent',
+            projectId: 'agent-spaces',
+            agentRoot,
+            projectRoot,
+            cwd: projectRoot,
+            aspHome,
+            runMode: mode,
+            scopeRef,
+            laneRef: 'main',
+            resolverContext,
+          },
+        })
+        expect(() => verifyParityRows([{ compiler, sdk }])).not.toThrow()
+        expect(compiler.prompt.content.toString()).toContain(`mode=${mode}`)
+        expect(compiler.prompt.content.toString()).toContain('replayed exec')
+        if (mode === 'task')
+          expect(compiler.prompt.content.toString()).toContain('task=T-PARITY lane=main')
+        if (mode === 'heartbeat')
+          expect(compiler.skills.catalog.map((skill) => skill.name)).toContain('heartbeat-space')
+        else
+          expect(compiler.skills.catalog.map((skill) => skill.name)).not.toContain(
+            'heartbeat-space'
+          )
+        expect(compiler.skills.catalog[0]?.description).toBe('agent-local skill')
+      }
     } finally {
       if (originalCodexPath === undefined) process.env['ASP_CODEX_PATH'] = undefined
       else process.env['ASP_CODEX_PATH'] = originalCodexPath
@@ -290,12 +332,13 @@ content = "remember task={{taskId}}"
   test('negative controls identify each projected resource class', async () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-resource-parity-controls-'))
     const skill = await fixtureSkill(root)
+    const extraSkill = { ...skill, name: 'extra', description: 'extra skill' }
     const base = await projectResources({
       agentId: 'fixture-agent',
       mode: 'task',
       prompt: { mode: 'replace', content: 'prompt' },
       reminder: 'reminder',
-      skills: [skill],
+      skills: [skill, extraSkill],
       skillRoots: [root],
     })
     const paths = (right: typeof base) => compareProjections(base, right).map(({ path }) => path)
@@ -312,6 +355,29 @@ content = "remember task={{taskId}}"
     expect(paths({ ...base, skills: { ...base.skills, catalog: [] } })).toContain(
       'skills/catalog.json'
     )
+    expect(
+      paths({ ...base, skills: { ...base.skills, catalog: [...base.skills.catalog].reverse() } })
+    ).toContain('skills/catalog.json')
+    expect(
+      paths({
+        ...base,
+        skills: {
+          ...base.skills,
+          catalog: base.skills.catalog.map((entry, index) =>
+            index === 0 ? { ...entry, description: 'changed metadata' } : entry
+          ),
+        },
+      })
+    ).toContain('skills/catalog.json')
+    expect(
+      paths({
+        ...base,
+        skills: {
+          ...base.skills,
+          catalog: [...base.skills.catalog, { ...base.skills.catalog[0]!, name: 'unexpected' }],
+        },
+      })
+    ).toContain('skills/catalog.json')
     expect(paths({ ...base, skills: { ...base.skills, packages: new Map() } })).toContain(
       'skills/packages/fixture'
     )
@@ -362,5 +428,14 @@ content = "remember task={{taskId}}"
     expect(
       paths({ ...base, prompt: { ...base.prompt, content: Buffer.from('prompt mode=heartbeat') } })
     ).toContain('prompt/content.bin')
+    expect(
+      paths({
+        ...base,
+        skills: {
+          ...base.skills,
+          catalog: base.skills.catalog.filter(({ name }) => name !== 'extra'),
+        },
+      })
+    ).toContain('skills/catalog.json')
   })
 })
