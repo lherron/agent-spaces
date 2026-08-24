@@ -263,6 +263,7 @@ function appendInteractiveCommonFlags(args: string[], options: HarnessRunOptions
   const approvalPolicy = options.yolo ? 'never' : options.approvalPolicy
   const sandboxMode = options.yolo ? 'danger-full-access' : options.sandboxMode
 
+  args.push('--no-alt-screen')
   if (options.model) {
     args.push('--model', options.model)
   }

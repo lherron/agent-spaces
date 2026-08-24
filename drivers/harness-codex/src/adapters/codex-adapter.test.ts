@@ -461,8 +461,18 @@ exit 1
       })
 
       expect(args.slice(0, 2)).toEqual(['--enable', 'goals'])
+      expect(args).toContain('--no-alt-screen')
       expect(args).toContain('Start by checking failing tests')
       expect(args).not.toContain('exec')
+    })
+
+    test('disables the alternate screen for interactive resume', () => {
+      const args = adapter.buildRunArgs(bundle, {
+        interactive: true,
+        continuationKey: 'codex-session-123',
+      })
+
+      expect(args).toContain('--no-alt-screen')
     })
 
     test('uses app-server mode in non-interactive runs', () => {
@@ -473,6 +483,7 @@ exit 1
 
       expect(args).toEqual(['--enable', 'goals', 'app-server'])
       expect(args).not.toContain('Summarize repository health')
+      expect(args).not.toContain('--no-alt-screen')
     })
 
     test('interactive mode bypasses codex hook trust so the Stop hook fires (T-01798)', () => {
