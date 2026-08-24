@@ -8,13 +8,21 @@ type CapturedEvent = Pick<InvocationEventEnvelope, 'type' | 'payload'>
 
 describe('pi SDK permission bridge', () => {
   test('applies local allow and deny policy without asking the broker', async () => {
+    let requestCount = 0
+    const brokerContext = {
+      brokerOwnsPermissionLifecycle: true,
+      requestPermission: async () => {
+        requestCount += 1
+        return { decision: 'deny' as const }
+      },
+    }
     const allowed = createPiSdkPermissionBridge({
-      ctx: createContext([]),
+      ctx: createContext([], brokerContext),
       policy: { mode: 'allow' },
       activeTurnId: () => 'turn-1' as TurnId,
     })
     const denied = createPiSdkPermissionBridge({
-      ctx: createContext([]),
+      ctx: createContext([], brokerContext),
       policy: { mode: 'deny' },
       activeTurnId: () => 'turn-1' as TurnId,
     })
@@ -24,6 +32,7 @@ describe('pi SDK permission bridge', () => {
       block: true,
       reason: 'Denied by invocation permission policy',
     })
+    expect(requestCount).toBe(0)
   })
 
   test('broker-owned flow emits requested, awaits final decision, and never emits resolved', async () => {

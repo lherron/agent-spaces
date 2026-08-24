@@ -24,6 +24,14 @@ export function createPiSdkPermissionBridge(
       if (options.exemptToolNames?.has(event.toolName) === true) return undefined
       const defaultDecision = options.policy.defaultDecision ?? 'deny'
 
+      // Explicit invocation policy is authoritative. A broker client may own
+      // ask-client request lifecycles, but it must not turn a profile-level
+      // allow/deny decision into an operator prompt.
+      if (options.policy.mode === 'allow') return undefined
+      if (options.policy.mode === 'deny') {
+        return { block: true, reason: 'Denied by invocation permission policy' }
+      }
+
       if (options.ctx.brokerOwnsPermissionLifecycle === true) {
         if (options.ctx.requestPermission === undefined) {
           return { block: true, reason: 'Broker permission request transport is unavailable' }
@@ -71,11 +79,6 @@ export function createPiSdkPermissionBridge(
         return decision.decision === 'deny'
           ? { block: true, reason: decision.message ?? 'Denied by broker permission policy' }
           : undefined
-      }
-
-      if (options.policy.mode === 'allow') return undefined
-      if (options.policy.mode === 'deny') {
-        return { block: true, reason: 'Denied by invocation permission policy' }
       }
 
       return decideLocallyWithClient(options, event, ++counter)
