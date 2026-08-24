@@ -6,6 +6,7 @@ import {
   getHarnessCatalogEntry,
   getHarnessCatalogEntryByFrontend,
   getHarnessFrontendsForProvider,
+  isHarnessSupported,
   normalizeHarnessFrontend,
   normalizeHarnessId,
   resolveHarnessCatalogEntry,
@@ -27,8 +28,16 @@ describe('harness catalog', () => {
     expect(normalizeHarnessFrontend('claude')).toBe('claude-code')
     expect(normalizeHarnessFrontend('codex')).toBe('codex-cli')
     expect(normalizeHarnessFrontend('agent-sdk')).toBe('agent-sdk')
+    expect(normalizeHarnessFrontend('agent-harness')).toBeUndefined()
     expect(normalizeHarnessFrontend('pi-sdk')).toBe('pi-sdk')
     expect(normalizeHarnessFrontend('pi')).toBe('pi-cli')
+  })
+
+  test('recognizes agent-harness as the first-party SDK harness id', () => {
+    expect(normalizeHarnessId('agent-harness')).toBe('agent-harness')
+    expect(resolveHarnessProvider('agent-harness')).toBe('openai')
+    expect(isHarnessSupported(['pi'], 'agent-harness')).toBe(true)
+    expect(isHarnessSupported(['pi-sdk'], 'agent-harness')).toBe(true)
   })
 
   test('resolves provider families from canonical names and aliases', () => {

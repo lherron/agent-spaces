@@ -151,6 +151,9 @@ bind (`packages/harness-broker/src/socket-path.ts`).
 owns placement, lifecycle, supervision, and durable messaging, while the SDK
 owns ASP-aware Pi session construction. The older `harness-broker-pi` binary
 remains available for compiler-produced Pi invocation specs during migration.
+Profiles select this first-party path with `harness = "agent-harness"`.
+`harness = "pi-sdk"` remains a compatibility alias for existing profiles and
+callers.
 
 **Boundary with HRC:** the `claude-code-tmux` driver *consumes* a leased
 tmux pane whose ownership is `'hrc'` — it never constructs or owns a tmux

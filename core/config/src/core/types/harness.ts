@@ -16,7 +16,7 @@ import type { CodexOptions, ProjectManifest } from './targets.js'
 // ============================================================================
 
 /** Supported harness identifiers */
-export type HarnessId = 'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk' | 'codex'
+export type HarnessId = 'agent-harness' | 'claude' | 'claude-agent-sdk' | 'pi' | 'pi-sdk' | 'codex'
 
 /** Provider family for a harness. */
 export type HarnessProvider = 'anthropic' | 'openai'
@@ -38,6 +38,7 @@ export interface HarnessCatalogEntry {
 
 /** All known harness IDs */
 export const HARNESS_IDS: readonly HarnessId[] = [
+  'agent-harness',
   'claude',
   'claude-agent-sdk',
   'pi',
@@ -59,6 +60,12 @@ export const HARNESS_PROVIDERS: readonly HarnessProvider[] = ['anthropic', 'open
 
 /** Canonical harness metadata shared across config, runtime, and CLIs. */
 export const HARNESS_CATALOG: readonly HarnessCatalogEntry[] = [
+  {
+    id: 'agent-harness',
+    aliases: [],
+    provider: 'openai',
+    transport: 'sdk',
+  },
   {
     id: 'claude',
     aliases: ['claude-code'],
@@ -186,6 +193,7 @@ export function isHarnessSupported(
   if (!supports) return true
   if (supports.includes(harnessId)) return true
   if (harnessId === 'claude-agent-sdk') return supports.includes('claude')
+  if (harnessId === 'agent-harness') return supports.includes('pi') || supports.includes('pi-sdk')
   if (harnessId === 'pi-sdk') return supports.includes('pi')
   return false
 }

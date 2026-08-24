@@ -1,6 +1,6 @@
 # Praesidium Agent Harness
 
-- **Status:** accepted; initial direct-harness implementation in progress
+- **Status:** accepted; initial direct-harness slice deployed and dogfooding
 - **Date:** 2026-08-24
 - **Author:** cody@agent-spaces
 
@@ -29,6 +29,11 @@ ASP agent configuration
         `-> compiler -> Claude Code or Codex CLI              (compatibility)
     -> HRC-operated runtime
 ```
+
+The canonical profile and HRC selector is `agent-harness`. The earlier
+`pi-sdk` selector remains accepted as a compatibility alias during migration;
+it names the underlying Pi implementation rather than the Praesidium-owned
+product boundary.
 
 There is no required compiled runtime plan, generated frontier-harness home, or
 serialized intermediate definition between ASP configuration and the Pi
