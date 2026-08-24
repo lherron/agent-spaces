@@ -315,5 +315,44 @@ content = "remember task={{taskId}}"
     expect(paths({ ...base, skills: { ...base.skills, packages: new Map() } })).toContain(
       'skills/packages/fixture'
     )
+    const packageFiles = base.skills.packages.get('fixture') ?? []
+    const mutatePackage = (
+      path: string,
+      mutate: (file: (typeof packageFiles)[number]) => (typeof packageFiles)[number]
+    ) =>
+      new Map(base.skills.packages).set(
+        'fixture',
+        packageFiles.map((file) => (file.path === path ? mutate(file) : file))
+      )
+    expect(
+      paths({
+        ...base,
+        skills: {
+          ...base.skills,
+          packages: mutatePackage('nested/asset.txt', (file) => ({
+            ...file,
+            bytes: Buffer.from('changed'),
+          })),
+        },
+      })
+    ).toContain('skills/packages/fixture')
+    expect(
+      paths({
+        ...base,
+        skills: {
+          ...base.skills,
+          packages: mutatePackage('nested/asset.txt', (file) => ({ ...file, executable: false })),
+        },
+      })
+    ).toContain('skills/packages/fixture')
+    expect(
+      paths({
+        ...base,
+        skills: {
+          ...base.skills,
+          packages: mutatePackage('asset-link', (file) => ({ ...file, target: 'other' })),
+        },
+      })
+    ).toContain('skills/packages/fixture')
   })
 })
