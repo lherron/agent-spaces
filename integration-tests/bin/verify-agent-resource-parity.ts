@@ -18,13 +18,19 @@ const agentIds = args.filter((_value, index) => args[index - 1] === '--agent')
 const exclusions = await readInventoryExclusions(
   new URL('../fixtures/agent-resource-parity/exclusions.json', import.meta.url).pathname
 )
-const result = await runLiveTaskParity({
-  agentsRoot,
-  projectRoot: process.cwd(),
-  exclusions,
-  modes,
-  ...(agentIds.length > 0 ? { agentIds } : {}),
-})
+const results = []
+for (const mode of modes) {
+  results.push(
+    await runLiveTaskParity({
+      agentsRoot,
+      projectRoot: process.cwd(),
+      exclusions,
+      modes: [mode],
+      ...(agentIds.length > 0 ? { agentIds } : {}),
+    })
+  )
+}
+const result = results[0]!
 console.log(
-  `agent resource parity: PASS\nvalid agents: ${result.valid}\nexcluded candidates: ${result.excluded}\nmodes: ${modes.join(', ')}\nrows compared: ${result.rows}`
+  `agent resource parity: PASS\nvalid agents: ${result.valid}\nexcluded candidates: ${result.excluded}\nmodes: ${modes.join(', ')}\nrows compared: ${results.reduce((total, row) => total + row.rows, 0)}`
 )
