@@ -354,5 +354,13 @@ content = "remember task={{taskId}}"
         },
       })
     ).toContain('skills/packages/fixture')
+    // These model the semantic regressions the mode matrix must expose: task
+    // context disappeared, or a run-mode-specific prompt disappeared.
+    expect(
+      paths({ ...base, prompt: { ...base.prompt, content: Buffer.from('prompt task=T-PARITY') } })
+    ).toContain('prompt/content.bin')
+    expect(
+      paths({ ...base, prompt: { ...base.prompt, content: Buffer.from('prompt mode=heartbeat') } })
+    ).toContain('prompt/content.bin')
   })
 })
