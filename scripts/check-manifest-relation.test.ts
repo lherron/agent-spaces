@@ -46,7 +46,7 @@ const REPO_ROOT = join(import.meta.dir, '..')
 // spaces-harness-broker-client/package.json "dependencies". Importing it
 // in that package's src/ must NOT produce any diagnostic.
 // A flattened token-matcher would wrongly flag this → makes this test RED.
-const NEG_FIXTURE_REL = 'packages/harness-broker-client/src/__relation_fixture__.ts'
+const NEG_FIXTURE_REL = 'contracts/harness-broker-client/src/__relation_fixture__.ts'
 const NEG_FIXTURE_CONTENT = [
   '// __relation_fixture__: declared workspace import — DO NOT COMMIT',
   '// Negative control: spaces-harness-broker-protocol IS declared in',
@@ -57,7 +57,7 @@ const NEG_FIXTURE_CONTENT = [
 // POSITIVE CONTROL: spaces-harness-broker-protocol is NOT declared in
 // agent-scope/package.json (which has no workspace deps at all).
 // The relation fires: check-manifest-edges.ts must flag this with file:line.
-const POS_FIXTURE_REL = 'packages/agent-scope/src/__relation_fixture__.ts'
+const POS_FIXTURE_REL = 'contracts/agent-scope/src/__relation_fixture__.ts'
 const POS_FIXTURE_LINE = 4 // three comment lines precede the import
 const POS_FIXTURE_CONTENT = [
   '// __relation_fixture__: undeclared workspace import — DO NOT COMMIT',
@@ -69,7 +69,7 @@ const POS_FIXTURE_CONTENT = [
 // IGNORED KINDS: relative, node:, self-import, scoped non-workspace, bare non-workspace.
 // Planted in agent-scope/src/ so the self-import (agent-scope) is the package itself.
 // None of these must ever appear in check-manifest-edges.ts output.
-const IGNORED_FIXTURE_REL = 'packages/agent-scope/src/__relation_ignored_fixture__.ts'
+const IGNORED_FIXTURE_REL = 'contracts/agent-scope/src/__relation_ignored_fixture__.ts'
 const IGNORED_FIXTURE_CONTENT = [
   '// __relation_ignored_fixture__: import kinds that must never be flagged — DO NOT COMMIT',
   "import type { ScopeRef } from './scope-ref'", // relative → ignored (starts with '.')
@@ -190,13 +190,13 @@ describe('check-manifest-edges.ts — IGNORED KINDS: non-workspace imports never
 // Test 4: MANIFEST-LESS PACKAGE DIRECTORY — skipped, never a crash
 // ---------------------------------------------------------------------------
 
-// A `packages/<name>/` directory with no package.json is not a workspace package.
+// A `<root>/<name>/` directory with no package.json is not a workspace package.
 // It occurs legitimately mid-split, when a new package's tests land before its
 // manifest does. `workspacePackages()` must skip it. Before this guard existed,
 // `readPackageInfo` let the ENOENT escape and the whole check died with an
 // unhandled error — turning "this directory is not a package yet" into a total
 // failure of the edge relation.
-const MANIFESTLESS_DIR_REL = 'packages/__manifestless_fixture__'
+const MANIFESTLESS_DIR_REL = 'contracts/__manifestless_fixture__'
 const MANIFESTLESS_FILE_REL = `${MANIFESTLESS_DIR_REL}/test/placeholder.test.ts`
 const MANIFESTLESS_FILE_CONTENT = [
   '// __manifestless_fixture__: package dir with no package.json — DO NOT COMMIT',
@@ -208,7 +208,7 @@ describe('check-manifest-edges.ts — MANIFEST-LESS DIR: skipped, not a crash', 
     await rm(join(REPO_ROOT, MANIFESTLESS_DIR_REL), { force: true, recursive: true })
   })
 
-  test('a packages/ directory without package.json is skipped and the check still passes', async () => {
+  test('a workspace directory without package.json is skipped and the check still passes', async () => {
     await mkdir(join(REPO_ROOT, MANIFESTLESS_DIR_REL, 'test'), { recursive: true })
     await writeFile(join(REPO_ROOT, MANIFESTLESS_FILE_REL), MANIFESTLESS_FILE_CONTENT)
 

@@ -28,7 +28,7 @@ import {
 } from './setup.js'
 
 const execFileAsync = promisify(execFile)
-const CLI_PATH = path.join(import.meta.dir, '..', '..', 'packages', 'cli', 'bin', 'asp.js')
+const CLI_PATH = path.join(import.meta.dir, '..', '..', 'apps', 'cli', 'bin', 'asp.js')
 
 describe('asp run', () => {
   let aspHome: string

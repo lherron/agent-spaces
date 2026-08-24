@@ -15,20 +15,20 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dir, '..')
 
 const PACKAGES = [
-  'packages/agent-scope',
-  'packages/cli-kit',
-  'packages/config',
-  'packages/runtime',
-  'packages/execution',
-  'packages/harness-claude',
-  'packages/harness-codex',
-  'packages/harness-pi',
-  'packages/harness-pi-sdk',
-  'packages/harness-broker-pi-sdk',
-  'packages/spaces-runtime-contracts',
-  'packages/aspc-protocol',
-  'packages/agent-spaces',
-  'packages/turn-runner',
+  'contracts/agent-scope',
+  'apps/cli-kit',
+  'core/config',
+  'core/runtime',
+  'drivers/execution',
+  'drivers/harness-claude',
+  'drivers/harness-codex',
+  'drivers/harness-pi',
+  'drivers/harness-pi-sdk',
+  'harness/harness-broker-pi-sdk',
+  'contracts/spaces-runtime-contracts',
+  'contracts/aspc-protocol',
+  'compiler/agent-spaces',
+  'apps/turn-runner',
 ] as const
 
 type CheckOutcome =

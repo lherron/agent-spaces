@@ -33,7 +33,7 @@ const execAsync = promisify(exec)
 const MULTI_HARNESS_DIR = path.join(FIXTURES_DIR, 'multi-harness')
 
 /** Path to CLI entry point */
-const CLI_PATH = path.join(import.meta.dir, '..', '..', 'packages', 'cli', 'bin', 'asp.js')
+const CLI_PATH = path.join(import.meta.dir, '..', '..', 'apps', 'cli', 'bin', 'asp.js')
 
 /**
  * Run CLI command and capture output.

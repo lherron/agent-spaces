@@ -22,8 +22,8 @@ import { join } from 'node:path'
 const REPO_ROOT = join(import.meta.dir, '..')
 
 // A real .ts source file that exists and is NOT a directory.
-// Verified present: packages/harness-broker/src/runtime/env.ts
-const FILE_TARGET = 'packages/harness-broker/src/runtime/env.ts'
+// Verified present: harness/harness-broker/src/runtime/env.ts
+const FILE_TARGET = 'harness/harness-broker/src/runtime/env.ts'
 
 type RunResult = { exitCode: number; stdout: string; stderr: string }
 

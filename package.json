@@ -1,10 +1,18 @@
 {
   "name": "agent-spaces",
   "private": true,
-  "workspaces": ["packages/*", "integration-tests"],
+  "workspaces": [
+    "contracts/*",
+    "core/*",
+    "drivers/*",
+    "compiler/*",
+    "harness/*",
+    "apps/*",
+    "integration-tests"
+  ],
   "scripts": {
     "build": "bun run build:ordered",
-    "build:ordered": "bun run --filter 'agent-scope' build && bun run --filter 'cli-kit' build && bun run --filter 'spaces-harness-broker-protocol' build && bun run --filter 'spaces-runtime-contracts' build && bun run --filter 'spaces-config' build && bun run --filter 'spaces-runtime' build && bun run --filter 'spaces-harness-claude' build && bun run --filter 'spaces-harness-codex' build && bun run --filter 'spaces-harness-pi' build && bun run --filter 'spaces-harness-pi-sdk' build && bun run --filter 'spaces-execution' build && bun run --filter 'spaces-aspc-protocol' build && bun run --filter 'spaces-harness-broker-client' build && bun run --filter 'spaces-harness-broker' build && bun run --filter 'spaces-harness-broker-pi-sdk' build && bun run --filter 'agent-spaces' build && bun run --filter 'spaces-turn-runner' build && bun run --filter 'spaces-aspc' build && bun run --filter 'spaces-aspc-facade' build && bun run --filter '@lherron/agent-spaces' build",
+    "build:ordered": "bun run --filter 'agent-scope' build && bun run --filter 'spaces-harness-broker-protocol' build && bun run --filter 'spaces-runtime-contracts' build && bun run --filter 'spaces-aspc-protocol' build && bun run --filter 'spaces-harness-broker-client' build && bun run --filter 'spaces-config' build && bun run --filter 'spaces-runtime' build && bun run --filter 'spaces-harness-claude' build && bun run --filter 'spaces-harness-codex' build && bun run --filter 'spaces-harness-pi' build && bun run --filter 'spaces-harness-pi-sdk' build && bun run --filter 'spaces-execution' build && bun run --filter 'agent-spaces' build && bun run --filter 'spaces-aspc' build && bun run --filter 'spaces-harness-broker' build && bun run --filter 'spaces-harness-broker-pi-sdk' build && bun run --filter 'spaces-aspc-facade' build && bun run --filter 'cli-kit' build && bun run --filter 'spaces-turn-runner' build && bun run --filter '@lherron/agent-spaces' build",
     "build:parallel": "bun run --filter '*' build",
     "check:boundaries": "bun scripts/check-boundaries.ts && bun scripts/check-runtime-contract-harness-boundaries.ts",
     "check:harness-boundaries": "bun scripts/check-runtime-contract-harness-boundaries.ts",
@@ -14,14 +22,14 @@
     "check:precommit": "bun run lint && bun scripts/check-boundaries.ts && bun scripts/check-runtime-contract-harness-boundaries.ts && bun scripts/check-manifest-edges.ts && bun run build",
     "smoke:matrix": "bun scripts/pre-hrc-broker-matrix-e2e.ts",
     "smoke:matrix:aspc": "bun scripts/pre-hrc-broker-matrix-aspc-e2e.ts",
-    "test:broker-contract": "bun test packages/agent-spaces/src/__tests__/pre-hrc-broker-contract-verifier.test.ts",
+    "test:broker-contract": "bun test compiler/agent-spaces/src/__tests__/pre-hrc-broker-contract-verifier.test.ts",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "bash -lc 'for pkg in \"agent-scope\" \"cli-kit\" \"spaces-config\" \"spaces-runtime\" \"spaces-harness-claude\" \"spaces-harness-codex\" \"spaces-harness-pi\" \"spaces-harness-pi-sdk\" \"spaces-execution\" \"spaces-harness-broker-protocol\" \"spaces-runtime-contracts\" \"spaces-aspc-protocol\" \"spaces-harness-broker-client\" \"spaces-harness-broker\" \"spaces-harness-broker-pi-sdk\" \"agent-spaces\" \"spaces-turn-runner\" \"spaces-aspc\" \"spaces-aspc-facade\" \"@lherron/agent-spaces\"; do bun run --filter \"$pkg\" test || exit $?; done; bun test scripts/'",
     "test:fast": "bun scripts/test-fast.ts",
     "test:integration": "bun test integration-tests/tests",
-    "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",
+    "clean": "rm -rf contracts/*/dist contracts/*/tsconfig.tsbuildinfo core/*/dist core/*/tsconfig.tsbuildinfo drivers/*/dist drivers/*/tsconfig.tsbuildinfo compiler/*/dist compiler/*/tsconfig.tsbuildinfo harness/*/dist harness/*/tsconfig.tsbuildinfo apps/*/dist apps/*/tsconfig.tsbuildinfo",
     "rebuild": "bun run clean && bun run build",
     "prepare": "lefthook install || true"
   },

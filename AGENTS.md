@@ -1,6 +1,7 @@
 ## Build & Run
 
-This is a Bun monorepo with packages in `packages/*`.
+This is a Bun monorepo with packages grouped under `contracts/*`, `core/*`,
+`drivers/*`, `compiler/*`, `harness/*`, and `apps/*`.
 
 ```bash
 bun install       # Install dependencies
@@ -45,7 +46,7 @@ updates the managed block in `~/.codex/AGENTS.md`, syncs managed skills into
 
 Run these after implementing to get immediate feedback:
 
-- Only run tests (`bun run test`) **after modifying files under `packages/*` AND after manually testing if possible**.
+- Only run tests (`bun run test`) **after modifying workspace package files AND after manually testing if possible**.
 - Tests: `bun run test`
 - Typecheck: `bun run typecheck` (run `bun run build` first if workspace typings are missing)
 - Lint: `bun run lint` (fix with `bun run lint:fix`)
@@ -54,14 +55,14 @@ Run these after implementing to get immediate feedback:
 - Agent enablement changelog / retro step: see [docs/agent-enablement-changelog.md#retro-cadence](docs/agent-enablement-changelog.md#retro-cadence)
 - Pack smoke: `bun scripts/smoke-pack-cross-repo.ts` (verifies cross-repo published tarballs don't carry `exports.bun → ./src/*.ts`)
 - Harness broker MATRIX smoke (`bun run smoke:matrix`, single row via `--config <name>`) — required for any harness-broker change. **Run it from a real terminal via ghostmux — use the `ghoste2e` skill — NOT inline in your own agent session.** A `ghostmux new` surface is a clean login shell; running inline from a Claude Code session leaks `CLAUDE_CODE_CHILD_SESSION`/`CLAUDE_CODE_SESSION_ID`/`CLAUDECODE` into the child `claude`, which then treats itself as a nested child and skips its own session-transcript persistence. The `real-claude-tmux-midturn` row tails that transcript for the mid-turn `queue-operation`/`enqueue` line, so it then **false-negatives with `midturn_user_prompt_capture: got 0`** even though the steered prompt visibly enqueued — a harness-env artifact, not a code defect. If you must run inline, strip the vars: `env -u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_EXECPATH -u TMUX bun run smoke:matrix --config real-claude-tmux-midturn`.
-- Pack smoke for `@lherron/agent-spaces` (`cd packages/cli; bun scripts/smoke-test-pack.ts`) — required after packaging changes → see [packages/cli/AGENTS.md](packages/cli/AGENTS.md)
-- Pi harness env/runtime flags (`--harness pi`: `PI_CODING_AGENT_DIR`, `--no-skills`, hooks-scripts) → see [packages/harness-pi/AGENTS.md](packages/harness-pi/AGENTS.md)
+- Pack smoke for `@lherron/agent-spaces` (`cd apps/cli; bun scripts/smoke-test-pack.ts`) — required after packaging changes → see [apps/cli/AGENTS.md](apps/cli/AGENTS.md)
+- Pi harness env/runtime flags (`--harness pi`: `PI_CODING_AGENT_DIR`, `--no-skills`, hooks-scripts) → see [drivers/harness-pi/AGENTS.md](drivers/harness-pi/AGENTS.md)
 
 ## Project Structure
 
-Directory names under `packages/` differ from published package names
-(`packages/config` = `spaces-config`, `packages/cli` = `@lherron/agent-spaces`,
-etc.) — read the package.json when in doubt. Integration tests live in
+Directory names under the six workspace roots differ from published package names
+(`core/config` = `spaces-config`, `apps/cli` = `@lherron/agent-spaces`, etc.) —
+read the package.json when in doubt. Integration tests live in
 `integration-tests/`, with fixtures (sample registry/spaces, claude/codex shims)
 in `integration-tests/fixtures/`.
 
@@ -83,7 +84,7 @@ enforced by `bun run check:boundaries`:
 ## Smoke Testing the CLI
 
 Test `asp run` changes with `--dry-run` against the fixture spaces
-(`bun packages/cli/bin/asp.js run integration-tests/fixtures/sample-registry/spaces/base --dry-run`
+(`bun apps/cli/bin/asp.js run integration-tests/fixtures/sample-registry/spaces/base --dry-run`
 — no build step needed; prefix the codex-shim fixture onto PATH for codex
 dry-runs). Two gotchas:
 
@@ -91,9 +92,9 @@ dry-runs). Two gotchas:
 - `asp run` does not accept a `--prompt` flag.
 
 For the harness-broker MATRIX smoke (`bun run smoke:matrix`, required for any
-harness-broker change) see [packages/harness-broker/AGENTS.md](packages/harness-broker/AGENTS.md).
-For the published-CLI pack smoke (`cd packages/cli; bun scripts/smoke-test-pack.ts`)
-see [packages/cli/AGENTS.md](packages/cli/AGENTS.md).
+harness-broker change) see [harness/harness-broker/AGENTS.md](harness/harness-broker/AGENTS.md).
+For the published-CLI pack smoke (`cd apps/cli; bun scripts/smoke-test-pack.ts`)
+see [apps/cli/AGENTS.md](apps/cli/AGENTS.md).
 
 ## Error Handling
 
@@ -103,5 +104,5 @@ propagate visibly, and throw explicit errors for invalid states.
 ## Pi Harness
 
 When running with `--harness pi`, follow the env/runtime flags in
-[packages/harness-pi/AGENTS.md](packages/harness-pi/AGENTS.md)
+[drivers/harness-pi/AGENTS.md](drivers/harness-pi/AGENTS.md)
 (`PI_CODING_AGENT_DIR`, `--no-extensions`, `--no-skills`, hooks-scripts).

@@ -12,8 +12,8 @@ asp-lock.json
 .animata/
 
 # Bun workspace self-referencing symlinks (cause recursive expansion on clone/zip)
-packages/config/config
-packages/execution/execution
+core/config/config
+drivers/execution/execution
 
 # Runtime scratch project dirs created by tests/harness
 projects/
@@ -23,8 +23,18 @@ packages/hrc-server/projects/
 packages/acp-server/state/
 
 # Runtime scratch dirs created by package-level tests/harnesses
-packages/*/var/
-packages/*/src/__fixtures__/**/var/
+apps/*/var/
+compiler/*/var/
+contracts/*/var/
+core/*/var/
+drivers/*/var/
+harness/*/var/
+apps/*/src/__fixtures__/**/var/
+compiler/*/src/__fixtures__/**/var/
+contracts/*/src/__fixtures__/**/var/
+core/*/src/__fixtures__/**/var/
+drivers/*/src/__fixtures__/**/var/
+harness/*/src/__fixtures__/**/var/
 
 # IDE / editor
 .vscode/

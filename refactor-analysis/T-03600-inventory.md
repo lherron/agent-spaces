@@ -17,7 +17,7 @@ These two bullets are genuine policy calls. They stay decision records until
 Lance chooses in the task or a linked comment.
 
 ### Decision: `opus-4-6` Agent SDK alias policy
-File: `packages/config/src/core/models.ts:61` maps Agent SDK aliases including
+File: `core/config/src/core/models.ts:61` maps Agent SDK aliases including
 `opus-4-6`. It is a real `AgentSdkModelAlias`, consumed by harness-claude — a
 versioned-catalog policy call, not a bug.
 - Options:
@@ -32,12 +32,12 @@ versioned-catalog policy call, not a bug.
   config pinning `opus-4-6` must move to `opus`; requires a cross-repo grep for
   `opus-4-6` before removal. Lance standing guidance is "use aliases, never pin
   versions", which favors option 2 but is a product call, not auto-applied.
-- Validation: `bun test packages/config`, `bun run typecheck`, plus a cross-repo
+- Validation: `bun test core/config`, `bun run typecheck`, plus a cross-repo
   `rg -n "opus-4-6" ../hrc-runtime ../agent-control-plane` import inventory and a
   real harness-claude launch smoke after any catalog change.
 
 ### Decision: `parseSessionHandle` strict-vs-lenient parsing
-File: `packages/agent-scope/src/session-handle.ts:36` calls `laneRefFromId(...)`;
+File: `contracts/agent-scope/src/session-handle.ts:36` calls `laneRefFromId(...)`;
 `lane-ref.ts` wraps the string rather than validating it, so lane parsing is
 currently lenient. Whether `parseSessionHandle(...)` should reject invalid
 `LaneRef` input is a public-contract decision.
@@ -52,7 +52,7 @@ currently lenient. Whether `parseSessionHandle(...)` should reject invalid
   `hrc-runtime/packages/hrc-core/src/selectors.ts:307`; a strict flip needs an
   import inventory across hrc-runtime and ACP and a migration of any caller that
   relied on lenient pass-through before the contract tightens.
-- Validation: `bun test packages/agent-scope`, `bun run typecheck`, downstream
+- Validation: `bun test contracts/agent-scope`, `bun run typecheck`, downstream
   `rg -n "parseSessionHandle" ../hrc-runtime ../agent-control-plane` plus a
   downstream compile/test before adopting strict mode.
 
@@ -64,7 +64,7 @@ currently lenient. Whether `parseSessionHandle(...)` should reject invalid
 | Lane 3: `runTurnNonInteractive` (client.ts) | Intentionally separate from the in-flight path; completes on a simple `turnEnded` boolean (turn-driver.ts:33) — do NOT fold into `attachTurnDriver` without equal-timing characterization | in-repo refactor |
 | Lane 3: `runTurnInFlight` (client.ts) | In-flight driver path; `attachTurnDriver(...)` already lifted (turn-driver.ts:38, resolved for in-flight) | in-repo refactor |
 | Lane 3: `preparePlacementCliRuntime` (prepare-cli-runtime.ts) | Still large; pinned by broad source-inspection tests now rewritten in this task | in-repo refactor |
-| Lane 3: `packages/execution/src/run.ts` `run()` ~290L | `installRunTarget(...)`/`buildProjectRunCompilerContext(...)` already extracted above it; extract only cohesive helpers preserving option-bag field sets exactly | in-repo refactor |
+| Lane 3: `drivers/execution/src/run.ts` `run()` ~290L | `installRunTarget(...)`/`buildProjectRunCompilerContext(...)` already extracted above it; extract only cohesive helpers preserving option-bag field sets exactly | in-repo refactor |
 | Lane 3: `applyEventState` switch split (harness-broker) | Load-bearing stateful switch; report-marked OPTIONAL, low priority unless characterized first | optional |
 | `composeAgentLocalEnv` (compose-agent-local-env.ts:57) | Shared helper preserves CLI-vs-placement env divergence; both turn paths delegate | resolved |
 | `hrcEventsBridgePath` (harness.ts:371 / pi-adapter.ts:665) | Declared on the shared Pi bundle type and read through it | resolved |
@@ -97,10 +97,10 @@ regressions they protect (planner cutover, `resolvePlacementContext` +
 scoped-env overlay restore, empty-response/`producedContent` guard, pi-sdk bundle
 load). Files updated:
 
-- `packages/agent-spaces/src/__tests__/phase4-harness-adapter-integration.test.ts`
-- `packages/agent-spaces/src/__tests__/m5-public-api-cutover.test.ts`
-- `packages/agent-spaces/src/__tests__/headless-empty-response.test.ts`
-- `packages/cli/src/__tests__/m6-agent-cli.test.ts`
+- `compiler/agent-spaces/src/__tests__/phase4-harness-adapter-integration.test.ts`
+- `compiler/agent-spaces/src/__tests__/m5-public-api-cutover.test.ts`
+- `compiler/agent-spaces/src/__tests__/headless-empty-response.test.ts`
+- `apps/cli/src/__tests__/m6-agent-cli.test.ts`
 
 The replacements bound each function by its declaration and the next top-level
 declaration (named-region helper) instead of a greedy `[\s\S]*?^}` scan, so a

@@ -44,8 +44,8 @@ async function canonicalFixture(): Promise<{ clone: string; remote: string }> {
 }
 
 test('publishes the installable public CLI after its workspace package set', () => {
-  expect(RELEASE_PUBLISH_PACKAGES.at(-1)).toBe('packages/cli')
-  expect(RELEASE_PUBLISH_PACKAGES.filter((rel) => rel === 'packages/cli')).toHaveLength(1)
+  expect(RELEASE_PUBLISH_PACKAGES.at(-1)).toBe('apps/cli')
+  expect(RELEASE_PUBLISH_PACKAGES.filter((rel) => rel === 'apps/cli')).toHaveLength(1)
 })
 
 test('stages the exact normative praesidiumBuild tuple and no package fingerprint', () => {

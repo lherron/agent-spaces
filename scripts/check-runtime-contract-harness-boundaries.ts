@@ -9,7 +9,7 @@
  * pre-compiler direct-builder / split-start escape hatches.
  *
  * Scanned harness surface:
- *   - packages/agent-spaces/src/testing/**\/*.ts
+ *   - compiler/agent-spaces/src/testing/**\/*.ts
  *   - scripts/smoke-runtime-contract-broker-*.ts
  *
  * FAILS (exit 1) if any scanned file:
@@ -33,7 +33,7 @@ import type { Guard, ImportFinding, TokenFinding } from './lib/boundary-guard/en
 
 const repoRoot = new URL('..', import.meta.url).pathname
 
-const TESTING_DIR = 'packages/agent-spaces/src/testing'
+const TESTING_DIR = 'compiler/agent-spaces/src/testing'
 const SCRIPTS_DIR = 'scripts'
 const SCRIPT_PREFIX = 'smoke-runtime-contract-broker-'
 

@@ -1,0 +1,49 @@
+{
+  "name": "agent-spaces",
+  "version": "0.1.1",
+  "description": "Compiler client surface for Agent Spaces",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./turn-support": {
+      "bun": "./src/turn-support.ts",
+      "types": "./dist/turn-support.d.ts",
+      "import": "./dist/turn-support.js"
+    },
+    "./testing": {
+      "bun": "./src/testing/pre-hrc-broker-helpers.ts",
+      "types": "./dist/testing/pre-hrc-broker-helpers.d.ts",
+      "import": "./dist/testing/pre-hrc-broker-helpers.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepack": "bun ../../scripts/strip-bun-exports.ts",
+    "postpack": "git checkout HEAD -- package.json"
+  },
+  "dependencies": {
+    "agent-scope": "*",
+    "spaces-config": "*",
+    "spaces-execution": "*",
+    "spaces-harness-broker-client": "*",
+    "spaces-harness-broker-protocol": "*",
+    "spaces-harness-codex": "*",
+    "spaces-runtime": "*",
+    "spaces-runtime-contracts": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.3"
+  }
+}

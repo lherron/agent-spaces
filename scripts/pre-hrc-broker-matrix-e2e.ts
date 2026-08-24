@@ -96,27 +96,27 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY, project } from 'spaces-runtime-contracts'
 
-import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.js'
-import { AspcClient } from '../packages/aspc/src/index.js'
+import { createAgentSpacesClient } from '../compiler/agent-spaces/src/index.js'
+import { AspcClient } from '../compiler/aspc/src/index.js'
 
-import { createClaudeCodeTmuxDriver } from '../packages/harness-broker/src/drivers/claude-code-tmux/driver'
-import { createCodexAppServerDriver } from '../packages/harness-broker/src/drivers/codex-app-server/driver'
-import { createCodexCliTmuxDriver } from '../packages/harness-broker/src/drivers/codex-cli-tmux/driver'
-import { createPiTuiTmuxDriver } from '../packages/harness-broker/src/drivers/pi-tui-tmux/driver'
-import { createInvocationEventSequencer } from '../packages/harness-broker/src/events'
-import { createInvocationManager } from '../packages/harness-broker/src/invocation-manager'
-import { parseDispatchEnv } from '../packages/harness-broker/src/runtime/env'
+import { createClaudeCodeTmuxDriver } from '../harness/harness-broker/src/drivers/claude-code-tmux/driver'
+import { createCodexAppServerDriver } from '../harness/harness-broker/src/drivers/codex-app-server/driver'
+import { createCodexCliTmuxDriver } from '../harness/harness-broker/src/drivers/codex-cli-tmux/driver'
+import { createPiTuiTmuxDriver } from '../harness/harness-broker/src/drivers/pi-tui-tmux/driver'
+import { createInvocationEventSequencer } from '../harness/harness-broker/src/events'
+import { createInvocationManager } from '../harness/harness-broker/src/invocation-manager'
+import { parseDispatchEnv } from '../harness/harness-broker/src/runtime/env'
 
-import { assertSharedCommandTurn } from '../packages/agent-spaces/src/testing/pre-hrc-broker-contract-assertions.js'
-import type { SharedCommandTurnMarkerSource } from '../packages/agent-spaces/src/testing/pre-hrc-broker-contract-assertions.js'
-import { runPreHrcBrokerContractHarness } from '../packages/agent-spaces/src/testing/pre-hrc-broker-contract-harness.js'
-import type { ContractHarnessFailure } from '../packages/agent-spaces/src/testing/pre-hrc-broker-contract-types.js'
-import { PreHrcBrokerEventLedger } from '../packages/agent-spaces/src/testing/pre-hrc-broker-event-ledger.js'
+import { assertSharedCommandTurn } from '../compiler/agent-spaces/src/testing/pre-hrc-broker-contract-assertions.js'
+import type { SharedCommandTurnMarkerSource } from '../compiler/agent-spaces/src/testing/pre-hrc-broker-contract-assertions.js'
+import { runPreHrcBrokerContractHarness } from '../compiler/agent-spaces/src/testing/pre-hrc-broker-contract-harness.js'
+import type { ContractHarnessFailure } from '../compiler/agent-spaces/src/testing/pre-hrc-broker-contract-types.js'
+import { PreHrcBrokerEventLedger } from '../compiler/agent-spaces/src/testing/pre-hrc-broker-event-ledger.js'
 import {
   allocatePreHrcRuntimeIdentity,
   buildPlacementFromScopeRef,
   verifyBrokerStartContract,
-} from '../packages/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
+} from '../compiler/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
 import {
   capturePane,
   driveOperatorTurn,
@@ -125,10 +125,10 @@ import {
   pollUntil,
   sleep,
   waitForClaudePrompt,
-} from '../packages/agent-spaces/src/testing/pre-hrc-ghostmux-operator.js'
-import type { InteractiveTmuxRunnerDeps } from '../packages/agent-spaces/src/testing/pre-hrc-interactive-tmux-runner.js'
-import { runInteractiveClaudeTmuxSession } from '../packages/agent-spaces/src/testing/pre-hrc-interactive-tmux-runner.js'
-import { allocatePreHrcTmuxPane } from '../packages/agent-spaces/src/testing/pre-hrc-tmux-allocator.js'
+} from '../compiler/agent-spaces/src/testing/pre-hrc-ghostmux-operator.js'
+import type { InteractiveTmuxRunnerDeps } from '../compiler/agent-spaces/src/testing/pre-hrc-interactive-tmux-runner.js'
+import { runInteractiveClaudeTmuxSession } from '../compiler/agent-spaces/src/testing/pre-hrc-interactive-tmux-runner.js'
+import { allocatePreHrcTmuxPane } from '../compiler/agent-spaces/src/testing/pre-hrc-tmux-allocator.js'
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -402,7 +402,7 @@ async function compileRuntimePlanForMatrix(
 
   const client = await AspcClient.start({
     command: process.execPath,
-    args: ['packages/aspc-facade/bin/aspc-facade.js', 'run', '--transport', 'stdio'],
+    args: ['harness/aspc-facade/bin/aspc-facade.js', 'run', '--transport', 'stdio'],
     cwd: ctx.repoRoot,
   })
   try {
@@ -1352,7 +1352,7 @@ async function runCodexAppServerStructuredScenario(options: {
   })
   const fixturePath =
     options.realCodexPath ??
-    join(options.repoRoot, 'packages/harness-broker/test/fixtures/fake-codex/structured-output.ts')
+    join(options.repoRoot, 'harness/harness-broker/test/fixtures/fake-codex/structured-output.ts')
   const spec: HarnessInvocationSpec = {
     specVersion: 'harness-broker.invocation/v1',
     invocationId: `inv_structured_codex_${options.marker}` as InvocationId,
@@ -1781,7 +1781,7 @@ async function runCodexTmuxRow(
       { owner: 'harness', action: 'new-session', socketPath },
     ]
 
-    const bridgeCommand = `bun ${join(ctx.repoRoot, 'packages/harness-broker/bin/harness-broker.js')} codex-hook`
+    const bridgeCommand = `bun ${join(ctx.repoRoot, 'harness/harness-broker/bin/harness-broker.js')} codex-hook`
     const driver = createCodexCliTmuxDriver({
       tmux: {
         socketPath,
@@ -2062,7 +2062,7 @@ function createFakeCodexFixture(repoRoot: string): {
   )
   const fixture = join(
     repoRoot,
-    'packages/harness-broker/test/fixtures/fake-codex/command-turn-marker.ts'
+    'harness/harness-broker/test/fixtures/fake-codex/command-turn-marker.ts'
   )
   const codexPath = join(aspHome, 'codex')
   writeFileSync(
@@ -2369,7 +2369,7 @@ async function runPiTuiTmuxRow(
       },
       hooks: {
         listen: makeCodexHookListener(hookSocketPath),
-        bridgeCommand: `bun ${join(ctx.repoRoot, 'packages/harness-broker/bin/harness-broker.js')} pi-hook`,
+        bridgeCommand: `bun ${join(ctx.repoRoot, 'harness/harness-broker/bin/harness-broker.js')} pi-hook`,
       },
     })
     const manager = createInvocationManager({
@@ -2959,7 +2959,7 @@ async function runPiSdkDriverRow(ctx: RowContext): Promise<RowResult> {
 // survives transport.close()) run ONLY on this row.
 // ---------------------------------------------------------------------------
 
-const FAKE_CODEX_FIXTURE_DIR = 'packages/harness-broker/test/fixtures/fake-codex'
+const FAKE_CODEX_FIXTURE_DIR = 'harness/harness-broker/test/fixtures/fake-codex'
 
 type UnixBrokerIdentity = {
   runtimeId: string
@@ -3035,7 +3035,7 @@ async function bootUnixBroker(
   const proc = Bun.spawn({
     cmd: [
       process.execPath,
-      'packages/harness-broker/bin/harness-broker.js',
+      'harness/harness-broker/bin/harness-broker.js',
       'run',
       '--transport',
       'unix',

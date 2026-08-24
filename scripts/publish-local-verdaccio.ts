@@ -7,28 +7,28 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dir, '..')
 const REGISTRY = process.env.VERDACCIO_REGISTRY ?? 'http://mini:4873/'
 
-const PUBLIC_CLI_PACKAGE = 'packages/cli'
+const PUBLIC_CLI_PACKAGE = 'apps/cli'
 
 const DEV_PUBLISH_PACKAGES = [
-  'packages/agent-scope',
-  'packages/cli-kit',
-  'packages/config',
-  'packages/runtime',
-  'packages/execution',
-  'packages/harness-broker-protocol',
-  'packages/harness-broker-client',
-  'packages/harness-broker',
-  'packages/harness-broker-pi-sdk',
-  'packages/spaces-runtime-contracts',
-  'packages/aspc-protocol',
-  'packages/harness-claude',
-  'packages/harness-codex',
-  'packages/harness-pi',
-  'packages/harness-pi-sdk',
-  'packages/agent-spaces',
-  'packages/turn-runner',
-  'packages/aspc',
-  'packages/aspc-facade',
+  'contracts/agent-scope',
+  'apps/cli-kit',
+  'core/config',
+  'core/runtime',
+  'drivers/execution',
+  'contracts/harness-broker-protocol',
+  'contracts/harness-broker-client',
+  'harness/harness-broker',
+  'harness/harness-broker-pi-sdk',
+  'contracts/spaces-runtime-contracts',
+  'contracts/aspc-protocol',
+  'drivers/harness-claude',
+  'drivers/harness-codex',
+  'drivers/harness-pi',
+  'drivers/harness-pi-sdk',
+  'compiler/agent-spaces',
+  'apps/turn-runner',
+  'compiler/aspc',
+  'harness/aspc-facade',
 ] as const
 
 export const RELEASE_PUBLISH_PACKAGES = [

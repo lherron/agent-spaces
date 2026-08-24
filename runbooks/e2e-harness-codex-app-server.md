@@ -12,12 +12,12 @@ End-to-end verification that `spaces-harness-broker` drives a real `codex app-se
 - `codex login` already completed (auth credentials present in `~/.codex/`).
 - `bun` installed.
 - Working tree at the project root with `feat-harness-broker` (or wherever the broker now lives) checked out.
-- Broker source built / runnable from `packages/harness-broker/bin/harness-broker.js`.
+- Broker source built / runnable from `harness/harness-broker/bin/harness-broker.js`.
 
 ## Step 1 — Confirm the broker sees the driver
 
 ```sh
-bun packages/harness-broker/bin/harness-broker.js drivers --json | jq '.[0]'
+bun harness/harness-broker/bin/harness-broker.js drivers --json | jq '.[0]'
 ```
 
 Expected: `codex-app-server` driver listed with `available: true` and the spec §8 v0 capability matrix. If `available: false`, the broker build is out of date — rebuild before continuing.
@@ -93,7 +93,7 @@ JSON
 ## Step 3 — Run the broker
 
 ```sh
-timeout 120 bun packages/harness-broker/bin/harness-broker.js run-once \
+timeout 120 bun harness/harness-broker/bin/harness-broker.js run-once \
   --spec /tmp/clod-broker-smoke/spec.json \
   --input /tmp/clod-broker-smoke/input.json
 ```
@@ -154,7 +154,7 @@ Total elapsed: ~10–15 seconds.
 ### Quick automated pass check
 
 ```sh
-timeout 120 bun packages/harness-broker/bin/harness-broker.js run-once \
+timeout 120 bun harness/harness-broker/bin/harness-broker.js run-once \
   --spec /tmp/clod-broker-smoke/spec.json \
   --input /tmp/clod-broker-smoke/input.json \
   | jq -s '
@@ -175,8 +175,8 @@ Pass: `turn_status == "completed"`, `exit_code == 0`, `env_in_started == false`,
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `BrokerError: Invalid request: invalid type: string "workspace-write", expected internally tagged enum SandboxPolicyDeserialize` | sandboxMode encoding drift between broker and codex (regression of T-01550) | Re-check `packages/harness-broker/src/drivers/codex-app-server/sandbox-policy.ts` translation — codex expects internally-tagged enum, not bare string. |
-| Stream ends at `input.accepted` followed immediately by `invocation.stopping` (no turn events, all 6 events within ~5ms) | run-once not awaiting turn completion (regression of T-01551) | Check run-once orchestration in `packages/harness-broker/src/cli.ts` — must await `turn.completed`/`failed`/`interrupted` before stopping. |
+| `BrokerError: Invalid request: invalid type: string "workspace-write", expected internally tagged enum SandboxPolicyDeserialize` | sandboxMode encoding drift between broker and codex (regression of T-01550) | Re-check `harness/harness-broker/src/drivers/codex-app-server/sandbox-policy.ts` translation — codex expects internally-tagged enum, not bare string. |
+| Stream ends at `input.accepted` followed immediately by `invocation.stopping` (no turn events, all 6 events within ~5ms) | run-once not awaiting turn completion (regression of T-01551) | Check run-once orchestration in `harness/harness-broker/src/cli.ts` — must await `turn.completed`/`failed`/`interrupted` before stopping. |
 | Stream stops at `invocation.failed` during startup with no `continuation.updated` | Codex auth missing or stale | Run `codex login`, retry. |
 | `Cannot find module '../src/drivers/codex-app-server/driver'` when running `bun test` | Phase 2 impl missing on this branch | `git checkout feat-harness-broker` or whatever branch holds Phase 0–4 commits. |
 | Driver shows `available: false` in `drivers --json` | Broker built without Phase 2 driver registration | Pull the latest `feat-harness-broker` HEAD. |

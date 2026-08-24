@@ -22,8 +22,8 @@ reopen_when:
   - static owner sets no longer describe schedule execution
   - exactly-once or zero-downtime relocation becomes a product requirement
 source:
-  - packages/config/src/core/config/job-execution-nodes.ts
-  - packages/config/src/resources/compiler.ts
+  - core/config/src/core/config/job-execution-nodes.ts
+  - core/config/src/resources/compiler.ts
   - wrkq:T-06804
   - hrcchat#16152
 supersedes: []

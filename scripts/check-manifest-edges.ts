@@ -30,6 +30,7 @@ type PackageJson = {
 
 const importPattern = /\bfrom\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g
 const ignoredDirectories = new Set(['.git', 'coverage', 'dist', 'node_modules', 'tmp'])
+const workspaceRoots = ['contracts', 'core', 'drivers', 'compiler', 'harness', 'apps']
 
 async function pathExists(path: string): Promise<boolean> {
   try {
@@ -53,10 +54,10 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 /**
  * Reads a directory's package.json, treating an ABSENT manifest as "not a
- * workspace package" rather than an error. A `packages/<name>/` directory can
+ * workspace package" rather than an error. A `<root>/<name>/` directory can
  * legitimately exist without a manifest — most often mid-split, when a new
- * package's tests land before its manifest does — and bun's own `packages/*`
- * workspace glob skips such directories too. Only ENOENT is tolerated:
+ * package's tests land before its manifest does — and bun's own `<root>/*`
+ * workspace globs skip such directories too. Only ENOENT is tolerated:
  * malformed JSON still throws, so a broken manifest can never be silently
  * dropped from the edge check.
  */
@@ -94,16 +95,18 @@ async function readPackageInfo(dir: string): Promise<PackageInfo | undefined> {
 
 async function workspacePackages(): Promise<PackageInfo[]> {
   const packages: PackageInfo[] = []
-  const packageRootEntries = await readdir('packages', { withFileTypes: true })
+  for (const workspaceRoot of workspaceRoots) {
+    const packageRootEntries = await readdir(workspaceRoot, { withFileTypes: true })
 
-  for (const entry of packageRootEntries) {
-    if (!entry.isDirectory()) {
-      continue
-    }
+    for (const entry of packageRootEntries) {
+      if (!entry.isDirectory()) {
+        continue
+      }
 
-    const info = await readPackageInfo(join('packages', entry.name))
-    if (info) {
-      packages.push(info)
+      const info = await readPackageInfo(join(workspaceRoot, entry.name))
+      if (info) {
+        packages.push(info)
+      }
     }
   }
 
@@ -243,7 +246,7 @@ async function detectMissingManifestEdges(): Promise<GuardDiagnostic[]> {
 
 const guard = defineGuard({
   surface: {
-    dirs: ['packages', 'integration-tests'],
+    dirs: [...workspaceRoots, 'integration-tests'],
     ignore: ['.git', 'coverage', 'dist', 'node_modules', 'tmp'],
   },
   rules: [

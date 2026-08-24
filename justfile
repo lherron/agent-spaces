@@ -59,7 +59,7 @@ env-up:
     LEFTHOOK=0 bun install --frozen-lockfile >/dev/null
     echo "  ok    dependencies installed (frozen lockfile)"
     bun run build >/dev/null
-    echo "  ok    workspace built (packages/*/dist)"
+    echo "  ok    workspace built ({contracts,core,drivers,compiler,harness,apps}/*/dist)"
     echo "==> env-up: ready — run 'just e2e'"
 
 # Tear down the e2e environment (safe to run when nothing is up, and twice)
@@ -190,20 +190,20 @@ install no-sync="" force-sync="" force-link="":
         echo "[install] WARNING: force-link enabled from ${PRAESIDIUM_INSTALL_CONTEXT}; updating local asp and harness-broker executables"
       fi
       # Fire executable package links in the background — they only depend on build, not publish.
-      ( cd packages/cli && bun link 2>&1 | sed 's/^/[bun-link:asp] /' ) &
+      ( cd apps/cli && bun link 2>&1 | sed 's/^/[bun-link:asp] /' ) &
       link_pids+=("$!")
-      ( cd packages/harness-broker && bun link 2>&1 | sed 's/^/[bun-link:harness-broker] /' ) &
+      ( cd harness/harness-broker && bun link 2>&1 | sed 's/^/[bun-link:harness-broker] /' ) &
       link_pids+=("$!")
-      ( cd packages/harness-broker-pi-sdk && bun link 2>&1 | sed 's/^/[bun-link:harness-broker-pi] /' ) &
+      ( cd harness/harness-broker-pi-sdk && bun link 2>&1 | sed 's/^/[bun-link:harness-broker-pi] /' ) &
       link_pids+=("$!")
       # spaces-aspc ships the compile-only `aspc` CLI; the cohosted facade bin
       # `aspc-facade` now ships from spaces-aspc-facade. Out-of-repo consumers
       # (taskboard's agent viewer, hrc-server) spawn `aspc-facade run --transport
       # stdio` as a bare executable, so the facade package has to be a linked
       # binary like asp, not only a workspace bin.
-      ( cd packages/aspc && bun link 2>&1 | sed 's/^/[bun-link:aspc] /' ) &
+      ( cd compiler/aspc && bun link 2>&1 | sed 's/^/[bun-link:aspc] /' ) &
       link_pids+=("$!")
-      ( cd packages/aspc-facade && bun link 2>&1 | sed 's/^/[bun-link:aspc-facade] /' ) &
+      ( cd harness/aspc-facade && bun link 2>&1 | sed 's/^/[bun-link:aspc-facade] /' ) &
       link_pids+=("$!")
     else
       echo "[install] skipping executable links; linked worktree installs must not update local asp or harness-broker executables"

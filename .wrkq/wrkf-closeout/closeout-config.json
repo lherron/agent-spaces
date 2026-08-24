@@ -18,8 +18,18 @@
     {
       "surface": "logic",
       "globs": [
-        "packages/*/src/**",
-        "packages/*/lib/**",
+        "apps/*/src/**",
+        "compiler/*/src/**",
+        "contracts/*/src/**",
+        "core/*/src/**",
+        "drivers/*/src/**",
+        "harness/*/src/**",
+        "apps/*/lib/**",
+        "compiler/*/lib/**",
+        "contracts/*/lib/**",
+        "core/*/lib/**",
+        "drivers/*/lib/**",
+        "harness/*/lib/**",
         "src/**",
         "scripts/**/*.ts",
         "scripts/**/*.js",
@@ -41,8 +51,18 @@
         "**/*contract*/**",
         "**/*schema*/**",
         "**/*.schema.json",
-        "packages/*/contracts/**",
-        "packages/*/protocol/**"
+        "apps/*/contracts/**",
+        "compiler/*/contracts/**",
+        "contracts/*/contracts/**",
+        "core/*/contracts/**",
+        "drivers/*/contracts/**",
+        "harness/*/contracts/**",
+        "apps/*/protocol/**",
+        "compiler/*/protocol/**",
+        "contracts/*/protocol/**",
+        "core/*/protocol/**",
+        "drivers/*/protocol/**",
+        "harness/*/protocol/**"
       ],
       "evidenceKinds": [
         "contract"
@@ -56,8 +76,18 @@
       "globs": [
         "package.json",
         "bun.lock",
-        "packages/*/package.json",
-        "packages/*/scripts/smoke-test-pack.ts",
+        "apps/*/package.json",
+        "compiler/*/package.json",
+        "contracts/*/package.json",
+        "core/*/package.json",
+        "drivers/*/package.json",
+        "harness/*/package.json",
+        "apps/*/scripts/smoke-test-pack.ts",
+        "compiler/*/scripts/smoke-test-pack.ts",
+        "contracts/*/scripts/smoke-test-pack.ts",
+        "core/*/scripts/smoke-test-pack.ts",
+        "drivers/*/scripts/smoke-test-pack.ts",
+        "harness/*/scripts/smoke-test-pack.ts",
         "scripts/smoke-pack-cross-repo.ts",
         "npm/**",
         "dist/**"
@@ -67,13 +97,13 @@
       ],
       "evidenceCommands": [
         "bun scripts/smoke-pack-cross-repo.ts",
-        "cd packages/cli; bun scripts/smoke-test-pack.ts"
+        "cd apps/cli; bun scripts/smoke-test-pack.ts"
       ]
     },
     {
       "surface": "harness",
       "globs": [
-        "packages/harness-broker/**",
+        "harness/harness-broker/**",
         "harness/**",
         "**/*harness*/**",
         "**/*matrix*",

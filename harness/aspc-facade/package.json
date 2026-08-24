@@ -1,0 +1,40 @@
+{
+  "name": "spaces-aspc-facade",
+  "version": "0.1.1",
+  "description": "Cohosted ASPC facade: composes the spaces-aspc compile plane with a live harness broker",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "aspc-facade": "./bin/aspc-facade.js"
+  },
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "cd ../.. && bun test harness/aspc-facade/test",
+    "prepack": "bun ../../scripts/strip-bun-exports.ts",
+    "postpack": "git checkout HEAD -- package.json"
+  },
+  "dependencies": {
+    "spaces-aspc": "workspace:*",
+    "spaces-aspc-protocol": "workspace:*",
+    "spaces-harness-broker": "workspace:*",
+    "spaces-harness-broker-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "agent-spaces": "workspace:*",
+    "typescript": "^5.8.3"
+  }
+}

@@ -28,15 +28,15 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
-import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.js'
+import { createAgentSpacesClient } from '../compiler/agent-spaces/src/index.js'
 import {
   allocatePreHrcRuntimeIdentity,
   buildPlacementFromScopeRef,
-} from '../packages/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
-import { allocatePreHrcTmuxPane } from '../packages/agent-spaces/src/testing/pre-hrc-tmux-allocator.js'
-import { BrokerClient } from '../packages/harness-broker-client/src/index.js'
-import { createBroker } from '../packages/harness-broker/src/broker'
-import { createCodexCliTmuxDriver } from '../packages/harness-broker/src/drivers/codex-cli-tmux/driver'
+} from '../compiler/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
+import { allocatePreHrcTmuxPane } from '../compiler/agent-spaces/src/testing/pre-hrc-tmux-allocator.js'
+import { BrokerClient } from '../contracts/harness-broker-client/src/index.js'
+import { createBroker } from '../harness/harness-broker/src/broker'
+import { createCodexCliTmuxDriver } from '../harness/harness-broker/src/drivers/codex-cli-tmux/driver'
 import { formatBrokerEventLogLine } from './lib/broker-event-render.js'
 
 type BrokerTransportMode = 'direct' | 'stdio' | 'ipc'
@@ -395,7 +395,7 @@ async function createDebugBroker(input: {
           },
           hooks: {
             listen: makeCodexHookListener(input.hookSocketPath),
-            bridgeCommand: `bun ${join(input.projectRoot, 'packages/harness-broker/bin/harness-broker.js')} codex-hook`,
+            bridgeCommand: `bun ${join(input.projectRoot, 'harness/harness-broker/bin/harness-broker.js')} codex-hook`,
           },
         }),
       ],
@@ -413,7 +413,7 @@ async function createDebugBroker(input: {
   if (input.mode === 'stdio') {
     const client = await BrokerClient.start({
       command: 'bun',
-      args: ['packages/harness-broker/bin/harness-broker.js', 'run', '--transport', 'stdio'],
+      args: ['harness/harness-broker/bin/harness-broker.js', 'run', '--transport', 'stdio'],
       cwd: input.projectRoot,
       env: {
         ASP_CODEX_SKIP_COMMON_PATHS: '1',
@@ -483,7 +483,7 @@ async function bootIpcBroker(projectRoot: string, artifactDir: string): Promise<
   const proc = spawn(
     'bun',
     [
-      'packages/harness-broker/bin/harness-broker.js',
+      'harness/harness-broker/bin/harness-broker.js',
       'run',
       '--transport',
       'unix',

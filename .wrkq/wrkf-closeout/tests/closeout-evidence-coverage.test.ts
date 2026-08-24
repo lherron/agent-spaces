@@ -12,7 +12,7 @@ describe('closeout path classifier', () => {
 
   test('escalates harness paths above a docs claim', () => {
     expect(
-      classifyChangedFiles(['packages/harness-broker/src/core.ts'], 'docs', closeoutConfig)
+      classifyChangedFiles(['harness/harness-broker/src/core.ts'], 'docs', closeoutConfig)
     ).toBe('harness')
   })
 

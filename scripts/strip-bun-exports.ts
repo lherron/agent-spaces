@@ -5,7 +5,7 @@
 // conditional-export object. Idempotent. Postpack restores the manifest from
 // git so the committed file keeps `bun` for the in-monorepo dev experience.
 //
-// Mirrors packages/cli/scripts/prepack.ts:stripBunExportCondition.
+// Mirrors apps/cli/scripts/prepack.ts:stripBunExportCondition.
 
 import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'

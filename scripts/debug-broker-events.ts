@@ -5,7 +5,7 @@ import type {
   InvocationInspectionSummary,
 } from 'spaces-harness-broker-protocol'
 
-import { BrokerClient } from '../packages/harness-broker-client/src/index.js'
+import { BrokerClient } from '../contracts/harness-broker-client/src/index.js'
 import { formatBrokerEventLogLine } from './lib/broker-event-render.js'
 
 type Args = {

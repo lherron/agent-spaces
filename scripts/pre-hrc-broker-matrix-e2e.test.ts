@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import type { BrokerExecutionProfile, RuntimeCompileResponse } from 'spaces-runtime-contracts'
 
-import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.js'
+import { createAgentSpacesClient } from '../compiler/agent-spaces/src/index.js'
 import {
   BROKER_MANAGED_MATRIX_ROWS,
   MATRIX_ROW_NAMES,

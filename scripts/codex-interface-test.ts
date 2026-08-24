@@ -14,12 +14,12 @@
 import { mkdir } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 
-import { createAgentSpacesClient } from '../packages/agent-spaces/src/index.ts'
+import { createAgentSpacesClient } from '../compiler/agent-spaces/src/index.ts'
 import type {
   HarnessContinuationRef,
   HarnessFrontend,
   SpaceSpec,
-} from '../packages/agent-spaces/src/types.ts'
+} from '../compiler/agent-spaces/src/types.ts'
 
 interface ParsedArgs {
   spaces: string[]

@@ -42,10 +42,10 @@ jobs:
 
       - name: Pack smoke test
         run: bun scripts/smoke-test-pack.ts
-        working-directory: packages/cli
+        working-directory: apps/cli
 
       - name: Publish @lherron/agent-spaces
         run: npm publish --access public --provenance
-        working-directory: packages/cli
+        working-directory: apps/cli
         env:
           NODE_AUTH_TOKEN: ""

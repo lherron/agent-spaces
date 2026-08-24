@@ -19,15 +19,18 @@ if (!topic) {
 
 const repoRoot = process.cwd()
 const topicLower = topic.toLowerCase()
+const workspaceRoots = ['apps', 'compiler', 'contracts', 'core', 'drivers', 'harness'] as const
+const packageIndexPattern =
+  /^(?:apps|compiler|contracts|core|drivers|harness)\/[^/]+\/src\/index\.ts$/
 
 function isEntryPointCandidate(file: string): boolean {
-  if (file === 'packages/cli/src/command-registry.ts') {
+  if (file === 'apps/cli/src/command-registry.ts') {
     return true
   }
-  if (file.startsWith('packages/cli/src/commands/')) {
+  if (file.startsWith('apps/cli/src/commands/')) {
     return true
   }
-  if (/^packages\/[^/]+\/src\/index\.ts$/.test(file)) {
+  if (packageIndexPattern.test(file)) {
     return true
   }
   if (/(route|routes|handler|handlers)/i.test(file)) {
@@ -37,13 +40,13 @@ function isEntryPointCandidate(file: string): boolean {
 }
 
 function roleFor(file: string, lineText: string): string {
-  if (file === 'packages/cli/src/command-registry.ts') {
+  if (file === 'apps/cli/src/command-registry.ts') {
     return `CLI command registry: ${lineText}`
   }
-  if (file.startsWith('packages/cli/src/commands/')) {
+  if (file.startsWith('apps/cli/src/commands/')) {
     return `CLI command entry: ${lineText}`
   }
-  if (/^packages\/[^/]+\/src\/index\.ts$/.test(file)) {
+  if (packageIndexPattern.test(file)) {
     return `exported package surface: ${lineText}`
   }
   if (/(route|routes|handler|handlers)/i.test(file)) {
@@ -59,9 +62,9 @@ function scoreHit(file: string, lineText: string): number {
   if (lowerFile.includes(topicLower)) score += 80
   if (basename(file).toLowerCase().includes(topicLower)) score += 20
   if (lowerLine.includes(topicLower)) score += 60
-  if (file.startsWith('packages/cli/src/commands/')) score += 20
-  if (file === 'packages/cli/src/command-registry.ts') score += 15
-  if (/^packages\/[^/]+\/src\/index\.ts$/.test(file)) score += 10
+  if (file.startsWith('apps/cli/src/commands/')) score += 20
+  if (file === 'apps/cli/src/command-registry.ts') score += 15
+  if (packageIndexPattern.test(file)) score += 10
   if (/(\.test|\.red|\.spec)\.tsx?$/.test(file) || file.includes('/__tests__/')) score += 5
   return score
 }
@@ -76,7 +79,7 @@ function firstMeaningfulLine(content: string): { line: number; text: string } {
 }
 
 const allFiles = (
-  await Promise.all(['packages', 'integration-tests'].map((root) => collectTsFiles(root)))
+  await Promise.all([...workspaceRoots, 'integration-tests'].map((root) => collectTsFiles(root)))
 ).flat()
 const hits: Hit[] = []
 

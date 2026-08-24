@@ -4,7 +4,7 @@
  * someone remembered to add it by hand is a package that silently drops out of
  * one of those rosters later; this test is the guard.
  *
- * Not roster work (deliberately NOT asserted): packages/cli
+ * Not roster work (deliberately NOT asserted): apps/cli
  * prepack/postpack/bundledDependencies — the CLI does not bundle `spaces-aspc`
  * and must not start bundling the facade.
  */
@@ -15,7 +15,7 @@ import { join } from 'node:path'
 const repoRoot = new URL('..', import.meta.url).pathname
 
 const NPM_NAME = 'spaces-aspc-facade'
-const DIR_NAME = 'packages/aspc-facade'
+const DIR_NAME = 'harness/aspc-facade'
 
 function read(relativePath: string): string {
   return readFileSync(join(repoRoot, relativePath), 'utf8')
@@ -47,7 +47,7 @@ describe('spaces-aspc-facade roster membership', () => {
     const importGraph = read('scripts/lib/import-graph.ts')
     const aspPackagesBlock = /export const aspPackages = \[([\s\S]*?)\]/.exec(importGraph)
     expect(aspPackagesBlock).not.toBeNull()
-    expect(aspPackagesBlock?.[1] ?? '').toContain("'aspc-facade'")
+    expect(aspPackagesBlock?.[1] ?? '').toContain(`'${DIR_NAME}'`)
 
     // Local dev publish roster, before the public CLI.
     const publish = read('scripts/publish-local-verdaccio.ts')
@@ -56,7 +56,7 @@ describe('spaces-aspc-facade roster membership', () => {
     expect(devPublishBlock?.[1] ?? '').toContain(`'${DIR_NAME}'`)
 
     // justfile install links the facade package for the `aspc-facade`
-    // executable; the existing packages/aspc link stays for `aspc`.
+    // executable; the existing compiler/aspc link stays for `aspc`.
     const justfile = read('justfile')
     // Anchor on the comment that closes the link block: a lazy stop at the
     // first `fi` would cut the capture short of the `bun link` lines.
@@ -65,7 +65,7 @@ describe('spaces-aspc-facade roster membership', () => {
     expect(linkBlock).not.toBeNull()
     const links = linkBlock?.[1] ?? ''
     expect(links).toContain(`cd ${DIR_NAME} && bun link`)
-    expect(links).toContain('cd packages/aspc && bun link')
+    expect(links).toContain('cd compiler/aspc && bun link')
     // The adjacent comment must stop claiming spaces-aspc ships the facade bin.
     expect(justfile).not.toContain('spaces-aspc ships `aspc` + `aspc-facade`')
   })

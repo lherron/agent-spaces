@@ -37,26 +37,28 @@ export type DependencyGraph = {
 }
 
 export const aspPackages = [
-  'agent-scope',
-  'cli-kit',
-  'config',
-  'runtime',
-  'execution',
-  'harness-claude',
-  'harness-codex',
-  'harness-pi',
-  'harness-pi-sdk',
-  'harness-broker-protocol',
-  'harness-broker-pi-sdk',
-  'spaces-runtime-contracts',
-  'aspc-protocol',
-  'harness-broker-client',
-  'agent-spaces',
-  'turn-runner',
-  'aspc',
-  'aspc-facade',
-  'cli',
+  'contracts/agent-scope',
+  'contracts/harness-broker-protocol',
+  'contracts/spaces-runtime-contracts',
+  'contracts/aspc-protocol',
+  'contracts/harness-broker-client',
+  'core/config',
+  'core/runtime',
+  'drivers/harness-claude',
+  'drivers/harness-codex',
+  'drivers/harness-pi',
+  'drivers/harness-pi-sdk',
+  'drivers/execution',
+  'compiler/agent-spaces',
+  'compiler/aspc',
+  'harness/harness-broker-pi-sdk',
+  'harness/aspc-facade',
+  'apps/cli-kit',
+  'apps/turn-runner',
+  'apps/cli',
 ]
+
+const aspWorkspaceRoots = ['contracts', 'core', 'drivers', 'compiler', 'harness', 'apps']
 
 export const hrcPackages = [
   'agent-action-render',
@@ -81,7 +83,7 @@ export const layers: Layer[] = [
   // spaces-runtime-contracts to share them.
   {
     name: 'Harness Broker Protocol',
-    roots: ['packages/harness-broker-protocol/src'],
+    roots: ['contracts/harness-broker-protocol/src'],
     forbidden: [
       'agent-scope',
       'cli-kit',
@@ -109,7 +111,7 @@ export const layers: Layer[] = [
   // re-litigated here.
   {
     name: 'Runtime Contracts',
-    roots: ['packages/spaces-runtime-contracts/src'],
+    roots: ['contracts/spaces-runtime-contracts/src'],
     forbidden: [
       'agent-scope',
       'cli-kit',
@@ -140,7 +142,7 @@ export const layers: Layer[] = [
   // CONTRACTS seam: forbids every downstream ASP package.
   {
     name: 'ASPC Protocol',
-    roots: ['packages/aspc-protocol/src'],
+    roots: ['contracts/aspc-protocol/src'],
     forbidden: [
       'agent-scope',
       'cli-kit',
@@ -171,7 +173,7 @@ export const layers: Layer[] = [
   // every non-contracts ASP package is downstream of it.
   {
     name: 'Agent Scope',
-    roots: ['packages/agent-scope/src'],
+    roots: ['contracts/agent-scope/src'],
     forbidden: [
       'cli-kit',
       'spaces-config',
@@ -195,7 +197,7 @@ export const layers: Layer[] = [
   },
   {
     name: 'Harness Broker Client',
-    roots: ['packages/harness-broker-client/src'],
+    roots: ['contracts/harness-broker-client/src'],
     forbidden: [
       'agent-scope',
       'cli-kit',
@@ -231,7 +233,7 @@ export const layers: Layer[] = [
   // stays importable here, but nothing compels its use.
   {
     name: 'Harness Broker',
-    roots: ['packages/harness-broker/src'],
+    roots: ['harness/harness-broker/src'],
     forbidden: [
       'agent-scope',
       'cli-kit',
@@ -261,7 +263,7 @@ export const layers: Layer[] = [
   // stay permitted; every compiler-side package is forbidden.
   {
     name: 'Harness Broker Pi SDK',
-    roots: ['packages/harness-broker-pi-sdk/src'],
+    roots: ['harness/harness-broker-pi-sdk/src'],
     forbidden: [
       'agent-scope',
       'cli-kit',
@@ -289,10 +291,13 @@ export const layers: Layer[] = [
   // so post carve-out it must not reach the SDK/session plane, nor anything
   // downstream of itself (turn-runner, the aspc facade, the CLI).
   // Tokens are enumerated rather than written as a 'spaces-harness-' prefix,
-  // because a prefix would swallow three deliberate, named exceptions:
-  //   - spaces-harness-codex: `buildCodexAppServerLaunchDescriptor` (3 call
-  //     sites) is a declarative compile-plane descriptor builder, not an
-  //     SDK/session import.
+  // because a prefix would swallow deliberate, named exceptions. Temporary
+  // root-layer exemption (removal owner: T-07526): compiler/agent-spaces may
+  // import drivers/execution (10 imports across 9 files) and
+  // drivers/harness-codex (3 imports). This is the pre-existing T-07317
+  // "accepted residual" made visible, not a new violation.
+  //   - spaces-harness-codex: `buildCodexAppServerLaunchDescriptor` is a
+  //     declarative compile-plane descriptor builder, not an SDK/session import.
   //   - spaces-harness-broker-protocol and spaces-harness-broker-client: these
   //     edges are retained deliberately — T-07314 AC-1 asserts they REMAIN
   //     after the aspc facade split, so forbidding them would break landed work.
@@ -304,7 +309,7 @@ export const layers: Layer[] = [
   // and is out of scope here.
   {
     name: 'ASPC Compiler',
-    roots: ['packages/agent-spaces/src', 'packages/aspc/src'],
+    roots: ['compiler/agent-spaces/src', 'compiler/aspc/src'],
     forbidden: [
       'spaces-harness-claude',
       'spaces-harness-pi',
@@ -324,7 +329,7 @@ export const layers: Layer[] = [
   },
   {
     name: 'ASP',
-    roots: [...aspPackages.map((name) => `packages/${name}`), 'integration-tests'],
+    roots: [...aspPackages, 'integration-tests'],
     forbidden: ['hrc-', 'acp-', 'gateway-', 'coordination-substrate', 'wrkq-lib', 'wlearn'],
   },
   {
@@ -388,8 +393,8 @@ export async function collectTsFiles(root: string): Promise<string[]> {
 
 export function packageGroup(file: string): string {
   const parts = file.split('/')
-  if (parts[0] === 'packages' && parts[1]) {
-    return `packages/${parts[1]}`
+  if (parts[0] && parts[1]) {
+    return `${parts[0]}/${parts[1]}`
   }
   return parts[0] ?? dirname(file)
 }
@@ -577,37 +582,39 @@ export function repoPath(repoRoot: string, path: string): string {
 
 async function buildPackageNameMap(repoRoot: string): Promise<Map<string, string>> {
   const packageNames = new Map<string, string>()
-  const packagesDir = join(repoRoot, 'packages')
-  let entries: Dirent[]
-  try {
-    entries = await readdir(packagesDir, { withFileTypes: true })
-  } catch (error) {
-    const code = error instanceof Error && 'code' in error ? error.code : undefined
-    if (code === 'ENOENT') {
-      return packageNames
-    }
-    throw error
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue
-    }
-
-    const packageDir = `packages/${entry.name}`
+  for (const workspaceRoot of aspWorkspaceRoots) {
+    const workspaceDir = join(repoRoot, workspaceRoot)
+    let entries: Dirent[]
     try {
-      const packageJson = JSON.parse(
-        await readFile(join(repoRoot, packageDir, 'package.json'), 'utf8')
-      ) as {
-        name?: string
-      }
-      if (typeof packageJson.name === 'string') {
-        packageNames.set(packageJson.name, packageDir)
-      }
+      entries = await readdir(workspaceDir, { withFileTypes: true })
     } catch (error) {
       const code = error instanceof Error && 'code' in error ? error.code : undefined
-      if (code !== 'ENOENT') {
-        throw error
+      if (code === 'ENOENT') {
+        continue
+      }
+      throw error
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue
+      }
+
+      const packageDir = `${workspaceRoot}/${entry.name}`
+      try {
+        const packageJson = JSON.parse(
+          await readFile(join(repoRoot, packageDir, 'package.json'), 'utf8')
+        ) as {
+          name?: string
+        }
+        if (typeof packageJson.name === 'string') {
+          packageNames.set(packageJson.name, packageDir)
+        }
+      } catch (error) {
+        const code = error instanceof Error && 'code' in error ? error.code : undefined
+        if (code !== 'ENOENT') {
+          throw error
+        }
       }
     }
   }
@@ -666,7 +673,7 @@ export function resolveImportTarget(
 
 export async function buildDependencyGraph(
   repoRoot = process.cwd(),
-  roots = ['packages', 'integration-tests']
+  roots = [...aspWorkspaceRoots, 'integration-tests']
 ): Promise<DependencyGraph> {
   const packageNames = await buildPackageNameMap(repoRoot)
   const files = (

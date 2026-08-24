@@ -15,22 +15,22 @@ authority:
   repo: agent-spaces
   surface: spaces-config lock generation and materialization
 source:
-  - packages/config/src/core/schemas/lock.schema.json
-  - packages/config/src/core/types/lock.ts
-  - packages/config/src/resolver/closure.ts
-  - packages/config/src/resolver/integrity.ts
-  - packages/config/src/resolver/lock-generator.ts
-  - packages/config/src/store/immutable-source.ts
-  - packages/config/src/store/paths.ts
-  - packages/config/src/orchestration/resolve.ts
-  - packages/config/src/orchestration/install.ts
-  - packages/config/src/orchestration/materialize-refs.ts
-  - packages/config/src/orchestration/portable-immutable-source.test.ts
-  - packages/agent-spaces/src/client-materialization.ts
-  - packages/execution/src/run.ts
-  - packages/execution/src/run/space-launch.ts
+  - core/config/src/core/schemas/lock.schema.json
+  - core/config/src/core/types/lock.ts
+  - core/config/src/resolver/closure.ts
+  - core/config/src/resolver/integrity.ts
+  - core/config/src/resolver/lock-generator.ts
+  - core/config/src/store/immutable-source.ts
+  - core/config/src/store/paths.ts
+  - core/config/src/orchestration/resolve.ts
+  - core/config/src/orchestration/install.ts
+  - core/config/src/orchestration/materialize-refs.ts
+  - core/config/src/orchestration/portable-immutable-source.test.ts
+  - compiler/agent-spaces/src/client-materialization.ts
+  - drivers/execution/src/run.ts
+  - drivers/execution/src/run/space-launch.ts
 required_tests:
-  - bun test packages/config/src/orchestration/portable-immutable-source.test.ts exits 0
+  - bun test core/config/src/orchestration/portable-immutable-source.test.ts exits 0
   - bun run build exits 0
 last_verified:
   date: 2026-07-25

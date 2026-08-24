@@ -67,18 +67,20 @@ type CommandContext = {
 }
 
 const ratifiedPackages: RatifiedPackage[] = [
-  { dir: 'packages/agent-scope', fallbackName: 'agent-scope' },
-  { dir: 'packages/aspc-protocol', fallbackName: 'spaces-aspc-protocol' },
-  { dir: 'packages/harness-broker-protocol', fallbackName: 'spaces-harness-broker-protocol' },
-  { dir: 'packages/spaces-runtime-contracts', fallbackName: 'spaces-runtime-contracts' },
+  { dir: 'contracts/agent-scope', fallbackName: 'agent-scope' },
+  { dir: 'contracts/aspc-protocol', fallbackName: 'spaces-aspc-protocol' },
+  { dir: 'contracts/harness-broker-protocol', fallbackName: 'spaces-harness-broker-protocol' },
+  { dir: 'contracts/spaces-runtime-contracts', fallbackName: 'spaces-runtime-contracts' },
 ]
 
 const workspacePackageDirs = new Map([
-  ['agent-scope', 'packages/agent-scope'],
-  ['spaces-aspc-protocol', 'packages/aspc-protocol'],
-  ['spaces-harness-broker-protocol', 'packages/harness-broker-protocol'],
-  ['spaces-runtime-contracts', 'packages/spaces-runtime-contracts'],
+  ['agent-scope', 'contracts/agent-scope'],
+  ['spaces-aspc-protocol', 'contracts/aspc-protocol'],
+  ['spaces-harness-broker-protocol', 'contracts/harness-broker-protocol'],
+  ['spaces-runtime-contracts', 'contracts/spaces-runtime-contracts'],
 ])
+
+const workspaceRootPrefixes = ['contracts/', 'core/', 'drivers/', 'compiler/', 'harness/', 'apps/']
 
 const ignoredDirectories = new Set([
   '.git',
@@ -456,7 +458,7 @@ async function collectCoverageFiles(root: string): Promise<CoverageFile[]> {
       return true
     }
     return (
-      file.startsWith('packages/') &&
+      workspaceRootPrefixes.some((prefix) => file.startsWith(prefix)) &&
       (file.endsWith('.test.ts') || file.endsWith('.red.test.ts') || file.endsWith('.test-d.ts'))
     )
   })
@@ -646,7 +648,7 @@ async function scanRegistrar(
 }
 
 async function collectCliSurfaces(root: string): Promise<Surface[]> {
-  const registry = 'packages/cli/src/command-registry.ts'
+  const registry = 'apps/cli/src/command-registry.ts'
   if (!existsSync(join(root, registry))) {
     return []
   }

@@ -28,7 +28,7 @@ bun install
 bun run build
 
 # Add to PATH (or create alias)
-export PATH="$PATH:$(pwd)/packages/cli/bin"
+export PATH="$PATH:$(pwd)/apps/cli/bin"
 ```
 
 ## Hello World
@@ -141,24 +141,12 @@ asp agent alice@demo:T-1 task --prompt "triage the failing build"
 ## Package Layout
 
 ```text
-packages/
-├── agent-scope/              # Canonical ScopeRef/ScopeHandle/SessionRef/SessionHandle helpers
-├── spaces-runtime-contracts/ # Cross-plane DTO contracts and schema constants
-├── cli-kit/                  # Shared Commander helpers and CLI input validators
-├── config/                   # spaces-config: config-time determinism, resolution, locks, materialization
-├── runtime/                  # spaces-runtime: harness-agnostic session + context-template contracts
-├── execution/                # spaces-execution: run-time orchestration and harness dispatch
-├── harness-claude/           # Claude CLI + Agent SDK adapters
-├── harness-codex/            # Codex CLI/app-server adapter (experimental)
-├── harness-pi/               # Pi CLI adapter
-├── harness-pi-sdk/           # Pi SDK adapter and session runtime
-├── harness-broker-protocol/  # Broker JSON-RPC NDJSON protocol types and schemas
-├── harness-broker-client/    # Typed client for the broker protocol
-├── harness-broker/           # Broker process: invocation manager, tmux drivers, event sequencing
-├── aspc-protocol/            # ASPC compiler JSON-RPC protocol types
-├── aspc/                     # ASPC compiler service, client, and broker facade
-├── agent-spaces/             # Public host-facing API and event translation layer
-└── cli/                      # `asp` command line interface
+contracts/  # Protocols and shared cross-plane types
+core/       # Configuration and runtime foundations
+drivers/    # Execution and provider adapters
+compiler/   # Agent-space and ASPC compilers
+harness/    # Broker and facade processes
+apps/       # Public CLI, turn runner, and CLI utilities
 ```
 
 `agent-scope` owns the canonical identity vocabulary:

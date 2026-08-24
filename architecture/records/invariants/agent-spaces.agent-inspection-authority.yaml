@@ -18,8 +18,8 @@ predicate: >
 authority: hrcchat#20422
 source:
   - hrcchat#20422
-  - packages/aspc/src/service.ts
-  - packages/aspc-protocol/src/types.ts
+  - compiler/aspc/src/service.ts
+  - contracts/aspc-protocol/src/types.ts
 required_tests:
   - consumer-facing catalog and inspection operations reject any path root environment clock probe scaffold or compile-option input
   - catalog and inspection DTOs contain no filesystem path or ambient environment field

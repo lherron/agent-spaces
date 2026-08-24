@@ -33,7 +33,7 @@ const REPO_ROOT = join(import.meta.dir, '..')
 // Boundary fixture: forbidden 'agent-spaces' import in Harness Broker Protocol layer.
 // The forbidden import is on line 3 (two comment lines precede it).
 const BOUNDARY_FIXTURE_LINE = 3
-const BOUNDARY_FIXTURE_REL = 'packages/harness-broker-protocol/src/__diag_fixture__.ts'
+const BOUNDARY_FIXTURE_REL = 'contracts/harness-broker-protocol/src/__diag_fixture__.ts'
 const BOUNDARY_FIXTURE_CONTENT = [
   '// __diag_fixture__: boundary violation sentinel — DO NOT COMMIT',
   '// Plants a forbidden import for §3 diagnostic conformance testing.',
@@ -44,7 +44,7 @@ const BOUNDARY_FIXTURE_CONTENT = [
 // 'spaces-harness-broker-protocol' is a real workspace pkg not in agent-scope/package.json.
 // The undeclared import is on line 3 (two comment lines precede it).
 const MANIFEST_FIXTURE_LINE = 3
-const MANIFEST_FIXTURE_REL = 'packages/agent-scope/src/__diag_fixture__.ts'
+const MANIFEST_FIXTURE_REL = 'contracts/agent-scope/src/__diag_fixture__.ts'
 const MANIFEST_FIXTURE_CONTENT = [
   '// __diag_fixture__: manifest violation sentinel — DO NOT COMMIT',
   '// Plants an undeclared workspace import for §3 diagnostic conformance testing.',
@@ -54,7 +54,7 @@ const MANIFEST_FIXTURE_CONTENT = [
 // Harness-contract fixture: forbidden HRC import in the testing harness surface.
 // The forbidden import is on line 3 (two comment lines precede it).
 const HARNESS_FIXTURE_LINE = 3
-const HARNESS_FIXTURE_REL = 'packages/agent-spaces/src/testing/__diag_fixture__.ts'
+const HARNESS_FIXTURE_REL = 'compiler/agent-spaces/src/testing/__diag_fixture__.ts'
 const HARNESS_FIXTURE_CONTENT = [
   '// __diag_fixture__: contract-harness boundary violation sentinel — DO NOT COMMIT',
   '// Plants a forbidden HRC import for §3 diagnostic conformance testing.',
@@ -137,7 +137,7 @@ describe('check-manifest-edges.ts — §3 six-field diagnostics', () => {
 
   test('manifest missing-edge violation carries all six §3 teaching fields', async () => {
     // Plant: import 'spaces-harness-broker-protocol' — a real workspace package that is
-    // NOT declared in packages/agent-scope/package.json (verified: only @types/bun + tsc).
+    // NOT declared in contracts/agent-scope/package.json (verified: only @types/bun + tsc).
     await writeFile(join(REPO_ROOT, MANIFEST_FIXTURE_REL), MANIFEST_FIXTURE_CONTENT)
 
     const result = await runScript('scripts/check-manifest-edges.ts')

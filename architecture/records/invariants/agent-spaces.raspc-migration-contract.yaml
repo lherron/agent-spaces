@@ -23,11 +23,11 @@ source:
   - hrcchat#19465
   - hrcchat#19467
   - docs/p0-hash-epoch.md
-  - packages/aspc/src/manifest.ts
-  - packages/aspc/src/verify-release.ts
-  - packages/aspc/src/service.ts
-  - packages/aspc-protocol/src/types.ts
-  - packages/spaces-runtime-contracts/src/hash.ts
+  - compiler/aspc/src/manifest.ts
+  - compiler/aspc/src/verify-release.ts
+  - compiler/aspc/src/service.ts
+  - contracts/aspc-protocol/src/types.ts
+  - contracts/spaces-runtime-contracts/src/hash.ts
 required_tests:
   - Mode B rejects any raw emitted-file byte or size difference between aspc and rasp
   - Mode B rejects any complete RPC response value difference, including initial input content and attachments

@@ -4,18 +4,18 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
-import { writeClaudeHooksJson } from '../packages/config/src/materializer/hooks-toml.js'
-import { writeMcpConfig } from '../packages/config/src/materializer/mcp-composer.js'
-import { writePluginJson } from '../packages/config/src/materializer/plugin-json.js'
-import { writeSettingsFile } from '../packages/config/src/materializer/settings-composer.js'
-import { writeCacheMetadataAt } from '../packages/config/src/store/cache.js'
-import { prepareCodexRuntimeHome } from '../packages/execution/src/run-codex.js'
-import { CodexAdapter } from '../packages/harness-codex/src/adapters/codex-adapter.js'
+import { writeClaudeHooksJson } from '../core/config/src/materializer/hooks-toml.js'
+import { writeMcpConfig } from '../core/config/src/materializer/mcp-composer.js'
+import { writePluginJson } from '../core/config/src/materializer/plugin-json.js'
+import { writeSettingsFile } from '../core/config/src/materializer/settings-composer.js'
+import { writeCacheMetadataAt } from '../core/config/src/store/cache.js'
+import { prepareCodexRuntimeHome } from '../drivers/execution/src/run-codex.js'
+import { CodexAdapter } from '../drivers/harness-codex/src/adapters/codex-adapter.js'
 
 const REPO_ROOT = join(import.meta.dir, '..')
 
 const SHARED_CANONICAL_JSON_MODULE = 'spaces-runtime-contracts'
-const CANONICAL_JSON_HOME = 'packages/spaces-runtime-contracts/src/hash.ts'
+const CANONICAL_JSON_HOME = 'contracts/spaces-runtime-contracts/src/hash.ts'
 
 /**
  * Census sites are keyed `<repo-relative path>#<outermost enclosing declaration>` so the
@@ -25,23 +25,23 @@ const CANONICAL_JSON_HOME = 'packages/spaces-runtime-contracts/src/hash.ts'
 /** In-scope residual canonical-JSON implementations: each must collapse into the shared home. */
 const MIGRATING_CANONICAL_JSON_SITES = new Map([
   [
-    'packages/agent-spaces/src/agent-inspection.ts#sortJson',
+    'compiler/agent-spaces/src/agent-inspection.ts#sortJson',
     'sortJson feeds stableHash (sha256 over JSON.stringify) for the inspection seed and contextHash',
   ],
   [
-    'packages/aspc/src/manifest.ts#sortKeys',
+    'compiler/aspc/src/manifest.ts#sortKeys',
     'sortKeys backs the local canonicalJson used for manifest hashes',
   ],
   [
-    'packages/config/src/orchestration/install.ts#stableJson',
+    'core/config/src/orchestration/install.ts#stableJson',
     'local stableJson serializer on the install hash path',
   ],
   [
-    'packages/execution/src/run-codex.ts#stableJson',
+    'drivers/execution/src/run-codex.ts#stableJson',
     'local stableJson serializer on the codex runtime metadata path',
   ],
   [
-    'packages/harness-codex/src/adapters/codex-hooks.ts#canonicalJson',
+    'drivers/harness-codex/src/adapters/codex-hooks.ts#canonicalJson',
     'local canonicalJson serializer on the codex hooks artifact path',
   ],
 ])
@@ -49,35 +49,39 @@ const MIGRATING_CANONICAL_JSON_SITES = new Map([
 /** Discovered-but-out-of-scope canonicalization sites, each with the reason it is not migrated. */
 const CANONICAL_JSON_CENSUS_EXCLUSIONS = new Map([
   [
-    'packages/agent-spaces/src/compile-runtime-plan.ts#compileBrokerPlan',
+    'compiler/aspc/src/agent-inspection-authority.ts#sameRecord',
+    'Object.keys(...).sort() compares two record key NAME LISTS; it serializes no values',
+  ],
+  [
+    'compiler/agent-spaces/src/compile-runtime-plan.ts#compileBrokerPlan',
     'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
   ],
   [
-    'packages/agent-spaces/src/compile-runtime-plan.ts#compileForegroundPlan',
+    'compiler/agent-spaces/src/compile-runtime-plan.ts#compileForegroundPlan',
     'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
   ],
   [
-    'packages/agent-spaces/src/compile-runtime-plan.ts#compilePiSdkBrokerPlan',
+    'compiler/agent-spaces/src/compile-runtime-plan.ts#compilePiSdkBrokerPlan',
     'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
   ],
   [
-    'packages/agent-spaces/src/compile-runtime-plan.ts#compileTmuxBrokerPlan',
+    'compiler/agent-spaces/src/compile-runtime-plan.ts#compileTmuxBrokerPlan',
     'Object.keys(lockedEnv).sort() emits a sorted key NAME LIST field; it serializes no values',
   ],
   [
-    'packages/harness-codex/src/adapters/codex-adapter.ts#CodexAdapter',
+    'drivers/harness-codex/src/adapters/codex-adapter.ts#CodexAdapter',
     'Object.keys(mcpConfig.mcpServers).sort() emits a sorted server NAME LIST field; it serializes no values',
   ],
   [
-    'packages/harness-broker-pi-sdk/src/driver.ts#canonicalize',
+    'harness/harness-broker-pi-sdk/src/driver.ts#canonicalize',
     'live broker structured-response canonicalization; not compiled artifact bytes, and already codepoint-ordered',
   ],
   [
-    'packages/harness-broker-protocol/src/lifecycle.ts#canonicalizeJson',
+    'contracts/harness-broker-protocol/src/lifecycle.ts#canonicalizeJson',
     'broker lifecycle/resume-token hashing over live process events; not compiled artifact bytes',
   ],
   [
-    'packages/harness-broker/src/event-ledger.ts#sortJson',
+    'harness/harness-broker/src/event-ledger.ts#sortJson',
     'event-ledger row canonicalization for runtime telemetry; not compiled artifact bytes',
   ],
 ])
@@ -85,27 +89,27 @@ const CANONICAL_JSON_CENSUS_EXCLUSIONS = new Map([
 /** localeCompare sites that feed a digest or artifact hash: these must become codepoint ordering. */
 const HASH_MATERIAL_LOCALE_COMPARE_SITES = new Map([
   [
-    'packages/agent-spaces/src/agent-inspection.ts#sortJson',
+    'compiler/agent-spaces/src/agent-inspection.ts#sortJson',
     'key order feeds stableHash (sha256) for the inspection seed and contextHash',
   ],
   [
-    'packages/config/src/orchestration/install.ts#hashDirectory',
+    'core/config/src/orchestration/install.ts#hashDirectory',
     'entry order feeds the sha256 directory hash',
   ],
   [
-    'packages/config/src/resolver/filesystem-registry.ts#computeFilesystemRegistryCommit',
+    'core/config/src/resolver/filesystem-registry.ts#computeFilesystemRegistryCommit',
     'entry order feeds the registry commit sha256',
   ],
   [
-    'packages/config/src/resolver/integrity.ts#computeFilesystemIntegrity',
+    'core/config/src/resolver/integrity.ts#computeFilesystemIntegrity',
     'entry order feeds the canonical integrity representation',
   ],
   [
-    'packages/config/src/resolver/integrity.ts#computeIntegrity',
+    'core/config/src/resolver/integrity.ts#computeIntegrity',
     'entry order feeds the canonical integrity representation',
   ],
   [
-    'packages/config/src/store/snapshot.ts#computeSnapshotIntegrity',
+    'core/config/src/store/snapshot.ts#computeSnapshotIntegrity',
     'entry order must match resolver/integrity.ts byte-for-byte',
   ],
 ])
@@ -113,49 +117,49 @@ const HASH_MATERIAL_LOCALE_COMPARE_SITES = new Map([
 /** localeCompare sites that never reach hash material or emitted artifact bytes. */
 const DISPLAY_ONLY_LOCALE_COMPARE_SITES = new Map([
   [
-    'packages/agent-spaces/src/agent-inspection.ts#listAgentDirectories',
+    'compiler/agent-spaces/src/agent-inspection.ts#listAgentDirectories',
     'agent-id listing order in inspection output; not hashed',
   ],
   [
-    'packages/agent-spaces/src/compile-runtime-plan.ts#sortHygieneFindings',
+    'compiler/agent-spaces/src/compile-runtime-plan.ts#sortHygieneFindings',
     'diagnostic finding order only',
   ],
-  ['packages/cli/src/agent-roots.ts#buildAgentRootReport', 'CLI agent-root report ordering'],
+  ['apps/cli/src/agent-roots.ts#buildAgentRootReport', 'CLI agent-root report ordering'],
   [
-    'packages/cli/src/commands/self/lib.ts#filterInjectedEnv',
+    'apps/cli/src/commands/self/lib.ts#filterInjectedEnv',
     'read-side env lookup for `asp self`; emits no artifact bytes',
   ],
-  ['packages/cli/src/commands/spaces/list.ts#listSpaces', 'CLI spaces listing order'],
+  ['apps/cli/src/commands/spaces/list.ts#listSpaces', 'CLI spaces listing order'],
   [
-    'packages/config/src/lint/hygiene/baseline.ts#writeBaseline',
+    'core/config/src/lint/hygiene/baseline.ts#writeBaseline',
     'suppression-baseline row order; each entry fingerprint is computed before ordering, and the baseline is lint tooling output',
   ],
   [
-    'packages/config/src/lint/hygiene/rules/W42x-reference-graph.ts#listFiles',
+    'core/config/src/lint/hygiene/rules/W42x-reference-graph.ts#listFiles',
     'lint traversal order feeding warning order',
   ],
-  ['packages/config/src/lint/hygiene/run.ts#lintHygiene', 'hygiene warning display order'],
-  ['packages/config/src/lint/index.ts#lint', 'lint warning display order'],
-  ['packages/config/src/store/gc.ts#pruneBundleVersions', 'GC deletion tiebreak; emits no bytes'],
-  ['packages/harness-broker/src/event-ledger.ts#rewriteLedger', 'runtime telemetry row order'],
+  ['core/config/src/lint/hygiene/run.ts#lintHygiene', 'hygiene warning display order'],
+  ['core/config/src/lint/index.ts#lint', 'lint warning display order'],
+  ['core/config/src/store/gc.ts#pruneBundleVersions', 'GC deletion tiebreak; emits no bytes'],
+  ['harness/harness-broker/src/event-ledger.ts#rewriteLedger', 'runtime telemetry row order'],
   [
-    'packages/harness-broker/src/runtime/event-normalize.ts#truncateToBudget',
+    'harness/harness-broker/src/runtime/event-normalize.ts#truncateToBudget',
     'truncation priority for runtime telemetry',
   ],
 ])
 
 const AMBIENT_CLOCK_FILES = [
-  'packages/config/src/core/types/lock.ts',
-  'packages/config/src/materializer/materialize.ts',
-  'packages/config/src/orchestration/install.ts',
-  'packages/config/src/resolver/lock-generator.ts',
-  'packages/config/src/store/temp-lifecycle.ts',
+  'core/config/src/core/types/lock.ts',
+  'core/config/src/materializer/materialize.ts',
+  'core/config/src/orchestration/install.ts',
+  'core/config/src/resolver/lock-generator.ts',
+  'core/config/src/store/temp-lifecycle.ts',
 ] as const
 
 const ARTIFACT_WRITER_ROOTS = [
-  'packages/config/src/materializer',
-  'packages/config/src/store',
-  'packages/execution/src/run-codex.ts',
+  'core/config/src/materializer',
+  'core/config/src/store',
+  'drivers/execution/src/run-codex.ts',
 ] as const
 
 const REQUIRED_ARTIFACT_WRITERS = new Set([
@@ -271,16 +275,23 @@ async function productionTypeScriptFiles(root: string): Promise<string[]> {
 
 let packageSourceCache: Promise<ts.SourceFile[]> | undefined
 
-/** Every non-test .ts under packages/<pkg>/src — the census surface required by A1/A2. */
+/** Every non-test .ts under <root>/<pkg>/src — the census surface required by A1/A2. */
 function packageSources(): Promise<ts.SourceFile[]> {
   packageSourceCache ??= (async () => {
-    const packageDirs = await readdir(join(REPO_ROOT, 'packages'), { withFileTypes: true })
+    const workspaceRoots = ['contracts', 'core', 'drivers', 'compiler', 'harness', 'apps']
     const grouped = await Promise.all(
-      packageDirs
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => productionTypeScriptFiles(join('packages', entry.name, 'src')))
+      workspaceRoots.flatMap(async (workspaceRoot) => {
+        const packageDirs = await readdir(join(REPO_ROOT, workspaceRoot), {
+          withFileTypes: true,
+        })
+        return Promise.all(
+          packageDirs
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => productionTypeScriptFiles(join(workspaceRoot, entry.name, 'src')))
+        )
+      })
     )
-    const absolutePaths = grouped.flat().sort()
+    const absolutePaths = grouped.flat(2).sort()
     return Promise.all(
       absolutePaths.map(async (absolutePath) =>
         parseSource(await readFile(absolutePath, 'utf8'), absolutePath)
@@ -464,7 +475,7 @@ function hasExactlyOneTrailingNewline(content: string): boolean {
 }
 
 async function renderDateInTimezone(nowIso: string, timezone: string): Promise<string> {
-  const moduleUrl = pathToFileURL(join(REPO_ROOT, 'packages/runtime/src/template-vars.ts')).href
+  const moduleUrl = pathToFileURL(join(REPO_ROOT, 'core/runtime/src/template-vars.ts')).href
   const script = `
     import { interpolateVariables } from ${JSON.stringify(moduleUrl)}
     const output = interpolateVariables('{{date}}|{{dateUtc}}', {
@@ -541,20 +552,20 @@ describe('P0 single blessed hash epoch acceptance', () => {
     expect(
       undeclaredCanonicalSites([
         {
-          key: 'packages/new-pkg/src/x.ts#canonicalize',
-          file: 'packages/new-pkg/src/x.ts',
+          key: 'core/new-pkg/src/x.ts#canonicalize',
+          file: 'core/new-pkg/src/x.ts',
           line: 7,
         },
       ]),
       'an unclassified canonicalizer must be reported'
-    ).toEqual(['packages/new-pkg/src/x.ts:7'])
+    ).toEqual(['core/new-pkg/src/x.ts:7'])
 
     const sites = await collectCensus(isCanonicalKeyOrdering)
     expect(sites.length, 'repo-wide canonicalizer census discovered nothing').toBeGreaterThan(0)
 
     expect(
       undeclaredCanonicalSites(sites),
-      'every canonicalizer under packages/*/src must be declared as migrating or excluded with a reason'
+      'every canonicalizer under the workspace roots must be declared as migrating or excluded with a reason'
     ).toEqual([])
 
     const observed = new Set(sites.map((site) => site.key))
@@ -603,20 +614,20 @@ describe('P0 single blessed hash epoch acceptance', () => {
     expect(
       unclassifiedLocaleCompareSites([
         {
-          key: 'packages/new-pkg/src/y.ts#orderThings',
-          file: 'packages/new-pkg/src/y.ts',
+          key: 'core/new-pkg/src/y.ts#orderThings',
+          file: 'core/new-pkg/src/y.ts',
           line: 12,
         },
       ]),
       'an unclassified localeCompare must be reported'
-    ).toEqual(['packages/new-pkg/src/y.ts:12'])
+    ).toEqual(['core/new-pkg/src/y.ts:12'])
 
     const sites = await collectCensus(isLocaleCompareCall)
     expect(sites.length, 'repo-wide localeCompare census discovered nothing').toBeGreaterThan(0)
 
     expect(
       unclassifiedLocaleCompareSites(sites),
-      'every localeCompare under packages/*/src must be classified hash-material or display-only with a reason'
+      'every localeCompare under the workspace roots must be classified hash-material or display-only with a reason'
     ).toEqual([])
 
     const observed = new Set(sites.map((site) => site.key))
@@ -647,7 +658,7 @@ describe('P0 single blessed hash epoch acceptance', () => {
     }
     expect(ambientReads, 'listed compiler output paths still read the ambient clock').toEqual([])
 
-    const manifestSource = await readSource('packages/aspc/src/manifest.ts')
+    const manifestSource = await readSource('compiler/aspc/src/manifest.ts')
     expect(parseOutputExclusions(manifestSource).length).toBeGreaterThan(0)
     expect(
       nonLockOutputExclusions(manifestSource),

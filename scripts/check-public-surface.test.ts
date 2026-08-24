@@ -93,14 +93,14 @@ async function writePackageJson(root: string, packageDir: string, name: string):
 }
 
 async function writeAgentScopePackage(root: string, indexSource: string): Promise<void> {
-  await writePackageJson(root, 'packages/agent-scope', 'agent-scope')
-  await writeText(root, 'packages/agent-scope/src/index.ts', indexSource)
+  await writePackageJson(root, 'contracts/agent-scope', 'agent-scope')
+  await writeText(root, 'contracts/agent-scope/src/index.ts', indexSource)
 }
 
 async function writeCommandRegistry(root: string, commandSource: string): Promise<void> {
   await writeText(
     root,
-    'packages/cli/src/command-registry.ts',
+    'apps/cli/src/command-registry.ts',
     `
       import type { Command } from 'commander'
 
@@ -120,7 +120,7 @@ describe('parseExportReferences()', () => {
     expect(typeof parseExportReferences).toBe('function')
 
     const refs = parseExportReferences?.(
-      'packages/agent-scope/src/index.ts',
+      'contracts/agent-scope/src/index.ts',
       `
         export const InlineValue = 'inline'
         export type InlineType = { id: string }
@@ -136,34 +136,34 @@ describe('parseExportReferences()', () => {
     expect(refs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          file: 'packages/agent-scope/src/index.ts',
+          file: 'contracts/agent-scope/src/index.ts',
           symbol: 'InlineValue',
         }),
         expect.objectContaining({
-          file: 'packages/agent-scope/src/index.ts',
+          file: 'contracts/agent-scope/src/index.ts',
           symbol: 'InlineType',
         }),
         expect.objectContaining({
-          file: 'packages/agent-scope/src/index.ts',
+          file: 'contracts/agent-scope/src/index.ts',
           symbol: 'InlineInterface',
         }),
         expect.objectContaining({
-          file: 'packages/agent-scope/src/index.ts',
+          file: 'contracts/agent-scope/src/index.ts',
           symbol: 'PublicAlias',
           specifier: './alias',
         }),
         expect.objectContaining({
-          file: 'packages/agent-scope/src/index.ts',
+          file: 'contracts/agent-scope/src/index.ts',
           kind: 'star',
           specifier: './star',
         }),
         expect.objectContaining({
-          file: 'packages/agent-scope/src/index.ts',
+          file: 'contracts/agent-scope/src/index.ts',
           symbol: 'NamespacePublic',
           specifier: './namespace',
         }),
         expect.objectContaining({
-          file: 'packages/agent-scope/src/index.ts',
+          file: 'contracts/agent-scope/src/index.ts',
           symbol: 'DefaultPublic',
           specifier: './defaulted',
         }),
@@ -200,7 +200,7 @@ describe('check-public-surface.ts', () => {
     )
     await writeText(
       tmpDir,
-      'packages/agent-scope/src/direct.ts',
+      'contracts/agent-scope/src/direct.ts',
       `
         export const directValue = 'direct'
         export type DirectType = { id: string }
@@ -208,12 +208,12 @@ describe('check-public-surface.ts', () => {
     )
     await writeText(
       tmpDir,
-      'packages/agent-scope/src/alias.ts',
+      'contracts/agent-scope/src/alias.ts',
       "export const aliasedValue = 'alias'"
     )
     await writeText(
       tmpDir,
-      'packages/agent-scope/src/star.ts',
+      'contracts/agent-scope/src/star.ts',
       `
         export interface StarInterface { id: string }
         export const starValue = 'star'
@@ -221,17 +221,17 @@ describe('check-public-surface.ts', () => {
     )
     await writeText(
       tmpDir,
-      'packages/agent-scope/src/namespace.ts',
+      'contracts/agent-scope/src/namespace.ts',
       "export const namespaced = 'ns'"
     )
     await writeText(
       tmpDir,
-      'packages/agent-scope/src/defaulted.ts',
+      'contracts/agent-scope/src/defaulted.ts',
       'export default function defaulted() {}'
     )
     await writeText(
       tmpDir,
-      'packages/agent-scope/src/internal.ts',
+      'contracts/agent-scope/src/internal.ts',
       'export const HiddenInternal = true'
     )
 
@@ -271,7 +271,7 @@ describe('check-public-surface.ts', () => {
 
     expect(result.exitCode).not.toBe(0)
     expect(combined).toMatch(/PUBLIC_SURFACE|public-surface|new public surface/i)
-    expect(combined).toMatch(/packages\/agent-scope\/src\/index\.ts:\d+/)
+    expect(combined).toMatch(/contracts\/agent-scope\/src\/index\.ts:\d+/)
     expect(combined).toMatch(/expected.*got|got.*expected/i)
     expect(combined).toMatch(/FIX\s*->/)
     expect(combined).toMatch(/WHY\s*->/)
@@ -283,7 +283,7 @@ describe('check-public-surface.ts', () => {
     await writeAgentScopePackage(tmpDir, 'export interface CoveredSurface { id: string }')
     await writeText(
       tmpDir,
-      'packages/agent-scope/src/covered.test.ts',
+      'contracts/agent-scope/src/covered.test.ts',
       `
         import type { CoveredSurface } from './index'
 
@@ -298,15 +298,15 @@ describe('check-public-surface.ts', () => {
   })
 
   test('case 4: importing only the package does not cover an unmentioned public symbol', async () => {
-    await writePackageJson(tmpDir, 'packages/spaces-runtime-contracts', 'spaces-runtime-contracts')
+    await writePackageJson(tmpDir, 'contracts/spaces-runtime-contracts', 'spaces-runtime-contracts')
     await writeText(
       tmpDir,
-      'packages/spaces-runtime-contracts/src/index.ts',
+      'contracts/spaces-runtime-contracts/src/index.ts',
       'export interface PackageOnlySurface { id: string }'
     )
     await writeText(
       tmpDir,
-      'packages/spaces-runtime-contracts/src/package-only.test.ts',
+      'contracts/spaces-runtime-contracts/src/package-only.test.ts',
       `
         import * as runtimeContracts from './index'
 
@@ -391,15 +391,15 @@ describe('check-public-surface.ts', () => {
   })
 
   test('case 6: baseline shape is stable, identity-hashed, idempotent, and survives file moves', async () => {
-    await writePackageJson(tmpDir, 'packages/aspc-protocol', 'spaces-aspc-protocol')
+    await writePackageJson(tmpDir, 'contracts/aspc-protocol', 'spaces-aspc-protocol')
     await writeText(
       tmpDir,
-      'packages/aspc-protocol/src/index.ts',
+      'contracts/aspc-protocol/src/index.ts',
       "export { MoveStable } from './old-home'"
     )
     await writeText(
       tmpDir,
-      'packages/aspc-protocol/src/old-home.ts',
+      'contracts/aspc-protocol/src/old-home.ts',
       'export const MoveStable = true'
     )
 
@@ -429,7 +429,7 @@ describe('check-public-surface.ts', () => {
       hash: 'spaces-aspc-protocol|MoveStable|value',
       count: 1,
     })
-    expect(moveSurface?.file).toMatch(/packages\/aspc-protocol\/src\/old-home\.ts/)
+    expect(moveSurface?.file).toMatch(/contracts\/aspc-protocol\/src\/old-home\.ts/)
 
     const second = await runCheck(tmpDir, baseline, true)
     expect(second.exitCode).toBe(0)
@@ -437,12 +437,12 @@ describe('check-public-surface.ts', () => {
     expect(content2).toBe(content1)
 
     await rename(
-      join(tmpDir, 'packages/aspc-protocol/src/old-home.ts'),
-      join(tmpDir, 'packages/aspc-protocol/src/new-home.ts')
+      join(tmpDir, 'contracts/aspc-protocol/src/old-home.ts'),
+      join(tmpDir, 'contracts/aspc-protocol/src/new-home.ts')
     )
     await writeText(
       tmpDir,
-      'packages/aspc-protocol/src/index.ts',
+      'contracts/aspc-protocol/src/index.ts',
       "export { MoveStable } from './new-home'"
     )
 
@@ -460,7 +460,7 @@ describe('check-public-surface.ts', () => {
 
     await writeText(
       tmpDir,
-      'packages/cli/src/command-registry.test.ts',
+      'apps/cli/src/command-registry.test.ts',
       `
         const argv = ['self', 'inspect']
         expect(argv).toEqual(['self', 'inspect'])
@@ -469,7 +469,7 @@ describe('check-public-surface.ts', () => {
     const covered = await runCheck(tmpDir, baseline)
     expect(covered.exitCode).toBe(0)
 
-    await rm(join(tmpDir, 'packages/cli/src/command-registry.test.ts'), { force: true })
+    await rm(join(tmpDir, 'apps/cli/src/command-registry.test.ts'), { force: true })
     await writeCommandRegistry(
       tmpDir,
       `
@@ -495,7 +495,7 @@ describe('check-public-surface.ts', () => {
 
 describe('check-public-surface.ts — mutation/bite spot-check (real repo)', () => {
   // Sentinel file planted in the real ratified package (agent-scope).
-  const SURFACE_FIXTURE_REL = 'packages/agent-scope/src/__surface_fixture__.ts'
+  const SURFACE_FIXTURE_REL = 'contracts/agent-scope/src/__surface_fixture__.ts'
   const SURFACE_FIXTURE_CONTENT = [
     '// __surface_fixture__: public surface mutation sentinel — DO NOT COMMIT',
     '// Plants an uncovered export for S7 mutation/bite spot-check (T-04440).',
@@ -503,7 +503,7 @@ describe('check-public-surface.ts — mutation/bite spot-check (real repo)', () 
   ].join('\n')
 
   // Single named re-export appended to the barrel; .js extension matches existing barrel style.
-  const INDEX_REL = 'packages/agent-scope/src/index.ts'
+  const INDEX_REL = 'contracts/agent-scope/src/index.ts'
   const INDEX_FIXTURE_LINE =
     "export { PlantedSurfaceFixtureT04440 } from './__surface_fixture__.js'\n"
 

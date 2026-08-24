@@ -52,8 +52,8 @@ describe('install policy', () => {
   })
 
   test('links every executable package when install linking is enabled', () => {
-    expect(justfile).toContain('( cd packages/cli && bun link')
-    expect(justfile).toContain('( cd packages/harness-broker && bun link')
+    expect(justfile).toContain('( cd apps/cli && bun link')
+    expect(justfile).toContain('( cd harness/harness-broker && bun link')
     expect(justfile).toContain('skipping executable links')
   })
 

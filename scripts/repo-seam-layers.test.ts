@@ -10,7 +10,7 @@
  * under- and over-report.
  *
  * Deliberately NOT asserted here: the source-text half of the compiler
- * carve-out (owned by packages/turn-runner/src/__tests__/
+ * carve-out (owned by apps/turn-runner/src/__tests__/
  * turn-runner-package-boundary.red.test.ts), intra-CONTRACTS edges, and seam
  * membership for packages triage left on the broad ASP layer.
  */
@@ -23,19 +23,19 @@ const repoRoot = new URL('..', import.meta.url).pathname
 const importGraphSource = readFileSync(join(repoRoot, 'scripts/lib/import-graph.ts'), 'utf8')
 
 const CONTRACTS_DIRS = [
-  'agent-scope',
-  'harness-broker-protocol',
-  'spaces-runtime-contracts',
-  'aspc-protocol',
+  'contracts/agent-scope',
+  'contracts/harness-broker-protocol',
+  'contracts/spaces-runtime-contracts',
+  'contracts/aspc-protocol',
 ]
 
 function npmName(packageDir: string): string {
-  const manifest = JSON.parse(
-    readFileSync(join(repoRoot, 'packages', packageDir, 'package.json'), 'utf8')
-  ) as { name?: string }
+  const manifest = JSON.parse(readFileSync(join(repoRoot, packageDir, 'package.json'), 'utf8')) as {
+    name?: string
+  }
   const name = manifest.name
   if (typeof name !== 'string' || name.length === 0) {
-    throw new Error(`packages/${packageDir}/package.json has no name`)
+    throw new Error(`${packageDir}/package.json has no name`)
   }
   return name
 }
@@ -121,7 +121,7 @@ const COMPILER_SIDE = [
 
 describe('future repo seams guarded in the layer table', () => {
   test('AC-1: COMPILER seam forbids the SDK/session plane and everything downstream', () => {
-    const layer = layerRootedAt('packages/agent-spaces/src', 'packages/aspc/src')
+    const layer = layerRootedAt('compiler/agent-spaces/src', 'compiler/aspc/src')
     expect(layer).toBeDefined()
     if (!layer) {
       return
@@ -145,9 +145,9 @@ describe('future repo seams guarded in the layer table', () => {
   })
 
   test('AC-2: HARNESS seam forbids compiler-side imports, pi-sdk exception explicit', () => {
-    const broker = layerRootedAt('packages/harness-broker/src')
+    const broker = layerRootedAt('harness/harness-broker/src')
     expect(broker).toBeDefined()
-    const brokerPiSdk = layerRootedAt('packages/harness-broker-pi-sdk/src')
+    const brokerPiSdk = layerRootedAt('harness/harness-broker-pi-sdk/src')
     expect(brokerPiSdk).toBeDefined()
     if (!broker || !brokerPiSdk) {
       return
@@ -172,9 +172,9 @@ describe('future repo seams guarded in the layer table', () => {
     const failures: string[] = []
 
     for (const contractsDir of CONTRACTS_DIRS) {
-      const layer = layerRootedAt(`packages/${contractsDir}/src`)
+      const layer = layerRootedAt(`${contractsDir}/src`)
       if (!layer) {
-        failures.push(`packages/${contractsDir}/src: no layer`)
+        failures.push(`${contractsDir}/src: no layer`)
         continue
       }
 
@@ -195,9 +195,9 @@ describe('future repo seams guarded in the layer table', () => {
   })
 
   test('AC-4: roster hole closed and the ratified protocol prohibition is marked', () => {
-    expect(aspPackages).toContain('harness-broker-pi-sdk')
+    expect(aspPackages).toContain('harness/harness-broker-pi-sdk')
 
-    const protocol = layerRootedAt('packages/harness-broker-protocol/src')
+    const protocol = layerRootedAt('contracts/harness-broker-protocol/src')
     expect(protocol).toBeDefined()
     if (!protocol) {
       return

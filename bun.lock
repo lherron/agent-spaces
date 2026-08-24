@@ -13,95 +13,7 @@
         "typescript": "^5.7.2",
       },
     },
-    "integration-tests": {
-      "name": "spaces-integration-tests",
-      "version": "0.0.1",
-      "dependencies": {
-        "@lherron/agent-spaces": "*",
-        "agent-spaces": "*",
-        "spaces-config": "*",
-        "spaces-execution": "*",
-      },
-      "devDependencies": {
-        "@types/bun": "^1.1.14",
-        "typescript": "^5.7.2",
-      },
-    },
-    "packages/agent-scope": {
-      "name": "agent-scope",
-      "version": "0.1.1",
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/agent-spaces": {
-      "name": "agent-spaces",
-      "version": "0.1.1",
-      "dependencies": {
-        "agent-scope": "*",
-        "spaces-config": "*",
-        "spaces-execution": "*",
-        "spaces-harness-broker-client": "*",
-        "spaces-harness-broker-protocol": "*",
-        "spaces-harness-codex": "*",
-        "spaces-runtime": "*",
-        "spaces-runtime-contracts": "*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/aspc": {
-      "name": "spaces-aspc",
-      "version": "0.1.1",
-      "bin": {
-        "aspc": "./bin/aspc.js",
-      },
-      "dependencies": {
-        "agent-spaces": "workspace:*",
-        "spaces-aspc-protocol": "workspace:*",
-        "spaces-config": "workspace:*",
-        "spaces-harness-broker-client": "workspace:*",
-        "spaces-harness-broker-protocol": "workspace:*",
-        "spaces-runtime-contracts": "workspace:*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/aspc-facade": {
-      "name": "spaces-aspc-facade",
-      "version": "0.1.1",
-      "bin": {
-        "aspc-facade": "./bin/aspc-facade.js",
-      },
-      "dependencies": {
-        "spaces-aspc": "workspace:*",
-        "spaces-aspc-protocol": "workspace:*",
-        "spaces-harness-broker": "workspace:*",
-        "spaces-harness-broker-protocol": "workspace:*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/aspc-protocol": {
-      "name": "spaces-aspc-protocol",
-      "version": "0.1.1",
-      "dependencies": {
-        "spaces-harness-broker-protocol": "workspace:*",
-        "spaces-runtime-contracts": "workspace:*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/cli": {
+    "apps/cli": {
       "name": "@lherron/agent-spaces",
       "version": "0.6.1",
       "bin": {
@@ -141,7 +53,7 @@
         "spaces-harness-pi-sdk": "*",
       },
     },
-    "packages/cli-kit": {
+    "apps/cli-kit": {
       "name": "cli-kit",
       "version": "0.1.1",
       "dependencies": {
@@ -152,7 +64,109 @@
         "typescript": "^5.8.3",
       },
     },
-    "packages/config": {
+    "apps/turn-runner": {
+      "name": "spaces-turn-runner",
+      "version": "0.1.1",
+      "dependencies": {
+        "agent-spaces": "workspace:*",
+        "spaces-config": "*",
+        "spaces-execution": "*",
+        "spaces-harness-pi-sdk": "*",
+        "spaces-runtime": "*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "compiler/agent-spaces": {
+      "name": "agent-spaces",
+      "version": "0.1.1",
+      "dependencies": {
+        "agent-scope": "*",
+        "spaces-config": "*",
+        "spaces-execution": "*",
+        "spaces-harness-broker-client": "*",
+        "spaces-harness-broker-protocol": "*",
+        "spaces-harness-codex": "*",
+        "spaces-runtime": "*",
+        "spaces-runtime-contracts": "*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "compiler/aspc": {
+      "name": "spaces-aspc",
+      "version": "0.1.1",
+      "bin": {
+        "aspc": "./bin/aspc.js",
+      },
+      "dependencies": {
+        "agent-spaces": "workspace:*",
+        "spaces-aspc-protocol": "workspace:*",
+        "spaces-config": "workspace:*",
+        "spaces-harness-broker-client": "workspace:*",
+        "spaces-harness-broker-protocol": "workspace:*",
+        "spaces-runtime-contracts": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "contracts/agent-scope": {
+      "name": "agent-scope",
+      "version": "0.1.1",
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "contracts/aspc-protocol": {
+      "name": "spaces-aspc-protocol",
+      "version": "0.1.1",
+      "dependencies": {
+        "spaces-harness-broker-protocol": "workspace:*",
+        "spaces-runtime-contracts": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "contracts/harness-broker-client": {
+      "name": "spaces-harness-broker-client",
+      "version": "0.1.1",
+      "dependencies": {
+        "spaces-harness-broker-protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "contracts/harness-broker-protocol": {
+      "name": "spaces-harness-broker-protocol",
+      "version": "0.1.1",
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "contracts/spaces-runtime-contracts": {
+      "name": "spaces-runtime-contracts",
+      "version": "0.1.0",
+      "dependencies": {
+        "spaces-harness-broker-protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "core/config": {
       "name": "spaces-config",
       "version": "0.1.1",
       "dependencies": {
@@ -169,10 +183,23 @@
         "@types/proper-lockfile": "^4.1.4",
         "@types/semver": "^7.7.0",
         "agent-spaces": "workspace:*",
+        "spaces-turn-runner": "workspace:*",
         "typescript": "^5.8.3",
       },
     },
-    "packages/execution": {
+    "core/runtime": {
+      "name": "spaces-runtime",
+      "version": "0.1.1",
+      "dependencies": {
+        "spaces-config": "*",
+        "spaces-runtime-contracts": "*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "drivers/execution": {
       "name": "spaces-execution",
       "version": "0.1.1",
       "dependencies": {
@@ -190,7 +217,77 @@
         "typescript": "^5.8.3",
       },
     },
-    "packages/harness-broker": {
+    "drivers/harness-claude": {
+      "name": "spaces-harness-claude",
+      "version": "0.1.1",
+      "dependencies": {
+        "@anthropic-ai/claude-agent-sdk": "^0.1.72",
+        "spaces-config": "*",
+        "spaces-runtime": "*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "drivers/harness-codex": {
+      "name": "spaces-harness-codex",
+      "version": "0.1.1",
+      "dependencies": {
+        "@iarna/toml": "^2.2.5",
+        "spaces-config": "*",
+        "spaces-runtime": "*",
+        "spaces-runtime-contracts": "*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "drivers/harness-pi": {
+      "name": "spaces-harness-pi",
+      "version": "0.1.1",
+      "dependencies": {
+        "spaces-config": "*",
+        "spaces-runtime": "*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "drivers/harness-pi-sdk": {
+      "name": "spaces-harness-pi-sdk",
+      "version": "0.1.1",
+      "dependencies": {
+        "@mariozechner/pi-coding-agent": "^0.70.2",
+        "spaces-config": "*",
+        "spaces-runtime": "*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.8.3",
+      },
+    },
+    "harness/aspc-facade": {
+      "name": "spaces-aspc-facade",
+      "version": "0.1.1",
+      "bin": {
+        "aspc-facade": "./bin/aspc-facade.js",
+      },
+      "dependencies": {
+        "spaces-aspc": "workspace:*",
+        "spaces-aspc-protocol": "workspace:*",
+        "spaces-harness-broker": "workspace:*",
+        "spaces-harness-broker-protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "agent-spaces": "workspace:*",
+        "typescript": "^5.8.3",
+      },
+    },
+    "harness/harness-broker": {
       "name": "spaces-harness-broker",
       "version": "0.1.1",
       "bin": {
@@ -205,18 +302,7 @@
         "typescript": "^5.8.3",
       },
     },
-    "packages/harness-broker-client": {
-      "name": "spaces-harness-broker-client",
-      "version": "0.1.1",
-      "dependencies": {
-        "spaces-harness-broker-protocol": "workspace:*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/harness-broker-pi-sdk": {
+    "harness/harness-broker-pi-sdk": {
       "name": "spaces-harness-broker-pi-sdk",
       "version": "0.1.1",
       "bin": {
@@ -232,102 +318,18 @@
         "typescript": "^5.8.3",
       },
     },
-    "packages/harness-broker-protocol": {
-      "name": "spaces-harness-broker-protocol",
-      "version": "0.1.1",
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/harness-claude": {
-      "name": "spaces-harness-claude",
-      "version": "0.1.1",
+    "integration-tests": {
+      "name": "spaces-integration-tests",
+      "version": "0.0.1",
       "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.1.72",
-        "spaces-config": "*",
-        "spaces-runtime": "*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/harness-codex": {
-      "name": "spaces-harness-codex",
-      "version": "0.1.1",
-      "dependencies": {
-        "@iarna/toml": "^2.2.5",
-        "spaces-config": "*",
-        "spaces-runtime": "*",
-        "spaces-runtime-contracts": "*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/harness-pi": {
-      "name": "spaces-harness-pi",
-      "version": "0.1.1",
-      "dependencies": {
-        "spaces-config": "*",
-        "spaces-runtime": "*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/harness-pi-sdk": {
-      "name": "spaces-harness-pi-sdk",
-      "version": "0.1.1",
-      "dependencies": {
-        "@mariozechner/pi-coding-agent": "^0.70.2",
-        "spaces-config": "*",
-        "spaces-runtime": "*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/runtime": {
-      "name": "spaces-runtime",
-      "version": "0.1.1",
-      "dependencies": {
-        "spaces-config": "*",
-        "spaces-runtime-contracts": "*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/spaces-runtime-contracts": {
-      "name": "spaces-runtime-contracts",
-      "version": "0.1.0",
-      "dependencies": {
-        "spaces-harness-broker-protocol": "workspace:*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
-      },
-    },
-    "packages/turn-runner": {
-      "name": "spaces-turn-runner",
-      "version": "0.1.1",
-      "dependencies": {
+        "@lherron/agent-spaces": "*",
         "agent-spaces": "workspace:*",
         "spaces-config": "*",
         "spaces-execution": "*",
-        "spaces-harness-pi-sdk": "*",
-        "spaces-runtime": "*",
       },
       "devDependencies": {
-        "@types/bun": "latest",
-        "typescript": "^5.8.3",
+        "@types/bun": "^1.1.14",
+        "typescript": "^5.7.2",
       },
     },
   },
@@ -460,7 +462,7 @@
 
     "@isaacs/cliui": ["@isaacs/cliui@8.0.2", "http://mini:4873/@isaacs/cliui/-/cliui-8.0.2.tgz", { "dependencies": { "string-width": "^5.1.2", "string-width-cjs": "npm:string-width@^4.2.0", "strip-ansi": "^7.0.1", "strip-ansi-cjs": "npm:strip-ansi@^6.0.1", "wrap-ansi": "^8.1.0", "wrap-ansi-cjs": "npm:wrap-ansi@^7.0.0" } }, "sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA=="],
 
-    "@lherron/agent-spaces": ["@lherron/agent-spaces@workspace:packages/cli"],
+    "@lherron/agent-spaces": ["@lherron/agent-spaces@workspace:apps/cli"],
 
     "@mariozechner/clipboard": ["@mariozechner/clipboard@0.3.6", "http://mini:4873/@mariozechner/clipboard/-/clipboard-0.3.6.tgz", { "optionalDependencies": { "@mariozechner/clipboard-darwin-arm64": "0.3.6", "@mariozechner/clipboard-darwin-universal": "0.3.6", "@mariozechner/clipboard-darwin-x64": "0.3.6", "@mariozechner/clipboard-linux-arm64-gnu": "0.3.6", "@mariozechner/clipboard-linux-arm64-musl": "0.3.6", "@mariozechner/clipboard-linux-riscv64-gnu": "0.3.6", "@mariozechner/clipboard-linux-x64-gnu": "0.3.6", "@mariozechner/clipboard-linux-x64-musl": "0.3.6", "@mariozechner/clipboard-win32-arm64-msvc": "0.3.6", "@mariozechner/clipboard-win32-x64-msvc": "0.3.6" } }, "sha512-MXdtr+6+ntlIVHdrZYuZNQydu6o8yZswFJ2Ln81j2O/Y9B/LDHvEaIm95xWNPkjGTWriSOeLnQJRFs6dYb60bg=="],
 
@@ -568,9 +570,9 @@
 
     "agent-base": ["agent-base@7.1.4", "http://mini:4873/agent-base/-/agent-base-7.1.4.tgz", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
 
-    "agent-scope": ["agent-scope@workspace:packages/agent-scope"],
+    "agent-scope": ["agent-scope@workspace:contracts/agent-scope"],
 
-    "agent-spaces": ["agent-spaces@workspace:packages/agent-spaces"],
+    "agent-spaces": ["agent-spaces@workspace:compiler/agent-spaces"],
 
     "ajv": ["ajv@8.17.1", "http://mini:4873/ajv/-/ajv-8.17.1.tgz", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, ""],
 
@@ -612,7 +614,7 @@
 
     "cli-highlight": ["cli-highlight@2.1.11", "http://mini:4873/cli-highlight/-/cli-highlight-2.1.11.tgz", { "dependencies": { "chalk": "^4.0.0", "highlight.js": "^10.7.1", "mz": "^2.4.0", "parse5": "^5.1.1", "parse5-htmlparser2-tree-adapter": "^6.0.0", "yargs": "^16.0.0" }, "bin": { "highlight": "bin/highlight" } }, "sha512-9KDcoEVwyUXrjcJNvHD0NFc/hiwe/WPVYIleQh2O1N2Zro5gWJZ/K+3DGn8w8P/F6FxOgzyC5bxDyHIgCSPhGg=="],
 
-    "cli-kit": ["cli-kit@workspace:packages/cli-kit"],
+    "cli-kit": ["cli-kit@workspace:apps/cli-kit"],
 
     "cli-spinners": ["cli-spinners@3.3.0", "http://mini:4873/cli-spinners/-/cli-spinners-3.3.0.tgz", {}, ""],
 
@@ -872,39 +874,39 @@
 
     "source-map": ["source-map@0.6.1", "http://mini:4873/source-map/-/source-map-0.6.1.tgz", {}, "sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g=="],
 
-    "spaces-aspc": ["spaces-aspc@workspace:packages/aspc"],
+    "spaces-aspc": ["spaces-aspc@workspace:compiler/aspc"],
 
-    "spaces-aspc-facade": ["spaces-aspc-facade@workspace:packages/aspc-facade"],
+    "spaces-aspc-facade": ["spaces-aspc-facade@workspace:harness/aspc-facade"],
 
-    "spaces-aspc-protocol": ["spaces-aspc-protocol@workspace:packages/aspc-protocol"],
+    "spaces-aspc-protocol": ["spaces-aspc-protocol@workspace:contracts/aspc-protocol"],
 
-    "spaces-config": ["spaces-config@workspace:packages/config"],
+    "spaces-config": ["spaces-config@workspace:core/config"],
 
-    "spaces-execution": ["spaces-execution@workspace:packages/execution"],
+    "spaces-execution": ["spaces-execution@workspace:drivers/execution"],
 
-    "spaces-harness-broker": ["spaces-harness-broker@workspace:packages/harness-broker"],
+    "spaces-harness-broker": ["spaces-harness-broker@workspace:harness/harness-broker"],
 
-    "spaces-harness-broker-client": ["spaces-harness-broker-client@workspace:packages/harness-broker-client"],
+    "spaces-harness-broker-client": ["spaces-harness-broker-client@workspace:contracts/harness-broker-client"],
 
-    "spaces-harness-broker-pi-sdk": ["spaces-harness-broker-pi-sdk@workspace:packages/harness-broker-pi-sdk"],
+    "spaces-harness-broker-pi-sdk": ["spaces-harness-broker-pi-sdk@workspace:harness/harness-broker-pi-sdk"],
 
-    "spaces-harness-broker-protocol": ["spaces-harness-broker-protocol@workspace:packages/harness-broker-protocol"],
+    "spaces-harness-broker-protocol": ["spaces-harness-broker-protocol@workspace:contracts/harness-broker-protocol"],
 
-    "spaces-harness-claude": ["spaces-harness-claude@workspace:packages/harness-claude"],
+    "spaces-harness-claude": ["spaces-harness-claude@workspace:drivers/harness-claude"],
 
-    "spaces-harness-codex": ["spaces-harness-codex@workspace:packages/harness-codex"],
+    "spaces-harness-codex": ["spaces-harness-codex@workspace:drivers/harness-codex"],
 
-    "spaces-harness-pi": ["spaces-harness-pi@workspace:packages/harness-pi"],
+    "spaces-harness-pi": ["spaces-harness-pi@workspace:drivers/harness-pi"],
 
-    "spaces-harness-pi-sdk": ["spaces-harness-pi-sdk@workspace:packages/harness-pi-sdk"],
+    "spaces-harness-pi-sdk": ["spaces-harness-pi-sdk@workspace:drivers/harness-pi-sdk"],
 
     "spaces-integration-tests": ["spaces-integration-tests@workspace:integration-tests"],
 
-    "spaces-runtime": ["spaces-runtime@workspace:packages/runtime"],
+    "spaces-runtime": ["spaces-runtime@workspace:core/runtime"],
 
-    "spaces-runtime-contracts": ["spaces-runtime-contracts@workspace:packages/spaces-runtime-contracts"],
+    "spaces-runtime-contracts": ["spaces-runtime-contracts@workspace:contracts/spaces-runtime-contracts"],
 
-    "spaces-turn-runner": ["spaces-turn-runner@workspace:packages/turn-runner"],
+    "spaces-turn-runner": ["spaces-turn-runner@workspace:apps/turn-runner"],
 
     "std-env": ["std-env@3.10.0", "http://mini:4873/std-env/-/std-env-3.10.0.tgz", {}, "sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg=="],
 

@@ -31,12 +31,12 @@ import {
   ghostmux,
   ghostmuxAvailable,
   sleep,
-} from '../packages/agent-spaces/src/testing/pre-hrc-ghostmux-operator.js'
+} from '../compiler/agent-spaces/src/testing/pre-hrc-ghostmux-operator.js'
 import {
   CODEX_INTERACTIVE_HOOK_EVENTS,
   addCodexHookTrustState,
   buildHrcCodexHooksConfig,
-} from '../packages/harness-codex/src/adapters/codex-adapter.js'
+} from '../drivers/harness-codex/src/adapters/codex-adapter.js'
 
 const ARTIFACT_DIR =
   process.env['ASP_SPIKE_ARTIFACT_DIR'] ?? '/Users/lherron/praesidium/var/wrkq-artifacts/T-01681'

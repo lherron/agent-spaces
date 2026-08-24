@@ -37,7 +37,7 @@ describe('asp repo init', () => {
 
   test('initializes a new registry with correct structure', async () => {
     // Run repo init via the CLI
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
     await execAsync(`bun ${cliPath} repo init --asp-home "${aspHome}"`)
 
     const repoPath = path.join(aspHome, 'repo')
@@ -94,7 +94,7 @@ describe('asp repo init', () => {
 
   test('initializes without manager space when --no-manager is passed', async () => {
     // Run repo init with --no-manager
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
     await execAsync(`bun ${cliPath} repo init --asp-home "${aspHome}" --no-manager`)
 
     const repoPath = path.join(aspHome, 'repo')
@@ -114,7 +114,7 @@ describe('asp repo init', () => {
   })
 
   test('does not overwrite existing registry', async () => {
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
 
     // Initialize first time
     await execAsync(`bun ${cliPath} repo init --asp-home "${aspHome}"`)
@@ -142,7 +142,7 @@ describe('asp repo publish', () => {
     aspHome = await createTempDir()
 
     // Initialize registry first
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
     await execAsync(`bun ${cliPath} repo init --asp-home "${aspHome}"`)
 
     // Create a test space
@@ -167,7 +167,7 @@ version = "1.0.0"
   })
 
   test('creates version tag for a space', async () => {
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
     const repoPath = path.join(aspHome, 'repo')
 
     // Publish the space
@@ -179,7 +179,7 @@ version = "1.0.0"
   })
 
   test('updates dist-tags when specified', async () => {
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
     const repoPath = path.join(aspHome, 'repo')
 
     // Publish with dist-tag
@@ -197,7 +197,7 @@ version = "1.0.0"
   })
 
   test('rejects invalid version format', async () => {
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
 
     // Try to publish with invalid version
     try {
@@ -217,7 +217,7 @@ describe('asp repo status', () => {
     aspHome = await createTempDir()
 
     // Initialize registry
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
     await execAsync(`bun ${cliPath} repo init --asp-home "${aspHome}"`)
 
     // Create a test space
@@ -242,7 +242,7 @@ version = "1.0.0"
   })
 
   test('outputs JSON status correctly', async () => {
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
 
     const { stdout } = await execAsync(`bun ${cliPath} repo status --json --asp-home "${aspHome}"`)
 
@@ -253,7 +253,7 @@ version = "1.0.0"
   })
 
   test('shows modified status when files changed', async () => {
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
     const repoPath = path.join(aspHome, 'repo')
 
     // Modify a file
@@ -274,7 +274,7 @@ describe('asp repo tags', () => {
     aspHome = await createTempDir()
 
     // Initialize registry
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
     await execAsync(`bun ${cliPath} repo init --asp-home "${aspHome}"`)
 
     // Create a test space
@@ -307,7 +307,7 @@ version = "1.0.0"
   })
 
   test('lists tags for a space in JSON format', async () => {
-    const cliPath = path.resolve(import.meta.dir, '../../packages/cli/bin/asp.js')
+    const cliPath = path.resolve(import.meta.dir, '../../apps/cli/bin/asp.js')
 
     const { stdout } = await execAsync(
       `bun ${cliPath} repo tags test-space --json --asp-home "${aspHome}"`

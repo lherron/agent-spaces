@@ -219,7 +219,7 @@ walk_to_review() {
       --summary "verify green from test harness" >&2
 
   if [[ -n "$diff_floor" ]]; then
-    local files_data="${diff_files:-[\"packages/harness-broker/src/core.ts\"]}"
+    local files_data="${diff_files:-[\"harness/harness-broker/src/core.ts\"]}"
     log "  adding changed_files evidence (floor=$diff_floor, files=$files_data)..."
     wf "$db" --actor implementer-actor --role implementer \
         evidence add "$task" \
@@ -738,7 +738,7 @@ test_5() {
 #            can NOT downgrade it."
 # Strategy:
 #   - changed_files: strongestSurface="harness",
-#     files=["packages/harness-broker/src/core.ts"] (matches harness globs)
+#     files=["harness/harness-broker/src/core.ts"] (matches harness globs)
 #   - closeout_claim: claimClass="docs" (rank 1, weakest)
 #   - requiredSurface = max(docs=1, harness=5) = harness (floor wins)
 #   - Coverage provided: docs_reachability (covers docs, NOT harness)
@@ -755,9 +755,9 @@ test_6() {
       task attach "$task" --workflow "$WORKFLOW_REF" >&2
 
   # Walk to review with docs claim AND harness-surface diff floor
-  # Files in packages/harness-broker/ match the harness globs in closeout-config.json
+  # Files in harness/harness-broker/ match the harness globs in closeout-config.json
   walk_to_review "$db" "$task" "docs" "harness" \
-    '["packages/harness-broker/src/core.ts"]' || return 1
+    '["harness/harness-broker/src/core.ts"]' || return 1
 
   # Add docs_reachability coverage (covers docs=1, NOT harness=5)
   log "6. Adding docs_reachability via evidence exec (exitCode=0, covers docs only)..."
@@ -777,7 +777,7 @@ test_6() {
 
   # Run check; hook should compute:
   #   claimSurface=docs(1), factFloor=harness(5), classifiedFloor=harness(5)
-  #   (packages/harness-broker/src/core.ts matches harness glob)
+  #   (harness/harness-broker/src/core.ts matches harness glob)
   #   recordedDiffFloor=harness, requiredSurface=harness
   #   Coverage for harness = matrix; NOT found (only docs_reachability+installed_binary present)
   log "6. Running check run (expect: floor=harness, matrix coverage not provided)..."
