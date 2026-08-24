@@ -14,6 +14,9 @@ const modes =
       : undefined
 if (modes === undefined) throw new Error(`Unsupported parity mode: ${requestedMode}`)
 const agentsRoot = resolve(process.env['ASP_AGENTS_ROOT'] ?? '/Users/lherron/praesidium/var/agents')
+const projectRoot = resolve(
+  args[args.indexOf('--project-root') + 1] ?? new URL('../../', import.meta.url).pathname
+)
 const agentIds = args.filter((_value, index) => args[index - 1] === '--agent')
 const exclusions = await readInventoryExclusions(
   new URL('../fixtures/agent-resource-parity/exclusions.json', import.meta.url).pathname
@@ -23,7 +26,7 @@ for (const mode of modes) {
   results.push(
     await runLiveTaskParity({
       agentsRoot,
-      projectRoot: process.cwd(),
+      projectRoot,
       exclusions,
       modes: [mode],
       ...(agentIds.length > 0 ? { agentIds } : {}),
