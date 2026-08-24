@@ -179,6 +179,19 @@ exit 1
       expect(candidates.indexOf(fixedCandidate)).toBeLessThan(candidates.indexOf(pathCandidate))
       expect(candidates.at(-1)).toBe(pathCandidate)
     })
+
+    test('prefers the user-local codex over version-manager copies', async () => {
+      const home = join(tmpDir, 'home')
+      await mkdir(join(home, '.nvm', 'versions', 'node', 'v22.20.0'), { recursive: true })
+      process.env.ASP_CODEX_SKIP_COMMON_PATHS = undefined
+      process.env.PATH = ''
+
+      const candidates = codexCommandCandidates(home)
+      const localCandidate = join(home, '.local', 'bin', 'codex')
+      const nvmCandidate = join(home, '.nvm', 'versions', 'node', 'v22.20.0', 'bin', 'codex')
+
+      expect(candidates.indexOf(localCandidate)).toBeLessThan(candidates.indexOf(nvmCandidate))
+    })
   })
 
   describe('materializeSpace', () => {

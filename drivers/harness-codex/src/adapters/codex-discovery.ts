@@ -56,8 +56,8 @@ function pathCandidatesForCommand(command: string): string[] {
     .map((dir) => join(dir, command))
 }
 
-function nvmCodexCandidates(): string[] {
-  const versionsDir = join(homedir(), '.nvm', 'versions', 'node')
+function nvmCodexCandidates(home: string): string[] {
+  const versionsDir = join(home, '.nvm', 'versions', 'node')
   try {
     return readdirSync(versionsDir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -67,14 +67,14 @@ function nvmCodexCandidates(): string[] {
   }
 }
 
-export function codexCommandCandidates(): string[] {
+export function codexCommandCandidates(home = homedir()): string[] {
   const commonCandidates =
     process.env[CODEX_SKIP_COMMON_PATHS_ENV] === '1'
       ? []
       : [
-          ...nvmCodexCandidates(),
-          join(homedir(), '.bun', 'bin', 'codex'),
-          join(homedir(), '.local', 'bin', 'codex'),
+          join(home, '.local', 'bin', 'codex'),
+          join(home, '.bun', 'bin', 'codex'),
+          ...nvmCodexCandidates(home),
           '/opt/homebrew/bin/codex',
           '/usr/local/bin/codex',
         ]
