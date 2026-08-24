@@ -286,4 +286,34 @@ content = "remember task={{taskId}}"
       '[fixture-agent/task] prompt/content.bin: bytes differ at 1'
     )
   })
+
+  test('negative controls identify each projected resource class', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-resource-parity-controls-'))
+    const skill = await fixtureSkill(root)
+    const base = await projectResources({
+      agentId: 'fixture-agent',
+      mode: 'task',
+      prompt: { mode: 'replace', content: 'prompt' },
+      reminder: 'reminder',
+      skills: [skill],
+      skillRoots: [root],
+    })
+    const paths = (right: typeof base) => compareProjections(base, right).map(({ path }) => path)
+    expect(
+      paths({ ...base, prompt: { ...base.prompt, content: Buffer.from('pr0mpt') } })
+    ).toContain('prompt/content.bin')
+    expect(paths({ ...base, prompt: { ...base.prompt, mode: 'append' } })).toContain(
+      'prompt/mode.txt'
+    )
+    expect(paths({ ...base, reminder: { present: false } })).toContain('reminder/presence.txt')
+    expect(
+      paths({ ...base, reminder: { present: true, content: Buffer.from('remind3r') } })
+    ).toContain('reminder/content.bin')
+    expect(paths({ ...base, skills: { ...base.skills, catalog: [] } })).toContain(
+      'skills/catalog.json'
+    )
+    expect(paths({ ...base, skills: { ...base.skills, packages: new Map() } })).toContain(
+      'skills/packages/fixture'
+    )
+  })
 })
