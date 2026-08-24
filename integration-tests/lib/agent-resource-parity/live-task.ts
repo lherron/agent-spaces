@@ -20,6 +20,54 @@ import { verifyParityRows } from './verify.js'
 
 export const parityModes: readonly ParityRunMode[] = ['task', 'query', 'heartbeat', 'maintenance']
 
+/** Derive fixed replay records from declared profile sections; never execute them. */
+async function replayForProfile(agentRoot: string) {
+  const template = await readFile(join(agentRoot, 'context-template.toml'), 'utf8').catch(() => '')
+  const blocks = template.split(/(?=\[\[(?:prompt|reminder)\]\])/)
+  const execResults: {
+    sectionName: string
+    command: string
+    occurrence: number
+    exitStatus: number
+    stdout: string
+    stderr: string
+  }[] = []
+  const serviceProbeResponses: {
+    name: string
+    endpoint: string
+    up: boolean
+    occurrence: number
+  }[] = []
+  for (const block of blocks) {
+    const name = /\nname\s*=\s*"([^"]+)"/.exec(block)?.[1]
+    if (name === undefined) continue
+    if (/\ntype\s*=\s*"exec"/.test(block)) {
+      const command = /\ncommand\s*=\s*"([^"]+)"/.exec(block)?.[1]
+      if (command !== undefined)
+        execResults.push({
+          sectionName: name,
+          command,
+          occurrence: 1,
+          exitStatus: 0,
+          stdout: '',
+          stderr: '',
+        })
+    }
+    if (/\ntype\s*=\s*"service-probe"/.test(block)) {
+      for (const match of block.matchAll(
+        /\{\s*name\s*=\s*"([^"]+)",\s*endpoint\s*=\s*"([^"]+)"\s*\}/g
+      ))
+        serviceProbeResponses.push({
+          name: match[1]!,
+          endpoint: match[2]!,
+          up: false,
+          occurrence: 1,
+        })
+    }
+  }
+  return { execResults, serviceProbeResponses }
+}
+
 const compilerRuntime = {
   getHarnessAdapter: (harnessId: Parameters<typeof harnessRegistry.getOrThrow>[0]) =>
     harnessRegistry.getOrThrow(harnessId),
@@ -100,6 +148,7 @@ export async function runLiveTaskParity(input: {
         const compilerHome = await mkdtemp(join(tmpdir(), `agent-parity-compiler-${agentId}-`))
         const sdkHome = await mkdtemp(join(tmpdir(), `agent-parity-sdk-${agentId}-`))
         const taskId = mode === 'task' ? 'T-PARITY' : undefined
+        const replay = await replayForProfile(agentRoot)
         const scopeRef =
           taskId === undefined
             ? `agent:${agentId}:project:agent-spaces`
@@ -122,6 +171,7 @@ export async function runLiveTaskParity(input: {
           predicateEnv: {},
           execCwd: input.projectRoot,
           execEnv: {},
+          ...replay,
         }
         const placement = {
           agentRoot,
