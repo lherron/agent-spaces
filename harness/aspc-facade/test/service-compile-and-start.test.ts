@@ -1,6 +1,6 @@
 /**
- * Moved from compiler/aspc/test/service.test.ts and
- * compiler/aspc/test/hygiene-surfacing.test.ts by the T-07314 facade split:
+ * Moved from harness/aspc/test/service.test.ts and
+ * harness/aspc/test/hygiene-surfacing.test.ts by the T-07314 facade split:
  * `compileAndStart` is no longer part of `spaces-aspc`'s `AspcService`, so its
  * unit coverage moves to the composition package that owns the start plane.
  *
@@ -11,7 +11,7 @@
  *
  * The old "throws when no co-hosted broker is configured" case is deliberately
  * NOT carried over: after the split there is no broker-less compileAndStart to
- * guard — compiler/aspc/test/compile-only-contract.test.ts (AC-5) pins that the
+ * guard — harness/aspc/test/compile-only-contract.test.ts (AC-5) pins that the
  * member is gone from the compile-only service entirely.
  */
 import { describe, expect, test } from 'bun:test'

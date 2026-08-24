@@ -22,13 +22,14 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "cd ../.. && bun test compiler/aspc/test",
+    "test": "cd ../.. && bun test harness/aspc/test",
     "prepack": "bun ../../scripts/strip-bun-exports.ts",
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
     "agent-spaces": "workspace:*",
     "spaces-config": "workspace:*",
+    "spaces-execution": "workspace:*",
     "spaces-aspc-protocol": "workspace:*",
     "spaces-harness-broker-client": "workspace:*",
     "spaces-harness-broker-protocol": "workspace:*",

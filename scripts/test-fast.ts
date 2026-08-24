@@ -20,7 +20,7 @@ const fastSuiteArgs = [
   'contracts/harness-broker-client',
   'harness/harness-broker',
   'harness/harness-broker-pi-sdk',
-  'compiler/aspc',
+  'harness/aspc',
   'core/runtime',
   'apps/cli/src/index.test.ts',
   'apps/cli/src/commands/agent/__tests__/build-bundle-ref-agent-project.test.ts',

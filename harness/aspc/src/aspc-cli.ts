@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs'
 import { createAgentSpacesClient } from 'agent-spaces'
 import type { CompileContext, RuntimeCompileRequest } from 'spaces-runtime-contracts'
 
+import { runtimeDependencies } from './compiler-runtime.js'
 import { buildOutputManifest } from './manifest.js'
 import { verifyRelease } from './verify-release.js'
 
@@ -70,7 +71,7 @@ async function runManifest(args: string[]): Promise<number> {
       mode,
       ...(compileContext !== undefined ? { compileContext } : {}),
     },
-    createAgentSpacesClient({ aspHome })
+    createAgentSpacesClient({ aspHome, runtime: runtimeDependencies })
   )
   if (!result.ok) {
     process.stderr.write(`aspc manifest: compile failed\n${JSON.stringify(result.diagnostics)}\n`)

@@ -18,12 +18,13 @@ import type {
   RuntimeCompileRequest,
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
-import { createAgentSpacesClient } from '../../agent-spaces/src/index.js'
+import { createAgentSpacesClient } from '../../../compiler/agent-spaces/src/index.js'
 
 import {
   allocatePreHrcRuntimeIdentity,
   buildPlacementFromScopeRef,
-} from '../../agent-spaces/src/testing/pre-hrc-broker-helpers.js'
+} from '../../../compiler/agent-spaces/src/testing/pre-hrc-broker-helpers.js'
+import { runtimeDependencies } from '../src/compiler-runtime.js'
 import { AspcClient } from '../src/index.js'
 import { buildOutputManifest, canonicalJson } from '../src/manifest.js'
 import type { verifyRelease } from '../src/verify-release.js'
@@ -848,7 +849,7 @@ async function buildManifest(mode: 'A' | 'B', namespace: string): Promise<Output
   } as Parameters<typeof buildOutputManifest>[0] & { mode: 'A' | 'B' }
   const result = await buildOutputManifest(
     input,
-    createAgentSpacesClient({ aspHome: input.aspHome })
+    createAgentSpacesClient({ aspHome: input.aspHome, runtime: runtimeDependencies })
   )
   if (!result.ok) {
     throw new Error(`manifest compile failed: ${JSON.stringify(result.diagnostics)}`)
@@ -884,7 +885,7 @@ function runAspcCli(args: string[]): { status: number | null; stdout: string; st
 }
 
 function aspcCliPath(): string {
-  return join(repoRoot, 'compiler/aspc/bin/aspc.js')
+  return join(repoRoot, 'harness/aspc/bin/aspc.js')
 }
 
 function restoreEnv(name: string, value: string | undefined): void {

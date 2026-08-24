@@ -201,7 +201,7 @@ install no-sync="" force-sync="" force-link="":
       # (taskboard's agent viewer, hrc-server) spawn `aspc-facade run --transport
       # stdio` as a bare executable, so the facade package has to be a linked
       # binary like asp, not only a workspace bin.
-      ( cd compiler/aspc && bun link 2>&1 | sed 's/^/[bun-link:aspc] /' ) &
+      ( cd harness/aspc && bun link 2>&1 | sed 's/^/[bun-link:aspc] /' ) &
       link_pids+=("$!")
       ( cd harness/aspc-facade && bun link 2>&1 | sed 's/^/[bun-link:aspc-facade] /' ) &
       link_pids+=("$!")

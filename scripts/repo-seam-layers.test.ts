@@ -47,8 +47,9 @@ describe('root-prefix architecture layers', () => {
     for (const [layerIndex, layer] of rootLayers.entries()) {
       for (const pkg of aspWorkspacePackages) {
         const packageIndex = aspRootDag.indexOf(pkg.root)
+        const compilerDriverBoundary = layer.roots[0] === 'compiler' && pkg.root === 'drivers'
         expect(`${layer.name}:${pkg.name}=${forbids(layer, pkg.name)}`).toBe(
-          `${layer.name}:${pkg.name}=${packageIndex < layerIndex}`
+          `${layer.name}:${pkg.name}=${packageIndex < layerIndex || compilerDriverBoundary}`
         )
       }
     }
@@ -115,16 +116,22 @@ describe('root-prefix architecture layers', () => {
     }
     expect(forbids(contracts, 'agent-spaces')).toBe(true)
 
-    // T-07526 has removed the compiler -> drivers edges. Its temporary
-    // enforcement exemption remains until the composition-root gate clears.
-    for (const [name, dir] of [
-      ['spaces-execution', 'drivers/execution'],
-      ['spaces-harness-codex', 'drivers/harness-codex'],
-    ] as const) {
-      expect(resolvedEdge(graph.edges, 'compiler', dir)).toBe(false)
-      expect(forbids(compiler, name)).toBe(false)
+    // Compiler is independently extractable: it reaches core/contracts only,
+    // and every discovered driver package is rejected. The graph assertion is
+    // the mutation guard: adding any compiler -> drivers import fails this test.
+    const driverPackages = aspWorkspacePackages.filter((pkg) => pkg.root === 'drivers')
+    for (const driverPackage of driverPackages) {
+      expect(forbids(compiler, driverPackage.name)).toBe(true)
+      expect(resolvedEdge(graph.edges, 'compiler', driverPackage.dir)).toBe(false)
     }
     expect(forbids(drivers, 'agent-spaces')).toBe(true)
+
+    // Positive controls prove legal compiler edges still resolve and are not
+    // accidentally rejected by the stricter seam.
+    expect(resolvedEdge(graph.edges, 'compiler', 'core/config')).toBe(true)
+    expect(forbids(compiler, 'spaces-config')).toBe(false)
+    expect(resolvedEdge(graph.edges, 'compiler', 'contracts/spaces-runtime-contracts')).toBe(true)
+    expect(forbids(compiler, 'spaces-runtime-contracts')).toBe(false)
   })
 
   test('ratified protocol constraint remains an explicit documented exception', () => {

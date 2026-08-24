@@ -105,11 +105,10 @@ function layerName(root: AspRoot): string {
  * integration-tests is intentionally governed with apps: repo-level suites
  * may compose every ASP root, but still inherit the external-package guard.
  *
- * Temporary T-07526 residual: compiler may reach drivers while drivers remains
- * below it in this DAG. That task owns removing the compiler -> drivers edges.
- * The compiler's contract dependencies (including broker protocol/client per
- * T-07314 AC-1) are likewise permitted by direction, not token gymnastics.
- * Harness broker pi-sdk -> harness broker is intra-root and therefore legal.
+ * Compiler is the one deliberately narrower root: it may reach only core and
+ * contracts, never the driver/SDK plane. The compiler's contract dependencies
+ * (including broker protocol/client per T-07314 AC-1) remain permitted by
+ * direction. Harness broker pi-sdk -> harness broker is intra-root and legal.
  */
 export function deriveAspRootLayers(
   workspacePackages: readonly AspWorkspacePackage[] = aspWorkspacePackages
@@ -120,7 +119,11 @@ export function deriveAspRootLayers(
     forbidden: [
       ...new Set([
         ...workspacePackages
-          .filter((pkg) => aspRootDag.indexOf(pkg.root) < rootIndex)
+          .filter(
+            (pkg) =>
+              aspRootDag.indexOf(pkg.root) < rootIndex ||
+              (root === 'compiler' && pkg.root === 'drivers')
+          )
           .map((pkg) => pkg.name),
         ...externalForbidden,
       ]),

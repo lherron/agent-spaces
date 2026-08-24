@@ -29,7 +29,7 @@ const MIGRATING_CANONICAL_JSON_SITES = new Map([
     'sortJson feeds stableHash (sha256 over JSON.stringify) for the inspection seed and contextHash',
   ],
   [
-    'compiler/aspc/src/manifest.ts#sortKeys',
+    'harness/aspc/src/manifest.ts#sortKeys',
     'sortKeys backs the local canonicalJson used for manifest hashes',
   ],
   [
@@ -49,7 +49,7 @@ const MIGRATING_CANONICAL_JSON_SITES = new Map([
 /** Discovered-but-out-of-scope canonicalization sites, each with the reason it is not migrated. */
 const CANONICAL_JSON_CENSUS_EXCLUSIONS = new Map([
   [
-    'compiler/aspc/src/agent-inspection-authority.ts#sameRecord',
+    'harness/aspc/src/agent-inspection-authority.ts#sameRecord',
     'Object.keys(...).sort() compares two record key NAME LISTS; it serializes no values',
   ],
   [
@@ -658,7 +658,7 @@ describe('P0 single blessed hash epoch acceptance', () => {
     }
     expect(ambientReads, 'listed compiler output paths still read the ambient clock').toEqual([])
 
-    const manifestSource = await readSource('compiler/aspc/src/manifest.ts')
+    const manifestSource = await readSource('harness/aspc/src/manifest.ts')
     expect(parseOutputExclusions(manifestSource).length).toBeGreaterThan(0)
     expect(
       nonLockOutputExclusions(manifestSource),

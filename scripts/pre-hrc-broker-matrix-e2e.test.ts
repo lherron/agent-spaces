@@ -10,6 +10,7 @@ import {
   BROKER_MANAGED_MATRIX_ROWS,
   MATRIX_ROW_NAMES,
   SPARKY_CODEX_MATRIX_ROWS,
+  compilerRuntimeDependencies,
   createSparkyCodexMatrixCompileRequest,
   structuredOutputEvidenceFailures,
 } from './pre-hrc-broker-matrix-e2e.ts'
@@ -93,7 +94,10 @@ echo "codex shim"
   })
 
   test('all three Sparky Codex rows override the Pi-qualified default with bare gpt-5.5', async () => {
-    const client = createAgentSpacesClient({ aspHome }) as CompileClient
+    const client = createAgentSpacesClient({
+      aspHome,
+      runtime: compilerRuntimeDependencies,
+    }) as CompileClient
 
     for (const row of SPARKY_CODEX_MATRIX_ROWS) {
       const request = createSparkyCodexMatrixCompileRequest(row, {
@@ -119,7 +123,10 @@ echo "codex shim"
   })
 
   test('Pi-qualified gpt-5.5 remains rejected by the codex-cli frontend', async () => {
-    const client = createAgentSpacesClient({ aspHome }) as CompileClient
+    const client = createAgentSpacesClient({
+      aspHome,
+      runtime: compilerRuntimeDependencies,
+    }) as CompileClient
     const request = createSparkyCodexMatrixCompileRequest('real-codex', {
       scopeRef: 'sparky@agent-spaces',
       agentRoot,

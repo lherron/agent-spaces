@@ -104,7 +104,7 @@ import type {
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY, project } from 'spaces-runtime-contracts'
 
 import { createAgentSpacesClient } from '../compiler/agent-spaces/src/index.js'
-import { AspcClient } from '../compiler/aspc/src/index.js'
+import { AspcClient } from '../harness/aspc/src/index.js'
 
 import { createClaudeCodeTmuxDriver } from '../harness/harness-broker/src/drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from '../harness/harness-broker/src/drivers/codex-app-server/driver'
@@ -167,6 +167,14 @@ export type SparkyCodexMatrixRow = (typeof SPARKY_CODEX_MATRIX_ROWS)[number]
 
 type CompileTransport = 'sdk' | 'aspc-rpc'
 const ALL_ROWS: readonly RowName[] = MATRIX_ROW_NAMES
+
+export const compilerRuntimeDependencies = {
+  getHarnessAdapter: (harnessId: string) => harnessRegistry.getOrThrow(harnessId),
+  detectAgentLocalComponents,
+  planPlacementRuntime,
+  prepareCodexRuntimeHome,
+  prepareAgentToolRuntime,
+}
 
 async function ghostmuxNewWithRetry(
   bin: string,
@@ -401,9 +409,12 @@ async function compileRuntimePlanForMatrix(
   req: RuntimeCompileRequest
 ): Promise<RuntimeCompileResponse> {
   if (ctx.compileTransport === 'sdk') {
-    const client = createAgentSpacesClient({ aspHome }) as ReturnType<
-      typeof createAgentSpacesClient
-    > & { compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse> }
+    const client = createAgentSpacesClient({
+      aspHome,
+      runtime: compilerRuntimeDependencies,
+    }) as ReturnType<typeof createAgentSpacesClient> & {
+      compileRuntimePlan(req: RuntimeCompileRequest): Promise<RuntimeCompileResponse>
+    }
     return client.compileRuntimePlan(req)
   }
 
@@ -2112,13 +2123,7 @@ function ensureAspHomeRegistry(aspHome: string, projectRoot: string): void {
 
 function interactiveDeps(): InteractiveTmuxRunnerDeps {
   const compiler = createAgentSpacesClient({
-    runtime: {
-      getHarnessAdapter: (harnessId) => harnessRegistry.getOrThrow(harnessId),
-      detectAgentLocalComponents,
-      planPlacementRuntime,
-      prepareCodexRuntimeHome,
-      prepareAgentToolRuntime,
-    },
+    runtime: compilerRuntimeDependencies,
   })
   return {
     compileRuntimePlan: (request) => compiler.compileRuntimePlan(request),

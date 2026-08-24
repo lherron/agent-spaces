@@ -12,6 +12,8 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { aspPackages } from './lib/import-graph.js'
+
 const repoRoot = new URL('..', import.meta.url).pathname
 
 const NPM_NAME = 'spaces-aspc-facade'
@@ -44,10 +46,7 @@ describe('spaces-aspc-facade roster membership', () => {
     expect(rootManifest.scripts.test).toContain(NPM_NAME)
 
     // Import-graph ASP roster (boundary enforcement).
-    const importGraph = read('scripts/lib/import-graph.ts')
-    const aspPackagesBlock = /export const aspPackages = \[([\s\S]*?)\]/.exec(importGraph)
-    expect(aspPackagesBlock).not.toBeNull()
-    expect(aspPackagesBlock?.[1] ?? '').toContain(`'${DIR_NAME}'`)
+    expect(aspPackages).toContain(DIR_NAME)
 
     // Local dev publish roster, before the public CLI.
     const publish = read('scripts/publish-local-verdaccio.ts')
@@ -56,7 +55,7 @@ describe('spaces-aspc-facade roster membership', () => {
     expect(devPublishBlock?.[1] ?? '').toContain(`'${DIR_NAME}'`)
 
     // justfile install links the facade package for the `aspc-facade`
-    // executable; the existing compiler/aspc link stays for `aspc`.
+    // executable; the existing harness/aspc link stays for `aspc`.
     const justfile = read('justfile')
     // Anchor on the comment that closes the link block: a lazy stop at the
     // first `fi` would cut the capture short of the `bun link` lines.
@@ -65,7 +64,7 @@ describe('spaces-aspc-facade roster membership', () => {
     expect(linkBlock).not.toBeNull()
     const links = linkBlock?.[1] ?? ''
     expect(links).toContain(`cd ${DIR_NAME} && bun link`)
-    expect(links).toContain('cd compiler/aspc && bun link')
+    expect(links).toContain('cd harness/aspc && bun link')
     // The adjacent comment must stop claiming spaces-aspc ships the facade bin.
     expect(justfile).not.toContain('spaces-aspc ships `aspc` + `aspc-facade`')
   })
