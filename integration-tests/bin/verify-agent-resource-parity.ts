@@ -30,7 +30,8 @@ for (const mode of modes) {
     })
   )
 }
-const result = results[0]!
+const [result] = results
+if (result === undefined) throw new Error('No parity modes selected')
 console.log(
   `agent resource parity: PASS\nvalid agents: ${result.valid}\nexcluded candidates: ${result.excluded}\nmodes: ${modes.join(', ')}\nrows compared: ${results.reduce((total, row) => total + row.rows, 0)}`
 )

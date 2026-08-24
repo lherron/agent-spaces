@@ -64,13 +64,16 @@ async function replayForProfile(agentRoot: string, agentsRoot: string, mode: Par
     if (/\ntype\s*=\s*"service-probe"/.test(block)) {
       for (const match of block.matchAll(
         /\{\s*name\s*=\s*"([^"]+)",\s*endpoint\s*=\s*"([^"]+)"\s*\}/g
-      ))
+      )) {
+        const [_, name, endpoint] = match
+        if (name === undefined || endpoint === undefined) continue
         serviceProbeResponses.push({
-          name: match[1]!,
-          endpoint: match[2]!,
+          name,
+          endpoint,
           up: false,
           occurrence: 1,
         })
+      }
     }
   }
   return { execResults, serviceProbeResponses }
