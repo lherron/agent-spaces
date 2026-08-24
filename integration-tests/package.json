@@ -12,11 +12,14 @@
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.1",
     "@lherron/agent-spaces": "*",
     "agent-scope": "*",
+    "agent-harness-sdk": "workspace:*",
     "agent-spaces": "workspace:*",
     "spaces-config": "*",
     "spaces-execution": "*",
+    "spaces-harness-pi-sdk": "workspace:*",
     "spaces-turn-runner": "*"
   }
 }
