@@ -1,0 +1,6 @@
+[
+  {
+    "agentId": "arris",
+    "expectedDiagnostic": "SOUL.md is required in agent root: {agentRoot}"
+  }
+]

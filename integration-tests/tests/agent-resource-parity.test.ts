@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Skill } from '@earendil-works/pi-coding-agent'
 
 import { compareProjections } from '../lib/agent-resource-parity/compare.js'
+import { inventoryAgents } from '../lib/agent-resource-parity/inventory.js'
 import { observeCompiler } from '../lib/agent-resource-parity/observe-compiler.js'
 import { observeSdk } from '../lib/agent-resource-parity/observe-sdk.js'
 import { projectResources } from '../lib/agent-resource-parity/projection.js'
@@ -43,6 +44,36 @@ async function writeSkill(root: string, name: string, description: string): Prom
 }
 
 describe('agent resource parity task fixture', () => {
+  test('fails closed for invalid candidates and stale exclusions', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-resource-parity-inventory-'))
+    const agentsRoot = join(root, 'agents')
+    await mkdir(join(agentsRoot, 'valid'), { recursive: true })
+    await writeFile(join(agentsRoot, 'valid', 'SOUL.md'), '# Valid\n')
+    await writeFile(
+      join(agentsRoot, 'valid', 'agent-profile.toml'),
+      'version = 3\n\n[spaces]\nbase = []\n'
+    )
+    await mkdir(join(agentsRoot, 'excluded'), { recursive: true })
+    await writeFile(
+      join(agentsRoot, 'excluded', 'agent-profile.toml'),
+      'version = 3\n\n[spaces]\nbase = []\n'
+    )
+    await expect(
+      inventoryAgents({
+        agentsRoot,
+        exclusions: [
+          {
+            agentId: 'excluded',
+            expectedDiagnostic: 'SOUL.md is required in agent root: {agentRoot}',
+          },
+        ],
+      })
+    ).resolves.toMatchObject({ valid: [{ agentId: 'valid' }], excluded: [{ agentId: 'excluded' }] })
+    await expect(inventoryAgents({ agentsRoot, exclusions: [] })).rejects.toThrow(
+      'Invalid agent candidate excluded'
+    )
+  })
+
   test('observes matching task-mode resources through compiler lowering and SDK Pi loading', async () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-resource-parity-observe-'))
     const aspHome = join(root, 'asp-home')
