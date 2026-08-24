@@ -15,6 +15,12 @@ predicate: >
   assembly, skill discovery and composition, common provisioning values,
   validation, inspection, and diagnostics wherever the semantics are genuinely
   the same; Pi and the external harnesses own distinct lowering after that seam.
+  The verifier-only agent-resource-parity/v1 observation format gates that seam
+  for ASP-authored system-prompt content and mode, reminder content and presence,
+  and the effective ASP skill catalog and package contents. It exercises the
+  compiler and SDK integration seams independently for every valid fleet agent
+  across query, heartbeat, task, and maintenance modes; vendor base prompts and
+  producer-specific absolute paths are outside the equivalence relation.
   HRC remains authority for runtime placement, lifecycle, session routing,
   supervision, and durable messaging on both paths. The selected harness
   executes turns and reports outputs and events but never decides scope
@@ -23,22 +29,32 @@ predicate: >
   continuation, steering and interruption, structured results and events, and
   HRC start, stop, and reconnect behavior, while an explicitly selected Claude
   Code or Codex CLI agent remains operable through the compatibility path.
-  Internal resolved types, serialization, resource hashes or manifests,
-  snapshot and read-only policy, credential transport, Pi API and version
-  mechanics, broker protocol and process topology, and deferred extensions,
-  hooks, MCP, slash commands, and TUI capabilities are not fixed by this
-  invariant; existing ASP, HRC, product, and operating-system contracts govern
-  them until a demonstrated requirement changes durable law.
-authority: hrcchat#20722
+  Apart from the verifier-only parity observation, runtime internal resolved
+  types, serialization, resource hashes or manifests, snapshot and read-only
+  policy, credential transport, Pi API and version mechanics, broker protocol
+  and process topology, and deferred extensions, hooks, MCP, slash commands, and
+  TUI capabilities are not fixed by this invariant; existing ASP, HRC, product,
+  and operating-system contracts govern them until a demonstrated requirement
+  changes durable law.
+authority: hrcchat#20758
 source:
+  - hrcchat#20758
+  - hrcchat#20754
   - hrcchat#20722
   - commit:7ec0298
   - docs/proposals/agent-harness.md
   - core/config/src/core/types/harness.ts
+  - core/config/src/core/types/agent-profile.ts
+  - core/config/src/core/merge/agent-project-merge.ts
+  - core/runtime/src/context-resolver.ts
+  - harness/agent-harness-sdk/src/index.ts
+  - drivers/harness-pi-sdk/src/agent-session/index.ts
   - harness/harness-broker-pi-sdk/src/driver.ts
   - docs/harness-architecture.md
 required_tests:
   - wherever direct and compatibility paths require the same agent space prompt context skill provisioning validation inspection or diagnostic answer they consume one ASP-owned implementation
+  - a hermetic agent-resource-parity/v1 fixture independently projects compiler and SDK prompt reminder and effective skill resources for query heartbeat task and maintenance and negative controls make byte metadata missing-entry symlink and executable-mode changes fail
+  - the live agent-resource-parity/v1 gate compares every valid fleet agent in all four run modes while unexpected invalid roots newly valid exclusions and stale exclusions fail
   - the default direct path starts and runs without a live ASPC compile request compiled frontier-harness process plan or generated external-harness home
   - explicit Claude Code and Codex CLI selections remain operable through compiler-backed compatibility lowering after the direct path becomes default
   - installed real-agent direct-path evidence covers prompt context skills tools authentication multi-turn continuation steer interrupt structured results and HRC-visible events
@@ -46,13 +62,14 @@ required_tests:
   - installed evidence covers at least one explicitly selected external-harness agent through the retained compatibility path
 last_verified:
   date: 2026-08-24
-  evidence: commit 7ec0298 and hrcchat#20722 approved by daedalus against current ASP Pi broker HRC and agent-profile source
+  evidence: hrcchat#20758 approved by daedalus against current compiler agent-harness-sdk Pi loader context resolver mode composition and live agent inventory source
 reopen_when:
   - shared ASP semantics split into independent direct and compatibility implementations
   - HRC runtime placement lifecycle routing supervision or durable messaging authority moves into an execution lowering
   - the default direct path again requires compiler or external-harness artifacts
   - supported external-harness compatibility selections change
   - the installed real-agent cutover evidence or required product behavior changes
+  - the agent-resource-parity/v1 equivalence scope producer seams mode matrix or fleet inclusion policy changes
   - a new sandbox credential provenance resource-identity or deferred-capability requirement is adopted
 supersedes:
   - agent-spaces.raspc-migration-contract
