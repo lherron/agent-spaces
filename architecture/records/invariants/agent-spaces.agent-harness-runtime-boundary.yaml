@@ -4,58 +4,56 @@ status: active
 owner_project: agent-spaces
 scope: Praesidium-owned agent harness composition and live-launch authority
 predicate: >
-  The production agent runtime is one long-lived Praesidium-owned agent-harness
-  controlled through harness-broker/0.2. HRC remains authority for placement,
-  leases, durable input, lifecycle policy, attach and replay, event projection,
-  stop, and reaping; the harness executes that authority and never replaces it.
-  agent-harness-sdk is the only package that imports the exactly pinned Pi
-  coding-agent runtime, using createAgentSession and ModelRuntime rather than
-  the unfinished generic AgentHarness. Its live bootstrap accepts semantic
-  identity, trusted roots, cwd, provisioning overrides, continuation, initial
-  input, explicit dispatch secrets, and HRC lifecycle policy; it resolves ASP
-  configuration and resources internally once per harness generation into an
-  immutable RuntimeDefinition and sorted resource manifest with content hash.
-  No compiled process plan, harness-specific argv, generated home, ambient
-  resource discovery, or process-environment credential overlay crosses that
-  launch boundary. Resources and auth or tool subprocess environments are
-  supplied explicitly, duplicate resource names fail, and existing sessions
-  retain their startup snapshot until recycled. V1 includes prompt and context,
-  skills, Pi built-in tools, HRC permission and audit, API-key and OAuth auth,
-  persistent continuation, steering and interrupt, structured results, and
-  normalized broker events; it excludes arbitrary in-process extensions, hook
-  bridges, MCP, slash commands, and interactive TUI. ASP retains schema,
-  agent-space resolution, lock/store/integrity, hygiene/validation, and offline
-  inspect/build authority. The compiler and frontier-driver live-launch paths
-  retire only after the strangler proves prompt/resource byte and hash parity,
-  composed-binary real end-to-end parity, and route cutover; broker/0.2 and its
-  ledger remain until a separately approved simplification proves equivalent
-  restart survival.
-authority: hrcchat#20689
+  Praesidium has two supported execution lowerings from one ASP-owned semantic
+  resolution boundary. The default agent-harness path constructs and operates a
+  Pi-backed session through agent-harness-sdk without consuming an ASPC-produced
+  frontier-harness process plan or generated external-harness home. Agents that
+  explicitly select Claude Code or Codex CLI retain a compiler-backed
+  compatibility path that may produce the files, directories, arguments,
+  environment, and process description those external harnesses require. Both
+  paths consume shared ASP agent and space resolution, prompt and context
+  assembly, skill discovery and composition, common provisioning values,
+  validation, inspection, and diagnostics wherever the semantics are genuinely
+  the same; Pi and the external harnesses own distinct lowering after that seam.
+  HRC remains authority for runtime placement, lifecycle, session routing,
+  supervision, and durable messaging on both paths. The selected harness
+  executes turns and reports outputs and events but never decides scope
+  placement or cross-node routing. Default cutover requires installed real-agent
+  evidence for prompt and context, skills, tools and authentication, multi-turn
+  continuation, steering and interruption, structured results and events, and
+  HRC start, stop, and reconnect behavior, while an explicitly selected Claude
+  Code or Codex CLI agent remains operable through the compatibility path.
+  Internal resolved types, serialization, resource hashes or manifests,
+  snapshot and read-only policy, credential transport, Pi API and version
+  mechanics, broker protocol and process topology, and deferred extensions,
+  hooks, MCP, slash commands, and TUI capabilities are not fixed by this
+  invariant; existing ASP, HRC, product, and operating-system contracts govern
+  them until a demonstrated requirement changes durable law.
+authority: hrcchat#20722
 source:
-  - hrcchat#20689
+  - hrcchat#20722
+  - commit:7ec0298
+  - docs/proposals/agent-harness.md
+  - core/config/src/core/types/harness.ts
   - harness/harness-broker-pi-sdk/src/driver.ts
-  - harness/harness-broker/src/broker.ts
-  - contracts/harness-broker-protocol/src/invocation.ts
   - docs/harness-architecture.md
 required_tests:
-  - dependency boundaries permit only agent-harness-sdk to import the exactly pinned Pi coding-agent runtime
-  - semantic bootstrap resolves one immutable RuntimeDefinition and sorted resource manifest per harness generation without accepting a compiled process plan harness argv or generated home
-  - ambient extensions skills prompts themes context files and process environment credentials cannot enter the runtime while explicit resources auth and subprocess environment do
-  - duplicate explicit resource names reject startup
-  - HRC retains placement lease durable-input lifecycle attach-replay event-projection stop and reaping control through harness-broker/0.2
-  - prompt and resource bytes and hashes match the compiler oracle before route cutover
-  - the composed binary passes real end-to-end parity before compiler and frontier-driver live-launch removal
-  - HRC restart reattaches and replays the same live broker generation without duplicate launch or event loss
+  - wherever direct and compatibility paths require the same agent space prompt context skill provisioning validation inspection or diagnostic answer they consume one ASP-owned implementation
+  - the default direct path starts and runs without a live ASPC compile request compiled frontier-harness process plan or generated external-harness home
+  - explicit Claude Code and Codex CLI selections remain operable through compiler-backed compatibility lowering after the direct path becomes default
+  - installed real-agent direct-path evidence covers prompt context skills tools authentication multi-turn continuation steer interrupt structured results and HRC-visible events
+  - HRC can start stop and reconnect the direct harness with runtime placement session routing supervision and durable messaging authority unchanged
+  - installed evidence covers at least one explicitly selected external-harness agent through the retained compatibility path
 last_verified:
   date: 2026-08-24
-  evidence: hrcchat#20689 approved by daedalus against Pi 0.84.3 and current broker/HRC source
+  evidence: commit 7ec0298 and hrcchat#20722 approved by daedalus against current ASP Pi broker HRC and agent-profile source
 reopen_when:
-  - Pi import ownership or the pinned production API changes
-  - HRC runtime or broker authority moves into the SDK
-  - the semantic bootstrap or per-generation snapshot boundary changes
-  - an excluded V1 resource or interactive surface enters the trusted runtime boundary
-  - broker/0.2 or its durable ledger is proposed for retirement
-  - the compiler or frontier-driver retirement gate changes
+  - shared ASP semantics split into independent direct and compatibility implementations
+  - HRC runtime placement lifecycle routing supervision or durable messaging authority moves into an execution lowering
+  - the default direct path again requires compiler or external-harness artifacts
+  - supported external-harness compatibility selections change
+  - the installed real-agent cutover evidence or required product behavior changes
+  - a new sandbox credential provenance resource-identity or deferred-capability requirement is adopted
 supersedes:
   - agent-spaces.raspc-migration-contract
 superseded_by: null
