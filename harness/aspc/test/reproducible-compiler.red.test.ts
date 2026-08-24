@@ -8,7 +8,15 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -125,7 +133,7 @@ describe('T-04133 red: reproducible ASPC compiler surfaces', () => {
     }
   })
 
-  test('aspc manifest emits byte-stable canonical JSON with a complete output manifest without starting a harness', () => {
+  test('aspc manifest is byte-stable across fresh homes without cloning an immutable registry', () => {
     const requestPath = writeRequestFixture('manifest_stability')
     const firstHome = join(fixture.base, 'manifest-home-a')
     const secondHome = join(fixture.base, 'manifest-home-b')
@@ -158,6 +166,8 @@ describe('T-04133 red: reproducible ASPC compiler surfaces', () => {
     expect(first.status, first.stderr).toBe(0)
     expect(second.status, second.stderr).toBe(0)
     expect(second.stdout).toBe(first.stdout)
+    expect(existsSync(join(firstHome, 'sources', 'spaces-repo'))).toBe(false)
+    expect(existsSync(join(secondHome, 'sources', 'spaces-repo'))).toBe(false)
 
     const manifest = JSON.parse(first.stdout) as {
       outputManifestHash?: unknown
