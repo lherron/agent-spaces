@@ -150,96 +150,95 @@ export async function runLiveTaskParity(input: {
     )
   )
   const modes = input.modes ?? ['task']
-  const rows = await Promise.all(
-    candidates.flatMap(({ agentId, agentRoot }) =>
-      modes.map(async (mode) => {
-        const compilerHome = await mkdtemp(join(tmpdir(), `agent-parity-compiler-${agentId}-`))
-        const sdkHome = await mkdtemp(join(tmpdir(), `agent-parity-sdk-${agentId}-`))
-        const taskId = mode === 'task' ? 'T-PARITY' : undefined
-        const replay = await replayForProfile(agentRoot, inventory.agentsRoot, mode)
-        const scopeRef =
-          taskId === undefined
-            ? `agent:${agentId}:project:agent-spaces`
-            : `agent:${agentId}:project:agent-spaces:task:${taskId}`
-        const resolverContext = {
-          agentRoot,
-          agentsRoot: inventory.agentsRoot,
-          agentRootSearchPath: [agentRoot, inventory.agentsRoot],
-          projectRoot: input.projectRoot,
-          projectId: 'agent-spaces',
-          agentId,
+  const rows = []
+  for (const { agentId, agentRoot } of candidates) {
+    for (const mode of modes) {
+      const compilerHome = await mkdtemp(join(tmpdir(), `agent-parity-compiler-${agentId}-`))
+      const sdkHome = await mkdtemp(join(tmpdir(), `agent-parity-sdk-${agentId}-`))
+      const taskId = mode === 'task' ? 'T-PARITY' : undefined
+      const replay = await replayForProfile(agentRoot, inventory.agentsRoot, mode)
+      const scopeRef =
+        taskId === undefined
+          ? `agent:${agentId}:project:agent-spaces`
+          : `agent:${agentId}:project:agent-spaces:task:${taskId}`
+      const resolverContext = {
+        agentRoot,
+        agentsRoot: inventory.agentsRoot,
+        agentRootSearchPath: [agentRoot, inventory.agentsRoot],
+        projectRoot: input.projectRoot,
+        projectId: 'agent-spaces',
+        agentId,
+        agentName: agentId,
+        ...(taskId === undefined ? {} : { taskId }),
+        lane: 'main',
+        runMode: mode,
+        now: new Date('2026-08-24T00:00:00.000Z'),
+        env: {},
+        cwd: input.projectRoot,
+        predicateCwd: input.projectRoot,
+        predicateEnv: {},
+        execCwd: input.projectRoot,
+        execEnv: {},
+        ...replay,
+      }
+      const placement = {
+        agentRoot,
+        projectRoot: input.projectRoot,
+        cwd: input.projectRoot,
+        runMode: mode,
+        bundle: {
+          kind: 'agent-project' as const,
           agentName: agentId,
-          ...(taskId === undefined ? {} : { taskId }),
-          lane: 'main',
-          runMode: mode,
-          now: new Date('2026-08-24T00:00:00.000Z'),
-          env: {},
-          cwd: input.projectRoot,
-          predicateCwd: input.projectRoot,
-          predicateEnv: {},
-          execCwd: input.projectRoot,
-          execEnv: {},
-          ...replay,
-        }
-        const placement = {
-          agentRoot,
           projectRoot: input.projectRoot,
-          cwd: input.projectRoot,
-          runMode: mode,
-          bundle: {
-            kind: 'agent-project' as const,
-            agentName: agentId,
-            projectRoot: input.projectRoot,
-          },
-          correlation: { sessionRef: { scopeRef, laneRef: 'main' } },
-        }
-        try {
-          const compiler = await observeCompiler({
-            agentId,
-            mode,
+        },
+        correlation: { sessionRef: { scopeRef, laneRef: 'main' } },
+      }
+      try {
+        const compiler = await observeCompiler({
+          agentId,
+          mode,
+          aspHome: compilerHome,
+          runtime: compilerRuntime,
+          request: {
+            placement,
             aspHome: compilerHome,
-            runtime: compilerRuntime,
-            request: {
-              placement,
-              aspHome: compilerHome,
-              provider: 'openai',
-              frontend: 'codex-cli',
-              interactionMode: 'headless',
-              model: 'gpt-5.6-sol',
-              resolverContext,
-            },
-          })
-          const sdk = await observeSdk({
+            provider: 'openai',
+            frontend: 'codex-cli',
+            interactionMode: 'headless',
+            model: 'gpt-5.6-sol',
+            resolverContext,
+          },
+        })
+        const sdk = await observeSdk({
+          agentId,
+          mode,
+          options: {
             agentId,
-            mode,
-            options: {
-              agentId,
-              projectId: 'agent-spaces',
-              agentRoot,
-              projectRoot: input.projectRoot,
-              cwd: input.projectRoot,
-              aspHome: sdkHome,
-              runMode: mode,
-              scopeRef,
-              laneRef: 'main',
-              // Resources are invariant to the agent's deployment model. Use the
-              // same supported harness model as the compiler observation so every
-              // valid profile can participate in one deterministic fleet run.
-              provider: 'openai',
-              model: 'gpt-5.6-sol',
-              resolverContext,
-            },
-          })
-          return { compiler, sdk }
-        } finally {
-          await Promise.all([
-            rm(compilerHome, { recursive: true, force: true }),
-            rm(sdkHome, { recursive: true, force: true }),
-          ])
-        }
-      })
-    )
-  )
+            projectId: 'agent-spaces',
+            agentRoot,
+            projectRoot: input.projectRoot,
+            cwd: input.projectRoot,
+            aspHome: sdkHome,
+            runMode: mode,
+            scopeRef,
+            laneRef: 'main',
+            // Resources are invariant to the agent's deployment model. Use the
+            // same supported harness model as the compiler observation so every
+            // valid profile can participate in one deterministic fleet run.
+            provider: 'openai',
+            model: 'gpt-5.6-sol',
+            resolverContext,
+          },
+        })
+        rows.push({ compiler, sdk })
+      } finally {
+        await Promise.all([
+          rm(compilerHome, { recursive: true, force: true }),
+          rm(sdkHome, { recursive: true, force: true }),
+        ])
+      }
+    }
+  }
   verifyParityRows(rows)
   for (const { agentId, agentRoot } of candidates) {
     if (before.get(agentId) !== (await fingerprintPath(agentRoot)))
