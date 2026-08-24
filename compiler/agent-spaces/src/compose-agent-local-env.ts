@@ -1,7 +1,8 @@
-import type { AgentLocalComponents, RuntimePlacement } from 'spaces-config'
-
-import { RESERVED_AGENT_SESSION_ENV_KEYS } from './agent-session-env.js'
-import { buildCorrelationEnvVars } from './placement-api.js'
+import {
+  type AgentLocalComponents,
+  type RuntimePlacement,
+  composeAgentRuntimeEnv,
+} from 'spaces-config'
 import type { AgentSpacesRuntimeDependencies } from './placement-api.js'
 
 /**
@@ -59,53 +60,5 @@ export async function composeAgentLocalEnv(
   req: ComposeAgentLocalEnvRequest,
   runtime: Pick<AgentSpacesRuntimeDependencies, 'prepareAgentToolRuntime'>
 ): Promise<ComposedAgentLocalEnv> {
-  const { placement, agentLocalComponents, aspHome } = req
-
-  // Build correlation env vars
-  const correlationEnv = buildCorrelationEnvVars(placement)
-
-  let lockedEnv: Record<string, string> = {
-    ...(req.adapterEnv ?? {}),
-    ...(req.agentchatEnv ?? {}),
-    ...(req.reqLockedEnv ?? {}),
-    ASP_HOME: aspHome,
-  }
-  const callerDispatchEnv = { ...(req.reqDispatchEnv ?? {}) }
-  for (const key of RESERVED_AGENT_SESSION_ENV_KEYS) {
-    delete callerDispatchEnv[key]
-  }
-  const dispatchEnv: Record<string, string> = {
-    ...callerDispatchEnv,
-    ...correlationEnv,
-  }
-  let env: Record<string, string> = {
-    ...lockedEnv,
-    ...dispatchEnv,
-  }
-
-  let pathPrepend: string[] = []
-  const warnings: string[] = []
-  if (placement.agentRoot) {
-    const projectId = correlationEnv['AGENT_PROJECT']
-    const toolRuntime = await runtime.prepareAgentToolRuntime(
-      {
-        agentRoot: placement.agentRoot,
-        projectRoot: placement.projectRoot,
-        ...(projectId !== undefined ? { projectId } : {}),
-        ...(agentLocalComponents ? { components: agentLocalComponents } : {}),
-      },
-      env
-    )
-    const { PATH: toolPath, ...toolLockedEnv } = toolRuntime.env
-    void toolPath
-    // PATH is never routed through lockedEnv. The tool-bin dirs are emitted as
-    // the typed HarnessProcessSpec.pathPrepend field (consumed by the broker
-    // env compose) so the controlled PATH mutation is part of the launch shape.
-    pathPrepend = toolRuntime.pathPrepend
-    lockedEnv = { ...lockedEnv, ...toolLockedEnv }
-    env = { ...env, ...toolRuntime.env }
-    warnings.push(...toolRuntime.warnings)
-  }
-
-  return { lockedEnv, dispatchEnv, env, pathPrepend, warnings }
+  return composeAgentRuntimeEnv(req, runtime)
 }

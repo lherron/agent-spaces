@@ -25,6 +25,8 @@ const PACKAGES = [
   'drivers/harness-pi',
   'drivers/harness-pi-sdk',
   'harness/harness-broker-pi-sdk',
+  'harness/agent-harness-sdk',
+  'harness/agent-harness',
   'contracts/spaces-runtime-contracts',
   'contracts/aspc-protocol',
   'compiler/agent-spaces',

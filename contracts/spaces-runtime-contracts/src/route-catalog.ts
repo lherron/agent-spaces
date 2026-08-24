@@ -45,6 +45,9 @@ export type PiSdkModelCatalogEntry = {
 }
 
 const OPENAI_PI_MODEL_IDS = [
+  'gpt-5.6-sol',
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
   'gpt-5.5',
   'gpt-5.3-codex',
   'gpt-5.3',

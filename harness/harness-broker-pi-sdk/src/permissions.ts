@@ -7,6 +7,7 @@ export interface PiSdkPermissionBridgeOptions {
   policy: PermissionPolicy
   activeTurnId: () => TurnId | undefined
   exemptToolNames?: ReadonlySet<string> | undefined
+  driverKind?: string | undefined
 }
 
 export interface PiSdkPermissionBridge {
@@ -51,7 +52,7 @@ export function createPiSdkPermissionBridge(
           },
           {
             ...(turnId !== undefined ? { turnId } : {}),
-            driver: { kind: 'pi-sdk', rawType: 'tool_call' },
+            driver: { kind: options.driverKind ?? 'pi-sdk', rawType: 'tool_call' },
           }
         )
         // The broker owns the deadline and resolution event. This await is for
@@ -104,7 +105,7 @@ async function decideLocallyWithClient(
     { permissionRequestId, kind, subjectDisplay: subject, defaultDecision, deadlineMs },
     {
       ...(turnId !== undefined ? { turnId } : {}),
-      driver: { kind: 'pi-sdk', rawType: 'tool_call' },
+      driver: { kind: options.driverKind ?? 'pi-sdk', rawType: 'tool_call' },
     }
   )
 
@@ -144,7 +145,7 @@ async function decideLocallyWithClient(
     },
     {
       ...(turnId !== undefined ? { turnId } : {}),
-      driver: { kind: 'pi-sdk', rawType: 'tool_call' },
+      driver: { kind: options.driverKind ?? 'pi-sdk', rawType: 'tool_call' },
     }
   )
   return response.decision === 'deny'

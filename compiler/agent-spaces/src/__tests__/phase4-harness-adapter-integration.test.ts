@@ -70,14 +70,36 @@ const executionSource = readFileSync(
   'utf8'
 )
 const materializationSource = readFileSync(
-  join(import.meta.dirname, '..', 'client-materialization.ts'),
+  join(
+    import.meta.dirname,
+    '..',
+    '..',
+    '..',
+    '..',
+    'core',
+    'config',
+    'src',
+    'runtime',
+    'materialize-agent-runtime.ts'
+  ),
   'utf8'
 )
 // The agent-local env compose (detect → tool-runtime → merge) was lifted into a
 // shared helper (T-04601); both turn paths now delegate to composeAgentLocalEnv,
 // which owns the prepareAgentToolRuntime + tool-env merge wiring.
 const composeAgentLocalEnvSource = readFileSync(
-  join(import.meta.dirname, '..', 'compose-agent-local-env.ts'),
+  join(
+    import.meta.dirname,
+    '..',
+    '..',
+    '..',
+    '..',
+    'core',
+    'config',
+    'src',
+    'runtime',
+    'compose-agent-env.ts'
+  ),
   'utf8'
 )
 
@@ -221,7 +243,7 @@ describe('agent-project placement context feeds harness pipeline (T-00994)', () 
     // The shared helper owns the request-env-then-tool-env merge and ASP_HOME.
     expect(composeAgentLocalEnvSource).toMatch(/prepareAgentToolRuntime\(/)
     expect(composeAgentLocalEnvSource).toMatch(
-      /\.\.\.\(req\.reqLockedEnv \?\? \{\}\)[\s\S]*ASP_HOME:\s*aspHome/
+      /\.\.\.\(req\.reqLockedEnv \?\? \{\}\)[\s\S]*ASP_HOME:\s*req\.aspHome/
     )
     expect(composeAgentLocalEnvSource).toMatch(/env = \{ \.\.\.env, \.\.\.toolRuntime\.env \}/)
   })
@@ -239,7 +261,7 @@ describe('agent-project placement context feeds harness pipeline (T-00994)', () 
   })
 
   test('materializeSpec target branch forwards agent-local context', () => {
-    const fn = extractFunction(materializationSource, 'materializeSpec')
+    const fn = extractFunction(materializationSource, 'materializeAgentRuntimeResources')
     expect(fn).toMatch(/agentPath:\s*options\.agentRoot/)
     expect(fn).toMatch(/agentLocalComponents:\s*options\.agentLocalComponents/)
   })

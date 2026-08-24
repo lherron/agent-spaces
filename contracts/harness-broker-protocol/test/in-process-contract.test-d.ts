@@ -1,4 +1,9 @@
-import type { HarnessInvocationSpec, HarnessSdkSpec, HarnessTransportSpec } from '../src/index.js'
+import type {
+  AgentHarnessSpec,
+  HarnessInvocationSpec,
+  HarnessSdkSpec,
+  HarnessTransportSpec,
+} from '../src/index.js'
 
 const inProcessTransport = {
   kind: 'in-process',
@@ -11,6 +16,13 @@ const piSdk = {
   authMode: 'api-key',
   thinkingLevel: 'medium',
 } satisfies HarnessSdkSpec
+
+const semanticAgent = {
+  agentId: 'cody',
+  projectId: 'agent-spaces',
+  runMode: 'task',
+  scopeRef: 'agent:cody:project:agent-spaces:task:T-07532',
+} satisfies AgentHarnessSpec
 
 const piSdkInvocation = {
   specVersion: 'harness-broker.invocation/v1',
@@ -27,6 +39,7 @@ const piSdkInvocation = {
   },
   driver: { kind: 'pi-sdk' },
   sdk: piSdk,
+  agent: semanticAgent,
 } satisfies HarnessInvocationSpec
 
 void piSdkInvocation

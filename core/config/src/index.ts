@@ -123,3 +123,6 @@ export * from './orchestration/index.js'
 
 // Agent-authored runtime resources
 export * from './resources/index.js'
+
+// Shared agent runtime resolution/provisioning semantics
+export * from './runtime/index.js'

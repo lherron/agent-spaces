@@ -814,6 +814,12 @@ describe('runtime route selection', () => {
     expect(PI_SDK_MODEL_CATALOG).toEqual(
       expect.arrayContaining([
         {
+          alias: 'openai-codex/gpt-5.6-sol',
+          piProvider: 'openai-codex',
+          piModelId: 'openai-codex/gpt-5.6-sol',
+          authMode: 'oauth',
+        },
+        {
           alias: 'openai/gpt-5.5',
           piProvider: 'openai',
           piModelId: 'openai/gpt-5.5',

@@ -1,17 +1,10 @@
-import { mkdir, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   type AgentSessionEvent,
-  type BashSpawnHook,
-  DefaultResourceLoader,
   type ExtensionFactory,
-  ModelRuntime,
-  SessionManager,
-  SettingsManager,
   type ToolDefinition,
-  createAgentSession,
-  createBashToolDefinition,
   defineTool,
   readStoredCredential,
 } from '@earendil-works/pi-coding-agent'
@@ -37,6 +30,7 @@ import {
   type TurnId,
   isCredentialEnvKey,
 } from 'spaces-harness-broker-protocol'
+import { createPiAgentSession, resolvePiModelReference } from 'spaces-harness-pi-sdk/agent-session'
 import { PiSdkTurnEventMapper } from './event-mapper'
 import { createPiSdkPermissionBridge } from './permissions'
 
@@ -121,11 +115,13 @@ export interface PiSdkAuthResolution {
 export interface PiSdkDriverOptions {
   createSession?: ((input: PiSdkSessionFactoryInput) => Promise<PiSdkSession>) | undefined
   schedule?: ((task: () => void) => void) | undefined
+  driverKind?: string | undefined
 }
 
 export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
   const createSession = options.createSession ?? createDefaultPiSdkSession
   const schedule = options.schedule ?? ((task: () => void) => setImmediate(task))
+  const driverKind = options.driverKind ?? PI_SDK_DRIVER_KIND
 
   let ctx: DriverContext | undefined
   let spec: HarnessInvocationSpec | undefined
@@ -240,7 +236,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
   }
 
   return {
-    kind: PI_SDK_DRIVER_KIND,
+    kind: driverKind,
     version: PI_SDK_DRIVER_VERSION,
 
     capabilities(): InvocationCapabilities {
@@ -251,7 +247,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
       nextSpec: HarnessInvocationSpec,
       driverCtx: DriverContext
     ): Promise<DriverStartResult> {
-      assertPiSdkSpec(nextSpec)
+      assertPiSdkSpec(nextSpec, driverKind)
       ctx = driverCtx
       spec = nextSpec
       disposed = false
@@ -264,7 +260,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
           args: nextSpec.process.args,
           cwd: nextSpec.process.cwd,
         },
-        { driver: { kind: PI_SDK_DRIVER_KIND } }
+        { driver: { kind: driverKind } }
       )
 
       let auth: PiSdkAuthResolution
@@ -275,7 +271,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
           driverCtx.emit(
             'invocation.failed',
             { message: error.message, code: error.code },
-            { driver: { kind: PI_SDK_DRIVER_KIND } }
+            { driver: { kind: driverKind } }
           )
         }
         throw error
@@ -286,6 +282,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
         ctx: driverCtx,
         provider: auth.providerId,
         sessionFile: () => session?.sessionFile,
+        driverKind,
       })
       const permissionPolicy = readPermissionPolicy(nextSpec)
       const permissionBridge = createPiSdkPermissionBridge({
@@ -293,6 +290,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
         policy: permissionPolicy,
         activeTurnId: () => mapper?.activeTurnId,
         exemptToolNames: new Set([STRUCTURED_TOOL_NAME]),
+        driverKind,
       })
       const permissionExtension: ExtensionFactory = (pi) => {
         pi.on('tool_call', (event) => permissionBridge.handle(event))
@@ -318,13 +316,9 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
         storeBound: auth.storeBound,
       }
       driverCtx.emit('driver.notice', authNotice, {
-        driver: { kind: PI_SDK_DRIVER_KIND },
+        driver: { kind: driverKind },
       })
-      driverCtx.emit(
-        'invocation.ready',
-        { state: 'ready' },
-        { driver: { kind: PI_SDK_DRIVER_KIND } }
-      )
+      driverCtx.emit('invocation.ready', { state: 'ready' }, { driver: { kind: driverKind } })
       return { ok: true }
     },
 
@@ -382,7 +376,7 @@ export function createPiSdkDriver(options: PiSdkDriverOptions = {}): Driver {
         requireCtx().emit(
           'invocation.exited',
           { exitCode: 0, reason: 'operator-stop' },
-          { driver: { kind: PI_SDK_DRIVER_KIND } }
+          { driver: { kind: driverKind } }
         )
       }
       return { accepted: true, state: 'exited' }
@@ -497,73 +491,34 @@ async function createDefaultPiSdkSession(input: PiSdkSessionFactoryInput): Promi
   if (sdk === undefined) throw new Error('pi-sdk invocation requires spec.sdk')
 
   const agentDir = piSdkAgentDir(input.spec)
-  await mkdir(agentDir, { recursive: true })
-  const modelRuntime = await ModelRuntime.create({
-    authPath: input.auth.authPath,
-    modelsPath: join(agentDir, 'models.json'),
-    refreshOnCreate: false,
-    allowModelNetwork: false,
-  })
-  const modelReference = resolvePiSdkModelReference(modelRuntime, sdk.provider, sdk.modelId)
-  if (modelReference.providerId !== input.auth.providerId) {
-    throw new Error(
-      `Resolved pi SDK provider ${modelReference.providerId} does not match authenticated provider ${input.auth.providerId}`
-    )
-  }
-  await applyPiSdkAuthentication(modelRuntime, input.auth, input.environment)
-  const model = modelRuntime.getModel(modelReference.providerId, modelReference.modelId)
-  if (model === undefined) {
-    throw new Error(`Unknown pi SDK model: ${modelReference.providerId}/${modelReference.modelId}`)
-  }
-
-  const settingsManager = SettingsManager.inMemory()
   const systemPrompt =
     input.spec.launch?.systemPromptFile !== undefined
       ? await readFile(input.spec.launch.systemPromptFile, 'utf8')
       : undefined
-  const resourceLoader = new DefaultResourceLoader({
+  return (await createPiAgentSession({
     cwd: input.spec.process.cwd,
     agentDir,
-    settingsManager,
+    model: {
+      provider: sdk.provider,
+      modelId: sdk.modelId,
+      ...(sdk.thinkingLevel !== undefined ? { thinkingLevel: sdk.thinkingLevel } : {}),
+    },
+    auth: input.auth,
+    environment: input.environment,
     extensionFactories: [input.permissionExtension],
-    noExtensions: true,
-    noSkills: true,
-    noPromptTemplates: true,
-    noThemes: true,
-    noContextFiles: true,
-    ...(systemPrompt !== undefined && input.spec.launch?.systemPromptMode === 'append'
-      ? { appendSystemPrompt: [systemPrompt] }
-      : systemPrompt !== undefined
-        ? { systemPrompt }
-        : {}),
-  })
-  await resourceLoader.reload()
-
-  const spawnHook: BashSpawnHook = (context) => ({
-    ...context,
-    cwd: input.spec.process.cwd,
-    env: { ...input.environment },
-  })
-  const bashTool = createBashToolDefinition(input.spec.process.cwd, {
-    spawnHook,
-    exposeSessionEnvironment: false,
-  })
-  const sessionManager =
-    input.spec.continuation?.key !== undefined
-      ? SessionManager.open(input.spec.continuation.key, undefined, input.spec.process.cwd)
-      : SessionManager.create(input.spec.process.cwd)
-  const created = await createAgentSession({
-    cwd: input.spec.process.cwd,
-    agentDir,
-    modelRuntime,
-    model,
-    ...(sdk.thinkingLevel !== undefined ? { thinkingLevel: sdk.thinkingLevel as never } : {}),
-    sessionManager,
-    settingsManager,
-    resourceLoader,
-    customTools: [bashTool as unknown as ToolDefinition, input.structuredTool],
-  })
-  return created.session as PiSdkSession
+    customTools: [input.structuredTool],
+    ...(systemPrompt !== undefined
+      ? {
+          systemPrompt: {
+            content: systemPrompt,
+            mode: input.spec.launch?.systemPromptMode ?? 'replace',
+          },
+        }
+      : {}),
+    ...(input.spec.continuation?.key !== undefined
+      ? { continuationKey: input.spec.continuation.key }
+      : {}),
+  })) as PiSdkSession
 }
 
 interface PiSdkApiKeyRuntime {
@@ -597,8 +552,8 @@ function configureStructuredTool(
   tool.parameters = schema
 }
 
-function assertPiSdkSpec(spec: HarnessInvocationSpec): void {
-  if (spec.driver.kind !== PI_SDK_DRIVER_KIND) {
+function assertPiSdkSpec(spec: HarnessInvocationSpec, driverKind: string): void {
+  if (spec.driver.kind !== driverKind) {
     throw new Error(`pi-sdk driver cannot start spec for ${spec.driver.kind}`)
   }
   if (spec.process.harnessTransport.kind !== 'in-process') {
@@ -639,22 +594,7 @@ export function resolvePiSdkModelReference(
   provider: string,
   modelId: string
 ): PiSdkModelReference {
-  const separator = modelId.indexOf('/')
-  if (separator > 0 && separator < modelId.length - 1) {
-    const qualifiedProvider = modelId.slice(0, separator)
-    if (registry.getProvider(qualifiedProvider) !== undefined) {
-      return {
-        providerId: qualifiedProvider,
-        modelId: modelId.slice(separator + 1),
-      }
-    }
-  }
-
-  const prefix = `${provider}/`
-  return {
-    providerId: provider,
-    modelId: modelId.startsWith(prefix) ? modelId.slice(prefix.length) : modelId,
-  }
+  return resolvePiModelReference(registry, provider, modelId)
 }
 
 function extractText(input: InvocationInput): string {

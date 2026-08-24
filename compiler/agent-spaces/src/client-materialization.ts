@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
@@ -6,37 +5,23 @@ import {
   type AgentLocalComponents,
   type HarnessId,
   type HygieneGateFinding,
-  type InstallOptions,
   type LintWarning,
-  type LockFile,
-  type MaterializeFromRefsOptions,
-  PORTABLE_SPACES_REGISTRY,
   PathResolver,
+  type ResolvedPlacementSpec,
   type SpaceRefString,
   asSha256Integrity,
   asSpaceId,
-  computeClosure,
-  discoverSkills,
-  ensureImmutableRegistry,
-  generateLockFileForTarget,
-  getRegistryPath,
   lintSpaces,
-  materializeFromRefs,
-  materializeTarget,
+  materializeAgentRuntimeResources,
   readHooksWithPrecedence,
-  resolveTarget,
+  resolveAgentRuntimeSpecToLock,
 } from 'spaces-config'
 
 import { CodedError } from './client-support.js'
 import type { AgentSpacesRuntimeDependencies } from './placement-api.js'
 import type { SpaceSpec } from './types.js'
 
-export interface ValidatedSpec {
-  kind: 'spaces' | 'target'
-  spaces?: string[]
-  targetName?: string
-  targetDir?: string
-}
+export type ValidatedSpec = ResolvedPlacementSpec
 
 export interface MaterializedSpec {
   targetName: string
@@ -46,11 +31,6 @@ export interface MaterializedSpec {
     mcpConfigPath?: string | undefined
   }
   skills: string[]
-  /**
-   * Hygiene findings force-admitted to reusable cache under force-compose
-   * (`ASP_FORCE_COMPOSE_HYGIENE`). Absent on a clean gate pass. Surfaced by the
-   * compile path as deterministic warning diagnostics (T-05574).
-   */
   hygieneWarnings?: HygieneGateFinding[] | undefined
 }
 
@@ -73,92 +53,13 @@ export function validateSpec(spec: SpaceSpec): ValidatedSpec {
     if (!isAbsolute(target.targetDir)) {
       throw new Error('SpaceSpec targetDir must be an absolute path')
     }
-    return {
-      kind: 'target',
-      targetName: target.targetName,
-      targetDir: target.targetDir,
-    }
+    return { kind: 'target', targetName: target.targetName, targetDir: target.targetDir }
   }
 
   if (!spec.spaces || spec.spaces.length === 0) {
     throw new Error('SpaceSpec spaces must include at least one space reference')
   }
-
-  return {
-    kind: 'spaces',
-    spaces: spec.spaces,
-  }
-}
-
-function computeSpacesTargetName(spaces: string[]): string {
-  const hash = createHash('sha256')
-  hash.update(JSON.stringify(spaces))
-  return `spaces-${hash.digest('hex').slice(0, 12)}`
-}
-
-function resolveSharedSpacesRoot(
-  aspHome: string,
-  registryPathOverride?: string | undefined,
-  projectRoot?: string | undefined
-): string {
-  return getRegistryPath({
-    aspHome,
-    projectPath: projectRoot ?? process.cwd(),
-    ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
-  })
-}
-
-export async function resolveSpecToLock(
-  spec: ValidatedSpec,
-  aspHome: string,
-  options?: {
-    registryPathOverride?: string | undefined
-    agentRoot?: string | undefined
-    projectRoot?: string | undefined
-  }
-): Promise<{ targetName: string; lock: LockFile; registryPath: string }> {
-  const registryPathOverride = options?.registryPathOverride
-  if (spec.kind === 'target') {
-    const result = await resolveTarget(spec.targetName as string, {
-      projectPath: spec.targetDir as string,
-      aspHome,
-      ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
-      ...(options?.agentRoot ? { agentPath: options.agentRoot } : {}),
-    })
-    const registryPath = getRegistryPath({
-      projectPath: spec.targetDir as string,
-      aspHome,
-      ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
-    })
-    return { targetName: spec.targetName as string, lock: result.lock, registryPath }
-  }
-
-  const refs = spec.spaces as string[]
-  const targetName = computeSpacesTargetName(refs)
-  const registryPath = resolveSharedSpacesRoot(aspHome, registryPathOverride, options?.projectRoot)
-  const immutableRegistryPath = await ensureImmutableRegistry(
-    {
-      aspHome,
-      projectPath: options?.projectRoot ?? process.cwd(),
-      ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
-    },
-    { fetch: false }
-  )
-  const closure = await computeClosure(refs as SpaceRefString[], {
-    cwd: registryPath,
-    immutableCwd: immutableRegistryPath,
-    ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
-    ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
-  })
-  const lock = await generateLockFileForTarget(targetName, refs as SpaceRefString[], closure, {
-    cwd: registryPath,
-    immutableCwd: immutableRegistryPath,
-    registry: PORTABLE_SPACES_REGISTRY,
-    ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
-    ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
-  })
-
-  return { targetName, lock, registryPath }
+  return { kind: 'spaces', spaces: spec.spaces as SpaceRefString[] }
 }
 
 export async function materializeSpec(
@@ -181,134 +82,51 @@ export async function materializeSpec(
     runtime: Pick<AgentSpacesRuntimeDependencies, 'getHarnessAdapter'>
   }
 ): Promise<MaterializedSpec> {
-  const registryPathOverride = options?.registryPathOverride
-  if (spec.kind === 'target') {
-    const { targetName, lock, registryPath } = await resolveSpecToLock(spec, aspHome, {
-      registryPathOverride,
-      ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
-      ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
-    })
-    const materializationOptions: InstallOptions = {
-      projectPath: spec.targetDir as string,
-      aspHome,
-      registryPath,
-      adapter: options.runtime.getHarnessAdapter(harnessId),
-      ...(options?.agentRoot ? { agentPath: options.agentRoot } : {}),
-      ...(options?.agentLocalComponents
-        ? { agentLocalComponents: options.agentLocalComponents }
-        : {}),
-      ...(options?.materializationIdentity
-        ? { materializationIdentity: options.materializationIdentity }
-        : {}),
-    }
-    const materialization = await materializeTarget(targetName, lock, materializationOptions)
-    const skillMetadata = await discoverSkills(materialization.pluginDirs)
-    return {
-      targetName,
-      materialization: {
-        outputPath: materialization.outputPath,
-        pluginDirs: materialization.pluginDirs,
-        mcpConfigPath: materialization.mcpConfigPath,
-      },
-      skills: skillMetadata.map((skill) => skill.name),
-      ...(materialization.hygieneWarnings !== undefined
-        ? { hygieneWarnings: materialization.hygieneWarnings }
-        : {}),
-    }
-  }
-
-  const refs = spec.spaces as string[]
-  if (refs.length === 0) {
-    const targetName = options?.materializationTargetName ?? 'placement-empty'
-    const paths = new PathResolver({ aspHome })
-    const registryPath = resolveSharedSpacesRoot(
-      aspHome,
-      registryPathOverride,
-      options?.projectRoot
-    )
-    const materializeOptions: MaterializeFromRefsOptions = {
-      targetName,
-      refs: [],
-      registryPath,
-      immutableRegistryPath: await ensureImmutableRegistry(
-        {
-          aspHome,
-          projectPath: options?.projectRoot ?? process.cwd(),
-          ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
-        },
-        { fetch: false }
-      ),
-      aspHome,
-      lockPath: paths.globalLock,
-      adapter: options.runtime.getHarnessAdapter(harnessId),
-      ...(options?.projectRoot ? { projectPath: options.projectRoot } : {}),
-      ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
-      ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
-      ...(options?.agentLocalComponents
-        ? { agentLocalComponents: options.agentLocalComponents }
-        : {}),
-      ...(options?.materializationIdentity
-        ? { materializationIdentity: options.materializationIdentity }
-        : {}),
-    }
-    const materialized = await materializeFromRefs(materializeOptions)
-    return {
-      targetName,
-      materialization: {
-        outputPath: materialized.materialization.outputPath,
-        pluginDirs: materialized.materialization.pluginDirs,
-        mcpConfigPath: materialized.materialization.mcpConfigPath,
-      },
-      skills: materialized.skills.map((skill) => skill.name),
-      ...(materialized.materialization.hygieneWarnings !== undefined
-        ? { hygieneWarnings: materialized.materialization.hygieneWarnings }
-        : {}),
-    }
-  }
-
-  const targetName = options?.materializationTargetName ?? computeSpacesTargetName(refs)
-  const paths = new PathResolver({ aspHome })
-  const registryPath = resolveSharedSpacesRoot(aspHome, registryPathOverride, options?.projectRoot)
-  const immutableRegistryPath = await ensureImmutableRegistry(
-    {
-      aspHome,
-      projectPath: options?.projectRoot ?? process.cwd(),
-      ...(registryPathOverride ? { registryPath: registryPathOverride } : {}),
-    },
-    { fetch: false }
-  )
-  const materializeOptions: MaterializeFromRefsOptions = {
-    targetName,
-    refs: refs as SpaceRefString[],
-    registryPath,
-    immutableRegistryPath,
+  const materialized = await materializeAgentRuntimeResources(spec, {
     aspHome,
-    lockPath: paths.globalLock,
     adapter: options.runtime.getHarnessAdapter(harnessId),
-    ...(options?.projectRoot ? { projectPath: options.projectRoot } : {}),
-    ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
-    ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
-    ...(options?.agentLocalComponents
-      ? { agentLocalComponents: options.agentLocalComponents }
+    ...(options.registryPathOverride ? { registryPathOverride: options.registryPathOverride } : {}),
+    ...(options.agentRoot ? { agentRoot: options.agentRoot } : {}),
+    ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
+    ...(options.materializationTargetName
+      ? { materializationTargetName: options.materializationTargetName }
       : {}),
-    ...(options?.materializationIdentity
+    ...(options.materializationIdentity
       ? { materializationIdentity: options.materializationIdentity }
       : {}),
-  }
-  const materialized = await materializeFromRefs(materializeOptions)
-
+    ...(options.agentLocalComponents ? { agentLocalComponents: options.agentLocalComponents } : {}),
+  })
   return {
-    targetName,
+    targetName: materialized.targetName,
     materialization: {
-      outputPath: materialized.materialization.outputPath,
-      pluginDirs: materialized.materialization.pluginDirs,
-      mcpConfigPath: materialized.materialization.mcpConfigPath,
+      outputPath: materialized.outputPath,
+      pluginDirs: materialized.pluginDirs,
+      mcpConfigPath: materialized.mcpConfigPath,
     },
     skills: materialized.skills.map((skill) => skill.name),
-    ...(materialized.materialization.hygieneWarnings !== undefined
-      ? { hygieneWarnings: materialized.materialization.hygieneWarnings }
+    ...(materialized.hygieneWarnings !== undefined
+      ? { hygieneWarnings: materialized.hygieneWarnings }
       : {}),
   }
+}
+
+export async function resolveSpecToLock(
+  spec: ValidatedSpec,
+  aspHome: string,
+  options?: {
+    registryPathOverride?: string | undefined
+    agentRoot?: string | undefined
+    projectRoot?: string | undefined
+  }
+) {
+  return resolveAgentRuntimeSpecToLock(spec, {
+    aspHome,
+    ...(options?.registryPathOverride
+      ? { registryPathOverride: options.registryPathOverride }
+      : {}),
+    ...(options?.agentRoot ? { agentRoot: options.agentRoot } : {}),
+    ...(options?.projectRoot ? { projectRoot: options.projectRoot } : {}),
+  })
 }
 
 export async function collectLintWarnings(
@@ -316,8 +134,9 @@ export async function collectLintWarnings(
   aspHome: string,
   registryPathOverride?: string | undefined
 ): Promise<LintWarning[]> {
-  const { targetName, lock, registryPath } = await resolveSpecToLock(spec, aspHome, {
-    registryPathOverride,
+  const { targetName, lock, registryPath } = await resolveAgentRuntimeSpecToLock(spec, {
+    aspHome,
+    ...(registryPathOverride ? { registryPathOverride } : {}),
   })
   const target = lock.targets[targetName]
   if (!target) {
@@ -333,36 +152,28 @@ export async function collectLintWarnings(
     if (!entry) {
       throw new Error(`Space entry "${key}" not found in lock for target "${targetName}"`)
     }
-    const isDev = entry.commit === 'dev'
-    const pluginPath = isDev
-      ? join(registryPath, entry.path)
-      : paths.snapshot(asSha256Integrity(entry.integrity))
-
+    const pluginPath =
+      entry.commit === 'dev'
+        ? join(registryPath, entry.path)
+        : paths.snapshot(asSha256Integrity(entry.integrity))
     return {
       key,
       manifest: {
         schema: 1 as const,
         id: asSpaceId(entry.id),
-        plugin: {
-          name: entry.plugin.name,
-          version: entry.plugin.version,
-        },
+        plugin: { name: entry.plugin.name, version: entry.plugin.version },
       },
       pluginPath,
     }
   })
-
   return lintSpaces({ spaces: lintData })
 }
 
 export async function collectHooks(pluginDirs: string[]): Promise<string[]> {
   const hooks: string[] = []
   for (const dir of pluginDirs) {
-    const hooksDir = join(dir, 'hooks')
-    const result = await readHooksWithPrecedence(hooksDir)
-    for (const hook of result.hooks) {
-      hooks.push(hook.event)
-    }
+    const result = await readHooksWithPrecedence(join(dir, 'hooks'))
+    for (const hook of result.hooks) hooks.push(hook.event)
   }
   return hooks
 }
@@ -374,11 +185,8 @@ export async function collectTools(mcpConfigPath: string | undefined): Promise<s
   try {
     parsed = JSON.parse(raw) as { mcpServers?: Record<string, unknown> } | undefined
   } catch (error) {
-    // Wrap the opaque SyntaxError with the offending path so the failure is
-    // actionable ("invalid MCP config at <path>") instead of a bare parse error.
     const reason = error instanceof Error ? error.message : String(error)
     throw new CodedError(`Invalid MCP config JSON at ${mcpConfigPath}: ${reason}`, 'resolve_failed')
   }
-  if (!parsed?.mcpServers) return []
-  return Object.keys(parsed.mcpServers)
+  return parsed?.mcpServers ? Object.keys(parsed.mcpServers) : []
 }

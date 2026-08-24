@@ -20,6 +20,8 @@ const fastSuiteArgs = [
   'contracts/harness-broker-client',
   'harness/harness-broker',
   'harness/harness-broker-pi-sdk',
+  'harness/agent-harness-sdk',
+  'harness/agent-harness',
   'harness/aspc',
   'core/runtime',
   'apps/cli/src/index.test.ts',

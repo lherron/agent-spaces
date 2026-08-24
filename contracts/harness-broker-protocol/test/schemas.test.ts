@@ -420,6 +420,21 @@ describe('validateInvocationSpec', () => {
     expect(validateInvocationSpec(spec)).toEqual(spec)
   })
 
+  test('accepts semantic agent inputs for the first-party agent-harness driver', () => {
+    const spec = structuredClone(piSdkSpec) as Record<string, any>
+    spec.harness.driver = 'agent-harness'
+    spec.driver.kind = 'agent-harness'
+    spec.agent = {
+      agentId: 'cody',
+      projectId: 'agent-spaces',
+      runMode: 'task',
+      scopeRef: 'agent:cody:project:agent-spaces',
+      laneRef: 'main',
+      generation: 2,
+    }
+    expect(validateInvocationSpec(spec)).toEqual(spec)
+  })
+
   test.each([
     [
       'process block',

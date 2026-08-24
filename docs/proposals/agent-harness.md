@@ -1,6 +1,6 @@
 # Praesidium Agent Harness
 
-- **Status:** draft; Cody's unratified proposal
+- **Status:** accepted; initial direct-harness implementation in progress
 - **Date:** 2026-08-24
 - **Author:** cody@agent-spaces
 
@@ -370,8 +370,7 @@ runs through the compiler-backed compatibility path.
 
 ## Relationship to the active invariant
 
-This document is Cody's unratified proposal. It intentionally removes several
-constraints from the current
-`agent-spaces.agent-harness-runtime-boundary` invariant. It does not revise or
-supersede that invariant. If this proposal is accepted, durable architecture
-records should be reconciled in a separate action.
+This proposal was ratified by `hrcchat#20722` and is governed by the active
+`agent-spaces.agent-harness-runtime-boundary` invariant. The initial direct
+implementation preserves the broker as HRC transport scaffolding while moving
+ASP resolution and Pi session construction behind the first-party SDK boundary.

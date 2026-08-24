@@ -341,7 +341,33 @@ function validateSpec(value: unknown, issues: ValidationIssue[], prefix = ''): v
   }
 
   validateSdkContract(spec, harness, process, prefix, issues)
+  validateAgentHarnessSpec(spec['agent'], joinPath(prefix, 'agent'), issues)
   validateLaunch(spec['launch'], joinPath(prefix, 'launch'), issues)
+}
+
+function validateAgentHarnessSpec(value: unknown, prefix: string, issues: ValidationIssue[]): void {
+  if (value === undefined) return
+  const agent = asRecord(value)
+  if (!agent) {
+    issues.push(makeIssue(prefix, 'invalid_type', 'agent must be an object'))
+    return
+  }
+  requireNonEmptyString(agent['agentId'], joinPath(prefix, 'agentId'), issues)
+  optionalString(agent['projectId'], joinPath(prefix, 'projectId'), issues)
+  optionalString(agent['agentRoot'], joinPath(prefix, 'agentRoot'), issues)
+  optionalString(agent['projectRoot'], joinPath(prefix, 'projectRoot'), issues)
+  optionalString(agent['aspHome'], joinPath(prefix, 'aspHome'), issues)
+  optionalEnum(
+    agent['runMode'],
+    ['query', 'heartbeat', 'task', 'maintenance'],
+    joinPath(prefix, 'runMode'),
+    issues
+  )
+  optionalString(agent['scopeRef'], joinPath(prefix, 'scopeRef'), issues)
+  optionalString(agent['laneRef'], joinPath(prefix, 'laneRef'), issues)
+  optionalString(agent['runId'], joinPath(prefix, 'runId'), issues)
+  optionalString(agent['hostSessionId'], joinPath(prefix, 'hostSessionId'), issues)
+  optionalNumber(agent['generation'], joinPath(prefix, 'generation'), issues)
 }
 
 function validateSdkContract(
@@ -352,12 +378,12 @@ function validateSdkContract(
   issues: ValidationIssue[]
 ): void {
   const sdkPath = joinPath(prefix, 'sdk')
-  const isPiSdkDriver = harness?.['driver'] === 'pi-sdk'
+  const isPiSdkDriver = harness?.['driver'] === 'pi-sdk' || harness?.['driver'] === 'agent-harness'
   const sdk = asRecord(spec['sdk'])
 
   if (!isPiSdkDriver) {
     if (Object.hasOwn(spec, 'sdk')) {
-      issues.push(makeIssue(sdkPath, 'forbidden', 'sdk is only supported by the pi-sdk driver'))
+      issues.push(makeIssue(sdkPath, 'forbidden', 'sdk is only supported by Pi SDK-backed drivers'))
     }
     if (asRecord(process?.['harnessTransport'])?.['kind'] === 'in-process') {
       issues.push(

@@ -1,12 +1,12 @@
 {
-  "name": "spaces-harness-broker-pi-sdk",
+  "name": "agent-harness",
   "version": "0.1.1",
-  "description": "In-process pi SDK driver and composed harness broker binary",
+  "description": "First-party ASP agent harness executable",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "harness-broker-pi": "./bin/harness-broker-pi.js"
+    "agent-harness": "./bin/agent-harness.js"
   },
   "exports": {
     ".": {
@@ -15,10 +15,7 @@
       "import": "./dist/index.js"
     }
   },
-  "files": [
-    "bin",
-    "dist"
-  ],
+  "files": ["bin", "dist"],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
@@ -27,13 +24,12 @@
     "postpack": "git checkout HEAD -- package.json"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.1",
-    "spaces-harness-broker": "workspace:*",
-    "spaces-harness-broker-protocol": "workspace:*",
-    "spaces-harness-pi-sdk": "workspace:*"
+    "agent-harness-sdk": "workspace:*",
+    "spaces-harness-broker-pi-sdk": "workspace:*",
+    "spaces-harness-broker-protocol": "workspace:*"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "1.3.14",
     "typescript": "^5.8.3"
   }
 }

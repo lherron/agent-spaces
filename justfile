@@ -196,6 +196,8 @@ install no-sync="" force-sync="" force-link="":
       link_pids+=("$!")
       ( cd harness/harness-broker-pi-sdk && bun link 2>&1 | sed 's/^/[bun-link:harness-broker-pi] /' ) &
       link_pids+=("$!")
+      ( cd harness/agent-harness && bun link 2>&1 | sed 's/^/[bun-link:agent-harness] /' ) &
+      link_pids+=("$!")
       # spaces-aspc ships the compile-only `aspc` CLI; the cohosted facade bin
       # `aspc-facade` now ships from spaces-aspc-facade. Out-of-repo consumers
       # (taskboard's agent viewer, hrc-server) spawn `aspc-facade run --transport

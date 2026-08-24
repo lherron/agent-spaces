@@ -13,6 +13,7 @@ export interface PiSdkTurnEventMapperOptions {
   ctx: DriverContext
   provider: string
   sessionFile: () => string | undefined
+  driverKind?: string | undefined
 }
 
 /**
@@ -24,6 +25,7 @@ export class PiSdkTurnEventMapper {
   readonly #ctx: DriverContext
   readonly #provider: string
   readonly #sessionFile: () => string | undefined
+  readonly #driverKind: string
 
   #turnId: TurnId | undefined
   #inputId: InputId | undefined
@@ -50,6 +52,7 @@ export class PiSdkTurnEventMapper {
     this.#ctx = options.ctx
     this.#provider = options.provider
     this.#sessionFile = options.sessionFile
+    this.#driverKind = options.driverKind ?? 'pi-sdk'
   }
 
   beginTurn(options: {
@@ -421,7 +424,7 @@ export class PiSdkTurnEventMapper {
       turnId: this.#requireTurnId(),
       ...(this.#inputId !== undefined ? { inputId: this.#inputId } : {}),
       ...(extra.itemId !== undefined ? { itemId: extra.itemId } : {}),
-      driver: { kind: 'pi-sdk' },
+      driver: { kind: this.#driverKind },
     }
   }
 }

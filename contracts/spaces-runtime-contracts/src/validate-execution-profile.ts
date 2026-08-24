@@ -153,7 +153,7 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
   const profileClaimsClaudeCodeTmux = profile.brokerDriver === 'claude-code-tmux'
   const profileClaimsCodexCliTmux = profile.brokerDriver === 'codex-cli-tmux'
   const profileClaimsPiTuiTmux = profile.brokerDriver === 'pi-tui-tmux'
-  const profileClaimsPiSdk = profile.brokerDriver === 'pi-sdk'
+  const profileClaimsPiSdk = ['pi-sdk', 'agent-harness'].includes(profile.brokerDriver)
   return {
     specDriverKind,
     transportKind: spec.process.harnessTransport.kind,
@@ -169,7 +169,7 @@ function computeBrokerProfileFacts(profile: BrokerExecutionProfile): BrokerProfi
     profileClaimsPiTuiTmux,
     isPiTuiTmux: profileClaimsPiTuiTmux || specDriverKind === 'pi-tui-tmux',
     profileClaimsPiSdk,
-    isPiSdk: profileClaimsPiSdk || specDriverKind === 'pi-sdk',
+    isPiSdk: profileClaimsPiSdk || ['pi-sdk', 'agent-harness'].includes(specDriverKind),
   }
 }
 
@@ -357,19 +357,19 @@ const PI_SDK_RULES: BrokerLegalityRule[] = [
         )
       : undefined,
   (profile, facts) =>
-    facts.profileClaimsPiSdk && facts.specDriverKind !== 'pi-sdk'
+    facts.profileClaimsPiSdk && !['pi-sdk', 'agent-harness'].includes(facts.specDriverKind)
       ? executionProfileDiagnostic(
           profile,
           'pi_sdk_requires_driver_kind',
-          'pi-sdk broker profiles must use pi-sdk in the hashed driver spec.'
+          'Pi SDK-backed broker profiles must use a Pi SDK-backed hashed driver spec.'
         )
       : undefined,
   (profile, facts) =>
-    facts.specDriverKind === 'pi-sdk' && !facts.profileClaimsPiSdk
+    ['pi-sdk', 'agent-harness'].includes(facts.specDriverKind) && !facts.profileClaimsPiSdk
       ? executionProfileDiagnostic(
           profile,
           'pi_sdk_spec_requires_profile_driver',
-          'A pi-sdk hashed driver spec requires brokerDriver pi-sdk.'
+          'A Pi SDK-backed hashed driver spec requires a Pi SDK-backed brokerDriver.'
         )
       : undefined,
   (profile, facts) =>

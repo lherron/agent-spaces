@@ -223,6 +223,8 @@ export interface HarnessInvocationSpec {
   continuation?: ContinuationSpec | undefined
   driver: CodexAppServerDriverSpec | UnknownDriverSpec
   sdk?: HarnessSdkSpec | undefined
+  /** Semantic ASP identity consumed by the first-party agent-harness composition. */
+  agent?: AgentHarnessSpec | undefined
   /**
    * Harness-kind-agnostic startup payload consumed by launch wrappers BEFORE the
    * harness TUI/protocol is ready: the material needed to frame-print the launch
@@ -232,6 +234,20 @@ export interface HarnessInvocationSpec {
    */
   launch?: HarnessLaunchSpec | undefined
   correlation?: Record<string, string> | undefined
+}
+
+export interface AgentHarnessSpec {
+  agentId: string
+  projectId?: string | undefined
+  agentRoot?: string | undefined
+  projectRoot?: string | undefined
+  aspHome?: string | undefined
+  runMode?: 'query' | 'heartbeat' | 'task' | 'maintenance' | undefined
+  scopeRef?: string | undefined
+  laneRef?: string | undefined
+  runId?: string | undefined
+  hostSessionId?: string | undefined
+  generation?: number | undefined
 }
 
 export interface HarnessLaunchSpec {
